@@ -11,5 +11,8 @@
   },
   "devDependencies": {
     "prettier": "^3.8.1"
+  },
+  "dependencies": {
+    "cosmiconfig": "^9.0.1"
   }
 }

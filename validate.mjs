@@ -1,13 +1,54 @@
 #!/usr/bin/env node
 
 import { readFileSync, lstatSync } from "node:fs";
+import { cosmiconfigSync } from "cosmiconfig";
 
 const ENFORCED_BY_RE = /\*\*Enforced by:\*\*/;
 const GUIDANCE_RE = /\*\*Guidance only\*\*/;
 const DISABLE_RE = /<!--\s*agent-lint-disable\s*-->/;
 const RULE_HEADER_RE = /^###\s+(.+)$/;
+const CHECKBOX_RE = /^- \[([ xX])\]\s+(.+)$/;
 
-export function parseClaudeMd(content) {
+const VALID_MARKERS = ["headings", "checkboxes"];
+const DEFAULT_RULES = {
+  "require-annotations": true,
+  "max-lines": 500,
+};
+const DEFAULT_CONFIG = { ruleMarkers: ["headings"], rules: DEFAULT_RULES };
+
+export function loadConfig() {
+  try {
+    const explorer = cosmiconfigSync("agent-lint", {
+      searchPlaces: [".agent-lintrc.json"],
+      mergeSearchPlaces: false,
+    });
+    const result = explorer.search();
+    if (!result || !result.config) return DEFAULT_CONFIG;
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      ...result.config,
+      rules: { ...DEFAULT_RULES, ...result.config.rules },
+    };
+
+    if (
+      !Array.isArray(config.ruleMarkers) ||
+      !config.ruleMarkers.every((m) => VALID_MARKERS.includes(m))
+    ) {
+      console.warn(
+        `Invalid ruleMarkers in config: ${JSON.stringify(config.ruleMarkers)}. Using default.`,
+      );
+      config.ruleMarkers = DEFAULT_CONFIG.ruleMarkers;
+    }
+
+    return config;
+  } catch {
+    return DEFAULT_CONFIG;
+  }
+}
+
+export function parseClaudeMd(content, { ruleMarkers } = {}) {
+  const markers = ruleMarkers || DEFAULT_CONFIG.ruleMarkers;
   const lines = content.split("\n");
   const rules = [];
 
@@ -15,15 +56,23 @@ export function parseClaudeMd(content) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const headerMatch = line.match(RULE_HEADER_RE);
+    const headerMatch = markers.includes("headings")
+      ? line.match(RULE_HEADER_RE)
+      : null;
+    const checkboxMatch = markers.includes("checkboxes")
+      ? line.match(CHECKBOX_RE)
+      : null;
 
-    if (headerMatch) {
+    if (headerMatch || checkboxMatch) {
       // Flush previous rule
       if (currentRule) {
         rules.push(currentRule);
       }
+      const title = headerMatch
+        ? headerMatch[1].trim()
+        : checkboxMatch[2].trim();
       currentRule = {
-        title: headerMatch[1].trim(),
+        title,
         line: i + 1,
         enforcement: "missing",
         enforcedBy: null,
@@ -59,21 +108,56 @@ export function parseClaudeMd(content) {
   return rules;
 }
 
-export function validate(content) {
-  const rules = parseClaudeMd(content);
-  const enforced = rules.filter((r) => r.enforcement === "enforced").length;
-  const guidanceOnly = rules.filter((r) => r.enforcement === "guidance").length;
-  const disabled = rules.filter((r) => r.enforcement === "disabled").length;
-  const missing = rules.filter((r) => r.enforcement === "missing").length;
+export function validate(content, { ruleMarkers, rules: rulesConfig } = {}) {
+  const activeRules = rulesConfig || DEFAULT_RULES;
+  const parsedRules = parseClaudeMd(content, { ruleMarkers });
+  const enforced = parsedRules.filter(
+    (r) => r.enforcement === "enforced",
+  ).length;
+  const guidanceOnly = parsedRules.filter(
+    (r) => r.enforcement === "guidance",
+  ).length;
+  const disabled = parsedRules.filter(
+    (r) => r.enforcement === "disabled",
+  ).length;
+  const missing = parsedRules.filter((r) => r.enforcement === "missing").length;
+
+  const errors = [];
+
+  if (activeRules["require-annotations"] !== false && missing > 0) {
+    for (const rule of parsedRules) {
+      if (rule.enforcement === "missing") {
+        errors.push({
+          rule: "require-annotations",
+          message: `Line ${rule.line}: "${rule.title}" is missing an enforcement annotation`,
+          line: rule.line,
+        });
+      }
+    }
+  }
+
+  const maxLines = activeRules["max-lines"];
+  if (maxLines !== false) {
+    const limit = typeof maxLines === "number" ? maxLines : 500;
+    const lineCount = content.split("\n").length;
+    if (lineCount > limit) {
+      errors.push({
+        rule: "max-lines",
+        message: `File has ${lineCount} lines, exceeding the limit of ${limit}`,
+        line: lineCount,
+      });
+    }
+  }
 
   return {
-    rules,
+    rules: parsedRules,
     enforced,
     guidanceOnly,
     disabled,
     missing,
-    total: rules.length,
-    valid: missing === 0,
+    total: parsedRules.length,
+    errors,
+    valid: errors.length === 0,
   };
 }
 
@@ -118,7 +202,10 @@ export function readClaudeMd(filePath, { followSymlinks = false } = {}) {
 /**
  * Validate multiple CLAUDE.md files. Returns a combined report.
  */
-export function validatePaths(paths, { followSymlinks = false } = {}) {
+export function validatePaths(
+  paths,
+  { followSymlinks = false, ruleMarkers, rules: rulesConfig } = {},
+) {
   const fileResults = [];
   let allValid = true;
 
@@ -143,7 +230,7 @@ export function validatePaths(paths, { followSymlinks = false } = {}) {
       continue;
     }
 
-    const result = validate(content);
+    const result = validate(content, { ruleMarkers, rules: rulesConfig });
     if (!result.valid) allValid = false;
     fileResults.push({ path: filePath, skipped: false, reason: null, result });
   }
@@ -162,13 +249,11 @@ function printResult(filePath, result) {
   console.log(`  Missing:        ${result.missing}`);
   console.log("=".repeat(40));
 
-  if (result.missing > 0) {
+  if (result.errors.length > 0) {
     console.log("");
-    console.log("Rules missing enforcement annotations:");
-    for (const rule of result.rules) {
-      if (rule.enforcement === "missing") {
-        console.log(`  Line ${rule.line}: "${rule.title}"`);
-      }
+    console.log("Errors:");
+    for (const error of result.errors) {
+      console.log(`  [${error.rule}] ${error.message}`);
     }
   }
 }
@@ -182,13 +267,23 @@ if (
 ) {
   const args = process.argv.slice(2);
   const followSymlinks = args.includes("--follow-symlinks");
+  const markersArg = args.find((a) => a.startsWith("--markers="));
   const paths = args.filter((a) => !a.startsWith("--"));
 
   if (paths.length === 0) {
     paths.push("CLAUDE.md");
   }
 
-  const { fileResults, valid } = validatePaths(paths, { followSymlinks });
+  const config = loadConfig();
+  const ruleMarkers = markersArg
+    ? markersArg.split("=")[1].split(",")
+    : config.ruleMarkers;
+
+  const { fileResults, valid } = validatePaths(paths, {
+    followSymlinks,
+    ruleMarkers,
+    rules: config.rules,
+  });
 
   for (const { path: filePath, skipped, reason, result } of fileResults) {
     if (skipped) {

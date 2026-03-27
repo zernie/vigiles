@@ -13,6 +13,9 @@ inputs:
     description: "Follow symbolic links when reading CLAUDE.md files"
     required: false
     default: "false"
+  markers:
+    description: "Comma-separated rule marker types: headings, checkboxes"
+    required: false
 
 runs:
   using: "node20"

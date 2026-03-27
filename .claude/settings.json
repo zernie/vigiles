@@ -4,6 +4,10 @@
       {
         "matcher": "Edit|Write",
         "command": "node validate.mjs CLAUDE.md"
+      },
+      {
+        "matcher": "Edit|Write",
+        "command": "npx prettier --check ."
       }
     ]
   }

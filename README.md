@@ -9,8 +9,9 @@ Companion repo for [Feedback Loop Is All You Need](https://zernie.com/blog/feedb
 - [Why](#why)
 - [Quick Start](#quick-start)
 - [Instruction File Format](#instruction-file-format)
-- [GitHub Action](#github-action)
+- [Configuration](#configuration)
 - [CLI](#cli)
+- [GitHub Action](#github-action)
 - [Supported Tools](#supported-tools)
 - [Installing Skills](#installing-skills)
 - [Maturity Levels](#maturity-levels)
@@ -71,7 +72,9 @@ All rules have enforcement annotations.
 
 ## Instruction File Format
 
-`agent-lint` validates that every `###` heading has either an `**Enforced by:**` annotation or a `**Guidance only**` marker:
+`agent-lint` validates that every rule has either an `**Enforced by:**` annotation or a `**Guidance only**` marker. Rules can be defined as `###` headings or markdown checkboxes:
+
+**Headings format:**
 
 ```markdown
 ### Always use barrel file imports
@@ -79,15 +82,21 @@ All rules have enforcement annotations.
 **Enforced by:** `eslint/no-restricted-imports`
 **Why:** Prevents import path drift during refactoring.
 
-### No console.log in production
-
-**Enforced by:** `eslint/no-console`
-**Why:** Use the structured logger which routes to Datadog.
-
 ### Use Tailwind spacing scale, no magic numbers
 
 **Guidance only** — cannot be mechanically enforced
 **Why:** Ensures visual consistency across the design system.
+```
+
+**Checkbox format** (enable with `"ruleMarkers": ["checkboxes"]` in config):
+
+```markdown
+- [ ] No console.log in production
+      **Enforced by:** `eslint/no-console`
+      **Why:** Use the structured logger which routes to Datadog.
+
+- [x] Prefer named exports over default exports
+      **Guidance only** — cannot be mechanically enforced
 ```
 
 Rules missing both annotations cause validation to fail. This format works in any markdown file — CLAUDE.md, AGENTS.md, .cursorrules, or a custom file.
@@ -103,6 +112,63 @@ To skip validation for a specific rule, add an HTML comment below the heading:
 ```
 
 This works like `eslint-disable-next-line` — the rule is recognized but excluded from validation. Use sparingly.
+
+## Configuration
+
+Create a `.agent-lintrc.json` in your project root:
+
+```json
+{
+  "ruleMarkers": ["headings", "checkboxes"],
+  "rules": {
+    "require-annotations": true,
+    "max-lines": 500
+  }
+}
+```
+
+| Option        | Default        | Description                                                             |
+| ------------- | -------------- | ----------------------------------------------------------------------- |
+| `ruleMarkers` | `["headings"]` | Which rule marker types to recognize: `headings`, `checkboxes`, or both |
+
+### Rules
+
+Rules are named checks that can be toggled individually. Set to `false` to disable.
+
+| Rule                  | Default | Description                                                              |
+| --------------------- | ------- | ------------------------------------------------------------------------ |
+| `require-annotations` | `true`  | Every rule marker must have `**Enforced by:**` or `**Guidance only**`    |
+| `max-lines`           | `500`   | Maximum number of lines allowed per file. Set a number for custom limit. |
+
+## CLI
+
+```bash
+# Validate a single file
+npx agent-lint CLAUDE.md
+
+# Validate multiple files
+npx agent-lint CLAUDE.md AGENTS.md .cursorrules
+
+# Monorepo — validate across packages
+npx agent-lint CLAUDE.md packages/api/CLAUDE.md packages/web/CLAUDE.md
+
+# Follow symlinks
+npx agent-lint CLAUDE.md --follow-symlinks
+
+# Override rule markers (without a config file)
+npx agent-lint CLAUDE.md --markers=headings,checkboxes
+```
+
+### Options
+
+| Flag                            | Description                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------ |
+| `--follow-symlinks`             | Resolve and validate symlinked files. Without this flag, symlinks are skipped. |
+| `--markers=headings,checkboxes` | Override which rule markers to recognize. Comma-separated.                     |
+
+If no paths are provided, defaults to `CLAUDE.md`.
+
+Exit codes: `0` on success, `1` if any rules are missing annotations.
 
 ## GitHub Action
 
@@ -143,6 +209,14 @@ Follow symlinks (e.g. shared instruction file symlinked into subdirectories):
     follow-symlinks: "true"
 ```
 
+Enable checkbox markers:
+
+```yaml
+- uses: zernie/agent-lint@main
+  with:
+    markers: "headings,checkboxes"
+```
+
 ### Action Outputs
 
 The action sets the following outputs, accessible via `steps.<id>.outputs.<name>`:
@@ -165,24 +239,6 @@ The action sets the following outputs, accessible via `steps.<id>.outputs.<name>
     echo "Enforced: ${{ steps.lint.outputs.enforced }}"
     echo "Missing: ${{ steps.lint.outputs.missing }}"
 ```
-
-## CLI
-
-```bash
-npx agent-lint CLAUDE.md
-npx agent-lint AGENTS.md .cursorrules
-npx agent-lint CLAUDE.md packages/api/CLAUDE.md --follow-symlinks
-```
-
-### Options
-
-| Flag                | Description                                                                    |
-| ------------------- | ------------------------------------------------------------------------------ |
-| `--follow-symlinks` | Resolve and validate symlinked files. Without this flag, symlinks are skipped. |
-
-If no paths are provided, defaults to `CLAUDE.md`.
-
-Exit codes: `0` on success, `1` if any rules are missing annotations.
 
 ## Supported Tools
 

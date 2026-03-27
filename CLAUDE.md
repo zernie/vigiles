@@ -1,6 +1,44 @@
-# CLAUDE.md — Example
+# CLAUDE.md
 
-This is an example CLAUDE.md showing the enforcement annotation format that `agent-lint validate` checks for.
+agent-lint — ESLint for AI agents. Validates that instruction files (CLAUDE.md, AGENTS.md, .cursorrules) have enforcement annotations on every rule.
+
+## Key Files
+
+- `validate.mjs` — Core validation engine: parsing, config loading, CLI entry point
+- `validate.test.mjs` — Test suite (node:test). Run with `npm test`
+- `action.mjs` — GitHub Action wrapper, reads inputs and calls validatePaths
+- `action.yml` — GitHub Action metadata and input definitions
+- `package.json` — Dependencies: cosmiconfig, prettier (dev)
+- `.claude/settings.json` — PostToolUse hook that validates CLAUDE.md on every edit
+- `skills/` — Claude Code skills (enforce-rules-format, audit-feedback-loop, pr-to-lint-rule)
+
+## Commands
+
+- `npm test` — Run all tests
+- `npm run fmt` — Format with prettier
+- `npm run fmt:check` — Check formatting
+- `node validate.mjs CLAUDE.md` — Validate this file
+- `node validate.mjs --markers=headings,checkboxes CLAUDE.md` — Validate with both marker types
+
+## Architecture
+
+Single-file core (`validate.mjs`). Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`.
+
+Rules are detected by line-by-line parsing. Two marker types: `###` headings and `- [ ]`/`- [x]` checkboxes (configurable via `.agent-lintrc.json`). Each rule must have `**Enforced by:**`, `**Guidance only**`, or `<!-- agent-lint-disable -->`.
+
+Named validation rules (togglable in config under `rules`):
+
+- `require-annotations` (default: `true`) — every rule marker needs an enforcement annotation
+- `max-lines` (default: `500`) — caps file length; set a number for custom limit, `false` to disable
+
+## Rules
+
+### Never include session links in commits or PRs
+
+**Guidance only** — cannot be mechanically enforced
+**Why:** This is a public repo. Claude Code session URLs (`https://claude.ai/code/session_...`) are private and should not be leaked in commit messages, PR descriptions, or comments.
+
+## Example: Rules as headings
 
 ### Always use barrel file imports
 
@@ -16,13 +54,3 @@ This is an example CLAUDE.md showing the enforcement annotation format that `age
 
 **Guidance only** — cannot be mechanically enforced
 **Why:** Ensures visual consistency across the design system. Use spacing scale values (`p-4`, `m-8`) instead of arbitrary values (`p-[24px]`).
-
-### API route handlers must use withAuth wrapper
-
-**Enforced by:** `eslint/agent-lint/require-with-auth`
-**Why:** Unauthenticated routes are the #1 security risk. The `withAuth` wrapper handles session validation, CSRF, and rate limiting.
-
-### Test files must import from test-utils barrel
-
-**Enforced by:** `eslint/no-restricted-imports`
-**Why:** Our `test-utils` re-exports `@testing-library/react` with app-level providers pre-configured. Direct imports cause test isolation failures.
