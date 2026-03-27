@@ -11,8 +11,5 @@ inputs:
     default: "CLAUDE.md"
 
 runs:
-  using: "composite"
-  steps:
-    - name: Validate CLAUDE.md
-      shell: bash
-      run: bash "${{ github.action_path }}/validate.sh" "${{ inputs.claude-md-path }}"
+  using: "node20"
+  main: "action.mjs"
