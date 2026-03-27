@@ -93,6 +93,21 @@ describe("parseClaudeMd", () => {
     assert.equal(rules[0].enforcement, "missing");
     assert.equal(rules[1].enforcement, "enforced");
   });
+
+  it("should parse disabled rules", () => {
+    const rules = parseClaudeMd(
+      "### Skipped rule\n<!-- agent-lint-disable -->\n**Why:** Not relevant here.\n",
+    );
+    assert.equal(rules.length, 1);
+    assert.equal(rules[0].enforcement, "disabled");
+  });
+
+  it("should handle agent-lint-disable with extra whitespace", () => {
+    const rules = parseClaudeMd(
+      "### Skipped rule\n<!--  agent-lint-disable  -->\n",
+    );
+    assert.equal(rules[0].enforcement, "disabled");
+  });
 });
 
 describe("validate", () => {
@@ -165,6 +180,18 @@ describe("validate", () => {
   it("should handle enforcedBy extraction", () => {
     const result = validate("### Rule\n**Enforced by:** `ruff/F401`\n");
     assert.equal(result.rules[0].enforcedBy, "ruff/F401");
+  });
+
+  it("should count disabled rules and treat them as valid", () => {
+    const result = validate(
+      "### Rule A\n**Enforced by:** `eslint/rule-a`\n\n### Rule B\n<!-- agent-lint-disable -->\n\n### Rule C\n**Guidance only**\n",
+    );
+    assert.equal(result.valid, true);
+    assert.equal(result.enforced, 1);
+    assert.equal(result.guidanceOnly, 1);
+    assert.equal(result.disabled, 1);
+    assert.equal(result.missing, 0);
+    assert.equal(result.total, 3);
   });
 
   it("should handle enforcedBy with different linter formats", () => {

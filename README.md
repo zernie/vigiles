@@ -39,6 +39,18 @@ Works with any AI agent instruction file — CLAUDE.md, AGENTS.md, .cursorrules,
 
 Rules missing both annotations cause validation to fail. This format works in any markdown file — CLAUDE.md, AGENTS.md, .cursorrules, or a custom file.
 
+### Disabling Validation for a Rule
+
+To skip validation for a specific rule, add an HTML comment below the heading:
+
+```markdown
+### Legacy rule that doesn't fit the format
+
+<!-- agent-lint-disable -->
+```
+
+This works like `eslint-disable-next-line` — the rule is recognized but excluded from validation. Use sparingly.
+
 ## GitHub Action
 
 ```yaml

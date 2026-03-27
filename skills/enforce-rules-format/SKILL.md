@@ -24,6 +24,7 @@ Check the repo root and common subdirectory locations (e.g. `packages/*/CLAUDE.m
 For each instruction file found, scan for `###` headings (level-3 markdown headers). Each heading represents a rule and **must** have one of these annotations in the lines between it and the next `###` heading:
 
 **Option A — Enforced rule:**
+
 ```markdown
 ### Rule title
 
@@ -32,6 +33,7 @@ For each instruction file found, scan for `###` headings (level-3 markdown heade
 ```
 
 **Option B — Guidance-only rule:**
+
 ```markdown
 ### Rule title
 
