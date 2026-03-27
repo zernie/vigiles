@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "command": "node validate.mjs CLAUDE.md"
+      }
+    ]
+  }
+}

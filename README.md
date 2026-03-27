@@ -144,11 +144,40 @@ Example:
 /pr-to-lint-rule we keep telling people not to import directly from antd, use our design system barrel file instead
 ```
 
+**`enforce-rules-format`** — Validates that every `###` rule in your instruction files has an `**Enforced by:**` or `**Guidance only**` annotation. Finds missing annotations, suggests fixes based on your linter config, and verifies the result passes validation.
+
+Example:
+
+```
+/enforce-rules-format
+```
+
 ## Claude Code
 
 Validate your `CLAUDE.md` with the GitHub Action or CLI above.
 
-Skills installed via `npx skills add` are available as `/audit-feedback-loop` and `/pr-to-lint-rule`.
+Skills installed via `npx skills add` are available as `/audit-feedback-loop`, `/pr-to-lint-rule`, and `/enforce-rules-format`.
+
+### Automatic Validation Hook
+
+You can configure a Claude Code hook to automatically validate CLAUDE.md after every edit, catching format issues before they reach CI:
+
+Add to your project's `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "command": "node validate.mjs CLAUDE.md"
+      }
+    ]
+  }
+}
+```
+
+This runs validation after any file edit or write. If CLAUDE.md has rules missing annotations, the hook output alerts the agent immediately so it can fix the format.
 
 Alternatively, install via the Claude Code plugin system:
 
