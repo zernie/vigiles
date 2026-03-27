@@ -8,5 +8,18 @@
   "repository": "https://github.com/zernie/agent-lint",
   "license": "MIT",
   "keywords": ["linting", "claude-md", "feedback-loops", "code-review"],
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/validate.mjs CLAUDE.md"
+          }
+        ]
+      }
+    ]
+  }
 }

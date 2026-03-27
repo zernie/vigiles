@@ -2,6 +2,7 @@ import { readFileSync, lstatSync } from "node:fs";
 
 const ENFORCED_BY_RE = /\*\*Enforced by:\*\*/;
 const GUIDANCE_RE = /\*\*Guidance only\*\*/;
+const DISABLE_RE = /<!--\s*agent-lint-disable\s*-->/;
 const RULE_HEADER_RE = /^###\s+(.+)$/;
 
 export function parseClaudeMd(content) {
@@ -41,6 +42,11 @@ export function parseClaudeMd(content) {
       currentRule.enforcement = "guidance";
       continue;
     }
+
+    if (DISABLE_RE.test(line)) {
+      currentRule.enforcement = "disabled";
+      continue;
+    }
   }
 
   // Flush last rule
@@ -55,12 +61,14 @@ export function validate(content) {
   const rules = parseClaudeMd(content);
   const enforced = rules.filter((r) => r.enforcement === "enforced").length;
   const guidanceOnly = rules.filter((r) => r.enforcement === "guidance").length;
+  const disabled = rules.filter((r) => r.enforcement === "disabled").length;
   const missing = rules.filter((r) => r.enforcement === "missing").length;
 
   return {
     rules,
     enforced,
     guidanceOnly,
+    disabled,
     missing,
     total: rules.length,
     valid: missing === 0,
@@ -148,6 +156,7 @@ function printResult(filePath, result) {
   console.log(`  Total rules:    ${result.total}`);
   console.log(`  Enforced:       ${result.enforced}`);
   console.log(`  Guidance only:  ${result.guidanceOnly}`);
+  console.log(`  Disabled:       ${result.disabled}`);
   console.log(`  Missing:        ${result.missing}`);
   console.log("=".repeat(40));
 

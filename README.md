@@ -1,6 +1,6 @@
 # agent-lint
 
-Validate your AI agent instruction files, audit your feedback loops, and generate lint rules from PR comments.
+ESLint for AI agents — validate your instruction files, audit your feedback loops, and generate lint rules from PR comments.
 
 Companion repo for [Feedback Loop Is All You Need](https://zernie.com/blog/feedback-loop-is-all-you-need).
 
@@ -38,6 +38,138 @@ Works with any AI agent instruction file — CLAUDE.md, AGENTS.md, .cursorrules,
 ```
 
 Rules missing both annotations cause validation to fail. This format works in any markdown file — CLAUDE.md, AGENTS.md, .cursorrules, or a custom file.
+
+### Disabling Validation for a Rule
+
+To skip validation for a specific rule, add an HTML comment below the heading:
+
+```markdown
+### Legacy rule that doesn't fit the format
+
+<!-- agent-lint-disable -->
+```
+
+This works like `eslint-disable-next-line` — the rule is recognized but excluded from validation. Use sparingly.
+
+## Installing Skills
+
+Install skills for all your AI agents at once with [Vercel Skills](https://github.com/vercel-labs/skills):
+
+```bash
+npx skills add zernie/agent-lint
+```
+
+This auto-detects your installed agents and installs the skills for each one. Works with Claude Code, Codex, Cursor, GitHub Copilot, Windsurf, and [many more](https://skills.sh).
+
+### Available Skills
+
+**`audit-feedback-loop`** — Scans your repo and scores its feedback loop maturity:
+
+| Level | Name                 | Description                                                         |
+| ----- | -------------------- | ------------------------------------------------------------------- |
+| 0     | Vibes                | No CI, no linters, no CLAUDE.md                                     |
+| 1     | Guardrails           | CI + standard linters, no custom rules                              |
+| 2     | Architecture as Code | Custom lint rules + enforced CLAUDE.md                              |
+| 3     | The Organism         | CI + custom rules + visual tests + observability + scheduled agents |
+
+Works with any language — detects ESLint, Ruff, Clippy, golangci-lint, RuboCop, and more.
+
+**`pr-to-lint-rule`** — Takes a natural language description of a recurring PR comment and generates:
+
+- A lint rule for your language/toolchain (ESLint, Ruff, Clippy, go/analysis, etc.)
+- Test cases
+- Integration instructions
+- A CLAUDE.md annotation block
+
+Example:
+
+```
+/pr-to-lint-rule we keep telling people not to import directly from antd, use our design system barrel file instead
+```
+
+**`enforce-rules-format`** — Validates that every `###` rule in your instruction files has an `**Enforced by:**` or `**Guidance only**` annotation. Finds missing annotations, suggests fixes based on your linter config, and verifies the result passes validation.
+
+Example:
+
+```
+/enforce-rules-format
+```
+
+## Claude Code
+
+Skills installed via `npx skills add` are available as `/audit-feedback-loop`, `/pr-to-lint-rule`, and `/enforce-rules-format`.
+
+### Automatic Validation Hook
+
+When installed as a plugin, agent-lint automatically registers a PostToolUse hook that validates CLAUDE.md after every file edit. If a rule is missing its annotation, the agent gets immediate feedback and can fix the format before it reaches CI.
+
+To set this up manually instead (e.g. without the plugin), add to your project's `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "command": "node validate.mjs CLAUDE.md"
+      }
+    ]
+  }
+}
+```
+
+Alternatively, install via the Claude Code plugin system:
+
+```
+/plugin marketplace add zernie/agent-lint
+/plugin install agent-lint@agent-lint
+```
+
+Or manually copy skills into your project's `.claude/skills/` directory.
+
+## OpenAI Codex
+
+Codex uses `AGENTS.md` for agent instructions. Use the same enforcement annotation format, then validate:
+
+```bash
+node validate.mjs AGENTS.md
+```
+
+```yaml
+- uses: zernie/agent-lint@v1
+  with:
+    paths: "AGENTS.md"
+```
+
+## Cursor
+
+Cursor uses `.cursorrules` for agent instructions. Use the same enforcement annotation format, then validate:
+
+```bash
+node validate.mjs .cursorrules
+```
+
+```yaml
+- uses: zernie/agent-lint@v1
+  with:
+    paths: ".cursorrules"
+```
+
+## Other Tools
+
+`agent-lint` works with any markdown file that follows the `###` heading + `**Enforced by:**` / `**Guidance only**` format. Pass any file path to the CLI or GitHub Action:
+
+```bash
+node validate.mjs my-instructions.md
+```
+
+You can validate multiple files across tools in a single run:
+
+```yaml
+- uses: zernie/agent-lint@v1
+  with:
+    paths: "CLAUDE.md,AGENTS.md,.cursorrules"
+```
 
 ## GitHub Action
 
@@ -87,6 +219,7 @@ The action sets the following outputs, accessible via `steps.<id>.outputs.<name>
 | `total`    | Total number of rules found              |
 | `enforced` | Rules with `**Enforced by:**` annotation |
 | `guidance` | Rules marked `**Guidance only**`         |
+| `disabled` | Rules with `<!-- agent-lint-disable -->` |
 | `missing`  | Rules missing enforcement annotations    |
 | `valid`    | `true` if all rules have annotations     |
 
@@ -106,101 +239,6 @@ The action sets the following outputs, accessible via `steps.<id>.outputs.<name>
 node validate.mjs CLAUDE.md
 node validate.mjs AGENTS.md .cursorrules
 node validate.mjs CLAUDE.md packages/api/CLAUDE.md --follow-symlinks
-```
-
-## Installing Skills
-
-Install skills for all your AI agents at once with [Vercel Skills](https://github.com/vercel-labs/skills):
-
-```bash
-npx skills add zernie/agent-lint
-```
-
-This auto-detects your installed agents and installs the skills for each one. Works with Claude Code, Codex, Cursor, GitHub Copilot, Windsurf, and [many more](https://skills.sh).
-
-### Available Skills
-
-**`audit-feedback-loop`** — Scans your repo and scores its feedback loop maturity:
-
-| Level | Name                 | Description                                                         |
-| ----- | -------------------- | ------------------------------------------------------------------- |
-| 0     | Vibes                | No CI, no linters, no CLAUDE.md                                     |
-| 1     | Guardrails           | CI + standard linters, no custom rules                              |
-| 2     | Architecture as Code | Custom lint rules + enforced CLAUDE.md                              |
-| 3     | The Organism         | CI + custom rules + visual tests + observability + scheduled agents |
-
-Works with any language — detects ESLint, Ruff, Clippy, golangci-lint, RuboCop, and more.
-
-**`pr-to-lint-rule`** — Takes a natural language description of a recurring PR comment and generates:
-
-- A lint rule for your language/toolchain (ESLint, Ruff, Clippy, go/analysis, etc.)
-- Test cases
-- Integration instructions
-- A CLAUDE.md annotation block
-
-Example:
-
-```
-/pr-to-lint-rule we keep telling people not to import directly from antd, use our design system barrel file instead
-```
-
-## Claude Code
-
-Validate your `CLAUDE.md` with the GitHub Action or CLI above.
-
-Skills installed via `npx skills add` are available as `/audit-feedback-loop` and `/pr-to-lint-rule`.
-
-Alternatively, install via the Claude Code plugin system:
-
-```
-/plugin marketplace add zernie/agent-lint
-/plugin install agent-lint@agent-lint
-```
-
-Or manually copy `skills/audit-feedback-loop/` and `skills/pr-to-lint-rule/` into your project's `.claude/skills/` directory.
-
-## OpenAI Codex
-
-Codex uses `AGENTS.md` for agent instructions. Use the same enforcement annotation format, then validate:
-
-```bash
-node validate.mjs AGENTS.md
-```
-
-```yaml
-- uses: zernie/agent-lint@v1
-  with:
-    paths: "AGENTS.md"
-```
-
-## Cursor
-
-Cursor uses `.cursorrules` for agent instructions. Use the same enforcement annotation format, then validate:
-
-```bash
-node validate.mjs .cursorrules
-```
-
-```yaml
-- uses: zernie/agent-lint@v1
-  with:
-    paths: ".cursorrules"
-```
-
-## Other Tools
-
-`agent-lint` works with any markdown file that follows the `###` heading + `**Enforced by:**` / `**Guidance only**` format. Pass any file path to the CLI or GitHub Action:
-
-```bash
-node validate.mjs my-instructions.md
-```
-
-You can validate multiple files across tools in a single run:
-
-```yaml
-- uses: zernie/agent-lint@v1
-  with:
-    paths: "CLAUDE.md,AGENTS.md,.cursorrules"
 ```
 
 ## Maturity Levels

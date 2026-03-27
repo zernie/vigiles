@@ -19,6 +19,7 @@ const { fileResults, valid } = validatePaths(paths, { followSymlinks });
 
 let totalEnforced = 0;
 let totalGuidance = 0;
+let totalDisabled = 0;
 let totalMissing = 0;
 let totalRules = 0;
 
@@ -34,6 +35,7 @@ for (const { path: filePath, skipped, reason, result } of fileResults) {
 
   totalEnforced += result.enforced;
   totalGuidance += result.guidanceOnly;
+  totalDisabled += result.disabled;
   totalMissing += result.missing;
   totalRules += result.total;
 
@@ -43,6 +45,7 @@ for (const { path: filePath, skipped, reason, result } of fileResults) {
   console.log(`  Total rules:    ${result.total}`);
   console.log(`  Enforced:       ${result.enforced}`);
   console.log(`  Guidance only:  ${result.guidanceOnly}`);
+  console.log(`  Disabled:       ${result.disabled}`);
   console.log(`  Missing:        ${result.missing}`);
   console.log("=".repeat(40));
 
@@ -61,6 +64,7 @@ for (const { path: filePath, skipped, reason, result } of fileResults) {
 console.log(`::set-output name=total::${totalRules}`);
 console.log(`::set-output name=enforced::${totalEnforced}`);
 console.log(`::set-output name=guidance::${totalGuidance}`);
+console.log(`::set-output name=disabled::${totalDisabled}`);
 console.log(`::set-output name=missing::${totalMissing}`);
 console.log(`::set-output name=valid::${valid}`);
 
