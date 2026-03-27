@@ -33,18 +33,18 @@ jobs:
 Multiple files (monorepo):
 
 ```yaml
-      - uses: zernie/agent-lint@v1
-        with:
-          paths: "CLAUDE.md,packages/api/CLAUDE.md,packages/web/CLAUDE.md"
+- uses: zernie/agent-lint@v1
+  with:
+    paths: "CLAUDE.md,packages/api/CLAUDE.md,packages/web/CLAUDE.md"
 ```
 
 Follow symlinks (e.g. shared CLAUDE.md symlinked into subdirectories):
 
 ```yaml
-      - uses: zernie/agent-lint@v1
-        with:
-          paths: "CLAUDE.md,packages/api/CLAUDE.md"
-          follow-symlinks: "true"
+- uses: zernie/agent-lint@v1
+  with:
+    paths: "CLAUDE.md,packages/api/CLAUDE.md"
+    follow-symlinks: "true"
 ```
 
 CLI usage (no GitHub Actions):
@@ -60,14 +60,17 @@ The action checks that every `###` heading has either an `**Enforced by:**` anno
 
 ```markdown
 ### Always use barrel file imports
+
 **Enforced by:** `eslint/no-restricted-imports`
 **Why:** Prevents import path drift during refactoring.
 
 ### No console.log in production
+
 **Enforced by:** `eslint/no-console`
 **Why:** Use the structured logger which routes to Datadog.
 
 ### Use Tailwind spacing scale, no magic numbers
+
 **Guidance only** — cannot be mechanically enforced
 **Why:** Ensures visual consistency across the design system.
 ```
@@ -80,12 +83,12 @@ Rules missing both annotations cause the action to fail.
 
 Scans your repo and scores its feedback loop maturity:
 
-| Level | Name | Description |
-|-------|------|-------------|
-| 0 | Vibes | No CI, no linters, no CLAUDE.md |
-| 1 | Guardrails | CI + standard linters, no custom rules |
-| 2 | Architecture as Code | Custom lint rules + enforced CLAUDE.md |
-| 3 | The Organism | CI + custom rules + visual tests + observability + scheduled agents |
+| Level | Name                 | Description                                                         |
+| ----- | -------------------- | ------------------------------------------------------------------- |
+| 0     | Vibes                | No CI, no linters, no CLAUDE.md                                     |
+| 1     | Guardrails           | CI + standard linters, no custom rules                              |
+| 2     | Architecture as Code | Custom lint rules + enforced CLAUDE.md                              |
+| 3     | The Organism         | CI + custom rules + visual tests + observability + scheduled agents |
 
 Works with any language — detects ESLint, Ruff, Clippy, golangci-lint, RuboCop, and more.
 
@@ -121,15 +124,19 @@ Or manually copy the `.claude/skills/audit-feedback-loop/` and `.claude/skills/p
 From the [article](https://zernie.com/blog/feedback-loop-is-all-you-need) — the four levels of feedback loop maturity:
 
 ### Level 0: Vibes
+
 The agent writes code, you eyeball it. No automated checks.
 
 ### Level 1: Guardrails
+
 Standard CI — default linter rules, type checking, basic tests. The agent gets red/green signals but can't learn your conventions.
 
 ### Level 2: Architecture as Code
-Custom lint rules encode your team's decisions. CLAUDE.md rules reference actual enforcement. The agent understands *why* things are done a certain way.
+
+Custom lint rules encode your team's decisions. CLAUDE.md rules reference actual enforcement. The agent understands _why_ things are done a certain way.
 
 ### Level 3: The Organism
+
 Everything is instrumented. Visual regression tests catch UI drift. Observability SDKs flag runtime issues. Scheduled agents monitor and maintain. The codebase evolves with feedback at every layer.
 
 ## License

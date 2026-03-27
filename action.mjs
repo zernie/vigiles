@@ -1,9 +1,19 @@
 import { validatePaths } from "./validate.mjs";
 
-const pathsInput = process.env.INPUT_PATHS || process.env["INPUT_CLAUDE-MD-PATH"] || process.env.INPUT_CLAUDE_MD_PATH || "CLAUDE.md";
-const followSymlinks = (process.env.INPUT_FOLLOW_SYMLINKS || process.env["INPUT_FOLLOW-SYMLINKS"] || "false") === "true";
+const pathsInput =
+  process.env.INPUT_PATHS ||
+  process.env["INPUT_CLAUDE-MD-PATH"] ||
+  process.env.INPUT_CLAUDE_MD_PATH ||
+  "CLAUDE.md";
+const followSymlinks =
+  (process.env.INPUT_FOLLOW_SYMLINKS ||
+    process.env["INPUT_FOLLOW-SYMLINKS"] ||
+    "false") === "true";
 
-const paths = pathsInput.split(",").map((p) => p.trim()).filter(Boolean);
+const paths = pathsInput
+  .split(",")
+  .map((p) => p.trim())
+  .filter(Boolean);
 
 const { fileResults, valid } = validatePaths(paths, { followSymlinks });
 
@@ -58,8 +68,12 @@ console.log("");
 if (valid) {
   console.log("All rules have enforcement annotations.");
 } else {
-  console.log("Add **Enforced by:** `<rule>` or **Guidance only** to each rule.");
+  console.log(
+    "Add **Enforced by:** `<rule>` or **Guidance only** to each rule.",
+  );
   console.log("");
-  console.log(`::error::Validation failed — ${totalMissing} rule(s) missing enforcement annotations`);
+  console.log(
+    `::error::Validation failed — ${totalMissing} rule(s) missing enforcement annotations`,
+  );
   process.exit(1);
 }

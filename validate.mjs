@@ -83,13 +83,25 @@ export function readClaudeMd(filePath, { followSymlinks = false } = {}) {
       };
     }
   } catch {
-    return { content: null, skipped: false, reason: `File not found: ${filePath}` };
+    return {
+      content: null,
+      skipped: false,
+      reason: `File not found: ${filePath}`,
+    };
   }
 
   try {
-    return { content: readFileSync(filePath, "utf-8"), skipped: false, reason: null };
+    return {
+      content: readFileSync(filePath, "utf-8"),
+      skipped: false,
+      reason: null,
+    };
   } catch {
-    return { content: null, skipped: false, reason: `Could not read: ${filePath}` };
+    return {
+      content: null,
+      skipped: false,
+      reason: `Could not read: ${filePath}`,
+    };
   }
 }
 
@@ -101,7 +113,9 @@ export function validatePaths(paths, { followSymlinks = false } = {}) {
   let allValid = true;
 
   for (const filePath of paths) {
-    const { content, skipped, reason } = readClaudeMd(filePath, { followSymlinks });
+    const { content, skipped, reason } = readClaudeMd(filePath, {
+      followSymlinks,
+    });
 
     if (skipped) {
       fileResults.push({ path: filePath, skipped: true, reason, result: null });
@@ -109,7 +123,12 @@ export function validatePaths(paths, { followSymlinks = false } = {}) {
     }
 
     if (content === null) {
-      fileResults.push({ path: filePath, skipped: false, reason, result: null });
+      fileResults.push({
+        path: filePath,
+        skipped: false,
+        reason,
+        result: null,
+      });
       allValid = false;
       continue;
     }
@@ -144,8 +163,11 @@ function printResult(filePath, result) {
 }
 
 // CLI entry point
-if (process.argv[1] &&
-    (process.argv[1].endsWith("validate.mjs") || process.argv[1].endsWith("validate"))) {
+if (
+  process.argv[1] &&
+  (process.argv[1].endsWith("validate.mjs") ||
+    process.argv[1].endsWith("validate"))
+) {
   const args = process.argv.slice(2);
   const followSymlinks = args.includes("--follow-symlinks");
   const paths = args.filter((a) => !a.startsWith("--"));
@@ -172,7 +194,9 @@ if (process.argv[1] &&
   if (valid) {
     console.log("All rules have enforcement annotations.");
   } else {
-    console.log("Add **Enforced by:** `<rule>` or **Guidance only** to each rule.");
+    console.log(
+      "Add **Enforced by:** `<rule>` or **Guidance only** to each rule.",
+    );
     console.log("");
     console.log("::error::Validation failed — see report above");
     process.exit(1);

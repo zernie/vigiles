@@ -16,8 +16,13 @@ jobs:
         with:
           node-version: "20"
 
+      - run: npm ci
+
       - name: Run tests
-        run: node --test validate.test.mjs
+        run: npm test
+
+      - name: Check formatting
+        run: npm run fmt:check
 
   validate-claude-md:
     runs-on: ubuntu-latest

@@ -1,0 +1,12 @@
+{
+  "name": "agent-lint",
+  "private": true,
+  "scripts": {
+    "test": "node --test validate.test.mjs",
+    "fmt": "prettier --write .",
+    "fmt:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "^3.8.1"
+  }
+}
