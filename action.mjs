@@ -25,6 +25,7 @@ const ruleMarkers = markersInput
 const { fileResults, valid } = validatePaths(paths, {
   followSymlinks,
   ruleMarkers,
+  rules: config.rules,
 });
 
 let totalEnforced = 0;

@@ -303,6 +303,10 @@ describe("loadConfig", () => {
     process.chdir(tmpDir);
     const config = loadConfig();
     assert.deepEqual(config.ruleMarkers, ["headings"]);
+    assert.deepEqual(config.rules, {
+      "require-annotations": true,
+      "max-lines": 500,
+    });
   });
 
   it("should read .agent-lintrc.json", () => {
@@ -329,6 +333,125 @@ describe("loadConfig", () => {
     assert.deepEqual(config.ruleMarkers, ["headings"]);
     process.chdir(originalCwd);
     rmSync(configDir, { recursive: true, force: true });
+  });
+
+  it("should merge rules config with defaults", () => {
+    const configDir = mkdtempSync(join(tmpdir(), "agent-lint-config-"));
+    writeFileSync(
+      join(configDir, ".agent-lintrc.json"),
+      JSON.stringify({ rules: { "max-lines": 200 } }),
+    );
+    process.chdir(configDir);
+    const config = loadConfig();
+    assert.equal(config.rules["max-lines"], 200);
+    assert.equal(config.rules["require-annotations"], true);
+    process.chdir(originalCwd);
+    rmSync(configDir, { recursive: true, force: true });
+  });
+
+  it("should allow disabling rules", () => {
+    const configDir = mkdtempSync(join(tmpdir(), "agent-lint-config-"));
+    writeFileSync(
+      join(configDir, ".agent-lintrc.json"),
+      JSON.stringify({
+        rules: { "require-annotations": false, "max-lines": false },
+      }),
+    );
+    process.chdir(configDir);
+    const config = loadConfig();
+    assert.equal(config.rules["require-annotations"], false);
+    assert.equal(config.rules["max-lines"], false);
+    process.chdir(originalCwd);
+    rmSync(configDir, { recursive: true, force: true });
+  });
+});
+
+describe("max-lines rule", () => {
+  it("should pass when file is under the limit", () => {
+    const content = "### Rule\n**Enforced by:** `x`\n";
+    const result = validate(content, { rules: { "max-lines": 100 } });
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it("should fail when file exceeds the limit", () => {
+    const content = "line\n".repeat(101);
+    const lineCount = content.split("\n").length;
+    const result = validate(content, {
+      rules: { "require-annotations": false, "max-lines": 100 },
+    });
+    assert.equal(result.valid, false);
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].rule, "max-lines");
+    assert.ok(result.errors[0].message.includes(String(lineCount)));
+    assert.ok(result.errors[0].message.includes("100"));
+  });
+
+  it("should use default limit of 500 when set to true", () => {
+    const content = "line\n".repeat(501);
+    const result = validate(content, {
+      rules: { "require-annotations": false, "max-lines": true },
+    });
+    assert.equal(result.valid, false);
+    assert.equal(result.errors[0].rule, "max-lines");
+    assert.ok(result.errors[0].message.includes("500"));
+  });
+
+  it("should be disabled when set to false", () => {
+    const content = "line\n".repeat(1000);
+    const result = validate(content, {
+      rules: { "require-annotations": false, "max-lines": false },
+    });
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it("should allow custom limit via config", () => {
+    const content = "line\n".repeat(250);
+    const result = validate(content, {
+      rules: { "require-annotations": false, "max-lines": 200 },
+    });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].message.includes("200"));
+  });
+
+  it("should pass at exactly the limit", () => {
+    const content = "line\n".repeat(99) + "last line";
+    const result = validate(content, {
+      rules: { "require-annotations": false, "max-lines": 100 },
+    });
+    assert.equal(result.valid, true);
+  });
+});
+
+describe("rule toggling", () => {
+  it("should disable require-annotations when set to false", () => {
+    const result = validate("### Rule\nNo annotation.\n", {
+      rules: { "require-annotations": false },
+    });
+    assert.equal(result.valid, true);
+    assert.equal(result.missing, 1);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it("should report both rule violations when both fail", () => {
+    const lines = "### Rule\nNo annotation.\n" + "padding\n".repeat(500);
+    const result = validate(lines, {
+      rules: { "require-annotations": true, "max-lines": 100 },
+    });
+    assert.equal(result.valid, false);
+    const ruleNames = result.errors.map((e) => e.rule);
+    assert.ok(ruleNames.includes("require-annotations"));
+    assert.ok(ruleNames.includes("max-lines"));
+  });
+
+  it("should pass when all rules are disabled", () => {
+    const content = "### Rule\nNo annotation.\n" + "x\n".repeat(1000);
+    const result = validate(content, {
+      rules: { "require-annotations": false, "max-lines": false },
+    });
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
   });
 });
 

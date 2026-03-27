@@ -123,13 +123,26 @@ Create a config file using any format supported by [cosmiconfig](https://github.
 
 ```json
 {
-  "ruleMarkers": ["headings", "checkboxes"]
+  "ruleMarkers": ["headings", "checkboxes"],
+  "rules": {
+    "require-annotations": true,
+    "max-lines": 500
+  }
 }
 ```
 
 | Option        | Default        | Description                                            |
 | ------------- | -------------- | ------------------------------------------------------ |
 | `ruleMarkers` | `["headings"]` | Which rule marker types to recognize: `headings`, `checkboxes`, or both |
+
+### Rules
+
+Rules are named checks that can be toggled individually. Set to `false` to disable.
+
+| Rule                   | Default | Description                                                        |
+| ---------------------- | ------- | ------------------------------------------------------------------ |
+| `require-annotations`  | `true`  | Every rule marker must have `**Enforced by:**` or `**Guidance only**` |
+| `max-lines`            | `500`   | Maximum number of lines allowed per file. Set a number for custom limit. |
 
 ## CLI
 

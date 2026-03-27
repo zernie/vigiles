@@ -26,6 +26,10 @@ Single-file core (`validate.mjs`). Exports: `parseClaudeMd`, `validate`, `readCl
 
 Rules are detected by line-by-line parsing. Two marker types: `###` headings and `- [ ]`/`- [x]` checkboxes (configurable via cosmiconfig). Each rule must have `**Enforced by:**`, `**Guidance only**`, or `<!-- agent-lint-disable -->`.
 
+Named validation rules (togglable in config under `rules`):
+- `require-annotations` (default: `true`) — every rule marker needs an enforcement annotation
+- `max-lines` (default: `500`) — caps file length; set a number for custom limit, `false` to disable
+
 ## Example: Rules as headings
 
 ### Always use barrel file imports
