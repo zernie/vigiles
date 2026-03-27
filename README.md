@@ -54,6 +54,28 @@ node validate.mjs CLAUDE.md
 node validate.mjs CLAUDE.md packages/api/CLAUDE.md --follow-symlinks
 ```
 
+### Action Outputs
+
+The action sets the following outputs, accessible via `steps.<id>.outputs.<name>`:
+
+| Output     | Description                              |
+| ---------- | ---------------------------------------- |
+| `total`    | Total number of rules found              |
+| `enforced` | Rules with `**Enforced by:**` annotation |
+| `guidance` | Rules marked `**Guidance only**`         |
+| `missing`  | Rules missing enforcement annotations    |
+| `valid`    | `true` if all rules have annotations     |
+
+```yaml
+- uses: zernie/agent-lint@v1
+  id: lint
+- if: always()
+  run: |
+    echo "Total: ${{ steps.lint.outputs.total }}"
+    echo "Enforced: ${{ steps.lint.outputs.enforced }}"
+    echo "Missing: ${{ steps.lint.outputs.missing }}"
+```
+
 ### CLAUDE.md Format
 
 The action checks that every `###` heading has either an `**Enforced by:**` annotation or a `**Guidance only**` marker:
@@ -109,15 +131,19 @@ Example:
 
 ### Installing Skills
 
-Clone this repo and copy the skills into your project:
+Install via the Claude Code plugin system:
 
-```bash
-git clone https://github.com/zernie/agent-lint.git /tmp/agent-lint
-cp -r /tmp/agent-lint/.claude/skills/ .claude/skills/
-rm -rf /tmp/agent-lint
+```
+/plugin marketplace add zernie/agent-lint
+/plugin install agent-lint@agent-lint
 ```
 
-Or manually copy the `.claude/skills/audit-feedback-loop/` and `.claude/skills/pr-to-lint-rule/` directories into your project's `.claude/skills/`.
+Once installed, the skills are available as:
+
+- `/agent-lint:audit-feedback-loop` — scan and score your repo's feedback loop maturity
+- `/agent-lint:pr-to-lint-rule <description>` — generate a lint rule from a recurring PR comment
+
+To install manually instead, copy `.claude/skills/audit-feedback-loop/` and `.claude/skills/pr-to-lint-rule/` into your project's `.claude/skills/` directory.
 
 ## Maturity Levels
 
