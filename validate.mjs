@@ -1,13 +1,43 @@
 #!/usr/bin/env node
 
 import { readFileSync, lstatSync } from "node:fs";
+import { cosmiconfigSync } from "cosmiconfig";
 
 const ENFORCED_BY_RE = /\*\*Enforced by:\*\*/;
 const GUIDANCE_RE = /\*\*Guidance only\*\*/;
 const DISABLE_RE = /<!--\s*agent-lint-disable\s*-->/;
 const RULE_HEADER_RE = /^###\s+(.+)$/;
+const CHECKBOX_RE = /^- \[([ xX])\]\s+(.+)$/;
 
-export function parseClaudeMd(content) {
+const VALID_MARKERS = ["headings", "checkboxes"];
+const DEFAULT_CONFIG = { ruleMarkers: ["headings"] };
+
+export function loadConfig() {
+  try {
+    const explorer = cosmiconfigSync("agent-lint");
+    const result = explorer.search();
+    if (!result || !result.config) return DEFAULT_CONFIG;
+
+    const config = { ...DEFAULT_CONFIG, ...result.config };
+
+    if (
+      Array.isArray(config.ruleMarkers) &&
+      config.ruleMarkers.every((m) => VALID_MARKERS.includes(m))
+    ) {
+      return config;
+    }
+
+    console.warn(
+      `Invalid ruleMarkers in config: ${JSON.stringify(config.ruleMarkers)}. Using default.`,
+    );
+    return DEFAULT_CONFIG;
+  } catch {
+    return DEFAULT_CONFIG;
+  }
+}
+
+export function parseClaudeMd(content, { ruleMarkers } = {}) {
+  const markers = ruleMarkers || DEFAULT_CONFIG.ruleMarkers;
   const lines = content.split("\n");
   const rules = [];
 
@@ -15,15 +45,23 @@ export function parseClaudeMd(content) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const headerMatch = line.match(RULE_HEADER_RE);
+    const headerMatch = markers.includes("headings")
+      ? line.match(RULE_HEADER_RE)
+      : null;
+    const checkboxMatch = markers.includes("checkboxes")
+      ? line.match(CHECKBOX_RE)
+      : null;
 
-    if (headerMatch) {
+    if (headerMatch || checkboxMatch) {
       // Flush previous rule
       if (currentRule) {
         rules.push(currentRule);
       }
+      const title = headerMatch
+        ? headerMatch[1].trim()
+        : checkboxMatch[2].trim();
       currentRule = {
-        title: headerMatch[1].trim(),
+        title,
         line: i + 1,
         enforcement: "missing",
         enforcedBy: null,
@@ -59,8 +97,8 @@ export function parseClaudeMd(content) {
   return rules;
 }
 
-export function validate(content) {
-  const rules = parseClaudeMd(content);
+export function validate(content, { ruleMarkers } = {}) {
+  const rules = parseClaudeMd(content, { ruleMarkers });
   const enforced = rules.filter((r) => r.enforcement === "enforced").length;
   const guidanceOnly = rules.filter((r) => r.enforcement === "guidance").length;
   const disabled = rules.filter((r) => r.enforcement === "disabled").length;
@@ -118,7 +156,10 @@ export function readClaudeMd(filePath, { followSymlinks = false } = {}) {
 /**
  * Validate multiple CLAUDE.md files. Returns a combined report.
  */
-export function validatePaths(paths, { followSymlinks = false } = {}) {
+export function validatePaths(
+  paths,
+  { followSymlinks = false, ruleMarkers } = {},
+) {
   const fileResults = [];
   let allValid = true;
 
@@ -143,7 +184,7 @@ export function validatePaths(paths, { followSymlinks = false } = {}) {
       continue;
     }
 
-    const result = validate(content);
+    const result = validate(content, { ruleMarkers });
     if (!result.valid) allValid = false;
     fileResults.push({ path: filePath, skipped: false, reason: null, result });
   }
@@ -182,13 +223,22 @@ if (
 ) {
   const args = process.argv.slice(2);
   const followSymlinks = args.includes("--follow-symlinks");
+  const markersArg = args.find((a) => a.startsWith("--markers="));
   const paths = args.filter((a) => !a.startsWith("--"));
 
   if (paths.length === 0) {
     paths.push("CLAUDE.md");
   }
 
-  const { fileResults, valid } = validatePaths(paths, { followSymlinks });
+  const config = loadConfig();
+  const ruleMarkers = markersArg
+    ? markersArg.split("=")[1].split(",")
+    : config.ruleMarkers;
+
+  const { fileResults, valid } = validatePaths(paths, {
+    followSymlinks,
+    ruleMarkers,
+  });
 
   for (const { path: filePath, skipped, reason, result } of fileResults) {
     if (skipped) {

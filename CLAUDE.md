@@ -1,6 +1,20 @@
 # CLAUDE.md — Example
 
-This is an example CLAUDE.md showing the enforcement annotation format that `agent-lint validate` checks for.
+This is an example CLAUDE.md showing the enforcement annotation format that `agent-lint validate` checks for. Rules can be defined using `###` headings or markdown checkboxes (`- [ ]` / `- [x]`).
+
+## Configuration
+
+Create an `.agent-lintrc.json` (or any [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig)-supported format) to configure which rule markers are recognized:
+
+```json
+{
+  "ruleMarkers": ["headings", "checkboxes"]
+}
+```
+
+Default: `["headings"]`. You can also pass `--markers=headings,checkboxes` on the CLI.
+
+## Rules as headings
 
 ### Always use barrel file imports
 
@@ -17,12 +31,16 @@ This is an example CLAUDE.md showing the enforcement annotation format that `age
 **Guidance only** — cannot be mechanically enforced
 **Why:** Ensures visual consistency across the design system. Use spacing scale values (`p-4`, `m-8`) instead of arbitrary values (`p-[24px]`).
 
-### API route handlers must use withAuth wrapper
+## Rules as checkboxes
 
+- [ ] API route handlers must use withAuth wrapper
 **Enforced by:** `eslint/agent-lint/require-with-auth`
 **Why:** Unauthenticated routes are the #1 security risk. The `withAuth` wrapper handles session validation, CSRF, and rate limiting.
 
-### Test files must import from test-utils barrel
-
+- [ ] Test files must import from test-utils barrel
 **Enforced by:** `eslint/no-restricted-imports`
 **Why:** Our `test-utils` re-exports `@testing-library/react` with app-level providers pre-configured. Direct imports cause test isolation failures.
+
+- [x] Prefer named exports over default exports
+**Guidance only** — cannot be mechanically enforced
+**Why:** Named exports improve refactoring safety and IDE auto-import accuracy.

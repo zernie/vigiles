@@ -1,4 +1,4 @@
-import { validatePaths } from "./validate.mjs";
+import { validatePaths, loadConfig } from "./validate.mjs";
 
 const pathsInput =
   process.env.INPUT_PATHS ||
@@ -9,13 +9,23 @@ const followSymlinks =
   (process.env.INPUT_FOLLOW_SYMLINKS ||
     process.env["INPUT_FOLLOW-SYMLINKS"] ||
     "false") === "true";
+const markersInput =
+  process.env.INPUT_MARKERS || process.env["INPUT_MARKERS"];
 
 const paths = pathsInput
   .split(",")
   .map((p) => p.trim())
   .filter(Boolean);
 
-const { fileResults, valid } = validatePaths(paths, { followSymlinks });
+const config = loadConfig();
+const ruleMarkers = markersInput
+  ? markersInput.split(",").map((m) => m.trim())
+  : config.ruleMarkers;
+
+const { fileResults, valid } = validatePaths(paths, {
+  followSymlinks,
+  ruleMarkers,
+});
 
 let totalEnforced = 0;
 let totalGuidance = 0;
