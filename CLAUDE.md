@@ -24,7 +24,7 @@ agent-lint — ESLint for AI agents. Validates that instruction files (CLAUDE.md
 
 Single-file core (`validate.mjs`). Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`.
 
-Rules are detected by line-by-line parsing. Two marker types: `###` headings and `- [ ]`/`- [x]` checkboxes (configurable via cosmiconfig). Each rule must have `**Enforced by:**`, `**Guidance only**`, or `<!-- agent-lint-disable -->`.
+Rules are detected by line-by-line parsing. Two marker types: `###` headings and `- [ ]`/`- [x]` checkboxes (configurable via `.agent-lintrc.json`). Each rule must have `**Enforced by:**`, `**Guidance only**`, or `<!-- agent-lint-disable -->`.
 
 Named validation rules (togglable in config under `rules`):
 - `require-annotations` (default: `true`) — every rule marker needs an enforcement annotation

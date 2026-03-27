@@ -18,7 +18,10 @@ const DEFAULT_CONFIG = { ruleMarkers: ["headings"], rules: DEFAULT_RULES };
 
 export function loadConfig() {
   try {
-    const explorer = cosmiconfigSync("agent-lint");
+    const explorer = cosmiconfigSync("agent-lint", {
+      searchPlaces: [".agent-lintrc.json"],
+      mergeSearchPlaces: false,
+    });
     const result = explorer.search();
     if (!result || !result.config) return DEFAULT_CONFIG;
 

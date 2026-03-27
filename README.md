@@ -115,11 +115,7 @@ This works like `eslint-disable-next-line` — the rule is recognized but exclud
 
 ## Configuration
 
-Create a config file using any format supported by [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig):
-
-- `.agent-lintrc.json` / `.agent-lintrc.yml` / `.agent-lintrc.js`
-- `agent-lint.config.js`
-- `"agent-lint"` key in `package.json`
+Create a `.agent-lintrc.json` in your project root:
 
 ```json
 {
