@@ -1,6 +1,9 @@
 {
   "name": "agent-lint",
   "private": true,
+  "bin": {
+    "agent-lint": "./validate.mjs"
+  },
   "scripts": {
     "test": "node --test validate.test.mjs",
     "fmt": "prettier --write .",

@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { readFileSync, lstatSync } from "node:fs";
 
 const ENFORCED_BY_RE = /\*\*Enforced by:\*\*/;
@@ -175,7 +177,8 @@ function printResult(filePath, result) {
 if (
   process.argv[1] &&
   (process.argv[1].endsWith("validate.mjs") ||
-    process.argv[1].endsWith("validate"))
+    process.argv[1].endsWith("validate") ||
+    process.argv[1].endsWith("agent-lint"))
 ) {
   const args = process.argv.slice(2);
   const followSymlinks = args.includes("--follow-symlinks");
