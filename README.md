@@ -92,11 +92,11 @@ All rules have enforcement annotations.
 
 ```markdown
 - [ ] No console.log in production
-**Enforced by:** `eslint/no-console`
-**Why:** Use the structured logger which routes to Datadog.
+      **Enforced by:** `eslint/no-console`
+      **Why:** Use the structured logger which routes to Datadog.
 
 - [x] Prefer named exports over default exports
-**Guidance only** — cannot be mechanically enforced
+      **Guidance only** — cannot be mechanically enforced
 ```
 
 Rules missing both annotations cause validation to fail. This format works in any markdown file — CLAUDE.md, AGENTS.md, .cursorrules, or a custom file.
@@ -127,18 +127,18 @@ Create a `.agent-lintrc.json` in your project root:
 }
 ```
 
-| Option        | Default        | Description                                            |
-| ------------- | -------------- | ------------------------------------------------------ |
+| Option        | Default        | Description                                                             |
+| ------------- | -------------- | ----------------------------------------------------------------------- |
 | `ruleMarkers` | `["headings"]` | Which rule marker types to recognize: `headings`, `checkboxes`, or both |
 
 ### Rules
 
 Rules are named checks that can be toggled individually. Set to `false` to disable.
 
-| Rule                   | Default | Description                                                        |
-| ---------------------- | ------- | ------------------------------------------------------------------ |
-| `require-annotations`  | `true`  | Every rule marker must have `**Enforced by:**` or `**Guidance only**` |
-| `max-lines`            | `500`   | Maximum number of lines allowed per file. Set a number for custom limit. |
+| Rule                  | Default | Description                                                              |
+| --------------------- | ------- | ------------------------------------------------------------------------ |
+| `require-annotations` | `true`  | Every rule marker must have `**Enforced by:**` or `**Guidance only**`    |
+| `max-lines`           | `500`   | Maximum number of lines allowed per file. Set a number for custom limit. |
 
 ## CLI
 
@@ -161,10 +161,10 @@ npx agent-lint CLAUDE.md --markers=headings,checkboxes
 
 ### Options
 
-| Flag                              | Description                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------------ |
-| `--follow-symlinks`               | Resolve and validate symlinked files. Without this flag, symlinks are skipped. |
-| `--markers=headings,checkboxes`   | Override which rule markers to recognize. Comma-separated.                     |
+| Flag                            | Description                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------ |
+| `--follow-symlinks`             | Resolve and validate symlinked files. Without this flag, symlinks are skipped. |
+| `--markers=headings,checkboxes` | Override which rule markers to recognize. Comma-separated.                     |
 
 If no paths are provided, defaults to `CLAUDE.md`.
 

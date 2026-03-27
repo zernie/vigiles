@@ -9,8 +9,7 @@ const followSymlinks =
   (process.env.INPUT_FOLLOW_SYMLINKS ||
     process.env["INPUT_FOLLOW-SYMLINKS"] ||
     "false") === "true";
-const markersInput =
-  process.env.INPUT_MARKERS || process.env["INPUT_MARKERS"];
+const markersInput = process.env.INPUT_MARKERS || process.env["INPUT_MARKERS"];
 
 const paths = pathsInput
   .split(",")

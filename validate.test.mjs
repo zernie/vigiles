@@ -145,10 +145,7 @@ describe("parseClaudeMd with checkboxes", () => {
   });
 
   it("should detect checkbox rule missing annotation", () => {
-    const rules = parseClaudeMd(
-      "- [ ] Some rule\nJust a description.\n",
-      opts,
-    );
+    const rules = parseClaudeMd("- [ ] Some rule\nJust a description.\n", opts);
     assert.equal(rules.length, 1);
     assert.equal(rules[0].enforcement, "missing");
   });

@@ -108,10 +108,7 @@ export function parseClaudeMd(content, { ruleMarkers } = {}) {
   return rules;
 }
 
-export function validate(
-  content,
-  { ruleMarkers, rules: rulesConfig } = {},
-) {
+export function validate(content, { ruleMarkers, rules: rulesConfig } = {}) {
   const activeRules = rulesConfig || DEFAULT_RULES;
   const parsedRules = parseClaudeMd(content, { ruleMarkers });
   const enforced = parsedRules.filter(
@@ -123,9 +120,7 @@ export function validate(
   const disabled = parsedRules.filter(
     (r) => r.enforcement === "disabled",
   ).length;
-  const missing = parsedRules.filter(
-    (r) => r.enforcement === "missing",
-  ).length;
+  const missing = parsedRules.filter((r) => r.enforcement === "missing").length;
 
   const errors = [];
 
