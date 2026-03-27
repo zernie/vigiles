@@ -143,7 +143,7 @@ export function validatePaths(paths, { followSymlinks = false } = {}) {
 
 function printResult(filePath, result) {
   console.log("");
-  console.log(`CLAUDE.md Validation Report: ${filePath}`);
+  console.log(`Validation Report: ${filePath}`);
   console.log("=".repeat(40));
   console.log(`  Total rules:    ${result.total}`);
   console.log(`  Enforced:       ${result.enforced}`);
