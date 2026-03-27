@@ -1,0 +1,57 @@
+{
+  "name": "agent-lint",
+  "version": "0.1.0",
+  "description": "CLAUDE.md enforcement validator + ESLint plugin for AI-assisted codebases",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "agent-lint": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin/index.d.ts",
+      "default": "./dist/plugin/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "skills",
+    ".github/workflows/feedback-loop.yml"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "eslint",
+    "eslint-plugin",
+    "claude",
+    "ai",
+    "linting",
+    "claude-md",
+    "feedback-loop"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/rule-tester": "^8.0.0",
+    "@typescript-eslint/utils": "^8.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "peerDependencies": {
+    "eslint": ">=9.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
