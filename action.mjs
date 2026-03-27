@@ -38,7 +38,7 @@ for (const { path: filePath, skipped, reason, result } of fileResults) {
   totalRules += result.total;
 
   console.log("");
-  console.log(`CLAUDE.md Validation Report: ${filePath}`);
+  console.log(`Validation Report: ${filePath}`);
   console.log("=".repeat(40));
   console.log(`  Total rules:    ${result.total}`);
   console.log(`  Enforced:       ${result.enforced}`);

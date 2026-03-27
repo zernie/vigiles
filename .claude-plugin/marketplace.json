@@ -1,0 +1,14 @@
+{
+  "name": "agent-lint",
+  "metadata": {
+    "description": "Tools for AI-assisted development feedback loops"
+  },
+  "plugins": [
+    {
+      "name": "agent-lint",
+      "source": "./",
+      "description": "Validate CLAUDE.md, audit feedback loops, and generate lint rules from PR comments",
+      "version": "1.0.0"
+    }
+  ]
+}

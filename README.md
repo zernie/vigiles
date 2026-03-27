@@ -1,6 +1,6 @@
 # agent-lint
 
-Validate your CLAUDE.md, audit your feedback loops, and generate lint rules from PR comments.
+Validate your AI agent instruction files, audit your feedback loops, and generate lint rules from PR comments.
 
 Companion repo for [Feedback Loop Is All You Need](https://zernie.com/blog/feedback-loop-is-all-you-need).
 
@@ -10,53 +10,15 @@ AI coding agents work best when they get deterministic feedback — linters, typ
 
 `agent-lint` helps you close the feedback loop:
 
-1. **CI-enforced CLAUDE.md validation** — every rule must be enforced by a linter or explicitly marked as guidance-only
+1. **CI-enforced instruction file validation** — every rule must be enforced by a linter or explicitly marked as guidance-only
 2. **Repo maturity audit** — score how well your feedback loops support AI-assisted development
 3. **Lint rule generation** — turn recurring PR review comments into automated enforcement
 
-## GitHub Action
+Works with any AI agent instruction file — CLAUDE.md, AGENTS.md, .cursorrules, or your own convention.
 
-Add CLAUDE.md validation to your CI:
+## Instruction File Format
 
-```yaml
-# .github/workflows/claude-md.yml
-name: Validate CLAUDE.md
-on: [push, pull_request]
-jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: zernie/agent-lint@v1
-```
-
-Multiple files (monorepo):
-
-```yaml
-- uses: zernie/agent-lint@v1
-  with:
-    paths: "CLAUDE.md,packages/api/CLAUDE.md,packages/web/CLAUDE.md"
-```
-
-Follow symlinks (e.g. shared CLAUDE.md symlinked into subdirectories):
-
-```yaml
-- uses: zernie/agent-lint@v1
-  with:
-    paths: "CLAUDE.md,packages/api/CLAUDE.md"
-    follow-symlinks: "true"
-```
-
-CLI usage (no GitHub Actions):
-
-```bash
-node validate.mjs CLAUDE.md
-node validate.mjs CLAUDE.md packages/api/CLAUDE.md --follow-symlinks
-```
-
-### CLAUDE.md Format
-
-The action checks that every `###` heading has either an `**Enforced by:**` annotation or a `**Guidance only**` marker:
+`agent-lint` validates that every `###` heading has either an `**Enforced by:**` annotation or a `**Guidance only**` marker:
 
 ```markdown
 ### Always use barrel file imports
@@ -75,13 +37,90 @@ The action checks that every `###` heading has either an `**Enforced by:**` anno
 **Why:** Ensures visual consistency across the design system.
 ```
 
-Rules missing both annotations cause the action to fail.
+Rules missing both annotations cause validation to fail. This format works in any markdown file — CLAUDE.md, AGENTS.md, .cursorrules, or a custom file.
 
-## Claude Code Skills
+## GitHub Action
 
-### `/audit-feedback-loop`
+```yaml
+# .github/workflows/agent-lint.yml
+name: Validate agent instructions
+on: [push, pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: zernie/agent-lint@v1
+```
 
-Scans your repo and scores its feedback loop maturity:
+By default the action validates `CLAUDE.md`. Pass `paths` to validate other files:
+
+```yaml
+- uses: zernie/agent-lint@v1
+  with:
+    paths: "CLAUDE.md,AGENTS.md,.cursorrules"
+```
+
+Multiple files (monorepo):
+
+```yaml
+- uses: zernie/agent-lint@v1
+  with:
+    paths: "CLAUDE.md,packages/api/CLAUDE.md,packages/web/CLAUDE.md"
+```
+
+Follow symlinks (e.g. shared instruction file symlinked into subdirectories):
+
+```yaml
+- uses: zernie/agent-lint@v1
+  with:
+    paths: "CLAUDE.md,packages/api/CLAUDE.md"
+    follow-symlinks: "true"
+```
+
+### Action Outputs
+
+The action sets the following outputs, accessible via `steps.<id>.outputs.<name>`:
+
+| Output     | Description                              |
+| ---------- | ---------------------------------------- |
+| `total`    | Total number of rules found              |
+| `enforced` | Rules with `**Enforced by:**` annotation |
+| `guidance` | Rules marked `**Guidance only**`         |
+| `missing`  | Rules missing enforcement annotations    |
+| `valid`    | `true` if all rules have annotations     |
+
+```yaml
+- uses: zernie/agent-lint@v1
+  id: lint
+- if: always()
+  run: |
+    echo "Total: ${{ steps.lint.outputs.total }}"
+    echo "Enforced: ${{ steps.lint.outputs.enforced }}"
+    echo "Missing: ${{ steps.lint.outputs.missing }}"
+```
+
+## CLI
+
+```bash
+node validate.mjs CLAUDE.md
+node validate.mjs AGENTS.md .cursorrules
+node validate.mjs CLAUDE.md packages/api/CLAUDE.md --follow-symlinks
+```
+
+## Installing Skills
+
+Install skills for all your AI agents at once with [Vercel Skills](https://github.com/vercel-labs/skills):
+
+```bash
+npx skills add zernie/agent-lint
+```
+
+This auto-detects your installed agents and installs the skills for each one. Works with Claude Code, Codex, Cursor, GitHub Copilot, Windsurf, and [many more](https://skills.sh).
+
+### Available Skills
+
+**`audit-feedback-loop`** — Scans your repo and scores its feedback loop maturity:
 
 | Level | Name                 | Description                                                         |
 | ----- | -------------------- | ------------------------------------------------------------------- |
@@ -92,9 +131,7 @@ Scans your repo and scores its feedback loop maturity:
 
 Works with any language — detects ESLint, Ruff, Clippy, golangci-lint, RuboCop, and more.
 
-### `/pr-to-lint-rule`
-
-Takes a natural language description of a recurring PR comment and generates:
+**`pr-to-lint-rule`** — Takes a natural language description of a recurring PR comment and generates:
 
 - A lint rule for your language/toolchain (ESLint, Ruff, Clippy, go/analysis, etc.)
 - Test cases
@@ -107,17 +144,64 @@ Example:
 /pr-to-lint-rule we keep telling people not to import directly from antd, use our design system barrel file instead
 ```
 
-### Installing Skills
+## Claude Code
 
-Clone this repo and copy the skills into your project:
+Validate your `CLAUDE.md` with the GitHub Action or CLI above.
 
-```bash
-git clone https://github.com/zernie/agent-lint.git /tmp/agent-lint
-cp -r /tmp/agent-lint/.claude/skills/ .claude/skills/
-rm -rf /tmp/agent-lint
+Skills installed via `npx skills add` are available as `/audit-feedback-loop` and `/pr-to-lint-rule`.
+
+Alternatively, install via the Claude Code plugin system:
+
+```
+/plugin marketplace add zernie/agent-lint
+/plugin install agent-lint@agent-lint
 ```
 
-Or manually copy the `.claude/skills/audit-feedback-loop/` and `.claude/skills/pr-to-lint-rule/` directories into your project's `.claude/skills/`.
+Or manually copy `skills/audit-feedback-loop/` and `skills/pr-to-lint-rule/` into your project's `.claude/skills/` directory.
+
+## OpenAI Codex
+
+Codex uses `AGENTS.md` for agent instructions. Use the same enforcement annotation format, then validate:
+
+```bash
+node validate.mjs AGENTS.md
+```
+
+```yaml
+- uses: zernie/agent-lint@v1
+  with:
+    paths: "AGENTS.md"
+```
+
+## Cursor
+
+Cursor uses `.cursorrules` for agent instructions. Use the same enforcement annotation format, then validate:
+
+```bash
+node validate.mjs .cursorrules
+```
+
+```yaml
+- uses: zernie/agent-lint@v1
+  with:
+    paths: ".cursorrules"
+```
+
+## Other Tools
+
+`agent-lint` works with any markdown file that follows the `###` heading + `**Enforced by:**` / `**Guidance only**` format. Pass any file path to the CLI or GitHub Action:
+
+```bash
+node validate.mjs my-instructions.md
+```
+
+You can validate multiple files across tools in a single run:
+
+```yaml
+- uses: zernie/agent-lint@v1
+  with:
+    paths: "CLAUDE.md,AGENTS.md,.cursorrules"
+```
 
 ## Maturity Levels
 
