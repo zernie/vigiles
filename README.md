@@ -160,9 +160,9 @@ Skills installed via `npx skills add` are available as `/audit-feedback-loop`, `
 
 ### Automatic Validation Hook
 
-You can configure a Claude Code hook to automatically validate CLAUDE.md after every edit, catching format issues before they reach CI:
+When installed as a plugin, agent-lint automatically registers a PostToolUse hook that validates CLAUDE.md after every file edit. If a rule is missing its annotation, the agent gets immediate feedback and can fix the format before it reaches CI.
 
-Add to your project's `.claude/settings.json`:
+To set this up manually instead (e.g. without the plugin), add to your project's `.claude/settings.json`:
 
 ```json
 {
@@ -176,8 +176,6 @@ Add to your project's `.claude/settings.json`:
   }
 }
 ```
-
-This runs validation after any file edit or write. If CLAUDE.md has rules missing annotations, the hook output alerts the agent immediately so it can fix the format.
 
 Alternatively, install via the Claude Code plugin system:
 
