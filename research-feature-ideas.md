@@ -19,9 +19,12 @@ export default {
   meta: { description: "Every rule must reference a Jira ticket" },
   check(rule, context) {
     if (!/[A-Z]+-\d+/.test(rule.body)) {
-      return { message: `Rule "${rule.title}" missing Jira reference`, line: rule.line };
+      return {
+        message: `Rule "${rule.title}" missing Jira reference`,
+        line: rule.line,
+      };
     }
-  }
+  },
 };
 ```
 
@@ -37,7 +40,7 @@ export default {
 
 **Analog:** Code coverage reports — but inverted. "Which linter rules lack a corresponding instruction?"
 
-**User problem:** Team has 200 ESLint rules configured. CLAUDE.md explains 5 of them. When an agent trips `no-restricted-imports`, it has no context about *why* that rule exists — it just blindly fixes. The agent is following rules it doesn't understand.
+**User problem:** Team has 200 ESLint rules configured. CLAUDE.md explains 5 of them. When an agent trips `no-restricted-imports`, it has no context about _why_ that rule exists — it just blindly fixes. The agent is following rules it doesn't understand.
 
 **What agent-lint provides:** A report showing which configured linter rules have corresponding CLAUDE.md entries and which don't.
 
@@ -59,9 +62,10 @@ agent-lint coverage:
   Ruff: 0 / 12 rules documented (0%)
 ```
 
-**Why this matters:** This is the inverse of `require-rule-file` (which checks instruction→linter). This checks linter→instruction. Together they form a bidirectional consistency check. The agent doesn't just follow rules — it *understands* them.
+**Why this matters:** This is the inverse of `require-rule-file` (which checks instruction→linter). This checks linter→instruction. Together they form a bidirectional consistency check. The agent doesn't just follow rules — it _understands_ them.
 
 **Implementation:**
+
 - Read linter configs (`.eslintrc`, `ruff.toml`, etc.) to get list of enabled rules
 - Cross-reference against `**Enforced by:**` annotations in instruction files
 - Report coverage percentage and undocumented rules
@@ -85,7 +89,8 @@ agent-lint validate CLAUDE.md:
 ```
 
 **Implementation:**
-- Extend `require-rule-file` (which already resolves linter rules) to also check if the rule is *enabled*
+
+- Extend `require-rule-file` (which already resolves linter rules) to also check if the rule is _enabled_
 - ESLint: load flat config, check if rule severity > 0
 - Ruff: parse `ruff.toml` / `pyproject.toml` select/ignore lists
 - RuboCop: parse `.rubocop.yml` enabled/disabled cops
@@ -106,8 +111,17 @@ agent-lint validate CLAUDE.md:
 {
   "CLAUDE.md": {
     "rules": [
-      { "title": "No console.log in production", "enforcement": "enforced", "enforcedBy": "eslint/no-console", "line": 42 },
-      { "title": "Use Tailwind spacing scale", "enforcement": "guidance", "line": 55 }
+      {
+        "title": "No console.log in production",
+        "enforcement": "enforced",
+        "enforcedBy": "eslint/no-console",
+        "line": 42
+      },
+      {
+        "title": "Use Tailwind spacing scale",
+        "enforcement": "guidance",
+        "line": 55
+      }
     ],
     "lineCount": 89,
     "enforced": 3,
@@ -127,6 +141,7 @@ Run `agent-lint snapshot --update` to accept changes.
 ```
 
 **Implementation:**
+
 - `agent-lint snapshot` — generate/update snapshot file
 - `agent-lint snapshot --check` — compare current state against committed snapshot
 - Snapshot includes: rules, enforcement status, line numbers, counts
@@ -149,6 +164,7 @@ CLAUDE.md:68  Stale reference: package `lodash` not found in package.json
 ```
 
 **What it checks (all deterministic):**
+
 - File paths in backticks → `fs.existsSync()`
 - `npm run <script>` → check `package.json` scripts
 - Package names → check manifest files (package.json, requirements.txt, Cargo.toml)
@@ -193,6 +209,7 @@ $ head CLAUDE.md
 ```
 
 **Implementation:**
+
 - Read linter configs using existing resolver infrastructure
 - Generate markdown with proper annotation format
 - Group rules by linter/category
@@ -218,6 +235,7 @@ CLAUDE.md token budget: 1550 / 2000
 ```
 
 **Implementation:**
+
 - Vendor minimal BPE tokenizer (cl100k_base, ~100KB pure JS, no API calls)
 - New rule: `token-budget` with configurable limit
 - Section-level breakdown keyed off `##` headers
@@ -235,10 +253,12 @@ CLAUDE.md token budget: 1550 / 2000
 
 ```markdown
 <!-- In SKILL.md -->
+
 **Side effects:** none
 ```
 
 agent-lint scans for tool references and command patterns:
+
 - `Read`, `Grep`, `Glob` → `none`
 - `Write`, `Edit` → `local-fs`
 - `curl`, `git push`, `deploy` → `network`
@@ -263,6 +283,7 @@ Mismatch = lint error: `Skill "audit" declares "none" but references Write tool`
 ```
 
 **Checks:**
+
 - Command target exists (file or binary on PATH)
 - Matcher regex is valid and matches known tool names
 - File references in commands resolve
@@ -290,6 +311,7 @@ agent-lint diff base..head:
 **Classifications:** `added` ✓, `strengthened` ✓, `weakened` ⚠, `removed` ⚠, `added-unenforced` ✗
 
 **Implementation:**
+
 - `agent-lint diff <base-file> <head-file>` CLI
 - GitHub Action mode: auto-fetch base, post PR comment
 - Suppress with `<!-- agent-lint: intentional-weakening -->`
@@ -332,17 +354,17 @@ Also optionally enforces `**Why:**` explanations: `{ "requireWhy": true }`
 
 ## Summary
 
-| # | Feature | Programming Analog | User Problem Solved |
-|---|---------|-------------------|---------------------|
-| 1 | **Plugin API** | Railway composition / ESLint plugins | Can't add custom checks without forking |
-| 2 | **Reverse Coverage** | Code coverage (inverted) | Agent follows 200 rules it doesn't understand |
-| 3 | **Dead Enforcement** | Dead code / skipped tests | "Enforced by X" but X is disabled in config |
-| 4 | **Snapshot Testing** | Jest snapshots | Structural instruction changes slip through PRs |
-| 5 | **Stale References** | Broken link checker | Rules reference deleted files/packages |
-| 6 | **`init` Scaffolding** | `eslint --init` / generators | Blank page problem — no one writes CLAUDE.md from scratch |
-| 7 | **Token Budgets** | Bundle size budgets | No visibility into context window cost |
-| 8 | **Skill Coloring** | Function coloring (pure/impure) | Can't tell if a skill is safe to auto-run |
-| 9 | **Hook Validation** | Contract testing | Hooks break silently at runtime |
-| 10 | **Instruction Diffs** | Migration safety | Enforcement removed in PRs, nobody notices |
-| 11 | **Dependency Graph** | Build DAG / import graph | Cross-references to deleted instruction files |
-| 12 | **Typo Detection** | Type checking / strict mode | Near-miss annotations silently ignored |
+| #   | Feature                | Programming Analog                   | User Problem Solved                                       |
+| --- | ---------------------- | ------------------------------------ | --------------------------------------------------------- |
+| 1   | **Plugin API**         | Railway composition / ESLint plugins | Can't add custom checks without forking                   |
+| 2   | **Reverse Coverage**   | Code coverage (inverted)             | Agent follows 200 rules it doesn't understand             |
+| 3   | **Dead Enforcement**   | Dead code / skipped tests            | "Enforced by X" but X is disabled in config               |
+| 4   | **Snapshot Testing**   | Jest snapshots                       | Structural instruction changes slip through PRs           |
+| 5   | **Stale References**   | Broken link checker                  | Rules reference deleted files/packages                    |
+| 6   | **`init` Scaffolding** | `eslint --init` / generators         | Blank page problem — no one writes CLAUDE.md from scratch |
+| 7   | **Token Budgets**      | Bundle size budgets                  | No visibility into context window cost                    |
+| 8   | **Skill Coloring**     | Function coloring (pure/impure)      | Can't tell if a skill is safe to auto-run                 |
+| 9   | **Hook Validation**    | Contract testing                     | Hooks break silently at runtime                           |
+| 10  | **Instruction Diffs**  | Migration safety                     | Enforcement removed in PRs, nobody notices                |
+| 11  | **Dependency Graph**   | Build DAG / import graph             | Cross-references to deleted instruction files             |
+| 12  | **Typo Detection**     | Type checking / strict mode          | Near-miss annotations silently ignored                    |
