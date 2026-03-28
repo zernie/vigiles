@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { readFileSync, lstatSync } from "node:fs";
+import { readFileSync, lstatSync, globSync } from "node:fs";
+import { resolve } from "node:path";
 import { cosmiconfigSync } from "cosmiconfig";
 
 const ENFORCED_BY_RE = /\*\*Enforced by:\*\*/;
@@ -200,6 +201,28 @@ export function readClaudeMd(filePath, { followSymlinks = false } = {}) {
 }
 
 /**
+ * Expand an array of file paths / glob patterns into resolved file paths.
+ * Plain paths that don't contain glob characters are kept as-is.
+ */
+export function expandGlobs(patterns) {
+  const GLOB_CHARS = /[*?{[]/;
+  const paths = [];
+
+  for (const pattern of patterns) {
+    if (GLOB_CHARS.test(pattern)) {
+      const matches = globSync(pattern, { cwd: process.cwd() });
+      for (const match of matches.sort()) {
+        paths.push(resolve(match));
+      }
+    } else {
+      paths.push(pattern);
+    }
+  }
+
+  return paths;
+}
+
+/**
  * Validate multiple CLAUDE.md files. Returns a combined report.
  */
 export function validatePaths(
@@ -268,11 +291,13 @@ if (
   const args = process.argv.slice(2);
   const followSymlinks = args.includes("--follow-symlinks");
   const markersArg = args.find((a) => a.startsWith("--markers="));
-  const paths = args.filter((a) => !a.startsWith("--"));
+  const rawPaths = args.filter((a) => !a.startsWith("--"));
 
-  if (paths.length === 0) {
-    paths.push("CLAUDE.md");
+  if (rawPaths.length === 0) {
+    rawPaths.push("CLAUDE.md");
   }
+
+  const paths = expandGlobs(rawPaths);
 
   const config = loadConfig();
   const ruleMarkers = markersArg
