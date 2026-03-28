@@ -1,4 +1,4 @@
-# agent-lint
+# vigiles
 
 Zero-config validation for AI agent instruction files. Ensures every rule in your CLAUDE.md, AGENTS.md, or .cursorrules is backed by a real linter — or explicitly marked as guidance-only.
 
@@ -26,9 +26,9 @@ AI coding agents work best with deterministic feedback — linters, type checker
 
 The problem: teams write rules in CLAUDE.md or AGENTS.md like "always use barrel imports" but never wire them to actual linters. The rules rot. The agent ignores them. Nobody notices until the codebase diverges.
 
-On bigger teams this gets worse — different engineers use different agents (Claude Code, Cursor, Codex, Copilot), each with its own instruction file format. Without validation, some agents get well-maintained rules while others get stale or missing files. `agent-lint` detects every agent tool configured in your repo and ensures each one has an up-to-date, properly annotated instruction file.
+On bigger teams this gets worse — different engineers use different agents (Claude Code, Cursor, Codex, Copilot), each with its own instruction file format. Without validation, some agents get well-maintained rules while others get stale or missing files. `vigiles` detects every agent tool configured in your repo and ensures each one has an up-to-date, properly annotated instruction file.
 
-`agent-lint` closes this gap:
+`vigiles` closes this gap:
 
 1. **Every rule must cite its enforcer** — `**Enforced by:** \`eslint/no-restricted-imports\``or`**Guidance only**`
 2. **Referenced linters must actually exist** — auto-detects ESLint, Ruff, Clippy, RuboCop, and more from your project
@@ -40,10 +40,10 @@ No config files needed. No dependencies beyond your existing linters.
 ## Quick Start
 
 ```bash
-npx agent-lint
+npx vigiles
 ```
 
-That's it. agent-lint auto-detects which AI tools you use, finds their instruction files, validates every rule has an enforcement annotation, and checks that referenced linters actually exist in your project.
+That's it. vigiles auto-detects which AI tools you use, finds their instruction files, validates every rule has an enforcement annotation, and checks that referenced linters actually exist in your project.
 
 ```
 Detected agents: Claude Code (.claude)
@@ -63,13 +63,13 @@ All rules have enforcement annotations.
 
 ## How It Works
 
-agent-lint does three things automatically:
+vigiles does three things automatically:
 
 **1. Detects your AI tools** — scans for `.claude/`, `.cursor/`, `.windsurf/`, and other config directories. If a tool is configured but its instruction file is missing, that's an error.
 
 **2. Validates rule annotations** — every `###` heading or `- [ ]` checkbox in your instruction files must have `**Enforced by:** \`linter/rule\``or`**Guidance only**`.
 
-**3. Verifies linters exist** — checks that referenced linters are actually installed. ESLint and Stylelint are checked via Node API. Ruff, Clippy, Pylint, and RuboCop are checked via CLI. No extra dependencies are installed — agent-lint only checks tools already in your project.
+**3. Verifies linters exist** — checks that referenced linters are actually installed. ESLint and Stylelint are checked via Node API. Ruff, Clippy, Pylint, and RuboCop are checked via CLI. No extra dependencies are installed — vigiles only checks tools already in your project.
 
 ## Instruction File Format
 
@@ -102,12 +102,12 @@ To skip validation for a specific rule:
 ```markdown
 ### Legacy rule that doesn't fit the format
 
-<!-- agent-lint-disable -->
+<!-- vigiles-disable -->
 ```
 
 ## Agent Detection
 
-In a team where some engineers use Claude Code, others use Cursor, and CI runs Codex, you need instruction files for all of them. agent-lint detects which tools are configured and requires their instruction files to exist:
+In a team where some engineers use Claude Code, others use Cursor, and CI runs Codex, you need instruction files for all of them. vigiles detects which tools are configured and requires their instruction files to exist:
 
 | Tool           | Detected by                       | Required file                     |
 | -------------- | --------------------------------- | --------------------------------- |
@@ -118,7 +118,7 @@ In a team where some engineers use Claude Code, others use Cursor, and CI runs C
 | GitHub Copilot | `.github/copilot-instructions.md` | `.github/copilot-instructions.md` |
 | Cline          | `.clinerules` file                | `.clinerules`                     |
 
-If `.claude/` exists but `CLAUDE.md` doesn't, agent-lint errors — so when someone adds a new agent tool to the repo, CI catches the missing instruction file before it ships.
+If `.claude/` exists but `CLAUDE.md` doesn't, vigiles errors — so when someone adds a new agent tool to the repo, CI catches the missing instruction file before it ships.
 
 To explicitly require specific tools across the team (even without their config directories):
 
@@ -130,7 +130,7 @@ To explicitly require specific tools across the team (even without their config 
 
 ## Linter Rule Validation
 
-When a rule says `**Enforced by:** \`eslint/no-console\``, agent-lint checks that `no-console` is a real ESLint rule. This catches typos, references to removed rules, and linters that were never set up.
+When a rule says `**Enforced by:** \`eslint/no-console\``, vigiles checks that `no-console` is a real ESLint rule. This catches typos, references to removed rules, and linters that were never set up.
 
 Supported linters are auto-detected from your project — **no extra dependencies are installed**:
 
@@ -155,11 +155,11 @@ For custom or unsupported linters, configure a `rulesDir` to check that rule fil
 }
 ```
 
-Set `require-rule-file` to `false` to disable all linter rule checking.
+Set `require-rule-file` to `false` to disable all linter rule checking, or `"catalog-only"` to only check that rules exist in the linter catalog without verifying they're enabled in project config.
 
 ## Configuration
 
-agent-lint works with zero configuration. Optionally create a `.agent-lintrc.json` to override defaults:
+vigiles works with zero configuration. Optionally create a `.vigilesrc.json` to override defaults:
 
 ```json
 {
@@ -177,29 +177,29 @@ agent-lint works with zero configuration. Optionally create a `.agent-lintrc.jso
 
 ### Rules
 
-| Rule                  | Default  | Description                                                                       |
-| --------------------- | -------- | --------------------------------------------------------------------------------- |
-| `require-annotations` | `true`   | Every rule marker must have `**Enforced by:**` or `**Guidance only**`             |
-| `max-lines`           | `500`    | Maximum number of lines allowed per file. Set a number for custom limit.          |
-| `require-rule-file`   | `"auto"` | Validates that referenced linter rules actually exist. Auto-detects linter tools. |
+| Rule                  | Default  | Description                                                                                                                 |
+| --------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `require-annotations` | `true`   | Every rule marker must have `**Enforced by:**` or `**Guidance only**`                                                       |
+| `max-lines`           | `500`    | Maximum number of lines allowed per file. Set a number for custom limit.                                                    |
+| `require-rule-file`   | `"auto"` | Validates that referenced linter rules exist and are enabled in project config. Use `"catalog-only"` to skip config checks. |
 
 ## CLI
 
 ```bash
 # Auto-detect agents and validate their instruction files
-npx agent-lint
+npx vigiles
 
 # Validate specific files
-npx agent-lint CLAUDE.md AGENTS.md
+npx vigiles CLAUDE.md AGENTS.md
 
 # Glob pattern
-npx agent-lint "**/*.md"
+npx vigiles "**/*.md"
 
 # Follow symlinks
-npx agent-lint --follow-symlinks
+npx vigiles --follow-symlinks
 
 # Override rule markers
-npx agent-lint --markers=headings
+npx vigiles --markers=headings
 ```
 
 | Flag                            | Description                                                                    |
@@ -229,7 +229,7 @@ The `max-lines` rule (default: 500) nudges toward this pattern — oversized ins
 ## GitHub Action
 
 ```yaml
-# .github/workflows/agent-lint.yml
+# .github/workflows/vigiles.yml
 name: Validate agent instructions
 on: [push, pull_request]
 jobs:
@@ -237,7 +237,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: zernie/agent-lint@main
+      - uses: zernie/vigiles@main
 ```
 
 Auto-detects agents and instruction files. Errors appear as inline annotations on the PR diff — just like ESLint.
@@ -245,7 +245,7 @@ Auto-detects agents and instruction files. Errors appear as inline annotations o
 Override with action inputs:
 
 ```yaml
-- uses: zernie/agent-lint@main
+- uses: zernie/vigiles@main
   with:
     paths: "CLAUDE.md,packages/*/CLAUDE.md"
     max-lines: "300"
@@ -254,17 +254,17 @@ Override with action inputs:
 
 ### Action Inputs
 
-All inputs can also be set via `.agent-lintrc.json`. Action inputs take precedence.
+All inputs can also be set via `.vigilesrc.json`. Action inputs take precedence.
 
-| Input                 | Default     | Description                                                 |
-| --------------------- | ----------- | ----------------------------------------------------------- |
-| `paths`               | auto-detect | Comma-separated paths or glob patterns to validate          |
-| `follow-symlinks`     | `false`     | Follow symbolic links when reading files                    |
-| `markers`             | from config | Comma-separated rule marker types: `headings`, `checkboxes` |
-| `require-annotations` | `true`      | Require enforcement annotations on rules                    |
-| `max-lines`           | `500`       | Max lines per file (number or `false` to disable)           |
-| `require-rule-file`   | `auto`      | Validate linter rules exist (`auto`, `true`, or `false`)    |
-| `linters`             | `{}`        | JSON object mapping linter names to config                  |
+| Input                 | Default     | Description                                                                              |
+| --------------------- | ----------- | ---------------------------------------------------------------------------------------- |
+| `paths`               | auto-detect | Comma-separated paths or glob patterns to validate                                       |
+| `follow-symlinks`     | `false`     | Follow symbolic links when reading files                                                 |
+| `markers`             | from config | Comma-separated rule marker types: `headings`, `checkboxes`                              |
+| `require-annotations` | `true`      | Require enforcement annotations on rules                                                 |
+| `max-lines`           | `500`       | Max lines per file (number or `false` to disable)                                        |
+| `require-rule-file`   | `auto`      | Validate linter rules exist and are enabled (`auto`, `catalog-only`, `true`, or `false`) |
+| `linters`             | `{}`        | JSON object mapping linter names to config                                               |
 
 ### Action Outputs
 
@@ -273,7 +273,7 @@ All inputs can also be set via `.agent-lintrc.json`. Action inputs take preceden
 | `total`    | Total number of rules found              |
 | `enforced` | Rules with `**Enforced by:**` annotation |
 | `guidance` | Rules marked `**Guidance only**`         |
-| `disabled` | Rules with `<!-- agent-lint-disable -->` |
+| `disabled` | Rules with `<!-- vigiles-disable -->`    |
 | `missing`  | Rules missing enforcement annotations    |
 | `valid`    | `true` if all rules have annotations     |
 
@@ -285,7 +285,7 @@ Skills installed via `npx skills add` are available as `/audit-feedback-loop`, `
 
 #### Automatic Validation Hook
 
-When installed as a plugin, agent-lint automatically registers a PostToolUse hook that validates CLAUDE.md after every file edit. If a rule is missing its annotation, the agent gets immediate feedback and can fix the format before it reaches CI.
+When installed as a plugin, vigiles automatically registers a PostToolUse hook that validates CLAUDE.md after every file edit. If a rule is missing its annotation, the agent gets immediate feedback and can fix the format before it reaches CI.
 
 To set this up manually instead (e.g. without the plugin), add to your project's `.claude/settings.json`:
 
@@ -295,7 +295,7 @@ To set this up manually instead (e.g. without the plugin), add to your project's
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
-        "command": "npx agent-lint CLAUDE.md"
+        "command": "npx vigiles CLAUDE.md"
       }
     ]
   }
@@ -305,8 +305,8 @@ To set this up manually instead (e.g. without the plugin), add to your project's
 Alternatively, install via the Claude Code plugin system:
 
 ```
-/plugin marketplace add zernie/agent-lint
-/plugin install agent-lint@agent-lint
+/plugin marketplace add zernie/vigiles
+/plugin install vigiles@vigiles
 ```
 
 Or manually copy skills into your project's `.claude/skills/` directory.
@@ -316,7 +316,7 @@ Or manually copy skills into your project's `.claude/skills/` directory.
 Install skills for all your AI agents at once with [Vercel Skills](https://github.com/vercel-labs/skills):
 
 ```bash
-npx skills add zernie/agent-lint
+npx skills add zernie/vigiles
 ```
 
 This auto-detects your installed agents and installs the skills for each one. Works with Claude Code, Codex, Cursor, GitHub Copilot, Windsurf, and [many more](https://skills.sh).

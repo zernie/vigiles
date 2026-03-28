@@ -1,11 +1,11 @@
 {
-  "name": "agent-lint",
+  "name": "vigiles",
   "version": "1.0.0",
   "description": "Validate CLAUDE.md, audit feedback loops, and generate lint rules from PR comments",
   "author": {
     "name": "zernie"
   },
-  "repository": "https://github.com/zernie/agent-lint",
+  "repository": "https://github.com/zernie/vigiles",
   "license": "MIT",
   "keywords": ["linting", "claude-md", "feedback-loops", "code-review"],
   "skills": "./skills/",

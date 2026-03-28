@@ -1,4 +1,4 @@
-name: "agent-lint"
+name: "vigiles"
 description: "Validate that CLAUDE.md rules have enforcement annotations"
 branding:
   icon: "check-circle"
@@ -22,7 +22,7 @@ inputs:
     description: "Max lines per file (number or 'false' to disable)"
     required: false
   require-rule-file:
-    description: "Validate linter rules exist ('auto', 'true', or 'false')"
+    description: "Validate linter rules exist and are enabled in config ('auto', 'catalog-only', 'true', or 'false')"
     required: false
   linters:
     description: 'JSON object mapping linter names to config (e.g. ''{"my-tool":{"rulesDir":"rules/"}}'')'

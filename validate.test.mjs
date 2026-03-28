@@ -99,15 +99,15 @@ describe("parseClaudeMd", () => {
 
   it("should parse disabled rules", () => {
     const rules = parseClaudeMd(
-      "### Skipped rule\n<!-- agent-lint-disable -->\n**Why:** Not relevant here.\n",
+      "### Skipped rule\n<!-- vigiles-disable -->\n**Why:** Not relevant here.\n",
     );
     assert.equal(rules.length, 1);
     assert.equal(rules[0].enforcement, "disabled");
   });
 
-  it("should handle agent-lint-disable with extra whitespace", () => {
+  it("should handle vigiles-disable with extra whitespace", () => {
     const rules = parseClaudeMd(
-      "### Skipped rule\n<!--  agent-lint-disable  -->\n",
+      "### Skipped rule\n<!--  vigiles-disable  -->\n",
     );
     assert.equal(rules[0].enforcement, "disabled");
   });
@@ -139,7 +139,7 @@ describe("parseClaudeMd with checkboxes", () => {
 
   it("should parse checked checkbox (uppercase X) with disabled", () => {
     const rules = parseClaudeMd(
-      "- [X] Skipped rule\n<!-- agent-lint-disable -->\n",
+      "- [X] Skipped rule\n<!-- vigiles-disable -->\n",
       opts,
     );
     assert.equal(rules.length, 1);
@@ -289,7 +289,7 @@ describe("loadConfig", () => {
   let originalCwd;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-config-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
     originalCwd = process.cwd();
   });
 
@@ -309,10 +309,10 @@ describe("loadConfig", () => {
     });
   });
 
-  it("should read .agent-lintrc.json", () => {
-    const configDir = mkdtempSync(join(tmpdir(), "agent-lint-config-"));
+  it("should read .vigilesrc.json", () => {
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
     writeFileSync(
-      join(configDir, ".agent-lintrc.json"),
+      join(configDir, ".vigilesrc.json"),
       JSON.stringify({ ruleMarkers: ["headings", "checkboxes"] }),
     );
     process.chdir(configDir);
@@ -323,9 +323,9 @@ describe("loadConfig", () => {
   });
 
   it("should fall back to defaults for invalid ruleMarkers", () => {
-    const configDir = mkdtempSync(join(tmpdir(), "agent-lint-config-"));
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
     writeFileSync(
-      join(configDir, ".agent-lintrc.json"),
+      join(configDir, ".vigilesrc.json"),
       JSON.stringify({ ruleMarkers: ["invalid"] }),
     );
     process.chdir(configDir);
@@ -336,9 +336,9 @@ describe("loadConfig", () => {
   });
 
   it("should merge rules config with defaults", () => {
-    const configDir = mkdtempSync(join(tmpdir(), "agent-lint-config-"));
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
     writeFileSync(
-      join(configDir, ".agent-lintrc.json"),
+      join(configDir, ".vigilesrc.json"),
       JSON.stringify({ rules: { "max-lines": 200 } }),
     );
     process.chdir(configDir);
@@ -350,9 +350,9 @@ describe("loadConfig", () => {
   });
 
   it("should allow disabling rules", () => {
-    const configDir = mkdtempSync(join(tmpdir(), "agent-lint-config-"));
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
     writeFileSync(
-      join(configDir, ".agent-lintrc.json"),
+      join(configDir, ".vigilesrc.json"),
       JSON.stringify({
         rules: { "require-annotations": false, "max-lines": false },
       }),
@@ -529,7 +529,7 @@ describe("validate", () => {
 
   it("should count disabled rules and treat them as valid", () => {
     const result = validate(
-      "### Rule A\n**Enforced by:** `eslint/rule-a`\n\n### Rule B\n<!-- agent-lint-disable -->\n\n### Rule C\n**Guidance only**\n",
+      "### Rule A\n**Enforced by:** `eslint/rule-a`\n\n### Rule B\n<!-- vigiles-disable -->\n\n### Rule C\n**Guidance only**\n",
     );
     assert.equal(result.valid, true);
     assert.equal(result.enforced, 1);
@@ -573,7 +573,7 @@ describe("readClaudeMd", () => {
   let tmpDir;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-test-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-test-"));
   });
 
   after(() => {
@@ -621,7 +621,7 @@ describe("validatePaths", () => {
   let tmpDir;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-test-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-test-"));
   });
 
   after(() => {
@@ -689,7 +689,7 @@ describe("expandGlobs", () => {
   let tmpDir;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-glob-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-glob-"));
   });
 
   after(() => {
@@ -738,7 +738,7 @@ describe("require-rule-file", () => {
   let tmpDir;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-rule-file-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-rule-file-"));
   });
 
   after(() => {
@@ -1058,13 +1058,398 @@ describe("require-rule-file", () => {
     // Plugin not installed, so no resolver found -> skip (no error in auto mode)
     assert.equal(ruleErrors.length, 0);
   });
+
+  // Config-enabled checks ("auto" mode now checks if rule is enabled in linter config)
+  // Config-enabled checks: "auto" mode verifies rules are enabled in linter config
+  describe("config-enabled checks", () => {
+    // --- ESLint ---
+    describe("eslint", () => {
+      let eslintDir;
+
+      before(() => {
+        eslintDir = mkdtempSync(join(tmpdir(), "vigiles-eslint-cfg-"));
+        writeFileSync(
+          join(eslintDir, "package.json"),
+          JSON.stringify({ name: "test", private: true }),
+        );
+        // Symlink node_modules from cwd so eslint is available
+        try {
+          symlinkSync(
+            join(process.cwd(), "node_modules"),
+            join(eslintDir, "node_modules"),
+          );
+        } catch {
+          // already exists
+        }
+        writeFileSync(
+          join(eslintDir, "eslint.config.mjs"),
+          'export default [{ rules: { "no-console": "off", "no-unused-vars": "warn", "no-undef": "error" } }];\n',
+        );
+      });
+
+      after(() => {
+        rmSync(eslintDir, { recursive: true, force: true });
+      });
+
+      it("should error when rule is disabled in config", () => {
+        const result = validate(
+          "### No console\n**Enforced by:** `eslint/no-console`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: eslintDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 1);
+        assert.ok(ruleErrors[0].message.includes("exists but is disabled"));
+        assert.ok(ruleErrors[0].message.includes("no-console"));
+      });
+
+      it("should not error when rule is enabled (warn)", () => {
+        const result = validate(
+          "### No unused vars\n**Enforced by:** `eslint/no-unused-vars`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: eslintDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+
+      it("should not error when rule is enabled (error)", () => {
+        const result = validate(
+          "### No undef\n**Enforced by:** `eslint/no-undef`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: eslintDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+
+      it("should skip config check in catalog-only mode", () => {
+        const result = validate(
+          "### No console\n**Enforced by:** `eslint/no-console`\n",
+          {
+            rules: { "require-rule-file": "catalog-only" },
+            basePath: eslintDir,
+          },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+
+      it("should skip config check when no config file exists", () => {
+        const result = validate(
+          "### No console\n**Enforced by:** `eslint/no-console`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: tmpDir },
+        );
+        const ruleErrors = result.errors.filter((e) =>
+          e.message.includes("exists but is disabled"),
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+
+      it("should return unknown for rules not in config", () => {
+        const result = validate(
+          "### No eval\n**Enforced by:** `eslint/no-eval`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: eslintDir },
+        );
+        const ruleErrors = result.errors.filter((e) =>
+          e.message.includes("exists but is disabled"),
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+    });
+
+    // --- Ruff ---
+    describe("ruff", () => {
+      let ruffDir;
+
+      before(() => {
+        ruffDir = mkdtempSync(join(tmpdir(), "vigiles-ruff-cfg-"));
+        writeFileSync(
+          join(ruffDir, "ruff.toml"),
+          '[lint]\nselect = ["E", "F"]\nignore = ["E501"]\n',
+        );
+        // ruff --show-settings needs a .py file to resolve against
+        writeFileSync(join(ruffDir, "dummy.py"), "");
+      });
+
+      after(() => {
+        rmSync(ruffDir, { recursive: true, force: true });
+      });
+
+      it("should error when rule is ignored in config", () => {
+        const result = validate(
+          "### Line length\n**Enforced by:** `ruff/E501`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: ruffDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 1);
+        assert.ok(ruleErrors[0].message.includes("exists but is disabled"));
+        assert.ok(ruleErrors[0].message.includes("E501"));
+      });
+
+      it("should not error when rule is selected", () => {
+        const result = validate("### Imports\n**Enforced by:** `ruff/E401`\n", {
+          rules: { "require-rule-file": "auto" },
+          basePath: ruffDir,
+        });
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+
+      it("should not error when rule is enabled via prefix select", () => {
+        // F401 is enabled because "F" is in the select list
+        const result = validate(
+          "### Unused import\n**Enforced by:** `ruff/F401`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: ruffDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+
+      it("should error when rule is not in any selected group", () => {
+        // W rules are not selected (only E and F are)
+        const result = validate(
+          "### Whitespace\n**Enforced by:** `ruff/W291`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: ruffDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 1);
+        assert.ok(ruleErrors[0].message.includes("exists but is disabled"));
+      });
+
+      it("should skip config check in catalog-only mode", () => {
+        const result = validate(
+          "### Line length\n**Enforced by:** `ruff/E501`\n",
+          { rules: { "require-rule-file": "catalog-only" }, basePath: ruffDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+    });
+
+    // --- Pylint ---
+    describe("pylint", () => {
+      let pylintDir;
+
+      before(() => {
+        pylintDir = mkdtempSync(join(tmpdir(), "vigiles-pylint-cfg-"));
+        writeFileSync(
+          join(pylintDir, ".pylintrc"),
+          "[MESSAGES CONTROL]\ndisable=C0301\n",
+        );
+      });
+
+      after(() => {
+        rmSync(pylintDir, { recursive: true, force: true });
+      });
+
+      it("should error when rule is disabled in config", () => {
+        const result = validate(
+          "### Line length\n**Enforced by:** `pylint/C0301`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: pylintDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 1);
+        assert.ok(ruleErrors[0].message.includes("exists but is disabled"));
+        assert.ok(ruleErrors[0].message.includes("C0301"));
+      });
+
+      it("should not error when rule is enabled", () => {
+        // C0103 (invalid-name) is enabled by default
+        const result = validate(
+          "### Names\n**Enforced by:** `pylint/C0103`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: pylintDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) =>
+            e.rule === "require-rule-file" &&
+            e.message.includes("exists but is disabled"),
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+
+      it("should skip config check in catalog-only mode", () => {
+        const result = validate(
+          "### Line length\n**Enforced by:** `pylint/C0301`\n",
+          {
+            rules: { "require-rule-file": "catalog-only" },
+            basePath: pylintDir,
+          },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+    });
+
+    // --- RuboCop ---
+    describe("rubocop", () => {
+      let rubocopDir;
+
+      before(() => {
+        rubocopDir = mkdtempSync(join(tmpdir(), "vigiles-rubocop-cfg-"));
+        writeFileSync(
+          join(rubocopDir, ".rubocop.yml"),
+          "Style/FrozenStringLiteralComment:\n  Enabled: false\nStyle/StringLiterals:\n  Enabled: true\n  EnforcedStyle: double_quotes\n",
+        );
+      });
+
+      after(() => {
+        rmSync(rubocopDir, { recursive: true, force: true });
+      });
+
+      it("should error when cop is disabled in config", () => {
+        const result = validate(
+          "### Frozen string\n**Enforced by:** `rubocop/Style/FrozenStringLiteralComment`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: rubocopDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 1);
+        assert.ok(ruleErrors[0].message.includes("exists but is disabled"));
+        assert.ok(
+          ruleErrors[0].message.includes("Style/FrozenStringLiteralComment"),
+        );
+      });
+
+      it("should not error when cop is enabled", () => {
+        const result = validate(
+          "### String literals\n**Enforced by:** `rubocop/Style/StringLiterals`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: rubocopDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) =>
+            e.rule === "require-rule-file" &&
+            e.message.includes("exists but is disabled"),
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+
+      it("should skip config check in catalog-only mode", () => {
+        const result = validate(
+          "### Frozen string\n**Enforced by:** `rubocop/Style/FrozenStringLiteralComment`\n",
+          {
+            rules: { "require-rule-file": "catalog-only" },
+            basePath: rubocopDir,
+          },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+    });
+
+    // --- Clippy ---
+    describe("clippy", () => {
+      let clippyDir;
+
+      before(() => {
+        clippyDir = mkdtempSync(join(tmpdir(), "vigiles-clippy-cfg-"));
+        writeFileSync(
+          join(clippyDir, "Cargo.toml"),
+          '[package]\nname = "test"\nversion = "0.1.0"\n\n[lints.clippy]\nneedless_return = "allow"\ndbg_macro = "warn"\n',
+        );
+      });
+
+      after(() => {
+        rmSync(clippyDir, { recursive: true, force: true });
+      });
+
+      it("should error when lint is set to allow", () => {
+        const result = validate(
+          "### Return\n**Enforced by:** `clippy::needless_return`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: clippyDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 1);
+        assert.ok(ruleErrors[0].message.includes("exists but is disabled"));
+        assert.ok(ruleErrors[0].message.includes("needless_return"));
+      });
+
+      it("should not error when lint is set to warn", () => {
+        const result = validate(
+          "### Dbg\n**Enforced by:** `clippy::dbg_macro`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: clippyDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) =>
+            e.rule === "require-rule-file" &&
+            e.message.includes("exists but is disabled"),
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+
+      it("should return unknown for unconfigured lints", () => {
+        // unwrap_used is not in Cargo.toml [lints.clippy]
+        const result = validate(
+          "### Unwrap\n**Enforced by:** `clippy::unwrap_used`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: clippyDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) =>
+            e.rule === "require-rule-file" &&
+            e.message.includes("exists but is disabled"),
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+
+      it("should skip config check in catalog-only mode", () => {
+        const result = validate(
+          "### Return\n**Enforced by:** `clippy::needless_return`\n",
+          {
+            rules: { "require-rule-file": "catalog-only" },
+            basePath: clippyDir,
+          },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) => e.rule === "require-rule-file",
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+
+      it("should skip when no Cargo.toml exists", () => {
+        const result = validate(
+          "### Return\n**Enforced by:** `clippy::needless_return`\n",
+          { rules: { "require-rule-file": "auto" }, basePath: tmpDir },
+        );
+        const ruleErrors = result.errors.filter(
+          (e) =>
+            e.rule === "require-rule-file" &&
+            e.message.includes("exists but is disabled"),
+        );
+        assert.equal(ruleErrors.length, 0);
+      });
+    });
+  });
 });
 
 describe("discoverInstructionFiles", () => {
   let tmpDir;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-discover-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-discover-"));
   });
 
   after(() => {
@@ -1089,7 +1474,7 @@ describe("discoverInstructionFiles", () => {
 
   it("should error when Claude Code detected but CLAUDE.md missing", () => {
     // .claude/ already exists from previous test
-    const dir = mkdtempSync(join(tmpdir(), "agent-lint-discover2-"));
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-discover2-"));
     mkdirSync(join(dir, ".claude"), { recursive: true });
     const result = discoverInstructionFiles(dir);
     assert.ok(result.detected.some((d) => d.name === "Claude Code"));
@@ -1135,7 +1520,7 @@ describe("discoverInstructionFiles", () => {
   });
 
   it("should error when Windsurf detected but .windsurfrules missing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "agent-lint-windsurf-"));
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-windsurf-"));
     mkdirSync(join(dir, ".windsurf"), { recursive: true });
     const result = discoverInstructionFiles(dir);
     assert.ok(result.detected.some((d) => d.name === "Windsurf"));
@@ -1155,7 +1540,7 @@ describe("discoverInstructionFiles", () => {
   });
 
   it("should error when Cline explicitly required but .clinerules missing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "agent-lint-cline-"));
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-cline-"));
     const result = discoverInstructionFiles(dir, ["Cline"]);
     assert.ok(result.detected.some((d) => d.name === "Cline"));
     assert.ok(result.missing.some((m) => m.tool === "Cline"));
@@ -1169,7 +1554,7 @@ describe("discoverInstructionFiles", () => {
   });
 
   it("should check explicit agents list even without indicators", () => {
-    const dir = mkdtempSync(join(tmpdir(), "agent-lint-discover3-"));
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-discover3-"));
     writeFileSync(join(dir, "CLAUDE.md"), "# Test\n");
     // No .cursor/ dir, but explicitly request Cursor check
     const result = discoverInstructionFiles(dir, ["Claude Code", "Cursor"]);
