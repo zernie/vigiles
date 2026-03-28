@@ -8,7 +8,7 @@
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
-        "command": "node validate.mjs CLAUDE.md"
+        "command": "npx vigiles CLAUDE.md"
       },
       {
         "matcher": "Edit|Write",

@@ -77,7 +77,7 @@ Present all suggested fixes and **ask the user for confirmation** before writing
 After making fixes, run validation to confirm CI will pass:
 
 ```bash
-node validate.mjs <file>
+npx vigiles <file>
 ```
 
 Report the validation result. If it still fails, return to Step 4 for the remaining issues.

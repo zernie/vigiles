@@ -17,8 +17,8 @@ vigiles — ESLint for AI agents. Validates that instruction files (CLAUDE.md, A
 - `npm test` — Run all tests
 - `npm run fmt` — Format with prettier
 - `npm run fmt:check` — Check formatting
-- `node validate.mjs CLAUDE.md` — Validate this file
-- `node validate.mjs --markers=headings,checkboxes CLAUDE.md` — Validate with both marker types
+- `npx vigiles CLAUDE.md` — Validate this file
+- `npx vigiles --markers=headings,checkboxes CLAUDE.md` — Validate with both marker types
 
 ## Principles
 
