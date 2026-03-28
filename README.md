@@ -1,6 +1,6 @@
 # agent-lint
 
-ESLint for AI agents — validate your instruction files, audit your feedback loops, and generate lint rules from PR comments.
+Zero-config validation for AI agent instruction files. Ensures every rule in your CLAUDE.md, AGENTS.md, or .cursorrules is backed by a real linter — or explicitly marked as guidance-only.
 
 Companion repo for [Feedback Loop Is All You Need](https://zernie.com/blog/feedback-loop-is-all-you-need).
 
@@ -8,74 +8,70 @@ Companion repo for [Feedback Loop Is All You Need](https://zernie.com/blog/feedb
 
 - [Why](#why)
 - [Quick Start](#quick-start)
+- [How It Works](#how-it-works)
 - [Instruction File Format](#instruction-file-format)
+- [Agent Detection](#agent-detection)
+- [Linter Rule Validation](#linter-rule-validation)
 - [Configuration](#configuration)
 - [CLI](#cli)
 - [Organizing Rules](#organizing-rules)
 - [GitHub Action](#github-action)
-- [Supported Tools](#supported-tools)
 - [Installing Skills](#installing-skills)
 - [Maturity Levels](#maturity-levels)
 - [License](#license)
 
 ## Why
 
-AI coding agents work best when they get deterministic feedback — linters, type checkers, CI. Without it, they drift from conventions and produce code that "works" but doesn't fit your codebase.
+AI coding agents work best with deterministic feedback — linters, type checkers, CI. Without it, they drift from conventions and produce code that "works" but doesn't fit your codebase.
 
-`agent-lint` helps you close the feedback loop:
+The problem: teams write rules in CLAUDE.md or AGENTS.md like "always use barrel imports" but never wire them to actual linters. The rules rot. The agent ignores them. Nobody notices until the codebase diverges.
 
-1. **CI-enforced instruction file validation** — every rule must be enforced by a linter or explicitly marked as guidance-only
-2. **Repo maturity audit** — score how well your feedback loops support AI-assisted development
-3. **Lint rule generation** — turn recurring PR review comments into automated enforcement
+`agent-lint` closes this gap:
 
-Works with any AI agent instruction file — CLAUDE.md, AGENTS.md, .cursorrules, or your own convention.
+1. **Every rule must cite its enforcer** — `**Enforced by:** \`eslint/no-restricted-imports\``or`**Guidance only**`
+2. **Referenced linters must actually exist** — auto-detects ESLint, Ruff, Clippy, RuboCop, and more from your project
+3. **Missing instruction files are caught** — detects Claude Code, Cursor, Codex, Copilot, Windsurf, and Cline from their config directories
+4. **Errors show inline on PRs** — just like ESLint, annotations appear on the affected lines
+
+No config files needed. No dependencies beyond your existing linters.
 
 ## Quick Start
 
 ```bash
-# Auto-discovers CLAUDE.md, AGENTS.md, .cursorrules, etc.
 npx agent-lint
 ```
 
-Example output when validation fails:
+That's it. agent-lint auto-detects which AI tools you use, finds their instruction files, validates every rule has an enforcement annotation, and checks that referenced linters actually exist in your project.
 
 ```
+Detected agents: Claude Code (.claude)
+
 Validation Report: CLAUDE.md
 ========================================
-  Total rules:    3
-  Enforced:       1
-  Guidance only:  0
-  Disabled:       0
-  Missing:        2
-========================================
-
-Rules missing enforcement annotations:
-  Line 12: "No console.log in production"
-  Line 18: "Use Tailwind spacing scale"
-
-Add **Enforced by:** `<rule>` or **Guidance only** to each rule.
-```
-
-When all rules pass:
-
-```
-Validation Report: CLAUDE.md
-========================================
-  Total rules:    3
-  Enforced:       2
+  Total rules:    4
+  Enforced:       3
   Guidance only:  1
   Disabled:       0
   Missing:        0
+  Linters:        eslint (292 built-in rules)
 ========================================
 
 All rules have enforcement annotations.
 ```
 
+## How It Works
+
+agent-lint does three things automatically:
+
+**1. Detects your AI tools** — scans for `.claude/`, `.cursor/`, `.windsurf/`, and other config directories. If a tool is configured but its instruction file is missing, that's an error.
+
+**2. Validates rule annotations** — every `###` heading or `- [ ]` checkbox in your instruction files must have `**Enforced by:** \`linter/rule\``or`**Guidance only**`.
+
+**3. Verifies linters exist** — checks that referenced linters are actually installed. ESLint and Stylelint are checked via Node API. Ruff, Clippy, Pylint, and RuboCop are checked via CLI. No extra dependencies are installed — agent-lint only checks tools already in your project.
+
 ## Instruction File Format
 
-`agent-lint` validates that every rule has either an `**Enforced by:**` annotation or a `**Guidance only**` marker. Rules can be defined as `###` headings or markdown checkboxes:
-
-**Headings format:**
+Every rule needs an enforcement annotation:
 
 ```markdown
 ### Always use barrel file imports
@@ -89,22 +85,17 @@ All rules have enforcement annotations.
 **Why:** Ensures visual consistency across the design system.
 ```
 
-**Checkbox format** (enable with `"ruleMarkers": ["checkboxes"]` in config):
+Both `###` headings and `- [ ]` checkboxes are recognized as rules by default:
 
 ```markdown
 - [ ] No console.log in production
       **Enforced by:** `eslint/no-console`
-      **Why:** Use the structured logger which routes to Datadog.
 
 - [x] Prefer named exports over default exports
       **Guidance only** — cannot be mechanically enforced
 ```
 
-Rules missing both annotations cause validation to fail. This format works in any markdown file — CLAUDE.md, AGENTS.md, .cursorrules, or a custom file.
-
-### Disabling Validation for a Rule
-
-To skip validation for a specific rule, add an HTML comment below the heading:
+To skip validation for a specific rule:
 
 ```markdown
 ### Legacy rule that doesn't fit the format
@@ -112,40 +103,34 @@ To skip validation for a specific rule, add an HTML comment below the heading:
 <!-- agent-lint-disable -->
 ```
 
-This works like `eslint-disable-next-line` — the rule is recognized but excluded from validation. Use sparingly.
+## Agent Detection
 
-## Configuration
+agent-lint detects which AI coding tools are configured in your project and requires their instruction files to exist:
 
-agent-lint works with zero configuration. Optionally create a `.agent-lintrc.json` to override defaults:
+| Tool           | Detected by                       | Required file                     |
+| -------------- | --------------------------------- | --------------------------------- |
+| Claude Code    | `.claude/` directory              | `CLAUDE.md`                       |
+| Cursor         | `.cursor/` directory              | `.cursorrules`                    |
+| Windsurf       | `.windsurf/` directory            | `.windsurfrules`                  |
+| OpenAI Codex   | `AGENTS.md` file                  | `AGENTS.md`                       |
+| GitHub Copilot | `.github/copilot-instructions.md` | `.github/copilot-instructions.md` |
+| Cline          | `.clinerules` file                | `.clinerules`                     |
+
+If `.claude/` exists but `CLAUDE.md` doesn't, agent-lint errors — ensuring you don't forget to create instruction files for tools you've set up.
+
+To explicitly require specific tools (even without their config directories):
 
 ```json
 {
-  "ruleMarkers": ["headings"],
-  "rules": {
-    "max-lines": 300
-  }
+  "agents": ["Claude Code", "Cursor"]
 }
 ```
 
-| Option        | Default                      | Description                                                                                        |
-| ------------- | ---------------------------- | -------------------------------------------------------------------------------------------------- |
-| `ruleMarkers` | `["headings", "checkboxes"]` | Which rule marker types to recognize: `headings`, `checkboxes`, or both                            |
-| `linters`     | `{}`                         | Per-linter config for rule file validation (see [Linter Rule Validation](#linter-rule-validation)) |
-| `agents`      | `null` (auto-detect)         | List of agent tool names to require, or `null` to auto-detect                                      |
+## Linter Rule Validation
 
-### Rules
+When a rule says `**Enforced by:** \`eslint/no-console\``, agent-lint checks that `no-console` is a real ESLint rule. This catches typos, references to removed rules, and linters that were never set up.
 
-Rules are named checks that can be toggled individually. Set to `false` to disable.
-
-| Rule                  | Default  | Description                                                                       |
-| --------------------- | -------- | --------------------------------------------------------------------------------- |
-| `require-annotations` | `true`   | Every rule marker must have `**Enforced by:**` or `**Guidance only**`             |
-| `max-lines`           | `500`    | Maximum number of lines allowed per file. Set a number for custom limit.          |
-| `require-rule-file`   | `"auto"` | Validates that referenced linter rules actually exist. Auto-detects linter tools. |
-
-### Linter Rule Validation
-
-When `require-rule-file` is `"auto"` (the default), agent-lint automatically detects installed linters and validates that referenced rules exist:
+Supported linters are auto-detected from your project — **no extra dependencies are installed**:
 
 | Linter    | Detection                     | Method                              |
 | --------- | ----------------------------- | ----------------------------------- |
@@ -156,7 +141,7 @@ When `require-rule-file` is `"auto"` (the default), agent-lint automatically det
 | Pylint    | `pylint` on PATH              | CLI (`pylint --help-msg`)           |
 | RuboCop   | `rubocop` on PATH             | CLI (`rubocop --show-cops`)         |
 
-ESLint plugin rules are also supported. Use `eslint/<plugin>/<rule>` for plugin rules referenced under the `eslint` linter (e.g., `eslint/import/no-unresolved`), or use the plugin name directly as the linter prefix (e.g., `@typescript-eslint/no-explicit-any`). The plugin package must be installed in `node_modules`.
+ESLint plugin rules are also supported — use `eslint/<plugin>/<rule>` (e.g., `eslint/import/no-unresolved`) or the plugin name directly (e.g., `@typescript-eslint/no-explicit-any`). The plugin package must be installed in `node_modules`.
 
 For custom or unsupported linters, configure a `rulesDir` to check that rule files exist:
 
@@ -168,21 +153,44 @@ For custom or unsupported linters, configure a `rulesDir` to check that rule fil
 }
 ```
 
-Set `require-rule-file` to `false` to disable all rule file checking.
+Set `require-rule-file` to `false` to disable all linter rule checking.
+
+## Configuration
+
+agent-lint works with zero configuration. Optionally create a `.agent-lintrc.json` to override defaults:
+
+```json
+{
+  "rules": {
+    "max-lines": 300
+  }
+}
+```
+
+| Option        | Default                      | Description                                                   |
+| ------------- | ---------------------------- | ------------------------------------------------------------- |
+| `ruleMarkers` | `["headings", "checkboxes"]` | Which rule marker types to recognize                          |
+| `linters`     | `{}`                         | Per-linter config for rule file validation                    |
+| `agents`      | `null` (auto-detect)         | List of agent tool names to require, or `null` to auto-detect |
+
+### Rules
+
+| Rule                  | Default  | Description                                                                       |
+| --------------------- | -------- | --------------------------------------------------------------------------------- |
+| `require-annotations` | `true`   | Every rule marker must have `**Enforced by:**` or `**Guidance only**`             |
+| `max-lines`           | `500`    | Maximum number of lines allowed per file. Set a number for custom limit.          |
+| `require-rule-file`   | `"auto"` | Validates that referenced linter rules actually exist. Auto-detects linter tools. |
 
 ## CLI
 
 ```bash
-# Auto-discover and validate all instruction files
+# Auto-detect agents and validate their instruction files
 npx agent-lint
 
-# Validate a specific file
-npx agent-lint CLAUDE.md
+# Validate specific files
+npx agent-lint CLAUDE.md AGENTS.md
 
-# Monorepo — validate across packages
-npx agent-lint CLAUDE.md packages/api/CLAUDE.md packages/web/CLAUDE.md
-
-# Glob pattern — validate all matching files
+# Glob pattern
 npx agent-lint "**/*.md"
 
 # Follow symlinks
@@ -192,22 +200,16 @@ npx agent-lint --follow-symlinks
 npx agent-lint --markers=headings
 ```
 
-### Options
-
 | Flag                            | Description                                                                    |
 | ------------------------------- | ------------------------------------------------------------------------------ |
 | `--follow-symlinks`             | Resolve and validate symlinked files. Without this flag, symlinks are skipped. |
 | `--markers=headings,checkboxes` | Override which rule markers to recognize. Comma-separated.                     |
 
-If no paths are provided, defaults to `CLAUDE.md`.
-
-Exit codes: `0` on success, `1` if any rules are missing annotations.
+Exit codes: `0` on success, `1` if validation fails.
 
 ## Organizing Rules
 
-In a monorepo (or any project with subdirectories), use **progressive disclosure** — put universal rules at the root, and context-specific rules in subdirectory files. AI agents read the nearest instruction file plus all parent files, so rules naturally narrow as the agent moves deeper into the tree.
-
-### Example structure
+In a monorepo, use **progressive disclosure** — universal rules at the root, context-specific rules in subdirectories:
 
 ```
 CLAUDE.md                        # Universal: code style, PR conventions, testing
@@ -220,31 +222,7 @@ packages/
     CLAUDE.md -> ../CLAUDE.md    # Symlink to share rules (use --follow-symlinks)
 ```
 
-**Root file** (`CLAUDE.md`) — rules every agent should follow regardless of context:
-
-- Code formatting and linting standards
-- Git commit and PR conventions
-- Testing requirements
-
-**Subdirectory files** (`packages/api/CLAUDE.md`) — rules that only apply in that context:
-
-- API error handling patterns
-- Database query conventions
-- Framework-specific idioms
-
-### Validate all files at once
-
-```bash
-# Glob pattern — finds every CLAUDE.md in the tree
-npx agent-lint "**/CLAUDE.md"
-
-# Or list them explicitly
-npx agent-lint CLAUDE.md packages/api/CLAUDE.md packages/web/CLAUDE.md
-```
-
-### Why this matters
-
-The `max-lines` rule (default: 500 lines) exists because oversized instruction files hurt agent performance — the agent spends tokens parsing rules that aren't relevant to its current task. Progressive disclosure keeps each file focused, which means faster comprehension and fewer irrelevant rules applied.
+The `max-lines` rule (default: 500) nudges toward this pattern — oversized instruction files waste agent tokens on irrelevant rules.
 
 ## GitHub Action
 
@@ -260,58 +238,25 @@ jobs:
       - uses: zernie/agent-lint@main
 ```
 
-By default the action auto-discovers instruction files (CLAUDE.md, AGENTS.md, .cursorrules, etc.). Pass `paths` to override:
+Auto-detects agents and instruction files. Errors appear as inline annotations on the PR diff — just like ESLint.
 
-Multiple files (monorepo):
-
-```yaml
-- uses: zernie/agent-lint@main
-  with:
-    paths: "CLAUDE.md,packages/api/CLAUDE.md,packages/web/CLAUDE.md"
-```
-
-Glob pattern:
+Override with action inputs:
 
 ```yaml
 - uses: zernie/agent-lint@main
   with:
-    paths: "**/CLAUDE.md"
-```
-
-Follow symlinks (e.g. shared instruction file symlinked into subdirectories):
-
-```yaml
-- uses: zernie/agent-lint@main
-  with:
-    paths: "CLAUDE.md,packages/api/CLAUDE.md"
-    follow-symlinks: "true"
-```
-
-Enable checkbox markers:
-
-```yaml
-- uses: zernie/agent-lint@main
-  with:
-    markers: "headings,checkboxes"
-```
-
-Override rules (same options as `.agent-lintrc.json`):
-
-```yaml
-- uses: zernie/agent-lint@main
-  with:
+    paths: "CLAUDE.md,packages/*/CLAUDE.md"
     max-lines: "300"
     require-rule-file: "auto"
-    linters: '{"my-tool":{"rulesDir":"rules/"}}'
 ```
 
 ### Action Inputs
 
-All inputs can also be set via `.agent-lintrc.json`. Action inputs override the config file.
+All inputs can also be set via `.agent-lintrc.json`. Action inputs take precedence.
 
 | Input                 | Default     | Description                                                 |
 | --------------------- | ----------- | ----------------------------------------------------------- |
-| `paths`               | `CLAUDE.md` | Comma-separated paths or glob patterns to validate          |
+| `paths`               | auto-detect | Comma-separated paths or glob patterns to validate          |
 | `follow-symlinks`     | `false`     | Follow symbolic links when reading files                    |
 | `markers`             | from config | Comma-separated rule marker types: `headings`, `checkboxes` |
 | `require-annotations` | `true`      | Require enforcement annotations on rules                    |
@@ -319,13 +264,7 @@ All inputs can also be set via `.agent-lintrc.json`. Action inputs override the 
 | `require-rule-file`   | `auto`      | Validate linter rules exist (`auto`, `true`, or `false`)    |
 | `linters`             | `{}`        | JSON object mapping linter names to config                  |
 
-### Inline PR Annotations
-
-Errors appear as inline annotations directly on the affected lines in the PR **Files** tab — just like ESLint. No extra tools or configuration needed.
-
 ### Action Outputs
-
-The action sets the following outputs, accessible via `steps.<id>.outputs.<name>`:
 
 | Output     | Description                              |
 | ---------- | ---------------------------------------- |
@@ -336,42 +275,7 @@ The action sets the following outputs, accessible via `steps.<id>.outputs.<name>
 | `missing`  | Rules missing enforcement annotations    |
 | `valid`    | `true` if all rules have annotations     |
 
-```yaml
-- uses: zernie/agent-lint@main
-  id: lint
-- if: always()
-  run: |
-    echo "Total: ${{ steps.lint.outputs.total }}"
-    echo "Enforced: ${{ steps.lint.outputs.enforced }}"
-    echo "Missing: ${{ steps.lint.outputs.missing }}"
-```
-
 ## Supported Tools
-
-`agent-lint` detects which AI coding tools are configured in your project and validates their instruction files. If a tool is detected but its instruction file is missing, that's an error — ensuring you don't forget to create one.
-
-| Tool           | Detected by                       | Required file                     |
-| -------------- | --------------------------------- | --------------------------------- |
-| Claude Code    | `.claude/` directory              | `CLAUDE.md`                       |
-| Cursor         | `.cursor/` directory              | `.cursorrules`                    |
-| Windsurf       | `.windsurf/` directory            | `.windsurfrules`                  |
-| OpenAI Codex   | `AGENTS.md` file                  | `AGENTS.md`                       |
-| GitHub Copilot | `.github/copilot-instructions.md` | `.github/copilot-instructions.md` |
-| Cline          | `.clinerules` file                | `.clinerules`                     |
-
-To explicitly require specific tools (even without their config directories):
-
-```json
-{
-  "agents": ["Claude Code", "Cursor"]
-}
-```
-
-You can also pass explicit paths or globs:
-
-```bash
-npx agent-lint my-instructions.md
-```
 
 ### Claude Code Integration
 
