@@ -1,5 +1,9 @@
 # vigiles
 
+> _Quis custodiet ipsos custodes?_ — Who watches the watchmen?
+>
+> **Vigiles** were the watchmen of ancient Rome. This tool watches your AI agent instruction files — the rules that watch over your codebase.
+
 Zero-config validation for AI agent instruction files. Ensures every rule in your CLAUDE.md, AGENTS.md, or .cursorrules is backed by a real linter — or explicitly marked as guidance-only.
 
 Companion repo for [Feedback Loop Is All You Need](https://zernie.com/blog/feedback-loop-is-all-you-need).
