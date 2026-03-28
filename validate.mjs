@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { readFileSync, lstatSync, globSync, existsSync } from "node:fs";
+import { readFileSync, lstatSync, existsSync } from "node:fs";
+import { globSync } from "glob";
 import { resolve, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import { createRequire } from "node:module";
