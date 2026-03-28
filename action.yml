@@ -6,7 +6,7 @@ branding:
 
 inputs:
   paths:
-    description: "Comma-separated paths to CLAUDE.md files to validate"
+    description: "Comma-separated paths or glob patterns (e.g. '**/*.md') to validate"
     required: false
     default: "CLAUDE.md"
   follow-symlinks:
@@ -18,5 +18,5 @@ inputs:
     required: false
 
 runs:
-  using: "node20"
+  using: "node22"
   main: "action.mjs"
