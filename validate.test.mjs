@@ -99,15 +99,15 @@ describe("parseClaudeMd", () => {
 
   it("should parse disabled rules", () => {
     const rules = parseClaudeMd(
-      "### Skipped rule\n<!-- agent-lint-disable -->\n**Why:** Not relevant here.\n",
+      "### Skipped rule\n<!-- vigiles-disable -->\n**Why:** Not relevant here.\n",
     );
     assert.equal(rules.length, 1);
     assert.equal(rules[0].enforcement, "disabled");
   });
 
-  it("should handle agent-lint-disable with extra whitespace", () => {
+  it("should handle vigiles-disable with extra whitespace", () => {
     const rules = parseClaudeMd(
-      "### Skipped rule\n<!--  agent-lint-disable  -->\n",
+      "### Skipped rule\n<!--  vigiles-disable  -->\n",
     );
     assert.equal(rules[0].enforcement, "disabled");
   });
@@ -139,7 +139,7 @@ describe("parseClaudeMd with checkboxes", () => {
 
   it("should parse checked checkbox (uppercase X) with disabled", () => {
     const rules = parseClaudeMd(
-      "- [X] Skipped rule\n<!-- agent-lint-disable -->\n",
+      "- [X] Skipped rule\n<!-- vigiles-disable -->\n",
       opts,
     );
     assert.equal(rules.length, 1);
@@ -289,7 +289,7 @@ describe("loadConfig", () => {
   let originalCwd;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-config-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
     originalCwd = process.cwd();
   });
 
@@ -309,10 +309,10 @@ describe("loadConfig", () => {
     });
   });
 
-  it("should read .agent-lintrc.json", () => {
-    const configDir = mkdtempSync(join(tmpdir(), "agent-lint-config-"));
+  it("should read .vigilesrc.json", () => {
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
     writeFileSync(
-      join(configDir, ".agent-lintrc.json"),
+      join(configDir, ".vigilesrc.json"),
       JSON.stringify({ ruleMarkers: ["headings", "checkboxes"] }),
     );
     process.chdir(configDir);
@@ -323,9 +323,9 @@ describe("loadConfig", () => {
   });
 
   it("should fall back to defaults for invalid ruleMarkers", () => {
-    const configDir = mkdtempSync(join(tmpdir(), "agent-lint-config-"));
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
     writeFileSync(
-      join(configDir, ".agent-lintrc.json"),
+      join(configDir, ".vigilesrc.json"),
       JSON.stringify({ ruleMarkers: ["invalid"] }),
     );
     process.chdir(configDir);
@@ -336,9 +336,9 @@ describe("loadConfig", () => {
   });
 
   it("should merge rules config with defaults", () => {
-    const configDir = mkdtempSync(join(tmpdir(), "agent-lint-config-"));
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
     writeFileSync(
-      join(configDir, ".agent-lintrc.json"),
+      join(configDir, ".vigilesrc.json"),
       JSON.stringify({ rules: { "max-lines": 200 } }),
     );
     process.chdir(configDir);
@@ -350,9 +350,9 @@ describe("loadConfig", () => {
   });
 
   it("should allow disabling rules", () => {
-    const configDir = mkdtempSync(join(tmpdir(), "agent-lint-config-"));
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
     writeFileSync(
-      join(configDir, ".agent-lintrc.json"),
+      join(configDir, ".vigilesrc.json"),
       JSON.stringify({
         rules: { "require-annotations": false, "max-lines": false },
       }),
@@ -529,7 +529,7 @@ describe("validate", () => {
 
   it("should count disabled rules and treat them as valid", () => {
     const result = validate(
-      "### Rule A\n**Enforced by:** `eslint/rule-a`\n\n### Rule B\n<!-- agent-lint-disable -->\n\n### Rule C\n**Guidance only**\n",
+      "### Rule A\n**Enforced by:** `eslint/rule-a`\n\n### Rule B\n<!-- vigiles-disable -->\n\n### Rule C\n**Guidance only**\n",
     );
     assert.equal(result.valid, true);
     assert.equal(result.enforced, 1);
@@ -573,7 +573,7 @@ describe("readClaudeMd", () => {
   let tmpDir;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-test-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-test-"));
   });
 
   after(() => {
@@ -621,7 +621,7 @@ describe("validatePaths", () => {
   let tmpDir;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-test-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-test-"));
   });
 
   after(() => {
@@ -689,7 +689,7 @@ describe("expandGlobs", () => {
   let tmpDir;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-glob-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-glob-"));
   });
 
   after(() => {
@@ -738,7 +738,7 @@ describe("require-rule-file", () => {
   let tmpDir;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-rule-file-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-rule-file-"));
   });
 
   after(() => {
@@ -1067,7 +1067,7 @@ describe("require-rule-file", () => {
       let eslintDir;
 
       before(() => {
-        eslintDir = mkdtempSync(join(tmpdir(), "agent-lint-eslint-cfg-"));
+        eslintDir = mkdtempSync(join(tmpdir(), "vigiles-eslint-cfg-"));
         writeFileSync(
           join(eslintDir, "package.json"),
           JSON.stringify({ name: "test", private: true }),
@@ -1168,7 +1168,7 @@ describe("require-rule-file", () => {
       let ruffDir;
 
       before(() => {
-        ruffDir = mkdtempSync(join(tmpdir(), "agent-lint-ruff-cfg-"));
+        ruffDir = mkdtempSync(join(tmpdir(), "vigiles-ruff-cfg-"));
         writeFileSync(
           join(ruffDir, "ruff.toml"),
           '[lint]\nselect = ["E", "F"]\nignore = ["E501"]\n',
@@ -1247,7 +1247,7 @@ describe("require-rule-file", () => {
       let pylintDir;
 
       before(() => {
-        pylintDir = mkdtempSync(join(tmpdir(), "agent-lint-pylint-cfg-"));
+        pylintDir = mkdtempSync(join(tmpdir(), "vigiles-pylint-cfg-"));
         writeFileSync(
           join(pylintDir, ".pylintrc"),
           "[MESSAGES CONTROL]\ndisable=C0301\n",
@@ -1305,7 +1305,7 @@ describe("require-rule-file", () => {
       let rubocopDir;
 
       before(() => {
-        rubocopDir = mkdtempSync(join(tmpdir(), "agent-lint-rubocop-cfg-"));
+        rubocopDir = mkdtempSync(join(tmpdir(), "vigiles-rubocop-cfg-"));
         writeFileSync(
           join(rubocopDir, ".rubocop.yml"),
           "Style/FrozenStringLiteralComment:\n  Enabled: false\nStyle/StringLiterals:\n  Enabled: true\n  EnforcedStyle: double_quotes\n",
@@ -1364,7 +1364,7 @@ describe("require-rule-file", () => {
       let clippyDir;
 
       before(() => {
-        clippyDir = mkdtempSync(join(tmpdir(), "agent-lint-clippy-cfg-"));
+        clippyDir = mkdtempSync(join(tmpdir(), "vigiles-clippy-cfg-"));
         writeFileSync(
           join(clippyDir, "Cargo.toml"),
           '[package]\nname = "test"\nversion = "0.1.0"\n\n[lints.clippy]\nneedless_return = "allow"\ndbg_macro = "warn"\n',
@@ -1449,7 +1449,7 @@ describe("discoverInstructionFiles", () => {
   let tmpDir;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-discover-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-discover-"));
   });
 
   after(() => {
@@ -1474,7 +1474,7 @@ describe("discoverInstructionFiles", () => {
 
   it("should error when Claude Code detected but CLAUDE.md missing", () => {
     // .claude/ already exists from previous test
-    const dir = mkdtempSync(join(tmpdir(), "agent-lint-discover2-"));
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-discover2-"));
     mkdirSync(join(dir, ".claude"), { recursive: true });
     const result = discoverInstructionFiles(dir);
     assert.ok(result.detected.some((d) => d.name === "Claude Code"));
@@ -1520,7 +1520,7 @@ describe("discoverInstructionFiles", () => {
   });
 
   it("should error when Windsurf detected but .windsurfrules missing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "agent-lint-windsurf-"));
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-windsurf-"));
     mkdirSync(join(dir, ".windsurf"), { recursive: true });
     const result = discoverInstructionFiles(dir);
     assert.ok(result.detected.some((d) => d.name === "Windsurf"));
@@ -1540,7 +1540,7 @@ describe("discoverInstructionFiles", () => {
   });
 
   it("should error when Cline explicitly required but .clinerules missing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "agent-lint-cline-"));
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-cline-"));
     const result = discoverInstructionFiles(dir, ["Cline"]);
     assert.ok(result.detected.some((d) => d.name === "Cline"));
     assert.ok(result.missing.some((m) => m.tool === "Cline"));
@@ -1554,7 +1554,7 @@ describe("discoverInstructionFiles", () => {
   });
 
   it("should check explicit agents list even without indicators", () => {
-    const dir = mkdtempSync(join(tmpdir(), "agent-lint-discover3-"));
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-discover3-"));
     writeFileSync(join(dir, "CLAUDE.md"), "# Test\n");
     // No .cursor/ dir, but explicitly request Cursor check
     const result = discoverInstructionFiles(dir, ["Claude Code", "Cursor"]);

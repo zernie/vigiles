@@ -9,7 +9,7 @@ import { cosmiconfigSync } from "cosmiconfig";
 
 const ENFORCED_BY_RE = /\*\*Enforced by:\*\*/;
 const GUIDANCE_RE = /\*\*Guidance only\*\*/;
-const DISABLE_RE = /<!--\s*agent-lint-disable\s*-->/;
+const DISABLE_RE = /<!--\s*vigiles-disable\s*-->/;
 const RULE_HEADER_RE = /^###\s+(.+)$/;
 const CHECKBOX_RE = /^- \[([ xX])\]\s+(.+)$/;
 
@@ -438,8 +438,8 @@ export function discoverInstructionFiles(cwd = process.cwd(), agents = null) {
 
 export function loadConfig() {
   try {
-    const explorer = cosmiconfigSync("agent-lint", {
-      searchPlaces: [".agent-lintrc.json"],
+    const explorer = cosmiconfigSync("vigiles", {
+      searchPlaces: [".vigilesrc.json"],
       mergeSearchPlaces: false,
     });
     const result = explorer.search();
@@ -568,7 +568,7 @@ export function validate(
     if (lineCount > limit) {
       errors.push({
         rule: "max-lines",
-        message: `File has ${lineCount} lines, exceeding the limit of ${limit}. Consider splitting into subdirectory files — see https://github.com/zernie/agent-lint#organizing-rules`,
+        message: `File has ${lineCount} lines, exceeding the limit of ${limit}. Consider splitting into subdirectory files — see https://github.com/zernie/vigiles#organizing-rules`,
         line: lineCount,
       });
     }
@@ -897,7 +897,7 @@ if (
   process.argv[1] &&
   (process.argv[1].endsWith("validate.mjs") ||
     process.argv[1].endsWith("validate") ||
-    process.argv[1].endsWith("agent-lint"))
+    process.argv[1].endsWith("vigiles"))
 ) {
   const args = process.argv.slice(2);
   const followSymlinks = args.includes("--follow-symlinks");

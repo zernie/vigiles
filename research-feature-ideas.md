@@ -1,6 +1,6 @@
-# agent-lint Feature Ideas: Programming Techniques as Product Features
+# vigiles Feature Ideas: Programming Techniques as Product Features
 
-Focus: **deterministic, mechanically checkable** features that agent-lint provides **to users** of the tool. Each maps a proven programming technique to a real problem in messy production AI-adopting codebases.
+Focus: **deterministic, mechanically checkable** features that vigiles provides **to users** of the tool. Each maps a proven programming technique to a real problem in messy production AI-adopting codebases.
 
 ---
 
@@ -8,12 +8,12 @@ Focus: **deterministic, mechanically checkable** features that agent-lint provid
 
 **Analog:** Railway-oriented programming + ESLint's plugin system.
 
-**User problem:** Every team has conventions agent-lint can't anticipate. "All rules must reference a Jira ticket." "Every section must have examples." No way to add custom checks without forking.
+**User problem:** Every team has conventions vigiles can't anticipate. "All rules must reference a Jira ticket." "Every section must have examples." No way to add custom checks without forking.
 
-**What agent-lint provides:** A plugin API where each rule is a pure function `(parsedRule) → Diagnostic | null`. Rules compose in a pipeline — collect-all mode for IDEs, short-circuit for CI.
+**What vigiles provides:** A plugin API where each rule is a pure function `(parsedRule) → Diagnostic | null`. Rules compose in a pipeline — collect-all mode for IDEs, short-circuit for CI.
 
 ```js
-// .agent-lint/rules/require-jira.mjs
+// .vigiles/rules/require-jira.mjs
 export default {
   name: "require-jira",
   meta: { description: "Every rule must reference a Jira ticket" },
@@ -29,7 +29,7 @@ export default {
 ```
 
 ```json
-{ "plugins": ["./.agent-lint/rules/require-jira.mjs"] }
+{ "plugins": ["./.vigiles/rules/require-jira.mjs"] }
 ```
 
 **Railway composition:** Rules can't have side effects — they receive parsed data and return diagnostics only. Pipeline ordering is user-controlled. Each step is `Content → Result<ok, Diagnostic[]>`.
@@ -42,10 +42,10 @@ export default {
 
 **User problem:** Team has 200 ESLint rules configured. CLAUDE.md explains 5 of them. When an agent trips `no-restricted-imports`, it has no context about _why_ that rule exists — it just blindly fixes. The agent is following rules it doesn't understand.
 
-**What agent-lint provides:** A report showing which configured linter rules have corresponding CLAUDE.md entries and which don't.
+**What vigiles provides:** A report showing which configured linter rules have corresponding CLAUDE.md entries and which don't.
 
 ```
-agent-lint coverage:
+vigiles coverage:
 
   ESLint: 5 / 47 rules documented (10.6%)
 
@@ -69,7 +69,7 @@ agent-lint coverage:
 - Read linter configs (`.eslintrc`, `ruff.toml`, etc.) to get list of enabled rules
 - Cross-reference against `**Enforced by:**` annotations in instruction files
 - Report coverage percentage and undocumented rules
-- `agent-lint coverage` CLI command + `--json` output
+- `vigiles coverage` CLI command + `--json` output
 
 ---
 
@@ -79,10 +79,10 @@ agent-lint coverage:
 
 **User problem:** CLAUDE.md says `**Enforced by:** eslint/no-console` but `.eslintrc` has `"no-console": "off"`. The enforcement is a lie. The agent thinks there's a safety net, but nothing actually catches violations. It's like a smoke detector with dead batteries.
 
-**What agent-lint provides:** Cross-checks `**Enforced by:**` claims against actual linter configuration to verify the rule is enabled.
+**What vigiles provides:** Cross-checks `**Enforced by:**` claims against actual linter configuration to verify the rule is enabled.
 
 ```
-agent-lint validate CLAUDE.md:
+vigiles validate CLAUDE.md:
 
   CLAUDE.md:42  Dead enforcement: "no-console" is referenced but disabled in .eslintrc.json
   CLAUDE.md:55  Dead enforcement: "no-restricted-imports" rule not found in ESLint config
@@ -104,10 +104,10 @@ agent-lint validate CLAUDE.md:
 
 **User problem:** Instruction files change silently. Someone refactors CLAUDE.md, accidentally removes a rule or changes an enforcement annotation. Without structural awareness, PR reviewers just see markdown diffs — easy to miss that a rule was weakened.
 
-**What agent-lint provides:** `agent-lint snapshot` generates a structured JSON summary of all instruction files. Commit it. CI diffs against it. Any unexpected structural change fails the build.
+**What vigiles provides:** `vigiles snapshot` generates a structured JSON summary of all instruction files. Commit it. CI diffs against it. Any unexpected structural change fails the build.
 
 ```json
-// .agent-lint/snapshot.json (committed)
+// .vigiles/snapshot.json (committed)
 {
   "CLAUDE.md": {
     "rules": [
@@ -131,19 +131,19 @@ agent-lint validate CLAUDE.md:
 ```
 
 ```
-$ agent-lint snapshot --check
+$ vigiles snapshot --check
 Snapshot mismatch:
   - Removed rule: "Use barrel file imports" (was enforced)
   + Added rule: "Use direct imports" (guidance only)
   ~ Changed: "No console.log" enforcement: enforced → guidance
 
-Run `agent-lint snapshot --update` to accept changes.
+Run `vigiles snapshot --update` to accept changes.
 ```
 
 **Implementation:**
 
-- `agent-lint snapshot` — generate/update snapshot file
-- `agent-lint snapshot --check` — compare current state against committed snapshot
+- `vigiles snapshot` — generate/update snapshot file
+- `vigiles snapshot --check` — compare current state against committed snapshot
 - Snapshot includes: rules, enforcement status, line numbers, counts
 - Integrates with existing `parseClaudeMd` output
 
@@ -155,7 +155,7 @@ Run `agent-lint snapshot --update` to accept changes.
 
 **User problem:** Rules reference specific files, packages, and scripts that change over time. "Always use `src/utils/logger.ts`" persists months after `logger.ts` was renamed to `telemetry.ts`. The instruction is actively misleading.
 
-**What agent-lint provides:** Validates that file paths, package names, and script references in instruction files actually exist.
+**What vigiles provides:** Validates that file paths, package names, and script references in instruction files actually exist.
 
 ```
 CLAUDE.md:42  Stale reference: `src/utils/logger.ts` does not exist
@@ -172,16 +172,16 @@ CLAUDE.md:68  Stale reference: package `lodash` not found in package.json
 
 ---
 
-## 6. `agent-lint init` — Scaffold from Existing Linter Config
+## 6. `vigiles init` — Scaffold from Existing Linter Config
 
 **Analog:** `eslint --init` / `npm init` / scaffolding generators.
 
 **User problem:** Team has 200 ESLint rules, a Ruff config, and RuboCop setup — but no CLAUDE.md. Writing one from scratch is tedious and error-prone. Most teams never start because the blank page is too daunting.
 
-**What agent-lint provides:** Auto-generates a CLAUDE.md skeleton from existing linter configurations, pre-populated with `**Enforced by:**` annotations.
+**What vigiles provides:** Auto-generates a CLAUDE.md skeleton from existing linter configurations, pre-populated with `**Enforced by:**` annotations.
 
 ```
-$ agent-lint init
+$ vigiles init
 
 Detected linters:
   ✓ ESLint (47 rules enabled)
@@ -223,7 +223,7 @@ $ head CLAUDE.md
 
 **User problem:** `max-lines: 500` is crude. A 200-line file with code block examples burns more tokens than a 400-line file of terse rules. Teams have no visibility into what's eating their context window — the scarce resource.
 
-**What agent-lint provides:** Actual token counting with per-section breakdown and configurable budgets.
+**What vigiles provides:** Actual token counting with per-section breakdown and configurable budgets.
 
 ```
 CLAUDE.md token budget: 1550 / 2000
@@ -249,7 +249,7 @@ CLAUDE.md token budget: 1550 / 2000
 
 **User problem:** Teams write skills and hooks but can't mechanically distinguish "safe to auto-run" from "touches production." A hook called "validate" could secretly `curl` an external API. Without coloring, every skill is equally opaque.
 
-**What agent-lint provides:** Validates that skills declare their side-effect level, and that the declaration matches the skill body.
+**What vigiles provides:** Validates that skills declare their side-effect level, and that the declaration matches the skill body.
 
 ```markdown
 <!-- In SKILL.md -->
@@ -257,7 +257,7 @@ CLAUDE.md token budget: 1550 / 2000
 **Side effects:** none
 ```
 
-agent-lint scans for tool references and command patterns:
+vigiles scans for tool references and command patterns:
 
 - `Read`, `Grep`, `Glob` → `none`
 - `Write`, `Edit` → `local-fs`
@@ -273,7 +273,7 @@ Mismatch = lint error: `Skill "audit" declares "none" but references Write tool`
 
 **User problem:** PostToolUse hooks in `.claude/settings.json` are opaque shell strings. They reference nonexistent scripts, use invalid matchers, or silently fail. Nobody discovers the breakage until an agent session goes wrong.
 
-**What agent-lint provides:** Validates hook commands, matchers, and file references.
+**What vigiles provides:** Validates hook commands, matchers, and file references.
 
 ```
 .claude/settings.json:
@@ -297,10 +297,10 @@ Mismatch = lint error: `Skill "audit" declares "none" but references Write tool`
 
 **User problem:** Someone removes `**Enforced by:**` in a PR. No CI catches the regression. The rule silently becomes unenforced — the instruction equivalent of `DROP CONSTRAINT` with no migration review.
 
-**What agent-lint provides:** A `diff` command that structurally compares instruction files between versions and classifies changes.
+**What vigiles provides:** A `diff` command that structurally compares instruction files between versions and classifies changes.
 
 ```
-agent-lint diff base..head:
+vigiles diff base..head:
 
   ✓ added      "Validate API responses" (enforced by zod/schema)
   ⚠ weakened   "No console.log" — was enforced, now guidance-only
@@ -312,9 +312,9 @@ agent-lint diff base..head:
 
 **Implementation:**
 
-- `agent-lint diff <base-file> <head-file>` CLI
+- `vigiles diff <base-file> <head-file>` CLI
 - GitHub Action mode: auto-fetch base, post PR comment
-- Suppress with `<!-- agent-lint: intentional-weakening -->`
+- Suppress with `<!-- vigiles: intentional-weakening -->`
 
 ---
 
@@ -324,10 +324,10 @@ agent-lint diff base..head:
 
 **User problem:** Root CLAUDE.md says "See `src/api/CLAUDE.md` for API conventions." That file was deleted last sprint. Or: two files reference each other cyclically, creating ambiguity about which takes precedence.
 
-**What agent-lint provides:** Maps cross-references between instruction files, validates targets exist, detects cycles.
+**What vigiles provides:** Maps cross-references between instruction files, validates targets exist, detects cycles.
 
 ```
-agent-lint graph:
+vigiles graph:
   CLAUDE.md → src/api/CLAUDE.md ✓
   CLAUDE.md → src/ui/CLAUDE.md  ✗ (file not found)
   src/api/CLAUDE.md → CLAUDE.md  (cycle detected ⚠)
@@ -339,9 +339,9 @@ agent-lint graph:
 
 **Analog:** TypeScript strict mode / config key spell-check.
 
-**User problem:** `**Enforced By:**` (wrong case), `**Enforce by:**` (wrong word), `**Guidance:**` (missing "only") — these silently fail to be recognized. The rule looks annotated to humans, but agent-lint doesn't match it, producing confusing false positives.
+**User problem:** `**Enforced By:**` (wrong case), `**Enforce by:**` (wrong word), `**Guidance:**` (missing "only") — these silently fail to be recognized. The rule looks annotated to humans, but vigiles doesn't match it, producing confusing false positives.
 
-**What agent-lint provides:** Catches near-miss annotations via Levenshtein distance and suggests fixes.
+**What vigiles provides:** Catches near-miss annotations via Levenshtein distance and suggests fixes.
 
 ```
 CLAUDE.md:15  Near-miss: "**Enforced By:**" → did you mean "**Enforced by:**"?

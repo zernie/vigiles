@@ -1,4 +1,4 @@
-name: "agent-lint"
+name: "vigiles"
 description: "Validate that CLAUDE.md rules have enforcement annotations"
 branding:
   icon: "check-circle"
