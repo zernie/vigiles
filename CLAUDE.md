@@ -20,6 +20,13 @@ agent-lint — ESLint for AI agents. Validates that instruction files (CLAUDE.md
 - `node validate.mjs CLAUDE.md` — Validate this file
 - `node validate.mjs --markers=headings,checkboxes CLAUDE.md` — Validate with both marker types
 
+## Principles
+
+### Zero config by default
+
+**Enforced by:** `code-review`
+**Why:** agent-lint should work out of the box with no config file and no CLI flags. Auto-detect instruction files, linters, and rule markers. Config exists only for overrides, not for basic operation.
+
 ## Architecture
 
 Single-file core (`validate.mjs`). Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`.
@@ -30,6 +37,7 @@ Named validation rules (togglable in config under `rules`):
 
 - `require-annotations` (default: `true`) — every rule marker needs an enforcement annotation
 - `max-lines` (default: `500`) — caps file length; set a number for custom limit, `false` to disable
+- `require-rule-file` (default: `"auto"`) — validates referenced linter rules exist; auto-detects eslint, stylelint, ruff, clippy, pylint, rubocop
 
 ## Rules
 

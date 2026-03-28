@@ -6,15 +6,26 @@ branding:
 
 inputs:
   paths:
-    description: "Comma-separated paths to CLAUDE.md files to validate"
+    description: "Comma-separated paths or glob patterns. Auto-discovers CLAUDE.md, AGENTS.md, .cursorrules, etc. if omitted."
     required: false
-    default: "CLAUDE.md"
   follow-symlinks:
     description: "Follow symbolic links when reading CLAUDE.md files"
     required: false
     default: "false"
   markers:
     description: "Comma-separated rule marker types: headings, checkboxes"
+    required: false
+  require-annotations:
+    description: "Require enforcement annotations on rules (true/false)"
+    required: false
+  max-lines:
+    description: "Max lines per file (number or 'false' to disable)"
+    required: false
+  require-rule-file:
+    description: "Validate linter rules exist ('auto', 'true', or 'false')"
+    required: false
+  linters:
+    description: 'JSON object mapping linter names to config (e.g. ''{"my-tool":{"rulesDir":"rules/"}}'')'
     required: false
 
 runs:

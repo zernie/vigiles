@@ -10,9 +10,11 @@
     "fmt:check": "prettier --check ."
   },
   "devDependencies": {
+    "eslint": "^10.1.0",
     "prettier": "^3.8.1"
   },
   "dependencies": {
-    "cosmiconfig": "^9.0.1"
+    "cosmiconfig": "^9.0.1",
+    "glob": "^13.0.6"
   }
 }

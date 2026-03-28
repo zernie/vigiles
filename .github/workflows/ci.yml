@@ -15,8 +15,35 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-ruff-pylint
+
+      - name: Cache gem packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/gem
+          key: gem-${{ runner.os }}-rubocop
 
       - run: npm ci
+
+      - name: Install linter CLIs for tests
+        run: |
+          pip install ruff pylint
+          gem install rubocop
+          rustup component add clippy
 
       - name: Run tests
         run: npm test

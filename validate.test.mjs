@@ -14,6 +14,8 @@ import {
   parseClaudeMd,
   readClaudeMd,
   validatePaths,
+  expandGlobs,
+  discoverInstructionFiles,
   loadConfig,
 } from "./validate.mjs";
 
@@ -299,10 +301,11 @@ describe("loadConfig", () => {
   it("should return defaults when no config file exists", () => {
     process.chdir(tmpDir);
     const config = loadConfig();
-    assert.deepEqual(config.ruleMarkers, ["headings"]);
+    assert.deepEqual(config.ruleMarkers, ["headings", "checkboxes"]);
     assert.deepEqual(config.rules, {
       "require-annotations": true,
       "max-lines": 500,
+      "require-rule-file": "auto",
     });
   });
 
@@ -327,7 +330,7 @@ describe("loadConfig", () => {
     );
     process.chdir(configDir);
     const config = loadConfig();
-    assert.deepEqual(config.ruleMarkers, ["headings"]);
+    assert.deepEqual(config.ruleMarkers, ["headings", "checkboxes"]);
     process.chdir(originalCwd);
     rmSync(configDir, { recursive: true, force: true });
   });
@@ -679,5 +682,502 @@ describe("validatePaths", () => {
     assert.equal(valid, true);
     assert.equal(fileResults[0].skipped, false);
     assert.equal(fileResults[0].result.enforced, 1);
+  });
+});
+
+describe("expandGlobs", () => {
+  let tmpDir;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-glob-"));
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should pass through plain paths unchanged", () => {
+    const result = expandGlobs(["CLAUDE.md", "foo/AGENTS.md"]);
+    assert.deepEqual(result, ["CLAUDE.md", "foo/AGENTS.md"]);
+  });
+
+  it("should expand glob patterns into matching files", () => {
+    writeFileSync(join(tmpDir, "a.md"), "# A\n");
+    writeFileSync(join(tmpDir, "b.md"), "# B\n");
+    writeFileSync(join(tmpDir, "c.txt"), "not md\n");
+
+    const result = expandGlobs([join(tmpDir, "*.md")]);
+    assert.equal(result.length, 2);
+    assert.ok(result.some((p) => p.endsWith("a.md")));
+    assert.ok(result.some((p) => p.endsWith("b.md")));
+    assert.ok(!result.some((p) => p.endsWith("c.txt")));
+  });
+
+  it("should expand recursive globs", () => {
+    const subDir = join(tmpDir, "sub");
+    mkdirSync(subDir, { recursive: true });
+    writeFileSync(join(subDir, "nested.md"), "# Nested\n");
+
+    const result = expandGlobs([join(tmpDir, "**/*.md")]);
+    assert.ok(result.some((p) => p.endsWith("nested.md")));
+  });
+
+  it("should return empty for globs matching nothing", () => {
+    const result = expandGlobs([join(tmpDir, "*.nonexistent")]);
+    assert.deepEqual(result, []);
+  });
+
+  it("should mix plain paths and globs", () => {
+    const result = expandGlobs(["plain.md", join(tmpDir, "*.md")]);
+    assert.equal(result[0], "plain.md");
+    assert.ok(result.length > 1);
+  });
+});
+
+describe("require-rule-file", () => {
+  let tmpDir;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-rule-file-"));
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should not check rules when disabled", () => {
+    const result = validate("### Rule\n**Enforced by:** `eslint/fake-xyz`\n", {
+      rules: { "require-rule-file": false },
+      basePath: tmpDir,
+    });
+    assert.equal(
+      result.errors.filter((e) => e.rule === "require-rule-file").length,
+      0,
+    );
+  });
+
+  it("should skip when no basePath is provided", () => {
+    const result = validate("### Rule\n**Enforced by:** `eslint/fake-xyz`\n", {
+      rules: { "require-rule-file": "auto" },
+    });
+    assert.equal(
+      result.errors.filter((e) => e.rule === "require-rule-file").length,
+      0,
+    );
+  });
+
+  it("should detect eslint built-in rules via API", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `eslint/no-console`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    assert.equal(
+      result.errors.filter((e) => e.rule === "require-rule-file").length,
+      0,
+    );
+    assert.ok(result.detectedLinters.some((l) => l.name === "eslint"));
+  });
+
+  it("should error on nonexistent eslint rule", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `eslint/completely-fake-rule-xyz`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 1);
+    assert.ok(ruleErrors[0].message.includes("completely-fake-rule-xyz"));
+    assert.ok(ruleErrors[0].message.includes("eslint"));
+  });
+
+  it("should report detected linters with rule count", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `eslint/no-console`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const eslint = result.detectedLinters.find((l) => l.name === "eslint");
+    assert.ok(eslint);
+    assert.ok(eslint.ruleCount > 0);
+  });
+
+  it("should detect ruff rules via CLI", () => {
+    const result = validate("### Rule\n**Enforced by:** `ruff/E501`\n", {
+      rules: { "require-rule-file": "auto" },
+      basePath: process.cwd(),
+    });
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 0);
+    assert.ok(result.detectedLinters.some((l) => l.name === "ruff"));
+  });
+
+  it("should error on nonexistent ruff rule", () => {
+    const result = validate("### Rule\n**Enforced by:** `ruff/FAKE999`\n", {
+      rules: { "require-rule-file": "auto" },
+      basePath: process.cwd(),
+    });
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 1);
+    assert.ok(ruleErrors[0].message.includes("FAKE999"));
+  });
+
+  it("should detect clippy rules via CLI", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `clippy::needless_return`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 0);
+    assert.ok(result.detectedLinters.some((l) => l.name === "clippy"));
+  });
+
+  it("should skip gracefully when stylelint is not installed", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `stylelint/color-no-invalid-hex`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    // stylelint not installed, no resolver found -> skip
+    assert.equal(ruleErrors.length, 0);
+  });
+
+  it("should detect pylint rules via CLI", () => {
+    const result = validate("### Rule\n**Enforced by:** `pylint/C0301`\n", {
+      rules: { "require-rule-file": "auto" },
+      basePath: process.cwd(),
+    });
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 0);
+    assert.ok(result.detectedLinters.some((l) => l.name === "pylint"));
+  });
+
+  it("should error on nonexistent pylint rule", () => {
+    const result = validate("### Rule\n**Enforced by:** `pylint/ZZZZ9999`\n", {
+      rules: { "require-rule-file": "auto" },
+      basePath: process.cwd(),
+    });
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 1);
+    assert.ok(ruleErrors[0].message.includes("ZZZZ9999"));
+  });
+
+  it("should detect rubocop rules via CLI", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `rubocop/Style/FrozenStringLiteralComment`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 0);
+    assert.ok(result.detectedLinters.some((l) => l.name === "rubocop"));
+  });
+
+  it("should error on nonexistent rubocop cop", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `rubocop/Fake/NonExistentCop`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 1);
+    assert.ok(ruleErrors[0].message.includes("Fake/NonExistentCop"));
+  });
+
+  it("should check rulesDir for custom rubocop cops", () => {
+    const rulesDir = join(tmpDir, "rubocop-custom");
+    mkdirSync(rulesDir, { recursive: true });
+    writeFileSync(join(rulesDir, "MyCustomCop.rb"), "# custom cop\n");
+
+    const result = validate(
+      "### Rule A\n**Enforced by:** `rubocop-custom/MyCustomCop`\n### Rule B\n**Enforced by:** `rubocop-custom/MissingCop`\n",
+      {
+        rules: { "require-rule-file": "auto" },
+        basePath: tmpDir,
+        linters: { "rubocop-custom": { rulesDir: "rubocop-custom" } },
+      },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 1);
+    assert.ok(ruleErrors[0].message.includes("MissingCop"));
+  });
+
+  it("should error on nonexistent clippy lint", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `clippy::completely_fake_lint_xyz`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 1);
+    assert.ok(ruleErrors[0].message.includes("completely_fake_lint_xyz"));
+  });
+
+  it("should skip unknown linters with no config", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `unknown-tool/some-rule`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: tmpDir },
+    );
+    assert.equal(
+      result.errors.filter((e) => e.rule === "require-rule-file").length,
+      0,
+    );
+  });
+
+  it("should skip rules with unsafe characters in name", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `eslint/no-console; rm -rf /`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    // Should not crash or execute shell commands
+    assert.equal(
+      result.errors.filter((e) => e.rule === "require-rule-file").length,
+      0,
+    );
+  });
+
+  it("should check rulesDir for custom linters", () => {
+    const rulesDir = join(tmpDir, "my-rules");
+    mkdirSync(rulesDir, { recursive: true });
+    writeFileSync(join(rulesDir, "check-foo.js"), "module.exports = {};\n");
+
+    const result = validate(
+      "### Rule A\n**Enforced by:** `my-tool/check-foo`\n### Rule B\n**Enforced by:** `my-tool/check-bar`\n",
+      {
+        rules: { "require-rule-file": "auto" },
+        basePath: tmpDir,
+        linters: { "my-tool": { rulesDir: "my-rules" } },
+      },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 1);
+    assert.ok(ruleErrors[0].message.includes("check-bar"));
+  });
+
+  it("should error when configured rulesDir does not exist", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `my-tool/check-foo`\n",
+      {
+        rules: { "require-rule-file": "auto" },
+        basePath: tmpDir,
+        linters: { "my-tool": { rulesDir: "nonexistent-dir" } },
+      },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 1);
+    assert.ok(ruleErrors[0].message.includes("does not exist"));
+  });
+
+  it("should skip all CLI linters gracefully when not on PATH", () => {
+    // Use a fake PATH so no CLI tools are found
+    const origPath = process.env.PATH;
+    process.env.PATH = tmpDir; // empty dir, no binaries
+    try {
+      const content = [
+        "### R1\n**Enforced by:** `ruff/E501`",
+        "### R2\n**Enforced by:** `clippy::needless_return`",
+        "### R3\n**Enforced by:** `pylint/C0301`",
+        "### R4\n**Enforced by:** `rubocop/Style/FrozenStringLiteralComment`",
+      ].join("\n");
+      const result = validate(content, {
+        rules: { "require-rule-file": "auto" },
+        basePath: tmpDir,
+      });
+      // No CLI tools found → no require-rule-file errors (all skipped)
+      const ruleErrors = result.errors.filter(
+        (e) => e.rule === "require-rule-file",
+      );
+      assert.equal(ruleErrors.length, 0);
+      // None should be detected
+      assert.equal(
+        result.detectedLinters.filter((l) =>
+          ["ruff", "clippy", "pylint", "rubocop"].includes(l.name),
+        ).length,
+        0,
+      );
+    } finally {
+      process.env.PATH = origPath;
+    }
+  });
+
+  it("should not error on eslint rules when require-rule-file is disabled", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `eslint/no-console`\n",
+      { rules: { "require-rule-file": false }, basePath: tmpDir },
+    );
+    assert.equal(
+      result.errors.filter((e) => e.rule === "require-rule-file").length,
+      0,
+    );
+    assert.equal(result.detectedLinters.length, 0);
+  });
+
+  it("should handle eslint plugin-style rule names with slash", () => {
+    // eslint/import/no-unresolved — plugin not installed, should error
+    const result = validate(
+      "### Rule\n**Enforced by:** `eslint/import/no-unresolved`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    // Should error because eslint-plugin-import isn't installed
+    assert.equal(ruleErrors.length, 1);
+    assert.ok(ruleErrors[0].message.includes("import/no-unresolved"));
+  });
+
+  it("should skip uninstalled eslint plugin linter names gracefully", () => {
+    // @typescript-eslint/no-explicit-any — plugin not installed, skip
+    const result = validate(
+      "### Rule\n**Enforced by:** `@typescript-eslint/no-explicit-any`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    // Plugin not installed, so no resolver found -> skip (no error in auto mode)
+    assert.equal(ruleErrors.length, 0);
+  });
+});
+
+describe("discoverInstructionFiles", () => {
+  let tmpDir;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "agent-lint-discover-"));
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should return empty when no agents detected", () => {
+    const result = discoverInstructionFiles(tmpDir);
+    assert.equal(result.detected.length, 0);
+    assert.equal(result.files.length, 0);
+    assert.equal(result.missing.length, 0);
+  });
+
+  it("should detect Claude Code via .claude/ dir and find CLAUDE.md", () => {
+    mkdirSync(join(tmpDir, ".claude"), { recursive: true });
+    writeFileSync(join(tmpDir, "CLAUDE.md"), "# Test\n");
+    const result = discoverInstructionFiles(tmpDir);
+    assert.ok(result.detected.some((d) => d.name === "Claude Code"));
+    assert.ok(result.files.includes("CLAUDE.md"));
+    assert.equal(result.missing.length, 0);
+  });
+
+  it("should error when Claude Code detected but CLAUDE.md missing", () => {
+    // .claude/ already exists from previous test
+    const dir = mkdtempSync(join(tmpdir(), "agent-lint-discover2-"));
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    const result = discoverInstructionFiles(dir);
+    assert.ok(result.detected.some((d) => d.name === "Claude Code"));
+    assert.equal(result.files.length, 0);
+    assert.equal(result.missing.length, 1);
+    assert.equal(result.missing[0].tool, "Claude Code");
+    assert.equal(result.missing[0].expected, "CLAUDE.md");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("should detect Cursor via .cursor/ dir", () => {
+    mkdirSync(join(tmpDir, ".cursor"), { recursive: true });
+    writeFileSync(join(tmpDir, ".cursorrules"), "rules\n");
+    const result = discoverInstructionFiles(tmpDir);
+    assert.ok(result.detected.some((d) => d.name === "Cursor"));
+    assert.ok(result.files.includes(".cursorrules"));
+  });
+
+  it("should detect Codex via AGENTS.md file", () => {
+    writeFileSync(join(tmpDir, "AGENTS.md"), "# Test\n");
+    const result = discoverInstructionFiles(tmpDir);
+    assert.ok(result.detected.some((d) => d.name === "OpenAI Codex"));
+    assert.ok(result.files.includes("AGENTS.md"));
+  });
+
+  it("should detect Copilot via instruction file", () => {
+    mkdirSync(join(tmpDir, ".github"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, ".github/copilot-instructions.md"),
+      "# Copilot\n",
+    );
+    const result = discoverInstructionFiles(tmpDir);
+    assert.ok(result.detected.some((d) => d.name === "GitHub Copilot"));
+    assert.ok(result.files.includes(".github/copilot-instructions.md"));
+  });
+
+  it("should detect Windsurf via .windsurf/ dir and find .windsurfrules", () => {
+    mkdirSync(join(tmpDir, ".windsurf"), { recursive: true });
+    writeFileSync(join(tmpDir, ".windsurfrules"), "rules\n");
+    const result = discoverInstructionFiles(tmpDir);
+    assert.ok(result.detected.some((d) => d.name === "Windsurf"));
+    assert.ok(result.files.includes(".windsurfrules"));
+  });
+
+  it("should error when Windsurf detected but .windsurfrules missing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-lint-windsurf-"));
+    mkdirSync(join(dir, ".windsurf"), { recursive: true });
+    const result = discoverInstructionFiles(dir);
+    assert.ok(result.detected.some((d) => d.name === "Windsurf"));
+    assert.ok(result.missing.some((m) => m.tool === "Windsurf"));
+    assert.equal(
+      result.missing.find((m) => m.tool === "Windsurf").expected,
+      ".windsurfrules",
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("should detect Cline via .clinerules file", () => {
+    writeFileSync(join(tmpDir, ".clinerules"), "rules\n");
+    const result = discoverInstructionFiles(tmpDir);
+    assert.ok(result.detected.some((d) => d.name === "Cline"));
+    assert.ok(result.files.includes(".clinerules"));
+  });
+
+  it("should error when Cline explicitly required but .clinerules missing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-lint-cline-"));
+    const result = discoverInstructionFiles(dir, ["Cline"]);
+    assert.ok(result.detected.some((d) => d.name === "Cline"));
+    assert.ok(result.missing.some((m) => m.tool === "Cline"));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("should detect multiple tools at once", () => {
+    const result = discoverInstructionFiles(tmpDir);
+    assert.ok(result.detected.length >= 4);
+    assert.ok(result.files.length >= 4);
+  });
+
+  it("should check explicit agents list even without indicators", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-lint-discover3-"));
+    writeFileSync(join(dir, "CLAUDE.md"), "# Test\n");
+    // No .cursor/ dir, but explicitly request Cursor check
+    const result = discoverInstructionFiles(dir, ["Claude Code", "Cursor"]);
+    assert.ok(result.detected.some((d) => d.name === "Claude Code"));
+    assert.ok(result.detected.some((d) => d.name === "Cursor"));
+    assert.ok(result.files.includes("CLAUDE.md"));
+    // Cursor detected but .cursorrules missing
+    assert.ok(result.missing.some((m) => m.tool === "Cursor"));
+    rmSync(dir, { recursive: true, force: true });
   });
 });
