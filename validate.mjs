@@ -262,29 +262,36 @@ const LINTER_CONFIG_CHECKERS = {
 
   ruff: createCachedChecker((basePath) => {
     try {
-      // ruff check --show-settings outputs resolved config including selected rules
-      const output = execSync(
-        "ruff check --show-settings --stdin-filename=dummy.py",
-        {
-          encoding: "utf-8",
-          cwd: basePath,
-          input: "",
-          stdio: ["pipe", "pipe", "pipe"],
-          timeout: 10000,
-        },
+      // ruff check --show-settings needs a real file to resolve against
+      // Create a temporary dummy file path, or use an existing .py file
+      const dummyPath = resolve(basePath, "dummy.py");
+      const output = execSync(`ruff check --show-settings ${dummyPath}`, {
+        encoding: "utf-8",
+        cwd: basePath,
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 10000,
+      });
+      // Output format: linter.rules.enabled lists rules as "rule-name (CODE),"
+      // Extract the enabled rules section
+      const enabledMatch = output.match(
+        /linter\.rules\.enabled\s*=\s*\[([\s\S]*?)\]/,
       );
-      // Extract the selected rules from the settings output
-      // Look for patterns like: select = ["E", "F", "W"] or rule codes in the output
-      return (ruleName) => {
-        // Ruff codes are hierarchical: selecting "E" enables "E501"
-        // Check if the rule or any prefix of it appears in the output
-        if (output.includes(`"${ruleName}"`)) return "enabled";
-        // Check prefixes: E501 is enabled if E5 or E or E50 is selected
-        for (let i = ruleName.length - 1; i >= 1; i--) {
-          if (output.includes(`"${ruleName.substring(0, i)}"`))
-            return "enabled";
+      const enabledCodes = new Set();
+      if (enabledMatch) {
+        // Extract rule codes from "rule-name (CODE)," lines
+        const codeRe = /\(([A-Z]+\d*)\)/g;
+        let m;
+        while ((m = codeRe.exec(enabledMatch[1])) !== null) {
+          enabledCodes.add(m[1]);
         }
-        // Check if explicitly ignored
+      }
+      return (ruleName) => {
+        // Direct match
+        if (enabledCodes.has(ruleName)) return "enabled";
+        // Hierarchical: check if any enabled code starts with this prefix
+        for (const code of enabledCodes) {
+          if (code.startsWith(ruleName)) return "enabled";
+        }
         return "disabled";
       };
     } catch {
