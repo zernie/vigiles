@@ -838,6 +838,67 @@ describe("require-rule-file", () => {
     assert.ok(result.detectedLinters.some((l) => l.name === "clippy"));
   });
 
+  it("should skip gracefully when stylelint is not installed", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `stylelint/color-no-invalid-hex`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    // stylelint not installed, no resolver found -> skip
+    assert.equal(ruleErrors.length, 0);
+  });
+
+  it("should detect pylint rules via CLI", () => {
+    // pylint may or may not be on PATH — test handles both
+    const result = validate("### Rule\n**Enforced by:** `pylint/C0301`\n", {
+      rules: { "require-rule-file": "auto" },
+      basePath: process.cwd(),
+    });
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    // If pylint is on PATH, C0301 (line-too-long) should be valid
+    // If pylint is not on PATH, should skip gracefully
+    assert.equal(ruleErrors.length, 0);
+  });
+
+  it("should error on nonexistent pylint rule if pylint available", () => {
+    const result = validate("### Rule\n**Enforced by:** `pylint/ZZZZ9999`\n", {
+      rules: { "require-rule-file": "auto" },
+      basePath: process.cwd(),
+    });
+    const pylintDetected = result.detectedLinters.some(
+      (l) => l.name === "pylint",
+    );
+    if (pylintDetected) {
+      const ruleErrors = result.errors.filter(
+        (e) => e.rule === "require-rule-file",
+      );
+      assert.equal(ruleErrors.length, 1);
+      assert.ok(ruleErrors[0].message.includes("ZZZZ9999"));
+    }
+    // If pylint not on PATH, skip — no assertion needed
+  });
+
+  it("should error on nonexistent clippy lint", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `clippy::completely_fake_lint_xyz`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const clippyDetected = result.detectedLinters.some(
+      (l) => l.name === "clippy",
+    );
+    if (clippyDetected) {
+      const ruleErrors = result.errors.filter(
+        (e) => e.rule === "require-rule-file",
+      );
+      assert.equal(ruleErrors.length, 1);
+      assert.ok(ruleErrors[0].message.includes("completely_fake_lint_xyz"));
+    }
+  });
+
   it("should skip unknown linters with no config", () => {
     const result = validate(
       "### Rule\n**Enforced by:** `unknown-tool/some-rule`\n",
@@ -989,6 +1050,42 @@ describe("discoverInstructionFiles", () => {
     const result = discoverInstructionFiles(tmpDir);
     assert.ok(result.detected.some((d) => d.name === "GitHub Copilot"));
     assert.ok(result.files.includes(".github/copilot-instructions.md"));
+  });
+
+  it("should detect Windsurf via .windsurf/ dir and find .windsurfrules", () => {
+    mkdirSync(join(tmpDir, ".windsurf"), { recursive: true });
+    writeFileSync(join(tmpDir, ".windsurfrules"), "rules\n");
+    const result = discoverInstructionFiles(tmpDir);
+    assert.ok(result.detected.some((d) => d.name === "Windsurf"));
+    assert.ok(result.files.includes(".windsurfrules"));
+  });
+
+  it("should error when Windsurf detected but .windsurfrules missing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-lint-windsurf-"));
+    mkdirSync(join(dir, ".windsurf"), { recursive: true });
+    const result = discoverInstructionFiles(dir);
+    assert.ok(result.detected.some((d) => d.name === "Windsurf"));
+    assert.ok(result.missing.some((m) => m.tool === "Windsurf"));
+    assert.equal(
+      result.missing.find((m) => m.tool === "Windsurf").expected,
+      ".windsurfrules",
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("should detect Cline via .clinerules file", () => {
+    writeFileSync(join(tmpDir, ".clinerules"), "rules\n");
+    const result = discoverInstructionFiles(tmpDir);
+    assert.ok(result.detected.some((d) => d.name === "Cline"));
+    assert.ok(result.files.includes(".clinerules"));
+  });
+
+  it("should error when Cline explicitly required but .clinerules missing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-lint-cline-"));
+    const result = discoverInstructionFiles(dir, ["Cline"]);
+    assert.ok(result.detected.some((d) => d.name === "Cline"));
+    assert.ok(result.missing.some((m) => m.tool === "Cline"));
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it("should detect multiple tools at once", () => {
