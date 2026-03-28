@@ -52,12 +52,51 @@ function ruleFileExists(ruleName, rulesDir, basePath) {
   return matches.length > 0;
 }
 
+// Try to resolve an ESLint plugin's rules by package name
+function resolveEslintPluginRules(pluginName, basePath) {
+  try {
+    const req = createRequire(resolve(basePath, "package.json"));
+    // @scope/foo -> @scope/eslint-plugin-foo, or @scope -> @scope/eslint-plugin
+    // foo -> eslint-plugin-foo
+    let pkgNames;
+    if (pluginName.startsWith("@")) {
+      const parts = pluginName.split("/");
+      if (parts.length === 1) {
+        pkgNames = [`${parts[0]}/eslint-plugin`];
+      } else {
+        pkgNames = [
+          `${parts[0]}/eslint-plugin-${parts[1]}`,
+          `${parts[0]}/eslint-plugin`,
+        ];
+      }
+    } else {
+      pkgNames = [`eslint-plugin-${pluginName}`];
+    }
+    for (const pkg of pkgNames) {
+      try {
+        const plugin = req(pkg);
+        const rules = plugin.rules || (plugin.default && plugin.default.rules);
+        if (rules) return new Set(Object.keys(rules));
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // Built-in resolvers: return a Set of valid rule names, or null if linter not available
 const LINTER_RESOLVERS = {
   eslint(basePath) {
     const req = createRequire(resolve(basePath, "package.json"));
     const { builtinRules } = req("eslint/use-at-your-own-risk");
-    return new Set(builtinRules.keys());
+    const rules = new Set(builtinRules.keys());
+    // Tag with basePath so we can resolve plugins later
+    rules._basePath = basePath;
+    rules._isEslint = true;
+    return rules;
   },
   stylelint(basePath) {
     const req = createRequire(resolve(basePath, "package.json"));
@@ -264,6 +303,18 @@ export function validate(
           }
         }
 
+        // Try as ESLint plugin (e.g. @typescript-eslint, import, react)
+        if (!result) {
+          const pluginRules = resolveEslintPluginRules(linterName, basePath);
+          if (pluginRules) {
+            result = pluginRules;
+            detectedLinters.push({
+              name: linterName,
+              ruleCount: pluginRules.size,
+            });
+          }
+        }
+
         // Try CLI resolver
         if (!result && CLI_RULE_CHECKS[linterName]) {
           const tool = CLI_TOOL_FOR_LINTER[linterName];
@@ -284,11 +335,28 @@ export function validate(
       // Check via Node API resolver (Set of rules)
       if (resolved instanceof Set) {
         if (!resolved.has(ruleName)) {
-          errors.push({
-            rule: "require-rule-file",
-            message: `Rule "${ruleName}" not found in ${linterName} (referenced in "${rule.title}", line ${rule.line})`,
-            line: rule.line,
-          });
+          // For eslint: rule might be a plugin rule (e.g. "import/no-unresolved")
+          let foundInPlugin = false;
+          if (resolved._isEslint && ruleName.includes("/")) {
+            const pluginPrefix = ruleName.substring(0, ruleName.indexOf("/"));
+            const pluginRuleName = ruleName.substring(
+              ruleName.indexOf("/") + 1,
+            );
+            const pluginRules = resolveEslintPluginRules(
+              pluginPrefix,
+              resolved._basePath,
+            );
+            if (pluginRules && pluginRules.has(pluginRuleName)) {
+              foundInPlugin = true;
+            }
+          }
+          if (!foundInPlugin) {
+            errors.push({
+              rule: "require-rule-file",
+              message: `Rule "${ruleName}" not found in ${linterName} (referenced in "${rule.title}", line ${rule.line})`,
+              line: rule.line,
+            });
+          }
         }
         continue;
       }

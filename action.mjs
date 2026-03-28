@@ -10,6 +10,14 @@ const followSymlinks =
     process.env["INPUT_FOLLOW-SYMLINKS"] ||
     "false") === "true";
 const markersInput = process.env.INPUT_MARKERS || process.env["INPUT_MARKERS"];
+const requireAnnotationsInput =
+  process.env.INPUT_REQUIRE_ANNOTATIONS ||
+  process.env["INPUT_REQUIRE-ANNOTATIONS"];
+const maxLinesInput =
+  process.env.INPUT_MAX_LINES || process.env["INPUT_MAX-LINES"];
+const requireRuleFileInput =
+  process.env.INPUT_REQUIRE_RULE_FILE || process.env["INPUT_REQUIRE-RULE-FILE"];
+const lintersInput = process.env.INPUT_LINTERS || process.env["INPUT_LINTERS"];
 
 const paths = expandGlobs(
   pathsInput
@@ -23,11 +31,38 @@ const ruleMarkers = markersInput
   ? markersInput.split(",").map((m) => m.trim())
   : config.ruleMarkers;
 
+// Merge action inputs into rules config (action inputs override config file)
+const rules = { ...config.rules };
+if (requireAnnotationsInput !== undefined) {
+  rules["require-annotations"] = requireAnnotationsInput !== "false";
+}
+if (maxLinesInput !== undefined) {
+  rules["max-lines"] =
+    maxLinesInput === "false" ? false : Number(maxLinesInput) || 500;
+}
+if (requireRuleFileInput !== undefined) {
+  if (requireRuleFileInput === "false") rules["require-rule-file"] = false;
+  else if (requireRuleFileInput === "true") rules["require-rule-file"] = true;
+  else rules["require-rule-file"] = requireRuleFileInput;
+}
+
+// Merge linters config (action input overrides config file)
+let linters = config.linters;
+if (lintersInput) {
+  try {
+    linters = { ...linters, ...JSON.parse(lintersInput) };
+  } catch {
+    console.warn(
+      `Invalid linters JSON input: ${lintersInput}. Using config file value.`,
+    );
+  }
+}
+
 const { fileResults, valid } = validatePaths(paths, {
   followSymlinks,
   ruleMarkers,
-  rules: config.rules,
-  linters: config.linters,
+  rules,
+  linters,
 });
 
 let totalEnforced = 0;

@@ -147,13 +147,15 @@ Rules are named checks that can be toggled individually. Set to `false` to disab
 
 When `require-rule-file` is `"auto"` (the default), agent-lint automatically detects installed linters and validates that referenced rules exist:
 
-| Linter    | Detection                     | Method                         |
-| --------- | ----------------------------- | ------------------------------ |
-| ESLint    | `eslint` in `node_modules`    | Node API (`builtinRules`)      |
-| Stylelint | `stylelint` in `node_modules` | Node API (`rules` export)      |
-| Ruff      | `ruff` on PATH                | CLI (`ruff rule <name>`)       |
-| Clippy    | `cargo` on PATH               | CLI (`cargo clippy --explain`) |
-| Pylint    | `pylint` on PATH              | CLI (`pylint --help-msg`)      |
+| Linter    | Detection                     | Method                              |
+| --------- | ----------------------------- | ----------------------------------- |
+| ESLint    | `eslint` in `node_modules`    | Node API (`builtinRules` + plugins) |
+| Stylelint | `stylelint` in `node_modules` | Node API (`rules` export)           |
+| Ruff      | `ruff` on PATH                | CLI (`ruff rule <name>`)            |
+| Clippy    | `cargo` on PATH               | CLI (`cargo clippy --explain`)      |
+| Pylint    | `pylint` on PATH              | CLI (`pylint --help-msg`)           |
+
+ESLint plugin rules are also supported. Use `eslint/<plugin>/<rule>` for plugin rules referenced under the `eslint` linter (e.g., `eslint/import/no-unresolved`), or use the plugin name directly as the linter prefix (e.g., `@typescript-eslint/no-explicit-any`). The plugin package must be installed in `node_modules`.
 
 For custom or unsupported linters, configure a `rulesDir` to check that rule files exist:
 
@@ -297,6 +299,30 @@ Enable checkbox markers:
   with:
     markers: "headings,checkboxes"
 ```
+
+Override rules (same options as `.agent-lintrc.json`):
+
+```yaml
+- uses: zernie/agent-lint@main
+  with:
+    max-lines: "300"
+    require-rule-file: "auto"
+    linters: '{"my-tool":{"rulesDir":"rules/"}}'
+```
+
+### Action Inputs
+
+All inputs can also be set via `.agent-lintrc.json`. Action inputs override the config file.
+
+| Input                 | Default     | Description                                                 |
+| --------------------- | ----------- | ----------------------------------------------------------- |
+| `paths`               | `CLAUDE.md` | Comma-separated paths or glob patterns to validate          |
+| `follow-symlinks`     | `false`     | Follow symbolic links when reading files                    |
+| `markers`             | from config | Comma-separated rule marker types: `headings`, `checkboxes` |
+| `require-annotations` | `true`      | Require enforcement annotations on rules                    |
+| `max-lines`           | `500`       | Max lines per file (number or `false` to disable)           |
+| `require-rule-file`   | `auto`      | Validate linter rules exist (`auto`, `true`, or `false`)    |
+| `linters`             | `{}`        | JSON object mapping linter names to config                  |
 
 ### Inline PR Annotations
 

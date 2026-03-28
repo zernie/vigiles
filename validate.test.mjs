@@ -895,4 +895,31 @@ describe("require-rule-file", () => {
     assert.equal(ruleErrors.length, 1);
     assert.ok(ruleErrors[0].message.includes("does not exist"));
   });
+
+  it("should handle eslint plugin-style rule names with slash", () => {
+    // eslint/import/no-unresolved — plugin not installed, should error
+    const result = validate(
+      "### Rule\n**Enforced by:** `eslint/import/no-unresolved`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    // Should error because eslint-plugin-import isn't installed
+    assert.equal(ruleErrors.length, 1);
+    assert.ok(ruleErrors[0].message.includes("import/no-unresolved"));
+  });
+
+  it("should skip uninstalled eslint plugin linter names gracefully", () => {
+    // @typescript-eslint/no-explicit-any — plugin not installed, skip
+    const result = validate(
+      "### Rule\n**Enforced by:** `@typescript-eslint/no-explicit-any`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    // Plugin not installed, so no resolver found -> skip (no error in auto mode)
+    assert.equal(ruleErrors.length, 0);
+  });
 });
