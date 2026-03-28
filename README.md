@@ -154,6 +154,7 @@ When `require-rule-file` is `"auto"` (the default), agent-lint automatically det
 | Ruff      | `ruff` on PATH                | CLI (`ruff rule <name>`)            |
 | Clippy    | `cargo` on PATH               | CLI (`cargo clippy --explain`)      |
 | Pylint    | `pylint` on PATH              | CLI (`pylint --help-msg`)           |
+| RuboCop   | `rubocop` on PATH             | CLI (`rubocop --show-cops`)         |
 
 ESLint plugin rules are also supported. Use `eslint/<plugin>/<rule>` for plugin rules referenced under the `eslint` linter (e.g., `eslint/import/no-unresolved`), or use the plugin name directly as the linter prefix (e.g., `@typescript-eslint/no-explicit-any`). The plugin package must be installed in `node_modules`.
 

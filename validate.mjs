@@ -153,6 +153,17 @@ const CLI_RULE_CHECKS = {
   pylint(ruleName) {
     execSync(`pylint --help-msg=${ruleName}`, { stdio: "ignore" });
   },
+  rubocop(ruleName) {
+    // rubocop --show-cops exits 0 for both valid and invalid cops,
+    // but outputs nothing for invalid ones
+    const output = execSync(`rubocop --show-cops ${ruleName}`, {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    if (!output || output.trim().length === 0) {
+      throw new Error(`Unknown cop: ${ruleName}`);
+    }
+  },
 };
 
 // Check if a CLI tool is available on PATH
@@ -169,6 +180,7 @@ const CLI_TOOL_FOR_LINTER = {
   ruff: "ruff",
   clippy: "cargo",
   pylint: "pylint",
+  rubocop: "rubocop",
 };
 
 /**

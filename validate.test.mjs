@@ -882,6 +882,70 @@ describe("require-rule-file", () => {
     // If pylint not on PATH, skip — no assertion needed
   });
 
+  it("should detect rubocop rules via CLI", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `rubocop/Style/FrozenStringLiteralComment`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const rubocopDetected = result.detectedLinters.some(
+      (l) => l.name === "rubocop",
+    );
+    if (rubocopDetected) {
+      const ruleErrors = result.errors.filter(
+        (e) => e.rule === "require-rule-file",
+      );
+      assert.equal(ruleErrors.length, 0);
+    }
+    // If rubocop not on PATH, skip gracefully
+  });
+
+  it("should error on nonexistent rubocop cop", () => {
+    const result = validate(
+      "### Rule\n**Enforced by:** `rubocop/Fake/NonExistentCop`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
+    );
+    const rubocopDetected = result.detectedLinters.some(
+      (l) => l.name === "rubocop",
+    );
+    if (rubocopDetected) {
+      const ruleErrors = result.errors.filter(
+        (e) => e.rule === "require-rule-file",
+      );
+      assert.equal(ruleErrors.length, 1);
+      assert.ok(ruleErrors[0].message.includes("Fake/NonExistentCop"));
+    }
+  });
+
+  it("should skip rubocop gracefully when not on PATH", () => {
+    // Use a basePath where rubocop definitely isn't available
+    const result = validate(
+      "### Rule\n**Enforced by:** `rubocop/Style/FrozenStringLiteralComment`\n",
+      { rules: { "require-rule-file": "auto" }, basePath: tmpDir },
+    );
+    // Should not crash regardless of rubocop availability
+    assert.ok(result);
+  });
+
+  it("should check rulesDir for custom rubocop cops", () => {
+    const rulesDir = join(tmpDir, "rubocop-custom");
+    mkdirSync(rulesDir, { recursive: true });
+    writeFileSync(join(rulesDir, "MyCustomCop.rb"), "# custom cop\n");
+
+    const result = validate(
+      "### Rule A\n**Enforced by:** `rubocop-custom/MyCustomCop`\n### Rule B\n**Enforced by:** `rubocop-custom/MissingCop`\n",
+      {
+        rules: { "require-rule-file": "auto" },
+        basePath: tmpDir,
+        linters: { "rubocop-custom": { rulesDir: "rubocop-custom" } },
+      },
+    );
+    const ruleErrors = result.errors.filter(
+      (e) => e.rule === "require-rule-file",
+    );
+    assert.equal(ruleErrors.length, 1);
+    assert.ok(ruleErrors[0].message.includes("MissingCop"));
+  });
+
   it("should error on nonexistent clippy lint", () => {
     const result = validate(
       "### Rule\n**Enforced by:** `clippy::completely_fake_lint_xyz`\n",

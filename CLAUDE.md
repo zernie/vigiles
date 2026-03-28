@@ -37,7 +37,7 @@ Named validation rules (togglable in config under `rules`):
 
 - `require-annotations` (default: `true`) — every rule marker needs an enforcement annotation
 - `max-lines` (default: `500`) — caps file length; set a number for custom limit, `false` to disable
-- `require-rule-file` (default: `"auto"`) — validates referenced linter rules exist; auto-detects eslint, stylelint, ruff, clippy, pylint
+- `require-rule-file` (default: `"auto"`) — validates referenced linter rules exist; auto-detects eslint, stylelint, ruff, clippy, pylint, rubocop
 
 ## Rules
 
