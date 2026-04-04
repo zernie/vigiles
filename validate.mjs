@@ -23,181 +23,77 @@ const DEFAULT_RULES = {
 };
 const SAFE_RULE_NAME_RE = /^[a-zA-Z0-9_\-/.:#]+$/;
 
-const HEADING_RE = /^(#{1,6})\s+(.+)$/;
-
-// Built-in structure presets
+// Built-in schema presets (bundled .yml files in schemas/)
+const SCHEMAS_DIR = new URL("./schemas/", import.meta.url).pathname;
 export const STRUCTURE_PRESETS = {
-  "claude-md": {
-    sections: [
-      { heading: "# *", required: false },
-      {
-        heading: "## Commands",
-        required: false,
-        description: "Build/test/lint commands",
-      },
-      {
-        heading: "## Architecture",
-        required: false,
-        description: "Project structure overview",
-      },
-      {
-        heading: "## Rules",
-        required: false,
-        description: "Coding rules with enforcement annotations",
-      },
-    ],
-    headingRules: { noSkipLevels: true, maxDepth: 4 },
-  },
-  skill: {
-    sections: [
-      {
-        heading: "## *",
-        required: false,
-        description: "Skills use freeform ## sections",
-      },
-    ],
-    requireFrontmatter: true,
-    frontmatterFields: [
-      { name: "name", required: false },
-      { name: "description", required: true },
-    ],
-    headingRules: { noSkipLevels: false, maxDepth: 4 },
-  },
+  "claude-md": resolve(SCHEMAS_DIR, "claude-md.yml"),
+  skill: resolve(SCHEMAS_DIR, "skill.yml"),
 };
 
-/**
- * Parse all headings from markdown content.
- * Returns [{ level, title, line }]
- */
-function parseHeadings(content) {
-  const lines = content.split("\n");
-  const headings = [];
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(HEADING_RE);
-    if (m) {
-      headings.push({ level: m[1].length, title: m[2].trim(), line: i + 1 });
-    }
+// Resolve the mdschema binary path (optional dependency)
+function findMdschema() {
+  try {
+    const req = createRequire(resolve(process.cwd(), "package.json"));
+    const { getBinaryPath } = req("@jackchuka/mdschema/lib/platform");
+    const bin = getBinaryPath();
+    if (existsSync(bin)) return bin;
+  } catch {
+    // not installed via npm
   }
-  return headings;
+  // Try PATH
+  try {
+    execSync("which mdschema", { stdio: "ignore" });
+    return "mdschema";
+  } catch {
+    return null;
+  }
 }
 
-/**
- * Check if a heading title matches a section spec.
- * Supports literal match and trailing wildcard ("## *" matches any ## heading).
- */
-function headingMatches(title, spec) {
-  // spec is the heading value from a section definition, e.g. "## Commands" or "## *"
-  // strip the leading #s to get just the title part
-  const specTitle = spec.replace(/^#+\s*/, "");
-  if (specTitle === "*") return true;
-  if (specTitle.endsWith("*")) {
-    return title.startsWith(specTitle.slice(0, -1));
+let _mdschemaPath;
+function getMdschema() {
+  if (_mdschemaPath === undefined) {
+    _mdschemaPath = findMdschema();
   }
-  return title === specTitle;
+  return _mdschemaPath;
 }
 
-function specLevel(spec) {
-  const m = spec.match(/^(#+)/);
-  return m ? m[1].length : 0;
-}
+// Parse mdschema text output into error objects
+// Format: "  ✗ LINE:COL [RULE] MESSAGE"
+const MDSCHEMA_ERROR_RE = /^\s*✗\s+(\d+):(\d+)\s+\[([^\]]+)\]\s+(.+)$/;
 
 /**
- * Parse YAML frontmatter from markdown content.
- * Returns { fields: { key: value }, endLine } or null if no frontmatter.
+ * Validate a markdown file against an mdschema YAML schema.
+ * @param {string} filePath - path to the markdown file
+ * @param {string} schemaPath - path to the .mdschema.yml file
+ * @returns {{ errors: Array<{rule: string, message: string, line: number}>, available: boolean }}
  */
-function parseFrontmatter(content) {
-  const lines = content.split("\n");
-  if (lines[0] !== "---") return null;
-  const fields = {};
-  let endLine = -1;
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i] === "---") {
-      endLine = i + 1;
-      break;
-    }
-    const m = lines[i].match(/^(\w[\w-]*):\s*(.*)/);
-    if (m) {
-      fields[m[1]] = m[2].trim();
-    }
+export function validateStructure(filePath, schemaPath) {
+  const bin = getMdschema();
+  if (!bin) {
+    return { errors: [], available: false };
   }
-  if (endLine === -1) return null;
-  return { fields, endLine };
-}
-
-/**
- * Validate markdown content against a structure schema.
- * Returns an array of error objects { rule, message, line }.
- */
-export function validateStructure(content, schema) {
-  const errors = [];
-  const headings = parseHeadings(content);
-
-  // Check frontmatter
-  if (schema.requireFrontmatter) {
-    const fm = parseFrontmatter(content);
-    if (!fm) {
-      errors.push({
-        rule: "require-structure",
-        message:
-          "Missing YAML frontmatter (expected --- delimited block at top of file)",
-        line: 1,
-      });
-    } else if (schema.frontmatterFields) {
-      for (const field of schema.frontmatterFields) {
-        if (field.required && !(field.name in fm.fields)) {
-          errors.push({
-            rule: "require-structure",
-            message: `Frontmatter missing required field "${field.name}"`,
-            line: 1,
-          });
-        }
-      }
-    }
-  }
-
-  // Check heading rules
-  if (schema.headingRules) {
-    const { noSkipLevels, maxDepth } = schema.headingRules;
-    let prevLevel = 0;
-    for (const h of headings) {
-      if (maxDepth && h.level > maxDepth) {
+  try {
+    execSync(`${bin} check --schema ${schemaPath} ${filePath}`, {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 15000,
+    });
+    return { errors: [], available: true };
+  } catch (e) {
+    const output = (e.stdout || "") + (e.stderr || "");
+    const errors = [];
+    for (const line of output.split("\n")) {
+      const m = line.match(MDSCHEMA_ERROR_RE);
+      if (m) {
         errors.push({
           rule: "require-structure",
-          message: `Line ${h.line}: heading "${"#".repeat(h.level)} ${h.title}" exceeds max depth ${maxDepth}`,
-          line: h.line,
-        });
-      }
-      if (noSkipLevels && prevLevel > 0 && h.level > prevLevel + 1) {
-        errors.push({
-          rule: "require-structure",
-          message: `Line ${h.line}: heading level skips from h${prevLevel} to h${h.level} ("${h.title}")`,
-          line: h.line,
-        });
-      }
-      prevLevel = h.level;
-    }
-  }
-
-  // Check required sections
-  if (schema.sections) {
-    for (const section of schema.sections) {
-      if (!section.required) continue;
-      const level = specLevel(section.heading);
-      const specTitle = section.heading.replace(/^#+\s*/, "");
-      const found = headings.some(
-        (h) => h.level === level && headingMatches(h.title, section.heading),
-      );
-      if (!found) {
-        errors.push({
-          rule: "require-structure",
-          message: `Missing required section "${section.heading}"${section.description ? ` (${section.description})` : ""}`,
-          line: 1,
+          message: `[${m[3]}] ${m[4]}`,
+          line: parseInt(m[1], 10),
         });
       }
     }
+    return { errors, available: true };
   }
-
-  return errors;
 }
 
 // AI coding tools: presence indicators and required instruction files
@@ -617,18 +513,25 @@ export function discoverInstructionFiles(cwd = process.cwd(), agents = null) {
 }
 
 /**
- * Resolve a schema value: if it's a string, look up the preset; otherwise return as-is.
+ * Resolve a schema value to a file path.
+ * - If it's a preset name ("claude-md", "skill"), return the bundled .yml path.
+ * - If it's a file path string, resolve it relative to cwd.
+ * - Otherwise return null.
  */
 export function resolveSchema(schema) {
-  if (typeof schema === "string") {
-    const preset = STRUCTURE_PRESETS[schema];
-    if (!preset) {
-      console.warn(`Unknown structure preset: "${schema}". Skipping.`);
-      return null;
-    }
-    return preset;
+  if (typeof schema !== "string") {
+    console.warn(
+      `Invalid schema value: expected a preset name or file path string. Skipping.`,
+    );
+    return null;
   }
-  return schema;
+  const preset = STRUCTURE_PRESETS[schema];
+  if (preset) return preset;
+  // Treat as file path
+  const resolved = resolve(schema);
+  if (existsSync(resolved)) return resolved;
+  console.warn(`Schema not found: "${schema}". Skipping.`);
+  return null;
 }
 
 function resolveStructures(raw) {
@@ -788,7 +691,7 @@ export function validate(
     }
   }
 
-  // --- require-structure: validate markdown structure against schemas ---
+  // --- require-structure: validate markdown structure against schemas (via mdschema CLI) ---
   if (activeRules["require-structure"] !== false && structures && filePath) {
     for (const entry of structures) {
       // Match filePath against the glob pattern (test both full path and basename)
@@ -797,7 +700,19 @@ export function validate(
         minimatch(filePath, entry.files, { matchBase: true }) ||
         minimatch(basename, entry.files)
       ) {
-        const structErrors = validateStructure(content, entry.schema);
+        const { errors: structErrors, available } = validateStructure(
+          resolve(filePath),
+          entry.schema,
+        );
+        if (!available) {
+          errors.push({
+            rule: "require-structure",
+            message:
+              "mdschema is not installed. Install with: npm install @jackchuka/mdschema",
+            line: 1,
+          });
+          break; // Only warn once
+        }
         errors.push(...structErrors);
       }
     }

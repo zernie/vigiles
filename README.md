@@ -235,9 +235,21 @@ The `max-lines` rule (default: 500) nudges toward this pattern — oversized ins
 
 ## Structure Validation
 
-The `require-structure` rule validates that instruction files follow a consistent markdown structure. This is especially useful for enforcing templates across teams — every CLAUDE.md has a Commands section, every SKILL.md has frontmatter with a description, etc.
+### Why
 
-Enable it in `.vigilesrc.json`:
+LLM agents treat every instruction file as novel — they'll add a `## Guidelines` section to one CLAUDE.md and `## Conventions` to another, skip heading levels, forget frontmatter on skills, and gradually drift each file into a unique snowflake. Across a team or monorepo this compounds: no two files follow the same template, making them harder for both humans and agents to navigate.
+
+Structure validation enforces a consistent markdown template. Every CLAUDE.md gets the same sections. Every SKILL.md has frontmatter. Heading hierarchy stays clean. The agent gets deterministic feedback when it creates or edits instruction files — not a human code review two days later.
+
+### Setup
+
+Requires [mdschema](https://github.com/jackchuka/mdschema) (optional dependency — vigiles works without it, but this rule is skipped):
+
+```bash
+npm install @jackchuka/mdschema
+```
+
+Enable in `.vigilesrc.json`:
 
 ```json
 {
@@ -249,7 +261,11 @@ Enable it in `.vigilesrc.json`:
 }
 ```
 
-Each entry in `structures` maps a glob pattern to a schema. The `files` glob is matched against the file path, so you can apply different schemas to different directories:
+Each entry maps a glob pattern to a schema. Schemas can be a built-in preset name or a path to a custom `.mdschema.yml` file.
+
+### Glob-Based File Matching
+
+Different schemas for different directories:
 
 ```json
 {
@@ -257,13 +273,8 @@ Each entry in `structures` maps a glob pattern to a schema. The `files` glob is 
   "structures": [
     { "files": "CLAUDE.md", "schema": "claude-md" },
     {
-      "files": "packages/api/**/*.md",
-      "schema": {
-        "sections": [
-          { "heading": "## API Reference", "required": true },
-          { "heading": "## Examples", "required": false }
-        ]
-      }
+      "files": "packages/api/**/CLAUDE.md",
+      "schema": "./schemas/api-claude.yml"
     },
     { "files": "**/SKILL.md", "schema": "skill" }
   ]
@@ -272,59 +283,46 @@ Each entry in `structures` maps a glob pattern to a schema. The `files` glob is 
 
 ### Built-in Presets
 
-| Preset        | What it checks                                                                                            |
-| ------------- | --------------------------------------------------------------------------------------------------------- |
-| `"claude-md"` | Heading levels don't skip (h1→h3), max depth 4. Optional section hints for Commands, Architecture, Rules. |
-| `"skill"`     | Requires YAML frontmatter with a `description` field. Max heading depth 4.                                |
+| Preset        | What it checks                                                                |
+| ------------- | ----------------------------------------------------------------------------- |
+| `"claude-md"` | Heading levels don't skip (h1 to h3), max depth 4. Freeform sections allowed. |
+| `"skill"`     | Requires YAML frontmatter with a `description` field. Max heading depth 4.    |
+
+Preset schemas are bundled in `schemas/`. You can copy and customize them.
 
 ### Custom Schemas
 
-Schemas support four features:
+Create a `.mdschema.yml` file with the full [mdschema syntax](https://github.com/jackchuka/mdschema):
 
-**Required/optional sections** — check that specific headings exist:
+```yaml
+# schemas/api-claude.yml
+structure:
+  - heading:
+      pattern: "# .+"
+    allow_additional: true
+    children:
+      - heading: "## Commands"
+      - heading: "## Architecture"
+      - heading: "## API Conventions"
+        optional: true
 
-```json
-{
-  "sections": [
-    {
-      "heading": "## Commands",
-      "required": true,
-      "description": "Build/test/lint commands"
-    },
-    { "heading": "## Architecture", "required": true },
-    { "heading": "## Principles", "required": false }
-  ]
-}
+heading_rules:
+  no_skip_levels: true
+  max_depth: 4
+
+frontmatter:
+  fields:
+    - name: "description"
+      required: true
 ```
 
-Heading patterns support trailing wildcards: `"## *"` matches any `##` heading.
+mdschema supports required/optional sections, regex heading patterns, nested children, section count constraints (`min`/`max`), `allow_additional` for unlisted subsections, frontmatter field validation, word count rules, required text/code blocks per section, and link validation. See the [mdschema README](https://github.com/jackchuka/mdschema) for the full schema format.
 
-**Heading rules** — enforce heading hierarchy:
+You can also derive a schema from an existing file:
 
-```json
-{
-  "headingRules": {
-    "noSkipLevels": true,
-    "maxDepth": 3
-  }
-}
+```bash
+npx @jackchuka/mdschema derive CLAUDE.md -o schemas/claude-md.yml
 ```
-
-`noSkipLevels` errors if you jump from `#` to `###` without a `##`. `maxDepth` caps the deepest heading level allowed.
-
-**Frontmatter validation** — require YAML frontmatter and specific fields:
-
-```json
-{
-  "requireFrontmatter": true,
-  "frontmatterFields": [
-    { "name": "name", "required": false },
-    { "name": "description", "required": true }
-  ]
-}
-```
-
-All features can be combined in a single schema.
 
 ## GitHub Action
 

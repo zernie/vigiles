@@ -1,0 +1,10 @@
+# Schema for SKILL.md files (Claude Code skills)
+# See https://github.com/jackchuka/mdschema for full syntax
+
+frontmatter:
+  fields:
+    - name: "description"
+      required: true
+
+heading_rules:
+  max_depth: 4
