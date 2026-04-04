@@ -1,0 +1,6 @@
+# Default schema for CLAUDE.md — lenient, catches obviously broken structure.
+# Use "claude-md:strict" for full template enforcement.
+# See https://github.com/jackchuka/mdschema for full syntax
+
+heading_rules:
+  max_depth: 6

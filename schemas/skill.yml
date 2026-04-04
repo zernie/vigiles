@@ -1,0 +1,5 @@
+# Default schema for SKILL.md — lenient, just checks frontmatter exists.
+# Use "skill:strict" for full template enforcement.
+# See https://github.com/jackchuka/mdschema for full syntax
+
+frontmatter: {}

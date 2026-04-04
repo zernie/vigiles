@@ -29,15 +29,18 @@ vigiles — ESLint for AI agents. Validates that instruction files (CLAUDE.md, A
 
 ## Architecture
 
-Single-file core (`validate.mjs`). Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`.
+Single-file core (`validate.mjs`). Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`, `validateStructure`, `resolveSchema`, `STRUCTURE_PRESETS`, `RULE_PACKS`.
 
 Rules are detected by line-by-line parsing. Two marker types: `###` headings and `- [ ]`/`- [x]` checkboxes (configurable via `.vigilesrc.json`). Each rule must have `**Enforced by:**`, `**Guidance only**`, or `<!-- vigiles-disable -->`.
 
+Two rule packs: `"recommended"` (default) and `"strict"`. Set via `"extends"` in `.vigilesrc.json`. User `"rules"` overrides are merged on top.
+
 Named validation rules (togglable in config under `rules`):
 
-- `require-annotations` (default: `true`) — every rule marker needs an enforcement annotation
-- `max-lines` (default: `500`) — caps file length; set a number for custom limit, `false` to disable
-- `require-rule-file` (default: `"auto"`) — validates referenced linter rules exist and are enabled in project config; auto-detects eslint, stylelint, ruff, clippy, pylint, rubocop. Set `"catalog-only"` to only check rule existence without config-enabled checks
+- `require-annotations` (recommended: `true`, strict: `true`) — every rule marker needs an enforcement annotation
+- `max-lines` (recommended: `500`, strict: `300`) — caps file length; set a number for custom limit, `false` to disable
+- `require-rule-file` (recommended: `"auto"`, strict: `"auto"`) — validates referenced linter rules exist and are enabled in project config; auto-detects eslint, stylelint, ruff, clippy, pylint, rubocop. Set `"catalog-only"` to only check rule existence without config-enabled checks
+- `require-structure` (recommended: `false`, strict: `true`) — validates markdown structure via mdschema CLI. Schemas are `.mdschema.yml` files matched to files by glob. Built-in presets: `"claude-md"`, `"claude-md:strict"`, `"skill"`, `"skill:strict"`
 
 ## Rules
 

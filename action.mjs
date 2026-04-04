@@ -82,6 +82,7 @@ const { fileResults, valid } = validatePaths(paths, {
   ruleMarkers,
   rules,
   linters,
+  structures: config.structures,
 });
 
 let totalEnforced = 0;

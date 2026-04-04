@@ -17,6 +17,10 @@ import {
   expandGlobs,
   discoverInstructionFiles,
   loadConfig,
+  validateStructure,
+  resolveSchema,
+  STRUCTURE_PRESETS,
+  RULE_PACKS,
 } from "./validate.mjs";
 
 describe("parseClaudeMd", () => {
@@ -306,6 +310,7 @@ describe("loadConfig", () => {
       "require-annotations": true,
       "max-lines": 500,
       "require-rule-file": "auto",
+      "require-structure": false,
     });
   });
 
@@ -320,6 +325,46 @@ describe("loadConfig", () => {
     assert.deepEqual(config.ruleMarkers, ["headings", "checkboxes"]);
     process.chdir(originalCwd);
     rmSync(configDir, { recursive: true, force: true });
+  });
+
+  it("should apply strict rule pack via extends", () => {
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-strict-"));
+    writeFileSync(
+      join(configDir, ".vigilesrc.json"),
+      JSON.stringify({ extends: "strict" }),
+    );
+    process.chdir(configDir);
+    const config = loadConfig();
+    assert.equal(config.rules["max-lines"], 300);
+    assert.equal(config.rules["require-structure"], true);
+    assert.ok(config.structures.length > 0);
+    process.chdir(originalCwd);
+    rmSync(configDir, { recursive: true, force: true });
+  });
+
+  it("should allow user overrides on top of strict pack", () => {
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-override-"));
+    writeFileSync(
+      join(configDir, ".vigilesrc.json"),
+      JSON.stringify({
+        extends: "strict",
+        rules: { "max-lines": 1000, "require-structure": false },
+      }),
+    );
+    process.chdir(configDir);
+    const config = loadConfig();
+    assert.equal(config.rules["max-lines"], 1000);
+    assert.equal(config.rules["require-structure"], false);
+    assert.equal(config.rules["require-annotations"], true); // from pack
+    process.chdir(originalCwd);
+    rmSync(configDir, { recursive: true, force: true });
+  });
+
+  it("should default to recommended when extends is omitted", () => {
+    process.chdir(tmpDir);
+    const config = loadConfig();
+    assert.equal(config.rules["max-lines"], 500);
+    assert.equal(config.rules["require-structure"], false);
   });
 
   it("should fall back to defaults for invalid ruleMarkers", () => {
@@ -1564,5 +1609,245 @@ describe("discoverInstructionFiles", () => {
     // Cursor detected but .cursorrules missing
     assert.ok(result.missing.some((m) => m.tool === "Cursor"));
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("validateStructure (mdschema CLI)", () => {
+  let tmpDir;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-struct-"));
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function writeSchema(name, content) {
+    const p = join(tmpDir, name);
+    writeFileSync(p, content);
+    return p;
+  }
+
+  function writeMd(name, content) {
+    const p = join(tmpDir, name);
+    writeFileSync(p, content);
+    return p;
+  }
+
+  it("should pass valid file against schema", () => {
+    const schema = writeSchema(
+      "s1.yml",
+      "heading_rules:\n  no_skip_levels: true\n  max_depth: 3\n",
+    );
+    const md = writeMd("t1.md", "# Title\n\n## Section\n\n### Sub\n");
+    const { errors, available } = validateStructure(md, schema);
+    if (!available) return; // skip if mdschema not installed
+    assert.equal(errors.length, 0);
+  });
+
+  it("should detect skipped heading levels", () => {
+    const schema = writeSchema(
+      "s2.yml",
+      "heading_rules:\n  no_skip_levels: true\n",
+    );
+    const md = writeMd("t2.md", "# Title\n\n### Skipped h2\n");
+    const { errors, available } = validateStructure(md, schema);
+    if (!available) return;
+    assert.ok(errors.length > 0);
+    assert.ok(errors.some((e) => e.rule === "require-structure"));
+  });
+
+  it("should detect headings exceeding max depth", () => {
+    const schema = writeSchema("s3.yml", "heading_rules:\n  max_depth: 3\n");
+    const md = writeMd(
+      "t3.md",
+      "# Title\n\n## Section\n\n### Sub\n\n#### Too deep\n",
+    );
+    const { errors, available } = validateStructure(md, schema);
+    if (!available) return;
+    assert.ok(errors.length > 0);
+  });
+
+  it("should require frontmatter when specified", () => {
+    const schema = writeSchema(
+      "s4.yml",
+      'frontmatter:\n  fields:\n    - name: "description"\n      required: true\n',
+    );
+    const md = writeMd("t4.md", "# No frontmatter\n\nJust text.\n");
+    const { errors, available } = validateStructure(md, schema);
+    if (!available) return;
+    assert.ok(errors.length > 0);
+    assert.ok(errors.some((e) => e.message.includes("frontmatter")));
+  });
+
+  it("should pass when frontmatter has required fields", () => {
+    const schema = writeSchema(
+      "s5.yml",
+      'frontmatter:\n  fields:\n    - name: "description"\n      required: true\n',
+    );
+    const md = writeMd("t5.md", "---\ndescription: hello\n---\n\n# Skill\n");
+    const { errors, available } = validateStructure(md, schema);
+    if (!available) return;
+    assert.equal(errors.length, 0);
+  });
+
+  it("should error on missing required section", () => {
+    const schema = writeSchema(
+      "s6.yml",
+      'structure:\n  - heading:\n      pattern: "# .+"\n    allow_additional: true\n    children:\n      - heading: "## Commands"\n',
+    );
+    const md = writeMd("t6.md", "# Project\n\n## Other\n\nNo commands.\n");
+    const { errors, available } = validateStructure(md, schema);
+    if (!available) return;
+    assert.ok(errors.length > 0);
+    assert.ok(errors.some((e) => e.message.includes("Commands")));
+  });
+
+  it("should pass when required section is present", () => {
+    const schema = writeSchema(
+      "s7.yml",
+      'structure:\n  - heading:\n      pattern: "# .+"\n    allow_additional: true\n    children:\n      - heading: "## Commands"\n',
+    );
+    const md = writeMd("t7.md", "# Project\n\n## Commands\n\nnpm test\n");
+    const { errors, available } = validateStructure(md, schema);
+    if (!available) return;
+    assert.equal(errors.length, 0);
+  });
+
+  it("should parse line numbers from mdschema output", () => {
+    const schema = writeSchema(
+      "s8.yml",
+      "heading_rules:\n  no_skip_levels: true\n",
+    );
+    const md = writeMd("t8.md", "# Title\n\n### Skipped\n");
+    const { errors, available } = validateStructure(md, schema);
+    if (!available) return;
+    assert.ok(errors.length > 0);
+    assert.ok(errors[0].line > 0);
+  });
+});
+
+describe("resolveSchema", () => {
+  it("should resolve 'claude-md' preset to a file path", () => {
+    const schema = resolveSchema("claude-md");
+    assert.ok(schema);
+    assert.ok(typeof schema === "string");
+    assert.ok(schema.endsWith("claude-md.yml"));
+  });
+
+  it("should resolve 'skill' preset to a file path", () => {
+    const schema = resolveSchema("skill");
+    assert.ok(schema);
+    assert.ok(typeof schema === "string");
+    assert.ok(schema.endsWith("skill.yml"));
+  });
+
+  it("should return null for unknown preset/missing file", () => {
+    const schema = resolveSchema("nonexistent");
+    assert.equal(schema, null);
+  });
+
+  it("should return null for non-string schemas", () => {
+    const schema = resolveSchema({ sections: [] });
+    assert.equal(schema, null);
+  });
+});
+
+describe("require-structure via validate()", () => {
+  let tmpDir;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-vstruct-"));
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should not check structure when rule is disabled (default)", () => {
+    const result = validate("# Title\n", {
+      rules: { "require-annotations": false, "require-rule-file": false },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should check structure when enabled and file matches", () => {
+    const schemaPath = join(tmpDir, "req-cmd.yml");
+    writeFileSync(
+      schemaPath,
+      'structure:\n  - heading:\n      pattern: "# .+"\n    allow_additional: true\n    children:\n      - heading: "## Commands"\n',
+    );
+    const mdPath = join(tmpDir, "CLAUDE.md");
+    writeFileSync(mdPath, "# Project\n\nNo commands section here.\n");
+    const structures = [{ files: "CLAUDE.md", schema: schemaPath }];
+    const result = validate("# Project\n\nNo commands section here.\n", {
+      rules: {
+        "require-annotations": false,
+        "max-lines": false,
+        "require-rule-file": false,
+        "require-structure": true,
+      },
+      structures,
+      filePath: mdPath,
+    });
+    // Either fails with structure error or warns about mdschema not installed
+    if (result.errors.some((e) => e.message.includes("mdschema is not"))) {
+      return; // mdschema not installed, skip
+    }
+    assert.equal(result.valid, false);
+    assert.ok(
+      result.errors.some(
+        (e) => e.rule === "require-structure" && e.message.includes("Commands"),
+      ),
+    );
+  });
+
+  it("should not check structure when file does not match glob", () => {
+    const schemaPath = join(tmpDir, "fm.yml");
+    writeFileSync(
+      schemaPath,
+      'frontmatter:\n  fields:\n    - name: "description"\n      required: true\n',
+    );
+    const structures = [{ files: "SKILL.md", schema: schemaPath }];
+    const result = validate("# Project\n\nNo frontmatter.\n", {
+      rules: {
+        "require-annotations": false,
+        "max-lines": false,
+        "require-rule-file": false,
+        "require-structure": true,
+      },
+      structures,
+      filePath: "CLAUDE.md",
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should use bundled skill preset against real skill files", () => {
+    const structures = [
+      { files: "**/SKILL.md", schema: STRUCTURE_PRESETS["skill"] },
+    ];
+    const mdPath = join(tmpDir, "SKILL.md");
+    writeFileSync(
+      mdPath,
+      "---\nname: test\ndescription: A test\n---\n\n# Test Skill\n",
+    );
+    const result = validate(
+      "---\nname: test\ndescription: A test\n---\n\n# Test Skill\n",
+      {
+        rules: {
+          "require-annotations": false,
+          "max-lines": false,
+          "require-rule-file": false,
+          "require-structure": true,
+        },
+        structures,
+        filePath: mdPath,
+      },
+    );
+    if (result.errors.some((e) => e.message.includes("mdschema is not"))) {
+      return;
+    }
+    assert.equal(result.valid, true);
   });
 });

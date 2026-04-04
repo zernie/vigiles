@@ -1,0 +1,18 @@
+# Strict schema for CLAUDE.md — enforces consistent template structure.
+# See https://github.com/jackchuka/mdschema for full syntax
+
+structure:
+  - heading:
+      pattern: "# .+"
+    optional: true
+    allow_additional: true
+    children:
+      - heading: "## Commands"
+      - heading: "## Architecture"
+        optional: true
+      - heading: "## Rules"
+        optional: true
+
+heading_rules:
+  no_skip_levels: true
+  max_depth: 4

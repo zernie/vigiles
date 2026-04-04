@@ -1,0 +1,12 @@
+# Strict schema for SKILL.md — enforces frontmatter fields and heading depth.
+# See https://github.com/jackchuka/mdschema for full syntax
+
+frontmatter:
+  fields:
+    - name: "description"
+      required: true
+    - name: "name"
+      required: false
+
+heading_rules:
+  max_depth: 4

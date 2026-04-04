@@ -6,6 +6,7 @@ import { resolve, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { cosmiconfigSync } from "cosmiconfig";
+import { minimatch } from "minimatch";
 
 const ENFORCED_BY_RE = /\*\*Enforced by:\*\*/;
 const GUIDANCE_RE = /\*\*Guidance only\*\*/;
@@ -14,12 +15,109 @@ const RULE_HEADER_RE = /^###\s+(.+)$/;
 const CHECKBOX_RE = /^- \[([ xX])\]\s+(.+)$/;
 
 const VALID_MARKERS = ["headings", "checkboxes"];
-const DEFAULT_RULES = {
-  "require-annotations": true,
-  "max-lines": 500,
-  "require-rule-file": "auto",
-};
 const SAFE_RULE_NAME_RE = /^[a-zA-Z0-9_\-/.:#]+$/;
+
+// Built-in schema presets (bundled .yml files in schemas/)
+const SCHEMAS_DIR = new URL("./schemas/", import.meta.url).pathname;
+export const STRUCTURE_PRESETS = {
+  "claude-md": resolve(SCHEMAS_DIR, "claude-md.yml"),
+  "claude-md:strict": resolve(SCHEMAS_DIR, "claude-md-strict.yml"),
+  skill: resolve(SCHEMAS_DIR, "skill.yml"),
+  "skill:strict": resolve(SCHEMAS_DIR, "skill-strict.yml"),
+};
+
+// Rule packs — like eslint's "recommended" / "strict" configs
+export const RULE_PACKS = {
+  recommended: {
+    rules: {
+      "require-annotations": true,
+      "max-lines": 500,
+      "require-rule-file": "auto",
+      "require-structure": false,
+    },
+    structures: [],
+  },
+  strict: {
+    rules: {
+      "require-annotations": true,
+      "max-lines": 300,
+      "require-rule-file": "auto",
+      "require-structure": true,
+    },
+    structures: [
+      { files: "CLAUDE.md", schema: "claude-md:strict" },
+      { files: "**/SKILL.md", schema: "skill:strict" },
+    ],
+  },
+};
+
+const DEFAULT_RULES = RULE_PACKS.recommended.rules;
+
+// Resolve the mdschema binary path (optional dependency)
+function findMdschema() {
+  try {
+    const req = createRequire(resolve(process.cwd(), "package.json"));
+    const { getBinaryPath } = req("@jackchuka/mdschema/lib/platform");
+    const bin = getBinaryPath();
+    if (existsSync(bin)) return bin;
+  } catch {
+    // not installed via npm
+  }
+  // Try PATH
+  try {
+    execSync("which mdschema", { stdio: "ignore" });
+    return "mdschema";
+  } catch {
+    return null;
+  }
+}
+
+let _mdschemaPath;
+function getMdschema() {
+  if (_mdschemaPath === undefined) {
+    _mdschemaPath = findMdschema();
+  }
+  return _mdschemaPath;
+}
+
+// Parse mdschema text output into error objects
+// Format: "  ✗ LINE:COL [RULE] MESSAGE"
+const MDSCHEMA_ERROR_RE = /^\s*✗\s+(\d+):(\d+)\s+\[([^\]]+)\]\s+(.+)$/;
+
+/**
+ * Validate a markdown file against an mdschema YAML schema.
+ * @param {string} filePath - path to the markdown file
+ * @param {string} schemaPath - path to the .mdschema.yml file
+ * @returns {{ errors: Array<{rule: string, message: string, line: number}>, available: boolean }}
+ */
+export function validateStructure(filePath, schemaPath) {
+  const bin = getMdschema();
+  if (!bin) {
+    return { errors: [], available: false };
+  }
+  try {
+    execSync(`${bin} check --schema ${schemaPath} ${filePath}`, {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 15000,
+    });
+    return { errors: [], available: true };
+  } catch (e) {
+    const output = (e.stdout || "") + (e.stderr || "");
+    const errors = [];
+    for (const line of output.split("\n")) {
+      const m = line.match(MDSCHEMA_ERROR_RE);
+      if (m) {
+        errors.push({
+          rule: "require-structure",
+          message: `[${m[3]}] ${m[4]}`,
+          line: parseInt(m[1], 10),
+        });
+      }
+    }
+    return { errors, available: true };
+  }
+}
 
 // AI coding tools: presence indicators and required instruction files
 const AGENT_TOOLS = [
@@ -57,10 +155,12 @@ const AGENT_TOOLS = [
 ];
 
 const DEFAULT_CONFIG = {
+  extends: "recommended",
   ruleMarkers: ["headings", "checkboxes"],
   rules: DEFAULT_RULES,
   linters: {},
   agents: null, // null = auto-detect; array = explicit list of tool names
+  structures: [], // array of { files: "<glob>", schema: <preset-name|path> }
 };
 
 function extractLinterName(enforcedBy) {
@@ -436,6 +536,39 @@ export function discoverInstructionFiles(cwd = process.cwd(), agents = null) {
   return { detected, files, missing };
 }
 
+/**
+ * Resolve a schema value to a file path.
+ * - If it's a preset name ("claude-md", "skill"), return the bundled .yml path.
+ * - If it's a file path string, resolve it relative to cwd.
+ * - Otherwise return null.
+ */
+export function resolveSchema(schema) {
+  if (typeof schema !== "string") {
+    console.warn(
+      `Invalid schema value: expected a preset name or file path string. Skipping.`,
+    );
+    return null;
+  }
+  const preset = STRUCTURE_PRESETS[schema];
+  if (preset) return preset;
+  // Treat as file path
+  const resolved = resolve(schema);
+  if (existsSync(resolved)) return resolved;
+  console.warn(`Schema not found: "${schema}". Skipping.`);
+  return null;
+}
+
+function resolveStructures(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => {
+      const schema = resolveSchema(entry.schema);
+      if (!schema) return null;
+      return { files: entry.files, schema };
+    })
+    .filter(Boolean);
+}
+
 export function loadConfig() {
   try {
     const explorer = cosmiconfigSync("vigiles", {
@@ -445,12 +578,24 @@ export function loadConfig() {
     const result = explorer.search();
     if (!result || !result.config) return DEFAULT_CONFIG;
 
+    // Resolve rule pack base
+    const packName = result.config.extends || "recommended";
+    const pack = RULE_PACKS[packName];
+    if (!pack) {
+      console.warn(`Unknown rule pack: "${packName}". Using "recommended".`);
+    }
+    const basePack = pack || RULE_PACKS.recommended;
+
+    // User config overrides the pack
     const config = {
       ...DEFAULT_CONFIG,
       ...result.config,
-      rules: { ...DEFAULT_RULES, ...result.config.rules },
+      rules: { ...basePack.rules, ...result.config.rules },
       linters: { ...result.config.linters },
       agents: result.config.agents !== undefined ? result.config.agents : null,
+      structures: resolveStructures(
+        result.config.structures || basePack.structures,
+      ),
     };
 
     if (
@@ -532,7 +677,14 @@ export function parseClaudeMd(content, { ruleMarkers } = {}) {
 
 export function validate(
   content,
-  { ruleMarkers, rules: rulesConfig, basePath, linters: lintersConfig } = {},
+  {
+    ruleMarkers,
+    rules: rulesConfig,
+    basePath,
+    linters: lintersConfig,
+    structures,
+    filePath,
+  } = {},
 ) {
   const activeRules = rulesConfig || DEFAULT_RULES;
   const parsedRules = parseClaudeMd(content, { ruleMarkers });
@@ -571,6 +723,33 @@ export function validate(
         message: `File has ${lineCount} lines, exceeding the limit of ${limit}. Consider splitting into subdirectory files — see https://github.com/zernie/vigiles#organizing-rules`,
         line: lineCount,
       });
+    }
+  }
+
+  // --- require-structure: validate markdown structure against schemas (via mdschema CLI) ---
+  if (activeRules["require-structure"] !== false && structures && filePath) {
+    for (const entry of structures) {
+      // Match filePath against the glob pattern (test both full path and basename)
+      const basename = filePath.split("/").pop();
+      if (
+        minimatch(filePath, entry.files, { matchBase: true }) ||
+        minimatch(basename, entry.files)
+      ) {
+        const { errors: structErrors, available } = validateStructure(
+          resolve(filePath),
+          entry.schema,
+        );
+        if (!available) {
+          errors.push({
+            rule: "require-structure",
+            message:
+              "mdschema is not installed. Install with: npm install @jackchuka/mdschema",
+            line: 1,
+          });
+          break; // Only warn once
+        }
+        errors.push(...structErrors);
+      }
     }
   }
 
@@ -822,6 +1001,7 @@ export function validatePaths(
     ruleMarkers,
     rules: rulesConfig,
     linters: lintersConfig,
+    structures,
   } = {},
 ) {
   const fileResults = [];
@@ -853,6 +1033,8 @@ export function validatePaths(
       rules: rulesConfig,
       basePath: dirname(resolve(filePath)),
       linters: lintersConfig,
+      structures,
+      filePath,
     });
     if (!result.valid) allValid = false;
     fileResults.push({ path: filePath, skipped: false, reason: null, result });
@@ -930,6 +1112,7 @@ if (
     ruleMarkers,
     rules: config.rules,
     linters: config.linters,
+    structures: config.structures,
   });
 
   for (const { path: filePath, skipped, reason, result } of fileResults) {

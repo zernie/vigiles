@@ -368,3 +368,66 @@ Also optionally enforces `**Why:**` explanations: `{ "requireWhy": true }`
 | 10  | **Instruction Diffs**  | Migration safety                     | Enforcement removed in PRs, nobody notices                |
 | 11  | **Dependency Graph**   | Build DAG / import graph             | Cross-references to deleted instruction files             |
 | 12  | **Typo Detection**     | Type checking / strict mode          | Near-miss annotations silently ignored                    |
+
+---
+
+## Research: Code Clone Detection & Deterministic Similarity Techniques
+
+Collected April 2026 during investigation of [this Mastodon thread](https://neuromatch.social/@jonny/116328694967192899) about LLM code inconsistency — the same task implemented 3 different ways (set membership, regex, string methods).
+
+### Clone Type Taxonomy
+
+| Type       | What it catches                              | Deterministic?                       | Example                           |
+| ---------- | -------------------------------------------- | ------------------------------------ | --------------------------------- |
+| **Type-1** | Exact clones (modulo whitespace/comments)    | Yes                                  | Copy-paste with reformatting      |
+| **Type-2** | Renamed identifiers/literals                 | Yes                                  | Same logic, different var names   |
+| **Type-3** | Near-miss (added/deleted statements)         | Yes (with fixed threshold)           | Structural modifications          |
+| **Type-4** | Semantically equivalent, textually different | **No** (undecidable, Rice's theorem) | `set.has(x)` vs `/regex/.test(x)` |
+
+Type-4 is the core complaint from the post. It's provably undecidable in the general case.
+
+### Practical Tools
+
+#### Token-Based (Type-1/2) — Fast, CI-ready
+
+- **[PMD CPD](https://pmd.github.io/pmd/pmd_userdocs_cpd.html)** — Token stream matching, 31 languages. GitLab CI integration, Maven plugin. More comprehensive than jscpd for 3+ duplications.
+- **[jscpd](https://github.com/kucherenko/jscpd)** — Rabin-Karp hash fingerprinting, 150+ languages. ~1.4s for 100 files. npm package, Codacy/GitHub Actions integration.
+- **[SourcererCC](https://arxiv.org/abs/1512.06448)** — Token-based inverted index. Scales to 250 MLOC on 12GB RAM, 86% precision. Research tool, not CI-native. Twice as fast as CCFinderX at largest input sizes.
+
+#### AST Tree Edit Distance (Type-3) — Promising
+
+- **[similarity-ts](https://github.com/mizchi/similarity)** — Rust-based, uses Bloom filter + APTED tree edit distance. Built specifically for detecting LLM-generated structural duplicates. <1s for 60K LOC. ~50x speedup from Bloom filter (5x) + multithreading (4x) combined. TypeScript/JS only.
+- **[APTED](https://github.com/DatabaseGroup/apted)** — State-of-the-art optimal tree edit distance. O(n²) worst case. Requires pre-filtering for practical use (n functions = n(n-1)/2 comparisons).
+- **[tree-sitter](https://tree-sitter.github.io/tree-sitter/)** — GLR parser used by similarity-ts and academic tools for AST generation across languages.
+
+#### PDG / Graph-Based (Type-3/4) — Academic
+
+- **CCGraph** (ASE 2020) — PDG + approximate graph matching. Catches non-contiguous clones but graph isomorphism is NP-complete.
+- **Scorpio** — PDG subgraph isomorphism. Academic prototype.
+- **[HideNoSeek](https://github.com/aurore54f/hidenoseek)** — Static data flow analysis for JS syntactic clones.
+
+#### Locality-Sensitive Hashing
+
+Hash code features into buckets where similar items collide. Probabilistic but tunable false-positive rate. Used as pre-filter in tools like SourcererCC.
+
+### Key Insight
+
+For CI today: jscpd/PMD CPD for copy-paste (seconds), similarity-ts for structural near-misses (sub-second, JS/TS only), custom lint rules for known patterns. Type-4 detection (semantically identical, textually different) remains unsolved in production.
+
+### Markdown Structure Validation Tools
+
+- **[mdschema](https://github.com/jackchuka/mdschema)** — Declarative YAML schema for markdown structure. Go binary with npm wrapper. Supports required/optional sections, regex heading patterns, nested children, count constraints, frontmatter validation, word counts, code block requirements, link validation. **Integrated into vigiles as `require-structure` rule.**
+- **[markdown-validator](https://github.com/mattbriggs/markdown-validator)** — Declarative rules for Hugo/DocFX-style markdown.
+- **[markdownlint](https://github.com/DavidAnson/markdownlint)** — Formatting rules (no skipped levels, consistent lists) but not structural schemas.
+- **[Vale](https://vale.sh)** — Prose linter with YAML rule collections. Focuses on writing style, not document structure.
+
+### AI in CI Research
+
+The "LLM reviews PRs in CI" approach hasn't worked due to non-determinism. What works:
+
+- **Semgrep** — AI helps _write_ custom rules, but rules run deterministically.
+- **SonarQube** — Added LLM explanations of findings, detection stays rule-based.
+- **[Factory.ai](https://factory.ai/news/using-linters-to-direct-agents)** — Linters direct agents, not the reverse.
+- **Hybrid SAST + LLM post-processing** — 91% false positive reduction vs standalone Semgrep.
+
+Pattern: **LLM proposes, deterministic tool disposes.** The CI gate stays deterministic.
