@@ -17,6 +17,9 @@ import {
   expandGlobs,
   discoverInstructionFiles,
   loadConfig,
+  validateStructure,
+  resolveSchema,
+  STRUCTURE_PRESETS,
 } from "./validate.mjs";
 
 describe("parseClaudeMd", () => {
@@ -306,6 +309,7 @@ describe("loadConfig", () => {
       "require-annotations": true,
       "max-lines": 500,
       "require-rule-file": "auto",
+      "require-structure": false,
     });
   });
 
@@ -1564,5 +1568,266 @@ describe("discoverInstructionFiles", () => {
     // Cursor detected but .cursorrules missing
     assert.ok(result.missing.some((m) => m.tool === "Cursor"));
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("validateStructure", () => {
+  it("should pass when no required sections and content is valid", () => {
+    const errors = validateStructure("# Hello\n\nSome text.\n", {
+      sections: [],
+    });
+    assert.equal(errors.length, 0);
+  });
+
+  it("should error on missing required section", () => {
+    const schema = {
+      sections: [
+        { heading: "## Commands", required: true },
+        { heading: "## Rules", required: true },
+      ],
+    };
+    const content = "# My Project\n\n## Commands\n\nnpm test\n";
+    const errors = validateStructure(content, schema);
+    assert.equal(errors.length, 1);
+    assert.ok(errors[0].message.includes("## Rules"));
+  });
+
+  it("should pass when all required sections present", () => {
+    const schema = {
+      sections: [
+        { heading: "## Commands", required: true },
+        { heading: "## Rules", required: true },
+      ],
+    };
+    const content =
+      "# My Project\n\n## Commands\n\nnpm test\n\n## Rules\n\n### No console\n";
+    const errors = validateStructure(content, schema);
+    assert.equal(errors.length, 0);
+  });
+
+  it("should skip optional sections without error", () => {
+    const schema = {
+      sections: [
+        { heading: "## Commands", required: true },
+        { heading: "## Architecture", required: false },
+      ],
+    };
+    const content = "# Project\n\n## Commands\n\nnpm test\n";
+    const errors = validateStructure(content, schema);
+    assert.equal(errors.length, 0);
+  });
+
+  it("should detect skipped heading levels", () => {
+    const schema = { headingRules: { noSkipLevels: true } };
+    const content = "# Title\n\n### Skipped h2\n\nSome text.\n";
+    const errors = validateStructure(content, schema);
+    assert.equal(errors.length, 1);
+    assert.ok(errors[0].message.includes("skips from h1 to h3"));
+  });
+
+  it("should not error on valid heading levels", () => {
+    const schema = { headingRules: { noSkipLevels: true } };
+    const content = "# Title\n\n## Section\n\n### Subsection\n";
+    const errors = validateStructure(content, schema);
+    assert.equal(errors.length, 0);
+  });
+
+  it("should detect headings exceeding max depth", () => {
+    const schema = { headingRules: { maxDepth: 3 } };
+    const content = "# Title\n\n## Section\n\n### Sub\n\n#### Too deep\n";
+    const errors = validateStructure(content, schema);
+    assert.equal(errors.length, 1);
+    assert.ok(errors[0].message.includes("exceeds max depth 3"));
+  });
+
+  it("should require frontmatter when specified", () => {
+    const schema = { requireFrontmatter: true };
+    const content = "# No frontmatter\n\nJust text.\n";
+    const errors = validateStructure(content, schema);
+    assert.equal(errors.length, 1);
+    assert.ok(errors[0].message.includes("Missing YAML frontmatter"));
+  });
+
+  it("should pass when frontmatter is present", () => {
+    const schema = { requireFrontmatter: true };
+    const content = "---\nname: my-skill\n---\n\n# Skill\n";
+    const errors = validateStructure(content, schema);
+    assert.equal(errors.length, 0);
+  });
+
+  it("should validate required frontmatter fields", () => {
+    const schema = {
+      requireFrontmatter: true,
+      frontmatterFields: [
+        { name: "name", required: false },
+        { name: "description", required: true },
+      ],
+    };
+    const content = "---\nname: test\n---\n\n# Test\n";
+    const errors = validateStructure(content, schema);
+    assert.equal(errors.length, 1);
+    assert.ok(errors[0].message.includes("description"));
+  });
+
+  it("should pass when all required frontmatter fields present", () => {
+    const schema = {
+      requireFrontmatter: true,
+      frontmatterFields: [
+        { name: "name", required: true },
+        { name: "description", required: true },
+      ],
+    };
+    const content =
+      "---\nname: test\ndescription: A test skill\n---\n\n# Test\n";
+    const errors = validateStructure(content, schema);
+    assert.equal(errors.length, 0);
+  });
+
+  it("should match wildcard heading patterns", () => {
+    const schema = {
+      sections: [{ heading: "## *", required: true }],
+    };
+    const content = "# Title\n\n## Anything\n\nText.\n";
+    const errors = validateStructure(content, schema);
+    assert.equal(errors.length, 0);
+  });
+
+  it("should fail wildcard when no headings at that level exist", () => {
+    const schema = {
+      sections: [{ heading: "## *", required: true }],
+    };
+    const content = "# Title\n\nJust text, no h2 sections.\n";
+    const errors = validateStructure(content, schema);
+    assert.equal(errors.length, 1);
+  });
+});
+
+describe("resolveSchema", () => {
+  it("should resolve 'claude-md' preset", () => {
+    const schema = resolveSchema("claude-md");
+    assert.ok(schema);
+    assert.ok(schema.headingRules);
+    assert.equal(schema.headingRules.noSkipLevels, true);
+  });
+
+  it("should resolve 'skill' preset", () => {
+    const schema = resolveSchema("skill");
+    assert.ok(schema);
+    assert.equal(schema.requireFrontmatter, true);
+    assert.ok(schema.frontmatterFields.some((f) => f.name === "description"));
+  });
+
+  it("should return null for unknown preset", () => {
+    const schema = resolveSchema("nonexistent");
+    assert.equal(schema, null);
+  });
+
+  it("should pass through object schemas unchanged", () => {
+    const custom = { sections: [{ heading: "## Foo", required: true }] };
+    const schema = resolveSchema(custom);
+    assert.deepEqual(schema, custom);
+  });
+});
+
+describe("require-structure via validate()", () => {
+  it("should not check structure when rule is disabled (default)", () => {
+    const result = validate("# Title\n", {
+      rules: { "require-annotations": false, "require-rule-file": false },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should check structure when enabled and file matches", () => {
+    const structures = [
+      {
+        files: "CLAUDE.md",
+        schema: {
+          sections: [{ heading: "## Commands", required: true }],
+        },
+      },
+    ];
+    const content = "# Project\n\nNo commands section here.\n";
+    const result = validate(content, {
+      rules: {
+        "require-annotations": false,
+        "max-lines": false,
+        "require-rule-file": false,
+        "require-structure": true,
+      },
+      structures,
+      filePath: "CLAUDE.md",
+    });
+    assert.equal(result.valid, false);
+    assert.ok(
+      result.errors.some(
+        (e) =>
+          e.rule === "require-structure" && e.message.includes("## Commands"),
+      ),
+    );
+  });
+
+  it("should not check structure when file does not match glob", () => {
+    const structures = [
+      {
+        files: "SKILL.md",
+        schema: { requireFrontmatter: true },
+      },
+    ];
+    const content = "# Project\n\nNo frontmatter.\n";
+    const result = validate(content, {
+      rules: {
+        "require-annotations": false,
+        "max-lines": false,
+        "require-rule-file": false,
+        "require-structure": true,
+      },
+      structures,
+      filePath: "CLAUDE.md",
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should match glob patterns like **/SKILL.md", () => {
+    const structures = [
+      {
+        files: "**/SKILL.md",
+        schema: { requireFrontmatter: true },
+      },
+    ];
+    const content = "# No frontmatter skill\n";
+    const result = validate(content, {
+      rules: {
+        "require-annotations": false,
+        "max-lines": false,
+        "require-rule-file": false,
+        "require-structure": true,
+      },
+      structures,
+      filePath: "skills/my-skill/SKILL.md",
+    });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((e) => e.message.includes("frontmatter")));
+  });
+
+  it("should use preset schemas via string reference", () => {
+    const structures = [
+      {
+        files: "**/SKILL.md",
+        schema: STRUCTURE_PRESETS["skill"],
+      },
+    ];
+    const content =
+      "---\nname: test\ndescription: A test\n---\n\n# Test Skill\n";
+    const result = validate(content, {
+      rules: {
+        "require-annotations": false,
+        "max-lines": false,
+        "require-rule-file": false,
+        "require-structure": true,
+      },
+      structures,
+      filePath: "skills/test/SKILL.md",
+    });
+    assert.equal(result.valid, true);
   });
 });

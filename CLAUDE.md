@@ -29,7 +29,7 @@ vigiles — ESLint for AI agents. Validates that instruction files (CLAUDE.md, A
 
 ## Architecture
 
-Single-file core (`validate.mjs`). Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`.
+Single-file core (`validate.mjs`). Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`, `validateStructure`, `resolveSchema`, `STRUCTURE_PRESETS`.
 
 Rules are detected by line-by-line parsing. Two marker types: `###` headings and `- [ ]`/`- [x]` checkboxes (configurable via `.vigilesrc.json`). Each rule must have `**Enforced by:**`, `**Guidance only**`, or `<!-- vigiles-disable -->`.
 
@@ -38,6 +38,7 @@ Named validation rules (togglable in config under `rules`):
 - `require-annotations` (default: `true`) — every rule marker needs an enforcement annotation
 - `max-lines` (default: `500`) — caps file length; set a number for custom limit, `false` to disable
 - `require-rule-file` (default: `"auto"`) — validates referenced linter rules exist and are enabled in project config; auto-detects eslint, stylelint, ruff, clippy, pylint, rubocop. Set `"catalog-only"` to only check rule existence without config-enabled checks
+- `require-structure` (default: `false`) — validates markdown structure against schemas defined in `structures` config. Schemas can specify required/optional sections, heading rules (noSkipLevels, maxDepth), and frontmatter validation. Built-in presets: `"claude-md"`, `"skill"`
 
 ## Rules
 

@@ -6,6 +6,7 @@ import { resolve, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { cosmiconfigSync } from "cosmiconfig";
+import { minimatch } from "minimatch";
 
 const ENFORCED_BY_RE = /\*\*Enforced by:\*\*/;
 const GUIDANCE_RE = /\*\*Guidance only\*\*/;
@@ -18,8 +19,186 @@ const DEFAULT_RULES = {
   "require-annotations": true,
   "max-lines": 500,
   "require-rule-file": "auto",
+  "require-structure": false,
 };
 const SAFE_RULE_NAME_RE = /^[a-zA-Z0-9_\-/.:#]+$/;
+
+const HEADING_RE = /^(#{1,6})\s+(.+)$/;
+
+// Built-in structure presets
+export const STRUCTURE_PRESETS = {
+  "claude-md": {
+    sections: [
+      { heading: "# *", required: false },
+      {
+        heading: "## Commands",
+        required: false,
+        description: "Build/test/lint commands",
+      },
+      {
+        heading: "## Architecture",
+        required: false,
+        description: "Project structure overview",
+      },
+      {
+        heading: "## Rules",
+        required: false,
+        description: "Coding rules with enforcement annotations",
+      },
+    ],
+    headingRules: { noSkipLevels: true, maxDepth: 4 },
+  },
+  skill: {
+    sections: [
+      {
+        heading: "## *",
+        required: false,
+        description: "Skills use freeform ## sections",
+      },
+    ],
+    requireFrontmatter: true,
+    frontmatterFields: [
+      { name: "name", required: false },
+      { name: "description", required: true },
+    ],
+    headingRules: { noSkipLevels: false, maxDepth: 4 },
+  },
+};
+
+/**
+ * Parse all headings from markdown content.
+ * Returns [{ level, title, line }]
+ */
+function parseHeadings(content) {
+  const lines = content.split("\n");
+  const headings = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(HEADING_RE);
+    if (m) {
+      headings.push({ level: m[1].length, title: m[2].trim(), line: i + 1 });
+    }
+  }
+  return headings;
+}
+
+/**
+ * Check if a heading title matches a section spec.
+ * Supports literal match and trailing wildcard ("## *" matches any ## heading).
+ */
+function headingMatches(title, spec) {
+  // spec is the heading value from a section definition, e.g. "## Commands" or "## *"
+  // strip the leading #s to get just the title part
+  const specTitle = spec.replace(/^#+\s*/, "");
+  if (specTitle === "*") return true;
+  if (specTitle.endsWith("*")) {
+    return title.startsWith(specTitle.slice(0, -1));
+  }
+  return title === specTitle;
+}
+
+function specLevel(spec) {
+  const m = spec.match(/^(#+)/);
+  return m ? m[1].length : 0;
+}
+
+/**
+ * Parse YAML frontmatter from markdown content.
+ * Returns { fields: { key: value }, endLine } or null if no frontmatter.
+ */
+function parseFrontmatter(content) {
+  const lines = content.split("\n");
+  if (lines[0] !== "---") return null;
+  const fields = {};
+  let endLine = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i] === "---") {
+      endLine = i + 1;
+      break;
+    }
+    const m = lines[i].match(/^(\w[\w-]*):\s*(.*)/);
+    if (m) {
+      fields[m[1]] = m[2].trim();
+    }
+  }
+  if (endLine === -1) return null;
+  return { fields, endLine };
+}
+
+/**
+ * Validate markdown content against a structure schema.
+ * Returns an array of error objects { rule, message, line }.
+ */
+export function validateStructure(content, schema) {
+  const errors = [];
+  const headings = parseHeadings(content);
+
+  // Check frontmatter
+  if (schema.requireFrontmatter) {
+    const fm = parseFrontmatter(content);
+    if (!fm) {
+      errors.push({
+        rule: "require-structure",
+        message:
+          "Missing YAML frontmatter (expected --- delimited block at top of file)",
+        line: 1,
+      });
+    } else if (schema.frontmatterFields) {
+      for (const field of schema.frontmatterFields) {
+        if (field.required && !(field.name in fm.fields)) {
+          errors.push({
+            rule: "require-structure",
+            message: `Frontmatter missing required field "${field.name}"`,
+            line: 1,
+          });
+        }
+      }
+    }
+  }
+
+  // Check heading rules
+  if (schema.headingRules) {
+    const { noSkipLevels, maxDepth } = schema.headingRules;
+    let prevLevel = 0;
+    for (const h of headings) {
+      if (maxDepth && h.level > maxDepth) {
+        errors.push({
+          rule: "require-structure",
+          message: `Line ${h.line}: heading "${"#".repeat(h.level)} ${h.title}" exceeds max depth ${maxDepth}`,
+          line: h.line,
+        });
+      }
+      if (noSkipLevels && prevLevel > 0 && h.level > prevLevel + 1) {
+        errors.push({
+          rule: "require-structure",
+          message: `Line ${h.line}: heading level skips from h${prevLevel} to h${h.level} ("${h.title}")`,
+          line: h.line,
+        });
+      }
+      prevLevel = h.level;
+    }
+  }
+
+  // Check required sections
+  if (schema.sections) {
+    for (const section of schema.sections) {
+      if (!section.required) continue;
+      const level = specLevel(section.heading);
+      const specTitle = section.heading.replace(/^#+\s*/, "");
+      const found = headings.some(
+        (h) => h.level === level && headingMatches(h.title, section.heading),
+      );
+      if (!found) {
+        errors.push({
+          rule: "require-structure",
+          message: `Missing required section "${section.heading}"${section.description ? ` (${section.description})` : ""}`,
+          line: 1,
+        });
+      }
+    }
+  }
+
+  return errors;
+}
 
 // AI coding tools: presence indicators and required instruction files
 const AGENT_TOOLS = [
@@ -61,6 +240,7 @@ const DEFAULT_CONFIG = {
   rules: DEFAULT_RULES,
   linters: {},
   agents: null, // null = auto-detect; array = explicit list of tool names
+  structures: [], // array of { files: "<glob>", schema: <object|preset-name> }
 };
 
 function extractLinterName(enforcedBy) {
@@ -436,6 +616,32 @@ export function discoverInstructionFiles(cwd = process.cwd(), agents = null) {
   return { detected, files, missing };
 }
 
+/**
+ * Resolve a schema value: if it's a string, look up the preset; otherwise return as-is.
+ */
+export function resolveSchema(schema) {
+  if (typeof schema === "string") {
+    const preset = STRUCTURE_PRESETS[schema];
+    if (!preset) {
+      console.warn(`Unknown structure preset: "${schema}". Skipping.`);
+      return null;
+    }
+    return preset;
+  }
+  return schema;
+}
+
+function resolveStructures(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => {
+      const schema = resolveSchema(entry.schema);
+      if (!schema) return null;
+      return { files: entry.files, schema };
+    })
+    .filter(Boolean);
+}
+
 export function loadConfig() {
   try {
     const explorer = cosmiconfigSync("vigiles", {
@@ -451,6 +657,7 @@ export function loadConfig() {
       rules: { ...DEFAULT_RULES, ...result.config.rules },
       linters: { ...result.config.linters },
       agents: result.config.agents !== undefined ? result.config.agents : null,
+      structures: resolveStructures(result.config.structures),
     };
 
     if (
@@ -532,7 +739,14 @@ export function parseClaudeMd(content, { ruleMarkers } = {}) {
 
 export function validate(
   content,
-  { ruleMarkers, rules: rulesConfig, basePath, linters: lintersConfig } = {},
+  {
+    ruleMarkers,
+    rules: rulesConfig,
+    basePath,
+    linters: lintersConfig,
+    structures,
+    filePath,
+  } = {},
 ) {
   const activeRules = rulesConfig || DEFAULT_RULES;
   const parsedRules = parseClaudeMd(content, { ruleMarkers });
@@ -571,6 +785,21 @@ export function validate(
         message: `File has ${lineCount} lines, exceeding the limit of ${limit}. Consider splitting into subdirectory files — see https://github.com/zernie/vigiles#organizing-rules`,
         line: lineCount,
       });
+    }
+  }
+
+  // --- require-structure: validate markdown structure against schemas ---
+  if (activeRules["require-structure"] !== false && structures && filePath) {
+    for (const entry of structures) {
+      // Match filePath against the glob pattern (test both full path and basename)
+      const basename = filePath.split("/").pop();
+      if (
+        minimatch(filePath, entry.files, { matchBase: true }) ||
+        minimatch(basename, entry.files)
+      ) {
+        const structErrors = validateStructure(content, entry.schema);
+        errors.push(...structErrors);
+      }
     }
   }
 
@@ -822,6 +1051,7 @@ export function validatePaths(
     ruleMarkers,
     rules: rulesConfig,
     linters: lintersConfig,
+    structures,
   } = {},
 ) {
   const fileResults = [];
@@ -853,6 +1083,8 @@ export function validatePaths(
       rules: rulesConfig,
       basePath: dirname(resolve(filePath)),
       linters: lintersConfig,
+      structures,
+      filePath,
     });
     if (!result.valid) allValid = false;
     fileResults.push({ path: filePath, skipped: false, reason: null, result });
@@ -930,6 +1162,7 @@ if (
     ruleMarkers,
     rules: config.rules,
     linters: config.linters,
+    structures: config.structures,
   });
 
   for (const { path: filePath, skipped, reason, result } of fileResults) {
