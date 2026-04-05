@@ -806,9 +806,11 @@ export function validate(
       }
       if (inFence) continue;
 
+      // Strip inline code spans before scanning for links
+      const lineText = lines[i].replace(/`[^`]+`/g, "");
       let m: RegExpExecArray | null;
       MD_LINK_RE.lastIndex = 0;
-      while ((m = MD_LINK_RE.exec(lines[i])) !== null) {
+      while ((m = MD_LINK_RE.exec(lineText)) !== null) {
         // Strip optional link title: [text](path "title")
         const raw = m[2].replace(/\s+"[^"]*"$/, "").replace(/\s+'[^']*'$/, "");
         const target = raw.split(/[#?]/)[0]; // strip fragment/query

@@ -7,6 +7,7 @@ vigiles — validates that AI instruction files (CLAUDE.md) have enforcement ann
 vigiles is a **bridge between instruction files and linter configs** — not a markdown linter, not a file sync tool. The core value: every rule in your CLAUDE.md either points to a real, enabled linter rule, or explicitly declares itself as guidance-only.
 
 ### Goals
+<!-- vigiles-disable -->
 
 - Validate instruction file **content quality** (annotations, links, structure)
 - **Cross-reference** enforcement claims against real linter APIs (ESLint, Ruff, Clippy, etc.)
@@ -14,6 +15,7 @@ vigiles is a **bridge between instruction files and linter configs** — not a m
 - Zero config by default — works out of the box with no setup
 
 ### Non-goals
+<!-- vigiles-disable -->
 
 - File sync across agents — use [Ruler](https://github.com/intellectronica/ruler), [rulesync](https://github.com/dyoshikawa/rulesync), or [block/ai-rules](https://github.com/block/ai-rules) for that
 - Validating `.claude/` ecosystem (hooks, MCP, plugins) — use [claudelint](https://github.com/pdugan20/claudelint) or [cclint](https://github.com/carlrannaberg/cclint)
@@ -21,6 +23,7 @@ vigiles is a **bridge between instruction files and linter configs** — not a m
 - Structural checks that mdschema can handle (heading hierarchy, required sections, max depth) — write a schema for `require-structure` instead
 
 ### Moat
+<!-- vigiles-disable -->
 
 `require-rule-file` is the differentiator. No other tool resolves ESLint builtinRules via Node API, runs `ruff rule`, `cargo clippy --explain`, `pylint --help-msg`, `rubocop --show-cops`, AND checks config-enabled status. Every new rule should ideally require knowing something about the filesystem or linter state that a pure markdown tool can't know.
 
