@@ -67,6 +67,11 @@ const CHECKBOX_RE = /^- \[([ xX])\]\s+(.+)$/;
 const VALID_MARKERS: readonly MarkerType[] = ["headings", "checkboxes"];
 const SAFE_RULE_NAME_RE = /^[a-zA-Z0-9_\-/.:#]+$/;
 
+// Markdown link: [text](target) — captures the target
+const MD_LINK_RE = /\[([^\]]*)\]\(([^)]+)\)/g;
+// Skip external URLs, anchors, and mailto
+const EXTERNAL_RE = /^(https?:|mailto:|#)/i;
+
 // Built-in schema presets (bundled .yml files in schemas/)
 const SCHEMAS_DIR = resolve(__dirname, "..", "schemas");
 
@@ -85,6 +90,7 @@ export const RULE_PACKS: Record<string, RulePack> = {
       "max-lines": 500,
       "require-rule-file": "auto",
       "require-structure": false,
+      "no-broken-links": true,
     },
     structures: [],
   },
@@ -94,6 +100,7 @@ export const RULE_PACKS: Record<string, RulePack> = {
       "max-lines": 300,
       "require-rule-file": "auto",
       "require-structure": true,
+      "no-broken-links": true,
     },
     structures: [
       { files: "CLAUDE.md", schema: "claude-md:strict" },
@@ -808,6 +815,27 @@ export function validate(
         message: `File has ${String(lineCount)} lines, exceeding the limit of ${String(limit)}. Consider splitting into subdirectory files — see https://github.com/zernie/vigiles#organizing-rules`,
         line: lineCount,
       });
+    }
+  }
+
+  // --- no-broken-links ---
+  if (activeRules["no-broken-links"] !== false && basePath) {
+    const lines = content.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      let m: RegExpExecArray | null;
+      MD_LINK_RE.lastIndex = 0;
+      while ((m = MD_LINK_RE.exec(lines[i])) !== null) {
+        const target = m[2].split(/[#?]/)[0]; // strip fragment/query
+        if (!target || EXTERNAL_RE.test(m[2])) continue;
+        const resolved = resolve(basePath, target);
+        if (!existsSync(resolved)) {
+          errors.push({
+            rule: "no-broken-links",
+            message: `Broken link: [${m[1]}](${m[2]}) — "${target}" does not exist (line ${String(i + 1)})`,
+            line: i + 1,
+          });
+        }
+      }
     }
   }
 

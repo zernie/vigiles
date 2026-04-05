@@ -60,6 +60,7 @@ export interface RulesConfig {
   "max-lines"?: number | boolean;
   "require-rule-file"?: "auto" | "catalog-only" | boolean;
   "require-structure"?: boolean;
+  "no-broken-links"?: boolean;
 }
 
 /** Linter-specific configuration (e.g., custom rules directories). */

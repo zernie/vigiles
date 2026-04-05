@@ -46,6 +46,7 @@ Named validation rules (togglable in config under `rules`):
 - `max-lines` (recommended: `500`, strict: `300`) — caps file length; set a number for custom limit, `false` to disable
 - `require-rule-file` (recommended: `"auto"`, strict: `"auto"`) — validates referenced linter rules exist and are enabled in project config; auto-detects eslint, stylelint, ruff, clippy, pylint, rubocop. Set `"catalog-only"` to only check rule existence without config-enabled checks
 - `require-structure` (recommended: `false`, strict: `true`) — validates markdown structure via mdschema CLI. Schemas are `.mdschema.yml` files matched to files by glob. Built-in presets: `"claude-md"`, `"claude-md:strict"`, `"skill"`, `"skill:strict"`
+- `no-broken-links` (recommended: `true`, strict: `true`) — checks that relative markdown links (`[text](path)`) resolve to existing files. Skips external URLs, anchors, and mailto links. Strips fragments/query strings before checking
 
 ## Rules
 

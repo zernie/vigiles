@@ -311,6 +311,7 @@ describe("loadConfig", () => {
       "max-lines": 500,
       "require-rule-file": "auto",
       "require-structure": false,
+      "no-broken-links": true,
     });
   });
 
@@ -464,6 +465,101 @@ describe("max-lines rule", () => {
     const content = "line\n".repeat(99) + "last line";
     const result = validate(content, {
       rules: { "require-annotations": false, "max-lines": 100 },
+    });
+    assert.equal(result.valid, true);
+  });
+});
+
+describe("no-broken-links rule", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-links-"));
+    writeFileSync(join(tmpDir, "existing.md"), "# Hello\n");
+    mkdirSync(join(tmpDir, "sub"));
+    writeFileSync(join(tmpDir, "sub", "nested.md"), "# Nested\n");
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should pass when all relative links resolve", () => {
+    const content =
+      "See [docs](existing.md) and [nested](sub/nested.md) for details.\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it("should fail when a relative link target is missing", () => {
+    const content = "Read the [guide](missing-file.md) first.\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, false);
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].rule, "no-broken-links");
+    assert.ok(result.errors[0].message.includes("missing-file.md"));
+  });
+
+  it("should skip external URLs", () => {
+    const content =
+      "Visit [site](https://example.com) and [mail](mailto:a@b.com).\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should skip anchor-only links", () => {
+    const content = "Jump to [section](#overview).\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should handle links with fragments to existing files", () => {
+    const content = "See [section](existing.md#heading) for details.\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should report multiple broken links", () => {
+    const content =
+      "See [a](nope.md) and [b](also-nope.md) for info.\n[c](existing.md) is fine.\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.errors.length, 2);
+    assert.ok(result.errors[0].message.includes("nope.md"));
+    assert.ok(result.errors[1].message.includes("also-nope.md"));
+  });
+
+  it("should be disabled when set to false", () => {
+    const content = "Read the [guide](missing.md) first.\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": false },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should not run without basePath", () => {
+    const content = "Read the [guide](missing.md) first.\n";
+    const result = validate(content, {
+      rules: { "require-annotations": false, "no-broken-links": true },
     });
     assert.equal(result.valid, true);
   });
