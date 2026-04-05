@@ -20,8 +20,8 @@ import {
   validateStructure,
   resolveSchema,
   STRUCTURE_PRESETS,
-  RULE_PACKS,
-} from "./validate.mjs";
+} from "./validate.js";
+import type { MarkerType, ParseOptions } from "./types.js";
 
 describe("parseClaudeMd", () => {
   it("should parse enforced rules", () => {
@@ -118,8 +118,8 @@ describe("parseClaudeMd", () => {
 });
 
 describe("parseClaudeMd with checkboxes", () => {
-  const opts = { ruleMarkers: ["checkboxes"] };
-  const bothOpts = { ruleMarkers: ["headings", "checkboxes"] };
+  const opts: ParseOptions = { ruleMarkers: ["checkboxes"] };
+  const bothOpts: ParseOptions = { ruleMarkers: ["headings", "checkboxes"] };
 
   it("should parse unchecked checkbox with enforced annotation", () => {
     const rules = parseClaudeMd(
@@ -223,7 +223,7 @@ describe("parseClaudeMd with checkboxes", () => {
   it("should ignore checkboxes when only headings marker is enabled", () => {
     const rules = parseClaudeMd(
       "- [ ] Checkbox rule\n**Enforced by:** `x`\n### Heading rule\n**Enforced by:** `y`\n",
-      { ruleMarkers: ["headings"] },
+      { ruleMarkers: ["headings"] as MarkerType[] },
     );
     assert.equal(rules.length, 1);
     assert.equal(rules[0].title, "Heading rule");
@@ -243,7 +243,7 @@ describe("validate with checkboxes", () => {
   it("should validate checkbox-only document as valid", () => {
     const result = validate(
       "- [ ] Rule A\n**Enforced by:** `eslint/rule-a`\n\n- [x] Rule B\n**Guidance only**\n",
-      { ruleMarkers: ["checkboxes"] },
+      { ruleMarkers: ["checkboxes"] as MarkerType[] },
     );
     assert.equal(result.valid, true);
     assert.equal(result.enforced, 1);
@@ -254,7 +254,7 @@ describe("validate with checkboxes", () => {
   it("should validate checkbox-only document as invalid when missing annotation", () => {
     const result = validate(
       "- [ ] Rule A\n**Enforced by:** `x`\n\n- [ ] Rule B\nNo annotation.\n",
-      { ruleMarkers: ["checkboxes"] },
+      { ruleMarkers: ["checkboxes"] as MarkerType[] },
     );
     assert.equal(result.valid, false);
     assert.equal(result.missing, 1);
@@ -278,7 +278,7 @@ describe("validate with checkboxes", () => {
 **Guidance only** — cannot be enforced
 `;
     const result = validate(content, {
-      ruleMarkers: ["headings", "checkboxes"],
+      ruleMarkers: ["headings", "checkboxes"] as MarkerType[],
     });
     assert.equal(result.total, 3);
     assert.equal(result.enforced, 2);
@@ -289,8 +289,8 @@ describe("validate with checkboxes", () => {
 });
 
 describe("loadConfig", () => {
-  let tmpDir;
-  let originalCwd;
+  let tmpDir: string;
+  let originalCwd: string;
 
   before(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
@@ -615,7 +615,7 @@ describe("validate", () => {
 });
 
 describe("readClaudeMd", () => {
-  let tmpDir;
+  let tmpDir: string;
 
   before(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "vigiles-test-"));
@@ -630,14 +630,16 @@ describe("readClaudeMd", () => {
     writeFileSync(filePath, "### Rule\n**Enforced by:** `x`\n");
     const { content, skipped } = readClaudeMd(filePath);
     assert.equal(skipped, false);
-    assert.ok(content.includes("### Rule"));
+    assert.notEqual(content, null);
+    assert.ok((content as string).includes("### Rule"));
   });
 
   it("should return error for missing file", () => {
     const { content, skipped, reason } = readClaudeMd(join(tmpDir, "nope.md"));
     assert.equal(content, null);
     assert.equal(skipped, false);
-    assert.ok(reason.includes("File not found"));
+    assert.notEqual(reason, null);
+    assert.ok((reason as string).includes("File not found"));
   });
 
   it("should skip symlinks by default", () => {
@@ -648,7 +650,8 @@ describe("readClaudeMd", () => {
     const { content, skipped, reason } = readClaudeMd(link);
     assert.equal(content, null);
     assert.equal(skipped, true);
-    assert.ok(reason.includes("symlink"));
+    assert.notEqual(reason, null);
+    assert.ok((reason as string).includes("symlink"));
   });
 
   it("should follow symlinks when opted in", () => {
@@ -658,12 +661,13 @@ describe("readClaudeMd", () => {
     symlinkSync(realFile, link);
     const { content, skipped } = readClaudeMd(link, { followSymlinks: true });
     assert.equal(skipped, false);
-    assert.ok(content.includes("### Rule"));
+    assert.notEqual(content, null);
+    assert.ok((content as string).includes("### Rule"));
   });
 });
 
 describe("validatePaths", () => {
-  let tmpDir;
+  let tmpDir: string;
 
   before(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "vigiles-test-"));
@@ -682,8 +686,10 @@ describe("validatePaths", () => {
     const { fileResults, valid } = validatePaths([file1, file2]);
     assert.equal(valid, true);
     assert.equal(fileResults.length, 2);
-    assert.equal(fileResults[0].result.enforced, 1);
-    assert.equal(fileResults[1].result.guidanceOnly, 1);
+    assert.notEqual(fileResults[0].result, null);
+    assert.equal(fileResults[0].result?.enforced, 1);
+    assert.notEqual(fileResults[1].result, null);
+    assert.equal(fileResults[1].result?.guidanceOnly, 1);
   });
 
   it("should fail if any file has missing annotations", () => {
@@ -726,12 +732,13 @@ describe("validatePaths", () => {
     });
     assert.equal(valid, true);
     assert.equal(fileResults[0].skipped, false);
-    assert.equal(fileResults[0].result.enforced, 1);
+    assert.notEqual(fileResults[0].result, null);
+    assert.equal(fileResults[0].result?.enforced, 1);
   });
 });
 
 describe("expandGlobs", () => {
-  let tmpDir;
+  let tmpDir: string;
 
   before(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "vigiles-glob-"));
@@ -780,7 +787,7 @@ describe("expandGlobs", () => {
 });
 
 describe("require-rule-file", () => {
-  let tmpDir;
+  let tmpDir: string;
 
   before(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "vigiles-rule-file-"));
@@ -843,7 +850,7 @@ describe("require-rule-file", () => {
     );
     const eslint = result.detectedLinters.find((l) => l.name === "eslint");
     assert.ok(eslint);
-    assert.ok(eslint.ruleCount > 0);
+    assert.ok(typeof eslint?.ruleCount === "number" && eslint.ruleCount > 0);
   });
 
   it("should detect ruff rules via CLI", () => {
@@ -1109,7 +1116,7 @@ describe("require-rule-file", () => {
   describe("config-enabled checks", () => {
     // --- ESLint ---
     describe("eslint", () => {
-      let eslintDir;
+      let eslintDir: string;
 
       before(() => {
         eslintDir = mkdtempSync(join(tmpdir(), "vigiles-eslint-cfg-"));
@@ -1210,7 +1217,7 @@ describe("require-rule-file", () => {
 
     // --- Ruff ---
     describe("ruff", () => {
-      let ruffDir;
+      let ruffDir: string;
 
       before(() => {
         ruffDir = mkdtempSync(join(tmpdir(), "vigiles-ruff-cfg-"));
@@ -1289,7 +1296,7 @@ describe("require-rule-file", () => {
 
     // --- Pylint ---
     describe("pylint", () => {
-      let pylintDir;
+      let pylintDir: string;
 
       before(() => {
         pylintDir = mkdtempSync(join(tmpdir(), "vigiles-pylint-cfg-"));
@@ -1347,7 +1354,7 @@ describe("require-rule-file", () => {
 
     // --- RuboCop ---
     describe("rubocop", () => {
-      let rubocopDir;
+      let rubocopDir: string;
 
       before(() => {
         rubocopDir = mkdtempSync(join(tmpdir(), "vigiles-rubocop-cfg-"));
@@ -1406,7 +1413,7 @@ describe("require-rule-file", () => {
 
     // --- Clippy ---
     describe("clippy", () => {
-      let clippyDir;
+      let clippyDir: string;
 
       before(() => {
         clippyDir = mkdtempSync(join(tmpdir(), "vigiles-clippy-cfg-"));
@@ -1491,7 +1498,7 @@ describe("require-rule-file", () => {
 });
 
 describe("discoverInstructionFiles", () => {
-  let tmpDir;
+  let tmpDir: string;
 
   before(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "vigiles-discover-"));
@@ -1571,7 +1578,7 @@ describe("discoverInstructionFiles", () => {
     assert.ok(result.detected.some((d) => d.name === "Windsurf"));
     assert.ok(result.missing.some((m) => m.tool === "Windsurf"));
     assert.equal(
-      result.missing.find((m) => m.tool === "Windsurf").expected,
+      result.missing.find((m) => m.tool === "Windsurf")?.expected,
       ".windsurfrules",
     );
     rmSync(dir, { recursive: true, force: true });
@@ -1613,7 +1620,7 @@ describe("discoverInstructionFiles", () => {
 });
 
 describe("validateStructure (mdschema CLI)", () => {
-  let tmpDir;
+  let tmpDir: string;
 
   before(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "vigiles-struct-"));
@@ -1623,13 +1630,13 @@ describe("validateStructure (mdschema CLI)", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function writeSchema(name, content) {
+  function writeSchema(name: string, content: string): string {
     const p = join(tmpDir, name);
     writeFileSync(p, content);
     return p;
   }
 
-  function writeMd(name, content) {
+  function writeMd(name: string, content: string): string {
     const p = join(tmpDir, name);
     writeFileSync(p, content);
     return p;
@@ -1755,7 +1762,7 @@ describe("resolveSchema", () => {
 });
 
 describe("require-structure via validate()", () => {
-  let tmpDir;
+  let tmpDir: string;
 
   before(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "vigiles-vstruct-"));

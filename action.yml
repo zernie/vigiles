@@ -30,4 +30,4 @@ inputs:
 
 runs:
   using: "node20"
-  main: "action.mjs"
+  main: "dist/action.js"

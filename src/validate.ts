@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { readFileSync, lstatSync, existsSync } from "node:fs";
 import { globSync } from "glob";
 import { resolve, dirname } from "node:path";
@@ -8,18 +6,71 @@ import { createRequire } from "node:module";
 import { cosmiconfigSync } from "cosmiconfig";
 import { minimatch } from "minimatch";
 
-const ENFORCED_BY_RE = /\*\*Enforced by:\*\*/;
+import type {
+  ParsedRule,
+  ValidationError,
+  DetectedLinter,
+  ValidationResult,
+  ReadResult,
+  FileResult,
+  ValidatePathsResult,
+  RulesConfig,
+  LinterConfig,
+  StructureEntry,
+  VigilesConfig,
+  MarkerType,
+  ParseOptions,
+  ValidateOptions,
+  ValidatePathsOptions,
+  ReadOptions,
+  AgentTool,
+  DiscoveryResult,
+  StructureValidationResult,
+  EslintRuleSet,
+  RulePack,
+  ConfigEnabledStatus,
+} from "./types.js";
+
+// Re-export all types for consumers
+export type {
+  ParsedRule,
+  ValidationError,
+  DetectedLinter,
+  ValidationResult,
+  ReadResult,
+  FileResult,
+  ValidatePathsResult,
+  RulesConfig,
+  LinterConfig,
+  StructureEntry,
+  VigilesConfig,
+  MarkerType,
+  ParseOptions,
+  ValidateOptions,
+  ValidatePathsOptions,
+  ReadOptions,
+  AgentTool,
+  DiscoveryResult,
+  StructureValidationResult,
+  RulePack,
+};
+
+// ---------------------------------------------------------------------------
+// Constants & regex
+// ---------------------------------------------------------------------------
+
 const GUIDANCE_RE = /\*\*Guidance only\*\*/;
 const DISABLE_RE = /<!--\s*vigiles-disable\s*-->/;
 const RULE_HEADER_RE = /^###\s+(.+)$/;
 const CHECKBOX_RE = /^- \[([ xX])\]\s+(.+)$/;
 
-const VALID_MARKERS = ["headings", "checkboxes"];
+const VALID_MARKERS: readonly MarkerType[] = ["headings", "checkboxes"];
 const SAFE_RULE_NAME_RE = /^[a-zA-Z0-9_\-/.:#]+$/;
 
 // Built-in schema presets (bundled .yml files in schemas/)
-const SCHEMAS_DIR = new URL("./schemas/", import.meta.url).pathname;
-export const STRUCTURE_PRESETS = {
+const SCHEMAS_DIR = resolve(__dirname, "..", "schemas");
+
+export const STRUCTURE_PRESETS: Record<string, string> = {
   "claude-md": resolve(SCHEMAS_DIR, "claude-md.yml"),
   "claude-md:strict": resolve(SCHEMAS_DIR, "claude-md-strict.yml"),
   skill: resolve(SCHEMAS_DIR, "skill.yml"),
@@ -27,7 +78,7 @@ export const STRUCTURE_PRESETS = {
 };
 
 // Rule packs — like eslint's "recommended" / "strict" configs
-export const RULE_PACKS = {
+export const RULE_PACKS: Record<string, RulePack> = {
   recommended: {
     rules: {
       "require-annotations": true,
@@ -51,19 +102,23 @@ export const RULE_PACKS = {
   },
 };
 
-const DEFAULT_RULES = RULE_PACKS.recommended.rules;
+const DEFAULT_RULES: Required<RulesConfig> = RULE_PACKS["recommended"].rules;
 
-// Resolve the mdschema binary path (optional dependency)
-function findMdschema() {
+// ---------------------------------------------------------------------------
+// mdschema integration
+// ---------------------------------------------------------------------------
+
+function findMdschema(): string | null {
   try {
     const req = createRequire(resolve(process.cwd(), "package.json"));
-    const { getBinaryPath } = req("@jackchuka/mdschema/lib/platform");
+    const { getBinaryPath } = req("@jackchuka/mdschema/lib/platform") as {
+      getBinaryPath: () => string;
+    };
     const bin = getBinaryPath();
     if (existsSync(bin)) return bin;
   } catch {
     // not installed via npm
   }
-  // Try PATH
   try {
     execSync("which mdschema", { stdio: "ignore" });
     return "mdschema";
@@ -72,25 +127,20 @@ function findMdschema() {
   }
 }
 
-let _mdschemaPath;
-function getMdschema() {
+let _mdschemaPath: string | null | undefined;
+function getMdschema(): string | null {
   if (_mdschemaPath === undefined) {
     _mdschemaPath = findMdschema();
   }
   return _mdschemaPath;
 }
 
-// Parse mdschema text output into error objects
-// Format: "  ✗ LINE:COL [RULE] MESSAGE"
 const MDSCHEMA_ERROR_RE = /^\s*✗\s+(\d+):(\d+)\s+\[([^\]]+)\]\s+(.+)$/;
 
-/**
- * Validate a markdown file against an mdschema YAML schema.
- * @param {string} filePath - path to the markdown file
- * @param {string} schemaPath - path to the .mdschema.yml file
- * @returns {{ errors: Array<{rule: string, message: string, line: number}>, available: boolean }}
- */
-export function validateStructure(filePath, schemaPath) {
+export function validateStructure(
+  filePath: string,
+  schemaPath: string,
+): StructureValidationResult {
   const bin = getMdschema();
   if (!bin) {
     return { errors: [], available: false };
@@ -102,9 +152,10 @@ export function validateStructure(filePath, schemaPath) {
       timeout: 15000,
     });
     return { errors: [], available: true };
-  } catch (e) {
-    const output = (e.stdout || "") + (e.stderr || "");
-    const errors = [];
+  } catch (e: unknown) {
+    const execErr = e as { stdout?: string; stderr?: string };
+    const output = (execErr.stdout ?? "") + (execErr.stderr ?? "");
+    const errors: ValidationError[] = [];
     for (const line of output.split("\n")) {
       const m = line.match(MDSCHEMA_ERROR_RE);
       if (m) {
@@ -119,8 +170,11 @@ export function validateStructure(filePath, schemaPath) {
   }
 }
 
-// AI coding tools: presence indicators and required instruction files
-const AGENT_TOOLS = [
+// ---------------------------------------------------------------------------
+// Agent tool discovery
+// ---------------------------------------------------------------------------
+
+const AGENT_TOOLS: AgentTool[] = [
   {
     name: "Claude Code",
     indicators: [".claude"],
@@ -136,7 +190,6 @@ const AGENT_TOOLS = [
     indicators: [".windsurf"],
     instructionFiles: [".windsurfrules"],
   },
-  // Tools where the instruction file IS the indicator
   {
     name: "OpenAI Codex",
     indicators: ["AGENTS.md"],
@@ -154,16 +207,24 @@ const AGENT_TOOLS = [
   },
 ];
 
-const DEFAULT_CONFIG = {
+// ---------------------------------------------------------------------------
+// Default config
+// ---------------------------------------------------------------------------
+
+const DEFAULT_CONFIG: VigilesConfig = {
   extends: "recommended",
   ruleMarkers: ["headings", "checkboxes"],
   rules: DEFAULT_RULES,
   linters: {},
-  agents: null, // null = auto-detect; array = explicit list of tool names
-  structures: [], // array of { files: "<glob>", schema: <preset-name|path> }
+  agents: null,
+  structures: [],
 };
 
-function extractLinterName(enforcedBy) {
+// ---------------------------------------------------------------------------
+// Linter helpers
+// ---------------------------------------------------------------------------
+
+function extractLinterName(enforcedBy: string): string {
   const colonIdx = enforcedBy.indexOf("::");
   const slashIdx = enforcedBy.indexOf("/");
   if (colonIdx === -1 && slashIdx === -1) return enforcedBy;
@@ -172,7 +233,7 @@ function extractLinterName(enforcedBy) {
   return enforcedBy.substring(0, Math.min(slashIdx, colonIdx));
 }
 
-function extractRuleName(enforcedBy) {
+function extractRuleName(enforcedBy: string): string | null {
   const colonIdx = enforcedBy.indexOf("::");
   const slashIdx = enforcedBy.indexOf("/");
   if (colonIdx === -1 && slashIdx === -1) return null;
@@ -183,20 +244,24 @@ function extractRuleName(enforcedBy) {
   return enforcedBy.substring(idx + sep);
 }
 
-function ruleFileExists(ruleName, rulesDir, basePath) {
+function ruleFileExists(
+  ruleName: string,
+  rulesDir: string,
+  basePath: string,
+): boolean | null {
   const dir = resolve(basePath, rulesDir);
   if (!existsSync(dir)) return null;
   const matches = globSync(`${ruleName}.*`, { cwd: dir });
   return matches.length > 0;
 }
 
-// Try to resolve an ESLint plugin's rules by package name
-function resolveEslintPluginRules(pluginName, basePath) {
+function resolveEslintPluginRules(
+  pluginName: string,
+  basePath: string,
+): Set<string> | null {
   try {
     const req = createRequire(resolve(basePath, "package.json"));
-    // @scope/foo -> @scope/eslint-plugin-foo, or @scope -> @scope/eslint-plugin
-    // foo -> eslint-plugin-foo
-    let pkgNames;
+    let pkgNames: string[];
     if (pluginName.startsWith("@")) {
       const parts = pluginName.split("/");
       if (parts.length === 1) {
@@ -212,8 +277,11 @@ function resolveEslintPluginRules(pluginName, basePath) {
     }
     for (const pkg of pkgNames) {
       try {
-        const plugin = req(pkg);
-        const rules = plugin.rules || (plugin.default && plugin.default.rules);
+        const plugin = req(pkg) as {
+          rules?: Record<string, unknown>;
+          default?: { rules?: Record<string, unknown> };
+        };
+        const rules = plugin.rules ?? plugin.default?.rules;
         if (rules) return new Set(Object.keys(rules));
       } catch {
         continue;
@@ -225,33 +293,37 @@ function resolveEslintPluginRules(pluginName, basePath) {
   }
 }
 
-// Built-in resolvers: return a Set of valid rule names, or null if linter not available
-const LINTER_RESOLVERS = {
-  eslint(basePath) {
+// Built-in resolvers
+const LINTER_RESOLVERS: Record<
+  string,
+  (basePath: string) => EslintRuleSet | Set<string>
+> = {
+  eslint(basePath: string): EslintRuleSet {
     const req = createRequire(resolve(basePath, "package.json"));
-    const { builtinRules } = req("eslint/use-at-your-own-risk");
-    const rules = new Set(builtinRules.keys());
-    // Tag with basePath so we can resolve plugins later
+    const { builtinRules } = req("eslint/use-at-your-own-risk") as {
+      builtinRules: Map<string, unknown>;
+    };
+    const rules: EslintRuleSet = new Set(builtinRules.keys());
     rules._basePath = basePath;
     rules._isEslint = true;
     return rules;
   },
-  stylelint(basePath) {
+  stylelint(basePath: string): Set<string> {
     const req = createRequire(resolve(basePath, "package.json"));
-    const mod = req("stylelint");
+    const mod = req("stylelint") as { rules: Record<string, unknown> };
     return new Set(Object.keys(mod.rules));
   },
 };
 
-// CLI-based per-rule checks: throw on failure (rule doesn't exist)
-const CLI_RULE_CHECKS = {
-  ruff(ruleName) {
+// CLI-based per-rule checks
+const CLI_RULE_CHECKS: Record<string, (ruleName: string) => void> = {
+  ruff(ruleName: string): void {
     execSync(`ruff rule ${ruleName}`, { stdio: "ignore" });
   },
-  clippy(ruleName) {
+  clippy(ruleName: string): void {
     execSync(`cargo clippy --explain ${ruleName}`, { stdio: "ignore" });
   },
-  pylint(ruleName) {
+  pylint(ruleName: string): void {
     const output = execSync(`pylint --help-msg=${ruleName}`, {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -260,9 +332,7 @@ const CLI_RULE_CHECKS = {
       throw new Error(`Unknown pylint message: ${ruleName}`);
     }
   },
-  rubocop(ruleName) {
-    // rubocop --show-cops exits 0 for both valid and invalid cops,
-    // but outputs nothing for invalid ones
+  rubocop(ruleName: string): void {
     const output = execSync(`rubocop --show-cops ${ruleName}`, {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "ignore"],
@@ -273,14 +343,17 @@ const CLI_RULE_CHECKS = {
   },
 };
 
-// Config-enabled checkers: verify a rule is actually enabled in project config
-// Each returns (ruleName, basePath) → "enabled" | "disabled" | "unknown"
-function createCachedChecker(loadConfig) {
-  const cache = new Map();
-  return (ruleName, basePath) => {
+// Config-enabled checkers
+type ConfigLoader = (ruleName: string) => ConfigEnabledStatus;
+
+function createCachedChecker(
+  loadConfigFn: (basePath: string) => ConfigLoader | null,
+): (ruleName: string, basePath: string) => ConfigEnabledStatus {
+  const cache = new Map<string, ConfigLoader | null>();
+  return (ruleName: string, basePath: string): ConfigEnabledStatus => {
     if (!cache.has(basePath)) {
       try {
-        cache.set(basePath, loadConfig(basePath));
+        cache.set(basePath, loadConfigFn(basePath));
       } catch {
         cache.set(basePath, null);
       }
@@ -291,8 +364,11 @@ function createCachedChecker(loadConfig) {
   };
 }
 
-const LINTER_CONFIG_CHECKERS = {
-  eslint: createCachedChecker((basePath) => {
+const LINTER_CONFIG_CHECKERS: Record<
+  string,
+  (ruleName: string, basePath: string) => ConfigEnabledStatus
+> = {
+  eslint: createCachedChecker((basePath: string): ConfigLoader | null => {
     try {
       const script = `
         const { loadESLint } = require("eslint");
@@ -313,12 +389,14 @@ const LINTER_CONFIG_CHECKERS = {
         stdio: ["pipe", "pipe", "pipe"],
         timeout: 15000,
       });
-      const rules = JSON.parse(output.trim() || "{}");
-      return (ruleName) => {
-        // Handle plugin rules: "import/no-unresolved" is keyed as "import/no-unresolved" in config
+      const rules = JSON.parse(output.trim() || "{}") as Record<
+        string,
+        unknown
+      >;
+      return (ruleName: string): ConfigEnabledStatus => {
         if (!(ruleName in rules)) return "unknown";
-        const setting = rules[ruleName];
-        const severity = Array.isArray(setting) ? setting[0] : setting;
+        const setting: unknown = rules[ruleName];
+        const severity: unknown = Array.isArray(setting) ? setting[0] : setting;
         if (severity === 0 || severity === "off") return "disabled";
         return "enabled";
       };
@@ -327,7 +405,7 @@ const LINTER_CONFIG_CHECKERS = {
     }
   }),
 
-  stylelint: createCachedChecker((basePath) => {
+  stylelint: createCachedChecker((basePath: string): ConfigLoader | null => {
     try {
       const script = `
         const stylelint = require("stylelint");
@@ -347,8 +425,11 @@ const LINTER_CONFIG_CHECKERS = {
         stdio: ["pipe", "pipe", "pipe"],
         timeout: 15000,
       });
-      const rules = JSON.parse(output.trim() || "{}");
-      return (ruleName) => {
+      const rules = JSON.parse(output.trim() || "{}") as Record<
+        string,
+        unknown
+      >;
+      return (ruleName: string): ConfigEnabledStatus => {
         if (!(ruleName in rules)) return "unknown";
         const setting = rules[ruleName];
         if (setting === null || (Array.isArray(setting) && setting[0] === null))
@@ -360,10 +441,8 @@ const LINTER_CONFIG_CHECKERS = {
     }
   }),
 
-  ruff: createCachedChecker((basePath) => {
+  ruff: createCachedChecker((basePath: string): ConfigLoader | null => {
     try {
-      // ruff check --show-settings needs a real file to resolve against
-      // Create a temporary dummy file path, or use an existing .py file
       const dummyPath = resolve(basePath, "dummy.py");
       const output = execSync(`ruff check --show-settings ${dummyPath}`, {
         encoding: "utf-8",
@@ -371,24 +450,19 @@ const LINTER_CONFIG_CHECKERS = {
         stdio: ["pipe", "pipe", "pipe"],
         timeout: 10000,
       });
-      // Output format: linter.rules.enabled lists rules as "rule-name (CODE),"
-      // Extract the enabled rules section
       const enabledMatch = output.match(
         /linter\.rules\.enabled\s*=\s*\[([\s\S]*?)\]/,
       );
-      const enabledCodes = new Set();
-      if (enabledMatch) {
-        // Extract rule codes from "rule-name (CODE)," lines
+      const enabledCodes = new Set<string>();
+      if (enabledMatch?.[1]) {
         const codeRe = /\(([A-Z]+\d*)\)/g;
-        let m;
+        let m: RegExpExecArray | null;
         while ((m = codeRe.exec(enabledMatch[1])) !== null) {
           enabledCodes.add(m[1]);
         }
       }
-      return (ruleName) => {
-        // Direct match
+      return (ruleName: string): ConfigEnabledStatus => {
         if (enabledCodes.has(ruleName)) return "enabled";
-        // Hierarchical: check if any enabled code starts with this prefix
         for (const code of enabledCodes) {
           if (code.startsWith(ruleName)) return "enabled";
         }
@@ -399,7 +473,7 @@ const LINTER_CONFIG_CHECKERS = {
     }
   }),
 
-  pylint: createCachedChecker((basePath) => {
+  pylint: createCachedChecker((basePath: string): ConfigLoader | null => {
     try {
       const output = execSync("pylint --list-msgs-enabled", {
         encoding: "utf-8",
@@ -412,7 +486,7 @@ const LINTER_CONFIG_CHECKERS = {
         disabledIdx >= 0 ? output.substring(0, disabledIdx) : output;
       const disabledSection =
         disabledIdx >= 0 ? output.substring(disabledIdx) : "";
-      return (ruleName) => {
+      return (ruleName: string): ConfigEnabledStatus => {
         if (disabledSection.includes(ruleName)) return "disabled";
         if (enabledSection.includes(ruleName)) return "enabled";
         return "unknown";
@@ -422,8 +496,7 @@ const LINTER_CONFIG_CHECKERS = {
     }
   }),
 
-  rubocop(ruleName, basePath) {
-    // Reuse the --show-cops output that CLI_RULE_CHECKS already fetches
+  rubocop(ruleName: string, basePath: string): ConfigEnabledStatus {
     try {
       const output = execSync(`rubocop --show-cops ${ruleName}`, {
         encoding: "utf-8",
@@ -439,26 +512,24 @@ const LINTER_CONFIG_CHECKERS = {
     }
   },
 
-  clippy: createCachedChecker((basePath) => {
+  clippy: createCachedChecker((basePath: string): ConfigLoader | null => {
     try {
       const cargoPath = resolve(basePath, "Cargo.toml");
       if (!existsSync(cargoPath)) return null;
       const content = readFileSync(cargoPath, "utf-8");
-      // Parse [lints.clippy] section
       const sectionMatch = content.match(
         /\[lints\.clippy\]([\s\S]*?)(?=\n\[|$)/,
       );
-      if (!sectionMatch) return null;
+      if (!sectionMatch?.[1]) return null;
       const section = sectionMatch[1];
-      return (ruleName) => {
-        // ruleName might be "clippy::needless_return" or just "needless_return"
+      return (ruleName: string): ConfigEnabledStatus => {
         const shortName = ruleName.replace(/^clippy::/, "");
         const ruleMatch = section.match(
           new RegExp(
             `${shortName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=\\s*"(\\w+)"`,
           ),
         );
-        if (!ruleMatch) return "unknown";
+        if (!ruleMatch?.[1]) return "unknown";
         return ruleMatch[1] === "allow" ? "disabled" : "enabled";
       };
     } catch {
@@ -467,8 +538,7 @@ const LINTER_CONFIG_CHECKERS = {
   }),
 };
 
-// Check if a CLI tool is available on PATH
-function cliAvailable(command) {
+function cliAvailable(command: string): boolean {
   try {
     execSync(`which ${command}`, { stdio: "ignore" });
     return true;
@@ -477,27 +547,25 @@ function cliAvailable(command) {
   }
 }
 
-const CLI_TOOL_FOR_LINTER = {
+const CLI_TOOL_FOR_LINTER: Record<string, string> = {
   ruff: "ruff",
   clippy: "cargo",
   pylint: "pylint",
   rubocop: "rubocop",
 };
 
-/**
- * Detect AI coding tools and their instruction files.
- * @param {string} cwd — directory to scan
- * @param {string[]|null} agents — explicit list of tool names to check, or null for auto-detect
- * Returns { detected, files, missing } where:
- *   detected: [{ name, indicator }] — tools found in the project
- *   files: string[] — instruction files to validate
- *   missing: [{ tool, expected, indicator }] — detected tools missing instruction files
- */
-export function discoverInstructionFiles(cwd = process.cwd(), agents = null) {
-  const detected = [];
-  const files = [];
-  const missing = [];
-  const seen = new Set();
+// ---------------------------------------------------------------------------
+// Agent discovery
+// ---------------------------------------------------------------------------
+
+export function discoverInstructionFiles(
+  cwd: string = process.cwd(),
+  agents: string[] | null = null,
+): DiscoveryResult {
+  const detected: DiscoveryResult["detected"] = [];
+  const files: string[] = [];
+  const missing: DiscoveryResult["missing"] = [];
+  const seen = new Set<string>();
 
   const toolsToCheck = agents
     ? AGENT_TOOLS.filter((t) =>
@@ -506,8 +574,6 @@ export function discoverInstructionFiles(cwd = process.cwd(), agents = null) {
     : AGENT_TOOLS;
 
   for (const tool of toolsToCheck) {
-    // In explicit mode, always check (no indicator needed)
-    // In auto mode, require an indicator to be present
     const indicator = agents
       ? tool.indicators[0]
       : tool.indicators.find((ind) => existsSync(resolve(cwd, ind)));
@@ -515,7 +581,7 @@ export function discoverInstructionFiles(cwd = process.cwd(), agents = null) {
 
     detected.push({
       name: tool.name,
-      indicator: indicator || tool.indicators[0],
+      indicator: indicator ?? tool.indicators[0],
     });
 
     for (const file of tool.instructionFiles) {
@@ -527,7 +593,7 @@ export function discoverInstructionFiles(cwd = process.cwd(), agents = null) {
         missing.push({
           tool: tool.name,
           expected: file,
-          indicator: indicator || tool.indicators[0],
+          indicator: indicator ?? tool.indicators[0],
         });
       }
     }
@@ -536,13 +602,11 @@ export function discoverInstructionFiles(cwd = process.cwd(), agents = null) {
   return { detected, files, missing };
 }
 
-/**
- * Resolve a schema value to a file path.
- * - If it's a preset name ("claude-md", "skill"), return the bundled .yml path.
- * - If it's a file path string, resolve it relative to cwd.
- * - Otherwise return null.
- */
-export function resolveSchema(schema) {
+// ---------------------------------------------------------------------------
+// Schema resolution
+// ---------------------------------------------------------------------------
+
+export function resolveSchema(schema: unknown): string | null {
   if (typeof schema !== "string") {
     console.warn(
       `Invalid schema value: expected a preset name or file path string. Skipping.`,
@@ -551,75 +615,92 @@ export function resolveSchema(schema) {
   }
   const preset = STRUCTURE_PRESETS[schema];
   if (preset) return preset;
-  // Treat as file path
   const resolved = resolve(schema);
   if (existsSync(resolved)) return resolved;
   console.warn(`Schema not found: "${schema}". Skipping.`);
   return null;
 }
 
-function resolveStructures(raw) {
+function resolveStructures(raw: unknown): StructureEntry[] {
   if (!Array.isArray(raw)) return [];
-  return raw
+  return (raw as Array<{ files: string; schema: unknown }>)
     .map((entry) => {
       const schema = resolveSchema(entry.schema);
       if (!schema) return null;
       return { files: entry.files, schema };
     })
-    .filter(Boolean);
+    .filter((entry): entry is StructureEntry => entry !== null);
 }
 
-export function loadConfig() {
+// ---------------------------------------------------------------------------
+// Config loading
+// ---------------------------------------------------------------------------
+
+export function loadConfig(): VigilesConfig {
   try {
     const explorer = cosmiconfigSync("vigiles", {
       searchPlaces: [".vigilesrc.json"],
       mergeSearchPlaces: false,
     });
     const result = explorer.search();
-    if (!result || !result.config) return DEFAULT_CONFIG;
+    if (!result?.config) return { ...DEFAULT_CONFIG };
 
-    // Resolve rule pack base
-    const packName = result.config.extends || "recommended";
+    const userConfig = result.config as Partial<VigilesConfig> & {
+      extends?: string;
+      rules?: Partial<RulesConfig>;
+      structures?: unknown;
+    };
+
+    const packName = userConfig.extends ?? "recommended";
     const pack = RULE_PACKS[packName];
     if (!pack) {
       console.warn(`Unknown rule pack: "${packName}". Using "recommended".`);
     }
-    const basePack = pack || RULE_PACKS.recommended;
+    const basePack = pack ?? RULE_PACKS["recommended"];
 
-    // User config overrides the pack
-    const config = {
+    const config: VigilesConfig = {
       ...DEFAULT_CONFIG,
-      ...result.config,
-      rules: { ...basePack.rules, ...result.config.rules },
-      linters: { ...result.config.linters },
-      agents: result.config.agents !== undefined ? result.config.agents : null,
+      ...userConfig,
+      rules: { ...basePack.rules, ...userConfig.rules },
+      linters: { ...userConfig.linters },
+      agents:
+        userConfig.agents !== undefined ? (userConfig.agents ?? null) : null,
       structures: resolveStructures(
-        result.config.structures || basePack.structures,
+        userConfig.structures ?? basePack.structures,
       ),
     };
 
     if (
       !Array.isArray(config.ruleMarkers) ||
-      !config.ruleMarkers.every((m) => VALID_MARKERS.includes(m))
+      !config.ruleMarkers.every((m): m is MarkerType =>
+        (VALID_MARKERS as readonly string[]).includes(m),
+      )
     ) {
       console.warn(
         `Invalid ruleMarkers in config: ${JSON.stringify(config.ruleMarkers)}. Using default.`,
       );
-      config.ruleMarkers = DEFAULT_CONFIG.ruleMarkers;
+      config.ruleMarkers = [...DEFAULT_CONFIG.ruleMarkers];
     }
 
     return config;
   } catch {
-    return DEFAULT_CONFIG;
+    return { ...DEFAULT_CONFIG };
   }
 }
 
-export function parseClaudeMd(content, { ruleMarkers } = {}) {
-  const markers = ruleMarkers || DEFAULT_CONFIG.ruleMarkers;
-  const lines = content.split("\n");
-  const rules = [];
+// ---------------------------------------------------------------------------
+// Parsing
+// ---------------------------------------------------------------------------
 
-  let currentRule = null;
+export function parseClaudeMd(
+  content: string,
+  { ruleMarkers }: ParseOptions = {},
+): ParsedRule[] {
+  const markers = ruleMarkers ?? DEFAULT_CONFIG.ruleMarkers;
+  const lines = content.split("\n");
+  const rules: ParsedRule[] = [];
+
+  let currentRule: ParsedRule | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -630,14 +711,13 @@ export function parseClaudeMd(content, { ruleMarkers } = {}) {
       ? line.match(CHECKBOX_RE)
       : null;
 
-    if (headerMatch || checkboxMatch) {
-      // Flush previous rule
+    if (headerMatch ?? checkboxMatch) {
       if (currentRule) {
         rules.push(currentRule);
       }
       const title = headerMatch
         ? headerMatch[1].trim()
-        : checkboxMatch[2].trim();
+        : (checkboxMatch as RegExpMatchArray)[2].trim();
       currentRule = {
         title,
         line: i + 1,
@@ -652,7 +732,7 @@ export function parseClaudeMd(content, { ruleMarkers } = {}) {
     const enforcedMatch = line.match(/\*\*Enforced by:\*\*\s*`([^`]+)`/);
     if (enforcedMatch) {
       currentRule.enforcement = "enforced";
-      currentRule.enforcedBy = enforcedMatch[1];
+      currentRule.enforcedBy = enforcedMatch[1] ?? null;
       continue;
     }
 
@@ -667,7 +747,6 @@ export function parseClaudeMd(content, { ruleMarkers } = {}) {
     }
   }
 
-  // Flush last rule
   if (currentRule) {
     rules.push(currentRule);
   }
@@ -675,8 +754,12 @@ export function parseClaudeMd(content, { ruleMarkers } = {}) {
   return rules;
 }
 
+// ---------------------------------------------------------------------------
+// Core validation
+// ---------------------------------------------------------------------------
+
 export function validate(
-  content,
+  content: string,
   {
     ruleMarkers,
     rules: rulesConfig,
@@ -684,9 +767,9 @@ export function validate(
     linters: lintersConfig,
     structures,
     filePath,
-  } = {},
-) {
-  const activeRules = rulesConfig || DEFAULT_RULES;
+  }: ValidateOptions = {},
+): ValidationResult {
+  const activeRules = rulesConfig ?? DEFAULT_RULES;
   const parsedRules = parseClaudeMd(content, { ruleMarkers });
   const enforced = parsedRules.filter(
     (r) => r.enforcement === "enforced",
@@ -697,16 +780,18 @@ export function validate(
   const disabled = parsedRules.filter(
     (r) => r.enforcement === "disabled",
   ).length;
-  const missing = parsedRules.filter((r) => r.enforcement === "missing").length;
+  const missingCount = parsedRules.filter(
+    (r) => r.enforcement === "missing",
+  ).length;
 
-  const errors = [];
+  const errors: ValidationError[] = [];
 
-  if (activeRules["require-annotations"] !== false && missing > 0) {
+  if (activeRules["require-annotations"] !== false && missingCount > 0) {
     for (const rule of parsedRules) {
       if (rule.enforcement === "missing") {
         errors.push({
           rule: "require-annotations",
-          message: `Line ${rule.line}: "${rule.title}" is missing an enforcement annotation`,
+          message: `Line ${String(rule.line)}: "${rule.title}" is missing an enforcement annotation`,
           line: rule.line,
         });
       }
@@ -714,23 +799,22 @@ export function validate(
   }
 
   const maxLines = activeRules["max-lines"];
-  if (maxLines !== false) {
+  if (maxLines !== false && maxLines !== undefined) {
     const limit = typeof maxLines === "number" ? maxLines : 500;
     const lineCount = content.split("\n").length;
     if (lineCount > limit) {
       errors.push({
         rule: "max-lines",
-        message: `File has ${lineCount} lines, exceeding the limit of ${limit}. Consider splitting into subdirectory files — see https://github.com/zernie/vigiles#organizing-rules`,
+        message: `File has ${String(lineCount)} lines, exceeding the limit of ${String(limit)}. Consider splitting into subdirectory files — see https://github.com/zernie/vigiles#organizing-rules`,
         line: lineCount,
       });
     }
   }
 
-  // --- require-structure: validate markdown structure against schemas (via mdschema CLI) ---
+  // --- require-structure ---
   if (activeRules["require-structure"] !== false && structures && filePath) {
     for (const entry of structures) {
-      // Match filePath against the glob pattern (test both full path and basename)
-      const basename = filePath.split("/").pop();
+      const basename = filePath.split("/").pop() ?? "";
       if (
         minimatch(filePath, entry.files, { matchBase: true }) ||
         minimatch(basename, entry.files)
@@ -746,18 +830,22 @@ export function validate(
               "mdschema is not installed. Install with: npm install @jackchuka/mdschema",
             line: 1,
           });
-          break; // Only warn once
+          break;
         }
         errors.push(...structErrors);
       }
     }
   }
 
+  // --- require-rule-file ---
   const ruleFileMode = activeRules["require-rule-file"];
-  const detectedLinters = [];
+  const detectedLinters: DetectedLinter[] = [];
   if (ruleFileMode !== false && basePath) {
-    const resolverCache = new Map(); // linterName -> Set | "cli" | null
-    const cliAvailCache = new Map();
+    const resolverCache = new Map<
+      string,
+      EslintRuleSet | Set<string> | "cli" | null
+    >();
+    const cliAvailCache = new Map<string, boolean>();
 
     for (const rule of parsedRules) {
       if (rule.enforcement !== "enforced" || !rule.enforcedBy) continue;
@@ -767,29 +855,27 @@ export function validate(
 
       // Resolve linter rules (cached)
       if (!resolverCache.has(linterName)) {
-        let result = null;
+        let resolved: EslintRuleSet | Set<string> | "cli" | null = null;
 
-        // Try Node API resolver
         const resolver = LINTER_RESOLVERS[linterName];
         if (resolver) {
           try {
-            result = resolver(basePath);
-            if (result instanceof Set) {
+            resolved = resolver(basePath);
+            if (resolved instanceof Set) {
               detectedLinters.push({
                 name: linterName,
-                ruleCount: result.size,
+                ruleCount: resolved.size,
               });
             }
           } catch {
-            result = null;
+            resolved = null;
           }
         }
 
-        // Try as ESLint plugin (e.g. @typescript-eslint, import, react)
-        if (!result) {
+        if (!resolved) {
           const pluginRules = resolveEslintPluginRules(linterName, basePath);
           if (pluginRules) {
-            result = pluginRules;
+            resolved = pluginRules;
             detectedLinters.push({
               name: linterName,
               ruleCount: pluginRules.size,
@@ -797,25 +883,25 @@ export function validate(
           }
         }
 
-        // Try CLI resolver
-        if (!result && CLI_RULE_CHECKS[linterName]) {
+        if (!resolved && CLI_RULE_CHECKS[linterName]) {
           const tool = CLI_TOOL_FOR_LINTER[linterName];
-          if (!cliAvailCache.has(tool)) {
-            cliAvailCache.set(tool, cliAvailable(tool));
-          }
-          if (cliAvailCache.get(tool)) {
-            result = "cli";
-            detectedLinters.push({ name: linterName, via: "cli" });
+          if (tool) {
+            if (!cliAvailCache.has(tool)) {
+              cliAvailCache.set(tool, cliAvailable(tool));
+            }
+            if (cliAvailCache.get(tool)) {
+              resolved = "cli";
+              detectedLinters.push({ name: linterName, via: "cli" });
+            }
           }
         }
 
-        resolverCache.set(linterName, result);
+        resolverCache.set(linterName, resolved);
       }
 
       const resolved = resolverCache.get(linterName);
 
-      // Helper: check if rule is enabled in linter config (for non-catalog-only modes)
-      const checkConfigEnabled = () => {
+      const checkConfigEnabled = (): void => {
         if (ruleFileMode === "catalog-only") return;
         const checker = LINTER_CONFIG_CHECKERS[linterName];
         if (!checker) return;
@@ -824,37 +910,36 @@ export function validate(
           if (status === "disabled") {
             errors.push({
               rule: "require-rule-file",
-              message: `Rule "${ruleName}" exists but is disabled in ${linterName} config (referenced in "${rule.title}", line ${rule.line})`,
+              message: `Rule "${ruleName}" exists but is disabled in ${linterName} config (referenced in "${rule.title}", line ${String(rule.line)})`,
               line: rule.line,
             });
           }
         } catch {
-          // Can't determine config status — skip silently
+          // Can't determine config status — skip
         }
       };
 
-      // Check via Node API resolver (Set of rules)
       if (resolved instanceof Set) {
+        const eslintSet = resolved as EslintRuleSet;
         if (!resolved.has(ruleName)) {
-          // For eslint: rule might be a plugin rule (e.g. "import/no-unresolved")
           let foundInPlugin = false;
-          if (resolved._isEslint && ruleName.includes("/")) {
+          if (eslintSet._isEslint && ruleName.includes("/")) {
             const pluginPrefix = ruleName.substring(0, ruleName.indexOf("/"));
             const pluginRuleName = ruleName.substring(
               ruleName.indexOf("/") + 1,
             );
             const pluginRules = resolveEslintPluginRules(
               pluginPrefix,
-              resolved._basePath,
+              eslintSet._basePath ?? basePath,
             );
-            if (pluginRules && pluginRules.has(pluginRuleName)) {
+            if (pluginRules?.has(pluginRuleName)) {
               foundInPlugin = true;
             }
           }
           if (!foundInPlugin) {
             errors.push({
               rule: "require-rule-file",
-              message: `Rule "${ruleName}" not found in ${linterName} (referenced in "${rule.title}", line ${rule.line})`,
+              message: `Rule "${ruleName}" not found in ${linterName} (referenced in "${rule.title}", line ${String(rule.line)})`,
               line: rule.line,
             });
           } else {
@@ -866,7 +951,6 @@ export function validate(
         continue;
       }
 
-      // Check via CLI
       if (resolved === "cli") {
         const cliCheck = CLI_RULE_CHECKS[linterName];
         try {
@@ -875,16 +959,16 @@ export function validate(
         } catch {
           errors.push({
             rule: "require-rule-file",
-            message: `Rule "${ruleName}" not found in ${linterName} (referenced in "${rule.title}", line ${rule.line})`,
+            message: `Rule "${ruleName}" not found in ${linterName} (referenced in "${rule.title}", line ${String(rule.line)})`,
             line: rule.line,
           });
         }
         continue;
       }
 
-      // Fallback: rulesDir from user config
-      const linterCfg = lintersConfig && lintersConfig[linterName];
-      if (linterCfg && linterCfg.rulesDir) {
+      // Fallback: rulesDir
+      const linterCfg = lintersConfig?.[linterName];
+      if (linterCfg?.rulesDir) {
         const dirs = Array.isArray(linterCfg.rulesDir)
           ? linterCfg.rulesDir
           : [linterCfg.rulesDir];
@@ -910,7 +994,7 @@ export function validate(
         } else if (!found) {
           errors.push({
             rule: "require-rule-file",
-            message: `Rule file for "${ruleName}" not found in ${dirs.join(", ")} (referenced in "${rule.title}", line ${rule.line})`,
+            message: `Rule file for "${ruleName}" not found in ${dirs.join(", ")} (referenced in "${rule.title}", line ${String(rule.line)})`,
             line: rule.line,
           });
         }
@@ -923,7 +1007,7 @@ export function validate(
     enforced,
     guidanceOnly,
     disabled,
-    missing,
+    missing: missingCount,
     total: parsedRules.length,
     errors,
     valid: errors.length === 0,
@@ -931,12 +1015,14 @@ export function validate(
   };
 }
 
-/**
- * Read a file, optionally checking if it's a symlink.
- * Returns { content, skipped, reason } where skipped=true means the file was
- * a symlink and follow-symlinks was not enabled.
- */
-export function readClaudeMd(filePath, { followSymlinks = false } = {}) {
+// ---------------------------------------------------------------------------
+// File reading
+// ---------------------------------------------------------------------------
+
+export function readClaudeMd(
+  filePath: string,
+  { followSymlinks = false }: ReadOptions = {},
+): ReadResult {
   try {
     const stat = lstatSync(filePath);
     if (stat.isSymbolicLink() && !followSymlinks) {
@@ -969,13 +1055,13 @@ export function readClaudeMd(filePath, { followSymlinks = false } = {}) {
   }
 }
 
-/**
- * Expand an array of file paths / glob patterns into resolved file paths.
- * Plain paths that don't contain glob characters are kept as-is.
- */
-export function expandGlobs(patterns) {
+// ---------------------------------------------------------------------------
+// Glob expansion
+// ---------------------------------------------------------------------------
+
+export function expandGlobs(patterns: string[]): string[] {
   const GLOB_CHARS = /[*?{[]/;
-  const paths = [];
+  const paths: string[] = [];
 
   for (const pattern of patterns) {
     if (GLOB_CHARS.test(pattern)) {
@@ -991,20 +1077,21 @@ export function expandGlobs(patterns) {
   return paths;
 }
 
-/**
- * Validate multiple CLAUDE.md files. Returns a combined report.
- */
+// ---------------------------------------------------------------------------
+// Multi-file validation
+// ---------------------------------------------------------------------------
+
 export function validatePaths(
-  paths,
+  paths: string[],
   {
     followSymlinks = false,
     ruleMarkers,
     rules: rulesConfig,
     linters: lintersConfig,
     structures,
-  } = {},
-) {
-  const fileResults = [];
+  }: ValidatePathsOptions = {},
+): ValidatePathsResult {
+  const fileResults: FileResult[] = [];
   let allValid = true;
 
   for (const filePath of paths) {
@@ -1041,114 +1128,4 @@ export function validatePaths(
   }
 
   return { fileResults, valid: allValid };
-}
-
-function printResult(filePath, result) {
-  console.log("");
-  console.log(`Validation Report: ${filePath}`);
-  console.log("=".repeat(40));
-  console.log(`  Total rules:    ${result.total}`);
-  console.log(`  Enforced:       ${result.enforced}`);
-  console.log(`  Guidance only:  ${result.guidanceOnly}`);
-  console.log(`  Disabled:       ${result.disabled}`);
-  console.log(`  Missing:        ${result.missing}`);
-  if (result.detectedLinters && result.detectedLinters.length > 0) {
-    const parts = result.detectedLinters.map((l) =>
-      l.ruleCount
-        ? `${l.name} (${l.ruleCount} built-in rules)`
-        : `${l.name} (cli)`,
-    );
-    console.log(`  Linters:        ${parts.join(", ")}`);
-  }
-  console.log("=".repeat(40));
-
-  if (result.errors.length > 0) {
-    console.log("");
-    console.log("Errors:");
-    for (const error of result.errors) {
-      console.log(`  [${error.rule}] ${error.message}`);
-      console.log(
-        `::error file=${filePath},line=${error.line}::${error.message}`,
-      );
-    }
-  }
-}
-
-// CLI entry point
-if (
-  process.argv[1] &&
-  (process.argv[1].endsWith("validate.mjs") ||
-    process.argv[1].endsWith("validate") ||
-    process.argv[1].endsWith("vigiles"))
-) {
-  const args = process.argv.slice(2);
-  const followSymlinks = args.includes("--follow-symlinks");
-  const markersArg = args.find((a) => a.startsWith("--markers="));
-  const rawPaths = args.filter((a) => !a.startsWith("--"));
-
-  const config = loadConfig();
-
-  let discoveryMissing = [];
-  if (rawPaths.length === 0) {
-    const discovery = discoverInstructionFiles(process.cwd(), config.agents);
-    if (discovery.detected.length > 0) {
-      const tools = discovery.detected
-        .map((d) => `${d.name} (${d.indicator})`)
-        .join(", ");
-      console.log(`Detected agents: ${tools}`);
-    }
-    rawPaths.push(...discovery.files);
-    discoveryMissing = discovery.missing;
-  }
-
-  const paths = expandGlobs(rawPaths);
-
-  const ruleMarkers = markersArg
-    ? markersArg.split("=")[1].split(",")
-    : config.ruleMarkers;
-
-  const { fileResults, valid } = validatePaths(paths, {
-    followSymlinks,
-    ruleMarkers,
-    rules: config.rules,
-    linters: config.linters,
-    structures: config.structures,
-  });
-
-  for (const { path: filePath, skipped, reason, result } of fileResults) {
-    if (skipped) {
-      console.log(`\nSkipped: ${reason}`);
-      continue;
-    }
-    if (!result) {
-      console.log(`\n::error::${reason}`);
-      continue;
-    }
-    printResult(filePath, result);
-  }
-
-  let hasMissing = false;
-  for (const m of discoveryMissing) {
-    console.log(
-      `\n::error::${m.tool} detected (${m.indicator}) but ${m.expected} is missing`,
-    );
-    hasMissing = true;
-  }
-
-  console.log("");
-  if (valid && !hasMissing) {
-    console.log("All rules have enforcement annotations.");
-  } else {
-    if (!valid) {
-      console.log(
-        "Add **Enforced by:** `<rule>` or **Guidance only** to each rule.",
-      );
-    }
-    if (hasMissing) {
-      console.log("Create missing instruction files for detected agents.");
-    }
-    console.log("");
-    console.log("::error::Validation failed — see report above");
-    process.exit(1);
-  }
 }

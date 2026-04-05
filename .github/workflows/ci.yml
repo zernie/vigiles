@@ -45,8 +45,17 @@ jobs:
           gem install rubocop
           rustup component add clippy
 
+      - name: Build
+        run: npm run build
+
       - name: Run tests
         run: npm test
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
 
       - name: Check formatting
         run: npm run fmt:check
@@ -61,6 +70,9 @@ jobs:
           node-version: "20"
 
       - run: npm ci
+
+      - name: Build
+        run: npm run build
 
       - name: Validate CLAUDE.md
         uses: ./

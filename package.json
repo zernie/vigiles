@@ -2,16 +2,27 @@
   "name": "vigiles",
   "private": true,
   "bin": {
-    "vigiles": "./validate.mjs"
+    "vigiles": "./dist/cli.js"
   },
+  "main": "./dist/validate.js",
+  "types": "./dist/validate.d.ts",
   "scripts": {
-    "test": "node --test validate.test.mjs",
+    "build": "tsc",
+    "test": "npm run build && node --test dist/validate.test.js",
+    "lint": "eslint src/",
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check ."
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/minimatch": "^5.1.2",
+    "@types/node": "^20.19.39",
+    "@typescript-eslint/eslint-plugin": "^8.58.0",
+    "@typescript-eslint/parser": "^8.58.0",
     "eslint": "^10.1.0",
-    "prettier": "^3.8.1"
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "cosmiconfig": "^9.0.1",

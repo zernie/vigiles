@@ -4,17 +4,22 @@ vigiles — ESLint for AI agents. Validates that instruction files (CLAUDE.md, A
 
 ## Key Files
 
-- `validate.mjs` — Core validation engine: parsing, config loading, CLI entry point
-- `validate.test.mjs` — Test suite (node:test). Run with `npm test`
-- `action.mjs` — GitHub Action wrapper, reads inputs and calls validatePaths
+- `src/types.ts` — TypeScript type definitions (interfaces, type aliases)
+- `src/validate.ts` — Core validation engine: parsing, config loading, linter checks
+- `src/cli.ts` — CLI entry point: arg parsing, output formatting
+- `src/action.ts` — GitHub Action wrapper, reads inputs and calls validatePaths
+- `src/validate.test.ts` — Test suite (node:test). Run with `npm test`
 - `action.yml` — GitHub Action metadata and input definitions
-- `package.json` — Dependencies: cosmiconfig, prettier (dev)
+- `tsconfig.json` — TypeScript strict-mode configuration
+- `package.json` — Dependencies: cosmiconfig, typescript (dev), prettier (dev)
 - `.claude/settings.json` — PostToolUse hook that validates CLAUDE.md on every edit
 - `skills/` — Claude Code skills (enforce-rules-format, audit-feedback-loop, pr-to-lint-rule)
 
 ## Commands
 
-- `npm test` — Run all tests
+- `npm run build` — Compile TypeScript to dist/
+- `npm test` — Build and run all tests
+- `npx tsc --noEmit` — Type-check without emitting
 - `npm run fmt` — Format with prettier
 - `npm run fmt:check` — Check formatting
 - `npx vigiles CLAUDE.md` — Validate this file
@@ -29,7 +34,7 @@ vigiles — ESLint for AI agents. Validates that instruction files (CLAUDE.md, A
 
 ## Architecture
 
-Single-file core (`validate.mjs`). Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`, `validateStructure`, `resolveSchema`, `STRUCTURE_PRESETS`, `RULE_PACKS`.
+TypeScript strict-mode codebase (`src/`). Core engine in `src/validate.ts`. Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`, `validateStructure`, `resolveSchema`, `STRUCTURE_PRESETS`, `RULE_PACKS`. All types in `src/types.ts`.
 
 Rules are detected by line-by-line parsing. Two marker types: `###` headings and `- [ ]`/`- [x]` checkboxes (configurable via `.vigilesrc.json`). Each rule must have `**Enforced by:**`, `**Guidance only**`, or `<!-- vigiles-disable -->`.
 
