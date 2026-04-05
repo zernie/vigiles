@@ -8,19 +8,6 @@ import {
   mkdirSync,
 } from "node:fs";
 import { join } from "node:path";
-import { execSync } from "node:child_process";
-
-function cliOnPath(cmd: string): boolean {
-  try {
-    execSync(`which ${cmd}`, { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const HAS_PYLINT = cliOnPath("pylint");
-const HAS_RUBOCOP = cliOnPath("rubocop");
 import { tmpdir } from "node:os";
 import {
   validate,
@@ -1088,7 +1075,7 @@ describe("require-rule-file", () => {
     assert.equal(ruleErrors.length, 0);
   });
 
-  it("should detect pylint rules via CLI", { skip: !HAS_PYLINT }, () => {
+  it("should detect pylint rules via CLI", () => {
     const result = validate("### Rule\n**Enforced by:** `pylint/C0301`\n", {
       rules: { "require-rule-file": "auto" },
       basePath: process.cwd(),
@@ -1100,7 +1087,7 @@ describe("require-rule-file", () => {
     assert.ok(result.detectedLinters.some((l) => l.name === "pylint"));
   });
 
-  it("should error on nonexistent pylint rule", { skip: !HAS_PYLINT }, () => {
+  it("should error on nonexistent pylint rule", () => {
     const result = validate("### Rule\n**Enforced by:** `pylint/ZZZZ9999`\n", {
       rules: { "require-rule-file": "auto" },
       basePath: process.cwd(),
@@ -1112,7 +1099,7 @@ describe("require-rule-file", () => {
     assert.ok(ruleErrors[0].message.includes("ZZZZ9999"));
   });
 
-  it("should detect rubocop rules via CLI", { skip: !HAS_RUBOCOP }, () => {
+  it("should detect rubocop rules via CLI", () => {
     const result = validate(
       "### Rule\n**Enforced by:** `rubocop/Style/FrozenStringLiteralComment`\n",
       { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
@@ -1124,7 +1111,7 @@ describe("require-rule-file", () => {
     assert.ok(result.detectedLinters.some((l) => l.name === "rubocop"));
   });
 
-  it("should error on nonexistent rubocop cop", { skip: !HAS_RUBOCOP }, () => {
+  it("should error on nonexistent rubocop cop", () => {
     const result = validate(
       "### Rule\n**Enforced by:** `rubocop/Fake/NonExistentCop`\n",
       { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
@@ -1482,7 +1469,7 @@ describe("require-rule-file", () => {
     });
 
     // --- Pylint ---
-    describe("pylint", { skip: !HAS_PYLINT }, () => {
+    describe("pylint", () => {
       let pylintDir: string;
 
       before(() => {
@@ -1540,7 +1527,7 @@ describe("require-rule-file", () => {
     });
 
     // --- RuboCop ---
-    describe("rubocop", { skip: !HAS_RUBOCOP }, () => {
+    describe("rubocop", () => {
       let rubocopDir: string;
 
       before(() => {
@@ -1757,7 +1744,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t1.md", "# Title\n\n## Section\n\n### Sub\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return; // skip if mdschema not installed
+    assert.ok(available, "mdschema must be installed");
     assert.equal(errors.length, 0);
   });
 
@@ -1768,7 +1755,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t2.md", "# Title\n\n### Skipped h2\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.ok(errors.length > 0);
     assert.ok(errors.some((e) => e.rule === "require-structure"));
   });
@@ -1780,7 +1767,7 @@ describe("validateStructure (mdschema CLI)", () => {
       "# Title\n\n## Section\n\n### Sub\n\n#### Too deep\n",
     );
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.ok(errors.length > 0);
   });
 
@@ -1791,7 +1778,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t4.md", "# No frontmatter\n\nJust text.\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.ok(errors.length > 0);
     assert.ok(errors.some((e) => e.message.includes("frontmatter")));
   });
@@ -1803,7 +1790,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t5.md", "---\ndescription: hello\n---\n\n# Skill\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.equal(errors.length, 0);
   });
 
@@ -1814,7 +1801,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t6.md", "# Project\n\n## Other\n\nNo commands.\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.ok(errors.length > 0);
     assert.ok(errors.some((e) => e.message.includes("Commands")));
   });
@@ -1826,7 +1813,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t7.md", "# Project\n\n## Commands\n\nnpm test\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.equal(errors.length, 0);
   });
 
@@ -1837,7 +1824,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t8.md", "# Title\n\n### Skipped\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.ok(errors.length > 0);
     assert.ok(errors[0].line > 0);
   });
@@ -1906,10 +1893,10 @@ describe("require-structure via validate()", () => {
       structures,
       filePath: mdPath,
     });
-    // Either fails with structure error or warns about mdschema not installed
-    if (result.errors.some((e) => e.message.includes("mdschema is not"))) {
-      return; // mdschema not installed, skip
-    }
+    assert.ok(
+      !result.errors.some((e) => e.message.includes("mdschema is not")),
+      "mdschema must be installed",
+    );
     assert.equal(result.valid, false);
     assert.ok(
       result.errors.some(

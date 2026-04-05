@@ -58,6 +58,11 @@ vigiles is a **bridge between instruction files and linter configs** — not a m
 **Enforced by:** `code-review`
 **Why:** vigiles should work out of the box with no config file and no CLI flags. Auto-detect linters and rule markers. Config exists only for overrides, not for basic operation.
 
+### Never skip or disable tests
+
+**Enforced by:** `code-review`
+**Why:** All tests must pass, none may be skipped. If a test requires a CLI tool (pylint, rubocop, ruff, clippy), that tool must be installed — not the test skipped. The SessionStart hook in `.claude/settings.json` installs all required tools. If a test fails because a tool is missing, fix the environment, not the test.
+
 ## Architecture
 
 TypeScript strict-mode codebase (`src/`). Core engine in `src/validate.ts`. Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`, `findInstructionFiles`, `validateStructure`, `resolveSchema`, `STRUCTURE_PRESETS`, `RULE_PACKS`. All types in `src/types.ts`.

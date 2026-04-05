@@ -25,11 +25,9 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@jackchuka/mdschema": "^0.12.8",
     "cosmiconfig": "^9.0.1",
     "glob": "^13.0.6",
     "minimatch": "^10.0.1"
-  },
-  "optionalDependencies": {
-    "@jackchuka/mdschema": "^0.12.8"
   }
 }
