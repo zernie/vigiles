@@ -8,6 +8,19 @@ import {
   mkdirSync,
 } from "node:fs";
 import { join } from "node:path";
+import { execSync } from "node:child_process";
+
+function cliOnPath(cmd: string): boolean {
+  try {
+    execSync(`which ${cmd}`, { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const HAS_PYLINT = cliOnPath("pylint");
+const HAS_RUBOCOP = cliOnPath("rubocop");
 import { tmpdir } from "node:os";
 import {
   validate,
@@ -1075,7 +1088,7 @@ describe("require-rule-file", () => {
     assert.equal(ruleErrors.length, 0);
   });
 
-  it("should detect pylint rules via CLI", () => {
+  it("should detect pylint rules via CLI", { skip: !HAS_PYLINT }, () => {
     const result = validate("### Rule\n**Enforced by:** `pylint/C0301`\n", {
       rules: { "require-rule-file": "auto" },
       basePath: process.cwd(),
@@ -1087,7 +1100,7 @@ describe("require-rule-file", () => {
     assert.ok(result.detectedLinters.some((l) => l.name === "pylint"));
   });
 
-  it("should error on nonexistent pylint rule", () => {
+  it("should error on nonexistent pylint rule", { skip: !HAS_PYLINT }, () => {
     const result = validate("### Rule\n**Enforced by:** `pylint/ZZZZ9999`\n", {
       rules: { "require-rule-file": "auto" },
       basePath: process.cwd(),
@@ -1099,7 +1112,7 @@ describe("require-rule-file", () => {
     assert.ok(ruleErrors[0].message.includes("ZZZZ9999"));
   });
 
-  it("should detect rubocop rules via CLI", () => {
+  it("should detect rubocop rules via CLI", { skip: !HAS_RUBOCOP }, () => {
     const result = validate(
       "### Rule\n**Enforced by:** `rubocop/Style/FrozenStringLiteralComment`\n",
       { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
@@ -1111,7 +1124,7 @@ describe("require-rule-file", () => {
     assert.ok(result.detectedLinters.some((l) => l.name === "rubocop"));
   });
 
-  it("should error on nonexistent rubocop cop", () => {
+  it("should error on nonexistent rubocop cop", { skip: !HAS_RUBOCOP }, () => {
     const result = validate(
       "### Rule\n**Enforced by:** `rubocop/Fake/NonExistentCop`\n",
       { rules: { "require-rule-file": "auto" }, basePath: process.cwd() },
@@ -1469,7 +1482,7 @@ describe("require-rule-file", () => {
     });
 
     // --- Pylint ---
-    describe("pylint", () => {
+    describe("pylint", { skip: !HAS_PYLINT }, () => {
       let pylintDir: string;
 
       before(() => {
@@ -1527,7 +1540,7 @@ describe("require-rule-file", () => {
     });
 
     // --- RuboCop ---
-    describe("rubocop", () => {
+    describe("rubocop", { skip: !HAS_RUBOCOP }, () => {
       let rubocopDir: string;
 
       before(() => {
