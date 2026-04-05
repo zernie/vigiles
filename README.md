@@ -1,8 +1,20 @@
-# vigiles
+<p align="center">
+  <img src="logo.png" width="140" alt="vigiles logo" />
+</p>
 
-> _Quis custodiet ipsos custodes?_ — Who watches the watchmen?
->
-> **Vigiles** were the watchmen of ancient Rome. This tool watches your AI agent instruction files — the rules that watch over your codebase.
+<h1 align="center">vigiles</h1>
+
+<p align="center">
+  <em>Quis custodiet ipsos custodes?</em> — Who watches the watchmen?
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/vigiles"><img src="https://img.shields.io/npm/v/vigiles?color=orange" alt="npm version" /></a>
+  <a href="https://github.com/zernie/vigiles/actions"><img src="https://img.shields.io/github/actions/workflow/status/zernie/vigiles/ci.yml?branch=main" alt="CI" /></a>
+  <a href="https://github.com/zernie/vigiles/blob/main/LICENSE"><img src="https://img.shields.io/github/license/zernie/vigiles" alt="License" /></a>
+</p>
+
+---
 
 Validates that every rule in your CLAUDE.md is backed by a real linter — or explicitly marked as guidance-only. Cross-references enforcement claims against actual linter configurations (ESLint, Ruff, Clippy, Pylint, RuboCop, Stylelint).
 
