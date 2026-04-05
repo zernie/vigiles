@@ -4,7 +4,7 @@ import {
   validatePaths,
   expandGlobs,
   loadConfig,
-  discoverInstructionFiles,
+  findInstructionFiles,
 } from "./validate.js";
 import type { MarkerType, ValidationResult } from "./types.js";
 
@@ -41,26 +41,20 @@ function printResult(filePath: string, result: ValidationResult): void {
 
 const args = process.argv.slice(2);
 const followSymlinks = args.includes("--follow-symlinks");
-const markersArg = args.find((a) => a.startsWith("--markers="));
-const rawPaths = args.filter((a) => !a.startsWith("--"));
+const markersArg = args.find((a: string) => a.startsWith("--markers="));
+const rawPaths = args.filter((a: string) => !a.startsWith("--"));
 
 const config = loadConfig();
 
-let discoveryMissing: Array<{
-  tool: string;
-  expected: string;
-  indicator: string;
-}> = [];
 if (rawPaths.length === 0) {
-  const discovery = discoverInstructionFiles(process.cwd(), config.agents);
-  if (discovery.detected.length > 0) {
-    const tools = discovery.detected
-      .map((d) => `${d.name} (${d.indicator})`)
-      .join(", ");
-    console.log(`Detected agents: ${tools}`);
-  }
-  rawPaths.push(...discovery.files);
-  discoveryMissing = discovery.missing;
+  const found = findInstructionFiles(process.cwd(), config.files);
+  rawPaths.push(...found);
+}
+
+if (rawPaths.length === 0) {
+  console.log("No instruction files found. Looked for: " + config.files.join(", "));
+  console.log("Specify files explicitly or set \"files\" in .vigilesrc.json.");
+  process.exit(0);
 }
 
 const paths = expandGlobs(rawPaths);
@@ -89,26 +83,13 @@ for (const { path: filePath, skipped, reason, result } of fileResults) {
   printResult(filePath, result);
 }
 
-let hasMissing = false;
-for (const m of discoveryMissing) {
-  console.log(
-    `\n::error::${m.tool} detected (${m.indicator}) but ${m.expected} is missing`,
-  );
-  hasMissing = true;
-}
-
 console.log("");
-if (valid && !hasMissing) {
+if (valid) {
   console.log("All rules have enforcement annotations.");
 } else {
-  if (!valid) {
-    console.log(
-      "Add **Enforced by:** `<rule>` or **Guidance only** to each rule.",
-    );
-  }
-  if (hasMissing) {
-    console.log("Create missing instruction files for detected agents.");
-  }
+  console.log(
+    "Add **Enforced by:** `<rule>` or **Guidance only** to each rule.",
+  );
   console.log("");
   console.log("::error::Validation failed — see report above");
   process.exit(1);

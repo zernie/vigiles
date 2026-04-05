@@ -1,6 +1,28 @@
 # CLAUDE.md
 
-vigiles — ESLint for AI agents. Validates that instruction files (CLAUDE.md, AGENTS.md, .cursorrules) have enforcement annotations on every rule.
+vigiles — validates that AI instruction files (CLAUDE.md) have enforcement annotations on every rule, and cross-references those annotations against actual linter configurations.
+
+## Positioning
+
+vigiles is a **bridge between instruction files and linter configs** — not a markdown linter, not a file sync tool. The core value: every rule in your CLAUDE.md either points to a real, enabled linter rule, or explicitly declares itself as guidance-only.
+
+### Goals
+
+- Validate instruction file **content quality** (annotations, links, structure)
+- **Cross-reference** enforcement claims against real linter APIs (ESLint, Ruff, Clippy, etc.)
+- Default to validating `CLAUDE.md` only — configurable via `"files"` in `.vigilesrc.json`
+- Zero config by default — works out of the box with no setup
+
+### Non-goals
+
+- File sync across agents — use [Ruler](https://github.com/intellectronica/ruler), [rulesync](https://github.com/dyoshikawa/rulesync), or [block/ai-rules](https://github.com/block/ai-rules) for that
+- Validating `.claude/` ecosystem (hooks, MCP, plugins) — use [claudelint](https://github.com/pdugan20/claudelint) or [cclint](https://github.com/carlrannaberg/cclint)
+- Scoring/grading instruction files (A-F) — use [AgentLinter](https://github.com/seojoonkim/agentlinter)
+- Structural checks that mdschema can handle (heading hierarchy, required sections, max depth) — write a schema for `require-structure` instead
+
+### Moat
+
+`require-rule-file` is the differentiator. No other tool resolves ESLint builtinRules via Node API, runs `ruff rule`, `cargo clippy --explain`, `pylint --help-msg`, `rubocop --show-cops`, AND checks config-enabled status. Every new rule should ideally require knowing something about the filesystem or linter state that a pure markdown tool can't know.
 
 ## Key Files
 
@@ -31,11 +53,13 @@ vigiles — ESLint for AI agents. Validates that instruction files (CLAUDE.md, A
 ### Zero config by default
 
 **Enforced by:** `code-review`
-**Why:** vigiles should work out of the box with no config file and no CLI flags. Auto-detect instruction files, linters, and rule markers. Config exists only for overrides, not for basic operation.
+**Why:** vigiles should work out of the box with no config file and no CLI flags. Auto-detect linters and rule markers. Config exists only for overrides, not for basic operation.
 
 ## Architecture
 
-TypeScript strict-mode codebase (`src/`). Core engine in `src/validate.ts`. Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`, `validateStructure`, `resolveSchema`, `STRUCTURE_PRESETS`, `RULE_PACKS`. All types in `src/types.ts`.
+TypeScript strict-mode codebase (`src/`). Core engine in `src/validate.ts`. Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`, `findInstructionFiles`, `validateStructure`, `resolveSchema`, `STRUCTURE_PRESETS`, `RULE_PACKS`. All types in `src/types.ts`.
+
+By default, validates `CLAUDE.md` only. Configure `"files"` in `.vigilesrc.json` to validate additional instruction files (e.g., `["CLAUDE.md", "AGENTS.md", ".cursorrules"]`). CLI args override config.
 
 Rules are detected by line-by-line parsing. Two marker types: `###` headings and `- [ ]`/`- [x]` checkboxes (configurable via `.vigilesrc.json`). Each rule must have `**Enforced by:**`, `**Guidance only**`, or `<!-- vigiles-disable -->`.
 

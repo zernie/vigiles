@@ -15,7 +15,7 @@ import {
   readClaudeMd,
   validatePaths,
   expandGlobs,
-  discoverInstructionFiles,
+  findInstructionFiles,
   loadConfig,
   validateStructure,
   resolveSchema,
@@ -1593,125 +1593,46 @@ describe("require-rule-file", () => {
   });
 });
 
-describe("discoverInstructionFiles", () => {
+describe("findInstructionFiles", () => {
   let tmpDir: string;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-discover-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-find-"));
   });
 
   after(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should return empty when no agents detected", () => {
-    const result = discoverInstructionFiles(tmpDir);
-    assert.equal(result.detected.length, 0);
-    assert.equal(result.files.length, 0);
-    assert.equal(result.missing.length, 0);
+  it("should return empty when no files exist", () => {
+    const result = findInstructionFiles(tmpDir);
+    assert.deepEqual(result, []);
   });
 
-  it("should detect Claude Code via .claude/ dir and find CLAUDE.md", () => {
-    mkdirSync(join(tmpDir, ".claude"), { recursive: true });
+  it("should find CLAUDE.md by default", () => {
     writeFileSync(join(tmpDir, "CLAUDE.md"), "# Test\n");
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.some((d) => d.name === "Claude Code"));
-    assert.ok(result.files.includes("CLAUDE.md"));
-    assert.equal(result.missing.length, 0);
+    const result = findInstructionFiles(tmpDir);
+    assert.deepEqual(result, ["CLAUDE.md"]);
   });
 
-  it("should error when Claude Code detected but CLAUDE.md missing", () => {
-    // .claude/ already exists from previous test
-    const dir = mkdtempSync(join(tmpdir(), "vigiles-discover2-"));
-    mkdirSync(join(dir, ".claude"), { recursive: true });
-    const result = discoverInstructionFiles(dir);
-    assert.ok(result.detected.some((d) => d.name === "Claude Code"));
-    assert.equal(result.files.length, 0);
-    assert.equal(result.missing.length, 1);
-    assert.equal(result.missing[0].tool, "Claude Code");
-    assert.equal(result.missing[0].expected, "CLAUDE.md");
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("should detect Cursor via .cursor/ dir", () => {
-    mkdirSync(join(tmpDir, ".cursor"), { recursive: true });
-    writeFileSync(join(tmpDir, ".cursorrules"), "rules\n");
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.some((d) => d.name === "Cursor"));
-    assert.ok(result.files.includes(".cursorrules"));
-  });
-
-  it("should detect Codex via AGENTS.md file", () => {
+  it("should find custom files list", () => {
     writeFileSync(join(tmpDir, "AGENTS.md"), "# Test\n");
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.some((d) => d.name === "OpenAI Codex"));
-    assert.ok(result.files.includes("AGENTS.md"));
+    const result = findInstructionFiles(tmpDir, [
+      "CLAUDE.md",
+      "AGENTS.md",
+      ".cursorrules",
+    ]);
+    assert.ok(result.includes("CLAUDE.md"));
+    assert.ok(result.includes("AGENTS.md"));
+    assert.ok(!result.includes(".cursorrules"));
   });
 
-  it("should detect Copilot via instruction file", () => {
-    mkdirSync(join(tmpDir, ".github"), { recursive: true });
-    writeFileSync(
-      join(tmpDir, ".github/copilot-instructions.md"),
-      "# Copilot\n",
-    );
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.some((d) => d.name === "GitHub Copilot"));
-    assert.ok(result.files.includes(".github/copilot-instructions.md"));
-  });
-
-  it("should detect Windsurf via .windsurf/ dir and find .windsurfrules", () => {
-    mkdirSync(join(tmpDir, ".windsurf"), { recursive: true });
-    writeFileSync(join(tmpDir, ".windsurfrules"), "rules\n");
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.some((d) => d.name === "Windsurf"));
-    assert.ok(result.files.includes(".windsurfrules"));
-  });
-
-  it("should error when Windsurf detected but .windsurfrules missing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "vigiles-windsurf-"));
-    mkdirSync(join(dir, ".windsurf"), { recursive: true });
-    const result = discoverInstructionFiles(dir);
-    assert.ok(result.detected.some((d) => d.name === "Windsurf"));
-    assert.ok(result.missing.some((m) => m.tool === "Windsurf"));
-    assert.equal(
-      result.missing.find((m) => m.tool === "Windsurf")?.expected,
-      ".windsurfrules",
-    );
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("should detect Cline via .clinerules file", () => {
-    writeFileSync(join(tmpDir, ".clinerules"), "rules\n");
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.some((d) => d.name === "Cline"));
-    assert.ok(result.files.includes(".clinerules"));
-  });
-
-  it("should error when Cline explicitly required but .clinerules missing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "vigiles-cline-"));
-    const result = discoverInstructionFiles(dir, ["Cline"]);
-    assert.ok(result.detected.some((d) => d.name === "Cline"));
-    assert.ok(result.missing.some((m) => m.tool === "Cline"));
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("should detect multiple tools at once", () => {
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.length >= 4);
-    assert.ok(result.files.length >= 4);
-  });
-
-  it("should check explicit agents list even without indicators", () => {
-    const dir = mkdtempSync(join(tmpdir(), "vigiles-discover3-"));
-    writeFileSync(join(dir, "CLAUDE.md"), "# Test\n");
-    // No .cursor/ dir, but explicitly request Cursor check
-    const result = discoverInstructionFiles(dir, ["Claude Code", "Cursor"]);
-    assert.ok(result.detected.some((d) => d.name === "Claude Code"));
-    assert.ok(result.detected.some((d) => d.name === "Cursor"));
-    assert.ok(result.files.includes("CLAUDE.md"));
-    // Cursor detected but .cursorrules missing
-    assert.ok(result.missing.some((m) => m.tool === "Cursor"));
-    rmSync(dir, { recursive: true, force: true });
+  it("should only return files that exist", () => {
+    const result = findInstructionFiles(tmpDir, [
+      "CLAUDE.md",
+      "nonexistent.md",
+    ]);
+    assert.deepEqual(result, ["CLAUDE.md"]);
   });
 });
 

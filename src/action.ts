@@ -2,7 +2,7 @@ import {
   validatePaths,
   expandGlobs,
   loadConfig,
-  discoverInstructionFiles,
+  findInstructionFiles,
 } from "./validate.js";
 import type { RulesConfig, LinterConfig, MarkerType } from "./types.js";
 
@@ -29,11 +29,6 @@ const lintersInput: string | undefined =
 
 const config = loadConfig();
 
-let discoveryMissing: Array<{
-  tool: string;
-  expected: string;
-  indicator: string;
-}> = [];
 let paths: string[];
 if (pathsInput) {
   paths = expandGlobs(
@@ -43,15 +38,7 @@ if (pathsInput) {
       .filter(Boolean),
   );
 } else {
-  const discovery = discoverInstructionFiles(process.cwd(), config.agents);
-  if (discovery.detected.length > 0) {
-    const tools = discovery.detected
-      .map((d) => `${d.name} (${d.indicator})`)
-      .join(", ");
-    console.log(`Detected agents: ${tools}`);
-  }
-  paths = discovery.files;
-  discoveryMissing = discovery.missing;
+  paths = findInstructionFiles(process.cwd(), config.files);
 }
 
 const ruleMarkers: MarkerType[] = markersInput
@@ -154,26 +141,13 @@ console.log(`::set-output name=disabled::${totalDisabled}`);
 console.log(`::set-output name=missing::${totalMissing}`);
 console.log(`::set-output name=valid::${valid}`);
 
-let hasMissingFiles = false;
-for (const m of discoveryMissing) {
-  console.log(
-    `\n::error::${m.tool} detected (${m.indicator}) but ${m.expected} is missing`,
-  );
-  hasMissingFiles = true;
-}
-
 console.log("");
-if (valid && !hasMissingFiles) {
+if (valid) {
   console.log("All rules have enforcement annotations.");
 } else {
-  if (!valid) {
-    console.log(
-      "Add **Enforced by:** `<rule>` or **Guidance only** to each rule.",
-    );
-  }
-  if (hasMissingFiles) {
-    console.log("Create missing instruction files for detected agents.");
-  }
+  console.log(
+    "Add **Enforced by:** `<rule>` or **Guidance only** to each rule.",
+  );
   console.log("");
   console.log(
     `::error::Validation failed — ${totalMissing} rule(s) missing enforcement annotations`,

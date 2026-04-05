@@ -23,8 +23,6 @@ import type {
   ValidateOptions,
   ValidatePathsOptions,
   ReadOptions,
-  AgentTool,
-  DiscoveryResult,
   StructureValidationResult,
   EslintRuleSet,
   RulePack,
@@ -49,8 +47,6 @@ export type {
   ValidateOptions,
   ValidatePathsOptions,
   ReadOptions,
-  AgentTool,
-  DiscoveryResult,
   StructureValidationResult,
   RulePack,
 };
@@ -178,52 +174,17 @@ export function validateStructure(
 }
 
 // ---------------------------------------------------------------------------
-// Agent tool discovery
-// ---------------------------------------------------------------------------
-
-const AGENT_TOOLS: AgentTool[] = [
-  {
-    name: "Claude Code",
-    indicators: [".claude"],
-    instructionFiles: ["CLAUDE.md"],
-  },
-  {
-    name: "Cursor",
-    indicators: [".cursor"],
-    instructionFiles: [".cursorrules"],
-  },
-  {
-    name: "Windsurf",
-    indicators: [".windsurf"],
-    instructionFiles: [".windsurfrules"],
-  },
-  {
-    name: "OpenAI Codex",
-    indicators: ["AGENTS.md"],
-    instructionFiles: ["AGENTS.md"],
-  },
-  {
-    name: "GitHub Copilot",
-    indicators: [".github/copilot-instructions.md"],
-    instructionFiles: [".github/copilot-instructions.md"],
-  },
-  {
-    name: "Cline",
-    indicators: [".clinerules"],
-    instructionFiles: [".clinerules"],
-  },
-];
-
-// ---------------------------------------------------------------------------
 // Default config
 // ---------------------------------------------------------------------------
+
+const DEFAULT_FILES: string[] = ["CLAUDE.md"];
 
 const DEFAULT_CONFIG: VigilesConfig = {
   extends: "recommended",
   ruleMarkers: ["headings", "checkboxes"],
   rules: DEFAULT_RULES,
   linters: {},
-  agents: null,
+  files: DEFAULT_FILES,
   structures: [],
 };
 
@@ -562,51 +523,15 @@ const CLI_TOOL_FOR_LINTER: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Agent discovery
+// Instruction file discovery
 // ---------------------------------------------------------------------------
 
-export function discoverInstructionFiles(
+export function findInstructionFiles(
   cwd: string = process.cwd(),
-  agents: string[] | null = null,
-): DiscoveryResult {
-  const detected: DiscoveryResult["detected"] = [];
-  const files: string[] = [];
-  const missing: DiscoveryResult["missing"] = [];
-  const seen = new Set<string>();
-
-  const toolsToCheck = agents
-    ? AGENT_TOOLS.filter((t) =>
-        agents.some((a) => t.name.toLowerCase() === a.toLowerCase()),
-      )
-    : AGENT_TOOLS;
-
-  for (const tool of toolsToCheck) {
-    const indicator = agents
-      ? tool.indicators[0]
-      : tool.indicators.find((ind) => existsSync(resolve(cwd, ind)));
-    if (!agents && !indicator) continue;
-
-    detected.push({
-      name: tool.name,
-      indicator: indicator ?? tool.indicators[0],
-    });
-
-    for (const file of tool.instructionFiles) {
-      if (seen.has(file)) continue;
-      seen.add(file);
-      if (existsSync(resolve(cwd, file))) {
-        files.push(file);
-      } else {
-        missing.push({
-          tool: tool.name,
-          expected: file,
-          indicator: indicator ?? tool.indicators[0],
-        });
-      }
-    }
-  }
-
-  return { detected, files, missing };
+  configFiles?: string[],
+): string[] {
+  const candidates = configFiles ?? DEFAULT_FILES;
+  return candidates.filter((f) => existsSync(resolve(cwd, f)));
 }
 
 // ---------------------------------------------------------------------------
@@ -670,8 +595,9 @@ export function loadConfig(): VigilesConfig {
       ...userConfig,
       rules: { ...basePack.rules, ...userConfig.rules },
       linters: { ...userConfig.linters },
-      agents:
-        userConfig.agents !== undefined ? (userConfig.agents ?? null) : null,
+      files: Array.isArray(userConfig.files)
+        ? userConfig.files
+        : DEFAULT_FILES,
       structures: resolveStructures(
         userConfig.structures ?? basePack.structures,
       ),

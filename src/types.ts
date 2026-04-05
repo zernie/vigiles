@@ -80,7 +80,7 @@ export interface VigilesConfig {
   ruleMarkers: MarkerType[];
   rules: Required<RulesConfig>;
   linters: Record<string, LinterConfig>;
-  agents: string[] | null;
+  files: string[];
   structures: StructureEntry[];
 }
 
@@ -114,20 +114,6 @@ export interface ValidatePathsOptions {
 /** Options for readClaudeMd(). */
 export interface ReadOptions {
   followSymlinks?: boolean;
-}
-
-/** An AI coding tool definition. */
-export interface AgentTool {
-  name: string;
-  indicators: string[];
-  instructionFiles: string[];
-}
-
-/** Discovery result from scanning for AI tool instruction files. */
-export interface DiscoveryResult {
-  detected: Array<{ name: string; indicator: string }>;
-  files: string[];
-  missing: Array<{ tool: string; expected: string; indicator: string }>;
 }
 
 /** Result of mdschema structure validation. */
