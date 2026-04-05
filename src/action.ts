@@ -3,30 +3,38 @@ import {
   expandGlobs,
   loadConfig,
   discoverInstructionFiles,
-} from "./validate.mjs";
+} from "./validate.js";
+import type { RulesConfig, LinterConfig, MarkerType } from "./types.js";
 
-const pathsInput =
-  process.env.INPUT_PATHS ||
+const pathsInput: string | undefined =
+  process.env["INPUT_PATHS"] ||
   process.env["INPUT_CLAUDE-MD-PATH"] ||
-  process.env.INPUT_CLAUDE_MD_PATH;
-const followSymlinks =
-  (process.env.INPUT_FOLLOW_SYMLINKS ||
+  process.env["INPUT_CLAUDE_MD_PATH"];
+const followSymlinks: boolean =
+  (process.env["INPUT_FOLLOW_SYMLINKS"] ||
     process.env["INPUT_FOLLOW-SYMLINKS"] ||
     "false") === "true";
-const markersInput = process.env.INPUT_MARKERS || process.env["INPUT_MARKERS"];
-const requireAnnotationsInput =
-  process.env.INPUT_REQUIRE_ANNOTATIONS ||
+const markersInput: string | undefined =
+  process.env["INPUT_MARKERS"] || process.env["INPUT_MARKERS"];
+const requireAnnotationsInput: string | undefined =
+  process.env["INPUT_REQUIRE_ANNOTATIONS"] ||
   process.env["INPUT_REQUIRE-ANNOTATIONS"];
-const maxLinesInput =
-  process.env.INPUT_MAX_LINES || process.env["INPUT_MAX-LINES"];
-const requireRuleFileInput =
-  process.env.INPUT_REQUIRE_RULE_FILE || process.env["INPUT_REQUIRE-RULE-FILE"];
-const lintersInput = process.env.INPUT_LINTERS || process.env["INPUT_LINTERS"];
+const maxLinesInput: string | undefined =
+  process.env["INPUT_MAX_LINES"] || process.env["INPUT_MAX-LINES"];
+const requireRuleFileInput: string | undefined =
+  process.env["INPUT_REQUIRE_RULE_FILE"] ||
+  process.env["INPUT_REQUIRE-RULE-FILE"];
+const lintersInput: string | undefined =
+  process.env["INPUT_LINTERS"] || process.env["INPUT_LINTERS"];
 
 const config = loadConfig();
 
-let discoveryMissing = [];
-let paths;
+let discoveryMissing: Array<{
+  tool: string;
+  expected: string;
+  indicator: string;
+}> = [];
+let paths: string[];
 if (pathsInput) {
   paths = expandGlobs(
     pathsInput
@@ -46,12 +54,12 @@ if (pathsInput) {
   discoveryMissing = discovery.missing;
 }
 
-const ruleMarkers = markersInput
-  ? markersInput.split(",").map((m) => m.trim())
+const ruleMarkers: MarkerType[] = markersInput
+  ? (markersInput.split(",").map((m) => m.trim()) as MarkerType[])
   : config.ruleMarkers;
 
 // Merge action inputs into rules config (action inputs override config file)
-const rules = { ...config.rules };
+const rules: RulesConfig = { ...config.rules };
 if (requireAnnotationsInput !== undefined) {
   rules["require-annotations"] = requireAnnotationsInput !== "false";
 }
@@ -62,14 +70,20 @@ if (maxLinesInput !== undefined) {
 if (requireRuleFileInput !== undefined) {
   if (requireRuleFileInput === "false") rules["require-rule-file"] = false;
   else if (requireRuleFileInput === "true") rules["require-rule-file"] = true;
-  else rules["require-rule-file"] = requireRuleFileInput;
+  else
+    rules["require-rule-file"] = requireRuleFileInput as
+      | "auto"
+      | "catalog-only";
 }
 
 // Merge linters config (action input overrides config file)
-let linters = config.linters;
+let linters: Record<string, LinterConfig> = config.linters;
 if (lintersInput) {
   try {
-    linters = { ...linters, ...JSON.parse(lintersInput) };
+    linters = {
+      ...linters,
+      ...(JSON.parse(lintersInput) as Record<string, LinterConfig>),
+    };
   } catch {
     console.warn(
       `Invalid linters JSON input: ${lintersInput}. Using config file value.`,

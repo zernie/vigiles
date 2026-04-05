@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/validate.mjs CLAUDE.md"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/cli.js CLAUDE.md"
           }
         ]
       }

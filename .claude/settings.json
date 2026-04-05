@@ -2,7 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "command": "npm install && pip install ruff pylint && gem install rubocop 2>/dev/null"
+        "command": "npm install && npm run build && pip install ruff pylint && gem install rubocop 2>/dev/null"
       }
     ],
     "PostToolUse": [
