@@ -14,6 +14,7 @@ vigiles — ESLint for AI agents. Validates that instruction files (CLAUDE.md, A
 - `package.json` — Dependencies: cosmiconfig, typescript (dev), prettier (dev)
 - `.claude/settings.json` — PostToolUse hook that validates CLAUDE.md on every edit
 - `skills/` — Claude Code skills (enforce-rules-format, audit-feedback-loop, pr-to-lint-rule)
+- `research/` — Product research: competitive landscape, feature ideas, pain points, linter design patterns
 
 ## Commands
 
