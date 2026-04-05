@@ -23,8 +23,6 @@ import type {
   ValidateOptions,
   ValidatePathsOptions,
   ReadOptions,
-  AgentTool,
-  DiscoveryResult,
   StructureValidationResult,
   EslintRuleSet,
   RulePack,
@@ -49,8 +47,6 @@ export type {
   ValidateOptions,
   ValidatePathsOptions,
   ReadOptions,
-  AgentTool,
-  DiscoveryResult,
   StructureValidationResult,
   RulePack,
 };
@@ -66,6 +62,17 @@ const CHECKBOX_RE = /^- \[([ xX])\]\s+(.+)$/;
 
 const VALID_MARKERS: readonly MarkerType[] = ["headings", "checkboxes"];
 const SAFE_RULE_NAME_RE = /^[a-zA-Z0-9_\-/.:#]+$/;
+
+// Near-miss patterns for typo detection (case-insensitive variants)
+const NEAR_MISS_ENFORCED_RE = /\*\*enforce[ds]?\s*by:?\*\*/i;
+const NEAR_MISS_GUIDANCE_RE = /\*\*guidance\b.*\*\*/i;
+
+// Markdown link: [text](target) — captures the target
+const MD_LINK_RE = /\[([^\]]*)\]\(([^)]+)\)/g;
+// Skip any URI-scheme link (http, https, mailto, ftp, tel, vscode, etc.) and anchors
+const EXTERNAL_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*:|#)/;
+// Fenced code block delimiter (up to 3 leading spaces per CommonMark)
+const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
 
 // Built-in schema presets (bundled .yml files in schemas/)
 const SCHEMAS_DIR = resolve(__dirname, "..", "schemas");
@@ -85,6 +92,7 @@ export const RULE_PACKS: Record<string, RulePack> = {
       "max-lines": 500,
       "require-rule-file": "auto",
       "require-structure": false,
+      "no-broken-links": true,
     },
     structures: [],
   },
@@ -94,6 +102,7 @@ export const RULE_PACKS: Record<string, RulePack> = {
       "max-lines": 300,
       "require-rule-file": "auto",
       "require-structure": true,
+      "no-broken-links": true,
     },
     structures: [
       { files: "CLAUDE.md", schema: "claude-md:strict" },
@@ -171,52 +180,17 @@ export function validateStructure(
 }
 
 // ---------------------------------------------------------------------------
-// Agent tool discovery
-// ---------------------------------------------------------------------------
-
-const AGENT_TOOLS: AgentTool[] = [
-  {
-    name: "Claude Code",
-    indicators: [".claude"],
-    instructionFiles: ["CLAUDE.md"],
-  },
-  {
-    name: "Cursor",
-    indicators: [".cursor"],
-    instructionFiles: [".cursorrules"],
-  },
-  {
-    name: "Windsurf",
-    indicators: [".windsurf"],
-    instructionFiles: [".windsurfrules"],
-  },
-  {
-    name: "OpenAI Codex",
-    indicators: ["AGENTS.md"],
-    instructionFiles: ["AGENTS.md"],
-  },
-  {
-    name: "GitHub Copilot",
-    indicators: [".github/copilot-instructions.md"],
-    instructionFiles: [".github/copilot-instructions.md"],
-  },
-  {
-    name: "Cline",
-    indicators: [".clinerules"],
-    instructionFiles: [".clinerules"],
-  },
-];
-
-// ---------------------------------------------------------------------------
 // Default config
 // ---------------------------------------------------------------------------
+
+const DEFAULT_FILES: string[] = ["CLAUDE.md"];
 
 const DEFAULT_CONFIG: VigilesConfig = {
   extends: "recommended",
   ruleMarkers: ["headings", "checkboxes"],
   rules: DEFAULT_RULES,
   linters: {},
-  agents: null,
+  files: DEFAULT_FILES,
   structures: [],
 };
 
@@ -555,51 +529,15 @@ const CLI_TOOL_FOR_LINTER: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Agent discovery
+// Instruction file discovery
 // ---------------------------------------------------------------------------
 
-export function discoverInstructionFiles(
+export function findInstructionFiles(
   cwd: string = process.cwd(),
-  agents: string[] | null = null,
-): DiscoveryResult {
-  const detected: DiscoveryResult["detected"] = [];
-  const files: string[] = [];
-  const missing: DiscoveryResult["missing"] = [];
-  const seen = new Set<string>();
-
-  const toolsToCheck = agents
-    ? AGENT_TOOLS.filter((t) =>
-        agents.some((a) => t.name.toLowerCase() === a.toLowerCase()),
-      )
-    : AGENT_TOOLS;
-
-  for (const tool of toolsToCheck) {
-    const indicator = agents
-      ? tool.indicators[0]
-      : tool.indicators.find((ind) => existsSync(resolve(cwd, ind)));
-    if (!agents && !indicator) continue;
-
-    detected.push({
-      name: tool.name,
-      indicator: indicator ?? tool.indicators[0],
-    });
-
-    for (const file of tool.instructionFiles) {
-      if (seen.has(file)) continue;
-      seen.add(file);
-      if (existsSync(resolve(cwd, file))) {
-        files.push(file);
-      } else {
-        missing.push({
-          tool: tool.name,
-          expected: file,
-          indicator: indicator ?? tool.indicators[0],
-        });
-      }
-    }
-  }
-
-  return { detected, files, missing };
+  configFiles?: string[],
+): string[] {
+  const candidates = configFiles ?? DEFAULT_FILES;
+  return candidates.filter((f) => existsSync(resolve(cwd, f)));
 }
 
 // ---------------------------------------------------------------------------
@@ -663,8 +601,7 @@ export function loadConfig(): VigilesConfig {
       ...userConfig,
       rules: { ...basePack.rules, ...userConfig.rules },
       linters: { ...userConfig.linters },
-      agents:
-        userConfig.agents !== undefined ? (userConfig.agents ?? null) : null,
+      files: Array.isArray(userConfig.files) ? userConfig.files : DEFAULT_FILES,
       structures: resolveStructures(
         userConfig.structures ?? basePack.structures,
       ),
@@ -787,8 +724,52 @@ export function validate(
   const errors: ValidationError[] = [];
 
   if (activeRules["require-annotations"] !== false && missingCount > 0) {
-    for (const rule of parsedRules) {
-      if (rule.enforcement === "missing") {
+    const lines = content.split("\n");
+    for (let ri = 0; ri < parsedRules.length; ri++) {
+      const rule = parsedRules[ri];
+      if (rule.enforcement !== "missing") continue;
+
+      // Scan lines between this rule and the next for near-miss annotations
+      const startLine = rule.line; // 1-based, header itself
+      const endLine =
+        ri + 1 < parsedRules.length
+          ? parsedRules[ri + 1].line - 1
+          : lines.length;
+
+      let nearMiss: { text: string; line: number; suggestion: string } | null =
+        null;
+      for (let li = startLine; li < endLine; li++) {
+        const line = lines[li]; // 0-based array, li is already offset
+        if (!nearMiss && NEAR_MISS_ENFORCED_RE.test(line)) {
+          // Only flag if it's NOT the exact correct pattern
+          if (!/\*\*Enforced by:\*\*/.test(line)) {
+            const match = line.match(/(\*\*[^*]+\*\*)/);
+            nearMiss = {
+              text: match?.[1] ?? line.trim(),
+              line: li + 1,
+              suggestion: "**Enforced by:** `<rule>`",
+            };
+          }
+        }
+        if (!nearMiss && NEAR_MISS_GUIDANCE_RE.test(line)) {
+          if (!/\*\*Guidance only\*\*/.test(line)) {
+            const match = line.match(/(\*\*[^*]+\*\*)/);
+            nearMiss = {
+              text: match?.[1] ?? line.trim(),
+              line: li + 1,
+              suggestion: "**Guidance only**",
+            };
+          }
+        }
+      }
+
+      if (nearMiss) {
+        errors.push({
+          rule: "require-annotations",
+          message: `Line ${String(nearMiss.line)}: near-miss annotation ${nearMiss.text} — did you mean ${nearMiss.suggestion}?`,
+          line: nearMiss.line,
+        });
+      } else {
         errors.push({
           rule: "require-annotations",
           message: `Line ${String(rule.line)}: "${rule.title}" is missing an enforcement annotation`,
@@ -808,6 +789,46 @@ export function validate(
         message: `File has ${String(lineCount)} lines, exceeding the limit of ${String(limit)}. Consider splitting into subdirectory files — see https://github.com/zernie/vigiles#organizing-rules`,
         line: lineCount,
       });
+    }
+  }
+
+  // --- no-broken-links ---
+  if (activeRules["no-broken-links"] !== false && basePath) {
+    const lines = content.split("\n");
+    let fenceDelimiter: string | null = null;
+    for (let i = 0; i < lines.length; i++) {
+      // Track fenced code blocks — match opening char and min length to close
+      const fenceMatch = lines[i].match(FENCE_RE);
+      if (fenceMatch) {
+        const char = fenceMatch[1][0]; // ` or ~
+        const len = fenceMatch[1].length;
+        if (fenceDelimiter === null) {
+          fenceDelimiter = char.repeat(len);
+        } else if (char === fenceDelimiter[0] && len >= fenceDelimiter.length) {
+          fenceDelimiter = null;
+        }
+        continue;
+      }
+      if (fenceDelimiter !== null) continue;
+
+      // Strip inline code spans before scanning for links
+      const lineText = lines[i].replace(/`[^`]+`/g, "");
+      let m: RegExpExecArray | null;
+      MD_LINK_RE.lastIndex = 0;
+      while ((m = MD_LINK_RE.exec(lineText)) !== null) {
+        // Strip optional link title: [text](path "title")
+        const raw = m[2].replace(/\s+"[^"]*"$/, "").replace(/\s+'[^']*'$/, "");
+        const target = raw.split(/[#?]/)[0]; // strip fragment/query
+        if (!target || EXTERNAL_RE.test(raw)) continue;
+        const resolved = resolve(basePath, target);
+        if (!existsSync(resolved)) {
+          errors.push({
+            rule: "no-broken-links",
+            message: `Broken link: [${m[1]}](${m[2]}) — "${target}" does not exist (line ${String(i + 1)})`,
+            line: i + 1,
+          });
+        }
+      }
     }
   }
 

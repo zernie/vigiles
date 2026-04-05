@@ -6,7 +6,7 @@ branding:
 
 inputs:
   paths:
-    description: "Comma-separated paths or glob patterns. Auto-discovers CLAUDE.md, AGENTS.md, .cursorrules, etc. if omitted."
+    description: "Comma-separated paths or glob patterns. Validates CLAUDE.md by default if omitted. Set 'files' in .vigilesrc.json for additional files."
     required: false
   follow-symlinks:
     description: "Follow symbolic links when reading CLAUDE.md files"

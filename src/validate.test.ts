@@ -15,7 +15,7 @@ import {
   readClaudeMd,
   validatePaths,
   expandGlobs,
-  discoverInstructionFiles,
+  findInstructionFiles,
   loadConfig,
   validateStructure,
   resolveSchema,
@@ -311,6 +311,7 @@ describe("loadConfig", () => {
       "max-lines": 500,
       "require-rule-file": "auto",
       "require-structure": false,
+      "no-broken-links": true,
     });
   });
 
@@ -466,6 +467,199 @@ describe("max-lines rule", () => {
       rules: { "require-annotations": false, "max-lines": 100 },
     });
     assert.equal(result.valid, true);
+  });
+});
+
+describe("no-broken-links rule", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-links-"));
+    writeFileSync(join(tmpDir, "existing.md"), "# Hello\n");
+    mkdirSync(join(tmpDir, "sub"));
+    writeFileSync(join(tmpDir, "sub", "nested.md"), "# Nested\n");
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should pass when all relative links resolve", () => {
+    const content =
+      "See [docs](existing.md) and [nested](sub/nested.md) for details.\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it("should fail when a relative link target is missing", () => {
+    const content = "Read the [guide](missing-file.md) first.\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, false);
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].rule, "no-broken-links");
+    assert.ok(result.errors[0].message.includes("missing-file.md"));
+  });
+
+  it("should skip external URLs", () => {
+    const content =
+      "Visit [site](https://example.com) and [mail](mailto:a@b.com).\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should skip anchor-only links", () => {
+    const content = "Jump to [section](#overview).\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should handle links with fragments to existing files", () => {
+    const content = "See [section](existing.md#heading) for details.\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should report multiple broken links", () => {
+    const content =
+      "See [a](nope.md) and [b](also-nope.md) for info.\n[c](existing.md) is fine.\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.errors.length, 2);
+    assert.ok(result.errors[0].message.includes("nope.md"));
+    assert.ok(result.errors[1].message.includes("also-nope.md"));
+  });
+
+  it("should be disabled when set to false", () => {
+    const content = "Read the [guide](missing.md) first.\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": false },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should not run without basePath", () => {
+    const content = "Read the [guide](missing.md) first.\n";
+    const result = validate(content, {
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should strip link titles before resolving", () => {
+    const content = 'See [guide](existing.md "Guide title") for details.\n';
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should skip links inside fenced code blocks", () => {
+    const content =
+      "```markdown\n[example](nonexistent.md)\n```\n[real](existing.md)\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should skip links inside nested fenced code blocks", () => {
+    const content =
+      "````md\n```\n[example](nonexistent.md)\n```\n````\n[real](existing.md)\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should skip links inside indented fenced code blocks", () => {
+    const content =
+      "   ```\n   [example](nonexistent.md)\n   ```\n[real](existing.md)\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should skip non-http URI schemes", () => {
+    const content =
+      "Open [editor](vscode://file/path) or [call](tel:+1234567890).\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+});
+
+describe("annotation typo detection", () => {
+  it("should detect Enforced By (wrong case)", () => {
+    const content =
+      "### No console.log\n**Enforced By:** `eslint/no-console`\n";
+    const result = validate(content);
+    assert.equal(result.valid, false);
+    assert.equal(result.errors.length, 1);
+    assert.ok(result.errors[0].message.includes("near-miss"));
+    assert.ok(result.errors[0].message.includes("**Enforced By:**"));
+  });
+
+  it("should detect Enforce by (wrong word)", () => {
+    const content = "### No var\n**Enforce by:** `eslint/no-var`\n";
+    const result = validate(content);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].message.includes("near-miss"));
+  });
+
+  it("should detect Enforced by without colon", () => {
+    const content = "### No var\n**Enforced by** `eslint/no-var`\n";
+    const result = validate(content);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].message.includes("near-miss"));
+  });
+
+  it("should detect Guidance (missing only)", () => {
+    const content = "### Use spacing scale\n**Guidance** — not enforced\n";
+    const result = validate(content);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].message.includes("near-miss"));
+    assert.ok(result.errors[0].message.includes("**Guidance only**"));
+  });
+
+  it("should not false-positive on correct annotations", () => {
+    const content =
+      "### No console.log\n**Enforced by:** `eslint/no-console`\n";
+    const result = validate(content);
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it("should still report missing when no near-miss found", () => {
+    const content = "### Some rule\nJust a description.\n";
+    const result = validate(content);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].message.includes("missing an enforcement"));
   });
 });
 
@@ -1497,125 +1691,46 @@ describe("require-rule-file", () => {
   });
 });
 
-describe("discoverInstructionFiles", () => {
+describe("findInstructionFiles", () => {
   let tmpDir: string;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-discover-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-find-"));
   });
 
   after(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should return empty when no agents detected", () => {
-    const result = discoverInstructionFiles(tmpDir);
-    assert.equal(result.detected.length, 0);
-    assert.equal(result.files.length, 0);
-    assert.equal(result.missing.length, 0);
+  it("should return empty when no files exist", () => {
+    const result = findInstructionFiles(tmpDir);
+    assert.deepEqual(result, []);
   });
 
-  it("should detect Claude Code via .claude/ dir and find CLAUDE.md", () => {
-    mkdirSync(join(tmpDir, ".claude"), { recursive: true });
+  it("should find CLAUDE.md by default", () => {
     writeFileSync(join(tmpDir, "CLAUDE.md"), "# Test\n");
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.some((d) => d.name === "Claude Code"));
-    assert.ok(result.files.includes("CLAUDE.md"));
-    assert.equal(result.missing.length, 0);
+    const result = findInstructionFiles(tmpDir);
+    assert.deepEqual(result, ["CLAUDE.md"]);
   });
 
-  it("should error when Claude Code detected but CLAUDE.md missing", () => {
-    // .claude/ already exists from previous test
-    const dir = mkdtempSync(join(tmpdir(), "vigiles-discover2-"));
-    mkdirSync(join(dir, ".claude"), { recursive: true });
-    const result = discoverInstructionFiles(dir);
-    assert.ok(result.detected.some((d) => d.name === "Claude Code"));
-    assert.equal(result.files.length, 0);
-    assert.equal(result.missing.length, 1);
-    assert.equal(result.missing[0].tool, "Claude Code");
-    assert.equal(result.missing[0].expected, "CLAUDE.md");
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("should detect Cursor via .cursor/ dir", () => {
-    mkdirSync(join(tmpDir, ".cursor"), { recursive: true });
-    writeFileSync(join(tmpDir, ".cursorrules"), "rules\n");
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.some((d) => d.name === "Cursor"));
-    assert.ok(result.files.includes(".cursorrules"));
-  });
-
-  it("should detect Codex via AGENTS.md file", () => {
+  it("should find custom files list", () => {
     writeFileSync(join(tmpDir, "AGENTS.md"), "# Test\n");
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.some((d) => d.name === "OpenAI Codex"));
-    assert.ok(result.files.includes("AGENTS.md"));
+    const result = findInstructionFiles(tmpDir, [
+      "CLAUDE.md",
+      "AGENTS.md",
+      ".cursorrules",
+    ]);
+    assert.ok(result.includes("CLAUDE.md"));
+    assert.ok(result.includes("AGENTS.md"));
+    assert.ok(!result.includes(".cursorrules"));
   });
 
-  it("should detect Copilot via instruction file", () => {
-    mkdirSync(join(tmpDir, ".github"), { recursive: true });
-    writeFileSync(
-      join(tmpDir, ".github/copilot-instructions.md"),
-      "# Copilot\n",
-    );
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.some((d) => d.name === "GitHub Copilot"));
-    assert.ok(result.files.includes(".github/copilot-instructions.md"));
-  });
-
-  it("should detect Windsurf via .windsurf/ dir and find .windsurfrules", () => {
-    mkdirSync(join(tmpDir, ".windsurf"), { recursive: true });
-    writeFileSync(join(tmpDir, ".windsurfrules"), "rules\n");
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.some((d) => d.name === "Windsurf"));
-    assert.ok(result.files.includes(".windsurfrules"));
-  });
-
-  it("should error when Windsurf detected but .windsurfrules missing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "vigiles-windsurf-"));
-    mkdirSync(join(dir, ".windsurf"), { recursive: true });
-    const result = discoverInstructionFiles(dir);
-    assert.ok(result.detected.some((d) => d.name === "Windsurf"));
-    assert.ok(result.missing.some((m) => m.tool === "Windsurf"));
-    assert.equal(
-      result.missing.find((m) => m.tool === "Windsurf")?.expected,
-      ".windsurfrules",
-    );
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("should detect Cline via .clinerules file", () => {
-    writeFileSync(join(tmpDir, ".clinerules"), "rules\n");
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.some((d) => d.name === "Cline"));
-    assert.ok(result.files.includes(".clinerules"));
-  });
-
-  it("should error when Cline explicitly required but .clinerules missing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "vigiles-cline-"));
-    const result = discoverInstructionFiles(dir, ["Cline"]);
-    assert.ok(result.detected.some((d) => d.name === "Cline"));
-    assert.ok(result.missing.some((m) => m.tool === "Cline"));
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("should detect multiple tools at once", () => {
-    const result = discoverInstructionFiles(tmpDir);
-    assert.ok(result.detected.length >= 4);
-    assert.ok(result.files.length >= 4);
-  });
-
-  it("should check explicit agents list even without indicators", () => {
-    const dir = mkdtempSync(join(tmpdir(), "vigiles-discover3-"));
-    writeFileSync(join(dir, "CLAUDE.md"), "# Test\n");
-    // No .cursor/ dir, but explicitly request Cursor check
-    const result = discoverInstructionFiles(dir, ["Claude Code", "Cursor"]);
-    assert.ok(result.detected.some((d) => d.name === "Claude Code"));
-    assert.ok(result.detected.some((d) => d.name === "Cursor"));
-    assert.ok(result.files.includes("CLAUDE.md"));
-    // Cursor detected but .cursorrules missing
-    assert.ok(result.missing.some((m) => m.tool === "Cursor"));
-    rmSync(dir, { recursive: true, force: true });
+  it("should only return files that exist", () => {
+    const result = findInstructionFiles(tmpDir, [
+      "CLAUDE.md",
+      "nonexistent.md",
+    ]);
+    assert.deepEqual(result, ["CLAUDE.md"]);
   });
 });
 
@@ -1649,7 +1764,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t1.md", "# Title\n\n## Section\n\n### Sub\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return; // skip if mdschema not installed
+    assert.ok(available, "mdschema must be installed");
     assert.equal(errors.length, 0);
   });
 
@@ -1660,7 +1775,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t2.md", "# Title\n\n### Skipped h2\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.ok(errors.length > 0);
     assert.ok(errors.some((e) => e.rule === "require-structure"));
   });
@@ -1672,7 +1787,7 @@ describe("validateStructure (mdschema CLI)", () => {
       "# Title\n\n## Section\n\n### Sub\n\n#### Too deep\n",
     );
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.ok(errors.length > 0);
   });
 
@@ -1683,7 +1798,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t4.md", "# No frontmatter\n\nJust text.\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.ok(errors.length > 0);
     assert.ok(errors.some((e) => e.message.includes("frontmatter")));
   });
@@ -1695,7 +1810,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t5.md", "---\ndescription: hello\n---\n\n# Skill\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.equal(errors.length, 0);
   });
 
@@ -1706,7 +1821,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t6.md", "# Project\n\n## Other\n\nNo commands.\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.ok(errors.length > 0);
     assert.ok(errors.some((e) => e.message.includes("Commands")));
   });
@@ -1718,7 +1833,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t7.md", "# Project\n\n## Commands\n\nnpm test\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.equal(errors.length, 0);
   });
 
@@ -1729,7 +1844,7 @@ describe("validateStructure (mdschema CLI)", () => {
     );
     const md = writeMd("t8.md", "# Title\n\n### Skipped\n");
     const { errors, available } = validateStructure(md, schema);
-    if (!available) return;
+    assert.ok(available, "mdschema must be installed");
     assert.ok(errors.length > 0);
     assert.ok(errors[0].line > 0);
   });
@@ -1798,10 +1913,10 @@ describe("require-structure via validate()", () => {
       structures,
       filePath: mdPath,
     });
-    // Either fails with structure error or warns about mdschema not installed
-    if (result.errors.some((e) => e.message.includes("mdschema is not"))) {
-      return; // mdschema not installed, skip
-    }
+    assert.ok(
+      !result.errors.some((e) => e.message.includes("mdschema is not")),
+      "mdschema must be installed",
+    );
     assert.equal(result.valid, false);
     assert.ok(
       result.errors.some(

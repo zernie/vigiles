@@ -2,7 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "command": "npm install && npm run build && pip install ruff pylint && gem install rubocop 2>/dev/null"
+        "command": "export PATH=\"/opt/rbenv/versions/3.3.6/bin:$PATH\" && npm install && npm run build && pip install ruff pylint && gem install rubocop && rbenv rehash 2>/dev/null; true"
       }
     ],
     "PostToolUse": [

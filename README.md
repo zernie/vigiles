@@ -1,46 +1,24 @@
-# vigiles
+<p align="center">
+  <img src="logo.png" width="140" alt="vigiles logo" />
+</p>
 
-> _Quis custodiet ipsos custodes?_ — Who watches the watchmen?
->
-> **Vigiles** were the watchmen of ancient Rome. This tool watches your AI agent instruction files — the rules that watch over your codebase.
+<h1 align="center">vigiles</h1>
 
-Zero-config validation for AI agent instruction files. Ensures every rule in your CLAUDE.md, AGENTS.md, or .cursorrules is backed by a real linter — or explicitly marked as guidance-only.
+<p align="center">
+  <em>Quis custodiet ipsos custodes?</em> — Who watches the watchmen?
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/vigiles"><img src="https://img.shields.io/npm/v/vigiles?color=orange" alt="npm version" /></a>
+  <a href="https://github.com/zernie/vigiles/actions"><img src="https://img.shields.io/github/actions/workflow/status/zernie/vigiles/ci.yml?branch=main" alt="CI" /></a>
+  <a href="https://github.com/zernie/vigiles/blob/main/LICENSE"><img src="https://img.shields.io/github/license/zernie/vigiles" alt="License" /></a>
+</p>
+
+---
+
+Validates that every rule in your CLAUDE.md is backed by a real linter — or explicitly marked as guidance-only. Cross-references enforcement claims against actual linter configurations (ESLint, Ruff, Clippy, Pylint, RuboCop, Stylelint).
 
 Companion repo for [Feedback Loop Is All You Need](https://zernie.com/blog/feedback-loop-is-all-you-need).
-
-## Table of Contents
-
-- [Why](#why)
-- [Quick Start](#quick-start)
-- [How It Works](#how-it-works)
-- [Instruction File Format](#instruction-file-format)
-- [Agent Detection](#agent-detection)
-- [Linter Rule Validation](#linter-rule-validation)
-- [Configuration](#configuration)
-- [CLI](#cli)
-- [Organizing Rules](#organizing-rules)
-- [Structure Validation](#structure-validation)
-- [GitHub Action](#github-action)
-- [Installing Skills](#installing-skills)
-- [Maturity Levels](#maturity-levels)
-- [License](#license)
-
-## Why
-
-AI coding agents work best with deterministic feedback — linters, type checkers, CI. Without it, they drift from conventions and produce code that "works" but doesn't fit your codebase.
-
-The problem: teams write rules in CLAUDE.md or AGENTS.md like "always use barrel imports" but never wire them to actual linters. The rules rot. The agent ignores them. Nobody notices until the codebase diverges.
-
-On bigger teams this gets worse — different engineers use different agents (Claude Code, Cursor, Codex, Copilot), each with its own instruction file format. Without validation, some agents get well-maintained rules while others get stale or missing files. `vigiles` detects every agent tool configured in your repo and ensures each one has an up-to-date, properly annotated instruction file.
-
-`vigiles` closes this gap:
-
-1. **Every rule must cite its enforcer** — `**Enforced by:** \`eslint/no-restricted-imports\``or`**Guidance only**`
-2. **Referenced linters must actually exist** — auto-detects ESLint, Ruff, Clippy, RuboCop, and more from your project
-3. **Missing instruction files are caught** — detects Claude Code, Cursor, Codex, Copilot, Windsurf, and Cline from their config directories
-4. **Errors show inline on PRs** — just like ESLint, annotations appear on the affected lines
-
-No config files needed. No dependencies beyond your existing linters.
 
 ## Quick Start
 
@@ -48,11 +26,9 @@ No config files needed. No dependencies beyond your existing linters.
 npx vigiles
 ```
 
-That's it. vigiles auto-detects which AI tools you use, finds their instruction files, validates every rule has an enforcement annotation, and checks that referenced linters actually exist in your project.
+That's it. Finds `CLAUDE.md`, validates every rule has an enforcement annotation, and checks that referenced linters actually exist in your project.
 
 ```
-Detected agents: Claude Code (.claude)
-
 Validation Report: CLAUDE.md
 ========================================
   Total rules:    4
@@ -68,13 +44,11 @@ All rules have enforcement annotations.
 
 ## How It Works
 
-vigiles does three things automatically:
+vigiles does two things:
 
-**1. Detects your AI tools** — scans for `.claude/`, `.cursor/`, `.windsurf/`, and other config directories. If a tool is configured but its instruction file is missing, that's an error.
+**1. Validates rule annotations** — every `###` heading or `- [ ]` checkbox in your instruction file must have `**Enforced by:** \`linter/rule\``or`**Guidance only**`. Near-miss typos like `**Enforced By:**` (wrong case) get a helpful "did you mean?" message.
 
-**2. Validates rule annotations** — every `###` heading or `- [ ]` checkbox in your instruction files must have `**Enforced by:** \`linter/rule\``or`**Guidance only**`.
-
-**3. Verifies linters exist** — checks that referenced linters are actually installed. ESLint and Stylelint are checked via Node API. Ruff, Clippy, Pylint, and RuboCop are checked via CLI. No extra dependencies are installed — vigiles only checks tools already in your project.
+**2. Verifies linters exist and are enabled** — checks that referenced linters are actually installed and that the specific rules are enabled in your config. ESLint and Stylelint are checked via Node API. Ruff, Clippy, Pylint, and RuboCop are checked via CLI.
 
 ## Instruction File Format
 
@@ -110,32 +84,9 @@ To skip validation for a specific rule:
 <!-- vigiles-disable -->
 ```
 
-## Agent Detection
-
-In a team where some engineers use Claude Code, others use Cursor, and CI runs Codex, you need instruction files for all of them. vigiles detects which tools are configured and requires their instruction files to exist:
-
-| Tool           | Detected by                       | Required file                     |
-| -------------- | --------------------------------- | --------------------------------- |
-| Claude Code    | `.claude/` directory              | `CLAUDE.md`                       |
-| Cursor         | `.cursor/` directory              | `.cursorrules`                    |
-| Windsurf       | `.windsurf/` directory            | `.windsurfrules`                  |
-| OpenAI Codex   | `AGENTS.md` file                  | `AGENTS.md`                       |
-| GitHub Copilot | `.github/copilot-instructions.md` | `.github/copilot-instructions.md` |
-| Cline          | `.clinerules` file                | `.clinerules`                     |
-
-If `.claude/` exists but `CLAUDE.md` doesn't, vigiles errors — so when someone adds a new agent tool to the repo, CI catches the missing instruction file before it ships.
-
-To explicitly require specific tools across the team (even without their config directories):
-
-```json
-{
-  "agents": ["Claude Code", "Cursor"]
-}
-```
-
 ## Linter Rule Validation
 
-When a rule says `**Enforced by:** \`eslint/no-console\``, vigiles checks that `no-console` is a real ESLint rule. This catches typos, references to removed rules, and linters that were never set up.
+When a rule says `**Enforced by:** \`eslint/no-console\``, vigiles checks that `no-console` is a real ESLint rule **and** that it's enabled in your config. This catches typos, references to removed rules, disabled rules, and linters that were never set up.
 
 Supported linters are auto-detected from your project — **no extra dependencies are installed**:
 
@@ -164,10 +115,11 @@ Set `require-rule-file` to `false` to disable all linter rule checking, or `"cat
 
 ## Configuration
 
-vigiles works with zero configuration. Optionally create a `.vigilesrc.json` to override defaults:
+vigiles works with zero configuration. It validates `CLAUDE.md` by default. Optionally create a `.vigilesrc.json` to override:
 
 ```json
 {
+  "files": ["CLAUDE.md", "AGENTS.md"],
   "rules": {
     "max-lines": 300
   }
@@ -177,14 +129,14 @@ vigiles works with zero configuration. Optionally create a `.vigilesrc.json` to 
 | Option        | Default                      | Description                                                                                          |
 | ------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `extends`     | `"recommended"`              | Rule pack to use as base. `"recommended"` or `"strict"`. User overrides are merged on top.           |
+| `files`       | `["CLAUDE.md"]`              | Instruction files to validate when no explicit paths are given                                       |
 | `ruleMarkers` | `["headings", "checkboxes"]` | Which rule marker types to recognize                                                                 |
 | `linters`     | `{}`                         | Per-linter config for rule file validation                                                           |
-| `agents`      | `null` (auto-detect)         | List of agent tool names to require, or `null` to auto-detect                                        |
 | `structures`  | `[]`                         | File-to-schema mappings for structure validation. See [Structure Validation](#structure-validation). |
 
 ### Rule Packs
 
-Like ESLint's shared configs, vigiles ships with two rule packs. Set `"extends"` in `.vigilesrc.json` to select one — all rules from the pack apply, and any explicit `"rules"` you set override the pack defaults.
+Like ESLint's shared configs, vigiles ships with two rule packs:
 
 ```json
 {
@@ -198,13 +150,10 @@ Like ESLint's shared configs, vigiles ships with two rule packs. Set `"extends"`
 | `max-lines`           | `500`                   | `300`                                 |
 | `require-rule-file`   | `"auto"`                | `"auto"`                              |
 | `require-structure`   | `false`                 | `true`                                |
+| `no-broken-links`     | `true`                  | `true`                                |
 | `structures`          | `[]`                    | CLAUDE.md + SKILL.md (strict schemas) |
 
-**`recommended`** is the zero-config default — catches missing annotations and oversized files. No structure validation, no extra dependencies.
-
-**`strict`** turns everything on: tighter line limits, structure validation with the strict schema presets (heading hierarchy, required sections, frontmatter). Requires [mdschema](https://github.com/jackchuka/mdschema) for `require-structure`.
-
-You can always override individual rules on top of either pack:
+Override individual rules on top of either pack:
 
 ```json
 {
@@ -218,17 +167,18 @@ You can always override individual rules on top of either pack:
 
 ### Rules
 
-| Rule                  | Description                                                                                                                 |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `require-annotations` | Every rule marker must have `**Enforced by:**` or `**Guidance only**`                                                       |
-| `max-lines`           | Maximum number of lines allowed per file. Set a number for custom limit.                                                    |
-| `require-rule-file`   | Validates that referenced linter rules exist and are enabled in project config. Use `"catalog-only"` to skip config checks. |
-| `require-structure`   | Validates markdown structure against schemas. See [Structure Validation](#structure-validation).                            |
+| Rule                  | Description                                                                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `require-annotations` | Every rule marker must have `**Enforced by:**` or `**Guidance only**`. Detects near-miss typos with "did you mean?" suggestions.                       |
+| `max-lines`           | Maximum number of lines allowed per file. Set a number for custom limit, `false` to disable.                                                           |
+| `require-rule-file`   | Validates that referenced linter rules exist and are enabled in project config. Use `"catalog-only"` to skip config checks.                            |
+| `require-structure`   | Validates markdown structure against schemas via [mdschema](https://github.com/jackchuka/mdschema). See [Structure Validation](#structure-validation). |
+| `no-broken-links`     | Checks that relative markdown links resolve to existing files. Skips external URLs, anchors, and mailto links.                                         |
 
 ## CLI
 
 ```bash
-# Auto-detect agents and validate their instruction files
+# Validate CLAUDE.md (default)
 npx vigiles
 
 # Validate specific files
@@ -270,22 +220,12 @@ The `max-lines` rule (default: 500) nudges toward this pattern — oversized ins
 
 ## Structure Validation
 
-### Why
-
-LLM agents treat every instruction file as novel — they'll add a `## Guidelines` section to one CLAUDE.md and `## Conventions` to another, skip heading levels, forget frontmatter on skills, and gradually drift each file into a unique snowflake. Across a team or monorepo this compounds: no two files follow the same template, making them harder for both humans and agents to navigate.
-
-Structure validation enforces a consistent markdown template. Every CLAUDE.md gets the same sections. Every SKILL.md has frontmatter. Heading hierarchy stays clean. The agent gets deterministic feedback when it creates or edits instruction files — not a human code review two days later.
-
-### Setup
-
-Requires [mdschema](https://github.com/jackchuka/mdschema) (optional dependency — vigiles works without it, but this rule is skipped):
+Optionally enforce consistent markdown templates via [mdschema](https://github.com/jackchuka/mdschema):
 
 ```bash
 npm install @jackchuka/mdschema
 ```
 
-Enable in `.vigilesrc.json`:
-
 ```json
 {
   "rules": { "require-structure": true },
@@ -296,68 +236,7 @@ Enable in `.vigilesrc.json`:
 }
 ```
 
-Each entry maps a glob pattern to a schema. Schemas can be a built-in preset name or a path to a custom `.mdschema.yml` file.
-
-### Glob-Based File Matching
-
-Different schemas for different directories:
-
-```json
-{
-  "rules": { "require-structure": true },
-  "structures": [
-    { "files": "CLAUDE.md", "schema": "claude-md" },
-    {
-      "files": "packages/api/**/CLAUDE.md",
-      "schema": "./schemas/api-claude.yml"
-    },
-    { "files": "**/SKILL.md", "schema": "skill" }
-  ]
-}
-```
-
-### Built-in Presets
-
-| Preset        | What it checks                                                                |
-| ------------- | ----------------------------------------------------------------------------- |
-| `"claude-md"` | Heading levels don't skip (h1 to h3), max depth 4. Freeform sections allowed. |
-| `"skill"`     | Requires YAML frontmatter with a `description` field. Max heading depth 4.    |
-
-Preset schemas are bundled in `schemas/`. You can copy and customize them.
-
-### Custom Schemas
-
-Create a `.mdschema.yml` file with the full [mdschema syntax](https://github.com/jackchuka/mdschema):
-
-```yaml
-# schemas/api-claude.yml
-structure:
-  - heading:
-      pattern: "# .+"
-    allow_additional: true
-    children:
-      - heading: "## Commands"
-      - heading: "## Architecture"
-      - heading: "## API Conventions"
-        optional: true
-
-heading_rules:
-  no_skip_levels: true
-  max_depth: 4
-
-frontmatter:
-  fields:
-    - name: "description"
-      required: true
-```
-
-mdschema supports required/optional sections, regex heading patterns, nested children, section count constraints (`min`/`max`), `allow_additional` for unlisted subsections, frontmatter field validation, word count rules, required text/code blocks per section, and link validation. See the [mdschema README](https://github.com/jackchuka/mdschema) for the full schema format.
-
-You can also derive a schema from an existing file:
-
-```bash
-npx @jackchuka/mdschema derive CLAUDE.md -o schemas/claude-md.yml
-```
+Built-in presets: `"claude-md"`, `"claude-md:strict"`, `"skill"`, `"skill:strict"`. Or point to a custom `.mdschema.yml`. See [mdschema docs](https://github.com/jackchuka/mdschema) for the full schema format.
 
 ## GitHub Action
 
@@ -373,7 +252,7 @@ jobs:
       - uses: zernie/vigiles@main
 ```
 
-Auto-detects agents and instruction files. Errors appear as inline annotations on the PR diff — just like ESLint.
+Errors appear as inline annotations on the PR diff.
 
 Override with action inputs:
 
@@ -385,66 +264,27 @@ Override with action inputs:
     require-rule-file: "auto"
 ```
 
-### Action Inputs
+## Related Tools
 
-All inputs can also be set via `.vigilesrc.json`. Action inputs take precedence.
+vigiles validates instruction file **content** and **linter cross-references**. It doesn't try to do everything. Here's how it fits with the ecosystem:
 
-| Input                 | Default     | Description                                                                              |
-| --------------------- | ----------- | ---------------------------------------------------------------------------------------- |
-| `paths`               | auto-detect | Comma-separated paths or glob patterns to validate                                       |
-| `follow-symlinks`     | `false`     | Follow symbolic links when reading files                                                 |
-| `markers`             | from config | Comma-separated rule marker types: `headings`, `checkboxes`                              |
-| `require-annotations` | `true`      | Require enforcement annotations on rules                                                 |
-| `max-lines`           | `500`       | Max lines per file (number or `false` to disable)                                        |
-| `require-rule-file`   | `auto`      | Validate linter rules exist and are enabled (`auto`, `catalog-only`, `true`, or `false`) |
-| `linters`             | `{}`        | JSON object mapping linter names to config                                               |
+**File sync across agents** — If your team uses multiple agents (Claude Code, Cursor, Copilot), use a sync tool to maintain one source of truth:
 
-### Action Outputs
+- [Ruler](https://github.com/intellectronica/ruler) — single `.ruler/` directory, auto-distributes to agent configs
+- [rulesync](https://github.com/dyoshikawa/rulesync) — unified rule management, 10+ agent targets
+- [block/ai-rules](https://github.com/block/ai-rules) — enterprise multi-agent rule management by Block
 
-| Output     | Description                              |
-| ---------- | ---------------------------------------- |
-| `total`    | Total number of rules found              |
-| `enforced` | Rules with `**Enforced by:**` annotation |
-| `guidance` | Rules marked `**Guidance only**`         |
-| `disabled` | Rules with `<!-- vigiles-disable -->`    |
-| `missing`  | Rules missing enforcement annotations    |
-| `valid`    | `true` if all rules have annotations     |
+Configure vigiles to validate the source file: `"files": ["CLAUDE.md"]`. The sync tool handles distribution.
 
-## Supported Tools
+**Markdown formatting** — Use [markdownlint](https://github.com/DavidAnson/markdownlint) for formatting rules (trailing spaces, consistent lists, heading levels). vigiles doesn't check formatting — it checks semantics. Most teams already have markdownlint in their editor or CI. [CodeRabbit](https://coderabbit.ai) runs it automatically on PRs.
 
-### Claude Code Integration
+**Prose quality** — Use [Vale](https://vale.sh) for writing style rules. vigiles doesn't check prose.
 
-Skills installed via `npx skills add` are available as `/audit-feedback-loop`, `/pr-to-lint-rule`, and `/enforce-rules-format`.
+**Claude Code ecosystem** — For validating hooks, MCP servers, plugins, and `.claude/` structure, see [claudelint](https://github.com/pdugan20/claudelint) or [cclint](https://github.com/carlrannaberg/cclint).
 
-#### Automatic Validation Hook
+**Stale references** — For checking that file paths and npm scripts in AGENTS.md files are still valid, see [agents-lint](https://github.com/giacomo/agents-lint).
 
-When installed as a plugin, vigiles automatically registers a PostToolUse hook that validates CLAUDE.md after every file edit. If a rule is missing its annotation, the agent gets immediate feedback and can fix the format before it reaches CI.
-
-To set this up manually instead (e.g. without the plugin), add to your project's `.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "command": "npx vigiles CLAUDE.md"
-      }
-    ]
-  }
-}
-```
-
-Alternatively, install via the Claude Code plugin system:
-
-```
-/plugin marketplace add zernie/vigiles
-/plugin install vigiles@vigiles
-```
-
-Or manually copy skills into your project's `.claude/skills/` directory.
-
-## Installing Skills
+## Skills
 
 Install skills for all your AI agents at once with [Vercel Skills](https://github.com/vercel-labs/skills):
 
@@ -452,36 +292,15 @@ Install skills for all your AI agents at once with [Vercel Skills](https://githu
 npx skills add zernie/vigiles
 ```
 
-This auto-detects your installed agents and installs the skills for each one. Works with Claude Code, Codex, Cursor, GitHub Copilot, Windsurf, and [many more](https://skills.sh).
+**`audit-feedback-loop`** — Scores your repo's feedback loop maturity (see [Maturity Levels](#maturity-levels)).
 
-### Available Skills
+**`pr-to-lint-rule`** — Converts a recurring PR comment into a lint rule + tests + CLAUDE.md annotation.
 
-**`audit-feedback-loop`** — Scans your repo and scores its feedback loop maturity (see [Maturity Levels](#maturity-levels)). Works with any language — detects ESLint, Ruff, Clippy, golangci-lint, RuboCop, and more.
-
-**`pr-to-lint-rule`** — Takes a natural language description of a recurring PR comment and generates:
-
-- A lint rule for your language/toolchain (ESLint, Ruff, Clippy, go/analysis, etc.)
-- Test cases
-- Integration instructions
-- A CLAUDE.md annotation block
-
-Example:
-
-```
-/pr-to-lint-rule we keep telling people not to import directly from antd, use our design system barrel file instead
-```
-
-**`enforce-rules-format`** — Validates that every `###` rule in your instruction files has an `**Enforced by:**` or `**Guidance only**` annotation. Finds missing annotations, suggests fixes based on your linter config, and verifies the result passes validation.
-
-Example:
-
-```
-/enforce-rules-format
-```
+**`enforce-rules-format`** — Validates and fixes enforcement annotations in your instruction files.
 
 ## Maturity Levels
 
-From the [article](https://zernie.com/blog/feedback-loop-is-all-you-need) — the four levels of feedback loop maturity:
+From the [article](https://zernie.com/blog/feedback-loop-is-all-you-need):
 
 | Level | Name                 | Description                                                         |
 | ----- | -------------------- | ------------------------------------------------------------------- |
@@ -489,14 +308,6 @@ From the [article](https://zernie.com/blog/feedback-loop-is-all-you-need) — th
 | 1     | Guardrails           | CI + standard linters, no custom rules                              |
 | 2     | Architecture as Code | Custom lint rules + enforced CLAUDE.md                              |
 | 3     | The Organism         | CI + custom rules + visual tests + observability + scheduled agents |
-
-**Level 0: Vibes** — The agent writes code, you eyeball it. No automated checks.
-
-**Level 1: Guardrails** — Standard CI — default linter rules, type checking, basic tests. The agent gets red/green signals but can't learn your conventions.
-
-**Level 2: Architecture as Code** — Custom lint rules encode your team's decisions. CLAUDE.md rules reference actual enforcement. The agent understands _why_ things are done a certain way.
-
-**Level 3: The Organism** — Everything is instrumented. Visual regression tests catch UI drift. Observability SDKs flag runtime issues. Scheduled agents monitor and maintain. The codebase evolves with feedback at every layer.
 
 ## License
 

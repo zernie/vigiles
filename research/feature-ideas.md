@@ -431,3 +431,5 @@ The "LLM reviews PRs in CI" approach hasn't worked due to non-determinism. What 
 - **Hybrid SAST + LLM post-processing** — 91% false positive reduction vs standalone Semgrep.
 
 Pattern: **LLM proposes, deterministic tool disposes.** The CI gate stays deterministic.
+
+See also: [research/competitive-landscape.md](./competitive-landscape.md) for the full competitive landscape, moat analysis, pain points, and transferable concepts from other linters.
