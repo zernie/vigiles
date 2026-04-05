@@ -565,6 +565,55 @@ describe("no-broken-links rule", () => {
   });
 });
 
+describe("annotation typo detection", () => {
+  it("should detect Enforced By (wrong case)", () => {
+    const content =
+      "### No console.log\n**Enforced By:** `eslint/no-console`\n";
+    const result = validate(content);
+    assert.equal(result.valid, false);
+    assert.equal(result.errors.length, 1);
+    assert.ok(result.errors[0].message.includes("near-miss"));
+    assert.ok(result.errors[0].message.includes("**Enforced By:**"));
+  });
+
+  it("should detect Enforce by (wrong word)", () => {
+    const content = "### No var\n**Enforce by:** `eslint/no-var`\n";
+    const result = validate(content);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].message.includes("near-miss"));
+  });
+
+  it("should detect Enforced by without colon", () => {
+    const content = "### No var\n**Enforced by** `eslint/no-var`\n";
+    const result = validate(content);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].message.includes("near-miss"));
+  });
+
+  it("should detect Guidance (missing only)", () => {
+    const content = "### Use spacing scale\n**Guidance** — not enforced\n";
+    const result = validate(content);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].message.includes("near-miss"));
+    assert.ok(result.errors[0].message.includes("**Guidance only**"));
+  });
+
+  it("should not false-positive on correct annotations", () => {
+    const content =
+      "### No console.log\n**Enforced by:** `eslint/no-console`\n";
+    const result = validate(content);
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it("should still report missing when no near-miss found", () => {
+    const content = "### Some rule\nJust a description.\n";
+    const result = validate(content);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].message.includes("missing an enforcement"));
+  });
+});
+
 describe("rule toggling", () => {
   it("should disable require-annotations when set to false", () => {
     const result = validate("### Rule\nNo annotation.\n", {

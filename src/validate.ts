@@ -63,6 +63,10 @@ const CHECKBOX_RE = /^- \[([ xX])\]\s+(.+)$/;
 const VALID_MARKERS: readonly MarkerType[] = ["headings", "checkboxes"];
 const SAFE_RULE_NAME_RE = /^[a-zA-Z0-9_\-/.:#]+$/;
 
+// Near-miss patterns for typo detection (case-insensitive variants)
+const NEAR_MISS_ENFORCED_RE = /\*\*enforce[ds]?\s*by:?\*\*/i;
+const NEAR_MISS_GUIDANCE_RE = /\*\*guidance\b.*\*\*/i;
+
 // Markdown link: [text](target) — captures the target
 const MD_LINK_RE = /\[([^\]]*)\]\(([^)]+)\)/g;
 // Skip external URLs, anchors, and mailto
@@ -720,8 +724,52 @@ export function validate(
   const errors: ValidationError[] = [];
 
   if (activeRules["require-annotations"] !== false && missingCount > 0) {
-    for (const rule of parsedRules) {
-      if (rule.enforcement === "missing") {
+    const lines = content.split("\n");
+    for (let ri = 0; ri < parsedRules.length; ri++) {
+      const rule = parsedRules[ri];
+      if (rule.enforcement !== "missing") continue;
+
+      // Scan lines between this rule and the next for near-miss annotations
+      const startLine = rule.line; // 1-based, header itself
+      const endLine =
+        ri + 1 < parsedRules.length
+          ? parsedRules[ri + 1].line - 1
+          : lines.length;
+
+      let nearMiss: { text: string; line: number; suggestion: string } | null =
+        null;
+      for (let li = startLine; li < endLine; li++) {
+        const line = lines[li]; // 0-based array, li is already offset
+        if (!nearMiss && NEAR_MISS_ENFORCED_RE.test(line)) {
+          // Only flag if it's NOT the exact correct pattern
+          if (!/\*\*Enforced by:\*\*/.test(line)) {
+            const match = line.match(/(\*\*[^*]+\*\*)/);
+            nearMiss = {
+              text: match?.[1] ?? line.trim(),
+              line: li + 1,
+              suggestion: "**Enforced by:** `<rule>`",
+            };
+          }
+        }
+        if (!nearMiss && NEAR_MISS_GUIDANCE_RE.test(line)) {
+          if (!/\*\*Guidance only\*\*/.test(line)) {
+            const match = line.match(/(\*\*[^*]+\*\*)/);
+            nearMiss = {
+              text: match?.[1] ?? line.trim(),
+              line: li + 1,
+              suggestion: "**Guidance only**",
+            };
+          }
+        }
+      }
+
+      if (nearMiss) {
+        errors.push({
+          rule: "require-annotations",
+          message: `Line ${String(nearMiss.line)}: near-miss annotation ${nearMiss.text} — did you mean ${nearMiss.suggestion}?`,
+          line: nearMiss.line,
+        });
+      } else {
         errors.push({
           rule: "require-annotations",
           message: `Line ${String(rule.line)}: "${rule.title}" is missing an enforcement annotation`,
