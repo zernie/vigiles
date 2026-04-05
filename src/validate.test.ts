@@ -563,6 +563,35 @@ describe("no-broken-links rule", () => {
     });
     assert.equal(result.valid, true);
   });
+
+  it("should strip link titles before resolving", () => {
+    const content = 'See [guide](existing.md "Guide title") for details.\n';
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should skip links inside fenced code blocks", () => {
+    const content =
+      "```markdown\n[example](nonexistent.md)\n```\n[real](existing.md)\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it("should skip non-http URI schemes", () => {
+    const content =
+      "Open [editor](vscode://file/path) or [call](tel:+1234567890).\n";
+    const result = validate(content, {
+      basePath: tmpDir,
+      rules: { "require-annotations": false, "no-broken-links": true },
+    });
+    assert.equal(result.valid, true);
+  });
 });
 
 describe("annotation typo detection", () => {

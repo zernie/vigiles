@@ -69,8 +69,10 @@ const NEAR_MISS_GUIDANCE_RE = /\*\*guidance\b.*\*\*/i;
 
 // Markdown link: [text](target) — captures the target
 const MD_LINK_RE = /\[([^\]]*)\]\(([^)]+)\)/g;
-// Skip external URLs, anchors, and mailto
-const EXTERNAL_RE = /^(https?:|mailto:|#)/i;
+// Skip any URI-scheme link (http, https, mailto, ftp, tel, vscode, etc.) and anchors
+const EXTERNAL_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*:|#)/;
+// Fenced code block delimiter
+const FENCE_RE = /^(`{3,}|~{3,})/;
 
 // Built-in schema presets (bundled .yml files in schemas/)
 const SCHEMAS_DIR = resolve(__dirname, "..", "schemas");
@@ -795,12 +797,22 @@ export function validate(
   // --- no-broken-links ---
   if (activeRules["no-broken-links"] !== false && basePath) {
     const lines = content.split("\n");
+    let inFence = false;
     for (let i = 0; i < lines.length; i++) {
+      // Track fenced code blocks to skip links inside them
+      if (FENCE_RE.test(lines[i])) {
+        inFence = !inFence;
+        continue;
+      }
+      if (inFence) continue;
+
       let m: RegExpExecArray | null;
       MD_LINK_RE.lastIndex = 0;
       while ((m = MD_LINK_RE.exec(lines[i])) !== null) {
-        const target = m[2].split(/[#?]/)[0]; // strip fragment/query
-        if (!target || EXTERNAL_RE.test(m[2])) continue;
+        // Strip optional link title: [text](path "title")
+        const raw = m[2].replace(/\s+"[^"]*"$/, "").replace(/\s+'[^']*'$/, "");
+        const target = raw.split(/[#?]/)[0]; // strip fragment/query
+        if (!target || EXTERNAL_RE.test(raw)) continue;
         const resolved = resolve(basePath, target);
         if (!existsSync(resolved)) {
           errors.push({
