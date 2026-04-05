@@ -46,7 +46,7 @@ All rules have enforcement annotations.
 
 vigiles does two things:
 
-**1. Validates rule annotations** — every `###` heading or `- [ ]` checkbox in your instruction file must have `**Enforced by:** \`linter/rule\``or`**Guidance only**`. Near-miss typos like `**Enforced By:**` (wrong case) get a helpful "did you mean?" message.
+**1. Validates rule annotations** — every `###` heading or `- [ ]` checkbox in your instruction file must have an **Enforced by** annotation or be marked **Guidance only**. Near-miss typos like `Enforced By:` (wrong case) get a helpful "did you mean?" message.
 
 **2. Verifies linters exist and are enabled** — checks that referenced linters are actually installed and that the specific rules are enabled in your config. ESLint and Stylelint are checked via Node API. Ruff, Clippy, Pylint, and RuboCop are checked via CLI.
 

@@ -86,6 +86,11 @@ Named validation rules (togglable in config under `rules`):
 
 ## Rules
 
+### Run `npm run fmt:check` before committing markdown changes
+
+**Enforced by:** `code-review`
+**Why:** Inline code spans in markdown need surrounding spaces to render correctly (e.g., `` `foo` or `bar` `` not `` `foo`or`bar` ``). Run `npm run fmt:check` after editing README.md or other markdown files to catch formatting issues before they reach GitHub.
+
 ### Never include session links in commits or PRs
 
 **Guidance only** — cannot be mechanically enforced
