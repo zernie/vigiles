@@ -4,8 +4,14 @@
   "bin": {
     "vigiles": "./dist/cli.js"
   },
-  "main": "./dist/validate.js",
-  "types": "./dist/validate.d.ts",
+  "main": "./dist/spec.js",
+  "types": "./dist/spec.d.ts",
+  "exports": {
+    ".": "./dist/spec.js",
+    "./spec": "./dist/spec.js",
+    "./compile": "./dist/compile.js",
+    "./linters": "./dist/linters.js"
+  },
   "scripts": {
     "build": "tsc",
     "test": "npm run build && node --test dist/validate.test.js",

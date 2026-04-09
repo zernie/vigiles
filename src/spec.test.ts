@@ -257,6 +257,31 @@ describe("compileClaude()", () => {
     assert.ok(markdown.includes("**Enforced by:** `vigiles/test-pairing`"));
     assert.ok(markdown.includes("**Proof:**"));
   });
+
+  it("enforces maxRules limit", () => {
+    const rules: Record<string, ReturnType<typeof guidance>> = {};
+    for (let i = 0; i < 5; i++) {
+      rules[`rule-${String(i)}`] = guidance("test");
+    }
+    const spec = claude({ rules });
+    const { errors } = compileClaude(spec, { maxRules: 3 });
+    assert.equal(errors.length, 1);
+    assert.ok(errors[0].message.includes("exceeds maxRules"));
+  });
+
+  it("returns linterResults for enforce rules", () => {
+    const spec = claude({
+      rules: {
+        "no-console": enforce("eslint/no-console", "Use logger."),
+      },
+    });
+    // eslint is installed in this project, so this should work
+    const { linterResults } = compileClaude(spec, { basePath: process.cwd() });
+    assert.equal(linterResults.length, 1);
+    assert.equal(linterResults[0].linter, "eslint");
+    assert.equal(linterResults[0].rule, "no-console");
+    assert.equal(linterResults[0].exists, true);
+  });
 });
 
 describe("compileSkill()", () => {

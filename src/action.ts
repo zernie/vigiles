@@ -1,156 +1,169 @@
-import {
-  validatePaths,
-  expandGlobs,
-  loadConfig,
-  findInstructionFiles,
-} from "./validate.js";
-import type { RulesConfig, LinterConfig, MarkerType } from "./types.js";
+/**
+ * GitHub Action entry point for vigiles v2.
+ *
+ * Runs `compile` or `check` depending on the action input.
+ */
 
-const pathsInput: string | undefined =
-  process.env["INPUT_PATHS"] ||
-  process.env["INPUT_CLAUDE-MD-PATH"] ||
-  process.env["INPUT_CLAUDE_MD_PATH"];
-const followSymlinks: boolean =
-  (process.env["INPUT_FOLLOW_SYMLINKS"] ||
-    process.env["INPUT_FOLLOW-SYMLINKS"] ||
+import { writeFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { globSync } from "glob";
+
+import { compileClaude, compileSkill, checkFileHash } from "./compile.js";
+import type { ClaudeSpec, SkillSpec } from "./spec.js";
+
+// ---------------------------------------------------------------------------
+// Read action inputs
+// ---------------------------------------------------------------------------
+
+const command = process.env["INPUT_COMMAND"] ?? "check";
+const pathsInput = process.env["INPUT_PATHS"];
+const maxRulesInput =
+  process.env["INPUT_MAX-RULES"] ?? process.env["INPUT_MAX_RULES"];
+const catalogOnly =
+  (process.env["INPUT_CATALOG-ONLY"] ??
+    process.env["INPUT_CATALOG_ONLY"] ??
     "false") === "true";
-const markersInput: string | undefined =
-  process.env["INPUT_MARKERS"] || process.env["INPUT_MARKERS"];
-const requireAnnotationsInput: string | undefined =
-  process.env["INPUT_REQUIRE_ANNOTATIONS"] ||
-  process.env["INPUT_REQUIRE-ANNOTATIONS"];
-const maxLinesInput: string | undefined =
-  process.env["INPUT_MAX_LINES"] || process.env["INPUT_MAX-LINES"];
-const requireRuleFileInput: string | undefined =
-  process.env["INPUT_REQUIRE_RULE_FILE"] ||
-  process.env["INPUT_REQUIRE-RULE-FILE"];
-const lintersInput: string | undefined =
-  process.env["INPUT_LINTERS"] || process.env["INPUT_LINTERS"];
 
-const config = loadConfig();
+const maxRules = maxRulesInput ? Number(maxRulesInput) : undefined;
 
-let paths: string[];
-if (pathsInput) {
-  paths = expandGlobs(
-    pathsInput
-      .split(",")
-      .map((p) => p.trim())
-      .filter(Boolean),
+// ---------------------------------------------------------------------------
+// Spec loading (from compiled dist/)
+// ---------------------------------------------------------------------------
+
+async function loadSpec(
+  specPath: string,
+): Promise<ClaudeSpec | SkillSpec | null> {
+  const distPath = resolve(
+    process.cwd(),
+    specPath.replace(/\/src\//, "/dist/").replace(/\.ts$/, ".js"),
   );
-} else {
-  paths = findInstructionFiles(process.cwd(), config.files);
-}
-
-const ruleMarkers: MarkerType[] = markersInput
-  ? (markersInput.split(",").map((m) => m.trim()) as MarkerType[])
-  : config.ruleMarkers;
-
-// Merge action inputs into rules config (action inputs override config file)
-const rules: RulesConfig = { ...config.rules };
-if (requireAnnotationsInput !== undefined) {
-  rules["require-annotations"] = requireAnnotationsInput !== "false";
-}
-if (maxLinesInput !== undefined) {
-  rules["max-lines"] =
-    maxLinesInput === "false" ? false : Number(maxLinesInput) || 500;
-}
-if (requireRuleFileInput !== undefined) {
-  if (requireRuleFileInput === "false") rules["require-rule-file"] = false;
-  else if (requireRuleFileInput === "true") rules["require-rule-file"] = true;
-  else
-    rules["require-rule-file"] = requireRuleFileInput as
-      | "auto"
-      | "catalog-only";
-}
-
-// Merge linters config (action input overrides config file)
-let linters: Record<string, LinterConfig> = config.linters;
-if (lintersInput) {
-  try {
-    linters = {
-      ...linters,
-      ...(JSON.parse(lintersInput) as Record<string, LinterConfig>),
-    };
-  } catch {
-    console.warn(
-      `Invalid linters JSON input: ${lintersInput}. Using config file value.`,
-    );
+  if (existsSync(distPath)) {
+    try {
+      const mod = (await import(distPath)) as {
+        default: ClaudeSpec | SkillSpec;
+      };
+      return mod.default;
+    } catch {
+      return null;
+    }
   }
+  return null;
 }
 
-const { fileResults, valid } = validatePaths(paths, {
-  followSymlinks,
-  ruleMarkers,
-  rules,
-  linters,
-  structures: config.structures,
-});
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
 
-let totalEnforced = 0;
-let totalGuidance = 0;
-let totalDisabled = 0;
-let totalMissing = 0;
-let totalRules = 0;
+async function runCompile(): Promise<boolean> {
+  const specs = pathsInput
+    ? pathsInput
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean)
+    : globSync("**/*.spec.ts", { ignore: ["node_modules/**", "dist/**"] });
 
-for (const { path: filePath, skipped, reason, result } of fileResults) {
-  if (skipped) {
-    console.log(`\nSkipped: ${reason}`);
-    continue;
-  }
-  if (!result) {
-    console.log(`\n::error::${reason}`);
-    continue;
+  if (specs.length === 0) {
+    console.log("No .spec.ts files found.");
+    return true;
   }
 
-  totalEnforced += result.enforced;
-  totalGuidance += result.guidanceOnly;
-  totalDisabled += result.disabled;
-  totalMissing += result.missing;
-  totalRules += result.total;
+  let allValid = true;
+  const basePath = process.cwd();
 
-  console.log("");
-  console.log(`Validation Report: ${filePath}`);
-  console.log("=".repeat(40));
-  console.log(`  Total rules:    ${result.total}`);
-  console.log(`  Enforced:       ${result.enforced}`);
-  console.log(`  Guidance only:  ${result.guidanceOnly}`);
-  console.log(`  Disabled:       ${result.disabled}`);
-  console.log(`  Missing:        ${result.missing}`);
-  if (result.detectedLinters && result.detectedLinters.length > 0) {
-    const parts = result.detectedLinters.map((l) =>
-      l.ruleCount
-        ? `${l.name} (${l.ruleCount} built-in rules)`
-        : `${l.name} (cli)`,
-    );
-    console.log(`  Linters:        ${parts.join(", ")}`);
-  }
-  console.log("=".repeat(40));
+  for (const specPath of specs) {
+    const spec = await loadSpec(specPath);
+    if (!spec) {
+      console.log(`::error file=${specPath}::Failed to load spec`);
+      allValid = false;
+      continue;
+    }
 
-  for (const error of result.errors) {
-    console.log(
-      `::error file=${filePath},line=${error.line}::${error.message}`,
-    );
+    if (spec._specType === "claude") {
+      const outputPath = specPath.replace(/\.spec\.ts$/, "");
+      const { markdown, errors } = compileClaude(spec, {
+        basePath,
+        specFile: specPath,
+        maxRules,
+        catalogOnly,
+      });
+
+      if (errors.length > 0) {
+        for (const err of errors) {
+          console.log(`::error file=${specPath}::${err.message}`);
+        }
+        allValid = false;
+      }
+      writeFileSync(resolve(basePath, outputPath), markdown);
+      console.log(`Compiled: ${specPath} → ${outputPath}`);
+    } else if (spec._specType === "skill") {
+      const outputPath = specPath.replace(/\.spec\.ts$/, "");
+      const { markdown, errors } = compileSkill(spec, {
+        basePath,
+        specFile: specPath,
+      });
+
+      if (errors.length > 0) {
+        for (const err of errors) {
+          console.log(`::error file=${specPath}::${err.message}`);
+        }
+        allValid = false;
+      }
+      writeFileSync(resolve(basePath, outputPath), markdown);
+      console.log(`Compiled: ${specPath} → ${outputPath}`);
+    }
   }
+
+  return allValid;
 }
 
-// Set outputs
-console.log(`::set-output name=total::${totalRules}`);
-console.log(`::set-output name=enforced::${totalEnforced}`);
-console.log(`::set-output name=guidance::${totalGuidance}`);
-console.log(`::set-output name=disabled::${totalDisabled}`);
-console.log(`::set-output name=missing::${totalMissing}`);
-console.log(`::set-output name=valid::${valid}`);
+function runCheck(): boolean {
+  const files = pathsInput
+    ? pathsInput
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean)
+    : [
+        ...globSync("**/CLAUDE.md", { ignore: ["node_modules/**"] }),
+        ...globSync("**/SKILL.md", { ignore: ["node_modules/**"] }),
+      ];
 
-console.log("");
-if (valid) {
-  console.log("All rules have enforcement annotations.");
-} else {
-  console.log(
-    "Add **Enforced by:** `<rule>` or **Guidance only** to each rule.",
-  );
-  console.log("");
-  console.log(
-    `::error::Validation failed — ${totalMissing} rule(s) missing enforcement annotations`,
-  );
-  process.exit(1);
+  let allValid = true;
+
+  for (const filePath of files) {
+    const result = checkFileHash(resolve(process.cwd(), filePath));
+    if (!result.hasHash) {
+      console.log(`${filePath}: no vigiles hash (skipped)`);
+      continue;
+    }
+    if (result.valid) {
+      console.log(`${filePath}: hash valid`);
+    } else {
+      console.log(
+        `::error file=${filePath}::Hash mismatch — file was manually edited after compilation`,
+      );
+      allValid = false;
+    }
+  }
+
+  return allValid;
 }
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+(async () => {
+  let valid: boolean;
+  if (command === "compile") {
+    valid = await runCompile();
+  } else {
+    valid = runCheck();
+  }
+
+  console.log(`::set-output name=valid::${String(valid)}`);
+
+  if (!valid) {
+    console.log("::error::vigiles failed — see errors above");
+    process.exit(1);
+  }
+})();

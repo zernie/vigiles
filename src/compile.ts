@@ -18,6 +18,9 @@ import type {
   ProofAssertion,
 } from "./spec.js";
 
+import { checkLinterRule } from "./linters.js";
+import type { LinterCheckResult } from "./linters.js";
+
 // ---------------------------------------------------------------------------
 // Hash utilities
 // ---------------------------------------------------------------------------
@@ -202,22 +205,44 @@ function compileRule(id: string, rule: Rule): string {
 export interface CompileClaudeResult {
   markdown: string;
   errors: CompileError[];
+  linterResults: LinterCheckResult[];
+}
+
+export interface CompileClaudeOptions {
+  basePath?: string;
+  specFile?: string;
+  /** Maximum number of rules allowed. Compilation fails if exceeded. */
+  maxRules?: number;
+  /** Skip config-enabled checks, only verify rule exists in catalog. */
+  catalogOnly?: boolean;
+  /** Custom linter configs (rulesDir). */
+  linters?: Record<string, { rulesDir?: string | string[] }>;
 }
 
 /**
  * Compile a ClaudeSpec into markdown.
  *
- * Returns the compiled markdown and any validation errors found.
+ * Returns the compiled markdown, validation errors, and linter check results.
  * The markdown is generated even if there are errors (with warnings).
  */
 export function compileClaude(
   spec: ClaudeSpec,
-  options: { basePath?: string; specFile?: string } = {},
+  options: CompileClaudeOptions = {},
 ): CompileClaudeResult {
   const basePath = options.basePath ?? process.cwd();
   const specFile = options.specFile ?? "CLAUDE.md.spec.ts";
   const errors: CompileError[] = [];
+  const linterResults: LinterCheckResult[] = [];
   const sections: string[] = [];
+
+  // maxRules check
+  const ruleCount = Object.keys(spec.rules).length;
+  if (options.maxRules && ruleCount > options.maxRules) {
+    errors.push({
+      type: "invalid-rule",
+      message: `${String(ruleCount)} rules exceeds maxRules limit of ${String(options.maxRules)}. Split into subdirectory specs.`,
+    });
+  }
 
   sections.push("# CLAUDE.md");
 
@@ -257,6 +282,30 @@ export function compileClaude(
     for (const [id, rule] of Object.entries(spec.rules)) {
       ruleLines.push("");
       ruleLines.push(compileRule(id, rule));
+
+      // Verify enforce() rules against real linter configs
+      if (rule._kind === "enforce") {
+        const result = checkLinterRule(rule.linterRule, basePath, {
+          catalogOnly: options.catalogOnly,
+          linters: options.linters,
+        });
+        linterResults.push(result);
+        if (!result.exists) {
+          errors.push({
+            type: "invalid-rule",
+            message:
+              result.error ??
+              `Rule "${rule.linterRule}" not found in ${result.linter}`,
+            path: rule.linterRule,
+          });
+        } else if (result.enabled === "disabled") {
+          errors.push({
+            type: "invalid-rule",
+            message: `Rule "${result.rule}" exists but is disabled in ${result.linter} config`,
+            path: rule.linterRule,
+          });
+        }
+      }
     }
     sections.push(ruleLines.join("\n"));
   }
@@ -264,7 +313,7 @@ export function compileClaude(
   const body = sections.join("\n\n") + "\n";
   const markdown = addHash(body, specFile);
 
-  return { markdown, errors };
+  return { markdown, errors, linterResults };
 }
 
 // ---------------------------------------------------------------------------

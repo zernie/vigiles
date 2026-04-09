@@ -1,32 +1,24 @@
 name: "vigiles"
-description: "Validate that CLAUDE.md rules have enforcement annotations"
+description: "Compile typed specs to instruction files and verify integrity"
 branding:
   icon: "check-circle"
   color: "orange"
 
 inputs:
-  paths:
-    description: "Comma-separated paths or glob patterns. Validates CLAUDE.md by default if omitted. Set 'files' in .vigilesrc.json for additional files."
+  command:
+    description: "Command to run: 'compile' or 'check' (default: check)"
     required: false
-  follow-symlinks:
-    description: "Follow symbolic links when reading CLAUDE.md files"
+    default: "check"
+  paths:
+    description: "Comma-separated paths to .spec.ts files (compile) or .md files (check). Auto-discovers by default."
+    required: false
+  max-rules:
+    description: "Maximum number of rules per spec file"
+    required: false
+  catalog-only:
+    description: "Only check that linter rules exist, skip config-enabled checks (true/false)"
     required: false
     default: "false"
-  markers:
-    description: "Comma-separated rule marker types: headings, checkboxes"
-    required: false
-  require-annotations:
-    description: "Require enforcement annotations on rules (true/false)"
-    required: false
-  max-lines:
-    description: "Max lines per file (number or 'false' to disable)"
-    required: false
-  require-rule-file:
-    description: "Validate linter rules exist and are enabled in config ('auto', 'catalog-only', 'true', or 'false')"
-    required: false
-  linters:
-    description: 'JSON object mapping linter names to config (e.g. ''{"my-tool":{"rulesDir":"rules/"}}'')'
-    required: false
 
 runs:
   using: "node20"
