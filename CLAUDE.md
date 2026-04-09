@@ -33,16 +33,21 @@ vigiles is a **bridge between instruction files and linter configs** — not a m
 ## Key Files
 
 - `src/types.ts` — TypeScript type definitions (interfaces, type aliases)
-- `src/validate.ts` — Core validation engine: parsing, config loading, linter checks
+- `src/validate.ts` — Core validation engine: parsing, config loading, linter checks (v1)
+- `src/spec.ts` — v2 spec system: type definitions, builder functions (`enforce`, `guidance`, `prove`, `claude`, `skill`, `file`, `cmd`, `ref`)
+- `src/compile.ts` — v2 compiler: spec → markdown with SHA-256 integrity hash
 - `src/cli.ts` — CLI entry point: arg parsing, output formatting
 - `src/action.ts` — GitHub Action wrapper, reads inputs and calls validatePaths
-- `src/validate.test.ts` — Test suite (node:test). Run with `npm test`
+- `src/validate.test.ts` — v1 test suite (node:test). Run with `npm test`
+- `src/spec.test.ts` — v2 spec system tests (31 tests)
+- `examples/CLAUDE.md.spec.ts` — Example CLAUDE.md specification
+- `examples/SKILL.md.spec.ts` — Example SKILL.md specification
 - `action.yml` — GitHub Action metadata and input definitions
 - `tsconfig.json` — TypeScript strict-mode configuration
 - `package.json` — Dependencies: cosmiconfig, typescript (dev), prettier (dev)
 - `.claude/settings.json` — PostToolUse hook that validates CLAUDE.md on every edit
 - `skills/` — Claude Code skills (enforce-rules-format, audit-feedback-loop, pr-to-lint-rule)
-- `research/` — Product research: competitive landscape, feature ideas, pain points, linter design patterns
+- `research/` — Product research: competitive landscape, feature ideas, executable specs design
 
 ## Commands
 
@@ -68,21 +73,19 @@ vigiles is a **bridge between instruction files and linter configs** — not a m
 
 ## Architecture
 
-TypeScript strict-mode codebase (`src/`). Core engine in `src/validate.ts`. Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`, `findInstructionFiles`, `validateStructure`, `resolveSchema`, `STRUCTURE_PRESETS`, `RULE_PACKS`. All types in `src/types.ts`.
+TypeScript strict-mode codebase (`src/`). Two systems:
 
-By default, validates `CLAUDE.md` only. Configure `"files"` in `.vigilesrc.json` to validate additional instruction files (e.g., `["CLAUDE.md", "AGENTS.md", ".cursorrules"]`). CLI args override config.
+**v1 (validate):** Core engine in `src/validate.ts`. Line-by-line parsing of markdown files. Validates annotations, cross-references linters, checks links. Exports: `parseClaudeMd`, `validate`, `readClaudeMd`, `validatePaths`, `loadConfig`, `findInstructionFiles`, `validateStructure`, `resolveSchema`, `STRUCTURE_PRESETS`, `RULE_PACKS`. All types in `src/types.ts`. Configured via `.vigilesrc.json`.
 
-Rules are detected by line-by-line parsing. Two marker types: `###` headings and `- [ ]`/`- [x]` checkboxes (configurable via `.vigilesrc.json`). Each rule must have `**Enforced by:**`, `**Guidance only**`, or `<!-- vigiles-disable -->`.
+**v2 (spec/compile):** Spec system in `src/spec.ts`, compiler in `src/compile.ts`. TypeScript `.spec.ts` files compile to markdown instruction files. Three rule types: `enforce()` (linter-backed), `prove()` (vigiles-owned checks), `guidance()` (prose). Template literal types ensure linter names and tool names are type-safe. Generated files carry a SHA-256 hash for tamper detection. See `research/executable-specs.md` for full design.
 
-Two rule packs: `"recommended"` (default) and `"strict"`. Set via `"extends"` in `.vigilesrc.json`. User `"rules"` overrides are merged on top.
+v1 rules (togglable in `.vigilesrc.json` under `rules`):
 
-Named validation rules (togglable in config under `rules`):
-
-- `require-annotations` (recommended: `true`, strict: `true`) — every rule marker needs an enforcement annotation
-- `max-lines` (recommended: `500`, strict: `300`) — caps file length; set a number for custom limit, `false` to disable
-- `require-rule-file` (recommended: `"auto"`, strict: `"auto"`) — validates referenced linter rules exist and are enabled in project config; auto-detects eslint, stylelint, ruff, clippy, pylint, rubocop. Set `"catalog-only"` to only check rule existence without config-enabled checks
-- `require-structure` (recommended: `false`, strict: `true`) — validates markdown structure via mdschema CLI. Schemas are `.mdschema.yml` files matched to files by glob. Built-in presets: `"claude-md"`, `"claude-md:strict"`, `"skill"`, `"skill:strict"`
-- `no-broken-links` (recommended: `true`, strict: `true`) — checks that relative markdown links (`[text](path)`) resolve to existing files. Skips external URLs, anchors, and mailto links. Strips fragments/query strings before checking
+- `require-annotations` — every rule marker needs an enforcement annotation. **v2 equivalent:** eliminated by construction (TS types force `enforce`/`prove`/`guidance`)
+- `max-lines` — caps file length. **v2 equivalent:** build constraint on compiled output
+- `require-rule-file` — validates referenced linter rules exist and are enabled. **v2 equivalent:** absorbed into `enforce()` compilation
+- `require-structure` — validates markdown structure via mdschema. **v2 equivalent:** compiler controls output structure
+- `no-broken-links` — checks relative markdown links resolve. **v2 equivalent:** `file()` and `ref()` verified at compile time
 
 ## Rules
 

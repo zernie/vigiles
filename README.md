@@ -16,7 +16,7 @@
 
 ---
 
-Validates that every rule in your CLAUDE.md is backed by a real linter — or explicitly marked as guidance-only. Cross-references enforcement claims against actual linter configurations (ESLint, Ruff, Clippy, Pylint, RuboCop, Stylelint).
+Validates that every rule in your CLAUDE.md is backed by a real linter — or explicitly marked as guidance-only. Cross-references enforcement claims against actual linter configurations (ESLint, Ruff, Clippy, Pylint, RuboCop, Stylelint). Optionally, write typed `.spec.ts` files that [compile to CLAUDE.md](#executable-specs-v2-experimental) with full type safety and stale-reference detection.
 
 Companion repo for [Feedback Loop Is All You Need](https://zernie.com/blog/feedback-loop-is-all-you-need).
 
@@ -263,6 +263,72 @@ Override with action inputs:
     max-lines: "300"
     require-rule-file: "auto"
 ```
+
+## Executable Specs (v2, experimental)
+
+Instead of writing CLAUDE.md by hand and linting it after the fact, write a typed `.spec.ts` and compile to markdown:
+
+```typescript
+// CLAUDE.md.spec.ts
+import { claude, enforce, guidance, prove, every } from "vigiles/spec";
+
+export default claude({
+  commands: {
+    "npm run build": "Compile TypeScript to dist/",
+    "npm test": "Build and run all tests",
+  },
+
+  keyFiles: {
+    "src/validate.ts": "Core validation engine",
+  },
+
+  rules: {
+    // Delegated to ESLint — vigiles verifies it's real & enabled
+    "no-console": enforce(
+      "eslint/no-console",
+      "Use structured logger for Datadog.",
+    ),
+
+    // Proven by vigiles — cross-file property no linter can express
+    "test-pairing": prove(
+      every("src/**/*.controller.ts").has("{name}.test.ts"),
+      "Every controller must have tests.",
+    ),
+
+    // Guidance — compiles to **Guidance only** in output
+    "research-first": guidance("Google unfamiliar APIs first."),
+  },
+});
+```
+
+Skills get specs too — with typed references that are verified at compile time:
+
+```typescript
+// skills/my-skill/SKILL.md.spec.ts
+import { skill, file, cmd, ref, instructions } from "vigiles/spec";
+
+export default skill({
+  name: "my-skill",
+  description: "Does the thing",
+  body: instructions`
+    Check ${file("eslint.config.ts")} for rules.
+    Run ${cmd("npm test")} to verify.
+    See ${ref("skills/other/SKILL.md")} for format.
+  `,
+});
+```
+
+`file()`, `cmd()`, and `ref()` are verified at compile time — if the file is renamed or the script is removed, compilation fails.
+
+Generated files carry a SHA-256 hash to detect manual edits. See `research/executable-specs.md` for the full design and `examples/` for working specs.
+
+| v1 Rule               | v2 Equivalent                                                       |
+| --------------------- | ------------------------------------------------------------------- |
+| `require-annotations` | Eliminated — TS types force `enforce()`, `prove()`, or `guidance()` |
+| `max-lines`           | Build constraint on compiled output                                 |
+| `require-rule-file`   | Absorbed into `enforce()` compilation                               |
+| `require-structure`   | Compiler controls output structure                                  |
+| `no-broken-links`     | `file()` and `ref()` verified at compile time                       |
 
 ## Related Tools
 
