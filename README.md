@@ -139,7 +139,17 @@ That's it. One command. The wizard auto-detects your project, creates a spec, sc
 
 **It evolves automatically.** Start with `guidance()` rules (zero config). When you're ready, run `vigiles strengthen` — it scans your linter configs, finds matching rules, and suggests `enforce()` upgrades. Each upgrade adds compiler-verified enforcement.
 
-**Already have a hand-written CLAUDE.md?** The wizard detects it and suggests migration. [Agent workflow details →](docs/agent-workflows.md) | [Agent setup guide →](docs/agent-setup.md)
+**Already have a hand-written CLAUDE.md?** The wizard detects it and suggests migration.
+
+**Ready to enforce?** Run `npx vigiles setup --strict` to set rules to `"error"` — CI fails if any instruction file lacks a spec.
+
+| Flag                 | Effect                                                |
+| -------------------- | ----------------------------------------------------- |
+| `--strict`           | Sets require-spec and require-skill-spec to `"error"` |
+| `--target=AGENTS.md` | Creates AGENTS.md spec instead of CLAUDE.md           |
+| `--no-gha`           | Skip adding CI step to GHA workflow                   |
+
+Works the same for humans and agents — fully non-interactive. [Agent setup guide →](docs/agent-setup.md) | [Agent workflows →](docs/agent-workflows.md)
 
 ## Three Rule Types
 

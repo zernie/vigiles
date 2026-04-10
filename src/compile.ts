@@ -281,12 +281,12 @@ function validateSectionContent(
   // Skip lines inside fenced code blocks (``` or ~~~).
   let inFence = false;
   for (const line of contentLines) {
-    if (/^(`{3,}|~{3,})/.test(line)) {
+    if (/^ {0,3}(`{3,}|~{3,})/.test(line)) {
       inFence = !inFence;
       continue;
     }
     if (inFence) continue;
-    if (/^#{1,2}\s/.test(line)) {
+    if (/^ {0,3}#{1,2}\s/.test(line)) {
       errors.push({
         type: "section-has-header",
         message: `Section "${name}" contains a markdown header ("${line.trim().slice(0, 60)}"). Break into separate named sections instead.`,

@@ -22,7 +22,7 @@ import {
 import { resolve } from "node:path";
 import { globSync } from "glob";
 import { generateTypes } from "./generate-types.js";
-import { validate } from "./validate.js";
+import { validate, loadConfig as loadValidateConfig } from "./validate.js";
 
 import {
   compileClaude,
@@ -303,7 +303,10 @@ async function runAssertions(): Promise<boolean> {
   return allValid;
 }
 
-function validateSpecs(filePaths: string[]): boolean {
+function validateSpecs(
+  filePaths: string[],
+  rulesConfig?: import("./types.js").RulesConfig,
+): boolean {
   let allValid = true;
   for (const filePath of filePaths) {
     const fullPath = resolve(process.cwd(), filePath);
@@ -313,7 +316,17 @@ function validateSpecs(filePaths: string[]): boolean {
     } catch {
       continue;
     }
-    const result = validate(content, { filePath: fullPath });
+    // Multi-target: if file has a "compiled from" hash, it has a spec
+    // even if it's not named <file>.spec.ts (e.g., AGENTS.md from CLAUDE.md.spec.ts)
+    const hashMatch = content.match(
+      /<!-- vigiles:sha256:[a-f0-9]+ compiled from (.+) -->/,
+    );
+    if (hashMatch) continue; // compiled file — spec exists by definition
+
+    const result = validate(content, {
+      filePath: fullPath,
+      rules: rulesConfig,
+    });
     for (const err of result.errors) {
       console.log(`  ✗ [${err.rule}] ${err.message}`);
       allValid = false;
@@ -328,7 +341,8 @@ function validateSpecs(filePaths: string[]): boolean {
 async function check(filePaths: string[]): Promise<boolean> {
   const hashesValid = verifyHashes(filePaths);
   const assertionsValid = await runAssertions();
-  const specsValid = validateSpecs(filePaths);
+  const vConfig = loadValidateConfig();
+  const specsValid = validateSpecs(filePaths, vConfig.rules);
   return hashesValid && assertionsValid && specsValid;
 }
 
@@ -574,21 +588,11 @@ function addGhaStep(): boolean {
         console.log(`✓ ${ciPath} already has vigiles steps`);
         return true;
       }
-      // Find the last "run:" line and add after it
-      const lines = content.split("\n");
-      let lastRunIdx = -1;
-      for (let i = lines.length - 1; i >= 0; i--) {
-        if (/^\s+-?\s*run:/.test(lines[i])) {
-          lastRunIdx = i;
-          break;
-        }
-      }
-      if (lastRunIdx >= 0) {
-        lines.splice(lastRunIdx + 1, 0, "", VIGILES_CI_STEP);
-        writeFileSync(fullPath, lines.join("\n"));
-        console.log(`✓ Added vigiles check step to ${ciPath}`);
-        return true;
-      }
+      // Append step at end of file (safe for all YAML formats)
+      const trimmed = content.trimEnd();
+      writeFileSync(fullPath, trimmed + "\n\n" + VIGILES_CI_STEP + "\n");
+      console.log(`✓ Added vigiles check step to ${ciPath}`);
+      return true;
     }
   }
   return false;
@@ -696,8 +700,10 @@ function detectProject(): DetectedProject {
 
 async function setup(args: string[]): Promise<void> {
   const targetFlag = args.find((a) => a.startsWith("--target="));
+  const strict = args.includes("--strict");
+  const noGha = args.includes("--no-gha");
 
-  console.log("vigiles setup\n");
+  console.log(`vigiles setup${strict ? " (strict mode)" : ""}\n`);
 
   // Step 1: Detect project
   const detected = detectProject();
@@ -741,8 +747,12 @@ async function setup(args: string[]): Promise<void> {
           `  or create a blank spec: npx vigiles init --target=${f.path}\n`,
         );
       }
-      if (needsSpec.every((f) => detected.instructionFiles.includes(f))) {
-        // All existing files need migration — don't create new ones
+      const hasAnySpec = detected.instructionFiles.some((f) => f.hasSpec);
+      if (
+        !hasAnySpec &&
+        needsSpec.length === detected.instructionFiles.length
+      ) {
+        // ALL existing files need migration — don't create new ones
         console.log("Install the plugin to use the migration skill:");
         console.log("  npx skills add zernie/vigiles");
         return;
@@ -801,7 +811,7 @@ async function setup(args: string[]): Promise<void> {
 
   // Step 6: Add CI step
   console.log("");
-  const addedGha = addGhaStep();
+  const addedGha = noGha ? false : addGhaStep();
   if (!addedGha) {
     console.log("  No CI workflow found. Add this step to your CI:\n");
     console.log("    npx vigiles check && npx vigiles generate-types --check");
@@ -854,22 +864,20 @@ async function setup(args: string[]): Promise<void> {
       }
       const hooks = settings["hooks"] as Record<string, unknown>;
 
-      if (!hooks["PreToolUse"]) {
-        hooks["PreToolUse"] = [
-          {
-            matcher: "Edit|Write",
-            command: `FILE=$(cat | jq -r '.tool_input.file_path // empty') && case "$FILE" in *.md) [ -f "$FILE" ] && head -1 "$FILE" | grep -q 'vigiles:sha256:' && { SPEC=$(head -1 "$FILE" | sed -n 's/.*compiled from \\(.*\\) -->/\\1/p'); echo "BLOCKED: Edit $SPEC instead." >&2; exit 2; } ;; esac; exit 0`,
-          },
-        ];
-      }
+      const preCmd = `FILE=$(cat | jq -r '.tool_input.file_path // empty') && case "$FILE" in *.md) [ -f "$FILE" ] && head -1 "$FILE" | grep -q 'vigiles:sha256:' && { SPEC=$(head -1 "$FILE" | sed -n 's/.*compiled from \\(.*\\) -->/\\1/p'); echo "BLOCKED: Edit $SPEC instead." >&2; exit 2; } ;; esac; exit 0`;
+      const postCmd = `FILE=$(cat | jq -r '.tool_input.file_path // empty') && case "$(basename "$FILE")" in eslint.config.*|.eslintrc*|package.json|pyproject.toml|Cargo.toml) npx vigiles generate-types 2>&1 || true ;; esac && case "$FILE" in *.spec.ts) npx vigiles compile 2>&1 || true ;; esac`;
 
-      if (!hooks["PostToolUse"]) {
-        hooks["PostToolUse"] = [
-          {
-            matcher: "Edit|Write",
-            command: `FILE=$(cat | jq -r '.tool_input.file_path // empty') && case "$(basename "$FILE")" in eslint.config.*|.eslintrc*|package.json|pyproject.toml|Cargo.toml) npx vigiles generate-types 2>&1 || true ;; esac && case "$FILE" in *.spec.ts) npx vigiles compile 2>&1 || true ;; esac`,
-          },
-        ];
+      // Append to existing arrays (don't duplicate if already present)
+      const existingStr = JSON.stringify(settings);
+      if (!existingStr.includes("vigiles:sha256")) {
+        const pre = (hooks["PreToolUse"] ?? []) as unknown[];
+        pre.push({ matcher: "Edit|Write", command: preCmd });
+        hooks["PreToolUse"] = pre;
+      }
+      if (!existingStr.includes("vigiles compile")) {
+        const post = (hooks["PostToolUse"] ?? []) as unknown[];
+        post.push({ matcher: "Edit|Write", command: postCmd });
+        hooks["PostToolUse"] = post;
       }
 
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
@@ -899,14 +907,49 @@ async function setup(args: string[]): Promise<void> {
     console.log("    npm install -D rule-porter");
   }
 
+  // Step 8b: Write config if strict mode
+  if (strict) {
+    const configPath = resolve(process.cwd(), ".vigilesrc.json");
+    if (!existsSync(configPath)) {
+      writeFileSync(
+        configPath,
+        JSON.stringify(
+          {
+            rules: {
+              "require-spec": "error",
+              "require-skill-spec": "error",
+            },
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+      console.log("✓ Created .vigilesrc.json with strict rules");
+    }
+  }
+
   // Step 9: Summary
   console.log("\n---");
   console.log("Setup complete.\n");
-  console.log(`  Edit ${specPaths} — add your project's conventions`);
-  console.log("  Run `npx vigiles strengthen` to upgrade guidance → enforce");
-  console.log("\n  To commit everything now:");
+  console.log(`  1. Edit ${specPaths} — add your project's conventions`);
   console.log(
-    `    git add ${targets.join(" ")} ${specPaths} .vigiles/generated.d.ts${shouldInstallPlugin ? " .claude/settings.json" : ""} && git commit -m "Add vigiles spec"`,
+    "  2. Run `npx vigiles strengthen` to upgrade guidance → enforce",
+  );
+  if (!strict) {
+    console.log(
+      "  3. When ready, enforce specs in CI: npx vigiles setup --strict",
+    );
+  }
+  console.log("\n  Commit:");
+  const files = [
+    ...targets,
+    specPaths,
+    ".vigiles/generated.d.ts",
+    ...(shouldInstallPlugin ? [".claude/settings.json"] : []),
+    ...(strict ? [".vigilesrc.json"] : []),
+  ];
+  console.log(
+    `    git add ${files.join(" ")} && git commit -m "Add vigiles spec"`,
   );
 }
 
@@ -1167,15 +1210,14 @@ function migrate(args: string[]): void {
 
 function findInstructionFiles(restArgs: string[]): string[] {
   if (restArgs.length > 0) return restArgs;
-  return globSync("**/CLAUDE.md", {
-    ignore: IGNORE_NODE_MODULES,
-    cwd: process.cwd(),
-  }).concat(
-    globSync("**/SKILL.md", {
-      ignore: IGNORE_NODE_MODULES,
-      cwd: process.cwd(),
-    }),
-  );
+  const patterns = ["**/CLAUDE.md", "**/AGENTS.md", "**/SKILL.md"];
+  const files: string[] = [];
+  for (const pattern of patterns) {
+    files.push(
+      ...globSync(pattern, { ignore: IGNORE_NODE_MODULES, cwd: process.cwd() }),
+    );
+  }
+  return files;
 }
 
 function handleGenerateTypes(args: string[], restArgs: string[]): void {
@@ -1245,7 +1287,7 @@ function printUsage(command: string | undefined): void {
   console.log("");
   console.log("Commands:");
   console.log(
-    "  vigiles setup [--target=X.md]  One-command setup: init + types + compile",
+    "  vigiles setup [flags]          One-command setup (--strict, --target=X.md, --no-gha)",
   );
   console.log("  vigiles compile [files...]    Compile .spec.ts → .md");
   console.log("  vigiles check [files...]      Verify hashes + run assertions");
