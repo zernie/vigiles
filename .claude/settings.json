@@ -14,6 +14,12 @@
         "matcher": "Edit|Write",
         "command": "npx prettier --check ."
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty') && case \"$FILE\" in *.md) [ -f \"$FILE\" ] && head -1 \"$FILE\" | grep -q 'vigiles:sha256:' && { SPEC=$(head -1 \"$FILE\" | sed -n 's/.*compiled from \\(.*\\) -->/\\1/p'); echo \"BLOCKED: Edit $SPEC instead.\" >&2; exit 2; } ;; esac; exit 0"
+      }
     ]
   }
 }
