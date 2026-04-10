@@ -24,7 +24,7 @@ import {
   executeChecks,
   adoptDiff,
 } from "./compile.js";
-import type { CompileError } from "./compile.js";
+import type { CompileError, AssertionResult } from "./compile.js";
 import type { ClaudeSpec, SkillSpec } from "./spec.js";
 
 // ---------------------------------------------------------------------------
@@ -213,6 +213,22 @@ function verifyHashes(filePaths: string[]): boolean {
   return allValid;
 }
 
+function printAssertionResult(r: AssertionResult): boolean {
+  if (r.passed) {
+    console.log(
+      `\n✓ ${r.id} — ${String(r.matched)}/${String(r.total)} files pass`,
+    );
+    return true;
+  }
+  console.log(
+    `\n✗ ${r.id} — ${String(r.matched)}/${String(r.total)} files pass (${String(r.missing.length)} missing)`,
+  );
+  for (const m of r.missing) {
+    console.log(`  ${m}`);
+  }
+  return false;
+}
+
 async function runAssertions(): Promise<boolean> {
   let allValid = true;
   const specs = findSpecs();
@@ -227,19 +243,7 @@ async function runAssertions(): Promise<boolean> {
 
     const results = executeChecks(spec, process.cwd());
     for (const r of results) {
-      if (r.passed) {
-        console.log(
-          `\n✓ ${r.id} — ${String(r.matched)}/${String(r.total)} files pass`,
-        );
-      } else {
-        console.log(
-          `\n✗ ${r.id} — ${String(r.matched)}/${String(r.total)} files pass (${String(r.missing.length)} missing)`,
-        );
-        for (const m of r.missing) {
-          console.log(`  ${m}`);
-        }
-        allValid = false;
-      }
+      if (!printAssertionResult(r)) allValid = false;
     }
   }
   return allValid;
@@ -318,17 +322,10 @@ async function adopt(): Promise<void> {
   }
 }
 
-function discover(): void {
-  console.log("Scanning project for linter rules...\n");
-
-  const result = generateTypes({ basePath: process.cwd() });
-
-  // Collect all documented enforce() rules from specs
-  const documentedRules = new Set<string>();
-  // Read the compiled .md files
-  // and extract **Enforced by:** annotations instead
+function collectDocumentedRules(): Set<string> {
+  const documented = new Set<string>();
   const mdFiles = globSync("**/CLAUDE.md", {
-    ignore: ["node_modules/**"],
+    ignore: IGNORE_NODE_MODULES,
     cwd: process.cwd(),
   });
   for (const mdFile of mdFiles) {
@@ -336,9 +333,62 @@ function discover(): void {
     const enforcedRe = /\*\*Enforced by:\*\*\s*`([^`]+)`/g;
     let m: RegExpExecArray | null;
     while ((m = enforcedRe.exec(content)) !== null) {
-      documentedRules.add(m[1]);
+      documented.add(m[1]);
     }
   }
+  return documented;
+}
+
+interface CoverageTotals {
+  enabled: number;
+  documented: number;
+}
+
+function printLinterCoverage(
+  linter: { linter: string; rules: string[] },
+  documentedRules: Set<string>,
+): CoverageTotals {
+  const documented = linter.rules.filter((r) =>
+    documentedRules.has(`${linter.linter}/${r}`),
+  );
+  const undocumented = linter.rules.filter(
+    (r) => !documentedRules.has(`${linter.linter}/${r}`),
+  );
+  const pct =
+    linter.rules.length > 0
+      ? Math.round((documented.length / linter.rules.length) * 100)
+      : 0;
+
+  console.log(
+    `  ${linter.linter}: ${String(documented.length)}/${String(linter.rules.length)} rules documented (${String(pct)}%)`,
+  );
+
+  if (documented.length > 0 && documented.length <= 10) {
+    for (const r of documented) {
+      console.log(`    ✓ ${linter.linter}/${r}`);
+    }
+  }
+
+  if (undocumented.length > 0) {
+    const show = undocumented.slice(0, 5);
+    console.log(`    Top undocumented:`);
+    for (const r of show) {
+      console.log(`    ✗ ${linter.linter}/${r}`);
+    }
+    if (undocumented.length > 5) {
+      console.log(`    ... and ${String(undocumented.length - 5)} more`);
+    }
+  }
+  console.log("");
+
+  return { enabled: linter.rules.length, documented: documented.length };
+}
+
+function discover(): void {
+  console.log("Scanning project for linter rules...\n");
+
+  const result = generateTypes({ basePath: process.cwd() });
+  const documentedRules = collectDocumentedRules();
 
   console.log("Detected linters:\n");
 
@@ -346,41 +396,9 @@ function discover(): void {
   let totalDocumented = 0;
 
   for (const linter of result.linters) {
-    const documented = linter.rules.filter((r) =>
-      documentedRules.has(`${linter.linter}/${r}`),
-    );
-    const undocumented = linter.rules.filter(
-      (r) => !documentedRules.has(`${linter.linter}/${r}`),
-    );
-    const pct =
-      linter.rules.length > 0
-        ? Math.round((documented.length / linter.rules.length) * 100)
-        : 0;
-
-    totalEnabled += linter.rules.length;
-    totalDocumented += documented.length;
-
-    console.log(
-      `  ${linter.linter}: ${String(documented.length)}/${String(linter.rules.length)} rules documented (${String(pct)}%)`,
-    );
-
-    if (documented.length > 0 && documented.length <= 10) {
-      for (const r of documented) {
-        console.log(`    ✓ ${linter.linter}/${r}`);
-      }
-    }
-
-    if (undocumented.length > 0) {
-      const show = undocumented.slice(0, 5);
-      console.log(`    Top undocumented:`);
-      for (const r of show) {
-        console.log(`    ✗ ${linter.linter}/${r}`);
-      }
-      if (undocumented.length > 5) {
-        console.log(`    ... and ${String(undocumented.length - 5)} more`);
-      }
-    }
-    console.log("");
+    const totals = printLinterCoverage(linter, documentedRules);
+    totalEnabled += totals.enabled;
+    totalDocumented += totals.documented;
   }
 
   if (result.linters.length === 0) {
@@ -437,24 +455,95 @@ export default claude({
 }
 
 // ---------------------------------------------------------------------------
+// Command handlers for main()
+// ---------------------------------------------------------------------------
+
+function findInstructionFiles(restArgs: string[]): string[] {
+  if (restArgs.length > 0) return restArgs;
+  return globSync("**/CLAUDE.md", {
+    ignore: IGNORE_NODE_MODULES,
+    cwd: process.cwd(),
+  }).concat(
+    globSync("**/SKILL.md", {
+      ignore: IGNORE_NODE_MODULES,
+      cwd: process.cwd(),
+    }),
+  );
+}
+
+function handleGenerateTypes(args: string[], restArgs: string[]): void {
+  const outPath = restArgs[0] ?? ".vigiles/generated.d.ts";
+  const fileGlobs = args
+    .filter((a) => a.startsWith("--files="))
+    .map((a) => a.split("=")[1])
+    .filter(Boolean);
+
+  console.log("Scanning project...\n");
+  const result = generateTypes({
+    basePath: process.cwd(),
+    fileGlobs: fileGlobs.length > 0 ? fileGlobs : undefined,
+  });
+
+  for (const l of result.linters) {
+    console.log(
+      `  ${l.linter}: ${String(l.rules.length)} enabled rules (via ${l.via})`,
+    );
+  }
+  if (result.scripts.length > 0) {
+    console.log(`  npm scripts: ${String(result.scripts.length)}`);
+  }
+  console.log(`  project files: ${String(result.files.length)}`);
+
+  const fullOut = resolve(process.cwd(), outPath);
+  const outDir = fullOut.substring(0, fullOut.lastIndexOf("/"));
+  if (!existsSync(outDir)) {
+    mkdirSync(outDir, { recursive: true });
+  }
+  writeFileSync(fullOut, result.dts);
+  console.log(`\n✓ Generated ${outPath}`);
+}
+
+function printUsage(command: string | undefined): void {
+  console.log("vigiles — compile typed specs to instruction files");
+  console.log("");
+  console.log("Commands:");
+  console.log("  vigiles compile [files...]    Compile .spec.ts → .md");
+  console.log("  vigiles check [files...]      Verify hashes + run assertions");
+  console.log("  vigiles init                  Scaffold a CLAUDE.md.spec.ts");
+  console.log("  vigiles generate-types [out]  Emit .d.ts from project state");
+  console.log("  vigiles discover              Show linter rule coverage gaps");
+  console.log("  vigiles adopt                 Detect manual edits, show diff");
+  console.log("");
+  console.log("Examples:");
+  console.log("  vigiles compile              Compile all .spec.ts files");
+  console.log("  vigiles check                Verify hashes + assertions");
+  console.log("  vigiles discover             Show undocumented linter rules");
+  console.log("  vigiles generate-types       Emit .vigiles/generated.d.ts");
+  if (command && command !== "--help") {
+    console.log(`\nUnknown command: "${command}"`);
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
-const args = process.argv.slice(2);
-const command = args[0];
-const restArgs = args.slice(1).filter((a) => !a.startsWith("--"));
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  const command = args[0];
+  const restArgs = args.slice(1).filter((a) => !a.startsWith("--"));
+  const config = loadConfig();
 
-const config = loadConfig();
-
-switch (command) {
-  case "compile": {
-    const specs = restArgs.length > 0 ? restArgs : findSpecs();
-    if (specs.length === 0) {
-      console.log("No .spec.ts files found.");
-      console.log("Run `vigiles init` to create one.");
-      process.exit(0);
-    }
-    compile(specs, config).then((valid) => {
+  switch (command) {
+    case "compile": {
+      const specs = restArgs.length > 0 ? restArgs : findSpecs();
+      if (specs.length === 0) {
+        console.log("No .spec.ts files found.");
+        console.log("Run `vigiles init` to create one.");
+        process.exit(0);
+      }
+      const valid = await compile(specs, config);
       console.log("");
       if (valid) {
         console.log("Compilation complete.");
@@ -462,106 +551,38 @@ switch (command) {
         console.log("Compilation complete with errors.");
         process.exit(1);
       }
-    });
-    break;
-  }
-  case "check": {
-    const files =
-      restArgs.length > 0
-        ? restArgs
-        : globSync("**/CLAUDE.md", {
-            ignore: ["node_modules/**"],
-            cwd: process.cwd(),
-          }).concat(
-            globSync("**/SKILL.md", {
-              ignore: ["node_modules/**"],
-              cwd: process.cwd(),
-            }),
-          );
-    if (files.length === 0) {
-      console.log("No instruction files found to check.");
-      process.exit(0);
+      break;
     }
-    check(files).then((valid) => {
+    case "check": {
+      const files = findInstructionFiles(restArgs);
+      if (files.length === 0) {
+        console.log("No instruction files found to check.");
+        process.exit(0);
+      }
+      const valid = await check(files);
       console.log("");
       if (!valid) {
         process.exit(1);
       }
-    });
-    break;
-  }
-  case "init":
-    init();
-    break;
-  case "discover":
-    discover();
-    break;
-  case "adopt":
-    adopt().then(() => {
+      break;
+    }
+    case "init":
+      init();
+      break;
+    case "discover":
+      discover();
+      break;
+    case "adopt":
+      await adopt();
       console.log("");
-    });
-    break;
-  case "generate-types": {
-    const outPath = restArgs[0] ?? ".vigiles/generated.d.ts";
-    const fileGlobs = args
-      .filter((a) => a.startsWith("--files="))
-      .map((a) => a.split("=")[1])
-      .filter(Boolean);
-
-    console.log("Scanning project...\n");
-    const result = generateTypes({
-      basePath: process.cwd(),
-      fileGlobs: fileGlobs.length > 0 ? fileGlobs : undefined,
-    });
-
-    for (const l of result.linters) {
-      console.log(
-        `  ${l.linter}: ${String(l.rules.length)} enabled rules (via ${l.via})`,
-      );
-    }
-    if (result.scripts.length > 0) {
-      console.log(`  npm scripts: ${String(result.scripts.length)}`);
-    }
-    console.log(`  project files: ${String(result.files.length)}`);
-
-    const fullOut = resolve(process.cwd(), outPath);
-    const outDir = fullOut.substring(0, fullOut.lastIndexOf("/"));
-    if (!existsSync(outDir)) {
-      mkdirSync(outDir, { recursive: true });
-    }
-    writeFileSync(fullOut, result.dts);
-    console.log(`\n✓ Generated ${outPath}`);
-    break;
+      break;
+    case "generate-types":
+      handleGenerateTypes(args, restArgs);
+      break;
+    default:
+      printUsage(command);
+      break;
   }
-  default:
-    console.log("vigiles — compile typed specs to instruction files");
-    console.log("");
-    console.log("Commands:");
-    console.log("  vigiles compile [files...]    Compile .spec.ts → .md");
-    console.log(
-      "  vigiles check [files...]      Verify hashes + run assertions",
-    );
-    console.log("  vigiles init                  Scaffold a CLAUDE.md.spec.ts");
-    console.log(
-      "  vigiles generate-types [out]  Emit .d.ts from project state",
-    );
-    console.log(
-      "  vigiles discover              Show linter rule coverage gaps",
-    );
-    console.log(
-      "  vigiles adopt                 Detect manual edits, show diff",
-    );
-    console.log("");
-    console.log("Examples:");
-    console.log("  vigiles compile              Compile all .spec.ts files");
-    console.log("  vigiles check                Verify hashes + assertions");
-    console.log(
-      "  vigiles discover             Show undocumented linter rules",
-    );
-    console.log("  vigiles generate-types       Emit .vigiles/generated.d.ts");
-    if (command && command !== "--help") {
-      console.log(`\nUnknown command: "${command}"`);
-      process.exit(1);
-    }
-    break;
 }
+
+void main();

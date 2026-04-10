@@ -85,7 +85,10 @@ function eslintPluginPkgNames(pluginName: string): string[] {
   return [`eslint-plugin-${pluginName}`];
 }
 
-function tryResolvePlugin(req: NodeRequire, pkg: string): Set<string> | null {
+function tryResolvePlugin(
+  req: NodeJS.Require,
+  pkg: string,
+): Set<string> | null {
   try {
     const plugin = req(pkg) as {
       rules?: Record<string, unknown>;
