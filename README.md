@@ -167,7 +167,23 @@ $ npx vigiles generate-types
 ✓ Generated .vigiles/generated.d.ts
 ```
 
-The generated file contains type unions like `EslintRule = "no-console" | "no-unused-vars" | ...`. Your editor gives you autocomplete on rule names, and typos become type errors. [Details →](docs/linter-support.md#generate-types)
+The generated file contains type unions for every enabled rule, npm script, and project file:
+
+```typescript
+// .vigiles/generated.d.ts (auto-generated, DO NOT EDIT)
+export type EslintRule = "no-console" | "no-unused-vars" | ...;
+export type RuffRule = "E501" | "F401" | "T201" | ...;
+export type NpmScript = "build" | "test" | "fmt" | ...;
+export type ProjectFile = "src/spec.ts" | "src/compile.ts" | ...;
+```
+
+**Commit this file to git.** It should be checked in so that:
+
+- Editors pick up the types immediately (no setup step for new contributors)
+- CI can verify it's fresh: run `vigiles generate-types` and check for uncommitted changes
+- Anyone cloning the repo gets autocomplete and type checking out of the box
+
+Re-run `vigiles generate-types` when you add/remove linter rules, npm scripts, or source files. [Details →](docs/linter-support.md#generate-types)
 
 ## CLI
 

@@ -24,6 +24,7 @@ import {
   estimateTokens,
   executeAssertion,
   executeChecks,
+  adoptDiff,
 } from "./compile.js";
 
 import { generateTypes } from "./generate-types.js";
@@ -494,6 +495,34 @@ describe("generateTypes()", () => {
     assert.ok(result.files.some((f) => f.startsWith("examples/")));
     assert.ok(!result.files.some((f) => f.startsWith("src/")));
   });
+
+  it("generates syntactically valid .d.ts", () => {
+    const result = generateTypes({ basePath: process.cwd() });
+
+    // Write only the .d.ts and type-check it in isolation
+    const tmpDir = join(process.cwd(), ".vigiles-test-types-tmp");
+    mkdirSync(tmpDir, { recursive: true });
+    try {
+      writeFileSync(join(tmpDir, "generated.d.ts"), result.dts);
+      writeFileSync(
+        join(tmpDir, "tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: { strict: true, noEmit: true },
+          include: ["generated.d.ts"],
+        }),
+      );
+
+      const { execSync } =
+        require("node:child_process") as typeof import("node:child_process");
+      execSync("npx tsc --noEmit", {
+        cwd: tmpDir,
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 15000,
+      });
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -704,5 +733,303 @@ describe("enforce() linter integration in compileClaude", () => {
     // In catalog-only mode, should still find the rule but not check config
     assert.equal(linterResults.length, 1);
     assert.equal(linterResults[0].exists, true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// adoptDiff() tests
+// ---------------------------------------------------------------------------
+
+describe("adoptDiff()", () => {
+  it("detects unchanged compiled file", () => {
+    const spec = claude({
+      rules: { test: guidance("Hello.") },
+    });
+    const tmpDir = join(process.cwd(), ".vigiles-test-adopt-tmp");
+    mkdirSync(tmpDir, { recursive: true });
+    try {
+      const { markdown } = compileClaude(spec, {
+        basePath: tmpDir,
+        specFile: "CLAUDE.md.spec.ts",
+      });
+      writeFileSync(join(tmpDir, "CLAUDE.md"), markdown);
+
+      const result = adoptDiff("CLAUDE.md", spec, tmpDir);
+      assert.equal(result.hasHash, true);
+      assert.equal(result.valid, true);
+      assert.equal(result.changed, false);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("detects manually edited file", () => {
+    const spec = claude({
+      rules: { test: guidance("Hello.") },
+    });
+    const tmpDir = join(process.cwd(), ".vigiles-test-adopt-edit-tmp");
+    mkdirSync(tmpDir, { recursive: true });
+    try {
+      const { markdown } = compileClaude(spec, {
+        basePath: tmpDir,
+        specFile: "CLAUDE.md.spec.ts",
+      });
+      // Manually add a line
+      const tampered =
+        markdown + "\n### Hand-written rule\nSome extra content.\n";
+      writeFileSync(join(tmpDir, "CLAUDE.md"), tampered);
+
+      const result = adoptDiff("CLAUDE.md", spec, tmpDir);
+      assert.equal(result.hasHash, true);
+      assert.equal(result.valid, false);
+      assert.equal(result.changed, true);
+      assert.ok(result.addedLines.some((l) => l.includes("Hand-written rule")));
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("handles file without hash", () => {
+    const spec = claude({ rules: {} });
+    const tmpDir = join(process.cwd(), ".vigiles-test-adopt-nohash-tmp");
+    mkdirSync(tmpDir, { recursive: true });
+    try {
+      writeFileSync(join(tmpDir, "CLAUDE.md"), "# Hand-written\n");
+      const result = adoptDiff("CLAUDE.md", spec, tmpDir);
+      assert.equal(result.hasHash, false);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Edge cases: empty inputs, boundaries, special characters
+// ---------------------------------------------------------------------------
+
+describe("edge cases", () => {
+  it("compileClaude with empty spec produces valid markdown", () => {
+    const spec = claude({ rules: {} });
+    const { markdown, errors, tokens } = compileClaude(spec);
+    assert.ok(markdown.includes("# CLAUDE.md"));
+    assert.equal(errors.length, 0);
+    assert.ok(tokens > 0);
+  });
+
+  it("compileClaude with only sections (no rules)", () => {
+    const spec = claude({
+      sections: { about: "This is a project." },
+      rules: {},
+    });
+    const { markdown } = compileClaude(spec);
+    assert.ok(markdown.includes("## About"));
+    assert.ok(!markdown.includes("## Rules"));
+  });
+
+  it("maxRules at exact boundary passes", () => {
+    const rules: Record<string, ReturnType<typeof guidance>> = {};
+    for (let i = 0; i < 3; i++) {
+      rules[`rule-${String(i)}`] = guidance("test");
+    }
+    const spec = claude({ rules });
+    const { errors } = compileClaude(spec, { maxRules: 3 });
+    assert.ok(!errors.some((e) => e.type === "invalid-rule"));
+  });
+
+  it("maxTokens at exact boundary passes", () => {
+    const spec = claude({ rules: { a: guidance("x") } });
+    const { tokens, errors } = compileClaude(spec, { maxTokens: 99999 });
+    // Should pass — output is small
+    assert.ok(!errors.some((e) => e.type === "budget-exceeded"));
+    assert.ok(tokens > 0);
+  });
+
+  it("estimateTokens with empty string returns 0", () => {
+    assert.equal(estimateTokens(""), 0);
+  });
+
+  it("computeHash with empty string is deterministic", () => {
+    const a = computeHash("");
+    const b = computeHash("");
+    assert.equal(a, b);
+    assert.ok(a.length > 0);
+  });
+
+  it("rule ID with underscores compiles to title case", () => {
+    const spec = claude({
+      rules: { no_console_log: guidance("Don't.") },
+    });
+    const { markdown } = compileClaude(spec);
+    assert.ok(markdown.includes("### No Console Log"));
+  });
+
+  it("rule ID with hyphens compiles to title case", () => {
+    const spec = claude({
+      rules: { "barrel-imports-only": guidance("Use barrels.") },
+    });
+    const { markdown } = compileClaude(spec);
+    assert.ok(markdown.includes("### Barrel Imports Only"));
+  });
+
+  it("compileSkill with empty body", () => {
+    const spec = skill({
+      name: "empty",
+      description: "Nothing",
+      body: "",
+    });
+    const { markdown } = compileSkill(spec);
+    assert.ok(markdown.includes("name: empty"));
+    assert.ok(markdown.includes("description: Nothing"));
+  });
+
+  it("executeAssertion with glob matching zero files", () => {
+    const result = executeAssertion(
+      "none",
+      {
+        _type: "file-pairing",
+        glob: "nonexistent-dir-xyz/**/*.ts",
+        pattern: "{name}.test.ts",
+      },
+      process.cwd(),
+    );
+    assert.equal(result.passed, true);
+    assert.equal(result.total, 0);
+  });
+
+  it("executeAssertion with {stem} placeholder on multi-dot files", () => {
+    // src/spec.test.ts — {name} = "spec.test", {stem} = "spec"
+    const result = executeAssertion(
+      "test",
+      {
+        _type: "file-pairing",
+        glob: "src/spec.test.ts",
+        pattern: "{stem}.ts", // {stem} = "spec" → expects spec.ts
+      },
+      process.cwd(),
+    );
+    assert.equal(result.passed, true);
+    assert.equal(result.total, 1);
+  });
+
+  it("verifyHash with malformed hash line returns null", () => {
+    const result = verifyHash("<!-- vigiles:sha256:tooshort -->\n# Content\n");
+    // Hash must match the full regex pattern
+    assert.equal(result, null);
+  });
+
+  it("multiple enforce rules all get linter-checked", () => {
+    const spec = claude({
+      rules: {
+        "rule-a": enforce("eslint/no-console", "A"),
+        "rule-b": enforce("eslint/no-debugger", "B"),
+        "rule-c": guidance("Not checked."),
+      },
+    });
+    const { linterResults } = compileClaude(spec, {
+      basePath: process.cwd(),
+    });
+    // Only enforce() rules produce linter results
+    assert.equal(linterResults.length, 2);
+    assert.ok(linterResults.every((r) => r.exists));
+  });
+
+  it("sections with file() ref to nonexistent file reports error", () => {
+    const spec = claude({
+      sections: {
+        arch: instructions`See ${file("totally-fake-file-xyz.ts")}.`,
+      },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec, { basePath: process.cwd() });
+    assert.ok(errors.some((e) => e.type === "stale-file"));
+  });
+
+  it("cmd() validation catches missing npm scripts in commands", () => {
+    const spec = claude({
+      commands: {
+        "npm run nonexistent-xyz": "Does not exist",
+      },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec, { basePath: process.cwd() });
+    assert.ok(errors.some((e) => e.type === "stale-command"));
+  });
+
+  it("cmd() validation passes for real npm scripts", () => {
+    const spec = claude({
+      commands: { "npm test": "Run tests", "npm run build": "Build" },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec, { basePath: process.cwd() });
+    assert.ok(!errors.some((e) => e.type === "stale-command"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// End-to-end roundtrip: compile → hash → verify → adopt
+// ---------------------------------------------------------------------------
+
+describe("compile → hash → verify → adopt roundtrip", () => {
+  it("full lifecycle works end-to-end", () => {
+    const spec = claude({
+      commands: { "npm test": "Run tests" },
+      keyFiles: { "src/spec.ts": "Spec system" },
+      sections: { about: "A test project." },
+      rules: {
+        "no-console": enforce("eslint/no-console", "Use logger."),
+        "test-files": check(
+          every("src/spec.ts").has("{name}.test.ts"),
+          "Every source needs tests.",
+        ),
+        "be-nice": guidance("Be nice to contributors."),
+      },
+    });
+
+    const tmpDir = join(process.cwd(), ".vigiles-test-roundtrip-tmp");
+    mkdirSync(tmpDir, { recursive: true });
+    try {
+      // Step 1: Compile
+      const { markdown, errors, linterResults, tokens } = compileClaude(spec, {
+        basePath: process.cwd(),
+        specFile: "CLAUDE.md.spec.ts",
+      });
+      assert.equal(errors.length, 0);
+      assert.ok(tokens > 0);
+      assert.ok(linterResults.length > 0);
+
+      // Step 2: Write compiled output
+      const outPath = join(tmpDir, "CLAUDE.md");
+      writeFileSync(outPath, markdown);
+
+      // Step 3: Verify hash
+      const hashResult = checkFileHash(outPath);
+      assert.equal(hashResult.hasHash, true);
+      assert.equal(hashResult.valid, true);
+      assert.equal(hashResult.specFile, "CLAUDE.md.spec.ts");
+
+      // Step 4: Adopt shows no changes
+      const adoptResult = adoptDiff("CLAUDE.md", spec, tmpDir);
+      assert.equal(adoptResult.valid, true);
+      assert.equal(adoptResult.changed, false);
+
+      // Step 5: Manually edit the file
+      const tampered = markdown.replace(
+        "Be nice to contributors.",
+        "Be VERY nice to contributors.",
+      );
+      writeFileSync(outPath, tampered);
+
+      // Step 6: Hash should now fail
+      const hashResult2 = checkFileHash(outPath);
+      assert.equal(hashResult2.valid, false);
+
+      // Step 7: Adopt detects the change
+      const adoptResult2 = adoptDiff("CLAUDE.md", spec, tmpDir);
+      assert.equal(adoptResult2.valid, false);
+      assert.equal(adoptResult2.changed, true);
+      assert.ok(adoptResult2.addedLines.some((l) => l.includes("VERY nice")));
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
