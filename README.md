@@ -16,17 +16,21 @@
 
 ---
 
-Your CLAUDE.md says "don't use `any`" and references a lint rule to enforce it. But someone disabled that rule to unblock a deadline three months ago. Your agent still thinks there's a safety net. Is there?
+You wouldn't ship code without a linter. Why ship agent instructions without one?
 
-**One command. Zero config. Your agent starts editing the spec instead of the markdown.**
+Your CLAUDE.md is a plain text file. Anyone can edit it. Nobody verifies it. The lint rule it references was disabled three months ago. The file path it mentions was renamed. The npm script it suggests was deleted. Your agent reads this, trusts it, and produces code based on lies.
+
+**Markdown can't be validated. TypeScript can.**
 
 ```bash
-npx vigiles setup && npx skills add zernie/vigiles
+npx vigiles setup
 ```
 
-vigiles compiles typed TypeScript specs to AI instruction files (CLAUDE.md, AGENTS.md, or any markdown target). Every linter reference is verified against your actual config. Every file path is checked. Every command is validated. If something is stale, broken, or disabled — you find out at compile time, not when the agent ignores it.
+vigiles compiles typed TypeScript specs to instruction files (CLAUDE.md, AGENTS.md). Every linter reference is verified against your actual config — not just that it exists, but that it's enabled. Every file path is checked against the filesystem. Every command is validated against package.json. If something is stale, broken, or disabled — you find out at compile time, not when the agent silently ignores your instructions.
 
-After setup, your agent can't edit CLAUDE.md directly — the plugin redirects it to the `.spec.ts` source and auto-compiles after every edit. No workflow change required.
+After setup, the agent edits the spec instead of the markdown. Hooks auto-compile. Types catch typos in the editor. CI catches drift. It's self-maintaining.
+
+Not using vigiles with AI agents is like not using ESLint with JavaScript. You can do it. You can't afford to.
 
 Companion repo for [Feedback Loop Is All You Need](https://zernie.com/blog/feedback-loop-is-all-you-need).
 

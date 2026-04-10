@@ -79,8 +79,8 @@ async function runCompile(): Promise<boolean> {
     }
 
     if (spec._specType === "claude") {
-      const outputPath = specPath.replace(/\.spec\.ts$/, "");
-      const { markdown, errors } = compileClaude(spec, {
+      const primaryOutput = specPath.replace(/\.spec\.ts$/, "");
+      const { markdown, errors, targets } = compileClaude(spec, {
         basePath,
         specFile: specPath,
         maxRules,
@@ -93,8 +93,27 @@ async function runCompile(): Promise<boolean> {
         }
         allValid = false;
       }
-      writeFileSync(resolve(basePath, outputPath), markdown);
-      console.log(`Compiled: ${specPath} → ${outputPath}`);
+
+      // Write primary target
+      writeFileSync(resolve(basePath, primaryOutput), markdown);
+      const outputNames = [primaryOutput];
+
+      // Write additional targets with swapped heading
+      for (const t of targets.slice(1)) {
+        const additional = markdown.replace(
+          /^(<!-- vigiles:[^\n]+\n\n?)# [^\n]+/,
+          `$1# ${t}`,
+        );
+        const dir = primaryOutput.substring(
+          0,
+          primaryOutput.lastIndexOf("/") + 1,
+        );
+        const targetPath = dir + t;
+        writeFileSync(resolve(basePath, targetPath), additional);
+        outputNames.push(targetPath);
+      }
+
+      console.log(`Compiled: ${specPath} → ${outputNames.join(", ")}`);
     } else if (spec._specType === "skill") {
       const outputPath = specPath.replace(/\.spec\.ts$/, "");
       const { markdown, errors } = compileSkill(spec, {

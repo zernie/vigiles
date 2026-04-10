@@ -1026,6 +1026,133 @@ async function strengthen(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Migrate: hand-written .md → .spec.ts scaffold
+// ---------------------------------------------------------------------------
+
+function migrate(args: string[]): void {
+  const inputFile = args.find((a) => !a.startsWith("--")) ?? "CLAUDE.md";
+  const inputPath = resolve(process.cwd(), inputFile);
+
+  if (!existsSync(inputPath)) {
+    console.log(`File not found: ${inputFile}`);
+    return;
+  }
+
+  const specPath = `${inputFile}.spec.ts`;
+  if (existsSync(resolve(process.cwd(), specPath))) {
+    console.log(`${specPath} already exists.`);
+    return;
+  }
+
+  const content = readFileSync(inputPath, "utf-8");
+
+  // Parse sections (## headings)
+  const sectionEntries: Array<{ name: string; body: string }> = [];
+  const lines = content.split("\n");
+  let currentSection: { name: string; lines: string[] } | null = null;
+
+  for (const line of lines) {
+    const h2 = line.match(/^##\s+(.+)$/);
+    if (h2) {
+      if (currentSection) {
+        sectionEntries.push({
+          name: currentSection.name,
+          body: currentSection.lines.join("\n").trim(),
+        });
+      }
+      currentSection = { name: h2[1].trim(), lines: [] };
+      continue;
+    }
+    if (currentSection) {
+      currentSection.lines.push(line);
+    }
+  }
+  if (currentSection) {
+    sectionEntries.push({
+      name: currentSection.name,
+      body: currentSection.lines.join("\n").trim(),
+    });
+  }
+
+  // Parse rules from ### headings
+  const { parseRules } =
+    require("./validate.js") as typeof import("./validate.js");
+  const parsedRules = parseRules(content);
+
+  // Build spec source
+  const specLines: string[] = [];
+  specLines.push(`import { claude, enforce, guidance } from "vigiles/spec";`);
+  specLines.push(``);
+  specLines.push(`export default claude({`);
+
+  // Target
+  if (inputFile !== "CLAUDE.md") {
+    specLines.push(`  target: "${inputFile}",`);
+    specLines.push(``);
+  }
+
+  // Sections (exclude Rules/Commands/Key Files — those have dedicated fields)
+  const reservedSections = new Set([
+    "rules",
+    "commands",
+    "key files",
+    "keyfiles",
+  ]);
+  const sections = sectionEntries.filter(
+    (s) => !reservedSections.has(s.name.toLowerCase()),
+  );
+  if (sections.length > 0) {
+    specLines.push(`  sections: {`);
+    for (const s of sections) {
+      const key = s.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+      const escaped = s.body.replace(/\\/g, "\\\\").replace(/`/g, "\\`");
+      specLines.push(`    "${key}": \`${escaped}\`,`);
+      specLines.push(``);
+    }
+    specLines.push(`  },`);
+    specLines.push(``);
+  }
+
+  // Rules
+  if (parsedRules.length > 0) {
+    specLines.push(`  rules: {`);
+    for (const rule of parsedRules) {
+      const key = rule.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+      if (rule.enforcement === "enforced" && rule.enforcedBy) {
+        specLines.push(
+          `    "${key}": enforce("${rule.enforcedBy}", "${rule.title}"),`,
+        );
+      } else {
+        specLines.push(`    "${key}": guidance("${rule.title}"),`);
+      }
+    }
+    specLines.push(`  },`);
+  } else {
+    specLines.push(`  rules: {},`);
+  }
+
+  specLines.push(`});`);
+  specLines.push(``);
+
+  writeFileSync(resolve(process.cwd(), specPath), specLines.join("\n"));
+  console.log(`✓ Migrated ${inputFile} → ${specPath}`);
+  console.log(``);
+  console.log(`  ${String(sections.length)} sections extracted`);
+  console.log(
+    `  ${String(parsedRules.length)} rules found (${String(parsedRules.filter((r) => r.enforcement === "enforced").length)} enforced, ${String(parsedRules.filter((r) => r.enforcement === "guidance").length)} guidance)`,
+  );
+  console.log(``);
+  console.log(`  Review the spec, then run: npx vigiles compile`);
+  console.log(`  Strengthen guidance rules: npx vigiles strengthen`);
+}
+
+// ---------------------------------------------------------------------------
 // Command handlers for main()
 // ---------------------------------------------------------------------------
 
@@ -1114,6 +1241,9 @@ function printUsage(command: string | undefined): void {
   console.log(
     "  vigiles strengthen            Suggest enforce() upgrades for guidance rules",
   );
+  console.log(
+    "  vigiles migrate [file]        Convert hand-written .md to .spec.ts",
+  );
   console.log("  vigiles adopt                 Detect manual edits, show diff");
   console.log("");
   console.log("Examples:");
@@ -1179,6 +1309,9 @@ async function main(): Promise<void> {
       break;
     case "strengthen":
       await strengthen();
+      break;
+    case "migrate":
+      migrate(restArgs);
       break;
     case "adopt":
       await adopt();

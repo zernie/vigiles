@@ -251,6 +251,71 @@ describe("CLI: vigiles strengthen", () => {
 });
 
 // ---------------------------------------------------------------------------
+// vigiles migrate
+// ---------------------------------------------------------------------------
+
+describe("CLI: vigiles migrate", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-cli-migrate-"));
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should migrate a hand-written CLAUDE.md to spec", () => {
+    writeFileSync(
+      join(tmpDir, "CLAUDE.md"),
+      `# CLAUDE.md
+
+## Architecture
+
+Three-layer architecture: controllers, services, repos.
+
+## Rules
+
+### No console.log
+**Enforced by:** \`eslint/no-console\`
+Use the structured logger.
+
+### Research first
+**Guidance only**
+Google unfamiliar APIs.
+`,
+    );
+    const { stdout, exitCode } = run("migrate CLAUDE.md", tmpDir);
+    assert.equal(exitCode, 0);
+    assert.ok(stdout.includes("Migrated"));
+    assert.ok(existsSync(join(tmpDir, "CLAUDE.md.spec.ts")));
+
+    const spec = readFileSync(join(tmpDir, "CLAUDE.md.spec.ts"), "utf-8");
+    assert.ok(spec.includes("eslint/no-console"));
+    assert.ok(spec.includes("guidance"));
+    assert.ok(spec.includes("architecture"));
+  });
+
+  it("should not overwrite existing spec", () => {
+    const result = run("migrate CLAUDE.md", tmpDir);
+    assert.ok(result.stdout.includes("already exists"));
+  });
+
+  it("should handle AGENTS.md", () => {
+    writeFileSync(
+      join(tmpDir, "AGENTS.md"),
+      "# AGENTS.md\n\n## Setup\n\nRun npm install.\n",
+    );
+    const { exitCode } = run("migrate AGENTS.md", tmpDir);
+    assert.equal(exitCode, 0);
+    assert.ok(existsSync(join(tmpDir, "AGENTS.md.spec.ts")));
+
+    const spec = readFileSync(join(tmpDir, "AGENTS.md.spec.ts"), "utf-8");
+    assert.ok(spec.includes('target: "AGENTS.md"'));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // vigiles discover
 // ---------------------------------------------------------------------------
 
