@@ -1,4 +1,5 @@
 <!-- vigiles:sha256:54187de6b0ab1302 compiled from CLAUDE.md.spec.ts -->
+
 # CLAUDE.md
 
 ## Positioning

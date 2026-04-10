@@ -184,7 +184,7 @@ async function compile(
         // Write additional targets with swapped heading
         for (const t of targets.slice(1)) {
           const additional = markdown.replace(
-            /^(<!-- vigiles:[^\n]+\n)# [^\n]+/,
+            /^(<!-- vigiles:[^\n]+\n\n?)# [^\n]+/,
             `$1# ${t}`,
           );
           const dir = primaryOutput.substring(
@@ -525,6 +525,63 @@ export default claude({${targetLine}
 }
 
 // ---------------------------------------------------------------------------
+// Setup wizard
+// ---------------------------------------------------------------------------
+
+async function setup(args: string[]): Promise<void> {
+  const targetFlag = args.find((a) => a.startsWith("--target="));
+  const target = targetFlag ? targetFlag.split("=")[1] : "CLAUDE.md";
+
+  console.log("vigiles setup\n");
+
+  // Step 1: Create spec
+  const specPath = `${target}.spec.ts`;
+  if (existsSync(resolve(process.cwd(), specPath))) {
+    console.log(`✓ ${specPath} already exists`);
+  } else {
+    init(args);
+  }
+
+  // Step 2: Generate types
+  console.log("\nScanning linters and project files...");
+  const typesResult = generateTypes({ basePath: process.cwd() });
+  const outPath = ".vigiles/generated.d.ts";
+  const outDir = resolve(process.cwd(), ".vigiles");
+  if (!existsSync(outDir)) {
+    mkdirSync(outDir, { recursive: true });
+  }
+  writeFileSync(resolve(process.cwd(), outPath), typesResult.dts);
+  for (const l of typesResult.linters) {
+    console.log(`  ${l.linter}: ${String(l.rules.length)} rules`);
+  }
+  if (typesResult.scripts.length > 0) {
+    console.log(`  npm scripts: ${String(typesResult.scripts.length)}`);
+  }
+  console.log(`✓ Generated ${outPath}`);
+
+  // Step 3: Compile spec
+  console.log("\nCompiling spec...");
+  const specs = findSpecs();
+  if (specs.length > 0) {
+    await compile(specs, loadConfig());
+  }
+
+  // Step 4: Summary
+  console.log("\n---");
+  console.log("Setup complete. Next steps:\n");
+  console.log(`  1. Edit ${specPath} — add your project's conventions`);
+  console.log(
+    "  2. Run `npx vigiles compile` to regenerate the instruction file",
+  );
+  console.log("  3. Commit both the .spec.ts and compiled .md");
+  console.log(
+    "  4. Add to CI: `npx vigiles check && npx vigiles generate-types --check`",
+  );
+  console.log("\nInstall the Claude Code plugin for auto-compilation on edit:");
+  console.log("  npx skills add zernie/vigiles");
+}
+
+// ---------------------------------------------------------------------------
 // Command handlers for main()
 // ---------------------------------------------------------------------------
 
@@ -599,6 +656,9 @@ function printUsage(command: string | undefined): void {
   console.log("vigiles — compile typed specs to instruction files");
   console.log("");
   console.log("Commands:");
+  console.log(
+    "  vigiles setup [--target=X.md]  One-command setup: init + types + compile",
+  );
   console.log("  vigiles compile [files...]    Compile .spec.ts → .md");
   console.log("  vigiles check [files...]      Verify hashes + run assertions");
   console.log(
@@ -661,6 +721,9 @@ async function main(): Promise<void> {
       }
       break;
     }
+    case "setup":
+      await setup(args);
+      break;
     case "init":
       init(args);
       break;

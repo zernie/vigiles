@@ -111,14 +111,29 @@ The spec is the source of truth. CLAUDE.md is a build artifact.
 
 ## Quick Start
 
-```bash
-# Start from scratch
-npx vigiles init            # creates CLAUDE.md.spec.ts
-npx vigiles compile          # compiles to CLAUDE.md
+One command sets up everything — creates a spec, scans your linters, generates types, and compiles:
 
-# Or migrate an existing CLAUDE.md (via skill)
+```bash
+npx vigiles setup                      # → CLAUDE.md.spec.ts + CLAUDE.md
+npx vigiles setup --target=AGENTS.md   # → AGENTS.md.spec.ts + AGENTS.md
+```
+
+Then install the Claude Code plugin so the agent edits your spec (not the compiled markdown):
+
+```bash
 npx skills add zernie/vigiles
-# then run the migrate-to-spec skill in your AI agent
+```
+
+The plugin does two things:
+
+- **Blocks edits to compiled files** — if the agent tries to edit CLAUDE.md directly, the PreToolUse hook redirects it to the `.spec.ts` source
+- **Auto-recompiles on change** — editing a `.spec.ts` or linter config triggers `compile` / `generate-types` automatically
+
+Already have a hand-written CLAUDE.md? Use the migrate skill:
+
+```bash
+npx skills add zernie/vigiles
+# then ask your agent to run the migrate-to-spec skill
 ```
 
 ## Three Rule Types
@@ -227,9 +242,10 @@ Re-run `vigiles generate-types` when you add/remove linter rules, npm scripts, o
 ## CLI
 
 ```bash
+npx vigiles setup                   # One-command setup: init + types + compile
 npx vigiles compile               # Compile .spec.ts → .md
 npx vigiles check                 # Verify hashes + run assertions
-npx vigiles init                  # Scaffold a CLAUDE.md.spec.ts
+npx vigiles init [--target=X.md]  # Scaffold a spec
 npx vigiles generate-types        # Emit .d.ts from project state
 npx vigiles generate-types --check  # Verify .d.ts is up to date
 npx vigiles discover              # Show undocumented linter rules
@@ -253,16 +269,16 @@ To verify generated types are fresh in CI:
 
 ## Claude Code Plugin
 
-Install vigiles as a Claude Code plugin to get automatic type regeneration and spec compilation during development:
+**Install the plugin.** Without it, you're responsible for manually running `compile` and `generate-types`. With it, the agent works with fresh instruction files automatically.
 
 ```bash
 npx skills add zernie/vigiles
 ```
 
-The plugin runs a PostToolUse hook on every Edit/Write:
+The plugin provides two hooks:
 
-- **Linter config or package.json changed** → auto-runs `generate-types`
-- **`.spec.ts` file changed** → auto-runs `compile`
+- **PreToolUse** (Edit/Write) — blocks direct edits to compiled `.md` files and redirects the agent to the `.spec.ts` source
+- **PostToolUse** (Edit/Write) — auto-runs `generate-types` on linter config changes, `compile` on `.spec.ts` changes
 
 ## Validation
 

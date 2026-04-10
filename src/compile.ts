@@ -25,7 +25,7 @@ import type { LinterCheckResult } from "./linters.js";
 // Hash utilities
 // ---------------------------------------------------------------------------
 
-const HASH_RE = /^<!-- vigiles:sha256:([a-f0-9]+) compiled from (.+) -->\n/;
+const HASH_RE = /^<!-- vigiles:sha256:([a-f0-9]+) compiled from (.+) -->\n\n?/;
 
 /** @internal Compute SHA-256 hash of content (excluding any existing hash line). */
 export function computeHash(content: string): string {
@@ -36,7 +36,7 @@ export function computeHash(content: string): string {
 /** @internal Prepend a hash comment to compiled content. */
 export function addHash(content: string, specFile: string): string {
   const hash = computeHash(content);
-  return `<!-- vigiles:sha256:${hash} compiled from ${specFile} -->\n${content}`;
+  return `<!-- vigiles:sha256:${hash} compiled from ${specFile} -->\n\n${content}`;
 }
 
 /** @internal Check if a file's hash matches its content. Returns null if no hash found. */

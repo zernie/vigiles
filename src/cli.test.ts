@@ -240,7 +240,120 @@ describe("CLI: vigiles discover", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Plugin hook
+// vigiles setup
+// ---------------------------------------------------------------------------
+
+describe("CLI: vigiles setup", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-cli-setup-"));
+    // Need a package.json for generate-types
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({ name: "test", scripts: { test: "echo ok" } }),
+    );
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should create spec, generate types, and compile", () => {
+    const { stdout, exitCode } = run("setup", tmpDir);
+    assert.equal(exitCode, 0);
+    assert.ok(stdout.includes("Created CLAUDE.md.spec.ts"));
+    assert.ok(stdout.includes("Setup complete"));
+    assert.ok(existsSync(join(tmpDir, "CLAUDE.md.spec.ts")));
+    assert.ok(existsSync(join(tmpDir, ".vigiles/generated.d.ts")));
+  });
+
+  it("should support --target flag", () => {
+    const { stdout, exitCode } = run("setup --target=AGENTS.md", tmpDir);
+    assert.equal(exitCode, 0);
+    assert.ok(stdout.includes("AGENTS.md.spec.ts"));
+    assert.ok(existsSync(join(tmpDir, "AGENTS.md.spec.ts")));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pre-edit hook (blocks compiled file edits)
+// ---------------------------------------------------------------------------
+
+describe("plugin hook: pre-edit.sh", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-pre-edit-"));
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should be executable with valid bash syntax", () => {
+    const hookPath = resolve(process.cwd(), ".claude-plugin/hooks/pre-edit.sh");
+    assert.ok(existsSync(hookPath));
+    execSync(`bash -n ${hookPath}`, { stdio: "pipe" });
+  });
+
+  it("should exit 0 for non-md files", () => {
+    const input = JSON.stringify({
+      tool_input: { file_path: join(tmpDir, "src/app.ts") },
+    });
+    const hookPath = resolve(process.cwd(), ".claude-plugin/hooks/pre-edit.sh");
+    execSync(`echo '${input}' | bash ${hookPath}`, {
+      cwd: tmpDir,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    // Should exit 0 (no block)
+    assert.ok(true);
+  });
+
+  it("should exit 2 for compiled md files", () => {
+    // Create a compiled .md file with vigiles hash
+    const mdPath = join(tmpDir, "CLAUDE.md");
+    writeFileSync(
+      mdPath,
+      "<!-- vigiles:sha256:abc123 compiled from CLAUDE.md.spec.ts -->\n# CLAUDE.md\n",
+    );
+    const input = JSON.stringify({ tool_input: { file_path: mdPath } });
+    const hookPath = resolve(process.cwd(), ".claude-plugin/hooks/pre-edit.sh");
+    try {
+      execSync(`echo '${input}' | bash ${hookPath}`, {
+        cwd: tmpDir,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      assert.fail("Should have exited with code 2");
+    } catch (e: unknown) {
+      const err = e as { status?: number; stderr?: string };
+      assert.equal(err.status, 2);
+      assert.ok(
+        (err.stderr ?? "").includes("CLAUDE.md.spec.ts"),
+        "Should mention the spec file",
+      );
+    }
+  });
+
+  it("should exit 0 for non-compiled md files", () => {
+    const mdPath = join(tmpDir, "HANDWRITTEN.md");
+    writeFileSync(mdPath, "# Hand-written\n\nNo vigiles hash.\n");
+    const input = JSON.stringify({ tool_input: { file_path: mdPath } });
+    const hookPath = resolve(process.cwd(), ".claude-plugin/hooks/pre-edit.sh");
+    execSync(`echo '${input}' | bash ${hookPath}`, {
+      cwd: tmpDir,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    // Should exit 0 (no block)
+    assert.ok(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin hook: post-edit
 // ---------------------------------------------------------------------------
 
 describe("plugin hook: post-edit.sh", () => {

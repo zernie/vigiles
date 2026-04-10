@@ -4,9 +4,8 @@
  */
 
 declare module "vigiles/generated" {
-
   /** 64 enabled eslint rules (via flat config). */
-  export type EslintRule = 
+  export type EslintRule =
     | "constructor-super"
     | "for-direction"
     | "getter-return"
@@ -76,15 +75,10 @@ declare module "vigiles/generated" {
   export type LinterRule = EslintRule;
 
   /** 5 npm scripts from package.json. */
-  export type NpmScript = 
-    | "build"
-    | "test"
-    | "lint"
-    | "fmt"
-    | "fmt:check";
+  export type NpmScript = "build" | "test" | "lint" | "fmt" | "fmt:check";
 
   /** 11 project files. */
-  export type ProjectFile = 
+  export type ProjectFile =
     | "src/action.ts"
     | "src/cli.test.ts"
     | "src/cli.ts"
@@ -100,7 +94,7 @@ declare module "vigiles/generated" {
 
 declare module "vigiles/spec" {
   interface KnownLinterRules {
-    "eslint": 
+    eslint:
       | "constructor-super"
       | "for-direction"
       | "getter-return"
@@ -167,7 +161,7 @@ declare module "vigiles/spec" {
       | "valid-typeof";
   }
   interface KnownProjectFiles {
-    files: 
+    files:
       | "src/action.ts"
       | "src/cli.test.ts"
       | "src/cli.ts"
@@ -181,11 +175,6 @@ declare module "vigiles/spec" {
       | "src/validate.ts";
   }
   interface KnownNpmScripts {
-    scripts: 
-      | "build"
-      | "test"
-      | "lint"
-      | "fmt"
-      | "fmt:check";
+    scripts: "build" | "test" | "lint" | "fmt" | "fmt:check";
   }
 }
