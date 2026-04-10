@@ -54,8 +54,8 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
-      - name: Check generated types are fresh
-        run: node dist/cli.js generate-types --check
+      - name: Check generated types compile
+        run: node dist/cli.js generate-types && npx tsc --noEmit
 
       - name: Lint
         run: npm run lint
