@@ -18,7 +18,7 @@ import type {
   FilePairingAssertion,
 } from "./spec.js";
 
-import { checkLinterRule } from "./linters.js";
+import { checkLinterRule, extractLinterName } from "./linters.js";
 import type { LinterCheckResult } from "./linters.js";
 
 // ---------------------------------------------------------------------------
@@ -245,6 +245,10 @@ export interface CompileClaudeOptions {
   catalogOnly?: boolean;
   /** Custom linter configs (rulesDir). */
   linters?: Record<string, { rulesDir?: string | string[] }>;
+  /** Global kill switch: skip ALL linter verification. */
+  verifyLinters?: boolean;
+  /** Per-linter verification mode: true (full), "catalog-only", or false (skip). */
+  linterModes?: Record<string, boolean | "catalog-only">;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +310,24 @@ function compileCommandsSection(
   return { lines: [lines.join("\n")], errors };
 }
 
+/**
+ * Determine if a rule should be verified, checking three levels:
+ * 1. Per-rule: enforce("...", "...", { verify: false })
+ * 2. Global: options.verifyLinters === false
+ * 3. Per-linter: options.linterModes[linterName] === false
+ */
+function shouldVerifyRule(
+  rule: { linterRule: string; verify: boolean },
+  options: CompileClaudeOptions,
+): boolean {
+  if (!rule.verify) return false;
+  if (options.verifyLinters === false) return false;
+  const linterName = extractLinterName(rule.linterRule);
+  const linterMode = options.linterModes?.[linterName];
+  if (linterMode === false) return false;
+  return true;
+}
+
 interface RulesSectionResult extends SectionResult {
   linterResults: LinterCheckResult[];
 }
@@ -327,8 +349,15 @@ function compileRulesSection(
     ruleLines.push("");
     ruleLines.push(compileRule(id, rule));
     if (rule._kind === "enforce") {
+      const shouldVerify = shouldVerifyRule(rule, options);
+      if (!shouldVerify) continue;
+
+      const linterName = extractLinterName(rule.linterRule);
+      const linterMode = options.linterModes?.[linterName];
+      const catalogOnly = options.catalogOnly || linterMode === "catalog-only";
+
       const result = checkLinterRule(rule.linterRule, basePath, {
-        catalogOnly: options.catalogOnly,
+        catalogOnly,
         linters: options.linters,
       });
       linterResults.push(result);

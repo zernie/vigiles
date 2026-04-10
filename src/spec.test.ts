@@ -730,9 +730,121 @@ describe("enforce() linter integration in compileClaude", () => {
       basePath: process.cwd(),
       catalogOnly: true,
     });
-    // In catalog-only mode, should still find the rule but not check config
     assert.equal(linterResults.length, 1);
     assert.equal(linterResults[0].exists, true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Linter verification escape hatches
+// ---------------------------------------------------------------------------
+
+describe("linter verification disable options", () => {
+  it("per-rule: verify: false skips linter check", () => {
+    const spec = claude({
+      rules: {
+        "fake-rule": enforce("eslint/totally-fake-xyz", "Doesn't exist.", {
+          verify: false,
+        }),
+      },
+    });
+    const { errors, linterResults } = compileClaude(spec, {
+      basePath: process.cwd(),
+    });
+    // Should NOT produce errors or linter results — verification skipped
+    assert.equal(linterResults.length, 0);
+    assert.ok(!errors.some((e) => e.type === "invalid-rule"));
+  });
+
+  it("per-rule: verify: true (default) checks linter", () => {
+    const spec = claude({
+      rules: {
+        "fake-rule": enforce("eslint/totally-fake-xyz", "Doesn't exist."),
+      },
+    });
+    const { errors } = compileClaude(spec, { basePath: process.cwd() });
+    assert.ok(errors.some((e) => e.type === "invalid-rule"));
+  });
+
+  it("global: verifyLinters: false skips ALL linter checks", () => {
+    const spec = claude({
+      rules: {
+        "fake-a": enforce("eslint/fake-a-xyz", "Nope."),
+        "fake-b": enforce("ruff/FAKE999", "Nope."),
+        "real-rule": enforce("eslint/no-console", "Use logger."),
+      },
+    });
+    const { errors, linterResults } = compileClaude(spec, {
+      basePath: process.cwd(),
+      verifyLinters: false,
+    });
+    // No linter results at all — everything skipped
+    assert.equal(linterResults.length, 0);
+    assert.ok(!errors.some((e) => e.type === "invalid-rule"));
+  });
+
+  it("per-linter: false skips that linter only", () => {
+    const spec = claude({
+      rules: {
+        "eslint-fake": enforce("eslint/fake-xyz", "Nope."),
+        "ruff-fake": enforce("ruff/FAKE999", "Nope."),
+      },
+    });
+    const { errors, linterResults } = compileClaude(spec, {
+      basePath: process.cwd(),
+      linterModes: { eslint: false },
+    });
+    // eslint skipped, ruff still checked
+    assert.ok(!linterResults.some((r) => r.linter === "eslint"));
+    assert.ok(linterResults.some((r) => r.linter === "ruff"));
+    // Only ruff error, not eslint
+    assert.ok(errors.some((e) => e.message.includes("FAKE999")));
+    assert.ok(!errors.some((e) => e.message.includes("fake-xyz")));
+  });
+
+  it("per-linter: catalog-only skips config check", () => {
+    const spec = claude({
+      rules: {
+        "no-console": enforce("eslint/no-console", "Use logger."),
+      },
+    });
+    const { linterResults } = compileClaude(spec, {
+      basePath: process.cwd(),
+      linterModes: { eslint: "catalog-only" },
+    });
+    assert.equal(linterResults.length, 1);
+    assert.equal(linterResults[0].exists, true);
+    // In catalog-only mode, config-enabled check is skipped
+  });
+
+  it("per-rule verify: false takes priority over global verifyLinters: true", () => {
+    const spec = claude({
+      rules: {
+        "skip-this": enforce("eslint/fake-xyz", "Skip.", { verify: false }),
+        "check-this": enforce("eslint/no-console", "Check."),
+      },
+    });
+    const { linterResults } = compileClaude(spec, {
+      basePath: process.cwd(),
+    });
+    // Only the verified rule produces a result
+    assert.equal(linterResults.length, 1);
+    assert.equal(linterResults[0].rule, "no-console");
+  });
+
+  it("global verifyLinters: false overrides per-linter modes", () => {
+    const spec = claude({
+      rules: {
+        "no-console": enforce("eslint/no-console", "Use logger."),
+      },
+    });
+    const { linterResults } = compileClaude(spec, {
+      basePath: process.cwd(),
+      verifyLinters: false,
+      linterModes: { eslint: true },
+    });
+    // Global kill switch wins
+    assert.equal(linterResults.length, 0);
   });
 });
 

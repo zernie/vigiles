@@ -79,6 +79,8 @@ export interface EnforceRule {
   readonly _kind: "enforce";
   readonly linterRule: LinterRule;
   readonly why: string;
+  /** Skip linter verification for this rule. Default: true (verify). */
+  readonly verify: boolean;
 }
 
 /** A filesystem check owned by vigiles (e.g., test file pairing). */
@@ -111,8 +113,12 @@ export type Rule = EnforceRule | CheckRule | GuidanceRule;
  *   enforce("ast-grep/no-moment-import", "Migrating to dayjs.")
  *   enforce("dependency-cruiser/no-circular", "No circular deps.")
  */
-export function enforce(linterRule: LinterRule, why: string): EnforceRule {
-  return { _kind: "enforce", linterRule, why };
+export function enforce(
+  linterRule: LinterRule,
+  why: string,
+  options?: { verify?: boolean },
+): EnforceRule {
+  return { _kind: "enforce", linterRule, why, verify: options?.verify ?? true };
 }
 
 /**
@@ -291,6 +297,9 @@ export function skill(spec: Omit<SkillSpec, "_specType">): SkillSpec {
 // Project-level config
 // ---------------------------------------------------------------------------
 
+/** Per-linter verification mode. */
+export type LinterMode = boolean | "catalog-only";
+
 export interface VigilesV2Config {
   /** Glob pattern to discover spec files. Default: "**\/*.spec.ts" */
   readonly specs?: string;
@@ -300,6 +309,10 @@ export interface VigilesV2Config {
   readonly maxRules?: number;
   /** Maximum estimated tokens for compiled output. ~4 chars per token. */
   readonly maxTokens?: number;
+  /** Global kill switch: skip ALL linter verification during compile. */
+  readonly verifyLinters?: boolean;
+  /** Per-linter verification mode: true (full), "catalog-only", or false (skip). */
+  readonly linters?: Record<string, LinterMode>;
 }
 
 export function defineConfig(config: VigilesV2Config): VigilesV2Config {
