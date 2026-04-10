@@ -80,9 +80,21 @@ Generate:
 2. Test cases
 3. Integration instructions
 
-### Step 3: Generate the CLAUDE.md Block
+### Step 3: Add to Instruction File
 
-Generate a CLAUDE.md annotation block to append:
+**If the project uses v2 specs** (has `CLAUDE.md.spec.ts`):
+
+Add an `enforce()` rule to the spec file:
+
+```typescript
+"<rule-id>": enforce("<linter>/<rule-name>", "<why>"),
+```
+
+Then run `npx vigiles compile` to regenerate CLAUDE.md.
+
+**If the project uses v1** (hand-written CLAUDE.md):
+
+Append an annotation block:
 
 ```markdown
 ### <Rule title — imperative, concise>
@@ -97,7 +109,7 @@ Show the user:
 
 1. All generated files with full contents
 2. Step-by-step integration instructions
-3. The CLAUDE.md block to add
+3. The spec rule or CLAUDE.md block to add
 4. How to verify it works (run the linter, expect it to catch a violation)
 
-Ask the user if they want you to write the files and update CLAUDE.md.
+Ask the user if they want you to write the files and update the spec/CLAUDE.md.

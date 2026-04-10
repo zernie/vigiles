@@ -246,11 +246,19 @@ Install skills for all your AI agents at once with [Vercel Skills](https://githu
 npx skills add zernie/vigiles
 ```
 
-**`audit-feedback-loop`** — Scores your repo's feedback loop maturity (see [Maturity Levels](#maturity-levels)).
+### Adoption & Migration
 
-**`pr-to-lint-rule`** — Converts a recurring PR comment into a lint rule + tests + spec annotation.
+**`migrate-to-spec`** — Convert an existing hand-written CLAUDE.md into a typed `.spec.ts` file. The incremental adoption path — parses your existing sections, rules, commands, and key files into a typed spec with `file()`/`cmd()` refs for stale reference detection.
 
-**`enforce-rules-format`** — Validates and fixes enforcement annotations in your instruction files.
+**`generate-rule`** — Add a new `enforce()`, `check()`, or `guidance()` rule to an existing spec. Detects the right rule type: checks linter configs for matching rules, suggests `check()` for filesystem patterns, falls back to `guidance()` for subjective conventions.
+
+### Validation & Audit
+
+**`enforce-rules-format`** — Validates that all rules have proper enforcement classification. Works with both v2 specs and v1 hand-written files. Suggests migration to specs for v1 projects.
+
+**`audit-feedback-loop`** — Scores your repo's feedback loop maturity (see [Maturity Levels](#maturity-levels)). Detects v2 specs and generated types as higher-maturity signals.
+
+**`pr-to-lint-rule`** — Converts a recurring PR review comment into a lint rule + tests + spec annotation. Supports ESLint, Ruff, Clippy, Go analyzers, and RuboCop.
 
 ## Maturity Levels
 

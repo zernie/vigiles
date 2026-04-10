@@ -1,83 +1,71 @@
 ---
 name: enforce-rules-format
-description: Validate and fix enforcement annotations in CLAUDE.md and other agent instruction files so CI passes
+description: Validate that all rules in a spec file or CLAUDE.md have proper enforcement annotations
 disable-model-invocation: true
 ---
 
-Validate that every rule in the project's agent instruction files has a proper enforcement annotation, and fix any that are missing.
+Validate that every rule in the project's instruction files has a proper enforcement classification, and fix any that are missing.
 
 ## Instructions
 
-### Step 1: Discover Instruction Files
+### Step 1: Detect Format
 
-Look for agent instruction files in the repository:
+Check which format the project uses:
 
-- `CLAUDE.md` (Claude Code)
-- `AGENTS.md` (OpenAI Codex)
-- `.cursorrules` (Cursor)
-- Any other markdown files the user has configured for agent instructions
+**v2 (spec-based):** Look for `CLAUDE.md.spec.ts` or any `*.spec.ts` files. If found, this is a v2 project — rules must use `enforce()`, `check()`, or `guidance()`.
 
-Check the repo root and common subdirectory locations (e.g. `packages/*/CLAUDE.md` in monorepos).
+**v1 (hand-written):** Look for `CLAUDE.md`, `AGENTS.md`, `.cursorrules`. If found without a spec file, this is a v1 project — rules need `**Enforced by:**` or `**Guidance only**` annotations.
 
-### Step 2: Validate Each File
+### Step 2: Validate
 
-For each instruction file found, scan for `###` headings (level-3 markdown headers). Each heading represents a rule and **must** have one of these annotations in the lines between it and the next `###` heading:
+**For v2 specs:**
 
-**Option A — Enforced rule:**
+The TypeScript type system already prevents unannotated rules — you can't create a rule without calling `enforce()`, `check()`, or `guidance()`. So focus on:
 
-```markdown
-### Rule title
+1. Do `enforce()` rules reference real linter rules? Run `npx vigiles compile` to check.
+2. Are there guidance rules that COULD be `enforce()`? Check linter configs for matching rules.
+3. Are there `check()` assertions that could be delegated to a linter? Suggest `enforce()` instead.
 
-**Enforced by:** `linter/rule-name`
-**Why:** One sentence explaining the reason.
+```bash
+npx vigiles compile
+npx vigiles discover
 ```
 
-**Option B — Guidance-only rule:**
+**For v1 hand-written files:**
 
-```markdown
-### Rule title
+Scan for `###` headings. Each must have one of:
 
-**Guidance only** — explanation of why it cannot be mechanically enforced
-**Why:** One sentence explaining the reason.
-```
+- `**Enforced by:** \`linter/rule-name\``
+- `**Guidance only** — reason`
+- `<!-- vigiles-disable -->`
 
-Rules missing both annotations will cause CI validation to fail.
+Report missing annotations with a summary table.
 
-### Step 3: Report Findings
+### Step 3: Fix Issues
 
-Output a summary for each file:
+For each issue found:
 
-```
-## <filename>
+1. Check the project's linter configuration for matching rules
+2. Suggest `enforce("linter/rule")` (v2) or `**Enforced by:** \`linter/rule\`` (v1)
+3. If no linter rule exists, suggest `guidance()` (v2) or `**Guidance only**` (v1)
+4. **Ask the user** before making changes
 
-| Line | Rule | Status |
-|------|------|--------|
-| 5 | Always use barrel file imports | Enforced (`eslint/no-restricted-imports`) |
-| 12 | Use Tailwind spacing scale | Guidance only |
-| 18 | No magic numbers in configs | MISSING |
+### Step 4: Suggest Migration
 
-Total: X rules — Y enforced, Z guidance, N missing
-```
+If the project uses v1 format, suggest migrating to v2 specs for type safety:
 
-If all rules have annotations, report success and stop.
-
-### Step 4: Fix Missing Annotations
-
-For each rule missing an annotation:
-
-1. **Check the project's linter configuration** — look for ESLint, Ruff, Clippy, golangci-lint, RuboCop, or other linter configs to find a rule that enforces this convention
-2. If a matching linter rule exists, suggest: `**Enforced by:** \`linter/rule-name\``
-3. If no linter can mechanically enforce the rule, suggest: `**Guidance only** — <reason>`
-4. If you are unsure whether a linter rule exists, **ask the user** rather than guessing
-
-Present all suggested fixes and **ask the user for confirmation** before writing any changes.
+> Your rules could benefit from type-safe specs. Run the `migrate-to-spec` skill to convert your CLAUDE.md to a typed .spec.ts file.
 
 ### Step 5: Verify
 
-After making fixes, run validation to confirm CI will pass:
+Run the appropriate command:
 
 ```bash
-npx vigiles <file>
+# v2
+npx vigiles compile && npx vigiles check
+
+# v1
+npx vigiles CLAUDE.md
 ```
 
-Report the validation result. If it still fails, return to Step 4 for the remaining issues.
+Report the validation result.

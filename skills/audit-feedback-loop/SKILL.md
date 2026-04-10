@@ -42,10 +42,12 @@ Scan the repository for the following and note which exist:
    - Rust: custom Clippy lints
    - Go: custom analyzers
 4. **CLAUDE.md**: Check if `CLAUDE.md` exists at the repo root
-5. **CLAUDE.md Enforcement**: If CLAUDE.md exists, check if rules have `**Enforced by:**` annotations
-6. **Screenshot/Visual Tests**: Look for Playwright (`playwright.config.*`), Cypress (`cypress.config.*`), Chromatic, Percy, BackstopJS configs
-7. **Observability**: Search for imports/usage of `@sentry/`, `dd-trace`, `@datadog/`, `newrelic`, `@opentelemetry/`, `sentry_sdk`, `structlog`, `tracing` (Rust), `opentelemetry` in source files
-8. **Scheduled Agent Tasks**: Look for cron patterns in CI configs, `.github/workflows/` with `schedule:` triggers, or references to scheduled Claude Code tasks
+5. **CLAUDE.md Enforcement**: Check if using vigiles v2 specs (`CLAUDE.md.spec.ts` exists) or v1 annotations (`**Enforced by:**` in CLAUDE.md). v2 specs = higher maturity.
+6. **Type-Safe Specs**: Check for `CLAUDE.md.spec.ts` or `*.spec.ts` files — indicates typed spec compilation via vigiles v2
+7. **Generated Types**: Check for `.vigiles/generated.d.ts` — indicates linter rules are type-checked at authoring time
+8. **Screenshot/Visual Tests**: Look for Playwright (`playwright.config.*`), Cypress (`cypress.config.*`), Chromatic, Percy, BackstopJS configs
+9. **Observability**: Search for imports/usage of `@sentry/`, `dd-trace`, `@datadog/`, `newrelic`, `@opentelemetry/`, `sentry_sdk`, `structlog`, `tracing` (Rust), `opentelemetry` in source files
+10. **Scheduled Agent Tasks**: Look for cron patterns in CI configs, `.github/workflows/` with `schedule:` triggers, or references to scheduled Claude Code tasks
 
 ### Output Format
 
