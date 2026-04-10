@@ -899,7 +899,8 @@ async function setup(args: string[]): Promise<void> {
   }
 
   // Step 8: Agent-specific guidance
-  const specPaths = targets.map((t) => `${t}.spec.ts`).join(", ");
+  const specPathsList = targets.map((t) => `${t}.spec.ts`);
+  const specPaths = specPathsList.join(", ");
 
   if (targets.includes("AGENTS.md")) {
     console.log(
@@ -953,7 +954,7 @@ async function setup(args: string[]): Promise<void> {
   console.log("\n  Commit:");
   const files = [
     ...targets,
-    specPaths,
+    ...specPathsList,
     ".vigiles/generated.d.ts",
     ...(shouldInstallPlugin ? [".claude/settings.json"] : []),
     ...(strict ? [".vigilesrc.json"] : []),

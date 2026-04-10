@@ -1,6 +1,6 @@
 import { readFileSync, lstatSync, existsSync } from "node:fs";
 import { globSync } from "glob";
-import { resolve } from "node:path";
+import { resolve, basename as pathBasename } from "node:path";
 import { cosmiconfigSync } from "cosmiconfig";
 
 import type {
@@ -212,7 +212,7 @@ export function validate(
   const disableComment = /<!--\s*vigiles-disable\s+require-spec\s*-->/;
 
   if (filePath) {
-    const basename = filePath.split("/").pop() ?? "";
+    const basename = pathBasename(filePath);
     const isInstruction = basename === "CLAUDE.md" || basename === "AGENTS.md";
     const isSkill = basename === "SKILL.md";
 
