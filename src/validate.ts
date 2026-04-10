@@ -93,6 +93,7 @@ export const RULE_PACKS: Record<string, RulePack> = {
       "require-rule-file": "auto",
       "require-structure": false,
       "no-broken-links": true,
+      "require-spec": false,
     },
     structures: [],
   },
@@ -103,6 +104,7 @@ export const RULE_PACKS: Record<string, RulePack> = {
       "require-rule-file": "auto",
       "require-structure": true,
       "no-broken-links": true,
+      "require-spec": true,
     },
     structures: [
       { files: "CLAUDE.md", schema: "claude-md:strict" },
@@ -1019,6 +1021,24 @@ export function validate(
             line: rule.line,
           });
         }
+      }
+    }
+  }
+
+  // --- require-spec ---
+  // Check that the instruction file has a corresponding .spec.ts.
+  // Disabled via: config ("require-spec": false) or HTML comment in file
+  // (<!-- vigiles-disable require-spec -->).
+  if (activeRules["require-spec"] === true && filePath) {
+    const disableComment = /<!--\s*vigiles-disable\s+require-spec\s*-->/;
+    if (!disableComment.test(content)) {
+      const specPath = filePath + ".spec.ts";
+      if (!existsSync(specPath)) {
+        errors.push({
+          rule: "require-spec",
+          message: `No spec file found for "${filePath}". Expected "${specPath}". Migrate with \`vigiles init\` or disable with <!-- vigiles-disable require-spec -->.`,
+          line: 1,
+        });
       }
     }
   }

@@ -312,6 +312,7 @@ describe("loadConfig", () => {
       "require-rule-file": "auto",
       "require-structure": false,
       "no-broken-links": true,
+      "require-spec": false,
     });
   });
 

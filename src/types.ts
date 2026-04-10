@@ -61,6 +61,8 @@ export interface RulesConfig {
   "require-rule-file"?: "auto" | "catalog-only" | boolean;
   "require-structure"?: boolean;
   "no-broken-links"?: boolean;
+  /** Check that every instruction file has a corresponding .spec.ts. */
+  "require-spec"?: boolean;
 }
 
 /** Linter-specific configuration (e.g., custom rules directories). */
