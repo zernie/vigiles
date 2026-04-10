@@ -6,7 +6,7 @@
  *
  * Three rule types:
  *   enforce() — delegated to an external linter (ESLint, Ruff, Clippy, etc.)
- *   prove()   — checked by vigiles itself (filesystem, AST patterns)
+ *   check()   — checked by vigiles itself (filesystem, AST patterns)
  *   guidance() — prose only, no mechanical enforcement
  */
 
@@ -329,7 +329,7 @@ export interface ClaudeSpec {
   readonly sections?: Record<string, string | InstructionFragment[]>;
   /** Maximum lines per prose section (per-spec override). */
   readonly maxSectionLines?: number;
-  /** Rules: enforce(), prove(), or guidance(). */
+  /** Rules: enforce(), check(), or guidance(). */
   readonly rules: Record<string, Rule>;
 }
 

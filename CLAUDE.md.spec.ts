@@ -38,13 +38,29 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
       "Linter cross-referencing engine (ESLint, Stylelint, Ruff, Clippy, Pylint, RuboCop)",
     "src/generate-types.ts":
       "Type generator: scans linters/package.json/filesystem → emits .d.ts",
-    "src/cli.ts": "CLI: compile, check, init, generate-types, discover, adopt",
+    "src/cli.ts":
+      "CLI: compile, check, init, setup, generate-types, discover, strengthen, adopt",
     "src/action.ts": "GitHub Action wrapper",
     "src/spec.test.ts": "Spec + compiler test suite (node:test)",
     "src/validate.test.ts": "Validation test suite (node:test)",
+    "src/cli.test.ts": "CLI integration + E2E test suite (node:test)",
     "CLAUDE.md.spec.ts": "This file — the source of truth for CLAUDE.md",
     "examples/SKILL.md.spec.ts": "Example SKILL.md spec",
-    "research/adoption-strategy.md": "Adoption strategy and pain points",
+    "research/adoption-strategy.md":
+      "Adoption strategy: zero-config setup, progressive enforcement, agent workflows",
+    "research/competitive-landscape.md":
+      "Competitive landscape: rule-porter, rulesync, vibe-cli, Ruler",
+    "research/executable-specs.md": "Design doc: executable spec system",
+    "research/feature-ideas.md":
+      "Feature ideas: plugin API, custom rules, exhaustive coverage",
+    "research/ai-code-quality.md": "Research: AI code quality patterns",
+    "docs/agent-workflows.md":
+      "Agent-specific workflows (Claude Code, Codex, multi-agent, Cursor)",
+    "docs/agent-setup.md":
+      "Non-interactive agent setup guide (hooks via settings.json)",
+    "docs/spec-format.md": "Spec format reference (target, sections, rules)",
+    "docs/linter-support.md":
+      "Linter support details (6 linters + generate-types)",
   },
 
   commands: {

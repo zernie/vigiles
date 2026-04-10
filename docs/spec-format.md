@@ -10,11 +10,21 @@ Use `claude()` to define a CLAUDE.md spec. Export it as the default export.
 import { claude, enforce, guidance, check, every, file, cmd, ref, instructions } from "vigiles";
 
 export default claude({
+  target: "CLAUDE.md",          // or "AGENTS.md", or ["CLAUDE.md", "AGENTS.md"]
   sections: { ... },
   keyFiles: { ... },
   commands: { ... },
   rules: { ... },
+  maxSectionLines: 30,          // optional: cap per-section line count
 });
+```
+
+### `target`
+
+`string | string[]` -- Output filename(s). Defaults to `"CLAUDE.md"`. Also used as the `# Heading` in compiled output. Pass an array to compile one spec to multiple targets:
+
+```ts
+target: ["CLAUDE.md", "AGENTS.md"],  // emits both from one spec
 ```
 
 ### `sections`
