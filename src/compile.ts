@@ -472,11 +472,7 @@ export function compileClaude(
       message: `Spec file "${specFile}" must end with .spec.ts`,
     });
   } else {
-    const baseName =
-      specFile
-        .replace(/\.spec\.ts$/, "")
-        .split("/")
-        .pop() ?? "";
+    const baseName = basename(specFile, ".spec.ts");
     if (baseName !== target) {
       errors.push({
         type: "spec-name-mismatch",
@@ -567,11 +563,7 @@ export function compileSkill(
       message: `Spec file "${specFile}" must end with .spec.ts`,
     });
   } else {
-    const baseName =
-      specFile
-        .replace(/\.spec\.ts$/, "")
-        .split("/")
-        .pop() ?? "";
+    const baseName = basename(specFile, ".spec.ts");
     if (!/\.md$/i.test(baseName)) {
       errors.push({
         type: "spec-name-mismatch",

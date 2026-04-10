@@ -148,6 +148,7 @@ function runCheck(): boolean {
         .filter(Boolean)
     : [
         ...globSync("**/CLAUDE.md", { ignore: ["node_modules/**"] }),
+        ...globSync("**/AGENTS.md", { ignore: ["node_modules/**"] }),
         ...globSync("**/SKILL.md", { ignore: ["node_modules/**"] }),
       ];
 

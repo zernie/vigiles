@@ -69,7 +69,7 @@ function loadConfig(): VigilesConfig {
 // ---------------------------------------------------------------------------
 
 function findSpecs(pattern?: string): string[] {
-  const glob = pattern ?? "**/*.spec.ts";
+  const glob = pattern ?? "**/*.md.spec.ts";
   return globSync(glob, {
     ignore: [...IGNORE_NODE_MODULES, "dist/**"],
     cwd: process.cwd(),
