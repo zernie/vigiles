@@ -8,24 +8,23 @@ import { claude, enforce, guidance, check, every } from "../src/spec.js";
 
 export default claude({
   sections: {
-    positioning: `vigiles — validates that AI instruction files (CLAUDE.md) have enforcement annotations on every rule, and cross-references those annotations against actual linter configurations.
+    positioning: `vigiles compiles \`.spec.ts\` files to instruction files. The spec is the source of truth. The markdown is a build artifact.
 
-vigiles is a **bridge between instruction files and linter configs** — not a markdown linter, not a file sync tool. The core value: every rule in your CLAUDE.md either points to a real, enabled linter rule, or explicitly declares itself as guidance-only.`,
+The linter cross-referencing engine is the core moat: \`enforce("eslint/no-console")\` verifies the rule exists AND is enabled in your ESLint config. Same for Ruff, Clippy, Pylint, RuboCop, and Stylelint.
 
-    architecture: `TypeScript strict-mode codebase (\`src/\`). Core engine in \`src/validate.ts\`. Exports: \`parseClaudeMd\`, \`validate\`, \`readClaudeMd\`, \`validatePaths\`, \`loadConfig\`, \`findInstructionFiles\`, \`validateStructure\`, \`resolveSchema\`, \`STRUCTURE_PRESETS\`, \`RULE_PACKS\`. All types in \`src/types.ts\`.
+\`generate-types\` is the second moat: scans all 6 linter APIs, package.json, and project files to emit a \`.d.ts\` with type unions. The TS compiler then PROVES references are valid at authoring time.`,
 
-By default, validates \`CLAUDE.md\` only. Configure \`"files"\` in \`.vigilesrc.json\` to validate additional instruction files.`,
+    architecture: `Three rule types in specs: \`enforce()\` (delegated to external tool), \`check()\` (vigiles-owned filesystem assertion), \`guidance()\` (prose only).
+
+Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler), \`src/linters.ts\` (6-linter cross-referencing engine), \`src/generate-types.ts\` (type generator).`,
   },
 
   keyFiles: {
-    "src/types.ts": "TypeScript type definitions (interfaces, type aliases)",
-    "src/validate.ts":
-      "Core validation engine: parsing, config loading, linter checks",
-    "src/cli.ts": "CLI entry point: arg parsing, output formatting",
-    "src/spec.ts": "Spec system: type definitions, builder functions",
-    "src/compile.ts": "Compiler: spec → markdown with hash verification",
-    "src/action.ts":
-      "GitHub Action wrapper, reads inputs and calls validatePaths",
+    "src/spec.ts": "Type system and builder functions",
+    "src/compile.ts": "Compiler: spec → markdown with SHA-256 hash",
+    "src/linters.ts": "Linter cross-referencing engine (6 linters)",
+    "src/generate-types.ts": "Type generator: project state → .d.ts",
+    "src/cli.ts": "CLI: compile, check, init, generate-types, discover, adopt",
   },
 
   commands: {
@@ -37,20 +36,23 @@ By default, validates \`CLAUDE.md\` only. Configure \`"files"\` in \`.vigilesrc.
 
   rules: {
     "zero-config-by-default": guidance(
-      "vigiles should work out of the box with no config file and no CLI flags. Auto-detect linters and rule markers. Config exists only for overrides, not for basic operation.",
+      "vigiles compile should work with just a .spec.ts file. Config exists only for overrides (maxRules, maxTokens, catalogOnly).",
     ),
 
     "never-skip-tests": guidance(
-      "All tests must pass, none may be skipped. If a test requires a CLI tool (pylint, rubocop, ruff, clippy), that tool must be installed — not the test skipped.",
+      "All tests must pass. If a test requires a CLI tool (pylint, rubocop, ruff, clippy), install the tool, don't skip the test.",
     ),
 
-    "format-before-commit": enforce(
-      "eslint/no-console",
-      "Run `npm run fmt:check` after editing markdown files to catch formatting issues before they reach GitHub.",
+    "dont-reimplement-linters": guidance(
+      "Architectural linting belongs in ast-grep/Dependency Cruiser/Steiger. Per-file code rules belong in ESLint/Ruff/Clippy. vigiles owns: compilation, linter cross-referencing, type generation, filesystem assertions, and stale reference detection.",
+    ),
+
+    "format-before-commit": guidance(
+      "Run `npm run fmt:check` before committing. Inline code spans in markdown need surrounding spaces to render correctly.",
     ),
 
     "no-session-links": guidance(
-      "This is a public repo. Claude Code session URLs are private and should not be leaked in commit messages, PR descriptions, or comments.",
+      "This is a public repo. Claude Code session URLs are private and must not appear in commits or PRs.",
     ),
 
     "test-file-pairing": check(
