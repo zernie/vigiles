@@ -121,7 +121,7 @@ export function loadConfig(): VigilesConfig {
 // Parsing
 // ---------------------------------------------------------------------------
 
-export function parseClaudeMd(
+export function parseRules(
   content: string,
   { ruleMarkers }: ParseOptions = {},
 ): ParsedRule[] {
@@ -192,7 +192,7 @@ export function validate(
   { ruleMarkers, rules: rulesConfig, filePath }: ValidateOptions = {},
 ): ValidationResult {
   const activeRules = rulesConfig ?? DEFAULT_RULES;
-  const parsedRules = parseClaudeMd(content, { ruleMarkers });
+  const parsedRules = parseRules(content, { ruleMarkers });
   const enforced = parsedRules.filter(
     (r) => r.enforcement === "enforced",
   ).length;
@@ -241,7 +241,7 @@ export function validate(
 // File reading
 // ---------------------------------------------------------------------------
 
-export function readClaudeMd(
+export function readInstructionFile(
   filePath: string,
   options: ReadOptions = {},
 ): ReadResult {
@@ -315,7 +315,7 @@ export function validatePaths(
   let allValid = true;
 
   for (const filePath of paths) {
-    const { content, skipped, reason } = readClaudeMd(filePath, {
+    const { content, skipped, reason } = readInstructionFile(filePath, {
       followSymlinks,
     });
 

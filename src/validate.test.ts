@@ -11,8 +11,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   validate,
-  parseClaudeMd,
-  readClaudeMd,
+  parseRules,
+  readInstructionFile,
   validatePaths,
   expandGlobs,
   findInstructionFiles,
@@ -21,12 +21,12 @@ import {
 import type { MarkerType, ParseOptions } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// parseClaudeMd
+// parseRules
 // ---------------------------------------------------------------------------
 
-describe("parseClaudeMd", () => {
+describe("parseRules", () => {
   it("should parse enforced rules", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "### Use barrel imports\n**Enforced by:** `eslint/no-restricted-imports`\n**Why:** Consistency.\n",
     );
     assert.equal(rules.length, 1);
@@ -36,7 +36,7 @@ describe("parseClaudeMd", () => {
   });
 
   it("should parse guidance-only rules", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "### Use Tailwind spacing scale\n**Guidance only** — cannot be mechanically enforced\n",
     );
     assert.equal(rules.length, 1);
@@ -44,13 +44,13 @@ describe("parseClaudeMd", () => {
   });
 
   it("should parse rules missing annotations", () => {
-    const rules = parseClaudeMd("### Some rule\n**Why:** Just because.\n");
+    const rules = parseRules("### Some rule\n**Why:** Just because.\n");
     assert.equal(rules.length, 1);
     assert.equal(rules[0].enforcement, "missing");
   });
 
   it("should track line numbers", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "# Header\n\nSome text\n\n### First rule\n**Enforced by:** `x`\n\n### Second rule\nNo annotation\n",
     );
     assert.equal(rules[0].line, 5);
@@ -58,7 +58,7 @@ describe("parseClaudeMd", () => {
   });
 
   it("should handle multiple rules in sequence", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "### Rule A\n**Enforced by:** `a`\n### Rule B\n**Guidance only**\n### Rule C\nNothing here.\n",
     );
     assert.equal(rules.length, 3);
@@ -68,14 +68,14 @@ describe("parseClaudeMd", () => {
   });
 
   it("should not match deeper headings (####)", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "### Real rule\n**Enforced by:** `x`\n#### Not a rule\nSome details.\n",
     );
     assert.equal(rules.length, 1);
   });
 
   it("should not match shallower headings (## or #)", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "# Top level\n## Section\n### Actual rule\n**Enforced by:** `x`\n",
     );
     assert.equal(rules.length, 1);
@@ -83,19 +83,19 @@ describe("parseClaudeMd", () => {
   });
 
   it("should handle empty file", () => {
-    const rules = parseClaudeMd("");
+    const rules = parseRules("");
     assert.equal(rules.length, 0);
   });
 
   it("should handle file with no rules", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "# CLAUDE.md\n\nThis project uses TypeScript.\n",
     );
     assert.equal(rules.length, 0);
   });
 
   it("should stop looking for annotation at next header", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "### Rule A\nSome text.\nMore text.\n### Rule B\n**Enforced by:** `x`\n",
     );
     assert.equal(rules[0].enforcement, "missing");
@@ -103,7 +103,7 @@ describe("parseClaudeMd", () => {
   });
 
   it("should parse disabled rules", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "### Skipped rule\n<!-- vigiles-disable -->\n**Why:** Not relevant here.\n",
     );
     assert.equal(rules.length, 1);
@@ -111,7 +111,7 @@ describe("parseClaudeMd", () => {
   });
 
   it("should handle vigiles-disable with extra whitespace", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "### Skipped rule\n<!--  vigiles-disable  -->\n",
     );
     assert.equal(rules[0].enforcement, "disabled");
@@ -119,15 +119,15 @@ describe("parseClaudeMd", () => {
 });
 
 // ---------------------------------------------------------------------------
-// parseClaudeMd with checkboxes
+// parseRules with checkboxes
 // ---------------------------------------------------------------------------
 
-describe("parseClaudeMd with checkboxes", () => {
+describe("parseRules with checkboxes", () => {
   const opts: ParseOptions = { ruleMarkers: ["checkboxes"] };
   const bothOpts: ParseOptions = { ruleMarkers: ["headings", "checkboxes"] };
 
   it("should parse unchecked checkbox with enforced annotation", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "- [ ] Use barrel imports\n**Enforced by:** `eslint/no-restricted-imports`\n",
       opts,
     );
@@ -138,7 +138,7 @@ describe("parseClaudeMd with checkboxes", () => {
   });
 
   it("should parse checked checkbox (lowercase x) with guidance", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "- [x] Use Tailwind spacing\n**Guidance only** — cannot be enforced\n",
       opts,
     );
@@ -147,7 +147,7 @@ describe("parseClaudeMd with checkboxes", () => {
   });
 
   it("should parse checked checkbox (uppercase X) with disabled", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "- [X] Skipped rule\n<!-- vigiles-disable -->\n",
       opts,
     );
@@ -156,13 +156,13 @@ describe("parseClaudeMd with checkboxes", () => {
   });
 
   it("should detect checkbox rule missing annotation", () => {
-    const rules = parseClaudeMd("- [ ] Some rule\nJust a description.\n", opts);
+    const rules = parseRules("- [ ] Some rule\nJust a description.\n", opts);
     assert.equal(rules.length, 1);
     assert.equal(rules[0].enforcement, "missing");
   });
 
   it("should handle multiple checkboxes in sequence", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "- [ ] Rule A\n**Enforced by:** `a`\n- [x] Rule B\n**Guidance only**\n- [ ] Rule C\nNothing.\n",
       opts,
     );
@@ -173,7 +173,7 @@ describe("parseClaudeMd with checkboxes", () => {
   });
 
   it("should track line numbers for checkbox rules", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "# Header\n\nSome text\n\n- [ ] First rule\n**Enforced by:** `x`\n\n- [ ] Second rule\nNo annotation\n",
       opts,
     );
@@ -182,7 +182,7 @@ describe("parseClaudeMd with checkboxes", () => {
   });
 
   it("should not match indented checkboxes", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "  - [ ] Indented item\n**Enforced by:** `x`\n",
       opts,
     );
@@ -190,7 +190,7 @@ describe("parseClaudeMd with checkboxes", () => {
   });
 
   it("should handle mixed headers and checkboxes with both markers", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "### Heading rule\n**Enforced by:** `a`\n- [ ] Checkbox rule\n**Guidance only**\n### Another heading\n**Enforced by:** `b`\n",
       bothOpts,
     );
@@ -204,7 +204,7 @@ describe("parseClaudeMd with checkboxes", () => {
   });
 
   it("checkbox should flush previous heading rule", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "### Rule A\nSome text\n- [ ] Rule B\n**Enforced by:** `x`\n",
       bothOpts,
     );
@@ -215,7 +215,7 @@ describe("parseClaudeMd with checkboxes", () => {
   });
 
   it("heading should flush previous checkbox rule", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "- [ ] Rule A\nSome text\n### Rule B\n**Enforced by:** `x`\n",
       bothOpts,
     );
@@ -226,7 +226,7 @@ describe("parseClaudeMd with checkboxes", () => {
   });
 
   it("should ignore checkboxes when only headings marker is enabled", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "- [ ] Checkbox rule\n**Enforced by:** `x`\n### Heading rule\n**Enforced by:** `y`\n",
       { ruleMarkers: ["headings"] as MarkerType[] },
     );
@@ -235,7 +235,7 @@ describe("parseClaudeMd with checkboxes", () => {
   });
 
   it("should ignore headings when only checkboxes marker is enabled", () => {
-    const rules = parseClaudeMd(
+    const rules = parseRules(
       "### Heading rule\n**Enforced by:** `x`\n- [ ] Checkbox rule\n**Enforced by:** `y`\n",
       opts,
     );
@@ -418,10 +418,10 @@ describe("loadConfig", () => {
 });
 
 // ---------------------------------------------------------------------------
-// readClaudeMd
+// readInstructionFile
 // ---------------------------------------------------------------------------
 
-describe("readClaudeMd", () => {
+describe("readInstructionFile", () => {
   let tmpDir: string;
 
   before(() => {
@@ -435,14 +435,14 @@ describe("readClaudeMd", () => {
   it("should read a regular file", () => {
     const filePath = join(tmpDir, "regular.md");
     writeFileSync(filePath, "### Rule\n**Enforced by:** `x`\n");
-    const { content, skipped } = readClaudeMd(filePath);
+    const { content, skipped } = readInstructionFile(filePath);
     assert.equal(skipped, false);
     assert.notEqual(content, null);
     assert.ok((content as string).includes("### Rule"));
   });
 
   it("should return error for missing file", () => {
-    const { content, skipped, reason } = readClaudeMd(join(tmpDir, "nope.md"));
+    const { content, skipped, reason } = readInstructionFile(join(tmpDir, "nope.md"));
     assert.equal(content, null);
     assert.equal(skipped, false);
     assert.notEqual(reason, null);
@@ -454,7 +454,7 @@ describe("readClaudeMd", () => {
     const link = join(tmpDir, "link.md");
     writeFileSync(realFile, "### Rule\n**Enforced by:** `x`\n");
     symlinkSync(realFile, link);
-    const { content, skipped, reason } = readClaudeMd(link);
+    const { content, skipped, reason } = readInstructionFile(link);
     assert.equal(content, null);
     assert.equal(skipped, true);
     assert.notEqual(reason, null);
@@ -466,7 +466,7 @@ describe("readClaudeMd", () => {
     const link = join(tmpDir, "link2.md");
     writeFileSync(realFile, "### Rule\n**Enforced by:** `x`\n");
     symlinkSync(realFile, link);
-    const { content, skipped } = readClaudeMd(link, { followSymlinks: true });
+    const { content, skipped } = readInstructionFile(link, { followSymlinks: true });
     assert.equal(skipped, false);
     assert.notEqual(content, null);
     assert.ok((content as string).includes("### Rule"));

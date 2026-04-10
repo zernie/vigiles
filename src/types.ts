@@ -62,7 +62,7 @@ export interface VigilesConfig {
 /** Valid marker types for rule detection. */
 export type MarkerType = "headings" | "checkboxes";
 
-/** Options for parseClaudeMd. */
+/** Options for parseRules. */
 export interface ParseOptions {
   ruleMarkers?: MarkerType[];
 }
@@ -81,7 +81,7 @@ export interface ValidatePathsOptions {
   rules?: RulesConfig;
 }
 
-/** Options for readClaudeMd(). */
+/** Options for readInstructionFile(). */
 export interface ReadOptions {
   followSymlinks?: boolean;
 }
