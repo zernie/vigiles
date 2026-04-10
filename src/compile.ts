@@ -274,7 +274,14 @@ function validateSectionContent(
 
   // Reject markdown headers inside sections — sections compile to ## headings,
   // so raw # headers break document structure and signal pasted-in content.
+  // Skip lines inside fenced code blocks (``` or ~~~).
+  let inFence = false;
   for (const line of contentLines) {
+    if (/^(`{3,}|~{3,})/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
     if (/^#{1,2}\s/.test(line)) {
       errors.push({
         type: "section-has-header",

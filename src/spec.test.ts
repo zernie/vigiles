@@ -457,8 +457,26 @@ describe("section guardrails", () => {
       rules: {},
     });
     const { errors } = compileClaude(spec);
-    // Current implementation doesn't track code fences — this documents
-    // behavior. A future improvement could skip fenced blocks.
+    assert.ok(!errors.some((e) => e.type === "section-has-header"));
+  });
+
+  it("does not flag # inside tilde code fences", () => {
+    const spec = claude({
+      sections: { about: "Example:\n~~~\n## heading in fence\n~~~" },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(!errors.some((e) => e.type === "section-has-header"));
+  });
+
+  it("flags # after code fence closes", () => {
+    const spec = claude({
+      sections: {
+        about: "Example:\n```\n# safe\n```\n# not safe",
+      },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
     assert.ok(errors.some((e) => e.type === "section-has-header"));
   });
 
