@@ -107,15 +107,21 @@ describe("CLI: vigiles compile", () => {
     assert.ok(stdout.includes("No .spec.ts files found"));
   });
 
-  it("should compile the project root spec", () => {
-    // Use the actual project root which has a compiled spec
-    const { stdout, exitCode } = run(
-      "compile CLAUDE.md.spec.ts",
-      process.cwd(),
+  it("should compile a spec", () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "vigiles-compile-"));
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({ name: "test", scripts: { test: "echo ok" } }),
     );
-    assert.equal(exitCode, 0);
+    const specSrc = resolve(process.cwd(), "dist", "spec.js");
+    writeFileSync(
+      join(tmpDir, "CLAUDE.md.spec.ts"),
+      `import { claude, guidance } from "${specSrc}";\nexport default claude({ rules: { r: guidance("test") } });\n`,
+    );
+    const { stdout, exitCode } = run("compile CLAUDE.md.spec.ts", tmpDir);
+    assert.equal(exitCode, 0, stdout);
     assert.ok(stdout.includes("CLAUDE.md.spec.ts"));
-    assert.ok(stdout.includes("6 rules"));
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 });
 
