@@ -8,6 +8,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname, basename } from "node:path";
+import { globSync } from "glob";
 
 import type {
   ClaudeSpec,
@@ -426,4 +427,149 @@ export function checkFileHash(filePath: string): HashCheckResult {
     return { hasHash: false, valid: false, specFile: null };
   }
   return { hasHash: true, valid: result.valid, specFile: result.specFile };
+}
+
+// ---------------------------------------------------------------------------
+// Filesystem assertion execution (every().has())
+// ---------------------------------------------------------------------------
+
+export interface AssertionResult {
+  id: string;
+  passed: boolean;
+  total: number;
+  matched: number;
+  missing: string[];
+}
+
+/**
+ * Execute a file-pairing assertion: for every file matching `glob`,
+ * check that a sibling matching `pattern` exists.
+ *
+ * `{name}` in the pattern is replaced with the file's basename (without extension).
+ */
+export function executeAssertion(
+  id: string,
+  assertion: FilePairingAssertion,
+  basePath: string,
+): AssertionResult {
+  const files = globSync(assertion.glob, {
+    cwd: basePath,
+    ignore: ["node_modules/**", "dist/**"],
+    nodir: true,
+  });
+
+  const missing: string[] = [];
+
+  for (const filePath of files) {
+    const dir = dirname(filePath);
+    const ext = filePath.substring(filePath.lastIndexOf("."));
+    const baseName = basename(filePath, ext);
+    // Also strip secondary extension (e.g., "foo.controller.ts" → "foo")
+    const stemParts = baseName.split(".");
+    const stem = stemParts[0];
+
+    const expectedName = assertion.pattern
+      .replace(/\{name\}/g, baseName)
+      .replace(/\{stem\}/g, stem);
+    const expectedPath = dir === "." ? expectedName : `${dir}/${expectedName}`;
+
+    if (!existsSync(resolve(basePath, expectedPath))) {
+      missing.push(`${filePath} → expected ${expectedPath}`);
+    }
+  }
+
+  return {
+    id,
+    passed: missing.length === 0,
+    total: files.length,
+    matched: files.length - missing.length,
+    missing,
+  };
+}
+
+/**
+ * Execute all check() assertions from a ClaudeSpec.
+ */
+export function executeChecks(
+  spec: ClaudeSpec,
+  basePath: string,
+): AssertionResult[] {
+  const results: AssertionResult[] = [];
+  for (const [id, rule] of Object.entries(spec.rules)) {
+    if (rule._kind === "check") {
+      results.push(executeAssertion(id, rule.assertion, basePath));
+    }
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// Adopt: detect manual edits and show diff
+// ---------------------------------------------------------------------------
+
+export interface AdoptResult {
+  filePath: string;
+  hasHash: boolean;
+  valid: boolean;
+  specFile: string | null;
+  currentContent: string;
+  compiledContent: string | null;
+  addedLines: string[];
+  removedLines: string[];
+  changed: boolean;
+}
+
+/**
+ * Compare a generated file against what the spec would produce.
+ * Returns the diff so users can see what was manually changed.
+ */
+export function adoptDiff(
+  filePath: string,
+  spec: ClaudeSpec | SkillSpec,
+  basePath: string,
+): AdoptResult {
+  const fullPath = resolve(basePath, filePath);
+  const currentContent = existsSync(fullPath)
+    ? readFileSync(fullPath, "utf-8")
+    : "";
+
+  const hashResult = verifyHash(currentContent);
+
+  // Compile the spec to get what it WOULD produce
+  let compiledContent: string | null = null;
+  if (spec._specType === "claude") {
+    const { markdown } = compileClaude(spec, { basePath, specFile: filePath });
+    compiledContent = markdown;
+  } else if (spec._specType === "skill") {
+    const { markdown } = compileSkill(spec, { basePath, specFile: filePath });
+    compiledContent = markdown;
+  }
+
+  // Simple line-based diff
+  const currentLines = currentContent.replace(HASH_RE, "").split("\n");
+  const compiledLines = (compiledContent ?? "")
+    .replace(HASH_RE, "")
+    .split("\n");
+
+  const currentSet = new Set(currentLines);
+  const compiledSet = new Set(compiledLines);
+
+  const addedLines = currentLines.filter(
+    (l) => l.trim() && !compiledSet.has(l),
+  );
+  const removedLines = compiledLines.filter(
+    (l) => l.trim() && !currentSet.has(l),
+  );
+
+  return {
+    filePath,
+    hasHash: hashResult !== null,
+    valid: hashResult?.valid ?? false,
+    specFile: hashResult?.specFile ?? null,
+    currentContent,
+    compiledContent,
+    addedLines,
+    removedLines,
+    changed: addedLines.length > 0 || removedLines.length > 0,
+  };
 }

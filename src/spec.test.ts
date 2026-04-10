@@ -22,6 +22,8 @@ import {
   verifyHash,
   checkFileHash,
   estimateTokens,
+  executeAssertion,
+  executeChecks,
 } from "./compile.js";
 
 import { generateTypes } from "./generate-types.js";
@@ -490,5 +492,55 @@ describe("generateTypes()", () => {
     });
     assert.ok(result.files.some((f) => f.startsWith("examples/")));
     assert.ok(!result.files.some((f) => f.startsWith("src/")));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Assertion execution tests
+// ---------------------------------------------------------------------------
+
+describe("executeAssertion()", () => {
+  it("passes when paired files exist", () => {
+    // src/spec.ts has src/spec.test.ts
+    const result = executeAssertion(
+      "test-pairing",
+      { _type: "file-pairing", glob: "src/spec.ts", pattern: "{name}.test.ts" },
+      process.cwd(),
+    );
+    assert.equal(result.passed, true);
+    assert.equal(result.total, 1);
+    assert.equal(result.missing.length, 0);
+  });
+
+  it("fails when paired files are missing", () => {
+    // src/cli.ts does NOT have src/cli.test.ts
+    const result = executeAssertion(
+      "test-pairing",
+      { _type: "file-pairing", glob: "src/cli.ts", pattern: "{name}.test.ts" },
+      process.cwd(),
+    );
+    assert.equal(result.passed, false);
+    assert.equal(result.total, 1);
+    assert.equal(result.missing.length, 1);
+  });
+});
+
+describe("executeChecks()", () => {
+  it("runs all check() rules from a spec", () => {
+    const spec = claude({
+      rules: {
+        "has-test": check(
+          every("src/spec.ts").has("{name}.test.ts"),
+          "spec needs test",
+        ),
+        "no-console": enforce("eslint/no-console", "Use logger."),
+        "be-nice": guidance("Be nice."),
+      },
+    });
+    const results = executeChecks(spec, process.cwd());
+    // Only check() rules are executed, not enforce() or guidance()
+    assert.equal(results.length, 1);
+    assert.equal(results[0].id, "has-test");
+    assert.equal(results[0].passed, true);
   });
 });
