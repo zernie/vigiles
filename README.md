@@ -119,9 +119,13 @@ The wizard auto-detects your project — existing instruction files, linter conf
 - Agent edits `eslint.config.ts` → plugin auto-regenerates types
 - CI runs `vigiles check` → catches stale specs, disabled rules, missing files
 
+**It's self-maintaining.** Add a new ESLint rule? The hook regenerates types — your spec gets autocomplete for the new rule immediately. Rename a file? The compiler catches the stale reference. The setup doesn't rot because the hooks keep everything in sync automatically.
+
 **Already have a hand-written CLAUDE.md?** The wizard detects it and suggests the `migrate-to-spec` skill. Or start fresh — the existing file stays untouched until you compile.
 
 For Codex / GitHub Copilot: `npx vigiles setup --target=AGENTS.md`. [Agent workflow details →](docs/agent-workflows.md)
+
+For agent-driven installation (non-interactive): [Agent setup guide →](docs/agent-setup.md)
 
 ## Three Rule Types
 

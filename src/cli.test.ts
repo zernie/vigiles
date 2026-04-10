@@ -523,3 +523,84 @@ describe("plugin hook: post-edit.sh", () => {
     assert.ok(true, "Unrelated file skipped without triggering any action");
   });
 });
+
+// ---------------------------------------------------------------------------
+// E2E: fixture project — full adoption flow
+// ---------------------------------------------------------------------------
+
+describe("E2E: fixture project adoption", () => {
+  const FIXTURE = resolve(__dirname, "..", "fixtures", "example-project");
+  let workDir: string;
+
+  before(() => {
+    // Copy fixture to a temp dir so tests don't pollute it
+    workDir = mkdtempSync(join(tmpdir(), "vigiles-e2e-"));
+    execSync(`cp -r ${FIXTURE}/* ${workDir}/`, { stdio: "pipe" });
+  });
+
+  after(() => {
+    rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it("setup detects existing hand-written CLAUDE.md", () => {
+    const { stdout } = run("setup", workDir);
+    // Should detect CLAUDE.md without spec and suggest migration
+    assert.ok(
+      stdout.includes("without a spec") || stdout.includes("migrate"),
+      "Should detect hand-written CLAUDE.md",
+    );
+  });
+
+  it("init creates spec in fixture project", () => {
+    const { exitCode } = run("init", workDir);
+    assert.equal(exitCode, 0);
+    assert.ok(existsSync(join(workDir, "CLAUDE.md.spec.ts")));
+  });
+
+  it("generate-types works in fixture project", () => {
+    const { exitCode } = run("generate-types", workDir);
+    assert.equal(exitCode, 0);
+    assert.ok(existsSync(join(workDir, ".vigiles/generated.d.ts")));
+  });
+
+  it("check detects CLAUDE.md has no vigiles hash", () => {
+    const { stdout } = run("check CLAUDE.md", workDir);
+    // Hand-written CLAUDE.md has no hash — should report it
+    assert.ok(
+      stdout.includes("no vigiles hash") || stdout.includes("require-spec"),
+    );
+  });
+
+  it("full flow: write spec → compile → check passes", () => {
+    // Remove old hand-written CLAUDE.md and the template spec
+    rmSync(join(workDir, "CLAUDE.md"));
+    if (existsSync(join(workDir, "CLAUDE.md.spec.ts"))) {
+      rmSync(join(workDir, "CLAUDE.md.spec.ts"));
+    }
+
+    // Write a spec that imports from vigiles dist (not node_modules)
+    const specSrc = resolve(process.cwd(), "dist", "spec.js");
+    writeFileSync(
+      join(workDir, "CLAUDE.md.spec.ts"),
+      `import { claude, guidance } from "${specSrc}";
+export default claude({
+  commands: { "npm test": "Run tests" },
+  rules: { "be-nice": guidance("Be nice.") },
+});
+`,
+    );
+
+    // Compile
+    const compileResult = run("compile CLAUDE.md.spec.ts", workDir);
+    assert.equal(compileResult.exitCode, 0, compileResult.stdout);
+    assert.ok(existsSync(join(workDir, "CLAUDE.md")));
+
+    // Compiled file should have vigiles hash
+    const content = readFileSync(join(workDir, "CLAUDE.md"), "utf-8");
+    assert.ok(content.includes("<!-- vigiles:sha256:"));
+
+    // Check should pass (hash valid, spec exists)
+    const checkResult = run("check CLAUDE.md", workDir);
+    assert.ok(checkResult.stdout.includes("hash valid"));
+  });
+});
