@@ -80,7 +80,9 @@ export interface CompileError {
     | "stale-command"
     | "stale-ref"
     | "invalid-rule"
-    | "budget-exceeded";
+    | "budget-exceeded"
+    | "section-too-long"
+    | "section-has-header";
   message: string;
   path?: string;
 }
@@ -241,6 +243,8 @@ export interface CompileClaudeOptions {
   maxRules?: number;
   /** Maximum estimated tokens for compiled output. */
   maxTokens?: number;
+  /** Maximum lines per prose section. Forces splitting into named sections. */
+  maxSectionLines?: number;
   /** Skip config-enabled checks, only verify rule exists in catalog. */
   catalogOnly?: boolean;
   /** Custom linter configs (rulesDir). */
@@ -260,9 +264,40 @@ interface SectionResult {
   errors: CompileError[];
 }
 
+function validateSectionContent(
+  name: string,
+  text: string,
+  maxSectionLines?: number,
+): CompileError[] {
+  const errors: CompileError[] = [];
+  const contentLines = text.split("\n");
+
+  // Reject markdown headers inside sections — sections compile to ## headings,
+  // so raw # headers break document structure and signal pasted-in content.
+  for (const line of contentLines) {
+    if (/^#{1,2}\s/.test(line)) {
+      errors.push({
+        type: "section-has-header",
+        message: `Section "${name}" contains a markdown header ("${line.trim().slice(0, 60)}"). Break into separate named sections instead.`,
+      });
+      break;
+    }
+  }
+
+  if (maxSectionLines && contentLines.length > maxSectionLines) {
+    errors.push({
+      type: "section-too-long",
+      message: `Section "${name}" is ${String(contentLines.length)} lines (max ${String(maxSectionLines)}). Split into smaller named sections.`,
+    });
+  }
+
+  return errors;
+}
+
 function compileSectionsSection(
   spec: ClaudeSpec,
   basePath: string,
+  maxSectionLines?: number,
 ): SectionResult {
   if (!spec.sections) return { lines: [], errors: [] };
   const lines: string[] = [];
@@ -270,10 +305,12 @@ function compileSectionsSection(
   for (const [name, content] of Object.entries(spec.sections)) {
     const heading = name.charAt(0).toUpperCase() + name.slice(1);
     if (typeof content === "string") {
+      errors.push(...validateSectionContent(name, content, maxSectionLines));
       lines.push(`## ${heading}\n\n${content.trim()}`);
     } else {
       errors.push(...validateRefs(content, basePath));
       const rendered = content.map(renderFragment).join("");
+      errors.push(...validateSectionContent(name, rendered, maxSectionLines));
       lines.push(`## ${heading}\n\n${rendered.trim()}`);
     }
   }
@@ -409,7 +446,7 @@ export function compileClaude(
     });
   }
 
-  const prose = compileSectionsSection(spec, basePath);
+  const prose = compileSectionsSection(spec, basePath, options.maxSectionLines);
   const keyFiles = compileKeyFilesSection(spec, basePath);
   const commands = compileCommandsSection(spec, basePath);
   const rules = compileRulesSection(spec, basePath, options);

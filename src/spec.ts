@@ -309,6 +309,8 @@ export interface VigilesV2Config {
   readonly maxRules?: number;
   /** Maximum estimated tokens for compiled output. ~4 chars per token. */
   readonly maxTokens?: number;
+  /** Maximum lines per prose section. Forces splitting into named sections. */
+  readonly maxSectionLines?: number;
   /** Global kill switch: skip ALL linter verification during compile. */
   readonly verifyLinters?: boolean;
   /** Per-linter verification mode: true (full), "catalog-only", or false (skip). */

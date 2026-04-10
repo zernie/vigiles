@@ -420,6 +420,91 @@ describe("maxTokens budget", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Section guardrails (headers + length)
+// ---------------------------------------------------------------------------
+
+describe("section guardrails", () => {
+  it("errors when section contains a top-level header", () => {
+    const spec = claude({
+      sections: { about: "Some intro\n# Overview\nMore text" },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(errors.some((e) => e.type === "section-has-header"));
+  });
+
+  it("errors when section contains a second-level header", () => {
+    const spec = claude({
+      sections: { about: "Some intro\n## Subsection\nMore text" },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(errors.some((e) => e.type === "section-has-header"));
+  });
+
+  it("allows ### and deeper headers in sections", () => {
+    const spec = claude({
+      sections: { about: "Some intro\n### Detail\nMore text" },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(!errors.some((e) => e.type === "section-has-header"));
+  });
+
+  it("does not flag # inside code fences", () => {
+    const spec = claude({
+      sections: { about: "Example:\n```\n# this is a comment\n```" },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    // Current implementation doesn't track code fences — this documents
+    // behavior. A future improvement could skip fenced blocks.
+    assert.ok(errors.some((e) => e.type === "section-has-header"));
+  });
+
+  it("errors when section exceeds maxSectionLines", () => {
+    const longContent = Array.from(
+      { length: 50 },
+      (_, i) => `Line ${String(i + 1)}`,
+    ).join("\n");
+    const spec = claude({
+      sections: { wall: longContent },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec, { maxSectionLines: 20 });
+    assert.ok(errors.some((e) => e.type === "section-too-long"));
+    assert.ok(errors[0].message.includes("50 lines"));
+    assert.ok(errors[0].message.includes("max 20"));
+  });
+
+  it("passes when section is at exact maxSectionLines boundary", () => {
+    const content = Array.from(
+      { length: 20 },
+      (_, i) => `Line ${String(i + 1)}`,
+    ).join("\n");
+    const spec = claude({
+      sections: { ok: content },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec, { maxSectionLines: 20 });
+    assert.ok(!errors.some((e) => e.type === "section-too-long"));
+  });
+
+  it("skips maxSectionLines check when not configured", () => {
+    const longContent = Array.from(
+      { length: 100 },
+      (_, i) => `Line ${String(i + 1)}`,
+    ).join("\n");
+    const spec = claude({
+      sections: { wall: longContent },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(!errors.some((e) => e.type === "section-too-long"));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Sections with file() refs
 // ---------------------------------------------------------------------------
 

@@ -16,7 +16,7 @@
 
 ---
 
-Your CLAUDE.md says `eslint/no-console` is enforced. But is that rule actually enabled in your ESLint config? Your agent thinks there's a safety net. Is there?
+Your CLAUDE.md says `@typescript-eslint/no-floating-promises` is enforced. But someone disabled it last month when it got "too noisy." Your agent still thinks there's a safety net. Is there?
 
 vigiles compiles typed TypeScript specs to AI instruction files. Every linter reference is verified. Every file path is checked. Every command is validated. If something is stale, broken, or disabled — you find out at compile time, not when the agent ignores it.
 
@@ -24,24 +24,37 @@ Companion repo for [Feedback Loop Is All You Need](https://zernie.com/blog/feedb
 
 ## The Problem
 
-Hand-written CLAUDE.md files rot silently:
+Hand-written CLAUDE.md files rot silently. Here's what they actually look like:
 
 ```markdown
-### Use the structured logger ← but what IS the structured logger?
+## Code Style
 
-**Enforced by:** `eslint/no-console` ← disabled in config 3 months ago
-**Why:** Routes to Datadog.
+Use the project logger instead of console.log — we use Datadog so all
+logs must go through the structured logger in `src/utils/logger.ts`.
+The `@typescript-eslint/no-floating-promises` rule is enabled, so make
+sure to always await or .catch() every promise.
 
-### Always import from barrel files
+## Imports
 
-**Enforced by:** `eslint/no-restricted-imports` ← typo: rule is no-restricted-syntax
-**Why:** Prevents path drift.
+Always go through barrel files (index.ts). We have the
+`import/no-internal-modules` ESLint rule enforcing this so don't try
+to bypass it.
 
-Check `src/utils/logger.ts` for the API. ← file was renamed to telemetry.ts
-Run `npm run typecheck` to verify. ← script was removed last sprint
+## Testing
+
+Run `npm run typecheck` before submitting PRs. Every controller in
+src/controllers/ should have a corresponding test file.
 ```
 
-Four silent failures. The agent reads this, trusts it, and produces code based on lies.
+Reads fine. Five things are wrong:
+
+1. `src/utils/logger.ts` — renamed to `src/utils/telemetry.ts` two months ago
+2. `@typescript-eslint/no-floating-promises` — disabled when it got "too noisy" after an async refactor
+3. `import/no-internal-modules` — team switched to `eslint-plugin-import-x` last quarter; rule is gone
+4. `npm run typecheck` — script removed from package.json last sprint
+5. Controller/test pairing — never had an automated check, never will without one
+
+The agent reads this, trusts it, and writes code based on stale claims nobody verified.
 
 ## The Fix
 
@@ -64,12 +77,17 @@ export default claude({
   },
 
   rules: {
-    "no-console": enforce(
-      "eslint/no-console",
-      "Use structured logger for Datadog.",
+    "no-floating-promises": enforce(
+      "@typescript-eslint/no-floating-promises",
+      "Always await or .catch() promises.",
     ),
-    // ✗ enforce("eslint/no-consolee") → type error: not a valid rule
     // ✗ if rule is disabled in config → compile error
+
+    "barrel-imports": enforce(
+      "import/no-internal-modules",
+      "Always import through barrel files.",
+    ),
+    // ✗ plugin removed from eslintrc → compile error
 
     "test-pairing": check(
       every("src/**/*.controller.ts").has("{name}.test.ts"),
@@ -85,8 +103,8 @@ export default claude({
 $ npx vigiles compile
 
 ✓ CLAUDE.md.spec.ts → CLAUDE.md
-  3 rules (1 linter-verified, 1 filesystem check, 1 guidance)
-  ~180 tokens
+  4 rules (2 linter-verified, 1 filesystem check, 1 guidance)
+  ~210 tokens
 ```
 
 The spec is the source of truth. CLAUDE.md is a build artifact.
@@ -108,9 +126,9 @@ npx skills add zernie/vigiles
 **`enforce()`** — delegated to a linter. vigiles verifies the rule exists and is enabled.
 
 ```typescript
-"no-console": enforce("eslint/no-console", "Use structured logger."),
-"no-print":   enforce("ruff/T201", "Use logging module."),
-"no-unwrap":  enforce("clippy/unwrap_used", "Use expect() with context."),
+"no-floating-promises": enforce("@typescript-eslint/no-floating-promises", "Always await or .catch()."),
+"no-print":             enforce("ruff/T201", "Use logging module."),
+"no-unwrap":            enforce("clippy/unwrap_used", "Use expect() with context."),
 ```
 
 Supports ESLint, Stylelint, Ruff, Clippy, Pylint, and RuboCop. [Full linter support details →](docs/linter-support.md)
