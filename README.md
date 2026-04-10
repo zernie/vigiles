@@ -46,9 +46,9 @@ Done.
 spec.ts  →  compile  →  .md
 ```
 
-1. **Author** — Write rules in TypeScript. The type system forces every rule into one of three categories: `enforce()`, `prove()`, or `guidance()`. No rule can be left unannotated.
+1. **Author** — Write rules in TypeScript. The type system forces every rule into one of three categories: `enforce()`, `check()`, or `guidance()`. No rule can be left unannotated.
 
-2. **Compile** — `vigiles compile` resolves every `enforce()` claim against the real linter API, evaluates every `prove()` assertion against your codebase, validates every `file()` / `cmd()` / `ref()` reference, and emits markdown.
+2. **Compile** — `vigiles compile` resolves every `enforce()` claim against the real linter API, validates every `file()` / `cmd()` / `ref()` reference, and emits markdown. `vigiles check` runs `check()` assertions against your codebase.
 
 3. **Read** — Agents consume the compiled `.md` files. A SHA-256 hash at the bottom detects manual edits. `vigiles check` verifies integrity in CI.
 
@@ -56,7 +56,7 @@ spec.ts  →  compile  →  .md
 
 ```typescript
 // CLAUDE.md.spec.ts
-import { claude, enforce, guidance, prove, every } from "vigiles/spec";
+import { claude, enforce, guidance, check, every } from "vigiles/spec";
 
 export default claude({
   commands: {
@@ -76,8 +76,8 @@ export default claude({
       "Use structured logger for Datadog.",
     ),
 
-    // Proven by vigiles — cross-file property no single linter can express
-    "test-pairing": prove(
+    // Checked by vigiles — filesystem assertion no single linter handles
+    "test-pairing": check(
       every("src/**/*.controller.ts").has("{name}.test.ts"),
       "Every controller must have tests.",
     ),
@@ -98,17 +98,12 @@ export default claude({
 "unused-imports": enforce("clippy/unused_imports", "Keep imports clean."),
 ```
 
-**`prove(assertion, reason)`** — A cross-file property that vigiles checks directly. These are things no single linter handles: file pairing, naming conventions across directories, coverage of a pattern.
+**`check(assertion, reason)`** — A filesystem assertion that vigiles runs directly. Scoped to what no single linter handles: file pairing, structural conventions across directories.
 
 ```typescript
-"test-pairing": prove(
+"test-pairing": check(
   every("src/**/*.controller.ts").has("{name}.test.ts"),
   "Every controller must have tests.",
-),
-
-"barrel-exports": prove(
-  every("src/*/index.ts").exists(),
-  "Every module needs a barrel file.",
 ),
 ```
 
@@ -191,11 +186,14 @@ npx vigiles init
 npx vigiles init --from-claude-md
 ```
 
-| Command   | Description                                                            |
-| --------- | ---------------------------------------------------------------------- |
-| `compile` | Compile `.spec.ts` files to `.md` with linter verification and hashing |
-| `check`   | Verify SHA-256 hashes, validate references, run `prove()` assertions   |
-| `init`    | Scaffold a new `CLAUDE.md.spec.ts` from scratch                        |
+| Command          | Description                                                            |
+| ---------------- | ---------------------------------------------------------------------- |
+| `compile`        | Compile `.spec.ts` files to `.md` with linter verification and hashing |
+| `check`          | Verify SHA-256 hashes, validate references, run `check()` assertions   |
+| `init`           | Scaffold a new `CLAUDE.md.spec.ts` from scratch                        |
+| `generate-types` | Emit `.vigiles/generated.d.ts` with type unions from project state     |
+| `discover`       | Scan linter configs and report which rules are undocumented            |
+| `adopt`          | Detect manual edits to compiled files and show diff                    |
 
 Exit codes: `0` on success, `1` if compilation or checks fail.
 
@@ -214,7 +212,7 @@ packages/
     CLAUDE.md.spec.ts            # Shared library conventions
 ```
 
-Each spec compiles independently. `prove()` assertions in each spec run against that spec's working directory by default, so `every("src/**/*.ts")` in `packages/api/CLAUDE.md.spec.ts` matches files under `packages/api/src/`.
+Each spec compiles independently. `check()` assertions in each spec run against that spec's working directory by default, so `every("src/**/*.ts")` in `packages/api/CLAUDE.md.spec.ts` matches files under `packages/api/src/`.
 
 ## GitHub Action
 
