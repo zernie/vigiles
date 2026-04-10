@@ -315,6 +315,10 @@ export function generateTypes(
   );
   sections.push(` */`);
   sections.push(``);
+  // ---------------------------------------------------------------------------
+  // vigiles/generated — standalone types for direct import
+  // ---------------------------------------------------------------------------
+
   sections.push(`declare module "vigiles/generated" {`);
 
   // Linter rules
@@ -361,6 +365,38 @@ export function generateTypes(
     sections.push(``);
     sections.push(`  /** ${String(files.length)} project files. */`);
     sections.push(`  export type ProjectFile = ${formatUnion(files, "    ")};`);
+  }
+
+  sections.push(`}`);
+
+  // ---------------------------------------------------------------------------
+  // vigiles/spec augmentation — populates KnownLinterRules, KnownProjectFiles,
+  // KnownNpmScripts interfaces so enforce(), file(), cmd() narrow automatically.
+  // ---------------------------------------------------------------------------
+
+  sections.push(``);
+  sections.push(`declare module "vigiles/spec" {`);
+
+  if (linters.length > 0) {
+    sections.push(`  interface KnownLinterRules {`);
+    for (const { linter, rules } of linters) {
+      sections.push(
+        `    "${escapeForUnion(linter)}": ${formatUnion(rules, "      ")};`,
+      );
+    }
+    sections.push(`  }`);
+  }
+
+  if (files.length > 0) {
+    sections.push(`  interface KnownProjectFiles {`);
+    sections.push(`    files: ${formatUnion(files, "      ")};`);
+    sections.push(`  }`);
+  }
+
+  if (scripts.length > 0) {
+    sections.push(`  interface KnownNpmScripts {`);
+    sections.push(`    scripts: ${formatUnion(scripts, "      ")};`);
+    sections.push(`  }`);
   }
 
   sections.push(`}`);

@@ -64,8 +64,8 @@ Run the appropriate command:
 # v2
 npx vigiles compile && npx vigiles check
 
-# v1
-npx vigiles CLAUDE.md
+# validate
+npx vigiles check
 ```
 
 Report the validation result.

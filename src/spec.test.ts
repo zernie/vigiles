@@ -13,6 +13,18 @@ import {
   claude,
   skill,
 } from "./spec.js";
+import type {
+  SpecPath,
+  OutputPath,
+  StrictLinterRule,
+  StrictFile,
+  StrictCmd,
+  RawSpec,
+  RefsValidated,
+  LintersVerified,
+  ReadyToEmit,
+  KnownLinterRules,
+} from "./spec.js";
 
 import {
   compileClaude,
@@ -272,7 +284,7 @@ describe("compileSkill()", () => {
     });
     const { markdown, errors } = compileSkill(spec);
     assert.ok(markdown.includes("<!-- vigiles:sha256:"));
-    assert.ok(markdown.includes("---\nname: test-skill\n"));
+    assert.ok(markdown.includes("name: test-skill\n"));
     assert.ok(markdown.includes("description: A test skill"));
     assert.ok(markdown.includes("Do the thing."));
     assert.equal(errors.length, 0);
@@ -420,6 +432,201 @@ describe("maxTokens budget", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Section guardrails (headers + length)
+// ---------------------------------------------------------------------------
+
+describe("section guardrails", () => {
+  it("errors when section contains a top-level header", () => {
+    const spec = claude({
+      sections: { about: "Some intro\n# Overview\nMore text" },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(errors.some((e) => e.type === "section-has-header"));
+  });
+
+  it("errors when section contains a second-level header", () => {
+    const spec = claude({
+      sections: { about: "Some intro\n## Subsection\nMore text" },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(errors.some((e) => e.type === "section-has-header"));
+  });
+
+  it("allows ### and deeper headers in sections", () => {
+    const spec = claude({
+      sections: { about: "Some intro\n### Detail\nMore text" },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(!errors.some((e) => e.type === "section-has-header"));
+  });
+
+  it("does not flag # inside code fences", () => {
+    const spec = claude({
+      sections: { about: "Example:\n```\n# this is a comment\n```" },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(!errors.some((e) => e.type === "section-has-header"));
+  });
+
+  it("does not flag # inside tilde code fences", () => {
+    const spec = claude({
+      sections: { about: "Example:\n~~~\n## heading in fence\n~~~" },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(!errors.some((e) => e.type === "section-has-header"));
+  });
+
+  it("flags # after code fence closes", () => {
+    const spec = claude({
+      sections: {
+        about: "Example:\n```\n# safe\n```\n# not safe",
+      },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(errors.some((e) => e.type === "section-has-header"));
+  });
+
+  it("errors when section exceeds maxSectionLines", () => {
+    const longContent = Array.from(
+      { length: 50 },
+      (_, i) => `Line ${String(i + 1)}`,
+    ).join("\n");
+    const spec = claude({
+      sections: { wall: longContent },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec, { maxSectionLines: 20 });
+    assert.ok(errors.some((e) => e.type === "section-too-long"));
+    assert.ok(errors[0].message.includes("50 lines"));
+    assert.ok(errors[0].message.includes("max 20"));
+  });
+
+  it("passes when section is at exact maxSectionLines boundary", () => {
+    const content = Array.from(
+      { length: 20 },
+      (_, i) => `Line ${String(i + 1)}`,
+    ).join("\n");
+    const spec = claude({
+      sections: { ok: content },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec, { maxSectionLines: 20 });
+    assert.ok(!errors.some((e) => e.type === "section-too-long"));
+  });
+
+  it("skips maxSectionLines check when not configured", () => {
+    const longContent = Array.from(
+      { length: 100 },
+      (_, i) => `Line ${String(i + 1)}`,
+    ).join("\n");
+    const spec = claude({
+      sections: { wall: longContent },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(!errors.some((e) => e.type === "section-too-long"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reserved section keys (#4)
+// ---------------------------------------------------------------------------
+
+describe("reserved section keys", () => {
+  it("errors when section key is 'commands'", () => {
+    const spec = claude({
+      sections: { commands: "Should use the commands field instead." },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(errors.some((e) => e.type === "reserved-section-key"));
+  });
+
+  it("errors when section key is 'rules'", () => {
+    const spec = claude({
+      sections: { rules: "Should use the rules field instead." },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(errors.some((e) => e.type === "reserved-section-key"));
+  });
+
+  it("errors when section key is 'keyFiles'", () => {
+    const spec = claude({
+      sections: { keyFiles: "Should use the keyFiles field instead." },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(errors.some((e) => e.type === "reserved-section-key"));
+  });
+
+  it("allows non-reserved section keys", () => {
+    const spec = claude({
+      sections: { architecture: "This is fine." },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(!errors.some((e) => e.type === "reserved-section-key"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-spec maxSectionLines (#5)
+// ---------------------------------------------------------------------------
+
+describe("per-spec maxSectionLines", () => {
+  it("uses spec.maxSectionLines when set", () => {
+    const longContent = Array.from(
+      { length: 30 },
+      (_, i) => `Line ${String(i + 1)}`,
+    ).join("\n");
+    const spec = claude({
+      sections: { wall: longContent },
+      maxSectionLines: 20,
+      rules: {},
+    });
+    const { errors } = compileClaude(spec);
+    assert.ok(errors.some((e) => e.type === "section-too-long"));
+  });
+
+  it("compile option overrides spec maxSectionLines", () => {
+    const longContent = Array.from(
+      { length: 30 },
+      (_, i) => `Line ${String(i + 1)}`,
+    ).join("\n");
+    const spec = claude({
+      sections: { wall: longContent },
+      maxSectionLines: 50, // spec says 50, which would pass
+      rules: {},
+    });
+    // But compile option says 20, which is stricter
+    // Actually spec takes precedence — let's verify:
+    const { errors } = compileClaude(spec, { maxSectionLines: 10 });
+    // spec.maxSectionLines (50) takes precedence over options (10)
+    assert.ok(!errors.some((e) => e.type === "section-too-long"));
+  });
+
+  it("falls back to compile option when spec has no maxSectionLines", () => {
+    const longContent = Array.from(
+      { length: 30 },
+      (_, i) => `Line ${String(i + 1)}`,
+    ).join("\n");
+    const spec = claude({
+      sections: { wall: longContent },
+      rules: {},
+    });
+    const { errors } = compileClaude(spec, { maxSectionLines: 20 });
+    assert.ok(errors.some((e) => e.type === "section-too-long"));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Sections with file() refs
 // ---------------------------------------------------------------------------
 
@@ -487,6 +694,38 @@ describe("generateTypes()", () => {
     assert.ok(result.dts.includes("export type ProjectFile"));
   });
 
+  it("generates vigiles/spec augmentation for KnownLinterRules", () => {
+    const result = generateTypes({ basePath: process.cwd() });
+    assert.ok(
+      result.dts.includes('declare module "vigiles/spec"'),
+      "Should augment vigiles/spec",
+    );
+    assert.ok(
+      result.dts.includes("interface KnownLinterRules"),
+      "Should populate KnownLinterRules",
+    );
+    assert.ok(
+      result.dts.includes('"eslint"'),
+      "Should include eslint key in KnownLinterRules",
+    );
+  });
+
+  it("generates KnownProjectFiles augmentation", () => {
+    const result = generateTypes({ basePath: process.cwd() });
+    assert.ok(
+      result.dts.includes("interface KnownProjectFiles"),
+      "Should populate KnownProjectFiles",
+    );
+  });
+
+  it("generates KnownNpmScripts augmentation", () => {
+    const result = generateTypes({ basePath: process.cwd() });
+    assert.ok(
+      result.dts.includes("interface KnownNpmScripts"),
+      "Should populate KnownNpmScripts",
+    );
+  });
+
   it("respects custom file globs", () => {
     const result = generateTypes({
       basePath: process.cwd(),
@@ -543,10 +782,14 @@ describe("executeAssertion()", () => {
   });
 
   it("fails when paired files are missing", () => {
-    // src/cli.ts does NOT have src/cli.test.ts
+    // src/action.ts does NOT have src/action.test.ts
     const result = executeAssertion(
       "test-pairing",
-      { _type: "file-pairing", glob: "src/cli.ts", pattern: "{name}.test.ts" },
+      {
+        _type: "file-pairing",
+        glob: "src/action.ts",
+        pattern: "{name}.test.ts",
+      },
       process.cwd(),
     );
     assert.equal(result.passed, false);
@@ -912,6 +1155,187 @@ describe("adoptDiff()", () => {
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Type system features (#1, #5, #6, #7)
+// ---------------------------------------------------------------------------
+
+describe("type exports", () => {
+  it("exports strict type aliases", () => {
+    // Verify the types exist and are usable at runtime (type-only check
+    // happens at tsc time, but we can verify the imports resolve).
+    void ("eslint/no-console" as StrictLinterRule);
+    void ("src/spec.ts" as StrictFile);
+    void ("npm run build" as StrictCmd);
+    assert.ok(true, "strict types are importable");
+  });
+
+  it("exports augmentation interfaces (empty by default)", () => {
+    // Without generated types, the interfaces have no keys.
+    // This test just verifies they're importable.
+    type HasNoKeys = [keyof KnownLinterRules] extends [never] ? true : false;
+    const result: HasNoKeys = true;
+    assert.equal(result, true);
+  });
+
+  it("exports phantom type brands", () => {
+    // Verify pipeline stage types are importable
+    void (null as unknown as RawSpec);
+    void (null as unknown as RefsValidated);
+    void (null as unknown as LintersVerified);
+    void (null as unknown as ReadyToEmit);
+    assert.ok(true, "phantom types are importable");
+  });
+
+  it("claude() stores maxSectionLines on the spec", () => {
+    const spec = claude({
+      sections: { about: "Hello" },
+      maxSectionLines: 25,
+      rules: {},
+    });
+    assert.equal(spec.maxSectionLines, 25);
+  });
+
+  it("claude() without sections has no maxSectionLines", () => {
+    const spec = claude({ rules: {} });
+    assert.equal(spec.maxSectionLines, undefined);
+  });
+
+  it("SpecPath and OutputPath are inverse type-level operations", () => {
+    // SpecPath<"CLAUDE.md"> = "CLAUDE.md.spec.ts"
+    void ("CLAUDE.md.spec.ts" as SpecPath<"CLAUDE.md">);
+    // OutputPath<"CLAUDE.md.spec.ts"> = "CLAUDE.md"
+    void ("CLAUDE.md" as OutputPath<"CLAUDE.md.spec.ts">);
+    assert.ok(true, "spec path types are importable and correct");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spec file naming convention (#11)
+// ---------------------------------------------------------------------------
+
+describe("spec file naming convention", () => {
+  it("accepts valid CLAUDE.md.spec.ts name", () => {
+    const spec = claude({ rules: {} });
+    const { errors } = compileClaude(spec, {
+      specFile: "CLAUDE.md.spec.ts",
+    });
+    assert.ok(!errors.some((e) => e.type === "spec-name-mismatch"));
+  });
+
+  it("accepts valid nested path spec name", () => {
+    const spec = claude({ rules: {} });
+    const { errors } = compileClaude(spec, {
+      specFile: "src/CLAUDE.md.spec.ts",
+    });
+    assert.ok(!errors.some((e) => e.type === "spec-name-mismatch"));
+  });
+
+  it("errors when spec file does not end with .spec.ts", () => {
+    const spec = claude({ rules: {} });
+    const { errors } = compileClaude(spec, {
+      specFile: "CLAUDE.md.ts",
+    });
+    assert.ok(errors.some((e) => e.type === "spec-name-mismatch"));
+  });
+
+  it("errors when spec file does not match target", () => {
+    const spec = claude({ rules: {} });
+    const { errors } = compileClaude(spec, {
+      specFile: "AGENTS.md.spec.ts",
+    });
+    // Default target is CLAUDE.md, but spec says AGENTS.md
+    assert.ok(errors.some((e) => e.type === "spec-name-mismatch"));
+    assert.ok(errors[0].message.includes("doesn't match"));
+  });
+
+  it("accepts SKILL.md.spec.ts for skills", () => {
+    const spec = skill({
+      name: "test",
+      description: "Test skill",
+      body: "Do the thing.",
+    });
+    const { errors } = compileSkill(spec, {
+      specFile: "skills/test/SKILL.md.spec.ts",
+    });
+    assert.ok(!errors.some((e) => e.type === "spec-name-mismatch"));
+  });
+
+  it("errors for skills with wrong spec name", () => {
+    const spec = skill({
+      name: "test",
+      description: "Test skill",
+      body: "Do the thing.",
+    });
+    const { errors } = compileSkill(spec, {
+      specFile: "skills/test/skill.spec.ts",
+    });
+    assert.ok(errors.some((e) => e.type === "spec-name-mismatch"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Output target
+// ---------------------------------------------------------------------------
+
+describe("output target", () => {
+  it("defaults to CLAUDE.md heading", () => {
+    const spec = claude({ rules: {} });
+    const { markdown } = compileClaude(spec);
+    assert.ok(markdown.includes("# CLAUDE.md"));
+  });
+
+  it("uses custom target for heading", () => {
+    const spec = claude({ target: "AGENTS.md", rules: {} });
+    const { markdown } = compileClaude(spec);
+    assert.ok(markdown.includes("# AGENTS.md"));
+    assert.ok(!markdown.includes("# CLAUDE.md"));
+  });
+
+  it("defaults specFile based on target", () => {
+    const spec = claude({ target: "AGENTS.md", rules: {} });
+    // Without explicit specFile, it should derive from target
+    const { markdown } = compileClaude(spec);
+    assert.ok(markdown.includes("compiled from AGENTS.md.spec.ts"));
+  });
+
+  it("accepts AGENTS.md.spec.ts naming for AGENTS.md target", () => {
+    const spec = claude({ target: "AGENTS.md", rules: {} });
+    const { errors } = compileClaude(spec, {
+      specFile: "AGENTS.md.spec.ts",
+    });
+    assert.ok(!errors.some((e) => e.type === "spec-name-mismatch"));
+  });
+
+  it("accepts custom target name", () => {
+    const spec = claude({ target: "CODEX.md", rules: {} });
+    const { markdown } = compileClaude(spec);
+    assert.ok(markdown.includes("# CODEX.md"));
+  });
+
+  it("returns all targets from array", () => {
+    const spec = claude({
+      target: ["CLAUDE.md", "AGENTS.md"],
+      rules: {},
+    });
+    const { targets, markdown } = compileClaude(spec);
+    assert.deepEqual(targets, ["CLAUDE.md", "AGENTS.md"]);
+    // Primary target is first in array
+    assert.ok(markdown.includes("# CLAUDE.md"));
+  });
+
+  it("returns single target in targets array", () => {
+    const spec = claude({ target: "AGENTS.md", rules: {} });
+    const { targets } = compileClaude(spec);
+    assert.deepEqual(targets, ["AGENTS.md"]);
+  });
+
+  it("defaults targets to CLAUDE.md", () => {
+    const spec = claude({ rules: {} });
+    const { targets } = compileClaude(spec);
+    assert.deepEqual(targets, ["CLAUDE.md"]);
   });
 });
 

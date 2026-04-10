@@ -25,7 +25,7 @@ import type { LinterCheckResult } from "./linters.js";
 // Hash utilities
 // ---------------------------------------------------------------------------
 
-const HASH_RE = /^<!-- vigiles:sha256:([a-f0-9]+) compiled from (.+) -->\n/;
+const HASH_RE = /^<!-- vigiles:sha256:([a-f0-9]+) compiled from (.+) -->\n\n?/;
 
 /** @internal Compute SHA-256 hash of content (excluding any existing hash line). */
 export function computeHash(content: string): string {
@@ -36,7 +36,7 @@ export function computeHash(content: string): string {
 /** @internal Prepend a hash comment to compiled content. */
 export function addHash(content: string, specFile: string): string {
   const hash = computeHash(content);
-  return `<!-- vigiles:sha256:${hash} compiled from ${specFile} -->\n${content}`;
+  return `<!-- vigiles:sha256:${hash} compiled from ${specFile} -->\n\n${content}`;
 }
 
 /** @internal Check if a file's hash matches its content. Returns null if no hash found. */
@@ -80,7 +80,11 @@ export interface CompileError {
     | "stale-command"
     | "stale-ref"
     | "invalid-rule"
-    | "budget-exceeded";
+    | "budget-exceeded"
+    | "section-too-long"
+    | "section-has-header"
+    | "reserved-section-key"
+    | "spec-name-mismatch";
   message: string;
   path?: string;
 }
@@ -232,6 +236,8 @@ export interface CompileClaudeResult {
   linterResults: LinterCheckResult[];
   /** Estimated token count of compiled output (~4 chars/token). */
   tokens: number;
+  /** All targets from the spec (for multi-target compilation). */
+  targets: string[];
 }
 
 export interface CompileClaudeOptions {
@@ -241,6 +247,8 @@ export interface CompileClaudeOptions {
   maxRules?: number;
   /** Maximum estimated tokens for compiled output. */
   maxTokens?: number;
+  /** Maximum lines per prose section. Forces splitting into named sections. */
+  maxSectionLines?: number;
   /** Skip config-enabled checks, only verify rule exists in catalog. */
   catalogOnly?: boolean;
   /** Custom linter configs (rulesDir). */
@@ -260,20 +268,75 @@ interface SectionResult {
   errors: CompileError[];
 }
 
+function validateSectionContent(
+  name: string,
+  text: string,
+  maxSectionLines?: number,
+): CompileError[] {
+  const errors: CompileError[] = [];
+  const contentLines = text.split("\n");
+
+  // Reject markdown headers inside sections — sections compile to ## headings,
+  // so raw # headers break document structure and signal pasted-in content.
+  // Skip lines inside fenced code blocks (``` or ~~~).
+  let inFence = false;
+  for (const line of contentLines) {
+    if (/^ {0,3}(`{3,}|~{3,})/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (/^ {0,3}#{1,2}\s/.test(line)) {
+      errors.push({
+        type: "section-has-header",
+        message: `Section "${name}" contains a markdown header ("${line.trim().slice(0, 60)}"). Break into separate named sections instead.`,
+      });
+      break;
+    }
+  }
+
+  if (maxSectionLines && contentLines.length > maxSectionLines) {
+    errors.push({
+      type: "section-too-long",
+      message: `Section "${name}" is ${String(contentLines.length)} lines (max ${String(maxSectionLines)}). Split into smaller named sections.`,
+    });
+  }
+
+  return errors;
+}
+
+const RESERVED_SECTION_KEYS = new Set([
+  "commands",
+  "keyFiles",
+  "key-files",
+  "key_files",
+  "rules",
+]);
+
 function compileSectionsSection(
   spec: ClaudeSpec,
   basePath: string,
+  maxSectionLines?: number,
 ): SectionResult {
   if (!spec.sections) return { lines: [], errors: [] };
   const lines: string[] = [];
   const errors: CompileError[] = [];
   for (const [name, content] of Object.entries(spec.sections)) {
+    // #4: reject reserved section keys that clash with structured fields
+    if (RESERVED_SECTION_KEYS.has(name)) {
+      errors.push({
+        type: "reserved-section-key",
+        message: `Section key "${name}" is reserved — use the dedicated \`${name}\` field on the spec instead.`,
+      });
+    }
     const heading = name.charAt(0).toUpperCase() + name.slice(1);
     if (typeof content === "string") {
+      errors.push(...validateSectionContent(name, content, maxSectionLines));
       lines.push(`## ${heading}\n\n${content.trim()}`);
     } else {
       errors.push(...validateRefs(content, basePath));
       const rendered = content.map(renderFragment).join("");
+      errors.push(...validateSectionContent(name, rendered, maxSectionLines));
       lines.push(`## ${heading}\n\n${rendered.trim()}`);
     }
   }
@@ -395,10 +458,28 @@ export function compileClaude(
   spec: ClaudeSpec,
   options: CompileClaudeOptions = {},
 ): CompileClaudeResult {
+  const targets = spec.target ?? "CLAUDE.md";
+  const target = Array.isArray(targets) ? targets[0] : targets;
   const basePath = options.basePath ?? process.cwd();
-  const specFile = options.specFile ?? "CLAUDE.md.spec.ts";
+  const specFile = options.specFile ?? `${target}.spec.ts`;
   const errors: CompileError[] = [];
-  const sections: string[] = ["# CLAUDE.md"];
+  const sections: string[] = [`# ${target}`];
+
+  // Verify spec file naming matches the primary target
+  if (!specFile.endsWith(".spec.ts")) {
+    errors.push({
+      type: "spec-name-mismatch",
+      message: `Spec file "${specFile}" must end with .spec.ts`,
+    });
+  } else {
+    const baseName = basename(specFile, ".spec.ts");
+    if (baseName !== target) {
+      errors.push({
+        type: "spec-name-mismatch",
+        message: `Spec file "${specFile}" doesn't match target "${target}". Expected "${target}.spec.ts".`,
+      });
+    }
+  }
 
   // maxRules check
   const ruleCount = Object.keys(spec.rules).length;
@@ -409,7 +490,9 @@ export function compileClaude(
     });
   }
 
-  const prose = compileSectionsSection(spec, basePath);
+  // Per-spec maxSectionLines takes precedence, then compile options
+  const maxSectionLines = spec.maxSectionLines ?? options.maxSectionLines;
+  const prose = compileSectionsSection(spec, basePath, maxSectionLines);
   const keyFiles = compileKeyFilesSection(spec, basePath);
   const commands = compileCommandsSection(spec, basePath);
   const rules = compileRulesSection(spec, basePath, options);
@@ -438,7 +521,14 @@ export function compileClaude(
   }
 
   const markdown = addHash(body, specFile);
-  return { markdown, errors, linterResults: rules.linterResults, tokens };
+  const allTargets = Array.isArray(targets) ? targets : [targets];
+  return {
+    markdown,
+    errors,
+    linterResults: rules.linterResults,
+    tokens,
+    targets: allTargets,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -466,13 +556,29 @@ export function compileSkill(
   const specFile = options.specFile ?? "SKILL.md.spec.ts";
   const errors: CompileError[] = [];
 
+  // Verify spec file naming
+  if (!specFile.endsWith(".spec.ts")) {
+    errors.push({
+      type: "spec-name-mismatch",
+      message: `Spec file "${specFile}" must end with .spec.ts`,
+    });
+  } else {
+    const baseName = basename(specFile, ".spec.ts");
+    if (!/\.md$/i.test(baseName)) {
+      errors.push({
+        type: "spec-name-mismatch",
+        message: `Spec file "${specFile}" should be named <output>.spec.ts (e.g., SKILL.md.spec.ts)`,
+      });
+    }
+  }
+
   // Validate refs in body
   if (Array.isArray(spec.body)) {
     errors.push(...validateRefs(spec.body, basePath));
   }
 
-  // Build frontmatter
-  const fm: string[] = ["---"];
+  // Build frontmatter (blank lines after opening/before closing --- for prettier)
+  const fm: string[] = ["---", ""];
   fm.push(`name: ${spec.name}`);
   fm.push(`description: ${spec.description}`);
   if (spec.disableModelInvocation !== undefined) {
@@ -481,7 +587,7 @@ export function compileSkill(
   if (spec.argumentHint) {
     fm.push(`argument-hint: ${spec.argumentHint}`);
   }
-  fm.push("---");
+  fm.push("", "---");
 
   const body = renderBody(spec.body);
   const content = fm.join("\n") + "\n\n" + body.trim() + "\n";

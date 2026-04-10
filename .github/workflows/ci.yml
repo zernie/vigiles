@@ -54,6 +54,9 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      - name: Check generated types compile
+        run: node dist/cli.js generate-types && npx tsc --noEmit
+
       - name: Lint
         run: npm run lint
 
@@ -75,4 +78,4 @@ jobs:
         run: npm run build
 
       - name: Check compiled files
-        run: npx vigiles check
+        run: node dist/cli.js check

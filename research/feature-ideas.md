@@ -432,4 +432,33 @@ The "LLM reviews PRs in CI" approach hasn't worked due to non-determinism. What 
 
 Pattern: **LLM proposes, deterministic tool disposes.** The CI gate stays deterministic.
 
+---
+
+## TODO: Type System Enhancements
+
+### Exhaustive Rule Coverage Type
+
+A utility type that diffs all enabled linter rules against the rules referenced in the spec. `vigiles discover` does this at runtime — the type system could do it at authoring time:
+
+```typescript
+type UncoveredRules = Exclude<EslintRule, ReferencedEslintRules>;
+type _assert = [UncoveredRules] extends [never] ? true : never; // compile error if gaps
+```
+
+This would make "100% rule coverage" a type-checked property of the spec itself. Requires `generate-types` to emit a `ReferencedRules` type alongside the linter rule unions.
+
+### Variadic `check()` — Multiple Assertions per Rule
+
+Currently `check()` takes a single assertion. A variadic overload could accept multiple:
+
+```typescript
+"test-coverage": check(
+  every("src/**/*.service.ts").has("{name}.test.ts"),
+  every("src/**/*.service.ts").has("{name}.schema.ts"),
+  "Every service must have tests and a schema.",
+),
+```
+
+Requires expanding `CheckRule.assertion` to `FilePairingAssertion | FilePairingAssertion[]` and updating the compiler to iterate.
+
 See also: [research/competitive-landscape.md](./competitive-landscape.md) for the full competitive landscape, moat analysis, pain points, and transferable concepts from other linters.

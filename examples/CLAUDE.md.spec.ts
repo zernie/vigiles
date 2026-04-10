@@ -4,15 +4,15 @@
  * This is the source of truth. CLAUDE.md is a compiled build artifact.
  * Run `vigiles compile` to generate CLAUDE.md from this spec.
  */
-import { claude, enforce, guidance, check, every } from "../src/spec.js";
+import { claude, guidance } from "../src/spec.js";
 
 export default claude({
   sections: {
-    positioning: `vigiles compiles \`.spec.ts\` files to instruction files. The spec is the source of truth. The markdown is a build artifact.
+    positioning: `vigiles compiles \`.spec.ts\` files to instruction files (CLAUDE.md, AGENTS.md, or any markdown target). The spec is the source of truth. The markdown is a build artifact.
 
-The linter cross-referencing engine is the core moat: \`enforce("eslint/no-console")\` verifies the rule exists AND is enabled in your ESLint config. Same for Ruff, Clippy, Pylint, RuboCop, and Stylelint.
+The linter cross-referencing engine is the core moat: \`enforce("@typescript-eslint/no-floating-promises")\` verifies the rule exists AND is enabled in your linter config. Same for ESLint, Ruff, Clippy, Pylint, RuboCop, and Stylelint.
 
-\`generate-types\` is the second moat: scans all 6 linter APIs, package.json, and project files to emit a \`.d.ts\` with type unions. The TS compiler then PROVES references are valid at authoring time.`,
+\`generate-types\` is the second moat: scans all 6 linter APIs, package.json, and project files to emit a \`.d.ts\` with type unions. The TS compiler then PROVES references are valid at authoring time — typos become type errors, not runtime surprises.`,
 
     architecture: `Three rule types in specs: \`enforce()\` (delegated to external tool), \`check()\` (vigiles-owned filesystem assertion), \`guidance()\` (prose only).
 
@@ -55,9 +55,11 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
       "This is a public repo. Claude Code session URLs are private and must not appear in commits or PRs.",
     ),
 
-    "test-file-pairing": check(
-      every("src/**/*.ts").has("{name}.test.ts"),
-      "Every source module should have a corresponding test file.",
-    ),
+    // Example: check() rule (commented out because this is a demo spec,
+    // not the project's actual spec — see root CLAUDE.md.spec.ts)
+    // "test-file-pairing": check(
+    //   every("src/**/!(*test|*spec).ts").has("{name}.test.ts"),
+    //   "Every source module should have a corresponding test file.",
+    // ),
   },
 });
