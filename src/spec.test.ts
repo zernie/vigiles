@@ -1241,13 +1241,14 @@ describe("spec file naming convention", () => {
     assert.ok(errors.some((e) => e.type === "spec-name-mismatch"));
   });
 
-  it("errors when spec file does not map to a .md output", () => {
+  it("errors when spec file does not match target", () => {
     const spec = claude({ rules: {} });
     const { errors } = compileClaude(spec, {
-      specFile: "config.spec.ts",
+      specFile: "AGENTS.md.spec.ts",
     });
+    // Default target is CLAUDE.md, but spec says AGENTS.md
     assert.ok(errors.some((e) => e.type === "spec-name-mismatch"));
-    assert.ok(errors[0].message.includes("should be named"));
+    assert.ok(errors[0].message.includes("doesn't match"));
   });
 
   it("accepts SKILL.md.spec.ts for skills", () => {

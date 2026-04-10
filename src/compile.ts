@@ -465,19 +465,22 @@ export function compileClaude(
   const errors: CompileError[] = [];
   const sections: string[] = [`# ${target}`];
 
-  // #11: Verify spec file naming convention — <target>.spec.ts → <target>
+  // Verify spec file naming matches the primary target
   if (!specFile.endsWith(".spec.ts")) {
     errors.push({
       type: "spec-name-mismatch",
       message: `Spec file "${specFile}" must end with .spec.ts`,
     });
   } else {
-    const expectedOutput = specFile.replace(/\.spec\.ts$/, "");
-    const baseName = expectedOutput.split("/").pop() ?? expectedOutput;
-    if (!/\.md$/i.test(baseName)) {
+    const baseName =
+      specFile
+        .replace(/\.spec\.ts$/, "")
+        .split("/")
+        .pop() ?? "";
+    if (baseName !== target) {
       errors.push({
         type: "spec-name-mismatch",
-        message: `Spec file "${specFile}" should be named <output>.spec.ts (e.g., ${target}.spec.ts)`,
+        message: `Spec file "${specFile}" doesn't match target "${target}". Expected "${target}.spec.ts".`,
       });
     }
   }
@@ -557,15 +560,18 @@ export function compileSkill(
   const specFile = options.specFile ?? "SKILL.md.spec.ts";
   const errors: CompileError[] = [];
 
-  // #11: Verify spec file naming convention — SKILL.md.spec.ts → SKILL.md
+  // Verify spec file naming
   if (!specFile.endsWith(".spec.ts")) {
     errors.push({
       type: "spec-name-mismatch",
       message: `Spec file "${specFile}" must end with .spec.ts`,
     });
   } else {
-    const expectedOutput = specFile.replace(/\.spec\.ts$/, "");
-    const baseName = expectedOutput.split("/").pop() ?? expectedOutput;
+    const baseName =
+      specFile
+        .replace(/\.spec\.ts$/, "")
+        .split("/")
+        .pop() ?? "";
     if (!/\.md$/i.test(baseName)) {
       errors.push({
         type: "spec-name-mismatch",
