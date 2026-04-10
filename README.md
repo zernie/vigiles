@@ -18,7 +18,15 @@
 
 Your CLAUDE.md says "don't use `any`" and references a lint rule to enforce it. But someone disabled that rule to unblock a deadline three months ago. Your agent still thinks there's a safety net. Is there?
 
-vigiles compiles typed TypeScript specs to AI instruction files (CLAUDE.md, AGENTS.md, or any markdown target). Every linter reference is verified. Every file path is checked. Every command is validated. If something is stale, broken, or disabled — you find out at compile time, not when the agent ignores it.
+**One command. Zero config. Your agent starts editing the spec instead of the markdown.**
+
+```bash
+npx vigiles setup && npx skills add zernie/vigiles
+```
+
+vigiles compiles typed TypeScript specs to AI instruction files (CLAUDE.md, AGENTS.md, or any markdown target). Every linter reference is verified against your actual config. Every file path is checked. Every command is validated. If something is stale, broken, or disabled — you find out at compile time, not when the agent ignores it.
+
+After setup, your agent can't edit CLAUDE.md directly — the plugin redirects it to the `.spec.ts` source and auto-compiles after every edit. No workflow change required.
 
 Companion repo for [Feedback Loop Is All You Need](https://zernie.com/blog/feedback-loop-is-all-you-need).
 
@@ -98,16 +106,22 @@ The spec is the source of truth. CLAUDE.md is a build artifact.
 ## Quick Start
 
 ```bash
-npx vigiles setup
+npx vigiles setup                # creates spec, scans linters, compiles, adds CI step
+npx skills add zernie/vigiles    # install plugin — agent edits spec, not markdown
 ```
 
-That's it. The wizard creates a spec, scans your linters, generates types, compiles to markdown, and adds a CI step to your workflow if one exists. For AGENTS.md (Codex, GitHub Copilot): `npx vigiles setup --target=AGENTS.md`.
+The wizard auto-detects your project — existing instruction files, linter configs, agent tools (Claude Code, Codex, Cursor). No flags needed. It creates a `.spec.ts`, generates type-safe rule references, compiles to markdown, and wires up your CI.
 
-Already have a hand-written CLAUDE.md? Install the plugin and ask your agent to run the `migrate-to-spec` skill:
+**What happens after install:**
 
-```bash
-npx skills add zernie/vigiles
-```
+- Agent says "update CLAUDE.md" → plugin blocks the edit, redirects to `.spec.ts`
+- Agent edits the spec → plugin auto-compiles → CLAUDE.md regenerated
+- Agent edits `eslint.config.ts` → plugin auto-regenerates types
+- CI runs `vigiles check` → catches stale specs, disabled rules, missing files
+
+**Already have a hand-written CLAUDE.md?** The wizard detects it and suggests the `migrate-to-spec` skill. Or start fresh — the existing file stays untouched until you compile.
+
+For Codex / GitHub Copilot: `npx vigiles setup --target=AGENTS.md`. [Agent workflow details →](docs/agent-workflows.md)
 
 ## Three Rule Types
 

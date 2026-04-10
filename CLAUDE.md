@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:54187de6b0ab1302 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:0c1332b4b72df315 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -63,7 +63,7 @@ Core modules: `src/spec.ts` (types + builders), `src/compile.ts` (compiler), `sr
 
 ### Smooth Adoption
 
-**Guidance only** — Every adoption surface (CLI, GHA, plugin, skills, types) must work together. `npx vigiles check` should be the first thing a new user runs and it should tell them exactly what to do next. Support both incremental migration (`require-spec: false`) and strict enforcement (`require-spec: true`). Multi-target output (CLAUDE.md, AGENTS.md) from one spec. See `research/adoption-strategy.md`.
+**Guidance only** — `npx vigiles setup && npx skills add zernie/vigiles` must work on first run with zero config. The wizard auto-detects the project, creates specs, generates types, compiles, and wires CI. After install the agent edits specs automatically — no workflow change required. Start permissive (guidance rules, `require-spec: false` available), tighten over time. See `research/adoption-strategy.md`.
 
 ### Format Before Commit
 

@@ -1,6 +1,13 @@
 # vigiles Adoption Strategy
 
-Goal: **one command from zero to fully integrated. Support both incremental migration and strict enforcement.**
+Goal: **`npx vigiles setup && npx skills add zernie/vigiles` works on first run with zero config. The agent starts editing specs automatically — no workflow change required. Start permissive, tighten over time.**
+
+### Adoption Principles
+
+1. **Works on first run.** Setup must succeed in any project without configuration. Auto-detect everything. Create reasonable defaults. Don't block on missing tools.
+2. **Zero workflow change.** After plugin install, the agent edits specs instead of markdown. The user doesn't need to learn a new workflow — they say "update CLAUDE.md" and the plugin handles the redirect.
+3. **Start permissive, tighten later.** First run creates `guidance()` rules (no enforcement). User upgrades to `enforce()` as they add linter rules. `require-spec: false` available for incremental migration.
+4. **Every surface tells you the next step.** `vigiles check` says "run setup." The hook says "edit the spec." The wizard says "install the plugin." No dead ends.
 
 ---
 

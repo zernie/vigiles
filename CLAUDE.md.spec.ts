@@ -68,7 +68,7 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
     ),
 
     "smooth-adoption": guidance(
-      "Every adoption surface (CLI, GHA, plugin, skills, types) must work together. `npx vigiles check` should be the first thing a new user runs and it should tell them exactly what to do next. Support both incremental migration (`require-spec: false`) and strict enforcement (`require-spec: true`). Multi-target output (CLAUDE.md, AGENTS.md) from one spec. See `research/adoption-strategy.md`.",
+      "`npx vigiles setup && npx skills add zernie/vigiles` must work on first run with zero config. The wizard auto-detects the project, creates specs, generates types, compiles, and wires CI. After install the agent edits specs automatically — no workflow change required. Start permissive (guidance rules, `require-spec: false` available), tighten over time. See `research/adoption-strategy.md`.",
     ),
 
     "format-before-commit": guidance(
