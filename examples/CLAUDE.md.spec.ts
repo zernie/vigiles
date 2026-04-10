@@ -4,7 +4,7 @@
  * This is the source of truth. CLAUDE.md is a compiled build artifact.
  * Run `vigiles compile` to generate CLAUDE.md from this spec.
  */
-import { claude, enforce, guidance, check, every } from "../src/spec.js";
+import { claude, guidance, check, every } from "../src/spec.js";
 
 export default claude({
   sections: {

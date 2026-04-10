@@ -1,6 +1,5 @@
+<!-- vigiles:sha256:54187de6b0ab1302 compiled from CLAUDE.md.spec.ts -->
 # CLAUDE.md
-
-vigiles — compile typed TypeScript specs to AI instruction files (CLAUDE.md, AGENTS.md, SKILL.md). Your project's conventions as TypeScript — type-checked at authoring time, proven at build time, compiled to markdown for agents to read.
 
 ## Positioning
 
@@ -10,31 +9,7 @@ The linter cross-referencing engine is the core moat: `enforce("@typescript-esli
 
 `generate-types` is the second moat: scans all 6 linter APIs, package.json, and project files to emit a `.d.ts` with type unions. The TS compiler then PROVES references are valid at authoring time — typos become type errors, not runtime surprises.
 
-vigiles does NOT do architectural linting. Use [ast-grep](https://ast-grep.github.io/), [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser), [Steiger](https://github.com/feature-sliced/steiger), or [eslint-plugin-boundaries](https://github.com/javierbrea/eslint-plugin-boundaries) for that. vigiles can reference their rules via `enforce()`.
-
-## Key Files
-
-- `src/spec.ts` — Type system and builder functions (`enforce`, `guidance`, `check`, `claude`, `skill`, `file`, `cmd`, `ref`)
-- `src/compile.ts` — Compiler: spec → markdown with SHA-256 hash, linter verification, reference validation
-- `src/linters.ts` — Linter cross-referencing engine (ESLint, Stylelint, Ruff, Clippy, Pylint, RuboCop)
-- `src/generate-types.ts` — Type generator: scans linters/package.json/filesystem → emits `.d.ts`
-- `src/cli.ts` — CLI: `compile`, `check`, `init`, `generate-types` commands
-- `src/action.ts` — GitHub Action wrapper
-- `src/spec.test.ts` — Test suite (node:test)
-- `examples/CLAUDE.md.spec.ts` — Example CLAUDE.md spec
-- `examples/SKILL.md.spec.ts` — Example SKILL.md spec
-- `research/` — Design docs: executable-specs.md, feature-ideas.md, competitive-landscape.md, ai-code-quality.md
-
-## Commands
-
-- `npm run build` — Compile TypeScript to dist/
-- `npm test` — Build and run all tests
-- `npm run fmt` — Format with prettier
-- `npm run fmt:check` — Check formatting
-- `npx vigiles compile` — Compile all .spec.ts → .md files
-- `npx vigiles check` — Verify compiled file hashes
-- `npx vigiles init` — Scaffold a starter spec
-- `npx vigiles generate-types` — Emit .vigiles/generated.d.ts from project state
+vigiles does NOT do architectural linting. Use ast-grep, Dependency Cruiser, Steiger, or eslint-plugin-boundaries for that. vigiles can reference their rules via `enforce()`.
 
 ## Architecture
 
@@ -50,36 +25,49 @@ Compilation: spec.ts → compiler reads spec, validates references (file paths v
 
 Core modules: `src/spec.ts` (types + builders), `src/compile.ts` (compiler), `src/linters.ts` (6-linter cross-referencing engine), `src/generate-types.ts` (type generator).
 
-## Principles
+## Key Files
 
-### Never skip or disable tests
+- `src/spec.ts` — Type system and builder functions (enforce, guidance, check, claude, skill, file, cmd, ref)
+- `src/compile.ts` — Compiler: spec → markdown with SHA-256 hash, linter verification, reference validation
+- `src/linters.ts` — Linter cross-referencing engine (ESLint, Stylelint, Ruff, Clippy, Pylint, RuboCop)
+- `src/generate-types.ts` — Type generator: scans linters/package.json/filesystem → emits .d.ts
+- `src/cli.ts` — CLI: compile, check, init, generate-types, discover, adopt
+- `src/action.ts` — GitHub Action wrapper
+- `src/spec.test.ts` — Spec + compiler test suite (node:test)
+- `src/validate.test.ts` — Validation test suite (node:test)
+- `CLAUDE.md.spec.ts` — This file — the source of truth for CLAUDE.md
+- `examples/SKILL.md.spec.ts` — Example SKILL.md spec
+- `research/adoption-strategy.md` — Adoption strategy and pain points
 
-**Enforced by:** `code-review`
-**Why:** All tests must pass. If a test requires a CLI tool (pylint, rubocop, ruff, clippy), install the tool, don't skip the test.
+## Commands
 
-### Zero config by default
-
-**Enforced by:** `code-review`
-**Why:** `vigiles compile` should work with just a .spec.ts file. Config exists only for overrides (maxRules, maxTokens, catalogOnly).
-
-### Don't reimplement existing tools
-
-**Enforced by:** `code-review`
-**Why:** Architectural linting belongs in ast-grep/Dependency Cruiser/Steiger. Per-file code rules belong in ESLint/Ruff/Clippy. vigiles owns: compilation, linter cross-referencing, type generation, filesystem assertions, and stale reference detection.
-
-### Smooth adoption from zero to fully integrated
-
-**Enforced by:** `code-review`
-**Why:** Every adoption surface (CLI, GHA, plugin, skills, types) must work together. `npx vigiles check` should be the first thing a new user runs and it should tell them exactly what to do next. Support both incremental migration (`require-spec: false`) and strict enforcement (`require-spec: true`). Multi-target output (CLAUDE.md, AGENTS.md) from one spec. See `research/adoption-strategy.md` for the full adoption level breakdown.
+- `npm run build` — Compile TypeScript to dist/
+- `npm test` — Build and run all tests
+- `npm run fmt` — Format with prettier
+- `npm run fmt:check` — Check formatting
 
 ## Rules
 
-### Run `npm run fmt:check` before committing
+### Never Skip Tests
 
-**Enforced by:** `code-review`
-**Why:** Inline code spans in markdown need surrounding spaces to render correctly.
+**Guidance only** — All tests must pass. If a test requires a CLI tool (pylint, rubocop, ruff, clippy), install the tool, don't skip the test.
 
-### Never include session links in commits or PRs
+### Zero Config By Default
 
-**Guidance only** — cannot be mechanically enforced
-**Why:** This is a public repo. Claude Code session URLs are private.
+**Guidance only** — `vigiles compile` should work with just a .spec.ts file. Config exists only for overrides (maxRules, maxTokens).
+
+### Dont Reimplement Linters
+
+**Guidance only** — Architectural linting belongs in ast-grep/Dependency Cruiser/Steiger. Per-file code rules belong in ESLint/Ruff/Clippy. vigiles owns: compilation, linter cross-referencing, type generation, filesystem assertions, and stale reference detection.
+
+### Smooth Adoption
+
+**Guidance only** — Every adoption surface (CLI, GHA, plugin, skills, types) must work together. `npx vigiles check` should be the first thing a new user runs and it should tell them exactly what to do next. Support both incremental migration (`require-spec: false`) and strict enforcement (`require-spec: true`). Multi-target output (CLAUDE.md, AGENTS.md) from one spec. See `research/adoption-strategy.md`.
+
+### Format Before Commit
+
+**Guidance only** — Run `npm run fmt:check` before committing. Inline code spans in markdown need surrounding spaces to render correctly.
+
+### No Session Links
+
+**Guidance only** — This is a public repo. Claude Code session URLs are private and must not appear in commits or PRs.

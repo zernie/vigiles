@@ -73,28 +73,55 @@ async function loadSpec(
   specPath: string,
 ): Promise<ClaudeSpec | SkillSpec | null> {
   const fullPath = resolve(process.cwd(), specPath);
-  const distPath = fullPath
-    .replace(/\/src\//, "/dist/")
-    .replace(/\.ts$/, ".js");
 
-  // Try loading from dist/ (compiled)
-  if (existsSync(distPath)) {
-    try {
-      const mod = (await import(distPath)) as {
-        default: ClaudeSpec | SkillSpec;
-      };
-      return mod.default;
-    } catch {
-      // Fall through
+  // Try multiple dist/ path strategies
+  const candidates: string[] = [];
+
+  // src/ → dist/ mapping (e.g., src/CLAUDE.md.spec.ts → dist/CLAUDE.md.spec.js)
+  if (fullPath.includes("/src/")) {
+    candidates.push(
+      fullPath.replace(/\/src\//, "/dist/").replace(/\.ts$/, ".js"),
+    );
+  }
+
+  // Root-level spec → dist/ (e.g., CLAUDE.md.spec.ts → dist/CLAUDE.md.spec.js)
+  const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
+  const base = fullPath.substring(fullPath.lastIndexOf("/") + 1);
+  candidates.push(resolve(dir, "dist", base.replace(/\.ts$/, ".js")));
+
+  // examples/ → dist/examples/ mapping
+  candidates.push(
+    fullPath
+      .replace(/\.ts$/, ".js")
+      .replace(process.cwd(), resolve(process.cwd(), "dist")),
+  );
+
+  for (const distPath of candidates) {
+    if (existsSync(distPath)) {
+      try {
+        const mod = (await import(distPath)) as {
+          default: ClaudeSpec | SkillSpec;
+        };
+        return mod.default;
+      } catch {
+        // Try next candidate
+      }
     }
   }
 
-  // Try loading .ts directly (requires tsx or similar)
+  // Try loading .ts directly via tsx
   try {
-    const mod = (await import(fullPath)) as {
-      default: ClaudeSpec | SkillSpec;
-    };
-    return mod.default;
+    const { execSync } =
+      require("node:child_process") as typeof import("node:child_process");
+    // Handle ESM/CJS double-default: m.default may itself have a .default
+    const script = `import(${JSON.stringify(fullPath)}).then(m => { const d = m.default?.default ?? m.default; console.log(JSON.stringify(d)); })`;
+    const output = execSync(`npx tsx -e '${script.replace(/'/g, "'\\''")}'`, {
+      encoding: "utf-8",
+      cwd: process.cwd(),
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 15000,
+    });
+    return JSON.parse(output.trim()) as ClaudeSpec | SkillSpec;
   } catch {
     return null;
   }
