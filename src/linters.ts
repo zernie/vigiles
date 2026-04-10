@@ -73,37 +73,42 @@ const SAFE_RULE_NAME_RE = /^[a-zA-Z0-9_\-/.:#]+$/;
 // ESLint plugin resolution
 // ---------------------------------------------------------------------------
 
+function eslintPluginPkgNames(pluginName: string): string[] {
+  if (pluginName.startsWith("@")) {
+    const parts = pluginName.split("/");
+    if (parts.length === 1) return [`${parts[0]}/eslint-plugin`];
+    return [
+      `${parts[0]}/eslint-plugin-${parts[1]}`,
+      `${parts[0]}/eslint-plugin`,
+    ];
+  }
+  return [`eslint-plugin-${pluginName}`];
+}
+
+function tryResolvePlugin(req: NodeRequire, pkg: string): Set<string> | null {
+  try {
+    const plugin = req(pkg) as {
+      rules?: Record<string, unknown>;
+      default?: { rules?: Record<string, unknown> };
+    };
+    const rules = plugin.rules ?? plugin.default?.rules;
+    if (rules) return new Set(Object.keys(rules));
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function resolveEslintPluginRules(
   pluginName: string,
   basePath: string,
 ): Set<string> | null {
   try {
     const req = createRequire(resolve(basePath, "package.json"));
-    let pkgNames: string[];
-    if (pluginName.startsWith("@")) {
-      const parts = pluginName.split("/");
-      if (parts.length === 1) {
-        pkgNames = [`${parts[0]}/eslint-plugin`];
-      } else {
-        pkgNames = [
-          `${parts[0]}/eslint-plugin-${parts[1]}`,
-          `${parts[0]}/eslint-plugin`,
-        ];
-      }
-    } else {
-      pkgNames = [`eslint-plugin-${pluginName}`];
-    }
+    const pkgNames = eslintPluginPkgNames(pluginName);
     for (const pkg of pkgNames) {
-      try {
-        const plugin = req(pkg) as {
-          rules?: Record<string, unknown>;
-          default?: { rules?: Record<string, unknown> };
-        };
-        const rules = plugin.rules ?? plugin.default?.rules;
-        if (rules) return new Set(Object.keys(rules));
-      } catch {
-        continue;
-      }
+      const result = tryResolvePlugin(req, pkg);
+      if (result) return result;
     }
     return null;
   } catch {
@@ -397,6 +402,145 @@ function ruleFileExists(
 }
 
 // ---------------------------------------------------------------------------
+// checkLinterRule helpers
+// ---------------------------------------------------------------------------
+
+interface RuleContext {
+  linterName: string;
+  ruleName: string;
+  basePath: string;
+  catalogOnly?: boolean;
+  linters?: Record<string, { rulesDir?: string | string[] }>;
+}
+
+function makeResult(
+  ctx: RuleContext,
+  exists: boolean,
+  enabled: ConfigEnabledStatus = "unknown",
+  error?: string,
+): LinterCheckResult {
+  return { exists, enabled, linter: ctx.linterName, rule: ctx.ruleName, error };
+}
+
+/** @internal */ function tryNodeResolver(
+  ctx: RuleContext,
+): LinterCheckResult | null {
+  const resolver = LINTER_RESOLVERS[ctx.linterName];
+  if (!resolver) return null;
+  try {
+    const resolved = resolver(ctx.basePath);
+    const eslintSet = resolved as EslintRuleSet;
+
+    if (!resolved.has(ctx.ruleName)) {
+      const foundInPlugin =
+        eslintSet._isEslint &&
+        ctx.ruleName.includes("/") &&
+        isEslintPluginRule(ctx.ruleName, eslintSet._basePath ?? ctx.basePath);
+      if (!foundInPlugin) {
+        return makeResult(
+          ctx,
+          false,
+          "unknown",
+          `Rule "${ctx.ruleName}" not found in ${ctx.linterName}`,
+        );
+      }
+    }
+
+    const enabled = checkConfigEnabled(
+      ctx.linterName,
+      ctx.ruleName,
+      ctx.basePath,
+      ctx.catalogOnly,
+    );
+    return makeResult(ctx, true, enabled);
+  } catch {
+    return null;
+  }
+}
+
+function isEslintPluginRule(ruleName: string, basePath: string): boolean {
+  const pluginPrefix = ruleName.substring(0, ruleName.indexOf("/"));
+  const pluginRuleName = ruleName.substring(ruleName.indexOf("/") + 1);
+  const pluginRules = resolveEslintPluginRules(pluginPrefix, basePath);
+  return pluginRules?.has(pluginRuleName) === true;
+}
+
+/** @internal */ function tryScopedPlugin(
+  ctx: RuleContext,
+): LinterCheckResult | null {
+  const pluginRules = resolveEslintPluginRules(ctx.linterName, ctx.basePath);
+  if (!pluginRules) return null;
+  if (!pluginRules.has(ctx.ruleName)) {
+    return makeResult(
+      ctx,
+      false,
+      "unknown",
+      `Rule "${ctx.ruleName}" not found in ${ctx.linterName}`,
+    );
+  }
+  const enabled = checkConfigEnabled(
+    "eslint",
+    `${ctx.linterName}/${ctx.ruleName}`,
+    ctx.basePath,
+    ctx.catalogOnly,
+  );
+  return makeResult(ctx, true, enabled);
+}
+
+/** @internal */ function tryCliCheck(
+  ctx: RuleContext,
+): LinterCheckResult | null {
+  const cliCheck = CLI_RULE_CHECKS[ctx.linterName];
+  if (!cliCheck) return null;
+  const tool = CLI_TOOL_FOR_LINTER[ctx.linterName];
+  if (tool && !cliAvailable(tool)) {
+    return makeResult(
+      ctx,
+      false,
+      "unknown",
+      `${ctx.linterName} CLI tool "${tool}" not found on PATH`,
+    );
+  }
+  try {
+    cliCheck(ctx.ruleName);
+    const enabled = checkConfigEnabled(
+      ctx.linterName,
+      ctx.ruleName,
+      ctx.basePath,
+      ctx.catalogOnly,
+    );
+    return makeResult(ctx, true, enabled);
+  } catch {
+    return makeResult(
+      ctx,
+      false,
+      "unknown",
+      `Rule "${ctx.ruleName}" not found in ${ctx.linterName}`,
+    );
+  }
+}
+
+/** @internal */ function tryCustomRulesDir(
+  ctx: RuleContext,
+): LinterCheckResult | null {
+  const linterCfg = ctx.linters?.[ctx.linterName];
+  if (!linterCfg?.rulesDir) return null;
+  const dirs = Array.isArray(linterCfg.rulesDir)
+    ? linterCfg.rulesDir
+    : [linterCfg.rulesDir];
+  for (const dir of dirs) {
+    const found = ruleFileExists(ctx.ruleName, dir, ctx.basePath);
+    if (found) return makeResult(ctx, true);
+  }
+  return makeResult(
+    ctx,
+    false,
+    "unknown",
+    `Rule file for "${ctx.ruleName}" not found in ${ctx.linterName} rulesDir`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -427,138 +571,21 @@ export function checkLinterRule(
     };
   }
 
-  // Try Node API resolvers (eslint, stylelint)
-  const resolver = LINTER_RESOLVERS[linterName];
-  if (resolver) {
-    try {
-      const resolved = resolver(basePath);
-      const eslintSet = resolved as EslintRuleSet;
-
-      if (!resolved.has(ruleName)) {
-        // For eslint, try plugin resolution
-        let foundInPlugin = false;
-        if (eslintSet._isEslint && ruleName.includes("/")) {
-          const pluginPrefix = ruleName.substring(0, ruleName.indexOf("/"));
-          const pluginRuleName = ruleName.substring(ruleName.indexOf("/") + 1);
-          const pluginRules = resolveEslintPluginRules(
-            pluginPrefix,
-            eslintSet._basePath ?? basePath,
-          );
-          if (pluginRules?.has(pluginRuleName)) {
-            foundInPlugin = true;
-          }
-        }
-        if (!foundInPlugin) {
-          return {
-            exists: false,
-            enabled: "unknown",
-            linter: linterName,
-            rule: ruleName,
-            error: `Rule "${ruleName}" not found in ${linterName}`,
-          };
-        }
-      }
-
-      // Rule exists — check if enabled in config
-      const enabled = checkConfigEnabled(
-        linterName,
-        ruleName,
-        basePath,
-        options?.catalogOnly,
-      );
-      return { exists: true, enabled, linter: linterName, rule: ruleName };
-    } catch {
-      // Resolver failed — linter not available
-    }
-  }
-
-  // Try ESLint plugin resolution (for scoped plugins like @typescript-eslint)
-  const pluginRules = resolveEslintPluginRules(linterName, basePath);
-  if (pluginRules) {
-    if (!pluginRules.has(ruleName)) {
-      return {
-        exists: false,
-        enabled: "unknown",
-        linter: linterName,
-        rule: ruleName,
-        error: `Rule "${ruleName}" not found in ${linterName}`,
-      };
-    }
-    const enabled = checkConfigEnabled(
-      "eslint",
-      `${linterName}/${ruleName}`,
-      basePath,
-      options?.catalogOnly,
-    );
-    return { exists: true, enabled, linter: linterName, rule: ruleName };
-  }
-
-  // Try CLI-based checks (ruff, clippy, pylint, rubocop)
-  const cliCheck = CLI_RULE_CHECKS[linterName];
-  if (cliCheck) {
-    const tool = CLI_TOOL_FOR_LINTER[linterName];
-    if (tool && !cliAvailable(tool)) {
-      return {
-        exists: false,
-        enabled: "unknown",
-        linter: linterName,
-        rule: ruleName,
-        error: `${linterName} CLI tool "${tool}" not found on PATH`,
-      };
-    }
-    try {
-      cliCheck(ruleName);
-      const enabled = checkConfigEnabled(
-        linterName,
-        ruleName,
-        basePath,
-        options?.catalogOnly,
-      );
-      return { exists: true, enabled, linter: linterName, rule: ruleName };
-    } catch {
-      return {
-        exists: false,
-        enabled: "unknown",
-        linter: linterName,
-        rule: ruleName,
-        error: `Rule "${ruleName}" not found in ${linterName}`,
-      };
-    }
-  }
-
-  // Fallback: custom rulesDir
-  const linterCfg = options?.linters?.[linterName];
-  if (linterCfg?.rulesDir) {
-    const dirs = Array.isArray(linterCfg.rulesDir)
-      ? linterCfg.rulesDir
-      : [linterCfg.rulesDir];
-    for (const dir of dirs) {
-      const found = ruleFileExists(ruleName, dir, basePath);
-      if (found) {
-        return {
-          exists: true,
-          enabled: "unknown",
-          linter: linterName,
-          rule: ruleName,
-        };
-      }
-    }
-    return {
-      exists: false,
-      enabled: "unknown",
-      linter: linterName,
-      rule: ruleName,
-      error: `Rule file for "${ruleName}" not found in ${linterName} rulesDir`,
-    };
-  }
-
-  return {
-    exists: false,
-    enabled: "unknown",
-    linter: linterName,
-    rule: ruleName,
-    error: `Unknown linter: "${linterName}"`,
+  const ctx: RuleContext = {
+    linterName,
+    ruleName,
+    basePath,
+    catalogOnly: options?.catalogOnly,
+    linters: options?.linters,
   };
+
+  return (
+    tryNodeResolver(ctx) ??
+    tryScopedPlugin(ctx) ??
+    tryCliCheck(ctx) ??
+    tryCustomRulesDir(ctx) ??
+    makeResult(ctx, false, "unknown", `Unknown linter: "${linterName}"`)
+  );
 }
 
 function checkConfigEnabled(

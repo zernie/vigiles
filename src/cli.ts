@@ -28,6 +28,12 @@ import type { CompileError } from "./compile.js";
 import type { ClaudeSpec, SkillSpec } from "./spec.js";
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const IGNORE_NODE_MODULES = ["node_modules/**"];
+
+// ---------------------------------------------------------------------------
 // Config loading
 // ---------------------------------------------------------------------------
 
@@ -57,7 +63,7 @@ function loadConfig(): VigilesConfig {
 function findSpecs(pattern?: string): string[] {
   const glob = pattern ?? "**/*.spec.ts";
   return globSync(glob, {
-    ignore: ["node_modules/**", "dist/**"],
+    ignore: [...IGNORE_NODE_MODULES, "dist/**"],
     cwd: process.cwd(),
   });
 }
@@ -146,7 +152,7 @@ async function compile(
         writeFileSync(resolve(basePath, outputPath), markdown);
         console.log(`\n✓ ${specPath} → ${outputPath}`);
         console.log(
-          `  ${String(Object.keys((spec as ClaudeSpec).rules).length)} rules (${String(linterCount)} linter-verified)`,
+          `  ${String(Object.keys(spec.rules).length)} rules (${String(linterCount)} linter-verified)`,
         );
       } else {
         console.log(`\n✗ ${specPath} — ${String(errors.length)} error(s)`);
@@ -177,10 +183,8 @@ async function compile(
   return allValid;
 }
 
-async function check(filePaths: string[]): Promise<boolean> {
+function verifyHashes(filePaths: string[]): boolean {
   let allValid = true;
-
-  // Hash verification
   for (const filePath of filePaths) {
     const fullPath = resolve(process.cwd(), filePath);
     const result = checkFileHash(fullPath);
@@ -192,21 +196,25 @@ async function check(filePaths: string[]): Promise<boolean> {
 
     if (result.valid) {
       console.log(`\n✓ ${filePath} — hash valid (from ${result.specFile})`);
-    } else {
-      console.log(
-        `\n✗ ${filePath} — hash mismatch (manually edited after compilation)`,
-      );
-      console.log(
-        `  Re-run \`vigiles compile\` to regenerate from ${result.specFile ?? "spec"}.`,
-      );
-      console.log(
-        `::error file=${filePath}::Hash mismatch — file was manually edited after compilation`,
-      );
-      allValid = false;
+      continue;
     }
-  }
 
-  // Run check() assertions from specs
+    console.log(
+      `\n✗ ${filePath} — hash mismatch (manually edited after compilation)`,
+    );
+    console.log(
+      `  Re-run \`vigiles compile\` to regenerate from ${result.specFile ?? "spec"}.`,
+    );
+    console.log(
+      `::error file=${filePath}::Hash mismatch — file was manually edited after compilation`,
+    );
+    allValid = false;
+  }
+  return allValid;
+}
+
+async function runAssertions(): Promise<boolean> {
+  let allValid = true;
   const specs = findSpecs();
   for (const specPath of specs) {
     const spec = await loadSpec(specPath);
@@ -234,8 +242,24 @@ async function check(filePaths: string[]): Promise<boolean> {
       }
     }
   }
-
   return allValid;
+}
+
+async function check(filePaths: string[]): Promise<boolean> {
+  const hashesValid = verifyHashes(filePaths);
+  const assertionsValid = await runAssertions();
+  return hashesValid && assertionsValid;
+}
+
+function printDiffLines(lines: string[], label: string, prefix: string): void {
+  if (lines.length === 0) return;
+  console.log(`\n  ${label}:`);
+  for (const line of lines.slice(0, 15)) {
+    console.log(`    ${prefix} ${line}`);
+  }
+  if (lines.length > 15) {
+    console.log(`    ... and ${String(lines.length - 15)} more`);
+  }
 }
 
 async function adopt(): Promise<void> {
@@ -281,29 +305,12 @@ async function adopt(): Promise<void> {
       `\n✗ ${outputPath} — manually edited (from ${result.specFile})`,
     );
 
-    if (result.addedLines.length > 0) {
-      console.log(`\n  Lines added (not in spec):`);
-      for (const line of result.addedLines.slice(0, 15)) {
-        console.log(`    + ${line}`);
-      }
-      if (result.addedLines.length > 15) {
-        console.log(
-          `    ... and ${String(result.addedLines.length - 15)} more`,
-        );
-      }
-    }
-
-    if (result.removedLines.length > 0) {
-      console.log(`\n  Lines removed (present in spec output):`);
-      for (const line of result.removedLines.slice(0, 15)) {
-        console.log(`    - ${line}`);
-      }
-      if (result.removedLines.length > 15) {
-        console.log(
-          `    ... and ${String(result.removedLines.length - 15)} more`,
-        );
-      }
-    }
+    printDiffLines(result.addedLines, "Lines added (not in spec)", "+");
+    printDiffLines(
+      result.removedLines,
+      "Lines removed (present in spec output)",
+      "-",
+    );
 
     console.log(
       `\n  To accept: update ${specPath} and run \`vigiles compile\``,

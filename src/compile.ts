@@ -15,7 +15,6 @@ import type {
   SkillSpec,
   Rule,
   InstructionFragment,
-  Ref,
   FilePairingAssertion,
 } from "./spec.js";
 
@@ -105,6 +104,19 @@ function validateFileRef(
   return null;
 }
 
+function readPackageScripts(basePath: string): Record<string, string> | null {
+  const pkgPath = resolve(basePath, "package.json");
+  if (!existsSync(pkgPath)) return null;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+      scripts?: Record<string, string>;
+    };
+    return pkg.scripts ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function validateCommandRef(
   command: string,
   basePath: string,
@@ -113,25 +125,17 @@ function validateCommandRef(
   const npmRunMatch = command.match(/^npm\s+run\s+(\S+)/);
   const npmMatch = command.match(/^npm\s+(test|start|build|pretest)\b/);
   const scriptName = npmRunMatch?.[1] ?? npmMatch?.[1];
+  if (!scriptName) return null;
 
-  if (scriptName) {
-    const pkgPath = resolve(basePath, "package.json");
-    if (existsSync(pkgPath)) {
-      try {
-        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
-          scripts?: Record<string, string>;
-        };
-        if (!pkg.scripts?.[scriptName]) {
-          return {
-            type: "stale-command",
-            message: `Script "${scriptName}" not found in package.json`,
-            path: command,
-          };
-        }
-      } catch {
-        // Can't parse package.json — skip validation
-      }
-    }
+  const scripts = readPackageScripts(basePath);
+  if (!scripts) return null;
+
+  if (!scripts[scriptName]) {
+    return {
+      type: "stale-command",
+      message: `Script "${scriptName}" not found in package.json`,
+      path: command,
+    };
   }
   return null;
 }
@@ -143,7 +147,7 @@ function validateRefs(
   const errors: CompileError[] = [];
   for (const fragment of fragments) {
     if (typeof fragment === "string") continue;
-    const r = fragment as Ref;
+    const r = fragment;
     switch (r._ref) {
       case "file": {
         const err = validateFileRef(r.path, basePath);
@@ -173,7 +177,7 @@ function validateRefs(
 
 function renderFragment(fragment: InstructionFragment): string {
   if (typeof fragment === "string") return fragment;
-  const r = fragment as Ref;
+  const r = fragment;
   switch (r._ref) {
     case "file":
       return `\`${r.path}\``;
@@ -243,6 +247,115 @@ export interface CompileClaudeOptions {
   linters?: Record<string, { rulesDir?: string | string[] }>;
 }
 
+// ---------------------------------------------------------------------------
+// compileClaude section helpers
+// ---------------------------------------------------------------------------
+
+interface SectionResult {
+  lines: string[];
+  errors: CompileError[];
+}
+
+function compileSectionsSection(
+  spec: ClaudeSpec,
+  basePath: string,
+): SectionResult {
+  if (!spec.sections) return { lines: [], errors: [] };
+  const lines: string[] = [];
+  const errors: CompileError[] = [];
+  for (const [name, content] of Object.entries(spec.sections)) {
+    const heading = name.charAt(0).toUpperCase() + name.slice(1);
+    if (typeof content === "string") {
+      lines.push(`## ${heading}\n\n${content.trim()}`);
+    } else {
+      errors.push(...validateRefs(content, basePath));
+      const rendered = content.map(renderFragment).join("");
+      lines.push(`## ${heading}\n\n${rendered.trim()}`);
+    }
+  }
+  return { lines, errors };
+}
+
+function compileKeyFilesSection(
+  spec: ClaudeSpec,
+  basePath: string,
+): SectionResult {
+  if (!spec.keyFiles) return { lines: [], errors: [] };
+  const lines = ["## Key Files", ""];
+  const errors: CompileError[] = [];
+  for (const [filePath, desc] of Object.entries(spec.keyFiles)) {
+    lines.push(`- \`${filePath}\` — ${desc}`);
+    const err = validateFileRef(filePath, basePath);
+    if (err) errors.push(err);
+  }
+  return { lines: [lines.join("\n")], errors };
+}
+
+function compileCommandsSection(
+  spec: ClaudeSpec,
+  basePath: string,
+): SectionResult {
+  if (!spec.commands) return { lines: [], errors: [] };
+  const lines = ["## Commands", ""];
+  const errors: CompileError[] = [];
+  for (const [command, desc] of Object.entries(spec.commands)) {
+    lines.push(`- \`${command}\` — ${desc}`);
+    const err = validateCommandRef(command, basePath);
+    if (err) errors.push(err);
+  }
+  return { lines: [lines.join("\n")], errors };
+}
+
+interface RulesSectionResult extends SectionResult {
+  linterResults: LinterCheckResult[];
+}
+
+function compileRulesSection(
+  spec: ClaudeSpec,
+  basePath: string,
+  options: CompileClaudeOptions,
+): RulesSectionResult {
+  const ruleEntries = Object.entries(spec.rules);
+  if (ruleEntries.length === 0) {
+    return { lines: [], errors: [], linterResults: [] };
+  }
+  const ruleLines = ["## Rules"];
+  const errors: CompileError[] = [];
+  const linterResults: LinterCheckResult[] = [];
+
+  for (const [id, rule] of ruleEntries) {
+    ruleLines.push("");
+    ruleLines.push(compileRule(id, rule));
+    if (rule._kind === "enforce") {
+      const result = checkLinterRule(rule.linterRule, basePath, {
+        catalogOnly: options.catalogOnly,
+        linters: options.linters,
+      });
+      linterResults.push(result);
+      if (!result.exists) {
+        errors.push({
+          type: "invalid-rule",
+          message:
+            result.error ??
+            `Rule "${rule.linterRule}" not found in ${result.linter}`,
+          path: rule.linterRule,
+        });
+      } else if (result.enabled === "disabled") {
+        errors.push({
+          type: "invalid-rule",
+          message: `Rule "${result.rule}" exists but is disabled in ${result.linter} config`,
+          path: rule.linterRule,
+        });
+      }
+    }
+  }
+  return { lines: [ruleLines.join("\n")], errors, linterResults };
+}
+
+// ---------------------------------------------------------------------------
+// compileClaude
+// ---------------------------------------------------------------------------
+
 /**
  * Compile a ClaudeSpec into markdown.
  *
@@ -256,8 +369,7 @@ export function compileClaude(
   const basePath = options.basePath ?? process.cwd();
   const specFile = options.specFile ?? "CLAUDE.md.spec.ts";
   const errors: CompileError[] = [];
-  const linterResults: LinterCheckResult[] = [];
-  const sections: string[] = [];
+  const sections: string[] = ["# CLAUDE.md"];
 
   // maxRules check
   const ruleCount = Object.keys(spec.rules).length;
@@ -268,83 +380,27 @@ export function compileClaude(
     });
   }
 
-  sections.push("# CLAUDE.md");
+  const prose = compileSectionsSection(spec, basePath);
+  const keyFiles = compileKeyFilesSection(spec, basePath);
+  const commands = compileCommandsSection(spec, basePath);
+  const rules = compileRulesSection(spec, basePath, options);
 
-  // Prose sections (before commands/key files/rules)
-  if (spec.sections) {
-    for (const [name, content] of Object.entries(spec.sections)) {
-      const heading = name.charAt(0).toUpperCase() + name.slice(1);
-      if (typeof content === "string") {
-        sections.push(`## ${heading}\n\n${content.trim()}`);
-      } else {
-        // InstructionFragment[] — render and validate refs
-        errors.push(...validateRefs(content, basePath));
-        const rendered = content.map(renderFragment).join("");
-        sections.push(`## ${heading}\n\n${rendered.trim()}`);
-      }
-    }
-  }
-
-  // Key files
-  if (spec.keyFiles) {
-    const lines = ["## Key Files", ""];
-    for (const [filePath, desc] of Object.entries(spec.keyFiles)) {
-      lines.push(`- \`${filePath}\` — ${desc}`);
-      const err = validateFileRef(filePath, basePath);
-      if (err) errors.push(err);
-    }
-    sections.push(lines.join("\n"));
-  }
-
-  // Commands
-  if (spec.commands) {
-    const lines = ["## Commands", ""];
-    for (const [command, desc] of Object.entries(spec.commands)) {
-      lines.push(`- \`${command}\` — ${desc}`);
-      const err = validateCommandRef(command, basePath);
-      if (err) errors.push(err);
-    }
-    sections.push(lines.join("\n"));
-  }
-
-  // Rules
-  if (Object.keys(spec.rules).length > 0) {
-    const ruleLines = ["## Rules"];
-    for (const [id, rule] of Object.entries(spec.rules)) {
-      ruleLines.push("");
-      ruleLines.push(compileRule(id, rule));
-
-      // Verify enforce() rules against real linter configs
-      if (rule._kind === "enforce") {
-        const result = checkLinterRule(rule.linterRule, basePath, {
-          catalogOnly: options.catalogOnly,
-          linters: options.linters,
-        });
-        linterResults.push(result);
-        if (!result.exists) {
-          errors.push({
-            type: "invalid-rule",
-            message:
-              result.error ??
-              `Rule "${rule.linterRule}" not found in ${result.linter}`,
-            path: rule.linterRule,
-          });
-        } else if (result.enabled === "disabled") {
-          errors.push({
-            type: "invalid-rule",
-            message: `Rule "${result.rule}" exists but is disabled in ${result.linter} config`,
-            path: rule.linterRule,
-          });
-        }
-      }
-    }
-    sections.push(ruleLines.join("\n"));
-  }
+  sections.push(
+    ...prose.lines,
+    ...keyFiles.lines,
+    ...commands.lines,
+    ...rules.lines,
+  );
+  errors.push(
+    ...prose.errors,
+    ...keyFiles.errors,
+    ...commands.errors,
+    ...rules.errors,
+  );
 
   const body = sections.join("\n\n") + "\n";
   const tokens = estimateTokens(body);
 
-  // maxTokens check
   if (options.maxTokens && tokens > options.maxTokens) {
     errors.push({
       type: "budget-exceeded",
@@ -353,8 +409,7 @@ export function compileClaude(
   }
 
   const markdown = addHash(body, specFile);
-
-  return { markdown, errors, linterResults, tokens };
+  return { markdown, errors, linterResults: rules.linterResults, tokens };
 }
 
 // ---------------------------------------------------------------------------
