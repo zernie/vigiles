@@ -251,6 +251,43 @@ To verify generated types are fresh in CI:
 - run: npx vigiles generate-types --check
 ```
 
+## Claude Code Plugin
+
+Install vigiles as a Claude Code plugin to get automatic type regeneration and spec compilation during development:
+
+```bash
+npx skills add zernie/vigiles
+```
+
+The plugin runs a PostToolUse hook on every Edit/Write:
+
+- **Linter config or package.json changed** → auto-runs `generate-types`
+- **`.spec.ts` file changed** → auto-runs `compile`
+
+## Validation
+
+`vigiles check` validates instruction files. One rule: `require-spec` (enabled by default) — checks that every CLAUDE.md/AGENTS.md has a corresponding `.spec.ts` file.
+
+```bash
+npx vigiles check    # errors if CLAUDE.md has no CLAUDE.md.spec.ts
+```
+
+Disable per-file with an HTML comment:
+
+```markdown
+<!-- vigiles-disable require-spec -->
+
+# CLAUDE.md
+
+...
+```
+
+Or in `.vigilesrc.json`:
+
+```json
+{ "rules": { "require-spec": false } }
+```
+
 ## Skills
 
 Install with [Vercel Skills](https://github.com/vercel-labs/skills): `npx skills add zernie/vigiles`

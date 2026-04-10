@@ -13,13 +13,6 @@ export interface ValidationError {
   line: number;
 }
 
-/** Information about a detected linter. */
-export interface DetectedLinter {
-  name: string;
-  ruleCount?: number;
-  via?: string;
-}
-
 /** Result of validating a single file's content. */
 export interface ValidationResult {
   rules: ParsedRule[];
@@ -30,7 +23,6 @@ export interface ValidationResult {
   total: number;
   errors: ValidationError[];
   valid: boolean;
-  detectedLinters: DetectedLinter[];
 }
 
 /** Result of reading a file (may be skipped due to symlinks). */
@@ -56,34 +48,15 @@ export interface ValidatePathsResult {
 
 /** Toggleable rule settings. */
 export interface RulesConfig {
-  "require-annotations"?: boolean;
-  "max-lines"?: number | boolean;
-  "require-rule-file"?: "auto" | "catalog-only" | boolean;
-  "require-structure"?: boolean;
-  "no-broken-links"?: boolean;
   /** Check that every instruction file has a corresponding .spec.ts. */
   "require-spec"?: boolean;
 }
 
-/** Linter-specific configuration (e.g., custom rules directories). */
-export interface LinterConfig {
-  rulesDir?: string | string[];
-}
-
-/** A structure validation entry mapping file globs to schemas. */
-export interface StructureEntry {
-  files: string;
-  schema: string;
-}
-
 /** Full vigiles configuration. */
 export interface VigilesConfig {
-  extends: string;
   ruleMarkers: MarkerType[];
   rules: Required<RulesConfig>;
-  linters: Record<string, LinterConfig>;
   files: string[];
-  structures: StructureEntry[];
 }
 
 /** Valid marker types for rule detection. */
@@ -98,9 +71,6 @@ export interface ParseOptions {
 export interface ValidateOptions {
   ruleMarkers?: MarkerType[];
   rules?: RulesConfig;
-  basePath?: string;
-  linters?: Record<string, LinterConfig>;
-  structures?: StructureEntry[];
   filePath?: string;
 }
 
@@ -109,42 +79,9 @@ export interface ValidatePathsOptions {
   followSymlinks?: boolean;
   ruleMarkers?: MarkerType[];
   rules?: RulesConfig;
-  linters?: Record<string, LinterConfig>;
-  structures?: StructureEntry[];
 }
 
 /** Options for readClaudeMd(). */
 export interface ReadOptions {
   followSymlinks?: boolean;
-}
-
-/** Result of mdschema structure validation. */
-export interface StructureValidationResult {
-  errors: ValidationError[];
-  available: boolean;
-}
-
-/** A linter resolver function that returns a Set of rule names. */
-export type LinterResolver = (basePath: string) => Set<string>;
-
-/** A CLI rule checker function that throws if a rule doesn't exist. */
-export type CliRuleChecker = (ruleName: string) => void;
-
-/** A config-enabled checker: returns rule status in project config. */
-export type ConfigEnabledStatus = "enabled" | "disabled" | "unknown";
-export type ConfigChecker = (
-  ruleName: string,
-  basePath: string,
-) => ConfigEnabledStatus;
-
-/** Extended Set with eslint metadata. */
-export interface EslintRuleSet extends Set<string> {
-  _basePath?: string;
-  _isEslint?: boolean;
-}
-
-/** Rule pack definition. */
-export interface RulePack {
-  rules: Required<RulesConfig>;
-  structures: StructureEntry[];
 }
