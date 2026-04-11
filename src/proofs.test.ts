@@ -22,6 +22,8 @@ import {
   MerkleHistory,
   propertyTest,
   fitness,
+  type Mutation,
+  type ProofReceipt,
 } from "./proofs.js";
 
 import { applyMutation, runProofSuite, EvolutionEngine } from "./evolve.js";
@@ -459,6 +461,37 @@ describe("MerkleHistory", () => {
     assert.equal(head2?.specHash, "v1");
     assert.equal(head2?.mutation.description, "Genesis");
     assert.equal(head2?.proofs[0].passed, true);
+  });
+
+  it("clones append payloads so later caller-side mutation cannot alter stored nodes", () => {
+    const history = new MerkleHistory();
+    const mutation: Mutation = {
+      type: "add",
+      ruleIds: ["r1"],
+      description: "Original",
+    };
+    const proofs: ProofReceipt[] = [{ name: "test", passed: true }];
+
+    history.append("v1", mutation, proofs);
+
+    // Tamper with the objects the caller passed in. A naive implementation
+    // would retroactively alter the stored node because it kept the
+    // references.
+    mutation.description = "Tampered";
+    mutation.ruleIds.push("r2");
+    proofs[0].passed = false;
+    proofs.push({ name: "injected", passed: false });
+
+    // Stored history should reflect the state at append time.
+    const stored = history.head();
+    assert.ok(stored);
+    assert.equal(stored.mutation.description, "Original");
+    assert.deepEqual(stored.mutation.ruleIds, ["r1"]);
+    assert.equal(stored.proofs.length, 1);
+    assert.equal(stored.proofs[0].passed, true);
+    // Chain must still verify — proof that the stored hash matches the
+    // stored payload, not the tampered payload.
+    assert.equal(history.verify().valid, true);
   });
 });
 

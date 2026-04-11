@@ -572,11 +572,22 @@ export class MerkleHistory implements ReadonlyMerkleHistory {
         ? this.nodes[this.nodes.length - 1].hash
         : "genesis";
 
+    // Clone payloads on write so later caller-side mutation of the supplied
+    // mutation/proofs objects can't retroactively alter stored nodes. This
+    // is the write-side counterpart to getNodes()/head(), keeping the
+    // append-only / tamper-evident contract true under normal usage
+    // patterns like "caller reuses and edits a mutation object".
+    const clonedMutation: Mutation = {
+      ...mutation,
+      ruleIds: [...mutation.ruleIds],
+    };
+    const clonedProofs: ProofReceipt[] = proofs.map((r) => ({ ...r }));
+
     const partial = {
       parentHash,
       specHash,
-      mutation,
-      proofs,
+      mutation: clonedMutation,
+      proofs: clonedProofs,
       timestamp: Date.now(),
     };
 
