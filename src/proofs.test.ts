@@ -690,6 +690,26 @@ describe("applyMutation", () => {
     assert.ok(!("combined-rule" in next));
   });
 
+  it("rejects merge that weakens enforcement to guidance", () => {
+    const rules: Record<string, Rule> = {
+      "no-console": enforce("eslint/no-console", "No console output."),
+      "no-eval": enforce("eslint/no-eval", "Never eval user input."),
+    };
+    const { rules: next, error } = applyMutation(rules, {
+      type: "merge",
+      sourceIds: ["no-console", "no-eval"],
+      mergedId: "general-safety",
+      // Both sources are enforce; this guidance merge is a silent downgrade.
+      mergedRule: guidance("Avoid dangerous globals."),
+    });
+
+    assert.ok(error !== undefined);
+    assert.match(error.reason, /weaker than source rules/);
+    assert.ok("no-console" in next);
+    assert.ok("no-eval" in next);
+    assert.ok(!("general-safety" in next));
+  });
+
   it("does not share rule references with the caller's mutation object", () => {
     const rule = enforce("eslint/no-eval", "Original reason.");
     const { rules: next } = applyMutation(
@@ -742,6 +762,28 @@ describe("runProofSuite", () => {
     const mono = result.receipts.find((r) => r.name === "monotonicity");
     assert.ok(mono);
     assert.equal(mono.passed, false);
+  });
+
+  it("returns a structured failure receipt when fitness throws on bad data", () => {
+    const before: Record<string, Rule> = {
+      rule1: guidance("Do X."),
+    };
+    // Inject a legacy rule shape that breaks ruleToText/findSimilarRules
+    const after = {
+      rule1: guidance("Do X."),
+      legacy: { _kind: "check", text: "stale" },
+    } as unknown as Record<string, Rule>;
+
+    // Must not throw — should surface as a failed proof receipt instead
+    const result = runProofSuite(before, after);
+    assert.equal(result.passed, false);
+    const failedReceipts = result.receipts.filter((r) => !r.passed);
+    assert.ok(
+      failedReceipts.some((r) => /Unknown rule kind/.test(r.detail ?? "")),
+      `Expected at least one receipt to mention the unknown kind; got: ${JSON.stringify(result.receipts)}`,
+    );
+    // Fitness must still be a well-formed object (neutral fallback)
+    assert.equal(typeof result.fitness.score, "number");
   });
 });
 
