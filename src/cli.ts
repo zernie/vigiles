@@ -352,13 +352,24 @@ function validateSpecs(
   return allValid;
 }
 
-function check(filePaths: string[], silent = false): HashCheckResult {
+interface CombinedCheckResult {
+  valid: boolean;
+  hashErrors: number;
+  validationErrors: number;
+}
+
+function check(filePaths: string[], silent = false): CombinedCheckResult {
   const hashes = verifyHashes(filePaths, silent);
   const vConfig = loadValidateConfig();
   const specsValid = validateSpecs(filePaths, vConfig.rules, silent);
   return {
     valid: hashes.valid && specsValid,
-    errorCount: hashes.errorCount + (specsValid ? 0 : 1),
+    hashErrors: hashes.errorCount,
+    // `validateSpecs` only returns a boolean today, so we collapse
+    // failures to 1 until it starts reporting counts. Kept in its own
+    // counter so audit's "stale hash — run vigiles compile" remediation
+    // doesn't misreport a require-spec / other validation failure.
+    validationErrors: specsValid ? 0 : 1,
   };
 }
 
@@ -467,6 +478,7 @@ async function findDuplicateRules(
  */
 interface AuditReport {
   hashErrors: number;
+  validationErrors: number;
   inlineErrors: number;
   inlineRules: number;
   duplicatePairs: number;
@@ -478,7 +490,12 @@ interface AuditReport {
 
 /** Exit codes: 0 clean, 1 warnings only, 2 hard errors. */
 function auditExitCode(report: AuditReport): 0 | 1 | 2 {
-  if (report.hashErrors > 0 || report.inlineErrors > 0) return 2;
+  if (
+    report.hashErrors > 0 ||
+    report.validationErrors > 0 ||
+    report.inlineErrors > 0
+  )
+    return 2;
   if (report.duplicatePairs > 0) return 1;
   // Coverage gaps and strengthen suggestions are informational, not failures
   return 0;
@@ -572,7 +589,9 @@ async function audit(
     }
   }
   const hashResult =
-    files.length > 0 ? check(files, silent) : { valid: true, errorCount: 0 };
+    files.length > 0
+      ? check(files, silent)
+      : { valid: true, hashErrors: 0, validationErrors: 0 };
 
   // 1b. Verify inline vigiles:enforce comments in any instruction file.
   // This supports projects that haven't adopted .spec.ts mode yet — see
@@ -610,7 +629,8 @@ async function audit(
   const strengthenCount = await strengthen(silent);
 
   const report: AuditReport = {
-    hashErrors: hashResult.errorCount,
+    hashErrors: hashResult.hashErrors,
+    validationErrors: hashResult.validationErrors,
     inlineErrors,
     inlineRules,
     duplicatePairs: dups.pairCount,
@@ -633,6 +653,8 @@ async function audit(
 function printAuditSummary(report: AuditReport): void {
   const parts: string[] = [];
   if (report.hashErrors > 0) parts.push(`${String(report.hashErrors)} stale`);
+  if (report.validationErrors > 0)
+    parts.push(`${String(report.validationErrors)} validation errors`);
   if (report.inlineErrors > 0)
     parts.push(`${String(report.inlineErrors)} inline errors`);
   if (report.duplicatePairs > 0)
@@ -1478,6 +1500,12 @@ async function main(): Promise<void> {
           ghAnnotate(
             "error",
             `${String(report.hashErrors)} compiled file(s) with stale hash — run vigiles compile`,
+          );
+        }
+        if (report.validationErrors > 0) {
+          ghAnnotate(
+            "error",
+            `${String(report.validationErrors)} spec validation failure(s) — see audit output`,
           );
         }
         if (report.duplicatePairs > 0) {

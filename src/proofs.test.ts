@@ -1061,6 +1061,35 @@ describe("EvolutionEngine", () => {
     );
   });
 
+  it("snapshots supplied history so caller cannot append post-construction", () => {
+    // Build a history, pass it to the engine, then append to the
+    // caller's reference — the engine must not see the new node.
+    const rules: Record<string, Rule> = {
+      rule1: guidance("Existing."),
+    };
+    const sourceHistory = new MerkleHistory();
+    const specHash = "a" + "0".repeat(63); // placeholder; real hash unused for this test
+    // We need the head to match, so let the engine build genesis
+    // itself — pass an empty history.
+    const engine = new EvolutionEngine(rules, { history: sourceHistory });
+
+    // Sanity: engine's history has exactly the genesis node.
+    const before = engine.getHistory();
+    assert.equal(before.length, 1);
+
+    // Inject a forged entry into the caller's original reference.
+    sourceHistory.append(
+      specHash,
+      { type: "remove", ruleIds: ["rule1"], description: "Forged" },
+      [{ name: "forged", passed: false }],
+    );
+
+    // The engine must not see it — its history is a snapshot.
+    const after = engine.getHistory();
+    assert.equal(after.length, 1);
+    assert.notEqual(after.head()?.mutation.description, "Forged");
+  });
+
   it("accepts supplied history when rule keys are reordered", () => {
     // Build an engine + history with rules in one insertion order.
     const rulesOrderA: Record<string, Rule> = {

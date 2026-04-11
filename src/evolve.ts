@@ -503,7 +503,14 @@ export class EvolutionEngine {
     this.rules = Object.fromEntries(
       Object.entries(initialRules).map(([id, rule]) => [id, cloneRule(rule)]),
     );
-    this.history = options.history ?? new MerkleHistory();
+    // Snapshot the supplied history by serializing and rehydrating, so a
+    // caller that retains their reference to the original MerkleHistory
+    // can't append to the audit trail behind the engine's back. Without
+    // this, external code could bypass propose()'s proof + fitness gates
+    // and mutate provenance — defeating the whole tamper-evident point.
+    this.history = options.history
+      ? MerkleHistory.fromJSON(options.history.toJSON())
+      : new MerkleHistory();
     this.options = {
       // Clone the Set so a caller mutating their own reference after
       // construction can't silently change acceptance policy (e.g. by
