@@ -1,20 +1,15 @@
 /**
- * GitHub Action entry point for vigiles v2.
+ * GitHub Action entry point for vigiles.
  *
  * Runs `compile` or `audit` depending on the action input.
- * `check` is accepted as an alias for `audit` (backward compat).
  */
 
 import { writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 import { globSync } from "glob";
 
-import {
-  compileClaude,
-  compileSkill,
-  checkFileHash,
-  addHash,
-} from "./compile.js";
+import { compileClaude, compileSkill, addHash } from "./compile.js";
 import type { ClaudeSpec, SkillSpec } from "./spec.js";
 
 // ---------------------------------------------------------------------------
@@ -141,37 +136,38 @@ async function runCompile(): Promise<boolean> {
   return allValid;
 }
 
-function runCheck(): boolean {
+function runAudit(): boolean {
+  // Delegate to the CLI so the action always runs the full audit flow
+  // (hash verification, spec validation, duplicate detection, coverage
+  // report, strengthen suggestions). Previously this only ran
+  // checkFileHash, which silently skipped everything else.
   const files = pathsInput
     ? pathsInput
         .split(",")
         .map((p) => p.trim())
         .filter(Boolean)
-    : [
-        ...globSync("**/CLAUDE.md", { ignore: ["node_modules/**"] }),
-        ...globSync("**/AGENTS.md", { ignore: ["node_modules/**"] }),
-        ...globSync("**/SKILL.md", { ignore: ["node_modules/**"] }),
-      ];
+    : [];
 
-  let allValid = true;
+  const cliPath = resolve(__dirname, "cli.js");
+  const args = ["audit", ...files];
+  const result = spawnSync(process.execPath, [cliPath, ...args], {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      // Ensure the CLI emits GitHub annotations during the action run
+      GITHUB_ACTIONS: process.env.GITHUB_ACTIONS ?? "true",
+    },
+  });
 
-  for (const filePath of files) {
-    const result = checkFileHash(resolve(process.cwd(), filePath));
-    if (!result.hasHash) {
-      console.log(`${filePath}: no vigiles hash (skipped)`);
-      continue;
-    }
-    if (result.valid) {
-      console.log(`${filePath}: hash valid`);
-    } else {
-      console.log(
-        `::error file=${filePath}::Hash mismatch — file was manually edited after compilation`,
-      );
-      allValid = false;
-    }
+  if (result.error) {
+    console.log(
+      `::error::Failed to run vigiles audit: ${result.error.message}`,
+    );
+    return false;
   }
 
-  return allValid;
+  // Exit codes: 0 clean, 1 warnings, 2 hard errors.
+  return result.status === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,8 +179,7 @@ void (async () => {
   if (command === "compile") {
     valid = await runCompile();
   } else {
-    // "audit" or "check" (backward compat) both run hash verification
-    valid = runCheck();
+    valid = runAudit();
   }
 
   console.log(`::set-output name=valid::${String(valid)}`);
