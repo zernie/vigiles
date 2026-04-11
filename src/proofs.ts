@@ -220,13 +220,26 @@ export function findSimilarRules(
   return pairs.sort((a, b) => a.distance - b.distance);
 }
 
-/** Extract the text content of a rule for NCD comparison. */
+/**
+ * Extract the text content of a rule for NCD comparison.
+ *
+ * Throws a structured error on unknown rule kinds so that the caller (e.g.
+ * runProofSuite) can surface a clear proof failure rather than letting an
+ * `undefined` propagate into compressedSize and crash the audit.
+ */
 function ruleToText(rule: Rule): string {
   switch (rule._kind) {
     case "enforce":
       return `${rule.linterRule} ${rule.why}`;
     case "guidance":
       return rule.text;
+    default: {
+      const unknown = (rule as { _kind?: unknown })._kind;
+      throw new Error(
+        `Unknown rule kind "${String(unknown)}" — expected "enforce" or "guidance". ` +
+          `Runtime data is out of sync with the Rule type (legacy spec, JS caller, or cast bypass).`,
+      );
+    }
   }
 }
 

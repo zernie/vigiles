@@ -294,16 +294,26 @@ export function runProofSuite(
       : `${mono.violations.length} violations: ${mono.violations.map((v) => `${v.ruleId} (${v.from}→${v.to})`).join(", ")}`,
   });
 
-  // 2. NCD deduplication
-  const similar = findSimilarRules(after, ncdThreshold);
-  const ncdPassed = similar.length === 0;
-  receipts.push({
-    name: "ncd-dedup",
-    passed: ncdPassed,
-    detail: ncdPassed
-      ? "No near-duplicate rules"
-      : `${similar.length} near-duplicate pairs: ${similar.map((p) => `${p.idA}↔${p.idB} (${p.distance.toFixed(3)})`).join(", ")}`,
-  });
+  // 2. NCD deduplication. Wrapped in try/catch so that an unknown rule
+  // kind (legacy data / JS caller) surfaces as a clean proof failure
+  // rather than crashing the whole audit pipeline.
+  try {
+    const similar = findSimilarRules(after, ncdThreshold);
+    const ncdPassed = similar.length === 0;
+    receipts.push({
+      name: "ncd-dedup",
+      passed: ncdPassed,
+      detail: ncdPassed
+        ? "No near-duplicate rules"
+        : `${similar.length} near-duplicate pairs: ${similar.map((p) => `${p.idA}↔${p.idB} (${p.distance.toFixed(3)})`).join(", ")}`,
+    });
+  } catch (e) {
+    receipts.push({
+      name: "ncd-dedup",
+      passed: false,
+      detail: `Similarity check failed: ${e instanceof Error ? e.message : String(e)}`,
+    });
+  }
 
   // 3. Bloom filter cross-check (fast sanity check for token overlap)
   let bloomPassed = true;
@@ -493,9 +503,20 @@ export class EvolutionEngine {
       };
     }
 
+    // For merge mutations, the source rule IDs are removed by design.
+    // Add them to a per-call allowWeaken set so checkMonotonicity doesn't
+    // reject the removal as a monotonicity violation — merging is the
+    // intended constraint-reducing operation, not silent deletion.
+    const perCallAllowWeaken = new Set(this.options.allowWeaken);
+    if (mutation.type === "merge") {
+      for (const id of mutation.sourceIds) {
+        perCallAllowWeaken.add(id);
+      }
+    }
+
     // Run proof suite
     const proofResult = runProofSuite(this.rules, candidateRules, {
-      allowWeaken: this.options.allowWeaken,
+      allowWeaken: perCallAllowWeaken,
       ncdThreshold: this.options.ncdThreshold,
       maxTokens: this.options.maxTokens,
     });

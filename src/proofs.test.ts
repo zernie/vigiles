@@ -214,6 +214,19 @@ describe("NCD", () => {
     assert.ok(pairs.length >= 0); // NCD with short strings may not catch this
     // The test validates the function runs without error
   });
+
+  it("findSimilarRules throws a structured error on unknown rule kinds", () => {
+    // Simulate a legacy spec / JS caller that bypassed the TS type
+    const rules = {
+      legacy: { _kind: "check", text: "stale" },
+      modern: guidance("Fresh."),
+    } as unknown as Record<string, Rule>;
+
+    assert.throws(
+      () => findSimilarRules(rules, 0.8),
+      /Unknown rule kind "check"/,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -752,6 +765,44 @@ describe("EvolutionEngine", () => {
     assert.equal(result.accepted, true);
     assert.ok("rule2" in engine.getRules());
     assert.ok(result.historyHash);
+  });
+
+  it("accepts a valid merge mutation without pre-allowlisting sources", () => {
+    const engine = new EvolutionEngine(
+      {
+        "rule-a": enforce(
+          "eslint/no-console",
+          "Never use console for application output.",
+        ),
+        "rule-b": guidance(
+          "Route application output through the structured logger module.",
+        ),
+      },
+      { acceptNeutral: true },
+    );
+
+    // A merge removes both sources by design — the engine should add those
+    // source IDs to a per-call allowWeaken set so monotonicity does not
+    // reject the removal.
+    const result = engine.propose({
+      type: "merge",
+      sourceIds: ["rule-a", "rule-b"],
+      mergedId: "rule-ab",
+      mergedRule: enforce(
+        "eslint/no-console",
+        "Never use console — route output through the structured logger.",
+      ),
+    });
+
+    assert.equal(
+      result.accepted,
+      true,
+      `Merge should pass proofs without a pre-seeded allowWeaken; got: ${result.error ?? "(no error)"}`,
+    );
+    const rules = engine.getRules();
+    assert.ok("rule-ab" in rules);
+    assert.ok(!("rule-a" in rules));
+    assert.ok(!("rule-b" in rules));
   });
 
   it("isolates Merkle history receipts from the returned proof result", () => {
