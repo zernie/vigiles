@@ -382,11 +382,18 @@ async function findDuplicateRules(
   // If audit was invoked with explicit file arguments, only scan the specs
   // for those files — otherwise an unrelated duplicate elsewhere in the
   // repo would fail a targeted CI check (e.g. `vigiles audit path/foo.md`).
+  // Paths are normalized to absolute form on both sides so "CLAUDE.md",
+  // "./CLAUDE.md", and "/repo/CLAUDE.md" all match the same spec.
   const specs =
     scopeFiles && scopeFiles.length > 0
-      ? allSpecs.filter((specPath) =>
-          scopeFiles.some((f) => specPath === `${f}.spec.ts`),
-        )
+      ? (() => {
+          const wanted = new Set(
+            scopeFiles.map((f) => resolve(process.cwd(), `${f}.spec.ts`)),
+          );
+          return allSpecs.filter((specPath) =>
+            wanted.has(resolve(process.cwd(), specPath)),
+          );
+        })()
       : allSpecs;
   if (specs.length === 0) return { valid: true, pairCount: 0 };
 
