@@ -223,7 +223,7 @@ export function validate(
       if (!existsSync(specPath)) {
         const msg: ValidationError = {
           rule: "require-spec",
-          message: `No spec file found for "${filePath}". Expected "${specPath}". Migrate with \`vigiles migrate\` or disable with <!-- vigiles-disable require-spec -->.`,
+          message: `No spec file found for "${filePath}". Expected "${specPath}". Run \`npx vigiles init --target=${filePath}\` to create one, or disable with <!-- vigiles-disable require-spec -->.`,
           line: 1,
         };
         if (specSeverity === "error") {

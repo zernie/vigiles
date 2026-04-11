@@ -396,7 +396,9 @@ export class EvolutionEngine {
       history?: MerkleHistory;
     } = {},
   ) {
-    this.rules = { ...initialRules };
+    this.rules = Object.fromEntries(
+      Object.entries(initialRules).map(([id, rule]) => [id, cloneRule(rule)]),
+    );
     this.history = options.history ?? new MerkleHistory();
     this.options = {
       allowWeaken: options.allowWeaken ?? new Set(),

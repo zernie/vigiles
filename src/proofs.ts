@@ -509,9 +509,17 @@ export class MerkleHistory implements ReadonlyMerkleHistory {
     return this.nodes.length;
   }
 
-  /** Get all nodes (defensive copy). */
+  /**
+   * Get all nodes as a deep defensive copy. Callers cannot mutate node
+   * fields (specHash, mutation, proofs) through this API — that would
+   * bypass append/proof gates and weaken the tamper-evident guarantees.
+   */
   getNodes(): readonly HistoryNode[] {
-    return [...this.nodes];
+    return this.nodes.map((n) => ({
+      ...n,
+      mutation: { ...n.mutation, ruleIds: [...n.mutation.ruleIds] },
+      proofs: n.proofs.map((r) => ({ ...r })),
+    }));
   }
 
   /** Get the latest node, or null if empty. */
