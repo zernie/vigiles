@@ -212,6 +212,18 @@ function compileRule(id: string, rule: Rule): string {
       return [`### ${title}`, "", `**Guidance only** — ${rule.text}`].join(
         "\n",
       );
+
+    default: {
+      // Unknown rule kind — legacy compiled JS spec artifacts, JS caller,
+      // or cast bypass. Fail loudly rather than silently dropping the
+      // rule from output, which would remove constraints without any
+      // compile error.
+      const unknown = (rule as { _kind?: unknown })._kind;
+      throw new Error(
+        `Unknown rule kind "${String(unknown)}" for rule "${id}". ` +
+          `Expected "enforce" or "guidance". Runtime data is out of sync with the Rule type.`,
+      );
+    }
   }
 }
 

@@ -223,6 +223,23 @@ export function applyMutation(
           },
         };
       }
+      // mergedId must not collide with an unrelated existing rule —
+      // otherwise the assignment would silently overwrite that rule and
+      // drop its constraints. Allowed only when mergedId is one of the
+      // sources being consumed (renaming-in-place).
+      if (
+        mutation.mergedId in next &&
+        mutation.mergedId !== idA &&
+        mutation.mergedId !== idB
+      ) {
+        return {
+          rules,
+          error: {
+            mutation,
+            reason: `Merge target "${mutation.mergedId}" collides with an existing unrelated rule; pick a new id or remove the existing rule first`,
+          },
+        };
+      }
       // Merge must not silently weaken enforcement. The merged rule's
       // strength must be at least as strong as the strongest source —
       // otherwise a caller could launder two enforced rules into a
@@ -504,9 +521,16 @@ export class EvolutionEngine {
     }
   }
 
-  /** Get current rules (defensive copy). */
+  /**
+   * Get current rules as a deep defensive copy. Callers cannot mutate
+   * engine state through the returned map because every rule is cloned —
+   * otherwise a JS caller or a TS cast could silently alter accepted
+   * state without running proofs or appending to history.
+   */
   getRules(): Record<string, Rule> {
-    return { ...this.rules };
+    return Object.fromEntries(
+      Object.entries(this.rules).map(([id, rule]) => [id, cloneRule(rule)]),
+    );
   }
 
   /**
@@ -572,9 +596,16 @@ export class EvolutionEngine {
 
     const afterFitness = proofResult.fitness;
 
-    // Decision: all proofs pass AND fitness doesn't decrease
-    const fitnessOk =
-      this.options.acceptNeutral || afterFitness.score >= beforeFitness.score;
+    // Decision: all proofs pass AND fitness doesn't decrease.
+    //
+    // `acceptNeutral` relaxes strict improvement (>) to ≥ — i.e. it accepts
+    // mutations that keep fitness the same. It must NOT accept regressions:
+    // a previous version short-circuited on acceptNeutral, which meant any
+    // proof-passing mutation was accepted regardless of score, silently
+    // driving spec quality downward over time.
+    const fitnessOk = this.options.acceptNeutral
+      ? afterFitness.score >= beforeFitness.score
+      : afterFitness.score > beforeFitness.score;
     const accepted = proofResult.passed && fitnessOk;
 
     let historyHash: string | undefined;

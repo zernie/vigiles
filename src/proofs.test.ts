@@ -723,6 +723,44 @@ describe("applyMutation", () => {
     assert.ok(!("combined-rule" in next));
   });
 
+  it("rejects merge that would overwrite an unrelated mergedId", () => {
+    const rules: Record<string, Rule> = {
+      "no-console": enforce("eslint/no-console", "No console output."),
+      "no-eval": enforce("eslint/no-eval", "Never eval user input."),
+      existing: enforce("eslint/no-var", "Unrelated rule."),
+    };
+    const { rules: next, error } = applyMutation(rules, {
+      type: "merge",
+      sourceIds: ["no-console", "no-eval"],
+      mergedId: "existing", // collides with an unrelated rule
+      mergedRule: enforce("eslint/no-console", "Combined."),
+    });
+
+    assert.ok(error !== undefined);
+    assert.match(error.reason, /collides with an existing unrelated rule/);
+    // Nothing was removed or replaced
+    assert.ok("no-console" in next);
+    assert.ok("no-eval" in next);
+    assert.equal(next.existing._kind, "enforce");
+  });
+
+  it("allows merge to re-use one of the source IDs as mergedId", () => {
+    const rules: Record<string, Rule> = {
+      "no-console": enforce("eslint/no-console", "No console."),
+      "use-logger": guidance("Use the logger."),
+    };
+    const { rules: next, error } = applyMutation(rules, {
+      type: "merge",
+      sourceIds: ["no-console", "use-logger"],
+      mergedId: "no-console", // rename-in-place
+      mergedRule: enforce("eslint/no-console", "Merged."),
+    });
+
+    assert.equal(error, undefined);
+    assert.ok("no-console" in next);
+    assert.ok(!("use-logger" in next));
+  });
+
   it("rejects merge that weakens enforcement to guidance", () => {
     const rules: Record<string, Rule> = {
       "no-console": enforce("eslint/no-console", "No console output."),
@@ -911,6 +949,53 @@ describe("EvolutionEngine", () => {
     assert.deepEqual(storedReceipts, receiptsBefore);
   });
 
+  it("acceptNeutral still rejects mutations that strictly decrease fitness", () => {
+    // acceptNeutral means "accept mutations with equal score", not
+    // "accept any mutation". Previously, setting acceptNeutral
+    // short-circuited the fitness check entirely, so this test would
+    // have incorrectly accepted.
+    const engine = new EvolutionEngine(
+      { rule1: enforce("eslint/no-console", "Important structured log.") },
+      { acceptNeutral: true },
+    );
+
+    // Adding a guidance rule drops coverage from 1/1 to 1/2, a strict
+    // regression. Must be rejected even with acceptNeutral: true.
+    const result = engine.propose({
+      type: "add",
+      ruleId: "rule2",
+      rule: guidance("Just some advice."),
+    });
+
+    assert.equal(result.accepted, false);
+    assert.ok(
+      result.error?.includes("Fitness decreased"),
+      `Expected fitness decrease error, got: ${result.error ?? "(none)"}`,
+    );
+  });
+
+  it("getRules returns a deep defensive copy that does not alter engine state", () => {
+    const engine = new EvolutionEngine({
+      rule1: enforce("eslint/no-console", "Original reason."),
+    });
+
+    const snapshot = engine.getRules();
+    // Tamper with the returned rule
+    const r = snapshot.rule1;
+    assert.equal(r._kind, "enforce");
+    if (r._kind === "enforce") {
+      (r as { why: string }).why = "Tampered reason.";
+    }
+
+    // Engine state must be unchanged
+    const fresh = engine.getRules();
+    const f = fresh.rule1;
+    assert.equal(f._kind, "enforce");
+    if (f._kind === "enforce") {
+      assert.equal(f.why, "Original reason.");
+    }
+  });
+
   it("rejects construction with a tampered supplied history", () => {
     const history = new MerkleHistory();
     history.append(
@@ -1031,21 +1116,37 @@ describe("EvolutionEngine", () => {
   });
 
   it("proposeAll continues on reject when configured", () => {
+    // Start with mixed rules so the second mutation (strengthen) actually
+    // improves fitness, which is required now that acceptNeutral correctly
+    // rejects regressions instead of short-circuiting.
     const engine = new EvolutionEngine(
-      { rule1: enforce("eslint/no-console", "Important.") },
+      {
+        rule1: guidance("Prefer structured logging over print statements."),
+        rule2: enforce("eslint/no-eval", "Never eval user input for security."),
+      },
       { acceptNeutral: true },
     );
 
     const results = engine.proposeAll(
       [
-        { type: "weaken", ruleId: "rule1", justification: "test" },
-        { type: "add", ruleId: "rule2", rule: guidance("Works.") },
+        // rejected: weakening rule2 fails monotonicity
+        { type: "weaken", ruleId: "rule2", justification: "test" },
+        // accepted: strengthening rule1 improves coverage 50% → 100%
+        {
+          type: "strengthen",
+          ruleId: "rule1",
+          linterRule: "eslint/no-console",
+        },
       ],
       { continueOnReject: true },
     );
 
     assert.equal(results.length, 2);
     assert.equal(results[0].accepted, false);
-    assert.equal(results[1].accepted, true);
+    assert.equal(
+      results[1].accepted,
+      true,
+      `Strengthen should improve coverage and pass fitness; error: ${results[1].error ?? "(none)"}`,
+    );
   });
 });
