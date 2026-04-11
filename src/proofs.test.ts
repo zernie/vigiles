@@ -619,6 +619,22 @@ describe("applyMutation", () => {
     assert.ok(!("google-first" in next));
     assert.ok("combined-rule" in next);
   });
+
+  it("rejects merge when both source IDs are the same", () => {
+    const rules = makeRules();
+    const { rules: next, error } = applyMutation(rules, {
+      type: "merge",
+      sourceIds: ["no-console", "no-console"],
+      mergedId: "combined-rule",
+      mergedRule: enforce("eslint/no-console", "Use logger."),
+    });
+
+    assert.ok(error !== undefined);
+    assert.match(error.reason, /distinct source rules/);
+    // Original rules are untouched
+    assert.ok("no-console" in next);
+    assert.ok(!("combined-rule" in next));
+  });
 });
 
 // ---------------------------------------------------------------------------

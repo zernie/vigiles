@@ -18,6 +18,7 @@ import {
   type Mutation,
   type ProofReceipt,
   type FitnessResult,
+  type ReadonlyMerkleHistory,
 } from "./proofs.js";
 import { computeHash } from "./compile.js";
 
@@ -193,6 +194,15 @@ export function applyMutation(
 
     case "merge": {
       const [idA, idB] = mutation.sourceIds;
+      if (idA === idB) {
+        return {
+          rules,
+          error: {
+            mutation,
+            reason: `Merge requires two distinct source rules; got "${idA}" twice`,
+          },
+        };
+      }
       if (!(idA in next) || !(idB in next)) {
         return {
           rules,
@@ -405,8 +415,14 @@ export class EvolutionEngine {
     return { ...this.rules };
   }
 
-  /** Get the Merkle history. */
-  getHistory(): MerkleHistory {
+  /**
+   * Get a read-only view of the Merkle history.
+   *
+   * Callers can inspect nodes, verify the chain, and serialize it, but
+   * cannot append new entries — that would bypass `propose()`'s proof and
+   * fitness gates and corrupt the audit trail.
+   */
+  getHistory(): ReadonlyMerkleHistory {
     return this.history;
   }
 

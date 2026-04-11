@@ -486,7 +486,22 @@ function computeNodeHash(node: Omit<HistoryNode, "hash">): string {
  * Each node's hash covers its parent hash, creating a chain where
  * tampering with any node invalidates all descendants.
  */
-export class MerkleHistory {
+
+/**
+ * Read-only view of a MerkleHistory — exposes inspection methods but no
+ * append/mutation surface. Callers that only need to read the audit trail
+ * should depend on this instead of MerkleHistory to prevent bypassing the
+ * engine's validation gates.
+ */
+export interface ReadonlyMerkleHistory {
+  readonly length: number;
+  head(): HistoryNode | null;
+  getNodes(): readonly HistoryNode[];
+  verify(): { valid: boolean; invalidAt: number };
+  toJSON(): string;
+}
+
+export class MerkleHistory implements ReadonlyMerkleHistory {
   private nodes: HistoryNode[] = [];
 
   /** Number of versions in the history. */
