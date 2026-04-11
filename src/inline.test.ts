@@ -89,6 +89,82 @@ text
     assert.equal(errors.length, 0, JSON.stringify(errors));
     assert.equal(rules.length, 1);
   });
+
+  it("ignores vigiles:enforce markers inside fenced code blocks", () => {
+    // Illustrative example in docs/inline-mode.md would otherwise get
+    // picked up as a live rule.
+    const { rules, errors } = parseInlineRules(
+      `# Docs
+
+Example usage:
+
+\`\`\`md
+<!-- vigiles:enforce eslint/no-console "Use structured logger" -->
+<!-- vigiles:enforce ruff/F401 "No unused imports" -->
+\`\`\`
+
+And a real one outside the fence:
+
+<!-- vigiles:enforce eslint/no-eval "Never eval user input" -->
+`,
+    );
+    assert.equal(errors.length, 0, JSON.stringify(errors));
+    assert.equal(rules.length, 1);
+    assert.equal(rules[0].linterRule, "eslint/no-eval");
+  });
+
+  it("ignores markers inside tilde-fenced code blocks", () => {
+    const { rules } = parseInlineRules(
+      `~~~md
+<!-- vigiles:enforce eslint/no-console "inside fence" -->
+~~~
+<!-- vigiles:enforce eslint/no-eval "outside fence" -->
+`,
+    );
+    assert.equal(rules.length, 1);
+    assert.equal(rules[0].linterRule, "eslint/no-eval");
+  });
+
+  it("ignores markers inside inline code spans in prose", () => {
+    // Prose that describes the syntax with a backtick-wrapped example
+    // must not trigger "malformed vigiles:enforce".
+    const { rules, errors } = parseInlineRules(
+      `You add \`<!-- vigiles:enforce eslint/no-console "why" -->\` comments to adopt gradually.
+
+Real rule below:
+
+<!-- vigiles:enforce eslint/no-eval "Never eval" -->
+`,
+    );
+    assert.equal(errors.length, 0, JSON.stringify(errors));
+    assert.equal(rules.length, 1);
+    assert.equal(rules[0].linterRule, "eslint/no-eval");
+  });
+
+  it("ignores ellipsis placeholders inside inline code spans", () => {
+    const { rules, errors } = parseInlineRules(
+      `You add \`<!-- vigiles:enforce ... -->\` comments to adopt gradually.
+`,
+    );
+    assert.equal(errors.length, 0, JSON.stringify(errors));
+    assert.equal(rules.length, 0);
+  });
+
+  it("handles nested backtick fences of different lengths", () => {
+    // Opening with 4 backticks, closing with 3 inside should NOT close
+    // the outer block — only a 4+ backtick close matches.
+    const { rules } = parseInlineRules(
+      `\`\`\`\`md
+\`\`\`
+<!-- vigiles:enforce eslint/no-console "inside outer" -->
+\`\`\`
+\`\`\`\`
+<!-- vigiles:enforce eslint/no-eval "outside" -->
+`,
+    );
+    assert.equal(rules.length, 1);
+    assert.equal(rules[0].linterRule, "eslint/no-eval");
+  });
 });
 
 describe("hasInlineRules", () => {
@@ -107,6 +183,24 @@ describe("hasInlineRules", () => {
     assert.equal(
       hasInlineRules(`<!-- vigiles:enforce eslint/no-console no-quotes -->`),
       false,
+    );
+  });
+
+  it("returns false for markers trapped inside fenced code blocks", () => {
+    assert.equal(
+      hasInlineRules(
+        `# Docs\n\n\`\`\`md\n<!-- vigiles:enforce eslint/no-console "x" -->\n\`\`\`\n`,
+      ),
+      false,
+    );
+  });
+
+  it("returns true only for parseable rules outside fences", () => {
+    assert.equal(
+      hasInlineRules(
+        `\`\`\`md\n<!-- vigiles:enforce eslint/no-console "inside" -->\n\`\`\`\n<!-- vigiles:enforce eslint/no-eval "outside" -->\n`,
+      ),
+      true,
     );
   });
 });

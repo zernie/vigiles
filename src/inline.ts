@@ -56,15 +56,60 @@ const MARKER_RE = /<!--\s*vigiles:([A-Za-z_-]+)[^]*?-->/;
  * Does not touch the filesystem and does not verify the rules against
  * any linter — callers can feed the returned rules into
  * `checkLinterRule` themselves.
+ *
+ * Lines inside fenced code blocks (``` ... ``` or ~~~ ... ~~~) are
+ * skipped so illustrative examples in docs don't get treated as live
+ * rules.
  */
 export function parseInlineRules(content: string): InlineParseResult {
   const rules: InlineRule[] = [];
   const errors: InlineParseResult["errors"] = [];
 
   const lines = content.split("\n");
+  let fenceChar: "`" | "~" | null = null;
+  let fenceLen = 0;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const enforceMatch = ENFORCE_RE.exec(line);
+
+    // Track fenced code blocks. CommonMark allows ``` or ~~~ fences
+    // with 3+ characters; the closing fence must use the same char and
+    // have length >= the opening fence's length. Info-string tokens
+    // after the opener are allowed.
+    const fenceMatch = /^(\s{0,3})(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[2];
+      const ch = marker[0] as "`" | "~";
+      const len = marker.length;
+      if (fenceChar === null) {
+        fenceChar = ch;
+        fenceLen = len;
+        continue;
+      } else if (ch === fenceChar && len >= fenceLen) {
+        // Closing fence — trailing info-string is not allowed per
+        // CommonMark; only treat it as a close if the rest of the
+        // line is whitespace.
+        if (fenceMatch[3].trim() === "") {
+          fenceChar = null;
+          fenceLen = 0;
+          continue;
+        }
+      }
+    }
+    if (fenceChar !== null) {
+      // Inside a code block — ignore any vigiles markers on this line.
+      continue;
+    }
+
+    // Strip inline code spans (backtick-wrapped text) so illustrative
+    // markers in prose like `<!-- vigiles:enforce ... -->` don't get
+    // parsed. CommonMark opens with N backticks and closes with exactly
+    // N, so the backreference handles matching-length spans.
+    const scannable = line.replace(/(`+)[\s\S]*?\1/g, (m) =>
+      " ".repeat(m.length),
+    );
+
+    const enforceMatch = ENFORCE_RE.exec(scannable);
     if (enforceMatch) {
       rules.push({
         linterRule: enforceMatch[1],
@@ -75,9 +120,9 @@ export function parseInlineRules(content: string): InlineParseResult {
     }
     // Skip the compiled-file hash header (`<!-- vigiles:sha256:... -->`)
     // entirely — it's not a rule marker and should not be reported.
-    if (/<!--\s*vigiles:sha\d+:/.test(line)) continue;
+    if (/<!--\s*vigiles:sha\d+:/.test(scannable)) continue;
 
-    const markerMatch = MARKER_RE.exec(line);
+    const markerMatch = MARKER_RE.exec(scannable);
     if (markerMatch) {
       // Looks like a vigiles marker but didn't parse as enforce —
       // surface it so users catch typos like "vigile:enforce" or
@@ -106,10 +151,14 @@ export function parseInlineRules(content: string): InlineParseResult {
 }
 
 /**
- * True if the content contains at least one vigiles:enforce marker.
- * Used by `require-spec` validation to treat inline mode as
- * spec-equivalent.
+ * True if the content contains at least one parseable vigiles:enforce
+ * rule (ignoring fenced code blocks and malformed markers). Used by
+ * `require-spec` validation to treat inline mode as spec-equivalent.
+ *
+ * Deliberately delegates to `parseInlineRules` so a loose prefix regex
+ * can't satisfy require-spec with a malformed marker that produces no
+ * real enforceable rule.
  */
 export function hasInlineRules(content: string): boolean {
-  return ENFORCE_RE.test(content);
+  return parseInlineRules(content).rules.length > 0;
 }
