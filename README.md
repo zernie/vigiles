@@ -110,22 +110,22 @@ The spec is the source of truth. CLAUDE.md is a build artifact.
 ## Quick Start
 
 ```bash
-npx vigiles setup
+npx vigiles init
 ```
 
 That's it. One command. The wizard auto-detects your project, creates a spec, scans your linters, compiles to markdown, adds a CI step, and installs Claude Code hooks — all automatically.
 
 ```
-  npx vigiles setup              guidance() rules, zero config
+  npx vigiles init               guidance() rules, zero config
           │
           ▼
   agent edits spec ◄────────── hooks auto-compile (self-maintaining)
           │
           ▼
-  npx vigiles strengthen         guidance() → enforce() where possible
+  npx vigiles audit              full verification: hashes + linters + coverage
           │
           ▼
-  CI catches drift               full enforcement, types narrowed
+  CI catches drift               stale refs, disabled rules, typos, duplicates
 ```
 
 **After install, it just works:**
@@ -133,7 +133,17 @@ That's it. One command. The wizard auto-detects your project, creates a spec, sc
 - Agent says "update CLAUDE.md" → plugin blocks the edit, redirects to `.spec.ts`
 - Agent edits the spec → plugin auto-compiles → CLAUDE.md regenerated
 - Agent edits `eslint.config.ts` → plugin auto-regenerates types
-- CI runs `vigiles check` → catches stale specs, disabled rules, missing files
+- CI runs `vigiles audit` → catches stale specs, disabled rules, missing files
+
+### Hesitant about a new file type? Try inline mode
+
+If a `.spec.ts` feels like too much commitment, you can adopt vigiles one rule at a time by adding HTML comments directly to your existing `CLAUDE.md`:
+
+```md
+<!-- vigiles:enforce eslint/no-console "Route output through logger.ts" -->
+```
+
+Running `vigiles audit CLAUDE.md` verifies each inline rule against your real linter config with the same closest-match suggestions and disabled-rule detection as spec mode. Zero build step, zero new files, works with any project. See [docs/inline-mode.md](docs/inline-mode.md) for the format and how to graduate to spec mode later.
 
 **It's self-maintaining.** Add a new ESLint rule? The hook regenerates types — your spec gets autocomplete for the new rule immediately. Rename a file? The compiler catches the stale reference. The setup doesn't rot because the hooks keep everything in sync.
 

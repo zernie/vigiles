@@ -41,6 +41,8 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
       "Type generator: scans linters/package.json/filesystem → emits .d.ts",
     "src/cli.ts":
       "CLI: init, compile, audit (3 primary commands + generate-types plumbing)",
+    "src/inline.ts":
+      "Inline-mode parser: `<!-- vigiles:enforce ... -->` comments in markdown for gradual adoption",
     "src/action.ts": "GitHub Action wrapper",
     "src/spec.test.ts": "Spec + compiler test suite (node:test)",
     "src/validate.test.ts": "Validation test suite (node:test)",
@@ -71,6 +73,8 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
     "docs/spec-format.md": "Spec format reference (target, sections, rules)",
     "docs/linter-support.md":
       "Linter support details (6 linters + generate-types)",
+    "docs/inline-mode.md":
+      "Inline mode: `<!-- vigiles:enforce ... -->` comments for gradual adoption without a .spec.ts",
   },
 
   commands: {
@@ -94,7 +98,7 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
     ),
 
     "smooth-adoption": guidance(
-      "`npx vigiles setup && npx skills add zernie/vigiles` must work on first run with zero config. The wizard auto-detects the project, creates specs, generates types, compiles, and wires CI. After install the agent edits specs automatically — no workflow change required. Start permissive (guidance rules, `require-spec: false` available), tighten over time. See `research/adoption-strategy.md`.",
+      "`npx vigiles init && npx skills add zernie/vigiles` must work on first run with zero config. The wizard auto-detects the project, creates specs, generates types, compiles, and wires CI. After install the agent edits specs automatically — no workflow change required. Start permissive (guidance rules, `require-spec: false` available), tighten over time. Hesitant adopters can use inline mode (`<!-- vigiles:enforce ... -->` comments) without a .spec.ts — see `docs/inline-mode.md`. See `research/adoption-strategy.md`.",
     ),
 
     "format-before-commit": guidance(

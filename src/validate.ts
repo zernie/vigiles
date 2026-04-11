@@ -220,10 +220,14 @@ export function validate(
     const specSeverity = activeRules["require-spec"];
     if (specSeverity && isInstruction && !disableComment.test(content)) {
       const specPath = filePath + ".spec.ts";
-      if (!existsSync(specPath)) {
+      // Inline mode counts as a spec — any `<!-- vigiles:enforce ... -->`
+      // comment means the file is verified on `vigiles audit` even
+      // without a .spec.ts sibling. See docs/inline-mode.md.
+      const hasInline = /<!--\s*vigiles:enforce\s/.test(content);
+      if (!existsSync(specPath) && !hasInline) {
         const msg: ValidationError = {
           rule: "require-spec",
-          message: `No spec file found for "${filePath}". Expected "${specPath}". Run \`npx vigiles init --target=${filePath}\` to create one, or disable with <!-- vigiles-disable require-spec -->.`,
+          message: `No spec file found for "${filePath}". Expected "${specPath}". Run \`npx vigiles init --target=${filePath}\` to create one, add inline \`<!-- vigiles:enforce ... -->\` comments, or disable with <!-- vigiles-disable require-spec -->.`,
           line: 1,
         };
         if (specSeverity === "error") {

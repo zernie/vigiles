@@ -31,6 +31,8 @@ import {
 import type { CompileError } from "./compile.js";
 import type { ClaudeSpec, SkillSpec } from "./spec.js";
 import { findSimilarRules } from "./proofs.js";
+import { parseInlineRules } from "./inline.js";
+import { checkLinterRule } from "./linters.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -444,6 +446,8 @@ async function findDuplicateRules(
  */
 interface AuditReport {
   hashErrors: number;
+  inlineErrors: number;
+  inlineRules: number;
   duplicatePairs: number;
   coverageEnabled: number;
   coverageDocumented: number;
@@ -453,10 +457,71 @@ interface AuditReport {
 
 /** Exit codes: 0 clean, 1 warnings only, 2 hard errors. */
 function auditExitCode(report: AuditReport): 0 | 1 | 2 {
-  if (report.hashErrors > 0) return 2;
+  if (report.hashErrors > 0 || report.inlineErrors > 0) return 2;
   if (report.duplicatePairs > 0) return 1;
   // Coverage gaps and strengthen suggestions are informational, not failures
   return 0;
+}
+
+/**
+ * Verify inline `<!-- vigiles:enforce ... -->` comments in an instruction
+ * file. Each comment's linter rule goes through the same verification as
+ * spec-declared enforce rules (existence, enabled status, closest-match
+ * suggestions on typo).
+ */
+function verifyInlineRules(
+  filePath: string,
+  silent: boolean,
+): { ok: boolean; errorCount: number; ruleCount: number } {
+  const log = (msg: string): void => {
+    if (!silent) console.log(msg);
+  };
+
+  let content: string;
+  try {
+    content = readFileSync(resolve(process.cwd(), filePath), "utf-8");
+  } catch {
+    return { ok: true, errorCount: 0, ruleCount: 0 };
+  }
+
+  const { rules, errors: parseErrors } = parseInlineRules(content);
+  if (rules.length === 0 && parseErrors.length === 0) {
+    return { ok: true, errorCount: 0, ruleCount: 0 };
+  }
+
+  let errorCount = 0;
+  log(`\n${filePath} (inline mode):`);
+
+  for (const err of parseErrors) {
+    log(`  ✗ line ${String(err.line)}: ${err.message}`);
+    errorCount++;
+    if (!silent) {
+      ghAnnotate("error", err.message, filePath, err.line);
+    }
+  }
+
+  for (const rule of rules) {
+    const result = checkLinterRule(rule.linterRule, process.cwd());
+    if (!result.exists) {
+      const message = result.error ?? `Rule "${rule.linterRule}" not found`;
+      log(`  ✗ line ${String(rule.line)}: ${message}`);
+      errorCount++;
+      if (!silent) {
+        ghAnnotate("error", message, filePath, rule.line);
+      }
+    } else if (result.enabled === "disabled") {
+      const message = `Rule "${rule.linterRule}" exists but is disabled in ${result.linter} config`;
+      log(`  ✗ line ${String(rule.line)}: ${message}`);
+      errorCount++;
+      if (!silent) {
+        ghAnnotate("error", message, filePath, rule.line);
+      }
+    } else {
+      log(`  ✓ line ${String(rule.line)}: ${rule.linterRule}`);
+    }
+  }
+
+  return { ok: errorCount === 0, errorCount, ruleCount: rules.length };
 }
 
 /**
@@ -488,6 +553,23 @@ async function audit(
   const hashResult =
     files.length > 0 ? check(files, silent) : { valid: true, errorCount: 0 };
 
+  // 1b. Verify inline vigiles:enforce comments in any instruction file.
+  // This supports projects that haven't adopted .spec.ts mode yet — see
+  // docs/inline-mode.md.
+  let inlineErrors = 0;
+  let inlineRules = 0;
+  if (!silent && files.length > 0) {
+    console.log("\nInline rule verification:");
+  }
+  for (const filePath of files) {
+    const result = verifyInlineRules(filePath, silent);
+    inlineErrors += result.errorCount;
+    inlineRules += result.ruleCount;
+  }
+  if (!silent && files.length > 0 && inlineRules === 0) {
+    console.log("  (no inline vigiles:enforce comments found)");
+  }
+
   // 2. Coverage gaps (discover)
   if (!silent) console.log("\nLinter rule coverage:\n");
   const coverage = discover(silent);
@@ -508,6 +590,8 @@ async function audit(
 
   const report: AuditReport = {
     hashErrors: hashResult.errorCount,
+    inlineErrors,
+    inlineRules,
     duplicatePairs: dups.pairCount,
     coverageEnabled: coverage.enabled,
     coverageDocumented: coverage.documented,
@@ -528,6 +612,8 @@ async function audit(
 function printAuditSummary(report: AuditReport): void {
   const parts: string[] = [];
   if (report.hashErrors > 0) parts.push(`${String(report.hashErrors)} stale`);
+  if (report.inlineErrors > 0)
+    parts.push(`${String(report.inlineErrors)} inline errors`);
   if (report.duplicatePairs > 0)
     parts.push(`${String(report.duplicatePairs)} duplicates`);
   const undocumented = report.coverageEnabled - report.coverageDocumented;
