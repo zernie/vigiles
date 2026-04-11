@@ -425,6 +425,47 @@ function makeResult(
   return { exists, enabled, linter: ctx.linterName, rule: ctx.ruleName, error };
 }
 
+/**
+ * Levenshtein distance for short-string typo detection. Rule names are
+ * short so edit distance is more appropriate than NCD (which is tuned
+ * for longer texts).
+ */
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] =
+        a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+
+/** Top-N closest rule names by edit distance, filtered by a max distance. */
+function closestRuleNames(
+  target: string,
+  candidates: Iterable<string>,
+  limit = 3,
+  maxDistance = 4,
+): string[] {
+  const scored: { name: string; dist: number }[] = [];
+  for (const c of candidates) {
+    const d = editDistance(target, c);
+    if (d <= maxDistance) scored.push({ name: c, dist: d });
+  }
+  scored.sort((a, b) => a.dist - b.dist);
+  return scored.slice(0, limit).map((s) => s.name);
+}
+
 /** @internal */ function tryNodeResolver(
   ctx: RuleContext,
 ): LinterCheckResult | null {
@@ -440,11 +481,16 @@ function makeResult(
         ctx.ruleName.includes("/") &&
         isEslintPluginRule(ctx.ruleName, eslintSet._basePath ?? ctx.basePath);
       if (!foundInPlugin) {
+        const suggestions = closestRuleNames(ctx.ruleName, resolved);
+        const hint =
+          suggestions.length > 0
+            ? ` Did you mean: ${suggestions.map((s) => `"${ctx.linterName}/${s}"`).join(", ")}?`
+            : "";
         return makeResult(
           ctx,
           false,
           "unknown",
-          `Rule "${ctx.ruleName}" not found in ${ctx.linterName}`,
+          `Rule "${ctx.ruleName}" not found in ${ctx.linterName}.${hint}`,
         );
       }
     }

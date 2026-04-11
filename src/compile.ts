@@ -498,10 +498,12 @@ export function compileClaude(
   const body = sections.join("\n\n") + "\n";
   const tokens = estimateTokens(body);
 
-  if (options.maxTokens && tokens > options.maxTokens) {
+  // Per-spec maxTokens takes precedence, then compile options
+  const maxTokens = spec.maxTokens ?? options.maxTokens;
+  if (maxTokens && tokens > maxTokens) {
     errors.push({
       type: "budget-exceeded",
-      message: `Compiled output is ~${String(tokens)} tokens, exceeding maxTokens limit of ${String(options.maxTokens)}.`,
+      message: `Compiled output is ~${String(tokens)} tokens, exceeding maxTokens limit of ${String(maxTokens)}. Trim prose sections, split into multiple specs, or raise maxTokens.`,
     });
   }
 

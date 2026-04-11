@@ -285,6 +285,12 @@ export interface ClaudeSpec {
   readonly sections?: Record<string, string | InstructionFragment[]>;
   /** Maximum lines per prose section (per-spec override). */
   readonly maxSectionLines?: number;
+  /**
+   * Maximum estimated tokens for the compiled output (~4 chars per token).
+   * Compile fails if exceeded. Matches ETH Zurich 2511.12884 finding that
+   * files over ~300 lines / ~2000 tokens degrade agent task success.
+   */
+  readonly maxTokens?: number;
   /** Rules: enforce(), check(), or guidance(). */
   readonly rules: Record<string, Rule>;
 }
@@ -297,6 +303,7 @@ type ClaudeSpecBase = {
   readonly target?: InstructionTarget | InstructionTarget[];
   readonly commands?: Record<string, string>;
   readonly keyFiles?: Record<string, string>;
+  readonly maxTokens?: number;
   readonly rules: Record<string, Rule>;
 };
 

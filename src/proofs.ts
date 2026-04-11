@@ -75,6 +75,19 @@ export function checkMonotonicity(
     const afterRule = after[id];
     if (!afterRule) {
       removed.push(id);
+      // Removal is a monotonicity violation unless explicitly allowlisted.
+      // Without this, a bare `remove` mutation could pass the proof suite
+      // on neutral fitness and silently delete constraints, breaking the
+      // "rules only strengthen over time" invariant.
+      if (!allowWeaken.has(id)) {
+        violations.push({
+          ruleId: id,
+          from: beforeRule._kind,
+          to: "guidance", // nominal floor — rule is gone entirely
+          fromStrength: STRENGTH[beforeRule._kind],
+          toStrength: -1,
+        });
+      }
       continue;
     }
 

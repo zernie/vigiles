@@ -44,6 +44,8 @@ const IGNORE_NODE_MODULES = ["node_modules/**"];
 
 interface VigilesConfig {
   maxRules?: number;
+  maxTokens?: number;
+  maxSectionLines?: number;
   catalogOnly?: boolean;
   linters?: Record<string, { rulesDir?: string | string[] }>;
 }
@@ -171,6 +173,8 @@ async function compile(
         basePath,
         specFile: specPath,
         maxRules: config.maxRules,
+        maxTokens: config.maxTokens,
+        maxSectionLines: config.maxSectionLines,
         catalogOnly: config.catalogOnly,
         linters: config.linters,
       });
@@ -234,41 +238,78 @@ async function compile(
   return allValid;
 }
 
-function verifyHashes(filePaths: string[]): boolean {
-  let allValid = true;
+/** True when running inside a GitHub Actions workflow. */
+function isGitHubActions(): boolean {
+  return process.env.GITHUB_ACTIONS === "true";
+}
+
+/**
+ * Emit a GitHub Actions annotation for the inline PR experience.
+ * No-op outside GitHub Actions.
+ */
+function ghAnnotate(
+  level: "error" | "warning",
+  message: string,
+  file?: string,
+  line?: number,
+): void {
+  if (!isGitHubActions()) return;
+  const locParts: string[] = [];
+  if (file) locParts.push(`file=${file}`);
+  if (line !== undefined) locParts.push(`line=${String(line)}`);
+  const loc = locParts.length > 0 ? " " + locParts.join(",") : "";
+  console.log(`::${level}${loc}::${message}`);
+}
+
+interface HashCheckResult {
+  valid: boolean;
+  errorCount: number;
+}
+
+function verifyHashes(filePaths: string[], silent = false): HashCheckResult {
+  let errorCount = 0;
+  const log = (msg: string): void => {
+    if (!silent) console.log(msg);
+  };
   for (const filePath of filePaths) {
     const fullPath = resolve(process.cwd(), filePath);
     const result = checkFileHash(fullPath);
 
     if (!result.hasHash) {
-      console.log(`\n- ${filePath} — no vigiles hash (hand-written or pre-v2)`);
+      log(`\n- ${filePath} — no vigiles hash (hand-written or pre-v2)`);
       continue;
     }
 
     if (result.valid) {
-      console.log(`\n✓ ${filePath} — hash valid (from ${result.specFile})`);
+      log(`\n✓ ${filePath} — hash valid (from ${result.specFile})`);
       continue;
     }
 
-    console.log(
-      `\n✗ ${filePath} — hash mismatch (manually edited after compilation)`,
-    );
-    console.log(
+    log(`\n✗ ${filePath} — hash mismatch (manually edited after compilation)`);
+    log(
       `  Re-run \`vigiles compile\` to regenerate from ${result.specFile ?? "spec"}.`,
     );
-    console.log(
-      `::error file=${filePath}::Hash mismatch — file was manually edited after compilation`,
-    );
-    allValid = false;
+    if (!silent) {
+      ghAnnotate(
+        "error",
+        "Hash mismatch — file was manually edited after compilation",
+        filePath,
+      );
+    }
+    errorCount++;
   }
-  return allValid;
+  return { valid: errorCount === 0, errorCount };
 }
 
 function validateSpecs(
   filePaths: string[],
   rulesConfig?: import("./types.js").RulesConfig,
+  silent = false,
 ): boolean {
   let allValid = true;
+  const log = (msg: string): void => {
+    if (!silent) console.log(msg);
+  };
   for (const filePath of filePaths) {
     const fullPath = resolve(process.cwd(), filePath);
     let content: string;
@@ -286,7 +327,7 @@ function validateSpecs(
       // Verify the referenced spec still exists
       const specRef = resolve(process.cwd(), hashMatch[1]);
       if (!existsSync(specRef)) {
-        console.log(
+        log(
           `  ✗ [require-spec] ${filePath} references "${hashMatch[1]}" but that spec no longer exists.`,
         );
         allValid = false;
@@ -299,21 +340,29 @@ function validateSpecs(
       rules: rulesConfig,
     });
     for (const err of result.errors) {
-      console.log(`  ✗ [${err.rule}] ${err.message}`);
+      log(`  ✗ [${err.rule}] ${err.message}`);
       allValid = false;
     }
     for (const warn of result.warnings) {
-      console.log(`  ⚠ [${warn.rule}] ${warn.message}`);
+      log(`  ⚠ [${warn.rule}] ${warn.message}`);
     }
   }
   return allValid;
 }
 
-function check(filePaths: string[]): boolean {
-  const hashesValid = verifyHashes(filePaths);
+function check(filePaths: string[], silent = false): HashCheckResult {
+  const hashes = verifyHashes(filePaths, silent);
   const vConfig = loadValidateConfig();
-  const specsValid = validateSpecs(filePaths, vConfig.rules);
-  return hashesValid && specsValid;
+  const specsValid = validateSpecs(filePaths, vConfig.rules, silent);
+  return {
+    valid: hashes.valid && specsValid,
+    errorCount: hashes.errorCount + (specsValid ? 0 : 1),
+  };
+}
+
+interface DuplicateResult {
+  valid: boolean;
+  pairCount: number;
 }
 
 /**
@@ -321,9 +370,15 @@ function check(filePaths: string[]): boolean {
  * Catches spec bloat — rules that likely say the same thing in different words.
  * Uses information-theoretic distance (gzip-based) — no LLM, fully deterministic.
  */
-async function findDuplicateRules(threshold: number = 0.3): Promise<boolean> {
+async function findDuplicateRules(
+  threshold: number = 0.3,
+  silent = false,
+): Promise<DuplicateResult> {
+  const log = (msg: string): void => {
+    if (!silent) console.log(msg);
+  };
   const specs = findSpecs();
-  if (specs.length === 0) return true;
+  if (specs.length === 0) return { valid: true, pairCount: 0 };
 
   let totalPairs = 0;
   let specsWithDuplicates = 0;
@@ -340,64 +395,128 @@ async function findDuplicateRules(threshold: number = 0.3): Promise<boolean> {
     if (pairs.length === 0) continue;
 
     if (specsWithDuplicates === 0) {
-      console.log(`Found near-duplicate rules (NCD < ${String(threshold)}):\n`);
+      log(`Found near-duplicate rules (NCD < ${String(threshold)}):\n`);
     }
     specsWithDuplicates++;
     totalPairs += pairs.length;
 
-    console.log(`  ${specPath}`);
+    log(`  ${specPath}`);
     for (const pair of pairs.slice(0, 5)) {
-      console.log(
+      log(
         `    ${pair.idA}  ↔  ${pair.idB}  (distance: ${pair.distance.toFixed(3)})`,
       );
     }
     if (pairs.length > 5) {
-      console.log(`    ... and ${String(pairs.length - 5)} more`);
+      log(`    ... and ${String(pairs.length - 5)} more`);
     }
   }
 
   if (totalPairs === 0) {
-    console.log("No near-duplicate rules detected.");
-    return true;
+    log("No near-duplicate rules detected.");
+    return { valid: true, pairCount: 0 };
   }
 
-  console.log(
+  log(
     `\n  ${String(totalPairs)} duplicate pair(s) in ${String(specsWithDuplicates)} spec(s). Consider merging or rewording.`,
   );
-  return false;
+  return { valid: false, pairCount: totalPairs };
+}
+
+/**
+ * Structured audit report used by --json, --summary, and exit-code logic.
+ */
+interface AuditReport {
+  hashErrors: number;
+  duplicatePairs: number;
+  coverageEnabled: number;
+  coverageDocumented: number;
+  strengthenSuggestions: number;
+  files: string[];
+}
+
+/** Exit codes: 0 clean, 1 warnings only, 2 hard errors. */
+function auditExitCode(report: AuditReport): 0 | 1 | 2 {
+  if (report.hashErrors > 0) return 2;
+  if (report.duplicatePairs > 0) return 1;
+  // Coverage gaps and strengthen suggestions are informational, not failures
+  return 0;
 }
 
 /**
  * Unified audit command: verify hashes, report coverage gaps, detect duplicates,
  * suggest improvements.
+ *
+ * Flags:
+ *   --summary   Print a single-line summary (for SessionStart hooks)
+ *   --json      Print structured JSON report (for CI integration)
  */
-async function audit(restArgs: string[]): Promise<boolean> {
-  let allValid = true;
+async function audit(
+  restArgs: string[],
+  flags: string[],
+): Promise<AuditReport> {
+  const summary = flags.includes("--summary");
+  const json = flags.includes("--json");
+  const silent = summary || json;
+
+  const files = findInstructionFiles(restArgs);
 
   // 1. Verify hashes and structure
-  const files = findInstructionFiles(restArgs);
-  if (files.length > 0) {
-    console.log("Verifying compiled files...\n");
-    const valid = check(files);
-    if (!valid) allValid = false;
-  } else {
-    console.log("No compiled instruction files found.\n");
+  if (!silent) {
+    if (files.length > 0) {
+      console.log("Verifying compiled files...\n");
+    } else {
+      console.log("No compiled instruction files found.\n");
+    }
   }
+  const hashResult =
+    files.length > 0 ? check(files, silent) : { valid: true, errorCount: 0 };
 
   // 2. Coverage gaps (discover)
-  console.log("\nLinter rule coverage:\n");
-  discover();
+  if (!silent) console.log("\nLinter rule coverage:\n");
+  const coverage = discover(silent);
 
   // 3. Duplicate rule detection (NCD)
-  console.log("\nDuplicate rule detection:\n");
-  const dupsOk = await findDuplicateRules();
-  if (!dupsOk) allValid = false;
+  if (!silent) console.log("\nDuplicate rule detection:\n");
+  const dups = await findDuplicateRules(0.3, silent);
 
   // 4. Strengthen suggestions
-  console.log("");
-  await strengthen();
+  if (!silent) console.log("");
+  const strengthenCount = await strengthen(silent);
 
-  return allValid;
+  const report: AuditReport = {
+    hashErrors: hashResult.errorCount,
+    duplicatePairs: dups.pairCount,
+    coverageEnabled: coverage.enabled,
+    coverageDocumented: coverage.documented,
+    strengthenSuggestions: strengthenCount,
+    files,
+  };
+
+  if (summary) {
+    printAuditSummary(report);
+  } else if (json) {
+    console.log(JSON.stringify(report, null, 2));
+  }
+
+  return report;
+}
+
+/** Single-line audit summary for SessionStart hooks — minimal token cost. */
+function printAuditSummary(report: AuditReport): void {
+  const parts: string[] = [];
+  if (report.hashErrors > 0) parts.push(`${String(report.hashErrors)} stale`);
+  if (report.duplicatePairs > 0)
+    parts.push(`${String(report.duplicatePairs)} duplicates`);
+  const undocumented = report.coverageEnabled - report.coverageDocumented;
+  if (undocumented > 0)
+    parts.push(`${String(undocumented)} undocumented rules`);
+  if (report.strengthenSuggestions > 0)
+    parts.push(`${String(report.strengthenSuggestions)} strengthenable`);
+  if (parts.length === 0) {
+    console.log("vigiles: clean");
+  } else {
+    console.log(`vigiles: ${parts.join(" / ")}`);
+  }
 }
 
 function collectDocumentedRules(): Set<string> {
@@ -425,7 +544,11 @@ interface CoverageTotals {
 function printLinterCoverage(
   linter: { linter: string; rules: string[] },
   documentedRules: Set<string>,
+  silent = false,
 ): CoverageTotals {
+  const log = (msg: string): void => {
+    if (!silent) console.log(msg);
+  };
   const documented = linter.rules.filter((r) =>
     documentedRules.has(`${linter.linter}/${r}`),
   );
@@ -437,66 +560,69 @@ function printLinterCoverage(
       ? Math.round((documented.length / linter.rules.length) * 100)
       : 0;
 
-  console.log(
+  log(
     `  ${linter.linter}: ${String(documented.length)}/${String(linter.rules.length)} rules documented (${String(pct)}%)`,
   );
 
   if (documented.length > 0 && documented.length <= 10) {
     for (const r of documented) {
-      console.log(`    ✓ ${linter.linter}/${r}`);
+      log(`    ✓ ${linter.linter}/${r}`);
     }
   }
 
   if (undocumented.length > 0) {
     const show = undocumented.slice(0, 5);
-    console.log(`    Top undocumented:`);
+    log(`    Top undocumented:`);
     for (const r of show) {
-      console.log(`    ✗ ${linter.linter}/${r}`);
+      log(`    ✗ ${linter.linter}/${r}`);
     }
     if (undocumented.length > 5) {
-      console.log(`    ... and ${String(undocumented.length - 5)} more`);
+      log(`    ... and ${String(undocumented.length - 5)} more`);
     }
   }
-  console.log("");
+  log("");
 
   return { enabled: linter.rules.length, documented: documented.length };
 }
 
-function discover(): void {
-  console.log("Scanning project for linter rules...\n");
+function discover(silent = false): CoverageTotals {
+  const log = (msg: string): void => {
+    if (!silent) console.log(msg);
+  };
+  log("Scanning project for linter rules...\n");
 
   const result = generateTypes({ basePath: process.cwd() });
   const documentedRules = collectDocumentedRules();
 
-  console.log("Detected linters:\n");
+  log("Detected linters:\n");
 
   let totalEnabled = 0;
   let totalDocumented = 0;
 
   for (const linter of result.linters) {
-    const totals = printLinterCoverage(linter, documentedRules);
+    const totals = printLinterCoverage(linter, documentedRules, silent);
     totalEnabled += totals.enabled;
     totalDocumented += totals.documented;
   }
 
   if (result.linters.length === 0) {
-    console.log("  No linters detected.\n");
+    log("  No linters detected.\n");
   }
 
   const totalPct =
     totalEnabled > 0 ? Math.round((totalDocumented / totalEnabled) * 100) : 0;
-  console.log(
+  log(
     `Coverage: ${String(totalDocumented)}/${String(totalEnabled)} rules documented (${String(totalPct)}%)`,
   );
 
   if (totalDocumented < totalEnabled) {
-    console.log(
+    log(
       `\nConsider adding enforce() rules for frequently-triggered undocumented rules.`,
     );
-    console.log(
-      `The agent encounters these rules but has no context about WHY.`,
-    );
+    log(`The agent encounters these rules but has no context about WHY.`);
   }
+
+  return { enabled: totalEnabled, documented: totalDocumented };
 }
 
 function init(args: string[]): void {
@@ -510,7 +636,7 @@ function init(args: string[]): void {
   }
 
   const targetLine = target !== "CLAUDE.md" ? `\n  target: "${target}",` : "";
-  const template = `import { claude, enforce, guidance, check, every } from "vigiles/spec";
+  const template = `import { claude, enforce, guidance } from "vigiles/spec";
 
 export default claude({${targetLine}
   sections: {
@@ -520,7 +646,7 @@ export default claude({${targetLine}
 
     // This section is included in the compiled output to help agents
     // understand how to work with specs. Remove it once your team is familiar.
-    "how-to-edit": "This file is compiled from a .spec.ts file. Do not edit it directly — edit the spec and run 'npx vigiles compile'. To add a rule: add to the rules object in the spec. To strengthen a guidance rule to enforcement: run 'npx vigiles strengthen'.",
+    "how-to-edit": "This file is compiled from a .spec.ts file. Do not edit it directly — edit the spec and run 'npx vigiles compile'. To add a rule: add to the rules object in the spec.",
   },
 
   commands: {
@@ -993,13 +1119,16 @@ const GUIDANCE_TO_LINTER: Array<{
   },
 ];
 
-async function strengthen(): Promise<void> {
-  console.log("Scanning specs for guidance rules that could be enforced...\n");
+async function strengthen(silent = false): Promise<number> {
+  const log = (msg: string): void => {
+    if (!silent) console.log(msg);
+  };
+  log("Scanning specs for guidance rules that could be enforced...\n");
 
   const specs = findSpecs();
   if (specs.length === 0) {
-    console.log("No .spec.ts files found. Run `vigiles setup` first.");
-    return;
+    log("No .spec.ts files found. Run `vigiles init` first.");
+    return 0;
   }
 
   // Scan available linter rules
@@ -1035,27 +1164,25 @@ async function strengthen(): Promise<void> {
 
       if (matches.length > 0) {
         suggestions++;
-        console.log(`  "${ruleId}" (guidance) → could be enforced:`);
+        log(`  "${ruleId}" (guidance) → could be enforced:`);
         for (const m of matches) {
-          console.log(`    enforce("${m}", "${rule.text.slice(0, 60)}")`);
+          log(`    enforce("${m}", "${rule.text.slice(0, 60)}")`);
         }
-        console.log("");
+        log("");
       }
     }
   }
 
   if (suggestions === 0) {
-    console.log(
-      "No strengthening suggestions found. All guidance rules look correct,",
-    );
-    console.log("or no matching linter rules are enabled in your project.\n");
-    console.log("To see all available linter rules: npx vigiles discover");
+    log("No strengthening suggestions found. All guidance rules look correct,");
+    log("or no matching linter rules are enabled in your project.");
   } else {
-    console.log(`${String(suggestions)} rule(s) could be strengthened.`);
-    console.log(
+    log(`${String(suggestions)} rule(s) could be strengthened.`);
+    log(
       "Edit the spec to replace guidance() with enforce() for the suggested rules.",
     );
   }
+  return suggestions;
 }
 
 // ---------------------------------------------------------------------------
@@ -1180,7 +1307,16 @@ async function main(): Promise<void> {
     // --- Primary commands ---
 
     case "init": {
-      await setup(args);
+      // Explicit --target bypasses the setup wizard and always creates a
+      // bare spec, so `npx vigiles init --target=<file>` is a reliable
+      // remediation for the require-spec validator. Bare `vigiles init`
+      // still runs the full wizard (project detection + auto-targets).
+      const hasTarget = args.some((a) => a.startsWith("--target="));
+      if (hasTarget) {
+        init(args.slice(1));
+      } else {
+        await setup(args);
+      }
       break;
     }
 
@@ -1204,10 +1340,25 @@ async function main(): Promise<void> {
 
     case "audit": {
       // audit = verify + discover + strengthen
-      const valid = await audit(restArgs);
-      console.log("");
-      if (!valid) {
-        process.exit(1);
+      const flags = args.slice(1).filter((a) => a.startsWith("--"));
+      const report = await audit(restArgs, flags);
+      const exitCode = auditExitCode(report);
+      if (isGitHubActions()) {
+        if (report.hashErrors > 0) {
+          ghAnnotate(
+            "error",
+            `${String(report.hashErrors)} compiled file(s) with stale hash — run vigiles compile`,
+          );
+        }
+        if (report.duplicatePairs > 0) {
+          ghAnnotate(
+            "warning",
+            `${String(report.duplicatePairs)} near-duplicate rule pair(s) detected — consider merging`,
+          );
+        }
+      }
+      if (exitCode !== 0) {
+        process.exit(exitCode);
       }
       break;
     }

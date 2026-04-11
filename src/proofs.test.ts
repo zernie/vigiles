@@ -105,7 +105,7 @@ describe("MonotonicityLattice", () => {
     assert.deepEqual(result.unchanged, ["existing"]);
   });
 
-  it("tracks removed rules", () => {
+  it("tracks removed rules and reports them as violations", () => {
     const before: Record<string, Rule> = {
       willRemove: guidance("Bye."),
       stays: guidance("Stay."),
@@ -116,6 +116,25 @@ describe("MonotonicityLattice", () => {
 
     const result = checkMonotonicity(before, after);
     assert.deepEqual(result.removed, ["willRemove"]);
+    // Removal without allowlist must fail monotonicity, otherwise a pure
+    // `remove` mutation could bypass the "only strengthen" invariant.
+    assert.equal(result.valid, false);
+    assert.equal(result.violations.length, 1);
+    assert.equal(result.violations[0].ruleId, "willRemove");
+  });
+
+  it("allows removal when explicitly allowlisted", () => {
+    const before: Record<string, Rule> = {
+      deprecated: guidance("Old."),
+    };
+    const after: Record<string, Rule> = {};
+
+    const result = checkMonotonicity(before, after, {
+      allowWeaken: new Set(["deprecated"]),
+    });
+    assert.deepEqual(result.removed, ["deprecated"]);
+    assert.equal(result.valid, true);
+    assert.equal(result.violations.length, 0);
   });
 
   it("latticeJoin returns the stronger kind", () => {
