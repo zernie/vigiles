@@ -32,6 +32,7 @@ import {
 } from "./compile.js";
 import type { CompileError } from "./compile.js";
 import type { ClaudeSpec, SkillSpec } from "./spec.js";
+import { findSimilarRules } from "./proofs.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -318,8 +319,59 @@ async function check(filePaths: string[]): Promise<boolean> {
 }
 
 /**
- * Unified audit command: verify hashes, report coverage gaps, suggest improvements.
- * Combines the old check, discover, and strengthen commands.
+ * Find near-duplicate rules within each spec using NCD similarity.
+ * Catches spec bloat — rules that likely say the same thing in different words.
+ * Uses information-theoretic distance (gzip-based) — no LLM, fully deterministic.
+ */
+async function findDuplicateRules(threshold: number = 0.3): Promise<boolean> {
+  const specs = findSpecs();
+  if (specs.length === 0) return true;
+
+  let totalPairs = 0;
+  let specsWithDuplicates = 0;
+
+  for (const specPath of specs) {
+    const spec = await loadSpec(specPath);
+    if (!spec || spec._specType !== "claude") continue;
+
+    const rules = spec.rules;
+    const ruleCount = Object.keys(rules).length;
+    if (ruleCount < 2) continue;
+
+    const pairs = findSimilarRules(rules, threshold);
+    if (pairs.length === 0) continue;
+
+    if (specsWithDuplicates === 0) {
+      console.log(`Found near-duplicate rules (NCD < ${String(threshold)}):\n`);
+    }
+    specsWithDuplicates++;
+    totalPairs += pairs.length;
+
+    console.log(`  ${specPath}`);
+    for (const pair of pairs.slice(0, 5)) {
+      console.log(
+        `    ${pair.idA}  ↔  ${pair.idB}  (distance: ${pair.distance.toFixed(3)})`,
+      );
+    }
+    if (pairs.length > 5) {
+      console.log(`    ... and ${String(pairs.length - 5)} more`);
+    }
+  }
+
+  if (totalPairs === 0) {
+    console.log("No near-duplicate rules detected.");
+    return true;
+  }
+
+  console.log(
+    `\n  ${String(totalPairs)} duplicate pair(s) in ${String(specsWithDuplicates)} spec(s). Consider merging or rewording.`,
+  );
+  return false;
+}
+
+/**
+ * Unified audit command: verify hashes, report coverage gaps, detect duplicates,
+ * suggest improvements.
  */
 async function audit(restArgs: string[]): Promise<boolean> {
   let allValid = true;
@@ -338,7 +390,12 @@ async function audit(restArgs: string[]): Promise<boolean> {
   console.log("\nLinter rule coverage:\n");
   discover();
 
-  // 3. Strengthen suggestions
+  // 3. Duplicate rule detection (NCD)
+  console.log("\nDuplicate rule detection:\n");
+  const dupsOk = await findDuplicateRules();
+  if (!dupsOk) allValid = false;
+
+  // 4. Strengthen suggestions
   console.log("");
   await strengthen();
 

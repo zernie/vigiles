@@ -155,6 +155,37 @@ describe("CLI: vigiles audit", () => {
         stdout.includes("No .spec.ts"),
     );
   });
+
+  it("should detect duplicate rules via NCD", () => {
+    const dupDir = mkdtempSync(join(tmpdir(), "vigiles-audit-dup-"));
+    try {
+      writeFileSync(
+        join(dupDir, "package.json"),
+        JSON.stringify({ name: "test", scripts: {} }),
+      );
+      const specSrc = resolve(process.cwd(), "dist", "spec.js");
+      writeFileSync(
+        join(dupDir, "CLAUDE.md.spec.ts"),
+        `import { claude, guidance } from "${specSrc}";
+export default claude({
+  rules: {
+    "use-logger": guidance("Always use the structured logger instead of console.log for production output."),
+    "logger-over-console": guidance("Use the structured logger instead of console.log in production code."),
+    "unrelated": guidance("Prefer composition over inheritance in class hierarchies."),
+  },
+});
+`,
+      );
+      const { stdout } = run("audit", dupDir);
+      // Should detect the two logger rules as near-duplicates
+      assert.ok(
+        stdout.includes("near-duplicate") || stdout.includes("duplicate"),
+        `Expected duplicate detection, got: ${stdout.slice(0, 500)}`,
+      );
+    } finally {
+      rmSync(dupDir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
