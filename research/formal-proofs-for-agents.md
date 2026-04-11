@@ -1,0 +1,298 @@
+# Formal Proofs for AI Agents
+
+Scope: should vigiles reach past its current deterministic proofs (monotonicity,
+NCD, Merkle, fixed-point, property tests in `src/proofs.ts`) into real formal
+verification, and if so, how?
+
+Bottom line up front: yes, but narrowly. Dafny is the only system where
+"LLM writes code + spec + proof" is remotely credible today, and even then only
+for small functions. Ship a `dafny()` enforce target first. Treat full
+evolution-engine proof gating as a research preview, not a product.
+
+---
+
+## 1. Landscape
+
+**Lean 4.** Dependent-type proof assistant, successor to Lean 3. Primary use is
+formalized mathematics (mathlib has ~1.8M lines of formalized math) and
+verification research. Production software use is negligible. Most
+LLM-theorem-proving papers target Lean because miniF2F and putnamBench are Lean
+benchmarks and mathlib is huge, clean training data. LLM-friendliness: highest
+of any system by volume of tooling, but proofs are long, tactic-heavy, and
+brittle.
+
+**Coq / Rocq** (renamed 2024). The grand-daddy: CompCert (verified C compiler,
+AbsInt ships it to Airbus), seL4 microkernel proofs, Iris separation logic.
+Real production use, real Fortune-500 deployment via CompCert. LLM tooling
+(Proverbot9001, CoqGym, Copra) is older and slower-moving than Lean's; the
+pivot to the Rocq name also fractured the ecosystem briefly.
+
+**Dafny.** Imperative/OO language with pre/postconditions and a built-in SMT
+backend (Z3). Written by Rustan Leino at MSR, now at AWS. Used in production at
+AWS: the ESDK (Encryption SDK), the Authenticated Encryption library, parts of
+S3's ShardStore, and Dafny-to-Rust compilation for cryptographic components.
+Dafny is the pragmatic choice: proof burden is 3-20 lines per function, not
+hundreds. LLM-friendliness is very good; Microsoft's own "Laurel" and "Clover"
+work specifically targets Dafny proof synthesis with LLMs.
+
+**F\*.** Dependent types + SMT, developed at MSR and Inria. Powers Project
+Everest: HACL\*, EverCrypt, Vale — these ship inside Firefox's NSS, the Linux
+kernel crypto path, WireGuard, mbedTLS, and ZincCrypto. Real production use,
+but learning curve is brutal. LLM tooling is thin; almost no papers target F\*
+specifically.
+
+**TLA+.** Leslie Lamport's specification language for concurrent and
+distributed systems. AWS uses it heavily — DynamoDB, S3, EBS designs were
+verified in TLA+ and Amazon has published about it. It does not verify code;
+it verifies designs and finds protocol bugs via model checking (TLC) or proof
+(TLAPS). LLM-friendliness is moderate — there are TLA+ generation papers but
+it's a small community.
+
+**Liquid Haskell.** Refinement types bolted onto GHC via SMT. Academic
+darling, small industrial footprint (Galois, Awake Security historically).
+Lightweight annotations, but depends on Haskell. LLM tooling: near zero.
+
+**Verus.** Verification for Rust, developed at MSR/CMU. Pre/postconditions,
+SMT-backed, targeting systems code. Still young (first stable release 2023)
+but Microsoft has a concerted push, including a verified storage engine
+(StorageNode in Verus) and verified parts of Hyper-V. LLM-friendliness: a few
+2024-25 papers (AutoVerus, SAFE from UCSD) exist, results are preliminary.
+
+**Kani.** Model checker for Rust from AWS, based on CBMC. Bounded verification,
+not full proof — you prove properties hold for all inputs up to bound N. Very
+practical and low-friction, and AWS uses it on Firecracker, s2n-quic, and
+aws-nitro-enclaves. LLM-friendliness: no dedicated tooling but the assertion
+style is easy to generate.
+
+---
+
+## 2. LLM-Assisted Theorem Proving: 2024-2026 State of the Art
+
+The field has moved fast on olympiad-style math and almost not at all on
+software verification. Honest pass rates below.
+
+**LeanDojo (2023, updated 2024).** CMU infrastructure paper: extracted mathlib
+as (state, tactic) pairs, released ReProver retrieval-augmented model. Baseline
+of ~51% on miniF2F-test for small open models. Still the standard harness
+everyone builds on.
+
+**Lean Copilot (2024).** Song et al., runs local LLMs as Lean tactics
+(`suggest_tactics`, `search_proof`). It's a human-in-the-loop authoring tool,
+not an autonomous prover. Useful, not transformative.
+
+**DeepSeek-Prover V1.5 (2024), V2 (2025).** Expert iteration over generated
+proofs. V1.5 reached ~63% miniF2F-test, V2 pushed to ~88% with RL and
+subgoal decomposition. State of the art for open models on olympiad math.
+
+**Goedel-Prover (2025, Princeton).** Trained on ~1.6M auto-formalized
+statements. ~64% miniF2F pass@32, ~7% on putnamBench pass@512. putnamBench is
+brutally hard — even the best closed models are in the single digits to low
+teens.
+
+**AlphaProof (DeepMind, July 2024).** Silver-medal IMO 2024 performance (4/6
+problems), Lean-based. Not released. Demonstrated that RL + massive compute
+on Lean can reach elite human level on contest math. Zero transfer demonstrated
+to real software.
+
+**Baldur (Meta/Google 2023, cited through 2025).** Whole-proof generation for
+Isabelle. ~41% on PISA benchmark with repair loop. Interesting because it
+generates whole proofs rather than tactic-by-tactic — similar ergonomics to
+how you'd want an agent to work.
+
+**Copra (2024).** GPT-4-based in-context proof agent for Lean and Coq. Uses
+error messages and retrieval. ~30% on miniF2F with GPT-4. Honest and modest.
+
+**The benchmark gap.** miniF2F and putnamBench are olympiad math. For actual
+software verification the closest thing is DafnyBench (Poesia et al., 2024),
+~750 Dafny problems drawn from textbooks and real code. GPT-4 solves ~68%.
+There is no equivalent large-scale Lean-for-software or Verus benchmark. This
+matters: 88% on miniF2F tells you nothing about whether an LLM can verify your
+sort function.
+
+**Summary.** On olympiad math, top systems are at 60-88% and the curve is
+steep. On real software verification, we have one benchmark (DafnyBench), one
+system that clearly works (GPT-4 + Dafny), and lots of arXiv preprints with
+<50% pass rates. Anyone claiming "LLMs write verified software" in 2026 is
+selling a demo.
+
+---
+
+## 3. Dafny vs Lean 4 for Wiring to Claude
+
+This is the core decision. Both can be driven by an LLM agent. They are not
+equivalent.
+
+| Dimension | Dafny | Lean 4 |
+|---|---|---|
+| Target user | Programmers | Mathematicians, PL researchers |
+| Proof style | Declarative pre/post + SMT auto-discharge | Interactive tactic proofs |
+| Typical burden | 3-20 lines per function | 50-500 lines per theorem |
+| What you verify | Imperative/OO code | Arbitrary propositions |
+| Backend | Z3 (automatic) | Kernel (manual) |
+| Tooling maturity for code | Production (AWS) | Research |
+| LLM pass rate in-domain | ~68% (DafnyBench, GPT-4) | ~30-88% (miniF2F, math only) |
+| Production users | AWS (ESDK, S3 ShardStore) | None at code level; mathlib for math |
+| Error messages | SMT counterexamples, often cryptic | Type errors, very precise |
+| Install footprint | ~50 MB, single binary | ~500 MB, elan toolchain |
+
+**The honest comparison.** Dafny is for verifying that a function satisfies a
+spec. Lean 4 is for proving theorems. If you want to say "this sort function
+returns a permutation that is sorted," Dafny does it in 5 lines. Lean 4 does it
+in 80 lines plus lemmas. If you want to say "this elliptic curve satisfies the
+Hasse bound," only Lean 4 can do that, and an LLM will not succeed unassisted.
+
+**For vigiles' audience** — programmers who write `.spec.ts` to guide coding
+agents — Dafny wins on every axis except theoretical expressiveness. The
+audience overlap between vigiles users and people who can read a Lean proof is
+near zero. The overlap between vigiles users and people who would accept a
+Dafny precondition is much larger, because Dafny looks like code.
+
+**LLM tooling.** Dafny's LLM story (Laurel, Clover, DafnyBench, plus Copilot
+working decently on small Dafny files) is behind Lean's in raw research volume
+but ahead in software-verification credibility. Lean's ecosystem is optimized
+for formalizing existing math, not synthesizing new code-level specs.
+
+**Recommendation: Dafny first, Lean as an experimental target later.**
+
+---
+
+## 4. Integration Patterns: Wiring a Prover to Claude
+
+Four options, brief pros and cons. These are not exclusive.
+
+### 4.1 Subagent calls prover via CLI
+
+Claude dispatches a subagent with the prompt "run `dafny verify foo.dfy` and
+fix errors until green." Subagent iterates until pass or budget exhausted.
+
+Pros: zero infrastructure, uses existing Task tool, fits Claude Code today.
+Cons: no caching, no shared proof state, subagent re-reads the whole file every
+loop, burns tokens fast on complex proofs.
+
+### 4.2 MCP server for Dafny/Lean
+
+Stand up an MCP server exposing `verify`, `suggest_tactic`, `get_goal_state`,
+`check_proof`. Claude calls these as tools.
+
+Pros: structured, stateful, interactive proofs become tractable, sharable
+across agents. Cons: building a good MCP server for an interactive prover is
+real work — Lean-Dojo took a team, and Dafny's LSP is less interactive. This
+is the right long-term answer and the expensive one.
+
+### 4.3 PostToolUse hook running prover on changed files
+
+Edit a `.dfy` file, hook fires `dafny verify`, output goes back into Claude's
+context on failure.
+
+Pros: mechanical, always on, cannot be skipped, fits vigiles' existing
+"enforce this externally" philosophy. Cons: feedback is one-shot per edit, not
+a conversation; large files re-verify from scratch.
+
+### 4.4 `vigiles verify` CLI command on spec-annotated blocks
+
+New CLI verb that scans the spec for `verify()` rules, extracts the referenced
+proof obligations, runs the chosen prover, and produces an audit report. Same
+shape as `vigiles check`.
+
+Pros: matches vigiles' current audit-at-commit-time model; deterministic; easy
+to integrate with CI; does not require Claude at all. Cons: not interactive —
+if verification fails, the user/agent has to loop manually.
+
+**Recommendation: start with 4.3 + 4.4.** Both are mechanical, both fit
+vigiles' existing architecture, neither requires Lean-Dojo-grade engineering.
+4.2 (MCP server) is the right v2 if users actually engage. 4.1 (subagent) is
+already possible without any vigiles change.
+
+---
+
+## 5. What Vigiles Should Ship First
+
+Three proposals, ordered by ambition. Ship the low one, prototype the medium,
+do not build the high one yet.
+
+### 5.1 Low: `dafny()` enforce target
+
+```ts
+enforce("dafny:ESDK/encrypt.dfy#EncryptIsInverseOfDecrypt");
+```
+
+Semantics: at `vigiles check` time, parse the reference, locate the `.dfy`
+file, run `dafny verify` on it, confirm the named lemma/method exists and
+verifies. Fits the existing stale-reference pattern in `src/linters.ts` — if
+the lemma is renamed or deleted, check fails.
+
+Effort: 1-2 weeks. Requires Dafny installed; follows the same model as the
+existing pylint/clippy/rubocop checks. This is a natural extension of
+vigiles' linter cross-referencing moat into the proof world.
+
+Production-grade: yes, for projects that already use Dafny. Demo-grade for
+anyone else. That's fine — vigiles never forced anyone to adopt pylint either.
+
+### 5.2 Medium: `verify()` rule builder that emits a proof obligation file
+
+```ts
+verify({
+  name: "MonotonicityProof",
+  target: "src/proofs.ts#monotonicityLattice",
+  obligations: [
+    "forall s1 s2 :: merge(s1, s2) >= s1",
+    "forall s1 s2 :: merge(s1, s2) >= s2",
+    "forall s1 s2 :: merge(s1, s2) == merge(s2, s1)",
+  ],
+  backend: "dafny", // or "lean4"
+});
+```
+
+Semantics: compiling the spec emits a `.dfy` skeleton with the obligations as
+method postconditions. Running `vigiles verify` tries to discharge them — with
+Dafny, often automatically; with Lean 4, the user (or an agent) fills in the
+proof. Either way vigiles records pass/fail alongside its existing proof
+record.
+
+Effort: 4-8 weeks. The hard part is the TS-to-Dafny type bridge. Stay very
+narrow — support int, bool, string, sequences, sets, and let users opt in per
+function. Do not try to verify arbitrary TypeScript.
+
+Production-grade: demo-grade initially. Becomes production-grade only for the
+subset of code users are willing to hand-translate or re-write in Dafny. Pitch
+it honestly: "for the 5% of your code that must be correct."
+
+### 5.3 High: Proof-gated evolution engine
+
+Today `src/evolve.ts` lets an LLM propose mutations to the spec, runs property
+tests, and commits passing mutations to a Merkle history. The ambitious version
+would require every mutation to also ship a proof obligation discharge —
+"the new rule implies the old rule, verified by Dafny" — before the Merkle
+commit is accepted.
+
+Effort: 3-6 months minimum, mostly research. The fundamental problem is that
+rule semantics are natural-language prose filtered through `enforce`, `check`,
+and `guidance`. There is no formal meaning of "the new rule implies the old
+rule" until someone defines one. You would need a specification logic for
+instruction files. That is a PhD project, not a sprint.
+
+Production-grade: no. Demo-grade at best, for a long time. Do not promise it.
+It is worth keeping as a research direction because it would be a genuine
+first — "the first self-evolving agent spec system with formally verified
+mutations" — but the honest engineering answer is "we are not there yet."
+
+---
+
+## Closing Honesty Check
+
+- LLMs solve 60-88% of olympiad-math problems in Lean. This does not transfer
+  to arbitrary software verification.
+- The one benchmark we have for code-level proof synthesis (DafnyBench) sits at
+  ~68% for the best closed models. That means for every three verified
+  functions, one is wrong.
+- No production system today lets an LLM "write code + spec + proof" for
+  general-purpose software. AWS's Dafny deployments are human-written with
+  machine-checked proofs. That is a different workflow than what an agent
+  would do.
+- Vigiles' existing deterministic proofs (monotonicity lattice, NCD, Merkle,
+  fixed-point, property tests) are already unusually rigorous for this product
+  category. Adding a Dafny enforce target is a cheap, honest extension.
+  Anything beyond that is marketing ahead of capability.
+
+Recommendation: ship 5.1. Prototype 5.2 behind a flag. Write a blog post about
+5.3 but do not build it.
