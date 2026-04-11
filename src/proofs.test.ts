@@ -835,6 +835,69 @@ describe("runProofSuite", () => {
     assert.equal(mono.passed, false);
   });
 
+  it("ignores pre-existing NCD duplicates when grading a fresh mutation", () => {
+    // before already has two near-duplicate rules — the change being
+    // proposed is unrelated. A naive `findSimilarRules(after)` would
+    // flag the baseline pair and fail the proof, blocking every
+    // unrelated mutation in a repo with historical duplication.
+    const dup1 =
+      "Always use the structured logger instead of console.log for output.";
+    const dup2 =
+      "Use the structured logger module instead of console.log for output.";
+    const before: Record<string, Rule> = {
+      "use-logger-a": guidance(dup1),
+      "use-logger-b": guidance(dup2),
+    };
+    const after: Record<string, Rule> = {
+      ...before,
+      // Add a completely unrelated rule.
+      "compose-over-inherit": guidance(
+        "Prefer composition over inheritance in class hierarchies.",
+      ),
+    };
+
+    const result = runProofSuite(before, after);
+    const ncd = result.receipts.find((r) => r.name === "ncd-dedup");
+    assert.ok(ncd);
+    assert.equal(
+      ncd.passed,
+      true,
+      `ncd-dedup should ignore pre-existing duplicates; got: ${ncd.detail ?? ""}`,
+    );
+  });
+
+  it("ignores bloom overlap against rules removed by the mutation", () => {
+    // A merge removes two source rules and adds a merged rule whose
+    // tokens overlap heavily with the sources (by construction). If
+    // the bloom baseline still contains the removed sources, the
+    // merged rule would collide against its own sources and the
+    // merge would be rejected.
+    const before: Record<string, Rule> = {
+      "no-console": enforce("eslint/no-console", "Use structured logger."),
+      "use-logger": guidance(
+        "Always route application output through the structured logger.",
+      ),
+    };
+    const after: Record<string, Rule> = {
+      "logger-policy": enforce(
+        "eslint/no-console",
+        "Use structured logger for all application output.",
+      ),
+    };
+
+    // Allow the two source removals so monotonicity passes.
+    const result = runProofSuite(before, after, {
+      allowWeaken: new Set(["no-console", "use-logger"]),
+    });
+    const bloom = result.receipts.find((r) => r.name === "bloom-overlap");
+    assert.ok(bloom);
+    assert.equal(
+      bloom.passed,
+      true,
+      `bloom-overlap should skip removed rules; got: ${bloom.detail ?? ""}`,
+    );
+  });
+
   it("returns a structured failure receipt when fitness throws on bad data", () => {
     const before: Record<string, Rule> = {
       rule1: guidance("Do X."),

@@ -360,18 +360,30 @@ export function runProofSuite(
       : `${mono.violations.length} violations: ${mono.violations.map((v) => `${v.ruleId} (${v.from}→${v.to})`).join(", ")}`,
   });
 
-  // 2. NCD deduplication. Wrapped in try/catch so that an unknown rule
-  // kind (legacy data / JS caller) surfaces as a clean proof failure
-  // rather than crashing the whole audit pipeline.
+  // 2. NCD deduplication. Only fail on pairs NEWLY INTRODUCED by the
+  // candidate change — a repo with historical duplication must not
+  // block every unrelated mutation. Compute similar pairs on `after`
+  // and `before`, then subtract.
+  //
+  // Wrapped in try/catch so an unknown rule kind (legacy data / JS
+  // caller) surfaces as a clean proof failure rather than crashing
+  // the whole audit pipeline.
   try {
-    const similar = findSimilarRules(after, ncdThreshold);
+    const beforePairs = new Set(
+      findSimilarRules(before, ncdThreshold).map((p) =>
+        [p.idA, p.idB].sort().join("|"),
+      ),
+    );
+    const similar = findSimilarRules(after, ncdThreshold).filter(
+      (p) => !beforePairs.has([p.idA, p.idB].sort().join("|")),
+    );
     const ncdPassed = similar.length === 0;
     receipts.push({
       name: "ncd-dedup",
       passed: ncdPassed,
       detail: ncdPassed
-        ? "No near-duplicate rules"
-        : `${similar.length} near-duplicate pairs: ${similar.map((p) => `${p.idA}↔${p.idB} (${p.distance.toFixed(3)})`).join(", ")}`,
+        ? "No new near-duplicate rules"
+        : `${similar.length} new near-duplicate pairs: ${similar.map((p) => `${p.idA}↔${p.idB} (${p.distance.toFixed(3)})`).join(", ")}`,
     });
   } catch (e) {
     receipts.push({
@@ -382,6 +394,12 @@ export function runProofSuite(
   }
 
   // 3. Bloom filter cross-check (fast sanity check for token overlap).
+  // Baseline is built from rules that still exist in `after` — any
+  // rule removed by the candidate mutation (e.g. the two sources of
+  // a merge) must be excluded, otherwise the newly introduced merge
+  // rule would collide against its own sources and the merge would
+  // be rejected for the very similarity it was meant to deduplicate.
+  //
   // Wrapped for the same reason as NCD: ruleToBloomFilter → ruleToText
   // throws on unknown rule kinds.
   try {
@@ -390,6 +408,7 @@ export function runProofSuite(
     const existingFilters = new Map<string, BloomFilter>();
 
     for (const [id, rule] of Object.entries(before)) {
+      if (!(id in after)) continue; // removed — skip
       existingFilters.set(id, ruleToBloomFilter(rule));
     }
 
