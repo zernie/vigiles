@@ -51,7 +51,7 @@ async function loadSpec(
       if (raw && typeof raw === "object" && "default" in raw) {
         return (raw as { default: ClaudeSpec | SkillSpec }).default;
       }
-      return raw as ClaudeSpec | SkillSpec;
+      return raw;
     } catch {
       return null;
     }
