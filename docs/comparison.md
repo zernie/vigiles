@@ -15,7 +15,7 @@
 | **New lint rules from PR feedback** | Copy-paste from review       | `/pr-to-lint-rule` generates rule + tests + spec entry         |
 | **CI**                              | Nothing to verify            | `vigiles audit` catches hash drift, disabled rules, stale refs |
 
-## Codex / GitHub Copilot
+## Codex
 
 |                               | Without vigiles                  | With vigiles                                            |
 | ----------------------------- | -------------------------------- | ------------------------------------------------------- |
@@ -26,7 +26,7 @@
 | **Hooks / auto-compile**      | Not available (no plugin system) | Not available — run `vigiles compile` manually or in CI |
 | **CI**                        | Nothing to verify                | Same `vigiles audit` pipeline as Claude                 |
 
-Codex and Copilot have no hook or plugin system. The compile-time verification and CI enforcement still work — the difference is there's no auto-recompilation on edit. You run `vigiles compile` before committing, and CI catches drift.
+Codex has no hook or plugin system. The compile-time verification and CI enforcement still work — the difference is there's no auto-recompilation on edit. You run `vigiles compile` before committing, and CI catches drift.
 
 ## What's Deterministic vs What's Not
 

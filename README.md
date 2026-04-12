@@ -76,7 +76,16 @@ The agent reads this, trusts it, and writes code based on stale claims nobody ve
 | **New lint rules from PR feedback** | Copy-paste from review       | `/pr-to-lint-rule` generates rule + tests + spec entry         |
 | **CI**                              | Nothing to verify            | `vigiles audit` catches hash drift, disabled rules, stale refs |
 
-Also compiles to AGENTS.md for Codex/Copilot — same verification, no hooks (they don't support them). [Full comparison →](docs/comparison.md)
+### Codex
+
+|                               | Without vigiles                  | With vigiles                                            |
+| ----------------------------- | -------------------------------- | ------------------------------------------------------- |
+| **Instructions**              | Hand-written AGENTS.md           | Compiled from `.spec.ts`                                |
+| **Linter rule references**    | Trust-based                      | Verified at compile time                                |
+| **File paths / commands**     | Rot silently                     | Checked at compile time                                 |
+| **Direct edits to AGENTS.md** | Undetected                       | CI catches hash mismatch                                |
+| **Hooks / auto-compile**      | Not available (no plugin system) | Not available — run `vigiles compile` manually or in CI |
+| **CI**                        | Nothing to verify                | Same `vigiles audit` pipeline as Claude                 |
 
 Everything vigiles compiles and audits is **deterministic** — same input, same output, no LLM in the loop. The non-deterministic parts (authoring specs, suggesting upgrades, writing custom rules) are agent skills that run outside the compilation pipeline. [Determinism breakdown and flow diagram →](docs/comparison.md)
 
