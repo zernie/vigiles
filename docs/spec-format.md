@@ -7,7 +7,7 @@ vigiles specs are TypeScript files (`*.spec.ts`) that compile to markdown instru
 Use `claude()` to define a CLAUDE.md spec. Export it as the default export.
 
 ```ts
-import { claude, enforce, guidance, check, every, file, cmd, ref, instructions } from "vigiles";
+import { claude, enforce, guidance, file, cmd, ref, instructions } from "vigiles";
 
 export default claude({
   target: "CLAUDE.md",          // or "AGENTS.md", or ["CLAUDE.md", "AGENTS.md"]
@@ -33,7 +33,7 @@ target: ["CLAUDE.md", "AGENTS.md"],  // emits both from one spec
 
 ```ts
 sections: {
-  architecture: `Three rule types: enforce(), check(), guidance().`,
+  architecture: `Two rule types: enforce() and guidance().`,
   setup: instructions`See ${file("docs/setup.md")} and run ${cmd("npm install")}.`,
 }
 ```
@@ -62,7 +62,7 @@ commands: {
 
 ### `rules`
 
-`Record<string, Rule>` -- Rule ID mapped to an `enforce()`, `check()`, or `guidance()` rule. The ID is kebab-cased by convention and is converted to a Title Case `### Heading` in compiled output. See [Rule Types](#rule-types) below.
+`Record<string, Rule>` -- Rule ID mapped to an `enforce()` or `guidance()` rule. The ID is kebab-cased by convention and is converted to a Title Case `### Heading` in compiled output. See [Rule Types](#rule-types) below.
 
 ## SKILL.md Specs
 
@@ -137,7 +137,7 @@ rules: {
 
 ### `guidance(text)`
 
-Declares a prose-only rule with no mechanical enforcement.
+Declares a prose-only rule with no mechanical enforcement. Guidance rules still participate in the monotonicity proof system: once a rule exists, it can be strengthened ( `guidance` → `enforce` ) but never weakened or removed without an explicit allowlist.
 
 ```ts
 rules: {

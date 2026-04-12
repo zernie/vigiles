@@ -66,7 +66,7 @@ Write your conventions as TypeScript. The compiler catches the lies.
 
 ```typescript
 // CLAUDE.md.spec.ts
-import { claude, enforce, guidance, check, every } from "vigiles/spec";
+import { claude, enforce, guidance } from "vigiles/spec";
 
 export default claude({
   commands: {
@@ -87,11 +87,6 @@ export default claude({
     ),
     // ✗ if rule is disabled in config → compile error
 
-    "test-pairing": check(
-      every("src/**/*.service.ts").has("{name}.test.ts"),
-      "Every service must have tests.",
-    ),
-
     "research-first": guidance("Google unfamiliar APIs first."),
   },
 });
@@ -101,7 +96,7 @@ export default claude({
 $ npx vigiles compile
 
 ✓ CLAUDE.md.spec.ts → CLAUDE.md
-  3 rules (1 linter-verified, 1 filesystem check, 1 guidance)
+  2 rules (1 linter-verified, 1 guidance)
   ~180 tokens
 ```
 
@@ -161,7 +156,7 @@ Running `vigiles audit CLAUDE.md` verifies each inline rule against your real li
 
 Works the same for humans and agents — fully non-interactive. [Agent setup guide →](docs/agent-setup.md) | [Agent workflows →](docs/agent-workflows.md)
 
-## Three Rule Types
+## Two Rule Types
 
 **`enforce()`** — delegated to a linter. vigiles verifies the rule exists in the catalog AND is enabled in your project config. A disabled rule is a compile error.
 
@@ -173,16 +168,7 @@ Works the same for humans and agents — fully non-interactive. [Agent setup gui
 
 Supports ESLint, Stylelint, Ruff, Clippy, Pylint, and RuboCop. [Full linter support details →](docs/linter-support.md)
 
-**`check()`** — filesystem assertion that vigiles runs directly.
-
-```typescript
-"test-pairing": check(
-  every("src/**/*.controller.ts").has("{name}.test.ts"),
-  "Every controller must have tests.",
-),
-```
-
-**`guidance()`** — prose advice. No enforcement pretended.
+**`guidance()`** — prose advice. No mechanical enforcement, but not untracked: guidance rules participate in the monotonicity proof system. Once a rule exists, it can be strengthened ( `guidance` → `enforce` ) but never weakened or removed without an explicit allowlist. This prevents silent erosion of conventions over time.
 
 ```typescript
 "research-first": guidance("Google unfamiliar APIs first."),
@@ -337,7 +323,7 @@ Install with [Vercel Skills](https://github.com/vercel-labs/skills): `npx skills
 | ---------------------- | ---------------------------------------------------------------- |
 | `edit-spec`            | Edit a spec file — guided workflow with compile step             |
 | `migrate-to-spec`      | Convert a hand-written CLAUDE.md to a typed `.spec.ts`           |
-| `generate-rule`        | Add a new `enforce()` / `check()` / `guidance()` rule to a spec  |
+| `generate-rule`        | Add a new `enforce()` / `guidance()` rule to a spec              |
 | `pr-to-lint-rule`      | Turn a recurring PR review comment into a lint rule + spec entry |
 | `enforce-rules-format` | Validate all rules have enforcement classification               |
 | `audit-feedback-loop`  | Score your repo's feedback loop maturity                         |
