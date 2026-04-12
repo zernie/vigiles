@@ -178,8 +178,13 @@ void (async () => {
   let valid: boolean;
   if (command === "compile") {
     valid = await runCompile();
-  } else {
+  } else if (command === "audit") {
     valid = runAudit();
+  } else {
+    console.log(
+      `::error::Unknown vigiles command "${command}". Valid commands: compile, audit.`,
+    );
+    process.exit(1);
   }
 
   console.log(`::set-output name=valid::${String(valid)}`);

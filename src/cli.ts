@@ -510,6 +510,10 @@ function auditExitCode(report: AuditReport): 0 | 1 | 2 {
 function verifyInlineRules(
   filePath: string,
   silent: boolean,
+  linterOptions?: {
+    catalogOnly?: boolean;
+    linters?: Record<string, { rulesDir?: string | string[] }>;
+  },
 ): { ok: boolean; errorCount: number; ruleCount: number } {
   const log = (msg: string): void => {
     if (!silent) console.log(msg);
@@ -539,7 +543,11 @@ function verifyInlineRules(
   }
 
   for (const rule of rules) {
-    const result = checkLinterRule(rule.linterRule, process.cwd());
+    const result = checkLinterRule(
+      rule.linterRule,
+      process.cwd(),
+      linterOptions,
+    );
     if (!result.exists) {
       const message = result.error ?? `Rule "${rule.linterRule}" not found`;
       log(`  ✗ line ${String(rule.line)}: ${message}`);
@@ -573,6 +581,7 @@ function verifyInlineRules(
 async function audit(
   restArgs: string[],
   flags: string[],
+  config?: VigilesConfig,
 ): Promise<AuditReport> {
   const summary = flags.includes("--summary");
   const json = flags.includes("--json");
@@ -622,7 +631,10 @@ async function audit(
     if (compiledFromRe.test(content)) {
       continue; // managed by the spec referenced in the hash header
     }
-    const result = verifyInlineRules(filePath, silent);
+    const result = verifyInlineRules(filePath, silent, {
+      catalogOnly: config?.catalogOnly,
+      linters: config?.linters,
+    });
     inlineErrors += result.errorCount;
     inlineRules += result.ruleCount;
   }
@@ -1513,7 +1525,7 @@ async function main(): Promise<void> {
     case "audit": {
       // audit = verify + discover + strengthen
       const flags = args.slice(1).filter((a) => a.startsWith("--"));
-      const report = await audit(restArgs, flags);
+      const report = await audit(restArgs, flags, config);
       const exitCode = auditExitCode(report);
       if (isGitHubActions()) {
         if (report.hashErrors > 0) {
