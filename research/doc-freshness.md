@@ -281,20 +281,64 @@ In monorepos, `package.json` can be large. Hashing the full file means any depen
 
 ## Implementation Plan
 
-### Phase 1: Input manifest (minimal)
+### The simpler alternative: `compile --check`
+
+Before building input fingerprinting, consider: if compilation is cheap (2-5 seconds), the simplest freshness check is to just recompile in memory and diff:
+
+```bash
+vigiles compile --check   # recompile in memory, compare to existing output
+```
+
+No manifest, no input tracking, no false positives from whitespace reformatting. If the output would differ, it's stale. If identical, it's fresh. This is exactly what `generate-types --check` already does.
+
+Input fingerprinting only wins when compilation is expensive enough that you want to **avoid** running it. For vigiles today, it isn't.
+
+### Recommended: configurable freshness rule
+
+Make freshness checking a configurable rule in `vigiles.json` (or `package.json` under `"vigiles"`), defaulting to strict:
+
+```json
+{
+  "rules": {
+    "freshness": "strict"
+  }
+}
+```
+
+| Mode                 | What `vigiles audit` does                                                                  | Cost                     | False positives                                    |
+| -------------------- | ------------------------------------------------------------------------------------------ | ------------------------ | -------------------------------------------------- |
+| `"strict"` (default) | Recompiles in memory, diffs output. Fails if compiled markdown would change.               | 2-5s (runs full compile) | Zero — it checks the actual output                 |
+| `"input-hash"`       | Checks input fingerprint only. Fails if any tracked input file changed since last compile. | <100ms (hash comparison) | Possible — whitespace changes in config trigger it |
+| `"output-hash"`      | Current behavior. Only checks if the `.md` was hand-edited.                                | <1ms (single hash)       | Zero — but misses input drift entirely             |
+| `false`              | Skip freshness checks.                                                                     | 0                        | N/A                                                |
+
+**Strict mode is correct by default.** It's the only mode with zero false positives AND zero false negatives. The cost is re-running compilation, which takes the same time as `vigiles compile`.
+
+**Input-hash mode is the fast-path optimization.** Projects where compilation is slow (many specs, large linter configs, slow ESLint plugin loading) can opt into input fingerprinting to skip the full recompile. They accept occasional false positives (config reformatting, irrelevant package.json changes) in exchange for faster CI.
+
+**Output-hash mode is the minimal fallback.** For projects that just want "don't hand-edit the markdown" enforcement.
+
+### Phase 1: `compile --check` (strict mode)
+
+1. `compile.ts` — add `--check` / `dryRun` flag that compiles in memory, compares to existing file
+2. `cli.ts` (`audit`) — when `freshness: "strict"` (default), run compile in check mode
+3. Error message: `"CLAUDE.md is stale — run vigiles compile"`
+4. Fast path: skip if output hash hasn't changed (same as today, but then also run full check)
+
+### Phase 2: Input fingerprinting (opt-in)
 
 1. `compile.ts` — compute input hash after compilation, embed as second HTML comment
-2. `cli.ts` (`audit`) — extract and verify input hash
+2. `cli.ts` (`audit`) — when `freshness: "input-hash"`, extract and verify input hash
 3. Error message: `"Inputs changed since last compile (eslint.config.mjs, package.json) — run vigiles compile"`
 4. Show which files changed (diff input list against current state)
 
-### Phase 2: Granular reporting
+### Phase 3: Granular reporting
 
 1. Store the individual file paths + hashes in a sidecar file (`.vigiles/CLAUDE.md.inputs.json`)
 2. On audit, report exactly which inputs changed
 3. Optionally show the delta: "eslint.config.mjs: rule `no-console` was disabled"
 
-### Phase 3: Git integration (optional)
+### Phase 4: Git integration (optional)
 
 1. Record git commit hash at compile time
 2. On audit, use `git diff` for fast change detection before falling back to content hashing
