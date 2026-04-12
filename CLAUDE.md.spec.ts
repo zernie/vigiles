@@ -105,6 +105,10 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
       "Run `npm run fmt:check` before committing. Inline code spans in markdown need surrounding spaces to render correctly.",
     ),
 
+    "progressive-adoption": guidance(
+      "vigiles must be adoptable incrementally, like TypeScript. Three on-ramps, zero friction: (1) inline mode — add `<!-- vigiles:enforce ... -->` comments to an existing CLAUDE.md, no new files; (2) spec mode with `guidance()` only — `npx vigiles init` creates a .spec.ts, compiles to markdown, zero linter setup; (3) strict mode — `enforce()` rules, CI gating, `--strict` flag. Each level adds value without requiring the next. Never gate basic functionality on advanced setup. README examples should always show the simplest path first.",
+    ),
+
     "no-session-links": guidance(
       "This is a public repo. Claude Code session URLs are private and must not appear in commits or PRs.",
     ),

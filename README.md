@@ -23,7 +23,7 @@ Your CLAUDE.md is a plain text file. Anyone can edit it. Nobody verifies it. The
 **Markdown can't be validated. TypeScript can.**
 
 ```bash
-npx vigiles setup
+npx vigiles init
 ```
 
 vigiles compiles typed TypeScript specs to instruction files (CLAUDE.md, AGENTS.md). Every linter reference is verified against your actual config — not just that it exists, but that it's enabled. Every file path is checked against the filesystem. Every command is validated against package.json. If something is stale, broken, or disabled — you find out at compile time, not when the agent silently ignores your instructions.
@@ -142,11 +142,11 @@ Running `vigiles audit CLAUDE.md` verifies each inline rule against your real li
 
 **It's self-maintaining.** Add a new ESLint rule? The hook regenerates types — your spec gets autocomplete for the new rule immediately. Rename a file? The compiler catches the stale reference. The setup doesn't rot because the hooks keep everything in sync.
 
-**It evolves automatically.** Start with `guidance()` rules (zero config). When you're ready, run `vigiles strengthen` — it scans your linter configs, finds matching rules, and suggests `enforce()` upgrades. Each upgrade adds compiler-verified enforcement.
+**It evolves automatically.** Start with `guidance()` rules (zero config). When you're ready, run `vigiles audit` — it scans your linter configs, finds matching rules, and suggests `enforce()` upgrades. Each upgrade adds compiler-verified enforcement.
 
 **Already have a hand-written CLAUDE.md?** The wizard detects it and suggests migration.
 
-**Ready to enforce?** Run `npx vigiles setup --strict` to set rules to `"error"` — CI fails if any instruction file lacks a spec.
+**Ready to enforce?** Run `npx vigiles init --strict` to set rules to `"error"` — CI fails if any instruction file lacks a spec.
 
 | Flag                 | Effect                                                |
 | -------------------- | ----------------------------------------------------- |
@@ -253,20 +253,17 @@ Re-run `vigiles generate-types` when you add/remove linter rules, npm scripts, o
 ## CLI
 
 ```bash
-npx vigiles setup                   # One-command setup: init + types + compile
-npx vigiles compile               # Compile .spec.ts → .md
-npx vigiles check                 # Verify hashes + run assertions
-npx vigiles init [--target=X.md]  # Scaffold a spec
-npx vigiles generate-types        # Emit .d.ts from project state
+npx vigiles init [--target=X.md]    # Scaffold a spec (runs full setup wizard by default)
+npx vigiles compile [files...]      # Compile .spec.ts → .md
+npx vigiles audit [files...]        # Verify hashes + linter rules + coverage + suggest upgrades
+npx vigiles generate-types          # Emit .d.ts from project state
 npx vigiles generate-types --check  # Verify .d.ts is up to date
-npx vigiles discover              # Show undocumented linter rules
-npx vigiles adopt                 # Detect manual edits, show diff
 ```
 
 ## GitHub Action
 
 ```yaml
-- uses: zernie/vigiles@main # runs `check` by default
+- uses: zernie/vigiles@main # runs `audit` by default
 - uses: zernie/vigiles@main
   with:
     command: compile # compile specs in CI
@@ -293,10 +290,10 @@ The plugin provides two hooks:
 
 ## Validation
 
-`vigiles check` validates instruction files. One rule: `require-spec` (enabled by default) — checks that every CLAUDE.md/AGENTS.md has a corresponding `.spec.ts` file.
+`vigiles audit` validates instruction files. One rule: `require-spec` (enabled by default) — checks that every CLAUDE.md/AGENTS.md has a corresponding `.spec.ts` file, and verifies SHA-256 integrity hashes to detect manual edits.
 
 ```bash
-npx vigiles check    # errors if CLAUDE.md has no CLAUDE.md.spec.ts
+npx vigiles audit    # errors if CLAUDE.md has no spec, or hash is stale
 ```
 
 Disable per-file with an HTML comment:
