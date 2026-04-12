@@ -442,7 +442,18 @@ async function findDuplicateRules(
     const ruleCount = Object.keys(rules).length;
     if (ruleCount < 2) continue;
 
-    const pairs = findSimilarRules(rules, threshold);
+    // Guard against unknown rule kinds (legacy "check" artifacts, JS
+    // callers) that would crash ruleToText inside findSimilarRules.
+    // Same pattern as the try/catch in runProofSuite.
+    let pairs: { idA: string; idB: string; distance: number }[];
+    try {
+      pairs = findSimilarRules(rules, threshold);
+    } catch (e) {
+      log(
+        `  ⚠ ${specPath}: similarity check failed (${e instanceof Error ? e.message : String(e)})`,
+      );
+      continue;
+    }
     if (pairs.length === 0) continue;
 
     if (specsWithDuplicates === 0) {
