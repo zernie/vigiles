@@ -4,6 +4,8 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+import { createHash } from "node:crypto";
+
 import {
   detectLockFiles,
   detectLinterConfigs,
@@ -370,7 +372,6 @@ describe("checkOutputHashFreshness", () => {
   it("returns fresh when hash matches", () => {
     // Build a valid hashed file
     const body = "# CLAUDE.md\n\nContent.\n";
-    const { createHash } = require("node:crypto");
     const hash = createHash("sha256").update(body).digest("hex").slice(0, 16);
     const content = `<!-- vigiles:sha256:${hash} compiled from CLAUDE.md.spec.ts -->\n\n${body}`;
     const result = checkOutputHashFreshness(content);
