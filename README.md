@@ -362,10 +362,27 @@ The plugin provides two hooks:
 
 ## Validation
 
-`vigiles audit` validates instruction files. One rule: `require-spec` (enabled by default) — checks that every CLAUDE.md/AGENTS.md has a corresponding `.spec.ts` file, and verifies SHA-256 integrity hashes to detect manual edits.
+`vigiles audit` validates instruction files with three rules:
+
+| Rule                 | Default  | What it checks                                |
+| -------------------- | -------- | --------------------------------------------- |
+| `require-spec`       | `"warn"` | Every CLAUDE.md/AGENTS.md has a `.spec.ts`    |
+| `require-skill-spec` | `"warn"` | Every SKILL.md has a `.spec.ts`               |
+| `freshness`          | `"warn"` | Compiled output matches current project state |
 
 ```bash
-npx vigiles audit    # errors if CLAUDE.md has no spec, or hash is stale
+npx vigiles audit    # checks specs, hashes, freshness, coverage, duplicates
+```
+
+Configure in `.vigilesrc.json`:
+
+```json
+{
+  "rules": {
+    "require-spec": "error",
+    "freshness": "error"
+  }
+}
 ```
 
 Disable per-file with an HTML comment:
@@ -378,11 +395,26 @@ Disable per-file with an HTML comment:
 ...
 ```
 
-Or in `.vigilesrc.json`:
+### Freshness
+
+The `freshness` rule detects when compiled markdown has drifted from project state — disabled linter rules, deleted files, changed configs. Three detection modes:
+
+| Mode                 | What it does                                                            | Cost   |
+| -------------------- | ----------------------------------------------------------------------- | ------ |
+| `"strict"` (default) | Recompiles in memory, diffs output                                      | 2-5s   |
+| `"input-hash"`       | Checks fingerprint of tracked inputs (spec, linter configs, lock files) | <100ms |
+| `"output-hash"`      | Only detects hand-edits to compiled markdown                            | <1ms   |
+
+Strict mode has zero false positives and zero false negatives. Input-hash mode is faster but can false-positive on config whitespace changes. Set the mode in `.vigilesrc.json`:
 
 ```json
-{ "rules": { "require-spec": false } }
+{
+  "freshnessMode": "input-hash",
+  "freshnessInputs": ["../../yarn.lock"]
+}
 ```
+
+In input-hash mode, vigiles auto-detects lock files across 15 ecosystems (npm, Yarn, pnpm, Bun, Bundler, Poetry, uv, PDM, pip, Cargo, Go, Composer, NuGet, SPM, Mix) and tracks them alongside linter configs, package.json, keyFiles references, and generated types. [Full details →](docs/freshness.md)
 
 ## Skills
 

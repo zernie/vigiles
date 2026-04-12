@@ -47,6 +47,10 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
     "src/spec.test.ts": "Spec + compiler test suite (node:test)",
     "src/validate.test.ts": "Validation test suite (node:test)",
     "src/cli.test.ts": "CLI integration + E2E test suite (node:test)",
+    "src/freshness.ts":
+      "Freshness detection: lock file detection, input discovery, hash computation, staleness checks",
+    "src/freshness.test.ts":
+      "Freshness test suite: lock files (15 ecosystems), input discovery, hash computation, staleness",
     "src/proofs.ts":
       "Deterministic proof algorithms (monotonicity lattice, NCD, Bloom filter, Merkle DAG, fixed-point, property testing)",
     "src/evolve.ts":
@@ -75,6 +79,8 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
     "docs/spec-format.md": "Spec format reference (target, sections, rules)",
     "docs/linter-support.md":
       "Linter support details (6 linters + generate-types)",
+    "docs/freshness.md":
+      "Freshness detection: strict/input-hash/output-hash modes, lock file detection, input fingerprinting",
     "docs/inline-mode.md":
       "Inline mode: `<!-- vigiles:enforce ... -->` comments for gradual adoption without a .spec.ts",
     "skills/linter-docs/eslint.md":
