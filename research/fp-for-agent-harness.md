@@ -34,7 +34,7 @@ Each arrow is a place a function gets called with a typed input and returns a ty
 
 ## Ten ideas for FP applied to the harness
 
-### 1. Railway-typed skills
+### 1. Railway-typed skills — NOT BUILT
 
 Model a skill as `Skill<Ctx> = (Ctx) => Effect<Ctx, Diagnostic>` — it takes the current session context, returns either the next context or a list of diagnostics. Two skills compose with `.andThen`:
 
@@ -44,15 +44,15 @@ const reviewAndFix = review.andThen(runTests).andThen(fixFailures);
 
 In Scott Wlaschin's formulation this is the two-track railway: the success track carries Ctx forward, the failure track carries Diagnostic short-circuited to the end. vigiles's contribution: a **spec-level declaration** of skill shape (`skill("review", { input: ..., output: ... })`) that compiles to a SKILL.md with the pipeline documented, and an audit check that each declared skill step actually exists. Users write skills any way they like; vigiles enforces the shape at the edges.
 
-### 2. Validation applicative for rule audits
+### 2. Validation applicative for rule audits — PARTIALLY SHIPPED (audit collects all diagnostics across stages, but no formal Validation type)
 
 Today `vigiles audit` collects problems across stages (stale refs, dead enforcements, duplicates, coverage gaps) but each stage is written imperatively and short-circuits on its own. Switch to the Validation pattern: every check returns `Validation<OK, Diagnostic[]>` and the whole audit is `checks.map(run).sequence()`, collecting **all** failures across **all** checks in one pass. Contrast with Either monad: Either short-circuits at the first error. For audits you want the opposite — run everything, collect everything. This is a one-library change (neverthrow's `Result.combineWithAllErrors`) and makes audit output dramatically more useful per invocation.
 
-### 3. Hooks as algebraic effect handlers
+### 3. Hooks as algebraic effect handlers — NOT BUILT
 
 Reframe Claude Code hooks as handlers for algebraic effects. Tool use in the agent becomes `perform EditFile(path, content)` — a suspension, not a side effect. The harness interprets it by running registered handlers in order (PreToolUse handlers first, then the real tool, then PostToolUse). Each handler is a pure function `Request -> Handled | Rewrite | Continue`. This is what Effect.ts `provide` does. vigiles cannot change the harness, but it **can** ship a spec-time model of hooks with the same semantics, and a linter that catches hook ordering bugs. The payoff is: you can reason about hook stacks the way you reason about middleware, not the way you reason about shell scripts.
 
-### 4. Skill combinators: retry, fallback, parallel, race
+### 4. Skill combinators: retry, fallback, parallel, race — NOT BUILT
 
 Once skills are typed as `Skill<Ctx>`, combinators fall out:
 
@@ -65,7 +65,7 @@ Once skills are typed as `Skill<Ctx>`, combinators fall out:
 
 These are exactly the combinators `Effect.retry`, `Effect.orElse`, `Effect.all`, `Effect.race`, `Effect.timeout`, `Effect.tap` ship today for arbitrary computations. Porting them to skills gives users composable retry/fallback without hand-rolling control flow in bash. vigiles ships them as spec builders that compile to prose explaining the combinator in the target SKILL.md.
 
-### 5. Event-sourced session state
+### 5. Event-sourced session state — PARTIALLY SHIPPED (Merkle history is event-sourced with append-only chain + verify(); no fork/replay exposed)
 
 Treat the session transcript as an **event log**: each user message, model response, tool call, hook fire is an event. Session state at any point is `events.reduce(step, initial)`. Two properties fall out for free:
 
@@ -74,23 +74,23 @@ Treat the session transcript as an **event log**: each user message, model respo
 
 This is what Redux/Elm do and what Effect's `Fiber` model does internally. The harness already persists the transcript on disk; vigiles's role is a **spec-level invariant** that every rule produces deterministic output from the same input prefix — so replays match. An audit check: "replay session X from transcript, compare final state to recorded — diverge = bug."
 
-### 6. Lenses for settings.json
+### 6. Lenses for settings.json — NOT BUILT
 
 `settings.json` is the agent's config: hooks, tool permissions, env. Today editing it is read-JSON, mutate, write. That loses atomicity and composition. Optics-ts / monocle-ts lenses let you express edits as `over(settingsLens.hooks.preToolUse, prepend(newHook))(settings)` — pure function, fully composable, trivially reversible. vigiles can ship a lens-based settings editor that underlies `vigiles init --install-hooks`, guaranteeing that concurrent edits from different commands don't stomp each other. The generalization: Claude Code config is a product type, and product types are what lenses are for.
 
-### 7. Skill type signatures in the spec
+### 7. Skill type signatures in the spec — NOT BUILT
 
 `skill("review-pr", { input: PrNumber, output: ReviewReport, may: [ReadRepo, PostComment] })`. The `may` clause is an **effect annotation**: this skill is allowed to read the repo and post comments, nothing else. Compiles to a permissions section in SKILL.md that Claude Code can parse at invocation time, and a PreToolUse hook that blocks anything outside the declared effect set. This is how Koka / Eff / Frank handle effect rows at the type level; porting it down to skill metadata means the harness can enforce effect bounds **per skill** instead of per-session globally.
 
-### 8. Kleisli composition and `>=>`
+### 8. Kleisli composition and `>=>` — NOT BUILT
 
 If skills are `A -> Effect<B>`, the operator to compose them is **Kleisli composition** (`>=>` in Haskell, `>>` in PureScript): `(f >=> g) = \a -> f(a).andThen(g)`. This is just function composition in the Effect category. Why it matters for vigiles: if the spec lets you write `pipeline("ship-pr", review >=> fix >=> push)`, the compiler can statically check that the output type of `review` matches the input type of `fix`. Type-safe multi-skill workflows. Today these workflows are written as bash or as prose instructions that the agent interprets; Kleisli composition makes them **compile-time verifiable graphs**.
 
-### 9. Reader monad for shared context
+### 9. Reader monad for shared context — NOT BUILT
 
 Every hook and skill gets the same `{cwd, env, transcript, user, project}` passed in. That is the Reader monad: `Reader<Env, A> = (Env) -> A`. The payoff: `Reader.ask` lets a deeply nested combinator access the environment without threading it through every intermediate function, and `local(f, reader)` lets a combinator run its body with a **locally modified** environment without mutating the real one. For hooks this means you can write a hook that scopes `cwd` to a subdirectory for its inner work and transparently restores it afterward. vigiles can declare Reader-shaped context in the spec and verify every hook/skill's signature conforms.
 
-### 10. Pure replay harness for hook testing
+### 10. Pure replay harness for hook testing — NOT BUILT
 
 Today, testing a hook means setting up a real Claude Code session, triggering the tool, and reading the output. That is slow and flaky. If hooks are pure functions of `(Request, Env) -> Response`, you can **unit test** them with `fast-check` — generate random requests, assert invariants like "PreToolUse never returns both Allow and Rewrite" or "PostToolUse output is either the original result or a Result value, never undefined." vigiles ships a `vigiles test-hooks` subcommand that loads `settings.json`, extracts each hook as a pure function, and runs property tests against it. Catches the silent-matcher-ignore and trailing-wildcard anti-patterns from the agent-integration doc with **100% coverage** because the property test tries every shape.
 

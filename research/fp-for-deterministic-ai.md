@@ -47,7 +47,7 @@ Crucially, this is not reimplementing a linter. Every rule still runs in ESLint 
 
 ## Ten vigiles ideas
 
-### 1. FP Determinism Preset
+### 1. FP Determinism Preset — DROPPED (just an eslint-plugin-functional wrapper, no moat)
 
 A named bundle: `fpDeterminism()` returns an array of `enforce()` calls covering the minimum viable FP-for-agents rule set. Target:
 
@@ -60,39 +60,39 @@ A named bundle: `fpDeterminism()` returns an array of `enforce()` calls covering
 
 Users write `...fpDeterminism()` in a spec section and inherit the entire preset. Upgrading the preset upgrades every downstream spec at once.
 
-### 2. Pure zones
+### 2. Pure zones — NOT BUILT
 
 Builder: `pureZone("src/core/**", { allow: ["date-fns"] })`. Compiles to a section in the target markdown saying "inside `src/core/**`, no I/O, no throws, no globals, no Date.now / Math.random / fetch / fs." Backed by `eslint-plugin-functional` + a focused ESLint override for that glob. The agent sees "you are in a pure zone" in context; the linter enforces it for real. Two-layer defense: prose for reasoning, lint for deterministic rejection.
 
-### 3. Rule combinator API
+### 3. Rule combinator API — NOT BUILT
 
 Expose `Rule<A, B>` as a public plugin type so users can compose their own rules: `pipe(spec.rules, strengthen("no-console"), restrictGlob("src/core/**"))`. Internally this is the same data the compiler already works with; externally it turns vigiles into a spec-programming library rather than a config file. Enables `fpDeterminism()` (#1) and every other preset to be built out of the same primitives users can use.
 
-### 4. PBT coverage check
+### 4. PBT coverage check — NOT BUILT
 
 Audit-time assertion: for every file matching `src/**/*.ts` that exports a pure function (no `Promise`, no parameter of type `unknown`, no `void` return), require a colocated `*.property.test.ts`. Dovetails directly with arxiv 2506.18315 — properties catch the failure modes tests miss, and agents iterate on property failures faster than they iterate on hand-written tests. `fast-check` already handles the runtime. vigiles just makes coverage visible.
 
-### 5. Content-addressed compile cache
+### 5. Content-addressed compile cache — NOT BUILT
 
 Hash every spec by its AST + transitive imports; cache the compiled markdown by that hash. Re-running `vigiles compile` on an unchanged spec becomes a no-op. Bazel-style memoization. The reason this belongs in an FP doc: it only works because the compiler is itself a pure function from spec AST to markdown. The more we lean on FP internally, the cheaper incremental work gets.
 
-### 6. Refinement at boundaries via schema libraries
+### 6. Refinement at boundaries via schema libraries — NOT BUILT
 
 New `enforce()` target category: `zod/strict-object`, `valibot/parse-not-safeParse`, `@effect/schema/decodeUnknown`. vigiles verifies the schema library is in the project and the rule is enabled. The spec then tells the agent "all external input must be parsed via Zod before it enters a pure zone." Parse-don't-validate is the single most effective technique for containing AI-generated input handling code — it converts runtime surprises into boundary errors.
 
-### 7. Exhaustiveness-checking preset
+### 7. Exhaustiveness-checking preset — NOT BUILT
 
 One-liner: `enforce("@typescript-eslint/switch-exhaustiveness-check")` + `enforce("ts-pattern/exhaustive")`. Ships as a standalone mini-preset because it is by far the highest leverage single rule: it turns every `switch` on a discriminated union into a type-level guarantee. LLMs drop cases constantly; this catches every single one at compile time, not review time.
 
-### 8. Result/Either error handling preset
+### 8. Result/Either error handling preset — NOT BUILT
 
 Banned: `throw`, `try/catch` outside top-level handlers, `.catch(() => null)`. Required: return types shaped `Result<T, E>` via neverthrow (or Effect.ts if the project already uses it). vigiles verifies the project has neverthrow in `package.json` and that the relevant eslint-plugin-functional rules are on. Agent sees "errors are values; use `.mapErr` to transform them." This is the single largest departure from standard TS agent output, so the preset needs to be loud in the compiled markdown — but the payoff is that error paths become testable.
 
-### 9. Immutable-by-default preset
+### 9. Immutable-by-default preset — NOT BUILT
 
 Bundle: `no-let`, `immutable-data`, `no-loop-statements`, `prefer-readonly-type`, plus a `check()`-equivalent that greps for `.push(`, `.splice(`, `Object.assign`, and direct array index assignment. Not every project can adopt this wholesale, which is why it ships as a separate preset applied via `pureZone()`. Inside a pure zone, the agent is forced into `[...xs, y]` and `{...obj, k: v}` — which it handles fine.
 
-### 10. Lens recommendation detector
+### 10. Lens recommendation detector — NOT BUILT
 
 Audit-time scan: detect the pattern `{...a, b: {...a.b, c: {...a.b.c, d: value}}}` (spread nesting ≥ 3) and suggest switching to `monocle-ts` or `optics-ts`. Pure diagnostic — vigiles does not rewrite the code. But it does catch the single ugliest FP anti-pattern LLMs produce when asked to "update this field immutably": nested spreads that nobody can read and nobody tests. Flagging them directs the agent toward the lens library the project presumably already has.
 

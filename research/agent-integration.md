@@ -69,7 +69,7 @@ Takeaway: the entire field has converged on the same conclusion. LLMs need deter
 
 Each of these maps to one or more failure modes above. All are scoped to vigiles's positioning (compilation + linter cross-reference + filesystem assertions). None of them require us to become a linter.
 
-### 1. Ship a hook pack
+### 1. Ship a hook pack — SHIPPED
 
 A `vigiles init` flag that installs a curated `settings.json` block with:
 
@@ -79,39 +79,39 @@ A `vigiles init` flag that installs a curated `settings.json` block with:
 
 Why this matters: PreToolUse is the only unbypassable enforcement point in the Claude Code harness. Without it, any rule is advisory. With it, vigiles becomes a real floor.
 
-### 2. Package-existence check inside `audit`
+### 2. Package-existence check inside `audit` — DROPPED
 
 Reuse the linter-cross-reference machinery to scan imports in the repo against `package.json`/`requirements.txt`/`Cargo.toml`. Flag any import that (a) is not in the manifest and (b) is not a relative path or builtin. This catches slopsquatting at audit time before it reaches install. Cheap, fully local, zero false positives on builtins.
 
-### 3. Dead-enforcement detection
+### 3. Dead-enforcement detection — SHIPPED (already wired for all 6 linters)
 
 Today `enforce("eslint/no-console")` verifies that `no-console` exists as a rule. It does not verify that it is **enabled** (severity > 0). Extend the linter engine to surface rules the spec claims are enforced but which the linter reports as `"off"`. This is a silent-drift bug that happens every time someone tweaks eslint config without touching the spec.
 
-### 4. Reverse coverage report
+### 4. Reverse coverage report — SHIPPED (built into `vigiles audit` coverage stage)
 
 Right now `audit` tells you which files have no spec coverage. The inverse is just as useful: which **linter rules** are enabled in the project but not mentioned in any spec. Output as a sorted list so users can either add `enforce()` entries (promoting the rule to agent-visible prose) or mark it intentionally out-of-scope. Closes the gap that CodeRabbit's 1.7× issue-density number is mostly made of.
 
-### 5. SessionStart audit injection (compact matcher)
+### 5. SessionStart audit injection (compact matcher) — SHIPPED
 
 Hook-pack component worth calling out separately: the `compact` SessionStart matcher fires every time context is compacted, which is effectively free in the session's token budget. Injecting a one-line "3 stale file refs, 2 disabled enforced rules, 1 duplicate rule" message at that moment means the model re-notices drift without anyone running a command. This is the single highest-leverage hook integration.
 
-### 6. Hook validation subcommand
+### 6. Hook validation subcommand — NOT BUILT
 
 `vigiles audit --hooks` parses the user's `settings.json`, runs the listed matchers against known-bad inputs, and reports silent failures (matchers that match nothing, trailing-wildcard regex, missing shell escapes). Directly addresses the silent-matcher-ignore anti-pattern documented in Claude Code's own hook docs. No one else ships this check.
 
-### 7. Token-budget compile-time enforcement
+### 7. Token-budget compile-time enforcement — SHIPPED
 
 ETH Zurich's finding was that CLAUDE.md files over ~300 lines actively hurt. Add a `maxTokens` / `maxLines` field to the spec (already partially present), but enforce it at **compile** time with a hard error rather than as advisory output. Force the user to choose what to cut. This is the simplest way to align vigiles with the empirical evidence that shorter + enforced beats longer + prose.
 
-### 8. Instruction diff subcommand
+### 8. Instruction diff subcommand — NOT BUILT
 
 `vigiles audit --diff <base>` renders a semantic diff of the compiled markdown: rules added, rules **strengthened** (guidance → enforce), rules **weakened**, rules removed. Attach to every PR that touches a `.spec.ts`. Reviewers currently look at a raw markdown diff which hides the monotonicity property — a strengthen looks identical to a reword unless you read carefully. Semantic diff makes it obvious.
 
-### 9. Snapshot tests for structural changes
+### 9. Snapshot tests for structural changes — PARTIALLY SHIPPED (monotonicity lattice rejects weakening; full `--allow-weaken` flag not yet exposed as CLI)
 
 Compile-time assertion: if a spec change would delete an `enforce()` rule, require an explicit `--allow-weaken` flag. This encodes the monotonicity lattice (`guidance < enforce`) from the proofs work as a hard rule rather than advisory output. Pairs with #8: the diff highlights it, the snapshot prevents accidental loss.
 
-### 10. Stale reference detection
+### 10. Stale reference detection — DROPPED (compiler's job, not vigiles's)
 
 Generalize the existing path-verification (`file("src/foo.ts")`) to a crawler that, during `audit`, walks every code-fenced path, every backticked identifier that looks like a file, every npm-script reference, every package name, and flags the ones that no longer resolve. The 59-broken-refs example was in a file no one had audited for 8 months. A cheap cron-friendly audit command closes that gap forever.
 
