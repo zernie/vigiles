@@ -108,9 +108,14 @@ async function loadSpec(
     if (existsSync(distPath)) {
       try {
         const mod = (await import(distPath)) as {
-          default: ClaudeSpec | SkillSpec;
+          default: ClaudeSpec | SkillSpec | { default: ClaudeSpec | SkillSpec };
         };
-        return mod.default;
+        // CJS double-default: `{ default: { default: spec } }`.
+        const raw = mod.default;
+        if (raw && typeof raw === "object" && "default" in raw) {
+          return (raw as { default: ClaudeSpec | SkillSpec }).default;
+        }
+        return raw;
       } catch {
         // Try next candidate
       }

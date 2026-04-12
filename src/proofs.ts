@@ -661,6 +661,24 @@ export class MerkleHistory implements ReadonlyMerkleHistory {
           `MerkleHistory.fromJSON: invalid node at index ${String(i)}`,
         );
       }
+      // Validate nested mutation and proofs so later getNodes/head
+      // don't crash on missing .ruleIds or .map().
+      const mut = node.mutation as Record<string, unknown> | undefined;
+      if (
+        !mut ||
+        typeof mut !== "object" ||
+        typeof mut.type !== "string" ||
+        !Array.isArray(mut.ruleIds)
+      ) {
+        throw new Error(
+          `MerkleHistory.fromJSON: invalid mutation at node ${String(i)}`,
+        );
+      }
+      if (!Array.isArray(node.proofs)) {
+        throw new Error(
+          `MerkleHistory.fromJSON: invalid proofs at node ${String(i)}`,
+        );
+      }
     }
     const history = new MerkleHistory();
     history.nodes = parsed as HistoryNode[];
