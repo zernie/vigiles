@@ -41,9 +41,17 @@ async function loadSpec(
   if (existsSync(distPath)) {
     try {
       const mod = (await import(distPath)) as {
-        default: ClaudeSpec | SkillSpec;
+        default: ClaudeSpec | SkillSpec | { default: ClaudeSpec | SkillSpec };
       };
-      return mod.default;
+      // CJS modules (TypeScript with module: "Node16", no "type":
+      // "module") produce `exports["default"] = spec`, so dynamic
+      // import wraps it as `{ default: { default: spec } }`. Unwrap
+      // the double-default when present.
+      const raw = mod.default;
+      if (raw && typeof raw === "object" && "default" in raw) {
+        return (raw as { default: ClaudeSpec | SkillSpec }).default;
+      }
+      return raw as ClaudeSpec | SkillSpec;
     } catch {
       return null;
     }

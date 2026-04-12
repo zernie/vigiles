@@ -23,7 +23,8 @@ import type { LinterCheckResult } from "./linters.js";
 // Hash utilities
 // ---------------------------------------------------------------------------
 
-const HASH_RE = /^<!-- vigiles:sha256:([a-f0-9]+) compiled from (.+) -->\n\n?/;
+const HASH_RE =
+  /^<!-- vigiles:sha256:([a-f0-9]+) compiled from (.+) -->\r?\n\r?\n?/;
 
 /** @internal Compute SHA-256 hash of content (excluding any existing hash line). */
 export function computeHash(content: string): string {

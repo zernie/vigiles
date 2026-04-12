@@ -592,14 +592,16 @@ export class EvolutionEngine {
   }
 
   /**
-   * Get a read-only view of the Merkle history.
+   * Get a snapshot of the Merkle history.
    *
-   * Callers can inspect nodes, verify the chain, and serialize it, but
-   * cannot append new entries — that would bypass `propose()`'s proof and
-   * fitness gates and corrupt the audit trail.
+   * Returns a freshly deserialized copy so even a JS caller that casts
+   * to MerkleHistory and calls `.append()` cannot inject nodes into the
+   * engine's real chain. The snapshot is read-only at the TS level
+   * (ReadonlyMerkleHistory) and isolated at the runtime level (separate
+   * instance via toJSON/fromJSON).
    */
   getHistory(): ReadonlyMerkleHistory {
-    return this.history;
+    return MerkleHistory.fromJSON(this.history.toJSON());
   }
 
   /** Get current fitness. */
