@@ -12,6 +12,8 @@ import {
   rmSync,
   existsSync,
   mkdirSync,
+  symlinkSync,
+  copyFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -240,6 +242,152 @@ export default claude({
     } finally {
       rmSync(specDir, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Inline mode E2E
+// ---------------------------------------------------------------------------
+
+describe("E2E: inline enforcement", () => {
+  let inlineDir: string;
+
+  before(() => {
+    inlineDir = mkdtempSync(join(tmpdir(), "vigiles-inline-e2e-"));
+    writeFileSync(
+      join(inlineDir, "package.json"),
+      JSON.stringify({ name: "test-inline", scripts: {} }),
+    );
+    // Symlink node_modules so checkLinterRule can find ESLint
+    // when the spawned CLI runs with cwd=inlineDir.
+    symlinkSync(
+      resolve(process.cwd(), "node_modules"),
+      join(inlineDir, "node_modules"),
+    );
+    // Also copy eslint config so the config checker can resolve rules
+    const eslintConfig = resolve(process.cwd(), "eslint.config.ts");
+    if (existsSync(eslintConfig)) {
+      copyFileSync(eslintConfig, join(inlineDir, "eslint.config.ts"));
+    }
+  });
+
+  after(() => {
+    rmSync(inlineDir, { recursive: true, force: true });
+  });
+
+  it("verifies valid inline enforce rules and exits clean", () => {
+    writeFileSync(
+      join(inlineDir, "CLAUDE.md"),
+      `# Project
+
+<!-- vigiles:enforce eslint/no-console "Use structured logger" -->
+
+All output goes through logger.ts.
+`,
+    );
+    const { stdout, exitCode } = run("audit CLAUDE.md", inlineDir);
+    assert.ok(
+      stdout.includes("eslint/no-console"),
+      `Expected rule in output, got: ${stdout.slice(0, 600)}`,
+    );
+    // Exit code 0 means no hard errors (inline rule is valid)
+    assert.equal(exitCode, 0, `Expected clean exit, got ${String(exitCode)}`);
+  });
+
+  it("flags a typo'd inline rule with a closest-match suggestion", () => {
+    writeFileSync(
+      join(inlineDir, "CLAUDE.md"),
+      `# Project
+
+<!-- vigiles:enforce eslint/no-consol "Typo check" -->
+
+Some prose.
+`,
+    );
+    const { stdout, exitCode } = run("audit CLAUDE.md", inlineDir);
+    assert.ok(
+      stdout.includes("no-consol"),
+      `Expected typo'd rule in output, got: ${stdout.slice(0, 600)}`,
+    );
+    assert.ok(
+      stdout.includes("Did you mean"),
+      `Expected closest-match suggestion, got: ${stdout.slice(0, 600)}`,
+    );
+    assert.equal(exitCode, 2, `Expected exit 2 on inline error`);
+  });
+
+  it("ignores inline markers inside fenced code blocks", () => {
+    writeFileSync(
+      join(inlineDir, "CLAUDE.md"),
+      `# Docs
+
+Example usage:
+
+\`\`\`md
+<!-- vigiles:enforce eslint/totally-bogus "inside fence" -->
+\`\`\`
+
+Real rule:
+
+<!-- vigiles:enforce eslint/no-console "outside fence" -->
+`,
+    );
+    const { stdout, exitCode } = run("audit CLAUDE.md", inlineDir);
+    // The bogus rule inside the fence must NOT appear as an error
+    assert.ok(
+      !stdout.includes("totally-bogus"),
+      `Fenced marker should be skipped, got: ${stdout.slice(0, 600)}`,
+    );
+    assert.ok(
+      stdout.includes("no-console"),
+      `Real rule should be verified, got: ${stdout.slice(0, 600)}`,
+    );
+    assert.equal(exitCode, 0);
+  });
+
+  it("reports inline errors in --json output", () => {
+    writeFileSync(
+      join(inlineDir, "CLAUDE.md"),
+      `<!-- vigiles:enforce eslint/fake-rule-xyz "bad" -->`,
+    );
+    const { stdout, exitCode } = run("audit --json CLAUDE.md", inlineDir);
+    const report = JSON.parse(stdout) as {
+      inlineErrors: number;
+      inlineRules: number;
+    };
+    assert.ok(report.inlineErrors > 0, "Expected inlineErrors > 0");
+    assert.ok(report.inlineRules > 0, "Expected inlineRules > 0");
+    assert.equal(exitCode, 2);
+  });
+
+  it("reports inline rules in --summary output", () => {
+    writeFileSync(
+      join(inlineDir, "CLAUDE.md"),
+      `<!-- vigiles:enforce eslint/fake-rule-xyz "bad" -->`,
+    );
+    const { stdout, exitCode } = run("audit --summary CLAUDE.md", inlineDir);
+    assert.ok(
+      stdout.includes("inline"),
+      `Expected 'inline' in summary, got: ${stdout}`,
+    );
+    assert.equal(exitCode, 2);
+  });
+
+  it("satisfies require-spec when inline rules are present", () => {
+    // A file with inline rules but no .spec.ts should NOT trigger
+    // the require-spec validation warning.
+    writeFileSync(
+      join(inlineDir, "CLAUDE.md"),
+      `<!-- vigiles:enforce eslint/no-console "valid" -->
+
+# Project
+`,
+    );
+    const { stdout } = run("audit CLAUDE.md", inlineDir);
+    assert.ok(
+      !stdout.includes("require-spec"),
+      `require-spec should be satisfied by inline rules, got: ${stdout.slice(0, 600)}`,
+    );
   });
 });
 
