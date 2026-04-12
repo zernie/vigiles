@@ -135,21 +135,6 @@ rules: {
 }
 ```
 
-### `check(assertion, why)`
-
-Declares a filesystem assertion owned by vigiles. Currently supports file-pairing via `every(glob).has(pattern)`. Executed during `vigiles check`. The `{name}` placeholder is replaced with the matched file's basename (without extension); `{stem}` is replaced with the first segment before any dots (e.g., `foo.controller.ts` yields stem `foo`).
-
-```ts
-rules: {
-  "test-file-pairing": check(
-    every("src/**/*.ts").has("{name}.test.ts"),
-    "Every source module should have a corresponding test file.",
-  ),
-}
-```
-
-Compiles to `**Enforced by:** ` with a `vigiles/<id>` reference, plus a `**Check:**` line describing the assertion.
-
 ### `guidance(text)`
 
 Declares a prose-only rule with no mechanical enforcement.
@@ -204,10 +189,6 @@ Every compiled file starts with a SHA-256 integrity hash comment:
 
 The hash covers the full compiled content (excluding the hash line itself), truncated to 16 hex characters.
 
-### `vigiles check`
+### `vigiles audit`
 
-Verifies that each compiled file's hash matches its content. If someone manually edits the markdown, the hash will no longer match, and `vigiles check` reports the file as modified. This ensures the spec remains the source of truth.
-
-### `vigiles adopt`
-
-When a manual edit is detected (hash mismatch), `vigiles adopt` shows a line-based diff between the current file content and what the spec would produce. This helps you decide whether to update the spec to incorporate the manual changes or recompile to discard them.
+Verifies that each compiled file's hash matches its content, reports linter rule coverage gaps, and suggests guidance rules that could be upgraded to `enforce()`. If someone manually edits the markdown, the hash will no longer match, and `vigiles audit` reports the file as modified. This ensures the spec remains the source of truth.

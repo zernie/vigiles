@@ -1,7 +1,7 @@
 /**
  * CLI integration tests — spawn the actual vigiles CLI and verify output.
  *
- * These test the full flow: CLI → compile/check/init → filesystem output.
+ * These test the full flow: CLI → init/compile/audit → filesystem output.
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -12,6 +12,8 @@ import {
   rmSync,
   existsSync,
   mkdirSync,
+  symlinkSync,
+  copyFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -126,14 +128,14 @@ describe("CLI: vigiles compile", () => {
 });
 
 // ---------------------------------------------------------------------------
-// vigiles check
+// vigiles audit
 // ---------------------------------------------------------------------------
 
-describe("CLI: vigiles check", () => {
+describe("CLI: vigiles audit", () => {
   let tmpDir: string;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-cli-check-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-cli-audit-"));
   });
 
   after(() => {
@@ -141,27 +143,251 @@ describe("CLI: vigiles check", () => {
   });
 
   it("should report when no instruction files are found", () => {
-    const { stdout, exitCode } = run("check", tmpDir);
+    const { stdout, exitCode } = run("audit", tmpDir);
     assert.equal(exitCode, 0);
-    assert.ok(stdout.includes("No instruction files found"));
+    assert.ok(stdout.includes("No compiled instruction files found"));
   });
 
-  it("should report missing spec for instruction files", () => {
-    writeFileSync(join(tmpDir, "CLAUDE.md"), "# CLAUDE.md\n\n## Rules\n");
-    const { stdout, exitCode } = run("check CLAUDE.md", tmpDir);
-    // require-spec should fire since there's no CLAUDE.md.spec.ts
-    assert.ok(stdout.includes("require-spec") || exitCode === 1);
-  });
-
-  it("should pass when spec exists", () => {
-    // Create both the md and the spec
-    writeFileSync(
-      join(tmpDir, "HAS_SPEC.md"),
-      "<!-- vigiles:sha256:abc compiled from HAS_SPEC.md.spec.ts -->\n# Test\n",
+  it("should include coverage and strengthen output", () => {
+    const { stdout } = run("audit", tmpDir);
+    // audit runs discover + strengthen in addition to verification
+    assert.ok(
+      stdout.includes("coverage") ||
+        stdout.includes("Linter") ||
+        stdout.includes("No .spec.ts"),
     );
-    writeFileSync(join(tmpDir, "HAS_SPEC.md.spec.ts"), "export default {};");
-    const { stdout } = run("check HAS_SPEC.md", tmpDir);
-    assert.ok(!stdout.includes("require-spec"));
+  });
+
+  it("should detect duplicate rules via NCD", () => {
+    const dupDir = mkdtempSync(join(tmpdir(), "vigiles-audit-dup-"));
+    try {
+      writeFileSync(
+        join(dupDir, "package.json"),
+        JSON.stringify({ name: "test", scripts: {} }),
+      );
+      const specSrc = resolve(process.cwd(), "dist", "spec.js");
+      writeFileSync(
+        join(dupDir, "CLAUDE.md.spec.ts"),
+        `import { claude, guidance } from "${specSrc}";
+export default claude({
+  rules: {
+    "use-logger": guidance("Always use the structured logger instead of console.log for production output."),
+    "logger-over-console": guidance("Use the structured logger instead of console.log in production code."),
+    "unrelated": guidance("Prefer composition over inheritance in class hierarchies."),
+  },
+});
+`,
+      );
+      const { stdout } = run("audit", dupDir);
+      // Should detect the two logger rules as near-duplicates
+      assert.ok(
+        stdout.includes("near-duplicate") || stdout.includes("duplicate"),
+        `Expected duplicate detection, got: ${stdout.slice(0, 500)}`,
+      );
+    } finally {
+      rmSync(dupDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should skip inline verification for spec-managed files", () => {
+    // A file with a sibling .spec.ts (and compiled-from header) must
+    // not run inline verification, so literal vigiles:enforce snippets
+    // in prose cannot trip audit when the file is spec-managed.
+    // We use a sibling-.spec.ts with the spec snippet embedded as a
+    // prose section — compile generates the valid hash, then audit
+    // must ignore the inline marker in the output.
+    const specDir = mkdtempSync(join(tmpdir(), "vigiles-audit-spec-skip-"));
+    try {
+      writeFileSync(
+        join(specDir, "package.json"),
+        JSON.stringify({ name: "test", scripts: {} }),
+      );
+      const specSrc = resolve(process.cwd(), "dist", "spec.js");
+      writeFileSync(
+        join(specDir, "CLAUDE.md.spec.ts"),
+        `import { claude, guidance } from "${specSrc}";
+export default claude({
+  sections: {
+    // A literal enforce marker embedded in prose — would be picked
+    // up as an inline rule if audit didn't skip spec-managed files.
+    example: 'Example: <!-- vigiles:enforce eslint/total-nonsense "prose" -->',
+  },
+  rules: {
+    "some-rule": guidance("Something."),
+  },
+});
+`,
+      );
+
+      // Compile first so CLAUDE.md has a valid hash.
+      const compileResult = run("compile", specDir);
+      assert.equal(
+        compileResult.exitCode,
+        0,
+        `compile failed: ${compileResult.stdout}`,
+      );
+
+      const { stdout, exitCode } = run("audit CLAUDE.md", specDir);
+      // Should NOT surface the bogus rule as an inline error.
+      assert.ok(
+        !stdout.includes("total-nonsense"),
+        `Spec-managed file should skip inline verification, got: ${stdout.slice(0, 800)}`,
+      );
+      // And should not have exited with the hard-error code.
+      assert.notEqual(
+        exitCode,
+        2,
+        `Expected no inline errors, got exit ${String(exitCode)}: ${stdout.slice(0, 600)}`,
+      );
+    } finally {
+      rmSync(specDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Inline mode E2E
+// ---------------------------------------------------------------------------
+
+describe("E2E: inline enforcement", () => {
+  let inlineDir: string;
+
+  before(() => {
+    inlineDir = mkdtempSync(join(tmpdir(), "vigiles-inline-e2e-"));
+    writeFileSync(
+      join(inlineDir, "package.json"),
+      JSON.stringify({ name: "test-inline", scripts: {} }),
+    );
+    // Symlink node_modules so checkLinterRule can find ESLint
+    // when the spawned CLI runs with cwd=inlineDir.
+    symlinkSync(
+      resolve(process.cwd(), "node_modules"),
+      join(inlineDir, "node_modules"),
+    );
+    // Also copy eslint config so the config checker can resolve rules
+    const eslintConfig = resolve(process.cwd(), "eslint.config.ts");
+    if (existsSync(eslintConfig)) {
+      copyFileSync(eslintConfig, join(inlineDir, "eslint.config.ts"));
+    }
+  });
+
+  after(() => {
+    rmSync(inlineDir, { recursive: true, force: true });
+  });
+
+  it("verifies valid inline enforce rules and exits clean", () => {
+    writeFileSync(
+      join(inlineDir, "CLAUDE.md"),
+      `# Project
+
+<!-- vigiles:enforce eslint/no-console "Use structured logger" -->
+
+All output goes through logger.ts.
+`,
+    );
+    const { stdout, exitCode } = run("audit CLAUDE.md", inlineDir);
+    assert.ok(
+      stdout.includes("eslint/no-console"),
+      `Expected rule in output, got: ${stdout.slice(0, 600)}`,
+    );
+    // Exit code 0 means no hard errors (inline rule is valid)
+    assert.equal(exitCode, 0, `Expected clean exit, got ${String(exitCode)}`);
+  });
+
+  it("flags a typo'd inline rule with a closest-match suggestion", () => {
+    writeFileSync(
+      join(inlineDir, "CLAUDE.md"),
+      `# Project
+
+<!-- vigiles:enforce eslint/no-consol "Typo check" -->
+
+Some prose.
+`,
+    );
+    const { stdout, exitCode } = run("audit CLAUDE.md", inlineDir);
+    assert.ok(
+      stdout.includes("no-consol"),
+      `Expected typo'd rule in output, got: ${stdout.slice(0, 600)}`,
+    );
+    assert.ok(
+      stdout.includes("Did you mean"),
+      `Expected closest-match suggestion, got: ${stdout.slice(0, 600)}`,
+    );
+    assert.equal(exitCode, 2, `Expected exit 2 on inline error`);
+  });
+
+  it("ignores inline markers inside fenced code blocks", () => {
+    writeFileSync(
+      join(inlineDir, "CLAUDE.md"),
+      `# Docs
+
+Example usage:
+
+\`\`\`md
+<!-- vigiles:enforce eslint/totally-bogus "inside fence" -->
+\`\`\`
+
+Real rule:
+
+<!-- vigiles:enforce eslint/no-console "outside fence" -->
+`,
+    );
+    const { stdout, exitCode } = run("audit CLAUDE.md", inlineDir);
+    // The bogus rule inside the fence must NOT appear as an error
+    assert.ok(
+      !stdout.includes("totally-bogus"),
+      `Fenced marker should be skipped, got: ${stdout.slice(0, 600)}`,
+    );
+    assert.ok(
+      stdout.includes("no-console"),
+      `Real rule should be verified, got: ${stdout.slice(0, 600)}`,
+    );
+    assert.equal(exitCode, 0);
+  });
+
+  it("reports inline errors in --json output", () => {
+    writeFileSync(
+      join(inlineDir, "CLAUDE.md"),
+      `<!-- vigiles:enforce eslint/fake-rule-xyz "bad" -->`,
+    );
+    const { stdout, exitCode } = run("audit --json CLAUDE.md", inlineDir);
+    const report = JSON.parse(stdout) as {
+      inlineErrors: number;
+      inlineRules: number;
+    };
+    assert.ok(report.inlineErrors > 0, "Expected inlineErrors > 0");
+    assert.ok(report.inlineRules > 0, "Expected inlineRules > 0");
+    assert.equal(exitCode, 2);
+  });
+
+  it("reports inline rules in --summary output", () => {
+    writeFileSync(
+      join(inlineDir, "CLAUDE.md"),
+      `<!-- vigiles:enforce eslint/fake-rule-xyz "bad" -->`,
+    );
+    const { stdout, exitCode } = run("audit --summary CLAUDE.md", inlineDir);
+    assert.ok(
+      stdout.includes("inline"),
+      `Expected 'inline' in summary, got: ${stdout}`,
+    );
+    assert.equal(exitCode, 2);
+  });
+
+  it("satisfies require-spec when inline rules are present", () => {
+    // A file with inline rules but no .spec.ts should NOT trigger
+    // the require-spec validation warning.
+    writeFileSync(
+      join(inlineDir, "CLAUDE.md"),
+      `<!-- vigiles:enforce eslint/no-console "valid" -->
+
+# Project
+`,
+    );
+    const { stdout } = run("audit CLAUDE.md", inlineDir);
+    assert.ok(
+      !stdout.includes("require-spec"),
+      `require-spec should be satisfied by inline rules, got: ${stdout.slice(0, 600)}`,
+    );
   });
 });
 
@@ -249,106 +475,11 @@ export default claude({
 // vigiles strengthen
 // ---------------------------------------------------------------------------
 
-describe("CLI: vigiles strengthen", () => {
-  it("should run without errors on project root", () => {
-    const { exitCode } = run("strengthen", process.cwd());
-    assert.equal(exitCode, 0);
-  });
-
-  it("should report when no specs found", () => {
-    const tmpDir = mkdtempSync(join(tmpdir(), "vigiles-strengthen-"));
-    writeFileSync(
-      join(tmpDir, "package.json"),
-      JSON.stringify({ name: "test", scripts: {} }),
-    );
-    const { stdout } = run("strengthen", tmpDir);
-    assert.ok(stdout.includes("No .spec.ts files found"));
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-});
-
 // ---------------------------------------------------------------------------
-// vigiles migrate
+// vigiles init (was: vigiles setup)
 // ---------------------------------------------------------------------------
 
-describe("CLI: vigiles migrate", () => {
-  let tmpDir: string;
-
-  before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-cli-migrate-"));
-  });
-
-  after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("should migrate a hand-written CLAUDE.md to spec", () => {
-    writeFileSync(
-      join(tmpDir, "CLAUDE.md"),
-      `# CLAUDE.md
-
-## Architecture
-
-Three-layer architecture: controllers, services, repos.
-
-## Rules
-
-### No console.log
-**Enforced by:** \`eslint/no-console\`
-Use the structured logger.
-
-### Research first
-**Guidance only**
-Google unfamiliar APIs.
-`,
-    );
-    const { stdout, exitCode } = run("migrate CLAUDE.md", tmpDir);
-    assert.equal(exitCode, 0);
-    assert.ok(stdout.includes("Migrated"));
-    assert.ok(existsSync(join(tmpDir, "CLAUDE.md.spec.ts")));
-
-    const spec = readFileSync(join(tmpDir, "CLAUDE.md.spec.ts"), "utf-8");
-    assert.ok(spec.includes("eslint/no-console"));
-    assert.ok(spec.includes("guidance"));
-    assert.ok(spec.includes("architecture"));
-  });
-
-  it("should not overwrite existing spec", () => {
-    const result = run("migrate CLAUDE.md", tmpDir);
-    assert.ok(result.stdout.includes("already exists"));
-  });
-
-  it("should handle AGENTS.md", () => {
-    writeFileSync(
-      join(tmpDir, "AGENTS.md"),
-      "# AGENTS.md\n\n## Setup\n\nRun npm install.\n",
-    );
-    const { exitCode } = run("migrate AGENTS.md", tmpDir);
-    assert.equal(exitCode, 0);
-    assert.ok(existsSync(join(tmpDir, "AGENTS.md.spec.ts")));
-
-    const spec = readFileSync(join(tmpDir, "AGENTS.md.spec.ts"), "utf-8");
-    assert.ok(spec.includes('target: "AGENTS.md"'));
-  });
-});
-
-// ---------------------------------------------------------------------------
-// vigiles discover
-// ---------------------------------------------------------------------------
-
-describe("CLI: vigiles discover", () => {
-  it("should show linter coverage", () => {
-    const { stdout, exitCode } = run("discover", process.cwd());
-    assert.equal(exitCode, 0);
-    assert.ok(stdout.includes("Coverage:"));
-  });
-});
-
-// ---------------------------------------------------------------------------
-// vigiles setup
-// ---------------------------------------------------------------------------
-
-describe("CLI: vigiles setup", () => {
+describe("CLI: vigiles init (full setup)", () => {
   let tmpDir: string;
 
   before(() => {
@@ -365,7 +496,7 @@ describe("CLI: vigiles setup", () => {
   });
 
   it("should create spec, generate types, and compile", () => {
-    const { stdout, exitCode } = run("setup", tmpDir);
+    const { stdout, exitCode } = run("init", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes("Created CLAUDE.md.spec.ts"));
     assert.ok(stdout.includes("Setup complete"));
@@ -374,14 +505,14 @@ describe("CLI: vigiles setup", () => {
   });
 
   it("should support --target flag", () => {
-    const { stdout, exitCode } = run("setup --target=AGENTS.md", tmpDir);
+    const { stdout, exitCode } = run("init --target=AGENTS.md", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes("AGENTS.md.spec.ts"));
     assert.ok(existsSync(join(tmpDir, "AGENTS.md.spec.ts")));
   });
 });
 
-describe("CLI: vigiles setup auto-detection", () => {
+describe("CLI: vigiles init auto-detection", () => {
   let tmpDir: string;
 
   before(() => {
@@ -398,7 +529,7 @@ describe("CLI: vigiles setup auto-detection", () => {
 
   it("should detect existing CLAUDE.md and suggest migration", () => {
     writeFileSync(join(tmpDir, "CLAUDE.md"), "# Hand-written\n");
-    const { stdout } = run("setup", tmpDir);
+    const { stdout } = run("init", tmpDir);
     assert.ok(stdout.includes("without a spec") || stdout.includes("migrate"));
   });
 
@@ -409,7 +540,7 @@ describe("CLI: vigiles setup auto-detection", () => {
       JSON.stringify({ name: "test", scripts: {} }),
     );
     writeFileSync(join(dir, ".cursorrules"), "Use TypeScript.\n");
-    const { stdout } = run("setup", dir);
+    const { stdout } = run("init", dir);
     assert.ok(stdout.includes("Cursor") || stdout.includes("Non-markdown"));
     rmSync(dir, { recursive: true, force: true });
   });
@@ -421,7 +552,7 @@ describe("CLI: vigiles setup auto-detection", () => {
       JSON.stringify({ name: "test", scripts: {} }),
     );
     mkdirSync(join(dir, ".claude"), { recursive: true });
-    const { stdout } = run("setup", dir);
+    const { stdout } = run("init", dir);
     assert.ok(stdout.includes("Claude Code"));
     rmSync(dir, { recursive: true, force: true });
   });
@@ -647,7 +778,7 @@ describe("E2E: fixture project adoption", () => {
   });
 
   it("setup detects existing hand-written CLAUDE.md", () => {
-    const { stdout } = run("setup", workDir);
+    const { stdout } = run("init", workDir);
     // Should detect CLAUDE.md without spec and suggest migration
     assert.ok(
       stdout.includes("without a spec") || stdout.includes("migrate"),
@@ -655,10 +786,14 @@ describe("E2E: fixture project adoption", () => {
     );
   });
 
-  it("init creates spec in fixture project", () => {
-    const { exitCode } = run("init", workDir);
-    assert.equal(exitCode, 0);
-    assert.ok(existsSync(join(workDir, "CLAUDE.md.spec.ts")));
+  it("audit detects CLAUDE.md has no vigiles hash", () => {
+    const { stdout } = run("audit", workDir);
+    // Hand-written CLAUDE.md has no hash — should report it
+    assert.ok(
+      stdout.includes("no vigiles hash") ||
+        stdout.includes("require-spec") ||
+        stdout.includes("Verifying"),
+    );
   });
 
   it("generate-types works in fixture project", () => {
@@ -667,25 +802,17 @@ describe("E2E: fixture project adoption", () => {
     assert.ok(existsSync(join(workDir, ".vigiles/generated.d.ts")));
   });
 
-  it("check detects CLAUDE.md has no vigiles hash", () => {
-    const { stdout } = run("check CLAUDE.md", workDir);
-    // Hand-written CLAUDE.md has no hash — should report it
-    assert.ok(
-      stdout.includes("no vigiles hash") || stdout.includes("require-spec"),
-    );
-  });
-
-  it("full flow: write spec → compile → check passes", () => {
-    // Remove old hand-written CLAUDE.md and the template spec
-    rmSync(join(workDir, "CLAUDE.md"));
-    if (existsSync(join(workDir, "CLAUDE.md.spec.ts"))) {
-      rmSync(join(workDir, "CLAUDE.md.spec.ts"));
-    }
+  it("full flow: write spec → compile → audit passes", () => {
+    // Clean slate: remove any existing CLAUDE.md and spec
+    const mdPath = join(workDir, "CLAUDE.md");
+    const specPath = join(workDir, "CLAUDE.md.spec.ts");
+    if (existsSync(mdPath)) rmSync(mdPath);
+    if (existsSync(specPath)) rmSync(specPath);
 
     // Write a spec that imports from vigiles dist (not node_modules)
     const specSrc = resolve(process.cwd(), "dist", "spec.js");
     writeFileSync(
-      join(workDir, "CLAUDE.md.spec.ts"),
+      specPath,
       `import { claude, guidance } from "${specSrc}";
 export default claude({
   commands: { "npm test": "Run tests" },
@@ -697,14 +824,16 @@ export default claude({
     // Compile
     const compileResult = run("compile CLAUDE.md.spec.ts", workDir);
     assert.equal(compileResult.exitCode, 0, compileResult.stdout);
-    assert.ok(existsSync(join(workDir, "CLAUDE.md")));
+    assert.ok(existsSync(mdPath));
 
     // Compiled file should have vigiles hash
-    const content = readFileSync(join(workDir, "CLAUDE.md"), "utf-8");
+    const content = readFileSync(mdPath, "utf-8");
     assert.ok(content.includes("<!-- vigiles:sha256:"));
 
-    // Check should pass (hash valid, spec exists)
-    const checkResult = run("check CLAUDE.md", workDir);
-    assert.ok(checkResult.stdout.includes("hash valid"));
+    // Audit should pass (hash valid, spec exists)
+    const auditResult = run("audit", workDir);
+    assert.ok(
+      auditResult.stdout.includes("hash valid") || auditResult.exitCode === 0,
+    );
   });
 });

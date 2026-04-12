@@ -16,22 +16,23 @@ The linter cross-referencing engine is the core moat: \`enforce("@typescript-esl
 
 vigiles does NOT do architectural linting. Use ast-grep, Dependency Cruiser, Steiger, or eslint-plugin-boundaries for that. vigiles can reference their rules via \`enforce()\`.`,
 
-    architecture: `Three rule types in specs:
+    architecture: `Two rule types in specs:
 
 - \`enforce()\` — delegated to external tool (linter, ast-grep, dependency-cruiser). vigiles verifies the rule exists and is enabled.
-- \`check()\` — vigiles-owned filesystem assertion (e.g., \`every("src/**/*.controller.ts").has("{name}.test.ts")\`). Scoped to what no other tool handles.
 - \`guidance()\` — prose only, compiles to \`**Guidance only**\` in markdown.
+
+Architectural linting (file pairing, import boundaries, AST patterns) belongs in external tools — reference them via \`enforce()\`.
 
 Template literal types ensure linter names (\`eslint/\`, \`ruff/\`, etc.) are type-safe. Branded types (\`VerifiedPath\`, \`VerifiedCmd\`, \`VerifiedRef\`) distinguish verified references from raw strings.
 
 Compilation: spec.ts → compiler reads spec, validates references (file paths via existsSync, npm scripts via package.json, linter rules via linter APIs), generates markdown with SHA-256 integrity hash.
 
-Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler), \`src/linters.ts\` (6-linter cross-referencing engine), \`src/generate-types.ts\` (type generator).`,
+Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler), \`src/linters.ts\` (6-linter cross-referencing engine), \`src/generate-types.ts\` (type generator), \`src/proofs.ts\` (proof algorithms for self-evolving specs), \`src/evolve.ts\` (evolution engine).`,
   },
 
   keyFiles: {
     "src/spec.ts":
-      "Type system and builder functions (enforce, guidance, check, claude, skill, file, cmd, ref)",
+      "Type system and builder functions (enforce, guidance, claude, skill, file, cmd, ref)",
     "src/compile.ts":
       "Compiler: spec → markdown with SHA-256 hash, linter verification, reference validation",
     "src/linters.ts":
@@ -39,11 +40,18 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
     "src/generate-types.ts":
       "Type generator: scans linters/package.json/filesystem → emits .d.ts",
     "src/cli.ts":
-      "CLI: compile, check, init, setup, generate-types, discover, strengthen, adopt",
+      "CLI: init, compile, audit (3 primary commands + generate-types plumbing)",
+    "src/inline.ts":
+      "Inline-mode parser: `<!-- vigiles:enforce ... -->` comments in markdown for gradual adoption",
     "src/action.ts": "GitHub Action wrapper",
     "src/spec.test.ts": "Spec + compiler test suite (node:test)",
     "src/validate.test.ts": "Validation test suite (node:test)",
     "src/cli.test.ts": "CLI integration + E2E test suite (node:test)",
+    "src/proofs.ts":
+      "Deterministic proof algorithms (monotonicity lattice, NCD, Bloom filter, Merkle DAG, fixed-point, property testing)",
+    "src/evolve.ts":
+      "Evolution engine: mutation operators, fitness function, proof-gated selection",
+    "src/proofs.test.ts": "Proof system + evolution engine tests (node:test)",
     "CLAUDE.md.spec.ts": "This file — the source of truth for CLAUDE.md",
     "examples/SKILL.md.spec.ts": "Example SKILL.md spec",
     "research/adoption-strategy.md":
@@ -54,6 +62,10 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
     "research/feature-ideas.md":
       "Feature ideas: plugin API, custom rules, exhaustive coverage",
     "research/ai-code-quality.md": "Research: AI code quality patterns",
+    "research/self-evolving-specs.md":
+      "Design doc: self-evolving spec system (proofs, Merkle history, evolution engine)",
+    "research/code-search-for-agents.md":
+      "Research: code search approaches (grep vs embeddings vs AST-grep)",
     "docs/agent-workflows.md":
       "Agent-specific workflows (Claude Code, Codex, multi-agent, Cursor)",
     "docs/agent-setup.md":
@@ -61,6 +73,8 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
     "docs/spec-format.md": "Spec format reference (target, sections, rules)",
     "docs/linter-support.md":
       "Linter support details (6 linters + generate-types)",
+    "docs/inline-mode.md":
+      "Inline mode: `<!-- vigiles:enforce ... -->` comments for gradual adoption without a .spec.ts",
   },
 
   commands: {
@@ -80,11 +94,11 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
     ),
 
     "dont-reimplement-linters": guidance(
-      "Architectural linting belongs in ast-grep/Dependency Cruiser/Steiger. Per-file code rules belong in ESLint/Ruff/Clippy. vigiles owns: compilation, linter cross-referencing, type generation, filesystem assertions, and stale reference detection.",
+      "Architectural linting belongs in ast-grep/Dependency Cruiser/Steiger. Per-file code rules belong in ESLint/Ruff/Clippy. vigiles owns: spec compilation, linter cross-referencing, type generation, stale reference detection, and proof-based spec evolution.",
     ),
 
     "smooth-adoption": guidance(
-      "`npx vigiles setup && npx skills add zernie/vigiles` must work on first run with zero config. The wizard auto-detects the project, creates specs, generates types, compiles, and wires CI. After install the agent edits specs automatically — no workflow change required. Start permissive (guidance rules, `require-spec: false` available), tighten over time. See `research/adoption-strategy.md`.",
+      "`npx vigiles init && npx skills add zernie/vigiles` must work on first run with zero config. The wizard auto-detects the project, creates specs, generates types, compiles, and wires CI. After install the agent edits specs automatically — no workflow change required. Start permissive (guidance rules, `require-spec: false` available), tighten over time. Hesitant adopters can use inline mode (`<!-- vigiles:enforce ... -->` comments) without a .spec.ts — see `docs/inline-mode.md`. See `research/adoption-strategy.md`.",
     ),
 
     "format-before-commit": guidance(

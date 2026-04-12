@@ -4,8 +4,6 @@ import assert from "node:assert/strict";
 import {
   enforce,
   guidance,
-  check,
-  every,
   file,
   cmd,
   ref,
@@ -24,6 +22,7 @@ import type {
   LintersVerified,
   ReadyToEmit,
   KnownLinterRules,
+  ClaudeSpec,
 } from "./spec.js";
 
 import {
@@ -34,8 +33,6 @@ import {
   verifyHash,
   checkFileHash,
   estimateTokens,
-  executeAssertion,
-  executeChecks,
   adoptDiff,
 } from "./compile.js";
 
@@ -86,19 +83,6 @@ describe("guidance()", () => {
     const rule = guidance("Google unfamiliar APIs first.");
     assert.equal(rule._kind, "guidance");
     assert.equal(rule.text, "Google unfamiliar APIs first.");
-  });
-});
-
-describe("check()", () => {
-  it("creates a file-pairing check", () => {
-    const rule = check(
-      every("src/**/*.controller.ts").has("{name}.test.ts"),
-      "Every controller needs tests.",
-    );
-    assert.equal(rule._kind, "check");
-    assert.equal(rule.assertion._type, "file-pairing");
-    assert.equal(rule.assertion.glob, "src/**/*.controller.ts");
-    assert.equal(rule.assertion.pattern, "{name}.test.ts");
   });
 });
 
@@ -233,20 +217,6 @@ describe("compileClaude()", () => {
     const { markdown } = compileClaude(spec);
     assert.ok(markdown.includes("## Architecture"));
     assert.ok(markdown.includes("TypeScript strict-mode codebase."));
-  });
-
-  it("compiles check rules with assertion description", () => {
-    const spec = claude({
-      rules: {
-        "test-pairing": check(
-          every("src/**/*.ts").has("{name}.test.ts"),
-          "Every source needs tests.",
-        ),
-      },
-    });
-    const { markdown } = compileClaude(spec);
-    assert.ok(markdown.includes("**Enforced by:** `vigiles/test-pairing`"));
-    assert.ok(markdown.includes("**Check:**"));
   });
 
   it("enforces maxRules limit", () => {
@@ -428,6 +398,22 @@ describe("maxTokens budget", () => {
     });
     const { errors } = compileClaude(spec, { maxTokens: 10000 });
     assert.ok(!errors.some((e) => e.type === "budget-exceeded"));
+  });
+
+  it("throws on unknown rule kinds rather than silently dropping them", () => {
+    // Simulate a legacy compiled artifact or JS caller bypassing the type
+    const spec = {
+      _specType: "claude",
+      rules: {
+        legacy: { _kind: "check", text: "stale" },
+      },
+    } as unknown as ClaudeSpec;
+
+    assert.throws(
+      () => compileClaude(spec),
+      /Unknown rule kind "check"/,
+      "compileRule must fail fast on unknown kinds so constraints cannot be silently dropped",
+    );
   });
 });
 
@@ -761,60 +747,6 @@ describe("generateTypes()", () => {
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Assertion execution tests
-// ---------------------------------------------------------------------------
-
-describe("executeAssertion()", () => {
-  it("passes when paired files exist", () => {
-    // src/spec.ts has src/spec.test.ts
-    const result = executeAssertion(
-      "test-pairing",
-      { _type: "file-pairing", glob: "src/spec.ts", pattern: "{name}.test.ts" },
-      process.cwd(),
-    );
-    assert.equal(result.passed, true);
-    assert.equal(result.total, 1);
-    assert.equal(result.missing.length, 0);
-  });
-
-  it("fails when paired files are missing", () => {
-    // src/action.ts does NOT have src/action.test.ts
-    const result = executeAssertion(
-      "test-pairing",
-      {
-        _type: "file-pairing",
-        glob: "src/action.ts",
-        pattern: "{name}.test.ts",
-      },
-      process.cwd(),
-    );
-    assert.equal(result.passed, false);
-    assert.equal(result.total, 1);
-    assert.equal(result.missing.length, 1);
-  });
-});
-
-describe("executeChecks()", () => {
-  it("runs all check() rules from a spec", () => {
-    const spec = claude({
-      rules: {
-        "has-test": check(
-          every("src/spec.ts").has("{name}.test.ts"),
-          "spec needs test",
-        ),
-        "no-console": enforce("eslint/no-console", "Use logger."),
-        "be-nice": guidance("Be nice."),
-      },
-    });
-    const results = executeChecks(spec, process.cwd());
-    // Only check() rules are executed, not enforce() or guidance()
-    assert.equal(results.length, 1);
-    assert.equal(results[0].id, "has-test");
-    assert.equal(results[0].passed, true);
   });
 });
 
@@ -1418,35 +1350,6 @@ describe("edge cases", () => {
     assert.ok(markdown.includes("description: Nothing"));
   });
 
-  it("executeAssertion with glob matching zero files", () => {
-    const result = executeAssertion(
-      "none",
-      {
-        _type: "file-pairing",
-        glob: "nonexistent-dir-xyz/**/*.ts",
-        pattern: "{name}.test.ts",
-      },
-      process.cwd(),
-    );
-    assert.equal(result.passed, true);
-    assert.equal(result.total, 0);
-  });
-
-  it("executeAssertion with {stem} placeholder on multi-dot files", () => {
-    // src/spec.test.ts — {name} = "spec.test", {stem} = "spec"
-    const result = executeAssertion(
-      "test",
-      {
-        _type: "file-pairing",
-        glob: "src/spec.test.ts",
-        pattern: "{stem}.ts", // {stem} = "spec" → expects spec.ts
-      },
-      process.cwd(),
-    );
-    assert.equal(result.passed, true);
-    assert.equal(result.total, 1);
-  });
-
   it("verifyHash with malformed hash line returns null", () => {
     const result = verifyHash("<!-- vigiles:sha256:tooshort -->\n# Content\n");
     // Hash must match the full regex pattern
@@ -1513,10 +1416,7 @@ describe("compile → hash → verify → adopt roundtrip", () => {
       sections: { about: "A test project." },
       rules: {
         "no-console": enforce("eslint/no-console", "Use logger."),
-        "test-files": check(
-          every("src/spec.ts").has("{name}.test.ts"),
-          "Every source needs tests.",
-        ),
+        "no-unused": enforce("eslint/no-unused-vars", "Keep code clean."),
         "be-nice": guidance("Be nice to contributors."),
       },
     });

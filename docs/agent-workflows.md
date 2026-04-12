@@ -4,7 +4,7 @@ vigiles compiles typed specs to markdown instruction files. Different AI agents 
 
 ## Auto-Detection
 
-`npx vigiles setup` scans your project and auto-detects:
+`vigiles init` scans your project and auto-detects:
 
 | Signal                                     | What it means                                     |
 | ------------------------------------------ | ------------------------------------------------- |
@@ -26,7 +26,7 @@ The wizard creates specs for detected targets, generates types, compiles, and ad
 **Setup:**
 
 ```bash
-npx vigiles setup
+npx vigiles init
 npx skills add zernie/vigiles
 ```
 
@@ -47,14 +47,14 @@ npx skills add zernie/vigiles
 **Setup:**
 
 ```bash
-npx vigiles setup --target=AGENTS.md
+npx vigiles init --target=AGENTS.md
 ```
 
 Codex and GitHub Copilot read `AGENTS.md` directly. There is no plugin or hook system — these agents don't support it. The enforcement path is:
 
 1. Edit `AGENTS.md.spec.ts` (the source of truth)
 2. Run `npx vigiles compile` to regenerate `AGENTS.md`
-3. CI verifies freshness: `npx vigiles check && npx vigiles generate-types --check`
+3. CI verifies freshness: `npx vigiles audit && npx vigiles generate-types --check`
 
 If you also use Claude Code, install the plugin (`npx skills add zernie/vigiles`) to get auto-recompilation.
 
@@ -72,8 +72,8 @@ export default claude({
 One spec, two outputs. Both files are compiled from the same source of truth with the same linter verification.
 
 ```bash
-npx vigiles setup                      # for CLAUDE.md (primary)
-npx vigiles setup --target=AGENTS.md   # adds AGENTS.md target
+npx vigiles init                      # for CLAUDE.md (primary)
+npx vigiles init --target=AGENTS.md   # adds AGENTS.md target
 ```
 
 Or just set `target: ["CLAUDE.md", "AGENTS.md"]` in your spec directly.
@@ -93,7 +93,7 @@ All agents share the same CI step:
 
 ```yaml
 - name: Verify specs
-  run: npx vigiles check && npx vigiles generate-types --check
+  run: npx vigiles audit && npx vigiles generate-types --check
 ```
 
 This catches:

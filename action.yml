@@ -6,11 +6,11 @@ branding:
 
 inputs:
   command:
-    description: "Command to run: 'compile' or 'check' (default: check)"
+    description: "Command to run: 'compile' or 'audit' (default: audit)"
     required: false
-    default: "check"
+    default: "audit"
   paths:
-    description: "Comma-separated paths to .spec.ts files (compile) or .md files (check). Auto-discovers by default."
+    description: "Comma-separated paths to .spec.ts files (compile) or .md files (audit). Auto-discovers by default."
     required: false
   max-rules:
     description: "Maximum number of rules per spec file"

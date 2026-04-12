@@ -8,14 +8,12 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname, basename } from "node:path";
-import { globSync } from "glob";
 
 import type {
   ClaudeSpec,
   SkillSpec,
   Rule,
   InstructionFragment,
-  FilePairingAssertion,
 } from "./spec.js";
 
 import { checkLinterRule, extractLinterName } from "./linters.js";
@@ -25,7 +23,8 @@ import type { LinterCheckResult } from "./linters.js";
 // Hash utilities
 // ---------------------------------------------------------------------------
 
-const HASH_RE = /^<!-- vigiles:sha256:([a-f0-9]+) compiled from (.+) -->\n\n?/;
+const HASH_RE =
+  /^<!-- vigiles:sha256:([a-f0-9]+) compiled from (.+) -->\r?\n\r?\n?/;
 
 /** @internal Compute SHA-256 hash of content (excluding any existing hash line). */
 export function computeHash(content: string): string {
@@ -196,10 +195,6 @@ function renderFragment(fragment: InstructionFragment): string {
 // Compile CLAUDE.md spec → markdown
 // ---------------------------------------------------------------------------
 
-function describeAssertion(assertion: FilePairingAssertion): string {
-  return `every \`${assertion.glob}\` has \`${assertion.pattern}\``;
-}
-
 function compileRule(id: string, rule: Rule): string {
   const title = id
     .replace(/[-_]/g, " ")
@@ -214,19 +209,22 @@ function compileRule(id: string, rule: Rule): string {
         `**Why:** ${rule.why}`,
       ].join("\n");
 
-    case "check":
-      return [
-        `### ${title}`,
-        "",
-        `**Enforced by:** \`vigiles/${id}\``,
-        `**Why:** ${rule.why}`,
-        `**Check:** ${describeAssertion(rule.assertion)}`,
-      ].join("\n");
-
     case "guidance":
       return [`### ${title}`, "", `**Guidance only** — ${rule.text}`].join(
         "\n",
       );
+
+    default: {
+      // Unknown rule kind — legacy compiled JS spec artifacts, JS caller,
+      // or cast bypass. Fail loudly rather than silently dropping the
+      // rule from output, which would remove constraints without any
+      // compile error.
+      const unknown = (rule as { _kind?: unknown })._kind;
+      throw new Error(
+        `Unknown rule kind "${String(unknown)}" for rule "${id}". ` +
+          `Expected "enforce" or "guidance". Runtime data is out of sync with the Rule type.`,
+      );
+    }
   }
 }
 
@@ -513,10 +511,12 @@ export function compileClaude(
   const body = sections.join("\n\n") + "\n";
   const tokens = estimateTokens(body);
 
-  if (options.maxTokens && tokens > options.maxTokens) {
+  // Per-spec maxTokens takes precedence, then compile options
+  const maxTokens = spec.maxTokens ?? options.maxTokens;
+  if (maxTokens && tokens > maxTokens) {
     errors.push({
       type: "budget-exceeded",
-      message: `Compiled output is ~${String(tokens)} tokens, exceeding maxTokens limit of ${String(options.maxTokens)}.`,
+      message: `Compiled output is ~${String(tokens)} tokens, exceeding maxTokens limit of ${String(maxTokens)}. Trim prose sections, split into multiple specs, or raise maxTokens.`,
     });
   }
 
@@ -617,80 +617,6 @@ export function checkFileHash(filePath: string): HashCheckResult {
     return { hasHash: false, valid: false, specFile: null };
   }
   return { hasHash: true, valid: result.valid, specFile: result.specFile };
-}
-
-// ---------------------------------------------------------------------------
-// Filesystem assertion execution (every().has())
-// ---------------------------------------------------------------------------
-
-export interface AssertionResult {
-  id: string;
-  passed: boolean;
-  total: number;
-  matched: number;
-  missing: string[];
-}
-
-/**
- * Execute a file-pairing assertion: for every file matching `glob`,
- * check that a sibling matching `pattern` exists.
- *
- * `{name}` in the pattern is replaced with the file's basename (without extension).
- */
-/** @internal */ export function executeAssertion(
-  id: string,
-  assertion: FilePairingAssertion,
-  basePath: string,
-): AssertionResult {
-  const files = globSync(assertion.glob, {
-    cwd: basePath,
-    ignore: ["node_modules/**", "dist/**"],
-    nodir: true,
-  });
-
-  const missing: string[] = [];
-
-  for (const filePath of files) {
-    const dir = dirname(filePath);
-    const ext = filePath.substring(filePath.lastIndexOf("."));
-    const baseName = basename(filePath, ext);
-    // Also strip secondary extension (e.g., "foo.controller.ts" → "foo")
-    const stemParts = baseName.split(".");
-    const stem = stemParts[0];
-
-    const expectedName = assertion.pattern
-      .replace(/\{name\}/g, baseName)
-      .replace(/\{stem\}/g, stem);
-    const expectedPath = dir === "." ? expectedName : `${dir}/${expectedName}`;
-
-    if (!existsSync(resolve(basePath, expectedPath))) {
-      missing.push(`${filePath} → expected ${expectedPath}`);
-    }
-  }
-
-  return {
-    id,
-    passed: missing.length === 0,
-    total: files.length,
-    matched: files.length - missing.length,
-    missing,
-  };
-}
-
-/**
- * Execute all check() assertions from a ClaudeSpec.
- */
-export function executeChecks(
-  spec: ClaudeSpec,
-  basePath: string,
-): AssertionResult[] {
-  const results: AssertionResult[] = [];
-  for (const [id, rule] of Object.entries(spec.rules)) {
-    if (rule._kind === "check") {
-      results.push(executeAssertion(id, rule.assertion, basePath));
-    }
-  }
-  return results;
 }
 
 // ---------------------------------------------------------------------------

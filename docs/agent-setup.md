@@ -4,14 +4,14 @@ How to set up vigiles when an AI agent is doing the installation (non-interactiv
 
 ## What an Agent Can Do
 
-| Action                    | Agent can do it? | How                                       |
-| ------------------------- | ---------------- | ----------------------------------------- |
-| Create spec file          | Yes              | `npx vigiles setup` (non-interactive)     |
-| Generate types            | Yes              | `npx vigiles generate-types`              |
-| Compile specs             | Yes              | `npx vigiles compile`                     |
-| Add CI step               | Yes              | Edit `.github/workflows/*.yml` directly   |
-| Install hooks             | Yes              | Write to `.claude/settings.json` directly |
-| Install plugin via skills | **No**           | Requires user to run `npx skills add`     |
+| Action                    | Agent can do it? | How                                         |
+| ------------------------- | ---------------- | ------------------------------------------- |
+| Create spec file          | Yes              | `npx vigiles init` (non-interactive wizard) |
+| Generate types            | Yes              | `npx vigiles generate-types`                |
+| Compile specs             | Yes              | `npx vigiles compile`                       |
+| Add CI step               | Yes              | Edit `.github/workflows/*.yml` directly     |
+| Install hooks             | Yes              | Write to `.claude/settings.json` directly   |
+| Install plugin via skills | **No**           | Requires user to run `npx skills add`       |
 
 The `skills add` command requires user action — an agent can't install plugins for itself. But it CAN write the hook configuration directly to `.claude/settings.json`, which achieves the same result.
 
@@ -20,7 +20,7 @@ The `skills add` command requires user action — an agent can't install plugins
 ### Step 1: Run the wizard
 
 ```bash
-npx vigiles setup
+npx vigiles init
 ```
 
 This works non-interactively. It auto-detects the project, creates a spec, generates types, compiles, and adds a CI step. No prompts.
@@ -58,7 +58,7 @@ The agent should read the generated `.spec.ts` file and fill in the project's ac
 
 ```bash
 npx vigiles compile
-npx vigiles check
+npx vigiles audit
 ```
 
 ## Recommended Agent Prompt
@@ -67,7 +67,7 @@ If you want an agent to set up vigiles in a project, use this prompt:
 
 ```
 Set up vigiles for this project:
-1. Run `npx vigiles setup`
+1. Run `npx vigiles init`
 2. Read the generated .spec.ts file
 3. Fill in the project's actual conventions based on the codebase
 4. Add hooks to .claude/settings.json for auto-compilation

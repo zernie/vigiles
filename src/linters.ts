@@ -425,6 +425,47 @@ function makeResult(
   return { exists, enabled, linter: ctx.linterName, rule: ctx.ruleName, error };
 }
 
+/**
+ * Levenshtein distance for short-string typo detection. Rule names are
+ * short so edit distance is more appropriate than NCD (which is tuned
+ * for longer texts).
+ */
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] =
+        a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+
+/** Top-N closest rule names by edit distance, filtered by a max distance. */
+function closestRuleNames(
+  target: string,
+  candidates: Iterable<string>,
+  limit = 3,
+  maxDistance = 4,
+): string[] {
+  const scored: { name: string; dist: number }[] = [];
+  for (const c of candidates) {
+    const d = editDistance(target, c);
+    if (d <= maxDistance) scored.push({ name: c, dist: d });
+  }
+  scored.sort((a, b) => a.dist - b.dist);
+  return scored.slice(0, limit).map((s) => s.name);
+}
+
 /** @internal */ function tryNodeResolver(
   ctx: RuleContext,
 ): LinterCheckResult | null {
@@ -440,11 +481,16 @@ function makeResult(
         ctx.ruleName.includes("/") &&
         isEslintPluginRule(ctx.ruleName, eslintSet._basePath ?? ctx.basePath);
       if (!foundInPlugin) {
+        const suggestions = closestRuleNames(ctx.ruleName, resolved);
+        const hint =
+          suggestions.length > 0
+            ? ` Did you mean: ${suggestions.map((s) => `"${ctx.linterName}/${s}"`).join(", ")}?`
+            : "";
         return makeResult(
           ctx,
           false,
           "unknown",
-          `Rule "${ctx.ruleName}" not found in ${ctx.linterName}`,
+          `Rule "${ctx.ruleName}" not found in ${ctx.linterName}.${hint}`,
         );
       }
     }
@@ -490,6 +536,81 @@ function isEslintPluginRule(ruleName: string, basePath: string): boolean {
   return makeResult(ctx, true, enabled);
 }
 
+/**
+ * Enumerate all rules for a CLI-based linter so `tryCliCheck` can emit
+ * closest-match suggestions on typos. Result is cached per (linter,
+ * basePath) so each linter's discovery CLI runs at most once per audit.
+ */
+const CLI_RULE_SET_CACHE = new Map<string, Set<string>>();
+function getCliRuleSet(linterName: string, basePath: string): Set<string> {
+  const key = `${linterName}:${basePath}`;
+  const cached = CLI_RULE_SET_CACHE.get(key);
+  if (cached) return cached;
+  const rules = new Set<string>();
+  try {
+    if (linterName === "ruff") {
+      const output = execSync(
+        `ruff check --show-settings ${resolve(basePath, "dummy.py")}`,
+        { encoding: "utf-8", cwd: basePath, stdio: ["pipe", "pipe", "pipe"] },
+      );
+      const enabledMatch = output.match(
+        /linter\.rules\.enabled\s*=\s*\[([\s\S]*?)\]/,
+      );
+      if (enabledMatch?.[1]) {
+        const codeRe = /\(([A-Z]+\d*)\)/g;
+        let m: RegExpExecArray | null;
+        while ((m = codeRe.exec(enabledMatch[1])) !== null) {
+          rules.add(m[1]);
+        }
+      }
+    } else if (linterName === "pylint") {
+      const output = execSync("pylint --list-msgs-enabled", {
+        encoding: "utf-8",
+        cwd: basePath,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      const codeRe = /\b([a-z][a-z0-9-]+)\s*\([A-Z]\d+\)/g;
+      let m: RegExpExecArray | null;
+      while ((m = codeRe.exec(output)) !== null) {
+        rules.add(m[1]);
+      }
+    } else if (linterName === "rubocop") {
+      const output = execSync("rubocop --show-cops", {
+        encoding: "utf-8",
+        cwd: basePath,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      const copRe = /^([A-Z][A-Za-z]+\/[A-Z][A-Za-z0-9]+):/gm;
+      let m: RegExpExecArray | null;
+      while ((m = copRe.exec(output)) !== null) {
+        rules.add(m[1]);
+      }
+    } else if (linterName === "clippy") {
+      // Read Cargo.toml [lints.clippy] section — same source of truth
+      // generate-types uses. Full clippy catalogue is enormous and
+      // only partially enabled per project.
+      const cargoPath = resolve(basePath, "Cargo.toml");
+      if (existsSync(cargoPath)) {
+        const content = readFileSync(cargoPath, "utf-8");
+        const sectionMatch = content.match(
+          /\[lints\.clippy\]([\s\S]*?)(?=\n\[|$)/,
+        );
+        if (sectionMatch?.[1]) {
+          const ruleRe = /^([a-z][a-z_]*)\s*=/gm;
+          let m: RegExpExecArray | null;
+          while ((m = ruleRe.exec(sectionMatch[1])) !== null) {
+            rules.add(m[1]);
+          }
+        }
+      }
+    }
+  } catch {
+    // CLI failed — return empty set, caller will just skip suggestions
+  }
+  CLI_RULE_SET_CACHE.set(key, rules);
+  return rules;
+}
+
 /** @internal */ function tryCliCheck(
   ctx: RuleContext,
 ): LinterCheckResult | null {
@@ -514,11 +635,21 @@ function isEslintPluginRule(ruleName: string, basePath: string): boolean {
     );
     return makeResult(ctx, true, enabled);
   } catch {
+    // Rule not found — try to suggest closest matches from the full
+    // rule set. Uses the same edit-distance helper as the Node
+    // resolver path; caching means this runs the CLI at most once.
+    const ruleSet = getCliRuleSet(ctx.linterName, ctx.basePath);
+    const suggestions =
+      ruleSet.size > 0 ? closestRuleNames(ctx.ruleName, ruleSet) : [];
+    const hint =
+      suggestions.length > 0
+        ? ` Did you mean: ${suggestions.map((s) => `"${ctx.linterName}/${s}"`).join(", ")}?`
+        : "";
     return makeResult(
       ctx,
       false,
       "unknown",
-      `Rule "${ctx.ruleName}" not found in ${ctx.linterName}`,
+      `Rule "${ctx.ruleName}" not found in ${ctx.linterName}.${hint}`,
     );
   }
 }
