@@ -5,10 +5,19 @@
  * - "strict": recompile in memory, diff against existing output (zero false positives)
  * - "input-hash": hash tracked input files, compare to stored fingerprint (fast)
  * - "output-hash": existing behavior — only detects hand-edits to compiled .md
+ *
+ * Per-file sidecar manifests (.vigiles/<target>.inputs.json) store individual
+ * file hashes for granular change reporting and affected-specs queries.
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  readdirSync,
+} from "node:fs";
 import { resolve } from "node:path";
 
 import type { FreshnessMode } from "./types.js";
@@ -296,4 +305,200 @@ export function checkInputHashFreshness(
   }
 
   return { fresh: true, mode: "input-hash" };
+}
+
+// ---------------------------------------------------------------------------
+// Per-file sidecar manifest
+// ---------------------------------------------------------------------------
+
+/** Per-file hashes stored in .vigiles/<target>.inputs.json. */
+export interface SidecarManifest {
+  /** The spec source file (relative to basePath). */
+  specFile: string;
+  /** The compilation target (e.g., "CLAUDE.md"). */
+  target: string;
+  /** ISO 8601 timestamp of last compilation. */
+  compiledAt: string;
+  /** Per-file SHA-256 hashes (truncated to 16 hex chars). */
+  files: Record<string, string>;
+}
+
+/** Result of diffing a sidecar manifest against current file state. */
+export interface SidecarDiff {
+  fresh: boolean;
+  /** Files whose content hash changed. */
+  changed: string[];
+  /** Files that existed at compile time but are now missing. */
+  deleted: string[];
+  /** Files now discovered as inputs that weren't tracked before. */
+  added: string[];
+}
+
+/**
+ * Compute per-file SHA-256 hashes for all input files.
+ * Missing files map to "MISSING" so deletion is detectable.
+ */
+export function computePerFileHashes(
+  inputFiles: string[],
+  basePath: string,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const f of inputFiles) {
+    const fullPath = resolve(basePath, f);
+    if (!existsSync(fullPath)) {
+      result[f] = "MISSING";
+    } else {
+      const content = readFileSync(fullPath);
+      result[f] = createHash("sha256")
+        .update(content)
+        .digest("hex")
+        .slice(0, 16);
+    }
+  }
+  return result;
+}
+
+/** Path to the sidecar manifest for a given target. */
+export function sidecarPath(basePath: string, target: string): string {
+  return resolve(basePath, ".vigiles", `${target}.inputs.json`);
+}
+
+/**
+ * Write a sidecar manifest to .vigiles/<target>.inputs.json.
+ * Creates the .vigiles/ directory if it doesn't exist.
+ */
+export function writeSidecarManifest(
+  basePath: string,
+  manifest: SidecarManifest,
+): void {
+  const dir = resolve(basePath, ".vigiles");
+  mkdirSync(dir, { recursive: true });
+  const filePath = sidecarPath(basePath, manifest.target);
+  writeFileSync(filePath, JSON.stringify(manifest, null, 2) + "\n");
+}
+
+/**
+ * Read a sidecar manifest. Returns null if the file doesn't exist
+ * or can't be parsed.
+ */
+export function readSidecarManifest(
+  basePath: string,
+  target: string,
+): SidecarManifest | null {
+  const filePath = sidecarPath(basePath, target);
+  if (!existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, "utf-8")) as SidecarManifest;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Diff a stored sidecar manifest against current file state.
+ *
+ * Compares the stored per-file hashes against freshly computed hashes
+ * for the current input set. Reports changed, deleted, and newly
+ * discovered files individually.
+ */
+export function diffSidecarManifest(
+  manifest: SidecarManifest,
+  currentInputFiles: string[],
+  basePath: string,
+): SidecarDiff {
+  const currentHashes = computePerFileHashes(currentInputFiles, basePath);
+  const changed: string[] = [];
+  const deleted: string[] = [];
+  const added: string[] = [];
+
+  // Check files that were tracked at compile time
+  for (const [file, storedHash] of Object.entries(manifest.files)) {
+    if (!(file in currentHashes)) {
+      // File was tracked but is no longer in the discovered input set.
+      // Check if it still exists on disk — if not, it's deleted.
+      if (!existsSync(resolve(basePath, file))) {
+        deleted.push(file);
+      }
+      continue;
+    }
+    const currentHash = currentHashes[file];
+    if (currentHash === "MISSING" && storedHash !== "MISSING") {
+      deleted.push(file);
+    } else if (currentHash !== storedHash) {
+      changed.push(file);
+    }
+  }
+
+  // Check for newly discovered inputs not in the manifest
+  for (const file of currentInputFiles) {
+    if (!(file in manifest.files)) {
+      added.push(file);
+    }
+  }
+
+  const fresh =
+    changed.length === 0 && deleted.length === 0 && added.length === 0;
+  return { fresh, changed, deleted, added };
+}
+
+// ---------------------------------------------------------------------------
+// Affected-specs reporter
+// ---------------------------------------------------------------------------
+
+/**
+ * Read all sidecar manifests from .vigiles/ and build a reverse index
+ * from input file → affected targets.
+ *
+ * Returns a map: { "eslint.config.mjs": ["CLAUDE.md", "AGENTS.md"], ... }
+ */
+export function buildReverseIndex(basePath: string): Map<string, string[]> {
+  const index = new Map<string, string[]>();
+  const dir = resolve(basePath, ".vigiles");
+  if (!existsSync(dir)) return index;
+
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return index;
+  }
+
+  for (const entry of entries) {
+    if (!entry.endsWith(".inputs.json")) continue;
+    const manifest = readSidecarManifest(
+      basePath,
+      entry.replace(".inputs.json", ""),
+    );
+    if (!manifest) continue;
+    for (const file of Object.keys(manifest.files)) {
+      const targets = index.get(file);
+      if (targets) {
+        targets.push(manifest.target);
+      } else {
+        index.set(file, [manifest.target]);
+      }
+    }
+  }
+  return index;
+}
+
+/**
+ * Given a list of changed files, return which spec targets are affected.
+ *
+ * Uses the reverse index built from sidecar manifests. A target is
+ * affected if any of its tracked input files appear in the changed set.
+ */
+export function affectedSpecs(
+  basePath: string,
+  changedFiles: string[],
+): string[] {
+  const index = buildReverseIndex(basePath);
+  const affected = new Set<string>();
+  for (const file of changedFiles) {
+    const targets = index.get(file);
+    if (targets) {
+      for (const t of targets) affected.add(t);
+    }
+  }
+  return [...affected].sort();
 }

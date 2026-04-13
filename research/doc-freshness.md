@@ -506,6 +506,332 @@ Option 3 (auto-generated) is cleanest: the filesystem is the source of truth, th
 
 But option 2 (compiled from spec) is more valuable: descriptions can't be auto-generated (they require understanding), so the spec is the right place for human-written descriptions. The compiler just verifies nothing was missed.
 
+## Competitive Landscape
+
+### Tool survey
+
+| Tool               | Type                  | Deterministic | CLI       | Key mechanism                                                        |
+| ------------------ | --------------------- | ------------- | --------- | -------------------------------------------------------------------- |
+| Drift (Fiberplane) | Doc-code anchor       | Yes           | Yes       | Tree-sitter AST fingerprinting, symbol-level anchors, git provenance |
+| ctxlint (YawLabs)  | Context-file linter   | Yes           | Yes       | Codebase cross-ref, git rename detection, auto-fix                   |
+| DOCER              | Academic tool         | Yes           | GH Action | Regex-based code element extraction from docs                        |
+| Doc Detective      | Doc testing           | Yes           | Yes       | Executes commands/examples embedded in docs                          |
+| ai-contextor       | AI doc freshness      | Yes           | Yes       | Source-to-doc mapping config, mtime-based freshness                  |
+| doc-hunt           | Doc tracking          | Yes           | Yes       | Explicit doc-to-source regex mapping with git tracking               |
+| agents-lint        | AGENTS.md linter      | Yes           | Yes       | Path/script/package validation, deprecated package detection         |
+| agnix              | Agent config linter   | Yes           | Yes       | 385 rules, confidence-tiered auto-fix, SARIF output                  |
+| Swimm              | Code-coupled docs     | Partial       | No (SaaS) | Patented histogram-based snippet tracking                            |
+| Repowise           | Codebase intelligence | Yes           | Yes       | Confidence scoring with git-informed decay (0.0–1.0)                 |
+| code-forensics     | Git analytics         | Yes           | Yes       | Temporal coupling / co-change ratio from commit history              |
+
+### Key insights from competing tools
+
+**Drift** anchors markdown specs to source code using tree-sitter. It hashes a normalized AST fingerprint (node kinds + token text, no whitespace or position data). Reformatting a file won't trigger a false positive. An optional `#Name` suffix narrows the anchor to a specific declaration (function, class, type) — the rest of the file can change freely. An optional `@<git-sha>` suffix records which commit last addressed the anchor.
+
+**ctxlint** cross-references context files against the actual codebase. When a file path is stale, it uses `git log --follow --diff-filter=R` to detect renames and suggests the new path. Auto-fix rewrites broken paths using git history. 91% precision across 8 popular open-source repos.
+
+**DOCER** extracts code element references from documentation using regex (variables, functions, class names found in backtick spans). Compares against the codebase. When merging a PR would create outdated references, it comments on the PR. Analysis of 3,000+ GitHub projects found most contain at least one outdated code element reference.
+
+**doc-hunt** uses explicit doc-to-source regex mappings stored in a `.doc-hunt` tracking file committed to VCS. `doc-hunt check` reports whether tracked sources changed since last `doc-hunt update`. Simple, deterministic, zero dependencies.
+
+**code-forensics / CodeScene** compute temporal coupling: given doc file D and code file C, how often do they co-change in commits? Low co-change ratio = documentation drift risk. This is a well-established metric in software engineering research that has never been applied to AI instruction files.
+
+**Repowise** assigns freshness scores per documentation page (0.0–1.0). Confidence scores decay when source changes — stale pages auto-regenerate. The decay is git-informed: more source commits without a corresponding doc update = lower score.
+
+## Additional Options
+
+Beyond the three modes already designed (strict, input-hash, output-hash), the following options are informed by the competitive landscape and by algorithms used in adjacent fields (build systems, version control, software engineering research).
+
+### Option 4: Per-file sidecar manifest
+
+**Source:** Planned as Phase 3 in this doc. Informed by doc-hunt's tracking file and Bazel's action cache.
+
+Store individual file hashes (not just a combined fingerprint) in `.vigiles/<target>.inputs.json`:
+
+```json
+{
+  "specFile": "CLAUDE.md.spec.ts",
+  "target": "CLAUDE.md",
+  "compiledAt": "2025-01-15T10:30:00.000Z",
+  "vigilesVersion": "0.5.0",
+  "files": {
+    "CLAUDE.md.spec.ts": "a1b2c3d4e5f6g7h8",
+    "eslint.config.mjs": "e5f6a7b8c9d0e1f2",
+    "package.json": "1234abcd5678ef90",
+    "src/compile.ts": "fedcba0987654321"
+  }
+}
+```
+
+On audit, compare each file hash individually. Report exactly which files changed:
+
+```
+Freshness: CLAUDE.md is stale
+  Changed inputs:
+    eslint.config.mjs  (content changed)
+    src/utils/old.ts   (deleted)
+  Unchanged: 14 files
+```
+
+This is the foundation for every other option — without per-file tracking, you can only say "something changed" not "what changed."
+
+**Determinism:** Fully deterministic (SHA-256 comparison).
+**Scope:** Small — add JSON write at compile time, comparison at audit time.
+**Hooks:** Pre-commit hook reads the sidecar, skips recompile if no inputs changed (Bazel-style memoization).
+
+### Option 5: Affected-specs reporter
+
+**Source:** Bazel's target determination, Jest's `--changedSince`, Nx's affected graph.
+
+Given a set of changed files, report which specs need recompilation. This is a **reverse index** of the input discovery: instead of "spec → inputs," query "input → specs."
+
+```bash
+# CI: only recompile specs affected by this PR
+vigiles affected --base main | xargs vigiles compile
+
+# Pre-commit: check only affected specs
+vigiles affected --files $(git diff --cached --name-only) | xargs vigiles compile --check
+```
+
+The algorithm reads all sidecar manifests (`.vigiles/*.inputs.json`), builds an inverted index `{file → [specs]}`, and intersects with the changed file list. O(n) in the number of tracked files.
+
+**Determinism:** Fully deterministic (set intersection).
+**Scope:** Small — reads existing sidecar manifests, builds reverse map.
+**Hooks:** Pre-commit hook runs `vigiles affected --staged` to recompile only what changed. CI runs `vigiles affected --base main` to skip unchanged specs. Transforms O(all specs) compilation into O(affected specs).
+
+### Option 6: Git rename auto-repair
+
+**Source:** ctxlint's git rename detection with fuzzy-match suggestions.
+
+When `file()` validation fails (file not found), query git for renames:
+
+```bash
+git log --all --diff-filter=R --find-renames --format="%H" -- <missing-path>
+```
+
+If the file was renamed, the error message becomes actionable:
+
+```
+File not found: "src/utils/logger.ts"
+  → Renamed to "src/telemetry/logger.ts" in commit abc1234
+  Run: vigiles compile --fix to update the spec
+```
+
+With `--fix`, vigiles updates the `file()` call in the spec source automatically.
+
+**Determinism:** Fully deterministic (git history).
+**Scope:** Small — add a `git log` subprocess call in the error path of `validateFileRef()` in `compile.ts`. No new dependencies.
+**Hooks:** Not hook-dependent, but improves the error UX for every workflow.
+
+### Option 7: Temporal coupling analysis (co-change ratio)
+
+**Source:** Software engineering research on temporal coupling (Ying et al. 2004, D'Ambros et al. 2009). Productionized by CodeScene and code-forensics. Never applied to AI instruction files.
+
+For each `file()` reference in a spec, compute how often the referenced file and the spec file co-change in the same commit. A low ratio means the code is evolving but the spec isn't keeping up — a quantitative staleness risk score.
+
+```
+Co-change analysis (last 100 commits):
+  src/api/router.ts      12 code changes, 1 spec change  ( 8%)  ⚠ DRIFT RISK
+  src/compile.ts          5 code changes, 4 spec changes (80%)  ✓ coupled
+  eslint.config.mjs       3 code changes, 2 spec changes (67%)  ✓ coupled
+  src/legacy/old.ts       0 code changes, 0 spec changes   —    unchanged
+```
+
+The algorithm:
+
+```
+for each file F referenced via file() in spec S:
+  code_changes = count commits touching F in last N commits
+  spec_changes = count commits touching S in same window
+  co_changes   = count commits touching BOTH F and S
+  ratio        = co_changes / code_changes  (0 if code_changes == 0)
+  if ratio < threshold (default 0.2) and code_changes >= min_changes (default 3):
+    flag as drift risk
+```
+
+This is the temporal coupling metric from software engineering research, applied to spec-to-code relationships. It catches a class of staleness that hash-based approaches miss: the spec may compile fine and all references resolve, but the referenced code has evolved enough that the spec's _descriptions_ are likely outdated.
+
+**Determinism:** Fully deterministic (git log commit counting).
+**Scope:** Medium — requires `git log` parsing per file reference. ~50 lines of implementation. No external dependencies.
+**Hooks:** `vigiles audit --coupling` as a weekly CI job catches slow drift that per-commit checks miss.
+
+### Option 8: AST-normalized config fingerprinting
+
+**Source:** Fiberplane Drift's tree-sitter AST fingerprinting, applied to linter configs specifically.
+
+Instead of hashing `eslint.config.mjs` as raw text, parse the config and hash only the semantic content (the rule set). Formatting changes, comment additions, and import reordering don't change the hash.
+
+For ESLint: vigiles already calls `calculateConfigForFile()` during linter verification. The resolved config contains the effective rule set. Hash that instead of the raw file.
+
+For TOML-based configs (pyproject.toml, ruff.toml): parse TOML, extract the relevant section (`[tool.ruff.lint]`, `[lints.clippy]`), serialize deterministically, hash.
+
+For YAML-based configs (.rubocop.yml, .stylelintrc.yml): parse YAML, extract rule keys, sort, hash.
+
+| Config type      | Parse with                          | Hash what                             |
+| ---------------- | ----------------------------------- | ------------------------------------- |
+| eslint.config.\* | ESLint API `calculateConfigForFile` | Resolved rule set (already available) |
+| pyproject.toml   | TOML parser                         | `[tool.ruff.lint]` section            |
+| .rubocop.yml     | YAML parser                         | Cops configuration                    |
+| Cargo.toml       | TOML parser                         | `[lints.clippy]` section              |
+| .pylintrc        | INI parser                          | `[MESSAGES CONTROL]` section          |
+| .stylelintrc.\*  | JSON/YAML parser                    | Rules object                          |
+
+This eliminates false positives in input-hash mode where reformatting a config triggers a stale signal. The input hash only changes when the _effective linter rules_ change.
+
+**Determinism:** Fully deterministic (parse → normalize → hash).
+**Scope:** Medium — requires parsers per config format. vigiles already has TOML/YAML/JSON parsing for linter verification, so this reuses existing infrastructure.
+**Hooks:** Reduces noise in pre-commit hooks by eliminating false-positive staleness from config formatting.
+
+### Option 9: Spec age warning with commit velocity
+
+**Source:** Repowise's confidence scoring, Packmind's staleness thresholds, CodeScene's code age visualization.
+
+If the spec file hasn't been modified in N days but the project has had M+ commits touching referenced files, emit an informational warning:
+
+```
+Age warning: CLAUDE.md.spec.ts
+  Last modified: 94 days ago
+  Referenced files changed: 47 commits since last spec update
+  Consider reviewing.
+```
+
+The algorithm is two `git log` calls:
+
+```
+spec_last_modified = git log -1 --format=%aI -- <spec-file>
+ref_commits_since = git log --oneline --since=<spec_last_modified> -- <referenced-files...> | wc -l
+if days_since(spec_last_modified) > threshold_days AND ref_commits_since > threshold_commits:
+  warn
+```
+
+This catches slow drift that hash-based checks miss entirely: the spec compiles fine, all references resolve, but the code has evolved significantly while the spec's prose descriptions stagnated.
+
+**Determinism:** Fully deterministic (git dates + commit counts).
+**Scope:** Tiny — two `git log` calls, date comparison.
+**Hooks:** Weekly CI job. Not useful as a pre-commit hook (too coarse-grained).
+
+### Option 10: Code element cross-referencing
+
+**Source:** DOCER (ICSE 2024 paper), applied to compiled vigiles output.
+
+Scan compiled markdown for backtick-quoted identifiers (`compileSpec`, `ClaudeSpec`, `checkLinterRule`). Verify each identifier still exists somewhere in the codebase via grep. Flag identifiers that appear in the markdown but no longer exist in any source file:
+
+```
+Stale code references in CLAUDE.md:
+  `formatOutput` — not found in codebase (deleted in commit def5678?)
+  `LinterResult` — not found in codebase (renamed to LinterCheckResult?)
+```
+
+The algorithm:
+
+```
+1. Extract backtick-quoted tokens from compiled markdown: /`([A-Za-z_]\w+)`/g
+2. Filter out common English words, markdown formatting, file paths, commands
+3. For each remaining identifier, grep the source tree
+4. Report identifiers with zero matches
+```
+
+This catches a class of staleness that file-level tracking misses: a file still exists and compiles, but the specific function/type/variable mentioned in the prose was renamed or removed. DOCER's research found this affects most projects.
+
+**Determinism:** Fully deterministic (regex extraction + grep).
+**Scope:** Medium — identifier extraction regex, word filter, source grep. ~80 lines.
+**Hooks:** `vigiles audit --refs` as a CI check. Could also run as a post-compile validation step.
+
+## Top 3 Recommendation
+
+Evaluated against vigiles's positioning (spec-as-source-of-truth, build-artifact model, deterministic verification) and the constraints (deterministic, CLI-friendly, reasonable scope, hook-compatible):
+
+### 1. Per-file sidecar manifest (Option 4)
+
+**Why #1:** It's the foundation. Every other option benefits from per-file tracking. Without it, you can only say "something changed." With it, you can say "eslint.config.mjs changed, and it affects sections X and Y." It's also the prerequisite for the affected-specs reporter.
+
+The sidecar file is a build artifact, consistent with vigiles's architecture. It's `.gitignore`-able (local cache) or committable (shared baseline), user's choice.
+
+### 2. Affected-specs reporter (Option 5)
+
+**Why #2:** It transforms vigiles from "recompile everything" to "recompile what changed." This is the Bazel/Nx insight applied to instruction files. In a monorepo with 20 specs, recompiling only the 2 affected by a config change is a 10x speedup.
+
+It also enables the cleanest hook pattern: pre-commit runs `vigiles affected --staged | xargs vigiles compile --check` — only validates specs whose inputs were staged. Zero wasted work.
+
+### 3. Git rename auto-repair (Option 6)
+
+**Why #3:** Small scope, high signal, immediately improves the developer experience. When a `file()` reference breaks, the error goes from "File not found" (dead end) to "File renamed to X in commit Y" (actionable). This is the kind of polish that makes a tool feel intelligent.
+
+It also solves the most common staleness scenario: a file is renamed during a refactor, the spec is forgotten, and compilation breaks. Instead of manual investigation, vigiles tells you exactly what happened.
+
+### Honorable mention: Temporal coupling (Option 7)
+
+The co-change ratio is the most algorithmically novel option — a well-established metric from software engineering research that has never been applied to AI instruction files. It catches "slow drift" that no hash-based approach can detect. Deferred because it's a diagnostic/reporting feature, not a correctness check. Best suited as a periodic audit (`vigiles audit --coupling`) rather than a per-commit gate.
+
+## Hook Integration Patterns
+
+The options above pair naturally with hooks. Recommended configurations:
+
+### Pre-commit: auto-recompile affected specs
+
+```json
+{
+  "hooks": {
+    "pre-commit": "vigiles affected --staged --quiet | xargs -r vigiles compile --check"
+  }
+}
+```
+
+Blocks commits where staged files would make a spec stale. Only checks affected specs (fast). The `--check` flag means "verify, don't write" — if stale, the developer runs `vigiles compile` manually and stages the result.
+
+Variant with auto-fix:
+
+```json
+{
+  "hooks": {
+    "pre-commit": "vigiles affected --staged --quiet | xargs -r vigiles compile && git add $(vigiles affected --staged --targets)"
+  }
+}
+```
+
+Auto-recompiles and stages the updated markdown. Zero friction but hides drift (the developer doesn't see what changed). Use with caution.
+
+### Post-checkout: staleness warning
+
+```json
+{
+  "hooks": {
+    "post-checkout": "vigiles audit --freshness --quiet || echo 'vigiles: some specs are stale — run vigiles compile'"
+  }
+}
+```
+
+After `git checkout` or `git pull`, warn if compiled files are stale. Non-blocking (exits 0 regardless). Useful when switching to a branch where someone else changed inputs but didn't recompile.
+
+### CI: affected-only compilation
+
+```yaml
+# .github/workflows/vigiles.yml
+- name: Check affected specs
+  run: |
+    vigiles affected --base origin/main --quiet | xargs -r vigiles compile --check
+```
+
+Only validates specs affected by the PR's changes. Skips unchanged specs entirely.
+
+### Weekly: coupling audit
+
+```yaml
+# .github/workflows/vigiles-weekly.yml
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Monday 9am
+jobs:
+  coupling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: vigiles audit --coupling --threshold 0.2
+```
+
+Catches slow drift that per-commit checks miss. Reports specs where referenced files have diverged significantly.
+
 ## Open Questions
 
 1. **Should `vigiles compile` auto-verify inputs before compiling?** (i.e., if inputs haven't changed, skip compilation entirely — Bazel-style memoization)
@@ -514,3 +840,6 @@ But option 2 (compiled from spec) is more valuable: descriptions can't be auto-g
 4. **How to handle inline mode?** Inline rules have no spec file — the "spec source" input doesn't exist. Input hash would cover just the markdown file + linter configs.
 5. **Should TOC.md be a new compilation target?** (`vigiles init --target=TOC.md` scaffolds a TOC spec for a directory.) Or should it be a separate `vigiles toc` command?
 6. **Recursive TOC depth:** Should nested TOCs be mandatory, or should a root TOC be allowed to list all files flat? Mandatory nesting scales better but adds friction for small projects.
+7. **Should the sidecar manifest be committed or gitignored?** Committed = shared baseline, CI can diff against it. Gitignored = local cache, no noise in PRs. Recommendation: gitignored by default, committable via config.
+8. **Should `vigiles affected` read sidecar manifests or re-discover inputs?** Sidecar is faster but requires a prior compile. Re-discovery is slower but always works. Recommendation: sidecar first, fall back to re-discovery.
+9. **Co-change threshold tuning:** What's the right default threshold for the temporal coupling warning? 20% co-change ratio? 10%? Should it be configurable per-spec?

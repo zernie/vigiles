@@ -15,7 +15,14 @@ import {
   extractInputHash,
   checkOutputHashFreshness,
   checkInputHashFreshness,
+  computePerFileHashes,
+  writeSidecarManifest,
+  readSidecarManifest,
+  diffSidecarManifest,
+  buildReverseIndex,
+  affectedSpecs,
 } from "./freshness.js";
+import type { SidecarManifest } from "./freshness.js";
 import type { ClaudeSpec } from "./spec.js";
 
 // ---------------------------------------------------------------------------
@@ -445,5 +452,355 @@ describe("checkInputHashFreshness", () => {
     const result = checkInputHashFreshness(content, files, tmpDir);
     assert.equal(result.fresh, false);
     assert.ok(result.changedFiles?.some((f) => f.includes("temp.txt")));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computePerFileHashes
+// ---------------------------------------------------------------------------
+
+describe("computePerFileHashes", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = makeTmpDir();
+    writeFileSync(join(tmpDir, "a.txt"), "hello");
+    writeFileSync(join(tmpDir, "b.txt"), "world");
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns 16-char hex hashes for existing files", () => {
+    const hashes = computePerFileHashes(["a.txt", "b.txt"], tmpDir);
+    assert.match(hashes["a.txt"], /^[a-f0-9]{16}$/);
+    assert.match(hashes["b.txt"], /^[a-f0-9]{16}$/);
+  });
+
+  it("returns MISSING for non-existent files", () => {
+    const hashes = computePerFileHashes(["nope.txt"], tmpDir);
+    assert.equal(hashes["nope.txt"], "MISSING");
+  });
+
+  it("returns consistent hashes for same content", () => {
+    const h1 = computePerFileHashes(["a.txt"], tmpDir);
+    const h2 = computePerFileHashes(["a.txt"], tmpDir);
+    assert.equal(h1["a.txt"], h2["a.txt"]);
+  });
+
+  it("returns different hashes for different content", () => {
+    const hashes = computePerFileHashes(["a.txt", "b.txt"], tmpDir);
+    assert.notEqual(hashes["a.txt"], hashes["b.txt"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// writeSidecarManifest / readSidecarManifest
+// ---------------------------------------------------------------------------
+
+describe("writeSidecarManifest / readSidecarManifest", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = makeTmpDir();
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("writes and reads a manifest", () => {
+    const manifest: SidecarManifest = {
+      specFile: "CLAUDE.md.spec.ts",
+      target: "CLAUDE.md",
+      compiledAt: "2025-01-15T10:30:00.000Z",
+      files: {
+        "CLAUDE.md.spec.ts": "aaaa111122223333",
+        "package.json": "bbbb444455556666",
+      },
+    };
+    writeSidecarManifest(tmpDir, manifest);
+    const read = readSidecarManifest(tmpDir, "CLAUDE.md");
+    assert.deepEqual(read, manifest);
+  });
+
+  it("creates .vigiles/ directory if needed", () => {
+    const freshDir = makeTmpDir();
+    const manifest: SidecarManifest = {
+      specFile: "X.spec.ts",
+      target: "X.md",
+      compiledAt: new Date().toISOString(),
+      files: {},
+    };
+    writeSidecarManifest(freshDir, manifest);
+    const read = readSidecarManifest(freshDir, "X.md");
+    assert.deepEqual(read, manifest);
+    rmSync(freshDir, { recursive: true, force: true });
+  });
+
+  it("returns null for missing manifest", () => {
+    const result = readSidecarManifest(tmpDir, "NONEXISTENT.md");
+    assert.equal(result, null);
+  });
+
+  it("returns null for malformed JSON", () => {
+    mkdirSync(join(tmpDir, ".vigiles"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, ".vigiles", "BAD.md.inputs.json"),
+      "not json{{{",
+    );
+    const result = readSidecarManifest(tmpDir, "BAD.md");
+    assert.equal(result, null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// diffSidecarManifest
+// ---------------------------------------------------------------------------
+
+describe("diffSidecarManifest", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = makeTmpDir();
+    writeFileSync(join(tmpDir, "spec.ts"), "export default {};");
+    writeFileSync(join(tmpDir, "config.js"), "module.exports = {};");
+    writeFileSync(join(tmpDir, "utils.ts"), "export const x = 1;");
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("reports fresh when nothing changed", () => {
+    const files = ["spec.ts", "config.js"];
+    const hashes = computePerFileHashes(files, tmpDir);
+    const manifest: SidecarManifest = {
+      specFile: "spec.ts",
+      target: "TEST.md",
+      compiledAt: new Date().toISOString(),
+      files: hashes,
+    };
+    const diff = diffSidecarManifest(manifest, files, tmpDir);
+    assert.equal(diff.fresh, true);
+    assert.deepEqual(diff.changed, []);
+    assert.deepEqual(diff.deleted, []);
+    assert.deepEqual(diff.added, []);
+  });
+
+  it("detects changed files", () => {
+    const files = ["spec.ts", "config.js"];
+    const hashes = computePerFileHashes(files, tmpDir);
+    const manifest: SidecarManifest = {
+      specFile: "spec.ts",
+      target: "TEST.md",
+      compiledAt: new Date().toISOString(),
+      files: hashes,
+    };
+
+    // Modify a file
+    writeFileSync(join(tmpDir, "config.js"), "module.exports = { v: 2 };");
+
+    const diff = diffSidecarManifest(manifest, files, tmpDir);
+    assert.equal(diff.fresh, false);
+    assert.deepEqual(diff.changed, ["config.js"]);
+    assert.deepEqual(diff.deleted, []);
+    assert.deepEqual(diff.added, []);
+  });
+
+  it("detects deleted files", () => {
+    writeFileSync(join(tmpDir, "temp.ts"), "temp");
+    const files = ["spec.ts", "temp.ts"];
+    const hashes = computePerFileHashes(files, tmpDir);
+    const manifest: SidecarManifest = {
+      specFile: "spec.ts",
+      target: "TEST.md",
+      compiledAt: new Date().toISOString(),
+      files: hashes,
+    };
+
+    rmSync(join(tmpDir, "temp.ts"));
+
+    const diff = diffSidecarManifest(manifest, files, tmpDir);
+    assert.equal(diff.fresh, false);
+    assert.deepEqual(diff.deleted, ["temp.ts"]);
+  });
+
+  it("detects newly added inputs", () => {
+    const files = ["spec.ts"];
+    const hashes = computePerFileHashes(files, tmpDir);
+    const manifest: SidecarManifest = {
+      specFile: "spec.ts",
+      target: "TEST.md",
+      compiledAt: new Date().toISOString(),
+      files: hashes,
+    };
+
+    // Now discover an additional input
+    const diff = diffSidecarManifest(manifest, ["spec.ts", "utils.ts"], tmpDir);
+    assert.equal(diff.fresh, false);
+    assert.deepEqual(diff.added, ["utils.ts"]);
+  });
+
+  it("reports all categories simultaneously", () => {
+    writeFileSync(join(tmpDir, "willdelete.ts"), "bye");
+    const files = ["spec.ts", "config.js", "willdelete.ts"];
+    const hashes = computePerFileHashes(files, tmpDir);
+    const manifest: SidecarManifest = {
+      specFile: "spec.ts",
+      target: "TEST.md",
+      compiledAt: new Date().toISOString(),
+      files: hashes,
+    };
+
+    // Change one, delete another, discover a new one
+    writeFileSync(join(tmpDir, "config.js"), "changed again");
+    rmSync(join(tmpDir, "willdelete.ts"));
+
+    const diff = diffSidecarManifest(
+      manifest,
+      ["spec.ts", "config.js", "willdelete.ts", "utils.ts"],
+      tmpDir,
+    );
+    assert.equal(diff.fresh, false);
+    assert.ok(diff.changed.includes("config.js"));
+    assert.ok(diff.deleted.includes("willdelete.ts"));
+    assert.ok(diff.added.includes("utils.ts"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildReverseIndex / affectedSpecs
+// ---------------------------------------------------------------------------
+
+describe("buildReverseIndex", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = makeTmpDir();
+    // Create two sidecar manifests
+    const m1: SidecarManifest = {
+      specFile: "CLAUDE.md.spec.ts",
+      target: "CLAUDE.md",
+      compiledAt: new Date().toISOString(),
+      files: {
+        "CLAUDE.md.spec.ts": "aaaa",
+        "eslint.config.mjs": "bbbb",
+        "package.json": "cccc",
+      },
+    };
+    const m2: SidecarManifest = {
+      specFile: "AGENTS.md.spec.ts",
+      target: "AGENTS.md",
+      compiledAt: new Date().toISOString(),
+      files: {
+        "AGENTS.md.spec.ts": "dddd",
+        "eslint.config.mjs": "bbbb",
+        "src/api.ts": "eeee",
+      },
+    };
+    writeSidecarManifest(tmpDir, m1);
+    writeSidecarManifest(tmpDir, m2);
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("maps shared files to multiple targets", () => {
+    const index = buildReverseIndex(tmpDir);
+    const targets = index.get("eslint.config.mjs");
+    assert.ok(targets);
+    assert.ok(targets.includes("CLAUDE.md"));
+    assert.ok(targets.includes("AGENTS.md"));
+  });
+
+  it("maps unique files to single target", () => {
+    const index = buildReverseIndex(tmpDir);
+    assert.deepEqual(index.get("src/api.ts"), ["AGENTS.md"]);
+    assert.deepEqual(index.get("package.json"), ["CLAUDE.md"]);
+  });
+
+  it("returns empty map for missing .vigiles/", () => {
+    const emptyDir = makeTmpDir();
+    const index = buildReverseIndex(emptyDir);
+    assert.equal(index.size, 0);
+    rmSync(emptyDir, { recursive: true, force: true });
+  });
+});
+
+describe("affectedSpecs", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = makeTmpDir();
+    const m1: SidecarManifest = {
+      specFile: "CLAUDE.md.spec.ts",
+      target: "CLAUDE.md",
+      compiledAt: new Date().toISOString(),
+      files: {
+        "CLAUDE.md.spec.ts": "aaaa",
+        "eslint.config.mjs": "bbbb",
+        "package.json": "cccc",
+      },
+    };
+    const m2: SidecarManifest = {
+      specFile: "AGENTS.md.spec.ts",
+      target: "AGENTS.md",
+      compiledAt: new Date().toISOString(),
+      files: {
+        "AGENTS.md.spec.ts": "dddd",
+        "eslint.config.mjs": "bbbb",
+      },
+    };
+    const m3: SidecarManifest = {
+      specFile: "SKILL.md.spec.ts",
+      target: "SKILL.md",
+      compiledAt: new Date().toISOString(),
+      files: {
+        "SKILL.md.spec.ts": "ffff",
+        "src/api.ts": "gggg",
+      },
+    };
+    writeSidecarManifest(tmpDir, m1);
+    writeSidecarManifest(tmpDir, m2);
+    writeSidecarManifest(tmpDir, m3);
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns all specs affected by a shared input", () => {
+    const result = affectedSpecs(tmpDir, ["eslint.config.mjs"]);
+    assert.deepEqual(result, ["AGENTS.md", "CLAUDE.md"]);
+  });
+
+  it("returns single spec for a unique input", () => {
+    const result = affectedSpecs(tmpDir, ["src/api.ts"]);
+    assert.deepEqual(result, ["SKILL.md"]);
+  });
+
+  it("deduplicates when multiple changed files affect same spec", () => {
+    const result = affectedSpecs(tmpDir, ["eslint.config.mjs", "package.json"]);
+    // CLAUDE.md appears once despite two of its inputs being in the list
+    assert.deepEqual(result, ["AGENTS.md", "CLAUDE.md"]);
+  });
+
+  it("returns empty array for untracked files", () => {
+    const result = affectedSpecs(tmpDir, ["random-file.txt"]);
+    assert.deepEqual(result, []);
+  });
+
+  it("returns empty array for empty changed set", () => {
+    const result = affectedSpecs(tmpDir, []);
+    assert.deepEqual(result, []);
+  });
+
+  it("returns sorted results", () => {
+    const result = affectedSpecs(tmpDir, ["eslint.config.mjs", "src/api.ts"]);
+    const sorted = [...result].sort();
+    assert.deepEqual(result, sorted);
   });
 });
