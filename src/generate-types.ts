@@ -16,6 +16,40 @@ import { execSync } from "node:child_process";
 import { globSync } from "glob";
 
 // ---------------------------------------------------------------------------
+// Linter config detection
+// ---------------------------------------------------------------------------
+
+function fileContainsSection(filePath: string, section: string): boolean {
+  if (!existsSync(filePath)) return false;
+  try {
+    return readFileSync(filePath, "utf-8").includes(section);
+  } catch {
+    return false;
+  }
+}
+
+function hasRuffConfig(basePath: string): boolean {
+  return (
+    existsSync(resolve(basePath, "ruff.toml")) ||
+    existsSync(resolve(basePath, ".ruff.toml")) ||
+    fileContainsSection(resolve(basePath, "pyproject.toml"), "[tool.ruff")
+  );
+}
+
+function hasPylintConfig(basePath: string): boolean {
+  return (
+    existsSync(resolve(basePath, ".pylintrc")) ||
+    existsSync(resolve(basePath, "pylintrc")) ||
+    fileContainsSection(resolve(basePath, "pyproject.toml"), "[tool.pylint") ||
+    fileContainsSection(resolve(basePath, "setup.cfg"), "[pylint")
+  );
+}
+
+function hasRubocopConfig(basePath: string): boolean {
+  return existsSync(resolve(basePath, ".rubocop.yml"));
+}
+
+// ---------------------------------------------------------------------------
 // Linter rule discovery
 // ---------------------------------------------------------------------------
 
@@ -93,6 +127,7 @@ function discoverStylelintRules(basePath: string): DiscoveredRules | null {
 
 function discoverRuffRules(basePath: string): DiscoveredRules | null {
   try {
+    if (!hasRuffConfig(basePath)) return null;
     execSync("which ruff", { stdio: "ignore" });
     const dummyPath = resolve(basePath, "dummy.py");
     const output = execSync(`ruff check --show-settings ${dummyPath}`, {
@@ -121,6 +156,7 @@ function discoverRuffRules(basePath: string): DiscoveredRules | null {
 
 function discoverPylintRules(basePath: string): DiscoveredRules | null {
   try {
+    if (!hasPylintConfig(basePath)) return null;
     execSync("which pylint", { stdio: "ignore" });
     const output = execSync("pylint --list-msgs-enabled", {
       encoding: "utf-8",
@@ -152,6 +188,7 @@ function discoverPylintRules(basePath: string): DiscoveredRules | null {
 
 function discoverRubocopRules(basePath: string): DiscoveredRules | null {
   try {
+    if (!hasRubocopConfig(basePath)) return null;
     execSync("which rubocop", { stdio: "ignore" });
     const output = execSync(
       "rubocop --list-target-files --show-cops 2>/dev/null | head -500",
@@ -178,9 +215,9 @@ function discoverRubocopRules(basePath: string): DiscoveredRules | null {
 
 function discoverClippyRules(basePath: string): DiscoveredRules | null {
   try {
-    execSync("which cargo", { stdio: "ignore" });
     const cargoPath = resolve(basePath, "Cargo.toml");
     if (!existsSync(cargoPath)) return null;
+    execSync("which cargo", { stdio: "ignore" });
     // Clippy doesn't have a good "list enabled lints" command.
     // We read Cargo.toml [lints.clippy] section for explicit config,
     // and include default warn/deny lints from clippy -W clippy::all
