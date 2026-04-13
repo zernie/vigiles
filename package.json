@@ -1,8 +1,9 @@
 {
   "name": "vigiles",
-  "private": true,
+  "version": "2.0.0",
+  "description": "Compile .spec.ts files to instruction files (CLAUDE.md, AGENTS.md) with linter cross-referencing",
   "bin": {
-    "vigiles": "./dist/cli.js"
+    "vigiles": "dist/cli.js"
   },
   "main": "./dist/spec.js",
   "types": "./dist/spec.d.ts",
