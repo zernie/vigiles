@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:f4e63f43bb010ef2 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:0f7a26f89b725a5d compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -84,6 +84,7 @@ Core modules: `src/spec.ts` (types + builders), `src/compile.ts` (compiler), `sr
 - `npm test` — Build and run all tests
 - `npm run fmt` — Format with prettier
 - `npm run fmt:check` — Check formatting
+- `npm run lint` — Run ESLint on src/
 
 ## Rules
 

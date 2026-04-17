@@ -121,6 +121,7 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
     "npm test": "Build and run all tests",
     "npm run fmt": "Format with prettier",
     "npm run fmt:check": "Check formatting",
+    "npm run lint": "Run ESLint on src/",
   },
 
   rules: {
