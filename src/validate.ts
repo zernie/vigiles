@@ -59,6 +59,7 @@ const DEFAULT_RULES: Required<RulesConfig> = {
   "require-spec": "warn",
   "require-skill-spec": "warn",
   freshness: "warn",
+  coverage: false,
 };
 
 const DEFAULT_CONFIG: VigilesConfig = {

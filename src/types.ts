@@ -61,6 +61,8 @@ export interface RulesConfig {
   "require-skill-spec"?: RuleSeverity;
   /** Detect stale compiled output. Default: "warn". */
   freshness?: RuleSeverity;
+  /** Enforce minimum spec coverage thresholds. Default: false. */
+  coverage?: RuleSeverity;
 }
 
 /** Full vigiles configuration. Loaded from .vigilesrc.json. */
@@ -87,6 +89,15 @@ export interface VigilesConfig {
   freshnessMode?: FreshnessMode;
   /** Extra files to track in input-hash mode (e.g., monorepo root lock file). */
   freshnessInputs?: string[];
+
+  // --- Coverage ---
+  /** Minimum coverage thresholds. Audit warns/errors when below. */
+  coverageThresholds?: {
+    /** Min % of enabled linter rules with enforce() declarations. */
+    linterRules?: number;
+    /** Min % of npm scripts documented in spec commands. */
+    scripts?: number;
+  };
 }
 
 /** Valid marker types for rule detection. */
