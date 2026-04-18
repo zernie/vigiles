@@ -2,13 +2,8 @@
   "rules": {
     "require-spec": "error",
     "require-skill-spec": "warn",
-    "freshness": "warn",
-    "coverage": "warn",
+    "freshness": ["warn", { "mode": "strict" }],
+    "coverage": ["warn", { "scripts": 50, "linterRules": 5 }],
     "drift": "warn"
-  },
-  "freshnessMode": "strict",
-  "coverageThresholds": {
-    "scripts": 50,
-    "linterRules": 5
   }
 }

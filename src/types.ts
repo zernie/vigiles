@@ -51,20 +51,62 @@ export interface ValidatePathsResult {
 /** Rule severity: "warn" prints but exits 0, "error" fails, false disables. */
 export type RuleSeverity = "warn" | "error" | false;
 
+/** Rule with options: severity alone or [severity, options] tuple. */
+export type RuleWithOptions<T> =
+  | RuleSeverity
+  | [Exclude<RuleSeverity, false>, T];
+
 /** Freshness detection mode for the `freshness` rule. */
 export type FreshnessMode = "strict" | "input-hash" | "output-hash";
+
+/** Options for the freshness rule. */
+export interface FreshnessOptions {
+  /** How to detect staleness. Default: "strict". */
+  mode?: FreshnessMode;
+  /** Extra files to track in input-hash mode. */
+  extraInputs?: string[];
+}
+
+/** Options for the coverage rule. */
+export interface CoverageThresholds {
+  /** Min % of enabled linter rules with enforce() declarations. */
+  linterRules?: number;
+  /** Min % of npm scripts documented in spec commands. */
+  scripts?: number;
+}
 
 export interface RulesConfig {
   /** Require .spec.ts for CLAUDE.md / AGENTS.md. Default: "warn". */
   "require-spec"?: RuleSeverity;
   /** Require .spec.ts for SKILL.md files. Default: false. */
   "require-skill-spec"?: RuleSeverity;
-  /** Detect stale compiled output. Default: "warn". */
-  freshness?: RuleSeverity;
-  /** Enforce minimum spec coverage thresholds. Default: false. */
-  coverage?: RuleSeverity;
+  /** Detect stale compiled output. Default: "warn". ESLint-style: ["warn", { mode: "strict" }]. */
+  freshness?: RuleWithOptions<FreshnessOptions>;
+  /** Enforce minimum spec coverage thresholds. Default: false. ESLint-style: ["warn", { scripts: 50 }]. */
+  coverage?: RuleWithOptions<CoverageThresholds>;
   /** Check drift anchors for code changes. Default: "warn". */
   drift?: RuleSeverity;
+}
+
+// ---------------------------------------------------------------------------
+// Rule parsing helpers
+// ---------------------------------------------------------------------------
+
+/** Extract severity from a rule value (handles both simple and tuple forms). */
+export function ruleSeverity<T>(
+  rule: RuleWithOptions<T> | undefined,
+): RuleSeverity {
+  if (rule === undefined) return false;
+  if (Array.isArray(rule)) return rule[0];
+  return rule;
+}
+
+/** Extract options from a rule value (returns undefined for simple severity). */
+export function ruleOptions<T>(
+  rule: RuleWithOptions<T> | undefined,
+): T | undefined {
+  if (Array.isArray(rule)) return rule[1];
+  return undefined;
 }
 
 /** Full vigiles configuration. Loaded from .vigilesrc.json. */
@@ -85,21 +127,6 @@ export interface VigilesConfig {
   catalogOnly?: boolean;
   /** Custom linter configs (rulesDir). */
   linters?: Record<string, { rulesDir?: string | string[] }>;
-
-  // --- Freshness ---
-  /** How to detect staleness. Default: "strict" (recompile and diff). */
-  freshnessMode?: FreshnessMode;
-  /** Extra files to track in input-hash mode (e.g., monorepo root lock file). */
-  freshnessInputs?: string[];
-
-  // --- Coverage ---
-  /** Minimum coverage thresholds. Audit warns/errors when below. */
-  coverageThresholds?: {
-    /** Min % of enabled linter rules with enforce() declarations. */
-    linterRules?: number;
-    /** Min % of npm scripts documented in spec commands. */
-    scripts?: number;
-  };
 }
 
 /** Valid marker types for rule detection. */

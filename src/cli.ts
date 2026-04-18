@@ -21,7 +21,8 @@ import { resolve } from "node:path";
 import { globSync } from "glob";
 import { generateTypes } from "./generate-types.js";
 import { validate, loadConfig } from "./validate.js";
-import type { VigilesConfig } from "./types.js";
+import type { VigilesConfig, FreshnessOptions } from "./types.js";
+import { ruleSeverity, ruleOptions } from "./types.js";
 
 import {
   compileClaude,
@@ -180,12 +181,15 @@ async function compile(
 
       // Embed input hash for freshness tracking
       let markdown = rawMarkdown;
-      if (config.freshnessMode === "input-hash") {
+      const freshnessOpts = ruleOptions<FreshnessOptions>(
+        config.rules.freshness,
+      );
+      if (freshnessOpts?.mode === "input-hash") {
         const inputs = discoverInputs(
           specPath,
           spec,
           basePath,
-          config.freshnessInputs,
+          freshnessOpts.extraInputs,
         );
         const inputHash = computeInputHash(inputs.files, basePath);
         markdown = addInputHash(rawMarkdown, inputHash);
@@ -694,11 +698,12 @@ async function audit(
   const guidanceCount = await countGuidanceRules(silent);
 
   // 5. Freshness check
-  const freshnessSeverity = config?.rules.freshness;
+  const freshnessSeverity = ruleSeverity(config?.rules.freshness);
   let freshnessErrors = 0;
   if (freshnessSeverity) {
     if (!silent) console.log("\nFreshness check:\n");
-    const mode = config?.freshnessMode ?? "strict";
+    const freshOpts = ruleOptions<FreshnessOptions>(config?.rules.freshness);
+    const mode = freshOpts?.mode ?? "strict";
     freshnessErrors = await checkFreshness(
       files,
       mode,
@@ -1376,7 +1381,7 @@ async function checkFreshness(
         specFile,
         spec,
         basePath,
-        config?.freshnessInputs,
+        ruleOptions<FreshnessOptions>(config?.rules.freshness)?.extraInputs,
       );
       result = checkInputHashFreshness(content, inputs.files, basePath);
     } else {

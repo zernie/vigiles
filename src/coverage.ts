@@ -12,16 +12,11 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
+import type { CoverageThresholds } from "./types.js";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export interface CoverageThresholds {
-  /** Min % of enabled linter rules with enforce() in specs. */
-  linterRules?: number;
-  /** Min % of npm scripts documented in spec commands. */
-  scripts?: number;
-}
 
 export interface CoverageMetric {
   name: string;
