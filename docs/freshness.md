@@ -59,10 +59,13 @@ For monorepos or non-standard layouts, add extra files to track:
 ```json
 {
   "rules": {
-    "freshness": ["warn", {
-      "mode": "input-hash",
-      "extraInputs": ["../../yarn.lock", "shared/eslint-config/index.js"]
-    }]
+    "freshness": [
+      "warn",
+      {
+        "mode": "input-hash",
+        "extraInputs": ["../../yarn.lock", "shared/eslint-config/index.js"]
+      }
+    ]
   }
 }
 ```
