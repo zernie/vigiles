@@ -11,9 +11,9 @@
  *   6. propertyTest()     — random mutation + invariant checking
  */
 
-import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 
+import { sha256short } from "./hash.js";
 import type { Rule, ClaudeSpec } from "./spec.js";
 
 // ---------------------------------------------------------------------------
@@ -489,10 +489,7 @@ export interface HistoryNode {
   timestamp: number;
 }
 
-/** Compute a short SHA-256 hash (16 hex chars). */
-function sha256short(data: string): string {
-  return createHash("sha256").update(data).digest("hex").slice(0, 16);
-}
+// sha256short imported from ./hash.js
 
 /** Compute the hash of a HistoryNode (excluding the hash field itself). */
 function computeNodeHash(node: Omit<HistoryNode, "hash">): string {

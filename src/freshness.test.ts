@@ -1,8 +1,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 
 import { createHash } from "node:crypto";
 
@@ -23,23 +22,7 @@ import {
   affectedSpecs,
 } from "./freshness.js";
 import type { SidecarManifest } from "./freshness.js";
-import type { ClaudeSpec } from "./spec.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeTmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "vigiles-freshness-"));
-}
-
-function makeSpec(overrides?: Partial<ClaudeSpec>): ClaudeSpec {
-  return {
-    _specType: "claude",
-    rules: {},
-    ...overrides,
-  } as ClaudeSpec;
-}
+import { makeTmpDir, makeSpec, cleanupTmpDir } from "./test-utils.js";
 
 // ---------------------------------------------------------------------------
 // detectLockFiles
@@ -53,7 +36,7 @@ describe("detectLockFiles", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("returns empty array when no lock files exist", () => {
@@ -173,7 +156,7 @@ describe("detectLinterConfigs", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("returns empty array when no configs exist", () => {
@@ -229,7 +212,7 @@ describe("discoverInputs", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("always includes the spec file", () => {
@@ -306,7 +289,7 @@ describe("computeInputHash", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("returns a 16-char hex string", () => {
@@ -408,7 +391,7 @@ describe("checkInputHashFreshness", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("returns stale when no input hash is stored", () => {
@@ -469,7 +452,7 @@ describe("computePerFileHashes", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("returns 16-char hex hashes for existing files", () => {
@@ -507,7 +490,7 @@ describe("writeSidecarManifest / readSidecarManifest", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("writes and reads a manifest", () => {
@@ -570,7 +553,7 @@ describe("diffSidecarManifest", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("reports fresh when nothing changed", () => {
@@ -705,7 +688,7 @@ describe("buildReverseIndex", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("maps shared files to multiple targets", () => {
@@ -769,7 +752,7 @@ describe("affectedSpecs", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("returns all specs affected by a shared input", () => {

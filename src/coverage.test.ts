@@ -1,8 +1,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 
 import {
   readNpmScripts,
@@ -13,14 +12,7 @@ import {
   formatCoverageReport,
 } from "./coverage.js";
 import type { ClaudeSpec } from "./spec.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeTmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "vigiles-coverage-"));
-}
+import { makeTmpDir, cleanupTmpDir, makeSpec } from "./test-utils.js";
 
 // ---------------------------------------------------------------------------
 // readNpmScripts
@@ -34,7 +26,7 @@ describe("readNpmScripts", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("returns empty array when no package.json", () => {
@@ -68,15 +60,13 @@ describe("readNpmScripts", () => {
 describe("collectDocumentedCommands", () => {
   it("extracts commands from spec objects", () => {
     const specs: ClaudeSpec[] = [
-      {
-        _specType: "claude",
+      makeSpec({
         commands: {
           "npm run build": "Compile",
           "npm test": "Test",
           "npm run fmt": "Format",
         },
-        rules: {},
-      } as ClaudeSpec,
+      }),
     ];
     const commands = collectDocumentedCommands(".", specs);
     assert.ok(commands.has("npm run build"));
@@ -86,16 +76,8 @@ describe("collectDocumentedCommands", () => {
 
   it("merges commands from multiple specs", () => {
     const specs: ClaudeSpec[] = [
-      {
-        _specType: "claude",
-        commands: { "npm test": "Test" },
-        rules: {},
-      } as ClaudeSpec,
-      {
-        _specType: "claude",
-        commands: { "npm run build": "Build" },
-        rules: {},
-      } as ClaudeSpec,
+      makeSpec({ commands: { "npm test": "Test" } }),
+      makeSpec({ commands: { "npm run build": "Build" } }),
     ];
     const commands = collectDocumentedCommands(".", specs);
     assert.ok(commands.has("npm test"));
@@ -103,9 +85,7 @@ describe("collectDocumentedCommands", () => {
   });
 
   it("returns empty set for specs without commands", () => {
-    const specs: ClaudeSpec[] = [
-      { _specType: "claude", rules: {} } as ClaudeSpec,
-    ];
+    const specs: ClaudeSpec[] = [makeSpec()];
     const commands = collectDocumentedCommands(".", specs);
     assert.equal(commands.size, 0);
   });
@@ -114,7 +94,7 @@ describe("collectDocumentedCommands", () => {
     const emptyDir = makeTmpDir();
     const commands = collectDocumentedCommands(emptyDir);
     assert.equal(commands.size, 0);
-    rmSync(emptyDir, { recursive: true, force: true });
+    cleanupTmpDir(emptyDir);
   });
 });
 
@@ -125,15 +105,13 @@ describe("collectDocumentedCommands", () => {
 describe("computeScriptCoverage", () => {
   let tmpDir: string;
   const specs: ClaudeSpec[] = [
-    {
-      _specType: "claude",
+    makeSpec({
       commands: {
         "npm run build": "Compile",
         "npm test": "Test",
         "npm run fmt": "Format",
       },
-      rules: {},
-    } as ClaudeSpec,
+    }),
   ];
 
   before(() => {
@@ -154,7 +132,7 @@ describe("computeScriptCoverage", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("computes correct coverage", () => {
@@ -224,11 +202,7 @@ describe("computeLinterRuleCoverage", () => {
 describe("checkCoverage", () => {
   let tmpDir: string;
   const checkSpecs: ClaudeSpec[] = [
-    {
-      _specType: "claude",
-      commands: { "npm test": "Test" },
-      rules: {},
-    } as ClaudeSpec,
+    makeSpec({ commands: { "npm test": "Test" } }),
   ];
 
   before(() => {
@@ -240,7 +214,7 @@ describe("checkCoverage", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("reports passing when all thresholds met", () => {

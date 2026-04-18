@@ -5,9 +5,10 @@
  * markdown instruction files with integrity hashes.
  */
 
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname, basename } from "node:path";
+
+import { sha256short } from "./hash.js";
 
 import type {
   ClaudeSpec,
@@ -29,7 +30,7 @@ const HASH_RE =
 /** @internal Compute SHA-256 hash of content (excluding any existing hash line). */
 export function computeHash(content: string): string {
   const body = content.replace(HASH_RE, "");
-  return createHash("sha256").update(body).digest("hex").slice(0, 16);
+  return sha256short(body);
 }
 
 /** @internal Prepend a hash comment to compiled content. */
@@ -47,10 +48,7 @@ export function verifyHash(
   const expectedHash = match[1];
   const specFile = match[2];
   const body = content.replace(HASH_RE, "");
-  const actualHash = createHash("sha256")
-    .update(body)
-    .digest("hex")
-    .slice(0, 16);
+  const actualHash = sha256short(body);
   return { valid: actualHash === expectedHash, specFile };
 }
 
@@ -107,7 +105,9 @@ function validateFileRef(
   return null;
 }
 
-function readPackageScripts(basePath: string): Record<string, string> | null {
+export function readPackageScripts(
+  basePath: string,
+): Record<string, string> | null {
   const pkgPath = resolve(basePath, "package.json");
   if (!existsSync(pkgPath)) return null;
   try {

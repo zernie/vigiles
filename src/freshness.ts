@@ -10,7 +10,6 @@
  * file hashes for granular change reporting and affected-specs queries.
  */
 
-import { createHash } from "node:crypto";
 import {
   existsSync,
   readFileSync,
@@ -20,6 +19,7 @@ import {
 } from "node:fs";
 import { resolve } from "node:path";
 
+import { sha256short } from "./hash.js";
 import type { FreshnessMode } from "./types.js";
 import type { ClaudeSpec } from "./spec.js";
 
@@ -89,19 +89,26 @@ const KNOWN_LINTER_CONFIGS: readonly string[] = [
   ".rubocop.yaml",
 ];
 
+function filterExistingFiles(
+  basePath: string,
+  candidates: readonly string[],
+): string[] {
+  return candidates.filter((f) => existsSync(resolve(basePath, f)));
+}
+
 /**
  * Detect lock files present at `basePath`.
  * Returns all found (a project may have multiple ecosystems).
  */
 export function detectLockFiles(basePath: string): string[] {
-  return KNOWN_LOCK_FILES.filter((f) => existsSync(resolve(basePath, f)));
+  return filterExistingFiles(basePath, KNOWN_LOCK_FILES);
 }
 
 /**
  * Detect linter config files present at `basePath`.
  */
 export function detectLinterConfigs(basePath: string): string[] {
-  return KNOWN_LINTER_CONFIGS.filter((f) => existsSync(resolve(basePath, f)));
+  return filterExistingFiles(basePath, KNOWN_LINTER_CONFIGS);
 }
 
 // ---------------------------------------------------------------------------
@@ -192,12 +199,9 @@ export function computeInputHash(
     const fullPath = resolve(basePath, f);
     if (!existsSync(fullPath)) return `MISSING:${f}`;
     const content = readFileSync(fullPath);
-    return createHash("sha256").update(content).digest("hex");
+    return sha256short(content);
   });
-  return createHash("sha256")
-    .update(fileHashes.join("\n"))
-    .digest("hex")
-    .slice(0, 16);
+  return sha256short(fileHashes.join("\n"));
 }
 
 /** Embed input hash as an HTML comment in compiled markdown. */
@@ -253,10 +257,7 @@ export function checkOutputHashFreshness(content: string): FreshnessResult {
       "",
     )
     .replace(INPUT_HASH_RE, "");
-  const actualHash = createHash("sha256")
-    .update(body)
-    .digest("hex")
-    .slice(0, 16);
+  const actualHash = sha256short(body);
   if (actualHash !== expectedHash) {
     return {
       fresh: false,
@@ -349,10 +350,7 @@ export function computePerFileHashes(
       result[f] = "MISSING";
     } else {
       const content = readFileSync(fullPath);
-      result[f] = createHash("sha256")
-        .update(content)
-        .digest("hex")
-        .slice(0, 16);
+      result[f] = sha256short(content);
     }
   }
   return result;

@@ -80,6 +80,37 @@ export function resolveBaseRef(explicitBase?: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Sidecar manifest iteration
+// ---------------------------------------------------------------------------
+
+/**
+ * Iterate all sidecar manifests in .vigiles/ and call `fn` for each.
+ * Handles directory-not-found and read errors gracefully.
+ */
+function iterateSidecars(
+  basePath: string,
+  fn: (target: string, manifest: SidecarManifest) => void,
+): void {
+  const dir = resolve(basePath, ".vigiles");
+  if (!existsSync(dir)) return;
+
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (!entry.endsWith(".inputs.json")) continue;
+    const target = entry.replace(".inputs.json", "");
+    const manifest = readSidecarManifest(basePath, target);
+    if (!manifest) continue;
+    fn(target, manifest);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Spec surface area
 // ---------------------------------------------------------------------------
 
@@ -112,22 +143,7 @@ export function loadSpecSurface(basePath: string): SpecSurface {
     manifests: [],
   };
 
-  const dir = resolve(basePath, ".vigiles");
-  if (!existsSync(dir)) return surface;
-
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return surface;
-  }
-
-  for (const entry of entries) {
-    if (!entry.endsWith(".inputs.json")) continue;
-    const target = entry.replace(".inputs.json", "");
-    const manifest = readSidecarManifest(basePath, target);
-    if (!manifest) continue;
-
+  iterateSidecars(basePath, (_target, manifest) => {
     surface.manifests.push(manifest);
     surface.targets.add(manifest.target);
     surface.specFiles.add(manifest.specFile);
@@ -141,42 +157,24 @@ export function loadSpecSurface(basePath: string): SpecSurface {
         surface.fileToSpecs.set(file, [manifest.target]);
       }
     }
-  }
-
-  // Also load keyFiles from spec sources (if we can find them)
-  // For now, tracked inputs from manifests are the best proxy.
-  // keyFiles are a subset of tracked inputs (the ones from file() refs).
+  });
 
   return surface;
 }
 
 /**
- * Load keyFiles from spec source files. Reads each .spec.ts's compiled
- * output and extracts keyFiles entries from the Key Files section.
+ * Load keyFiles from compiled markdown files. Reads each target's
+ * "## Key Files" section and extracts the file paths.
  */
 export function loadKeyFilesFromSpecs(basePath: string): Set<string> {
   const keyFiles = new Set<string>();
 
-  // Read compiled markdown files and extract keyFiles from "## Key Files" section
-  const dir = resolve(basePath, ".vigiles");
-  if (!existsSync(dir)) return keyFiles;
-
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return keyFiles;
-  }
-
-  for (const entry of entries) {
-    if (!entry.endsWith(".inputs.json")) continue;
-    const target = entry.replace(".inputs.json", "");
-    const targetPath = resolve(basePath, target);
-    if (!existsSync(targetPath)) continue;
+  iterateSidecars(basePath, (_target, manifest) => {
+    const targetPath = resolve(basePath, manifest.target);
+    if (!existsSync(targetPath)) return;
 
     try {
       const content = readFileSync(targetPath, "utf-8");
-      // Extract file paths from "- `path` — description" lines in Key Files section
       const keyFilesMatch = content.match(
         /## Key Files\n\n((?:- `[^`]+` — .+\n?)+)/,
       );
@@ -190,7 +188,7 @@ export function loadKeyFilesFromSpecs(basePath: string): Set<string> {
     } catch {
       // Skip unreadable files
     }
-  }
+  });
 
   return keyFiles;
 }
@@ -257,7 +255,7 @@ export function analyzeSession(
       findings.push({
         type: "spec-modified",
         file,
-        message: "Spec modified — run \`vigiles compile\` to update output",
+        message: "Spec modified — run `vigiles compile` to update output",
         specs: affectedSpecs,
       });
       trackedChanges.push(file);

@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { globSync } from "glob";
 
+import { readPackageScripts } from "./compile.js";
 import type { CoverageThresholds } from "./types.js";
 import type { ClaudeSpec } from "./spec.js";
 
@@ -43,19 +44,12 @@ export interface CoverageReport {
 // ---------------------------------------------------------------------------
 
 /**
- * Read npm scripts from package.json.
+ * Read npm script names from package.json. Reuses readPackageScripts
+ * from compile.ts and returns sorted keys.
  */
 export function readNpmScripts(basePath: string): string[] {
-  const pkgPath = resolve(basePath, "package.json");
-  if (!existsSync(pkgPath)) return [];
-  try {
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
-      scripts?: Record<string, string>;
-    };
-    return Object.keys(pkg.scripts ?? {}).sort();
-  } catch {
-    return [];
-  }
+  const scripts = readPackageScripts(basePath);
+  return scripts ? Object.keys(scripts).sort() : [];
 }
 
 /**
@@ -103,7 +97,6 @@ export function collectDocumentedCommands(
       );
       if (existsSync(jsPath)) {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const mod = require(jsPath) as {
             default?: ClaudeSpec | { default?: ClaudeSpec };
           };

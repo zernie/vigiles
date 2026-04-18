@@ -1,9 +1,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { execSync } from "node:child_process";
 
 import {
   gitChangedFiles,
@@ -15,33 +13,7 @@ import {
 } from "./session.js";
 import { writeSidecarManifest } from "./freshness.js";
 import type { SidecarManifest } from "./freshness.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeTmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "vigiles-session-"));
-}
-
-function git(cwd: string, cmd: string): string {
-  return execSync(`git ${cmd}`, {
-    cwd,
-    encoding: "utf-8",
-    stdio: ["pipe", "pipe", "pipe"],
-  }).trim();
-}
-
-/** Create a minimal git repo with an initial commit. */
-function initGitRepo(dir: string): void {
-  git(dir, "init");
-  git(dir, "config user.email test@test.com");
-  git(dir, "config user.name Test");
-  git(dir, "config commit.gpgsign false");
-  writeFileSync(join(dir, "README.md"), "# test");
-  git(dir, "add .");
-  git(dir, 'commit -m "init"');
-}
+import { makeTmpDir, cleanupTmpDir, initGitRepo, git } from "./test-utils.js";
 
 // ---------------------------------------------------------------------------
 // gitChangedFiles
@@ -56,7 +28,7 @@ describe("gitChangedFiles", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("returns empty array when nothing changed", () => {
@@ -98,7 +70,7 @@ describe("gitHead", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("returns a commit hash", () => {
@@ -111,7 +83,7 @@ describe("gitHead", () => {
     const noGit = makeTmpDir();
     const head = gitHead(noGit);
     assert.equal(head, null);
-    rmSync(noGit, { recursive: true, force: true });
+    cleanupTmpDir(noGit);
   });
 });
 
@@ -138,7 +110,7 @@ describe("loadSpecSurface", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("loads spec files from manifests", () => {
@@ -169,7 +141,7 @@ describe("loadSpecSurface", () => {
     const surface = loadSpecSurface(emptyDir);
     assert.equal(surface.manifests.length, 0);
     assert.equal(surface.trackedInputs.size, 0);
-    rmSync(emptyDir, { recursive: true, force: true });
+    cleanupTmpDir(emptyDir);
   });
 });
 
@@ -212,7 +184,7 @@ describe("loadKeyFilesFromSpecs", () => {
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("extracts keyFiles from compiled markdown", () => {
@@ -226,7 +198,7 @@ describe("loadKeyFilesFromSpecs", () => {
     const emptyDir = makeTmpDir();
     const keyFiles = loadKeyFilesFromSpecs(emptyDir);
     assert.equal(keyFiles.size, 0);
-    rmSync(emptyDir, { recursive: true, force: true });
+    cleanupTmpDir(emptyDir);
   });
 });
 
@@ -283,11 +255,13 @@ describe("analyzeSession", () => {
     // Commit everything as the baseline
     git(tmpDir, "add .");
     git(tmpDir, 'commit -m "setup"');
-    baseCommit = gitHead(tmpDir)!;
+    const head = gitHead(tmpDir);
+    assert.ok(head, "Expected git HEAD to exist");
+    baseCommit = head;
   });
 
   after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
   });
 
   it("reports no findings when nothing changed", () => {
