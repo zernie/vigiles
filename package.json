@@ -1,6 +1,6 @@
 {
   "name": "vigiles",
-  "private": true,
+  "version": "0.0.0-semantically-released",
   "bin": {
     "vigiles": "./dist/cli.js"
   },
