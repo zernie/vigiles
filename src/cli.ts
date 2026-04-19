@@ -21,7 +21,8 @@ import { resolve } from "node:path";
 import { globSync } from "glob";
 import { generateTypes } from "./generate-types.js";
 import { validate, loadConfig } from "./validate.js";
-import type { VigilesConfig } from "./types.js";
+import type { VigilesConfig, CoverageThresholds } from "./types.js";
+import { ruleSeverity, ruleOptions } from "./types.js";
 
 import {
   compileClaude,
@@ -35,6 +36,7 @@ import { findSimilarRules } from "./proofs.js";
 import { parseInlineRules } from "./inline.js";
 import { checkLinterRule } from "./linters.js";
 import { checkIntegrity } from "./integrity.js";
+import { computeScriptCoverage } from "./coverage.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -479,6 +481,7 @@ interface AuditReport {
   coverageDocumented: number;
   strengthenSuggestions: number;
   integrityErrors: number;
+  coverageErrors: number;
   files: string[];
 }
 
@@ -488,11 +491,12 @@ function auditExitCode(report: AuditReport): 0 | 1 | 2 {
     report.hashErrors > 0 ||
     report.validationErrors > 0 ||
     report.inlineErrors > 0 ||
-    report.integrityErrors > 0
+    report.integrityErrors > 0 ||
+    report.coverageErrors > 0
   )
     return 2;
   if (report.duplicatePairs > 0) return 1;
-  // Coverage gaps and guidance counts are informational, not failures
+  // Guidance counts are informational, not failures
   return 0;
 }
 
@@ -662,6 +666,9 @@ async function audit(
     integrityErrors = checkIntegrityForFiles(files, integritySeverity, silent);
   }
 
+  // 6. Coverage thresholds (gates CI when severity is "error")
+  const coverageErrors = checkCoverageThresholds(coverage, config, silent);
+
   const report: AuditReport = {
     hashErrors: hashResult.hashErrors,
     validationErrors: hashResult.validationErrors,
@@ -672,6 +679,7 @@ async function audit(
     coverageDocumented: coverage.documented,
     strengthenSuggestions: guidanceCount,
     integrityErrors,
+    coverageErrors,
     files,
   };
 
@@ -1292,6 +1300,54 @@ function checkIntegrityForFiles(
   }
 
   return severity === "error" ? errorCount : 0;
+}
+
+/**
+ * Apply the configured coverage thresholds. Returns the number of failing
+ * thresholds (so the audit can fail CI when severity is "error").
+ */
+function checkCoverageThresholds(
+  coverage: { enabled: number; documented: number },
+  config: VigilesConfig | undefined,
+  silent: boolean,
+): number {
+  const severity = ruleSeverity(config?.rules.coverage);
+  if (!severity) return 0;
+
+  const opts = ruleOptions<CoverageThresholds>(config?.rules.coverage);
+  if (!opts) return 0;
+
+  const log = (msg: string): void => {
+    if (!silent) console.log(msg);
+  };
+
+  let failing = 0;
+  if (!silent) console.log("\nCoverage thresholds:\n");
+
+  if (opts.linterRules !== undefined) {
+    const pct =
+      coverage.enabled > 0
+        ? Math.round((coverage.documented / coverage.enabled) * 100)
+        : 100;
+    const ok = pct >= opts.linterRules;
+    if (!ok) failing++;
+    const marker = ok ? "✓" : severity === "error" ? "✗" : "⚠";
+    log(
+      `  ${marker} linterRules: ${String(pct)}% (threshold: ${String(opts.linterRules)}%)`,
+    );
+  }
+
+  if (opts.scripts !== undefined) {
+    const metric = computeScriptCoverage(process.cwd(), opts.scripts);
+    const ok = metric.passing;
+    if (!ok) failing++;
+    const marker = ok ? "✓" : severity === "error" ? "✗" : "⚠";
+    log(
+      `  ${marker} scripts: ${String(metric.percent)}% (threshold: ${String(opts.scripts)}%)`,
+    );
+  }
+
+  return severity === "error" ? failing : 0;
 }
 
 async function countGuidanceRules(silent = false): Promise<number> {

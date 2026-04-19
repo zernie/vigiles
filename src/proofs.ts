@@ -828,8 +828,12 @@ export function fitness(
     return { score: 0, coverage: 0, redundancy: 0, budgetPressure: 0 };
   }
 
-  // Coverage: fraction with teeth (enforce vs guidance)
-  const enforced = rules.filter((r) => r._kind === "enforce").length;
+  // Coverage: fraction with teeth (mechanically enforced — STRENGTH ≥ 1).
+  // Counts both enforce() (linter-verified) and guard() (file-watch reactive).
+  // Without guard here, mutations that introduce/keep guard rules look like
+  // they reduce coverage and get rejected by runProofSuite even though
+  // enforcement strength didn't drop (see proofs.ts STRENGTH lattice).
+  const enforced = rules.filter((r) => STRENGTH[r._kind] >= 1).length;
   const coverage = enforced / total;
 
   // Redundancy: fraction of pairs that are near-duplicates

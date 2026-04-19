@@ -9,7 +9,7 @@
  * Read-only analysis. No commands executed, no files modified.
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -23,32 +23,61 @@ import type { SidecarManifest } from "./sidecar.js";
 /**
  * Get files changed since a base ref (commit, branch, or HEAD~N).
  * Returns paths relative to the repo root.
+ *
+ * Uses execFileSync with an argv array — `baseRef` is passed as a separate
+ * argument so shell metacharacters can't escape into command execution.
+ * `--no-renames` keeps both source and destination paths visible (without it,
+ * `git mv old.ts new.ts` would only report `new.ts`).
+ *
+ * Throws on git failure (e.g., invalid baseRef) so a typo doesn't silently
+ * masquerade as "no changes" and suppress real findings downstream.
  */
 export function gitChangedFiles(basePath: string, baseRef: string): string[] {
-  try {
-    // Staged + unstaged + untracked changes relative to baseRef
-    const diffOutput = execSync(`git diff --name-only ${baseRef} -- .`, {
+  const exec = (args: string[]): string =>
+    execFileSync("git", args, {
       cwd: basePath,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
 
-    const untrackedOutput = execSync(
-      "git ls-files --others --exclude-standard -- .",
-      { cwd: basePath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
-
-    const files = new Set<string>();
-    if (diffOutput) {
-      for (const f of diffOutput.split("\n")) files.add(f);
-    }
-    if (untrackedOutput) {
-      for (const f of untrackedOutput.split("\n")) files.add(f);
-    }
-    return [...files].sort();
-  } catch {
-    return [];
+  let diffOutput: string;
+  try {
+    diffOutput = exec([
+      "diff",
+      "--name-only",
+      "--no-renames",
+      baseRef,
+      "--",
+      ".",
+    ]);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`git diff failed for baseRef "${baseRef}": ${detail}`, {
+      cause: e,
+    });
   }
+
+  let untrackedOutput = "";
+  try {
+    untrackedOutput = exec([
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+      "--",
+      ".",
+    ]);
+  } catch {
+    // ls-files failure is non-fatal — diff already succeeded
+  }
+
+  const files = new Set<string>();
+  if (diffOutput) {
+    for (const f of diffOutput.split("\n")) files.add(f);
+  }
+  if (untrackedOutput) {
+    for (const f of untrackedOutput.split("\n")) files.add(f);
+  }
+  return [...files].sort();
 }
 
 /**
@@ -56,7 +85,7 @@ export function gitChangedFiles(basePath: string, baseRef: string): string[] {
  */
 export function gitHead(basePath: string): string | null {
   try {
-    return execSync("git rev-parse HEAD", {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: basePath,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -143,7 +172,8 @@ export function loadKeyFilesFromSpecs(basePath: string): Set<string> {
     if (!existsSync(targetPath)) return;
 
     try {
-      const content = readFileSync(targetPath, "utf-8");
+      // Normalize CRLF → LF so the regex works on Windows checkouts.
+      const content = readFileSync(targetPath, "utf-8").replace(/\r\n/g, "\n");
       const keyFilesMatch = content.match(
         /## Key Files\n\n((?:- `[^`]+` — .+\n?)+)/,
       );
@@ -215,7 +245,10 @@ export function analyzeSession(
 
   for (const file of changedFiles) {
     const isTracked = surface.trackedInputs.has(file) || keyFiles.has(file);
-    const isSpec = surface.specFiles.has(file);
+    // Treat any *.md.spec.ts as a spec even when sidecars haven't been
+    // written yet — without this, the first compile after `vigiles init`
+    // would silently drop the spec edit from the session report.
+    const isSpec = surface.specFiles.has(file) || file.endsWith(".md.spec.ts");
     const isTarget = surface.targets.has(file);
     const affectedSpecs = surface.fileToSpecs.get(file);
 
@@ -243,11 +276,7 @@ export function analyzeSession(
         specs: affectedSpecs ?? [],
       });
       trackedChanges.push(file);
-    } else if (
-      !file.startsWith(".vigiles/") &&
-      !file.endsWith(".spec.ts") &&
-      !isIgnoredFile(file)
-    ) {
+    } else if (!file.startsWith(".vigiles/") && !isIgnoredFile(file)) {
       // Agent modified a file not in any spec
       untrackedChanges.push(file);
       findings.push({

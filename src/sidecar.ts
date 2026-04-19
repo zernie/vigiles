@@ -16,10 +16,14 @@ import {
   writeFileSync,
   mkdirSync,
   readdirSync,
+  statSync,
 } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 
 import { sha256short } from "./hash.js";
+
+const SIDECAR_ROOT = ".vigiles";
+const MANIFEST_SUFFIX = ".inputs.json";
 
 export interface SidecarManifest {
   /** The spec source file (relative to basePath). */
@@ -33,19 +37,19 @@ export interface SidecarManifest {
 }
 
 export function sidecarPath(basePath: string, target: string): string {
-  return resolve(basePath, ".vigiles", `${target}.inputs.json`);
+  return resolve(basePath, SIDECAR_ROOT, `${target}${MANIFEST_SUFFIX}`);
 }
 
 export function writeSidecarManifest(
   basePath: string,
   manifest: SidecarManifest,
 ): void {
-  const dir = resolve(basePath, ".vigiles");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    sidecarPath(basePath, manifest.target),
-    JSON.stringify(manifest, null, 2) + "\n",
-  );
+  // Targets can be nested (e.g. ".github/copilot-instructions.md"), so
+  // ensure every intermediate directory under .vigiles/ exists before
+  // writing — otherwise writeFileSync throws ENOENT.
+  const filePath = sidecarPath(basePath, manifest.target);
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(manifest, null, 2) + "\n");
 }
 
 export function readSidecarManifest(
@@ -76,16 +80,28 @@ export function computePerFileHashes(
 }
 
 /**
- * Iterate all sidecar manifests in `.vigiles/` and call `fn` for each.
- * Handles directory-not-found and read errors gracefully.
+ * Iterate all sidecar manifests under `.vigiles/`, including nested
+ * directories. Handles directory-not-found and read errors gracefully.
+ *
+ * Recurses so that nested targets (e.g. `.github/copilot-instructions.md`,
+ * which lives at `.vigiles/.github/copilot-instructions.md.inputs.json`)
+ * are not silently skipped.
  */
 export function iterateSidecars(
   basePath: string,
   fn: (target: string, manifest: SidecarManifest) => void,
 ): void {
-  const dir = resolve(basePath, ".vigiles");
-  if (!existsSync(dir)) return;
+  const root = resolve(basePath, SIDECAR_ROOT);
+  if (!existsSync(root)) return;
+  walk(root, root, basePath, fn);
+}
 
+function walk(
+  dir: string,
+  root: string,
+  basePath: string,
+  fn: (target: string, manifest: SidecarManifest) => void,
+): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -94,8 +110,23 @@ export function iterateSidecars(
   }
 
   for (const entry of entries) {
-    if (!entry.endsWith(".inputs.json")) continue;
-    const target = entry.replace(".inputs.json", "");
+    const fullPath = resolve(dir, entry);
+    let isDir: boolean;
+    try {
+      isDir = statSync(fullPath).isDirectory();
+    } catch {
+      continue;
+    }
+
+    if (isDir) {
+      walk(fullPath, root, basePath, fn);
+      continue;
+    }
+    if (!entry.endsWith(MANIFEST_SUFFIX)) continue;
+
+    // Reconstruct the target name from the path relative to .vigiles/
+    const rel = relative(root, fullPath);
+    const target = rel.slice(0, -MANIFEST_SUFFIX.length);
     const manifest = readSidecarManifest(basePath, target);
     if (!manifest) continue;
     fn(target, manifest);
