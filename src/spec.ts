@@ -139,7 +139,15 @@ export interface GuidanceRule {
   readonly text: string;
 }
 
-export type Rule = EnforceRule | GuidanceRule;
+/** A reactive rule: runs a command when watched files change. */
+export interface GuardRule {
+  readonly _kind: "guard";
+  readonly watch: string | readonly string[];
+  readonly run: string;
+  readonly description: string;
+}
+
+export type Rule = EnforceRule | GuidanceRule | GuardRule;
 
 // ---------------------------------------------------------------------------
 // Builder functions
@@ -176,6 +184,24 @@ export function enforce(
  */
 export function guidance(text: string): GuidanceRule {
   return { _kind: "guidance", text };
+}
+
+/**
+ * Declare a reactive guard: runs a command when watched files change.
+ *
+ *   guard({ watch: "*.spec.ts", run: "npx vigiles compile" }, "Recompile on spec change")
+ *   guard({ watch: ["eslint.config.*", "package.json"], run: "npx vigiles generate-types" }, "Regen types")
+ */
+export function guard(
+  options: { watch: string | readonly string[]; run: string },
+  description: string,
+): GuardRule {
+  return {
+    _kind: "guard",
+    watch: options.watch,
+    run: options.run,
+    description,
+  };
 }
 
 // ---------------------------------------------------------------------------

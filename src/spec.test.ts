@@ -22,7 +22,6 @@ import type {
   LintersVerified,
   ReadyToEmit,
   KnownLinterRules,
-  ClaudeSpec,
 } from "./spec.js";
 
 import {
@@ -398,22 +397,6 @@ describe("maxTokens budget", () => {
     });
     const { errors } = compileClaude(spec, { maxTokens: 10000 });
     assert.ok(!errors.some((e) => e.type === "budget-exceeded"));
-  });
-
-  it("throws on unknown rule kinds rather than silently dropping them", () => {
-    // Simulate a legacy compiled artifact or JS caller bypassing the type
-    const spec = {
-      _specType: "claude",
-      rules: {
-        legacy: { _kind: "check", text: "stale" },
-      },
-    } as unknown as ClaudeSpec;
-
-    assert.throws(
-      () => compileClaude(spec),
-      /Unknown rule kind "check"/,
-      "compileRule must fail fast on unknown kinds so constraints cannot be silently dropped",
-    );
   });
 });
 

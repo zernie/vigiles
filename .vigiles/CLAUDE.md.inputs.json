@@ -1,0 +1,12 @@
+{
+  "specFile": "CLAUDE.md.spec.ts",
+  "target": "CLAUDE.md",
+  "compiledAt": "2026-04-17T22:57:02.293Z",
+  "files": {
+    ".vigiles/generated.d.ts": "fc935e6edf45a0ff",
+    "CLAUDE.md.spec.ts": "4a6d6517b5411a46",
+    "eslint.config.mjs": "c22dac74637d88a7",
+    "package-lock.json": "83c93d82da31ff46",
+    "package.json": "d4fcabf2813696b9"
+  }
+}

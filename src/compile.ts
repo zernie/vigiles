@@ -5,9 +5,10 @@
  * markdown instruction files with integrity hashes.
  */
 
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname, basename } from "node:path";
+
+import { sha256short, assertNever } from "./hash.js";
 
 import type {
   ClaudeSpec,
@@ -29,7 +30,7 @@ const HASH_RE =
 /** @internal Compute SHA-256 hash of content (excluding any existing hash line). */
 export function computeHash(content: string): string {
   const body = content.replace(HASH_RE, "");
-  return createHash("sha256").update(body).digest("hex").slice(0, 16);
+  return sha256short(body);
 }
 
 /** @internal Prepend a hash comment to compiled content. */
@@ -47,10 +48,7 @@ export function verifyHash(
   const expectedHash = match[1];
   const specFile = match[2];
   const body = content.replace(HASH_RE, "");
-  const actualHash = createHash("sha256")
-    .update(body)
-    .digest("hex")
-    .slice(0, 16);
+  const actualHash = sha256short(body);
   return { valid: actualHash === expectedHash, specFile };
 }
 
@@ -107,7 +105,9 @@ function validateFileRef(
   return null;
 }
 
-function readPackageScripts(basePath: string): Record<string, string> | null {
+export function readPackageScripts(
+  basePath: string,
+): Record<string, string> | null {
   const pkgPath = resolve(basePath, "package.json");
   if (!existsSync(pkgPath)) return null;
   try {
@@ -180,14 +180,15 @@ function validateRefs(
 
 function renderFragment(fragment: InstructionFragment): string {
   if (typeof fragment === "string") return fragment;
-  const r = fragment;
-  switch (r._ref) {
+  switch (fragment._ref) {
     case "file":
-      return `\`${r.path}\``;
+      return `\`${fragment.path}\``;
     case "cmd":
-      return `\`${r.command}\``;
+      return `\`${fragment.command}\``;
     case "skill":
-      return `[${basename(dirname(r.path))}](${r.path})`;
+      return `[${basename(dirname(fragment.path))}](${fragment.path})`;
+    default:
+      return assertNever(fragment);
   }
 }
 
@@ -214,17 +215,20 @@ function compileRule(id: string, rule: Rule): string {
         "\n",
       );
 
-    default: {
-      // Unknown rule kind — legacy compiled JS spec artifacts, JS caller,
-      // or cast bypass. Fail loudly rather than silently dropping the
-      // rule from output, which would remove constraints without any
-      // compile error.
-      const unknown = (rule as { _kind?: unknown })._kind;
-      throw new Error(
-        `Unknown rule kind "${String(unknown)}" for rule "${id}". ` +
-          `Expected "enforce" or "guidance". Runtime data is out of sync with the Rule type.`,
-      );
+    case "guard": {
+      const patterns = Array.isArray(rule.watch)
+        ? rule.watch.join("`, `")
+        : rule.watch;
+      return [
+        `### ${title}`,
+        "",
+        `**Guard:** \`${patterns}\` → \`${rule.run}\``,
+        `**Why:** ${rule.description}`,
+      ].join("\n");
     }
+
+    default:
+      return assertNever(rule);
   }
 }
 

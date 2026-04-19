@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:2a0c0efd642c787a compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:36233841867c0b53 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -39,6 +39,16 @@ Core modules: `src/spec.ts` (types + builders), `src/compile.ts` (compiler), `sr
 - `src/spec.test.ts` — Spec + compiler test suite (node:test)
 - `src/validate.test.ts` — Validation test suite (node:test)
 - `src/cli.test.ts` — CLI integration + E2E test suite (node:test)
+- `src/integrity.ts` — Integrity check: SHA-256 hash verification for compiled markdown (detects hand-edits)
+- `src/sidecar.ts` — Per-spec sidecar manifests at .vigiles/<target>.inputs.json, used by session audit
+- `src/sidecar.test.ts` — Tests for sidecar manifests, per-file hashes, and integrity check
+- `src/coverage.ts` — Spec coverage analysis: linter rule coverage + npm script coverage with configurable thresholds
+- `src/coverage.test.ts` — Coverage test suite (node:test)
+- `src/session.ts` — Post-session audit: git diff analysis against spec surface area
+- `src/session.test.ts` — Session audit test suite (node:test)
+- `src/hash.ts` — Shared SHA256Hash branded type and assertNever exhaustive check helper
+- `src/test-utils.ts` — Shared test utilities: makeTmpDir, makeSpec, cleanupTmpDir, initGitRepo
+- `src/types.ts` — Shared types: RulesConfig, VigilesConfig, FreshnessMode, CoverageThresholds
 - `src/proofs.ts` — Deterministic proof algorithms (monotonicity lattice, NCD, Bloom filter, Merkle DAG, fixed-point, property testing)
 - `src/evolve.ts` — Evolution engine: mutation operators, fitness function, proof-gated selection
 - `src/proofs.test.ts` — Proof system + evolution engine tests (node:test)
@@ -51,11 +61,25 @@ Core modules: `src/spec.ts` (types + builders), `src/compile.ts` (compiler), `sr
 - `research/ai-code-quality.md` — Research: AI code quality patterns
 - `research/self-evolving-specs.md` — Design doc: self-evolving spec system (proofs, Merkle history, evolution engine)
 - `research/code-search-for-agents.md` — Research: code search approaches (grep vs embeddings vs AST-grep)
+- `research/runtime-enforcement.md` — Research: spec-derived runtime enforcement via hooks, skill contracts, session audit
+- `research/architecture-platform.md` — Research: architecture-aware agent platform (FSD/DDD/hexagonal presets, meta-validation)
+- `research/formal-proofs-for-agents.md` — Research: formal verification via Lean 4 / Dafny, Cedar pattern, Leanstral integration
 - `docs/agent-workflows.md` — Agent-specific workflows (Claude Code, Codex, multi-agent, Cursor)
 - `docs/agent-setup.md` — Non-interactive agent setup guide (hooks via settings.json)
 - `docs/spec-format.md` — Spec format reference (target, sections, rules)
 - `docs/linter-support.md` — Linter support details (6 linters + generate-types)
+- `docs/comparison.md` — Before/after tables (Claude Code, Codex), determinism breakdown, flow diagram
+- `docs/rules/require-spec.md` — Rule doc: require .spec.ts for CLAUDE.md/AGENTS.md
+- `docs/rules/require-skill-spec.md` — Rule doc: require .spec.ts for SKILL.md files
+- `docs/rules/integrity.md` — Rule doc: integrity check (SHA-256 hash verification for compiled markdown)
+- `docs/rules/coverage.md` — Rule doc: spec coverage thresholds (scripts, linter rules)
 - `docs/inline-mode.md` — Inline mode: `<!-- vigiles:enforce ... -->` comments for gradual adoption without a .spec.ts
+- `skills/linter-docs/eslint.md` — ESLint reference: plugin table, AST selectors, type-aware rules, auto-fix, edge cases
+- `skills/linter-docs/rubocop.md` — RuboCop reference: gem table, node pattern DSL, auto-correct, custom cops
+- `skills/linter-docs/pylint.md` — Pylint reference: plugin table, astroid AST, type inference, custom checkers
+- `skills/linter-docs/ruff.md` — Ruff reference: 800+ reimplemented rules, rule selection, auto-fix, pyproject.toml config
+- `skills/linter-docs/stylelint.md` — Stylelint reference: plugin table, PostCSS AST, custom rules, CSS-in-JS, SCSS
+- `skills/strengthen/SKILL.md` — Strengthen skill: upgrade guidance() → enforce() by finding existing linter rules
 
 ## Commands
 
@@ -63,8 +87,24 @@ Core modules: `src/spec.ts` (types + builders), `src/compile.ts` (compiler), `sr
 - `npm test` — Build and run all tests
 - `npm run fmt` — Format with prettier
 - `npm run fmt:check` — Check formatting
+- `npm run lint` — Run ESLint on src/
 
 ## Rules
+
+### No Non Null Assertion
+
+**Enforced by:** `@typescript-eslint/no-non-null-assertion`
+**Why:** Use proper narrowing instead of ! assertions.
+
+### No Floating Promises
+
+**Enforced by:** `@typescript-eslint/no-floating-promises`
+**Why:** Always await or return promises. Unhandled rejections crash the process.
+
+### Cognitive Complexity
+
+**Enforced by:** `sonarjs/cognitive-complexity`
+**Why:** Keep functions under 15 cognitive complexity. Split complex logic into helpers.
 
 ### Never Skip Tests
 
@@ -93,3 +133,30 @@ Core modules: `src/spec.ts` (types + builders), `src/compile.ts` (compiler), `sr
 ### No Session Links
 
 **Guidance only** — This is a public repo. Claude Code session URLs are private and must not appear in commits or PRs.
+
+### Doc Per Rule
+
+**Guidance only** — Every validation rule in .vigilesrc.json must have a corresponding doc in docs/rules/<rule-name>.md. The doc covers configuration, severity levels, options, what the rule checks, and why. README links to each rule doc from the rules table.
+
+### Readme Brevity
+
+**Guidance only** — README.md should be a concise pitch + quick start, not a reference manual. Extract detailed sections into docs/ and link with `[Details →](docs/X.md)`. Target ~300 lines max.
+
+### Ts Essentials
+
+**Guidance only** — Prefer branded types over plain strings for semantic values (hashes, file paths, rule IDs). Use discriminated unions over boolean flags that gate optional fields. Add exhaustive `default: assertNever(x)` to every switch on a union type. These patterns convert runtime bugs into compile-time errors.
+
+### Recompile On Spec Change
+
+**Guard:** `*.spec.ts` → `npx vigiles compile`
+**Why:** Recompile instruction files when any spec changes.
+
+### Regen Types On Config Change
+
+**Guard:** `eslint.config.*`, `package.json`, `pyproject.toml` → `npx vigiles generate-types`
+**Why:** Regenerate type definitions when linter configs or package.json change.
+
+### Format Check
+
+**Guard:** `**/*.ts` → `npm run fmt:check`
+**Why:** Verify formatting on TypeScript file changes.

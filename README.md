@@ -71,10 +71,11 @@ The agent reads this, trusts it, and writes code based on stale claims nobody ve
 | **File paths**                      | Rot silently when renamed    | `file()` references checked against filesystem                 |
 | **Commands**                        | Stale scripts go unnoticed   | `cmd()` references checked against package.json                |
 | **Direct edits to CLAUDE.md**       | Anyone can, nobody knows     | PreToolUse hook blocks edits, redirects to spec                |
+| **Spec edits**                      | N/A                          | PostToolUse hook auto-compiles to markdown                     |
 | **Linter config changes**           | CLAUDE.md drifts out of sync | PostToolUse hook auto-regenerates types                        |
 | **guidance → enforce upgrades**     | Manual guesswork             | `/strengthen` reads per-linter docs, suggests upgrades         |
 | **New lint rules from PR feedback** | Copy-paste from review       | `/pr-to-lint-rule` generates rule + tests + spec entry         |
-| **CI**                              | Nothing to verify            | `vigiles audit` catches hash drift, disabled rules, stale refs |
+| **CI**                              | Nothing to verify            | `vigiles audit` catches hand-edits, disabled rules, stale refs |
 
 <details>
 <summary><b>Codex</b> (same compile-time checks, no hooks)</summary>
@@ -188,7 +189,7 @@ Running `vigiles audit CLAUDE.md` verifies each inline rule against your real li
 
 Works the same for humans and agents — fully non-interactive. [Agent setup guide →](docs/agent-setup.md) | [Agent workflows →](docs/agent-workflows.md)
 
-## Two Rule Types
+## Three Rule Types
 
 **`enforce()`** — delegated to a linter. vigiles verifies the rule exists in the catalog AND is enabled in your project config. A disabled rule is a compile error.
 
@@ -205,6 +206,21 @@ Supports ESLint, Stylelint, Ruff, Clippy, Pylint, and RuboCop. [Full linter supp
 ```typescript
 "research-first": guidance("Google unfamiliar APIs first."),
 ```
+
+**`guard()`** — reactive: runs a command when watched files change. One declaration emits hooks for every supported system (Claude Code PostToolUse, husky pre-commit, etc.). Eliminates copy-pasting the same trigger across `.claude/settings.json`, `.husky/`, and CI configs.
+
+```typescript
+"recompile-specs": guard(
+  { watch: "*.spec.ts", run: "npx vigiles compile" },
+  "Recompile instruction files when any spec changes.",
+),
+"regen-types": guard(
+  { watch: ["eslint.config.*", "package.json"], run: "npx vigiles generate-types" },
+  "Regenerate types when linter config or deps change.",
+),
+```
+
+Same monotonicity guarantees as `enforce()` — guards can't be silently removed.
 
 ## Verified References
 
@@ -280,16 +296,17 @@ The plugin provides two hooks:
 
 ## Validation
 
-`vigiles audit` validates instruction files with three rules:
+`vigiles audit` validates instruction files with four rules:
 
-| Rule                 | Default  | What it checks                                |
-| -------------------- | -------- | --------------------------------------------- |
-| `require-spec`       | `"warn"` | Every CLAUDE.md/AGENTS.md has a `.spec.ts`    |
-| `require-skill-spec` | `"warn"` | Every SKILL.md has a `.spec.ts`               |
-| `freshness`          | `"warn"` | Compiled output matches current project state |
+| Rule                                                     | Default  | What it checks                                       |
+| -------------------------------------------------------- | -------- | ---------------------------------------------------- |
+| [`require-spec`](docs/rules/require-spec.md)             | `"warn"` | Every CLAUDE.md/AGENTS.md has a `.spec.ts`           |
+| [`require-skill-spec`](docs/rules/require-skill-spec.md) | `"warn"` | Every SKILL.md has a `.spec.ts`                      |
+| [`integrity`](docs/rules/integrity.md)                   | `"warn"` | Compiled markdown wasn't hand-edited (SHA-256 check) |
+| [`coverage`](docs/rules/coverage.md)                     | `false`  | Spec covers enough of the project surface            |
 
 ```bash
-npx vigiles audit    # checks specs, hashes, freshness, coverage, duplicates
+npx vigiles audit    # checks specs, hashes, integrity, coverage, duplicates
 ```
 
 Configure in `.vigilesrc.json`:
@@ -298,7 +315,8 @@ Configure in `.vigilesrc.json`:
 {
   "rules": {
     "require-spec": "error",
-    "freshness": "error"
+    "integrity": "error",
+    "coverage": ["warn", { "scripts": 50, "linterRules": 5 }]
   }
 }
 ```
@@ -313,26 +331,7 @@ Disable per-file with an HTML comment:
 ...
 ```
 
-### Freshness
-
-The `freshness` rule detects when compiled markdown has drifted from project state — disabled linter rules, deleted files, changed configs. Three detection modes:
-
-| Mode                 | What it does                                                            | Cost   |
-| -------------------- | ----------------------------------------------------------------------- | ------ |
-| `"strict"` (default) | Recompiles in memory, diffs output                                      | 2-5s   |
-| `"input-hash"`       | Checks fingerprint of tracked inputs (spec, linter configs, lock files) | <100ms |
-| `"output-hash"`      | Only detects hand-edits to compiled markdown                            | <1ms   |
-
-Strict mode has zero false positives and zero false negatives. Input-hash mode is faster but can false-positive on config whitespace changes. Set the mode in `.vigilesrc.json`:
-
-```json
-{
-  "freshnessMode": "input-hash",
-  "freshnessInputs": ["../../yarn.lock"]
-}
-```
-
-In input-hash mode, vigiles auto-detects lock files across 15 ecosystems (npm, Yarn, pnpm, Bun, Bundler, Poetry, uv, PDM, pip, Cargo, Go, Composer, NuGet, SPM, Mix) and tracks them alongside linter configs, package.json, keyFiles references, and generated types. [Full details →](docs/freshness.md)
+For "did the spec change but compile wasn't re-run?", use a `guard()` rule (auto-recompile on save/commit) plus `npx vigiles compile && git diff --exit-code` in CI.
 
 ## Skills
 

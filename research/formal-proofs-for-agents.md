@@ -299,6 +299,176 @@ Recommendation: ship 5.1. Prototype 5.2 behind a flag. Write a blog post about
 
 ---
 
+## 6. Revised Assessment: Lean 4 Is Now Viable (April 2026)
+
+The original recommendation was "Dafny first, Lean later." Three developments shift this:
+
+### 6.1. Leanstral (Mistral, March 2026)
+
+Mistral released Leanstral — the first open-source LLM agent built specifically for Lean 4. Key facts:
+
+- Sparse MoE: 119B total parameters, 6.5B active per token (18x efficiency ratio)
+- Interacts with the Lean 4 compiler via MCP — not guessing proofs, building them in dialogue with the verifier
+- Apache 2.0 license, free API endpoint
+- Generates both code AND machine-checkable proofs simultaneously
+
+This directly addresses the "LLM-friendliness" gap that made Lean impractical. The existing doc says "the audience overlap between vigiles users and people who can read a Lean proof is near zero." Leanstral means the USER doesn't read the proof — the agent writes it, the Lean kernel checks it, vigiles records the receipt. The user sees "verified" or "not verified."
+
+### 6.2. Cedar / AWS — Lean 4 for real software (not math)
+
+AWS uses Lean 4 to verify Cedar, their authorization policy language. This is production software verification, not olympiad math. Their "verification-guided development" pattern:
+
+1. Write a formal model of the system in Lean (~10x smaller than production code)
+2. Prove key properties about the model (e.g., "forbid trumps permit," "default deny")
+3. Differential random testing between the Lean model and the Rust production code
+4. Result: found and fixed 25 bugs (4 via proofs, 21 via differential testing)
+
+The Lean models run at 5 microseconds per test case. The most complex proof (validator soundness) was 4,686 lines and took 18 person-days. This is real engineering, not research.
+
+**The Cedar pattern maps directly to vigiles:**
+
+| Cedar                                     | vigiles                                         |
+| ----------------------------------------- | ----------------------------------------------- |
+| Policy language (Cedar)                   | Spec language (.spec.ts)                        |
+| Authorization engine (Rust)               | Compiler (TypeScript)                           |
+| Formal model (Lean)                       | Formal model of compileClaude() (Lean)          |
+| Key properties ("forbid trumps permit")   | Key properties ("enforce() appears in output")  |
+| Differential testing (Lean model vs Rust) | Differential testing (Lean model vs TypeScript) |
+
+### 6.3. Cryspen / Hax — Lean 4 for cryptographic Rust verification
+
+Cryspen's Hax toolchain transpiles annotated Rust to Lean, then verifies the Lean code. Used for SHA-3 and ML-KEM (post-quantum crypto). This demonstrates Lean 4 being used for systems-level software verification outside of pure math.
+
+### 6.4. Revised Lean vs Dafny comparison
+
+| Dimension                 | Dafny (2025 assessment)   | Lean 4 (April 2026 assessment)                      |
+| ------------------------- | ------------------------- | --------------------------------------------------- |
+| Production users for code | AWS (ESDK, S3)            | AWS (Cedar), Cryspen (crypto)                       |
+| LLM agent support         | Copilot, Clover (MSR)     | **Leanstral (Mistral)** — purpose-built             |
+| Integration mechanism     | CLI (dafny verify)        | **MCP server** (Leanstral uses it natively)         |
+| Model size for vigiles    | ~200 lines Dafny          | ~200 lines Lean                                     |
+| Proof style               | SMT auto-discharge        | Tactic proofs, but Leanstral writes them            |
+| Community momentum        | Stable                    | **Growing fast** — mathlib, Cedar, Leanstral        |
+| Cost to integrate         | Shell out to dafny binary | Shell out to lean binary, OR call Leanstral via MCP |
+
+**Updated recommendation: Lean 4 first, Dafny as alternative.** The MCP-native integration (Leanstral talks to Lean via MCP, Claude Code talks to MCP tools) is a natural fit. Dafny remains viable for teams already using it.
+
+---
+
+## 7. The Cedar Pattern Applied to vigiles
+
+The most practical path. Not verifying agent behavior (impossible). Verifying the compiler.
+
+### 7.1. What to verify
+
+vigiles's compiler transforms a spec into markdown. These properties should hold for ALL valid specs:
+
+**Structural correctness:**
+
+- Every `enforce()` rule in the spec appears as a `### Title` + `**Enforced by:**` block in the output
+- Every `guidance()` rule appears as a `### Title` + `**Guidance only**` block
+- Every `file()` path in `keyFiles` appears as a `` `path` `` in the Key Files section
+- Every `cmd()` in `commands` appears as a `` `command` `` in the Commands section
+- No rule in the spec is silently dropped from the output
+
+**Hash integrity:**
+
+- `computeHash(body) == embedded hash` after compilation
+- Modifying any byte of the body changes the hash
+- `verifyHash` returns true iff the hash matches
+
+**Input fingerprinting:**
+
+- `computeInputHash(files, basePath)` is deterministic: same files → same hash
+- Changing any input file changes the hash
+- Deleting a file changes the hash (MISSING sentinel)
+- `computePerFileHashes` is consistent with `computeInputHash`
+
+**Monotonicity (from proofs.ts):**
+
+- `merge(s1, s2) >= s1` and `merge(s1, s2) >= s2` (adding rules never removes rules)
+- `merge(s1, s2) == merge(s2, s1)` (commutativity)
+
+**Sidecar manifest:**
+
+- `diffSidecarManifest` reports `fresh: true` iff no file hashes changed
+- `affectedSpecs` returns a superset of the actually-affected specs (no false negatives)
+
+### 7.2. How to verify (Cedar-style)
+
+1. **Lean model** (~200 lines): define `Spec`, `Rule`, `CompiledOutput` as Lean structures. Define `compile : Spec → CompiledOutput` as a pure function. Prove the properties above as theorems.
+
+2. **Differential testing**: generate random specs (fast-check style), run them through both the Lean model and the TypeScript compiler, assert outputs match. This catches implementation bugs without writing Lean proofs for every edge case.
+
+3. **Leanstral for proof authoring**: use Leanstral (via MCP or API) to draft the Lean proofs. Human reviews. This is the "agent writes proofs, kernel checks them, human audits" workflow.
+
+### 7.3. What NOT to verify
+
+- That the spec "correctly describes the project" — not formalizable (natural language semantics)
+- That the agent follows the spec — not verifiable (agent behavior is non-deterministic)
+- That linter rules are semantically correct — vigiles checks they exist and are enabled, not what they do
+- That prose in `sections{}` is accurate — natural language, outside formal methods
+
+### 7.4. Effort estimate
+
+| Phase                        | Work                                                           | Effort        |
+| ---------------------------- | -------------------------------------------------------------- | ------------- |
+| Lean model of hash functions | Define `computeHash`, prove determinism + collision properties | 2-3 days      |
+| Lean model of compile        | Define spec → output, prove structural properties              | 1-2 weeks     |
+| Differential testing harness | Generate random specs, compare Lean vs TS                      | 3-5 days      |
+| Monotonicity proofs          | Formalize the lattice from proofs.ts                           | 1 week        |
+| Sidecar manifest proofs      | Prove consistency of diff/affected-specs                       | 3-5 days      |
+| **Total**                    |                                                                | **4-6 weeks** |
+
+With Leanstral assisting proof authoring, the proof-writing portion could be 2-3x faster. But human review is still required — machine-generated proofs are correct (the kernel checks them) but may be hard to read and maintain.
+
+### 7.5. The property-test → Lean bridge
+
+vigiles already has property tests in `proofs.ts` that test the right invariants via random sampling. The bridge to Lean:
+
+```
+Property test (proofs.ts)          →    Lean theorem
+────────────────────────────       ────────────────
+property("monotonic",              theorem mono :
+  (s1, s2) =>                        ∀ s1 s2 : Spec,
+    merge(s1, s2).rules.size >=        (compile (merge s1 s2)).rules.length ≥
+    s1.rules.size                      (compile s1).rules.length
+)
+```
+
+The left side samples 1000 random inputs and checks. The right side proves for ALL inputs. The invariant is the same — the formalization language is different.
+
+For vigiles, this is the highest-value path: take the 6 existing property tests, formalize them in Lean, and ship the proofs alongside the property tests. The property tests remain the fast CI check. The Lean proofs are the "this was proven correct, not just tested" badge.
+
+---
+
+## 8. Integration: `lean()` enforce target
+
+Like the proposed `dafny()` target, but for Lean 4:
+
+```typescript
+enforce("lean4:src/proofs.lean#monotonicity_theorem");
+```
+
+Semantics at `vigiles compile` time:
+
+1. Parse the reference: file `src/proofs.lean`, theorem name `monotonicity_theorem`
+2. Run `lean --run src/proofs.lean` (or `lake build`)
+3. Confirm the theorem exists and type-checks (Lean's kernel verifies the proof)
+4. If verification fails, emit a compile error
+
+This extends vigiles's linter cross-referencing moat into formal proofs. The same pattern as `enforce("eslint/no-console")` — vigiles doesn't understand the proof, it just verifies it passes.
+
+With Leanstral, the workflow becomes:
+
+1. Developer writes a property test in proofs.ts
+2. Agent (Leanstral) formalizes it as a Lean theorem + proof
+3. Lean kernel verifies the proof
+4. Developer adds `enforce("lean4:proofs.lean#theorem_name")` to the spec
+5. vigiles verifies the proof at compile time, forever
+
+---
+
 ## Additional Ideas (post-session)
 
 ### 5.4. Dafny-in-comments — inline formal specs

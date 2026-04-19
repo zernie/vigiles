@@ -1,6 +1,6 @@
 {
   "name": "vigiles",
-  "version": "2.0.0",
+  "version": "0.0.0-semantically-released",
   "description": "Compile .spec.ts files to instruction files (CLAUDE.md, AGENTS.md) with linter cross-referencing",
   "bin": {
     "vigiles": "dist/cli.js"
@@ -15,7 +15,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test dist/spec.test.js dist/validate.test.js dist/cli.test.js dist/proofs.test.js dist/inline.test.js",
+    "test": "npm run build && node --test dist/spec.test.js dist/validate.test.js dist/cli.test.js dist/proofs.test.js dist/inline.test.js dist/sidecar.test.js dist/coverage.test.js dist/session.test.js",
     "lint": "eslint src/",
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check ."

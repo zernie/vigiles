@@ -22,6 +22,7 @@ import {
   type ReadonlyMerkleHistory,
 } from "./proofs.js";
 import { computeHash } from "./compile.js";
+import { assertNever } from "./hash.js";
 
 // ---------------------------------------------------------------------------
 // Mutation types
@@ -195,7 +196,7 @@ export function applyMutation(
           rules,
           error: {
             mutation,
-            reason: `Rule "${mutation.ruleId}" is already at maximum strength (enforce)`,
+            reason: `Rule "${mutation.ruleId}" is already at maximum strength (${rule._kind})`,
           },
         };
       }
@@ -218,6 +219,11 @@ export function applyMutation(
         next[mutation.ruleId] = {
           _kind: "guidance",
           text: rule.why,
+        } as GuidanceRule;
+      } else if (rule._kind === "guard") {
+        next[mutation.ruleId] = {
+          _kind: "guidance",
+          text: rule.description,
         } as GuidanceRule;
       } else {
         return {
@@ -312,9 +318,14 @@ export function applyMutation(
         next[mutation.ruleId] = { ...rule, text: mutation.newText };
       } else if (rule._kind === "enforce") {
         next[mutation.ruleId] = { ...rule, why: mutation.newText };
+      } else if (rule._kind === "guard") {
+        next[mutation.ruleId] = { ...rule, description: mutation.newText };
       }
       return { rules: next };
     }
+
+    default:
+      return assertNever(mutation);
   }
 }
 
@@ -362,36 +373,23 @@ export function runProofSuite(
 
   // 2. NCD deduplication. Only fail on pairs NEWLY INTRODUCED by the
   // candidate change — a repo with historical duplication must not
-  // block every unrelated mutation. Compute similar pairs on `after`
-  // and `before`, then subtract.
-  //
-  // Wrapped in try/catch so an unknown rule kind (legacy data / JS
-  // caller) surfaces as a clean proof failure rather than crashing
-  // the whole audit pipeline.
-  try {
-    const beforePairs = new Set(
-      findSimilarRules(before, ncdThreshold).map((p) =>
-        [p.idA, p.idB].sort().join("|"),
-      ),
-    );
-    const similar = findSimilarRules(after, ncdThreshold).filter(
-      (p) => !beforePairs.has([p.idA, p.idB].sort().join("|")),
-    );
-    const ncdPassed = similar.length === 0;
-    receipts.push({
-      name: "ncd-dedup",
-      passed: ncdPassed,
-      detail: ncdPassed
-        ? "No new near-duplicate rules"
-        : `${similar.length} new near-duplicate pairs: ${similar.map((p) => `${p.idA}↔${p.idB} (${p.distance.toFixed(3)})`).join(", ")}`,
-    });
-  } catch (e) {
-    receipts.push({
-      name: "ncd-dedup",
-      passed: false,
-      detail: `Similarity check failed: ${e instanceof Error ? e.message : String(e)}`,
-    });
-  }
+  // block every unrelated mutation.
+  const beforePairs = new Set(
+    findSimilarRules(before, ncdThreshold).map((p) =>
+      [p.idA, p.idB].sort().join("|"),
+    ),
+  );
+  const similar = findSimilarRules(after, ncdThreshold).filter(
+    (p) => !beforePairs.has([p.idA, p.idB].sort().join("|")),
+  );
+  const ncdPassed = similar.length === 0;
+  receipts.push({
+    name: "ncd-dedup",
+    passed: ncdPassed,
+    detail: ncdPassed
+      ? "No new near-duplicate rules"
+      : `${similar.length} new near-duplicate pairs: ${similar.map((p) => `${p.idA}↔${p.idB} (${p.distance.toFixed(3)})`).join(", ")}`,
+  });
 
   // 3. Bloom filter cross-check (fast sanity check for token overlap).
   // Baseline is built from rules that still exist in `after` — any
@@ -399,80 +397,50 @@ export function runProofSuite(
   // a merge) must be excluded, otherwise the newly introduced merge
   // rule would collide against its own sources and the merge would
   // be rejected for the very similarity it was meant to deduplicate.
-  //
-  // Wrapped for the same reason as NCD: ruleToBloomFilter → ruleToText
-  // throws on unknown rule kinds.
-  try {
-    let bloomPassed = true;
-    const newRuleIds = Object.keys(after).filter((id) => !(id in before));
-    const existingFilters = new Map<string, BloomFilter>();
+  let bloomPassed = true;
+  const newRuleIds = Object.keys(after).filter((id) => !(id in before));
+  const existingFilters = new Map<string, BloomFilter>();
 
-    for (const [id, rule] of Object.entries(before)) {
-      if (!(id in after)) continue; // removed — skip
-      existingFilters.set(id, ruleToBloomFilter(rule));
-    }
+  for (const [id, rule] of Object.entries(before)) {
+    if (!(id in after)) continue;
+    existingFilters.set(id, ruleToBloomFilter(rule));
+  }
 
-    const bloomOverlaps: string[] = [];
-    for (const newId of newRuleIds) {
-      const newFilter = ruleToBloomFilter(after[newId]);
-      for (const [existingId, existingFilter] of existingFilters) {
-        if (existingId === newId) continue;
-        try {
-          const similarity = BloomFilter.jaccardSimilarity(
-            newFilter,
-            existingFilter,
+  const bloomOverlaps: string[] = [];
+  for (const newId of newRuleIds) {
+    const newFilter = ruleToBloomFilter(after[newId]);
+    for (const [existingId, existingFilter] of existingFilters) {
+      if (existingId === newId) continue;
+      try {
+        const similarity = BloomFilter.jaccardSimilarity(
+          newFilter,
+          existingFilter,
+        );
+        if (similarity > 0.7) {
+          bloomOverlaps.push(
+            `${newId}↔${existingId} (jaccard=${similarity.toFixed(3)})`,
           );
-          if (similarity > 0.7) {
-            bloomOverlaps.push(
-              `${newId}↔${existingId} (jaccard=${similarity.toFixed(3)})`,
-            );
-            bloomPassed = false;
-          }
-        } catch {
-          // Different filter sizes — skip comparison
+          bloomPassed = false;
         }
+      } catch {
+        // Different filter sizes — skip comparison
       }
     }
-
-    receipts.push({
-      name: "bloom-overlap",
-      passed: bloomPassed,
-      detail: bloomPassed
-        ? "No suspicious token overlap"
-        : `High overlap: ${bloomOverlaps.join(", ")}`,
-    });
-  } catch (e) {
-    receipts.push({
-      name: "bloom-overlap",
-      passed: false,
-      detail: `Bloom filter check failed: ${e instanceof Error ? e.message : String(e)}`,
-    });
   }
 
-  // Compute fitness of the new spec. Guard against bad runtime data: fitness
-  // recomputes similarity internally and would otherwise crash on unknown
-  // rule kinds (legacy `check`, JS caller), propagating the throw up through
-  // the engine. Fall back to a neutral fitness and mark the proof failed.
+  receipts.push({
+    name: "bloom-overlap",
+    passed: bloomPassed,
+    detail: bloomPassed
+      ? "No suspicious token overlap"
+      : `High overlap: ${bloomOverlaps.join(", ")}`,
+  });
+
   const specForFitness = { rules: after } as ClaudeSpec;
-  let fitnessResult: FitnessResult;
-  try {
-    fitnessResult = fitness(specForFitness, {
-      maxTokens: options.maxTokens,
-      ncdThreshold,
-    });
-  } catch (e) {
-    receipts.push({
-      name: "fitness",
-      passed: false,
-      detail: `Fitness computation failed: ${e instanceof Error ? e.message : String(e)}`,
-    });
-    fitnessResult = {
-      score: 0,
-      coverage: 0,
-      redundancy: 0,
-      budgetPressure: 0,
-    };
-  }
+  const fitnessResult = fitness(specForFitness, {
+    maxTokens: options.maxTokens,
+    ncdThreshold,
+  });
 
   const allPassed = receipts.every((r) => r.passed);
   return { passed: allPassed, receipts, fitness: fitnessResult };
@@ -618,39 +586,7 @@ export class EvolutionEngine {
    * Returns a detailed result including proof receipts and fitness comparison.
    */
   propose(mutation: SpecMutation): EvolutionResult {
-    // Guard baseline fitness: if engine state contains a malformed rule
-    // (legacy _kind, JS caller, cast bypass), fitness() reaches ruleToText
-    // and throws BEFORE we enter runProofSuite's own try/catch. Return a
-    // clean rejection with a neutral fitness instead of crashing the flow.
-    let beforeFitness: FitnessResult;
-    try {
-      beforeFitness = this.getFitness();
-    } catch (e) {
-      const neutral: FitnessResult = {
-        score: 0,
-        coverage: 0,
-        redundancy: 0,
-        budgetPressure: 0,
-      };
-      return {
-        accepted: false,
-        mutation,
-        proofs: {
-          passed: false,
-          receipts: [
-            {
-              name: "baseline-fitness",
-              passed: false,
-              detail: `Baseline fitness failed: ${e instanceof Error ? e.message : String(e)}`,
-            },
-          ],
-          fitness: neutral,
-        },
-        beforeFitness: neutral,
-        afterFitness: neutral,
-        error: `Baseline fitness failed: ${e instanceof Error ? e.message : String(e)}`,
-      };
-    }
+    const beforeFitness = this.getFitness();
 
     // Apply the mutation
     const { rules: candidateRules, error } = applyMutation(
@@ -777,5 +713,7 @@ function describeMutation(mutation: SpecMutation): string {
       return `Merge "${mutation.sourceIds[0]}" + "${mutation.sourceIds[1]}" → "${mutation.mergedId}"`;
     case "reword":
       return `Reword rule "${mutation.ruleId}"`;
+    default:
+      return assertNever(mutation);
   }
 }

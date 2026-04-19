@@ -11,9 +11,9 @@
  *   6. propertyTest()     — random mutation + invariant checking
  */
 
-import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 
+import { sha256short, assertNever } from "./hash.js";
 import type { Rule, ClaudeSpec } from "./spec.js";
 
 // ---------------------------------------------------------------------------
@@ -23,12 +23,14 @@ import type { Rule, ClaudeSpec } from "./spec.js";
 /**
  * Ordinal strength of each rule kind.
  *
- *   guidance (0) < enforce (1)
+ *   guidance (0) < guard (1) = enforce (1)
  *
- * The lattice ensures specs only get stricter over time.
+ * Guard and enforce are both mechanically enforced (different mechanisms,
+ * same strength). The lattice ensures specs only get stricter over time.
  */
 const STRENGTH: Record<Rule["_kind"], number> = {
   guidance: 0,
+  guard: 1,
   enforce: 1,
 };
 
@@ -233,13 +235,14 @@ function ruleToText(rule: Rule): string {
       return `${rule.linterRule} ${rule.why}`;
     case "guidance":
       return rule.text;
-    default: {
-      const unknown = (rule as { _kind?: unknown })._kind;
-      throw new Error(
-        `Unknown rule kind "${String(unknown)}" — expected "enforce" or "guidance". ` +
-          `Runtime data is out of sync with the Rule type (legacy spec, JS caller, or cast bypass).`,
-      );
+    case "guard": {
+      const patterns = Array.isArray(rule.watch)
+        ? rule.watch.join(" ")
+        : rule.watch;
+      return `${patterns} ${rule.run} ${rule.description}`;
     }
+    default:
+      return assertNever(rule);
   }
 }
 
@@ -489,10 +492,7 @@ export interface HistoryNode {
   timestamp: number;
 }
 
-/** Compute a short SHA-256 hash (16 hex chars). */
-function sha256short(data: string): string {
-  return createHash("sha256").update(data).digest("hex").slice(0, 16);
-}
+// sha256short imported from ./hash.js
 
 /** Compute the hash of a HistoryNode (excluding the hash field itself). */
 function computeNodeHash(node: Omit<HistoryNode, "hash">): string {
@@ -828,8 +828,12 @@ export function fitness(
     return { score: 0, coverage: 0, redundancy: 0, budgetPressure: 0 };
   }
 
-  // Coverage: fraction with teeth (enforce vs guidance)
-  const enforced = rules.filter((r) => r._kind === "enforce").length;
+  // Coverage: fraction with teeth (mechanically enforced — STRENGTH ≥ 1).
+  // Counts both enforce() (linter-verified) and guard() (file-watch reactive).
+  // Without guard here, mutations that introduce/keep guard rules look like
+  // they reduce coverage and get rejected by runProofSuite even though
+  // enforcement strength didn't drop (see proofs.ts STRENGTH lattice).
+  const enforced = rules.filter((r) => STRENGTH[r._kind] >= 1).length;
   const coverage = enforced / total;
 
   // Redundancy: fraction of pairs that are near-duplicates

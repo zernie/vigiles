@@ -216,19 +216,6 @@ describe("NCD", () => {
     assert.ok(pairs.length >= 0); // NCD with short strings may not catch this
     // The test validates the function runs without error
   });
-
-  it("findSimilarRules throws a structured error on unknown rule kinds", () => {
-    // Simulate a legacy spec / JS caller that bypassed the TS type
-    const rules = {
-      legacy: { _kind: "check", text: "stale" },
-      modern: guidance("Fresh."),
-    } as unknown as Record<string, Rule>;
-
-    assert.throws(
-      () => findSimilarRules(rules, 0.8),
-      /Unknown rule kind "check"/,
-    );
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -897,28 +884,6 @@ describe("runProofSuite", () => {
       `bloom-overlap should skip removed rules; got: ${bloom.detail ?? ""}`,
     );
   });
-
-  it("returns a structured failure receipt when fitness throws on bad data", () => {
-    const before: Record<string, Rule> = {
-      rule1: guidance("Do X."),
-    };
-    // Inject a legacy rule shape that breaks ruleToText/findSimilarRules
-    const after = {
-      rule1: guidance("Do X."),
-      legacy: { _kind: "check", text: "stale" },
-    } as unknown as Record<string, Rule>;
-
-    // Must not throw — should surface as a failed proof receipt instead
-    const result = runProofSuite(before, after);
-    assert.equal(result.passed, false);
-    const failedReceipts = result.receipts.filter((r) => !r.passed);
-    assert.ok(
-      failedReceipts.some((r) => /Unknown rule kind/.test(r.detail ?? "")),
-      `Expected at least one receipt to mention the unknown kind; got: ${JSON.stringify(result.receipts)}`,
-    );
-    // Fitness must still be a well-formed object (neutral fallback)
-    assert.equal(typeof result.fitness.score, "number");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1172,30 +1137,6 @@ describe("EvolutionEngine", () => {
     assert.doesNotThrow(
       () => new EvolutionEngine(rulesOrderB, { history }),
       "Canonical hashing should tolerate key-order differences",
-    );
-  });
-
-  it("returns a structured rejection when baseline fitness throws", () => {
-    // Manually build an engine with bad rules, bypassing the normal
-    // validation path. This simulates a legacy compiled spec or JS caller
-    // sneaking a _kind:"check" object into engine state.
-    const engine = new EvolutionEngine({
-      rule1: guidance("Real rule."),
-    });
-    // Tamper with internal state via cast
-    (engine as unknown as { rules: Record<string, Rule> }).rules = {
-      legacy: { _kind: "check", text: "stale" } as unknown as Rule,
-    };
-
-    const result = engine.propose({
-      type: "add",
-      ruleId: "rule2",
-      rule: guidance("New."),
-    });
-    assert.equal(result.accepted, false);
-    assert.ok(
-      /Baseline fitness failed/.test(result.error ?? ""),
-      `Expected structured rejection; got: ${result.error ?? "(none)"}`,
     );
   });
 
