@@ -667,7 +667,11 @@ async function audit(
   }
 
   // 6. Coverage thresholds (gates CI when severity is "error")
-  const coverageErrors = checkCoverageThresholds(coverage, config, silent);
+  const coverageErrors = await checkCoverageThresholds(
+    coverage,
+    config,
+    silent,
+  );
 
   const report: AuditReport = {
     hashErrors: hashResult.hashErrors,
@@ -1305,12 +1309,16 @@ function checkIntegrityForFiles(
 /**
  * Apply the configured coverage thresholds. Returns the number of failing
  * thresholds (so the audit can fail CI when severity is "error").
+ *
+ * Loads specs directly via loadSpec() when the scripts threshold is set —
+ * avoids depending on a pre-built `dist/` tree, which the setup-generated
+ * CI step doesn't guarantee.
  */
-function checkCoverageThresholds(
+async function checkCoverageThresholds(
   coverage: { enabled: number; documented: number },
   config: VigilesConfig | undefined,
   silent: boolean,
-): number {
+): Promise<number> {
   const severity = ruleSeverity(config?.rules.coverage);
   if (!severity) return 0;
 
@@ -1338,7 +1346,16 @@ function checkCoverageThresholds(
   }
 
   if (opts.scripts !== undefined) {
-    const metric = computeScriptCoverage(process.cwd(), opts.scripts);
+    // Load all claude specs so coverage doesn't depend on a built dist/.
+    const loaded = await Promise.all(findSpecs().map(loadSpec));
+    const claudeSpecs = loaded.filter(
+      (s): s is ClaudeSpec => s?._specType === "claude",
+    );
+    const metric = computeScriptCoverage(
+      process.cwd(),
+      opts.scripts,
+      claudeSpecs,
+    );
     const ok = metric.passing;
     if (!ok) failing++;
     const marker = ok ? "✓" : severity === "error" ? "✗" : "⚠";

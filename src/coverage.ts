@@ -135,14 +135,13 @@ export function computeScriptCoverage(
   const uncovered: string[] = [];
 
   for (const script of allScripts) {
-    // Check both "npm run <script>" and "npm <script>" forms
+    // Match the same forms compile-time validation accepts in cmd():
+    // "npm run <script>" or "npm <script>". Bare script names are not
+    // executable refs — accepting them here would let stale entries
+    // satisfy the coverage threshold without being verifiable.
     const npmRun = `npm run ${script}`;
     const npmDirect = `npm ${script}`;
-    if (
-      documented.has(npmRun) ||
-      documented.has(npmDirect) ||
-      documented.has(script)
-    ) {
+    if (documented.has(npmRun) || documented.has(npmDirect)) {
       covered.push(script);
     } else {
       uncovered.push(script);
