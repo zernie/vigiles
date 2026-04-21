@@ -93,6 +93,8 @@ Core modules: \`src/spec.ts\` (types + builders), \`src/compile.ts\` (compiler),
       "Research: architecture-aware agent platform (FSD/DDD/hexagonal presets, meta-validation)",
     "research/formal-proofs-for-agents.md":
       "Research: formal verification via Lean 4 / Dafny, Cedar pattern, Leanstral integration",
+    "research/enforce-over-guidance.md":
+      "Design doc: deterministic upgrade gates — snapshot-gated downgrades + Merkle diff vs upstream catalog",
     "docs/agent-workflows.md":
       "Agent-specific workflows (Claude Code, Codex, multi-agent, Cursor)",
     "docs/agent-setup.md":

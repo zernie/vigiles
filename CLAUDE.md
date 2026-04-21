@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:d2816c322e1414f6 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:bcaa2e736208daef compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -66,6 +66,7 @@ Core modules: `src/spec.ts` (types + builders), `src/compile.ts` (compiler), `sr
 - `research/runtime-enforcement.md` — Research: spec-derived runtime enforcement via hooks, skill contracts, session audit
 - `research/architecture-platform.md` — Research: architecture-aware agent platform (FSD/DDD/hexagonal presets, meta-validation)
 - `research/formal-proofs-for-agents.md` — Research: formal verification via Lean 4 / Dafny, Cedar pattern, Leanstral integration
+- `research/enforce-over-guidance.md` — Design doc: deterministic upgrade gates — snapshot-gated downgrades + Merkle diff vs upstream catalog
 - `docs/agent-workflows.md` — Agent-specific workflows (Claude Code, Codex, multi-agent, Cursor)
 - `docs/agent-setup.md` — Non-interactive agent setup guide (hooks via settings.json)
 - `docs/spec-format.md` — Spec format reference (target, sections, rules)
