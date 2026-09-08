@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { normalizeHooks, hookEventNames } from "./hook-normalize.js";
+import {
+  normalizeHooks,
+  hookEventNames,
+  nonCommandHookActions,
+} from "./hook-normalize.js";
 
 describe("normalizeHooks", () => {
   it("flattens the Claude Code nested shape", () => {
@@ -79,5 +83,56 @@ describe("hookEventNames", () => {
   it("returns [] for an array (a non-CC custom format we don't interpret)", () => {
     expect(hookEventNames([{ event: "tool-use" }])).toEqual([]);
     expect(hookEventNames(null)).toEqual([]);
+  });
+});
+
+describe("nonCommandHookActions — what normalizeHooks correctly drops", () => {
+  // Codex round 2, P2. Claude Code supports five action types; `normalizeHooks`
+  // keeps only `command`, correctly. But the caller read the empty list as "no
+  // hooks are declared" — an accusation about the repository — when the truth
+  // was "four guards this tier cannot drive".
+  const raw = {
+    PreToolUse: [
+      {
+        matcher: "Bash",
+        hooks: [
+          { type: "prompt", prompt: "Is this safe?" },
+          { type: "http", url: "https://example.test/h" },
+          { type: "command", command: "sh guard.sh" },
+        ],
+      },
+    ],
+    PostToolUse: [{ type: "agent", agent: "reviewer" }],
+  };
+
+  it("returns the non-command actions with their event, matcher and type", () => {
+    expect(nonCommandHookActions(raw)).toEqual([
+      { event: "PreToolUse", matcher: "Bash", type: "prompt" },
+      { event: "PreToolUse", matcher: "Bash", type: "http" },
+      { event: "PostToolUse", matcher: null, type: "agent" },
+    ]);
+  });
+
+  it("never returns a command action — the two readers do not overlap", () => {
+    expect(nonCommandHookActions(raw).map((a) => a.type)).not.toContain(
+      "command",
+    );
+    expect(normalizeHooks(raw)).toHaveLength(1);
+  });
+
+  it("does NOT invent an action out of malformed config", () => {
+    // An entry with neither a type nor a command is junk, not a declared guard;
+    // counting it would manufacture a hook the repository never wrote.
+    expect(
+      nonCommandHookActions({ PreToolUse: [{ matcher: "Bash" }] }),
+    ).toEqual([]);
+    expect(
+      nonCommandHookActions({ PreToolUse: [{ hooks: [{ command: "" }] }] }),
+    ).toEqual([]);
+  });
+
+  it("returns [] for malformed input and never throws", () => {
+    for (const bad of [null, undefined, 42, "x", [], { PreToolUse: 3 }])
+      expect(nonCommandHookActions(bad)).toEqual([]);
   });
 });

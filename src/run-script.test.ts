@@ -18,7 +18,7 @@ import { mkdtempSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runScript } from "./run-script.js";
+import { runScript, routeScriptRun } from "./run-script.js";
 import { runHook } from "./run-hook.js";
 import { assertNoWrite } from "./harness-assert.js";
 
@@ -115,4 +115,66 @@ test("runHook is runScript plus the hook protocol — same effects, plus a decis
     hook_event_name: "PreToolUse",
     tool_name: "Bash",
   });
+});
+
+// ---------------------------------------------------------------------------
+// routeScriptRun — the ONE confinement decision (Codex round 2, P1).
+//
+// The pre-flight in `experimental_verifyPluginGuards` must know whether a run
+// will be confined BEFORE it runs anything, because a confined run starts in a
+// fresh empty directory with a cleared environment. It used to answer with its
+// own copy of the mode expression, and the copy did not know `recordEgress`
+// confines. These pin the decision itself, so a future option that selects
+// confinement cannot be added in one reader and missed in the other.
+// ---------------------------------------------------------------------------
+
+test("recordEgress routes to CONFINEMENT — the term the second copy missed", () => {
+  const avail = { sandbox: true, egress: true };
+  assert.equal(routeScriptRun({ recordEgress: true }, avail).kind, "sandboxed");
+});
+
+test("the ordinary routes are unchanged", () => {
+  const avail = { sandbox: true, egress: true };
+  assert.equal(routeScriptRun({}, avail).kind, "direct");
+  assert.equal(routeScriptRun({ trusted: false }, avail).kind, "sandboxed");
+  assert.equal(routeScriptRun({ sandbox: "strict" }, avail).kind, "sandboxed");
+  assert.equal(
+    routeScriptRun({ egress: { allow: ["x"] } }, avail).kind,
+    "egress",
+  );
+  // An explicit opt-out still wins over the recordEgress default…
+  assert.equal(
+    routeScriptRun({ recordEgress: true, sandbox: false }, avail).kind,
+    "direct",
+  );
+});
+
+test("an unavailable sandbox REFUSES rather than silently running direct", () => {
+  const r = routeScriptRun(
+    { trusted: false },
+    { sandbox: false, egress: false },
+  );
+  assert.equal(r.kind, "refuse");
+  assert.match(r.kind === "refuse" ? r.reason : "", /without a sandbox/);
+  const e = routeScriptRun(
+    { egress: { allow: ["x"] } },
+    { sandbox: true, egress: false },
+  );
+  assert.equal(e.kind, "refuse");
+  assert.match(e.kind === "refuse" ? e.reason : "", /allowlist sandbox/);
+});
+
+test("every non-direct route reads as confined — including the refusal", () => {
+  // What the sweep actually asks. A refusal is the CONFINED path: it is the run
+  // that declined to happen unconfined, so pre-flighting it against this
+  // process's cwd and env would describe an environment it would never have had.
+  const avail = { sandbox: false, egress: false };
+  for (const opts of [
+    { trusted: false },
+    { recordEgress: true },
+    { egress: { allow: ["x"] } },
+    { sandbox: "auto" as const },
+  ])
+    assert.notEqual(routeScriptRun(opts, avail).kind, "direct");
+  assert.equal(routeScriptRun({}, avail).kind, "direct");
 });

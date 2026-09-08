@@ -10,7 +10,11 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import { hookMatcherIssues, type HookMatcherEntry } from "./hook-matcher.js";
+import {
+  hookMatcherIssues,
+  hookMatcherReach,
+  type HookMatcherEntry,
+} from "./hook-matcher.js";
 import { claudeCodeDialect as d } from "../adapters/claude-code/dialect.js";
 
 // ---------------------------------------------------------------------------
@@ -391,4 +395,74 @@ test("two different typos each produce their own finding (no cross-dedup)", () =
   assert.equal(findings.length, 2);
   const matchers = findings.map((f) => f.matcher).sort();
   assert.deepEqual(matchers, ["bash", "read"]);
+});
+
+// ---------------------------------------------------------------------------
+// hookMatcherReach — the same measured semantics asked as "would the harness
+// spawn this hook?", plus the two answers a boolean could not carry: a matcher
+// the engine REJECTS, and a harness whose matchers are all regexes.
+// ---------------------------------------------------------------------------
+
+test("hookMatcherReach: a literal matcher is compared by equality", () => {
+  assert.equal(hookMatcherReach("Bash", "Bash"), "selects");
+  assert.equal(hookMatcherReach("Edit", "Bash"), "misses");
+  // `rit` is a substring of `Write` and still does not fire — the measured rule.
+  assert.equal(hookMatcherReach("rit", "Write"), "misses");
+});
+
+test("hookMatcherReach: a metacharacter matcher is an unanchored regex", () => {
+  assert.equal(hookMatcherReach("Edit|Write", "Write"), "selects");
+  assert.equal(hookMatcherReach("Edit|Write", "Bash"), "misses");
+  assert.equal(hookMatcherReach("Ba.h", "Bash"), "selects");
+});
+
+test("hookMatcherReach: no matcher and a match-all select everything", () => {
+  assert.equal(hookMatcherReach(null, "Bash"), "selects");
+  // MEASURED against claude 2.1.263, marker file as the oracle. `**` is
+  // deliberately absent — see the next test.
+  for (const all of ["", "*", ".*"])
+    assert.equal(hookMatcherReach(all, "Bash"), "selects");
+});
+
+test("hookMatcherReach: `**` is NOT a match-all — the harness ignores it", () => {
+  // 🔴 It sat in MATCH_ALL on no evidence, and that direction MANUFACTURES AN
+  // ACCUSATION: a guard registered under `**` came back "measured, allows 0/7"
+  // — reported as letting seven disasters through — when claude 2.1.263 never
+  // spawns it at all (3 runs of 3, with `.*` as the in-run control). Pinned
+  // against the real binary in src/hook-matcher-delivery.test.ts.
+  assert.equal(hookMatcherReach("**", "Bash"), "uncompilable");
+  // …and the lint rule says the same thing about it, from the same set.
+  const [finding] = hookMatcherIssues(
+    [{ event: "PreToolUse", matcher: "**" }],
+    [],
+    d,
+  );
+  assert.equal(finding?.kind, "invalid-regex");
+  assert.match(finding?.message ?? "", /never fires/);
+});
+
+test("hookMatcherReach: an UNCOMPILABLE matcher is its own answer, not a select", () => {
+  // The one a boolean got wrong. `Bash(` is what `invalid-regex` already reports
+  // as "the harness can't compile it, so the hook never fires" — so answering
+  // "selects" here manufactures a run the harness never performs.
+  assert.equal(hookMatcherReach("Bash(", "Bash"), "uncompilable");
+  assert.equal(hookMatcherReach("Bash[", "Bash"), "uncompilable");
+});
+
+test("hookMatcherReach: a regex-style harness has no literal shortcut", () => {
+  // Codex declares `matcherStyle: "regex"` — every matcher is a regex there, so
+  // `ash` matches `Bash` and Claude Code's equality rule must not be applied.
+  assert.equal(hookMatcherReach("ash", "Bash", "regex"), "selects");
+  assert.equal(hookMatcherReach("ash", "Bash", "exact"), "misses");
+  assert.equal(hookMatcherReach("ash", "Bash"), "misses");
+  assert.equal(hookMatcherReach("Edit", "Bash", "regex"), "misses");
+});
+
+test("hookMatcherReach: a glob wildcard is uncompilable on a regex harness", () => {
+  // `*` is Claude Code's documented match-all; it is not a regex, so a harness
+  // that compiles every matcher cannot build it. Refusing to score beats
+  // assuming a second harness special-cases the same spelling.
+  assert.equal(hookMatcherReach("*", "Bash", "regex"), "uncompilable");
+  assert.equal(hookMatcherReach(".*", "Bash", "regex"), "selects");
+  assert.equal(hookMatcherReach(null, "Bash", "regex"), "selects");
 });

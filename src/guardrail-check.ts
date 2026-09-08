@@ -24,6 +24,7 @@
  */
 import { equivalentCommands } from "./core/bash-equivalents.js";
 import { runHook, type RunHookOptions } from "./run-hook.js";
+import { shellNeverLaunched } from "./run-script.js";
 
 /** A category of dangerous action a guard might be meant to block. */
 export type DisasterCategory =
@@ -231,6 +232,29 @@ export function verifyGuardrail(
       },
       opts,
     );
+    // 🔴 A PROGRAM THE SHELL NEVER LAUNCHED HAS NO OPINION, so it must not be
+    // reported as one. 126 ("found, not executable") and 127 ("not found") are
+    // the SHELL's own codes — not a language's exit convention and not a guess
+    // about stderr text — and they arrive when the interpreter is missing, the
+    // file is not executable, or the shebang is wrong. Left alone, they read as
+    // `ran and allowed`, which accuses a guard of letting a disaster through
+    // when it was never asked. Folding them into the existing not-run channel
+    // means `assertBlocksDisasters` and both renderers say WHY for free, and the
+    // verdict is unchanged: a guard that cannot start still protects nothing.
+    //
+    // ⚠️ ONLY WHEN NOTHING BLOCKED. `echo '{"…deny…}'; ./missing` exits 127 with
+    // a real deny on stdout; reclassifying that would hide a decision the hook
+    // genuinely made. The exit code loses to the decision, never the reverse.
+    if (!r.blocked && r.ran && shellNeverLaunched(r.exitCode))
+      return {
+        event,
+        blocked: false,
+        exitCode: r.exitCode,
+        ran: false,
+        reason: `the shell never launched this hook (exit ${String(r.exitCode)}: ${
+          r.exitCode === 127 ? "command not found" : "not executable"
+        }) — nothing here is the guard's decision`,
+      };
     return {
       event,
       blocked: r.blocked,
@@ -275,6 +299,25 @@ export function assertBlocksDisasters(
 }
 
 /**
+ * One battery event as a report line, WITHOUT leading indentation so each caller
+ * nests it where its own layout needs.
+ *
+ * THREE outcomes, not two. "never run" is not a weaker "allows": the harness
+ * would not invoke this hook for that call at all, so the guard has no opinion
+ * to report. Printing it as `allows` is what made a conditional guard look like
+ * it had considered — and permitted — commands it can never see.
+ *
+ * @internal Shared by {@link formatGuardrailReport} and the directory-level
+ * sweep's formatter (`experimental_formatPluginGuardReport`), so the two renderers
+ * cannot drift into two vocabularies for the same three outcomes. Not part of the
+ * public API — a caller wanting these lines wants one of the two reports.
+ */
+export function guardrailRow(result: GuardrailResult): string {
+  if (!result.ran) return `⊘ not run  ${result.event.label} — ${result.reason}`;
+  return `${result.blocked ? "✅ blocks" : "·  allows"}  ${result.event.label}`;
+}
+
+/**
  * Render a coverage report (informational, NEUTRAL). It reports what the
  * hook blocks WITHOUT judging it: a hook that allows these may simply not be a
  * bash-safety guard (our own pre-edit.sh blocks .md edits, not `rm -rf`). The
@@ -288,14 +331,7 @@ export function formatGuardrailReport(
   const blocked = results.filter((r) => r.blocked).length;
   const skipped = results.filter((r) => !r.ran).length;
   const head = `Guardrail coverage for \`${hookCommand}\` — blocks ${blocked}/${results.length} of the dangerous battery`;
-  const rows = results.map((r) => {
-    // THREE outcomes, not two. "never run" is not a weaker "allows": the harness
-    // would not invoke this hook for that call at all, so the guard has no opinion
-    // to report. Printing it as `allows` is what made a conditional guard look
-    // like it had considered — and permitted — commands it can never see.
-    if (!r.ran) return `  ⊘ not run  ${r.event.label} — ${r.reason}`;
-    return `  ${r.blocked ? "✅ blocks" : "·  allows"}  ${r.event.label}`;
-  });
+  const rows = results.map((r) => `  ${guardrailRow(r)}`);
   const foot = [
     blocked < results.length
       ? "\nAllows ≠ a bug unless this guard is MEANT to block them — gate intent with\nassertBlocksDisasters(cmd, { categories: [...] })."
