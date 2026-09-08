@@ -26,14 +26,35 @@
 // mvdan-sh is a CJS package (GopherJS build) with no bundled TypeScript types.
 // The project compiles to CommonJS (Node16, no "type":"module"), so plain
 // require() works and is the idiomatic pattern here (see linters.ts).
-const _sh = require("mvdan-sh") as unknown;
-const sh = _sh as {
+interface MvdanSyntax {
   syntax: {
     NewParser: () => { Parse: (src: string, name: string) => MvdanNode };
     Walk: (node: MvdanNode, fn: (node: MvdanNode) => boolean) => void;
     NodeType: (node: MvdanNode) => string;
   };
-};
+}
+
+/**
+ * The parser is loaded ON FIRST PARSE, not at module load — `sh()` memoizes it.
+ *
+ * WHY, measured 2026-09-08 (Node 22.22.2, `tools/measure-hook-startup.mjs`):
+ * `require("mvdan-sh")` is a GopherJS build and costs ~100 ms on top of a 42 ms
+ * bare Node start. This module sits in the import graph of `core/hook-program.ts`
+ * (and `core/hook-providers.ts`), which the compiled-hook RUNTIME loads on EVERY
+ * matching tool call. Only a BASH predicate ever parses: `decideProgram` returns
+ * `allow()` before building a `commandView` when the tool is not Bash, so a file
+ * gate, an inject, a react or a stop gate never reaches this file's functions at
+ * all — and used to pay ~100 ms per tool call for a parser it never called.
+ *
+ * The deferral is CLEAN because the boundary is real, not a trick: every entry
+ * point here starts by parsing, so there is no path that touches `sh()` without
+ * needing the parser. A bash gate still pays, and that cost is the work it asked
+ * for. Do NOT hoist this back to a top-level `require` — `src/hook-runtime-graph.test.ts`
+ * asserts `mvdan-sh` is absent from a non-Bash decision's module graph.
+ */
+let _sh: MvdanSyntax | undefined;
+const sh = (): MvdanSyntax =>
+  (_sh ??= require("mvdan-sh") as unknown as MvdanSyntax);
 
 // Minimal structural types for the mvdan-sh AST nodes we inspect.
 // These are NOT exhaustive — only the fields we actually read are declared.
@@ -286,7 +307,7 @@ function getLiteral(word: MvdanWord | undefined): string | null {
   if (!word?.Parts || word.Parts.length !== 1) return null;
   const part = word.Parts[0];
   if (!part) return null;
-  if (sh.syntax.NodeType(part) === "Lit") return part.Value ?? null;
+  if (sh().syntax.NodeType(part) === "Lit") return part.Value ?? null;
   return null;
 }
 
@@ -295,13 +316,13 @@ function getLiteralDeep(word: MvdanWord | undefined): string | null {
   if (!word?.Parts || word.Parts.length !== 1) return null;
   const p = word.Parts[0];
   if (!p) return null;
-  const t = sh.syntax.NodeType(p);
+  const t = sh().syntax.NodeType(p);
   if (t === "Lit") return p.Value ?? null;
   if (t === "DblQuoted") {
     const inner = p as MvdanWord;
     if (!inner.Parts || inner.Parts.length !== 1) return null;
     const ip = inner.Parts[0];
-    if (!ip || sh.syntax.NodeType(ip) !== "Lit") return null;
+    if (!ip || sh().syntax.NodeType(ip) !== "Lit") return null;
     return ip.Value ?? null;
   }
   return null;
@@ -405,7 +426,7 @@ function classifyStmt(stmt: MvdanNode): BashEffect {
 
 /** Classify a Cmd node (the typed command inside a Stmt). */
 function classifyCmd(cmd: MvdanNode): BashEffect {
-  const t = sh.syntax.NodeType(cmd);
+  const t = sh().syntax.NodeType(cmd);
 
   switch (t) {
     case "CallExpr":
@@ -451,9 +472,9 @@ function classifyStmtList(stmts: MvdanNode[] | undefined): BashEffect {
 /** Returns true if the AST contains a ProcSubst node anywhere. */
 function hasProcSubst(root: MvdanNode): boolean {
   let found = false;
-  sh.syntax.Walk(root, (node) => {
+  sh().syntax.Walk(root, (node) => {
     if (found) return false;
-    if (sh.syntax.NodeType(node) === "ProcSubst") {
+    if (sh().syntax.NodeType(node) === "ProcSubst") {
       found = true;
       return false;
     }
@@ -477,7 +498,7 @@ function hasProcSubst(root: MvdanNode): boolean {
 export function classifyBashCommand(command: string): BashEffect {
   let file: MvdanNode;
   try {
-    file = sh.syntax.NewParser().Parse(command, "cmd.sh");
+    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
   } catch {
     // mvdan-sh throws a Go error object (not an Error instance) on parse failure.
     return "undecidable";
@@ -509,13 +530,13 @@ export function isReadOnlyBash(command: string): boolean {
 export function leafCommands(command: string): string[][] {
   let file: MvdanNode;
   try {
-    file = sh.syntax.NewParser().Parse(command, "cmd.sh");
+    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
   } catch {
     return [];
   }
   const out: string[][] = [];
-  sh.syntax.Walk(file, (node) => {
-    if (sh.syntax.NodeType(node) === "CallExpr" && node.Args) {
+  sh().syntax.Walk(file, (node) => {
+    if (sh().syntax.NodeType(node) === "CallExpr" && node.Args) {
       const argv = node.Args.map((w) => getLiteral(w)).filter(
         (s): s is string => s !== null,
       );
@@ -665,7 +686,7 @@ function normalizeParts(
   if (!parts) return null;
   let out = "";
   for (const p of parts) {
-    const t = sh.syntax.NodeType(p);
+    const t = sh().syntax.NodeType(p);
     if (t === "Lit") {
       out += unescape
         ? unescapeLit(p.Value ?? "", inDoubleQuotes)
@@ -955,13 +976,13 @@ function stripWrappers(argv: readonly string[]): {
 export function leafCommandsNormalized(command: string): NormalizedLeaf[] {
   let file: MvdanNode;
   try {
-    file = sh.syntax.NewParser().Parse(command, "cmd.sh");
+    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
   } catch {
     return [];
   }
   const out: NormalizedLeaf[] = [];
-  sh.syntax.Walk(file, (node) => {
-    if (sh.syntax.NodeType(node) !== "Stmt" || !node.Cmd) return true;
+  sh().syntax.Walk(file, (node) => {
+    if (sh().syntax.NodeType(node) !== "Stmt" || !node.Cmd) return true;
     const leaf = normalizeCallExpr(node.Cmd, node.Redirs ?? []);
     if (leaf) out.push(leaf);
     return true;
@@ -985,7 +1006,7 @@ function sourceParts(parts: readonly MvdanNode[] | undefined): string | null {
   if (!parts) return null;
   let out = "";
   for (const p of parts) {
-    const t = sh.syntax.NodeType(p);
+    const t = sh().syntax.NodeType(p);
     if (t === "Lit" || t === "SglQuoted") {
       out += p.Value ?? "";
     } else if (t === "DblQuoted") {
@@ -1046,7 +1067,7 @@ function sourceParts(parts: readonly MvdanNode[] | undefined): string | null {
 export function leafArgvSource(command: string): string[][] {
   let file: MvdanNode;
   try {
-    file = sh.syntax.NewParser().Parse(command, "cmd.sh");
+    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
   } catch {
     return [];
   }
@@ -1073,7 +1094,7 @@ export function leafArgvSource(command: string): string[][] {
   };
   const descend = (node: MvdanNode | undefined): boolean => {
     if (!node) return false;
-    switch (sh.syntax.NodeType(node)) {
+    switch (sh().syntax.NodeType(node)) {
       case "Stmt":
         // `cmd &` runs in a background SUBSHELL, so a terminator inside it never
         // reaches this shell (measured: `exit 0 & ./x.sh` runs `./x.sh`).
@@ -1163,12 +1184,12 @@ function terminates(call: MvdanNode): boolean {
  */
 function mayTerminate(node: MvdanNode): boolean {
   let found = false;
-  sh.syntax.Walk(node, (n) => {
+  sh().syntax.Walk(node, (n) => {
     if (found) return false;
     // A function BODY is not executed where it is written, so a `return`/`exit`
     // inside one says nothing about control here.
-    if (sh.syntax.NodeType(n) === "FuncDecl") return false;
-    if (sh.syntax.NodeType(n) === "CallExpr" && terminates(n)) found = true;
+    if (sh().syntax.NodeType(n) === "FuncDecl") return false;
+    if (sh().syntax.NodeType(n) === "CallExpr" && terminates(n)) found = true;
     return !found;
   });
   return found;
@@ -1266,7 +1287,7 @@ function normalizeCallExpr(
   node: MvdanNode,
   redirs: readonly MvdanRedirect[],
 ): NormalizedLeaf | null {
-  if (sh.syntax.NodeType(node) !== "CallExpr" || !node.Args?.length)
+  if (sh().syntax.NodeType(node) !== "CallExpr" || !node.Args?.length)
     return null;
   const headRaw = normalizeParts(node.Args[0]?.Parts, false, true);
   if (headRaw === null) return null; // dynamic head → not normalizable
@@ -1416,13 +1437,13 @@ export function commandWords(command: string): string[] | null {
 function commandWordsAt(command: string, depth: number): string[] | null {
   let file: MvdanNode;
   try {
-    file = sh.syntax.NewParser().Parse(command, "cmd.sh");
+    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
   } catch {
     return null;
   }
   const out: string[] = [];
-  sh.syntax.Walk(file, (node) => {
-    if (sh.syntax.NodeType(node) === "CallExpr" && node.Args?.length)
+  sh().syntax.Walk(file, (node) => {
+    if (sh().syntax.NodeType(node) === "CallExpr" && node.Args?.length)
       fileOperandsOf(node.Args, depth, out);
     return true;
   });

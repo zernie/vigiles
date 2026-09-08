@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:6dabca68cc955f96 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:8d5538c6a39d9fe0 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -173,7 +173,11 @@ BUILD + TOOLING + GENERATED:
 - `src/core/generate-types.ts` — Type generator: scans linters/package.json/filesystem → emits .d.ts
 - `src/core/generate-schema.ts` — JSON Schema generator: emits .vigiles/schema.json from real linter config so YAML LSP autocompletes frontmatter rule names
 - `src/core/generate-harness.ts` — Whole-harness codegen (harness-agnostic core, the THIRD generated artifact beside generate-types/generate-schema): `vigiles generate harness [dir] [out]` emits ONE harness.gen.ts registry over every…
-- `src/cli.ts` — CLI: init, compile, lint, test, eval, scan (primary commands + generate-types plumbing) + `--version` (prints the version, not the help banner).
+- `src/cli.ts` — The `bin` — a DISPATCHER SHIM with NO top-level imports (#216). CommonJS resolves top-level imports before argv is parsed, so a compiled hook's allow/deny used to load `compile`/`lint`/`audit`/`eval` first; measured at 610-661 ms per gated tool call against a 42 ms bare Node start. It now lazily requires `hook-runtime.js` for a decision and `cli-main.js` for everything else. The emitted command `npx vigiles hook-runtime run-program <file>` is unchanged and must stay so — it is baked into every already-emitted settings block and its SHA stamp.
+- `src/hook-runtime.ts` — The compiled-hook RUNTIME (`hook-runtime run-program`) — stdin event → stamp check → dispatch by role. Kept OUT of the verb barrel so a decision loads only what it needs; three lazy edges carry their measurement at the call site (@iarna/toml, mvdan-sh, the adapter registry, the last reached only by a react). `src/hook-runtime-graph.test.ts` asserts the graph; `tools/measure-hook-startup.mjs` re-measures the numbers.
+- `src/hook-runtime-graph.test.ts` — The module-graph invariant behind the runtime's startup cost: a decision must not pull the CLI barrel, `@iarna/toml`, or (unless it is a Bash gate) `mvdan-sh`. Asserts the GRAPH, not a duration — a timing threshold on a shared CI runner would be quarantined first. Both directions: a bash gate DOES load the parser, `--help` DOES load the barrel.
+- `tools/measure-hook-startup.mjs` — Human-run: prices a compiled hook's startup layer by layer (a `require` per module) and end-to-end per hook role. The NUMBERS live here and are re-measured, never quoted from prose.
+- `src/cli-main.ts` — CLI: init, compile, lint, test, eval, scan (primary commands + generate-types plumbing) + `--version` (prints the version, not the help banner).
 - `src/setup-plan.ts` — Pure `vigiles init` decision logic (parseSetupArgs/shouldPrompt/resolvePlan/planPluginInstall): turns CLI flags + whether a human's at a TTY into a SetupPlan {lint,test,gha,plugin,strict}.
 - `src/core/adopt.ts` — Faithful markdown → typed-spec ADOPTION — the deterministic half of `init` auto-adopt. adoptMarkdown(md, target) converts an existing CLAUDE.md/AGENTS.md into a `claude()` spec SOURCE that compiles…
 - `src/core/adopt.test.ts` — Adoption suite (vitest): structural unit checks (1:1 heading→section mapping, title-h1 consumed, ### kept inside a body, reserved-key capitalized, fenced ## not split, duplicate headings deduped…

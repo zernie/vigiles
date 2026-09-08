@@ -15,11 +15,11 @@
  * ── WHY IT READS BOTH SIDES INSTEAD OF ASSERTING "v1" ───────────────────────────
  * A test that hardcodes the string cannot fail for the reason this bug happened:
  * the two sides disagreeing. Both are EXTRACTED — the maintained tag from
- * release.yml's `ACTION_MAJOR_TAG`, the emitted refs from src/cli.ts — so a
+ * release.yml's `ACTION_MAJOR_TAG`, the emitted refs from src/cli-main.ts — so a
  * future rename that touches only one side fails here, and a rename that touches
  * both passes without editing this file.
  *
- * src/cli.ts is read as TEXT on purpose: the workflow template is a private
+ * src/cli-main.ts is read as TEXT on purpose: the workflow template is a private
  * string builder, and the point is to assert on the bytes that actually reach the
  * user's `.github/workflows/vigiles.yml`, not on a re-derivation of them.
  */
@@ -31,7 +31,9 @@ import { execFileSync } from "node:child_process";
 
 const ROOT = resolve(__dirname, "..");
 const RELEASE = resolve(ROOT, ".github", "workflows", "release.yml");
-const CLI = resolve(ROOT, "src", "cli.ts");
+// The verb barrel, where `init`'s workflow template lives. `src/cli.ts` is only
+// the dispatcher shim since #216 and emits no Action ref at all.
+const CLI = resolve(ROOT, "src", "cli-main.ts");
 
 /** A `zernie/vigiles@<ref>` occurrence: the ref, and the line it sits on. */
 type Ref = { ref: string; line: number; file: string };
@@ -76,10 +78,10 @@ describe("the Action's floating major tag", () => {
 
   it("is the same ref `vigiles init` emits into the user's workflow", () => {
     const tag = maintainedTag();
-    const emitted = refsIn(readFileSync(CLI, "utf8"), "src/cli.ts");
+    const emitted = refsIn(readFileSync(CLI, "utf8"), "src/cli-main.ts");
     assert.ok(
       emitted.length > 0,
-      "src/cli.ts emits no `zernie/vigiles@<ref>` at all — either init stopped " +
+      "src/cli-main.ts emits no `zernie/vigiles@<ref>` at all — either init stopped " +
         "wiring the Action, or the template moved and this test went blind",
     );
     for (const { ref, line, file } of emitted)

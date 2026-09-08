@@ -41,7 +41,21 @@ import {
   type NormalizedLeaf,
 } from "./bash-effects.js";
 import { sha256short, assertNever, type SHA256Hash } from "./hash.js";
-import { stringify as stringifyToml } from "@iarna/toml";
+/**
+ * `@iarna/toml` is required LAZILY, at the one call site that serializes a Codex
+ * TOML settings block — never at module load. MEASURED 2026-09-08 (Node 22.22.2,
+ * `tools/measure-hook-startup.mjs`): the top-level import cost 56 ms of a
+ * ~170 ms `require("dist/core/hook-program.js")`, and this module is on the hot
+ * path of `vigiles hook-runtime run-program`, which runs on EVERY matching tool
+ * call. A hook DECIDES; it never serializes a settings block, so it paid 56 ms
+ * per tool call for a compile-time dependency. Keep it a call-site require —
+ * hoisting it back to the top is the regression, and `src/hook-runtime-graph.test.ts`
+ * fails if `@iarna/toml` reappears in a decision's module graph.
+ */
+const stringifyToml = (value: unknown): string =>
+  (require("@iarna/toml") as typeof import("@iarna/toml")).stringify(
+    value as never,
+  );
 import type { HarnessDialect } from "./dialect.js";
 import type { HookProtocol } from "./hook-protocol.js";
 import { verifyHookEvents, authoringIssues } from "./hook-events.js";

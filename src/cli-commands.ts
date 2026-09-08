@@ -7,7 +7,7 @@
  *
  * VERBS are typed by a human/agent/CI. HOOK_RUNTIME_KINDS are the hidden runtime
  * entrypoints under `vigiles hook-runtime <kind>`, emitted into hooks configs and
- * never typed by hand. A behavioural test asserts the dispatch (`src/cli.ts`)
+ * never typed by hand. A behavioural test asserts the dispatch (`src/cli-main.ts`)
  * recognizes exactly these, so this list can't silently drift from the code.
  */
 

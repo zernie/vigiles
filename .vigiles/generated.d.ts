@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 422 project files. */
+  /** 425 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -200,6 +200,7 @@ declare module "vigiles/generated" {
     | "src/cli-harness-resolution.test.ts"
     | "src/cli-help.test.ts"
     | "src/cli-install.e2e.test.ts"
+    | "src/cli-main.ts"
     | "src/cli-nudge-config.test.ts"
     | "src/cli-untested-options.test.ts"
     | "src/cli.test.ts"
@@ -411,6 +412,8 @@ declare module "vigiles/generated" {
     | "src/hook-install.ts"
     | "src/hook-load-wedge.test.ts"
     | "src/hook-oss-comparison.test.ts"
+    | "src/hook-runtime-graph.test.ts"
+    | "src/hook-runtime.ts"
     | "src/hook-state-runtime.test.ts"
     | "src/hook-state-store.test.ts"
     | "src/hook-state-store.ts"
@@ -694,6 +697,7 @@ declare module "vigiles/spec" {
       | "src/cli-harness-resolution.test.ts"
       | "src/cli-help.test.ts"
       | "src/cli-install.e2e.test.ts"
+      | "src/cli-main.ts"
       | "src/cli-nudge-config.test.ts"
       | "src/cli-untested-options.test.ts"
       | "src/cli.test.ts"
@@ -905,6 +909,8 @@ declare module "vigiles/spec" {
       | "src/hook-install.ts"
       | "src/hook-load-wedge.test.ts"
       | "src/hook-oss-comparison.test.ts"
+      | "src/hook-runtime-graph.test.ts"
+      | "src/hook-runtime.ts"
       | "src/hook-state-runtime.test.ts"
       | "src/hook-state-store.test.ts"
       | "src/hook-state-store.ts"

@@ -796,7 +796,7 @@ const stylelintConfigEnabled = createCachedChecker(
  * `enforce("ruff/...")` reported `enabled: "unknown"`; `touch dummy.py` in the
  * same repo flipped the identical rule to "enabled" and an out-of-select rule
  * to "disabled". The failure was SILENT because only "disabled" is ever
- * surfaced as a finding (src/core/compile.ts, src/cli.ts) — "unknown" reads as
+ * surfaced as a finding (src/core/compile.ts, src/cli-main.ts) — "unknown" reads as
  * clean, so a genuinely disabled rule passed its check.
  *
  * A directory works where a synthesized filename does not, including the case
