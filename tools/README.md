@@ -27,6 +27,19 @@ repo root. (The BUILD pipeline — `api-extractor.mjs`, `build-report.mjs` — l
   issue #131 is what happens when it is assumed instead of measured. Usage:
   `node tools/measure-hook-matcher-semantics.mjs [--suite=builtin|mcp] [--server=<name>]`.
 
+- **`measure-hook-startup.mjs`** — price what a compiled hook costs to START:
+  layer by layer (one `require` per module, against a bare-Node baseline) and
+  end-to-end per hook ROLE (`hook-runtime run-program` over a real hook, event on
+  stdin). **Run when:** you are about to add an import anywhere on the hook
+  runtime's path (`src/cli.ts`, `src/hook-runtime.ts`, `src/core/hook-program.ts`,
+  `src/core/bash-effects.ts`), or after a Node upgrade. A hook runs on EVERY
+  matching tool call, so this cost is per tool call — issue #216 is what happens
+  when it is not measured. The deterministic half is a test
+  (`src/hook-runtime-graph.test.ts` asserts the module GRAPH, which cannot be
+  flaky); this script owns the NUMBERS, which are machine-specific and must be
+  re-measured rather than quoted. Usage: `node tools/measure-hook-startup.mjs
+[--runs=N]` after `npm run build`.
+
 ## Occasional — pre-launch
 
 - **`smoke-published.sh`** — run the PUBLISHED package from the registry against a

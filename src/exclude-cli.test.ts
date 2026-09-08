@@ -269,14 +269,20 @@ describe("exclude e2e — control: `exclude: []` makes every row FIRE", () => {
 
 /**
  * Source-level gate (the shape of cli-harness-resolution.test.ts): the detectors
- * that live OUTSIDE cli.ts take the exclude list through an OPTIONS object, so
- * tsc cannot make it required there without breaking every library caller. The
- * requirement is enforced at the composition root instead — every call from
- * cli.ts must hand the ExcludeSet over. The cli.ts-internal walks (`findSpecs`,
- * `findInstructionFiles`, `discoverNestedBundles`, `collectDocumentedRules`,
- * `gatherInstructionFiles`) take it as a REQUIRED parameter and need no gate.
+ * that live OUTSIDE the verb barrel take the exclude list through an OPTIONS
+ * object, so tsc cannot make it required there without breaking every library
+ * caller. The requirement is enforced at the composition root instead — every
+ * call from the barrel must hand the ExcludeSet over. The barrel-internal walks
+ * (`findSpecs`, `findInstructionFiles`, `discoverNestedBundles`,
+ * `collectDocumentedRules`, `gatherInstructionFiles`) take it as a REQUIRED
+ * parameter and need no gate.
+ *
+ * The barrel is `cli-main.ts`, not `cli.ts`: `cli.ts` was reduced to a dispatcher
+ * shim in #216 so a compiled hook stops loading the verbs to decide allow/deny.
+ * Reading the shim here would scan a 90-line file with no walks in it and pass
+ * vacuously — the exact failure mode this gate exists to prevent.
  */
-const CLI_SRC = readFileSync(join(__dirname, "cli.ts"), "utf-8");
+const CLI_SRC = readFileSync(join(__dirname, "cli-main.ts"), "utf-8");
 
 function argsOfCalls(name: string): string[] {
   const out: string[] = [];

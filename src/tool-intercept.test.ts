@@ -1,9 +1,7 @@
 /**
- * Tool interception test suite — pure, model-free.
- *
- * Build intercept declarations and assert the decision (intercept vs run, with
- * the right deny reason), the PreToolUse settings fragment, and the env round-trip
- * (including RegExp matchers, which a naive JSON.stringify would drop).
+ * Tool-intercept test suite (vitest): decideIntercept (unconditional/when-scoped/first-match-wins/default reason), interceptHookDecision (PreToolUse event parse + malformed tolerance), buildInterceptSettings (matcher = escaped union of tool names), serializeIntercepts/parseIntercepts round-trip incl.
+ * RegExp survival + junk tolerance.
+ * Pure, model-free
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";

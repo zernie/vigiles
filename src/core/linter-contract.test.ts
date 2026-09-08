@@ -71,22 +71,56 @@ describe("LinterAdapter conformance", () => {
     expect([...docLinterNames()].sort()).toEqual(Object.keys(LINTERS).sort());
   });
 
-  it("the website's linter strip is DERIVED from BUILTIN_LINTERS (can't go stale)", () => {
-    // The site no longer hand-lists the linters — it renders straight from the
-    // engine's BUILTIN_LINTERS, so drift is impossible by construction. Guard
-    // that the derivation stays in place (a revert to a hand-typed array would
-    // reintroduce the staleness this replaced).
+  it("the website's linter strip AND language chip are DERIVED from BUILTIN_LINTERS (can't go stale)", () => {
+    // The site hand-lists neither the linters nor the languages — both render
+    // from the engine's BUILTIN_LINTERS, so drift is impossible by
+    // construction. Guard that the derivation stays in place (a revert to a
+    // hand-typed array would reintroduce the staleness this replaced).
+    //
+    // The derivation MOVED on 2026-09-08, from Wedge.tsx into site/src/lib/
+    // linters.ts, when the hero's "is this for me?" chip stopped saying "Any
+    // language · 11 linter catalogs" and started naming the languages — two
+    // consumers, so one shared source. This test moved with it rather than
+    // being deleted: the property it guards (derived, never typed) is
+    // unchanged, only its address is. `linters.browser.test.ts` covers the
+    // CONTENT of the two maps; this covers that the site still reads them.
+    const lib = readFileSync(
+      resolve(__dirname, "../../site/src/lib/linters.ts"),
+      "utf8",
+    );
+    // imports the single source of truth…
+    expect(lib).toMatch(
+      /import\s*\{[^}]*\bBUILTIN_LINTERS\b[^}]*\}\s*from\s*["']@engine\/spec["']/,
+    );
+    // …derives BOTH the linter strip and the language list from it…
+    expect(lib).toMatch(/BUILTIN_LINTERS\.map\(/);
+    expect(lib).toMatch(/BUILTIN_LINTERS\.some\(/);
+    // …not a reintroduced hand-typed string array of linter names.
+    expect(lib).not.toMatch(/const LINTER_NAMES\s*=\s*\[\s*["']/);
+
+    // And both consumers actually read the derived lists rather than
+    // reintroducing a local literal.
     const wedge = readFileSync(
       resolve(__dirname, "../../site/src/components/sections/Wedge.tsx"),
       "utf8",
     );
-    // imports the single source of truth…
     expect(wedge).toMatch(
-      /import\s*\{[^}]*\bBUILTIN_LINTERS\b[^}]*\}\s*from\s*["']@engine\/spec["']/,
+      /\bLINTER_NAMES\b[^;]*from\s*["']@\/lib\/linters["']/s,
     );
-    // …and renders the strip from it…
-    expect(wedge).toMatch(/BUILTIN_LINTERS\.map\(/);
-    // …not a reintroduced hand-typed string array of linter names.
-    expect(wedge).not.toMatch(/const LINTERS\s*=\s*\[\s*["']/);
+    const hero = readFileSync(
+      resolve(__dirname, "../../site/src/components/sections/Hero.tsx"),
+      "utf8",
+    );
+    expect(hero).toMatch(/\bLANGUAGES\b[^;]*from\s*["']@\/lib\/linters["']/s);
+    // The chip must not go back to the abstraction it replaced — asserted over
+    // the CODE with comments stripped, not the raw file. The first version of
+    // this line searched the whole source and failed on the comment that
+    // EXPLAINS the change, which quotes the old chip verbatim. A substring
+    // search over a document cannot tell an assertion from a discussion of one,
+    // and in a well-commented file the discussion sits right next to the value.
+    const heroCode = hero
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(heroCode).not.toMatch(/Any language/);
   });
 });

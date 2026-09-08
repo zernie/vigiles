@@ -1,3 +1,6 @@
+/**
+ * Dialect-port test suite (vitest): the Claude Code dialect has the expected shape, compileAgent verifies the tool contract against the injected CC dialect (built-in ok, typo → did-you-mean), and an INJECTED alt dialect swaps the catalog (the Codex-prep seam — a tool valid under the alt dialect is flagged under CC)
+ */
 import { test } from "vitest";
 import assert from "node:assert/strict";
 

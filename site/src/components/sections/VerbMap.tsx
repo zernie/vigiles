@@ -26,8 +26,19 @@ const VERBS: {
     model: "no model · read-only · anytime",
     detail:
       "The zero-config front door. One command reads your whole harness and grades it across six categories — truthful references, skills that trigger, sound structure, safety, deterministic test coverage, and whether anything has measured that your skills actually fire. Nothing executes; it's a local report, like Lighthouse.",
-    before: 'hook on event "Setup" — no such event, never fires',
-    after: 'hook on event "SessionStart" — fires every session',
+    // 🔴 This said `"Setup"` — "no such event" — until 2026-09-08. `Setup` IS a
+    // real Claude Code hook event, with its own "Setup input" and "Setup
+    // decision control" sections in the vendor's docs; the engine's own catalog
+    // learned that on 2026-08-17 (it held 9 of the 31 documented events, and
+    // `Setup` was the absentee close enough to `Stop` to get ACCUSED rather
+    // than ignored — see adapters/claude-code/vocabulary.ts). The example
+    // outlived the fix, so the page demonstrated `audit` catching a hook that
+    // works. Verified both ways against Claude Code 2.1.263: `claude plugin
+    // validate` passes a manifest registering `Setup`, and warns "unknown hook
+    // event" on `PreToolUze` — so the replacement is a real typo, not another
+    // guess. Re-run `node tools/measure-validate-overlap.mjs` after a CC minor.
+    before: 'hook on event "PreToolUze" — no such event, never fires',
+    after: 'hook on event "PreToolUse" — fires before every tool call',
   },
   {
     verb: "lint",
@@ -54,7 +65,13 @@ const VERBS: {
     model: "needs a model · your subscription · on demand",
     detail:
       "The one tier that needs a real model — run on YOUR Claude subscription, not a metered API. Measures whether a skill's description makes it FIRE when it should (recall) and stay quiet otherwise (precision), and whether its guidance actually moves the agent's behavior — so you can tell a real win from a claimed one.",
-    before: "skill claims −75% tokens — an unverified number in a README",
+    // The CLAIMED figure is 65%, not the 75% that stood here until 2026-09-08.
+    // Three places in this repo say 65% — the README's measurement block twice
+    // and docs/measuring-skills.md — as does the post the row links to. A
+    // debunk that misquotes the claim it is debunking is the one number on the
+    // page a reader can check in ten seconds, so it was the worst one to get
+    // wrong. The measured −6% was already right and matches the README.
+    before: "skill claims −65% tokens — an unverified number in a README",
     after: "measured −6% — the real number, on your own model",
     link: {
       href: "https://zernie.com/blog/token-savings-wrong-number/",

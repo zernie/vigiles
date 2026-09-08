@@ -1,3 +1,6 @@
+/**
+ * Eval-lock unit suite (vitest): evalInputsHash stable/order-independent + sensitive to every model-affecting field, the harness version is NOT in the hash, lockSlug fs-safe, buildLock/writeLock/readLock round-trip + corrupt/bad-version THROWS (not a silent 'no lock'), decideLock run/replay/stale, diffReportNumbers walks numeric leaves across report shapes, formatLockUpdate new/unchanged/moved, the env readers
+ */
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";

@@ -18,7 +18,16 @@
  */
 import { readdirSync, existsSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
-import { stringify as stringifyToml } from "@iarna/toml";
+/**
+ * Lazy for the same reason as in `core/hook-program.ts` — and this module is
+ * reached from the hook runtime through `hook-state-store.ts` (`normalizeHookRef`),
+ * so a top-level import here put `@iarna/toml` back into the graph of every hook
+ * decision even after that one was fixed. Measured 2026-09-08: 56 ms per spawn.
+ */
+const stringifyToml = (value: unknown): string =>
+  (require("@iarna/toml") as typeof import("@iarna/toml")).stringify(
+    value as never,
+  );
 
 /** The agnostic, committed home for hook SOURCE — one dir, cross-adapter. */
 export const HOOKS_DIR = ".vigiles/hooks";
@@ -202,6 +211,6 @@ export function serializeConfig(
   format: "json" | "toml",
 ): string {
   return format === "toml"
-    ? stringifyToml(merged as never).trimEnd() + "\n"
+    ? stringifyToml(merged).trimEnd() + "\n"
     : JSON.stringify(merged, null, 2) + "\n";
 }

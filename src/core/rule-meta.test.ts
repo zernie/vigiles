@@ -1,3 +1,6 @@
+/**
+ * Rule-meta coverage suite (vitest): the registry's keys EXACTLY match docs/rules/*.md (every rule has a meta AND a doc — the set is one thing), each defaultSeverity matches the real exported DEFAULT_RULES (no drift), every meta has a non-empty surface + known bucket + summary + detector, and a heuristic-behavioral rule never defaults to error (would cry wolf)
+ */
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";

@@ -6,7 +6,7 @@
  * `core/test-file-ext.test.ts` already proves the decision itself (config beats
  * detection, nonsense is ignored). What was missing is the wiring, and that is
  * where it broke: `TestCoverageConfig` carried no `testExtension` key and
- * `checkUntestedSurfaces` forwarded only `testGlobs`/`exclude`, so the option
+ * `checkUntestedSurfaces` forwarded only `include`/`exclude`, so the option
  * documented as coming from `.vigilesrc.json` was read by nothing and every
  * TypeScript-shaped repo got `.ts` suggestions whatever its author configured.
  *

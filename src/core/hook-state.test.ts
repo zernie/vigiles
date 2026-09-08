@@ -27,7 +27,6 @@ import {
   experimental_defineReact,
   experimental_defineInject,
   experimental_defineHook,
-  tool,
   tools,
   notice,
   nothing,
@@ -368,7 +367,6 @@ test("an inject reads state and records its own nudge in ONE return", () => {
 test("a GATE cannot record: a Decision carries no writes, in either direction", () => {
   const gate = experimental_defineHook({
     on: "PreToolUse",
-    match: tool("Bash"),
     needs: [state("deploy.done")] as const,
     decide: (e) =>
       e.ctx["deploy.done"].fresherThan("1h") ? allow() : deny("no"),

@@ -228,10 +228,6 @@ export function hookNeeds(hook: AnyHook): readonly NeedSpec[];
 export interface HookProgram<N extends readonly NeedSpec[] = readonly ProviderName[]> {
     // (undocumented)
     readonly decide: (e: BashToolEvent<N>) => Decision;
-    // (undocumented)
-    readonly match: {
-        readonly tool: string;
-    };
     readonly mode?: HookMode;
     readonly needs?: N;
     // (undocumented)
@@ -600,11 +596,6 @@ export interface StopGateHook<N extends readonly NeedSpec[] = readonly ProviderN
     // (undocumented)
     readonly role: "stop-gate";
 }
-
-// @public (undocumented)
-export const tool: (name: string) => {
-    tool: string;
-};
 
 // @public (undocumented)
 export const tools: (...names: string[]) => {

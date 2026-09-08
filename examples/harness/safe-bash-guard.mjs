@@ -17,7 +17,7 @@
  *
  * External users put the source in `.vigiles/hooks/` and compile it:
  *
- *   import { experimental_defineHook, tool, deny, allow } from "vigiles/hook";
+ *   import { experimental_defineHook, deny, allow } from "vigiles/hook";
  *   npx vigiles compile   # discovers .vigiles/hooks/*, merges the block + a stamp
  *
  * `vigiles/hook` is the ONLY import a compiled hook may use (capability = API
@@ -25,11 +25,10 @@
  * without installing the package; the dogfood (src/hook-dogfood.test.ts) drives
  * it through `vigiles hook-runtime run-program`.
  */
-import { experimental_defineHook, tool, deny, allow } from "../../dist/hook.js";
+import { experimental_defineHook, deny, allow } from "../../dist/hook.js";
 
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   decide: (e) => {
     const c = e.command;
     if (c.runs("git push", { force: true }))

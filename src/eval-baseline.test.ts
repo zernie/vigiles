@@ -1,8 +1,5 @@
 /**
- * Tests for eval regression gating (src/eval-baseline.ts) — pure diff/serialize
- * /JUnit plus the two small fs helpers. The Welch math itself lives in stats.ts
- * (tested there); here we test the baseline shape, the direction logic, and the
- * gate verdict.
+ * Eval-baseline test suite (node:test): baseline round-trip + version/shape validation, regression vs improvement vs unchanged classification, lowerIsBetter direction flip, skip of absent arms/metrics/reports, console + JUnit formatting (counts, failure element, xml escaping), readBaseline null + writeBaseline round-trip
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";

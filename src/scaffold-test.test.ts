@@ -1,3 +1,6 @@
+/**
+ * Scaffold-test engine suite (vitest): each kind (hook/skill/agent) yields the right colocated path + tier + public import + core call + the surface's metadata (namespaced id, declared tools, the user-invoked caveat, the <plugin> fallback), formatScaffolds empty-vs-listed, AND a node --check syntax-validity gate over every generated template (a template typo can't ship a broken scaffold)
+ */
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";

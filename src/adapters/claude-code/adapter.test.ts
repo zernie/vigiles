@@ -1,3 +1,6 @@
+/**
+ * Adapter-bundle test suite (vitest): claudeCodeAdapter bundles all five ports, passes the conformance kit, the kit catches a broken adapter, detect recognizes a CLAUDE.md / .claude-plugin repo (and not an empty dir), detectAdapter falls back to Claude Code, getAdapter looks up by name
+ */
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";

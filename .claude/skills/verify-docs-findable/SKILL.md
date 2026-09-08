@@ -1,6 +1,7 @@
 ---
 name: verify-docs-findable
 description: Audit whether a repo's docs actually ANSWER the questions a reader has — by spawning fresh, cheap (Haiku) agents that cold-read ONLY the docs and measuring how fast they reach the answer, whether they hit dead-ends, whether they fall back to source code, and whether they cite docs that contradict each other. Use after a doc reorg, when docs "feel scattered," or when the same confusion keeps recurring. Surfaces findability gaps (a corpus can be COMPLETE — every doc indexed — yet not FINDABLE) plus a prioritized fix list. Works on any repo's docs, not just this one.
+disable-model-invocation: true
 argument-hint:
   [optional: a question, or "auto" to derive from recent confusions]
 ---

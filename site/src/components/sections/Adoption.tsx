@@ -24,6 +24,14 @@ const SKILLS: { ask: string; does: string; skill: string }[] = [
     does: "edits it safely and keeps every reference verified",
     skill: "edit-spec",
   },
+  {
+    // The fourth shipped model-invocable skill. It was missing from this list
+    // while the repo's own great-agent-flow rule names four — so the page
+    // undersold the thing it exists to sell.
+    ask: "why didn't my hook block?",
+    does: "reads the local run log and names which hook decided what, and which skill fired",
+    skill: "debug-my-harness",
+  },
 ];
 
 export function Adoption() {
@@ -91,12 +99,10 @@ export function Adoption() {
           <pre className="whitespace-pre-wrap break-words rounded-xl border border-border bg-background/60 px-5 py-4 font-mono text-xs leading-relaxed text-muted-foreground sm:text-sm">
             {AGENT_PROMPT}
           </pre>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            Works with Claude Code and Codex — vigiles verifies{" "}
-            <span className="font-mono text-foreground">CLAUDE.md</span> and{" "}
-            <span className="font-mono text-foreground">AGENTS.md</span> the
-            same way.
-          </p>
+          {/* The "works with Claude Code and Codex" line that closed this
+              section is gone: the hero chip says it, the label right above this
+              block says "Paste into Claude Code or Codex", and the FAQ answers
+              it in full. Reassurance once. */}
         </div>
       </div>
     </section>

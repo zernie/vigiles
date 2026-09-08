@@ -1,7 +1,5 @@
 /**
- * Description-overlap detector suite (vitest) — the deterministic precision-proxy.
- * Asserts it fires on a genuine copy-paste near-dup and stays quiet on a
- * parallel-but-distinct pair (the calibration that keeps it FP-safe).
+ * Description-overlap detector suite (vitest): fires on a copy-paste near-dup, stays quiet on a parallel-but-distinct pair (the create-issue/create-pr shape at NCD ~0.25), the calibrated cutoff sits below 0.25, and a single/empty surface yields no pairs
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";

@@ -60,17 +60,16 @@ caption, a second button, or a reassurance line is suspect until proven necessar
   "grade this" chips, so a visitor sees a real report without typing or having a repo
   of their own. **SHIPPED** — the `FEATURED` chips in `DemoAudit` render baked real
   reports instantly.
-- **SHAREABILITY IS THE GROWTH LOOP — a graded result must be a shareable PUBLIC
-  LINK, and sharing must be one tap.** The conversion metric (run `npx vigiles audit`)
-  is served not only by the visitor in front of you but by the ones they PULL IN: a
-  grade spreads when people post a repo's _report_, not the landing page. So (1) every
-  completed grade is a copyable deep-link (`vigiles.sh/?repo=owner/repo#try`) that
-  AUTO-RUNS the audit on load — the URL IS the share unit; (2) surface a one-tap share
-  on any result (native share sheet on mobile, copy-link elsewhere — the `ShareRow` in
-  `DemoAudit`); (3) the deep-link is the same slug the input/chips use, so a shared
-  link, a typed repo, and a chip all resolve to one code path. When you add a new
-  result surface, it MUST carry the share affordance + a stable `?repo=` link — a
-  result you can't share is a dead end in the loop. **SHIPPED** — keep it working.
+- **EVERY RESULT SURFACE CARRIES A SHARE AFFORDANCE AND A STABLE LINK.** A grade a
+  reader can't hand to a teammate is a dead end, so: (1) every completed grade is a
+  copyable deep-link (`vigiles.sh/?repo=owner/repo#try`) that AUTO-RUNS the audit on
+  load — the URL IS the share unit; (2) any result gets a one-tap share (native share
+  sheet on mobile, copy-link elsewhere — the `ShareRow` in `DemoAudit`); (3) the
+  deep-link is the same slug the input/chips use, so a shared link, a typed repo and a
+  chip all resolve to one code path. A new result surface MUST carry both. **SHIPPED**
+  — keep it working. (The reputation rules this operates under — sharing is opt-in,
+  declining is free, grade artifacts not people — are the `gate-first-adoption` rule
+  in the root `CLAUDE.md`; don't restate them here.)
 - **Instrument conversion:** analytics on the funnel (command copies, typed submits,
   chip tries, re-grades, share clicks). The site is on GitHub Pages, NOT Vercel — so
   **Vercel Analytics does NOT apply**. Use a lightweight, privacy-friendly, script-tag
@@ -102,8 +101,9 @@ real iteration to reach; don't silently undo one.
   one-line-fixable findings (dead tool, invisible `skills/` dir, dead hook event —
   not embarrassing-by-design), so the public grade is fair (the Lighthouse model IS
   public grades of public artifacts). Bake the report to `site/src/demo/reports/` and
-  wire it into `FEATURED`. The real fix for showing model-tier failures is the
-  **backend (roadmap)** — server-side fetch (no proxy block) + a rate-limited model.
+  wire it into `FEATURED`. Model-tier findings stay OUT of the browser demo: it is
+  deterministic-only by design (see the in-browser demo invariants below), so the
+  honest surface for them is the `LockedRow` tease, not a fabricated result.
 - **NAMES-BUT-NEVER-EXPLAINS is the #1 copy failure — gloss every concept or cut it.**
   A cold visitor doesn't know what "linter", "reference", "enforce", "spec", or a
   category name means. Every concept gets a plain-English gloss on FIRST use, or it's

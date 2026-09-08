@@ -1,7 +1,5 @@
 /**
- * MCP-hook target detector suite (vitest) — the moat applied to a `type: mcp_tool`
- * hook action. Asserts the two failure modes (incomplete; undeclared server) and
- * the high-precision gating (no declared set → quiet; built-in `ide` allowlisted).
+ * MCP-hook detector suite (vitest): complete action on a declared server passes, a command hook is ignored, missing tool → incomplete, undeclared server flagged (with a declared set), GATE (no declared set → quiet), built-in `ide` allowlisted, non-object/empty hooks → none
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";

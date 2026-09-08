@@ -1,14 +1,16 @@
-<!-- vigiles:sha256:11108bf417ae43ea compiled from src/CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:0ff6639b49cdfc8d compiled from src/CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
 ## Scope
 
-Working in `src/`? The root `CLAUDE.md` holds the full positioning, architecture, and rule set — read it first. This file adds the discipline specific to the CLI surface (`src/cli.ts`, `src/cli-commands.ts`): keep the command set small and cohesive.
+Working in `src/`? The root `CLAUDE.md` holds the full positioning, architecture, and rule set — read it first. This file adds the discipline specific to the CLI surface (`src/cli.ts`, `src/cli-main.ts`, `src/cli-commands.ts`): keep the command set small and cohesive.
 
 ## Key Files
 
-- `src/cli.ts` — CLI dispatch — the single source of truth for what each verb does. NB the `init` verb splits two ways: bare `vigiles init` runs `setup()` (the full onboarding wizard — both layers, deps, CI, plugin), while `vigiles init --target=<file>` runs `scaffoldSpec()` (the single-target spec scaffolder; also called once per target by `setupPillar1`). The verb name is `init`; the helper is `scaffoldSpec`, not `init`. The `--ci-only` flag (parsed as `ParsedSetupArgs.ciOnly`) is the non-interactive equal of the wizard's 'gate vs full' fork — the CI lint gate + devDep, nothing installed (no plugin/spec/test); full stays the default, so it's opt-in, and a non-interactive full run PRINTS a pointer to `--ci-only` so an agent that never saw the wizard can still discover it (a `cohesive-feature-delivery` discovery surface).
+- `src/cli.ts` — The `bin` — a DISPATCHER SHIM with NO top-level imports, and that is its whole job. It reads argv and lazily requires either the hook runtime or the verb barrel. `vigiles hook-runtime run-program` is on the hot path of every gated tool call, and CommonJS resolves top-level imports before argv is parsed, so loading the verbs here cost every hook decision hundreds of ms (#216). Adding an import to this file undoes that; `src/hook-runtime-graph.test.ts` fails when it happens.
+- `src/hook-runtime.ts` — The compiled-hook RUNTIME — `hook-runtime run-program`, the process the harness spawns per matching tool call. Keep its top-level imports minimal; the lazy edges (@iarna/toml, mvdan-sh, the adapter registry) each carry the measurement at their call site.
+- `src/cli-main.ts` — The VERB barrel — the single source of truth for what each verb does. Loaded lazily by src/cli.ts for everything that is not a hook decision.
 - `src/cli-commands.ts` — The canonical VERBS + HOOK_RUNTIME_KINDS list (the self-command-refs moat)
 
 ## Rules

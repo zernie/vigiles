@@ -1,5 +1,5 @@
 import { Star } from "lucide-react";
-import { BUILTIN_LINTERS } from "@engine/spec";
+import { LANGUAGES } from "@/lib/linters";
 import { DemoAudit } from "@/components/sections/DemoAudit";
 
 const REPO = "https://github.com/zernie/vigiles";
@@ -65,14 +65,46 @@ export function Hero() {
         </h1>
 
         {/* Three facts, one sentence each: what it checks, what it proved, and
-            how little work adopting it is. Every number here is measured — the
-            2-of-7 / 7-of-7 contrast is the disaster battery below. */}
+            how little work adopting it is.
+
+            ── THE CLAIM ─────────────────────────────────────────────────
+            Only two, and neither is about anyone else: vigiles checks the
+            things a skill or hook NAMES, and the disaster battery scored
+            2 of 7 against 7 of 7.
+
+            ── WHAT BACKS IT ─────────────────────────────────────────────
+            The battery is `src/hook-dogfood.test.ts`, model-free, in CI, and
+            the same numbers render in the proof section from
+            `Guard.tsx`'s CI-pinned rows. The reason the sentence claims
+            nothing about OTHER tools is `node tools/measure-validate-overlap.mjs`
+            (Claude Code 2.1.263, 2026-09-08): on a repo-local `.claude/`
+            harness `claude plugin validate` flagged 0 of 7 planted defects,
+            and on a packaged plugin exactly 1 — a typo'd hook event. One
+            genuine overlap is a fine thing to state where it can be stated
+            precisely, which is the problem section, not here.
+
+            ── WHAT THE EARLIER VERSION SAID, AND WHY IT WAS WRONG ───────
+            "Nothing checks that the tools, events, files and rules your skills
+            and hooks name actually exist." Two separate faults. It is a
+            universal negative over every tool that exists, which nobody can
+            measure and which therefore should never have been written. And on
+            its own terms it is false for one of its four nouns: EVENTS are
+            checked, in plugin form. The reader most likely to notice is a
+            plugin author — the exact reader this page is for — and the command
+            that disproves it is already on their machine.
+
+            ── WHAT WOULD INVALIDATE IT ──────────────────────────────────
+            A change to the battery would move 2/7 or 7/7; the CI test is what
+            catches that, not this comment. The reason for the silence about
+            other tools survives a vendor release either way: the more
+            `validate` grows, the more right it was to stay quiet here. */}
         <p className="mt-5 max-w-2xl text-balance text-lg leading-relaxed text-muted-foreground sm:text-xl">
-          Nothing checks that the tools, events, files and rules your skills and
-          hooks name actually exist. One command grades what&apos;s broken — and
-          proves your guard: a widely-copied safety hook blocks 2 of 7
-          disasters, the compiled rewrite blocks 7. Then say &ldquo;test my
-          skills&rdquo; and the agent writes the test.
+          Your skills and hooks name tools, events, files and linter rules. One
+          command checks each one is real and grades the result — no key,
+          nothing uploaded. Compile your safety hook, too: the widely-copied
+          hand-written one blocks 2 of 7 disasters, the compiled rewrite blocks
+          7. Then say &ldquo;test my skills&rdquo; and the agent writes the
+          test.
         </p>
 
         {/* The "is this for me?" strip. It answers the three questions a
@@ -83,9 +115,19 @@ export function Hero() {
         <ul className="mt-7 flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
           {[
             "Claude Code · Codex",
-            // Derived, never typed: the count is whatever the engine ships, so
-            // adding a linter can't leave a stale number on the first screen.
-            `Any language · ${String(BUILTIN_LINTERS.length)} linter catalogs`,
+            // The languages, NAMED. This chip read "Any language · 11 linter
+            // catalogs" until 2026-09-08 — an overclaim ("any" is eleven
+            // specific ecosystems) wrapped around a term a cold visitor cannot
+            // gloss. A Python developer scanning on a phone has to see the word
+            // Python before deciding to scroll, and never did: Ruff and Pylint
+            // were named only in a strip two screens down.
+            //
+            // Still DERIVED, never typed — `LANGUAGES` is computed from the
+            // engine's `BUILTIN_LINTERS`, and `linters.browser.test.ts` fails
+            // if a shipped linter has no language decision, so a new linter
+            // cannot leave a stale list on the first screen. Same guarantee the
+            // count had; more useful answer.
+            LANGUAGES.join(" · "),
             "MIT",
           ].map((fact) => (
             <li

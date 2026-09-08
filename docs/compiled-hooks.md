@@ -30,6 +30,7 @@ vigiles lets you author a hook as a **pure typed function** `(event) => Decision
 - [Observe mode (shadow rollout)](#observe-mode-shadow-rollout)
 - [Deciding on external state (context providers)](#deciding-on-external-state-context-providers)
 - [Compile and wire](#compile-and-wire)
+  - [Why the emitted block has a `matcher` and no `if:`](#why-the-emitted-block-has-a-matcher-and-no-if)
 - [Where things live](#where-things-live)
 - [Testing a compiled hook](#testing-a-compiled-hook)
 - [Proof: the OSS dogfood](#proof-the-oss-dogfood)
@@ -40,12 +41,12 @@ vigiles lets you author a hook as a **pure typed function** `(event) => Decision
 
 **A compiled hook eliminates an entire class of bugs by construction** — not by catching them after the fact, but by making them impossible to write. Each row below is a _verified_, common failure of hand-written hooks (sources linked):
 
-| Bug class                                                                                                                                                                                                                                                                                                                                          | Why it can't happen                                                                                                                                                                                                                       |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **False confidence** — the #1 pain: `exit 1` instead of `exit 2`, the wrong JSON field (`decision` vs `permissionDecision`), a wrong `jq` path → a guard that _looks_ like it blocks and silently allows ([RFC #45427](https://github.com/anthropics/claude-code/issues/45427), [#24327](https://github.com/anthropics/claude-code/issues/24327)). | You never write the protocol. You return `deny(reason)`; the compiler emits the correct exit code / JSON field for the event. The bug has no place to live.                                                                               |
-| **Matcher bypass** — `Bash(git push:*)` (or a hand-written `grep`) misses `cd repo && git push -f` ([#30519](https://github.com/anthropics/claude-code/issues/30519)).                                                                                                                                                                             | `command.runs("git push", { force: true })` is **AST-backed** — it sees the real `git push` leaf however it's wrapped (compound, subshell, pipeline). A `grep` false-_positive_ is gone too.                                              |
-| **Capability creep / supply chain** — a hook is arbitrary code; a copied or edited one can read secrets or phone home ([CVE-2025-59536](https://www.cve.org/CVERecord?id=CVE-2025-59536)).                                                                                                                                                         | **Capability = API surface.** An `import` of anything but `vigiles/hook` (or `eval`/`Function`) **does not compile**. The compiled artifact is **stamped** (SHA-256) — a later hand-edit breaks the stamp and the runtime **refuses** it. |
-| **Category mistakes** — "block on a `SessionStart`/`PostToolUse` hook", whose decision is a documented no-op ([#4362](https://github.com/anthropics/claude-code/issues/4362)).                                                                                                                                                                     | Each role has its own return type. An inject/react hook has **no `deny`** in its vocabulary, so the mistake is a **`tsc` type error**, not a silent no-op.                                                                                |
+| Bug class                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Why it can't happen                                                                                                                                                                                                                       |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **False confidence** — the #1 pain: `exit 1` instead of `exit 2`, the wrong JSON field (`decision` vs `permissionDecision`), a wrong `jq` path → a guard that _looks_ like it blocks and silently allows ([RFC #45427](https://github.com/anthropics/claude-code/issues/45427), [#24327](https://github.com/anthropics/claude-code/issues/24327)).                                                                                                                                                                                                                                                                                                                     | You never write the protocol. You return `deny(reason)`; the compiler emits the correct exit code / JSON field for the event. The bug has no place to live.                                                                               |
+| **Matcher bypass** — neither `Bash(git push:*)` nor `Bash(git push *--force*)` matches an ABSOLUTE program head, so `/usr/bin/git push --force` never spawns the hook (measured on 2.1.263, `tools/measure-if-matcher-forms.mjs`; it holds for the prefix spelling Anthropic ships in its own `security-guidance` plugin). A hand-written `grep` misses its own set. ⚠️ This row used to cite [#30519](https://github.com/anthropics/claude-code/issues/30519) and claim the native matcher misses `cd repo && git push -f`; the same run caught that compound command in both spellings, so the claim is withdrawn pending a focused re-measure rather than repeated. | `command.runs("git push", { force: true })` is **AST-backed** — it sees the real `git push` leaf however it's wrapped (compound, subshell, pipeline). A `grep` false-_positive_ is gone too.                                              |
+| **Capability creep / supply chain** — a hook is arbitrary code; a copied or edited one can read secrets or phone home ([CVE-2025-59536](https://www.cve.org/CVERecord?id=CVE-2025-59536)).                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | **Capability = API surface.** An `import` of anything but `vigiles/hook` (or `eval`/`Function`) **does not compile**. The compiled artifact is **stamped** (SHA-256) — a later hand-edit breaks the stamp and the runtime **refuses** it. |
+| **Category mistakes** — "block on a `SessionStart`/`PostToolUse` hook", whose decision is a documented no-op ([#4362](https://github.com/anthropics/claude-code/issues/4362)).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Each role has its own return type. An inject/react hook has **no `deny`** in its vocabulary, so the mistake is a **`tsc` type error**, not a silent no-op.                                                                                |
 
 The unifying idea: a hook is a tiny program, and a closed, typed vocabulary shrinks its state space until the bad states are simply not expressible.
 
@@ -66,13 +67,12 @@ Every **gate** (tool / prompt / stop) takes an optional `mode` — see [Observe 
 The entire surface a hook may touch (that's the safety guarantee):
 
 ```ts
-import { experimental_defineHook, tool, deny, allow } from "vigiles/hook";
+import { experimental_defineHook, deny, allow } from "vigiles/hook";
 
 // Block any force-push to a protected branch — including one hidden in a
 // compound command, which a glob/grep matcher misses.
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   decide: (e) =>
     e.command.runs("git push", { force: true })
       ? deny("no force-push to a protected branch")
@@ -80,7 +80,9 @@ export default experimental_defineHook({
 });
 ```
 
-- **`tool(name)` / `tools(...names)`** — which tool(s) the hook matches.
+- **`tools(...names)`** — which tools a file gate or react matches. A bash gate
+  needs none: a `BashToolEvent` is Bash by construction, so the matcher is emitted
+  for you and there is no field to get wrong.
 - **`e.command`** (Bash) — an AST-backed `CommandView`:
   - `runs(program, { force? })` — a leaf runs `program` (e.g. `"git reset --hard"`), optionally forced.
   - `touches(prefixes)` — a leaf **mentions** a path under one of `prefixes` (e.g. `["~/.ssh", ".env"]`) — secret reads.
@@ -220,7 +222,6 @@ export default experimental_defineStopGate({
 ```ts
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   mode: "observe", // ← shadow: record, don't block
   decide: (e) =>
     e.command.runs("git push", { force: true })
@@ -238,11 +239,10 @@ In observe mode the runtime exits `0` (never blocks) and appends a record to **`
 The fix is the same one Cedar/OPA/Gatekeeper use: **the hook never fetches — it declares what it needs, and the trusted runtime gathers those read-only facts and hands them in** as `e.ctx`.
 
 ```ts
-import { experimental_defineHook, tool, deny, allow } from "vigiles/hook";
+import { experimental_defineHook, deny, allow } from "vigiles/hook";
 
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   needs: ["git.branch"], //                ← declared; gathered by the runtime
   decide: (e) =>
     e.ctx["git.branch"] === "main" && e.command.runs("git push")
@@ -258,17 +258,10 @@ The guarantee is intact and **stronger**: the hook still does zero I/O. The runt
 **The lightweight opt-out — `provide` / `dangerously`.** For a one-off, off-catalog fact you don't want to register a whole provider for, declare an **inline** command right in `needs`:
 
 ```ts
-import {
-  experimental_defineHook,
-  tool,
-  deny,
-  allow,
-  provide,
-} from "vigiles/hook";
+import { experimental_defineHook, deny, allow, provide } from "vigiles/hook";
 
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   needs: [provide("k8sCtx", "kubectl config current-context")], // read-only, inline
   decide: (e) =>
     e.ctx.k8sCtx === "prod" && e.command.runs("kubectl delete")
@@ -331,6 +324,51 @@ The merged block routes the live event to **`vigiles hook-runtime run-program <f
   },
 }
 ```
+
+### Why the emitted block has a `matcher` and no `if:`
+
+Claude Code lets a hook action carry an `if:` condition — a precondition checked
+_before_ the hook process spawns, so a non-matching call costs nothing.
+`vigiles compile` does not emit one. That is a decision, not an omission, and it
+rests on one rule:
+
+> **A prefilter may only ever be a proven SUPERSET of the typed predicate.**
+
+Get that backwards and the failure is silent. If the `if:` is _narrower_ than
+what your `decide()` would have denied, the process never starts, nothing is
+logged, and the guard reads as passing. A gate that stops firing without saying
+so is the exact bug this whole page exists to make unwritable.
+
+The superset that would actually be safe is not a useful filter. A predicate like
+`command.runs("git push", { force: true })` is AST-backed: it sees the real
+`git push` leaf inside a compound, a subshell, a pipeline, or behind an absolute
+path. The narrowest string condition provably covering all of that is about
+`Bash(*git*)` — which excludes almost nothing, because the forms that _would_ be
+excluded are the ones a string matcher gets wrong anyway (measured on 2.1.263,
+`tools/measure-if-matcher-forms.mjs`; the same measurement is the "Matcher
+bypass" row above).
+
+Two smaller reasons point the same way:
+
+- **`if:` is Claude Code only.** Codex's hook config has no equivalent field, so
+  emitting one would make the gate's effective scope differ per harness from a
+  single typed source — a CC-only path of exactly the kind
+  [Compile and wire](#compile-and-wire) avoids elsewhere.
+- **It would not buy the latency it appears to.** Hooks registered on the same
+  event run **concurrently**, not one after another, so a filtered-out hook does
+  not shorten the turn by its own duration. Per-event cost is a property of the
+  runtime's startup, and that is where it belongs — not routed around by a filter
+  that can silently narrow your guard. That is also where it was fixed: the
+  runtime no longer loads the CLI's verbs to make a decision, which took a hook
+  from roughly 650 ms to 80 ms (200 ms for a Bash gate). A prefilter would have
+  bought less, later, and at the cost of a guard that can go quiet.
+
+An `if:` **you** wrote is still honoured: `runHook` reads it and measures your
+guard the way the harness would really run it. Only _generating_ one is refused.
+
+The `matcher` we _do_ emit is safe under the same rule: it is derived from the
+event type the role already implies (a bash gate matches `Bash`), so it cannot be
+narrower than the program behind it.
 
 `hook-runtime run-program` is a **hidden runtime entrypoint** — invoked by the harness on every matching event, never typed by hand. It loads your typed program, **verifies the stamp** (a hand-edited artifact is refused — fail closed), and dispatches by role: a gate `exit 2`s on `deny`, an inject prints `additionalContext`, a react runs its classified command. You wrote none of that protocol. (`compile` is the one-time _wiring_ step; `hook-runtime` is the per-event _executor_ the wiring points at — see the [CLI surface](cli.md) for why they're distinct.)
 
@@ -557,7 +595,7 @@ Compiled hooks are neither free nor magic. The honest downsides:
 
   Scope of the measurement, stated plainly: it drives `claude -p` (headless). Interactive sessions are unmeasured, and subagent nesting (depth 2) does not occur there at all.
 
-- ⚠️ **Runtime cost.** Every matching event spawns `node` and dynamic-imports your program — tens to hundreds of ms per call. Fine for a `PreToolUse` gate. Think twice before a hot-path `PostToolUse` react that fires on every edit.
+- ⚠️ **Runtime cost.** Every matching event spawns `node` and dynamic-imports your program. Measured on Node 22 (median of 20 spawns, one machine — yours will differ): about **80 ms** for a file gate, an inject or a stop gate, and about **200 ms** for a Bash gate, which additionally parses the command. Roughly 40 ms of either is Node itself starting. Fine for a `PreToolUse` gate. Think twice before a hot-path `PostToolUse` react that fires on every edit. Claude Code's native `if:` prefilter is **not** the way out of this, and [Why the emitted block has a `matcher` and no `if:`](#why-the-emitted-block-has-a-matcher-and-no-if) says why: a prefilter narrower than your predicate silences the guard without a word.
 - ⚠️ **Buy-in.** It's a dependency plus a build step, and you author in JS/TS, not a 3-line inline `bash` hook. For a trivial one-liner the compiled path is heavier — the payoff is on the guards that actually have to be _correct_.
 - ⚠️ **A bounded vocabulary is a ceiling, by design** — but be precise about which bound. (1) What a hook can _do_: `checkHookImports` forbids any import but `vigiles/hook` (no `fs`/`net`/`child_process`), so a hook that must _call a service, read a file, or hold cross-invocation state_ to decide can't be expressed. That is the **deliberate** ceiling — it _is_ the safety guarantee, and such hooks stay hand-written (keep a plain shell hook and verify it with the disaster battery). (2) What a hook can _see_: the AST matchers (`runs`/`touches`/`pipesToShell`/`under`) are a **soft, extensible** limit, not a fundamental one — if you need to match a shape they don't expose yet, the fix is a new matcher, not a redesign.
 - ⚠️ **Compiling proves the protocol, not your policy.** A compiled hook can't have the wrong exit code — but it can still `deny` the wrong thing. Compiling is necessary, not sufficient. Test the _logic_ with [guardrail verification](harness-testing.md).
@@ -575,7 +613,7 @@ They are `experimental_defineHook`, `experimental_defineFileGate`,
 has been about.
 
 Only the entry points carry the prefix, and that placement is the whole point:
-every other name in `vigiles/hook` — `allow`, `deny`, `tool`, `pathView`,
+every other name in `vigiles/hook` — `allow`, `deny`, `tools`, `pathView`,
 `commandView`, `state`, `record`, `notice`, `run` — is reachable ONLY from inside
 a `define*` call. Prefixing the chokepoint makes the marking structural for the
 whole vocabulary; prefixing thirty names could not, because nothing would stop

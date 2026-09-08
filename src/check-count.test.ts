@@ -22,7 +22,7 @@ import { writeFileSync } from "node:fs";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 import { runHook } from "./run-hook.js";
 import { assertHookAllows } from "./harness-assert.js";
-import { experimental_defineHook, allow, tool } from "./hook.js";
+import { experimental_defineHook, allow } from "./hook.js";
 
 /** Capture what an armed report would write, without touching the disk. */
 function fakes(env: NodeJS.ProcessEnv): {
@@ -128,7 +128,6 @@ test("an in-process compiled-hook assertion counts as a check", () => {
   // compiled hooks would look like it did nothing.
   const gate = experimental_defineHook({
     on: "PreToolUse",
-    match: tool("Bash"),
     decide: () => allow(),
   });
   assertHookAllows(gate, { tool_name: "Bash", tool_input: { command: "ls" } });

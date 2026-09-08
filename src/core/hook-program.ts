@@ -41,10 +41,25 @@ import {
   type NormalizedLeaf,
 } from "./bash-effects.js";
 import { sha256short, assertNever, type SHA256Hash } from "./hash.js";
-import { stringify as stringifyToml } from "@iarna/toml";
+/**
+ * `@iarna/toml` is required LAZILY, at the one call site that serializes a Codex
+ * TOML settings block — never at module load. MEASURED 2026-09-08 (Node 22.22.2,
+ * `tools/measure-hook-startup.mjs`): the top-level import cost 56 ms of a
+ * ~170 ms `require("dist/core/hook-program.js")`, and this module is on the hot
+ * path of `vigiles hook-runtime run-program`, which runs on EVERY matching tool
+ * call. A hook DECIDES; it never serializes a settings block, so it paid 56 ms
+ * per tool call for a compile-time dependency. Keep it a call-site require —
+ * hoisting it back to the top is the regression, and `src/hook-runtime-graph.test.ts`
+ * fails if `@iarna/toml` reappears in a decision's module graph.
+ */
+const stringifyToml = (value: unknown): string =>
+  (require("@iarna/toml") as typeof import("@iarna/toml")).stringify(
+    value as never,
+  );
 import type { HarnessDialect } from "./dialect.js";
 import type { HookProtocol } from "./hook-protocol.js";
 import { verifyHookEvents, authoringIssues } from "./hook-events.js";
+import { verifyToolContract } from "./tool-contract.js";
 import { HARNESS_CONFIG_FILES } from "./merge-conflict.js";
 import {
   unknownProviders,
@@ -113,6 +128,9 @@ export function matchesTool(tools: readonly string[], name: string): boolean {
     return false;
   }
 }
+
+/** Regex metacharacters — an entry containing one is a PATTERN, not a name. */
+const REGEX_META = /[.*+?^${}()|[\]\\]/;
 
 /** Tool patterns that are not valid regexes — rejected at compile, see {@link matchesTool}. */
 export function invalidToolPatterns(tools: readonly string[]): string[] {
@@ -877,7 +895,6 @@ export interface HookProgram<
   N extends readonly NeedSpec[] = readonly ProviderName[],
 > {
   readonly on: string;
-  readonly match: { readonly tool: string };
   /** `enforce` (default) blocks on a `deny`; `observe` records + allows. */
   readonly mode?: HookMode;
   /** Declared context providers the trusted runtime gathers into `e.ctx`. */
@@ -885,7 +902,6 @@ export interface HookProgram<
   readonly decide: (e: BashToolEvent<N>) => Decision;
 }
 
-export const tool = (name: string): { tool: string } => ({ tool: name });
 /**
  * @experimental Compiled hooks are provisional — see docs/compiled-hooks.md#status--pending.
  * Imported and CALLED as `experimental_defineHook` — do not alias the prefix away at
@@ -926,7 +942,18 @@ export function decideProgram<N extends readonly NeedSpec[]>(
     ? rawEvent.cwd
     : undefined,
 ): Decision {
-  if (rawEvent.tool_name !== program.match.tool) return allow();
+  // A bash gate is Bash BY CONSTRUCTION — `BashToolEvent.tool` is the literal
+  // "Bash" and every one of the 34 call sites in both repos wrote
+  // `match: tool("Bash")`. The field carried no information and one real risk:
+  // `match: tool("Edit")` type-checked, compiled, wired a PreToolUse matcher
+  // `Edit`, fired on edits, built `commandView("")` from a missing
+  // `tool_input.command`, found every predicate false and returned allow() — a
+  // silently dead guard, which is the exact class the header above says this
+  // subsystem eliminates. Worse, the comparison was `!==` while every sibling
+  // role routes through `matchesTool`; that runtime/emit disagreement is the
+  // one MEASURED and fixed for reacts on 2026-08-12 (see the header), and it
+  // survived here on the flagship role. Removed 2026-09-08.
+  if (rawEvent.tool_name !== "Bash") return allow();
   const command =
     typeof rawEvent.tool_input?.command === "string"
       ? rawEvent.tool_input.command
@@ -1093,7 +1120,8 @@ export function hookRouting(hook: AnyHook): {
     if (hook.match === undefined) return { on: hook.on };
     return { on: hook.on, matcher: hook.match.tools.join("|") };
   }
-  return { on: hook.on, matcher: hook.match.tool };
+  // Bash by construction — see decideProgram; the author no longer declares it.
+  return { on: hook.on, matcher: "Bash" };
 }
 
 /** Apply a harness's matcher style to the neutral `A|B` matcher join. */
@@ -1167,6 +1195,25 @@ export function compileHookProgram(
         `invalid tool matcher pattern(s): ${bad.join(", ")} — a tool matcher is a ` +
           `regex (that is why "Edit|Write" works), so it must parse as one.`,
       );
+    }
+    // …and a VALID regex can still be a dead matcher. `tools("Edt")` parses
+    // fine, wires a matcher `Edt`, and the hook never fires — the same defect
+    // the event check below rejects, on the axis it did not cover.
+    //
+    // Only an entry with NO regex metacharacter is read as a literal tool NAME.
+    // A matcher IS a regex — `tools("mcp__github__.*")` is correct and must not
+    // be cross-referenced as a name — so the check is scoped to the spellings a
+    // typo actually produces. MCP names are skipped inside verifyToolContract
+    // itself (dialect.mcpToolPattern), so a fully-spelled server tool passes on
+    // both counts.
+    if (opts.dialect) {
+      const literal = hook.match.tools.filter((t) => !REGEX_META.test(t));
+      const badNames = authoringIssues(
+        verifyToolContract(literal, opts.dialect),
+      );
+      if (badNames.length > 0) {
+        throw new HookCompileError(badNames[0].message);
+      }
     }
   }
   // A hook registered under an event the harness never fires is dead — reject

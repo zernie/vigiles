@@ -1,3 +1,6 @@
+/**
+ * Hook-install suite (vitest): mergeHooksJson adds to an empty/existing settings object, preserves the user's own + a sibling vigiles hook for a different file, is idempotent (recompile replaces, never duplicates), preserves non-hook top-level keys; mergeHooksToml flattens to Codex's {matcher,command} + round-trips; discoverHookFiles finds JS/TS under .vigiles/hooks excluding stamps, [] when absent
+ */
 import { describe, it, expect } from "vitest";
 import {
   mergeHooksJson,

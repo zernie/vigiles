@@ -1,3 +1,6 @@
+/**
+ * Egress allowlist test suite: pure helpers — parseGetent family split, resolveAllow (injected resolver), parseResolvers, buildEgressNft (policy drop, DNS allow, per-host v4/ip6 rules, comment sanitize, log+drop tail), buildEgressBwrapArgv (caps/info-fd/`VIG_*` env/sh -c tail), parseNftCounters (v4+v6 sum, drop aggregate), countersToResult, probeEgressAvailable short-circuit
+ */
 import { test } from "vitest";
 import assert from "node:assert/strict";
 

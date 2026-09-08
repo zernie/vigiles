@@ -1,10 +1,7 @@
 /**
- * vigiles v2 — Compiler: spec → markdown.
- *
- * Reads .spec.ts files, validates references, and produces
- * markdown instruction files with integrity hashes.
+ * Compiler: spec → markdown with SHA-256 hash, linter verification, reference validation; compileClaude/compileSkill/compileAgent (subagents: frontmatter + verified tool contract + body marks + result-contract Output section) + compileRailway/validateRailway (orchestrator command over flat workers; delegate-target resolution + bounded recovery) + purity-floor enforcement (purityViolations: a pure/bounded contract rejects a tool looser than its floor; absent tools = inherits-all = checked as the '*' wildcard, never trivially pure) + emits a <!-- vigiles:purity:LEVEL --> marker on a compiled agent OR skill (dangerously-unrestricted → the neutral runtime level unrestricted) so the runtime PreToolUse gate can read+enforce the declared floor (parseAgentPurity/parseSkillPurity → decidePurityGate). renderFragment/validateRefs also handle the effect() EffectRegion fragment — rendering its body wrapped in <!-- vigiles:effect -->…<!-- /vigiles:effect --> markers (inside the integrity hash) and recursing to verify inner file()/cmd() refs.
+ * Compile gates added 2026-06-20: a generous DEFAULT_MAX_SECTION_LINES=200 guard on every named prose section (claude + agent), overridable via maxSectionLines (TS types can't bound string length); agent disallowedTools verified via disallowedToolIssues (a close typo blocks nothing); a forked skill's output renders the SAME ## Output contract via renderOutputContract, and output without context:'fork' is the output-without-fork error; effect() in a skill body is the effect-in-skill error (effect() is a SUBAGENT primitive — a skill has no call→return region to scope; it declares a purity floor + context:fork instead)
  */
-
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { globSync } from "glob";
 import yaml from "js-yaml";
@@ -478,6 +475,13 @@ interface SectionResult {
 // Override per spec with `maxSectionLines`; `maxTokens` is the global backstop.
 const DEFAULT_MAX_SECTION_LINES = 200;
 
+// A key-files entry is a POINTER, not an essay: the prose about why a file is
+// shaped the way it is belongs in that file's own header, where it is read when
+// the file is opened. Calibrated against this repo on 2026-09-08 — 285 entries,
+// median 371 chars, longest 4782 — so 800 names the paragraphs without firing
+// on an ordinary one-line description.
+const DEFAULT_MAX_KEYFILE_CHARS = 800;
+
 function validateSectionContent(
   name: string,
   text: string,
@@ -561,6 +565,12 @@ function compileKeyFilesSection(
     lines.push(`- \`${filePath}\` — ${desc}`);
     const err = validateFileRef(filePath, basePath);
     if (err) errors.push(err);
+    if (desc.length > DEFAULT_MAX_KEYFILE_CHARS) {
+      errors.push({
+        type: "section-too-long",
+        message: `Key file "${filePath}" has a ${String(desc.length)}-character description (max ${String(DEFAULT_MAX_KEYFILE_CHARS)}). A key-files entry is a pointer; move the reasoning into that file's own header comment, where a reader meets it on opening the file.`,
+      });
+    }
   }
   return { lines: [lines.join("\n")], errors };
 }

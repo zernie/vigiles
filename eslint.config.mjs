@@ -48,7 +48,7 @@ const AGNOSTIC_SURFACE = "src/{test,eval-surface}.ts";
 // Claude Code literal (the bug class fixed in scan.ts/test-coverage.ts: a
 // `${CLAUDE_PLUGIN_ROOT}` token or a `.claude/` surface path baked in instead of
 // read from the layout). The CC adapter, the CC eval transport (src/eval.ts), and
-// the CC plugin onboarding (init in src/cli.ts) legitimately reference CC, so they
+// the CC plugin onboarding (init in src/cli-main.ts) legitimately reference CC, so they
 // are NOT in this set. Complements the import-graph boundary with a string-literal
 // boundary. See research/code-adapter-architecture.md.
 const HARNESS_AGNOSTIC_DETECTORS = [
@@ -280,7 +280,7 @@ export default [
   //   S1  `globSync(p, {...})` with no `ignore` at all;
   //   S2  an `ignore` array holding a string LITERAL (`[...X, "dist/**"]` — the
   //       original bug shape; `[...ignore]`, a spread of an injected list, is fine);
-  //   S3  (cli.ts only) a raw `readdirSync` — the walks that legitimately keep
+  //   S3  (cli-main.ts only) a raw `readdirSync` — the walks that legitimately keep
   //       one (init's shallow sweep, lint-config collection, eject's safety
   //       check, the nested-bundle walk that already consumes the ExcludeSet)
   //       carry an eslint-disable with the exception row from exclude.ts.
@@ -309,13 +309,13 @@ export default [
     },
   },
   {
-    files: ["src/cli.ts", "src/adapters/claude-code/run-scripts.ts"],
+    files: ["src/cli-main.ts", "src/adapters/claude-code/run-scripts.ts"],
     rules: {
       "no-restricted-syntax": ["error", ...DISCOVERY_SELECTORS],
     },
   },
   {
-    files: ["src/cli.ts"],
+    files: ["src/cli-main.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -323,7 +323,7 @@ export default [
         {
           selector: 'CallExpression[callee.name="readdirSync"]',
           message:
-            "A raw readdirSync walk in cli.ts bypasses the ExcludeSet (src/exclude.ts). " +
+            "A raw readdirSync walk in cli-main.ts bypasses the ExcludeSet (src/exclude.ts). " +
             "Route discovery through it, or — if this walk is one of the named exceptions " +
             "in exclude.ts's header — add an eslint-disable naming that exception.",
         },

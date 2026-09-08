@@ -225,7 +225,7 @@ const SCRIPT_RE = scriptRefPattern();
  * - As the full suffix `.eval.mjs` it was a MONEY HAZARD — `foo.eval.ts` fell
  *   into the free branch and would have spent real model calls on every push.
  * - As the bare INFIX `.eval.` it made a FALSE GRANT — `parser.eval.test.ts`,
- *   an ordinary deterministic test discovered by a `testGlobs` of
+ *   an ordinary deterministic test discovered by an `include` of
  *   `**\/*.test.ts`, was credited to the paid tier and dropped from the free
  *   one. `vigiles eval` globs `**\/*.eval.{mjs,cjs,js,mts,cts,ts}`, so that name
  *   is not discoverable by the eval runner at all: the surface was reported
@@ -333,7 +333,7 @@ export function evidenceFor(
 }
 
 /**
- * The `{surface}` placeholder in a user's `testGlobs` — the ONE thing that makes
+ * The `{surface}` placeholder in a user's `include` — the ONE thing that makes
  * a centralized test layout expressible without weakening what coverage MEANS.
  *
  * The retired `declared` and `name-mentioned` tiers died because they could

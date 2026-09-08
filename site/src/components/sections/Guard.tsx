@@ -85,11 +85,10 @@ const TOTAL = BATTERY_ROWS.length;
  *
  *    node dist/cli.js hook-runtime run-program <this file>   # via verifyGuardrail
  */
-const HOOK_SOURCE = `import { experimental_defineHook, tool, deny, allow } from "vigiles/hook";
+const HOOK_SOURCE = `import { experimental_defineHook, deny, allow } from "vigiles/hook";
 
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   decide: (e) => {
     const c = e.command;
     if (c.runs("git push", { force: true }))

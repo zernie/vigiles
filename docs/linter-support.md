@@ -7,7 +7,7 @@
 > route-only). Don't conflate the two — see `research/rule-enforceability.md` for
 > routing/synthesis coverage.
 
-vigiles verifies that every `enforce()` rule in your spec actually exists and is enabled in your project. This is the core differentiator -- no other tool resolves rules against all 11 linters' APIs and checks config-enabled status.
+vigiles verifies that every `enforce()` rule in your spec actually exists and is enabled in your project. The rule name is resolved against the linter's own catalog rather than matched as a string, and the enabled state is read out of your config -- so a rule that is real but switched off is reported as clearly as one that was never real.
 
 ## How It Works
 

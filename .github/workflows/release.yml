@@ -68,7 +68,7 @@ jobs:
         #
         # Until 2026-09-07 this step computed `major="${latest%%.*}"` from the
         # newest PACKAGE tag, so it moved `v26` and could NEVER move `v1`. But
-        # `vigiles init` emits `uses: zernie/vigiles@v1` (src/cli.ts) and
+        # `vigiles init` emits `uses: zernie/vigiles@v1` (src/cli-main.ts) and
         # docs/github-action.md tells users to pin that — and no `v1` ref exists,
         # so the first PR a new user opened after `init` failed with
         # "Unable to resolve action zernie/vigiles@v1". CI never noticed because

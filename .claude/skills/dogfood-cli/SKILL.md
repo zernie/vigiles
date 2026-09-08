@@ -1,6 +1,7 @@
 ---
 name: dogfood-cli
 description: Hunt for real bugs in the vigiles CLI/codebase with a parallel expert fan-out, then FIX them directly — source-trace each defect to file:line, add a regression test, commit per theme. Use when asked to dogfood vigiles, find/fix bugs across the CLI the source-traced way, or fan out agents to audit the tool on itself.
+disable-model-invocation: true
 ---
 
 # Dogfood the vigiles CLI (expert find + fix fan-out)

@@ -13,9 +13,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const CLI_SRC = readFileSync(join(__dirname, "cli.ts"), "utf-8");
+// `cli-main.ts`, not `cli.ts`: #216 reduced `cli.ts` to a dispatcher shim so a
+// compiled hook stops loading the verbs to decide allow/deny. Every verb — and
+// so every harness resolution this gate polices — lives in the barrel now.
+const CLI_SRC = readFileSync(join(__dirname, "cli-main.ts"), "utf-8");
 
-test("cli.ts resolves the harness through resolveHarnessSelection, never raw detect (dogfood A/I3)", () => {
+test("cli-main.ts resolves the harness through resolveHarnessSelection, never raw detect (dogfood A/I3)", () => {
   // A direct call — `detectAdapterResult(` — bypasses config.harness. Strip
   // line comments first so the doc comment on `resolveCommandHarness` (which
   // names the anti-pattern in prose) doesn't count as a call.
@@ -48,7 +51,7 @@ test("cli.ts resolves the harness through resolveHarnessSelection, never raw det
  * fourth call site is the one nobody will write a test for.
  */
 /**
- * Every argument list passed to `name(` in `src/cli.ts`. Brace-balanced rather
+ * Every argument list passed to `name(` in `src/cli-main.ts`. Brace-balanced rather
  * than a line regex: the options object spans lines and holds nested literals, so
  * a line-wise pattern would pass a call whose `layout` sat in a NESTED object.
  */

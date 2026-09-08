@@ -1,3 +1,6 @@
+/**
+ * Hook-normalize suite (vitest): flattens the CC nested shape, reads the Codex flat shape, carries matcher null when absent, drops empty/non-string commands + non-object entries, returns [] for non-object/array/null (never throws); hookEventNames object-keys vs [] for an array
+ */
 import { describe, it, expect } from "vitest";
 import {
   normalizeHooks,

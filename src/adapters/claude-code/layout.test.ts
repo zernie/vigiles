@@ -1,3 +1,6 @@
+/**
+ * Layout-port test suite (vitest): claudeCodeLayout is the loadPlugin default; an alternate Codex-shaped PluginLayout (AGENTS.md, prompts/ surface, .codex/ settings, ${CODEX_PLUGIN_ROOT}) loads through the SAME loadPlugin — and the default CC layout sees none of it (the swap seam a second harness plugs into)
+ */
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";

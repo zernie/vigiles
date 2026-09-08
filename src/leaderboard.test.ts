@@ -1,7 +1,5 @@
 /**
- * Plugin-health leaderboard test suite. `scoreReport` is pure over a `ScanReport`
- * so most cases are hand-built structs (fast, no fs); `rankPlugins` is exercised
- * over two tmp fixtures to prove the healthy plugin ranks above the broken one.
+ * Leaderboard test suite (vitest): pure scoreReport penalty weights + clamp + empty-machine=0 + command-only/hooks-only/MCP-only-is-a-real-surface (incl. an end-to-end hooks-only plugin dir, and that audit-overall == leaderboard-health on it), rankPlugins ordering (healthy above broken) over tmp fixtures, formatLeaderboard rendering
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";

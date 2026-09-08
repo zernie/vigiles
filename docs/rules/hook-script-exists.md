@@ -6,8 +6,26 @@ when that file isn't there silently never runs — the protection or automation 
 author wired up simply doesn't happen, with no error. Same detector `vigiles audit`
 uses (the hook resolver in `src/scan.ts`); one detector, two callers.
 
-This matches Anthropic's own `claude plugin validate` — adopting it makes vigiles
-a superset of the official validator on the hook surface.
+> **Correction, 2026-09-08.** This doc used to say the rule "matches Anthropic's
+> own `claude plugin validate`, making vigiles a superset of the official
+> validator on the hook surface." **That is false, and it under-sold this rule.**
+>
+> - **Measured:** `node tools/measure-validate-overlap.mjs` against Claude Code
+>   2.1.263. A hook command naming a script that is not on disk passes
+>   `claude plugin validate` clean — in the repo-local `.claude/settings.json`
+>   form, in the plugin manifest, and via `hooks/hooks.json`, under `--strict`
+>   too. Nothing else checks it either, as far as we have run.
+> - **The silence is real.** The same tool errors on a `hooks.json` missing its
+>   root key and warns on an agent with no description, so it does read these
+>   files; it simply does not resolve the path.
+> - **What it DOES check on this surface** is the hook **event name** — an
+>   unknown one warns `unknown hook event; entry ignored at runtime` — which is
+>   a different rule here, [hook-events](hook-events.md). That is where the real
+>   overlap lives.
+> - **Why the old line was written:** from the other tool's documentation rather
+>   than a run of it. It is kept here rather than deleted because a silent
+>   deletion reads as a wording change and invites someone to add it back.
+> - **What would invalidate this:** a new Claude Code minor. Re-run the probe.
 
 ## What it flags
 

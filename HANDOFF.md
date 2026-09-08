@@ -54,7 +54,7 @@ literal NUL byte in scan-core (read as binary), and a missed I2 e2e assertion (o
 **VLAD'S ISSUES #107/#109/#110/#111/#113 — ALL FIXED** (fanned out per the dogfood-cli skill: #109 linters +
 #110 scan-FPs on background agents, verified + integrated). #107 skill `allowed-tools` list + `context:fork` adopt
 (1d dirty-tree deferred as founder UX) · #109 JVM/Go linter catalogs (detekt/ktlint/checkstyle/golangci-lint, 7→11) ·
-#110 example-link + shell-comment scan FPs · #111 non-JS harness guide · #113 testGlobs docs. Full suite green.
+#110 example-link + shell-comment scan FPs · #111 non-JS harness guide · #113 include docs. Full suite green.
 
 **PR #114 REVIEW-FIX + PREVENTION PASS — PUSHED.** After the meta-analysis, addressed the Codex bot P2s +
 prevention: (a) skill-resource-resolves LINK RECALL — a markdown link is real UNLESS an illustrative cue (don't

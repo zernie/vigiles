@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:fba6647caccddb24 compiled from examples/CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:a2b6a1ad022fb612 compiled from examples/CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -6,9 +6,9 @@
 
 vigiles compiles `.spec.ts` files to instruction files (CLAUDE.md, AGENTS.md, or any markdown target). The spec is the source of truth. The markdown is a build artifact.
 
-The linter cross-referencing engine is the core moat: `enforce("@typescript-eslint/no-floating-promises")` verifies the rule exists AND is enabled in your linter config. Same across 11 catalogs — ESLint, Stylelint, Ruff, Clippy, Pylint, RuboCop, Cedar, detekt, ktlint, Checkstyle, and golangci-lint.
+The linter cross-referencing engine is the core of the tool: `enforce("@typescript-eslint/no-floating-promises")` verifies the rule exists AND is enabled in your linter config. Same across 11 catalogs — ESLint, Stylelint, Ruff, Clippy, Pylint, RuboCop, Cedar, detekt, ktlint, Checkstyle, and golangci-lint.
 
-`generate-types` is the second moat: scans all 11 catalog APIs, package.json, and project files to emit a `.d.ts` with type unions. The TS compiler then PROVES references are valid at authoring time — typos become type errors, not runtime surprises.
+`generate-types` is the second half: scans all 11 catalog APIs, package.json, and project files to emit a `.d.ts` with type unions. The TS compiler then PROVES references are valid at authoring time — typos become type errors, not runtime surprises.
 
 ## Architecture
 

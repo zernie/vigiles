@@ -7,8 +7,17 @@
  *   Ktlint, Checkstyle, golangci-lint (CLI),
  *   Cedar (filesystem policies for AWS Bedrock AgentCore / Vectimus).
  *
- * This is the core moat — no other tool resolves rules across 11 catalog APIs
- * (10 linters + Cedar policy language) and checks config-enabled status.
+ * Across 11 catalog APIs (10 linters + Cedar policy language): a rule name is
+ * RESOLVED against the linter's own catalog rather than matched as a string, and
+ * its enabled state is read from the project's config.
+ *
+ * An exclusivity claim stood here ("the core moat — no other tool ..."). Removed
+ * 2026-09-08 for two independent reasons, noted rather than deleted silently so
+ * it is not restored as a wording change: it rested on a competitor matrix
+ * checked against DOCUMENTATION rather than a run (the same matrix put a false
+ * claim on the landing page, see tools/measure-validate-overlap.mjs), and this
+ * repository is public, where the `no-product-strategy-here` rule forbids
+ * competitive positioning outright. Describe the mechanism; let a reader compare.
  */
 
 import {
@@ -787,7 +796,7 @@ const stylelintConfigEnabled = createCachedChecker(
  * `enforce("ruff/...")` reported `enabled: "unknown"`; `touch dummy.py` in the
  * same repo flipped the identical rule to "enabled" and an out-of-select rule
  * to "disabled". The failure was SILENT because only "disabled" is ever
- * surfaced as a finding (src/core/compile.ts, src/cli.ts) — "unknown" reads as
+ * surfaced as a finding (src/core/compile.ts, src/cli-main.ts) — "unknown" reads as
  * clean, so a genuinely disabled rule passed its check.
  *
  * A directory works where a synthesized filename does not, including the case

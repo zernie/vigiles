@@ -236,7 +236,7 @@ export interface UntestedReport {
    */
   readonly staleRuns?: readonly StaleRun[];
   /**
-   * DETERMINISTIC coverage only — `*.harness.*`, plus any custom `testGlobs`.
+   * DETERMINISTIC coverage only — `*.harness.*`, plus any custom `include`.
    * Free, millisecond, every-push. Answers "does this gate still catch what it
    * claims?" (`*.test.*` has NOT counted since 15.x — see DEFAULT_TEST_GLOBS.)
    */
@@ -258,7 +258,7 @@ export interface TestCoverageOptions {
   /** Scan hook scripts referenced from plugin.json / settings.json. Default true. */
   readonly hooks?: boolean;
   /** Globs of test files that count as coverage. */
-  readonly testGlobs?: readonly string[];
+  readonly include?: readonly string[];
   /**
    * Which extension a GENERATED test gets. Detection (a tsconfig.json, a
    * typescript dependency) decides by default; this field exists only to
@@ -270,7 +270,7 @@ export interface TestCoverageOptions {
    * (or the `-subagent` / `-hook` twin — the three share their options). The
    * previous wording here said only "from `.vigilesrc.json`", which read as a
    * promise the CLI did not keep: `TestCoverageConfig` had no such key and
-   * `checkUntestedSurfaces` forwarded only `testGlobs`/`exclude`, so a configured
+   * `checkUntestedSurfaces` forwarded only `include`/`exclude`, so a configured
    * `mjs` was silently ignored on any TypeScript-shaped repo.
    */
   readonly testExtension?: string;
@@ -394,7 +394,7 @@ function discoverSkills(
  * this source file from matching its own search — a precaution that was never
  * checked and is contradicted by the tree it lives in: the literal already appears
  * in five other files under `src/`, and the detector reads only files matching
- * `testGlobs` in the SCANNED repo, never vigiles' own sources.
+ * `include` in the SCANNED repo, never vigiles' own sources.
  */
 const LEGACY_COVERS = "vigiles:covers";
 
@@ -577,8 +577,8 @@ function coverageOf(
 /**
  * Split the discovered tests into the two tiers — `*.eval.<runnable-ext>` is the
  * paid real-model tier, everything else (`*.harness.*` and any user-supplied
- * `testGlobs`) is the free deterministic tier. Decided by NAME, not by glob set,
- * so a custom `testGlobs` (a promptfoo suite, a home-grown loop) still lands in a
+ * `include`) is the free deterministic tier. Decided by NAME, not by glob set,
+ * so a custom `include` (a promptfoo suite, a home-grown loop) still lands in a
  * tier instead of silently disappearing from the split. The rule itself is
  * `isEvalScript` — shared with the browser twin, and see its header for the two
  * opposite ways this has been wrong.
@@ -664,7 +664,7 @@ export function findUntestedSurfaces(
   const basePath = options.basePath ?? process.cwd();
   const layout = options.layout ?? claudeCodeLayout;
   const ignore = [...DEFAULT_IGNORE, ...(options.exclude ?? [])];
-  const globs = options.testGlobs ?? DEFAULT_TEST_GLOBS;
+  const globs = options.include ?? DEFAULT_TEST_GLOBS;
 
   const surfaces: Surface[] = [];
   if (options.skills !== false)
@@ -1110,15 +1110,15 @@ export function formatUntestedReport(report: UntestedReport): string {
   lines.push(...coverageCaveats(report));
   // Already testing these another way (a promptfoo suite, a home-grown evals
   // file)? Two shapes are accepted, and the message names BOTH — it used to
-  // name only `testGlobs`, which does not by itself make a centralized suite
+  // name only `include`, which does not by itself make a centralized suite
   // count, so a reader who followed it exactly saw the number not move (#175.2).
   // See docs/rules/untested-skill.md.
   lines.push(
     `  Testing these another way (promptfoo / a home-grown eval loop)? Either ` +
       `put the file NEXT TO the surface and name it after it ` +
       `(\`<surface>/<surface>.eval.mjs\`), or — for a centralized layout — point ` +
-      `\`testGlobs\` at it USING THE \`{surface}\` placeholder, e.g. ` +
-      `\`"tests/{surface}/evals/promptfooconfig*.yaml"\`. A \`testGlobs\` entry ` +
+      `\`include\` at it USING THE \`{surface}\` placeholder, e.g. ` +
+      `\`"tests/{surface}/evals/promptfooconfig*.yaml"\`. An \`include\` entry ` +
       `WITHOUT \`{surface}\` widens what counts as a test file but never says ` +
       `which surface it covers, so it credits nothing on its own. ` +
       `See docs/rules/untested-skill.md.`,

@@ -36,7 +36,18 @@ export default defineConfig({
   // the named exports (`scanFiles`, `buildAuditReport`) the browser test imports,
   // and folds in the transitive require-graph (+ the `node:zlib`→pako shim).
   optimizeDeps: {
-    include: ["@engine/scan-files", "@engine/audit-report", "pako"],
+    // `@engine/spec` joined the list on 2026-09-08, when `linters.browser.test.ts`
+    // started importing `BUILTIN_LINTERS` to assert the hero's language chip and
+    // the Wedge's linter strip are both derived from the engine's real list.
+    // Without the pre-bundle the CJS dist has no named exports through Vite's
+    // ESM path and the suite fails to import at all — the same reason the three
+    // entries beside it are here.
+    include: [
+      "@engine/scan-files",
+      "@engine/audit-report",
+      "@engine/spec",
+      "pako",
+    ],
     // @iarna/toml (a CJS engine dep) references bare `global`; the production
     // rollup build maps it, so give esbuild's pre-bundle the same define.
     esbuildOptions: { define: { global: "globalThis" } },

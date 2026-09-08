@@ -1,8 +1,5 @@
 /**
- * Tests for the hook unit tier (src/run-hook.ts) — run a hook process directly
- * against a synthesized event, no `claude` CLI, no model. Covers the pure
- * decision logic and real (tiny shell) hooks across exit codes / JSON output /
- * stdin passthrough / env injection.
+ * Hook unit-tier test suite (node:test): pure decision logic + real shell hooks across exit codes, stdin event passthrough, env injection, JSON permission decisions, runHookWith sandbox + egress routing (fake spawners) + gated bwrap confinement + a gated egress: { allow } integration (allowed host reached, off-list + raw socket dropped) and the OMC session-start dogfood (reaches the npm registry, drops nothing else)
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
