@@ -52,6 +52,7 @@ import {
 } from "./hook-program.js";
 import { provide, dangerously, provider } from "./hook-providers.js";
 import { codexDialect } from "../adapters/codex/dialect.js";
+import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
 import { codexHookProtocol } from "../adapters/codex/hook-protocol.js";
 import { claudeCodeHookProtocol } from "../adapters/claude-code/hook-protocol.js";
 
@@ -713,6 +714,44 @@ test("compile: an event the target harness never fires does NOT compile", () => 
         { dialect: codexDialect },
       ),
     HookCompileError,
+  );
+});
+
+// The SAME defect on the other axis: a matcher that is a valid regex but names
+// no real tool. Both directions, because the check must not reject the PATTERN
+// form the matcher is documented to accept.
+test("compile: a typo'd tool NAME in match does NOT compile", () => {
+  const typo = experimental_defineReact({
+    on: "PostToolUse",
+    match: tools("Edt"), // valid regex, real-looking, fires never
+    react: () => nothing(),
+  });
+  assert.throws(
+    () =>
+      compileHookProgram(
+        `import { experimental_defineReact, tools, nothing } from "vigiles/hook";`,
+        typo,
+        { dialect: claudeCodeDialect },
+      ),
+    HookCompileError,
+  );
+});
+
+test("compile: a real name and a REGEX pattern both still compile", () => {
+  const ok = experimental_defineReact({
+    on: "PostToolUse",
+    // A matcher IS a regex. `mcp__github__.*` carries metacharacters so it is
+    // never read as a name, and a fully-spelled MCP tool is skipped by
+    // verifyToolContract itself — so neither may be rejected here.
+    match: tools("Edit", "mcp__github__.*", "mcp__github__create_issue"),
+    react: () => nothing(),
+  });
+  assert.doesNotThrow(() =>
+    compileHookProgram(
+      `import { experimental_defineReact, tools, nothing } from "vigiles/hook";`,
+      ok,
+      { dialect: claudeCodeDialect },
+    ),
   );
 });
 

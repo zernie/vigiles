@@ -59,6 +59,7 @@ const stringifyToml = (value: unknown): string =>
 import type { HarnessDialect } from "./dialect.js";
 import type { HookProtocol } from "./hook-protocol.js";
 import { verifyHookEvents, authoringIssues } from "./hook-events.js";
+import { verifyToolContract } from "./tool-contract.js";
 import { HARNESS_CONFIG_FILES } from "./merge-conflict.js";
 import {
   unknownProviders,
@@ -127,6 +128,9 @@ export function matchesTool(tools: readonly string[], name: string): boolean {
     return false;
   }
 }
+
+/** Regex metacharacters — an entry containing one is a PATTERN, not a name. */
+const REGEX_META = /[.*+?^${}()|[\]\\]/;
 
 /** Tool patterns that are not valid regexes — rejected at compile, see {@link matchesTool}. */
 export function invalidToolPatterns(tools: readonly string[]): string[] {
@@ -1191,6 +1195,25 @@ export function compileHookProgram(
         `invalid tool matcher pattern(s): ${bad.join(", ")} — a tool matcher is a ` +
           `regex (that is why "Edit|Write" works), so it must parse as one.`,
       );
+    }
+    // …and a VALID regex can still be a dead matcher. `tools("Edt")` parses
+    // fine, wires a matcher `Edt`, and the hook never fires — the same defect
+    // the event check below rejects, on the axis it did not cover.
+    //
+    // Only an entry with NO regex metacharacter is read as a literal tool NAME.
+    // A matcher IS a regex — `tools("mcp__github__.*")` is correct and must not
+    // be cross-referenced as a name — so the check is scoped to the spellings a
+    // typo actually produces. MCP names are skipped inside verifyToolContract
+    // itself (dialect.mcpToolPattern), so a fully-spelled server tool passes on
+    // both counts.
+    if (opts.dialect) {
+      const literal = hook.match.tools.filter((t) => !REGEX_META.test(t));
+      const badNames = authoringIssues(
+        verifyToolContract(literal, opts.dialect),
+      );
+      if (badNames.length > 0) {
+        throw new HookCompileError(badNames[0].message);
+      }
     }
   }
   // A hook registered under an event the harness never fires is dead — reject
