@@ -1118,7 +1118,7 @@ export function formatUntestedReport(report: UntestedReport): string {
       `put the file NEXT TO the surface and name it after it ` +
       `(\`<surface>/<surface>.eval.mjs\`), or — for a centralized layout — point ` +
       `\`include\` at it USING THE \`{surface}\` placeholder, e.g. ` +
-      `\`"tests/{surface}/evals/promptfooconfig*.yaml"\`. A \`include\` entry ` +
+      `\`"tests/{surface}/evals/promptfooconfig*.yaml"\`. An \`include\` entry ` +
       `WITHOUT \`{surface}\` widens what counts as a test file but never says ` +
       `which surface it covers, so it credits nothing on its own. ` +
       `See docs/rules/untested-skill.md.`,
