@@ -42,11 +42,13 @@ transcript. "I summarized it in chat" is not saved.
 
 ## Where to save
 
-- **Generic / technical research** → `research/<topic>.md` (+ appendix), referenced from a
-  keyFile or `research/README.md` so it isn't an orphan doc.
-- **Sensitive: competitive / VC / strategy / fundraising** → the encrypted `startup/` vault
-  (see `startup/CLAUDE.md`). Verify the vault is UNLOCKED before writing, and keep the
-  strategic vocabulary out of any public doc.
+- **Technical research about shipped behaviour** → a `docs/` page if a user needs it to
+  act, otherwise a contributor note cited from `CLAUDE.md` keyFiles so it isn't an orphan
+  doc. Which tier is decided by `public-vs-internal-docs` and `doc-tiers`.
+- **Competitive, market, pricing, go-to-market or roadmap research** → **not into this
+  repository, in any directory.** This repo is public and `no-product-strategy-here` is
+  unconditional: a deleted file stays in history and on other branches. Hand the findings
+  back in the answer and let the human place them somewhere private.
 - When in doubt which, ask — but never let "unsure where" become "saved nowhere."
 
 ## Don't
