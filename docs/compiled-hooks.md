@@ -608,7 +608,7 @@ They are `experimental_defineHook`, `experimental_defineFileGate`,
 has been about.
 
 Only the entry points carry the prefix, and that placement is the whole point:
-every other name in `vigiles/hook` — `allow`, `deny`, `tool`, `pathView`,
+every other name in `vigiles/hook` — `allow`, `deny`, `tools`, `pathView`,
 `commandView`, `state`, `record`, `notice`, `run` — is reachable ONLY from inside
 a `define*` call. Prefixing the chokepoint makes the marking structural for the
 whole vocabulary; prefixing thirty names could not, because nothing would stop
