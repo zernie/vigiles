@@ -1,6 +1,7 @@
 ---
 name: deep-research
 description: Use when the user asks to research a topic in depth, map a competitive/market landscape, run a multi-source investigation, or "fan out" parallel research agents — anything where many findings must be gathered and then NOT lost. Enforces durable, detail-preserving research (write full findings to disk; keep a full appendix beside the synthesis).
+disable-model-invocation: true
 ---
 
 # Deep research — gather wide, lose nothing
