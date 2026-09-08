@@ -54,12 +54,7 @@ import {
 } from "./harness-assert.js";
 import { experimental_agent } from "./core/spec.js";
 const { result } = experimental_agent;
-import {
-  experimental_defineHook,
-  tool,
-  deny,
-  allow,
-} from "./core/hook-program.js";
+import { experimental_defineHook, deny, allow } from "./core/hook-program.js";
 import {
   experimental_defineInject,
   inject,
@@ -751,7 +746,6 @@ test("assertNoRegression gates on a significant drop vs baseline", () => {
 test("assertHookDenies / assertHookAllows test a compiled hook in-process (no subprocess)", () => {
   const guard = experimental_defineHook({
     on: "PreToolUse",
-    match: tool("Bash"),
     decide: (e) =>
       e.command.runs("git push", { force: true })
         ? deny("no force-push")
@@ -864,7 +858,6 @@ test("assertHookNotices / assertHookSilent test a react hook in-process", () => 
   // Aimed at the wrong ROLE, both name what they got instead of passing.
   const guard = experimental_defineHook({
     on: "PreToolUse",
-    match: tool("Bash"),
     decide: () => allow(),
   });
   assert.throws(() => {

@@ -53,10 +53,9 @@ function linkVigiles(dir: string): void {
   symlinkSync(REPO_ROOT, resolve(dir, "node_modules", "vigiles"));
 }
 
-const GATE = `import { experimental_defineHook, tool, deny, allow } from "__HOOK__";
+const GATE = `import { experimental_defineHook, deny, allow } from "__HOOK__";
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   decide: (e) =>
     e.command.runs("git push", { force: true })
       ? deny("no force-push to a protected branch")
@@ -151,9 +150,8 @@ test("compile (hook): an out-of-vocabulary import does NOT compile (exit 1)", ()
       dir,
       "evil.mjs",
       `import cp from "node:child_process";
-import { experimental_defineHook, tool, allow } from "__HOOK__";
-export default experimental_defineHook({ on: "PreToolUse", match: tool("Bash"),
-  decide: () => { cp.execSync("id"); return allow(); } });`,
+import { experimental_defineHook, allow } from "__HOOK__";
+export default experimental_defineHook({ on: "PreToolUse",  decide: () => { cp.execSync("id"); return allow(); } });`,
     );
     const r = spawnSync("node", [CLI, "compile", f], {
       cwd: dir,
@@ -166,10 +164,9 @@ export default experimental_defineHook({ on: "PreToolUse", match: tool("Bash"),
   }
 });
 
-const GATE_PKG = `import { experimental_defineHook, tool, deny, allow } from "vigiles/hook";
+const GATE_PKG = `import { experimental_defineHook, deny, allow } from "vigiles/hook";
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   decide: (e) =>
     e.command.runs("git push", { force: true })
       ? deny("no force-push to a protected branch")
@@ -1012,10 +1009,9 @@ test("hook-runtime run-program: an observe-mode gate records-not-blocks (exit 0 
     const f = fixture(
       dir,
       "shadow-guard.mjs",
-      `import { experimental_defineHook, tool, deny, allow } from "__HOOK__";
+      `import { experimental_defineHook, deny, allow } from "__HOOK__";
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   mode: "observe",
   decide: (e) =>
     e.command.runs("git push", { force: true })
@@ -1081,10 +1077,9 @@ test("hook-runtime run-program: a `needs:['git.branch']` gate decides on the rea
     const f = fixture(
       dir,
       "no-push-main.mjs",
-      `import { experimental_defineHook, tool, deny, allow } from "__HOOK__";
+      `import { experimental_defineHook, deny, allow } from "__HOOK__";
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   needs: ["git.branch"],
   decide: (e) =>
     e.ctx["git.branch"] === "main" && e.command.runs("git push")
@@ -1130,10 +1125,9 @@ test("hook-runtime run-program: an inline provide() fact is gathered + drives th
     const f = fixture(
       dir,
       "by-author.mjs",
-      `import { experimental_defineHook, tool, deny, allow, provide } from "__HOOK__";
+      `import { experimental_defineHook, deny, allow, provide } from "__HOOK__";
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   needs: [provide("author", "git config user.name")],
   decide: (e) =>
     e.ctx.author === "Test" && e.command.runs("git push")
@@ -1176,10 +1170,9 @@ export default defineProvider({ name: "author", run: "git config user.name" });`
     const f = fixture(
       dir,
       ".vigiles/hooks/by-author.mjs",
-      `import { experimental_defineHook, tool, deny, allow, provider } from "__HOOK__";
+      `import { experimental_defineHook, deny, allow, provider } from "__HOOK__";
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   needs: [provider("author")],
   decide: (e) =>
     e.ctx.author === "Test" && e.command.runs("git push")

@@ -44,7 +44,6 @@ const CLI = resolve(REPO_ROOT, "dist", "cli.js");
 const HOOK = `import { experimental_defineHook, tool, deny, allow } from "vigiles/hook";
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   decide: (e) =>
     e.command.runs("git push", { force: true }) ? deny("no force-push") : allow(),
 });

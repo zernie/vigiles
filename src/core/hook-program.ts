@@ -877,7 +877,6 @@ export interface HookProgram<
   N extends readonly NeedSpec[] = readonly ProviderName[],
 > {
   readonly on: string;
-  readonly match: { readonly tool: string };
   /** `enforce` (default) blocks on a `deny`; `observe` records + allows. */
   readonly mode?: HookMode;
   /** Declared context providers the trusted runtime gathers into `e.ctx`. */
@@ -885,7 +884,6 @@ export interface HookProgram<
   readonly decide: (e: BashToolEvent<N>) => Decision;
 }
 
-export const tool = (name: string): { tool: string } => ({ tool: name });
 /**
  * @experimental Compiled hooks are provisional — see docs/compiled-hooks.md#status--pending.
  * Imported and CALLED as `experimental_defineHook` — do not alias the prefix away at
@@ -926,7 +924,18 @@ export function decideProgram<N extends readonly NeedSpec[]>(
     ? rawEvent.cwd
     : undefined,
 ): Decision {
-  if (rawEvent.tool_name !== program.match.tool) return allow();
+  // A bash gate is Bash BY CONSTRUCTION — `BashToolEvent.tool` is the literal
+  // "Bash" and every one of the 34 call sites in both repos wrote
+  // `match: tool("Bash")`. The field carried no information and one real risk:
+  // `match: tool("Edit")` type-checked, compiled, wired a PreToolUse matcher
+  // `Edit`, fired on edits, built `commandView("")` from a missing
+  // `tool_input.command`, found every predicate false and returned allow() — a
+  // silently dead guard, which is the exact class the header above says this
+  // subsystem eliminates. Worse, the comparison was `!==` while every sibling
+  // role routes through `matchesTool`; that runtime/emit disagreement is the
+  // one MEASURED and fixed for reacts on 2026-08-12 (see the header), and it
+  // survived here on the flagship role. Removed 2026-09-08.
+  if (rawEvent.tool_name !== "Bash") return allow();
   const command =
     typeof rawEvent.tool_input?.command === "string"
       ? rawEvent.tool_input.command
@@ -1093,7 +1102,8 @@ export function hookRouting(hook: AnyHook): {
     if (hook.match === undefined) return { on: hook.on };
     return { on: hook.on, matcher: hook.match.tools.join("|") };
   }
-  return { on: hook.on, matcher: hook.match.tool };
+  // Bash by construction — see decideProgram; the author no longer declares it.
+  return { on: hook.on, matcher: "Bash" };
 }
 
 /** Apply a harness's matcher style to the neutral `A|B` matcher join. */

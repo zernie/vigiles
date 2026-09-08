@@ -39,7 +39,6 @@ const HOOK_ENTRY = resolve(__dirname, "..", "dist", "hook.js");
 const GATE = `import { experimental_defineHook, tool, deny, allow } from ${JSON.stringify(HOOK_ENTRY)};
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   decide: (e) =>
     e.command.runs("git push", { force: true }) ? deny("no force-push") : allow(),
 });
@@ -122,18 +121,14 @@ test("QUIET: a hook built IN-PROCESS has no file, so nothing is invented", async
   // There is no path to name, and the tier's first rule is that an unresolvable
   // reference is never guessed into a match. A missed record, never a false one.
   const rel = fixture("guard.mjs", GATE);
-  const {
-    experimental_defineHook: experimental_defineHook,
-    tool,
-    deny,
-  } = (await import(HOOK_ENTRY)) as {
-    experimental_defineHook: (o: unknown) => unknown;
-    tool: (n: string) => unknown;
-    deny: (r: string) => unknown;
-  };
+  const { experimental_defineHook: experimental_defineHook, deny } =
+    (await import(HOOK_ENTRY)) as {
+      experimental_defineHook: (o: unknown) => unknown;
+      tool: (n: string) => unknown;
+      deny: (r: string) => unknown;
+    };
   const inline = experimental_defineHook({
     on: "PreToolUse",
-    match: tool("Bash"),
     decide: () => deny("x"),
   }) as Parameters<typeof assertHookDenies>[0];
   assertHookDenies(inline, bash("anything"));

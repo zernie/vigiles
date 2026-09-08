@@ -246,7 +246,7 @@ test("a harness that EVALUATES a compiled hook in-process records it", () => {
   write(
     ".vigiles/hooks/guard.hook.mjs",
     `import { experimental_defineHook, tool, deny, allow } from ${JSON.stringify(HOOK_ENTRY)};\n` +
-      `export default experimental_defineHook({ on: "PreToolUse", match: tool("Bash"),\n` +
+      `export default experimental_defineHook({ on: "PreToolUse", \n` +
       `  decide: (e) => e.command.runs("git push", { force: true }) ? deny("no") : allow() });\n`,
   );
   // The hook is wired into settings, so discovery sees it as a surface; the
@@ -293,7 +293,7 @@ test("…but a harness that only LOADS one records nothing", () => {
   write(
     ".vigiles/hooks/guard.hook.mjs",
     `import { experimental_defineHook, tool, deny, allow } from ${JSON.stringify(HOOK_ENTRY)};\n` +
-      `export default experimental_defineHook({ on: "PreToolUse", match: tool("Bash"),\n` +
+      `export default experimental_defineHook({ on: "PreToolUse", \n` +
       `  decide: () => allow() });\n`,
   );
   write(

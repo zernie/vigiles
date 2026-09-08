@@ -145,7 +145,6 @@ export type { StateFact, Duration } from "./core/hook-state.js";
 export {
   evalChecks,
   assertChecks,
-  tool,
   toolWith,
   notTool,
   onlyTools,

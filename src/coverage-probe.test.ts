@@ -205,7 +205,6 @@ test("a subagent DISPATCH is attributed — and only a dispatch", () => {
     assert.deepEqual(
       traceRefs({ toolCalls: [{ name: tool, input: { subagent_type: "reviewer" } }] }), // prettier-ignore
       [],
-      tool,
     );
   }
   // a call merely NAMED like a dispatch, carrying no `subagent_type`,

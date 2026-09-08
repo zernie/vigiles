@@ -28,7 +28,6 @@ const HOOK_DIST = pathToFileURL(
 const GATE = `import { experimental_defineHook, tool, deny, allow } from "${HOOK_DIST}";
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   decide: (e) =>
     e.command.runs("git push", { force: true }) ? deny("no force-push") : allow(),
 });`;

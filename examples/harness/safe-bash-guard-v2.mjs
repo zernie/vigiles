@@ -25,7 +25,6 @@
  */
 import {
   experimental_defineHook,
-  tool,
   deny,
   allow,
   leafCommandsNormalized,
@@ -80,7 +79,6 @@ function gitRuns(leaf, sub) {
 
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   decide: (e) => {
     const leaves = leafCommandsNormalized(e.command.raw);
 

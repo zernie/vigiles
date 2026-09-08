@@ -74,7 +74,6 @@ export {
   experimental_defineFileGate,
   experimental_definePromptGate,
   experimental_defineStopGate,
-  tool,
   tools,
   allow,
   deny,

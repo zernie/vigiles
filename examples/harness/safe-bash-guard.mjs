@@ -29,7 +29,6 @@ import { experimental_defineHook, tool, deny, allow } from "../../dist/hook.js";
 
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   decide: (e) => {
     const c = e.command;
     if (c.runs("git push", { force: true }))
