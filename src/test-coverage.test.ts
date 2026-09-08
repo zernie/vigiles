@@ -362,7 +362,7 @@ test("the BROWSER twin reads the PROJECT var too — one settings file, one read
 test("`.eval.` in the MIDDLE of a name is not the paid tier — the runner would never run it", () => {
   // 🔴 THE TIER SPLIT CLAIMED A SURFACE WAS EVAL-COVERED BY A FILE NO RUNNER
   // RUNS. The splitter tested `.eval.` as an INFIX, so a colocated deterministic
-  // test named `parser.eval.test.ts` — picked up by a `testGlobs` of
+  // test named `parser.eval.test.ts` — picked up by an `include` of
   // `**/*.test.ts` — was pushed into the paid EVAL tier and REMOVED from the
   // free one. But `vigiles eval` discovers `**/*.eval.{mjs,cjs,js,mts,cts,ts}`
   // (scriptGlob, SCRIPT_EXTS in adapters/claude-code/run-scripts.ts): the name
@@ -378,7 +378,7 @@ test("`.eval.` in the MIDDLE of a name is not the paid tier — the runner would
   write(dir, ".claude/skills/parser/parser.eval.test.ts", "// deterministic\n");
   const r = findUntestedSurfaces({
     basePath: dir,
-    testGlobs: ["**/*.test.ts"],
+    include: ["**/*.test.ts"],
   });
   assert.deepEqual(
     r.harness.covered.map((s) => s.name),
@@ -511,8 +511,8 @@ test("formatUntestedReport: clean vs flagged, suggestedTestPath", () => {
   const text = formatUntestedReport(flagged);
   assert.ok(text.includes("1 surface(s) with no test"));
   assert.ok(text.includes("skills/foo/foo.eval.mjs"));
-  // The footer points at testGlobs for an external test loop (issue #113).
-  assert.ok(text.includes("testGlobs"));
+  // The footer points at include for an external test loop (issue #113).
+  assert.ok(text.includes("include"));
   assert.equal(
     suggestedTestPath(flagged.untested[0]),
     "skills/foo/foo.eval.mjs",
@@ -1703,13 +1703,13 @@ test("…and nothing at all in a repo with no such file", () => {
 });
 
 // ---------------------------------------------------------------------------
-// `{surface}` in testGlobs — a centralized layout, without weakening what
+// `{surface}` in include — a centralized layout, without weakening what
 // coverage MEANS (#175.2)
 // ---------------------------------------------------------------------------
 
 test("a {surface} testGlob credits a centralized test", () => {
   // The reported layout: suites live in tests/<skill>/evals/, not beside the
-  // skill. `testGlobs` alone did not move the number (35 before, 35 after),
+  // skill. `include` alone did not move the number (35 before, 35 after),
   // because it widens what counts as a TEST FILE and says nothing about which
   // SURFACE the file is for.
   const dir = makeTmpDir();
@@ -1732,7 +1732,7 @@ test("a {surface} testGlob credits a centralized test", () => {
 
     const after = findUntestedSurfaces({
       basePath: dir,
-      testGlobs: ["tests/{surface}/evals/promptfooconfig*.yaml"],
+      include: ["tests/{surface}/evals/promptfooconfig*.yaml"],
     });
     assert.equal(after.untested.length, 0);
     assert.equal(after.decisions[0]?.evidence, "configured");
@@ -1762,7 +1762,7 @@ test("a {surface} glob credits ONLY the surface it names", () => {
 
     const r = findUntestedSurfaces({
       basePath: dir,
-      testGlobs: ["tests/{surface}/evals/promptfooconfig*.yaml"],
+      include: ["tests/{surface}/evals/promptfooconfig*.yaml"],
     });
     assert.deepEqual(
       r.untested.map((s) => s.name),
@@ -1792,7 +1792,7 @@ test("a plain custom glob still credits NOTHING by itself", () => {
 
     const r = findUntestedSurfaces({
       basePath: dir,
-      testGlobs: ["tests/*/evals/promptfooconfig*.yaml"],
+      include: ["tests/*/evals/promptfooconfig*.yaml"],
     });
     assert.equal(r.untested.length, 1, "no placeholder ⇒ no surface binding");
   } finally {
@@ -1823,16 +1823,16 @@ test("colocation still wins, and is reported as colocation", () => {
     // the order. A first-found implementation passes one of these and fails the
     // other — which is exactly how the stale "strongest, not first-found" doc
     // comment was caught: it described a ranking the code did not do.
-    for (const testGlobs of [
+    for (const include of [
       ["**/*.harness.mjs", "tests/{surface}/evals/promptfooconfig*.yaml"],
       ["tests/{surface}/evals/promptfooconfig*.yaml", "**/*.harness.mjs"],
     ]) {
-      const r = findUntestedSurfaces({ basePath: dir, testGlobs });
+      const r = findUntestedSurfaces({ basePath: dir, include });
       assert.equal(r.untested.length, 0);
       assert.equal(
         r.decisions[0]?.evidence,
         "colocated",
-        `colocation must win with globs ordered ${JSON.stringify(testGlobs)}`,
+        `colocation must win with globs ordered ${JSON.stringify(include)}`,
       );
     }
   } finally {

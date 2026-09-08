@@ -4534,14 +4534,14 @@ function harnessLayoutFor(
 /**
  * The `untested-*` rules AS THE DETECTOR TAKES THEM: which kinds this repo
  * enabled, and the discovery options merged from whichever of the three rules
- * carries them (`testGlobs` / `exclude` / `testExtension` are shared).
+ * carries them (`include` / `exclude` / `testExtension` are shared).
  *
  * 🔴 ONE READER, BECAUSE THE SECOND ONE DRIFTED. `vigiles lint` read the config
  * here; the PostToolUse nudge (`evalLockNudgeHookCommand`) called the same
  * detector with nothing but `basePath`. Reproduced 2026-08-12 on a two-file
  * fixture: with `"untested-skill": false` lint printed nothing and the nudge
  * still told the agent the skill was untested; with a configured
- * `testGlobs: ["**\/*.check.mjs"]` lint printed "all 1 surface(s) have a test"
+ * `include: ["**\/*.check.mjs"]` lint printed "all 1 surface(s) have a test"
  * while the nudge said "no test or eval covers it". A nudge contradicting the
  * linter of the same repo, in the same second, teaches people to ignore both.
  */
@@ -4570,7 +4570,7 @@ function untestedRules(config: VigilesConfig | undefined): {
       skills: skillSev !== false,
       agents: agentSev !== false,
       hooks: hookSev !== false,
-      testGlobs: opts.testGlobs,
+      include: opts.include,
       exclude: opts.exclude,
       // Without this the `testExtension` documented on TestCoverageOptions was a
       // config key nothing read: a TypeScript-shaped repo got `.ts` suggestions
@@ -6195,7 +6195,7 @@ function resolveRecords(
   const scan = findUntestedSurfaces({
     basePath: cwd,
     layout: harnessLayoutFor(cwd, recordsConfig, harnessFlag),
-    // The repo-wide `exclude` only — the per-rule severities/testGlobs stay out
+    // The repo-wide `exclude` only — the per-rule severities/include stay out
     // of record resolution on purpose (a run's probes must map to a surface
     // whether or not the untested-* rule for its kind is on).
     exclude: excludeSet(cwd, recordsConfig.exclude).ignore,
@@ -7099,7 +7099,7 @@ function evalLockNudgeHookCommand(): void {
   const cwd = process.cwd();
   const target = relative(cwd, resolve(cwd, file)) || file;
   // 🔴 THE SAME CONFIG `vigiles lint` READS. This used to pass `basePath` alone,
-  // so a repo that had switched `untested-skill` off, or pointed `testGlobs` at
+  // so a repo that had switched `untested-skill` off, or pointed `include` at
   // its own test names, got a nudge asserting the opposite of what its own
   // linter said (see `untestedRules`). A rule the author DISABLED must not come
   // back through a hook; a test the author CONFIGURED must count here too.

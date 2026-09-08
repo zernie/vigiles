@@ -62,7 +62,7 @@ tier has no public dispatch for a subagent yet — Codex has no subagent dir at 
 | `"warn"` (default) | Prints a warning, exits 0 — a nudge, not a gate         |
 | `false`            | Skip agent coverage entirely                            |
 
-Options (`testGlobs`, `exclude`) are shared with the other `untested-*` rules —
+Options (`include`, `exclude`) are shared with the other `untested-*` rules —
 see [`untested-skill`](untested-skill.md#options).
 
 ## Scope

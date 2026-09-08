@@ -10,7 +10,7 @@
  *     lint  → prints nothing
  *     nudge → "nothing measures whether it still does what it claims"
  *
- *   rules: { "untested-skill": ["warn", { testGlobs: ["**\/*.check.mjs"] }] }
+ *   rules: { "untested-skill": ["warn", { include: ["**\/*.check.mjs"] }] }
  *     lint  → "all 1 surface(s) have a test or eval"
  *     nudge → "no test or eval covers it"
  *
@@ -137,7 +137,7 @@ test("a configured testGlob counts as coverage for the nudge too", () => {
   write(
     ".vigilesrc.json",
     JSON.stringify({
-      rules: { "untested-skill": ["warn", { testGlobs: ["**/*.check.mjs"] }] },
+      rules: { "untested-skill": ["warn", { include: ["**/*.check.mjs"] }] },
     }),
   );
   assert.doesNotMatch(

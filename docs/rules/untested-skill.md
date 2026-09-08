@@ -23,7 +23,7 @@ fire?), an outcome eval (is the result right?), or a colocated
 With options (ESLint-style tuple):
 
 ```json
-{ "rules": { "untested-skill": ["error", { "testGlobs": ["**/*.eval.mjs"] }] } }
+{ "rules": { "untested-skill": ["error", { "include": ["**/*.eval.mjs"] }] } }
 ```
 
 ### Severity
@@ -36,10 +36,10 @@ With options (ESLint-style tuple):
 
 ### Options
 
-| Option      | Type     | Description                                                                    |
-| ----------- | -------- | ------------------------------------------------------------------------------ |
-| `testGlobs` | string[] | Override which files count as tests (shared with the other `untested-*` rules) |
-| `exclude`   | string[] | Extra ignore globs                                                             |
+| Option    | Type     | Description                                                                    |
+| --------- | -------- | ------------------------------------------------------------------------------ |
+| `include` | string[] | Override which files count as tests (shared with the other `untested-*` rules) |
+| `exclude` | string[] | Extra ignore globs                                                             |
 
 ## Scope
 
@@ -142,7 +142,7 @@ skills/foo/foo.test.mjs      ->  skills/foo/foo.harness.mjs
 
 Nothing else changes — same file, same contents, same assertions.
 
-**Why a rename and not `testGlobs`.** You _can_ point `testGlobs` back at
+**Why a rename and not `include`.** You _can_ point `include` back at
 `**/*.test.mjs` and the count will come back, but that restores the number while
 leaving the actual problem in place. A harness test is not a unit test: it calls
 `runHarnessTest` / `measureTriggerRate`, which **spawn an agent**, and the paid
@@ -216,7 +216,7 @@ pressure — a per-surface test belongs with its surface.
 
 If you already test your skills through a **separate loop** — a
 `promptfooconfig.yaml`, a home-grown `evals.json` benchmark, a Python harness —
-point `testGlobs` at those files **and place them beside the skill they cover**:
+point `include` at those files **and place them beside the skill they cover**:
 
 ```json
 {
@@ -224,17 +224,14 @@ point `testGlobs` at those files **and place them beside the skill they cover**:
     "untested-skill": [
       "warn",
       {
-        "testGlobs": [
-          "**/*.{harness,eval}.mjs",
-          "skills/*/promptfooconfig.yaml"
-        ]
+        "include": ["**/*.{harness,eval}.mjs", "skills/*/promptfooconfig.yaml"]
       }
     ]
   }
 }
 ```
 
-A file in `testGlobs` counts only where it sits. One central config naming every
+A file in `include` counts only where it sits. One central config naming every
 skill covers none of them — that is the content-reference rule that was removed.
 
 ### A centralized layout: the `{surface}` placeholder
@@ -248,7 +245,7 @@ placeholder `{surface}` where the skill's name goes:
   "rules": {
     "untested-skill": [
       "warn",
-      { "testGlobs": ["tests/{surface}/evals/promptfooconfig*.yaml"] }
+      { "include": ["tests/{surface}/evals/promptfooconfig*.yaml"] }
     ]
   }
 }
@@ -258,7 +255,7 @@ placeholder `{surface}` where the skill's name goes:
 `tests/mysql-designer/evals/promptfooconfig.yaml` covers `mysql-designer` — and
 nothing else.
 
-**A `testGlobs` entry WITHOUT `{surface}` still credits nothing on its own.**
+**An `include` entry WITHOUT `{surface}` still credits nothing on its own.**
 It widens what counts as a _test file_ but says nothing about which _surface_ a
 file is for, and inferring that from a substring is exactly the
 content-reference rule that was removed for crediting surfaces no test had
@@ -271,7 +268,7 @@ repo rather than a second default. If your suites are already centralized, you
 have paid that cost anyway.
 
 Where both exist, **colocation wins** and is what the report names, regardless of
-the order of your `testGlobs` array.
+the order of your `include` array.
 
 ## Exemptions
 

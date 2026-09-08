@@ -90,7 +90,7 @@ legitimate authoring style):
 | `Read ~/.claude/docs/x.md`                                 | an external home/global path — **skipped** |
 | `${CLAUDE_PLUGIN_ROOT}/x`, `https://…`, `/abs/path`        | var / URL / absolute — **skipped**         |
 
-## Centralized tests — `{surface}` in `testGlobs`
+## Centralized tests — `{surface}` in `include`
 
 A skills monorepo usually keeps its suites in one tree
 (`tests/<skill>/evals/…`) rather than beside each skill. Say so with the
@@ -102,7 +102,7 @@ matching:
   "rules": {
     "untested-skill": [
       "warn",
-      { "testGlobs": ["tests/{surface}/evals/promptfooconfig*.yaml"] }
+      { "include": ["tests/{surface}/evals/promptfooconfig*.yaml"] }
     ]
   }
 }

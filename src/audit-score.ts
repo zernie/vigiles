@@ -416,7 +416,7 @@ function safety(r: ScanReport): CategoryScore {
 
 /**
  * TESTED — DETERMINISTIC harness coverage only (`*.harness.*`, plus any custom
- * `testGlobs`):
+ * `include`):
  * free, milliseconds, every push. It answers "does this gate still catch what it
  * claims?" The real-model tier is a SEPARATE ring ({@link evaluated}) because it
  * differs on cost, on cadence AND on the question it answers — folding both into

@@ -96,7 +96,7 @@ export interface OrphansConfig {
  */
 export interface TestCoverageConfig {
   /** Globs of test files that count as coverage. */
-  testGlobs?: readonly string[];
+  include?: readonly string[];
   /** Extra ignore globs. */
   exclude?: readonly string[];
   /**
