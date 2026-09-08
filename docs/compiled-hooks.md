@@ -30,6 +30,7 @@ vigiles lets you author a hook as a **pure typed function** `(event) => Decision
 - [Observe mode (shadow rollout)](#observe-mode-shadow-rollout)
 - [Deciding on external state (context providers)](#deciding-on-external-state-context-providers)
 - [Compile and wire](#compile-and-wire)
+  - [Why the emitted block has a `matcher` and no `if:`](#why-the-emitted-block-has-a-matcher-and-no-if)
 - [Where things live](#where-things-live)
 - [Testing a compiled hook](#testing-a-compiled-hook)
 - [Proof: the OSS dogfood](#proof-the-oss-dogfood)
@@ -324,6 +325,46 @@ The merged block routes the live event to **`vigiles hook-runtime run-program <f
 }
 ```
 
+### Why the emitted block has a `matcher` and no `if:`
+
+Claude Code lets a hook action carry an `if:` condition — a precondition checked
+_before_ the hook process spawns, so a non-matching call costs nothing.
+`vigiles compile` does not emit one. That is a decision, not an omission, and it
+rests on one rule:
+
+> **A prefilter may only ever be a proven SUPERSET of the typed predicate.**
+
+Get that backwards and the failure is silent. If the `if:` is _narrower_ than
+what your `decide()` would have denied, the process never starts, nothing is
+logged, and the guard reads as passing. A gate that stops firing without saying
+so is the exact bug this whole page exists to make unwritable — trading it back
+for a startup saving is a bad trade at any price.
+
+The superset that would actually be safe is not a useful filter. A predicate like
+`command.runs("git push", { force: true })` is AST-backed: it sees the real
+`git push` leaf inside a compound, a subshell, a pipeline, or behind an absolute
+path. The narrowest string condition provably covering all of that is about
+`Bash(*git*)` — which excludes almost nothing, because the forms that _would_ be
+excluded are the ones a string matcher gets wrong anyway (measured on 2.1.263,
+`tools/measure-if-matcher-forms.mjs`; the same measurement is the "Matcher
+bypass" row above).
+
+Two smaller reasons point the same way:
+
+- **`if:` is Claude Code only.** Codex's hook config has no equivalent field, so
+  emitting one would make the gate's effective scope differ per harness from a
+  single typed source — a CC-only path of exactly the kind
+  [Compile and wire](#compile-and-wire) avoids elsewhere.
+- **It would not buy the latency it appears to.** Hooks registered on the same
+  event run **concurrently**, not one after another, so a filtered-out hook does
+  not shorten the turn by its own duration. Per-event cost is a property of the
+  runtime's startup, and that is where it belongs — not routed around by a filter
+  that can silently narrow your guard.
+
+The `matcher` we _do_ emit is safe under the same rule: it is derived from the
+event type the role already implies (a bash gate matches `Bash`), so it cannot be
+narrower than the program behind it.
+
 `hook-runtime run-program` is a **hidden runtime entrypoint** — invoked by the harness on every matching event, never typed by hand. It loads your typed program, **verifies the stamp** (a hand-edited artifact is refused — fail closed), and dispatches by role: a gate `exit 2`s on `deny`, an inject prints `additionalContext`, a react runs its classified command. You wrote none of that protocol. (`compile` is the one-time _wiring_ step; `hook-runtime` is the per-event _executor_ the wiring points at — see the [CLI surface](cli.md) for why they're distinct.)
 
 Hooks can be authored in JavaScript (`.mjs`) or TypeScript (run under `tsx` / Node ≥ 23.6). `vigiles/hook` is the **only** import a compiled hook may use.
@@ -549,7 +590,7 @@ Compiled hooks are neither free nor magic. The honest downsides:
 
   Scope of the measurement, stated plainly: it drives `claude -p` (headless). Interactive sessions are unmeasured, and subagent nesting (depth 2) does not occur there at all.
 
-- ⚠️ **Runtime cost.** Every matching event spawns `node` and dynamic-imports your program — tens to hundreds of ms per call. Fine for a `PreToolUse` gate. Think twice before a hot-path `PostToolUse` react that fires on every edit.
+- ⚠️ **Runtime cost.** Every matching event spawns `node` and dynamic-imports your program — tens to hundreds of ms per call. Fine for a `PreToolUse` gate. Think twice before a hot-path `PostToolUse` react that fires on every edit. Claude Code's native `if:` prefilter is **not** the way out of this, and [Why the emitted block has a `matcher` and no `if:`](#why-the-emitted-block-has-a-matcher-and-no-if) says why: a prefilter narrower than your predicate silences the guard without a word.
 - ⚠️ **Buy-in.** It's a dependency plus a build step, and you author in JS/TS, not a 3-line inline `bash` hook. For a trivial one-liner the compiled path is heavier — the payoff is on the guards that actually have to be _correct_.
 - ⚠️ **A bounded vocabulary is a ceiling, by design** — but be precise about which bound. (1) What a hook can _do_: `checkHookImports` forbids any import but `vigiles/hook` (no `fs`/`net`/`child_process`), so a hook that must _call a service, read a file, or hold cross-invocation state_ to decide can't be expressed. That is the **deliberate** ceiling — it _is_ the safety guarantee, and such hooks stay hand-written (keep a plain shell hook and verify it with the disaster battery). (2) What a hook can _see_: the AST matchers (`runs`/`touches`/`pipesToShell`/`under`) are a **soft, extensible** limit, not a fundamental one — if you need to match a shape they don't expose yet, the fix is a new matcher, not a redesign.
 - ⚠️ **Compiling proves the protocol, not your policy.** A compiled hook can't have the wrong exit code — but it can still `deny` the wrong thing. Compiling is necessary, not sufficient. Test the _logic_ with [guardrail verification](harness-testing.md).
