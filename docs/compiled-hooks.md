@@ -359,7 +359,19 @@ Two smaller reasons point the same way:
   event run **concurrently**, not one after another, so a filtered-out hook does
   not shorten the turn by its own duration. Per-event cost is a property of the
   runtime's startup, and that is where it belongs — not routed around by a filter
-  that can silently narrow your guard.
+  that can silently narrow your guard. That is also where it was fixed: the
+  runtime no longer loads the CLI's verbs to make a decision, which took a hook
+  from roughly 650 ms to 80 ms (200 ms for a Bash gate). A prefilter would have
+  bought less, later, and at the cost of a guard that can go quiet.
+
+**None of this means vigiles ignores `if:`.** Reading one and emitting one are
+different acts. When the test tiers measure a hook you already wrote — including
+a hand-written one with its own `if:` — they **honour** that condition
+(`decideHookCondition`), so what gets measured is the guard the harness would
+actually run, not an unconditional stand-in that would score it too generously.
+A harness whose config has no condition field is treated as unconditional. What
+we decline is to _generate_ a filter on your behalf that could be narrower than
+the program behind it.
 
 The `matcher` we _do_ emit is safe under the same rule: it is derived from the
 event type the role already implies (a bash gate matches `Bash`), so it cannot be
@@ -590,7 +602,7 @@ Compiled hooks are neither free nor magic. The honest downsides:
 
   Scope of the measurement, stated plainly: it drives `claude -p` (headless). Interactive sessions are unmeasured, and subagent nesting (depth 2) does not occur there at all.
 
-- ⚠️ **Runtime cost.** Every matching event spawns `node` and dynamic-imports your program — tens to hundreds of ms per call. Fine for a `PreToolUse` gate. Think twice before a hot-path `PostToolUse` react that fires on every edit. Claude Code's native `if:` prefilter is **not** the way out of this, and [Why the emitted block has a `matcher` and no `if:`](#why-the-emitted-block-has-a-matcher-and-no-if) says why: a prefilter narrower than your predicate silences the guard without a word.
+- ⚠️ **Runtime cost.** Every matching event spawns `node` and dynamic-imports your program. Measured on Node 22 (median of 20 spawns, one machine — yours will differ): about **80 ms** for a file gate, an inject or a stop gate, and about **200 ms** for a Bash gate, which additionally parses the command. Roughly 40 ms of either is Node itself starting. Fine for a `PreToolUse` gate. Think twice before a hot-path `PostToolUse` react that fires on every edit. Claude Code's native `if:` prefilter is **not** the way out of this, and [Why the emitted block has a `matcher` and no `if:`](#why-the-emitted-block-has-a-matcher-and-no-if) says why: a prefilter narrower than your predicate silences the guard without a word.
 - ⚠️ **Buy-in.** It's a dependency plus a build step, and you author in JS/TS, not a 3-line inline `bash` hook. For a trivial one-liner the compiled path is heavier — the payoff is on the guards that actually have to be _correct_.
 - ⚠️ **A bounded vocabulary is a ceiling, by design** — but be precise about which bound. (1) What a hook can _do_: `checkHookImports` forbids any import but `vigiles/hook` (no `fs`/`net`/`child_process`), so a hook that must _call a service, read a file, or hold cross-invocation state_ to decide can't be expressed. That is the **deliberate** ceiling — it _is_ the safety guarantee, and such hooks stay hand-written (keep a plain shell hook and verify it with the disaster battery). (2) What a hook can _see_: the AST matchers (`runs`/`touches`/`pipesToShell`/`under`) are a **soft, extensible** limit, not a fundamental one — if you need to match a shape they don't expose yet, the fix is a new matcher, not a redesign.
 - ⚠️ **Compiling proves the protocol, not your policy.** A compiled hook can't have the wrong exit code — but it can still `deny` the wrong thing. Compiling is necessary, not sufficient. Test the _logic_ with [guardrail verification](harness-testing.md).
