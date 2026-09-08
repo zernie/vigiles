@@ -148,8 +148,31 @@ const REAL_SHAPE_PROBES = [
 /** The widest correct MCP matcher — what a too-narrow one should become. */
 const WIDE_MCP_MATCHER = "mcp__.*__.*";
 
-/** Match-all matchers the harness special-cases (and `*` isn't even a regex). */
-const MATCH_ALL = new Set(["", "*", "**", ".*"]);
+/**
+ * Match-all matchers the harness special-cases (and `*` isn't even a regex).
+ *
+ * 🔴 MEASURED, AND `**` IS NOT ONE OF THEM. It sat in this set on no evidence
+ * while the table at the top of this file — the measured one — never listed it.
+ * Against a real `claude` 2.1.263, one hook per run, marker file as the oracle,
+ * 3 runs of each:
+ *
+ * | matcher | a `Bash` call | fired |
+ * | ------- | ------------- | ----- |
+ * | `*`     | `Bash`        | yes   |
+ * | `.*`    | `Bash`        | yes   |
+ * | `""`    | `Bash`        | yes   |
+ * | `**`    | `Bash`        | NO    |
+ *
+ * The direction of that mistake is the expensive one: believing `**` selects
+ * everything makes a guard registered under it come back "measured, allows
+ * 0/7" — an ACCUSATION that a repo's guard let seven disasters through, when
+ * the harness never invoked it once. The mirror image of scoring a hook that
+ * could not start. `**` now falls through to the regex path, where it does not
+ * compile, and both the sweep and the `hook-matcher` rule report a hook that
+ * never fires. Pinned by `src/hook-matcher-delivery.test.ts` so the day Claude
+ * Code starts honouring it, the claim goes red instead of quietly rotting.
+ */
+const MATCH_ALL = new Set(["", "*", ".*"]);
 
 /** Cap on segments harvested from a matcher — bounds the probe corpus. */
 const MAX_DERIVED_SEGMENTS = 4;
@@ -443,4 +466,70 @@ export function hookMatcherIssues(
     if (finding !== null) findings.push(finding);
   }
   return findings;
+}
+
+/**
+ * How a matcher relates to one tool call — the answer a boolean could not carry.
+ *
+ * - `"selects"` — the harness spawns the hook for this call.
+ * - `"misses"` — it does not, because the matcher names something else.
+ * - `"uncompilable"` — it does not, because the harness cannot BUILD the matcher.
+ *
+ * The last two both mean "the hook does not run", and a caller that only asks
+ * `=== "selects"` still lands on the safe answer; they are separate because only
+ * the third is a DEFECT worth naming in a report.
+ */
+export type MatcherReach = "selects" | "misses" | "uncompilable";
+
+/**
+ * Would this matcher select a call to `tool` — i.e. does the harness spawn the
+ * hook at all?
+ *
+ * The same two MEASURED facts the module header pins, asked as a question rather
+ * than as a defect: on a harness whose matchers are tool names (Claude Code), a
+ * matcher with no regex metacharacter is compared by string EQUALITY and one
+ * with metacharacters is an UNANCHORED regex. It lives here and not in the
+ * caller so those semantics have one home (one-detector-no-drift) —
+ * `hookMatcherIssues` judges a matcher, this one applies it.
+ *
+ * FAIL-OPEN WHERE THE HARNESS IS, AND NOT ONE STEP FURTHER. An absent matcher or
+ * a match-all really does select every tool, so answering `"selects"` there
+ * states a fact — the same direction `decideHookCondition`
+ * (`core/hook-condition.ts`) fails open, and for the same reason it gives: where
+ * Claude Code cannot tell, it RUNS the hook, so mirroring it can only ever add a
+ * run, never invent a skip.
+ *
+ * 🔴 THAT REASONING DOES NOT REACH AN UNCOMPILABLE MATCHER, and this function
+ * used to apply it there anyway. `Bash(` is what the `invalid-regex` finding
+ * above already reports as "the harness can't compile it, so the hook never
+ * fires" — the harness fails CLOSED. Answering `"selects"` therefore does not
+ * add a run the harness makes, it MANUFACTURES one: a caller feeds the hook a
+ * battery it would never have been handed, and an unconditional-deny body scores
+ * a full pass for a hook that cannot run. That is the false-confidence class
+ * this module exists to remove, so an uncompilable matcher gets its own answer
+ * and the caller declines to score it.
+ *
+ * @param matcher - the registration's matcher, or `null` when it declares none.
+ * @param tool - the tool named by the call, e.g. `"Bash"`.
+ * @param style - the active harness's `HookProtocol.matcherStyle`. `"exact"`
+ *   (the default, Claude Code) applies the literal-equality rule above;
+ *   `"regex"` (Codex) compiles EVERY matcher, so `ash` matches `Bash` and the
+ *   glob spellings `*` / `**` — which are Claude Code's documented match-all,
+ *   not regexes — come back `"uncompilable"` rather than being assumed to be
+ *   special-cased by a harness nobody measured.
+ */
+export function hookMatcherReach(
+  matcher: string | null,
+  tool: string,
+  style: "exact" | "regex" = "exact",
+): MatcherReach {
+  if (matcher === null || matcher === "") return "selects";
+  if (style === "exact") {
+    if (MATCH_ALL.has(matcher)) return "selects";
+    if (isLiteralMatcher(matcher))
+      return matcher === tool ? "selects" : "misses";
+  }
+  const re = compileMatcher(matcher);
+  if (re === null) return "uncompilable";
+  return re.test(tool) ? "selects" : "misses";
 }

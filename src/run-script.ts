@@ -247,8 +247,15 @@ export interface RunScriptDeps {
  *
  * A hook that deliberately exits 126/127 itself is missed the same way, and the
  * same direction.
+ *
+ * @internal Exported so the guard sweep asks the SAME question rather than
+ * re-deriving it (one-detector-no-drift). It reads these codes for the opposite
+ * purpose — not "may I credit this file with coverage?" but "may I score this
+ * guard at all?" — and the answer is the same fact: the shell never reached the
+ * program, so nothing the exit code says is the program's opinion. Not part of
+ * the public API.
  */
-function shellNeverLaunched(status: number | null | undefined): boolean {
+export function shellNeverLaunched(status: number | null | undefined): boolean {
   return status === 126 || status === 127;
 }
 
@@ -269,22 +276,31 @@ export function runScriptWith(
   // at the primitive, so `runHook` and a bare `runScript` both count. See
   // check-count.ts.
   recordCheck();
-  // Allowlisted egress is its own confined path (bwrap netns + slirp4netns +
-  // nft); it can't run unconfined, so it refuses outright when the tooling is
-  // absent rather than falling back to a direct run that ignores the allowlist.
-  const res = opts.egress
-    ? runEgress(command, stdin, opts, deps)
-    : runConfinedOrDirect(command, stdin, opts, deps);
+  // The route is DECIDED elsewhere (`routeScriptRun`) and only dispatched here,
+  // so this function holds no confinement policy a second reader could fall
+  // behind — see the type's header for the sweep that fell behind it.
+  const route = routeScriptRun(opts, {
+    sandbox: deps.available,
+    egress: deps.egressAvailable,
+  });
+  if (route.kind === "refuse") throw new Error(route.reason);
+  const spawn =
+    route.kind === "egress"
+      ? deps.egress
+      : route.kind === "sandboxed"
+        ? deps.sandboxed
+        : deps.direct;
+  const res = spawn(command, stdin, opts);
   // …and WHICH surface it exercised, read off the command line that WAS
   // executed (plus `opts.env`, because the documented idiom passes the hook path
   // through one). Attribution by execution, not by file name — see
   // coverage-probe.ts. Derived here at the primitive so `runHook` and a bare
   // `runScript` both attribute without either knowing about coverage.
   //
-  // 🔴 AFTER THE SPAWN, NOT BEFORE, AND THE ORDER IS THE WHOLE CLAIM. Both
-  // branches above can THROW before any spawner is reached: `runEgress` refuses
-  // when the allowlist sandbox is missing, and `runConfinedOrDirect` refuses when
-  // confinement was required and bwrap is absent. A harness that asserts exactly
+  // 🔴 AFTER THE SPAWN, NOT BEFORE, AND THE ORDER IS THE WHOLE CLAIM. The route
+  // above can be `refuse` and THROW before any spawner is reached: the allowlist
+  // sandbox is missing, or confinement was required and bwrap is absent. A
+  // harness that asserts exactly
   // that refusal — `assert.throws(() => runHook(untrusted…))`, a legitimate and
   // documented test — caught the error, exited 0 with checks recorded, and the
   // runner wrote an execution-tier coverage record for a hook that never ran.
@@ -309,31 +325,57 @@ export function runScriptWith(
   };
 }
 
-/** The allowlisted-egress branch: confine-with-netns, or refuse if unavailable. */
-function runEgress(
-  command: string,
-  stdin: string,
-  opts: RunScriptOptions,
-  deps: RunScriptDeps,
-): ScriptSpawnResult {
-  if (!deps.egressAvailable) {
-    throw new Error(
-      "refusing to run egress: { allow } without the allowlist sandbox: it " +
-        "needs Linux + bubblewrap (bwrap) + slirp4netns + nft — install them to " +
-        "run with a packet-layer egress allowlist, or use recordEgress to record " +
-        "and block instead",
-    );
-  }
-  return deps.egress(command, stdin, opts);
-}
+/**
+ * Which of the three ways to start a script this run gets — or the refusal.
+ *
+ * 🔴 THE ONE PLACE THAT DECIDES, because a SECOND place that decided the same
+ * thing got it wrong. `experimental_verifyPluginGuards` must know whether a run
+ * will be confined BEFORE it runs anything: a confined run starts in a fresh
+ * empty directory, so a relative script that exists here will not exist there,
+ * and an interpreter that cannot open its script exits 2 — this harness's DENY
+ * code — which is then scored as a block. It answered that question with its own
+ * copy of the expression below, and the copy was a term short: `recordEgress`
+ * selects the netns recorder and therefore confinement, and the copy did not
+ * say so. So a `recordEgress` sweep pre-flighted against the host's cwd and env,
+ * then ran somewhere neither existed.
+ *
+ * Returning the ROUTE rather than a boolean is what makes that unrepeatable: the
+ * runner below dispatches on it and owns no policy of its own, and the pre-flight
+ * asks the same function instead of re-deriving the answer. A future option that
+ * selects confinement is added HERE, once, and every reader inherits it.
+ *
+ * A refusal counts as non-direct, and deliberately: the sweep is describing the
+ * environment a run WOULD have, and the environment it would have refused to run
+ * unconfined in is the confined one.
+ */
+export type ScriptRunRoute =
+  | { readonly kind: "egress" }
+  | { readonly kind: "sandboxed" }
+  | { readonly kind: "direct" }
+  | { readonly kind: "refuse"; readonly reason: string };
 
-/** The default branch: pick direct vs. confined via the safe-by-default policy. */
-function runConfinedOrDirect(
-  command: string,
-  stdin: string,
-  opts: RunScriptOptions,
-  deps: RunScriptDeps,
-): ScriptSpawnResult {
+/** What a run with these options will do, given what the machine can offer. */
+export function routeScriptRun(
+  opts: Pick<
+    RunScriptOptions,
+    "egress" | "sandbox" | "trusted" | "recordEgress"
+  >,
+  available: { readonly sandbox: boolean; readonly egress: boolean },
+): ScriptRunRoute {
+  // Allowlisted egress is its own confined path (bwrap netns + slirp4netns +
+  // nft); it can't run unconfined, so it refuses outright when the tooling is
+  // absent rather than falling back to a direct run that ignores the allowlist.
+  if (opts.egress)
+    return available.egress
+      ? { kind: "egress" }
+      : {
+          kind: "refuse",
+          reason:
+            "refusing to run egress: { allow } without the allowlist sandbox: it " +
+            "needs Linux + bubblewrap (bwrap) + slirp4netns + nft — install them to " +
+            "run with a packet-layer egress allowlist, or use recordEgress to record " +
+            "and block instead",
+        };
   // Confinement follows provenance: a trusted hook (the default) runs directly;
   // marking a hook untrusted defaults it to "auto" (confine-or-refuse), so
   // foreign code is never run unconfined by accident. An explicit `sandbox`
@@ -347,12 +389,13 @@ function runConfinedOrDirect(
   const decision = decideSandbox({
     trusted: false,
     mode,
-    available: deps.available,
+    available: available.sandbox,
   });
-  if (decision.action === "throw") throw new Error(decision.reason);
+  if (decision.action === "throw")
+    return { kind: "refuse", reason: decision.reason };
   return decision.action === "sandbox"
-    ? deps.sandboxed(command, stdin, opts)
-    : deps.direct(command, stdin, opts);
+    ? { kind: "sandboxed" }
+    : { kind: "direct" };
 }
 
 /** Run the hook command directly through a shell (the default, unconfined). */

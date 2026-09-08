@@ -121,6 +121,8 @@ BUILD + TOOLING + GENERATED:
       "Aggressive OSS comparison dogfood (vitest, model-free): compiled hooks vs the hand-written shapes the ecosystem ships, DISASTER_CATALOG as oracle.",
     "src/guardrail-check.ts":
       "VERIFY feature — 'prove your safety hook ACTUALLY blocks' (on `vigiles` root).",
+    "src/verify-plugin-guards.ts":
+      "The DIRECTORY-level disaster battery — `experimental_verifyPluginGuards(dir, opts?)` on the `vigiles` root: reads the hooks a repo actually declares and measures each with its OWN condition, and its report is a union so a hook that never ran cannot be read as a score (#212).",
     "src/core/bash-equivalents.ts":
       "Shell-EQUIVALENT rewrites of a dangerous command — the generator behind `experimental_alternateSpellings(events)` in guardrail-check.ts (renamed 2026-09-02 from `equivalentDisasters`, which its…",
     ".vigiles/hooks/test-tier-nudge.hook.mjs":
@@ -133,8 +135,16 @@ BUILD + TOOLING + GENERATED:
       "The test for the docs-drift hook (vitest, unit tier): both silences asserted apart, and mutation-proven — deleting the docs.followed branch fails exactly one test.",
     "examples/harness/safe-bash-guard.mjs":
       'The compiled-hook dogfood artifact — a Bash safety gate authored against `vigiles/hook` expressing a real guard\'s full intent (force-push/reset --hard/--no-verify/forced-rm/secret-read/curl|sh) as a pure typed function. In-repo it imports the built dist (runs via hook-runtime run-program in src/hook-dogfood.test.ts); external users author `from "vigiles/hook"` + `vigiles compile`',
+    "src/verify-plugin-guards.test.ts":
+      "The plugin-guard sweep's suite (vitest): the union report proved in both directions — a measured hook carries a score, and a hook that never ran carries a REASON and no number. Mutation-proven three ways (#212).",
+    "src/core/command-files.ts":
+      "Which FILES a shell command reads or writes — the deterministic extractor behind the path-aware half of a Bash gate (#212).",
+    "src/core/command-files.test.ts":
+      "Command-file-reference suite (vitest, unit tier, nothing spawned) — both directions, because either alone is worthless: it must NAME the script an interpreter runs (relative, absolute, by extension behind an unknown runner, extensionless behind a known one, a path-shaped head, through a variable whose value was supplied, nested in a pipeline) and must stay SILENT on the shapes measured in the wild that merely look path-ish — the five davila7 commands the wide rule got wrong (`rm`/`mv`/`cat`/`tail` on a temp file, `echo N/A`), plus URLs, flags, assignments, globs, `-c`/`-e`/`-m` operands, a command substitution, a bare head, and the interpreter's own trailing arguments",
     "src/core/guards.ts":
       "EXPERIMENTAL prototype (the GATE axis of the reliability runtime) — typed safe-by-construction harness GUARDS: declare guard.block / requireBefore (the ORDER axis — destroy-after-plan, enforced live…",
+    "src/hook-matcher-delivery.test.ts":
+      "Which matcher strings Claude Code honours as match-all — MEASURED, after `**` sat in MATCH_ALL (core/hook-matcher.ts) on no evidence. A claim about somebody else\'s product that prose cannot keep true.",
     "src/core/guards.test.ts":
       "Guard prototype suite (vitest) — pure block/requireBefore/confine decisions + the session-ledger round-trip + the runnable hook-runtime guard gate. EXPERIMENTAL (see src/core/guards.ts)",
     "src/core/tool-contract.ts":

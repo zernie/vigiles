@@ -191,6 +191,29 @@ export type {
   VerifyGuardrailOptions,
 } from "./guardrail-check.js";
 
+// The same battery, pointed at a DIRECTORY instead of one command string. It
+// reads each hook's event, matcher, command and condition off the same
+// registration, so the pairing mistake `verifyGuardrail`'s own comment has to ask
+// callers to avoid ("pass the hook's declared `if` here") cannot be made. It
+// belongs on THIS barrel and beside the battery for the same reason the battery
+// does: nothing here calls a model.
+// The report + its renderer ship together: the sweep's one motivating use is
+// "point the battery at YOUR hooks", and without the formatter that is a
+// hand-written fold over a discriminated union at every call site.
+export {
+  experimental_verifyPluginGuards,
+  experimental_formatPluginGuardReport,
+} from "./verify-plugin-guards.js";
+export type {
+  PluginGuardReport,
+  SweptHook,
+  SweptHookOutcome,
+  // What the sweep found DECLARED but cannot drive — a `prompt`/`http`/
+  // `mcp_tool`/`agent` action. Named here so `report.unmeasurable` is foldable.
+  NonCommandHookAction,
+  VerifyPluginGuardsOptions,
+} from "./verify-plugin-guards.js";
+
 // Tool stubs on PATH (rung R2): shadow a CLI tool with a recorded canned result.
 export * from "./tool-stub.js";
 

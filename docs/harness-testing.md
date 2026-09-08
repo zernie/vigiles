@@ -220,6 +220,127 @@ find a blind spot in that parser, because it would share it.
 everything scores 100% here. Run `git push origin main` and `git commit -m fix`
 through `verifyGuardrail` and assert neither is blocked.
 
+### Sweep every hook a repo declares (`experimental_verifyPluginGuards`)
+
+`assertBlocksDisasters` takes ONE hook command. Point
+`experimental_verifyPluginGuards` at a **directory** instead and it runs the same
+battery against every hook the repo actually registers — using each hook's own
+event, matcher and `if` condition, read from the config:
+
+```ts
+import {
+  experimental_verifyPluginGuards,
+  experimental_formatPluginGuardReport,
+} from "vigiles";
+
+console.log(
+  experimental_formatPluginGuardReport(experimental_verifyPluginGuards(".")),
+);
+```
+
+That prints a report per hook — the ones the battery reached with their counts,
+and the ones it did not with the reason it did not:
+
+```
+Guard sweep of /repo — claude-code · 7 dangerous actions delivered as PreToolUse
+5 hooks declared: 2 measured, 1 unresolved, 2 not applicable.
+
+MEASURED
+  #0  blocks 1/7  `bash hooks/force-push-guard.sh`
+      PreToolUse · matcher `Bash` · if `Bash(git push *--force*)`
+      ✅ blocks  git push --force to a protected branch
+      ⊘ not run  rm -rf of a broad path — does not match `git push *--force*`
+      …
+
+NOT MEASURED — nothing below has a score; each group says why
+  ⊘ not applicable — 2 hooks
+     registered on Stop; this battery is delivered as PreToolUse, so the hook is
+     never asked about these calls
+       #4  `bash hooks/notify.sh`
+```
+
+**A hook the battery never reached never gets a number.** A `measured` hook shows
+`blocks n/7`; the others show their reason and no count, because a rendered `0/7`
+is the same false confidence the report shape exists to prevent. A repo with many
+hooks stays readable — the unmeasured half is grouped by reason and the tail is
+counted, so the section is bounded however many hooks you register.
+
+Read the `PluginGuardReport` yourself when you want the data rather than the text:
+
+```ts
+const report = experimental_verifyPluginGuards(".");
+
+for (const h of report.hooks) {
+  if (h.status === "measured")
+    console.log(`${h.blocked.length}/${h.results.length}  ${h.hook.command}`);
+  else console.log(`⊘ ${h.status}  ${h.hook.command} — ${h.reason}`);
+}
+for (const note of report.notes) console.log(note);
+```
+
+**Why a directory rather than a command.** A Claude Code hook can carry an `if`
+condition — a permission-rule pattern like `"Bash(git commit *--no-verify*)"` —
+and the harness only spawns the hook when a call matches it. Many real guards are
+written that way: an unconditional deny in the body, with the `if` doing the
+selecting. Hand that body to `verifyGuardrail` without its condition and it blocks
+all seven disasters, so a narrow guard is certified as stopping `rm -rf /`.
+Reading the condition off the same registration as the command means the two
+cannot be paired wrongly.
+
+**Three things that are NOT a score.** Each hook comes back as one of three
+statuses, so a hook the battery never reached can never be read as `0/7`:
+
+| status           | what it means                                                                                                                                                                   | what to do                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `measured`       | the battery reached it; `results` holds one entry per event                                                                                                                     | read `blocked` / `allowed` / `notRun`                     |
+| `not-applicable` | the harness would never spawn it here: another event; a matcher that selects none of the battery's tools, or that it cannot compile; or an `if` condition matching none of them | nothing — it is not a Bash guard, or it cannot run at all |
+| `unresolved`     | the sweep could not get the guard's own verdict — see the four causes below                                                                                                     | fix the cause it names, then re-run                       |
+
+A repo with no hooks reports zero of everything **and says so in `notes`** — "this
+is not a clean bill of health, it is an absence of guards."
+
+**Why `unresolved` exists, and its four causes.** `sh` exits **2** for a syntax
+error and for an interpreter that cannot open its script — and 2 is Claude Code's
+DENY code. So a hook that never ran is indistinguishable, after the fact, from a
+guard that legitimately blocked. Every one of these would otherwise have been
+scored as a perfect `7/7`:
+
+| the reason says                  | the cause                                          | what to do                                     |
+| -------------------------------- | -------------------------------------------------- | ---------------------------------------------- |
+| names `$FOO`, which nothing sets | the command reads a variable the run has not got   | pass `env` so the real program runs            |
+| is not valid shell               | the command does not parse — `sh` would exit 2 too | fix the command; no `env` would have helped    |
+| is not on disk here              | the script the config names is not there           | the guard does not exist — that is the finding |
+| by a RELATIVE path … fresh empty | a **confined** run starts in a new empty directory | pass `cwd` (the project the hook runs against) |
+
+That last one is the one to know about up front: with `trusted: false` or
+`sandbox: "auto"`, the hook is chdir'd into a throwaway directory, so a relative
+script path means nothing there however present it is in your repo. Pass `cwd`
+and both the check and the run resolve it the same way.
+
+**`dir` and `cwd` are two different roots.** `dir` is where hooks are READ from
+and becomes `$CLAUDE_PLUGIN_ROOT`; `cwd` is the project they RUN against and
+becomes `$CLAUDE_PROJECT_DIR`. Sweeping your own repo they are the same directory
+and you can omit `cwd`. Sweeping an **installed** plugin against a host project,
+pass both — or a hook reading `$CLAUDE_PROJECT_DIR` is pointed at the plugin
+instead of your project.
+
+```ts
+experimental_verifyPluginGuards("~/.claude/plugins/some-plugin", {
+  cwd: process.cwd(), // the project its hooks run against
+});
+```
+
+**It reports, it does not judge.** There is no throwing version, because a repo's
+config never says which of its hooks is meant to be a safety guard. Once _you_ know
+which hook must block what, `assertBlocksDisasters` is still the gate.
+
+⚠️ **It runs each reachable hook.** Point it at a repo whose hooks you are willing
+to execute, or pass `trusted: false` / `sandbox: "auto"` to confine them.
+
+Works on any harness with shell hooks — Claude Code by default, Codex via
+`{ adapter: codexAdapter }`. A harness whose hooks are not shell processes reports
+n/a in `notes` rather than an empty pass.
+
 ## Test the assembled machine (`runHarnessTest`)
 
 Right logic ≠ wired in correctly _and_ reaching the model. `runHarnessTest` spawns

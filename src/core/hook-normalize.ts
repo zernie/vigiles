@@ -115,6 +115,61 @@ export function normalizeHooks(raw: unknown): HookRegistration[] {
   return out;
 }
 
+/**
+ * A declared hook action that carries no command — `prompt`, `http`, `mcp_tool`
+ * or `agent`. Real, supported actions; simply not shell processes, so no tier
+ * that drives a shell can measure one.
+ */
+export interface NonCommandHookAction {
+  /** The event it registers under. */
+  readonly event: string;
+  /** The tool/path matcher of the entry it sits in, or `null`. */
+  readonly matcher: string | null;
+  /** Its declared `type`, e.g. `"prompt"`. Never `"command"`. */
+  readonly type: string;
+}
+
+/**
+ * The declared actions {@link normalizeHooks} does NOT return, and why anyone
+ * should care.
+ *
+ * 🔴 SILENCE HERE READ AS "NO HOOKS DECLARED", which is the exact false-empty a
+ * guard sweep exists to prevent. Claude Code supports five action types
+ * (command / http / mcp_tool / prompt / agent) and `normalizeHooks` keeps only
+ * the first, correctly — the others are not shell processes and nothing that
+ * spawns a shell can drive them. But a repository whose PreToolUse hooks are all
+ * `prompt` actions then produced an empty registration list, and a caller that
+ * reads only the length cannot tell "this repo declared no guards" from "this
+ * repo declared four guards I cannot run". The first is an accusation; the
+ * second is a limit of the tier. So the dropped actions are RETURNED rather than
+ * discarded, and the caller reports them as declared-but-not-measured.
+ *
+ * A holder counts only when it declares a `type` that is not `"command"`. An
+ * entry with neither a type nor a command is malformed config, not an action,
+ * and calling it one would invent a hook the repository never declared.
+ */
+export function nonCommandHookActions(raw: unknown): NonCommandHookAction[] {
+  if (!isRecord(raw)) return [];
+  const out: NonCommandHookAction[] = [];
+  for (const [event, arr] of Object.entries(raw)) {
+    if (!Array.isArray(arr)) continue;
+    for (const entry of arr) {
+      if (!isRecord(entry)) continue;
+      const matcher = entryMatcher(entry);
+      const nested = entry.hooks;
+      const holders: unknown[] = Array.isArray(nested) ? nested : [entry];
+      for (const h of holders) {
+        if (!isRecord(h)) continue;
+        const type = h.type;
+        if (typeof type !== "string" || type === "" || type === "command")
+          continue;
+        out.push({ event, matcher, type });
+      }
+    }
+  }
+  return out;
+}
+
 /** Distinct event names present in the raw hooks object (object-keyed shape). */
 export function hookEventNames(raw: unknown): string[] {
   return isRecord(raw) ? Object.keys(raw) : [];
