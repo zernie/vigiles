@@ -2,7 +2,13 @@
   "rules": {
     "require-instructions-spec": "error",
     "integrity": "warn",
-    "coverage": ["warn", { "scripts": 50, "linterRules": 5 }],
+    "coverage": [
+      "warn",
+      {
+        "scripts": 50,
+        "linterRules": 5
+      }
+    ],
     "subagent-tool-contract": "error",
     "subagent-frontmatter": "error",
     "hook-events": "error",
@@ -11,8 +17,32 @@
     "mcp-tool-resolves": "error",
     "mcp-hook-target-resolves": "error",
     "disallowed-tools-contract": "error",
-    "description-overlap": "error"
+    "description-overlap": "error",
+    "untested-skill": [
+      "warn",
+      {
+        "include": [
+          "**/*.harness.{ts,mts,cts,js,mjs,cjs}",
+          "**/*.eval.{ts,mts,cts,js,mjs,cjs}",
+          "examples/harness/dogfood/{surface}.trigger.eval.mjs",
+          "src/{surface}.test.ts"
+        ]
+      }
+    ],
+    "untested-hook": [
+      "warn",
+      {
+        "include": [
+          "**/*.harness.{ts,mts,cts,js,mjs,cjs}",
+          "**/*.eval.{ts,mts,cts,js,mjs,cjs}",
+          "examples/harness/dogfood/{surface}.trigger.eval.mjs",
+          "src/{surface}.test.ts"
+        ]
+      }
+    ]
   },
-  "orphans": { "include": ["docs/**/*.md"] },
+  "orphans": {
+    "include": ["docs/**/*.md"]
+  },
   "exclude": ["bench/**", "startup/**", "rule-enforcer/**"]
 }
