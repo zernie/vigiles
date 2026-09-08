@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:8d5538c6a39d9fe0 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:21d4e54e7aa8bbf9 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -114,7 +114,9 @@ BUILD + TOOLING + GENERATED:
 - `src/guardrail-check.ts` — VERIFY feature — 'prove your safety hook ACTUALLY blocks' (on `vigiles` root).
 - `src/core/bash-equivalents.ts` — Shell-EQUIVALENT rewrites of a dangerous command — the generator behind `experimental_alternateSpellings(events)` in guardrail-check.ts (renamed 2026-09-02 from `equivalentDisasters`, which its…
 - `.vigiles/hooks/test-tier-nudge.hook.mjs` — THIS repo's OWN compiled hook, and its first (2026-09-07) — the artifact that retired the `docs/compiled-hooks.md` line "neither [consumer] is this repository's own harness, which still wires its…
-- `src/test-tier-nudge.test.ts` — The test for this repo's own compiled hook (vitest, unit tier).
+- `src/test-tier-nudge.hook.test.ts` — The test for this repo's own compiled hook (vitest, unit tier). Named `<surface>.hook.test.ts` because a hook's `{surface}` name carries `.hook` — that is what binds it to the surface under the `include` globs in .vigilesrc.json.
+- `.vigiles/hooks/docs-drift-nudge.hook.mjs` — This repo's OWN compiled hook #2 — a react that nudges when product code under src/ is edited and no doc (docs/**, README, a CLAUDE.md.spec.ts, CONTRIBUTING) has been touched this session. `doc-consistency` as a mechanism instead of prose: `lint` reads a checkout, but 'the code changed and the docs did not' is a property of a DIFF, which only a hook sees. Two named facts — docs.followed (quiet because the work IS being done) and docs.nudged (quiet because it just spoke) — so the two silences never merge.
+- `src/docs-drift-nudge.hook.test.ts` — The test for the docs-drift hook (vitest, unit tier): both silences asserted apart, and mutation-proven — deleting the docs.followed branch fails exactly one test.
 - `examples/harness/safe-bash-guard.mjs` — The compiled-hook dogfood artifact — a Bash safety gate authored against `vigiles/hook` expressing a real guard's full intent (force-push/reset --hard/--no-verify/forced-rm/secret-read/curl|sh) as a pure typed function. In-repo it imports the built dist (runs via hook-runtime run-program in src/hook-dogfood.test.ts); external users author `from "vigiles/hook"` + `vigiles compile`
 - `src/core/guards.ts` — EXPERIMENTAL prototype (the GATE axis of the reliability runtime) — typed safe-by-construction harness GUARDS: declare guard.block / requireBefore (the ORDER axis — destroy-after-plan, enforced live…
 - `src/core/guards.test.ts` — Guard prototype suite (vitest) — pure block/requireBefore/confine decisions + the session-ledger round-trip + the runnable hook-runtime guard gate. EXPERIMENTAL (see src/core/guards.ts)

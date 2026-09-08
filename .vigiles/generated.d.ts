@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 425 project files. */
+  /** 426 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -365,6 +365,7 @@ declare module "vigiles/generated" {
     | "src/doc-refs-rule.test.ts"
     | "src/doc-test-script-coverage.test.ts"
     | "src/doc-test-script-coverage.ts"
+    | "src/docs-drift-nudge.hook.test.ts"
     | "src/egress-entry.ts"
     | "src/egress-proxy.ts"
     | "src/egress.test.ts"
@@ -517,7 +518,7 @@ declare module "vigiles/generated" {
     | "src/test-coverage-files.ts"
     | "src/test-coverage.test.ts"
     | "src/test-coverage.ts"
-    | "src/test-tier-nudge.test.ts"
+    | "src/test-tier-nudge.hook.test.ts"
     | "src/test.ts"
     | "src/tested-metric-docs.test.ts"
     | "src/tool-intercept.test.ts"
@@ -862,6 +863,7 @@ declare module "vigiles/spec" {
       | "src/doc-refs-rule.test.ts"
       | "src/doc-test-script-coverage.test.ts"
       | "src/doc-test-script-coverage.ts"
+      | "src/docs-drift-nudge.hook.test.ts"
       | "src/egress-entry.ts"
       | "src/egress-proxy.ts"
       | "src/egress.test.ts"
@@ -1014,7 +1016,7 @@ declare module "vigiles/spec" {
       | "src/test-coverage-files.ts"
       | "src/test-coverage.test.ts"
       | "src/test-coverage.ts"
-      | "src/test-tier-nudge.test.ts"
+      | "src/test-tier-nudge.hook.test.ts"
       | "src/test.ts"
       | "src/tested-metric-docs.test.ts"
       | "src/tool-intercept.test.ts"
