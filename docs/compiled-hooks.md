@@ -66,13 +66,12 @@ Every **gate** (tool / prompt / stop) takes an optional `mode` — see [Observe 
 The entire surface a hook may touch (that's the safety guarantee):
 
 ```ts
-import { experimental_defineHook, tool, deny, allow } from "vigiles/hook";
+import { experimental_defineHook, deny, allow } from "vigiles/hook";
 
 // Block any force-push to a protected branch — including one hidden in a
 // compound command, which a glob/grep matcher misses.
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   decide: (e) =>
     e.command.runs("git push", { force: true })
       ? deny("no force-push to a protected branch")
@@ -80,7 +79,9 @@ export default experimental_defineHook({
 });
 ```
 
-- **`tool(name)` / `tools(...names)`** — which tool(s) the hook matches.
+- **`tools(...names)`** — which tools a file gate or react matches. A bash gate
+  needs none: a `BashToolEvent` is Bash by construction, so the matcher is emitted
+  for you and there is no field to get wrong.
 - **`e.command`** (Bash) — an AST-backed `CommandView`:
   - `runs(program, { force? })` — a leaf runs `program` (e.g. `"git reset --hard"`), optionally forced.
   - `touches(prefixes)` — a leaf **mentions** a path under one of `prefixes` (e.g. `["~/.ssh", ".env"]`) — secret reads.
@@ -220,7 +221,6 @@ export default experimental_defineStopGate({
 ```ts
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   mode: "observe", // ← shadow: record, don't block
   decide: (e) =>
     e.command.runs("git push", { force: true })
@@ -238,11 +238,10 @@ In observe mode the runtime exits `0` (never blocks) and appends a record to **`
 The fix is the same one Cedar/OPA/Gatekeeper use: **the hook never fetches — it declares what it needs, and the trusted runtime gathers those read-only facts and hands them in** as `e.ctx`.
 
 ```ts
-import { experimental_defineHook, tool, deny, allow } from "vigiles/hook";
+import { experimental_defineHook, deny, allow } from "vigiles/hook";
 
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   needs: ["git.branch"], //                ← declared; gathered by the runtime
   decide: (e) =>
     e.ctx["git.branch"] === "main" && e.command.runs("git push")
@@ -258,17 +257,10 @@ The guarantee is intact and **stronger**: the hook still does zero I/O. The runt
 **The lightweight opt-out — `provide` / `dangerously`.** For a one-off, off-catalog fact you don't want to register a whole provider for, declare an **inline** command right in `needs`:
 
 ```ts
-import {
-  experimental_defineHook,
-  tool,
-  deny,
-  allow,
-  provide,
-} from "vigiles/hook";
+import { experimental_defineHook, deny, allow, provide } from "vigiles/hook";
 
 export default experimental_defineHook({
   on: "PreToolUse",
-  match: tool("Bash"),
   needs: [provide("k8sCtx", "kubectl config current-context")], // read-only, inline
   decide: (e) =>
     e.ctx.k8sCtx === "prod" && e.command.runs("kubectl delete")
