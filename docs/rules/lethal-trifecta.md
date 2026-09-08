@@ -6,8 +6,10 @@ all three is a **prompt-injection exfiltration path with no exploit code**:
 attacker-controllable content flows in, reads your private data, and ships it out
 — all driven by the model, no bug required. Same detectors `vigiles audit` uses
 (`lethalTrifectaIssues` / `skillTrifectaIssue` in
-`src/core/lethal-trifecta.ts`); no other plugin linter checks the tool **set** for
-this — competitors lint a single tool's effect, never the dangerous combination.
+`src/core/lethal-trifecta.ts`). The check is over the tool **set** a unit holds, not
+any single tool's effect. (A claim that no other plugin linter does this stood here
+until 2026-09-08. Nobody had run one; it is removed rather than reworded so it is
+not reintroduced.)
 
 > ⚠️ **Subagents and skills are read from DIFFERENT fields, because they are
 > different mechanisms.** A subagent's `tools:` really does bound the unit. A

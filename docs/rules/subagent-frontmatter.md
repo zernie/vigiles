@@ -29,8 +29,16 @@ The **invalid-value** half cross-references the `model:` against the alias set
 (`inherit`/`sonnet`/`opus`/`haiku`) and `color:` against the color enum, flagging
 only a **close typo** (≤2 edits) — a full/dated model id (`claude-sonnet-4-5`) is
 an explicit form and left alone, and an unrecognized far-off value is suppressed
-(high-precision, no cry-wolf). This matches Anthropic's own `claude plugin
-validate` + cclint.
+(high-precision, no cry-wolf).
+
+> **Correction, 2026-09-08.** This read "matches Anthropic's own `claude plugin
+validate` + cclint." **Measured:** `node tools/measure-validate-overlap.mjs`
+> against Claude Code 2.1.263 plants `model: sonnnet` in a subagent and
+> `claude plugin validate` passes it — repo-local `.claude/` and packaged plugin,
+> default and `--strict`. The **missing-required** half above IS shared (it warns on
+> a subagent with no description); the **invalid-value** half is not. cclint was
+> never run by anything in this repo, so it should not have been named at all.
+> **What would invalidate this:** a new Claude Code minor. Re-run the probe.
 
 This is the rule that catches the real bug the plugin sweep found: a marketplace
 shipping subagents (`changelog-generator`, `content-creator`, …) with **no

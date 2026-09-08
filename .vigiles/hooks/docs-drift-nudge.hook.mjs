@@ -93,7 +93,7 @@ const REMINDER =
 
 export default experimental_defineReact({
   on: "PostToolUse",
-  match: tools("Edit", "Write", "MultiEdit"),
+  match: tools("Edit", "Write"),
   needs: [state("docs.followed"), state("docs.nudged")],
   react: (e) => {
     // `rel` is the repo-relative answer; `raw` is the fallback for a path with
