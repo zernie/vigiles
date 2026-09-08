@@ -335,7 +335,7 @@ describe("experimental_hookState", () => {
 // its state seeded ONLY through the public handle. Both directions.
 // ---------------------------------------------------------------------------
 
-const THROTTLED_GATE = `import { experimental_defineHook, tool, state, deny, allow } from "__HOOK__";
+const THROTTLED_GATE = `import { experimental_defineHook, state, deny, allow } from "__HOOK__";
 export default experimental_defineHook({
   on: "PreToolUse",
   needs: [state("retro.nagged")],
