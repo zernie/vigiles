@@ -337,8 +337,7 @@ rests on one rule:
 Get that backwards and the failure is silent. If the `if:` is _narrower_ than
 what your `decide()` would have denied, the process never starts, nothing is
 logged, and the guard reads as passing. A gate that stops firing without saying
-so is the exact bug this whole page exists to make unwritable — trading it back
-for a startup saving is a bad trade at any price.
+so is the exact bug this whole page exists to make unwritable.
 
 The superset that would actually be safe is not a useful filter. A predicate like
 `command.runs("git push", { force: true })` is AST-backed: it sees the real
@@ -364,14 +363,8 @@ Two smaller reasons point the same way:
   from roughly 650 ms to 80 ms (200 ms for a Bash gate). A prefilter would have
   bought less, later, and at the cost of a guard that can go quiet.
 
-**None of this means vigiles ignores `if:`.** Reading one and emitting one are
-different acts. When the test tiers measure a hook you already wrote — including
-a hand-written one with its own `if:` — they **honour** that condition
-(`decideHookCondition`), so what gets measured is the guard the harness would
-actually run, not an unconditional stand-in that would score it too generously.
-A harness whose config has no condition field is treated as unconditional. What
-we decline is to _generate_ a filter on your behalf that could be narrower than
-the program behind it.
+An `if:` **you** wrote is still honoured: `runHook` reads it and measures your
+guard the way the harness would really run it. Only _generating_ one is refused.
 
 The `matcher` we _do_ emit is safe under the same rule: it is derived from the
 event type the role already implies (a bash gate matches `Bash`), so it cannot be
