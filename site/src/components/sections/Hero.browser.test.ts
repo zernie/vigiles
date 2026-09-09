@@ -19,17 +19,30 @@
  * is the honest replacement: same property, checked on the RENDERED OUTPUT, in
  * the job that runs for a site diff.
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { createElement } from "react";
 import { LANGUAGES } from "@/lib/linters";
-import { HeroChip } from "./Hero";
+import { Hero } from "./Hero";
+
+// ⚠️ `Hero` ITSELF is rendered, not the chip component — otherwise deleting
+// `<HeroChip />` from the page leaves every assertion below green while the
+// first screen shows no languages at all. Codex caught exactly that on the
+// first version of this file, and it was the whole point of the test.
+//
+// `DemoAudit` is stubbed because on mount it sweeps idb and issues one
+// `fetchStars` request per featured chip. A browser test that reaches GitHub is
+// a flake, and a flaky test is a disabled test. Stubbing the ONE heavy child is
+// the minimum that makes rendering the real page deterministic.
+vi.mock("@/components/sections/DemoAudit", () => ({
+  DemoAudit: () => null,
+}));
 
 afterEach(cleanup);
 
-/** The chip's own text, from the real DOM. */
+/** The chip's text, read out of a rendered `Hero`. */
 function chipText(): string {
-  render(createElement(HeroChip));
+  render(createElement(Hero));
   return screen.getByText(/Claude Code/).textContent ?? "";
 }
 
