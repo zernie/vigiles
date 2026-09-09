@@ -57,7 +57,16 @@ jobs:
           echo "$files" | sed 's/^/  /'
 
           # `root` — everything except the site. False ONLY when every changed file
-          # is under site/, because nothing outside site/ imports anything inside it.
+          # is under site/, because nothing outside site/ reads anything inside it.
+          #
+          # 🔴 THAT SENTENCE WAS FALSE ONCE, AND IT COST A RED MAIN.
+          # src/core/linter-contract.test.ts read two files under site/ off disk;
+          # #219 was a site-only PR that deleted one, so these jobs were skipped,
+          # the PR merged GREEN and main broke on an ENOENT — a skipped job and a
+          # passing job are the same tick in the checks list, so nothing said so.
+          # The read is gone (that test moved to the site suite, where it belongs),
+          # and src/ci-path-filter.test.ts now FAILS if any root test reads site/
+          # again. The invariant above is checked, not asserted.
           if echo "$files" | grep -qvE '^site/'; then root=true; else root=false; fi
 
           # `site` — the demo. It imports the built engine through three aliases

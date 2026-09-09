@@ -71,58 +71,19 @@ describe("LinterAdapter conformance", () => {
     expect([...docLinterNames()].sort()).toEqual(Object.keys(LINTERS).sort());
   });
 
-  it("the website's linter strip AND language chip are DERIVED from BUILTIN_LINTERS (can't go stale)", () => {
-    // The site hand-lists neither the linters nor the languages — both render
-    // from the engine's BUILTIN_LINTERS, so drift is impossible by
-    // construction. Guard that the derivation stays in place (a revert to a
-    // hand-typed array would reintroduce the staleness this replaced).
-    //
-    // The derivation MOVED on 2026-09-08, from Wedge.tsx into site/src/lib/
-    // linters.ts, when the hero's "is this for me?" chip stopped saying "Any
-    // language · 11 linter catalogs" and started naming the languages — two
-    // consumers, so one shared source. This test moved with it rather than
-    // being deleted: the property it guards (derived, never typed) is
-    // unchanged, only its address is. `linters.browser.test.ts` covers the
-    // CONTENT of the two maps; this covers that the site still reads them.
-    const lib = readFileSync(
-      resolve(__dirname, "../../site/src/lib/linters.ts"),
-      "utf8",
-    );
-    // imports the single source of truth…
-    expect(lib).toMatch(
-      /import\s*\{[^}]*\bBUILTIN_LINTERS\b[^}]*\}\s*from\s*["']@engine\/spec["']/,
-    );
-    // …derives BOTH the linter strip and the language list from it…
-    expect(lib).toMatch(/BUILTIN_LINTERS\.map\(/);
-    expect(lib).toMatch(/BUILTIN_LINTERS\.some\(/);
-    // …not a reintroduced hand-typed string array of linter names.
-    expect(lib).not.toMatch(/const LINTER_NAMES\s*=\s*\[\s*["']/);
-
-    // And the consumer actually reads the derived list rather than
-    // reintroducing a local literal.
-    //
-    // 🔴 THIS USED TO ASSERT TWO CONSUMERS. The second was `Wedge.tsx`, which
-    // rendered the linter strip; the 2026-09-09 landing rework (#219) deleted the
-    // section, and this test kept reading the file — so `main` went red on a
-    // deletion nothing connected back here. `LINTER_NAMES` is therefore exported
-    // and DERIVED but currently has no consumer on the site; it stays covered by
-    // `site/src/lib/linters.browser.test.ts` (the derivation itself), and this
-    // test now asserts only what a component still renders. Give the strip a home
-    // again and the assertion comes back with it.
-    const hero = readFileSync(
-      resolve(__dirname, "../../site/src/components/sections/Hero.tsx"),
-      "utf8",
-    );
-    expect(hero).toMatch(/\bLANGUAGES\b[^;]*from\s*["']@\/lib\/linters["']/s);
-    // The chip must not go back to the abstraction it replaced — asserted over
-    // the CODE with comments stripped, not the raw file. The first version of
-    // this line searched the whole source and failed on the comment that
-    // EXPLAINS the change, which quotes the old chip verbatim. A substring
-    // search over a document cannot tell an assertion from a discussion of one,
-    // and in a well-commented file the discussion sits right next to the value.
-    const heroCode = hero
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^\s*\/\/.*$/gm, "");
-    expect(heroCode).not.toMatch(/Any language/);
-  });
+  // The site's own derivation is asserted ON THE SITE, in
+  // site/src/lib/linters.browser.test.ts, which recomputes LINTER_NAMES and
+  // LANGUAGES from BUILTIN_LINTERS and compares VALUES.
+  //
+  // 🔴 A test used to sit here that read two files under site/ off disk and
+  // regexed their SOURCE for an import line and against a phrase. Three things
+  // were wrong with it and only the third was visible: it asserted the shape of
+  // the text rather than the value, so a rename or a reformat broke it; a
+  // substring search cannot tell an assertion from a comment discussing one, and
+  // it had already fired on exactly that; and it made a ROOT test depend on a
+  // SITE file, so when #219 (site-only) deleted one, the `changes` filter skipped
+  // the root jobs, the PR merged green and main went red on an ENOENT. Deleted
+  // 2026-09-09 rather than patched a third time. src/ci-path-filter.test.ts now
+  // asserts that NO root test reads site/, which is the invariant the CI filter
+  // always claimed and never checked.
 });
