@@ -28,6 +28,12 @@ const skill = "superpowers:test-driven-development";
 
 export default defineEval({
   measureTriggerRate: {
+    // NAMED so `vigiles eval --update` writes a committed lock. It belongs HERE,
+    // on the trigger-rate spec, NOT top-level on defineEval — measured 2026-09-09:
+    // a top-level `name` is silently ignored (defineEval takes unknown keys without
+    // complaint) and --update prints "skipped the lock for an unnamed eval", which
+    // is the same message you get for having set nothing at all.
+    name: "superpowers-tdd-trigger-rate",
     pluginDir,
     stubSkillBodies: true, // trigger = frontmatter only; stub the body to stop at selection
     // Aim for >= 10 varied phrasings — measureTriggerRate runs a deterministic
