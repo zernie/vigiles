@@ -548,11 +548,13 @@ export function DemoAudit({
             their real grades. Reframes the one-tap examples as "here's how the
             ecosystem scores; where does yours land?" (social proof + the ranking
             nudge), and the grade letters explain themselves. Wrap + centered so a
-            chip never clips at the mobile edge. */}
-      <p className="mt-8 text-center text-xs text-muted-foreground">
-        Popular plugins, graded — tap to see why:
-      </p>
-      <div className="mt-3 flex flex-wrap justify-center gap-2">
+            chip never clips at the mobile edge.
+
+            The caption "Popular plugins, graded — tap to see why:" sat here
+            until 2026-09-09. It said what the chips already say: each one
+            carries its own grade letter, and a chip is self-evidently tappable.
+            Cut in the pass that gave the page one fold-level idea per element. */}
+      <div className="mt-8 flex flex-wrap justify-center gap-2">
         {FEATURED.map((f, i) => {
           const active = frameView.k === "featured" && frameView.i === i;
           const grade = f.report.score.grade;

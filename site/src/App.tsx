@@ -54,7 +54,12 @@ import { Footer } from "@/components/Footer";
  * Banned on this page, because each was a fifth format: `Badge` kickers,
  * centered section headers, Card grids, three-column "why" grids, caveat boxes
  * (a caveat is one line plus the docs link). The hero is the single exception —
- * it stays centered, because it is the demo rather than a beat.
+ * it stays centered, because it is the demo rather than a beat — as does the
+ * closing CTA, so the page OPENS and CLOSES centered (the pitch, then the ask)
+ * with left-rail evidence between them. That is a bookend, deliberately, and
+ * the reason `Adoption` and `FAQ` moved INTO the rail on 2026-09-09: they are
+ * content, and content that sits centered between left-aligned neighbours reads
+ * as a seam. Two centered bands at the two ends read as a frame.
  */
 export function App() {
   return (
