@@ -1,8 +1,7 @@
-import { ArrowRight, Check, X } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { CodeBlock } from "@/components/CodeBlock";
 
 /**
- * The proof section — the strongest thing vigiles has, shown as evidence rather
+ * BEAT: compile — the strongest thing vigiles has, shown as evidence rather
  * than as an adjective.
  *
  * Every number here is measured by ONE model-free test that runs in CI
@@ -10,7 +9,22 @@ import { Badge } from "@/components/ui/badge";
  * hand-written safety guard of the shape the ecosystem copies, and then at the
  * compiled rewrite. 2 of 7 vs 7 of 7.
  *
- * TWO CONSTRAINTS on editing this file:
+ * REWRITTEN INTO THE SHARED BEAT FORMAT, 2026-09-09. This was a centered
+ * `Badge` + `h2` section with a two-column body, a three-column "why" grid and
+ * a caveat box — its own layout language, on a page that had four of them.
+ * Ernie: "it feels like few sites slapped together". It now uses the one format
+ * every beat uses: mono kicker · left `h2` naming the failure · two-line lead ·
+ * ONE artifact · optional code · one closing line. What that cost, named so it
+ * is not restored by reflex:
+ *
+ *  - The 3-column WHY grid is gone. Its one load-bearing point (you never write
+ *    the exit code, so that bug has nowhere to live) is a sentence under the
+ *    table now.
+ *  - The caveat BOX is gone; the caveat is not. "A strong default, not a wall"
+ *    is the honesty this claim rests on, so it survives as the closing line
+ *    with the guide link — the shape `docs-quality` asks for anyway.
+ *
+ * TWO CONSTRAINTS on editing this file, both unchanged by the rewrite:
  *
  *  - The battery below is RETYPED from the engine's DISASTER_CATALOG, because a
  *    browser cannot import it (it reaches node:child_process through run-hook).
@@ -18,7 +32,10 @@ import { Badge } from "@/components/ui/badge";
  *    catalog, so a retyped list cannot quietly drift from the thing it quotes.
  *  - Do NOT add a second baseline number next to 2/7. A different guard shape,
  *    measured against a different battery, produces a different ratio; two
- *    ratios on one page fuse into one wrong memory.
+ *    ratios on one page fuse into one wrong memory. 🔴 The `test` beat above now
+ *    carries its own measured figures (3 verdict rows, 44/44 re-spellings) one
+ *    screen up — those are a DIFFERENT guard against a DIFFERENT battery, which
+ *    is exactly why this one stays the only baseline ratio.
  */
 
 const DOCS = "https://github.com/zernie/vigiles/blob/main/docs";
@@ -32,8 +49,9 @@ const DOCS = "https://github.com/zernie/vigiles/blob/main/docs";
  *  blocks was never measured file-by-file, and the originals are unlicensed, so
  *  src/hook-dogfood.test.ts asserts a faithful RECONSTRUCTION of the shape —
  *  "shape not file", in its own words. These marks are that reconstruction's,
- *  and the column says so. A row mark reads as a fact about whatever the column
- *  is named after, which is why the column is not named after the real hook. */
+ *  and the note under the table says so. A row mark reads as a fact about
+ *  whatever the column is named after, which is why the column is not named
+ *  after the real hook. */
 export interface BatteryRow {
   readonly id: string;
   readonly command: string;
@@ -107,171 +125,105 @@ export default experimental_defineHook({
   },
 });`;
 
-const WHY: { title: string; body: string }[] = [
-  {
-    title: "You never write the exit code",
-    body: "A guard that exits 1 looks exactly like a guard that blocks, and nothing tells you otherwise. You don't write the exit code, the JSON field or the jq path — the compiler emits them — so that bug has nowhere left to live.",
-  },
-  {
-    title: "The matcher reads the command, not the string",
-    body: 'runs("git push", { force: true }) matches the real command however it\'s wrapped — including the compound line above, which a substring or glob check walks straight past.',
-  },
-  {
-    title: "A hand-edit breaks the stamp",
-    body: "The compiled hook carries a SHA-256 of itself. Edit the artifact and the runtime refuses to run it, instead of running something nobody reviewed.",
-  },
-];
+/** One battery row. Mirrors `Verdict` in Measure.tsx on purpose — same page,
+ *  same shape of fact (a command, and what happened to it). */
+function Row({ row }: { row: BatteryRow }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-baseline gap-x-3 border-t border-border/60 py-3">
+      <code className="min-w-0 whitespace-pre-wrap break-words font-mono text-sm text-foreground">
+        {row.command}
+      </code>
+      <span
+        className={`text-center font-mono text-xs ${
+          row.blocklistBlocks ? "text-good" : "text-signal"
+        }`}
+      >
+        {row.blocklistBlocks ? "blocked" : "missed"}
+      </span>
+      <span className="text-center font-mono text-xs text-good">blocked</span>
+    </div>
+  );
+}
 
 export function Guard() {
   return (
-    <section id="guard" className="scroll-mt-8 border-t border-border">
-      <div className="mx-auto w-full max-w-5xl px-6 py-20 sm:py-28">
-        <div className="mx-auto max-w-2xl text-center">
-          <Badge variant="signal" className="mb-5">
-            The proof
-          </Badge>
-          <h2 className="text-balance text-3xl font-bold tracking-tight sm:text-4xl">
-            A widely-copied safety hook blocks{" "}
-            <span className="whitespace-nowrap">
-              {BLOCKLIST_BLOCKED} of {TOTAL}.
-            </span>
-          </h2>
-          <p className="mt-4 text-lg leading-relaxed text-muted-foreground">
-            Hand-written guards are a list of literal strings to refuse. Point
-            that shape at the seven commands below and it stops{" "}
-            {BLOCKLIST_BLOCKED}; the compiled rewrite stops all {TOTAL} —
-            because the parts a guard usually gets wrong are parts you no longer
-            write.
-          </p>
-        </div>
+    <section id="compile" className="scroll-mt-8 border-t border-border/60">
+      <div className="mx-auto w-full max-w-4xl px-6 py-20 sm:py-24">
+        <p className="font-mono text-xs text-primary">
+          $ vigiles compile · no model · free in CI
+        </p>
+        <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+          A widely-copied safety hook blocks{" "}
+          <span className="whitespace-nowrap">
+            {BLOCKLIST_BLOCKED} of {TOTAL}.
+          </span>
+        </h2>
+        <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
+          Hand-written guards are a list of literal strings to refuse. Point
+          that shape at seven disasters and five walk straight past it — the one
+          on the second row is the same force push it just blocked, with another
+          command in front of it.
+        </p>
 
-        <div className="mt-14 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          {/* The battery. A GRID, not a <table>: the command column has to be
-              free to wrap at 390px, and a table cell fights that. */}
-          <div className="self-start overflow-hidden rounded-xl border border-border bg-card/40">
-            <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] gap-x-2 border-b border-border px-4 py-2.5 text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground">
-              <span>Command</span>
-              <span className="text-center">Blocklist</span>
-              <span className="text-center">Compiled</span>
-            </div>
-            {BATTERY_ROWS.map((row) => (
-              <div
-                key={row.id}
-                className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-center gap-x-2 border-b border-border/60 px-4 py-2.5 last:border-b-0"
-              >
-                <code className="min-w-0 break-words font-mono text-xs leading-relaxed text-foreground">
-                  {row.command}
-                </code>
-                <span className="flex justify-center">
-                  {row.blocklistBlocks ? (
-                    <Check className="h-4 w-4 text-good" aria-label="blocked" />
-                  ) : (
-                    <X
-                      className="h-4 w-4 text-signal"
-                      aria-label="not blocked"
-                    />
-                  )}
-                </span>
-                <span className="flex justify-center">
-                  <Check className="h-4 w-4 text-good" aria-label="blocked" />
-                </span>
-              </div>
-            ))}
-            <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-baseline gap-x-2 border-t border-border bg-muted/20 px-4 py-3 text-sm">
-              <span className="text-muted-foreground">Blocked</span>
-              <span className="text-center font-mono font-semibold text-signal">
-                {BLOCKLIST_BLOCKED}/{TOTAL}
-              </span>
-              <span className="text-center font-mono font-semibold text-good">
-                {TOTAL}/{TOTAL}
-              </span>
-            </div>
-            <p className="border-t border-border px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-              Left column: a faithful reconstruction of the blocklist shape, run
-              against this battery in CI. The widely-copied hook itself was
-              measured as a total — the same {BLOCKLIST_BLOCKED} of {TOTAL} — so
-              the per-row marks are the reconstruction&apos;s, not that
-              file&apos;s.
-            </p>
+        <div className="mt-8">
+          <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] gap-x-3 pb-2 text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground">
+            <span>Command</span>
+            <span className="text-center">Blocklist</span>
+            <span className="text-center">Compiled</span>
           </div>
-
-          {/* The hook that scores the right-hand column, in full. */}
-          <div className="min-w-0">
-            <p className="mb-3 text-sm text-muted-foreground">
-              The whole compiled hook — a pure function over a closed
-              vocabulary:
-            </p>
-            <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-border bg-card/50 px-4 py-3 font-mono text-xs leading-relaxed text-foreground">
-              {HOOK_SOURCE}
-            </pre>
-            <p className="mt-3 text-sm text-muted-foreground">
-              <span className="font-mono text-foreground">
-                npx vigiles compile
-              </span>{" "}
-              turns it into your harness&apos;s own hook config — no protocol to
-              hand-write, no wiring to paste.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-12 grid gap-6 sm:grid-cols-3">
-          {WHY.map((w) => (
-            <div key={w.title} className="reveal">
-              <h3 className="text-base font-semibold tracking-tight">
-                {w.title}
-              </h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                {w.body}
-              </p>
-            </div>
+          {BATTERY_ROWS.map((row) => (
+            <Row key={row.id} row={row} />
           ))}
+          <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-baseline gap-x-3 border-t border-border py-3 text-sm">
+            <span className="text-muted-foreground">Blocked</span>
+            <span className="text-center font-mono font-semibold text-signal">
+              {BLOCKLIST_BLOCKED}/{TOTAL}
+            </span>
+            <span className="text-center font-mono font-semibold text-good">
+              {TOTAL}/{TOTAL}
+            </span>
+          </div>
         </div>
 
-        {/* The honest half. It sits on the page, not in a doc, because a claim
-            this strong is only worth as much as the caveats printed next to it. */}
-        <div className="mt-12 rounded-xl border border-border bg-card/30 p-6 text-sm leading-relaxed text-muted-foreground">
-          <p>
-            <span className="font-semibold text-foreground">
-              Where the numbers come from.
-            </span>{" "}
-            One model-free test in CI feeds these seven commands to each hook
-            and records the decision — no model, no API key, nothing to take on
-            trust. It runs the compiled hook exactly as printed above, and a
-            faithful reconstruction of the blocklist shape beside it; the
-            widely-copied hook that shape is drawn from was measured separately,
-            and scores the same {BLOCKLIST_BLOCKED} of {TOTAL}. You can point
-            the same battery at your own hook.
-          </p>
-          <p className="mt-3">
-            <span className="font-semibold text-foreground">
-              Experimental API, settled measurement.
-            </span>{" "}
-            The authoring vocabulary is experimental and a name may still change
-            — that is exactly what the{" "}
-            <span className="font-mono text-foreground">experimental_</span>{" "}
-            prefix promises, and renaming one is not a breaking change. The
-            measurement is not experimental: it is a committed test you can run
-            today.
-          </p>
-          <p className="mt-3">
-            <span className="font-semibold text-foreground">
-              A gate is a strong default, not a wall.
-            </span>{" "}
-            Compiling fixes what your hook decides and how it reports that
-            decision. It does not change how the harness delivers events, and a
-            model can still route around a tool entirely — so this is a much
-            better default, not a guarantee.
-          </p>
+        <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          The compiled hook wins because of what you stop writing. You never
+          write the exit code, the JSON field or the wiring — a guard that exits{" "}
+          <code className="font-mono">1</code> looks exactly like a guard that
+          blocks, and nothing tells you otherwise, so the compiler emits them
+          and that bug has nowhere left to live. The matcher reads the parsed
+          command rather than the string, which is how it catches row two. And
+          the artifact carries a SHA-256 of itself: hand-edit it and the runtime
+          refuses to run it, instead of running something nobody reviewed.
+        </p>
+
+        <CodeBlock code={HOOK_SOURCE} language="tsx" className="mt-8" />
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          That is the whole hook — a pure function over a closed vocabulary.{" "}
+          <code className="font-mono text-foreground">npx vigiles compile</code>{" "}
+          turns it into your harness&apos;s own hook config, and one model-free
+          test in CI feeds these seven commands to each version and records the
+          decision. Left column: a faithful reconstruction of the blocklist
+          shape, since the widely-copied original is unlicensed — it was
+          measured separately and scores the same {BLOCKLIST_BLOCKED} of {TOTAL}
+          .
+        </p>
+
+        {/* The honest half stays on the page, not in a doc — a claim this strong
+            is worth what the caveat printed next to it is worth. */}
+        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          A gate is a strong default, not a wall: compiling fixes what your hook
+          decides and how it reports it, but not how the harness delivers
+          events, and a model can still route around a tool entirely.{" "}
           <a
             href={`${DOCS}/compiled-hooks.md`}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-4 inline-flex items-center gap-1.5 font-medium text-accent no-underline transition-colors hover:text-accent/80"
+            className="text-accent no-underline transition-colors hover:text-accent/80"
           >
             The full guide, caveats included
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden />
           </a>
-        </div>
+          .
+        </p>
       </div>
     </section>
   );

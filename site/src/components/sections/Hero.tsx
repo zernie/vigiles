@@ -27,9 +27,14 @@ export function Hero() {
             Grade a repo
           </a>
           {/* The docs are a directory away and used to be unreachable from the
-              top of the page — a visitor who wanted detail had to guess. */}
+              top of the page — a visitor who wanted detail had to guess. This
+              pointed at an in-page `#docs` section until 2026-09-09; that
+              section was a link list the footer already carried, so it went,
+              and the nav now goes where it always meant to. */}
           <a
-            href="#docs"
+            href={`${REPO}/blob/main/docs/README.md`}
+            target="_blank"
+            rel="noopener noreferrer"
             className="hidden text-sm font-medium text-muted-foreground no-underline transition-colors hover:text-foreground sm:inline"
           >
             Docs
@@ -101,18 +106,21 @@ export function Hero() {
         <p className="mt-5 max-w-2xl text-balance text-lg leading-relaxed text-muted-foreground sm:text-xl">
           Your skills and hooks name tools, events, files and linter rules. One
           command checks each one is real and grades the result — no key,
-          nothing uploaded. Compile your safety hook, too: the widely-copied
-          hand-written one blocks 2 of 7 disasters, the compiled rewrite blocks
-          7. Then say &ldquo;test my skills&rdquo; and the agent writes the
-          test.
+          nothing uploaded.
         </p>
+      </div>
 
+      {/* Product shot on the fold — the LIVE demo (combobox + real grading), not a
+          static sample. Its default view is an instant baked featured grade, so the
+          first paint has no spinner; type a repo to grade your own. */}
+      <div className="mx-auto w-full max-w-3xl pb-20 sm:pb-28">
+        <DemoAudit variant="hero" />
         {/* The "is this for me?" strip. It answers the three questions a
             stranger asks in the first ten seconds — which harness, which
             language, what licence — and used to be the last sentence of the
             SECOND section, where nobody deciding whether to keep reading ever
             got to it. */}
-        <ul className="mt-7 flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
+        <p className="mt-5 px-6 text-center text-sm text-muted-foreground">
           {[
             "Claude Code · Codex",
             // The languages, NAMED. This chip read "Any language · 11 linter
@@ -129,22 +137,8 @@ export function Hero() {
             // count had; more useful answer.
             LANGUAGES.join(" · "),
             "MIT",
-          ].map((fact) => (
-            <li
-              key={fact}
-              className="rounded-full border border-border px-3 py-1"
-            >
-              {fact}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Product shot on the fold — the LIVE demo (combobox + real grading), not a
-          static sample. Its default view is an instant baked featured grade, so the
-          first paint has no spinner; type a repo to grade your own. */}
-      <div className="mx-auto w-full max-w-3xl pb-20 sm:pb-28">
-        <DemoAudit variant="hero" />
+          ].join(" · ")}
+        </p>
       </div>
     </header>
   );
