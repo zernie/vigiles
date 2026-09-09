@@ -13,7 +13,7 @@
  * about the rule that runs.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -167,8 +167,48 @@ describe("no root test reads a file under site/ (#219)", () => {
           : [],
     );
 
-  it("finds no disk read of site/ anywhere under src/", () => {
-    const offenders = tsFiles(__dirname)
+  // 🔴 THE ROOTS ARE DERIVED, NOT LISTED. The first version walked `src/` only,
+  // and Codex pointed out that the root `unit` project also runs
+  // `scripts/**/*.test.ts` and `eslint-rules/**/*.test.ts` — a site read in
+  // either was invisible to the guard while still being skipped by a site-only
+  // diff. Naming those two directories here would fix today and rot on the next
+  // glob someone adds, which is the same defect a third time in this one file
+  // (a spelling remembered instead of a rule read). So the scan takes the unit
+  // project's OWN include list, the way `patternFor` takes the classifier's own
+  // patterns out of ci.yml.
+  const REPO = resolve(__dirname, "..");
+  function unitProjectRoots(): string[] {
+    const cfg = readFileSync(resolve(REPO, "vitest.config.mjs"), "utf8");
+    const unit = /name:\s*"unit",[\s\S]*?include:\s*\[([\s\S]*?)\]/.exec(cfg);
+    if (unit === null)
+      throw new Error(
+        'no `name: "unit"` project with an `include:` in vitest.config.mjs — the ' +
+          "root suite was restructured and this guard can no longer see which " +
+          "directories it must cover",
+      );
+    const globs = [...unit[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    // A glob's leading literal segment IS the directory to walk.
+    const dirs = [...new Set(globs.map((g) => g.split("/**")[0]))];
+    if (dirs.length === 0)
+      throw new Error("the unit project lists no include globs");
+    return dirs;
+  }
+
+  it("finds no disk read of site/ in ANY directory the root suite runs", () => {
+    const roots = unitProjectRoots();
+    // Sanity on the DERIVATION itself — a guard whose scan quietly resolves to
+    // nothing reports a clean repo forever. `src` must be among the roots, and
+    // every root must exist on disk, so a mis-parse yields a loud failure
+    // instead of an empty walk.
+    //
+    // ⚠️ Deliberately NOT `roots.length > 1`: narrowing the unit project back to
+    // `src/` alone is a legitimate change, and a guard that goes red on a
+    // legitimate change is a guard someone deletes.
+    expect(roots).toContain("src");
+    for (const d of roots) expect(existsSync(resolve(REPO, d))).toBe(true);
+
+    const offenders = roots
+      .flatMap((d) => tsFiles(resolve(REPO, d)))
       // THIS file is the one place a violation-SHAPED string is legal: the
       // fixture below reproduces the exact call the old grep guard missed, so
       // the guard can never narrow back to a single-line spelling. Excluding it
