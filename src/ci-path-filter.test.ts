@@ -145,18 +145,25 @@ describe("no root test reads a file under site/ (#219)", () => {
   // file and matching the whole CALL removes both.
   const CALLS =
     /\b(?:resolve|join|readFileSync|readdirSync|existsSync|statSync)\s*\(([^)]*)\)/gs;
-  // A `site/` PATH SEGMENT inside a string literal — quoted, so the bare test
-  // data at the top of this file (`["site/src/App.tsx", …]`, which the
-  // classifier is FED rather than reads) stays legal. That distinction is
-  // measured, not assumed: forbidding the mere mention of `site/` under src/
-  // fires on 3 legitimate fixtures today, and a guard with false positives is
-  // switched off, which is how the first hole survived.
-  // NB the shape: quote, then an OPTIONAL prefix that must end in a slash. The
-  // first attempt wrote `(?:^|\/)` for "start of the literal, or a slash" — but
-  // `^` anchors to the start of the whole ARGUMENT STRING, not to the position
-  // after the quote, so it never matched a literal that was not the first thing
-  // in the call. Its own fixture caught it.
-  const SITE_LITERAL = /["'`](?:[^"'`]*\/)?site\//;
+  // 🔴 NOT a pattern over the SPELLING — the path is ASSEMBLED and then judged.
+  // Three rounds of review found three spellings this guard did not match
+  // (`"../../site/"` vs a literal split across lines vs `"site", "src/foo"` as
+  // separate arguments), which is three symptoms of one cause: matching text
+  // that LOOKS like a site path instead of deciding whether the call resolves
+  // under site/. Joining the literal segments in order removes the whole class —
+  // however the author breaks the path up, the join puts it back together.
+  //
+  // What stays out of scope on purpose: an argument that is not a literal
+  // (`resolve(dir, name)`), which no static check can resolve. That is the
+  // honest limit, and it is narrow — a test reads a fixture by writing its path.
+  const literalsOf = (args: string): string[] =>
+    [...args.matchAll(/"([^"]*)"|'([^']*)'|`([^`\\$]*)`/g)].map(
+      (m) => m[1] ?? m[2] ?? m[3] ?? "",
+    );
+  /** A `site` PATH SEGMENT — not the substring, so `website/` never matches. */
+  const UNDER_SITE = /(?:^|\/)site(?:\/|$)/;
+  const readsSite = (args: string): boolean =>
+    UNDER_SITE.test(literalsOf(args).join("/"));
 
   const tsFiles = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
@@ -216,37 +223,58 @@ describe("no root test reads a file under site/ (#219)", () => {
       .filter((f) => !f.endsWith("ci-path-filter.test.ts"))
       .filter((f) => {
         const src = readFileSync(f, "utf8");
-        return [...src.matchAll(CALLS)].some(([, args]) =>
-          SITE_LITERAL.test(args),
-        );
+        return [...src.matchAll(CALLS)].some(([, args]) => readsSite(args));
       });
     // A site assertion belongs in the site suite, where the site job runs it.
     expect(offenders).toEqual([]);
   });
 
-  it("catches a site read the OLD grep guard missed (split across lines)", () => {
-    // The exact shape of the second instance, kept as a fixture so the guard can
-    // never silently narrow back to a single-line spelling.
-    const missedBefore = [
-      "const SNAPSHOT = resolve(",
-      "  __dirname,",
-      '  "..",',
-      '  "site/src/comparison/validate-overlap.json",',
-      ");",
-    ].join("\n");
-    expect(
-      [...missedBefore.matchAll(CALLS)].some(([, args]) =>
-        SITE_LITERAL.test(args),
-      ),
-    ).toBe(true);
-    // …and the legal fixture form still passes.
-    expect(SITE_LITERAL.test('["site/src/App.tsx", "site/package.json"]')).toBe(
+  // EVERY spelling review has caught, kept as a table so the guard can never
+  // narrow back to one of them. Each row is a shape that was, at some point,
+  // invisible to a version of this check.
+  it.each([
+    [
+      "single line",
+      'const p = resolve(__dirname, "../../site/src/lib/linters.ts");',
       true,
-    );
+    ],
+    [
+      "split across lines by prettier",
+      [
+        "const SNAPSHOT = resolve(",
+        "  __dirname,",
+        '  "..",',
+        '  "site/src/comparison/validate-overlap.json",',
+        ");",
+      ].join("\n"),
+      true,
+    ],
+    [
+      "site as its OWN argument",
+      'const p = resolve(__dirname, "..", "site", "src/foo.ts");',
+      true,
+    ],
+    [
+      "join, not resolve",
+      'const p = join(ROOT, "site", "package.json");',
+      true,
+    ],
+    ["read directly", 'const s = readFileSync("site/src/x.ts", "utf8");', true],
+    // …and the shapes that must STAY legal, or the guard gets switched off.
+    [
+      "bare test data the classifier is FED, not a read",
+      'const siteOnly = ["site/src/App.tsx", "site/package.json"];',
+      false,
+    ],
+    [
+      "a substring that is not a path segment",
+      'const p = resolve(ROOT, "website", "index.html");',
+      false,
+    ],
+    ["an ordinary read of a root file", 'readFileSync(CI, "utf8");', false],
+  ])("%s", (_name, source, expected) => {
     expect(
-      [...'const siteOnly = ["site/src/App.tsx"];'.matchAll(CALLS)].some(
-        ([, args]) => SITE_LITERAL.test(args),
-      ),
-    ).toBe(false);
+      [...source.matchAll(CALLS)].some(([, args]) => readsSite(args)),
+    ).toBe(expected);
   });
 });
