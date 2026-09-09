@@ -434,6 +434,19 @@ export interface RunScriptsEnv {
   readonly all: boolean;
   /** `--yes` / `--no-interactive` — agent/CI mode: never prompt. */
   readonly yes: boolean;
+  /**
+   * `--check` — VERIFY committed eval locks rather than measure. `decideLock`
+   * in check mode returns only `replay` (the recorded report, no model call) or
+   * `stale` (a failure), NEVER `run` — so this path cannot spend quota, and the
+   * quota consent below must not stand in its way.
+   *
+   * Measured 2026-09-09: the CI `eval-check` step had never once executed. With
+   * no lock committed anywhere, `eval --check` short-circuited on
+   * `anyLocksCommitted` and returned "skip"; the first repo to commit a lock got
+   * past that early return, reached this gate, and was refused exit 2. A gate
+   * that is green because it never runs is the failure this repo keeps naming.
+   */
+  readonly lockCheck: boolean;
 }
 
 /**
@@ -450,6 +463,8 @@ export function decideRunScripts(o: RunScriptsEnv): RunScriptsDecision {
   if (o.kind === "test") return { kind: "run" };
   if (o.explicitTargets) return { kind: "run" };
   if (o.all || o.yes) return { kind: "run" };
+  // Verifying a lock is not spending quota — see `lockCheck`.
+  if (o.lockCheck) return { kind: "run" };
   // A bounded no-target run (0 = no-op, 1 = a single obviously-intended eval) is
   // not the footgun; the footgun is fanning out over the whole tree.
   if (o.matchedCount <= 1) return { kind: "run" };

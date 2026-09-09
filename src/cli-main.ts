@@ -6371,6 +6371,7 @@ async function handleRunScripts(
     isTTY: (process.stdin.isTTY ?? false) && (process.stdout.isTTY ?? false),
     all: args.includes("--all"),
     yes: args.includes("--yes") || args.includes("--no-interactive"),
+    lockCheck: args.includes("--check"),
   });
   if (runDecision.kind === "refuse") {
     console.error(
