@@ -28,6 +28,9 @@ export interface ComparisonRow {
   slug?: string;
   /** Key into the measured snapshot. Absent ⇒ no competitor cell is rendered. */
   probeCase?: string;
+  /** Collapsing bucket. Thirteen flat rows read as a lint-rule dump on a marketing
+   *  page; four named groups read as an argument. Behaviour rows need none. */
+  group?: string;
   zone: Zone;
 }
 
@@ -40,6 +43,7 @@ export const ROWS: readonly ComparisonRow[] = [
       "The harness drops the tool silently. Your agent quietly cannot use it.",
     slug: "subagent-tool-contract",
     probeCase: "subagent-typod-tool",
+    group: "Tools the harness silently drops",
   },
   {
     zone: "config",
@@ -48,6 +52,7 @@ export const ROWS: readonly ComparisonRow[] = [
       "AskUserQuestion is not available to subagents. It is dropped without a word.",
     slug: "subagent-tool-contract",
     probeCase: "subagent-never-available-tool",
+    group: "Tools the harness silently drops",
   },
   {
     zone: "config",
@@ -55,6 +60,7 @@ export const ROWS: readonly ComparisonRow[] = [
     gloss: "Same silent drop, on the skill side of the harness.",
     slug: "subagent-tool-contract",
     probeCase: "skill-tool-does-not-exist",
+    group: "Tools the harness silently drops",
   },
   {
     zone: "config",
@@ -63,6 +69,7 @@ export const ROWS: readonly ComparisonRow[] = [
       "The tool can never resolve, so the step that needed it fails at runtime.",
     slug: "mcp-tool-resolves",
     probeCase: "skill-undeclared-mcp-server",
+    group: "Paths and names that point at nothing",
   },
   {
     zone: "config",
@@ -71,6 +78,7 @@ export const ROWS: readonly ComparisonRow[] = [
       "It silently falls back to the default — you are billed for a model you did not choose.",
     slug: "subagent-frontmatter",
     probeCase: "subagent-typod-model",
+    group: "Units that never register",
   },
   {
     zone: "config",
@@ -78,6 +86,7 @@ export const ROWS: readonly ComparisonRow[] = [
     gloss: "It cannot register at all, so it can never be dispatched.",
     slug: "subagent-frontmatter",
     probeCase: "subagent-missing-frontmatter",
+    group: "Units that never register",
   },
   {
     zone: "config",
@@ -86,6 +95,7 @@ export const ROWS: readonly ComparisonRow[] = [
       "You believe a tool is forbidden. The typo means it stays available.",
     slug: "disallowed-tools-contract",
     probeCase: "subagent-disallowed-tools-typo",
+    group: "Tools the harness silently drops",
   },
   {
     zone: "config",
@@ -94,6 +104,7 @@ export const ROWS: readonly ComparisonRow[] = [
       "One letter off and the hook is never wired to anything. The config is still valid.",
     slug: "hook-events",
     probeCase: "hook-typod-event",
+    group: "Paths and names that point at nothing",
   },
   {
     zone: "config",
@@ -102,6 +113,7 @@ export const ROWS: readonly ComparisonRow[] = [
       "The path parses fine. The guard you think protects you runs nothing.",
     slug: "hook-script-exists",
     probeCase: "hook-script-missing",
+    group: "Paths and names that point at nothing",
   },
   {
     zone: "config",
@@ -110,6 +122,7 @@ export const ROWS: readonly ComparisonRow[] = [
       "Fields may not parse as you intended, so the skill loads with the wrong metadata.",
     slug: "frontmatter-valid",
     probeCase: "skill-malformed-frontmatter",
+    group: "Units that never register",
   },
   {
     zone: "config",
@@ -118,6 +131,7 @@ export const ROWS: readonly ComparisonRow[] = [
       "It falls back to the directory name and first paragraph — a weak trigger surface.",
     slug: "skill-frontmatter",
     probeCase: "skill-missing-frontmatter",
+    group: "Units that never register",
   },
   {
     zone: "config",
@@ -125,6 +139,7 @@ export const ROWS: readonly ComparisonRow[] = [
     gloss: "The model cannot tell them apart, so the wrong one fires.",
     slug: "description-overlap",
     probeCase: "skill-description-overlap",
+    group: "The model picks the wrong one",
   },
   {
     zone: "config",
@@ -132,6 +147,7 @@ export const ROWS: readonly ComparisonRow[] = [
     gloss: "The step that told the agent to read it silently does nothing.",
     slug: "skill-resource-resolves",
     probeCase: "skill-resource-missing",
+    group: "Paths and names that point at nothing",
   },
 
   // ── zone: behaviour — no competitor cell, and the reason is the point ──

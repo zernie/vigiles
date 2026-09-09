@@ -81,6 +81,13 @@ function Row({ row }: { row: ComparisonRow }) {
 export function ComparisonPage() {
   const config = ROWS.filter((r) => r.zone === "config");
   const behaviour = ROWS.filter((r) => r.zone === "behaviour");
+  const groups: [string, ComparisonRow[]][] = [];
+  for (const r of config) {
+    const name = r.group ?? "Other";
+    const found = groups.find(([n]) => n === name);
+    if (found) found[1].push(r);
+    else groups.push([name, [r]]);
+  }
   const caught = config.filter(
     (r) => verdict(CASES.get(r.probeCase ?? "")).tone === "caught",
   ).length;
@@ -131,17 +138,45 @@ export function ComparisonPage() {
         </p>
         {/* ONE line, not a two-column header: at 390px the two-column version
             collapsed into a four-line stack ("VIGILES / CATCHES / EVERY / ROW"). */}
-        <p className="mt-8 border-b border-border/60 pb-3 text-sm text-foreground">
+        <p className="mt-8 text-sm text-foreground">
           vigiles catches every row below. The verdict on each is{" "}
           <code className="rounded bg-muted/60 px-1 py-0.5 font-mono text-xs">
             {snapshot.tool}
           </code>{" "}
           {snapshot.version}.
         </p>
-        <div>
-          {config.map((r) => (
-            <Row key={r.what} row={r} />
-          ))}
+
+        {/* COLLAPSED BY DEFAULT. Thirteen expanded rows read as a lint-rule dump on
+            a marketing page; four groups, each carrying its own measured tally, read
+            as an argument you can skim in seconds and open only where you care.
+            Native <details> — no JS, works without hydration, keyboard-accessible. */}
+        <div className="mt-6 space-y-3">
+          {groups.map(([name, rows]) => {
+            const hit = rows.filter(
+              (r) => verdict(CASES.get(r.probeCase ?? "")).tone === "caught",
+            ).length;
+            return (
+              <details
+                key={name}
+                className="group rounded-xl border border-border/60 bg-card/30 px-5"
+              >
+                <summary className="flex cursor-pointer list-none items-baseline justify-between gap-4 py-4">
+                  <span className="text-base font-medium text-foreground">
+                    {name}
+                  </span>
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                    {rows.length} {rows.length === 1 ? "check" : "checks"} ·{" "}
+                    {hit === 0 ? "none caught" : `${String(hit)} caught`}
+                  </span>
+                </summary>
+                <div className="pb-2">
+                  {rows.map((r) => (
+                    <Row key={r.what} row={r} />
+                  ))}
+                </div>
+              </details>
+            );
+          })}
         </div>
       </section>
 
@@ -168,7 +203,7 @@ export function ComparisonPage() {
           One command, nothing uploaded, nothing executed — a deterministic
           read.
         </p>
-        <pre className="mt-4 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 font-mono text-sm">
+        <pre className="mt-4 whitespace-pre-wrap break-words rounded-lg border border-border/60 bg-background p-3 font-mono text-sm">
           npx vigiles audit
         </pre>
       </section>
