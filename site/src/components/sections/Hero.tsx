@@ -139,6 +139,25 @@ export function Hero() {
             "MIT",
           ].join(" · ")}
         </p>
+
+        {/* The ONE line that survived the VerbStrip (deleted 2026-09-09).
+            That strip was a four-row table of audit/lint/test/eval, and Ernie
+            read it right: "feels kinda dup". Measured — of its four rows, the
+            `test` and `eval` rows repeated their own beat's kicker VERBATIM one
+            screen later, and the `audit` row repeated the demo directly above
+            it. Worse, it announced "one of four commands" and then the page
+            showed a FIFTH verb (`compile`) that the four did not contain.
+
+            Two facts in it were NOT duplicated, and they are the whole of this
+            sentence: the four verbs are one engine rather than four products,
+            and `lint` is the CI gate — the only verb with no beat of its own,
+            and the way most people actually run this. */}
+        <p className="mx-auto mt-4 max-w-2xl px-6 text-center text-sm leading-relaxed text-muted-foreground">
+          That was <code className="font-mono">audit</code>, the graded read.{" "}
+          <code className="font-mono">lint</code> runs the same deterministic
+          checks as a CI gate — and the three sections below are the questions
+          neither of them can answer.
+        </p>
       </div>
     </header>
   );

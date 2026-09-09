@@ -1,7 +1,6 @@
 import { StickyCTA } from "@/components/StickyCTA";
 import { Toaster } from "@/components/ui/toaster";
 import { Hero } from "@/components/sections/Hero";
-import { VerbStrip } from "@/components/sections/VerbStrip";
 import { MeasureTest, MeasureEval } from "@/components/sections/Measure";
 import { Guard } from "@/components/sections/Guard";
 import { Adoption } from "@/components/sections/Adoption";
@@ -23,8 +22,9 @@ import { Footer } from "@/components/Footer";
  * names a bug a plugin author has already lived through, shows what we measured
  * on a real repo, and ends in the one command that catches it:
  *
- *   Hero        audit — the graded read, played live on a repo you recognise
- *   VerbStrip   the other three commands exist; eight seconds, not a screen
+ *   Hero        audit — the graded read, played live on a repo you recognise,
+ *               closing on ONE line that names `lint` (the CI gate, the only
+ *               verb with no beat) and hands off to the three below
  *   MeasureTest test    — your safety hook: what does it actually stop?
  *   Guard       compile — a widely-copied hook blocks 2 of 7
  *   MeasureEval eval    — your skill has a description; does it fire?
@@ -36,9 +36,12 @@ import { Footer } from "@/components/Footer";
  *
  *  - `Wedge` (the four warning cards) — its cards WERE the davila7 findings the
  *    demo directly above had just rendered. The fold echoed into the report.
- *  - `VerbMap` ("One tool. Four questions.") — not deleted, DISTRIBUTED: four
- *    rows under the hero, plus the verb as each beat's mono kicker. Orientation
- *    six screens below the sections that assume it is orientation nobody read.
+ *  - `VerbMap` ("One tool. Four questions.") — DISTRIBUTED into each beat's mono
+ *    kicker. It first became a four-row `VerbStrip` under the hero; that strip
+ *    lasted one review, because three of its four rows repeated an adjacent
+ *    kicker or the demo, and its "four commands" omitted `compile`, which the
+ *    page proves one screen later. What was genuinely load-bearing — one engine,
+ *    and `lint` as the CI gate — is one sentence in the hero now.
  *  - `Docs` (a link list) — the footer already carries every link it had.
  *
  * THE ONE FORMAT every beat uses, and the reason the page reads as one site:
@@ -59,7 +62,6 @@ export function App() {
       <StickyCTA />
       <main className="min-h-screen">
         <Hero />
-        <VerbStrip />
         <MeasureTest />
         <Guard />
         <MeasureEval />
