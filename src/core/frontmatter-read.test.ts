@@ -29,6 +29,97 @@ test("a comma-list tool value splits", () => {
   assert.deepEqual(frontmatterList(fm, "tools"), ["Read", "Grep", "Bash"]);
 });
 
+test("every separator Claude Code documents splits the same way (#217)", () => {
+  // Claude Code accepts a comma-separated string, a SPACE-separated string, or a
+  // YAML list, and treats all three as equivalent. Until #217 only two of the
+  // three worked here: a space-separated fence arrived as one token matching no
+  // built-in, so a fence the harness really enforces audited as closing nothing.
+  // Reported with this table by @vlad-ryzhkov, measured against a real harness.
+  const read = (v: string): string[] | null =>
+    frontmatterList(
+      readFrontmatter(`---\nname: a\ndisallowed-tools: ${v}\n---\n`),
+      "disallowed-tools",
+    );
+  assert.deepEqual(read("WebFetch, WebSearch"), ["WebFetch", "WebSearch"]);
+  assert.deepEqual(read("WebFetch WebSearch"), ["WebFetch", "WebSearch"]);
+  assert.deepEqual(read("WebFetch,  WebSearch ,Bash"), [
+    "WebFetch",
+    "WebSearch",
+    "Bash",
+  ]);
+  // A YAML-quoted scalar whose VALUE is a space-separated list — common in the
+  // wild, and the shape that made this bug invisible: the quotes are YAML syntax,
+  // not token boundaries, so they are stripped and the value still splits.
+  assert.deepEqual(read('"Read Write Glob"'), ["Read", "Write", "Glob"]);
+});
+
+test("whitespace splits ONLY outside parens, so a bounded grant survives (#217)", () => {
+  // The half that makes the naive `split(/[,\s]+/)` wrong: `Bash(git push *)` must
+  // stay ONE token. Shredded, it matches no grant, and `bashGrantIsUnbounded()`
+  // answers "unbounded" when it cannot recognise one — so the fix for a
+  // false-CLEAN verdict would have bought a false-EXPOSED one.
+  const read = (v: string): string[] | null =>
+    frontmatterList(
+      readFrontmatter(`---\nname: a\nallowed-tools: ${v}\n---\n`),
+      "allowed-tools",
+    );
+  assert.deepEqual(read("Bash(git add *) Bash(git commit *)"), [
+    "Bash(git add *)",
+    "Bash(git commit *)",
+  ]);
+  assert.deepEqual(read("Bash(git push *), WebFetch"), [
+    "Bash(git push *)",
+    "WebFetch",
+  ]);
+  assert.deepEqual(read("[Read, Grep]"), ["Read", "Grep"]);
+  // An UNCLOSED paren keeps the rest as one token rather than fragmenting it into
+  // garbage tool names — the conservative side of a shape we cannot parse.
+  assert.deepEqual(read("Bash(git push Read"), ["Bash(git push Read"]);
+});
+
+test("a parenthesis INSIDE a quoted string is a character, not a bracket (#217)", () => {
+  // Found by the Codex review bot on the first cut of this tokenizer. A literal
+  // unmatched paren inside a grant's own command left depth at 1 after the grant
+  // closed, so every following token was swallowed into it — and on a SUBAGENT
+  // that denies a tool the author granted, the exact failure this function
+  // exists to fix. Measured before the fix: one token, `Read` lost.
+  const read = (v: string): string[] | null =>
+    frontmatterList(
+      readFrontmatter(`---\nname: a\ntools: ${v}\n---\n`),
+      "tools",
+    );
+  assert.deepEqual(read("Bash(printf '( %s' foo) Read"), [
+    "Bash(printf '( %s' foo)",
+    "Read",
+  ]);
+  // Balanced parens inside quotes self-corrected even before the fix; pinned so
+  // the common `git commit -m "feat(api): …"` shape cannot regress either.
+  assert.deepEqual(read('Bash(git commit -m "feat(api): x") Read'), [
+    'Bash(git commit -m "feat(api): x")',
+    "Read",
+  ]);
+  // 🔴 THE COUNTERWEIGHT, and why quotes gate ONLY the depth counter: if being
+  // inside quotes also suppressed SPLITTING, a quoted list would collapse back
+  // to one token — reintroducing the very bug #217 reports.
+  //
+  // It must be asserted on a MALFORMED block, and that is the whole point. On
+  // valid YAML js-yaml strips the quotes before `splitList` ever runs, so the
+  // value arrives as bare `Read Write Glob` and NO quote character is present —
+  // measured, after the first version of this assertion used a valid block and
+  // stayed green under the widening mutation, carrying zero information. Quotes
+  // reach the splitter only down the regex SALVAGE path, so that is where the
+  // property lives. (`desc:` below carries an unescaped `: ` — invalid YAML.)
+  const salvaged = frontmatterList(
+    readFrontmatter(
+      '---\nname: a\ndesc: Use the foo: bar tool\ntools: "Read Write Glob"\n---\n',
+    ),
+    "tools",
+  );
+  assert.deepEqual(salvaged, ["Read", "Write", "Glob"]);
+  // …and the same value on the valid-YAML path, where the quotes are gone by then.
+  assert.deepEqual(read('"Read Write Glob"'), ["Read", "Write", "Glob"]);
+});
+
 test("absent list key → null (inherits all); present-but-empty → [] (no tools)", () => {
   const none = readFrontmatter("---\nname: a\n---\n");
   assert.equal(frontmatterList(none, "tools"), null);

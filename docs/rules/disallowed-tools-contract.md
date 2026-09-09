@@ -49,8 +49,10 @@ The block-list **inverts** the allow check, so the FP-safe set is different from
 
 ## Scope
 
-Subagent frontmatter (`agents/*.md` `disallowedTools:`), both the comma-list and
-inline-array forms.
+Subagent frontmatter (`agents/*.md` `disallowedTools:`) in every spelling Claude
+Code accepts — a comma-separated string, a space-separated string, or a YAML
+list. Whitespace separates tokens only outside parentheses, so a bounded grant
+like `Bash(git push *)` stays one entry.
 
 > **Not the same field as a skill's `disallowed-tools:`.** A skill's fence is
 > kebab-case and lives in `SKILL.md`; it is read by

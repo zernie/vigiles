@@ -964,3 +964,21 @@ test("agent-hook CLI: PreToolUse(Task) with an unknown subagent activates nothin
     cleanupTmpDir(dir);
   }
 });
+
+test("a SPACE-separated tools: contract grants those tools at the rail (#217)", () => {
+  // The second, worse half of #217, on the surface where the contract is
+  // ENFORCED rather than reported. A skill's `allowed-tools:` only pre-approves,
+  // so a mis-split there misleads an audit; a SUBAGENT's `tools:` is the
+  // allowlist this rail denies against — so when the space-separated spelling
+  // arrived as the single token "Read Grep Glob", `includes(tool)` matched
+  // nothing and the agent was denied EVERY tool, including the three it was
+  // explicitly granted. Measured before the fix: Read DENY, Grep DENY, Bash DENY.
+  const md =
+    "---\nname: reader\ndescription: reads\ntools: Read Grep Glob\n---\nbody\n";
+  const allowed = parseAgentTools(md);
+  assert.deepEqual(allowed, ["Read", "Grep", "Glob"]);
+  assert.equal(decidePreToolUse(allowed, "Read").allow, true);
+  assert.equal(decidePreToolUse(allowed, "Grep").allow, true);
+  // …and the fence still holds for what was NOT granted.
+  assert.equal(decidePreToolUse(allowed, "Bash").allow, false);
+});

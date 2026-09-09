@@ -146,11 +146,79 @@ function salvageList(block: string, key: string): string[] | null {
   return splitList(match[1]);
 }
 
-/** Split a comma list or inline-array string into trimmed, de-quoted tokens. */
+/**
+ * Split a tool-list string into trimmed, de-quoted tokens.
+ *
+ * WHITESPACE IS A SEPARATOR, BUT ONLY AT PAREN DEPTH 0 — and that qualifier is
+ * the whole rule. Claude Code documents three equivalent spellings of
+ * `allowed-tools:`/`disallowed-tools:` (a comma-separated string, a
+ * SPACE-separated string, a YAML list), and its own documented example is
+ * space-separated with spaces INSIDE the tokens:
+ *
+ *   allowed-tools: Bash(git add *) Bash(git commit *) Bash(git status *)
+ *
+ * Until #217 this split on `,` alone, so a space-separated fence arrived as ONE
+ * token that matches no built-in name. That failed in the direction that misleads:
+ * a fence the harness really enforces was reported as closing no lethal-trifecta
+ * leg, so an author who wrote a correct fence was told it did nothing. Reported
+ * with a reproduction by @vlad-ryzhkov, measured on a 22-skill harness where the
+ * separator alone moved Safety 81 → 80 → 81.
+ *
+ * THE NAIVE FIX IS WORSE THAN THE BUG, which is why this is a tokenizer and not
+ * `split(/[,\s]+/)`: that shreds `Bash(git push *)` into `Bash(git`, `push`, `*)`,
+ * and since `bashGrantIsUnbounded()` answers "unbounded" when it cannot recognise
+ * a grant, a BOUNDED grant would start reading as an unbounded one. That is the
+ * false-exposed side of the trade `core/lethal-trifecta.ts` already reasons about
+ * — a scarier verdict for a reason the author cannot see anywhere in their file.
+ *
+ * Quotes are stripped per token AFTER splitting, never treated as a delimiter:
+ * `allowed-tools: "Read Write Glob"` is a YAML-quoted scalar whose VALUE is a
+ * space-separated list, and Claude Code splits it. Treating the quotes as token
+ * boundaries would keep exactly the bug this fixes for every skill that quotes
+ * its list.
+ */
 function splitList(raw: string): string[] {
-  return raw
-    .replace(/^\[|\]$/g, "")
-    .split(",")
-    .map((t) => t.trim().replace(/^["']|["']$/g, ""))
-    .filter((t) => t.length > 0);
+  const out: string[] = [];
+  let token = "";
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  const flush = (): void => {
+    const t = token.trim().replace(/^["']|["']$/g, "");
+    if (t.length > 0) out.push(t);
+    token = "";
+  };
+  for (const ch of raw.trim().replace(/^\[|\]$/g, "")) {
+    if (escaped) {
+      escaped = false;
+      token += ch;
+      continue;
+    }
+    if (ch === "\\" && quote !== "'") {
+      escaped = true;
+      token += ch;
+      continue;
+    }
+    if (quote === null && (ch === '"' || ch === "'")) quote = ch;
+    else if (quote === ch) quote = null;
+    // Depth tracks STRUCTURE, so a parenthesis inside a quoted string is a
+    // character, not a bracket. Without this, `Bash(printf '( %s' foo) Read`
+    // leaves depth at 1 after the grant closes and swallows `Read` into the
+    // same token — on a subagent that denies a tool the author granted, which
+    // is the exact failure this function exists to fix.
+    else if (quote === null) {
+      if (ch === "(") depth++;
+      else if (ch === ")") depth = Math.max(0, depth - 1);
+    }
+    // Quotes deliberately do NOT suppress splitting: `allowed-tools: "Read
+    // Write Glob"` is a YAML-quoted scalar whose VALUE is a space-separated
+    // list, and Claude Code splits it. The quotes come off per token below.
+    if (depth === 0 && (ch === "," || /\s/.test(ch))) {
+      flush();
+      continue;
+    }
+    token += ch;
+  }
+  flush();
+  return out;
 }
