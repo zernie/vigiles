@@ -13,8 +13,18 @@
  * about the rule that runs.
  */
 import { describe, it, expect } from "vitest";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
+import ts from "typescript";
 import { extname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 
 const CI = resolve(__dirname, "..", ".github", "workflows", "ci.yml");
@@ -117,10 +127,10 @@ describe("the changes job classifies a diff", () => {
   });
 });
 
-describe("no root test reads a file under site/ (#219)", () => {
-  // 🔴 THE INVARIANT THE FILTER RESTS ON, now checked instead of asserted in a
+describe("no root test depends on a file under site/ (#219)", () => {
+  // 🔴 THE INVARIANT THE FILTER RESTS ON, checked instead of asserted in a
   // comment. `root` goes false for a site-only diff, which is only safe while
-  // nothing outside site/ reads anything inside it. That was untrue TWICE:
+  // nothing outside site/ depends on anything inside it. That was untrue twice:
   // src/core/linter-contract.test.ts read two site files off disk (#219 deleted
   // one in a site-only PR, the root jobs were skipped, and main went red on an
   // ENOENT behind a green merge), and src/comparison-snapshot.test.ts read the
@@ -128,112 +138,159 @@ describe("no root test reads a file under site/ (#219)", () => {
   // the site imports it via the `@measured/…` alias — the dependency points the
   // other way, so a site-only diff cannot break a root test.
   //
-  // ⚠️ WHY THIS IS NODE AND NOT `grep`. The first version shelled out to
-  // `grep -rlE 'resolve\([^)]*"\.\./\.\./site/'` and MISSED the second
-  // instance for two independent reasons, either of which alone was enough:
-  //   1. grep is LINE-based, and prettier had split the call across lines —
-  //      `resolve(` and `"site/…"` are never on one line:
-  //          resolve(
-  //            __dirname,
-  //            "..",
-  //            "site/src/comparison/validate-overlap.json",
-  //          )
-  //   2. the pattern encoded ONE SPELLING of the path (`"../../site/`), so the
-  //      same path assembled from separate segments slipped through.
-  // Both are the same defect: a guard written from the spelling its author had
-  // just deleted, rather than from the shape it means to forbid. Reading the
-  // file and matching the whole CALL removes both.
-  const CALLS =
-    /\b(?:resolve|join|readFileSync|readdirSync|existsSync|statSync)\s*\(([^)]*)\)/gs;
-  // 🔴 NOT a pattern over the SPELLING — the path is ASSEMBLED and then judged.
-  // Three rounds of review found three spellings this guard did not match
-  // (`"../../site/"` vs a literal split across lines vs `"site", "src/foo"` as
-  // separate arguments), which is three symptoms of one cause: matching text
-  // that LOOKS like a site path instead of deciding whether the call resolves
-  // under site/. Joining the literal segments in order removes the whole class —
-  // however the author breaks the path up, the join puts it back together.
+  // ── WHY A PARSER, AND WHY THIS COST FIVE ROUNDS OF REVIEW ──────────────────
+  // Every earlier version matched TEXT. Review found five spellings it missed,
+  // one per round: `"../../site/"` only · a call prettier split across lines ·
+  // `"site"` as its own argument · a static import (not a call at all) · files
+  // whose extension the walk never took. Each fix was a wider pattern, i.e. a
+  // sixth spelling waiting to be found.
   //
-  // What stays out of scope on purpose: an argument that is not a literal
-  // (`resolve(dir, name)`), which no static check can resolve. That is the
-  // honest limit, and it is narrow — a test reads a fixture by writing its path.
-  /** Module specifiers — `from "…"`, `import("…")`, `require("…")`. */
-  const SPECIFIERS =
-    /\bfrom\s*["'`]([^"'`]+)["'`]|\b(?:import|require)\(\s*["'`]([^"'`]+)["'`]/g;
-  const literalsOf = (args: string): string[] =>
-    [...args.matchAll(/"([^"]*)"|'([^']*)'|`([^`\\$]*)`/g)].map(
-      (m) => m[1] ?? m[2] ?? m[3] ?? "",
-    );
-  /** A `site` PATH SEGMENT — not the substring, so `website/` never matches. */
-  const UNDER_SITE = /(?:^|\/)site(?:\/|$)/;
-  const readsSite = (args: string): boolean =>
-    UNDER_SITE.test(literalsOf(args).join("/"));
+  // They are one defect: a regex over source text does not know what a call IS.
+  // This repo already forbids exactly that — `parse-structured-input-with-a-real
+  // -parser` in CLAUDE.md, the rule that routed five markdown detectors onto one
+  // markdown-it oracle for the same reason. TypeScript is already a runtime
+  // dependency and `src/core/compile-generator.ts` already parses with it.
+  //
+  // What the AST buys that no pattern could:
+  //   · a call is a CallExpression however it is formatted or split;
+  //   · a string inside a comment, or a code sample inside a string literal, is
+  //     not a call — so the table below needs no escaping and this file needs no
+  //     self-exclusion, which the text version did require;
+  //   · imports are their own node kind, found by asking rather than by adding
+  //     another alternation.
+  const PATH_CALLS = new Set([
+    "resolve",
+    "join",
+    "readFileSync",
+    "readdirSync",
+    "existsSync",
+    "statSync",
+    "readFile",
+  ]);
 
-  const filesUnder = (dir: string, exts: readonly string[]): string[] =>
+  /** Is this path under `site/`? Segment-wise, so `website/` is not a match. */
+  const underSite = (p: string): boolean => p.split("/").includes("site");
+
+  /** The path a call assembles from its LITERAL arguments, in order. */
+  const literalPath = (args: readonly ts.Expression[]): string =>
+    args
+      .filter((a): a is ts.StringLiteralLike => ts.isStringLiteralLike(a))
+      .map((a) => a.text)
+      .join("/");
+
+  function dependsOnSite(file: string): boolean {
+    const sf = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    let hit = false;
+    const visit = (n: ts.Node): void => {
+      if (hit) return;
+      // `import x from "…"`, `export … from "…"` — a module specifier is a
+      // dependency exactly like a read, and is not a call.
+      if (
+        (ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) &&
+        n.moduleSpecifier !== undefined &&
+        ts.isStringLiteralLike(n.moduleSpecifier) &&
+        underSite(n.moduleSpecifier.text)
+      )
+        hit = true;
+      else if (ts.isCallExpression(n)) {
+        const callee = n.expression;
+        const name = ts.isPropertyAccessExpression(callee)
+          ? callee.name.text
+          : ts.isIdentifier(callee)
+            ? callee.text
+            : "";
+        const isModuleLoad =
+          callee.kind === ts.SyntaxKind.ImportKeyword || name === "require";
+        if (
+          (isModuleLoad || PATH_CALLS.has(name)) &&
+          underSite(literalPath(n.arguments))
+        )
+          hit = true;
+      }
+      if (!hit) ts.forEachChild(n, visit);
+    };
+    ts.forEachChild(sf, visit);
+    return hit;
+  }
+
+  const REPO = resolve(__dirname, "..");
+
+  /**
+   * WHICH FILES THE SKIPPED ROOT JOBS ACTUALLY RUN — READ, not parsed. The
+   * configs are modules; importing them yields the include globs as real arrays,
+   * so there is nothing to pattern-match and nothing to get wrong. The version
+   * before this one regexed the config text and its `[^"]*` ran through
+   * newlines, swallowing a 14-line comment as one absurd "glob".
+   *
+   * Both halves of each glob matter: the leading directory says where to walk,
+   * the extension says what counts as a file there. Hard-coding either is what
+   * put the vitest and Jest runner suites outside the scan.
+   */
+  async function rootSuiteGlobs(): Promise<string[]> {
+    // The specifier is COMPUTED, not a literal: a literal `.mjs` import is a
+    // tsc error here (TS7016 — no declaration file), and shipping a .d.ts for a
+    // config would be ceremony around a value we only want to read.
+    const mod: unknown = await import(
+      pathToFileURL(resolve(REPO, "vitest.config.mjs")).href
+    );
+    const jest: unknown = createRequire(resolve(REPO, "package.json"))(
+      "./jest.config.cjs",
+    );
+    // Parse, don't validate — narrow the two `unknown`s ONCE, here, and hand
+    // typed values inward. A shape that stops matching fails loudly below
+    // (`globs.length === 0`) rather than yielding an empty scan.
+    const strings = (v: unknown): string[] =>
+      Array.isArray(v)
+        ? v.filter((x): x is string => typeof x === "string")
+        : [];
+    const asRecord = (v: unknown): Record<string, unknown> =>
+      typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
+
+    const projects = asRecord(asRecord(asRecord(mod)["default"])["test"])[
+      "projects"
+    ];
+    const fromVitest = (Array.isArray(projects) ? projects : []).flatMap((p) =>
+      strings(asRecord(asRecord(p)["test"])["include"]),
+    );
+    const fromJest = strings(asRecord(jest)["testMatch"]).map((g) =>
+      g.replace("<rootDir>/", ""),
+    );
+
+    const globs = [...fromVitest, ...fromJest];
+    if (globs.length === 0)
+      throw new Error(
+        "no test globs in vitest.config.mjs / jest.config.cjs — the root suite " +
+          "was restructured and this guard can no longer see what it must cover",
+      );
+    return [...new Set(globs)];
+  }
+
+  const filesUnder = (dir: string, ext: string): string[] =>
     existsSync(dir)
       ? readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
           e.isDirectory()
-            ? filesUnder(join(dir, e.name), exts)
-            : exts.some((x) => e.name.endsWith(x))
+            ? filesUnder(join(dir, e.name), ext)
+            : e.name.endsWith(ext)
               ? [join(dir, e.name)]
               : [],
         )
       : [];
 
-  // 🔴 THE ROOTS ARE DERIVED, NOT LISTED. The first version walked `src/` only,
-  // and Codex pointed out that the root `unit` project also runs
-  // `scripts/**/*.test.ts` and `eslint-rules/**/*.test.ts` — a site read in
-  // either was invisible to the guard while still being skipped by a site-only
-  // diff. Naming those two directories here would fix today and rot on the next
-  // glob someone adds, which is the same defect a third time in this one file
-  // (a spelling remembered instead of a rule read). So the scan takes the unit
-  // project's OWN include list, the way `patternFor` takes the classifier's own
-  // patterns out of ci.yml.
-  const REPO = resolve(__dirname, "..");
-
-  /**
-   * WHICH FILES THE SKIPPED ROOT JOBS ACTUALLY RUN — read out of the configs, in
-   * full. Three rounds of review each found the scan short of the real suite (it
-   * walked `src/` only; then only the vitest `unit` project; then only `.ts`),
-   * and each time the answer was sitting in a config file. So every `include`
-   * glob in vitest.config.mjs AND jest's `testMatch` is parsed, and BOTH halves
-   * of each glob are used: its leading directory says where to walk, its
-   * extension says what counts as a file there. Hard-coding either is what put
-   * the vitest `test/runners` runners and the Jest `.cjs` ones outside the scan.
-   */
-  function rootSuiteGlobs(): string[] {
-    const read = (f: string): string => readFileSync(resolve(REPO, f), "utf8");
-    const globs = [
-      ...read("vitest.config.mjs").matchAll(/"([^"\n]*\*[^"\n]*)"/g),
-      ...read("jest.config.cjs").matchAll(/"([^"\n]*\*[^"\n]*)"/g),
-    ]
-      .map((m) => m[1].replace("<rootDir>/", ""))
-      // `exclude:` lists the same globs as `include:`; a glob appearing only as
-      // an exclusion still names a real directory, so over-scanning is safe and
-      // under-scanning is the bug. Keep them all.
-      // A glob with no directory prefix (`**/node_modules/**` from vitest's
-      // default excludes) names no place to walk.
-      .filter((g) => !g.startsWith("**/"));
-    if (globs.length === 0)
-      throw new Error(
-        "no test globs found in vitest.config.mjs / jest.config.cjs — the root " +
-          "suite was restructured and this guard can no longer see what it must cover",
-      );
-    return [...new Set(globs)];
-  }
-
-  it("finds no site dependency in ANY file the root suite runs", () => {
-    const globs = rootSuiteGlobs();
-    // Sanity on the DERIVATION itself — a guard whose scan quietly resolves to
-    // nothing reports a clean repo forever. So the parse must yield the two
-    // things it claims (a directory that exists, an extension) for every glob.
-    //
-    // ⚠️ Deliberately NO assertion on the COUNT of globs: narrowing the root
-    // suite is a legitimate change, and a guard that goes red on a legitimate
-    // change is a guard someone deletes.
+  it("finds no site dependency in ANY file the root suite runs", async () => {
+    const globs = await rootSuiteGlobs();
     const scanned = globs.map((g) => ({
       dir: g.split("/**")[0],
       ext: extname(g),
     }));
+    // Sanity on the DERIVATION — a scan that quietly resolves to nothing reports
+    // a clean repo forever. ⚠️ Deliberately NO assertion on the COUNT: narrowing
+    // the root suite is a legitimate change, and a guard that goes red on a
+    // legitimate change is a guard someone deletes.
     for (const { dir, ext } of scanned) {
       expect(existsSync(resolve(REPO, dir))).toBe(true);
       expect(ext).not.toBe("");
@@ -242,70 +299,39 @@ describe("no root test reads a file under site/ (#219)", () => {
 
     const files = [
       ...new Set(
-        scanned.flatMap(({ dir, ext }) =>
-          filesUnder(resolve(REPO, dir), [ext]),
-        ),
+        scanned.flatMap(({ dir, ext }) => filesUnder(resolve(REPO, dir), ext)),
       ),
     ];
-    // The scan must find SOMETHING, or an empty walk reads as a clean repo.
     expect(files.length).toBeGreaterThan(0);
 
-    const offenders = files
-      // THIS file is the one place violation-SHAPED strings are legal: the table
-      // below reproduces every spelling review has caught, so the guard can
-      // never narrow back to one of them. Excluding it costs nothing — it reads
-      // ci.yml and the test configs, nothing under site/.
-      .filter((f) => !f.endsWith("ci-path-filter.test.ts"))
-      .filter((f) => {
-        const src = readFileSync(f, "utf8");
-        return (
-          [...src.matchAll(CALLS)].some(([, args]) => readsSite(args)) ||
-          // A STATIC OR DYNAMIC IMPORT is the other way to depend on a site
-          // file, and it is not a call to any of the names above:
-          //   import snapshot from "../../site/fixture.json"
-          // Caught 2026-09-09 by review, after four rounds spent on the call
-          // form alone. Same verdict function, different channel.
-          [...src.matchAll(SPECIFIERS)].some(([, ...g]) =>
-            UNDER_SITE.test(g.find((x) => x !== undefined) ?? ""),
-          )
-        );
-      });
     // A site assertion belongs in the site suite, where the site job runs it.
-    expect(offenders).toEqual([]);
+    expect(files.filter(dependsOnSite)).toEqual([]);
   });
 
-  // EVERY spelling review has caught, kept as a table so the guard can never
-  // narrow back to one of them. Each row is a shape that was, at some point,
-  // invisible to a version of this check.
+  // EVERY spelling review has caught, plus the shapes that must stay legal. With
+  // a parser these are just source strings — no escaping, no self-exclusion.
   it.each([
     [
       "single line",
-      'const p = resolve(__dirname, "../../site/src/lib/linters.ts");',
+      'resolve(__dirname, "../../site/src/lib/linters.ts");',
       true,
     ],
     [
       "split across lines by prettier",
-      [
-        "const SNAPSHOT = resolve(",
-        "  __dirname,",
-        '  "..",',
-        '  "site/src/comparison/validate-overlap.json",',
-        ");",
-      ].join("\n"),
+      'resolve(\n  __dirname,\n  "..",\n  "site/src/x.json",\n);',
       true,
     ],
     [
       "site as its OWN argument",
-      'const p = resolve(__dirname, "..", "site", "src/foo.ts");',
+      'resolve(__dirname, "..", "site", "x.ts");',
       true,
     ],
-    [
-      "join, not resolve",
-      'const p = join(ROOT, "site", "package.json");',
-      true,
-    ],
-    ["read directly", 'const s = readFileSync("site/src/x.ts", "utf8");', true],
-    // …and the shapes that must STAY legal, or the guard gets switched off.
+    ["join, not resolve", 'join(ROOT, "site", "package.json");', true],
+    ["read directly", 'readFileSync("site/src/x.ts", "utf8");', true],
+    ["static import", 'import s from "../site/fixture.json";', true],
+    ["dynamic import", 'await import("../site/fixture.json");', true],
+    ["require", 'require("../site/fixture.json");', true],
+    // …and what must STAY legal, or the guard gets switched off.
     [
       "bare test data the classifier is FED, not a read",
       'const siteOnly = ["site/src/App.tsx", "site/package.json"];',
@@ -313,13 +339,28 @@ describe("no root test reads a file under site/ (#219)", () => {
     ],
     [
       "a substring that is not a path segment",
-      'const p = resolve(ROOT, "website", "index.html");',
+      'resolve(ROOT, "website");',
       false,
     ],
     ["an ordinary read of a root file", 'readFileSync(CI, "utf8");', false],
+    // The two a TEXT match could never get right, and the reason this is a parser:
+    [
+      "a site path inside a COMMENT",
+      '// resolve(__dirname, "../site/x.ts")',
+      false,
+    ],
+    [
+      "a site path inside a STRING, not a call",
+      "const sample = 'resolve(__dirname, \"../site/x.ts\")';",
+      false,
+    ],
   ])("%s", (_name, source, expected) => {
-    expect(
-      [...source.matchAll(CALLS)].some(([, args]) => readsSite(args)),
-    ).toBe(expected);
+    const f = join(tmpdir(), `vigiles-guard-${String(Math.random())}.ts`);
+    writeFileSync(f, source);
+    try {
+      expect(dependsOnSite(f)).toBe(expected);
+    } finally {
+      rmSync(f, { force: true });
+    }
   });
 });
