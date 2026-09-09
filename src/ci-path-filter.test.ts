@@ -235,8 +235,17 @@ describe("no root test depends on a file under site/ (#219)", () => {
     // The specifier is COMPUTED, not a literal: a literal `.mjs` import is a
     // tsc error here (TS7016 — no declaration file), and shipping a .d.ts for a
     // config would be ceremony around a value we only want to read.
+    // The FILENAME is discovered, not spelled. `vitest.config.mjs` is plain JS
+    // while `site/vitest.config.ts` is TypeScript — an inconsistency, not a
+    // constraint (vitest accepts either; measured 2026-09-09). Whoever settles
+    // that should not have to remember this guard.
+    const cfgName = readdirSync(REPO).find((f) =>
+      f.startsWith("vitest.config."),
+    );
+    if (cfgName === undefined)
+      throw new Error("no vitest.config.* at the repo root");
     const mod: unknown = await import(
-      pathToFileURL(resolve(REPO, "vitest.config.mjs")).href
+      pathToFileURL(resolve(REPO, cfgName)).href
     );
     const jest: unknown = createRequire(resolve(REPO, "package.json"))(
       "./jest.config.cjs",
@@ -264,7 +273,7 @@ describe("no root test depends on a file under site/ (#219)", () => {
     const globs = [...fromVitest, ...fromJest];
     if (globs.length === 0)
       throw new Error(
-        "no test globs in vitest.config.mjs / jest.config.cjs — the root suite " +
+        "no test globs in the vitest / jest configs — the root suite " +
           "was restructured and this guard can no longer see what it must cover",
       );
     return [...new Set(globs)];
