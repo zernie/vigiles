@@ -98,15 +98,17 @@ describe("LinterAdapter conformance", () => {
     // …not a reintroduced hand-typed string array of linter names.
     expect(lib).not.toMatch(/const LINTER_NAMES\s*=\s*\[\s*["']/);
 
-    // And both consumers actually read the derived lists rather than
+    // And the consumer actually reads the derived list rather than
     // reintroducing a local literal.
-    const wedge = readFileSync(
-      resolve(__dirname, "../../site/src/components/sections/Wedge.tsx"),
-      "utf8",
-    );
-    expect(wedge).toMatch(
-      /\bLINTER_NAMES\b[^;]*from\s*["']@\/lib\/linters["']/s,
-    );
+    //
+    // 🔴 THIS USED TO ASSERT TWO CONSUMERS. The second was `Wedge.tsx`, which
+    // rendered the linter strip; the 2026-09-09 landing rework (#219) deleted the
+    // section, and this test kept reading the file — so `main` went red on a
+    // deletion nothing connected back here. `LINTER_NAMES` is therefore exported
+    // and DERIVED but currently has no consumer on the site; it stays covered by
+    // `site/src/lib/linters.browser.test.ts` (the derivation itself), and this
+    // test now asserts only what a component still renders. Give the strip a home
+    // again and the assertion comes back with it.
     const hero = readFileSync(
       resolve(__dirname, "../../site/src/components/sections/Hero.tsx"),
       "utf8",
