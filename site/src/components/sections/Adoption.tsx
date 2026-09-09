@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 
 const AGENT_PROMPT = `Set up vigiles in this repo: run \`npx vigiles init\` and accept the defaults.
 If I already have a CLAUDE.md or AGENTS.md, audit it and show me which references
@@ -49,8 +48,7 @@ export function Adoption() {
       className="scroll-mt-8 border-t border-border bg-card/30"
     >
       <div className="mx-auto w-full max-w-4xl px-6 py-20 sm:py-28">
-        <div className="mx-auto max-w-2xl text-center">
-          <Badge className="mb-5">Adoption</Badge>
+        <div className="max-w-2xl">
           <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
             One command, then your agent does the rest.
           </h2>
@@ -61,7 +59,7 @@ export function Adoption() {
           </p>
         </div>
 
-        <ul className="mx-auto mt-12 max-w-2xl space-y-4">
+        <ul className="mt-10 max-w-2xl space-y-4">
           {SKILLS.map((s) => (
             <li key={s.skill} className="text-base leading-relaxed">
               <span className="font-mono text-accent">
@@ -72,12 +70,12 @@ export function Adoption() {
           ))}
         </ul>
 
-        <p className="mx-auto mt-8 max-w-2xl text-center text-sm leading-relaxed text-muted-foreground">
+        <p className="mt-8 max-w-2xl text-sm leading-relaxed text-muted-foreground">
           Hooks nudge the agent in-loop — nothing to remember.
         </p>
 
         {/* The copy-paste agent prompt — the fastest on-ramp. */}
-        <div className="reveal mx-auto mt-10 max-w-2xl">
+        <div className="reveal mt-10 max-w-2xl">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Paste into Claude Code or Codex

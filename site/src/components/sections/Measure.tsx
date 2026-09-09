@@ -68,14 +68,17 @@ function Verdict({ row }: { row: (typeof fixture.rows)[number] }) {
   );
 }
 
-export function Measure() {
+/**
+ * BEAT: test. Split out of a single `Measure` component on 2026-09-09 so the
+ * `compile` beat (Guard) can sit between test and eval — the page is ordered
+ * test · compile · eval, which is the order a reader meets the failures, not
+ * the order the sections were written.
+ */
+export function MeasureTest() {
   const { rows, spellings } = fixture;
-  // Only the prompts that did NOT reliably fire — the eight that always fire are
-  // not the story, and listing all ten is the rule-dump shape we already cut once.
-  const misses = lock.report.perPrompt.filter((p) => p.rate < 1);
   return (
     <>
-      <section className="border-t border-border/60">
+      <section id="test" className="scroll-mt-8 border-t border-border/60">
         <div className="mx-auto w-full max-w-4xl px-6 py-20 sm:py-24">
           <p className="font-mono text-xs text-primary">
             $ vigiles test · no model · free in CI
@@ -84,8 +87,9 @@ export function Measure() {
             You have a safety hook. What does it actually stop?
           </h2>
           <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-            The repo above ships one. It looks like a blanket deny — and for two
-            of these three commands, Claude Code never even calls it.
+            The repo you just watched get graded ships one. It looks like a
+            blanket deny — and for two of these three commands, Claude Code
+            never even calls it.
           </p>
 
           <div className="mt-8">
@@ -167,8 +171,18 @@ export function Measure() {
           </details>
         </div>
       </section>
+    </>
+  );
+}
 
-      <section className="border-t border-border/60">
+/** BEAT: eval — the one tier that needs a real model. */
+export function MeasureEval() {
+  // Only the prompts that did NOT reliably fire — the eight that always fire are
+  // not the story, and listing all ten is the rule-dump shape we already cut once.
+  const misses = lock.report.perPrompt.filter((p) => p.rate < 1);
+  return (
+    <>
+      <section id="eval" className="scroll-mt-8 border-t border-border/60">
         <div className="mx-auto w-full max-w-4xl px-6 py-20 sm:py-24">
           <p className="font-mono text-xs text-primary">
             $ vigiles eval · real model · your Claude subscription

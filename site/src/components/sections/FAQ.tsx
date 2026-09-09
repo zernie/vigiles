@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { ArrowRight } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 
 const FULL_FAQ = "https://github.com/zernie/vigiles/blob/main/docs/faq.md";
 
@@ -134,15 +133,14 @@ const QA: { q: string; a: ReactNode }[] = [
 export function FAQ() {
   return (
     <section id="faq" className="scroll-mt-8 border-t border-border">
-      <div className="mx-auto w-full max-w-3xl px-6 py-20 sm:py-28">
-        <div className="mx-auto max-w-2xl text-center">
-          <Badge className="mb-5">FAQ</Badge>
+      <div className="mx-auto w-full max-w-4xl px-6 py-20 sm:py-24">
+        <div className="max-w-2xl">
           <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
             Questions people ask first.
           </h2>
         </div>
 
-        <dl className="mx-auto mt-12 max-w-2xl divide-y divide-border border-t border-border">
+        <dl className="mt-10 max-w-2xl divide-y divide-border border-t border-border">
           {QA.map((item) => (
             <div key={item.q} className="py-6">
               <dt className="text-base font-semibold tracking-tight text-foreground">
@@ -155,7 +153,7 @@ export function FAQ() {
           ))}
         </dl>
 
-        <div className="mt-10 text-center">
+        <div className="mt-10">
           <a
             href={FULL_FAQ}
             target="_blank"
