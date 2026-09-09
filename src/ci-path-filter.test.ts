@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { extname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
 const CI = resolve(__dirname, "..", ".github", "workflows", "ci.yml");
@@ -156,6 +156,9 @@ describe("no root test reads a file under site/ (#219)", () => {
   // What stays out of scope on purpose: an argument that is not a literal
   // (`resolve(dir, name)`), which no static check can resolve. That is the
   // honest limit, and it is narrow — a test reads a fixture by writing its path.
+  /** Module specifiers — `from "…"`, `import("…")`, `require("…")`. */
+  const SPECIFIERS =
+    /\bfrom\s*["'`]([^"'`]+)["'`]|\b(?:import|require)\(\s*["'`]([^"'`]+)["'`]/g;
   const literalsOf = (args: string): string[] =>
     [...args.matchAll(/"([^"]*)"|'([^']*)'|`([^`\\$]*)`/g)].map(
       (m) => m[1] ?? m[2] ?? m[3] ?? "",
@@ -165,14 +168,16 @@ describe("no root test reads a file under site/ (#219)", () => {
   const readsSite = (args: string): boolean =>
     UNDER_SITE.test(literalsOf(args).join("/"));
 
-  const tsFiles = (dir: string): string[] =>
-    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-      e.isDirectory()
-        ? tsFiles(join(dir, e.name))
-        : e.name.endsWith(".ts")
-          ? [join(dir, e.name)]
-          : [],
-    );
+  const filesUnder = (dir: string, exts: readonly string[]): string[] =>
+    existsSync(dir)
+      ? readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+          e.isDirectory()
+            ? filesUnder(join(dir, e.name), exts)
+            : exts.some((x) => e.name.endsWith(x))
+              ? [join(dir, e.name)]
+              : [],
+        )
+      : [];
 
   // 🔴 THE ROOTS ARE DERIVED, NOT LISTED. The first version walked `src/` only,
   // and Codex pointed out that the root `unit` project also runs
@@ -184,46 +189,86 @@ describe("no root test reads a file under site/ (#219)", () => {
   // project's OWN include list, the way `patternFor` takes the classifier's own
   // patterns out of ci.yml.
   const REPO = resolve(__dirname, "..");
-  function unitProjectRoots(): string[] {
-    const cfg = readFileSync(resolve(REPO, "vitest.config.mjs"), "utf8");
-    const unit = /name:\s*"unit",[\s\S]*?include:\s*\[([\s\S]*?)\]/.exec(cfg);
-    if (unit === null)
+
+  /**
+   * WHICH FILES THE SKIPPED ROOT JOBS ACTUALLY RUN — read out of the configs, in
+   * full. Three rounds of review each found the scan short of the real suite (it
+   * walked `src/` only; then only the vitest `unit` project; then only `.ts`),
+   * and each time the answer was sitting in a config file. So every `include`
+   * glob in vitest.config.mjs AND jest's `testMatch` is parsed, and BOTH halves
+   * of each glob are used: its leading directory says where to walk, its
+   * extension says what counts as a file there. Hard-coding either is what put
+   * the vitest `test/runners` runners and the Jest `.cjs` ones outside the scan.
+   */
+  function rootSuiteGlobs(): string[] {
+    const read = (f: string): string => readFileSync(resolve(REPO, f), "utf8");
+    const globs = [
+      ...read("vitest.config.mjs").matchAll(/"([^"\n]*\*[^"\n]*)"/g),
+      ...read("jest.config.cjs").matchAll(/"([^"\n]*\*[^"\n]*)"/g),
+    ]
+      .map((m) => m[1].replace("<rootDir>/", ""))
+      // `exclude:` lists the same globs as `include:`; a glob appearing only as
+      // an exclusion still names a real directory, so over-scanning is safe and
+      // under-scanning is the bug. Keep them all.
+      // A glob with no directory prefix (`**/node_modules/**` from vitest's
+      // default excludes) names no place to walk.
+      .filter((g) => !g.startsWith("**/"));
+    if (globs.length === 0)
       throw new Error(
-        'no `name: "unit"` project with an `include:` in vitest.config.mjs — the ' +
-          "root suite was restructured and this guard can no longer see which " +
-          "directories it must cover",
+        "no test globs found in vitest.config.mjs / jest.config.cjs — the root " +
+          "suite was restructured and this guard can no longer see what it must cover",
       );
-    const globs = [...unit[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-    // A glob's leading literal segment IS the directory to walk.
-    const dirs = [...new Set(globs.map((g) => g.split("/**")[0]))];
-    if (dirs.length === 0)
-      throw new Error("the unit project lists no include globs");
-    return dirs;
+    return [...new Set(globs)];
   }
 
-  it("finds no disk read of site/ in ANY directory the root suite runs", () => {
-    const roots = unitProjectRoots();
+  it("finds no site dependency in ANY file the root suite runs", () => {
+    const globs = rootSuiteGlobs();
     // Sanity on the DERIVATION itself — a guard whose scan quietly resolves to
-    // nothing reports a clean repo forever. `src` must be among the roots, and
-    // every root must exist on disk, so a mis-parse yields a loud failure
-    // instead of an empty walk.
+    // nothing reports a clean repo forever. So the parse must yield the two
+    // things it claims (a directory that exists, an extension) for every glob.
     //
-    // ⚠️ Deliberately NOT `roots.length > 1`: narrowing the unit project back to
-    // `src/` alone is a legitimate change, and a guard that goes red on a
-    // legitimate change is a guard someone deletes.
-    expect(roots).toContain("src");
-    for (const d of roots) expect(existsSync(resolve(REPO, d))).toBe(true);
+    // ⚠️ Deliberately NO assertion on the COUNT of globs: narrowing the root
+    // suite is a legitimate change, and a guard that goes red on a legitimate
+    // change is a guard someone deletes.
+    const scanned = globs.map((g) => ({
+      dir: g.split("/**")[0],
+      ext: extname(g),
+    }));
+    for (const { dir, ext } of scanned) {
+      expect(existsSync(resolve(REPO, dir))).toBe(true);
+      expect(ext).not.toBe("");
+    }
+    expect(scanned.map((x) => x.dir)).toContain("src");
 
-    const offenders = roots
-      .flatMap((d) => tsFiles(resolve(REPO, d)))
-      // THIS file is the one place a violation-SHAPED string is legal: the
-      // fixture below reproduces the exact call the old grep guard missed, so
-      // the guard can never narrow back to a single-line spelling. Excluding it
-      // costs nothing — it reads ci.yml and nothing under site/.
+    const files = [
+      ...new Set(
+        scanned.flatMap(({ dir, ext }) =>
+          filesUnder(resolve(REPO, dir), [ext]),
+        ),
+      ),
+    ];
+    // The scan must find SOMETHING, or an empty walk reads as a clean repo.
+    expect(files.length).toBeGreaterThan(0);
+
+    const offenders = files
+      // THIS file is the one place violation-SHAPED strings are legal: the table
+      // below reproduces every spelling review has caught, so the guard can
+      // never narrow back to one of them. Excluding it costs nothing — it reads
+      // ci.yml and the test configs, nothing under site/.
       .filter((f) => !f.endsWith("ci-path-filter.test.ts"))
       .filter((f) => {
         const src = readFileSync(f, "utf8");
-        return [...src.matchAll(CALLS)].some(([, args]) => readsSite(args));
+        return (
+          [...src.matchAll(CALLS)].some(([, args]) => readsSite(args)) ||
+          // A STATIC OR DYNAMIC IMPORT is the other way to depend on a site
+          // file, and it is not a call to any of the names above:
+          //   import snapshot from "../../site/fixture.json"
+          // Caught 2026-09-09 by review, after four rounds spent on the call
+          // form alone. Same verdict function, different channel.
+          [...src.matchAll(SPECIFIERS)].some(([, ...g]) =>
+            UNDER_SITE.test(g.find((x) => x !== undefined) ?? ""),
+          )
+        );
       });
     // A site assertion belongs in the site suite, where the site job runs it.
     expect(offenders).toEqual([]);
