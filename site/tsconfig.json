@@ -16,6 +16,9 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
+      "@measured/validate-overlap.json": [
+        "../tools/measured/validate-overlap.json"
+      ],
       "@engine/scan-files": ["../dist/scan-files.d.ts"],
       "@engine/audit-report": ["../dist/audit-report.d.ts"],
       "@engine/spec": ["../dist/core/spec.d.ts"],

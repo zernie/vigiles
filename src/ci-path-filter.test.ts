@@ -13,8 +13,8 @@
  * about the rule that runs.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
 const CI = resolve(__dirname, "..", ".github", "workflows", "ci.yml");
@@ -120,28 +120,93 @@ describe("the changes job classifies a diff", () => {
 describe("no root test reads a file under site/ (#219)", () => {
   // 🔴 THE INVARIANT THE FILTER RESTS ON, now checked instead of asserted in a
   // comment. `root` goes false for a site-only diff, which is only safe while
-  // nothing outside site/ reads anything inside it. That was untrue once:
-  // src/core/linter-contract.test.ts read two site files off disk, #219 deleted
+  // nothing outside site/ reads anything inside it. That was untrue TWICE:
+  // src/core/linter-contract.test.ts read two site files off disk (#219 deleted
   // one in a site-only PR, the root jobs were skipped, and main went red on an
-  // ENOENT behind a green merge.
+  // ENOENT behind a green merge), and src/comparison-snapshot.test.ts read the
+  // /comparison snapshot the same way. The snapshot now lives at the root and
+  // the site imports it via the `@measured/…` alias — the dependency points the
+  // other way, so a site-only diff cannot break a root test.
+  //
+  // ⚠️ WHY THIS IS NODE AND NOT `grep`. The first version shelled out to
+  // `grep -rlE 'resolve\([^)]*"\.\./\.\./site/'` and MISSED the second
+  // instance for two independent reasons, either of which alone was enough:
+  //   1. grep is LINE-based, and prettier had split the call across lines —
+  //      `resolve(` and `"site/…"` are never on one line:
+  //          resolve(
+  //            __dirname,
+  //            "..",
+  //            "site/src/comparison/validate-overlap.json",
+  //          )
+  //   2. the pattern encoded ONE SPELLING of the path (`"../../site/`), so the
+  //      same path assembled from separate segments slipped through.
+  // Both are the same defect: a guard written from the spelling its author had
+  // just deleted, rather than from the shape it means to forbid. Reading the
+  // file and matching the whole CALL removes both.
+  const CALLS =
+    /\b(?:resolve|join|readFileSync|readdirSync|existsSync|statSync)\s*\(([^)]*)\)/gs;
+  // A `site/` PATH SEGMENT inside a string literal — quoted, so the bare test
+  // data at the top of this file (`["site/src/App.tsx", …]`, which the
+  // classifier is FED rather than reads) stays legal. That distinction is
+  // measured, not assumed: forbidding the mere mention of `site/` under src/
+  // fires on 3 legitimate fixtures today, and a guard with false positives is
+  // switched off, which is how the first hole survived.
+  // NB the shape: quote, then an OPTIONAL prefix that must end in a slash. The
+  // first attempt wrote `(?:^|\/)` for "start of the literal, or a slash" — but
+  // `^` anchors to the start of the whole ARGUMENT STRING, not to the position
+  // after the quote, so it never matched a literal that was not the first thing
+  // in the call. Its own fixture caught it.
+  const SITE_LITERAL = /["'`](?:[^"'`]*\/)?site\//;
+
+  const tsFiles = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory()
+        ? tsFiles(join(dir, e.name))
+        : e.name.endsWith(".ts")
+          ? [join(dir, e.name)]
+          : [],
+    );
+
   it("finds no disk read of site/ anywhere under src/", () => {
-    // ⚠️ `grep -rl` exits 1 when it finds NOTHING, and execFileSync THROWS on a
-    // non-zero exit — so the clean case is the throwing one. Read the exit code
-    // instead of letting it decide the test: the first version of this guard
-    // failed on an empty repo-wide search, i.e. it went red precisely when the
-    // property held.
-    let hits = "";
-    try {
-      hits = execFileSync(
-        "grep",
-        ["-rlE", 'resolve\\([^)]*"\\.\\./\\.\\./site/', resolve(__dirname)],
-        { encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] },
-      ).trim();
-    } catch (e) {
-      const status = (e as { status?: number }).status;
-      if (status !== 1) throw e; // 1 = no matches; anything else is a real failure
-    }
+    const offenders = tsFiles(__dirname)
+      // THIS file is the one place a violation-SHAPED string is legal: the
+      // fixture below reproduces the exact call the old grep guard missed, so
+      // the guard can never narrow back to a single-line spelling. Excluding it
+      // costs nothing — it reads ci.yml and nothing under site/.
+      .filter((f) => !f.endsWith("ci-path-filter.test.ts"))
+      .filter((f) => {
+        const src = readFileSync(f, "utf8");
+        return [...src.matchAll(CALLS)].some(([, args]) =>
+          SITE_LITERAL.test(args),
+        );
+      });
     // A site assertion belongs in the site suite, where the site job runs it.
-    expect(hits).toBe("");
+    expect(offenders).toEqual([]);
+  });
+
+  it("catches a site read the OLD grep guard missed (split across lines)", () => {
+    // The exact shape of the second instance, kept as a fixture so the guard can
+    // never silently narrow back to a single-line spelling.
+    const missedBefore = [
+      "const SNAPSHOT = resolve(",
+      "  __dirname,",
+      '  "..",',
+      '  "site/src/comparison/validate-overlap.json",',
+      ");",
+    ].join("\n");
+    expect(
+      [...missedBefore.matchAll(CALLS)].some(([, args]) =>
+        SITE_LITERAL.test(args),
+      ),
+    ).toBe(true);
+    // …and the legal fixture form still passes.
+    expect(SITE_LITERAL.test('["site/src/App.tsx", "site/package.json"]')).toBe(
+      true,
+    );
+    expect(
+      [...'const siteOnly = ["site/src/App.tsx"];'.matchAll(CALLS)].some(
+        ([, args]) => SITE_LITERAL.test(args),
+      ),
+    ).toBe(false);
   });
 });

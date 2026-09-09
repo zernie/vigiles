@@ -1,7 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import { checkSlugsWithPages } from "../checks/checks";
 import { ROWS, type ComparisonRow } from "./rows";
-import snapshot from "./validate-overlap.json";
+import snapshot from "@measured/validate-overlap.json";
 
 /**
  * The `/comparison` page — what breaks in an agent harness, and which tool notices.

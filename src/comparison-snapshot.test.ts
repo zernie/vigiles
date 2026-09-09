@@ -21,10 +21,14 @@ import { describe, expect, it } from "vitest";
 // tsc error (TS1470) even though vitest — which strips types — runs it happily. The
 // idiom is legal one directory over in scripts/, which is outside the build. At
 // runtime this file lives in dist/, so the repo root is one level up.
+// Root-owned ON PURPOSE. A root test must not read a file under site/: ci.yml skips the
+// root jobs for a site-only diff, so such a read merges green and breaks main (#219). The
+// snapshot is written by a root tool and asserted here, so it lives at the root and the
+// site imports it through the `@measured/…` alias. Guarded by src/ci-path-filter.test.ts.
 const SNAPSHOT = resolve(
   __dirname,
   "..",
-  "site/src/comparison/validate-overlap.json",
+  "tools/measured/validate-overlap.json",
 );
 
 interface Snapshot {
@@ -79,7 +83,7 @@ describe("the /comparison snapshot", () => {
       have,
       `The /comparison page cites ${snapshot.tool} ${snapshot.version}, but the installed Claude Code is ${installed}. ` +
         `Every measured cell on that page may now be false. Re-measure and commit:\n` +
-        `  node tools/measure-validate-overlap.mjs --json site/src/comparison/validate-overlap.json`,
+        `  node tools/measure-validate-overlap.mjs --json tools/measured/validate-overlap.json`,
     ).toBe(stamped);
   });
 });
