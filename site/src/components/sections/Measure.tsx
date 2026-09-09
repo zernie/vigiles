@@ -1,6 +1,7 @@
 import { CodeBlock } from "@/components/CodeBlock";
 import RUN_HOOK from "@/snippets/hook-test.ts?raw";
 import fixture from "./__fixtures__/davila7-guard.json";
+import lock from "./__fixtures__/tdd-trigger-rate.json";
 
 /**
  * TEST and EVAL — the two beats `audit` cannot play.
@@ -69,6 +70,9 @@ function Verdict({ row }: { row: (typeof fixture.rows)[number] }) {
 
 export function Measure() {
   const { rows, spellings } = fixture;
+  // Only the prompts that did NOT reliably fire — the eight that always fire are
+  // not the story, and listing all ten is the rule-dump shape we already cut once.
+  const misses = lock.report.perPrompt.filter((p) => p.rate < 1);
   return (
     <>
       <section className="border-t border-border/60">
@@ -111,9 +115,56 @@ export function Measure() {
 
           <CodeBlock code={RUN_HOOK} language="tsx" className="mt-8" />
           <p className="mt-3 text-sm text-muted-foreground">
-            A hook is a process: an event on stdin, exit 2 to block. No agent
-            binary, no API key, milliseconds.
+            The test lives next to the thing it tests —{" "}
+            <code className="font-mono text-xs">hooks/block-force-push.sh</code>{" "}
+            gets{" "}
+            <code className="font-mono text-xs">
+              hooks/block-force-push.harness.mjs
+            </code>
+            . One property earns that:{" "}
+            <code className="font-mono text-xs">ls</code> answers &ldquo;is this
+            tested?&rdquo; without running anything.
           </p>
+
+          {/* Collapsed on purpose. A reader who has never had a test push to their
+              real remote does not need this; the one who has, opens it. */}
+          <details className="group mt-6 rounded-xl border border-border/60 bg-card/30 px-5">
+            <summary className="cursor-pointer list-none py-4 text-base font-medium text-foreground">
+              But my hook actually does things — what stops the test doing them
+              for real?
+            </summary>
+            <div className="space-y-4 pb-5 text-sm leading-relaxed text-muted-foreground">
+              <p className="text-foreground">
+                You can throw away a temp directory. You cannot un-push a branch
+                or un-charge an API call.
+              </p>
+              <p>
+                <strong className="text-foreground">
+                  Every run is disposable.
+                </strong>{" "}
+                Each test gets a fresh throwaway working directory, so a hook
+                that writes files leaves nothing behind.
+              </p>
+              <p>
+                <strong className="text-foreground">
+                  Effects you cannot take back get intercepted, not contained.
+                </strong>{" "}
+                A tool call can be caught and asserted on without being allowed
+                to happen — you check that the agent <em>tried</em> to push,
+                while no push occurs.
+              </p>
+              <p>
+                <strong className="text-foreground">
+                  Somebody else&rsquo;s hook runs confined.
+                </strong>{" "}
+                Code you did not write executes with no network, a read-only
+                filesystem and a cleared environment. That wall is Linux
+                (bubblewrap); where the kernel features are absent vigiles
+                refuses to run foreign code rather than quietly running it
+                unconfined.
+              </p>
+            </div>
+          </details>
         </div>
       </section>
 
@@ -123,46 +174,44 @@ export function Measure() {
             $ vigiles eval · real model · your Claude subscription
           </p>
           <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-            Does the skill actually help?
+            Your skill has a description. Does it fire?
           </h2>
           <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-            Whether a description makes a skill fire, and whether its guidance
-            moves the agent at all, cannot be read off the file. It needs a
-            model to choose — so you measure it.
+            We measured a popular open-source TDD skill against ten ways of
+            asking for test-first work. Eight reached it. These two did not:
           </p>
 
-          <div className="mt-8 grid gap-px overflow-hidden rounded-xl border border-border/60 bg-border/60 sm:grid-cols-2">
-            <div className="bg-card/40 p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Claimed
-              </p>
-              <p className="mt-2 text-2xl font-bold text-muted-foreground">
-                −65% tokens
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                an unverified number in a README
-              </p>
-            </div>
-            <div className="bg-card/40 p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                Measured
-              </p>
-              <p className="mt-2 text-2xl font-bold text-foreground">−6%</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                the real number, on your own model
+          <div className="mt-8 overflow-hidden rounded-xl border border-border/60">
+            {misses.map((m) => (
+              <div
+                key={m.prompt}
+                className="flex flex-col gap-1 border-b border-border/60 bg-card/40 p-5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6"
+              >
+                <p className="whitespace-pre-wrap break-words font-mono text-sm text-foreground">
+                  {m.prompt}
+                </p>
+                <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                  fired {m.fired} of {m.trials}
+                </span>
+              </div>
+            ))}
+            <div className="bg-card/20 p-5">
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Every prompt it <em>did</em> fire on asks for something new.
+                Both of these ask for tests around code that already exists —
+                which is most of the work most people do.
               </p>
             </div>
           </div>
 
           <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Runs on the Claude subscription you already pay for, not a metered
-            API key — which is why measuring a harness is affordable at all.{" "}
-            <a
-              className="text-primary hover:underline"
-              href="https://zernie.com/blog/token-savings-wrong-number/"
-            >
-              Read the measurement →
-            </a>
+            {Math.round(lock.report.rate * 100)}% over {lock.report.n} runs (
+            {lock.report.perPrompt.length} prompts x{" "}
+            {lock.report.perPrompt[0].trials} trials, {lock.model}, measured{" "}
+            {lock.builtAt.slice(0, 10)}). Run it against your own skill and you
+            get the same shape of answer: which phrasings reach it, and which
+            quietly do not. Billed to the Claude subscription you already pay
+            for, not a metered key.
           </p>
         </div>
       </section>

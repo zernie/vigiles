@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "name": "superpowers-tdd-trigger-rate",
+  "inputsHash": "b45c96b31c5a0b45",
+  "model": "sonnet",
+  "harnessVersionKey": "2.1",
+  "evalApiVersion": 1,
+  "builtAt": "2026-09-09T01:38:23.831Z",
+  "report": {
+    "rate": 0.8333333333333334,
+    "n": 30,
+    "perPrompt": [
+      {
+        "prompt": "Add an `isEven(n)` function to utils.js — write it test-first.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "Implement a stack class in stack.js. Use TDD.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "Fix the off-by-one in paginate(); add a regression test first.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      },
+      {
+        "prompt": "Build a small LRU cache, driving it with failing tests first.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "Add a `slugify` helper — red/green/refactor please.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "Write a rate limiter; start from the tests and work outward.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "Implement currency rounding with a test-first approach.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "Add retry-with-backoff to the API client, tests leading.",
+        "fired": 1,
+        "trials": 3,
+        "rate": 0.3333333333333333
+      },
+      {
+        "prompt": "Create a debounce utility; specify behaviour as tests first.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "Parse ISO durations into seconds — write the spec before the code.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      }
+    ],
+    "competitors": 1,
+    "namespace": "superpowers",
+    "usage": {
+      "totalCostUsd": 1.6588511999999997,
+      "meanCostUsd": 0.05529503999999999,
+      "meanDurationMs": 8713.566666666668,
+      "totalInputTokens": 150,
+      "totalOutputTokens": 12317,
+      "totalCacheCreationTokens": 233925,
+      "totalCacheReadTokens": 2998406
+    }
+  }
+}

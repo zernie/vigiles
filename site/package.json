@@ -16,8 +16,9 @@
     "gen:parity": "node scripts/gen-parity-expected.mjs",
     "gen:og": "node scripts/gen-og.mjs",
     "gen:battery": "node scripts/gen-battery-expected.mjs",
-    "pretest:browser": "node scripts/gen-battery-expected.mjs && node scripts/gen-davila7-expected.mjs",
-    "gen:davila7": "node scripts/gen-davila7-expected.mjs"
+    "pretest:browser": "node scripts/gen-battery-expected.mjs && node scripts/gen-davila7-expected.mjs && node scripts/gen-eval-fixture.mjs",
+    "gen:davila7": "node scripts/gen-davila7-expected.mjs",
+    "gen:evalfixture": "node scripts/gen-eval-fixture.mjs"
   },
   "dependencies": {
     "@vigiles/report-view": "*",
