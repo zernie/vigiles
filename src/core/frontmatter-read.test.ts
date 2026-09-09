@@ -98,17 +98,18 @@ test("a parenthesis INSIDE a quoted string is a character, not a bracket (#217)"
     'Bash(git commit -m "feat(api): x")',
     "Read",
   ]);
-  // 🔴 THE COUNTERWEIGHT, and why quotes gate ONLY the depth counter: if being
-  // inside quotes also suppressed SPLITTING, a quoted list would collapse back
-  // to one token — reintroducing the very bug #217 reports.
+  // A quoted list splits on BOTH paths, valid and salvaged.
   //
-  // It must be asserted on a MALFORMED block, and that is the whole point. On
-  // valid YAML js-yaml strips the quotes before `splitList` ever runs, so the
-  // value arrives as bare `Read Write Glob` and NO quote character is present —
-  // measured, after the first version of this assertion used a valid block and
-  // stayed green under the widening mutation, carrying zero information. Quotes
-  // reach the splitter only down the regex SALVAGE path, so that is where the
-  // property lives. (`desc:` below carries an unescaped `: ` — invalid YAML.)
+  // 🔴 THIS ROW NO LONGER CARRIES THE "quotes gate depth, not splitting"
+  // COUNTERWEIGHT, and the comment that claimed it did was left standing for one
+  // commit after it stopped being true. It was written when the salvage path
+  // handed `splitList` the YAML wrapper quotes; that WAS the regression the next
+  // commit fixed (`stripWrapperQuotes`), so no quote character reaches the
+  // splitter here any more and the widening mutation cannot bite on this input.
+  // The live counterweight is the UNBALANCED-quote row in the salvage test above,
+  // where a lone `"` genuinely does reach the tokenizer. Kept here as a
+  // both-paths-agree assertion, which is what it actually proves.
+  // (`desc:` below carries an unescaped `: ` — invalid YAML.)
   const salvaged = frontmatterList(
     readFrontmatter(
       '---\nname: a\ndesc: Use the foo: bar tool\ntools: "Read Write Glob"\n---\n',
@@ -118,6 +119,41 @@ test("a parenthesis INSIDE a quoted string is a character, not a bracket (#217)"
   assert.deepEqual(salvaged, ["Read", "Write", "Glob"]);
   // …and the same value on the valid-YAML path, where the quotes are gone by then.
   assert.deepEqual(read('"Read Write Glob"'), ["Read", "Write", "Glob"]);
+});
+
+test("the SALVAGE path strips YAML wrapper quotes before tokenizing (#217)", () => {
+  // A REGRESSION this suite did not catch, found by the Codex review bot after
+  // the quote-aware depth counter landed. On valid YAML js-yaml removes a
+  // scalar's surrounding quotes; only the regex salvage handed them through, so
+  // the opening YAML quote was read as a SHELL quote, the grant's parens stopped
+  // counting as structure, and its own spaces split it. Measured before the fix:
+  //
+  //   tools: "Bash(git status *), Read"  ->  ["Bash(git","status","*)","Read"]
+  //
+  // Three phantom tool names — the exact shape #217 argued against, and in the
+  // false-EXPOSED direction. The older comma-only parser got this input right,
+  // which is what makes it a regression rather than a gap.
+  const salvaged = (v: string): string[] | null =>
+    frontmatterList(
+      // The unescaped `: ` in `description` is what makes the block invalid YAML.
+      readFrontmatter(
+        `---\nname: a\ndescription: use foo: bar\ntools: ${v}\n---\n`,
+      ),
+      "tools",
+    );
+  assert.deepEqual(salvaged('"Bash(git status *), Read"'), [
+    "Bash(git status *)",
+    "Read",
+  ]);
+  // The two paths must agree — that is the property, not just "the grant survives".
+  const viaYaml = frontmatterList(
+    readFrontmatter('---\nname: a\ntools: "Bash(git status *), Read"\n---\n'),
+    "tools",
+  );
+  assert.deepEqual(salvaged('"Bash(git status *), Read"'), viaYaml);
+  // An UNBALANCED leading quote is left alone rather than guessed at; the value
+  // still tokenizes, and the stray quote comes off per token as it always did.
+  assert.deepEqual(salvaged('"Read Write'), ["Read", "Write"]);
 });
 
 test("absent list key → null (inherits all); present-but-empty → [] (no tools)", () => {
