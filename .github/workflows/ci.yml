@@ -15,15 +15,37 @@ jobs:
   # ~15 minutes each, because the browser install wedged.
   #
   # A workflow-level `paths:` cannot express this — it decides whether to run the
-  # workflow AT ALL and says nothing about individual jobs. Hence this job: one API
-  # call, no checkout, ~10s, and an `if:` on the jobs whose inputs are disjoint from
-  # what changed.
+  # workflow AT ALL and says nothing about individual jobs. Hence this job, plus an
+  # `if:` on the jobs whose inputs are disjoint from what changed.
   #
-  # 🔴 THE RULE INSIDE: any doubt runs everything. An empty list, a failed call, a
-  # push whose `before` is all zeros (a new branch), a manual dispatch — all fall
-  # through to true. A SKIPPED job and a PASSED job look identical in the checks
-  # list, so the cost of a wrong skip is a green tick over work nobody did, while
-  # the cost of a wrong run is a few minutes.
+  # 🔴 THE RULE INSIDE: any doubt runs everything. A SKIPPED job and a PASSED job
+  # look identical in the checks list, so the cost of a wrong skip is a green tick
+  # over work nobody did, while the cost of a wrong run is a few minutes. The action
+  # errs the same way by construction — "all files are considered as added if there
+  # is no common ancestor with base branch or no previous commit", i.e. a new branch
+  # or a shallow history runs everything.
+  #
+  # ── WHY AN ACTION AND NOT OUR OWN `grep` (2026-09-09) ────────────────────────
+  # This was a hand-written shell classifier: one `gh api` call for the file list,
+  # then two `grep -qvE`, then a fallback for every way that list can come back
+  # unusable (empty, failed call, a push whose `before` is all zeros). Every one of
+  # those branches is a thing `dorny/paths-filter` already does, and does more
+  # carefully — it is the standard action for exactly this, and the edge cases were
+  # the half we wrote by hand.
+  #
+  # THE COST, stated because it is real: on a `push` the action diffs with git and
+  # therefore needs a checkout, while the old classifier needed none and finished in
+  # ~3s. On a `pull_request` it reads the REST API and still needs nothing. Push
+  # here only ever means a merge into main, so the checkout is paid once per merge
+  # and the job still rounds to the same single billable minute.
+  #
+  # 🔴 `predicate-quantifier: some-with-excludes` IS LOAD-BEARING, NOT DECORATION.
+  # Under the default `some`, patterns are OR-ed (`patterns.some(...)` in the
+  # action's own filter.ts), so `['**', '!site/**']` would match a file under site/
+  # via `**` and set root=true for a site-only diff — the exact hole this filter
+  # exists to prevent, silently. `some-with-excludes` makes a negated pattern a
+  # final exclusion: "included by >=1 pattern AND excluded by 0". Pinned by
+  # src/ci-path-filter.test.ts, which fails if the setting is missing.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -31,58 +53,46 @@ jobs:
       root: ${{ steps.f.outputs.root }}
       site: ${{ steps.f.outputs.site }}
     steps:
-      - id: f
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -u
-          files=""
-          case "${{ github.event_name }}" in
-            pull_request)
-              files=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.number }}/files" \
-                        --jq '.[].filename' 2>/dev/null || true) ;;
-            push)
-              before="${{ github.event.before }}"
-              if [ -n "$before" ] && [ "$before" != "0000000000000000000000000000000000000000" ]; then
-                files=$(gh api "repos/${{ github.repository }}/compare/$before...${{ github.sha }}" \
-                          --jq '.files[].filename' 2>/dev/null || true)
-              fi ;;
-          esac
-          if [ -z "$files" ]; then
-            echo "root=true"  >> "$GITHUB_OUTPUT"
-            echo "site=true"  >> "$GITHUB_OUTPUT"
-            echo "no usable file list for ${{ github.event_name }} — running everything"
-            exit 0
-          fi
-          echo "$files" | sed 's/^/  /'
+      # `push` ONLY — see the cost note above. Default depth is fine: the action
+      # fetches what it needs on top of it (`initial-fetch-depth`, default 100).
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push'
 
-          # `root` — everything except the site. False ONLY when every changed file
-          # is under site/, because nothing outside site/ reads anything inside it.
-          #
-          # 🔴 THAT SENTENCE WAS FALSE ONCE, AND IT COST A RED MAIN.
-          # src/core/linter-contract.test.ts read two files under site/ off disk;
-          # #219 was a site-only PR that deleted one, so these jobs were skipped,
-          # the PR merged GREEN and main broke on an ENOENT — a skipped job and a
-          # passing job are the same tick in the checks list, so nothing said so.
-          # The read is gone (that test moved to the site suite, where it belongs),
-          # and src/ci-path-filter.test.ts now FAILS if any root test reads site/
-          # again. The invariant above is checked, not asserted.
-          if echo "$files" | grep -qvE '^site/'; then root=true; else root=false; fi
+      - uses: dorny/paths-filter@v4.0.3
+        id: f
+        with:
+          predicate-quantifier: some-with-excludes
+          filters: |
+            # `root` — everything except the site. False ONLY when every changed
+            # file is under site/, because nothing outside site/ depends on
+            # anything inside it.
+            #
+            # 🔴 THAT SENTENCE WAS FALSE ONCE, AND IT COST A RED MAIN. Two root
+            # tests read files under site/ off disk; #219 was a site-only PR that
+            # deleted one, so these jobs were skipped, the PR merged GREEN and main
+            # broke on an ENOENT. Both reads are gone (#223 — one test moved to the
+            # site suite, one snapshot moved to tools/measured/ so the site imports
+            # it instead), and src/ci-path-filter.test.ts now FAILS if anything the
+            # root suite runs depends on site/ again. The invariant is checked, not
+            # asserted.
+            root:
+              - '**'
+              - '!site/**'
 
-          # `site` — the demo. It imports the built engine through three aliases
-          # (@engine/scan-files, @engine/audit-report, @engine/spec), so any src/
-          # change can reach it and must run it. What CANNOT reach it: prose and
-          # agent config. Verified 2026-08-19 by grepping the three bundles the site
-          # actually loads — the lint rule table (`DEFAULT_RULES`, `frontmatter-valid`)
-          # appears in none of them, so a rules change is invisible to the demo.
-          # Its check pages are generated from site/src/checks/checks.ts, NOT from
-          # docs/, so docs cannot reach it through the page generator either.
-          if echo "$files" | grep -qvE '^(docs/|\.claude/|[^/]*\.md$)'; then site=true; else site=false; fi
-
-          echo "root=$root" >> "$GITHUB_OUTPUT"
-          echo "site=$site" >> "$GITHUB_OUTPUT"
-          [ "$root" = true ] || echo "site-only change — the root jobs are skipped"
-          [ "$site" = true ] || echo "prose/agent-config only — the site job is skipped"
+            # `site` — the demo. It imports the built engine through three aliases
+            # (@engine/scan-files, @engine/audit-report, @engine/spec), so any src/
+            # change can reach it and must run it. What CANNOT reach it: prose and
+            # agent config. Verified 2026-08-19 by grepping the three bundles the
+            # site actually loads — the lint rule table (`DEFAULT_RULES`,
+            # `frontmatter-valid`) appears in none of them, so a rules change is
+            # invisible to the demo. Its check pages are generated from
+            # site/src/checks/checks.ts, NOT from docs/, so docs cannot reach it
+            # through the page generator either.
+            site:
+              - '**'
+              - '!docs/**'
+              - '!.claude/**'
+              - '!*.md'
 
   test:
     needs: changes
