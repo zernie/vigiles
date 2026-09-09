@@ -345,7 +345,7 @@ BUILD + TOOLING + GENERATED:
     "src/core/frontmatter-read.ts":
       "Lenient frontmatter reader — ONE reader for the SKILL.md/subagent --- block, shared by scan + the PreToolUse rail (agent-runtime), replacing three divergent hand-parsers (scan's readField +…",
     "src/core/frontmatter-read.test.ts":
-      "Lenient-reader suite (vitest): valid YAML scalars + flow array, comma-list split, absent→null vs present-empty→[], block-scalar + next-line-quoted, malformed YAML → malformed:true AND salvages a…",
+      "Lenient-reader suite (vitest): valid YAML scalars + flow array, the comma / space / YAML-list split (whitespace separates only outside parens, #217), absent→null vs present-empty→[], block-scalar + next-line-quoted, malformed YAML → malformed:true AND salvages a…",
     "src/core/hook-normalize.ts":
       "Hook settings normalization — the typed boundary (parse-don't-validate) the audit hook detectors read. normalizeHooks(raw) parses the raw settings.hooks `unknown` ONCE into a typed…",
     "src/core/hook-normalize.test.ts":

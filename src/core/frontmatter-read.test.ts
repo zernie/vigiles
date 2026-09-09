@@ -29,6 +29,54 @@ test("a comma-list tool value splits", () => {
   assert.deepEqual(frontmatterList(fm, "tools"), ["Read", "Grep", "Bash"]);
 });
 
+test("every separator Claude Code documents splits the same way (#217)", () => {
+  // Claude Code accepts a comma-separated string, a SPACE-separated string, or a
+  // YAML list, and treats all three as equivalent. Until #217 only two of the
+  // three worked here: a space-separated fence arrived as one token matching no
+  // built-in, so a fence the harness really enforces audited as closing nothing.
+  // Reported with this table by @vlad-ryzhkov, measured against a real harness.
+  const read = (v: string): string[] | null =>
+    frontmatterList(
+      readFrontmatter(`---\nname: a\ndisallowed-tools: ${v}\n---\n`),
+      "disallowed-tools",
+    );
+  assert.deepEqual(read("WebFetch, WebSearch"), ["WebFetch", "WebSearch"]);
+  assert.deepEqual(read("WebFetch WebSearch"), ["WebFetch", "WebSearch"]);
+  assert.deepEqual(read("WebFetch,  WebSearch ,Bash"), [
+    "WebFetch",
+    "WebSearch",
+    "Bash",
+  ]);
+  // A YAML-quoted scalar whose VALUE is a space-separated list — common in the
+  // wild, and the shape that made this bug invisible: the quotes are YAML syntax,
+  // not token boundaries, so they are stripped and the value still splits.
+  assert.deepEqual(read('"Read Write Glob"'), ["Read", "Write", "Glob"]);
+});
+
+test("whitespace splits ONLY outside parens, so a bounded grant survives (#217)", () => {
+  // The half that makes the naive `split(/[,\s]+/)` wrong: `Bash(git push *)` must
+  // stay ONE token. Shredded, it matches no grant, and `bashGrantIsUnbounded()`
+  // answers "unbounded" when it cannot recognise one — so the fix for a
+  // false-CLEAN verdict would have bought a false-EXPOSED one.
+  const read = (v: string): string[] | null =>
+    frontmatterList(
+      readFrontmatter(`---\nname: a\nallowed-tools: ${v}\n---\n`),
+      "allowed-tools",
+    );
+  assert.deepEqual(read("Bash(git add *) Bash(git commit *)"), [
+    "Bash(git add *)",
+    "Bash(git commit *)",
+  ]);
+  assert.deepEqual(read("Bash(git push *), WebFetch"), [
+    "Bash(git push *)",
+    "WebFetch",
+  ]);
+  assert.deepEqual(read("[Read, Grep]"), ["Read", "Grep"]);
+  // An UNCLOSED paren keeps the rest as one token rather than fragmenting it into
+  // garbage tool names — the conservative side of a shape we cannot parse.
+  assert.deepEqual(read("Bash(git push Read"), ["Bash(git push Read"]);
+});
+
 test("absent list key → null (inherits all); present-but-empty → [] (no tools)", () => {
   const none = readFrontmatter("---\nname: a\n---\n");
   assert.equal(frontmatterList(none, "tools"), null);

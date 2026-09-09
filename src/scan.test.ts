@@ -1745,6 +1745,23 @@ test("a disallowed-tools that CLOSES a leg clears the finding", () => {
   cleanupTmpDir(dir);
 });
 
+test("the SPACE-separated spelling of that same fence also clears it (#217)", () => {
+  const dir = makeTmpDir("scan-trifecta-fenced-spaces");
+  // Byte-for-byte the fence above with the commas removed — the spelling Claude
+  // Code documents and honours. It used to read as ONE token named
+  // "WebFetch WebSearch Bash", matching no built-in, so every leg still counted as
+  // supplied and the author was told their working fence closed nothing (#217).
+  write(
+    dir,
+    "skills/fenced/SKILL.md",
+    "---\nname: fenced\ndescription: A model-invocable skill that fences off the network entirely\ndisallowed-tools: WebFetch WebSearch Bash\n---\n# fenced\n",
+  );
+  const r = scanPlugin(dir);
+  assert.equal(r.skills.find((s) => s.name === "fenced")?.trifecta, null);
+  assert.equal(r.trifectaFindings.length, 0);
+  cleanupTmpDir(dir);
+});
+
 test("a PARTIAL disallowed-tools closes no leg and names the suppliers still standing", () => {
   const dir = makeTmpDir("scan-trifecta-partial-fence");
   // Denying `Read` alone leaves Grep/Glob/Bash on the private-data leg — an author
