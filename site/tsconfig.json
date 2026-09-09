@@ -18,7 +18,9 @@
       "@/*": ["./src/*"],
       "@engine/scan-files": ["../dist/scan-files.d.ts"],
       "@engine/audit-report": ["../dist/audit-report.d.ts"],
-      "@engine/spec": ["../dist/core/spec.d.ts"]
+      "@engine/spec": ["../dist/core/spec.d.ts"],
+      "vigiles": ["../dist/test.d.ts"],
+      "vigiles/eval": ["../dist/eval-surface.d.ts"]
     }
   },
   "include": ["src", "vite.config.ts", "vite.aliases.ts"]
