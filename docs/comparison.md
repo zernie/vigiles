@@ -12,22 +12,22 @@
 | **Linter config changes**              | CLAUDE.md drifts out of sync | PostToolUse hook auto-regenerates types                                                  |
 | **Spec edits**                         | N/A                          | PostToolUse hook auto-compiles to markdown                                               |
 | **guidance → enforce upgrades**        | Manual guesswork             | `/strengthen` reads per-linter docs, suggests upgrades                                   |
-| **New lint rules from PR feedback**    | Copy-paste from review       | _(planned)_ a rule-synthesis skill generates rule + tests + spec entry                   |
+| **New lint rules from PR feedback**    | Copy-paste from review       | The `pr-to-lint-rule` skill generates the rule + tests via `@vigiles/rule-enforcer`      |
 | **Does a skill/plugin actually help?** | Unknown — stars + vibes      | A/B measured on real tasks: bill + correctness ([measuring-skills](measuring-skills.md)) |
 | **CI**                                 | Nothing to verify            | `vigiles lint` catches hash drift, disabled rules, stale refs                            |
 
 ## Codex
 
-|                               | Without vigiles                  | With vigiles                                            |
-| ----------------------------- | -------------------------------- | ------------------------------------------------------- |
-| **Instructions**              | Hand-written AGENTS.md           | Compiled from `.spec.ts`                                |
-| **Linter rule references**    | Trust-based                      | Verified at compile time                                |
-| **File paths / commands**     | Rot silently                     | Checked at compile time                                 |
-| **Direct edits to AGENTS.md** | Undetected                       | CI catches hash mismatch                                |
-| **Hooks / auto-compile**      | Not available (no plugin system) | Not available — run `vigiles compile` manually or in CI |
-| **CI**                        | Nothing to verify                | Same `vigiles lint` pipeline as Claude                  |
+|                               | Without vigiles                         | With vigiles                           |
+| ----------------------------- | --------------------------------------- | -------------------------------------- |
+| **Instructions**              | Hand-written AGENTS.md                  | Compiled from `.spec.ts`               |
+| **Linter rule references**    | Trust-based                             | Verified at compile time               |
+| **File paths / commands**     | Rot silently                            | Checked at compile time                |
+| **Direct edits to AGENTS.md** | Undetected                              | CI catches hash mismatch               |
+| **Hooks**                     | Hand-written `[hooks]` in `config.toml` | Compiled to that same native TOML      |
+| **CI**                        | Nothing to verify                       | Same `vigiles lint` pipeline as Claude |
 
-Codex has no hook or plugin system. The compile-time verification and CI enforcement still work — the difference is there's no auto-recompilation on edit. You run `vigiles compile` before committing, and CI catches drift.
+Codex reads hooks from `[hooks]` in `config.toml`, and vigiles compiles to that native format — `src/adapters/codex/codex.test.ts` asserts such a block loads with `${PLUGIN_ROOT}` expanded. What is _not_ claimed here is auto-recompilation on edit: run `vigiles compile` before committing, and CI catches drift. (This row read "Codex has no hook or plugin system" until 2026-09-09, contradicted by this repo's own adapter, which declares `shellHooks: true`.)
 
 ## What's Deterministic vs What's Not
 
@@ -44,7 +44,7 @@ Codex has no hook or plugin system. The compile-time verification and CI enforce
 | Duplicate rule detection         | ✅ Yes         | Normalized Compression Distance (NCD) with fixed threshold                           |
 | Orphan docs detection            | ✅ Yes         | Scan configured doc directories for `.md` files no other markdown references         |
 | guidance → enforce suggestion    | ❌ No          | Agent reads linter docs, reasons about intent — `/strengthen` skill                  |
-| PR comment → lint rule           | ❌ No          | _(planned)_ agent generates custom rule code via a rule-synthesis skill              |
+| PR comment → lint rule           | ❌ No          | `pr-to-lint-rule` drives `@vigiles/rule-enforcer` behind its blind-gold trust gate   |
 | Spec content authoring           | ❌ No          | Agent or human writes the spec — vigiles verifies it                                 |
 
 ## What vigiles Does and Doesn't Validate in Markdown
@@ -112,7 +112,7 @@ Specs compile to `CLAUDE.md` by default; set `target: "AGENTS.md"` or
   .spec.ts ──────┤  vigiles compile         │          │  /strengthen             │
        │         │    ✓ linter rules exist   │          │    guidance → enforce    │
        │         │    ✓ rules enabled        │          │                          │
-       │         │    ✓ file paths valid     │          │  (planned)               │
+       │         │    ✓ file paths valid     │          │  /pr-to-lint-rule        │
        │         │    ✓ commands valid       │          │    rule synthesis skill  │
        │         │    → CLAUDE.md + hash     │          │                          │
        │         └─────────────────────────┘          │  /edit-spec              │
