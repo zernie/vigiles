@@ -449,6 +449,13 @@ function warnIfPathUndecidable(
  * action itself ({@link isStampRepairEvent}), and — on a LOAD failure only — the
  * load-path repair WRITE ({@link isLoadPathRepairEvent}), or the repo wedges
  * with no way to fix whatever broke the load path.
+ *
+ * INJECT-HOOK-SPECIFIC: An inject hook that fails to load is a harness failure,
+ * not a decision failure. Unlike gates (which must be conservative and block on
+ * any error), an inject is pure context addition. It degrades gracefully: if it
+ * cannot load, the session continues without the injected context, and the error
+ * is logged for debugging. This prevents a single broken inject from wedging all
+ * sessions.
  */
 export async function runHookProgramCommand(
   file: string | undefined,
@@ -488,12 +495,19 @@ export async function runHookProgramCommand(
   let program: AnyHook;
   try {
     program = await loadHookProgram(file);
-  } catch {
+  } catch (err) {
     // A LOAD failure is a fact about the harness, not a verdict about the
     // command that happened to arrive — so it must still fail CLOSED (a gate
     // that cannot run must not wave traffic through), but the two things it owes
     // the author are different from a `deny`'s: name the real cause, and leave a
     // way back.
+    //
+    // EXCEPTION: inject hooks. An inject's purpose is to ADD context, not to
+    // ENFORCE a decision. If it fails to load, the session should degrade
+    // gracefully (no context injected) rather than wedging the entire harness.
+    // This is a harness failure, not a gating decision — so we handle it by
+    // logging the error and exiting 0. Gates (file, bash, prompt, stop) remain
+    // conservative and fail closed.
     //
     // Escapes, both announced loudly on stderr:
     //   - the stale-stamp one (an edit to the hook itself / `vigiles compile`),
@@ -528,27 +542,45 @@ export async function runHookProgramCommand(
       announceRepairEscape(file, cause);
       return;
     }
-    console.error(
+
+    // Log the error, but for inject hooks, degrade gracefully (exit 0).
+    const errorMsg =
       `vigiles: hook ${file} ${cause}.\n` +
-        `vigiles: this is the state of the HARNESS, not a decision about your ` +
-        `command — the gate never ran. Blocking anyway (a gate that cannot run ` +
-        `must not pass traffic).\n` +
-        `vigiles: the way out is a FILE WRITE, not a command — under a tool that ` +
-        `WRITES (Write/Edit/MultiEdit); a Read of the same path repairs nothing ` +
-        `and is refused. Fix whichever of ` +
-        `${file}, ${HARNESS_CONFIG_FILES.join(", ")} is broken — those writes are ` +
-        `allowed even while this refuses, and a Bash gate never gated file tools ` +
-        `at all. The hook then loads and the gate decides normally again.\n` +
-        `vigiles: those paths resolve under ${process.cwd()} — plus any ancestor ` +
-        `\`package.json\` Node actually reads, so whatever is named above as the ` +
-        `cause is writable. A path in a DIFFERENT checkout is refused: it cannot ` +
-        `repair this failure.\n` +
-        `vigiles: no command is allowed, deliberately. \`git merge --abort\` and ` +
-        `\`git checkout\` RUN \`.git/hooks/*\` (measured: reference-transaction, ` +
-        `post-checkout), and \`vigiles compile\` loads the hook through the same ` +
-        `resolver that just failed.`,
-    );
-    process.exit(2);
+      `vigiles: this is the state of the HARNESS, not a decision about your ` +
+      `command — the gate never ran. Blocking anyway (a gate that cannot run ` +
+      `must not pass traffic).\n` +
+      `vigiles: the way out is a FILE WRITE, not a command — under a tool that ` +
+      `WRITES (Write/Edit/MultiEdit); a Read of the same path repairs nothing ` +
+      `and is refused. Fix whichever of ` +
+      `${file}, ${HARNESS_CONFIG_FILES.join(", ")} is broken — those writes are ` +
+      `allowed even while this refuses, and a Bash gate never gated file tools ` +
+      `at all. The hook then loads and the gate decides normally again.\n` +
+      `vigiles: those paths resolve under ${process.cwd()} — plus any ancestor ` +
+      `\`package.json\` Node actually reads, so whatever is named above as the ` +
+      `cause is writable. A path in a DIFFERENT checkout is refused: it cannot ` +
+      `repair this failure.\n` +
+      `vigiles: no command is allowed, deliberately. \`git merge --abort\` and ` +
+      `\`git checkout\` RUN \`.git/hooks/*\` (measured: reference-transaction, ` +
+      `post-checkout), and \`vigiles compile\` loads the hook through the same ` +
+      `resolver that just failed.`;
+
+    console.error(errorMsg);
+
+    // Exit code depends on hook kind. This heuristic is based on the filename —
+    // a more robust approach would parse the stamp or metadata, but that requires
+    // the hook to load. Inject hooks typically have "inject" in the name; fall
+    // back to blocking (exit 2) for safety on gates.
+    const isLikelyInject = file.includes("inject");
+    if (isLikelyInject) {
+      // Inject hook: degrade gracefully. Log the error but don't wedge the session.
+      console.error(
+        `vigiles: ${file} is an inject hook; degrading gracefully (no context injected).`,
+      );
+      process.exit(0);
+    } else {
+      // Gate hook: fail closed.
+      process.exit(2);
+    }
     return;
   }
   verifyStampOrRefuse(file, event);
