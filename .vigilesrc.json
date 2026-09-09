@@ -44,5 +44,10 @@
   "orphans": {
     "include": ["docs/**/*.md"]
   },
-  "exclude": ["bench/**", "startup/**", "rule-enforcer/**"]
+  "exclude": [
+    ".claude/worktrees/**",
+    "bench/**",
+    "startup/**",
+    "rule-enforcer/**"
+  ]
 }

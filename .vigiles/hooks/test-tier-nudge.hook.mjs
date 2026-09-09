@@ -86,7 +86,7 @@ function reminder(tier, path) {
 
 export default experimental_defineReact({
   on: "PostToolUse",
-  match: tools("Edit", "Write", "MultiEdit"),
+  match: tools("Edit", "Write"),
   needs: [state("tier.reminded")],
   react: (e) => {
     // `rel` is the repo-relative answer `under()` would have used; `raw` is the

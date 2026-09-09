@@ -434,6 +434,7 @@ const evalEnv = (o: Partial<Parameters<typeof decideRunScripts>[0]> = {}) => ({
   isTTY: false,
   all: false,
   yes: false,
+  lockCheck: false,
   ...o,
 });
 
@@ -485,6 +486,31 @@ test("decideRunScripts: bare eval over many, at a TTY → CONFIRM", () => {
       kind: "confirm",
       count: 7,
     },
+  );
+});
+
+// Both directions, because either alone is worthless here. The gate exists to
+// stop an unbounded fan-out from spending model quota; `--check` cannot spend
+// any (decideLock in check mode returns `replay` or `stale`, never `run`), so it
+// must pass the gate while a bare run over the same set is still refused.
+//
+// This is the case CI met on 2026-09-09: the `eval-check` step had never once
+// executed, because with no lock committed anywhere `eval --check` returned
+// early on `anyLocksCommitted`. The first commit of a lock reached this gate and
+// was refused exit 2 — a step that had been green only because it never ran.
+test("decideRunScripts: --check verifies locks, so it is NOT quota-gated", () => {
+  assert.deepEqual(
+    decideRunScripts(
+      evalEnv({ matchedCount: 23, isTTY: false, lockCheck: true }),
+    ),
+    { kind: "run" },
+  );
+});
+
+test("decideRunScripts: the same set WITHOUT --check is still refused", () => {
+  assert.deepEqual(
+    decideRunScripts(evalEnv({ matchedCount: 23, isTTY: false })),
+    { kind: "refuse", count: 23 },
   );
 });
 

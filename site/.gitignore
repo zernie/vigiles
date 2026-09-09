@@ -8,6 +8,7 @@ blob-report/
 .vitest-attachments/
 **/__screenshots__/
 
-# Generated static per-check pages (built by prebuild → scripts/gen-check-pages.ts).
+# Generated static pages (built by prebuild → scripts/gen-check-pages.ts).
 # Leading slash anchors to the site root so src/checks/ (the SOURCE) stays tracked.
 /checks/
+/comparison/

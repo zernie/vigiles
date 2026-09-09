@@ -149,7 +149,7 @@ export const CHECKS: Record<string, CheckDoc> = {
       "Unlike a skill, a subagent REQUIRES `name` + `description` frontmatter to register at all — without them the harness has no agent to dispatch. A `model:` or `color:` that's a close typo of a real value silently falls back to the default.",
     ],
     why: "A subagent that won't register can never be dispatched — the whole agent is dead weight. A silently-wrong model means it runs on a model you didn't choose.",
-    fix: "Add the required `name` + `description`; fix any misspelled `model`/`color` value. vigiles matches Anthropic's own `claude plugin validate` here and flags close typos of real aliases.",
+    fix: "Add the required `name` + `description`; fix any misspelled `model`/`color` value. `claude plugin validate` warns about a missing description too; a typo'd `model:` passes it clean \u2014 measured against Claude Code 2.1.263.",
     category: "Structure",
   },
 };

@@ -22,6 +22,7 @@ site/blob-report/
 # gitignored by site/.gitignore) — same class: building the site locally would
 # otherwise redden `fmt:check` on files nobody commits.
 site/checks/
+site/comparison/
 
 # Ecosystem-benchmark run artifacts (machine-written JSON) + vendored upstream
 # SKILL.md snapshots (pinned by SHA, formatted by their upstreams, not us).

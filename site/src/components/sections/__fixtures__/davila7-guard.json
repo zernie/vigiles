@@ -1,0 +1,35 @@
+{
+  "source": "experimental_verifyPluginGuards(\"test/dogfood/davila7-force-push-blocker@869640b\")",
+  "regenerate": "node scripts/gen-davila7-expected.mjs",
+  "plugin": "test/dogfood/davila7-force-push-blocker@869640b",
+  "rows": [
+    {
+      "id": "force-push",
+      "label": "git push --force to a protected branch",
+      "command": "git push --force origin main",
+      "blocked": true,
+      "ran": true,
+      "reason": "matches `git push *--force*` via `git push --force origin main`"
+    },
+    {
+      "id": "rm-rf",
+      "label": "rm -rf of a broad path",
+      "command": "rm -rf /",
+      "blocked": false,
+      "ran": false,
+      "reason": "does not match `git push *--force*` — Claude Code would not run this hook"
+    },
+    {
+      "id": "read-ssh-key",
+      "label": "read a private SSH key",
+      "command": "cat ~/.ssh/id_rsa",
+      "blocked": false,
+      "ran": false,
+      "reason": "does not match `git push *--force*` — Claude Code would not run this hook"
+    }
+  ],
+  "spellings": {
+    "fed": 44,
+    "blocked": 44
+  }
+}

@@ -352,10 +352,19 @@ jobs:
           fi
           echo "vigiles action output: valid=$got"
 
-      # Dogfood the eval staleness gate via the composite Action. This repo's
-      # real-model evals run locally (`npm run test:eval`), so no lock is
-      # committed yet — `eval-check` is a green no-op here, but it proves the
-      # action's `command: eval-check` → `eval --check` path works in CI.
+      # Dogfood the eval staleness gate via the composite Action. It now VERIFIES
+      # a real committed lock instead of no-opping: `paths` names the one eval
+      # that has one, which is what the gate's own error message prescribes for
+      # an eval without a lock ("exclude it from the --check run").
+      #
+      # 🔴 It was a NO-OP FOR ITS WHOLE LIFE, and nobody could tell. With no lock
+      # committed anywhere, `eval --check` returned early on `anyLocksCommitted`
+      # and printed "nothing to verify" — exit 0. The first commit of a lock got
+      # past that early return and the step failed twice over: once on a quota
+      # consent that should never gate a verify (fixed in run-scripts.ts), then
+      # on the 22 evals that are unnamed and unlocked. Both were invisible while
+      # the step never ran. Widen `paths` as evals earn locks; a bare `--check`
+      # here fails until every discovered eval has a name AND a committed lock.
       #
       # 🔴 Kept OUT of `npm run check` on purpose, and nearly lost by accident when
       # the consolidation below was written: it sat between two command-steps, so a
@@ -365,6 +374,7 @@ jobs:
         uses: ./
         with:
           command: eval-check
+          paths: examples/harness/skill-trigger-rate.eval.mjs
           version: local
           comment: "false"
 

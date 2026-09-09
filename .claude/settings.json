@@ -51,20 +51,20 @@
         ]
       },
       {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "npx vigiles hook-runtime run-program .vigiles/hooks/test-tier-nudge.hook.mjs"
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write|MultiEdit",
+        "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",
             "command": "npx vigiles hook-runtime run-program .vigiles/hooks/docs-drift-nudge.hook.mjs"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx vigiles hook-runtime run-program .vigiles/hooks/test-tier-nudge.hook.mjs"
           }
         ]
       }
