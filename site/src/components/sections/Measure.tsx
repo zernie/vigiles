@@ -77,11 +77,11 @@ export function Measure() {
             $ vigiles test · no model · free in CI
           </p>
           <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-            Read it. Then run it.
+            You have a safety hook. What does it actually stop?
           </h2>
           <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-            The repo above ships a force-push guard. Here is what it actually
-            decided when we fed it real destructive commands.
+            The repo above ships one. It looks like a blanket deny — and for two
+            of these three commands, Claude Code never even calls it.
           </p>
 
           <div className="mt-8">
