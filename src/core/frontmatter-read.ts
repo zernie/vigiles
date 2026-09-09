@@ -139,11 +139,35 @@ function salvageField(block: string, key: string): string | undefined {
   );
 }
 
-/** Salvage a list field from the raw block (single-line key only). */
+/** Salvage a list field from the raw block (single-line key only).
+ *
+ *  THE WRAPPER QUOTES COME OFF HERE, not in `splitList`, so both paths hand the
+ *  tokenizer the SAME shape. On valid YAML js-yaml has already removed a scalar's
+ *  surrounding quotes; only this regex salvage hands them through, and leaving
+ *  that asymmetry in place made `tools: "Bash(git status *), Read"` tokenize as
+ *  `Bash(git` · `status` · `*)` · `Read` — the opening YAML quote read as a shell
+ *  quote, so the parens stopped counting as structure and the grant's own spaces
+ *  split it. That is the phantom-tool failure #217 warned about, in the
+ *  false-EXPOSED direction (`bashGrantIsUnbounded` answers "unbounded" when it
+ *  cannot recognise a grant), and it was a REGRESSION: the older comma-only
+ *  parser recovered this input correctly.
+ *
+ *  Only a MATCHED pair is stripped, and only when it wraps the whole value — an
+ *  unbalanced leading quote is left alone rather than guessed at. */
 function salvageList(block: string, key: string): string[] | null {
   const match = new RegExp(`^${key}:[ \\t]*(.*)$`, "m").exec(block);
   if (!match) return null;
-  return splitList(match[1]);
+  return splitList(stripWrapperQuotes(match[1]));
+}
+
+/** Remove ONE matched pair of quotes wrapping an entire scalar. */
+function stripWrapperQuotes(raw: string): string {
+  const v = raw.trim();
+  const q = v[0];
+  if ((q === '"' || q === "'") && v.length >= 2 && v[v.length - 1] === q) {
+    return v.slice(1, -1);
+  }
+  return v;
 }
 
 /**
