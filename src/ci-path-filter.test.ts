@@ -116,3 +116,32 @@ describe("the changes job classifies a diff", () => {
     expect(yml).toMatch(/running everything/);
   });
 });
+
+describe("no root test reads a file under site/ (#219)", () => {
+  // 🔴 THE INVARIANT THE FILTER RESTS ON, now checked instead of asserted in a
+  // comment. `root` goes false for a site-only diff, which is only safe while
+  // nothing outside site/ reads anything inside it. That was untrue once:
+  // src/core/linter-contract.test.ts read two site files off disk, #219 deleted
+  // one in a site-only PR, the root jobs were skipped, and main went red on an
+  // ENOENT behind a green merge.
+  it("finds no disk read of site/ anywhere under src/", () => {
+    // ⚠️ `grep -rl` exits 1 when it finds NOTHING, and execFileSync THROWS on a
+    // non-zero exit — so the clean case is the throwing one. Read the exit code
+    // instead of letting it decide the test: the first version of this guard
+    // failed on an empty repo-wide search, i.e. it went red precisely when the
+    // property held.
+    let hits = "";
+    try {
+      hits = execFileSync(
+        "grep",
+        ["-rlE", 'resolve\\([^)]*"\\.\\./\\.\\./site/', resolve(__dirname)],
+        { encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] },
+      ).trim();
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+      if (status !== 1) throw e; // 1 = no matches; anything else is a real failure
+    }
+    // A site assertion belongs in the site suite, where the site job runs it.
+    expect(hits).toBe("");
+  });
+});

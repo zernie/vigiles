@@ -14,6 +14,7 @@
 import { describe, it, expect } from "vitest";
 import { BUILTIN_LINTERS } from "@engine/spec";
 import {
+  LINTER_LABELS,
   LANGUAGE_OF,
   LANGUAGES,
   LANGUAGE_ORDER,
@@ -21,6 +22,31 @@ import {
 } from "@/lib/linters";
 
 describe("the linter strip and the language chip are derived, not typed", () => {
+  // 🔴 THE ASSERTION THAT REPLACED A SOURCE-TEXT GREP (2026-09-09). A ROOT test
+  // used to read this file off disk and regex it for `BUILTIN_LINTERS.map(` and
+  // for the ABSENCE of `const LINTER_NAMES = [`. That checked the shape of the
+  // SOURCE, not the value: it broke on a rename or a reformat, it could not tell
+  // an assertion from a comment discussing one (it had already fired on exactly
+  // that), and it made a root test read a site file — which is what let a
+  // site-only PR delete the file and merge green (#219).
+  //
+  // Recomputing the derivation here is strictly stronger. A hand-typed array is
+  // no longer forbidden — it is made HARMLESS, because it must equal what the
+  // engine implies, and goes red the moment BUILTIN_LINTERS moves under it.
+  it("LINTER_NAMES equals the derivation, recomputed from the engine", () => {
+    expect(LINTER_NAMES).toEqual(
+      BUILTIN_LINTERS.map((l) => LINTER_LABELS[l] ?? l),
+    );
+  });
+
+  it("LANGUAGES equals the derivation, recomputed from the engine", () => {
+    expect(LANGUAGES).toEqual(
+      LANGUAGE_ORDER.filter((lang) =>
+        BUILTIN_LINTERS.some((l) => LANGUAGE_OF[l] === lang),
+      ),
+    );
+  });
+
   it("every shipped linter has a language decision (a value or an explicit null)", () => {
     const undecided = BUILTIN_LINTERS.filter(
       (l) => !Object.prototype.hasOwnProperty.call(LANGUAGE_OF, l),
