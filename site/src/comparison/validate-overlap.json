@@ -1,0 +1,197 @@
+{
+  "tool": "claude plugin validate",
+  "version": "2.1.266",
+  "measuredAt": "2026-09-09",
+  "command": "node tools/measure-validate-overlap.mjs --json <path>",
+  "shapes": ["plain", "plain --strict", "plugin", "plugin --strict"],
+  "cases": [
+    {
+      "id": "skill-tool-does-not-exist",
+      "rule": "subagent-tool-contract",
+      "what": "a skill declares a tool that does not exist (`Bahs`)",
+      "flagged": false,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [],
+        "plugin --strict": []
+      }
+    },
+    {
+      "id": "skill-undeclared-mcp-server",
+      "rule": "mcp-tool-resolves",
+      "what": "a skill names an MCP server the plugin never declares (`mcp__ghost__thing`)",
+      "flagged": false,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [],
+        "plugin --strict": []
+      }
+    },
+    {
+      "id": "subagent-typod-tool",
+      "rule": "subagent-tool-contract",
+      "what": "a subagent declares a typo'd tool (`Grpe`)",
+      "flagged": false,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [],
+        "plugin --strict": []
+      }
+    },
+    {
+      "id": "subagent-never-available-tool",
+      "rule": "subagent-tool-contract",
+      "what": "a subagent declares a tool a subagent can never have (`AskUserQuestion`)",
+      "flagged": false,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [],
+        "plugin --strict": []
+      }
+    },
+    {
+      "id": "subagent-typod-model",
+      "rule": "subagent-frontmatter",
+      "what": "a subagent declares a typo'd model (`sonnnet`) — silently falls back",
+      "flagged": false,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [],
+        "plugin --strict": []
+      }
+    },
+    {
+      "id": "subagent-missing-frontmatter",
+      "rule": "subagent-frontmatter",
+      "what": "a subagent with no name/description — cannot register at all",
+      "flagged": true,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [
+          "frontmatter: No frontmatter block found. Add YAML frontmatter between --- delimiters at the top of the file to set description and other metadata."
+        ],
+        "plugin --strict": [
+          "frontmatter: No frontmatter block found. Add YAML frontmatter between --- delimiters at the top of the file to set description and other metadata."
+        ]
+      }
+    },
+    {
+      "id": "subagent-disallowed-tools-typo",
+      "rule": "disallowed-tools-contract",
+      "what": "a subagent's deny-list entry is a typo (`Bahs`) — so it blocks nothing",
+      "flagged": false,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [],
+        "plugin --strict": []
+      }
+    },
+    {
+      "id": "hook-typod-event",
+      "rule": "hook-events",
+      "what": "a hook is registered on a typo'd event (`PreToolUze`) — never fires",
+      "flagged": true,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [
+          "hooks: hooks.PreToolUze: unknown hook event; entry ignored at runtime"
+        ],
+        "plugin --strict": [
+          "hooks: hooks.PreToolUze: unknown hook event; entry ignored at runtime"
+        ]
+      }
+    },
+    {
+      "id": "hook-script-missing",
+      "rule": "hook-script-exists",
+      "what": "a hook command names a script that is not on disk — silently runs nothing",
+      "flagged": false,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [],
+        "plugin --strict": []
+      }
+    },
+    {
+      "id": "skill-malformed-frontmatter",
+      "rule": "frontmatter-valid",
+      "what": "a skill's `---` block exists but is not valid YAML",
+      "flagged": false,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [],
+        "plugin --strict": []
+      }
+    },
+    {
+      "id": "skill-missing-frontmatter",
+      "rule": "skill-frontmatter",
+      "what": "a skill with no name/description — falls back to dir name + first paragraph",
+      "flagged": true,
+      "per": {
+        "plain": [
+          "frontmatter: No frontmatter block found. Add YAML frontmatter between --- delimiters at the top of the file to set description and other metadata."
+        ],
+        "plain --strict": [
+          "frontmatter: No frontmatter block found. Add YAML frontmatter between --- delimiters at the top of the file to set description and other metadata."
+        ],
+        "plugin": [
+          "frontmatter: No frontmatter block found. Add YAML frontmatter between --- delimiters at the top of the file to set description and other metadata."
+        ],
+        "plugin --strict": [
+          "frontmatter: No frontmatter block found. Add YAML frontmatter between --- delimiters at the top of the file to set description and other metadata."
+        ]
+      }
+    },
+    {
+      "id": "skill-description-overlap",
+      "rule": "description-overlap",
+      "what": "two model-invocable skills with near-identical descriptions — the selector cannot tell them apart",
+      "flagged": false,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [],
+        "plugin --strict": []
+      }
+    },
+    {
+      "id": "skill-resource-missing",
+      "rule": "skill-resource-resolves",
+      "what": "a skill body links a file that is not on disk",
+      "flagged": false,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [],
+        "plugin --strict": []
+      }
+    },
+    {
+      "id": "all-at-once",
+      "rule": "(combined)",
+      "what": "the original seven-defects-in-one-fixture run, kept so the published 0/7 and 1/7 figures stay reproducible",
+      "flagged": true,
+      "per": {
+        "plain": [],
+        "plain --strict": [],
+        "plugin": [
+          "hooks: hooks.PreToolUze: unknown hook event; entry ignored at runtime"
+        ],
+        "plugin --strict": [
+          "hooks: hooks.PreToolUze: unknown hook event; entry ignored at runtime"
+        ]
+      }
+    }
+  ]
+}

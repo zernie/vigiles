@@ -19,8 +19,16 @@ const checkPages = existsSync(checksDir)
       .filter((e) => e.isDirectory())
       .map((e) => `checks/${e.name}/index.html`)
   : [];
+// The comparison page is a sibling static entry (site/comparison/index.html, written
+// by the same prebuild generator). Guarded like checkPages so `test:browser`, which
+// does not run the generator, still resolves to just the landing.
+const comparisonPage = existsSync(
+  fileURLToPath(new URL("comparison/index.html", import.meta.url)),
+)
+  ? ["comparison/index.html"]
+  : [];
 const inputs = Object.fromEntries(
-  ["index.html", ...checkPages].map((rel) => [
+  ["index.html", ...checkPages, ...comparisonPage].map((rel) => [
     rel.replace(/\/index\.html$/, "").replace(/\.html$/, "") || "index",
     fileURLToPath(new URL(rel, import.meta.url)),
   ]),
