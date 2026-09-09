@@ -4,6 +4,44 @@ import { DemoAudit } from "@/components/sections/DemoAudit";
 
 const REPO = "https://github.com/zernie/vigiles";
 
+/**
+ * The one-line chip under the headline — its OWN component so a test can render
+ * it without mounting `Hero`, which pulls in `DemoAudit` (network on mount:
+ * `fetchStars` per featured chip, plus an idb sweep). Same move, same reason as
+ * `Guard.tsx` exporting `BATTERY_ROWS`: the consumer stays covered, the test
+ * stays deterministic.
+ *
+ * What `Hero.browser.test.ts` asserts on it: every language the engine covers is
+ * RENDERED here. That is the consumer half of the guarantee — `linters.browser
+ * .test.ts` checks the VALUE of `LANGUAGES`, this checks the page shows it. A
+ * root test used to check the same thing by regexing this file's SOURCE for an
+ * import line; that made a root job depend on a site file and let a site-only PR
+ * merge green over a broken root test (#219).
+ */
+export function HeroChip() {
+  return (
+    <p className="mt-5 px-6 text-center text-sm text-muted-foreground">
+      {[
+        "Claude Code · Codex",
+        // The languages, NAMED. This chip read "Any language · 11 linter
+        // catalogs" until 2026-09-08 — an overclaim ("any" is eleven
+        // specific ecosystems) wrapped around a term a cold visitor cannot
+        // gloss. A Python developer scanning on a phone has to see the word
+        // Python before deciding to scroll, and never did: Ruff and Pylint
+        // were named only in a strip two screens down.
+        //
+        // Still DERIVED, never typed — `LANGUAGES` is computed from the
+        // engine's `BUILTIN_LINTERS`, and `linters.browser.test.ts` fails
+        // if a shipped linter has no language decision, so a new linter
+        // cannot leave a stale list on the first screen. Same guarantee the
+        // count had; more useful answer.
+        LANGUAGES.join(" · "),
+        "MIT",
+      ].join(" · ")}
+    </p>
+  );
+}
+
 export function Hero() {
   return (
     <header className="hero-glow relative overflow-hidden">
@@ -120,25 +158,7 @@ export function Hero() {
             language, what licence — and used to be the last sentence of the
             SECOND section, where nobody deciding whether to keep reading ever
             got to it. */}
-        <p className="mt-5 px-6 text-center text-sm text-muted-foreground">
-          {[
-            "Claude Code · Codex",
-            // The languages, NAMED. This chip read "Any language · 11 linter
-            // catalogs" until 2026-09-08 — an overclaim ("any" is eleven
-            // specific ecosystems) wrapped around a term a cold visitor cannot
-            // gloss. A Python developer scanning on a phone has to see the word
-            // Python before deciding to scroll, and never did: Ruff and Pylint
-            // were named only in a strip two screens down.
-            //
-            // Still DERIVED, never typed — `LANGUAGES` is computed from the
-            // engine's `BUILTIN_LINTERS`, and `linters.browser.test.ts` fails
-            // if a shipped linter has no language decision, so a new linter
-            // cannot leave a stale list on the first screen. Same guarantee the
-            // count had; more useful answer.
-            LANGUAGES.join(" · "),
-            "MIT",
-          ].join(" · ")}
-        </p>
+        <HeroChip />
 
         {/* The ONE line that survived the VerbStrip (deleted 2026-09-09).
             That strip was a four-row table of audit/lint/test/eval, and Ernie
