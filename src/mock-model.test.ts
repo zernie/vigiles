@@ -182,12 +182,29 @@ test("extractRequest: flattens system + messages, tolerates odd shapes", () => {
           content: [
             "raw",
             { type: "text", text: "C" },
-            { type: "tool_result", content: "ignored" }, // no `text` → ""
+            // REGRESSION GUARD 2026-09-10. This line used to read
+            // `content: "ignored"` with the comment "no `text` → \"\"", i.e. the
+            // blind spot was asserted as INTENDED — which is why no run could
+            // ever find it. A PostToolUse hook's additionalContext arrives here
+            // from Claude Code >= 2.1.228; dropping it made every delivery test
+            // report a false negative. See `flattenBlock` in mock-model.ts.
+            { type: "tool_result", content: "SEEN" },
+            // A block type the pinned SDK union does not know: over-included as
+            // JSON, never silently dropped (the same asymmetry, asserted).
+            { type: "future_block_from_a_newer_api", payload: "LOUD" },
           ],
         },
       ],
     }),
-    { system: "AB", messages: [{ role: "user", text: "rawC" }] },
+    {
+      system: "AB",
+      messages: [
+        {
+          role: "user",
+          text: 'rawCSEEN{"type":"future_block_from_a_newer_api","payload":"LOUD"}',
+        },
+      ],
+    },
   );
   // missing system → ""; missing role → ""; non-array messages → []
   assert.deepEqual(extractRequest({ messages: [{ content: "x" }] }), {

@@ -9,12 +9,21 @@
  * runtime emit a payload and BELIEVE it delivered. That is the repo's own
  * `fired ≠ landed` split, one level up from the one it names.
  *
- * MEASURED 2026-09-10 (zernie/vigiles#231): Claude Code stopped delivering
- * `PostToolUse` additionalContext between 2.1.227 (last good) and 2.1.228 (first
- * bad); it is still dropped on 2.1.267. CI is green only because it pins
- * VALIDATED_CC_VERSION = 2.1.187. The hook FIRES and the harness records its
- * stdout verbatim — Claude Code ingests the payload and drops it before building
- * the model request.
+ * 🔴 THE 2026-09-10 WRITE-UP IN THIS HEADER WAS WRONG, AND THE CORRECTION IS THE
+ * POINT OF THE FILE. It read: "Claude Code stopped delivering PostToolUse
+ * additionalContext between 2.1.227 and 2.1.228; still dropped on 2.1.267."
+ * Claude Code never dropped anything. From 2.1.228 (a PATCH) the payload arrives
+ * appended to the `tool_result` block's `content` inside a `<system-reminder>`
+ * instead of as its own `text` block — both delivered. What went blind was OUR
+ * probe: `flattenContent` in src/mock-model.ts read only `.text`, so eight of the
+ * sixteen `ContentBlockParam` variants were invisible, and the blindness was
+ * asserted as intended in mock-model.test.ts. Proven by changing only the parser
+ * on one machine at claude 2.1.267: blind = "landed=false", typed = "landed=true".
+ * A false regression report against somebody else's product was one word away.
+ *
+ * SO READ A FAILURE HERE TWICE. "Not delivered" is a claim about the probe as
+ * much as about the harness. Before blaming the harness, ask what the flattener
+ * does with the block the payload arrived in.
  *
  * THE PROPERTY IS DELIBERATELY NOT "PostToolUse IS BROKEN". Encoding today's
  * accident as the expectation would make this test go red the day Anthropic fixes
@@ -184,7 +193,7 @@ try {
   const dropped = declared.filter((e) => !landed.has(e));
   if (dropped.length > 0) {
     throw new Error(
-      `claude ${version} ACCEPTED and DROPPED additionalContext on ${dropped.join(", ")} — ` +
+      `claude ${version}: additionalContext did not REACH THE MODEL on ${dropped.join(", ")} — ` +
         `the hook fired and emitted the payload, and it never reached the model, ` +
         `while ${[...landed].join(", ")} delivered in the SAME session. ` +
         `claudeCodeHookProtocol.injectableEvents still declares [${declared.join(", ")}], ` +

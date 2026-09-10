@@ -18,6 +18,10 @@
  */
 import http from "node:http";
 import type { ServerResponse } from "node:http";
+// TYPES ONLY — erased at compile time, so this stays a devDependency and never
+// enters a consumer's tree. MIT, unlike @anthropic-ai/claude-code. See the
+// comment on `flattenBlock` for what it buys and what it does not.
+import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages";
 import type { AddressInfo } from "node:net";
 
 // The trace shapes are defined in core (`src/core/harness-driver.ts`) so the
@@ -279,16 +283,92 @@ export function splitRequestCounts(requests: readonly ModelRequest[]): {
   return { count: requests.length - sideChannelCount, sideChannelCount };
 }
 
-/** Flatten Anthropic content (string, or an array of text/other blocks) to text. */
+/**
+ * Flatten one Anthropic content block to the text the MODEL actually received.
+ *
+ * WHY THIS IS A TYPED, EXHAUSTIVE SWITCH AND NOT A `.text` LOOKUP — the whole
+ * point of the file, and it was paid for. Until 2026-09-10 this read `b.text`
+ * and returned `""` for anything else. Eight of the sixteen `ContentBlockParam`
+ * variants carry their payload in `content`, not `text`, so half the union was
+ * invisible to every instrument built on `extractRequest` — `requestContains`,
+ * `refs-nudge.harness.mjs`, `injectable-events-delivery.harness.mjs`.
+ *
+ * WHAT THAT COST. Claude Code <= 2.1.227 delivered a `PostToolUse` hook's
+ * `additionalContext` as its own `text` block. From 2.1.228 (a PATCH release,
+ * 2026-08-11) it arrives appended to the `tool_result` block's `content`, inside
+ * a `<system-reminder>`. Nothing broke: the model received the payload on both
+ * versions. Our probe went blind, every test above reported "not delivered", and
+ * that false reading was written up as zernie/vigiles#231 and very nearly filed
+ * upstream as a regression in somebody else's product. MEASURED both ways on one
+ * machine, claude 2.1.267, changing only this function: blind = "landed=false",
+ * typed = "landed=true".
+ *
+ * WHAT THE TYPE BUYS, precisely — it is NOT a change detector:
+ *   - it does NOT notice a payload moving between fields the type already allows
+ *     (`ToolResultBlockParam.content` predates the relocation; nothing changed);
+ *   - it DOES make a silently-unhandled variant impossible: the `never` binding
+ *     below fails `tsc` until every case is written out, so the seventeenth
+ *     block type Anthropic ships breaks the BUILD instead of quietly emptying a
+ *     measurement.
+ *
+ * WHY THE DEFAULT SERIALISES INSTEAD OF RETURNING `""`. This is a measurement
+ * instrument, and its proven failure mode is the FALSE NEGATIVE — a payload that
+ * was there, reported missing. So an unrecognised block is over-included (its
+ * JSON) rather than dropped: a stale pin then costs a noisy match, never a
+ * silent hole. That asymmetry is deliberate; do not "tidy" it to `""`.
+ *
+ * The repo's `assertNever` is deliberately NOT used: it throws, and this parses
+ * untrusted wire JSON where an unknown block must degrade, not crash.
+ */
+function flattenBlock(b: ContentBlockParam): string {
+  switch (b.type) {
+    case "text":
+      return b.text;
+    case "thinking":
+      return b.thinking;
+    // The eight that carry `content` — the family this function was blind to.
+    case "tool_result":
+    case "search_result":
+    case "web_search_tool_result":
+    case "web_fetch_tool_result":
+    case "code_execution_tool_result":
+    case "bash_code_execution_tool_result":
+    case "text_editor_code_execution_tool_result":
+    case "tool_search_tool_result":
+      return b.content === undefined ? "" : flattenContent(b.content);
+    case "document":
+      return [b.title, b.context]
+        .filter((x) => typeof x === "string")
+        .join("\n");
+    // The model's own call, not context delivered TO it — kept out of
+    // `requestContains` on purpose so a needle in a tool ARGUMENT is never read
+    // as "the model was told this".
+    case "tool_use":
+    case "server_tool_use":
+      return "";
+    // Genuinely carry no text.
+    case "image":
+    case "redacted_thinking":
+    case "container_upload":
+      return "";
+    default: {
+      // Compile-time: unreachable, and that is the guard — a new variant makes
+      // this assignment fail. Run-time: reachable via wire JSON from a newer
+      // API than the pinned types, so it degrades loudly instead of throwing.
+      const unhandled: never = b;
+      return JSON.stringify(unhandled);
+    }
+  }
+}
+
+/** Flatten Anthropic content (string, or an array of blocks) to text. */
 function flattenContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .map((b) => {
-      if (typeof b === "string") return b;
-      const t = (b as { text?: unknown }).text;
-      return typeof t === "string" ? t : "";
-    })
+    .map((b) =>
+      typeof b === "string" ? b : flattenBlock(b as ContentBlockParam),
+    )
     .join("");
 }
 
