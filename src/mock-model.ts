@@ -337,9 +337,11 @@ function flattenBlock(b: ContentBlockParam): string {
     case "tool_search_tool_result":
       return b.content === undefined ? "" : flattenContent(b.content);
     case "document":
-      return [b.title, b.context]
-        .filter((x) => typeof x === "string")
-        .join("\n");
+      // Its readable text is spread across `title`, `context` AND `source`
+      // (`PlainTextSource.data`, `ContentBlockSource.content`), so it is walked
+      // rather than read field by field. A base64 source is skipped by
+      // `flattenUnknown`: it is an opaque blob by construction.
+      return flattenUnknown(b);
     // The model's own call, not context delivered TO it — kept out of
     // `requestContains` on purpose so a needle in a tool ARGUMENT is never read
     // as "the model was told this".
@@ -361,10 +363,47 @@ function flattenBlock(b: ContentBlockParam): string {
   }
 }
 
-/** Flatten Anthropic content (string, or an array of blocks) to text. */
+/**
+ * Flatten an arbitrary wire payload to text by walking every string leaf.
+ *
+ * WHY A GENERIC WALK AND NOT ONE MORE NAMED FIELD. The first version of
+ * `flattenBlock` grouped eight variants as "the ones that carry `content`" and
+ * handed each to `flattenContent`, which accepts only a string or an array.
+ * Six of those eight carry an OBJECT there — `web_fetch_tool_result`,
+ * `web_search_tool_result`, `code_execution_tool_result`,
+ * `bash_code_execution_tool_result`, `text_editor_code_execution_tool_result`,
+ * `tool_search_tool_result` — so they still flattened to "". The grouping was
+ * made on the field's NAME while the defect lives in its TYPE, which is the
+ * same mistake, one level up, as the `.text`-only read it replaced. Found by
+ * review on this PR, not by a run (zernie/vigiles#233).
+ *
+ * And no single field would have fixed it: the payload's text sits at a
+ * different key in each shape — `stdout`/`stderr` on a bash result, a nested
+ * `content` document on a fetch result, `data` on a plain-text source. Keying
+ * on any one of them re-commits the shape assumption. Walking commits to none.
+ */
+function flattenUnknown(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v.map(flattenUnknown).join("");
+  if (typeof v !== "object" || v === null) return "";
+  const o = v as Record<string, unknown>;
+  // A base64 source is bytes, not text. Including it would bury every real
+  // match under megabytes of encoding — the one over-inclusion that costs more
+  // than the false negative it avoids.
+  if (o.type === "base64") return "";
+  return Object.entries(o)
+    .filter(([k]) => k !== "type" && k !== "media_type") // discriminators
+    .map(([, val]) => flattenUnknown(val))
+    .join("");
+}
+
+/**
+ * Flatten Anthropic content to text: a string, an array of blocks, or the
+ * OBJECT a server-tool result carries (see `flattenUnknown`).
+ */
 function flattenContent(content: unknown): string {
   if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
+  if (!Array.isArray(content)) return flattenUnknown(content);
   return content
     .map((b) =>
       typeof b === "string" ? b : flattenBlock(b as ContentBlockParam),
