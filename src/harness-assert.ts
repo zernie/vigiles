@@ -515,7 +515,17 @@ function requestText(trace: Trace): string {
  * Did ANY request the model received contain `needle` — searching the system
  * prompt and every message across all requests? The predicate that proves
  * injected context *reached the model*: a SessionStart hook's `additionalContext`
- * or a slash command's expansion. Harness tier only — the eval tier drives the
+ * or a slash command's expansion.
+ *
+ * THIS IS A PROJECTION OF THE REQUEST, NOT THE REQUEST — state what it omits
+ * before building a claim on it. Until 2026-09-10 this sentence was false: the
+ * flattener read only `.text`, so the eight `ContentBlockParam` variants that
+ * carry `content` were invisible, and a payload Claude Code had delivered inside
+ * a `tool_result` read as "never arrived" (zernie/vigiles#231, a false finding).
+ * It now covers every block type the pinned SDK union names, and serialises any
+ * it does not. STILL OMITTED BY DESIGN: `tool_use` / `server_tool_use` inputs —
+ * those are what the model SAID, not what it was TOLD, so a needle in a tool
+ * argument must not read as delivery. See `flattenBlock` in mock-model.ts. Harness tier only — the eval tier drives the
  * real API, so its `modelRequests` (and this) is empty. Behind `assertRequestContains`.
  */
 export function requestContains(

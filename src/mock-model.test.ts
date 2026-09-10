@@ -182,12 +182,154 @@ test("extractRequest: flattens system + messages, tolerates odd shapes", () => {
           content: [
             "raw",
             { type: "text", text: "C" },
-            { type: "tool_result", content: "ignored" }, // no `text` → ""
+            // REGRESSION GUARD 2026-09-10. This line used to read
+            // `content: "ignored"` with the comment "no `text` → \"\"", i.e. the
+            // blind spot was asserted as INTENDED — which is why no run could
+            // ever find it. A PostToolUse hook's additionalContext arrives here
+            // from Claude Code >= 2.1.228; dropping it made every delivery test
+            // report a false negative. See `flattenBlock` in mock-model.ts.
+            { type: "tool_result", content: "SEEN" },
+            // `content` is OPTIONAL on a tool_result: absent contributes
+            // nothing, and is not the same as an unparsed shape.
+            { type: "tool_result" },
+            // A block type the pinned SDK union does not know: over-included as
+            // JSON, never silently dropped (the same asymmetry, asserted).
+            { type: "future_block_from_a_newer_api", payload: "LOUD" },
           ],
         },
       ],
     }),
-    { system: "AB", messages: [{ role: "user", text: "rawC" }] },
+    {
+      system: "AB",
+      messages: [
+        {
+          role: "user",
+          text: 'rawCSEEN{"type":"future_block_from_a_newer_api","payload":"LOUD"}',
+        },
+      ],
+    },
+  );
+  // The REST of the union, so no branch of the exhaustive switch in
+  // `flattenBlock` is one only tsc has ever seen. Coverage is the point: a case
+  // that no run exercises is a case whose behaviour nobody has checked, and this
+  // function's whole defect was a family of blocks silently flattening to "".
+  //   - `thinking` IS context the model was given → its text counts;
+  //   - `document` contributes its human-readable title/context, and one with
+  //     neither contributes nothing (the filter's other branch);
+  //   - `image` / `redacted_thinking` / `container_upload` carry no text;
+  //   - `tool_use` is the model's OWN call, not context delivered TO it, so a
+  //     needle in a tool ARGUMENT must never read as "the model was told this".
+  //     That exclusion is deliberate and asserted here, not merely commented.
+  assert.deepEqual(
+    extractRequest({
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "THOUGHT" },
+            // A search result's `title` and `source` sit BESIDE its `content`
+            // and are shown to the model just the same.
+            {
+              type: "search_result",
+              title: "TTL",
+              source: "SRC",
+              content: [{ type: "text", text: "SNIP" }],
+            },
+            // A citation's quoted text is text the model was shown too.
+            {
+              type: "text",
+              text: "CITED:",
+              citations: [
+                {
+                  type: "char_location",
+                  cited_text: "QUOTE",
+                  document_title: "DOCTITLE",
+                  document_index: 0,
+                  start_char_index: 0,
+                  end_char_index: 5,
+                },
+              ],
+            },
+            { type: "document", title: "TITLE", context: "CTX" },
+            // Its text lives under `source`, not beside it.
+            {
+              type: "document",
+              source: { type: "text", media_type: "text/plain", data: "BODY" },
+            },
+            // A base64 source is bytes: skipped, or every real match drowns.
+            {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: "application/pdf",
+                data: "BLOB",
+              },
+            },
+            { type: "image" },
+            { type: "redacted_thinking" },
+            { type: "container_upload" },
+            { type: "tool_use", input: { needle: "NOT-CONTEXT" } },
+          ],
+        },
+      ],
+    }),
+    {
+      system: "",
+      messages: [
+        {
+          role: "assistant",
+          text: "THOUGHTTTLSRCSNIPCITED:QUOTEDOCTITLETITLECTXBODY",
+        },
+      ],
+    },
+  );
+  // Six of the eight `*_tool_result` variants carry an OBJECT under `content`,
+  // not a string or an array — the gap review found on this PR. Each shape puts
+  // its text at a different key, so all of them are walked.
+  assert.deepEqual(
+    extractRequest({
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "bash_code_execution_tool_result",
+              content: {
+                type: "bash_code_execution_result",
+                stdout: "OUT",
+                stderr: "ERR",
+                return_code: 0,
+                content: [],
+              },
+            },
+            {
+              type: "web_fetch_tool_result",
+              content: {
+                type: "web_fetch_result",
+                url: "https://e.example/x",
+                content: {
+                  type: "document",
+                  source: {
+                    type: "text",
+                    media_type: "text/plain",
+                    data: "FETCHED",
+                  },
+                },
+              },
+            },
+            // A number is neither text nor a container: contributes nothing.
+            { type: "tool_result", content: 7 as unknown },
+          ],
+        },
+      ],
+    }),
+    {
+      system: "",
+      messages: [
+        // `return_code: 0` contributes nothing — a number is not text.
+        { role: "user", text: "OUTERRhttps://e.example/xFETCHED" },
+      ],
+    },
   );
   // missing system → ""; missing role → ""; non-array messages → []
   assert.deepEqual(extractRequest({ messages: [{ content: "x" }] }), {

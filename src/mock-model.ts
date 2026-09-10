@@ -18,6 +18,10 @@
  */
 import http from "node:http";
 import type { ServerResponse } from "node:http";
+// TYPES ONLY — erased at compile time, so this stays a devDependency and never
+// enters a consumer's tree. MIT, unlike @anthropic-ai/claude-code. See the
+// comment on `flattenBlock` for what it buys and what it does not.
+import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages";
 import type { AddressInfo } from "node:net";
 
 // The trace shapes are defined in core (`src/core/harness-driver.ts`) so the
@@ -279,16 +283,141 @@ export function splitRequestCounts(requests: readonly ModelRequest[]): {
   return { count: requests.length - sideChannelCount, sideChannelCount };
 }
 
-/** Flatten Anthropic content (string, or an array of text/other blocks) to text. */
+/**
+ * Flatten one Anthropic content block to the text the MODEL actually received.
+ *
+ * WHY THIS IS A TYPED, EXHAUSTIVE SWITCH AND NOT A `.text` LOOKUP — the whole
+ * point of the file, and it was paid for. Until 2026-09-10 this read `b.text`
+ * and returned `""` for anything else. Eight of the sixteen `ContentBlockParam`
+ * variants carry their payload in `content`, not `text`, so half the union was
+ * invisible to every instrument built on `extractRequest` — `requestContains`,
+ * `refs-nudge.harness.mjs`, `injectable-events-delivery.harness.mjs`.
+ *
+ * WHAT THAT COST. Claude Code <= 2.1.227 delivered a `PostToolUse` hook's
+ * `additionalContext` as its own `text` block. From 2.1.228 (a PATCH release,
+ * 2026-08-11) it arrives appended to the `tool_result` block's `content`, inside
+ * a `<system-reminder>`. Nothing broke: the model received the payload on both
+ * versions. Our probe went blind, every test above reported "not delivered", and
+ * that false reading was written up as zernie/vigiles#231 and very nearly filed
+ * upstream as a regression in somebody else's product. MEASURED both ways on one
+ * machine, claude 2.1.267, changing only this function: blind = "landed=false",
+ * typed = "landed=true".
+ *
+ * WHAT THE TYPE BUYS, precisely — it is NOT a change detector:
+ *   - it does NOT notice a payload moving between fields the type already allows
+ *     (`ToolResultBlockParam.content` predates the relocation; nothing changed);
+ *   - it DOES make a silently-unhandled variant impossible: the `never` binding
+ *     below fails `tsc` until every case is written out, so the seventeenth
+ *     block type Anthropic ships breaks the BUILD instead of quietly emptying a
+ *     measurement.
+ *
+ * WHY THE DEFAULT SERIALISES INSTEAD OF RETURNING `""`. This is a measurement
+ * instrument, and its proven failure mode is the FALSE NEGATIVE — a payload that
+ * was there, reported missing. So an unrecognised block is over-included (its
+ * JSON) rather than dropped: a stale pin then costs a noisy match, never a
+ * silent hole. That asymmetry is deliberate; do not "tidy" it to `""`.
+ *
+ * The repo's `assertNever` is deliberately NOT used: it throws, and this parses
+ * untrusted wire JSON where an unknown block must degrade, not crash.
+ */
+function flattenBlock(b: ContentBlockParam): string {
+  switch (b.type) {
+    // WALKED — every string field is readable text the model was shown, and
+    // reading any one of them by name is what this function keeps getting
+    // wrong. `text` also carries `citations[].cited_text` / `document_title`
+    // (quoted source text); `search_result` carries `title` and `source`
+    // BESIDE its `content`; `document` spreads its text across `title`,
+    // `context` and `source` (`PlainTextSource.data`,
+    // `ContentBlockSource.content`). A base64 source is skipped inside
+    // `flattenUnknown` — bytes, not text.
+    case "text":
+    case "search_result":
+    case "document":
+      return flattenUnknown(b);
+    // READ NARROWLY, and the dropped field is named so the next reader can
+    // check the claim instead of trusting it: `signature` is an opaque
+    // attestation blob, not context.
+    case "thinking":
+      return b.thinking;
+    // The families whose payload hangs off `content`. Their only other field is
+    // `tool_use_id` — a correlation identifier, not text the model was shown.
+    // `content` is optional on `tool_result` alone; on the rest it is required
+    // and is an OBJECT, which `flattenContent` hands to `flattenUnknown`.
+    case "tool_result":
+    case "web_search_tool_result":
+    case "web_fetch_tool_result":
+    case "code_execution_tool_result":
+    case "bash_code_execution_tool_result":
+    case "text_editor_code_execution_tool_result":
+    case "tool_search_tool_result":
+      return b.content === undefined ? "" : flattenContent(b.content);
+    // The model's own call, not context delivered TO it — kept out of
+    // `requestContains` on purpose so a needle in a tool ARGUMENT is never read
+    // as "the model was told this". Their `id` / `name` are identifiers.
+    case "tool_use":
+    case "server_tool_use":
+      return "";
+    // No readable text by construction: `redacted_thinking.data` is encrypted,
+    // `container_upload.file_id` is an identifier, an image is pixels.
+    case "image":
+    case "redacted_thinking":
+    case "container_upload":
+      return "";
+    default: {
+      // Compile-time: unreachable, and that is the guard — a new variant makes
+      // this assignment fail. Run-time: reachable via wire JSON from a newer
+      // API than the pinned types, so it degrades loudly instead of throwing.
+      const unhandled: never = b;
+      return JSON.stringify(unhandled);
+    }
+  }
+}
+
+/**
+ * Flatten an arbitrary wire payload to text by walking every string leaf.
+ *
+ * WHY A GENERIC WALK AND NOT ONE MORE NAMED FIELD. The first version of
+ * `flattenBlock` grouped eight variants as "the ones that carry `content`" and
+ * handed each to `flattenContent`, which accepts only a string or an array.
+ * Six of those eight carry an OBJECT there — `web_fetch_tool_result`,
+ * `web_search_tool_result`, `code_execution_tool_result`,
+ * `bash_code_execution_tool_result`, `text_editor_code_execution_tool_result`,
+ * `tool_search_tool_result` — so they still flattened to "". The grouping was
+ * made on the field's NAME while the defect lives in its TYPE, which is the
+ * same mistake, one level up, as the `.text`-only read it replaced. Found by
+ * review on this PR, not by a run (zernie/vigiles#233).
+ *
+ * And no single field would have fixed it: the payload's text sits at a
+ * different key in each shape — `stdout`/`stderr` on a bash result, a nested
+ * `content` document on a fetch result, `data` on a plain-text source. Keying
+ * on any one of them re-commits the shape assumption. Walking commits to none.
+ */
+function flattenUnknown(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v.map(flattenUnknown).join("");
+  if (typeof v !== "object" || v === null) return "";
+  const o = v as Record<string, unknown>;
+  // A base64 source is bytes, not text. Including it would bury every real
+  // match under megabytes of encoding — the one over-inclusion that costs more
+  // than the false negative it avoids.
+  if (o.type === "base64") return "";
+  return Object.entries(o)
+    .filter(([k]) => k !== "type" && k !== "media_type") // discriminators
+    .map(([, val]) => flattenUnknown(val))
+    .join("");
+}
+
+/**
+ * Flatten Anthropic content to text: a string, an array of blocks, or the
+ * OBJECT a server-tool result carries (see `flattenUnknown`).
+ */
 function flattenContent(content: unknown): string {
   if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
+  if (!Array.isArray(content)) return flattenUnknown(content);
   return content
-    .map((b) => {
-      if (typeof b === "string") return b;
-      const t = (b as { text?: unknown }).text;
-      return typeof t === "string" ? t : "";
-    })
+    .map((b) =>
+      typeof b === "string" ? b : flattenBlock(b as ContentBlockParam),
+    )
     .join("");
 }
 
