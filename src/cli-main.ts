@@ -228,6 +228,7 @@ import {
   discoverProviderFiles,
   mergeHooksJson,
   mergeHooksToml,
+  hookGateRef,
   normalizeHookRef,
   serializeConfig,
 } from "./hook-install.js";
@@ -7272,7 +7273,13 @@ async function installHookFile(
   // appends a duplicate block instead of replacing the existing one.
   const ref = normalizeHookRef(file);
   const compiled = compileHookProgram(source, program, {
-    gateCommand: `npx vigiles hook-runtime run-program ${ref}`,
+    // 🔴 ANCHORED AT THE PROJECT ROOT. A hook command does not run with a stable cwd —
+    // this codebase says so twice (`bareToken`'s header, `PluginLayout.projectRootTokens`)
+    // and `projectRootOf` relies on the anchored spelling "by construction", but the
+    // emitter never produced it. Measured 2026-09-10 in a consumer repo: after a compile,
+    // one `cd` into a subdirectory made a PreToolUse gate fail to load, and a gate that
+    // cannot load must block — the repo seized, every command refused including the repair.
+    gateCommand: `npx vigiles hook-runtime run-program ${hookGateRef(ref, adapter.layout.projectRootTokens)}`,
     dialect: adapter.dialect,
     hookProtocol: adapter.hookProtocol,
     settingsFormat: adapter.layout.settingsFormat,

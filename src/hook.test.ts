@@ -191,7 +191,15 @@ test("compile (hook): a clean hook compiles, MERGES into settings.json, stamps, 
       resolve(dir, ".claude/settings.json"),
       "utf-8",
     );
-    assert.match(settings, /hook-runtime run-program guard\.mjs/);
+    // 🔴 ANCHORED, not bare. Until 2026-09-10 this pinned `run-program guard.mjs` — the
+    // relative spelling `bareToken`'s own header calls broken, because it dies the moment the
+    // agent runs from a subdirectory. The assertion ENCODED the defect, so the emitter could
+    // not be fixed without this going red. `settings` is RAW file text, so the quotes around
+    // the path arrive JSON-escaped as \" — matching a bare " would fail on a correct file.
+    assert.match(
+      settings,
+      /hook-runtime run-program \\"\$\{CLAUDE_PROJECT_DIR\}\/guard\.mjs\\"/,
+    );
 
     // The compiled hook still enforces.
     const ok = runHook(
@@ -257,7 +265,7 @@ test("compile (hook): recompiling is idempotent, whatever the path spelling", ()
     assert.equal(entries.length, 1, "one wiring per hook file, not four");
     assert.equal(
       entries[0].hooks[0].command,
-      "npx vigiles hook-runtime run-program guard.mjs",
+      'npx vigiles hook-runtime run-program "${CLAUDE_PROJECT_DIR}/guard.mjs"',
     );
 
     // And the single surviving wiring still enforces.

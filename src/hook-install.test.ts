@@ -3,6 +3,7 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  hookGateRef,
   mergeHooksJson,
   mergeHooksToml,
   normalizeHookRef,
@@ -346,5 +347,66 @@ describe("discoverHookFiles", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("hookGateRef — what compile EMITS", () => {
+  const CC = ["${CLAUDE_PROJECT_DIR}", "${CLAUDE_PROJECT}"] as const;
+  const wire = (ref: string, tokens: readonly string[] | undefined) => ({
+    PreToolUse: [
+      {
+        matcher: "Bash",
+        hooks: [
+          {
+            type: "command" as const,
+            command: `npx vigiles hook-runtime run-program ${hookGateRef(ref, tokens)}`,
+          },
+        ],
+      },
+    ],
+  });
+
+  // 🔴 THE REGRESSION THIS FILE NOW OWNS AT BOTH ENDS. Until 2026-09-10 `compile` emitted
+  // the BARE ref — the exact spelling `bareToken`'s header calls broken ("dies with exit 2
+  // the moment the agent runs from a subdirectory"). Reading was fixed 2026-08-21; writing
+  // was not. Measured in a consumer repo: one `cd` into a subdirectory and a PreToolUse gate
+  // failed to load — a gate that cannot load must block, so the repo seized.
+  it("anchors the path at the project root when the harness has one", () => {
+    expect(hookGateRef(".claude/hooks/x.hook.ts", CC)).toBe(
+      '"${CLAUDE_PROJECT_DIR}/.claude/hooks/x.hook.ts"',
+    );
+  });
+
+  // A harness with no such variable has nothing to anchor to; inventing one would emit a
+  // command expanding to `/.claude/...` — worse than relative, and silently so.
+  it("leaves the ref alone when the harness declares no project-root token", () => {
+    expect(hookGateRef(".claude/hooks/x.hook.ts", undefined)).toBe(
+      ".claude/hooks/x.hook.ts",
+    );
+    expect(hookGateRef(".claude/hooks/x.hook.ts", [])).toBe(
+      ".claude/hooks/x.hook.ts",
+    );
+  });
+
+  // The property that keeps a recompile idempotent instead of duplicating: what the emitter
+  // writes, the matcher must recognise as the SAME hook. Asserted through the public merge.
+  it("what it emits is still matched as the same hook, so a recompile REPLACES", () => {
+    const ref = ".claude/hooks/x.hook.ts";
+    const merged = mergeHooksJson({ hooks: wire(ref, CC) }, wire(ref, CC), ref);
+    expect(merged.hooks?.PreToolUse).toHaveLength(1);
+  });
+
+  // And the pre-2026-09-10 relative spelling is replaced, so upgrading vigiles REWRITES the
+  // wiring in place rather than leaving a stale relative twin beside the new one.
+  it("the old relative spelling is replaced and rewritten, not duplicated", () => {
+    const ref = ".claude/hooks/x.hook.ts";
+    const merged = mergeHooksJson(
+      { hooks: wire(ref, undefined) },
+      wire(ref, CC),
+      ref,
+    );
+    const entries = merged.hooks?.PreToolUse ?? [];
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.hooks[0]?.command).toContain("${CLAUDE_PROJECT_DIR}");
   });
 });
