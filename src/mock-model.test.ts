@@ -189,6 +189,9 @@ test("extractRequest: flattens system + messages, tolerates odd shapes", () => {
             // from Claude Code >= 2.1.228; dropping it made every delivery test
             // report a false negative. See `flattenBlock` in mock-model.ts.
             { type: "tool_result", content: "SEEN" },
+            // `content` is OPTIONAL on a tool_result: absent contributes
+            // nothing, and is not the same as an unparsed shape.
+            { type: "tool_result" },
             // A block type the pinned SDK union does not know: over-included as
             // JSON, never silently dropped (the same asymmetry, asserted).
             { type: "future_block_from_a_newer_api", payload: "LOUD" },
@@ -233,7 +236,11 @@ test("extractRequest: flattens system + messages, tolerates odd shapes", () => {
             // A base64 source is bytes: skipped, or every real match drowns.
             {
               type: "document",
-              source: { type: "base64", media_type: "application/pdf", data: "BLOB" },
+              source: {
+                type: "base64",
+                media_type: "application/pdf",
+                data: "BLOB",
+              },
             },
             { type: "image" },
             { type: "redacted_thinking" },
