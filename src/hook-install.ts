@@ -100,6 +100,33 @@ export function normalizeHookRef(
 }
 
 /**
+ * The path token `compile` EMITS into the harness config — anchored at the project root
+ * when the harness declares such a variable.
+ *
+ * 🔴 IT LIVES BESIDE {@link bareToken} ON PURPOSE. That function STRIPS exactly this prefix
+ * and these quotes; this one ADDS them. They are one contract read from two ends, and while
+ * the ends sat apart only one got fixed: 2026-08-21 taught the reader to understand the
+ * anchored spelling, and the emitter went on writing the relative one for three more weeks.
+ *
+ * Why anchored at all, from the two measurements already in this file and in
+ * `PluginLayout.projectRootTokens`: a hook command does not run with a stable cwd, so a
+ * relative path "dies with exit 2 the moment the agent runs from a subdirectory". For a
+ * PreToolUse gate that is not a lost nudge — a gate that cannot load must block, so the
+ * repository seizes. Measured in a consumer repo 2026-09-10: recoverable by file writes
+ * only, because every command was refused, including the one that repairs it.
+ *
+ * `bareToken(hookGateRef(ref, tokens)) === ref` is what keeps a recompile idempotent, and
+ * it is asserted directly rather than left to inspection.
+ */
+export function hookGateRef(
+  ref: string,
+  projectRootTokens: readonly string[] | undefined,
+): string {
+  const token = projectRootTokens?.[0];
+  return token === undefined ? ref : `"${token}/${ref}"`;
+}
+
+/**
  * True when an entry's command routes through the runtime for `hookPath`.
  *
  * Compares CANONICALIZED path tokens rather than testing for a raw substring:
