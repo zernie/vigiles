@@ -39,6 +39,23 @@ jobs:
   # here only ever means a merge into main, so the checkout is paid once per merge
   # and the job still rounds to the same single billable minute.
   #
+  # ── WHAT A PUSH COMPARES, because it reads like a regression and is not ─────
+  # `base` is deliberately UNSET, and that does NOT mean "only the last commit".
+  # Traced through the action's main.ts: with no `base` it defaults to the
+  # repository's `default_branch` (main), while `head` comes from `github.ref`
+  # (also main), so `isBaseSameAsHead` holds and `baseSha` becomes the push
+  # event's own `before` — i.e. `git diff <before>..<head>`, the WHOLE pushed
+  # range, exactly what the hand-written classifier did. The "changes will be
+  # detected from last commit" branch is reachable only when `before` is absent
+  # from the payload, which a push event never is.
+  #
+  # Confirmed in the first push run after the switch (run 34420710819):
+  #   Changes will be detected between 236615e97... and main
+  #   git diff --no-renames --name-status -z 236615e97...refs/remotes/origin/main
+  # where 236615e97 is that push's `before`. The same log shows it `git fetch
+  # --depth=1` that SHA on demand, which is why the shallow checkout above is
+  # enough.
+  #
   # 🔴 `predicate-quantifier: some-with-excludes` IS LOAD-BEARING, NOT DECORATION.
   # Under the default `some`, patterns are OR-ed (`patterns.some(...)` in the
   # action's own filter.ts), so `['**', '!site/**']` would match a file under site/
@@ -49,6 +66,26 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # BOTH lines are required, and the second is the one that is easy to get
+    # wrong. A job-level `permissions:` block REPLACES the default for this job
+    # rather than adding to it — everything unlisted becomes `none` — so naming
+    # only `pull-requests: read` would strip `contents: read` and break the
+    # `actions/checkout@v4` below, which the `push` path needs to diff with git.
+    #
+    # `pull-requests: read` is what the action's README requires for the
+    # `pull_request` path: with a token it calls `pulls.listFiles` (REST) instead
+    # of diffing, which is exactly why that path needs no checkout. Today this
+    # workflow declares no top-level `permissions:`, so the job inherits the
+    # repository default and the REST call happens to be allowed. That is luck,
+    # not a contract: the moment anyone adds a restrictive top-level block — the
+    # standard hardening step — the call 403s. The old classifier degraded to
+    # `gh api ... || true` and ran everything; the action raises, so the failure
+    # is loud rather than silent, but it blocks every PR until someone finds it.
+    # Declaring the two permissions the job actually uses costs nothing and
+    # removes the dependency on a default we do not control.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       root: ${{ steps.f.outputs.root }}
       site: ${{ steps.f.outputs.site }}

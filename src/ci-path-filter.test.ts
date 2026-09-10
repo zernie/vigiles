@@ -65,6 +65,14 @@ function filterStep(): { version: string; with: Record<string, string> } {
   return { version: step.uses.split("@")[1], with: step.with };
 }
 
+/** The `permissions:` the `changes` job declares for itself. */
+function changesPermissions(): Record<string, string> {
+  const wf = yaml.load(readFileSync(CI, "utf8")) as {
+    jobs?: { changes?: { permissions?: Record<string, string> } };
+  };
+  return wf.jobs?.changes?.permissions ?? {};
+}
+
 /** The filters, parsed out of the step's YAML block scalar. */
 function filters(): Record<string, string[]> {
   return yaml.load(filterStep().with["filters"] ?? "") as Record<
@@ -125,6 +133,25 @@ describe("the changes job is wired to the action, not to a hand-rolled rule", ()
 
   it("declares both flags the dependent jobs read", () => {
     expect(Object.keys(filters()).sort()).toEqual(["root", "site"]);
+  });
+
+  it("grants itself BOTH permissions it uses, not one of them", () => {
+    // A job-level `permissions:` block REPLACES the default rather than adding
+    // to it, so this is a pair or it is a break, and each half fails a DIFFERENT
+    // way — which is why both are asserted rather than just the one the action's
+    // README names:
+    //
+    //   contents: read       the `push` path checks out and diffs with git
+    //   pull-requests: read  the `pull_request` path calls pulls.listFiles (REST)
+    //
+    // Without the block at all the job inherits the repository default, which
+    // supplies both today. That is a default we do not control: a top-level
+    // `permissions:` added later — the standard hardening step — would silently
+    // take one away, and the first sign would be every PR blocked on a 403.
+    expect(changesPermissions()).toMatchObject({
+      contents: "read",
+      "pull-requests": "read",
+    });
   });
 });
 
