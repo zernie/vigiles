@@ -227,6 +227,29 @@ test("extractRequest: flattens system + messages, tolerates odd shapes", () => {
           role: "assistant",
           content: [
             { type: "thinking", thinking: "THOUGHT" },
+            // A search result's `title` and `source` sit BESIDE its `content`
+            // and are shown to the model just the same.
+            {
+              type: "search_result",
+              title: "TTL",
+              source: "SRC",
+              content: [{ type: "text", text: "SNIP" }],
+            },
+            // A citation's quoted text is text the model was shown too.
+            {
+              type: "text",
+              text: "CITED:",
+              citations: [
+                {
+                  type: "char_location",
+                  cited_text: "QUOTE",
+                  document_title: "DOCTITLE",
+                  document_index: 0,
+                  start_char_index: 0,
+                  end_char_index: 5,
+                },
+              ],
+            },
             { type: "document", title: "TITLE", context: "CTX" },
             // Its text lives under `source`, not beside it.
             {
@@ -252,7 +275,12 @@ test("extractRequest: flattens system + messages, tolerates odd shapes", () => {
     }),
     {
       system: "",
-      messages: [{ role: "assistant", text: "THOUGHTTITLECTXBODY" }],
+      messages: [
+        {
+          role: "assistant",
+          text: "THOUGHTTTLSRCSNIPCITED:QUOTEDOCTITLETITLECTXBODY",
+        },
+      ],
     },
   );
   // Six of the eight `*_tool_result` variants carry an OBJECT under `content`,

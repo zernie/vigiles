@@ -322,13 +322,28 @@ export function splitRequestCounts(requests: readonly ModelRequest[]): {
  */
 function flattenBlock(b: ContentBlockParam): string {
   switch (b.type) {
+    // WALKED — every string field is readable text the model was shown, and
+    // reading any one of them by name is what this function keeps getting
+    // wrong. `text` also carries `citations[].cited_text` / `document_title`
+    // (quoted source text); `search_result` carries `title` and `source`
+    // BESIDE its `content`; `document` spreads its text across `title`,
+    // `context` and `source` (`PlainTextSource.data`,
+    // `ContentBlockSource.content`). A base64 source is skipped inside
+    // `flattenUnknown` — bytes, not text.
     case "text":
-      return b.text;
+    case "search_result":
+    case "document":
+      return flattenUnknown(b);
+    // READ NARROWLY, and the dropped field is named so the next reader can
+    // check the claim instead of trusting it: `signature` is an opaque
+    // attestation blob, not context.
     case "thinking":
       return b.thinking;
-    // The eight that carry `content` — the family this function was blind to.
+    // The families whose payload hangs off `content`. Their only other field is
+    // `tool_use_id` — a correlation identifier, not text the model was shown.
+    // `content` is optional on `tool_result` alone; on the rest it is required
+    // and is an OBJECT, which `flattenContent` hands to `flattenUnknown`.
     case "tool_result":
-    case "search_result":
     case "web_search_tool_result":
     case "web_fetch_tool_result":
     case "code_execution_tool_result":
@@ -336,19 +351,14 @@ function flattenBlock(b: ContentBlockParam): string {
     case "text_editor_code_execution_tool_result":
     case "tool_search_tool_result":
       return b.content === undefined ? "" : flattenContent(b.content);
-    case "document":
-      // Its readable text is spread across `title`, `context` AND `source`
-      // (`PlainTextSource.data`, `ContentBlockSource.content`), so it is walked
-      // rather than read field by field. A base64 source is skipped by
-      // `flattenUnknown`: it is an opaque blob by construction.
-      return flattenUnknown(b);
     // The model's own call, not context delivered TO it — kept out of
     // `requestContains` on purpose so a needle in a tool ARGUMENT is never read
-    // as "the model was told this".
+    // as "the model was told this". Their `id` / `name` are identifiers.
     case "tool_use":
     case "server_tool_use":
       return "";
-    // Genuinely carry no text.
+    // No readable text by construction: `redacted_thinking.data` is encrypted,
+    // `container_upload.file_id` is an identifier, an image is pixels.
     case "image":
     case "redacted_thinking":
     case "container_upload":
