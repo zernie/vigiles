@@ -1,5 +1,5 @@
 /**
- * The `changes` job's path classifier — tested against the REAL patterns in ci.yml.
+ * The `changes` job's path classifier — tested against the REAL filters in ci.yml.
  *
  * ── WHY THIS HAS A TEST AT ALL ──────────────────────────────────────────────────
  * A job that is SKIPPED and a job that PASSED render identically in the checks
@@ -8,9 +8,22 @@
  * is to already suspect it. That is the same failure mode as an advisory hook whose
  * success state is silence, and it gets the same treatment: assert both directions.
  *
- * The patterns are EXTRACTED FROM THE WORKFLOW rather than restated here. A copy
+ * The filters are EXTRACTED FROM THE WORKFLOW rather than restated here. A copy
  * would drift, and a test that agrees with its own copy of the rule proves nothing
  * about the rule that runs.
+ *
+ * ── WHAT CHANGED 2026-09-09 ─────────────────────────────────────────────────────
+ * The classifier was a hand-written shell script; it is now `dorny/paths-filter`.
+ * So this file can no longer re-run the rule by shelling out to `grep` with the
+ * workflow's own pattern. It does the nearest honest thing instead: it reads the
+ * filters with a YAML parser and evaluates them with the SAME matcher library the
+ * action uses (picomatch), through a transcription of the action's own predicate.
+ *
+ * That transcription is the one copied thing here, and its risk is named: if the
+ * action changes how it combines patterns, this file agrees with the old rule. Two
+ * things bound that risk — the action version is PINNED (`@v4.0.3`, not a floating
+ * major), and the setting the predicate depends on is asserted separately below,
+ * because it is the one whose absence inverts the result in silence.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -22,42 +35,98 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
+import yaml from "js-yaml";
+import picomatch from "picomatch";
 import ts from "typescript";
 import { extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { execFileSync } from "node:child_process";
 
 const CI = resolve(__dirname, "..", ".github", "workflows", "ci.yml");
 
-/** Pull the ERE out of `if echo "$files" | grep -qvE '<pattern>'; then <name>=true`. */
-function patternFor(flag: "root" | "site"): string {
-  const yml = readFileSync(CI, "utf8");
-  const re = new RegExp(`grep -qvE '([^']+)'; then ${flag}=true`);
-  const m = re.exec(yml);
-  if (m === null)
-    throw new Error(
-      `no grep line for \`${flag}\` in ci.yml — the classifier was renamed or ` +
-        `restructured, and this test can no longer see the rule it is asserting`,
-    );
-  // A YAML block scalar is literal, so the pattern reaches grep exactly as written
-  // here — no unescaping step, and none is wanted: adding one would silently
-  // rewrite the rule before asserting on it.
-  return m[1];
+interface Step {
+  uses?: string;
+  with?: Record<string, string>;
 }
 
-/** Re-run the workflow's own decision: `grep -qvE` succeeds ⇒ the flag is true. */
-function decide(flag: "root" | "site", files: readonly string[]): boolean {
-  try {
-    execFileSync("grep", ["-qvE", patternFor(flag)], {
-      // Faithful to the shell: an empty list is an empty stream, not a blank line.
-      input: files.length > 0 ? files.join("\n") + "\n" : "",
-      stdio: ["pipe", "ignore", "ignore"],
-    });
-    return true;
-  } catch {
-    return false;
-  }
+/** The `dorny/paths-filter` step the `changes` job actually declares. */
+function filterStep(): { version: string; with: Record<string, string> } {
+  const wf = yaml.load(readFileSync(CI, "utf8")) as {
+    jobs?: { changes?: { steps?: Step[] } };
+  };
+  const step = (wf.jobs?.changes?.steps ?? []).find((x) =>
+    (x.uses ?? "").startsWith("dorny/paths-filter@"),
+  );
+  if (step?.uses === undefined || step.with === undefined)
+    throw new Error(
+      "no `dorny/paths-filter` step with a `with:` block in the `changes` job — " +
+        "the classifier was replaced, and this test can no longer see the rule " +
+        "it is asserting",
+    );
+  return { version: step.uses.split("@")[1], with: step.with };
 }
+
+/** The filters, parsed out of the step's YAML block scalar. */
+function filters(): Record<string, string[]> {
+  return yaml.load(filterStep().with["filters"] ?? "") as Record<
+    string,
+    string[]
+  >;
+}
+
+/**
+ * The action's OWN `some-with-excludes` predicate, transcribed from
+ * `paths-filter/src/filter.ts` @v4.0.3, including its picomatch options:
+ *
+ *   const MatchOptions = { dot: true }
+ *   const includes = matchers.filter(m => !m.state.negated)
+ *   const excludes = matchers.filter(m =>  m.state.negated)
+ *   isExclude = str => excludes.some(m => !m(str))   // un-invert picomatch
+ *   // included by >=1 pattern AND excluded by 0
+ *
+ * `dot: true` is not a detail: without it `**` would not match `.claude/…`, and an
+ * agent-config-only diff would set root=false and skip the root jobs in silence.
+ */
+function fileMatches(file: string, patterns: readonly string[]): boolean {
+  const matchers = patterns.map((p) => picomatch(p, { dot: true }, true));
+  const excluded = matchers
+    .filter((m) => m.state.negated)
+    .some((m) => !m(file));
+  if (excluded) return false;
+  return matchers.filter((m) => !m.state.negated).some((m) => m(file));
+}
+
+/** A filter is true when ANY changed file matches it. */
+function decide(flag: "root" | "site", files: readonly string[]): boolean {
+  const patterns = filters()[flag];
+  if (patterns === undefined)
+    throw new Error(`the \`changes\` job declares no \`${flag}\` filter`);
+  return files.some((f) => fileMatches(f, patterns));
+}
+
+describe("the changes job is wired to the action, not to a hand-rolled rule", () => {
+  it("pins the action to an exact version, not a floating major", () => {
+    // The transcribed predicate above is only safe against a pinned version: a
+    // floating `@v4` could change how patterns combine and leave this file
+    // agreeing with a rule that no longer runs.
+    expect(filterStep().version).toMatch(/^v\d+\.\d+\.\d+$/);
+  });
+
+  it("declares predicate-quantifier: some-with-excludes", () => {
+    // 🔴 THE SETTING WHOSE ABSENCE INVERTS THE RESULT, SILENTLY. The default is
+    // `some`, i.e. `patterns.some(...)` — under it a file under site/ matches the
+    // `'**'` pattern and sets root=true for a site-only diff, which is the exact
+    // hole the filter exists to prevent. Asserted separately from the behaviour
+    // below because the behaviour is checked through a transcription of the
+    // predicate this setting selects, so it cannot catch its own absence.
+    expect(filterStep().with["predicate-quantifier"]).toBe(
+      "some-with-excludes",
+    );
+  });
+
+  it("declares both flags the dependent jobs read", () => {
+    expect(Object.keys(filters()).sort()).toEqual(["root", "site"]);
+  });
+});
 
 // The actual diff of PR #167, the change that exposed the missing filter.
 const PR167 = [
@@ -115,15 +184,21 @@ describe("the changes job classifies a diff", () => {
     expect(decide("site", ["src/fixtures/CLAUDE.md"])).toBe(true);
   });
 
-  it("an empty diff is not a licence to skip", () => {
-    // The workflow bails to true before reaching grep when the list is empty; this
-    // pins the reason rather than the branch — grep -qv over nothing finds no
-    // non-matching line, so the pattern alone would say `false` for BOTH flags.
+  it("an empty diff matches nothing — and that is not the fallback", () => {
+    // With no changed files there is nothing to match, so both flags are false.
+    // That is trivially right: a run with an empty diff has nothing to check.
+    //
+    // ⚠️ WHAT THIS DOES NOT COVER, stated so nobody reads it as the safety net.
+    // The dangerous case is not "no files" but "the diff could not be
+    // DETERMINED", and that case now belongs to the action: it documents that
+    // "all files are considered as added if there is no common ancestor with base
+    // branch or no previous commit", i.e. a new branch or a shallow history runs
+    // EVERYTHING. The hand-rolled classifier had to spell that fallback out in
+    // shell (empty list · failed `gh api` · a push whose `before` is all zeros);
+    // dropping those branches is most of why the action is worth adopting, and it
+    // is also why this file can no longer assert them — they are not ours.
     expect(decide("root", [])).toBe(false);
     expect(decide("site", [])).toBe(false);
-    const yml = readFileSync(CI, "utf8");
-    expect(yml).toMatch(/if \[ -z "\$files" \]; then\n\s+echo "root=true"/);
-    expect(yml).toMatch(/running everything/);
   });
 });
 
