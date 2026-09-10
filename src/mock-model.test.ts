@@ -206,6 +206,39 @@ test("extractRequest: flattens system + messages, tolerates odd shapes", () => {
       ],
     },
   );
+  // The REST of the union, so no branch of the exhaustive switch in
+  // `flattenBlock` is one only tsc has ever seen. Coverage is the point: a case
+  // that no run exercises is a case whose behaviour nobody has checked, and this
+  // function's whole defect was a family of blocks silently flattening to "".
+  //   - `thinking` IS context the model was given → its text counts;
+  //   - `document` contributes its human-readable title/context, and one with
+  //     neither contributes nothing (the filter's other branch);
+  //   - `image` / `redacted_thinking` / `container_upload` carry no text;
+  //   - `tool_use` is the model's OWN call, not context delivered TO it, so a
+  //     needle in a tool ARGUMENT must never read as "the model was told this".
+  //     That exclusion is deliberate and asserted here, not merely commented.
+  assert.deepEqual(
+    extractRequest({
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "THOUGHT" },
+            { type: "document", title: "TITLE", context: "CTX" },
+            { type: "document", source: { type: "base64", data: "…" } },
+            { type: "image" },
+            { type: "redacted_thinking" },
+            { type: "container_upload" },
+            { type: "tool_use", input: { needle: "NOT-CONTEXT" } },
+          ],
+        },
+      ],
+    }),
+    {
+      system: "",
+      messages: [{ role: "assistant", text: "THOUGHTTITLE\nCTX" }],
+    },
+  );
   // missing system → ""; missing role → ""; non-array messages → []
   assert.deepEqual(extractRequest({ messages: [{ content: "x" }] }), {
     system: "",
