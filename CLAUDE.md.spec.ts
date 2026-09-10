@@ -545,7 +545,7 @@ BUILD + TOOLING + GENERATED:
     "test/types/smoke.jest.ts":
       "Type-level constraint: `vigiles/jest` makes the matchers type-check on jest's expect",
     "test/runners/matchers.vitest.mjs":
-      "Cross-runner constraint: vigilesMatchers + helpers register and pass under vitest (proves runner-agnostic; `src/*.test.ts` excluded via vitest.config.mjs)",
+      "Cross-runner constraint: vigilesMatchers + helpers register and pass under vitest (proves runner-agnostic; `src/*.test.ts` excluded via vitest.config.ts)",
     "test/runners/matchers.jest.cjs":
       "Cross-runner constraint: the same vigilesMatchers register and pass under jest (CommonJS dist required natively; scoped via jest.config.cjs)",
     "src/core/test-utils.ts":

@@ -85,7 +85,7 @@ Per fix:
   side gains a field, the browser side needs it too.
 - **Prettier + `fmt:check` before commit** — markdown code spans need surrounding
   spaces; CI runs `fmt:check`.
-- **Coverage gate is an allowlist** (`vitest.config.mjs` `coverage.include`) — a
+- **Coverage gate is an allowlist** (`vitest.config.ts` `coverage.include`) — a
   new file under it needs 100%; scan/cli files are NOT in it today.
 
 ## The two recurring bug classes — hunt for them, then PREVENT the class

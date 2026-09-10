@@ -336,7 +336,7 @@ jobs:
       # and upload `.vitest-reports/*` (a DOTDIR — needs upload-artifact's
       # `include-hidden-files: true` or the artifact is silently empty); a
       # dependent job downloads them and runs `vitest --merge-reports --coverage`,
-      # where the thresholds in vitest.config.mjs apply once, over the union.
+      # where the thresholds in vitest.config.ts apply once, over the union.
       #
       # THE THREE PROOFS IT STAYS HONEST, all run locally on this checkout:
       #   · FAITHFUL — merged 3 shards vs the unsharded run: same 19 files, 3509
