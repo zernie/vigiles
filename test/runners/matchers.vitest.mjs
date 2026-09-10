@@ -16,7 +16,7 @@ import {
 } from "../../dist/harness-assert.js";
 import { tool, output, blocked } from "../../dist/check.js";
 // Matchers are registered by the `vigiles/vitest` entry via setupFiles
-// (vitest.config.mjs) — this file asserts that wiring works end-to-end.
+// (vitest.config.ts) — this file asserts that wiring works end-to-end.
 
 const report = {
   name: "demo",

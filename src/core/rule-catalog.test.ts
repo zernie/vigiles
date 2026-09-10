@@ -8,7 +8,7 @@ import {
   type RuleCatalog,
 } from "./rule-catalog.js";
 
-// Vitest runs from the repo root (see vitest.config.mjs).
+// Vitest runs from the repo root (see vitest.config.ts).
 const REPO_ROOT = process.cwd();
 
 describe("parseEslintCatalog (pure)", () => {

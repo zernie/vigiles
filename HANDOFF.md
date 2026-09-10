@@ -138,7 +138,7 @@ Deterministic Codex audit = full parity (KEEP). Real-model **trigger-rate** on C
   Cold start ~20s+; a first probe may time out — retry longer.
 - **A SKILL.md is NOT a skill unless registered** — bare `SKILL.md` in cwd never loads;
   use `arm.pluginDir`/`skillsDir`. `CLAUDE.md` DOES auto-load as memory.
-- **The 100% coverage gate is an EXPLICIT allowlist** in `vitest.config.mjs`
+- **The 100% coverage gate is an EXPLICIT allowlist** in `vitest.config.ts`
   (`coverage.include`). A new pillar file must be added there + real-IO seams marked
   `/* v8 ignore */`.
 - **`measure()` is SINGLE-arg** — `measure(spec)` where `checks`/`trials`/`model` live

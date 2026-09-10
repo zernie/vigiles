@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:684ae9f0b90e8b59 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:482126002a6257c6 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -328,7 +328,7 @@ BUILD + TOOLING + GENERATED:
 - `src/jest.ts` — Opt-in jest integration entry (CJS): registers vigilesMatchers + augments @jest/expect Matchers; jest is an optional peer dep
 - `test/types/smoke.vitest.ts` — Type-level constraint: `vigiles/vitest` makes the matchers type-check on vitest's expect (tsc --noEmit via npm run test:types)
 - `test/types/smoke.jest.ts` — Type-level constraint: `vigiles/jest` makes the matchers type-check on jest's expect
-- `test/runners/matchers.vitest.mjs` — Cross-runner constraint: vigilesMatchers + helpers register and pass under vitest (proves runner-agnostic; `src/*.test.ts` excluded via vitest.config.mjs)
+- `test/runners/matchers.vitest.mjs` — Cross-runner constraint: vigilesMatchers + helpers register and pass under vitest (proves runner-agnostic; `src/*.test.ts` excluded via vitest.config.ts)
 - `test/runners/matchers.jest.cjs` — Cross-runner constraint: the same vigilesMatchers register and pass under jest (CommonJS dist required natively; scoped via jest.config.cjs)
 - `src/core/test-utils.ts` — Shared test utilities: makeTmpDir, makeSpec, cleanupTmpDir, initGitRepo
 - `src/core/types.ts` — Shared types: RulesConfig, VigilesConfig, FreshnessMode, CoverageThresholds

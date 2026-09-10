@@ -334,13 +334,12 @@ describe("no root test depends on a file under site/ (#219)", () => {
    * put the vitest and Jest runner suites outside the scan.
    */
   async function rootSuiteGlobs(): Promise<string[]> {
-    // The specifier is COMPUTED, not a literal: a literal `.mjs` import is a
-    // tsc error here (TS7016 — no declaration file), and shipping a .d.ts for a
-    // config would be ceremony around a value we only want to read.
-    // The FILENAME is discovered, not spelled. `vitest.config.mjs` is plain JS
-    // while `site/vitest.config.ts` is TypeScript — an inconsistency, not a
-    // constraint (vitest accepts either; measured 2026-09-09). Whoever settles
-    // that should not have to remember this guard.
+    // The FILENAME is discovered, not spelled, and that is what let the config
+    // be renamed `.mjs` -> `.ts` (2026-09-10) without touching this guard —
+    // which was the point of writing it this way one day earlier.
+    // The specifier stays COMPUTED rather than a literal import: it is what
+    // makes the discovery meaningful, and it also sidesteps TS7016 for any
+    // future non-TS config here.
     const cfgName = readdirSync(REPO).find((f) =>
       f.startsWith("vitest.config."),
     );

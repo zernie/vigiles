@@ -166,7 +166,7 @@ isolate the slow or privileged tiers (real-egress e2e) in their own jobs; and ru
 the paid **eval** tier on demand, not on every commit — its non-determinism and
 cost make it a release/regression gate, not a per-push check. The per-tier
 `npm run test:unit | test:integration | test:e2e` scripts exist for exactly this
-split (see [`vitest.config.mjs`](../vitest.config.mjs)).
+split (see [`vitest.config.ts`](../vitest.config.ts)).
 
 **Skips are loud, never a silent green.** `vigiles test` classifies each script
 pass / skip / fail. A unit-tier `runHook` test needs no `claude` and always runs;
