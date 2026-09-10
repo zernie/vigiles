@@ -522,12 +522,19 @@ export async function runHookProgramCommand(
     // Everything else stays BLOCKED, and the escapes are whitelists of commands
     // that are WRITES — see `isLoadPathRepairEvent` for why no command is one.
     const conflicted = conflictedLoadPathFiles(file);
+    // 🔴 THE THROWN MESSAGE IS THE ONLY THING THAT NAMES THE REAL CAUSE when the
+    // merge-conflict heuristic above does not fire. Without it this said just
+    // "cannot be loaded" — a diagnosis that sends the reader looking in the wrong
+    // place, which is the defect this runtime has already shipped twice (the
+    // loader that advised `npm run build` when the answer was `npm install`).
+    // The comment above promises to name the cause; this is what keeps it.
+    const thrown = err instanceof Error ? err.message : String(err);
     const cause =
       conflicted.length > 0
         ? `cannot be loaded — ${conflicted.join(", ")} contains merge-conflict ` +
           `markers, so Node cannot resolve \`vigiles/hook\` from it (the hook itself ` +
           `may be fine)`
-        : "cannot be loaded";
+        : `cannot be loaded — ${thrown}`;
     if (
       isLoadPathRepairEvent(event, file, {
         // The root the REST of this runtime already uses: `hookStampPath` and
