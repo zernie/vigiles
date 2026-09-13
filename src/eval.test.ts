@@ -15,6 +15,8 @@ import {
   existsSync,
   readFileSync,
   rmSync,
+  symlinkSync,
+  cpSync as cpSyncForTest,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1191,6 +1193,56 @@ test("packageSkillsDir throws when the skills dir does not exist", () => {
   );
 });
 
+test("packageSkillsDir follows a SYMLINKED skill directory (npm-linked skills)", () => {
+  // 🔴 THE REGRESSION THIS PINS. `Dirent.isDirectory()` describes the ENTRY, not its
+  // target: for a symlink to a directory it is FALSE. Skipping on it dropped symlinked
+  // skills from the temp install SILENTLY — the run then fired nothing on any prompt
+  // and reported 0% recall, which reads as a finding about the skill's description
+  // rather than about the packaging. A symlinked skills tree is the ordinary shape
+  // when skills ship as an npm package and are linked into `.claude/skills/`.
+  const dir = makeTmpDir("symlinked-skill");
+  const real = join(dir, "package", "beta");
+  mkdirSync(real, { recursive: true });
+  writeFileSync(
+    join(real, "SKILL.md"),
+    "---\nname: beta\ndescription: linked from a package\n---\n\n# Procedure\nrun it\n",
+  );
+  const skills = join(dir, "skills");
+  mkdirSync(join(skills, "alpha"), { recursive: true });
+  writeFileSync(
+    join(skills, "alpha", "SKILL.md"),
+    "---\nname: alpha\ndescription: a real directory\n---\n\n# Procedure\nrun it\n",
+  );
+  // The linked one, exactly as `npm`/a consumer would leave it: a RELATIVE link.
+  symlinkSync(join("..", "package", "beta"), join(skills, "beta"));
+  // A DANGLING link must not throw and must not count — statSync on it raises.
+  symlinkSync(join("..", "package", "gone"), join(skills, "ghost"));
+
+  const pkg = packageSkillsDir(skills);
+  // Both skills present: the real directory AND the symlinked one.
+  assert.ok(
+    existsSync(join(pkg, "skills", "alpha", "SKILL.md")),
+    "real dir missing",
+  );
+  assert.ok(
+    existsSync(join(pkg, "skills", "beta", "SKILL.md")),
+    "SYMLINKED skill missing — Dirent.isDirectory() answered about the link",
+  );
+  // The dangling link is simply not a skill, and it did not blow up the packaging.
+  assert.ok(
+    !existsSync(join(pkg, "skills", "ghost")),
+    "dangling link was packaged",
+  );
+  // Content travelled, not just the name.
+  assert.ok(
+    readFileSync(join(pkg, "skills", "beta", "SKILL.md"), "utf-8").includes(
+      "linked from a package",
+    ),
+  );
+  rmSync(pkg, { recursive: true, force: true });
+  cleanupTmpDir(dir);
+});
+
 test("stubbedPluginDir falls back to .claude/skills and tolerates a missing manifest", () => {
   const dir = makeTmpDir("stubbed-fallback");
   // No .claude-plugin/plugin.json (pluginName → undefined) and skills under
@@ -1374,6 +1426,121 @@ test("measureTriggerRateWith accepts skillsDir, packaging it into a plugin dir",
   assert.ok(used && used !== skills, "a packaged plugin dir was used");
   assert.ok(!existsSync(used), "the throwaway plugin dir is removed afterward");
   cleanupTmpDir(dir);
+});
+
+test("a SYMLINKED skill counts as a competitor in a real pluginDir", async () => {
+  // The third site of the same defect, and the only one the installSet path cannot
+  // reach: with `pluginDir` (no stub) the pool is counted on the USER'S OWN directory,
+  // not on a merged temp copy, so a linked skill there is invisible to countSkills and
+  // `competitors` comes back short. That number is what tells an author whether a run
+  // had real selection pressure — understating it makes an isolated-looking run out of
+  // a crowded one.
+  const store = makeTmpDir("plugindir-store");
+  for (const n of ["realOne", "linkedTwo"]) {
+    mkdirSync(join(store, n), { recursive: true });
+    writeFileSync(
+      join(store, n, "SKILL.md"),
+      `---\nname: ${n}\ndescription: does ${n}\n---\nbody\n`,
+    );
+  }
+  const plug = makeTmpDir("plugindir-linked");
+  mkdirSync(join(plug, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    join(plug, ".claude-plugin", "plugin.json"),
+    JSON.stringify({ name: "myplug", version: "0.0.0" }),
+  );
+  const skills = join(plug, "skills");
+  mkdirSync(skills, { recursive: true });
+  cpSyncForTest(join(store, "realOne"), join(skills, "realOne"), {
+    recursive: true,
+  });
+  symlinkSync(join(store, "linkedTwo"), join(skills, "linkedTwo"));
+
+  const runner = (): Promise<{ code: number; stdout: string }> =>
+    Promise.resolve({
+      code: 0,
+      stdout: JSON.stringify({ type: "result", num_turns: 1 }),
+    });
+  const report = await measureTriggerRateWith(
+    {
+      pluginDir: plug,
+      // 🔴 LOAD-BEARING: with the default `stubSkillBodies: true` the pool is counted
+      // on a temp COPY (real directories), so the symlink never reaches countSkills.
+      // Only the un-stubbed path counts the user's own directory as it lies on disk.
+      stubSkillBodies: false,
+      prompts: ["do it"],
+      minPrompts: 1,
+      minDistance: 0,
+      fired: () => true,
+      spacingSec: 0,
+    },
+    runner,
+  );
+  // Two skills in the pool, one of them under test → exactly one competitor.
+  assert.equal(
+    report.competitors,
+    1,
+    "countSkills skipped the SYMLINKED skill — the competitor pool was understated",
+  );
+  cleanupTmpDir(plug);
+  cleanupTmpDir(store);
+});
+
+test("installSet + the competitor count follow SYMLINKED skills too", async () => {
+  // Sibling of the packageSkillsDir case: the same `Dirent.isDirectory()` defect sat
+  // in copySkillsInto (the installSet merge) and in countSkills (the pool behind
+  // `competitors`). Linked skills were dropped from BOTH — so a run under real
+  // selection pressure reported a competitor count short by however many were linked,
+  // and the missing ones could not be selected at all. Driven through the public
+  // measureTriggerRateWith with a FAKE runner: no model, no key, no cost.
+  const store = makeTmpDir("linked-store"); // where the package really lives
+  for (const n of ["linkedFoo", "linkedBar"]) {
+    mkdirSync(join(store, n), { recursive: true });
+    writeFileSync(
+      join(store, n, "SKILL.md"),
+      `---\nname: ${n}\ndescription: does ${n}\n---\nbody\n`,
+    );
+  }
+  const ut = makeTmpDir("ut-linked");
+  symlinkSync(join(store, "linkedFoo"), join(ut, "linkedFoo"));
+  const others = makeTmpDir("others-linked");
+  symlinkSync(join(store, "linkedBar"), join(others, "linkedBar"));
+  // A dangling link in the competitor set must be skipped, not thrown on.
+  symlinkSync(join(store, "vanished"), join(others, "ghost"));
+
+  let pluginDirSeen: string | undefined;
+  const runner = (
+    a: AgentRunArgs,
+  ): Promise<{ code: number; stdout: string }> => {
+    pluginDirSeen ??= a.pluginDir;
+    return Promise.resolve({
+      code: 0,
+      stdout: JSON.stringify({ type: "result", num_turns: 1 }),
+    });
+  };
+  const report = await measureTriggerRateWith(
+    {
+      skillsDir: ut,
+      installSet: [others],
+      prompts: ["do foo"],
+      minPrompts: 1,
+      minDistance: 0,
+      fired: () => true,
+      spacingSec: 0,
+    },
+    runner,
+  );
+  // Both halves in one number: the under-test skill had to survive packaging AND the
+  // linked competitor had to survive the merge, or this is 0.
+  assert.equal(
+    report.competitors,
+    1,
+    "a SYMLINKED skill was dropped from the competitor pool",
+  );
+  assert.ok(pluginDirSeen, "the runner never saw a plugin dir");
+  cleanupTmpDir(others);
+  cleanupTmpDir(ut);
+  cleanupTmpDir(store);
 });
 
 test("packageInstallSet merges under-test + competitors (under-test wins a collision)", () => {
