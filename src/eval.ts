@@ -31,9 +31,11 @@ import {
   readFileSync,
   readdirSync,
   existsSync,
+  statSync,
   cpSync,
   rmSync,
 } from "node:fs";
+import type { Dirent } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { resolve, join, dirname, delimiter } from "node:path";
 
@@ -2350,6 +2352,35 @@ export const claudeEvalDriver: EvalDriver = {
 };
 
 /**
+ * Is this directory entry a skill DIRECTORY — following a symlink to one?
+ *
+ * 🔴 `Dirent.isDirectory()` describes the ENTRY, not its target: for a symlink
+ * pointing at a directory it is FALSE. Skipping on it therefore skips symlinked
+ * skills entirely, and the failure is silent and misreads as a finding — the skill
+ * never enters the temp install, so nothing fires on any prompt and the run reports
+ * 0% recall plus a competing-skill count short by however many were linked. The
+ * tool then says "usually SETUP, not the description", which is true and useless,
+ * because the setup it means is its own.
+ *
+ * A symlinked skills tree is not exotic: it is what a consumer gets when skills are
+ * distributed as an npm package and linked into `.claude/skills/`, which is exactly
+ * how a package publishes them.
+ *
+ * `statSync` follows the link, so it answers about the TARGET. A dangling link
+ * throws, and that is not-a-skill-dir — the same answer the `SKILL.md` check
+ * downstream would give it, one step earlier and without an exception escaping.
+ */
+function isSkillDirEntry(parent: string, entry: Dirent): boolean {
+  if (entry.isDirectory()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  try {
+    return statSync(join(parent, entry.name)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Package loose `<skillsDir>/<name>/SKILL.md` skills into a throwaway plugin dir
  * that `claude --plugin-dir` accepts — so repo-local skills (e.g. `.claude/skills`)
  * can be trigger-tested without hand-rolling a `plugin.json`. Writes a minimal
@@ -2379,7 +2410,7 @@ export function packageSkillsDir(
   mkdirSync(skillsOut, { recursive: true });
   let copied = 0;
   for (const entry of readdirSync(abs, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+    if (!isSkillDirEntry(abs, entry)) continue;
     const srcSkill = join(abs, entry.name, "SKILL.md");
     if (!existsSync(srcSkill)) continue;
     const destDir = join(skillsOut, entry.name);
@@ -2561,7 +2592,7 @@ function copySkillsInto(
     throw new Error(`installSet source not found: ${src} (resolved ${abs})`);
   let copied = 0;
   for (const entry of readdirSync(abs, { withFileTypes: true })) {
-    if (!entry.isDirectory() || present.has(entry.name)) continue;
+    if (!isSkillDirEntry(abs, entry) || present.has(entry.name)) continue;
     const srcSkill = join(abs, entry.name, "SKILL.md");
     if (!existsSync(srcSkill)) continue;
     const destDir = join(skillsOut, entry.name);
@@ -2649,7 +2680,8 @@ function countSkills(pluginDir: string): number {
   if (!existsSync(dir)) return 0;
   let n = 0;
   for (const e of readdirSync(dir, { withFileTypes: true }))
-    if (e.isDirectory() && existsSync(join(dir, e.name, "SKILL.md"))) n++;
+    if (isSkillDirEntry(dir, e) && existsSync(join(dir, e.name, "SKILL.md")))
+      n++;
   return n;
 }
 
