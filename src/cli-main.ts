@@ -960,6 +960,44 @@ function verifyHashes(filePaths: string[], silent = false): HashCheckResult {
   return { valid: errorCount === 0, errorCount };
 }
 
+/**
+ * Where a `compiled from <path>` header's spec actually lives, or null.
+ *
+ * THE HEADER IS NOT ANCHORED TO ANYTHING THE READER SHARES. `vigiles compile`
+ * stamps the spec path exactly as it was typed on that invocation — see
+ * `specPath` flowing straight into `placeIntegrityHeader` — so it is relative
+ * to the cwd of whoever ran the compile. Resolving it against the READER's cwd
+ * therefore only works while both are the same directory.
+ *
+ * They stop being the same the moment a compiled instruction file is consumed
+ * from somewhere else, which is exactly what happens when skills ship inside a
+ * package: the publisher compiles from the package root and stamps
+ * `skills/<name>/SKILL.md.spec.ts`, the consumer lints from its own root, and
+ * this rule reported a spec that was sitting right next to the file it was
+ * checking. Measured 2026-09-14 on a real consumer: two false `error`s, and
+ * because `require-instructions-spec` can be gated, they failed the build.
+ *
+ * So cwd stays the FIRST guess (unchanged for every single-root project) and
+ * the sibling is the fallback: a spec overwhelmingly lives next to its own
+ * output, and that is the one location whose meaning does not depend on who is
+ * running the command.
+ *
+ * SAFETY: only `basename()` of the header is used for the fallback, so a
+ * hand-edited or forged header cannot walk out of the file's directory — the
+ * same concern the eject path documents for this header, handled here by
+ * construction rather than by a `..` check.
+ */
+function resolveSpecRef(
+  compiledFile: string,
+  headerRef: string,
+): string | null {
+  const fromCwd = resolve(process.cwd(), headerRef);
+  if (existsSync(fromCwd)) return fromCwd;
+  const sibling = resolve(dirname(compiledFile), basename(headerRef));
+  if (existsSync(sibling)) return sibling;
+  return null;
+}
+
 function validateSpecs(
   filePaths: string[],
   rulesConfig?: import("./core/types.js").RulesConfig,
@@ -984,10 +1022,9 @@ function validateSpecs(
     );
     if (hashMatch) {
       // Verify the referenced spec still exists
-      const specRef = resolve(process.cwd(), hashMatch[1]);
-      if (!existsSync(specRef)) {
+      if (!resolveSpecRef(fullPath, hashMatch[1])) {
         log(
-          `  ✗ [require-instructions-spec] ${filePath} references "${hashMatch[1]}" but that spec no longer exists.`,
+          `  ✗ [require-instructions-spec] ${filePath} references "${hashMatch[1]}" but that spec no longer exists (looked under ${process.cwd()} and beside the file).`,
         );
         allValid = false;
       }
