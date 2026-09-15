@@ -176,6 +176,118 @@ describe("mergeHooksJson", () => {
     expect(out.hooks?.PreToolUse[0].hooks[0].command).toBe("mine");
   });
 
+  // 🔴 THE SHARED-BLOCK REGRESSION, from a real `.claude/settings.json`
+  // (2026-09-15). Claude Code nests SEVERAL commands under one matcher, and a
+  // consumer repo's PostToolUse/`Edit|Write|MultiEdit` entry held six: four
+  // vigiles hooks plus the user's own kb-lint and paper-lint. Recompiling one
+  // of the four dropped the whole entry, taking both hand-written checks with
+  // it — silently, since the file stayed valid and the survivors kept firing.
+  //
+  // BOTH HALVES, because "preserves" is unfalsifiable without the other one:
+  // ours must GO and theirs must STAY. A merge that kept everything would pass
+  // the first assertion alone while duplicating our command on every compile.
+  const sharedBlock = () => ({
+    hooks: {
+      PostToolUse: [
+        {
+          matcher: "Edit|Write|MultiEdit",
+          hooks: [
+            {
+              type: "command" as const,
+              command:
+                'node "$CLAUDE_PROJECT_DIR/.claude/hooks/kb-lint.mjs" post',
+            },
+            {
+              type: "command" as const,
+              command:
+                'node "$CLAUDE_PROJECT_DIR/.claude/hooks/paper-lint.mjs" post',
+            },
+            {
+              type: "command" as const,
+              command:
+                'node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/ours.mjs"',
+            },
+            {
+              type: "command" as const,
+              command:
+                'node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/sibling.mjs"',
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const ourBlock = {
+    PostToolUse: [
+      {
+        matcher: "Edit|Write|MultiEdit",
+        hooks: [
+          {
+            type: "command" as const,
+            command:
+              "npx vigiles hook-runtime run-program .vigiles/hooks/ours.mjs",
+          },
+        ],
+      },
+    ],
+  };
+  const commandsIn = (out: ReturnType<typeof mergeHooksJson>) =>
+    (out.hooks?.PostToolUse ?? []).flatMap((e) =>
+      e.hooks.map((h) => h.command),
+    );
+
+  it("keeps a co-located hand-written command when our command shares its matcher block", () => {
+    const out = mergeHooksJson(
+      sharedBlock(),
+      ourBlock,
+      ".vigiles/hooks/ours.mjs",
+    );
+    const cmds = commandsIn(out);
+    expect(cmds.some((c) => c.includes("kb-lint.mjs"))).toBe(true);
+    expect(cmds.some((c) => c.includes("paper-lint.mjs"))).toBe(true);
+    // A SIBLING vigiles hook is someone else's command too, as far as this
+    // compile is concerned — only `ours.mjs` is being rewritten.
+    expect(cmds.some((c) => c.includes("sibling.mjs"))).toBe(true);
+  });
+
+  it("still replaces OUR command in that shared block, exactly once", () => {
+    const once = mergeHooksJson(
+      sharedBlock(),
+      ourBlock,
+      ".vigiles/hooks/ours.mjs",
+    );
+    const twice = mergeHooksJson(once, ourBlock, ".vigiles/hooks/ours.mjs");
+    expect(
+      commandsIn(twice).filter((c) => c.includes("ours.mjs")),
+    ).toHaveLength(1);
+    // …and the survivors survived the second pass too.
+    expect(
+      commandsIn(twice).filter((c) => c.includes("lint.mjs")),
+    ).toHaveLength(2);
+  });
+
+  it("drops an entry we emptied, rather than leaving a matcher with no commands", () => {
+    const onlyOurs = {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Edit|Write|MultiEdit",
+            hooks: [
+              {
+                type: "command" as const,
+                command:
+                  'node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/ours.mjs"',
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const out = mergeHooksJson(onlyOurs, ourBlock, ".vigiles/hooks/ours.mjs");
+    expect(out.hooks?.PostToolUse).toHaveLength(1);
+    expect(out.hooks?.PostToolUse.every((e) => e.hooks.length > 0)).toBe(true);
+  });
+
   it("is idempotent — recompiling replaces our entry, never duplicates", () => {
     const once = mergeHooksJson({}, compiled, ".vigiles/hooks/g.mjs");
     const twice = mergeHooksJson(once, compiled, ".vigiles/hooks/g.mjs");
