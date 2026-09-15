@@ -19,7 +19,7 @@
  * behavioural divergence from `node:path` (which the disk-vs-browser parity gate
  * relies on), so the metric rules are disabled for this file only.
  */
-/* eslint-disable complexity, max-depth, sonarjs/cognitive-complexity, sonarjs/nested-control-flow */
+/* eslint-disable complexity, max-depth, sonarjs/cognitive-complexity, sonarjs/nested-control-flow, no-param-reassign -- verbatim Node `path.js` port: it reassigns its own string parameters, and a string is copied by value so nothing escapes to the caller. Rewriting that away would diverge from the algorithm the parity gate pins. */
 
 const SLASH = 47; // '/'
 const DOT = 46; // '.'
