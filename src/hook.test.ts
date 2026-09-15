@@ -589,24 +589,33 @@ export default experimental_defineReact({
 test("hook-runtime run-program: on a NON-injectable event the notice is NOT faked onto stdout", () => {
   const dir = makeTmpDir();
   try {
-    // `Stop` carries no context on either harness. The honest behaviour is to
-    // emit nothing rather than a shape the harness will ignore — the loud part
-    // is a compile-time warning (below), not a silent runtime pretence.
+    // `PreCompact` carries no context on either harness. The honest behaviour is
+    // to emit nothing rather than a shape the harness will ignore — the loud
+    // part is a compile-time warning (below), not a silent runtime pretence.
+    //
+    // This used to be keyed on `Stop`, on the port's unmeasured claim that Stop
+    // carries no context anywhere. Measuring Claude Code 2.1.273 on 2026-09-15
+    // showed Stop DOES deliver, so the fixture moved to an event that is still
+    // undeliverable on both harnesses. The property is unchanged.
     const hook = fixture(
       dir,
-      "stop-notice.mjs",
+      "precompact-notice.mjs",
       `import { experimental_defineReact, notice } from "__HOOK__";
 export default experimental_defineReact({
-  on: "Stop",
+  on: "PreCompact",
   react: () => notice("vigiles: UNDELIVERABLE-HERE"),
 });`,
     );
     const r = runHook(
       `node ${CLI} hook-runtime run-program ${hook}`,
-      { hook_event_name: "Stop" },
+      { hook_event_name: "PreCompact" },
       { cwd: dir },
     );
-    assert.equal(r.stdout.trim(), "", "no additionalContext on a Stop event");
+    assert.equal(
+      r.stdout.trim(),
+      "",
+      "no additionalContext on a PreCompact event",
+    );
     assert.equal(r.json, null);
     assert.match(r.stderr, /UNDELIVERABLE-HERE/);
     assert.equal(r.exitCode, 0);
@@ -621,10 +630,10 @@ test("compile WARNS LOUDLY when a react's notice could never be delivered", () =
     linkVigiles(dir);
     mkdirSync(resolve(dir, ".vigiles/hooks"), { recursive: true });
     writeFileSync(
-      resolve(dir, ".vigiles/hooks/stop-notice.mjs"),
+      resolve(dir, ".vigiles/hooks/precompact-notice.mjs"),
       `import { experimental_defineReact, notice } from "vigiles/hook";
 export default experimental_defineReact({
-  on: "Stop",
+  on: "PreCompact",
   react: () => notice("nobody hears this"),
 });
 `,

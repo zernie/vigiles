@@ -41,11 +41,22 @@ export interface HookProtocol {
    * **which events honor it** — and encoding it here is what makes "this harness
    * can deliver an inject hook" a TESTED contract instead of an assumption. Both
    * Claude Code and Codex support the main lifecycle events (SessionStart,
-   * UserPromptSubmit, PostToolUse); a few (Stop, SubagentStop, PreCompact) carry
-   * no context on either. An empty list means the harness cannot inject context
-   * from a hook at all. Verified for Codex against the official hooks docs
+   * UserPromptSubmit, PreToolUse, PostToolUse); beyond that they DIVERGE, which
+   * is why this is a port and not a core constant: Claude Code also honors
+   * `Stop` (measured 2026-09-15 on 2.1.273, headless), Codex instead honors
+   * `SubagentStart`. An empty list means the harness cannot inject context from
+   * a hook at all. Verified for Codex against the official hooks docs
    * (developers.openai.com/codex/hooks). The conformance kit asserts a
    * shell-hook harness declares a non-empty set.
+   *
+   * ⚠️ This comment previously asserted that "a few (Stop, SubagentStop,
+   * PreCompact) carry no context on EITHER" harness. For Claude Code's `Stop`
+   * that was wrong, and the cost was structural rather than cosmetic: an
+   * unmeasured claim in a doc-comment became the runtime's emit gate, so three
+   * react hooks were reported undeliverable-by-vocabulary when the harness
+   * would have delivered them. A per-harness fact belongs in the adapter WITH
+   * its measurement; the residue (`SubagentStop`, `PreCompact`) stays unclaimed
+   * here rather than re-asserted.
    */
   readonly injectableEvents: readonly string[];
   /**
