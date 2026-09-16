@@ -23,6 +23,7 @@
  * `HarnessDialect.skillFrontmatter`.
  */
 import type { HarnessVocabulary } from "./vocabulary.js";
+import type { EventCapabilityTable } from "./event-capability.js";
 
 export type SkillFrontmatterProfile = "claude-code" | "minimal";
 
@@ -54,13 +55,28 @@ export interface HarnessDialect {
    * cries wolf on a PostToolUse feedback/nudge hook). Optional (additive,
    * non-breaking) — absent ⇒ the harness's block semantics are undeclared and the
    * check does not run for it.
+   *
+   *   @deprecated Superseded by {@link eventCapabilities}, from which this list is
+   * now DERIVED (`blockIneffectiveEvents`) and against which it is asserted. Kept
+   * because removing a public port field breaks third-party adapters; it will go
+   * in the next major.
+   *
+   * 🔴 THE NAME IS WRONG AND THAT MATTERED. "No effect" reads as "a hook here does
+   * nothing", but it MEANS "no effect OF A BLOCK" — Claude Code's `SessionStart`
+   * is in this list and injects context perfectly well; exit 2 is the only thing
+   * it ignores. Deriving the list caught this: the obvious predicate
+   * (`honours === []`) silently dropped SessionStart and would have changed what
+   * `hook-block-ineffective` flags.
    */
   readonly noEffectHookEvents?: readonly string[];
   /**
    * The subset of blocking events whose deny REQUIRES the structured
    * `permissionDecision` field (e.g. Claude Code's `PreToolUse`), where the
    * legacy top-level `decision` field is silently ignored. The basis for the
-   * `hook-block-ineffective` "wrong-field" check. Optional (additive).
+   * `hook-block-ineffective` "wrong-field" check. Optional (additive).   *
+   * @deprecated Superseded by {@link eventCapabilities} (`denyShape:
+   * "permission-decision"`), from which this list is derived and against which it
+   * is asserted. Kept for third-party adapters; goes in the next major.
    */
   readonly permissionDecisionHookEvents?: readonly string[];
   /** Instruction-file targets the harness reads (also the h1 heading). */
@@ -100,6 +116,21 @@ export interface HarnessDialect {
    * and its unknowns become advisories rather than silence.
    */
   readonly hookEventVocabulary?: HarnessVocabulary;
+  /**
+   * What each hook event CARRIES and HONOURS — {@link EventCapabilityTable}.
+   *
+   * The single table three flat lists had been approximating: `hookEvents`
+   * (membership), `noEffectHookEvents` (blocks ignored) and
+   * `permissionDecisionHookEvents` (deny needs a field) all ask about an event,
+   * none relate it to its PAYLOAD, and the fourth — `injectableEvents` — sits on
+   * a different port entirely. A list per question cannot answer a question
+   * about a PAIR, which is what "is this role legal on this event?" is.
+   *
+   * Optional (additive, non-breaking): absent ⇒ the flat lists still decide, and
+   * the (role, event) compatibility check does not run for that adapter. Present
+   * ⇒ it is the source the derived lists are read from, so the two cannot drift.
+   */
+  readonly eventCapabilities?: EventCapabilityTable;
   /**
    * The subagent-tool catalog as a {@link HarnessVocabulary}. Same contract as
    * `hookEventVocabulary`; absent ⇒ synthesised from `builtinAgentTools`

@@ -18,6 +18,7 @@ import {
   dialectVocabularyProblems,
   vocabularyProjectionProblems,
 } from "./core/vocabulary-consistency.js";
+import { injectableEventsOf } from "./core/event-capability.js";
 
 export interface ConformanceResult {
   readonly ok: boolean;
@@ -141,10 +142,24 @@ export function checkAdapterConformance(
       // deliver an inject hook?" a tested contract — the gap that let Codex's
       // inject support sit unverified in prose. Empty would mean the harness
       // can't inject context from a hook at all; every harness we support can.
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- the legacy list is the FALLBACK for an adapter with no capability table, and the thing checked for drift below
+      const declaredInject = adapter.hookProtocol.injectableEvents;
       need(
-        adapter.hookProtocol.injectableEvents.length > 0,
+        injectableEventsOf(adapter.dialect, declaredInject).length > 0,
         "hookProtocol.injectableEvents is empty — a shell-hook harness must declare the events that honor additionalContext injection (or it can't deliver an inject/nudge hook)",
       );
+      // …and when an adapter declares BOTH, they must agree. Without this the
+      // table silently COVERS FOR a broken list: an adapter could ship
+      // `injectableEvents: []` and still pass, because the effective answer came
+      // from the dialect. Two sources that disagree are worse than one, and this
+      // is the assertion that keeps the deprecation honest rather than lossy.
+      if (adapter.dialect.eventCapabilities) {
+        const derived = [...injectableEventsOf(adapter.dialect, [])].sort();
+        need(
+          derived.join("|") === [...declaredInject].sort().join("|"),
+          `hookProtocol.injectableEvents disagrees with dialect.eventCapabilities — the list says [${[...declaredInject].sort().join(", ")}], the table says [${derived.join(", ")}]; they describe the same fact and must match`,
+        );
+      }
       portNames.push(["hookProtocol", adapter.hookProtocol.name]);
     }
   } else {

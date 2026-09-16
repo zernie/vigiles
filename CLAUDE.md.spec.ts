@@ -103,6 +103,14 @@ BUILD + TOOLING + GENERATED:
       "Type system and builder functions (enforce, guidance, claude, skill, agent, file, cmd, ref, symbol, dir, glob — dir() verifies a path exists AND is a directory, glob() verifies a pattern matches ≥1…",
     "src/core/compile.ts":
       "Compiler: spec → markdown with SHA-256 hash, linter verification, reference validation; compileClaude/compileSkill/compileAgent (subagents: frontmatter + verified tool contract + body marks +…",
+    "src/core/event-capability.ts":
+      "What a hook event CARRIES and what it HONOURS — the one table three flat lists had been approximating (`noEffectHookEvents` + `permissionDecisionHookEvents` on the dialect, `injectableEvents` on the protocol). A list per question cannot answer a question about the PAIR, which is what 'is this role legal on this event?' is. PARTIAL by construction and TOTAL at the lookup — the `vocabulary.ts` contract applied to events, with `unknown` as a fail-open fourth answer. On the DIALECT rather than the protocol because that port is required of every adapter and is what the browser engine is handed; the header says why, and what deriving the old lists caught",
+    "src/adapters/claude-code/event-capability.ts":
+      "Claude Code's capability capture — 9 of the vendor's 31 events, each row carrying its basis (`doc` or `measured <date> on <version>`). 'Probably the same as its sibling event' is not a basis: SubagentStop is here on the vendor's wording and does NOT claim `inject`, because Stop's measured behaviour is not evidence about it. The rule that keeps it honest is that a row is ALL-OR-NOTHING — a present row with an incomplete `honours` is worse than an absent one, since the classifier would answer `known` and confidently deny a channel that works. That is why Codex has no table yet: its docs pin inject per-event and say nothing about veto per-event",
+    "src/core/event-capability.test.ts":
+      "Event-capability suite — the load-bearing half is the DERIVATION block: all three pre-existing flat lists must be reproducible FROM the table, exactly, which is what makes it one source instead of a fourth opinion. One of the three crosses PORTS (`injectableEvents` lives on the protocol, the table on the dialect) — precisely the split that let them disagree until 2026-09-15",
+    "src/core/role-event-fit.test.ts":
+      "(role × event) compatibility, run against the SIX fixtures that measured the hole on 2026-09-16 — each test names the letter it reproduces, so a regression says which real defect came back. Also the honest scorecard: three refused, one warned, one already closed by widening injectableEvents, and one (d) NOT a role/event mismatch at all but a matcher-emission bug — claiming this check caught it would be the overclaim the table exists to prevent",
     "src/core/hook-program.ts":
       "COMPILED HOOKS core (the GATE instrument; harness-neutral, pure).",
     "src/core/hook-program.test.ts":

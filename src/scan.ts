@@ -89,6 +89,10 @@ import {
   remapFindingPaths,
   collectVocabularyNotes,
 } from "./scan-core.js";
+import {
+  blockIneffectiveEventsOf,
+  permissionDecisionEventsOf,
+} from "./core/event-capability.js";
 
 // Re-export the pure detectors (and their public types: SurfaceClassifier,
 // SkillScanContext, isManagedHookCommand, preferCompiledHooksMessage, ...) that
@@ -668,23 +672,24 @@ export function scanPlugin(
       { existsSync, isDirectory: nodeIsDirectory },
     ),
     delegationTrifecta: collectDelegationTrifecta(agents, dialect),
-    hookBlockFindings: dialect.noEffectHookEvents
-      ? hookBlockIssues(
-          collectHookBlockEntries(
-            hookRegs,
-            resolve(dir),
-            lay.pluginRootToken,
-            existsSync,
-          ),
-          {
-            noEffectEvents: new Set(dialect.noEffectHookEvents),
-            permissionDecisionEvents: new Set(
-              dialect.permissionDecisionHookEvents ?? [],
+    hookBlockFindings:
+      blockIneffectiveEventsOf(dialect).length > 0
+        ? hookBlockIssues(
+            collectHookBlockEntries(
+              hookRegs,
+              resolve(dir),
+              lay.pluginRootToken,
+              existsSync,
             ),
-            readFileSync: nodeReadFile,
-          },
-        )
-      : [],
+            {
+              noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
+              permissionDecisionEvents: new Set(
+                permissionDecisionEventsOf(dialect),
+              ),
+              readFileSync: nodeReadFile,
+            },
+          )
+        : [],
     hookMatcherFindings: hookMatcherIssues(
       collectHookMatchers(hookRegs),
       declaredServers,

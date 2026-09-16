@@ -56,7 +56,12 @@ export interface HookProtocol {
    * react hooks were reported undeliverable-by-vocabulary when the harness
    * would have delivered them. A per-harness fact belongs in the adapter WITH
    * its measurement; the residue (`SubagentStop`, `PreCompact`) stays unclaimed
-   * here rather than re-asserted.
+   * here rather than re-asserted.   *
+   * @deprecated Superseded by `HarnessDialect.eventCapabilities`
+   * (`honours: "inject"`), which is asserted to reproduce this list exactly. It
+   * lives on the DIALECT rather than here because three sibling event facts
+   * already did, and because the browser-side engine is handed a dialect and
+   * never a protocol. Kept for third-party adapters; goes in the next major.
    */
   readonly injectableEvents: readonly string[];
   /**

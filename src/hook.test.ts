@@ -624,6 +624,38 @@ export default experimental_defineReact({
   }
 });
 
+test("compile REFUSES a role its event cannot support (the wiring, not just the predicate)", () => {
+  const dir = makeTmpDir();
+  try {
+    linkVigiles(dir);
+    mkdirSync(resolve(dir, ".vigiles/hooks"), { recursive: true });
+    // Fixture (a) from the 2026-09-16 measurement, verbatim in shape: a
+    // prompt-gate on PreToolUse. It used to compile clean and then allow
+    // everything, because the absent `prompt` reads as "".
+    writeFileSync(
+      resolve(dir, ".vigiles/hooks/wrong-event.mjs"),
+      `import { experimental_definePromptGate, allow, deny } from "vigiles/hook";
+export default experimental_definePromptGate({
+  on: "PreToolUse",
+  decide: (e) => (e.prompt.includes("secret") ? deny("no") : allow()),
+});
+`,
+    );
+    const r = spawnSync("node", [CLI, "compile"], {
+      cwd: dir,
+      encoding: "utf-8",
+    });
+    const out = r.stdout + r.stderr;
+    // A NON-ZERO exit is the half that makes this a gate rather than a note —
+    // `installHooks` returns false, `compile` exits 1. Asserted directly because
+    // a predicate nobody calls is the failure mode this test exists for.
+    assert.notEqual(r.status, 0);
+    assert.match(out, /carries tool/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
 test("compile WARNS LOUDLY when a react's notice could never be delivered", () => {
   const dir = makeTmpDir();
   try {

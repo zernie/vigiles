@@ -119,6 +119,7 @@ export function formatSelectionReport(r: SelectionReport): string;
 // @public (undocumented)
 export interface HarnessDialect {
     readonly builtinAgentTools: readonly string[];
+    readonly eventCapabilities?: EventCapabilityTable;
     readonly hookEvents: readonly string[];
     readonly hookEventVocabulary?: HarnessVocabulary;
     readonly instructionTargets: readonly string[];
@@ -126,7 +127,9 @@ export interface HarnessDialect {
     readonly mcpToolPattern: RegExp;
     readonly name: string;
     readonly neverAvailableTools: readonly string[];
+    // @deprecated
     readonly noEffectHookEvents?: readonly string[];
+    // @deprecated
     readonly permissionDecisionHookEvents?: readonly string[];
     readonly pluginRootToken: string;
     readonly sideEffectingTools?: readonly string[];

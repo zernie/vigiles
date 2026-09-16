@@ -74,6 +74,7 @@ export interface HarnessAdapter {
 // @public (undocumented)
 export interface HarnessDialect {
     readonly builtinAgentTools: readonly string[];
+    readonly eventCapabilities?: EventCapabilityTable;
     readonly hookEvents: readonly string[];
     readonly hookEventVocabulary?: HarnessVocabulary;
     readonly instructionTargets: readonly string[];
@@ -81,7 +82,9 @@ export interface HarnessDialect {
     readonly mcpToolPattern: RegExp;
     readonly name: string;
     readonly neverAvailableTools: readonly string[];
+    // @deprecated
     readonly noEffectHookEvents?: readonly string[];
+    // @deprecated
     readonly permissionDecisionHookEvents?: readonly string[];
     readonly pluginRootToken: string;
     readonly sideEffectingTools?: readonly string[];
@@ -110,6 +113,7 @@ export interface HookProtocol {
     readonly denyDecisionValues: readonly string[];
     readonly eventEnvVars: readonly string[];
     readonly haltsTurnField?: string;
+    // @deprecated
     readonly injectableEvents: readonly string[];
     readonly matcherStyle?: "exact" | "regex";
     readonly name: string;

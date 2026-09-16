@@ -62,6 +62,7 @@ export interface CompiledHookProgram {
     }[]>;
     readonly settingsBlock: string;
     readonly stamp: SHA256Hash;
+    readonly warnings?: readonly string[];
 }
 
 // @public

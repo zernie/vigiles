@@ -102,6 +102,10 @@ import {
 // the node-free ./scan-core.js above.
 import type { ScanReport, ScanInstructions } from "./scan.js";
 import { collectVocabularyNotes } from "./scan-core.js";
+import {
+  blockIneffectiveEventsOf,
+  permissionDecisionEventsOf,
+} from "./core/event-capability.js";
 
 /**
  * The synthetic absolute root every path in a browser scan resolves against. A
@@ -744,23 +748,24 @@ export function scanFiles(
       { existsSync: exists, isDirectory: mapIsDirectory(files) },
     ),
     delegationTrifecta: collectDelegationTrifecta(agents, dialect),
-    hookBlockFindings: dialect.noEffectHookEvents
-      ? hookBlockIssues(
-          collectHookBlockEntries(
-            hookRegs,
-            BROWSER_ROOT,
-            lay.pluginRootToken,
-            exists,
-          ),
-          {
-            noEffectEvents: new Set(dialect.noEffectHookEvents),
-            permissionDecisionEvents: new Set(
-              dialect.permissionDecisionHookEvents ?? [],
+    hookBlockFindings:
+      blockIneffectiveEventsOf(dialect).length > 0
+        ? hookBlockIssues(
+            collectHookBlockEntries(
+              hookRegs,
+              BROWSER_ROOT,
+              lay.pluginRootToken,
+              exists,
             ),
-            readFileSync: mapReadFile(files),
-          },
-        )
-      : [],
+            {
+              noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
+              permissionDecisionEvents: new Set(
+                permissionDecisionEventsOf(dialect),
+              ),
+              readFileSync: mapReadFile(files),
+            },
+          )
+        : [],
     hookMatcherFindings: hookMatcherIssues(
       collectHookMatchers(hookRegs),
       declaredServers,

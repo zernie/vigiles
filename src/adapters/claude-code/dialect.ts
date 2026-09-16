@@ -8,6 +8,7 @@
  * in its adapter (e.g. `src/adapters/codex/dialect.ts` exporting `codexDialect`).
  */
 import type { HarnessDialect } from "../../core/dialect.js";
+import { claudeCodeEventCapabilities } from "./event-capability.js";
 import {
   claudeCodeAvailableAgentTools,
   claudeCodeConditionalAgentToolNames,
@@ -79,6 +80,11 @@ export const claudeCodeDialect: HarnessDialect = {
     "Notification",
     "PreCompact",
   ],
+  // The capability table — what each event CARRIES and HONOURS. Nine of the 31
+  // events, each with its basis; see ./event-capability.ts. The three flat lists
+  // above are kept for now and are ASSERTED against this table in
+  // event-capability.test.ts, so there is one source rather than two truths.
+  eventCapabilities: claudeCodeEventCapabilities,
   // PreToolUse is the one event whose deny needs the structured
   // `hookSpecificOutput.permissionDecision:"deny"`; the legacy top-level
   // `decision` field is ignored there.

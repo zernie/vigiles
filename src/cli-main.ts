@@ -20,6 +20,7 @@ import {
   realpathSync,
   type Dirent,
 } from "node:fs";
+import { injectableEventsOf } from "./core/event-capability.js";
 import {
   resolve,
   dirname,
@@ -7374,7 +7375,11 @@ async function installHookFile(
   // cross-harness and never warns.
   const role = dispatchKind(program);
   const event = typeof program.on === "string" ? program.on : "";
-  const injectable = adapter.hookProtocol?.injectableEvents ?? [];
+  const injectable = injectableEventsOf(
+    adapter.dialect,
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the legacy list is the FALLBACK an adapter without a capability table still relies on; reading it here is the point
+    adapter.hookProtocol?.injectableEvents,
+  );
   const matcher = hookRouting(program).matcher;
   let warning: string | undefined;
   // A react on an event this harness does NOT inject can still call `notice()`,

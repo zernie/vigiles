@@ -1022,10 +1022,33 @@ test("context: a registered provider() ref needs registeredProviders to compile"
   );
 });
 
+test("(fixture d) a bare gate carrying a `match` does NOT compile", () => {
+  // The worst of the six 2026-09-16 fixtures, because it was not DEAD: it
+  // compiled to a matcher of `Bash` and asked on every shell command, while the
+  // MCP call the author named went through unguarded. `tsc` rejects the excess
+  // property — but a compiled hook is often `.mjs`, and `vigiles compile` never
+  // runs `tsc`, so for a JS author nothing was in the path.
+  const ghost = {
+    on: "PreToolUse",
+    match: { tools: ["mcp__github__merge_pull_request"] },
+    decide: () => allow(),
+  } as unknown as Parameters<typeof compileHookProgram>[1];
+  assert.throws(
+    () =>
+      compileHookProgram(
+        `import { experimental_defineHook } from "vigiles/hook";`,
+        ghost,
+      ),
+    /bare hook gate is a BASH gate/,
+  );
+});
+
 test("context: an unknown provider in `needs` does NOT compile", () => {
+  // No `match` — a bare gate matches Bash by construction and a `match` here is
+  // now a compile error in its own right (fixture d). This fixture carried one
+  // anyway, which is how the new check found a ghost field in our OWN test.
   const bad = {
     on: "PreToolUse",
-    match: { tool: "Bash" },
     needs: ["git.brnch"], // typo — not a built-in provider
     decide: () => allow(),
   } as unknown as Parameters<typeof compileHookProgram>[1];
@@ -2247,6 +2270,7 @@ test("the clamp reaches BOTH repair doors, and grants nothing new", () => {
 test("noticeDelivery: a notice on an injectable event becomes injected context", () => {
   const r = notice("mind the tier");
   for (const proto of [claudeCodeHookProtocol, codexHookProtocol]) {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
     const d = noticeDelivery(r, "PostToolUse", proto.injectableEvents);
     assert.equal(
       d.kind,
@@ -2267,6 +2291,7 @@ test("noticeDelivery: a notice on a NON-injectable event is undeliverable, not s
     const d = noticeDelivery(
       notice("nobody hears this"),
       "PreCompact",
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
       proto.injectableEvents,
     );
     assert.equal(
@@ -2285,11 +2310,13 @@ test("noticeDelivery: the harnesses DISAGREE — the per-harness fact is real", 
   // still diverge — CC honors `Stop`, Codex honors `SubagentStart` — which is
   // the property this test exists to pin: the list is a PORT, not a constant.
   assert.equal(
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
     noticeDelivery(notice("x"), "Stop", claudeCodeHookProtocol.injectableEvents)
       .kind,
     "inject",
   );
   assert.equal(
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
     noticeDelivery(notice("x"), "Stop", codexHookProtocol.injectableEvents)
       .kind,
     "undeliverable",
@@ -2298,6 +2325,7 @@ test("noticeDelivery: the harnesses DISAGREE — the per-harness fact is real", 
     noticeDelivery(
       notice("x"),
       "SubagentStart",
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
       claudeCodeHookProtocol.injectableEvents,
     ).kind,
     "undeliverable",
@@ -2306,6 +2334,7 @@ test("noticeDelivery: the harnesses DISAGREE — the per-harness fact is real", 
     noticeDelivery(
       notice("x"),
       "SubagentStart",
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
       codexHookProtocol.injectableEvents,
     ).kind,
     "inject",
@@ -2313,6 +2342,7 @@ test("noticeDelivery: the harnesses DISAGREE — the per-harness fact is real", 
 });
 
 test("noticeDelivery: a run() or nothing() reaction has nothing to deliver", () => {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
   const events = claudeCodeHookProtocol.injectableEvents;
   assert.equal(
     noticeDelivery(run("echo hi"), "PostToolUse", events).kind,

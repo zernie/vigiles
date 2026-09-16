@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 434 project files. */
+  /** 438 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -125,6 +125,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/dialect.ts"
     | "src/adapters/claude-code/effect-region.test.ts"
     | "src/adapters/claude-code/effect-region.ts"
+    | "src/adapters/claude-code/event-capability.ts"
     | "src/adapters/claude-code/hook-condition.ts"
     | "src/adapters/claude-code/hook-protocol.ts"
     | "src/adapters/claude-code/layout.test.ts"
@@ -250,6 +251,8 @@ declare module "vigiles/generated" {
     | "src/core/effects.ts"
     | "src/core/eval-load-phase.test.ts"
     | "src/core/eval-load-phase.ts"
+    | "src/core/event-capability.test.ts"
+    | "src/core/event-capability.ts"
     | "src/core/evolve.ts"
     | "src/core/foreign-runner.test.ts"
     | "src/core/foreign-runner.ts"
@@ -319,6 +322,7 @@ declare module "vigiles/generated" {
     | "src/core/refs.ts"
     | "src/core/repo-path.test.ts"
     | "src/core/repo-path.ts"
+    | "src/core/role-event-fit.test.ts"
     | "src/core/rule-catalog.test.ts"
     | "src/core/rule-catalog.ts"
     | "src/core/rule-meta.test.ts"
@@ -631,6 +635,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/dialect.ts"
       | "src/adapters/claude-code/effect-region.test.ts"
       | "src/adapters/claude-code/effect-region.ts"
+      | "src/adapters/claude-code/event-capability.ts"
       | "src/adapters/claude-code/hook-condition.ts"
       | "src/adapters/claude-code/hook-protocol.ts"
       | "src/adapters/claude-code/layout.test.ts"
@@ -756,6 +761,8 @@ declare module "vigiles/spec" {
       | "src/core/effects.ts"
       | "src/core/eval-load-phase.test.ts"
       | "src/core/eval-load-phase.ts"
+      | "src/core/event-capability.test.ts"
+      | "src/core/event-capability.ts"
       | "src/core/evolve.ts"
       | "src/core/foreign-runner.test.ts"
       | "src/core/foreign-runner.ts"
@@ -825,6 +832,7 @@ declare module "vigiles/spec" {
       | "src/core/refs.ts"
       | "src/core/repo-path.test.ts"
       | "src/core/repo-path.ts"
+      | "src/core/role-event-fit.test.ts"
       | "src/core/rule-catalog.test.ts"
       | "src/core/rule-catalog.ts"
       | "src/core/rule-meta.test.ts"

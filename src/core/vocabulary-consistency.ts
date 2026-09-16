@@ -51,12 +51,21 @@ export function dialectVocabularyProblems(dialect: HarnessDialect): string[] {
   // A block-semantics subset that names an event the dialect doesn't fire is a
   // rule about nothing.
   const events = new Set(dialect.hookEvents);
+  // 🔴 READ THE DECLARED FIELDS, not the effective answer. This check is about
+  // junk IN a dialect's own declarations, so routing it through the
+  // capability-table readers (which prefer the table) made it stop looking at
+  // the very field it polices — caught by `vocabulary.test.ts` the moment the
+  // Claude Code dialect gained a table. The readers are for CONSUMERS asking
+  // "what does this harness do?"; a consistency check is not one of those.
+  /* eslint-disable @typescript-eslint/no-deprecated -- policing the legacy
+     fields themselves is this function's entire job. */
   for (const [field, list] of [
     ["noEffectHookEvents", dialect.noEffectHookEvents ?? []],
     [
       "permissionDecisionHookEvents",
       dialect.permissionDecisionHookEvents ?? [],
     ],
+    ["eventCapabilities", Object.keys(dialect.eventCapabilities?.events ?? {})],
   ] as const)
     for (const event of list)
       if (!events.has(event))
@@ -64,6 +73,7 @@ export function dialectVocabularyProblems(dialect: HarnessDialect): string[] {
           `hook event "${event}" is in ${field} but not in hookEvents — ` +
             `it describes an event this dialect says never fires`,
         );
+  /* eslint-enable @typescript-eslint/no-deprecated */
 
   return problems;
 }
