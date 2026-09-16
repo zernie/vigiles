@@ -151,6 +151,12 @@ export default [
       // parameter's properties is visible to the CALLER, while a local
       // accumulator is nobody's business but the function's.
       //
+      // LODASH IS NOT THE ALTERNATIVE EITHER: it is not an immutability
+      // library — `_.merge` mutates its first argument, which is this very bug
+      // with a nicer name — and the CLI is deliberately runtime-dep-light. A
+      // deep-update helper is worth reaching for only once a shape genuinely
+      // needs one, and none does today.
+      //
       // THE PRIMARY DEFENCE IS THE TYPE, NOT THIS RULE. `readonly` on the
       // container makes `push` a tsc error, which is the irrepresentable-state
       // move `ts-essentials` asks for; this rule is the backstop for the shapes
