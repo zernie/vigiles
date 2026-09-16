@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx vigiles hook-runtime run-program .vigiles/hooks/docs-drift-nudge.hook.mjs"
+            "command": "npx vigiles hook-runtime run-program \"${CLAUDE_PROJECT_DIR}/.vigiles/hooks/docs-drift-nudge.hook.mjs\""
           }
         ]
       },
@@ -64,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx vigiles hook-runtime run-program .vigiles/hooks/test-tier-nudge.hook.mjs"
+            "command": "npx vigiles hook-runtime run-program \"${CLAUDE_PROJECT_DIR}/.vigiles/hooks/test-tier-nudge.hook.mjs\""
           }
         ]
       }
