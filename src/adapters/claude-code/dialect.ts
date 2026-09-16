@@ -8,6 +8,7 @@
  * in its adapter (e.g. `src/adapters/codex/dialect.ts` exporting `codexDialect`).
  */
 import type { HarnessDialect } from "../../core/dialect.js";
+import { claudeCodeEventCapabilities } from "./event-capability.js";
 import {
   claudeCodeAvailableAgentTools,
   claudeCodeConditionalAgentToolNames,
@@ -79,6 +80,36 @@ export const claudeCodeDialect: HarnessDialect = {
     "Notification",
     "PreCompact",
   ],
+  // What Claude Code loads unasked, and what it does with too much of it.
+  //
+  // WARNS, does not truncate: `/doctor` reports "Large file will impact
+  // performance" and the instructions still reach the model. So being over
+  // budget here costs money and attention — not rules. (Codex is the opposite;
+  // see its dialect, and see why `onExceed` is reported at all.)
+  //
+  // 🔴 `alwaysLoaded` IS THE POINT, and `.claude/rules/**` is in it on a
+  // MEASUREMENT, not a doc: a consumer repo moved 225 837 characters out of
+  // CLAUDE.md into that directory and the request cost did not move, because
+  // the harness loads it either way. A per-file check would have called that
+  // split a success.
+  instructionBudget: {
+    unit: "chars",
+    limit: 40000,
+    onExceed: "warns",
+    capturedFrom:
+      "claude-code /doctor large-file warning; .claude/rules/** measured 2026-09-16 in a consumer repo",
+    alwaysLoaded: [
+      "CLAUDE.md",
+      "CLAUDE.local.md",
+      ".claude/CLAUDE.md",
+      ".claude/rules/**",
+    ],
+  },
+  // The capability table — what each event CARRIES and HONOURS. Nine of the 31
+  // events, each with its basis; see ./event-capability.ts. The three flat lists
+  // above are kept for now and are ASSERTED against this table in
+  // event-capability.test.ts, so there is one source rather than two truths.
+  eventCapabilities: claudeCodeEventCapabilities,
   // PreToolUse is the one event whose deny needs the structured
   // `hookSpecificOutput.permissionDecision:"deny"`; the legacy top-level
   // `decision` field is ignored there.

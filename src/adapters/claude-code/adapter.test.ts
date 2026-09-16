@@ -102,6 +102,11 @@ test("conformance catches a shell-hook adapter that can't inject context", () =>
   // The exact class of gap that let Codex's inject support sit unverified: a
   // shellHooks adapter whose hookProtocol declares NO injectable events (so an
   // inject/nudge hook would silently never reach the agent). The kit must reject it.
+  //
+  // TWO ways it is now caught, and the second is why this test changed: once the
+  // dialect carries a capability table, the table would ANSWER for the broken
+  // list and the adapter would pass. So an adapter declaring both must have them
+  // AGREE — otherwise the richer source quietly covers for the emptied one.
   const proto = claudeCodeAdapter.hookProtocol;
   assert.ok(proto, "fixture precondition: CC has a hookProtocol");
   const noInject: HarnessAdapter = {
@@ -110,7 +115,19 @@ test("conformance catches a shell-hook adapter that can't inject context", () =>
   };
   const r = checkAdapterConformance(noInject);
   assert.equal(r.ok, false);
-  assert.ok(r.failures.some((m) => m.includes("injectableEvents is empty")));
+  assert.ok(
+    r.failures.some((m) => m.includes("disagrees with dialect.eventCapabilities")), // prettier-ignore
+    "a table that contradicts the emptied list must be reported, not used to pass",
+  );
+
+  // …and with NO table either, the original emptiness check is what catches it.
+  const alsoNoTable: HarnessAdapter = {
+    ...noInject,
+    dialect: { ...claudeCodeAdapter.dialect, eventCapabilities: undefined },
+  };
+  const r2 = checkAdapterConformance(alsoNoTable);
+  assert.equal(r2.ok, false);
+  assert.ok(r2.failures.some((m) => m.includes("injectableEvents is empty")));
 });
 
 test("conformance ACCEPTS a pillar-1-only adapter (no transport ports)", () => {

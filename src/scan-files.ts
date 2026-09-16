@@ -41,6 +41,7 @@ import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import type { PluginLayout } from "./core/layout.js";
 import type { HarnessDialect } from "./core/dialect.js";
+import { weighInstructions } from "./core/instruction-weight.js";
 import type { LoadedPlugin } from "./plugin-loader.js";
 import { normalizeHooks, hookEventNames } from "./core/hook-normalize.js";
 import { verifyHookEvents, scoredIssues } from "./core/hook-events.js";
@@ -102,6 +103,10 @@ import {
 // the node-free ./scan-core.js above.
 import type { ScanReport, ScanInstructions } from "./scan.js";
 import { collectVocabularyNotes } from "./scan-core.js";
+import {
+  blockIneffectiveEventsOf,
+  permissionDecisionEventsOf,
+} from "./core/event-capability.js";
 
 /**
  * The synthetic absolute root every path in a browser scan resolves against. A
@@ -744,23 +749,24 @@ export function scanFiles(
       { existsSync: exists, isDirectory: mapIsDirectory(files) },
     ),
     delegationTrifecta: collectDelegationTrifecta(agents, dialect),
-    hookBlockFindings: dialect.noEffectHookEvents
-      ? hookBlockIssues(
-          collectHookBlockEntries(
-            hookRegs,
-            BROWSER_ROOT,
-            lay.pluginRootToken,
-            exists,
-          ),
-          {
-            noEffectEvents: new Set(dialect.noEffectHookEvents),
-            permissionDecisionEvents: new Set(
-              dialect.permissionDecisionHookEvents ?? [],
+    hookBlockFindings:
+      blockIneffectiveEventsOf(dialect).length > 0
+        ? hookBlockIssues(
+            collectHookBlockEntries(
+              hookRegs,
+              BROWSER_ROOT,
+              lay.pluginRootToken,
+              exists,
             ),
-            readFileSync: mapReadFile(files),
-          },
-        )
-      : [],
+            {
+              noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
+              permissionDecisionEvents: new Set(
+                permissionDecisionEventsOf(dialect),
+              ),
+              readFileSync: mapReadFile(files),
+            },
+          )
+        : [],
     hookMatcherFindings: hookMatcherIssues(
       collectHookMatchers(hookRegs),
       declaredServers,
@@ -774,6 +780,11 @@ export function scanFiles(
       ...loaded.warnings,
       ...conflictedHarnessConfigs((f) => files[f]).map(mergeConflictWarning),
     ],
+    // The browser side needs no directory walk — the file map IS the repo, so
+    // the glob filter inside weighInstructions does the whole job.
+    instructionWeight: dialect.instructionBudget
+      ? weighInstructions(files, dialect.instructionBudget)
+      : null,
     untested: coverage.untested.length,
     untestedHarness: coverage.harness.untested.length,
     unevaluated: coverage.evals.untested.length,

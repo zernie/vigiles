@@ -17,9 +17,32 @@ export const claudeCodeHookProtocol: HookProtocol = {
   // the agent — a stronger stop than a per-call deny, and a documented one.
   haltsTurnField: "continue",
   // Events that honor `hookSpecificOutput.additionalContext` (developer-context
-  // injection). Covers vigiles's shipped inject hooks: the SessionStart lint
-  // summary and the PostToolUse refs / eval-lock nudges.
-  injectableEvents: ["SessionStart", "UserPromptSubmit", "PostToolUse"],
+  // injection). Covers vigiles's shipped inject hooks (the SessionStart lint
+  // summary, the PostToolUse refs / eval-lock nudges) AND the two events added
+  // 2026-09-15 after a MEASUREMENT contradicted the assumption below.
+  //
+  // `PreToolUse` and `Stop` were absent because the port's doc-comment asserted
+  // that "a few (Stop, SubagentStop, PreCompact) carry no context on either"
+  // harness. That was never measured for Claude Code. Measured on 2.1.273 by
+  // emitting `additionalContext` from a hook on each event and reading the
+  // model's OWN request back (`requestContains` over a real `runHarnessTest`
+  // run, not the hook's stdout): both events DELIVER. The prior list was
+  // therefore a self-inflicted gate — the runtime refused to emit a shape the
+  // harness would have honored, and the four affected react hooks read as
+  // "undeliverable by vocabulary" when they were undeliverable by our choice.
+  //
+  // HONEST SCOPE: measured HEADLESS (`claude -p`, which is what runHarnessTest
+  // drives). Interactive is unverified, and for the `ask` channel the two
+  // plausibly differ (headless has nobody to ask) — but `ask` is a GATE
+  // channel, not this inject one, so it does not bear on this list.
+  // `SubagentStop`/`PreCompact` stay out: not measured, so not claimed.
+  injectableEvents: [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "Stop",
+  ],
   // The `if` field: a permission-rule pattern deciding whether the hook is spawned
   // at all. See ./hook-condition.ts — without it a conditional guard was reported
   // as blocking every disaster in the battery.

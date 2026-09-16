@@ -20,6 +20,7 @@ import {
   realpathSync,
   type Dirent,
 } from "node:fs";
+import { injectableEventsOf } from "./core/event-capability.js";
 import {
   resolve,
   dirname,
@@ -198,6 +199,7 @@ import {
   addHash,
   validateFileRef,
   validateCommandRef,
+  estimateTokens,
   type StampedMarkdown,
 } from "./core/compile.js";
 import type { CompileError } from "./core/compile.js";
@@ -613,7 +615,9 @@ function compileGeneratorSkillToFile(
   // `writeArtifact` takes nothing else.
   if (artifact) writeArtifact(outputPath, artifact);
   if (errors.length === 0) {
-    console.log(`\n✓ ${specPath} → ${outputPath} (generator skill)`);
+    console.log(
+      `\n✓ ${specPath} → ${outputPath} (generator skill${artifact ? `, ${formatArtifactSize(artifact)}` : ""})`,
+    );
     return true;
   }
   console.log(`\n✗ ${specPath} — ${String(errors.length)} error(s)`);
@@ -629,17 +633,31 @@ function compileClaudeToFile(
   dialect: HarnessDialect,
 ): boolean {
   const basePath = process.cwd();
-  const { markdown, errors, linterResults, targets } = compileClaude(spec, {
-    basePath,
-    specFile: specPath,
-    dialect,
-    maxRules: config.maxRules,
-    maxTokens: config.maxTokens,
-    maxSectionLines: config.maxSectionLines,
-    catalogOnly: config.catalogOnly,
-    linters: config.linters,
-  });
+  const { markdown, errors, warnings, linterResults, targets } = compileClaude(
+    spec,
+    {
+      basePath,
+      specFile: specPath,
+      dialect,
+      maxRules: config.maxRules,
+      maxTokens: config.maxTokens,
+      maxSectionLines: config.maxSectionLines,
+      catalogOnly: config.catalogOnly,
+      linters: config.linters,
+    },
+  );
   const primaryOutput = specPath.replace(/\.spec\.ts$/, "");
+  // Budget findings print BEFORE the pass/fail line and never change the exit
+  // code. A number nobody prints cannot be acted on — the same reason the
+  // compiled size is printed at all — and an instruction file grows one
+  // unremarkable entry at a time, so the warning has to arrive at the moment
+  // the entry is added rather than at some later audit.
+  if (warnings.length > 0) {
+    console.log(
+      `\nℹ ${specPath} — ${String(warnings.length)} budget warning(s)`,
+    );
+    for (const w of warnings) console.log(`  ${w.message}`);
+  }
   if (errors.length > 0) {
     console.log(`\n✗ ${specPath} — ${String(errors.length)} error(s)`);
     printErrors(specPath, errors);
@@ -673,7 +691,9 @@ function compileClaudeToFile(
     outputNames.push(targetPath);
   }
   const linterCount = linterResults.filter((r) => r.exists).length;
-  console.log(`\n✓ ${specPath} → ${outputNames.join(", ")}`);
+  console.log(
+    `\n✓ ${specPath} → ${outputNames.join(", ")} (${formatArtifactSize(markdown)})`,
+  );
   console.log(
     `  ${String(Object.keys(spec.rules).length)} rules (${String(linterCount)} linter-verified)`,
   );
@@ -717,6 +737,47 @@ function writeInstructionMirrors(
   }
 }
 
+/**
+ * The size of a compiled artifact, printed beside every `✓` on STDOUT.
+ *
+ * WHY STDOUT: every human line `compile` emits already goes there (the `✓`
+ * lines, `Compilation complete`), and stderr in this CLI is the ERROR channel.
+ * An informational number in the error stream reads as a problem in CI logs and
+ * is killed by `2>/dev/null`. This is part of the operation's RESULT, like the
+ * output path beside it — not a diagnostic about a failure.
+ *
+ * WHY BYTES AND CHARS, AND WHY THE TOKEN COUNT IS ONLY AN ESTIMATE. These are
+ * the units the HARNESSES themselves measure, and both are exact:
+ *
+ *   - Claude Code warns per FILE CHARS (`/doctor`: "Large file will impact
+ *     performance"), and skips a file past a hard size;
+ *   - Codex caps AGENTS.md by BYTES (`project_doc_max_bytes`) and TRUNCATES —
+ *     instructions past that byte simply do not exist for the model.
+ *
+ * Neither gates on tokens, so a real tokenizer would buy precision in a unit
+ * nothing decides on. It is also not available: Anthropic publishes no local
+ * tokenizer for current Claude models (the supported count is a NETWORK call
+ * with an API key, which a zero-config offline compile must not need), while
+ * OpenAI's is local — so tokenizing would make us precise for one harness and
+ * blind for the other, and the two numbers would stop being comparable.
+ *
+ * `estimateTokens` is `length / 4`, calibrated for ASCII English; it undercounts
+ * Cyrillic and CJK substantially. It is labelled `est.` for that reason and must
+ * never become the number a rule gates on — see the instruction-weight rule.
+ */
+function formatArtifactSize(markdown: string): string {
+  const chars = markdown.length;
+  const bytes = Buffer.byteLength(markdown, "utf8");
+  const group = (n: number): string =>
+    String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const kTokens = Math.round(estimateTokens(markdown) / 100) / 10;
+  const size =
+    bytes === chars
+      ? `${group(chars)} chars`
+      : `${group(chars)} chars / ${group(bytes)} bytes`;
+  return `${size} · ~${String(kTokens)}k tokens est.`;
+}
+
 /** Compile a declarative SkillSpec → SKILL.md. */
 function compileSkillToFile(
   spec: SkillSpec,
@@ -735,7 +796,9 @@ function compileSkillToFile(
   // `writeArtifact` takes nothing else.
   if (artifact) writeArtifact(outputPath, artifact);
   if (errors.length === 0) {
-    console.log(`\n✓ ${specPath} → ${outputPath}`);
+    console.log(
+      `\n✓ ${specPath} → ${outputPath}${artifact ? ` (${formatArtifactSize(artifact)})` : ""}`,
+    );
     printWarnings(specPath, warnings);
     return true;
   }
@@ -761,7 +824,9 @@ function compileAgentToFile(
   // `writeArtifact` takes nothing else.
   if (artifact) writeArtifact(outputPath, artifact);
   if (errors.length === 0) {
-    console.log(`\n✓ ${specPath} → ${outputPath}`);
+    console.log(
+      `\n✓ ${specPath} → ${outputPath}${artifact ? ` (${formatArtifactSize(artifact)})` : ""}`,
+    );
     printWarnings(specPath, warnings);
     return true;
   }
@@ -790,7 +855,9 @@ function compileRailwayToFile(
   // `writeArtifact` takes nothing else.
   if (artifact) writeArtifact(outputPath, artifact);
   if (errors.length === 0) {
-    console.log(`\n✓ ${specPath} → ${outputPath}`);
+    console.log(
+      `\n✓ ${specPath} → ${outputPath}${artifact ? ` (${formatArtifactSize(artifact)})` : ""}`,
+    );
     return true;
   }
   console.log(`\n✗ ${specPath} — ${String(errors.length)} error(s)`);
@@ -7322,7 +7389,11 @@ async function installHookFile(
   // cross-harness and never warns.
   const role = dispatchKind(program);
   const event = typeof program.on === "string" ? program.on : "";
-  const injectable = adapter.hookProtocol?.injectableEvents ?? [];
+  const injectable = injectableEventsOf(
+    adapter.dialect,
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the legacy list is the FALLBACK an adapter without a capability table still relies on; reading it here is the point
+    adapter.hookProtocol?.injectableEvents,
+  );
   const matcher = hookRouting(program).matcher;
   let warning: string | undefined;
   // A react on an event this harness does NOT inject can still call `notice()`,

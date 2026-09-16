@@ -2412,3 +2412,62 @@ test("conditional tool notes are GROUPED by condition, not repeated per tool", (
     assert.match(all, new RegExp(`\\b${t}\\b`));
   cleanupTmpDir(dir);
 });
+
+// --- instruction weight, the DISK side ---------------------------------------
+// The file-map half is unit-tested in core/instruction-weight.test.ts; what only
+// the disk path can get wrong is the WALK, and it can get it wrong in the one
+// direction that matters — under-reporting reads as "you are fine", and on Codex
+// being over budget means rules are silently truncated away.
+
+test("weight: a nested AGENTS.md pays into the Codex budget, node_modules does not", () => {
+  const dir = makeTmpDir();
+  try {
+    mkdirSync(join(dir, "pkg/sub"), { recursive: true });
+    mkdirSync(join(dir, "node_modules/dep"), { recursive: true });
+    mkdirSync(join(dir, ".hidden"), { recursive: true });
+    writeFileSync(join(dir, "AGENTS.md"), "a".repeat(100));
+    writeFileSync(join(dir, "pkg/sub/AGENTS.md"), "b".repeat(50));
+    // Both of these are AGENTS.md by name and must NOT be counted: one belongs
+    // to a dependency, one is in a dot-directory the user did not author as
+    // project instructions. Counting them would make the number unactionable.
+    writeFileSync(join(dir, "node_modules/dep/AGENTS.md"), "c".repeat(9999));
+    writeFileSync(join(dir, ".hidden/AGENTS.md"), "d".repeat(9999));
+
+    const r = scanPlugin(dir, codexLayout, codexDialect);
+    const w = r.instructionWeight;
+    assert.ok(w, "codex declares a budget, so a weight must be reported");
+    assert.equal(w.total, 150);
+    assert.deepEqual(
+      w.files.map((f) => f.path),
+      ["AGENTS.md", "pkg/sub/AGENTS.md"],
+    );
+    assert.equal(w.unit, "bytes");
+    assert.equal(w.onExceed, "truncates");
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("weight: .claude/rules counts toward the Claude Code sum, docs/ does not", () => {
+  const dir = makeTmpDir();
+  try {
+    mkdirSync(join(dir, ".claude/rules"), { recursive: true });
+    mkdirSync(join(dir, "docs"), { recursive: true });
+    writeFileSync(join(dir, "CLAUDE.md"), "a".repeat(10));
+    writeFileSync(join(dir, ".claude/rules/engineering.md"), "b".repeat(20));
+    // Reachable only by an explicit read — it costs nothing until read, and
+    // counting it would punish having documentation at all.
+    writeFileSync(join(dir, "docs/guide.md"), "c".repeat(99999));
+
+    const w = scanPlugin(
+      dir,
+      claudeCodeLayout,
+      claudeCodeDialect,
+    ).instructionWeight;
+    assert.ok(w);
+    assert.equal(w.total, 30);
+    assert.equal(w.unit, "chars");
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});

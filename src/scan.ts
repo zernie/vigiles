@@ -12,7 +12,7 @@
  * stack on top later; this core stays pure so it runs anywhere in CI for free.
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { loadPlugin } from "./adapters/claude-code/plugin-loader.js";
@@ -89,6 +89,15 @@ import {
   remapFindingPaths,
   collectVocabularyNotes,
 } from "./scan-core.js";
+import {
+  weighInstructions,
+  type InstructionBudget,
+  type InstructionWeight,
+} from "./core/instruction-weight.js";
+import {
+  blockIneffectiveEventsOf,
+  permissionDecisionEventsOf,
+} from "./core/event-capability.js";
 
 // Re-export the pure detectors (and their public types: SurfaceClassifier,
 // SkillScanContext, isManagedHookCommand, preferCompiledHooksMessage, ...) that
@@ -389,6 +398,14 @@ export interface ScanReport {
    * `scan` and the `hook-matcher` lint rule (one detector, no drift).
    */
   readonly hookMatcherFindings: readonly HookMatcherFinding[];
+  /**
+   * What the harness loads WITHOUT being asked, weighed in ITS OWN unit — and
+   * what it does when that is too much. `null` when the adapter declares no
+   * budget. Reported, never gated: both corpora this was built against sit near
+   * four times the Claude Code threshold, and a rule that fails every real repo
+   * on day one is switched off on day one.
+   */
+  readonly instructionWeight: InstructionWeight | null;
   /** Skills/agents whose `---` block isn't valid YAML — informational (may still load via salvage). */
   readonly malformedFrontmatter: readonly FrontmatterParseIssue[];
   readonly warnings: readonly string[];
@@ -668,23 +685,24 @@ export function scanPlugin(
       { existsSync, isDirectory: nodeIsDirectory },
     ),
     delegationTrifecta: collectDelegationTrifecta(agents, dialect),
-    hookBlockFindings: dialect.noEffectHookEvents
-      ? hookBlockIssues(
-          collectHookBlockEntries(
-            hookRegs,
-            resolve(dir),
-            lay.pluginRootToken,
-            existsSync,
-          ),
-          {
-            noEffectEvents: new Set(dialect.noEffectHookEvents),
-            permissionDecisionEvents: new Set(
-              dialect.permissionDecisionHookEvents ?? [],
+    hookBlockFindings:
+      blockIneffectiveEventsOf(dialect).length > 0
+        ? hookBlockIssues(
+            collectHookBlockEntries(
+              hookRegs,
+              resolve(dir),
+              lay.pluginRootToken,
+              existsSync,
             ),
-            readFileSync: nodeReadFile,
-          },
-        )
-      : [],
+            {
+              noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
+              permissionDecisionEvents: new Set(
+                permissionDecisionEventsOf(dialect),
+              ),
+              readFileSync: nodeReadFile,
+            },
+          )
+        : [],
     hookMatcherFindings: hookMatcherIssues(
       collectHookMatchers(hookRegs),
       declaredServers,
@@ -704,6 +722,12 @@ export function scanPlugin(
         return existsSync(p) ? nodeReadFile(p) : undefined;
       }).map(mergeConflictWarning),
     ],
+    instructionWeight: dialect.instructionBudget
+      ? weighInstructions(
+          readAlwaysLoaded(dir, dialect.instructionBudget),
+          dialect.instructionBudget,
+        )
+      : null,
     untested: coverage.untested.length,
     untestedHarness: coverage.harness.untested.length,
     unevaluated: coverage.evals.untested.length,
@@ -939,6 +963,87 @@ function agentLines(a: ScanAgent): string[] {
 }
 
 /** Format a scan report as human-readable text. */
+/**
+ * Read every unconditionally-loaded instruction file off disk.
+ *
+ * Separate from `loadPlugin` on purpose: that materializes the harness's
+ * SURFACES (skills, agents, hooks), while this reads what the harness loads
+ * before any surface is involved — including `.claude/rules/**`, which is
+ * exactly the directory a repo relocates into when it wants the root file to
+ * look smaller.
+ */
+function readAlwaysLoaded(
+  dir: string,
+  budget: InstructionBudget,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (rel: string): void => {
+    const abs = join(dir, rel);
+    if (!existsSync(abs) || !statSync(abs).isDirectory()) return;
+    for (const entry of readdirSync(abs)) {
+      const child = `${rel}/${entry}`;
+      if (statSync(join(dir, child)).isDirectory()) walk(child);
+      else out[child] = readFileSync(join(dir, child), "utf-8");
+    }
+  };
+  // `**/NAME` — Codex reads nested AGENTS.md root-to-leaf and they all pay into
+  // the SAME budget, so leaving them out under-reports in the one direction that
+  // matters: the harness truncates silently, and an under-report reads as "you
+  // are fine". Skipped dirs are the ones that are never the user's instructions
+  // and would dominate the walk.
+  const SKIP = new Set(["node_modules", ".git", "dist", "build", "vendor"]);
+  const findNested = (name: string, rel = ""): void => {
+    const abs = rel === "" ? dir : join(dir, rel);
+    if (!existsSync(abs)) return;
+    for (const entry of readdirSync(abs)) {
+      if (SKIP.has(entry) || entry.startsWith(".")) continue;
+      const child = rel === "" ? entry : `${rel}/${entry}`;
+      const childAbs = join(dir, child);
+      if (statSync(childAbs).isDirectory()) findNested(name, child);
+      else if (entry === name && out[child] === undefined)
+        out[child] = readFileSync(childAbs, "utf-8");
+    }
+  };
+  for (const glob of budget.alwaysLoaded) {
+    if (!glob.includes("*")) {
+      const abs = join(dir, glob);
+      if (existsSync(abs) && statSync(abs).isFile())
+        out[glob] = readFileSync(abs, "utf-8");
+    } else if (glob.endsWith("/**")) walk(glob.slice(0, -3));
+    else if (glob.startsWith("**/")) findNested(glob.slice(3));
+  }
+  return out;
+}
+
+/**
+ * The weight report. States the SUM first and the per-file breakdown second,
+ * because the sum is the number a reader can act on and the breakdown is only
+ * where to start.
+ *
+ * The verb changes with the harness on purpose: over budget on Claude Code is
+ * "warns" (costs money, rules still arrive), on Codex it is "truncates" (rules
+ * silently do not arrive). Same number, different emergency.
+ */
+function instructionWeightLines(w: InstructionWeight): string[] {
+  const g = (n: number): string =>
+    String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const head = `Always-loaded instructions: ${g(w.total)} ${w.unit} (budget ${g(w.limit)})`;
+  if (w.overBy === null) return [head];
+  const factor = (w.total / w.limit).toFixed(1);
+  const consequence =
+    w.onExceed === "truncates"
+      ? "past the budget is SILENTLY TRUNCATED — those rules never reach the model"
+      : "the harness warns; the rules still reach the model, you pay for them every request";
+  return [
+    `${head} — ${factor}x OVER by ${g(w.overBy)} ${w.unit}`,
+    `  ${consequence}`,
+    ...w.files.slice(0, 5).map((f) => `  ${g(f.size).padStart(9)}  ${f.path}`),
+    ...(w.files.length > 5
+      ? [`  …and ${String(w.files.length - 5)} more`]
+      : []),
+  ];
+}
+
 export function formatScanReport(r: ScanReport): string {
   const out: string[] = [`Scan: ${r.dir}`, ""];
 
@@ -948,6 +1053,10 @@ export function formatScanReport(r: ScanReport): string {
       : "hand-written, no spec";
     out.push(`Instructions: ${r.instructions.file} (${tag})`, "");
   }
+
+  // Right under the instruction file, because that is the line a reader is
+  // already looking at when they wonder what it costs.
+  if (r.instructionWeight) out.push(...instructionWeightLines(r.instructionWeight), ""); // prettier-ignore
 
   out.push(...section("Skills", r.skills.map(skillLine)));
 

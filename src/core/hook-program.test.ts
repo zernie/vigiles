@@ -1022,10 +1022,33 @@ test("context: a registered provider() ref needs registeredProviders to compile"
   );
 });
 
+test("(fixture d) a bare gate carrying a `match` does NOT compile", () => {
+  // The worst of the six 2026-09-16 fixtures, because it was not DEAD: it
+  // compiled to a matcher of `Bash` and asked on every shell command, while the
+  // MCP call the author named went through unguarded. `tsc` rejects the excess
+  // property — but a compiled hook is often `.mjs`, and `vigiles compile` never
+  // runs `tsc`, so for a JS author nothing was in the path.
+  const ghost = {
+    on: "PreToolUse",
+    match: { tools: ["mcp__github__merge_pull_request"] },
+    decide: () => allow(),
+  } as unknown as Parameters<typeof compileHookProgram>[1];
+  assert.throws(
+    () =>
+      compileHookProgram(
+        `import { experimental_defineHook } from "vigiles/hook";`,
+        ghost,
+      ),
+    /bare hook gate is a BASH gate/,
+  );
+});
+
 test("context: an unknown provider in `needs` does NOT compile", () => {
+  // No `match` — a bare gate matches Bash by construction and a `match` here is
+  // now a compile error in its own right (fixture d). This fixture carried one
+  // anyway, which is how the new check found a ghost field in our OWN test.
   const bad = {
     on: "PreToolUse",
-    match: { tool: "Bash" },
     needs: ["git.brnch"], // typo — not a built-in provider
     decide: () => allow(),
   } as unknown as Parameters<typeof compileHookProgram>[1];
@@ -2240,13 +2263,14 @@ test("the clamp reaches BOTH repair doors, and grants nothing new", () => {
 // --- noticeDelivery: where a react's notice can actually ARRIVE -------------
 //
 // BOTH HARNESSES, and not as ceremony: the event sets genuinely DIFFER, so the
-// same react is deliverable on one harness and not the other. `PreToolUse` is in
-// Codex's injectable set and not in Claude Code's, which is exactly the case a
-// hard-coded CC literal would have got wrong.
+// same react is deliverable on one harness and not the other. `Stop` is in
+// Claude Code's injectable set and not in Codex's (and `SubagentStart` the other
+// way round), which is exactly the case a hard-coded CC literal would get wrong.
 
 test("noticeDelivery: a notice on an injectable event becomes injected context", () => {
   const r = notice("mind the tier");
   for (const proto of [claudeCodeHookProtocol, codexHookProtocol]) {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
     const d = noticeDelivery(r, "PostToolUse", proto.injectableEvents);
     assert.equal(
       d.kind,
@@ -2258,27 +2282,50 @@ test("noticeDelivery: a notice on an injectable event becomes injected context",
 });
 
 test("noticeDelivery: a notice on a NON-injectable event is undeliverable, not silently fine", () => {
-  // `Stop` carries no context on either harness — the notice would reach nobody.
+  // `PreCompact` carries no context on either harness — the notice reaches
+  // nobody. (This case used to be keyed on `Stop`; measuring Claude Code on
+  // 2026-09-15 showed `Stop` DOES deliver there, so the example moved to an
+  // event that is still undeliverable on both. The PROPERTY under test is
+  // unchanged: an undeliverable notice is reported, never silently dropped.)
   for (const proto of [claudeCodeHookProtocol, codexHookProtocol]) {
     const d = noticeDelivery(
       notice("nobody hears this"),
-      "Stop",
+      "PreCompact",
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
       proto.injectableEvents,
     );
     assert.equal(
       d.kind,
       "undeliverable",
-      `${proto.name} cannot inject on Stop`,
+      `${proto.name} cannot inject on PreCompact`,
     );
     assert.equal(d.kind === "undeliverable" && d.message, "nobody hears this");
   }
 });
 
-test("noticeDelivery: the harnesses DISAGREE on PreToolUse — the per-harness fact is real", () => {
+test("noticeDelivery: the harnesses DISAGREE — the per-harness fact is real", () => {
+  // The disagreement MOVED on 2026-09-15 and the test moved with it. It used to
+  // be keyed on PreToolUse (CC undeliverable / Codex inject); measuring CC
+  // showed PreToolUse delivers there too, so the two now agree on it. They
+  // still diverge — CC honors `Stop`, Codex honors `SubagentStart` — which is
+  // the property this test exists to pin: the list is a PORT, not a constant.
+  assert.equal(
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
+    noticeDelivery(notice("x"), "Stop", claudeCodeHookProtocol.injectableEvents)
+      .kind,
+    "inject",
+  );
+  assert.equal(
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
+    noticeDelivery(notice("x"), "Stop", codexHookProtocol.injectableEvents)
+      .kind,
+    "undeliverable",
+  );
   assert.equal(
     noticeDelivery(
       notice("x"),
-      "PreToolUse",
+      "SubagentStart",
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
       claudeCodeHookProtocol.injectableEvents,
     ).kind,
     "undeliverable",
@@ -2286,7 +2333,8 @@ test("noticeDelivery: the harnesses DISAGREE on PreToolUse — the per-harness f
   assert.equal(
     noticeDelivery(
       notice("x"),
-      "PreToolUse",
+      "SubagentStart",
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
       codexHookProtocol.injectableEvents,
     ).kind,
     "inject",
@@ -2294,6 +2342,7 @@ test("noticeDelivery: the harnesses DISAGREE on PreToolUse — the per-harness f
 });
 
 test("noticeDelivery: a run() or nothing() reaction has nothing to deliver", () => {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
   const events = claudeCodeHookProtocol.injectableEvents;
   assert.equal(
     noticeDelivery(run("echo hi"), "PostToolUse", events).kind,

@@ -85,6 +85,7 @@ import type { StateFact } from "./core/hook-state.js";
 import { readHookState, writeHookState } from "./hook-state-store.js";
 import { appendObservation } from "./observe.js";
 import { loadHook } from "./load-hook.js";
+import { injectableEventsOf } from "./core/event-capability.js";
 
 /**
  * Which events accept injected context, from the ACTIVE adapter — the one
@@ -99,7 +100,9 @@ import { loadHook } from "./load-hook.js";
 function injectableEventsFor(root: string): readonly string[] {
   const { resolveAdapter } =
     require("./adapter-registry.js") as typeof import("./adapter-registry.js");
-  return resolveAdapter(root).hookProtocol?.injectableEvents ?? [];
+  const adapter = resolveAdapter(root);
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the legacy list is the FALLBACK an adapter without a capability table still relies on; reading it here is the point
+  return injectableEventsOf(adapter.dialect, adapter.hookProtocol?.injectableEvents); // prettier-ignore
 }
 
 /**

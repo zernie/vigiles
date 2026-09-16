@@ -85,6 +85,11 @@ const PROVOCATION = {
   UserPromptSubmit: {},
   // Tool events only fire for a matching tool; the model script below writes.
   PostToolUse: { matcher: "Edit|Write" },
+  PreToolUse: { matcher: "Edit|Write" },
+  // Stop takes no matcher — it is not about a tool. The hook here only emits
+  // additionalContext and exits 0, so it never blocks the stop; whether that
+  // payload LANDS is precisely what this file measures rather than assumes.
+  Stop: {},
 };
 
 const unprovokable = declared.filter((e) => !(e in PROVOCATION));

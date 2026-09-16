@@ -184,14 +184,44 @@ Be nice.
     expect(Object.keys(spec.sections).length).toBe(2); // two distinct keys
   });
 
-  it("lifts maxSectionLines above a long faithful section", () => {
+  /**
+   * Adoption must not fail on prose the user already has, so the guard is
+   * raised — but to EXACTLY the longest section, never above it. The old
+   * `longest + 50` pre-approved the next fifty lines of growth for the one
+   * population whose file is already oversized, which is the opposite of what
+   * a guard is for. Asserting the exact value is the whole point: any headroom
+   * at all is the defect.
+   */
+  it("raises maxSectionLines to exactly the longest section, with no headroom", () => {
     const long = Array.from({ length: 220 }, (_, i) => `line ${i}`).join("\n");
     const spec = adoptToSpec(`# CLAUDE.md\n\n## Big\n\n${long}\n`, "CLAUDE.md");
-    expect(spec.maxSectionLines).toBeGreaterThan(220);
+    expect(spec.maxSectionLines).toBe(220);
+  });
+
+  it("leaves the guard alone when every section fits", () => {
+    const spec = adoptToSpec(`# CLAUDE.md\n\n## Small\n\nshort\n`, "CLAUDE.md");
+    expect(spec.maxSectionLines).toBeUndefined();
   });
 });
 
 describe("adoptMarkdown — generated source", () => {
+  /**
+   * The raised guard ships with its debt in words. A bare number reads as a
+   * considered setting; without the comment nobody can tell that the value was
+   * accepted as-is, or by how much it exceeds the budget.
+   */
+  it("renders the raised guard as a stated debt, not a bare number", () => {
+    const long = Array.from({ length: 260 }, (_, i) => `line ${i}`).join("\n");
+    const { source } = adoptMarkdown(
+      `# CLAUDE.md\n\n## Big\n\n${long}\n`,
+      "CLAUDE.md",
+    );
+    expect(source).toContain("maxSectionLines: 260,");
+    expect(source).toContain("Adopted as-is");
+    expect(source).toContain("60 over the 200-line budget");
+    expect(source).toContain("it is a debt, not a setting");
+  });
+
   it("emits a target line only for a non-CLAUDE.md target", () => {
     expect(
       adoptMarkdown(`# CLAUDE.md\n\n## A\n\nx\n`, "CLAUDE.md").source,

@@ -27,6 +27,26 @@ export const codexDialect: HarnessDialect = {
     "UserPromptSubmit",
     "Stop",
   ],
+  // 🔴 TRUNCATES, SILENTLY — the asymmetry that makes `onExceed` worth carrying.
+  // Codex's own source: "Maximum number of bytes of the documentation that will
+  // be embedded. Larger files are *silently truncated*" (openai/codex#7138,
+  // CLOSED AS NOT PLANNED — standing behaviour, not a bug in flight). Default
+  // `project_doc_max_bytes` is 32 * 1024. Over budget on Claude Code costs
+  // money; over budget here means some of your rules DO NOT EXIST for the model
+  // and nothing in the session says which.
+  //
+  // BYTES, not chars: the two diverge on any non-ASCII instruction file, and
+  // this is the unit Codex actually counts.
+  instructionBudget: {
+    unit: "bytes",
+    limit: 32768,
+    onExceed: "truncates",
+    capturedFrom:
+      "codex config project_doc_max_bytes default 32 * 1024; truncation quoted in openai/codex#7138",
+    // Read root-to-leaf and concatenated, so a nested AGENTS.md pays into the
+    // same budget — the sum is what gets cut, not the individual file.
+    alwaysLoaded: ["AGENTS.md", "**/AGENTS.md"],
+  },
   instructionTargets: ["AGENTS.md"],
   pluginRootToken: "${PLUGIN_ROOT}",
   // Codex SKILL.md frontmatter is name + description ONLY — the CC-only keys

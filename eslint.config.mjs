@@ -131,6 +131,42 @@ export default [
       // Ban non-null assertions — use proper narrowing instead
       "@typescript-eslint/no-non-null-assertion": "error",
 
+      // --- Mutation: the caller's object is not yours to edit ---
+      //
+      // WARN, not error, and the severity is the MEASUREMENT (2026-09-15, on
+      // `src/**/*.ts` minus tests): 18 findings — 13 real, 4 in the verbatim
+      // Node `path.js` port (disabled in-file, where the same exemption already
+      // stands for the complexity rules), 1 a `reduce` accumulator whose literal
+      // is created on the spot (`ignorePropertyModificationsFor` below). A real
+      // list of work, so it is on; not yet zero, so it does not gate.
+      //
+      // WHY THIS RULE AND NOT A PLUGIN. `eslint-plugin-functional` was measured
+      // on the same corpus the same day and REJECTED on the numbers, not on
+      // taste: `immutable-data` + `no-let` + `no-loop-statements` = 2309
+      // findings across 149 of 210 files; narrowing to `prefer-immutable-types`
+      // (parameters only) = 685; `type-declaration-immutability` = 413. A rule
+      // that opens with four figures is silenced the day it lands, which costs
+      // more than it catches. This one is ESLint core — no dependency, no
+      // install — and it targets the half that actually bites: mutating a
+      // parameter's properties is visible to the CALLER, while a local
+      // accumulator is nobody's business but the function's.
+      //
+      // LODASH IS NOT THE ALTERNATIVE EITHER: it is not an immutability
+      // library — `_.merge` mutates its first argument, which is this very bug
+      // with a nicer name — and the CLI is deliberately runtime-dep-light. A
+      // deep-update helper is worth reaching for only once a shape genuinely
+      // needs one, and none does today.
+      //
+      // THE PRIMARY DEFENCE IS THE TYPE, NOT THIS RULE. `readonly` on the
+      // container makes `push` a tsc error, which is the irrepresentable-state
+      // move `ts-essentials` asks for; this rule is the backstop for the shapes
+      // that have not been typed that way yet. See the `prefer-immutable-updates`
+      // rule in CLAUDE.md for the reasoning it backs.
+      "no-param-reassign": [
+        "warn",
+        { props: true, ignorePropertyModificationsFor: ["acc"] },
+      ],
+
       // --- Complexity rules ---
       complexity: ["warn", { max: 15 }],
       "max-depth": ["warn", { max: 4 }],

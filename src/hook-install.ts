@@ -70,7 +70,7 @@ interface HookEntry {
 export type CompiledHooks = Record<string, readonly HookEntry[]>;
 
 interface SettingsJson {
-  hooks?: Record<string, HookEntry[]>;
+  hooks?: Readonly<Record<string, readonly HookEntry[]>>;
   [k: string]: unknown;
 }
 
@@ -177,30 +177,87 @@ function bareToken(token: string): string {
 }
 
 /**
+ * Drop only the COMMANDS this hook file owns from one entry, keeping the rest.
+ *
+ * Returns the entry UNCHANGED (same reference) when it owns nothing here, a
+ * narrowed copy when it owns some, and `null` when the entry is left empty and
+ * should disappear.
+ *
+ * 🔴 THE GRANULARITY IS THE WHOLE POINT, and getting it wrong cost a consumer
+ * repo half its hook wiring. Claude Code's shape is
+ * `{matcher, hooks: [command, command, …]}` — SEVERAL commands share one
+ * matcher block — so "is this entry mine?" is the wrong question: an entry can
+ * be partly mine. The previous merge asked exactly that (`managesHook(e)` →
+ * drop `e`), which is true when ANY command matches, and then deleted the
+ * block wholesale.
+ *
+ * Measured 2026-09-15 on a real `.claude/settings.json`: its
+ * `PostToolUse`/`Edit|Write|MultiEdit` entry held SIX commands — four vigiles
+ * hooks and the user's own `kb-lint.mjs post` and `paper-lint.mjs post`.
+ * Recompiling any ONE of the four took all six, so two hand-written checks
+ * silently stopped running. Silently is the operative word: the file stayed
+ * valid JSON, the remaining hooks kept firing, and nothing reported a loss —
+ * the same failure mode this repo has already paid for three times (a step
+ * that stops executing without saying so).
+ *
+ * The cost asymmetry that decides the rule: a MISS leaves a duplicate block
+ * (visible, harmless, fixed by the next recompile), an OVER-MATCH deletes a
+ * hook the user wrote (invisible, unrecoverable from the file itself). So the
+ * filter is per-command, and an entry is removed only when we emptied it.
+ */
+function withoutHookCommands(
+  entry: HookEntry,
+  hookPath: string,
+): HookEntry | null {
+  if (!managesHook(entry, hookPath)) return entry;
+  const kept = entry.hooks.filter(
+    (h) => !managesHook({ matcher: entry.matcher, hooks: [h] }, hookPath),
+  );
+  if (kept.length === entry.hooks.length) return entry;
+  return kept.length === 0 ? null : { ...entry, hooks: kept };
+}
+
+/**
  * Idempotently merge a compiled hook's block into an existing `settings.json`
- * object. Entries managed by THIS hook file (the runtime command references
- * `hookPath`) are replaced; every unrelated entry — including the user's own
- * hand-written hooks — is preserved.
+ * object. Commands managed by THIS hook file (the runtime command references
+ * `hookPath`) are replaced; every unrelated command — including the user's own
+ * hand-written hooks SHARING A MATCHER BLOCK with ours — is preserved. See
+ * {@link withoutHookCommands} for why the granularity is the command and not
+ * the entry.
  */
 export function mergeHooksJson(
   existing: SettingsJson,
   compiled: CompiledHooks,
   hookPath: string,
 ): SettingsJson {
-  const hooks: Record<string, HookEntry[]> = { ...(existing.hooks ?? {}) };
-  for (const [event, entries] of Object.entries(compiled)) {
-    const kept = (hooks[event] ?? []).filter((e) => !managesHook(e, hookPath));
-    hooks[event] = [...kept, ...entries];
-  }
-  return { ...existing, hooks };
+  // No keyed assignment into a shallow copy, and the containers are `readonly`.
+  // That copy would SHARE its arrays with the caller's object, so the purity of
+  // the old loop rested on every future author reaching for `hooks[e] = [...]`
+  // rather than `hooks[e].push(...)` — one is fine, the other silently mutates
+  // the argument, and nothing told them apart. `readonly` makes the bad one a
+  // tsc error instead of a convention (ts-essentials: irrepresentable beats
+  // remembered).
+  const before = existing.hooks ?? {};
+  const rewritten = Object.fromEntries(
+    Object.entries(compiled).map(([event, entries]) => [
+      event,
+      [
+        ...(before[event] ?? [])
+          .map((e) => withoutHookCommands(e, hookPath))
+          .filter((e): e is HookEntry => e !== null),
+        ...entries,
+      ],
+    ]),
+  );
+  return { ...existing, hooks: { ...before, ...rewritten } };
 }
 
 interface TomlHookEntry {
-  matcher?: string;
-  command: string;
+  readonly matcher?: string;
+  readonly command: string;
 }
 interface ConfigToml {
-  hooks?: Record<string, TomlHookEntry[]>;
+  hooks?: Readonly<Record<string, readonly TomlHookEntry[]>>;
   [k: string]: unknown;
 }
 
@@ -221,15 +278,25 @@ export function mergeHooksToml(
   compiled: CompiledHooks,
   hookPath: string,
 ): ConfigToml {
-  const hooks: Record<string, TomlHookEntry[]> = { ...(existing.hooks ?? {}) };
-  for (const [event, entries] of Object.entries(compiled)) {
-    // Same canonical-path keying as the JSON merge (one flat command per entry).
-    const kept = (hooks[event] ?? []).filter(
-      (e) => !managesHook({ hooks: [{ type: "command", command: e.command }] }, hookPath), // prettier-ignore
-    );
-    hooks[event] = [...kept, ...toTomlEntries(entries)];
-  }
-  return { ...existing, hooks };
+  // Same canonical-path keying as the JSON merge, and the same no-assignment
+  // shape. No per-command narrowing is needed HERE, and that is a fact about the
+  // format rather than an oversight: Codex's `[[hooks.<event>]]` carries ONE
+  // command per entry (see `toTomlEntries`), so entry- and command-granularity
+  // coincide. The CC shape nests several commands under one matcher, which is
+  // where the loss happened.
+  const before = existing.hooks ?? {};
+  const rewritten = Object.fromEntries(
+    Object.entries(compiled).map(([event, entries]) => [
+      event,
+      [
+        ...(before[event] ?? []).filter(
+          (e) => !managesHook({ hooks: [{ type: "command", command: e.command }] }, hookPath), // prettier-ignore
+        ),
+        ...toTomlEntries(entries),
+      ],
+    ]),
+  );
+  return { ...existing, hooks: { ...before, ...rewritten } };
 }
 
 /** Serialize a merged config back to its on-disk text (with trailing newline). */

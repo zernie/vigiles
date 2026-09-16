@@ -58,6 +58,11 @@ const stringifyToml = (value: unknown): string =>
   );
 import type { HarnessDialect } from "./dialect.js";
 import type { HookProtocol } from "./hook-protocol.js";
+import {
+  capabilityOf,
+  type EventCapabilityTable,
+  type EventPayload,
+} from "./event-capability.js";
 import { verifyHookEvents, authoringIssues } from "./hook-events.js";
 import { verifyToolContract } from "./tool-contract.js";
 import { HARNESS_CONFIG_FILES } from "./merge-conflict.js";
@@ -1013,6 +1018,13 @@ export interface CompiledHookProgram {
     }[]
   >;
   /**
+   * Non-fatal findings about the compiled hook — today, a role that FIRES on its
+   * event but cannot do what the role promises (a gate on `PostToolUse`, whose
+   * deny feeds the model rather than vetoing). Absent when there is nothing to
+   * say; a FATAL mismatch throws instead, so this never carries a dead hook.
+   */
+  readonly warnings?: readonly string[];
+  /**
    * The rendered settings block to add to the harness's hooks config — JSON for
    * Claude Code (`.claude/settings.json`), TOML `[[hooks.<event>]]` for Codex
    * (`config.toml`). The CLI prints this; the structured `hooks` above is the
@@ -1159,6 +1171,122 @@ function renderSettingsBlock(
 }
 
 /**
+ * Is this ROLE legal on this EVENT? The check six measured fixtures showed
+ * nothing was making (2026-09-16): a prompt-gate on `PreToolUse` reads an absent
+ * prompt as `""` and allows everything; a stop-gate on `SessionStart` exits 2
+ * into an event that ignores it; a file-gate on `Stop` matches a tool on an
+ * event that carries none. All six compiled clean, `lint` and `audit` found
+ * zero, and `tsc` — which `vigiles compile` does not run — caught one.
+ *
+ * THREE VERDICTS, and the third is the point:
+ * - `dead` — the harness's own table says this cannot work. A compile error.
+ * - `degraded` — it fires, but not as the role promises. A WARNING, never an
+ *   error: the worked case is a gate on `PostToolUse`, whose exit 2 feeds the
+ *   model instead of vetoing, and that is a channel this very repo ships a hook
+ *   on. Failing it would be the cry-wolf `lint-rule-calibration` names.
+ * - `unknown` — the event is not in the capability table. SILENT. We record 9
+ *   of Claude Code's 31 events; rejecting an author for using one of the other
+ *   22 would be punishing them for our gap.
+ */
+export type RoleEventFit =
+  | { readonly kind: "ok" }
+  | { readonly kind: "unknown" }
+  | { readonly kind: "dead"; readonly message: string }
+  | { readonly kind: "degraded"; readonly message: string };
+
+/** What payload a dispatch kind must be handed to be able to decide at all. */
+function requiredPayload(kind: DispatchKind): EventPayload | undefined {
+  switch (kind) {
+    case "bash-gate":
+    case "file-gate":
+      return "tool";
+    case "prompt-gate":
+      return "prompt";
+    case "stop-gate":
+      return "stop";
+    // An inject or a react reads whatever the event carries; neither claims a
+    // field that might be absent, so neither constrains the payload.
+    case "inject":
+    case "react":
+      return undefined;
+  }
+}
+
+/** Whether this dispatch kind's whole purpose is a block decision. */
+function isGate(kind: DispatchKind): boolean {
+  return (
+    kind === "bash-gate" ||
+    kind === "file-gate" ||
+    kind === "prompt-gate" ||
+    kind === "stop-gate"
+  );
+}
+
+export function checkRoleEventFit(
+  kind: DispatchKind,
+  on: string,
+  hasMatcher: boolean,
+  table: EventCapabilityTable | undefined,
+): RoleEventFit {
+  const verdict = capabilityOf(table, on);
+  if (verdict.kind === "unknown") return { kind: "unknown" };
+  const cap = verdict.capability;
+
+  const needs = requiredPayload(kind);
+  if (needs !== undefined && cap.carries !== needs) {
+    return {
+      kind: "dead",
+      message:
+        `a ${kind} on \`${on}\` can never decide: the role reads the event's ` +
+        `${needs}, and ${on} carries ${cap.carries === "none" ? "nothing" : cap.carries}. ` +
+        `The field it reads is absent, so the hook runs and waves everything through.`,
+    };
+  }
+
+  if (hasMatcher && !cap.matcher) {
+    return {
+      kind: "dead",
+      message:
+        `a tool matcher is meaningless on \`${on}\` — it carries ` +
+        `${cap.carries === "none" ? "nothing" : cap.carries}, not a tool, so the ` +
+        `matcher can match nothing and the hook never fires.`,
+    };
+  }
+
+  if (isGate(kind) && !cap.honours.includes("veto")) {
+    // The degraded case: it still reaches the model, it just does not block.
+    if (cap.honours.includes("feedback")) {
+      return {
+        kind: "degraded",
+        message:
+          `\`${on}\` does not honour a veto — a deny there reaches the model as ` +
+          `FEEDBACK after the action already happened. Fine as a nudge, but this ` +
+          `is a ${kind}, so it stops nothing. Use a react, or gate on an event ` +
+          `that vetoes.`,
+      };
+    }
+    return {
+      kind: "dead",
+      message:
+        `a ${kind} on \`${on}\` blocks nothing: the event honours ` +
+        `${cap.honours.length === 0 ? "no channel at all" : cap.honours.join(", ")}, ` +
+        `so a deny is discarded silently — no veto, and no feedback to the model.`,
+    };
+  }
+
+  if (kind === "inject" && !cap.honours.includes("inject")) {
+    return {
+      kind: "dead",
+      message:
+        `an inject on \`${on}\` reaches nobody — the event does not honour ` +
+        `additionalContext, so the text goes to the debug log.`,
+    };
+  }
+
+  return { kind: "ok" };
+}
+
+/**
  * Compile a hook program from its source. Runs the capability check FIRST (an
  * out-of-API import does NOT compile), validates the event against the target
  * harness (a typo won't compile), then stamps the source so the shipped artifact
@@ -1182,6 +1310,28 @@ export function compileHookProgram(
       `hook program uses capabilities outside \`${ALLOWED_IMPORT}\`: ${violations.join(
         ", ",
       )} — only the sanctioned API is allowed (capability = API surface).`,
+    );
+  }
+  // A BARE gate is a Bash gate by construction — `hookRouting` emits the matcher
+  // `Bash` for it unconditionally, and `HookProgram` has no `match` field. So a
+  // `match` here is a field the author wrote and the compiler ignores, and the
+  // result is the WORST of the six measured fixtures (d): not a dead hook but a
+  // LIVE one guarding the wrong thing — `defineHook({match: tools("mcp__…")})`
+  // compiled to a matcher of `Bash`, asking on every shell command while the MCP
+  // call it was written for went straight through.
+  //
+  // `tsc` rejects the excess property, which is why this looked covered. It is
+  // not: a compiled hook is often `.mjs` (this repo's own two are), and
+  // `vigiles compile` does not run `tsc` at all — so for a JS author the type
+  // was never in the path. Same defect, different population; the rule the
+  // repo already states as prevent-at-stage-1 AND detect-at-stage-3.
+  if (!("role" in hook) && "match" in hook) {
+    throw new HookCompileError(
+      `a bare hook gate is a BASH gate — it matches \`Bash\` by construction, so ` +
+        `the \`match\` you passed is ignored and the hook would guard shell ` +
+        `commands instead of what you named. For a file tool use ` +
+        `experimental_defineFileGate; for any other tool matcher use ` +
+        `experimental_defineReact, whose event carries the tool.`,
     );
   }
   const { on, matcher: rawMatcher } = hookRouting(hook);
@@ -1231,6 +1381,17 @@ export function compileHookProgram(
       throw new HookCompileError(fatal[0].message);
     }
   }
+  // …and an event the harness DOES fire can still be one this role cannot work
+  // on. Checked against the dialect's capability table; silent where the table
+  // has no row, so our gaps never become the author's error.
+  const fit = checkRoleEventFit(
+    dispatchKind(hook),
+    on,
+    rawMatcher !== undefined,
+    opts.dialect?.eventCapabilities,
+  );
+  if (fit.kind === "dead") throw new HookCompileError(fit.message);
+  const fitWarnings = fit.kind === "degraded" ? [fit.message] : [];
   // A `needs` entry that isn't a built-in provider never resolves — reject it
   // (the typo-won't-compile guarantee, for JS authors the type can't reach).
   const needs = hookNeeds(hook);
@@ -1274,6 +1435,7 @@ export function compileHookProgram(
       opts.settingsFormat ?? "json",
     ),
     stamp: stampHook(source),
+    ...(fitWarnings.length > 0 ? { warnings: fitWarnings } : {}),
   };
 }
 

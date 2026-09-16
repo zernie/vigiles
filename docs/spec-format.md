@@ -83,6 +83,19 @@ target: ["CLAUDE.md", "AGENTS.md"],  // emits both from one spec
 
 Each section (and each subagent section) is length-guarded at compile time: a single section over a **generous 200-line default** is rejected as a likely content dump (TypeScript types can't bound a string's length, so the cap lives in the compiler — the ESLint `max-len` precedent). Override per spec with `maxSectionLines` (tighter to enforce your own limit, larger for an intentionally long section); `maxTokens` caps the whole compiled file.
 
+### Budget warnings: what the line guard cannot see
+
+Two checks run beside the line guard and print as **warnings** — they never fail a compile, because a budget that blocks adoption of a file you already have is a budget people turn off.
+
+| check                              | default               | why                                                                                                                                                                                                                |
+| ---------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| per-entry, `keyFiles` / `commands` | **200 characters**    | An entry is a _pointer_ — what the file is for, so a reader knows whether to open it. The explanation belongs in that file's own header, where it is read when someone opens the file instead of on every request. |
+| per-section, characters            | **15 000 characters** | Lines do not measure cost. One real section here was **24 lines and 20 416 characters** — it passed a 200-_line_ gate with two orders of magnitude to spare.                                                       |
+
+Both are tunable (`0` disables): pass `maxEntryChars` / `maxSectionChars` as compile options.
+
+Why these two shapes and not a total: an instruction file grows one unremarkable entry at a time, and nobody removes one. A total tells you "too big" long after you could act, and names no offender; a per-entry budget names the row at the moment it is added. For the whole-file number — everything the harness loads _without being asked_, which is the figure that actually bills you — run `vigiles audit` and read `Always-loaded instructions`.
+
 <!-- vigiles:ignore -->
 
 ```ts

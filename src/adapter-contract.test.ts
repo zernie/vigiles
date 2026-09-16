@@ -63,6 +63,7 @@ describe("adapter contract (run over the whole registry)", () => {
           ? "honors additionalContext on the events vigiles' shipped hooks use"
           : "honors additionalContext — n/a (no shell hooks)",
         () => {
+          // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the legacy field ON PURPOSE: this asserts the derived table reproduces it exactly, which is what makes them one source
           const injectable = adapter.hookProtocol?.injectableEvents ?? [];
           for (const ev of ["PostToolUse", "SessionStart"]) {
             expect(

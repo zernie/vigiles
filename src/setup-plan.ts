@@ -66,6 +66,14 @@ export interface ParsedSetupArgs {
    * `init` is unchanged), so this is opt-IN — it never buries the richer layers
    * behind a default flip. (Named for what it sets up — the CI check — not the
    * internal "integrity gate" concept.)
+   *
+   * THE DISCOVERY FAILURE THIS FLAG IS THE WORKED EXAMPLE OF: it shipped in the
+   * CLI and was invisible on the README, the site, the recommended agent prompt
+   * and the internal doc, so an agent taking the full default never learned it
+   * existed. Working code is not a delivered capability — a flag nobody can FIND
+   * is not done. The fix was a pointer in the non-interactive summary, `--help`,
+   * docs/agent-setup.md and the README; the standing rule it produced is the
+   * DISCOVERY row of `cohesive-feature-delivery`.
    */
   ciOnly: boolean;
 }

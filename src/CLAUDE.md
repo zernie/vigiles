@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:0ff6639b49cdfc8d compiled from src/CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:65476a6e6eead562 compiled from src/CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -8,8 +8,8 @@ Working in `src/`? The root `CLAUDE.md` holds the full positioning, architecture
 
 ## Key Files
 
-- `src/cli.ts` — The `bin` — a DISPATCHER SHIM with NO top-level imports, and that is its whole job. It reads argv and lazily requires either the hook runtime or the verb barrel. `vigiles hook-runtime run-program` is on the hot path of every gated tool call, and CommonJS resolves top-level imports before argv is parsed, so loading the verbs here cost every hook decision hundreds of ms (#216). Adding an import to this file undoes that; `src/hook-runtime-graph.test.ts` fails when it happens.
-- `src/hook-runtime.ts` — The compiled-hook RUNTIME — `hook-runtime run-program`, the process the harness spawns per matching tool call. Keep its top-level imports minimal; the lazy edges (@iarna/toml, mvdan-sh, the adapter registry) each carry the measurement at their call site.
+- `src/cli.ts` — The bin — a DISPATCHER SHIM with NO top-level imports (#216), so a hook decision never pays for the verb barrel. The emitted hook-runtime command must stay byte-stable.
+- `src/hook-runtime.ts` — The compiled-hook RUNTIME — stdin event, stamp check, dispatch by role. Kept OUT of the verb barrel so a decision loads only what it needs; three lazy edges carry their measurement.
 - `src/cli-main.ts` — The VERB barrel — the single source of truth for what each verb does. Loaded lazily by src/cli.ts for everything that is not a hook decision.
 - `src/cli-commands.ts` — The canonical VERBS + HOOK_RUNTIME_KINDS list (the self-command-refs moat)
 
