@@ -24,6 +24,7 @@
  */
 import type { HarnessVocabulary } from "./vocabulary.js";
 import type { EventCapabilityTable } from "./event-capability.js";
+import type { InstructionBudget } from "./instruction-weight.js";
 
 export type SkillFrontmatterProfile = "claude-code" | "minimal";
 
@@ -116,6 +117,16 @@ export interface HarnessDialect {
    * and its unknowns become advisories rather than silence.
    */
   readonly hookEventVocabulary?: HarnessVocabulary;
+  /**
+   * What this harness loads WITHOUT being asked, how it MEASURES that, and what
+   * it does when there is too much — {@link InstructionBudget}.
+   *
+   * On the dialect because it is a FORMAT fact (which files, counted in which
+   * unit), and because the browser engine is handed a dialect. Optional: absent
+   * ⇒ the weight report does not run for that adapter, which is the honest
+   * answer for a harness whose limits nobody has read.
+   */
+  readonly instructionBudget?: InstructionBudget;
   /**
    * What each hook event CARRIES and HONOURS — {@link EventCapabilityTable}.
    *

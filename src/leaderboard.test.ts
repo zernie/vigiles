@@ -49,6 +49,7 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     hookMatcherFindings: [],
     malformedFrontmatter: [],
     warnings: [],
+    instructionWeight: null,
     untested: 0,
     puritySummary: { pure: 0, bounded: 0, unrestricted: 0 },
     ...over,

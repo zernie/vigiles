@@ -41,6 +41,7 @@ import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import type { PluginLayout } from "./core/layout.js";
 import type { HarnessDialect } from "./core/dialect.js";
+import { weighInstructions } from "./core/instruction-weight.js";
 import type { LoadedPlugin } from "./plugin-loader.js";
 import { normalizeHooks, hookEventNames } from "./core/hook-normalize.js";
 import { verifyHookEvents, scoredIssues } from "./core/hook-events.js";
@@ -779,6 +780,11 @@ export function scanFiles(
       ...loaded.warnings,
       ...conflictedHarnessConfigs((f) => files[f]).map(mergeConflictWarning),
     ],
+    // The browser side needs no directory walk — the file map IS the repo, so
+    // the glob filter inside weighInstructions does the whole job.
+    instructionWeight: dialect.instructionBudget
+      ? weighInstructions(files, dialect.instructionBudget)
+      : null,
     untested: coverage.untested.length,
     untestedHarness: coverage.harness.untested.length,
     unevaluated: coverage.evals.untested.length,

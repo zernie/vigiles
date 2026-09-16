@@ -122,6 +122,7 @@ export interface HarnessDialect {
     readonly eventCapabilities?: EventCapabilityTable;
     readonly hookEvents: readonly string[];
     readonly hookEventVocabulary?: HarnessVocabulary;
+    readonly instructionBudget?: InstructionBudget;
     readonly instructionTargets: readonly string[];
     readonly knownMcpServers?: readonly string[];
     readonly mcpToolPattern: RegExp;
