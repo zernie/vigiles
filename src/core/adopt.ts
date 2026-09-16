@@ -19,6 +19,7 @@
  * `strengthen`'s separate, later job; adoption is lossless transcription.
  */
 
+import { DEFAULT_MAX_SECTION_LINES } from "./compile.js";
 import { findIntegrityHeader, parseIntegrityHeader } from "./integrity.js";
 import {
   readFrontmatter,
@@ -254,9 +255,16 @@ function renderSpecSource(
     spec.target !== "CLAUDE.md"
       ? `\n  target: ${JSON.stringify(spec.target)},`
       : "";
+  // The raised guard is rendered WITH the debt spelled out. A bare number reads
+  // as a considered setting; the comment says it was accepted as-is and by how
+  // much, so the next author sees a debt rather than a decision.
+  const over = (spec.maxSectionLines ?? 0) - DEFAULT_MAX_SECTION_LINES;
   const maxLine =
     spec.maxSectionLines !== undefined
-      ? `\n  maxSectionLines: ${String(spec.maxSectionLines)},`
+      ? `\n  // Adopted as-is: the longest section is ${String(spec.maxSectionLines)} lines, ` +
+        `${String(over)} over the ${String(DEFAULT_MAX_SECTION_LINES)}-line budget.` +
+        `\n  // Lower this as you split that section up; it is a debt, not a setting.` +
+        `\n  maxSectionLines: ${String(spec.maxSectionLines)},`
       : "";
   const adopted: string[] = [];
   const entries = Object.entries(spec.sections)
@@ -333,9 +341,19 @@ export function adoptToSpec(markdown: string, target: string): AdoptedSpec {
   const sections: Record<string, string> = {};
   for (const { key, content } of ordered) sections[key] = content;
 
-  // A faithful section can legitimately be long; lift the 200-line guard above
-  // the longest one so adoption never trips it (only when actually needed, so a
-  // normal spec stays free of the override).
+  // A faithful section can legitimately be long, and adoption must not fail on
+  // prose the user already has — so the 200-line guard is raised to EXACTLY the
+  // longest section, never above it.
+  //
+  // IT USED TO BE `longest + 50`, and that headroom is the bug this block exists
+  // to name: the guard was disarmed hardest for the population that needs it
+  // most — someone adopting a spec over a file that is already oversized — and
+  // the next fifty lines of growth were pre-approved, silently, by the tool
+  // meant to notice them. Raising to `longest` keeps adoption green on the file
+  // as it stands and makes the very next line that grows trip the gate. The
+  // override is rendered with a comment stating how far above the budget it
+  // sits, so the debt is visible in the spec rather than inferable from a number
+  // nobody reads.
   const longest = ordered.reduce(
     (n, s) => Math.max(n, s.content.split("\n").length),
     0,
@@ -344,7 +362,7 @@ export function adoptToSpec(markdown: string, target: string): AdoptedSpec {
   return {
     target,
     sections,
-    maxSectionLines: longest > 190 ? longest + 50 : undefined,
+    maxSectionLines: longest > DEFAULT_MAX_SECTION_LINES ? longest : undefined,
     tier: synthesizedHeading || ordered.length === 0 ? "raw" : "structured",
   };
 }

@@ -104,17 +104,17 @@ BUILD + TOOLING + GENERATED:
     "src/core/compile.ts":
       "Compiler: spec → markdown with SHA-256 hash, linter verification, reference validation; compileClaude/compileSkill/compileAgent (subagents: frontmatter + verified tool contract + body marks +…",
     "src/core/instruction-weight.ts":
-      "How heavy are the instructions the harness loads WITHOUT being asked, and what it does with too much. NOT the size of CLAUDE.md: a consumer repo cut its root file by 35% by moving 225 837 characters into a sibling directory the harness loads anyway, and the request cost did not move — so the number is the SUM over everything loaded without a decision, and a per-file check would have scored that relocation as a win. `onExceed` is carried because the same number is a different emergency per harness: Claude Code warns (you pay), Codex truncates SILENTLY (rules never reach the model). Reported by audit, never gated — both corpora sit near 4x the threshold, and a rule failing every repo on day one is off by day two",
+      "How heavy are the instructions a harness loads WITHOUT being asked — the SUM over everything always-loaded, not one file size. The header holds the relocation measurement.",
     "src/core/instruction-weight.test.ts":
-      "Instruction-weight suite — the load-bearing test is the EVASION one: relocating text into a sibling the harness also loads must not move the total, proven by a mutation to per-file that fails exactly it. Plus the unit split (chars vs bytes diverge on any Cyrillic), and that a doc reachable only by an explicit read costs nothing until read",
+      "Instruction-weight suite; the load-bearing case is the relocation EVASION — moving text to a sibling the harness also loads must not move the total. Mutation-proven.",
     "src/core/event-capability.ts":
-      "What a hook event CARRIES and what it HONOURS — the one table three flat lists had been approximating (`noEffectHookEvents` + `permissionDecisionHookEvents` on the dialect, `injectableEvents` on the protocol). A list per question cannot answer a question about the PAIR, which is what 'is this role legal on this event?' is. PARTIAL by construction and TOTAL at the lookup — the `vocabulary.ts` contract applied to events, with `unknown` as a fail-open fourth answer. On the DIALECT rather than the protocol because that port is required of every adapter and is what the browser engine is handed; the header says why, and what deriving the old lists caught",
+      "What a hook event CARRIES and HONOURS — the one table three flat lists were approximating. Partial by construction, total at the lookup, unknown fails open.",
     "src/adapters/claude-code/event-capability.ts":
-      "Claude Code's capability capture — 9 of the vendor's 31 events, each row carrying its basis (`doc` or `measured <date> on <version>`). 'Probably the same as its sibling event' is not a basis: SubagentStop is here on the vendor's wording and does NOT claim `inject`, because Stop's measured behaviour is not evidence about it. The rule that keeps it honest is that a row is ALL-OR-NOTHING — a present row with an incomplete `honours` is worse than an absent one, since the classifier would answer `known` and confidently deny a channel that works. That is why Codex has no table yet: its docs pin inject per-event and say nothing about veto per-event",
+      "Claude Code capability capture — 9 of the vendor 31 events, each row carrying its basis (doc or measured). A row is all-or-nothing; the header says why Codex has none yet.",
     "src/core/event-capability.test.ts":
-      "Event-capability suite — the load-bearing half is the DERIVATION block: all three pre-existing flat lists must be reproducible FROM the table, exactly, which is what makes it one source instead of a fourth opinion. One of the three crosses PORTS (`injectableEvents` lives on the protocol, the table on the dialect) — precisely the split that let them disagree until 2026-09-15",
+      "Event-capability suite; the load-bearing half DERIVES all three pre-existing flat lists from the table, which is what makes it one source rather than a fourth opinion.",
     "src/core/role-event-fit.test.ts":
-      "(role × event) compatibility, run against the SIX fixtures that measured the hole on 2026-09-16 — each test names the letter it reproduces, so a regression says which real defect came back. Also the honest scorecard: three refused, one warned, one already closed by widening injectableEvents, and one (d) NOT a role/event mismatch at all but a matcher-emission bug — claiming this check caught it would be the overclaim the table exists to prevent",
+      "(role x event) fit against the six fixtures that measured the hole — each test names the letter it reproduces, and the header holds the honest scorecard of what it caught.",
     "src/core/hook-program.ts":
       "COMPILED HOOKS core (the GATE instrument; harness-neutral, pure).",
     "src/core/hook-program.test.ts":
@@ -134,25 +134,25 @@ BUILD + TOOLING + GENERATED:
     "src/guardrail-check.ts":
       "VERIFY feature — 'prove your safety hook ACTUALLY blocks' (on `vigiles` root).",
     "src/verify-plugin-guards.ts":
-      "The DIRECTORY-level disaster battery — `experimental_verifyPluginGuards(dir, opts?)` on the `vigiles` root: reads the hooks a repo actually declares and measures each with its OWN condition, and its report is a union so a hook that never ran cannot be read as a score (#212).",
+      "The DIRECTORY-level disaster battery: measures each declared hook with its OWN condition, and reports a union so a hook that never ran cannot be read as a score (#212).",
     "src/core/bash-equivalents.ts":
       "Shell-EQUIVALENT rewrites of a dangerous command — the generator behind `experimental_alternateSpellings(events)` in guardrail-check.ts (renamed 2026-09-02 from `equivalentDisasters`, which its…",
     ".vigiles/hooks/test-tier-nudge.hook.mjs":
       "THIS repo's OWN compiled hook, and its first (2026-09-07) — the artifact that retired the `docs/compiled-hooks.md` line \"neither [consumer] is this repository's own harness, which still wires its…",
     "src/test-tier-nudge.hook.test.ts":
-      "The test for this repo's own compiled hook (vitest, unit tier). Named `<surface>.hook.test.ts` because a hook's `{surface}` name carries `.hook` — that is what binds it to the surface under the `include` globs in .vigilesrc.json.",
+      "The test for this repo own compiled hook. Named <surface>.hook.test.ts because a hook name carries .hook — that is what binds it to the surface under .vigilesrc.json.",
     ".vigiles/hooks/docs-drift-nudge.hook.mjs":
-      "This repo's OWN compiled hook #2 — a react that nudges when product code under src/ is edited and no doc (docs/**, README, a CLAUDE.md.spec.ts, CONTRIBUTING) has been touched this session. `doc-consistency` as a mechanism instead of prose: `lint` reads a checkout, but 'the code changed and the docs did not' is a property of a DIFF, which only a hook sees. Two named facts — docs.followed (quiet because the work IS being done) and docs.nudged (quiet because it just spoke) — so the two silences never merge.",
+      "This repo own compiled hook #2 — a react nudging when src/ changed and no doc did. That is a property of a DIFF, which only a hook sees; two named facts keep the silences apart.",
     "src/docs-drift-nudge.hook.test.ts":
       "The test for the docs-drift hook (vitest, unit tier): both silences asserted apart, and mutation-proven — deleting the docs.followed branch fails exactly one test.",
     "examples/harness/safe-bash-guard.mjs":
-      'The compiled-hook dogfood artifact — a Bash safety gate authored against `vigiles/hook` expressing a real guard\'s full intent (force-push/reset --hard/--no-verify/forced-rm/secret-read/curl|sh) as a pure typed function. In-repo it imports the built dist (runs via hook-runtime run-program in src/hook-dogfood.test.ts); external users author `from "vigiles/hook"` + `vigiles compile`',
+      "The compiled-hook dogfood artifact — a real guard full intent (force-push/reset --hard/--no-verify/forced-rm/secret-read/curl|sh) as one pure typed function.",
     "src/verify-plugin-guards.test.ts":
-      "The plugin-guard sweep's suite (vitest): the union report proved in both directions — a measured hook carries a score, and a hook that never ran carries a REASON and no number. Mutation-proven three ways (#212).",
+      "The plugin-guard sweep suite: the union report proved both ways — a measured hook carries a score, one that never ran carries a REASON and no number. Mutation-proven (#212).",
     "src/core/command-files.ts":
       "Which FILES a shell command reads or writes — the deterministic extractor behind the path-aware half of a Bash gate (#212).",
     "src/core/command-files.test.ts":
-      "Command-file-reference suite (vitest, unit tier, nothing spawned) — both directions, because either alone is worthless: it must NAME the script an interpreter runs (relative, absolute, by extension behind an unknown runner, extensionless behind a known one, a path-shaped head, through a variable whose value was supplied, nested in a pipeline) and must stay SILENT on the shapes measured in the wild that merely look path-ish — the five davila7 commands the wide rule got wrong (`rm`/`mv`/`cat`/`tail` on a temp file, `echo N/A`), plus URLs, flags, assignments, globs, `-c`/`-e`/`-m` operands, a command substitution, a bare head, and the interpreter's own trailing arguments",
+      "Command-file-reference suite, both directions: it must NAME the script an interpreter runs, and stay SILENT on the path-ish shapes measured in the wild that are not references.",
     "src/core/guards.ts":
       "EXPERIMENTAL prototype (the GATE axis of the reliability runtime) — typed safe-by-construction harness GUARDS: declare guard.block / requireBefore (the ORDER axis — destroy-after-plan, enforced live…",
     "src/hook-matcher-delivery.test.ts":
@@ -206,7 +206,7 @@ BUILD + TOOLING + GENERATED:
     "src/core/layout.ts":
       "PluginLayout — the plugin/repo LAYOUT port (filesystem half of the format axis): where a harness's instruction file / skills / agents / commands / hooks / settings live on disk + the plugin-root…",
     "src/adapters/claude-code/layout.ts":
-      "claudeCodeLayout — the PluginLayout port's Claude Code reference impl (.claude-plugin/plugin.json, .claude/settings.json, skills/agents/commands surfaces, ${CLAUDE_PLUGIN_ROOT}); loadPlugin defaults to it",
+      "claudeCodeLayout — the PluginLayout port Claude Code impl (.claude-plugin/plugin.json, .claude/settings.json, skills/agents/commands surfaces); the loadPlugin default.",
     "src/adapters/claude-code/layout.test.ts":
       "Layout-port test suite (vitest): claudeCodeLayout is the loadPlugin default; an alternate Codex-shaped PluginLayout (AGENTS.md, prompts/ surface, .codex/ settings, ${CODEX_PLUGIN_ROOT}) loads…",
     "src/core/runtime.ts":
@@ -216,7 +216,7 @@ BUILD + TOOLING + GENERATED:
     "src/adapters/claude-code/runtime.ts":
       "claudeCodeRuntime — the HarnessRuntime port's Claude Code impl (spawn `claude`, reach the mock via ANTHROPIC_BASE_URL + dummy ANTHROPIC_API_KEY; versionKey → major.minor) + mockModelEnv, the pure…",
     "src/adapters/claude-code/runtime.test.ts":
-      "Runtime-port test suite (vitest): claudeCodeRuntime values, mockModelEnv layers mock URL + dummy key over the base env, and an alternate runtime maps the URL onto its own env var (OPENAI_BASE_URL) — the Codex transport seam",
+      "Runtime-port suite: CC values, mockModelEnv layering, and an alternate runtime mapping the URL onto its own env var — the Codex transport seam, asserted rather than assumed.",
     "src/core/hook-protocol.ts":
       "HookProtocol — the hook-wire PORT (transport axis): how a harness signals a hook block/deny (block exit code + deny decision values + event env vars) PLUS injectableEvents — the events that honor…",
     "src/adapters/claude-code/hook-protocol.ts":
@@ -270,11 +270,11 @@ BUILD + TOOLING + GENERATED:
     "src/core/generate-harness.ts":
       "Whole-harness codegen (harness-agnostic core, the THIRD generated artifact beside generate-types/generate-schema): `vigiles generate harness [dir] [out]` emits ONE harness.gen.ts registry over every…",
     "src/cli.ts":
-      "The `bin` — a DISPATCHER SHIM with NO top-level imports (#216). CommonJS resolves top-level imports before argv is parsed, so a compiled hook's allow/deny used to load `compile`/`lint`/`audit`/`eval` first; measured at 610-661 ms per gated tool call against a 42 ms bare Node start. It now lazily requires `hook-runtime.js` for a decision and `cli-main.js` for everything else. The emitted command `npx vigiles hook-runtime run-program <file>` is unchanged and must stay so — it is baked into every already-emitted settings block and its SHA stamp.",
+      "The bin — a DISPATCHER SHIM with NO top-level imports (#216), so a hook decision never pays for the verb barrel. The emitted hook-runtime command must stay byte-stable.",
     "src/hook-runtime.ts":
-      "The compiled-hook RUNTIME (`hook-runtime run-program`) — stdin event → stamp check → dispatch by role. Kept OUT of the verb barrel so a decision loads only what it needs; three lazy edges carry their measurement at the call site (@iarna/toml, mvdan-sh, the adapter registry, the last reached only by a react). `src/hook-runtime-graph.test.ts` asserts the graph; `tools/measure-hook-startup.mjs` re-measures the numbers.",
+      "The compiled-hook RUNTIME — stdin event, stamp check, dispatch by role. Kept OUT of the verb barrel so a decision loads only what it needs; three lazy edges carry their measurement.",
     "src/hook-runtime-graph.test.ts":
-      "The module-graph invariant behind the runtime's startup cost: a decision must not pull the CLI barrel, `@iarna/toml`, or (unless it is a Bash gate) `mvdan-sh`. Asserts the GRAPH, not a duration — a timing threshold on a shared CI runner would be quarantined first. Both directions: a bash gate DOES load the parser, `--help` DOES load the barrel.",
+      "The module-graph invariant behind startup cost: a decision must not pull the CLI barrel or the TOML/shell parsers. Asserts the GRAPH, not a duration, so CI cannot flake it.",
     "tools/measure-hook-startup.mjs":
       "Human-run: prices a compiled hook's startup layer by layer (a `require` per module) and end-to-end per hook role. The NUMBERS live here and are re-measured, never quoted from prose.",
     "src/cli-main.ts":
@@ -357,13 +357,13 @@ BUILD + TOOLING + GENERATED:
     "src/core/frontmatter-read.ts":
       "Lenient frontmatter reader — ONE reader for the SKILL.md/subagent --- block, shared by scan + the PreToolUse rail (agent-runtime), replacing three divergent hand-parsers (scan's readField +…",
     "src/core/frontmatter-read.test.ts":
-      "Lenient-reader suite (vitest): valid YAML scalars + flow array, the comma / space / YAML-list split (whitespace separates only outside parens, #217), absent→null vs present-empty→[], block-scalar + next-line-quoted, malformed YAML → malformed:true AND salvages a…",
+      "Lenient-reader suite: the comma/space/YAML-list split (whitespace separates only outside parens, #217), absent vs present-empty, and malformed YAML that still salvages a name.",
     "src/core/hook-normalize.ts":
       "Hook settings normalization — the typed boundary (parse-don't-validate) the audit hook detectors read. normalizeHooks(raw) parses the raw settings.hooks `unknown` ONCE into a typed…",
     "src/core/hook-normalize.test.ts":
       "Hook-normalize suite (vitest): flattens the CC nested shape, reads the Codex flat shape, carries matcher null when absent, drops empty/non-string commands + non-object entries, returns [] for…",
     "action.yml":
-      "GitHub Action — a composite action over the published `npx vigiles` CLI (NOT a node20 entry pointing at an uncommitted dist/): maps every input to a real CLI flag, sets the `valid` output via $GITHUB_OUTPUT, and supports `version: local` so the repo dogfoods it via `uses: ./`. See docs/cli.md and the `prod-grade-gha-cli` rule.",
+      "GitHub Action — a composite action over the published npx vigiles CLI, so it reuses the tested artifact rather than an uncommitted dist/. version: local lets this repo dogfood it.",
     ".github/workflows/pages.yml":
       "ONE GitHub Pages deploy for the WHOLE site (a repo gets one Pages site), on push to main — REPLACED the old separate api-docs.yml + build-only site.yml (combined in #76).",
     "src/cli-flags.ts":
@@ -396,7 +396,7 @@ BUILD + TOOLING + GENERATED:
     "src/adapters/claude-code/effect-region.ts":
       "Effect-region state — the position-aware half of the purity gate.",
     "src/adapters/claude-code/effect-region.test.ts":
-      "Effect-region test suite (vitest): setEffectActive/readEffectActive/clearEffectActive round-trip + idempotent clear + malformed-JSON tolerance, hasEffectBoundary true/false on a <!-- vigiles:effect --> marker",
+      "Effect-region suite: set/read/clear round-trip, idempotent clear, malformed-JSON tolerance, and the effect-boundary marker detected in both directions.",
     "src/adapters/claude-code/agent-result.ts":
       "Railway result parser: a subagent with a result() contract ends its turn with a vigiles:ok/err block; parseAgentResult turns that text into a discriminated outcome (ok | err | malformed) and…",
     "src/adapters/claude-code/agent-result.test.ts":
@@ -425,7 +425,7 @@ BUILD + TOOLING + GENERATED:
     "src/core/compose.ts":
       "Sync-tool compatibility detector: detectSyncTools/composeCollisions — pure filesystem check that vigiles stays composable with Ruler (.ruler/, ruler.toml) and rulesync (.rulesync/) instead of…",
     "src/core/compose.test.ts":
-      "Sync-tool detector test suite (node:test): ruler/rulesync detection (dir + ruler.toml keys), source-slot paths, CLAUDE.md/AGENTS.md collision incl. path-qualified target match by filename, no-tool and non-overlapping no-collision, both-tools-present",
+      "Sync-tool detector suite: ruler/rulesync detection, source-slot paths, CLAUDE.md/AGENTS.md collision matched by filename, and the no-tool and both-tools cases.",
     "src/test-coverage.ts":
       "Untested-surface detector (the per-kind vigiles/untested-skill + untested-subagent + untested-hook rules — replacing the old umbrella untested-surface): finds skills/agents/hooks that ship with no…",
     "src/test-coverage.test.ts":
@@ -466,7 +466,7 @@ BUILD + TOOLING + GENERATED:
       "Markdown code-block ref validator (the opt-in `doc-refs` rule, default off): enforce()/file()/cmd()/ref() calls inside ```ts blocks, with vigiles:ignore opt-out",
     "src/core/doc-refs.test.ts": "Doc-refs validator test suite (node:test)",
     "src/doc-refs-rule.test.ts":
-      'doc-refs WIRING test — drives the built CLI over a fixture with one broken ref across all three tiers: unconfigured (section absent, walk skipped), "warn" (prints ℹ, exit untouched), "error" (prints ✗, exit 2)',
+      "doc-refs WIRING over the built CLI across all three tiers: unconfigured (walk skipped), warn (prints, exit untouched), error (exit 2) — one fixture, one broken ref.",
     "src/core/symbols.ts":
       "Cross-language symbol extractor (ast-grep): defines symbols a file declares (functions/classes/methods/constants) across JS/TS/Python/Ruby/Rust/CSS; fileDefinesSymbol with .d.ts/.rbi fallback",
     "src/core/symbols.test.ts": "Symbol extractor test suite (node:test)",

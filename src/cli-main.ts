@@ -633,17 +633,31 @@ function compileClaudeToFile(
   dialect: HarnessDialect,
 ): boolean {
   const basePath = process.cwd();
-  const { markdown, errors, linterResults, targets } = compileClaude(spec, {
-    basePath,
-    specFile: specPath,
-    dialect,
-    maxRules: config.maxRules,
-    maxTokens: config.maxTokens,
-    maxSectionLines: config.maxSectionLines,
-    catalogOnly: config.catalogOnly,
-    linters: config.linters,
-  });
+  const { markdown, errors, warnings, linterResults, targets } = compileClaude(
+    spec,
+    {
+      basePath,
+      specFile: specPath,
+      dialect,
+      maxRules: config.maxRules,
+      maxTokens: config.maxTokens,
+      maxSectionLines: config.maxSectionLines,
+      catalogOnly: config.catalogOnly,
+      linters: config.linters,
+    },
+  );
   const primaryOutput = specPath.replace(/\.spec\.ts$/, "");
+  // Budget findings print BEFORE the pass/fail line and never change the exit
+  // code. A number nobody prints cannot be acted on — the same reason the
+  // compiled size is printed at all — and an instruction file grows one
+  // unremarkable entry at a time, so the warning has to arrive at the moment
+  // the entry is added rather than at some later audit.
+  if (warnings.length > 0) {
+    console.log(
+      `\nℹ ${specPath} — ${String(warnings.length)} budget warning(s)`,
+    );
+    for (const w of warnings) console.log(`  ${w.message}`);
+  }
   if (errors.length > 0) {
     console.log(`\n✗ ${specPath} — ${String(errors.length)} error(s)`);
     printErrors(specPath, errors);

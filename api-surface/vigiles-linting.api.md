@@ -109,7 +109,9 @@ export interface CompileClaudeOptions {
     linters?: Record<string, {
         rulesDir?: string | string[];
     }>;
+    maxEntryChars?: number;
     maxRules?: number;
+    maxSectionChars?: number;
     maxSectionLines?: number;
     maxTokens?: number;
     // (undocumented)
@@ -127,6 +129,7 @@ export interface CompileClaudeResult {
     markdown: string;
     targets: string[];
     tokens: number;
+    warnings: CompileError[];
 }
 
 // @public (undocumented)
@@ -136,7 +139,7 @@ export interface CompileError {
     // (undocumented)
     path?: string;
     // (undocumented)
-    type: "stale-file" | "stale-command" | "stale-ref" | "invalid-rule" | "budget-exceeded" | "section-too-long" | "section-has-header" | "reserved-section-key" | "spec-name-mismatch" | "unknown-tool" | "invalid-railway" | "purity-violation" | "output-without-fork" | "effect-in-skill" | "inline-code-too-long";
+    type: "stale-file" | "stale-command" | "stale-ref" | "invalid-rule" | "budget-exceeded" | "section-too-long" | "section-has-header" | "reserved-section-key" | "spec-name-mismatch" | "unknown-tool" | "invalid-railway" | "purity-violation" | "output-without-fork" | "effect-in-skill" | "inline-code-too-long" | "entry-too-long" | "section-too-large";
 }
 
 // @public

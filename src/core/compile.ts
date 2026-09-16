@@ -174,7 +174,9 @@ export interface CompileError {
     | "purity-violation"
     | "output-without-fork"
     | "effect-in-skill"
-    | "inline-code-too-long";
+    | "inline-code-too-long"
+    | "entry-too-long"
+    | "section-too-large";
   message: string;
   path?: string;
 }
@@ -429,6 +431,13 @@ function compileRule(id: string, rule: Rule): string {
 export interface CompileClaudeResult {
   markdown: string;
   errors: CompileError[];
+  /**
+   * Budget findings — never errors. An over-long `keyFiles` description or a
+   * bloated section does not break the harness, it makes every request more
+   * expensive, so it must not stop a faithful adoption from compiling. Same
+   * channel discipline as `checkInlineCode`.
+   */
+  warnings: CompileError[];
   linterResults: LinterCheckResult[];
   /** Estimated token count of compiled output (~4 chars/token). */
   tokens: number;
@@ -437,6 +446,10 @@ export interface CompileClaudeResult {
 }
 
 export interface CompileClaudeOptions {
+  /** Per-entry `keyFiles`/`commands` character budget (0 disables). */
+  maxEntryChars?: number;
+  /** Per-section character budget, beside the line budget (0 disables). */
+  maxSectionChars?: number;
   basePath?: string;
   specFile?: string;
   /** Injected harness dialect; its instructionTargets[0] is the default target. */
@@ -473,7 +486,90 @@ interface SectionResult {
 // generous (don't-cry-wolf): real prose sections are short, so this only trips on
 // an egregious dump (a whole essay pasted into one section / prose``).
 // Override per spec with `maxSectionLines`; `maxTokens` is the global backstop.
-const DEFAULT_MAX_SECTION_LINES = 200;
+/**
+ * The generous per-section line guard. Exported because `adopt` raises it to
+ * exactly the longest adopted section and must name the same number rather than
+ * keep a second copy that drifts.
+ */
+export const DEFAULT_MAX_SECTION_LINES = 200;
+
+/**
+ * Per-ENTRY budget for a `keyFiles` / `commands` description, in characters.
+ *
+ * WHY AN ENTRY AND NOT THE SECTION. The list is append-only in practice: every
+ * session adds a row and none removes one, so the section total says "too big"
+ * long after the point where a reader could act on it, and it names no
+ * offender. A per-entry budget names the row. 200 is deliberately loose — an
+ * entry is a POINTER ("what is this file for"), and anything that needs a
+ * paragraph has a better home in that file's own header, where it is read when
+ * someone opens the file rather than on every request.
+ */
+export const DEFAULT_MAX_ENTRY_CHARS = 200;
+
+/**
+ * Per-section budget in CHARACTERS, beside the line budget.
+ *
+ * The line guard alone is measured to be useless on the shape that actually
+ * bites: this repo's own `Positioning` section was 24 lines and 20 416
+ * characters, passing a 200-LINE gate with two orders of magnitude to spare.
+ * Long lines are the normal shape of compiled prose, so lines do not measure
+ * cost — characters do, because that is what the harness loads.
+ */
+export const DEFAULT_MAX_SECTION_CHARS = 15000;
+
+/**
+ * Budget findings for the two append-only maps and for section size. WARNINGS
+ * by construction (`lint-rule-calibration`: severity tracks confidence, and a
+ * gate that fails every real repo on day one is switched off on day two — this
+ * repo's own corpus opens at 26 over-long entries).
+ */
+function checkContentBudgets(
+  spec: {
+    readonly keyFiles?: Record<string, string>;
+    readonly commands?: Record<string, string>;
+    readonly sections?: Record<string, unknown>;
+  },
+  specFile: string,
+  maxEntryChars: number,
+  maxSectionChars: number,
+): CompileError[] {
+  const warns: CompileError[] = [];
+  const entries: [string, Record<string, string> | undefined][] = [
+    ["keyFiles", spec.keyFiles],
+    ["commands", spec.commands],
+  ];
+  for (const [field, map] of entries) {
+    if (!map || maxEntryChars <= 0) continue;
+    for (const [key, description] of Object.entries(map)) {
+      if (description.length <= maxEntryChars) continue;
+      warns.push({
+        type: "entry-too-long",
+        path: specFile,
+        message:
+          `${field}[${JSON.stringify(key)}] description is ${String(description.length)} ` +
+          `characters (budget ${String(maxEntryChars)}). An entry is a pointer — say what the ` +
+          `file is for in one line and move the explanation into its own header, which is read ` +
+          `when someone opens it rather than on every request.`,
+      });
+    }
+  }
+  if (spec.sections && maxSectionChars > 0) {
+    for (const [name, body] of Object.entries(spec.sections)) {
+      // Fragment-valued sections are assembled later; only plain prose is
+      // measurable here, and it is the shape that grows.
+      if (typeof body !== "string" || body.length <= maxSectionChars) continue;
+      warns.push({
+        type: "section-too-large",
+        path: specFile,
+        message:
+          `section ${JSON.stringify(name)} is ${String(body.length)} characters ` +
+          `(budget ${String(maxSectionChars)}). The line guard cannot see this — long lines are ` +
+          `the normal shape of compiled prose — and every character is loaded on every request.`,
+      });
+    }
+  }
+  return warns;
+}
 
 // A key-files entry is a POINTER, not an essay: the prose about why a file is
 // shaped the way it is belongs in that file's own header, where it is read when
@@ -751,6 +847,12 @@ export function compileClaude(
   return {
     markdown,
     errors,
+    warnings: checkContentBudgets(
+      spec,
+      specFile,
+      options.maxEntryChars ?? DEFAULT_MAX_ENTRY_CHARS,
+      options.maxSectionChars ?? DEFAULT_MAX_SECTION_CHARS,
+    ),
     linterResults: rules.linterResults,
     tokens,
     targets: allTargets,
