@@ -111,6 +111,19 @@ Based on what the user asked for:
 - Add to `keyFiles` or `commands`. The compiler verifies these exist at compile time
 - For commands: must match a script in `package.json`
 - For key files: must exist on disk
+- 🔴 **KEEP THE DESCRIPTION TO ONE LINE — aim for 120 characters, never exceed
+  ~200.** A `keyFiles` entry is a POINTER: what the file is for, so a reader knows
+  whether to open it. The explanation of how it works belongs in that file's own
+  header comment, where it is read when someone is actually in the file. An
+  instruction file is loaded on EVERY request, so a paragraph here is paid for
+  every turn, forever, by every reader — including the ones who never touch that
+  file.
+- **This list only ever grows unless you shrink it.** Every session adds entries
+  and none removes them, so before adding, check whether a NEARBY entry is now
+  stale (the file moved, the role changed, the description restates its header)
+  and fix it in the same edit. Adding without ever pruning is how an instruction
+  file reaches four times its harness's budget — `vigiles audit` reports that
+  number as `Always-loaded instructions`, so check it when you touch this list.
 
 ### Step 4: Compile
 

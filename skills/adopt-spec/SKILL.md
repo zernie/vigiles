@@ -67,7 +67,13 @@ export default claude({
   },
 
   keyFiles: {
-    // Key files here
+    // Key files here. A path maps to ONE LINE saying what the file is for —
+    // aim for 120 characters, never exceed ~200. The entry is a pointer, not a
+    // summary: how the file works belongs in its own header comment, which is
+    // read when someone opens it. This file is loaded on every request, so a
+    // paragraph here is paid for every turn. Prune a stale neighbour whenever
+    // you add one; `vigiles audit` prints the running total as
+    // `Always-loaded instructions`.
   },
 
   commands: {
