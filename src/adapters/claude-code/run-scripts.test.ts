@@ -299,6 +299,98 @@ test("statusFor: 0 reported checks is its own state, and silence is NOT zero", (
   assert.equal(statusFor(1, 0), "fail");
 });
 
+test("statusFor: a script that REPORTED checks executed, whatever its output says", () => {
+  // FIRES on the planted defect (#243, measured): a harness that ran, recorded
+  // three checks and failed an assertion, whose output carries a loader phrase
+  // because it printed the transcript of a hook under test. Before the `checks`
+  // guard this returned "skip" and the whole run exited 0.
+  const hookTranscript =
+    "  hook stderr: Error: Cannot find module './missing.js'\n" +
+    "AssertionError [ERR_ASSERTION]: guard must deny the write";
+  assert.equal(
+    statusFor(1, 3, hookTranscript),
+    "fail",
+    "it reported a count, so it ran — a loader phrase in its output is evidence, not a diagnosis",
+  );
+
+  // SILENT on the clean case: nothing reported and the loader's own words.
+  assert.equal(
+    statusFor(
+      1,
+      undefined,
+      "Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'vigiles'",
+    ),
+    "skip",
+    "never evaluated — must not retract coverage taken on a working machine",
+  );
+
+  // `0` is a claim ("loaded the library, used none of it"), so it is not silence
+  // and the file demonstrably ran.
+  assert.equal(
+    statusFor(1, 0, "Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'x'"),
+    "fail",
+    "a reported zero still proves the module linked and ran",
+  );
+});
+
+test("didNotLoad knows BOTH spellings of a missing named export", () => {
+  // Node phrases the same event differently for a CommonJS and an ES module.
+  // Only the CJS form was listed, so the 2026-08-20 class — the one the whole
+  // non-retracting classification was built for — still retracted whenever the
+  // dependency was ESM. Both strings measured on Node 22.
+  const cjs =
+    "SyntaxError: Named export 'recordCheck' not found. The requested module './d.cjs' is a CommonJS module";
+  const esm =
+    "SyntaxError: The requested module './d.mjs' does not provide an export named 'recordCheck'";
+  assert.equal(statusFor(1, undefined, cjs), "skip");
+  assert.equal(
+    statusFor(1, undefined, esm),
+    "skip",
+    "same event, ESM spelling — must not retract either",
+  );
+  // And neither spelling may swallow a genuine parse error in the harness itself.
+  assert.equal(
+    statusFor(1, undefined, "SyntaxError: Unexpected token ';'"),
+    "fail",
+  );
+});
+
+test("discoverScripts does not accept a directory as a script", () => {
+  const dir = makeTmpDir("run-scripts-dir");
+  try {
+    const file = join(dir, "a.harness.mjs");
+    writeFileSync(file, "export default {};");
+    mkdirSync(join(dir, "sub"));
+
+    // FIRES: a directory contributes nothing, so the caller's loud
+    // nothing-matched path owns the message instead of `spawn("node", ["."])`
+    // dying with a resolver stack that then read as a skip.
+    assert.deepEqual(
+      discoverScripts(["sub"], scriptGlob("harness"), dir, EXCLUDE_FLOOR),
+      [],
+      "a directory exists but is not a file — `existsSync` could not tell",
+    );
+    assert.deepEqual(
+      discoverScripts(["."], scriptGlob("harness"), dir, EXCLUDE_FLOOR),
+      [],
+      "`.` is the spelling from the report",
+    );
+
+    // SILENT: a named file is still passed through verbatim.
+    assert.deepEqual(
+      discoverScripts(
+        ["a.harness.mjs"],
+        scriptGlob("harness"),
+        dir,
+        EXCLUDE_FLOOR,
+      ),
+      ["a.harness.mjs"],
+    );
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
 /** The built `check-count.js`, as a URL a spawned fixture script can import. */
 function countModuleUrl(): string {
   return pathToFileURL(resolve(process.cwd(), "dist/check-count.js")).href;

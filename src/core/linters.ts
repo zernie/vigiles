@@ -20,14 +20,7 @@
  * competitive positioning outright. Describe the mechanism; let a reader compare.
  */
 
-import {
-  readFileSync,
-  existsSync,
-  writeFileSync,
-  mkdtempSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, existsSync, writeFileSync, rmSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { editDistance } from "./edit-distance.js";
 import { execSync } from "node:child_process";
@@ -85,6 +78,7 @@ import type {
   DiscoveredRules,
 } from "./linter-adapter.js";
 import type { BuiltinLinter } from "./spec.js";
+import { makeTmpDir } from "./tmp-root.js";
 
 export interface LinterCheckResult {
   exists: boolean;
@@ -331,7 +325,7 @@ let DETEKT_DEFAULT_RULE_CACHE: Set<string> | null = null;
 function getDetektDefaultRules(): Set<string> {
   if (DETEKT_DEFAULT_RULE_CACHE) return DETEKT_DEFAULT_RULE_CACHE;
   let rules = new Set<string>();
-  const tmp = mkdtempSync(join(tmpdir(), "vigiles-detekt-"));
+  const tmp = makeTmpDir("detekt");
   try {
     const target = join(tmp, "generated-default.yml");
     execSync(`detekt --generate-config --config ${target}`, {
@@ -574,7 +568,7 @@ function runCheckstyleProbe(configPath: string, probePath: string): boolean {
  * either placement instantiates.
  */
 function checkstyleModuleInstantiates(ruleName: string): boolean {
-  const tmp = mkdtempSync(join(tmpdir(), "vigiles-checkstyle-"));
+  const tmp = makeTmpDir("checkstyle");
   try {
     const probe = join(tmp, "Probe.java");
     writeFileSync(probe, "class Probe {}\n");

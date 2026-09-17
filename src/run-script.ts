@@ -25,7 +25,6 @@
  */
 import { spawnSync } from "node:child_process";
 import {
-  mkdtempSync,
   mkdirSync,
   rmSync,
   writeFileSync,
@@ -34,7 +33,6 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
@@ -59,6 +57,7 @@ import {
 } from "./sandbox.js";
 import { recordCheck } from "./check-count.js";
 import { probeCommand } from "./coverage-probe.js";
+import { makeTmpDir } from "./core/tmp-root.js";
 
 export type { EgressAttempt };
 
@@ -477,7 +476,7 @@ function sandboxedSpawn(
   stdin: string,
   opts: RunScriptOptions,
 ): ScriptSpawnResult {
-  const ioDir = mkdtempSync(join(tmpdir(), "vigiles-hook-sbx-"));
+  const ioDir = makeTmpDir("hook-sbx");
   const home = join(ioDir, "home");
   mkdirSync(home);
   // The hook's confined writable work dir: the caller's cwd if given, else a
@@ -595,7 +594,7 @@ function egressSpawn(
   stdin: string,
   opts: RunScriptOptions,
 ): ScriptSpawnResult {
-  const ioDir = mkdtempSync(join(tmpdir(), "vigiles-hook-egr-"));
+  const ioDir = makeTmpDir("hook-egr");
   const home = join(ioDir, "home");
   mkdirSync(home);
   const work = opts.cwd ?? join(ioDir, "work");

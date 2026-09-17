@@ -14,8 +14,7 @@ import { spawn } from "node:child_process";
 import { availableParallelism } from "node:os";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { globSync } from "glob";
 import {
   CHECK_COUNT_ENV,
@@ -94,7 +93,21 @@ export function statusFor(
   output?: string,
 ): ScriptStatus {
   if (code === SKIP_EXIT_CODE) return "skip";
-  if (code !== 0) return didNotLoad(output) ? "skip" : "fail";
+  // 🔴 `checks === undefined` GUARDS THE TEXT MATCH, and it is the load-bearing
+  // half. A script that REPORTED a count executed: the counter is written by an
+  // exit handler that exists only once the module was linked and run
+  // (`check-count.ts`), so the count is a STRUCTURAL fact about the child, while
+  // `didNotLoad` is a guess about its text.
+  //
+  // MEASURED: `statusFor(1, 3, "<hook stderr: Cannot find module …>\nAssertionError")`
+  // returned `"skip"` and the run exited 0 — a harness that ran, recorded three
+  // checks and FAILED an assertion, reported as skipped. That is not an exotic
+  // input: vigiles harnesses drive hooks and print their transcripts, so a
+  // loader phrase in the output is ordinary EVIDENCE about the thing under test,
+  // not a diagnosis of the harness. Watching the child from outside cannot tell
+  // those apart. The count can, and it was already in hand.
+  if (code !== 0)
+    return checks === undefined && didNotLoad(output) ? "skip" : "fail";
   return checks === 0 ? "vacuous" : "pass";
 }
 
@@ -113,10 +126,17 @@ export function statusFor(
  * 'recordCheck' not found`, and the ledger dropped from 48 records to 34 and from
  * 47 to 33. Nothing about those surfaces had changed — the machine had.
  *
- * ⚠️ This does NOT make a broken environment quiet. A skip still prints `⊘
- * SKIPPED`, and `--no-skip` — which this repo's own CI passes — still fails the
- * run. What changes is only whether a machine problem is allowed to delete a
- * measurement taken on a machine that worked.
+ * ⚠️ This does NOT make a broken environment quiet: a script classified here
+ * fails the run by default (`cli-main.ts`, right after `anyFailed`), because a
+ * skip the AUTHOR never declared is not a skip. What this classification buys is
+ * only that a machine problem may not delete a measurement taken on a machine
+ * that worked.
+ *
+ * 🔴 That default is new, and the sentence it replaces was false. It read
+ * «`--no-skip` — which this repo's own CI passes — still fails the run».
+ * Measured: `--no-skip` appears ZERO times under `.github/`, `package.json`,
+ * `scripts/` and `.claude/`; CI passes `--min=14` and nothing else. The
+ * safety net the non-fatal classification leaned on was never strung.
  *
  * Deliberately literal, and only the loader's own vocabulary: these strings come
  * from Node's module resolution, not from user code. A test that legitimately
@@ -129,6 +149,15 @@ function didNotLoad(output: string | undefined): boolean {
     output.includes("Cannot find package") ||
     output.includes("Cannot find module") ||
     /SyntaxError: Named export '[^']*' not found/.test(output) ||
+    // Same event, ESM spelling. Node phrases a missing named export one way for
+    // a CommonJS target and another for an ES module, and only the first was
+    // listed — so the 2026-08-20 class below still RETRACTED coverage whenever
+    // the dependency happened to be ESM. Measured on Node 22:
+    //   CJS: SyntaxError: Named export 'recordCheck' not found. The requested module …
+    //   ESM: SyntaxError: The requested module './x.mjs' does not provide an export named 'recordCheck'
+    /SyntaxError: The requested module '[^']*' does not provide an export named/.test(
+      output,
+    ) ||
     output.includes("ERR_UNSUPPORTED_DIR_IMPORT") ||
     output.includes("ERR_PACKAGE_PATH_NOT_EXPORTED")
   );
@@ -156,6 +185,7 @@ export {
 } from "../../ts-runner-caps.js";
 import { detectNodeCaps } from "../../ts-runner-caps.js";
 import type { NodeCaps } from "../../ts-runner-caps.js";
+import { makeTmpDir } from "../../core/tmp-root.js";
 
 /**
  * The `node` argv (after the binary) to run a single script. Plain JS runs
@@ -207,7 +237,13 @@ export function discoverScripts(
   const globs = patterns.length > 0 ? patterns : [defaultGlob];
   const found = new Set<string>();
   for (const p of globs) {
-    if (existsSync(resolve(cwd, p))) {
+    // 🔴 `isFile`, not `existsSync`: a DIRECTORY exists too. `vigiles test .`
+    // therefore passed `.` through as a script, `spawn("node", ["."])` died with
+    // Node's `ERR_UNSUPPORTED_DIR_IMPORT` stack, and the classifier downstream
+    // read that stack as "did not load" — a crash reported as a skip, exit 0.
+    // A directory now contributes no files, so the caller's own loud
+    // nothing-matched path owns the message (see `cli-main.ts`).
+    if (statSync(resolve(cwd, p), { throwIfNoEntry: false })?.isFile()) {
       found.add(p);
       continue;
     }
@@ -222,10 +258,16 @@ export function discoverScripts(
     // `test-coverage.ts` and `cli.ts` both pass `dot: true` with comments saying why, and
     // `test-coverage.test.ts` records "glob without `dot:true` never found it and the surface
     // looked untested". Coverage learned it; the runner did not.
+    // 🔴 `nodir: true` for the same reason as the `isFile` guard above, and the
+    // guard alone was NOT enough — caught by its own test. A pattern that names
+    // an existing directory (`sub`, `.`) skips the fast path and then comes back
+    // out of the globber, because a directory matches a glob perfectly well.
+    // Asked of the globber rather than filtered afterwards: it already knows.
     for (const m of globSync(p, {
       cwd,
       ignore: [...ignore],
       dot: true,
+      nodir: true,
     })) {
       found.add(m);
     }
@@ -289,7 +331,7 @@ export async function runScripts(
   opts: RunScriptsOptions = {},
 ): Promise<ScriptRunResult[]> {
   const caps = detectNodeCaps(cwd);
-  const countDir = mkdtempSync(join(tmpdir(), "vigiles-checks-"));
+  const countDir = makeTmpDir("checks");
 
   // 🔴 THE DEFAULT IS DECIDED BY `entry`, NOT BY A FLAG, because the two commands
   // that share this runner have OPPOSITE right answers and the caller already

@@ -311,6 +311,9 @@ export interface CheckResult {
 }
 
 // @public
+export function cleanupTmpDir(dir: string): void;
+
+// @public
 export function commandsIn(md: string, matching: RegExp): DocCommand[];
 
 // @public
@@ -836,6 +839,9 @@ export function latency(opts: {
 
 // @public
 export function loadHook(file: string): Promise<AnyHook>;
+
+// @public
+export function makeTmpDir(suffix?: string): string;
 
 // @public
 export function mcp(server: string, toolName: string): Check<Trace>;

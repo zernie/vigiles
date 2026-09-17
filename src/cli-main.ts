@@ -286,6 +286,7 @@ import {
   anyFailed,
   scriptGlob,
   decideRunScripts,
+  SKIP_EXIT_CODE,
   type ScriptRunResult,
 } from "./adapters/claude-code/run-scripts.js";
 import {
@@ -6416,11 +6417,22 @@ async function handleRunScripts(
     // VALUE cannot tell them apart — only the flag's presence can. (Caught by a control:
     // the first version read `minRequired === 0` and made `--min=0` do nothing.)
     if (restArgs.length > 0 && minFlag === undefined) {
+      // A DIRECTORY is the one stale-looking target whose cause we actually know,
+      // so say it instead of listing the three guesses. `vigiles test .` used to
+      // reach `spawn("node", ["."])` and surface Node's module-resolution stack;
+      // the generic message above would now be true but unhelpful.
+      const dirs = restArgs.filter(
+        (a) => lstatSync(a, { throwIfNoEntry: false })?.isDirectory() === true,
+      );
       console.error(
-        `✗ vigiles ${kind}: ${String(restArgs.length)} target(s) given and NOTHING matched — ` +
-          `${restArgs.join(", ")}\n` +
-          `  Nothing ran. A stale path, a wrong glob, or a moved file all look like this.\n` +
-          `  If an empty match is expected here, say so with --min=0.`,
+        dirs.length > 0
+          ? `✗ vigiles ${kind}: ${dirs.join(", ")} ${dirs.length === 1 ? "is a directory" : "are directories"} — ` +
+              `pass a file, or a glob like "${defaultGlob}".\n` +
+              `  A directory is not a script; nothing ran.`
+          : `✗ vigiles ${kind}: ${String(restArgs.length)} target(s) given and NOTHING matched — ` +
+              `${restArgs.join(", ")}\n` +
+              `  Nothing ran. A stale path, a wrong glob, or a moved file all look like this.\n` +
+              `  If an empty match is expected here, say so with --min=0.`,
       );
       process.exit(1);
     }
@@ -6495,6 +6507,40 @@ async function handleRunScripts(
   console.log("\n" + formatScriptSummary(results));
 
   if (anyFailed(results)) process.exit(1);
+
+  // 🔴 A SKIP THE AUTHOR NEVER DECLARED IS NOT A SKIP — and the discriminator was
+  // already sitting in the result. `skip()` exits 77 (`SKIP_EXIT_CODE`); a script
+  // the runtime could not evaluate exits with whatever the loader gave it, 1 in
+  // practice. Both are classified `"skip"` so that neither RETRACTS coverage —
+  // which is right, a file that did not run proved nothing either way — but only
+  // the declared one is a reason to stay green.
+  //
+  // Reported as #243: `vigiles test .` printed a resolver stack over a `⊘`, said
+  // `0 passed, 1 skipped`, and exited 0. Downstream a consumer's README shipped
+  // that exact command as its first setup step, so a new reader's suite silently
+  // never ran. `--no-skip` would have caught it and is not the default; `--min=1`
+  // does not, because it counts files MATCHED, not scripts executed.
+  //
+  // This is deliberately NOT a fifth `ScriptStatus`. Coverage retraction reads the
+  // status as a bare STRING (`executedScripts`, `coverage-artifact.ts`, whose
+  // parameter is typed `string`), so a new member would start retracting silently
+  // with no type error — breaking the one property the classification exists to
+  // protect.
+  const notEvaluated = results.filter(
+    (r) => r.status === "skip" && r.code !== SKIP_EXIT_CODE,
+  );
+  if (notEvaluated.length > 0) {
+    console.error(
+      `\n✗ vigiles ${kind}: ${String(notEvaluated.length)} script(s) never ran — the runtime could not load them:\n` +
+        notEvaluated
+          .map((r) => `  ${r.file} (exit ${String(r.code)})`)
+          .join("\n") +
+        `\n  Their previous coverage is kept, because a script that did not run retracts nothing.\n` +
+        `  If a missing dependency is expected here, import it dynamically and call skip() — ` +
+        `a declared skip stays green.`,
+    );
+    process.exit(1);
+  }
 
   // `--no-skip`: in a context that ASSERTS the capability is present (a CI job),
   // a skipped tier is untested surface — fail loudly instead of passing green.
