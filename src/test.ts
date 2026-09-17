@@ -59,6 +59,20 @@
 // visible to the runner too. See check-count.ts.
 export { recordCheck } from "./check-count.js";
 
+// --- fixture roots: a temp directory whose two spellings agree ---
+// 🔴 DO NOT hand-roll `mkdtempSync(join(tmpdir(), …))` in a harness. On macOS
+// `/var` is a symlink to `/private/var`, so that shape hands you a directory with
+// TWO spellings: Node resolves a module's own URL to the realpath but leaves
+// `process.argv[1]` and any path you composed as typed. Every assertion that
+// compares them is then red on macOS and green on Linux, for a reason that
+// belongs to neither the test nor the code under test — measured three times in
+// one consumer suite (#241, zernie/research-paper-pipeline#9).
+//
+// `makeTmpDir` resolves the root once, at creation. The trap is unreachable from
+// anything built under it, including a symlink the harness creates ITSELF to test
+// symlink handling — that stays a genuine test, because it is explicit.
+export { makeTmpDir, cleanupTmpDir } from "./core/tmp-root.js";
+
 // --- the process primitives: runScript (any program) + runHook (plus a decision) ---
 // `runScript` runs any program and reports what it DID (exit, both streams,
 // writes, egress). `runHook` is that plus the hook protocol: event to stdin,

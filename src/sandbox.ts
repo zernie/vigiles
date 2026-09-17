@@ -22,19 +22,18 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import {
-  mkdtempSync,
   mkdirSync,
   writeFileSync,
   readFileSync,
   existsSync,
   rmSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { claudeCodeRuntime } from "./adapters/claude-code/runtime.js";
 
 import { type ModelTurn, type ModelRequest } from "./mock-model.js";
+import { makeTmpDir } from "./core/tmp-root.js";
 
 /**
  * How to treat code execution. `"auto"` (default) is safe-by-default: trusted
@@ -311,7 +310,7 @@ export function runSandboxed(opts: {
   script: readonly ModelTurn[];
   timeoutMs: number;
 }): Promise<SandboxRunOut> {
-  const ioDir = mkdtempSync(join(tmpdir(), "vigiles-sbx-"));
+  const ioDir = makeTmpDir("sbx");
   const home = join(ioDir, "home");
   mkdirSync(home);
   const scriptF = join(ioDir, "script.json");

@@ -13,10 +13,9 @@
  * makes the column trustworthy. See `research/plugin-behavioral-findings.md`.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { refuseUnderForeignRunner } from "./core/foreign-runner.js";
 import { refuseDuringEvalLoad } from "./core/eval-load-phase.js";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -39,6 +38,7 @@ import { claudeAvailable, type Trace } from "./harness-test.js";
 import { loadPlugin } from "./adapters/claude-code/plugin-loader.js";
 import { codexEvalDriver, codexSkillFired } from "./adapters/codex/eval.js";
 import { codexDriver } from "./adapters/codex/driver.js";
+import { makeTmpDir } from "./core/tmp-root.js";
 
 /** Which harness drives the behavioral column (default Claude Code). */
 export type ProbeHarness = "claude-code" | "codex";
@@ -878,7 +878,7 @@ async function runGateAttack(
   deps: GateEvalDeps,
   model: string,
 ): Promise<{ output: string; errored: boolean }> {
-  const cwd = mkdtempSync(join(tmpdir(), "vigiles-gate-"));
+  const cwd = makeTmpDir("gate");
   try {
     const out = await deps.driver.runner({
       task: job.attack,

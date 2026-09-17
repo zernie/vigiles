@@ -1,17 +1,13 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 
 import type { ClaudeSpec } from "./spec.js";
 
-export function makeTmpDir(suffix: string = "test"): string {
-  return mkdtempSync(join(tmpdir(), `vigiles-${suffix}-`));
-}
-
-export function cleanupTmpDir(dir: string): void {
-  rmSync(dir, { recursive: true, force: true });
-}
+// Re-exported, not redefined: the temp root lives in `tmp-root.ts` because the
+// runtime modules that need one must not pull in `makeSpec`/`initGitRepo` and
+// their dependencies. One definition, two doors.
+export { makeTmpDir, cleanupTmpDir } from "./tmp-root.js";
 
 export function makeSpec(overrides?: Partial<ClaudeSpec>): ClaudeSpec {
   return {

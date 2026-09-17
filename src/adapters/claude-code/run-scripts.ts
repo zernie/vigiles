@@ -14,14 +14,7 @@ import { spawn } from "node:child_process";
 import { availableParallelism } from "node:os";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { globSync } from "glob";
 import {
   CHECK_COUNT_ENV,
@@ -192,6 +185,7 @@ export {
 } from "../../ts-runner-caps.js";
 import { detectNodeCaps } from "../../ts-runner-caps.js";
 import type { NodeCaps } from "../../ts-runner-caps.js";
+import { makeTmpDir } from "../../core/tmp-root.js";
 
 /**
  * The `node` argv (after the binary) to run a single script. Plain JS runs
@@ -337,7 +331,7 @@ export async function runScripts(
   opts: RunScriptsOptions = {},
 ): Promise<ScriptRunResult[]> {
   const caps = detectNodeCaps(cwd);
-  const countDir = mkdtempSync(join(tmpdir(), "vigiles-checks-"));
+  const countDir = makeTmpDir("checks");
 
   // 🔴 THE DEFAULT IS DECIDED BY `entry`, NOT BY A FLAG, because the two commands
   // that share this runner have OPPOSITE right answers and the caller already

@@ -6,8 +6,7 @@
  * accepted). A third-party adapter author runs `assertAdapterConformance(myAdapter)`
  * in their test suite. See `docs/authoring-an-adapter.md`.
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 
 import type { HarnessAdapter } from "./core/adapter.js";
@@ -19,6 +18,7 @@ import {
   vocabularyProjectionProblems,
 } from "./core/vocabulary-consistency.js";
 import { injectableEventsOf } from "./core/event-capability.js";
+import { makeTmpDir } from "./core/tmp-root.js";
 
 export interface ConformanceResult {
   readonly ok: boolean;
@@ -256,7 +256,7 @@ export function assertHarnessTestable(adapter: HarnessAdapter): {
  * run with zero hooks. Does filesystem IO, so it's a separate opt-in assert.
  */
 export function assertAdapterLoadsHooks(adapter: HarnessAdapter): void {
-  const dir = mkdtempSync(join(tmpdir(), "vigiles-conformance-"));
+  const dir = makeTmpDir("conformance");
   try {
     const settingsAbs = join(dir, adapter.layout.settingsPath);
     mkdirSync(dirname(settingsAbs), { recursive: true });

@@ -30,14 +30,12 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import {
-  mkdtempSync,
   mkdirSync,
   writeFileSync,
   readFileSync,
   existsSync,
   rmSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { resolve, join, dirname } from "node:path";
 
 import type { HarnessAdapter } from "./core/adapter.js";
@@ -89,6 +87,7 @@ export {
   sandboxAvailable,
   type SandboxMode,
 } from "./sandbox.js";
+import { makeTmpDir } from "./core/tmp-root.js";
 
 export interface HarnessTestSpec {
   /** Fixture files to write in a fresh temp working dir (path → contents). */
@@ -669,7 +668,7 @@ export async function runHarnessTest(
     );
   }
 
-  const cwd = mkdtempSync(join(tmpdir(), "vigiles-harness-"));
+  const cwd = makeTmpDir("harness");
   const { files, settings } = resolveHarness({
     plugin: spec.plugin,
     settings: spec.settings,

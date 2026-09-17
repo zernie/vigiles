@@ -36,7 +36,7 @@ import {
   rmSync,
 } from "node:fs";
 import type { Dirent } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { homedir } from "node:os";
 import { resolve, join, dirname, delimiter } from "node:path";
 
 import { appendObservation } from "./observe.js";
@@ -91,6 +91,7 @@ import {
   INTERCEPT_TOOLS_ENV,
 } from "./tool-intercept.js";
 import { type ToolStub, stubBinDir } from "./tool-stub.js";
+import { makeTmpDir } from "./core/tmp-root.js";
 
 /** One arm of the comparison: fixture overrides + settings (hooks) for this arm. */
 export interface EvalArm {
@@ -1200,7 +1201,7 @@ export async function runSkillSelectionTrial(args: {
   readonly fixture?: Record<string, string>;
   readonly runError?: (out: RunOut) => string | null;
 }): Promise<SelectionTrialResult> {
-  const cwd = mkdtempSync(join(tmpdir(), "vigiles-selection-"));
+  const cwd = makeTmpDir("selection");
   try {
     if (args.fixture) writeFiles(cwd, args.fixture);
     const out = await args.runner({
@@ -1603,7 +1604,7 @@ async function executeTrial<M extends Metrics>(
   runner: AgentRunner,
   cfg: RunConfig,
 ): Promise<{ row: M; usage: EvalUsage }> {
-  const cwd = mkdtempSync(join(tmpdir(), "vigiles-eval-"));
+  const cwd = makeTmpDir("eval");
   try {
     const resolved = resolveHarness({
       plugin: arm.plugin,
@@ -2396,7 +2397,7 @@ export function packageSkillsDir(
   const abs = resolve(skillsDir);
   if (!existsSync(abs))
     throw new Error(`skillsDir not found: ${skillsDir} (resolved ${abs})`);
-  const root = mkdtempSync(join(tmpdir(), "vigiles-skills-"));
+  const root = makeTmpDir("skills");
   mkdirSync(join(root, ".claude-plugin"), { recursive: true });
   writeFileSync(
     join(root, ".claude-plugin", "plugin.json"),
@@ -2627,7 +2628,7 @@ export function packageInstallSet(opts: {
   installSet: readonly string[];
   stub: boolean;
 }): { dir: string; added: number } {
-  const root = mkdtempSync(join(tmpdir(), "vigiles-harness-"));
+  const root = makeTmpDir("harness");
   try {
     mkdirSync(join(root, ".claude-plugin"), { recursive: true });
     writeFileSync(
@@ -2760,7 +2761,7 @@ async function runTriggerTrial(
   cfg: TriggerRunConfig,
   runner: AgentRunner,
 ): Promise<{ fired: number; errored: boolean; usage: EvalUsage }> {
-  const cwd = mkdtempSync(join(tmpdir(), "vigiles-trigger-"));
+  const cwd = makeTmpDir("trigger");
   try {
     if (cfg.fixture) writeFiles(cwd, cfg.fixture);
     const out = await runner({
