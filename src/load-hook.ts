@@ -41,8 +41,11 @@ import {
  * @throws {HookCompileError} when the file can't be imported, or has no
  * default-exported hook program.
  */
-export async function loadHook(file: string): Promise<AnyHook> {
-  const abs = resolve(process.cwd(), file);
+export async function loadHook(
+  file: string,
+  root: string = process.cwd(),
+): Promise<AnyHook> {
+  const abs = resolve(root, file);
   let mod: { default?: unknown };
   try {
     mod = (await import(pathToFileURL(abs).href)) as { default?: unknown };
