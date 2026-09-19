@@ -1130,6 +1130,24 @@ export function hookRouting(hook: AnyHook): {
       return { on: hook.on };
     // A react MAY also be tool-less (Stop/SessionEnd) — same shape, same reason.
     if (hook.match === undefined) return { on: hook.on };
+    // 🔴 SAY WHAT IS WRONG, IN THE AUTHOR'S VOCABULARY. From a typed `.ts` hook
+    // this is unreachable — tsc rejects a `match` without `tools`. From a `.mjs`
+    // hook, which is a supported authoring format, nothing checks it, and
+    // reading `.tools.join` off the wrong shape used to surface as
+    // `Cannot read properties of undefined (reading 'join')`: a message that
+    // names an internal property of an internal function and points nowhere
+    // near the author's file. This repo has already paid twice for a diagnosis
+    // that sends the reader to the wrong place (the loader that advised
+    // `npm run build` when the answer was `npm install`; the bare "cannot be
+    // loaded"). A `HookCompileError` is also what the installer catches to
+    // print the FILE alongside the reason — a TypeError falls past it.
+    if (!Array.isArray((hook.match as { tools?: unknown }).tools)) {
+      throw new HookCompileError(
+        `a ${hook.role} hook's \`match\` must be \`{ tools: [...] }\` — got ` +
+          `${JSON.stringify(hook.match)}. Use \`tools("Edit", "Write")\` to build it; ` +
+          `a path condition belongs in the gate's own predicate, not in \`match\`.`,
+      );
+    }
     return { on: hook.on, matcher: hook.match.tools.join("|") };
   }
   // Bash by construction — see decideProgram; the author no longer declares it.

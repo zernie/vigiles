@@ -29,7 +29,7 @@
  * which these handlers parse out of stdin and throw away.
  */
 import { describe, test, expect } from "vitest";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { runHook } from "./run-hook.js";
@@ -108,6 +108,56 @@ describe("the action rail is anchored on the project root", () => {
       const r = fire(dir, { cwd: elsewhere, env: { CLAUDE_PROJECT_DIR: "" } });
       expect(r.stderr).toMatch(/`exit 3` did not pass/);
       expect(r.exitCode).toBe(2);
+    } finally {
+      cleanupTmpDir(elsewhere);
+      cleanupTmpDir(dir);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE RECORD MUST LAND WHERE THE DECISION DID.
+//
+// `appendObservation` takes a root and defaults it to `process.cwd()`. That
+// default is right for a library and wrong on a hook rail, for the same reason
+// everything else here is: the process has no stable cwd. Before this, the rail
+// decided against the project the payload declared and wrote its record beside
+// whatever directory the process happened to stand in.
+//
+// A split ledger is not untidy — it is wrong in a way that reads as normal. The
+// file in the project looks complete, and nobody notices a flight recorder that
+// is short. So the second assertion is the load-bearing one: it is not enough
+// that the record EXISTS at the root, nothing may be written beside the process.
+// ---------------------------------------------------------------------------
+describe("the flight recorder is anchored on the project root", () => {
+  const LEDGER = [".vigiles", "runs.jsonl"] as const;
+  const fireSkillStart = (opts: { cwd: string; env: Record<string, string> }) =>
+    runHook(
+      `node ${CLI} hook-runtime skill-start skills/demo/SKILL.md`,
+      { hook_event_name: "PostToolUse" },
+      opts,
+    );
+
+  test("RECORDS at the root when cwd IS the root", () => {
+    const dir = makeTmpDir();
+    try {
+      fireSkillStart({ cwd: dir, env: { CLAUDE_PROJECT_DIR: dir } });
+      expect(existsSync(resolve(dir, ...LEDGER))).toBe(true);
+      expect(readFileSync(resolve(dir, ...LEDGER), "utf-8")).toContain("demo");
+    } finally {
+      cleanupTmpDir(dir);
+    }
+  });
+
+  test("RECORDS AT THE ROOT STILL, and leaves nothing where the process stood", () => {
+    const dir = makeTmpDir();
+    const elsewhere = makeTmpDir();
+    try {
+      fireSkillStart({ cwd: elsewhere, env: { CLAUDE_PROJECT_DIR: dir } });
+      expect(readFileSync(resolve(dir, ...LEDGER), "utf-8")).toContain("demo");
+      // The half that catches a ledger written to BOTH places, which the
+      // assertion above would pass happily.
+      expect(existsSync(resolve(elsewhere, ...LEDGER))).toBe(false);
     } finally {
       cleanupTmpDir(elsewhere);
       cleanupTmpDir(dir);

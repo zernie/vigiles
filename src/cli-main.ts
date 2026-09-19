@@ -6926,13 +6926,21 @@ function skillStartCommand(target: string | undefined): void {
     console.error("Usage: vigiles hook-runtime skill-start <SKILL.md>");
     process.exit(2);
   }
-  setActiveSkill(runtimeRoot(), target);
+  const root = runtimeRoot();
+  setActiveSkill(root, target);
   // Record the fire in the flight recorder: the skill NAME is the parent dir of
   // its SKILL.md (skills/<name>/SKILL.md), falling back to the raw target.
   const parts = target.replace(/\\/g, "/").split("/").filter(Boolean);
   const name =
     parts.length >= 2 ? parts[parts.length - 2] : (parts[0] ?? target);
-  appendObservation({ kind: "skill", name, fired: true });
+  // The SAME root the decision above used. `appendObservation` defaults to
+  // `process.cwd()`, which is correct as a library default and wrong here: a
+  // hook does not run with a stable cwd, so the decision would land in the
+  // project while its record landed beside whatever directory the process
+  // happened to stand in. A ledger split across two directories is not untidy,
+  // it is wrong in a way that reads as normal — the file in the project looks
+  // complete, and nobody notices a flight recorder that is short.
+  appendObservation({ kind: "skill", name, fired: true }, root);
   console.log(`Active skill: ${target}`);
 }
 
@@ -7048,13 +7056,18 @@ function agentHookCommand(): void {
   if (!tool) return;
   const decision = evaluatePreToolUse(cwd, tool, command);
   if (!decision.allow) {
-    appendObservation({
-      kind: "agent",
-      name: readActiveAgent(cwd) ?? "unknown",
-      tool,
-      allowed: false,
-      reason: decision.message,
-    });
+    // Same root as the decision — see `skillStartCommand` for why the default
+    // is wrong on a hook rail.
+    appendObservation(
+      {
+        kind: "agent",
+        name: readActiveAgent(cwd) ?? "unknown",
+        tool,
+        allowed: false,
+        reason: decision.message,
+      },
+      cwd,
+    );
     console.error(decision.message);
     process.exit(2);
   }
