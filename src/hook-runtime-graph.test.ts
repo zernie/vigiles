@@ -231,6 +231,29 @@ export default experimental_defineReact({
     expect(has(graph, "adapter-conformance")).toBe(false);
     expect(has(graph, "ast-grep")).toBe(false);
     expect(graph.some((m) => m.endsWith(".node"))).toBe(false);
+
+    // 🔴 AND A CEILING, because every assertion above names something we ALREADY
+    // know is heavy, and by construction none of them can catch the next heavy
+    // thing under a name nobody thought to write down. The count is the only
+    // check here that does not need to be told what to look for.
+    //
+    // A CEILING WITH HEADROOM, not an exact ratchet: pinning the number makes
+    // every honest one-module addition a failing build, and a check that cries
+    // on correct work gets its number bumped without being read, which is how a
+    // gate becomes a formality. The bound is roughly double the real figure —
+    // routine growth passes, a graph explosion does not.
+    //
+    // Measured 2026-09-19: 37 modules, identical across three runs (the count
+    // is the repo's own CJS graph, so it is deterministic, not sampled). The
+    // eager-driver tree this test was written against loaded 107 from
+    // `adapter-registry` ALONE, so the bound catches that regression with room
+    // to spare. Re-measure before raising it, and say in the commit what was
+    // added; a bound raised without a reason is a bound that has stopped
+    // meaning anything.
+    expect(
+      graph.length,
+      `react graph grew to ${graph.length} modules — re-measure and justify before raising the bound`,
+    ).toBeLessThan(60);
   });
 
   // The other direction, because an "is absent" assertion that can never fail is
