@@ -7284,7 +7284,7 @@ function evalLockNudgeHookCommand(): void {
   // second gate saying the same thing is a branch no test can distinguish from
   // its absence (measured — the mutation passed), i.e. the dead-fragment class
   // this same change removed from the runner table.
-  const config = loadConfig();
+  const config = loadConfig(cwd);
   const { options } = untestedRules(config);
   // 🔴 THE SAME LAYOUT `vigiles lint` RESOLVES, for the same reason as the config
   // above. This used to pass `basePath` alone, so the detector fell back to the
@@ -7347,9 +7347,11 @@ function refsHookCommand(): void {
     /* malformed → nothing to do */
   }
   if (!file || !isInstructionFile(file)) return;
-  const severity = ruleSeverity(loadConfig().rules["unmarked-refs"]);
-  if (severity === false) return;
+  // Root first: the config read below is anchored on it, and reading the config
+  // from the process's directory is how a disabled rule comes back to life.
   const cwd = runtimeRoot(eventRoot(raw));
+  const severity = ruleSeverity(loadConfig(cwd).rules["unmarked-refs"]);
+  if (severity === false) return;
   const target = relative(cwd, resolve(cwd, file)) || file;
   let markdown: string;
   try {

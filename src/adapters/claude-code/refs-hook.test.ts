@@ -96,3 +96,76 @@ test("refs-hook ignores a clean instruction file and non-instruction files", () 
     cleanupTmpDir(dir);
   }
 });
+
+// ---------------------------------------------------------------------------
+// THE CONFIG IS READ FROM THE PROJECT, NOT FROM WHEREVER THE PROCESS STANDS.
+//
+// cosmiconfig searches from the process's cwd and walks up. On a CLI verb that
+// is right — the user is standing in the project they mean. On a hook it is
+// not: the process has no stable cwd, so the rail used to read a different
+// project's `.vigilesrc.json`, or none at all.
+//
+// And the failure runs the DANGEROUS way. A config that is not found means
+// DEFAULTS, so a rule the author deliberately switched off comes back on — the
+// hook nudges about something the project already decided it did not want, and
+// nothing in the output distinguishes that from a project that never configured
+// the rule. Silence would have been the safe miss; this is the loud one.
+// ---------------------------------------------------------------------------
+test("refs-hook honours `off` from the PROJECT's config, not the process's", () => {
+  const dir = makeTmpDir("refs-hook-cfg");
+  const elsewhere = makeTmpDir("refs-hook-cfg-elsewhere");
+  try {
+    const md = join(dir, "CLAUDE.md");
+    writeFileSync(md, "Enforce `eslint/no-console` here.\n");
+    writeFileSync(
+      join(dir, ".vigilesrc.json"),
+      JSON.stringify({ rules: { "unmarked-refs": "off" } }),
+    );
+
+    // The probe is real: with the rule ON (no config at all) the same file DOES
+    // nudge. Without this half, "silent" proves nothing — a hook that never
+    // fires is silent too.
+    const noConfig = makeTmpDir("refs-hook-cfg-on");
+    try {
+      writeFileSync(
+        join(noConfig, "CLAUDE.md"),
+        "Enforce `eslint/no-console` here.\n",
+      );
+      const on = runHook(REFS_HOOK, EDIT("CLAUDE.md"), {
+        cwd: noConfig,
+        env: { CLAUDE_PROJECT_DIR: noConfig },
+      });
+      assert.match(
+        on.json?.hookSpecificOutput?.additionalContext ?? "",
+        /unmarked linter-rule/,
+        "the probe must fire when the rule is on",
+      );
+    } finally {
+      cleanupTmpDir(noConfig);
+    }
+
+    // cwd == root: the `off` is honoured.
+    const here = runHook(REFS_HOOK, EDIT(md), {
+      cwd: dir,
+      env: { CLAUDE_PROJECT_DIR: dir },
+    });
+    assert.equal(here.json?.hookSpecificOutput?.additionalContext ?? "", "");
+
+    // …and from a FOREIGN cwd it is honoured just the same. Before the fix the
+    // config was searched from `elsewhere`, found nothing, and the disabled rule
+    // nudged.
+    const crossed = runHook(REFS_HOOK, EDIT(md), {
+      cwd: elsewhere,
+      env: { CLAUDE_PROJECT_DIR: dir },
+    });
+    assert.equal(
+      crossed.json?.hookSpecificOutput?.additionalContext ?? "",
+      "",
+      "a rule the project switched off must stay off from any directory",
+    );
+    assert.equal(crossed.exitCode, 0);
+  } finally {
+    cleanupTmpDir(elsewhere);
+    cleanupTmpDir(dir);
+  }
+});

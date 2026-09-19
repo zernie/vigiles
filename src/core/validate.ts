@@ -211,13 +211,27 @@ export function asStringArray(
   return fallback;
 }
 
-export function loadConfig(): VigilesConfig {
+/**
+ * Read `.vigilesrc.json`.
+ *
+ * 🔴 `searchFrom` IS NOT A CONVENIENCE. cosmiconfig defaults to the process's
+ * working directory and walks up — right for a CLI verb, where the user is
+ * standing in the project they mean, and wrong for a hook, whose process has no
+ * stable cwd. A hook rail that omits it reads a DIFFERENT project's config, or
+ * none, and the failure runs the wrong way: a missing file means defaults, so a
+ * rule the author switched OFF comes back on, silently, because the file saying
+ * "off" was never found. Nothing in the output distinguishes that from a project
+ * that never configured the rule.
+ *
+ * Every CLI verb still calls this with no argument and is unaffected.
+ */
+export function loadConfig(searchFrom?: string): VigilesConfig {
   try {
     const explorer = cosmiconfigSync("vigiles", {
       searchPlaces: [".vigilesrc.json"],
       mergeSearchPlaces: false,
     });
-    const result = explorer.search();
+    const result = explorer.search(searchFrom);
     if (!result?.config) return { ...DEFAULT_CONFIG };
 
     const userConfig = result.config as Partial<VigilesConfig> & {
