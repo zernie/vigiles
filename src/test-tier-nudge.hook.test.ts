@@ -49,11 +49,22 @@ beforeAll(async () => {
 });
 
 /** A `PostToolUse` payload as Claude Code sends one, with the repo as its root. */
-const edit = (path: string, tool = "Edit") => ({
+/**
+ * 🔴 THE ROOT IS A PARAMETER, because the payload's `cwd` is what the runtime
+ * anchors on — the stamp sidecar, the state store and the ledger all resolve
+ * against it, not against wherever the process happens to stand.
+ *
+ * The E2E cases below sandbox the state store by spawning in a throwaway dir.
+ * That worked only while the runtime read `process.cwd()` and ignored the
+ * payload: the event said this repo, the process said the tmp dir, and the two
+ * halves of one run disagreed about where the project was. Now they agree, so
+ * the sandbox has to be declared in BOTH places.
+ */
+const edit = (path: string, tool = "Edit", root: string = REPO_ROOT) => ({
   hook_event_name: "PostToolUse",
   tool_name: tool,
-  tool_input: { file_path: resolve(REPO_ROOT, path) },
-  cwd: REPO_ROOT,
+  tool_input: { file_path: resolve(root, path) },
+  cwd: root,
 });
 
 /** A recorded fact, built purely — `null` means never recorded. */
@@ -170,9 +181,11 @@ describe("what it points at (pure)", () => {
 
 describe("against the REAL runtime, seeded through the public handle", () => {
   const drive = (dir: string, path: string) =>
-    runHook(`node ${CLI} hook-runtime run-program ${HOOK_ABS}`, edit(path), {
-      cwd: dir,
-    });
+    runHook(
+      `node ${CLI} hook-runtime run-program ${HOOK_ABS}`,
+      edit(path, "Edit", dir),
+      { cwd: dir },
+    );
 
   const withStore = (
     fn: (dir: string, st: ReturnType<typeof experimental_hookState>) => void,
@@ -264,7 +277,7 @@ describe("how the notice is DELIVERED (measured, not assumed)", () => {
       st.clear();
       const r = runHook(
         `node ${CLI} hook-runtime run-program ${HOOK_ABS}`,
-        edit("src/scan.test.ts"),
+        edit("src/scan.test.ts", "Edit", dir),
         { cwd: dir },
       );
       // The half that was broken: stdout is where a hook speaks to the MODEL.
@@ -292,7 +305,7 @@ describe("how the notice is DELIVERED (measured, not assumed)", () => {
       st.seed(KEY, { ago: "10m", value: "unit" });
       const r = runHook(
         `node ${CLI} hook-runtime run-program ${HOOK_ABS}`,
-        edit("src/scan.test.ts"),
+        edit("src/scan.test.ts", "Edit", dir),
         { cwd: dir },
       );
       // Silence has to be silent on BOTH channels, or the throttle only

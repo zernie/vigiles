@@ -985,3 +985,47 @@ test("a clean run fires no mechanism at all", () => {
   assert.deepEqual(clean.blockedBy, []);
   assert.equal(clean.blocked, false);
 });
+
+// ---------------------------------------------------------------------------
+// A SPAWN DIRECTORY WITH NO DECLARED ROOT MEANS "THIS DIRECTORY IS THE PROJECT".
+//
+// This contract is only OBSERVABLE in the wild when `$CLAUDE_PROJECT_DIR` is set
+// in the ambient shell — which it is inside a live Claude Code session and is
+// NOT in CI. A behaviour whose only witness is an environment CI never creates
+// is a behaviour with no test, so this one reads the env handed to the spawner
+// instead of depending on the one the runner inherited.
+// ---------------------------------------------------------------------------
+test("runHookWith declares the spawn dir as the project root, unless told otherwise", () => {
+  let seen: Record<string, string | undefined> = {};
+  const deps: RunScriptDeps = {
+    available: false,
+    egressAvailable: false,
+    direct: (_cmd, _stdin, opts) => {
+      seen = { ...(opts.env ?? {}) };
+      return spawnRes({ stdout: '{"decision":"approve"}' });
+    },
+    sandboxed: () => spawnRes(),
+    egress: () => spawnRes(),
+  };
+  const run = (opts: Parameters<typeof runHookWith>[2]) =>
+    runHookWith("x", { hook_event_name: "Stop" }, opts, deps);
+
+  // 1. a bare cwd is a declaration
+  run({ cwd: "/tmp/project-a" });
+  assert.equal(seen.CLAUDE_PROJECT_DIR, "/tmp/project-a");
+
+  // 2. an explicit value outranks it — the caller means a different root
+  run({ cwd: "/tmp/project-a", env: { CLAUDE_PROJECT_DIR: "/tmp/project-b" } });
+  assert.equal(seen.CLAUDE_PROJECT_DIR, "/tmp/project-b");
+
+  // 3. AND THE EMPTY STRING IS AN EXPLICIT VALUE, not an absent one. It is how a
+  // test says "no env root, resolve from the payload"; overwriting it would
+  // silently delete that case's whole point.
+  run({ cwd: "/tmp/project-a", env: { CLAUDE_PROJECT_DIR: "" } });
+  assert.equal(seen.CLAUDE_PROJECT_DIR, "");
+
+  // 4. no cwd, nothing declared — nothing invented
+  run({ env: { OTHER: "kept" } });
+  assert.equal(seen.CLAUDE_PROJECT_DIR, undefined);
+  assert.equal(seen.OTHER, "kept");
+});

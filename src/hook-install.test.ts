@@ -4,13 +4,26 @@
 import { describe, it, expect } from "vitest";
 import {
   hookGateRef,
+  hookRuntimeRef,
+  hookRuntimeMissingExit,
   mergeHooksJson,
   mergeHooksToml,
   normalizeHookRef,
   serializeConfig,
   discoverHookFiles,
 } from "./hook-install.js";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  readFileSync,
+  symlinkSync,
+} from "node:fs";
+import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
+
+const REPO = resolve(__dirname, "..");
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -520,5 +533,111 @@ describe("hookGateRef — what compile EMITS", () => {
     const entries = merged.hooks?.PreToolUse ?? [];
     expect(entries).toHaveLength(1);
     expect(entries[0]?.hooks[0]?.command).toContain("${CLAUDE_PROJECT_DIR}");
+  });
+});
+
+describe("hookRuntimeRef — how compile LAUNCHES the runtime", () => {
+  it("addresses the local install, so no invocation pays for an npx resolve", () => {
+    expect(hookRuntimeRef(["${CLAUDE_PROJECT_DIR}"])).toBe(
+      'node "${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js"',
+    );
+    // Measured 2026-09-19, warm cache, five runs each: 193 ms here against
+    // 2545 ms through `npx`, on every tool call, because npx re-resolves the
+    // package each time — local, then global, then the registry.
+    expect(hookRuntimeRef(["${CLAUDE_PROJECT_DIR}"])).not.toMatch(/\bnpx\b/);
+  });
+
+  it("falls back to the relative spelling when the harness has no root token", () => {
+    expect(hookRuntimeRef(undefined)).toBe(
+      "node node_modules/vigiles/dist/cli.js",
+    );
+  });
+});
+
+describe("hookRuntimeMissingExit — what the SHELL does when the runtime cannot start", () => {
+  // No code of ours runs in that case, so this is the only place the policy can
+  // live. It is not a new policy: the runtime's own load-failure branch has said
+  // since 2026-08 that gates fail closed and injects degrade gracefully. This
+  // carries the same rule one layer out.
+  it("BLOCKS for every gate — a gate that silently passes is worse than no gate", () => {
+    expect(hookRuntimeMissingExit("bash-gate")).toBe(2);
+    expect(hookRuntimeMissingExit("file-gate")).toBe(2);
+    expect(hookRuntimeMissingExit("prompt-gate")).toBe(2);
+    expect(hookRuntimeMissingExit("stop-gate")).toBe(2);
+  });
+
+  it("PASSES for every nudge — a reminder is never worth a wedged repository", () => {
+    // Measured here 2026-08-10: merge-conflict markers in package.json stopped
+    // every hook loading, and the Bash gate then refused `git merge --abort` —
+    // the one command that undoes the cause.
+    expect(hookRuntimeMissingExit("inject")).toBe(0);
+    expect(hookRuntimeMissingExit("react")).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The migration itself, end to end, because changing the emitted command is
+// only safe if a recompile RECOGNISES the old spelling as the same hook.
+// `bareToken`/`managesHook` exist for exactly this, and this is the run that
+// proves they still cover the form 27.x wrote into users' settings.
+// ---------------------------------------------------------------------------
+describe("recompiling over the previous launcher", () => {
+  it("REPLACES the npx form rather than appending a second block", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vig-migrate-"));
+    try {
+      mkdirSync(join(dir, ".vigiles", "hooks"), { recursive: true });
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+      symlinkSync(REPO, join(dir, "node_modules", "vigiles"));
+      mkdirSync(join(dir, ".claude"), { recursive: true });
+      writeFileSync(join(dir, "package.json"), '{"name":"t"}\n');
+      writeFileSync(
+        join(dir, ".vigiles", "hooks", "gate.mjs"),
+        'import { experimental_defineHook, allow } from "vigiles/hook";\n' +
+          'export default experimental_defineHook({ on: "PreToolUse", decide: () => allow() });\n',
+      );
+      writeFileSync(
+        join(dir, ".claude", "settings.json"),
+        JSON.stringify({
+          hooks: {
+            PreToolUse: [
+              {
+                matcher: "Bash",
+                hooks: [
+                  {
+                    type: "command",
+                    command:
+                      'npx vigiles hook-runtime run-program "${CLAUDE_PROJECT_DIR}/.vigiles/hooks/gate.mjs"',
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+
+      execFileSync("node", [join(REPO, "dist", "cli.js"), "compile"], {
+        cwd: dir,
+        stdio: "ignore",
+      });
+
+      const after = JSON.parse(
+        readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
+      ) as {
+        hooks: Record<string, { hooks: { command: string }[] }[]>;
+      };
+      const commands = Object.values(after.hooks)
+        .flat()
+        .flatMap((g) => g.hooks)
+        .map((h) => h.command);
+
+      // ONE, not two. A second entry here means every existing user grows a
+      // duplicate hook on their next compile.
+      expect(commands).toHaveLength(1);
+      expect(commands[0]).toContain("node_modules/vigiles/dist/cli.js");
+      expect(commands[0]).not.toMatch(/\bnpx\b/);
+      expect(commands[0]).toMatch(/\|\| exit 2$/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

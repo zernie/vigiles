@@ -475,7 +475,25 @@ export function runHookWith(
       conditionReason: verdict.why,
     };
 
-  const res = runScriptWith(command, JSON.stringify(input), opts, deps);
+  // 🔴 A SPAWN DIRECTORY WITH NO DECLARED ROOT MEANS "THIS DIRECTORY IS THE
+  // PROJECT". Without this, a test that says `{ cwd: dir }` and nothing else
+  // inherits whatever `$CLAUDE_PROJECT_DIR` the AMBIENT shell exports, and since
+  // the runtime prefers the env over the payload (see `projectRootOf`), the hook
+  // resolves a root the test never named. Measured 2026-09-19: five rail suites
+  // pass with the variable unset — which is CI, and this container — and fail
+  // when it is set, which is any run inside a live Claude Code session. That is
+  // a one-sided failure, invisible exactly where it would be caught.
+  //
+  // An EXPLICIT value always wins, including the empty string: a test that pins
+  // `CLAUDE_PROJECT_DIR: ""` is saying "no env root, resolve from the payload",
+  // and that case has its own coverage.
+  const rooted: RunHookOptions =
+    opts.cwd !== undefined &&
+    !Object.prototype.hasOwnProperty.call(opts.env ?? {}, "CLAUDE_PROJECT_DIR")
+      ? { ...opts, env: { ...opts.env, CLAUDE_PROJECT_DIR: opts.cwd } }
+      : opts;
+
+  const res = runScriptWith(command, JSON.stringify(input), rooted, deps);
   const json = parseHookOutput(res.stdout);
   const { blocked, decision, haltsTurn, blockedBy } = decideHook(
     res.exitCode,

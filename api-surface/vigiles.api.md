@@ -838,7 +838,7 @@ export function latency(opts: {
 }): Check<UsageTrace>;
 
 // @public
-export function loadHook(file: string): Promise<AnyHook>;
+export function loadHook(file: string, root?: string): Promise<AnyHook>;
 
 // @public
 export function makeTmpDir(suffix?: string): string;

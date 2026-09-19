@@ -86,7 +86,28 @@ export interface HarnessAdapter {
    * one seam the runner dispatches through). Carried on the bundle so the runner
    * never imports a sibling adapter to find it.
    */
-  readonly harnessTestDriver?: HarnessTestDriver;
+  /**
+   * 🔴 A THUNK, NOT THE DRIVER, and the indirection is the whole point. A driver
+   * lives in `harness-test.ts`, which imports the conformance suite, which
+   * imports the compiler, which imports the cross-language symbol index, which
+   * loads a NATIVE binary. Holding the driver eagerly meant every consumer of an
+   * adapter paid for all of it — including the hook runtime, which reads only
+   * `dialect` and `hookProtocol` and never runs a harness test at all.
+   *
+   * Measured 2026-09-19, `require("./adapter-registry.js")`:
+   *
+   *     eager:  107 modules, 7 ast-grep, 1 native .node
+   *
+   * ...on a path whose actual work takes about a millisecond. Calling the thunk
+   * is what loads the driver, so the test tier pays and the runtime does not.
+   *
+   * ASYNC because a dynamic `import()` is the only form that defers in BOTH
+   * environments this code runs in: the CJS `dist/` build (where TypeScript
+   * lowers it to a deferred `require`) and vitest loading the TS sources
+   * directly, where a synchronous `require` of a sibling `.ts` does not resolve
+   * at all — measured, not assumed.
+   */
+  readonly harnessTestDriver?: () => Promise<HarnessTestDriver>;
   /**
    * How strongly a repo at `root` looks like it targets this harness — the CLI
    * uses it to auto-detect which adapter to use (the library selects by import).

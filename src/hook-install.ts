@@ -18,6 +18,8 @@
  */
 import { readdirSync, existsSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
+
+import type { DispatchKind } from "./core/hook-program.js";
 /**
  * Lazy for the same reason as in `core/hook-program.ts` — and this module is
  * reached from the hook runtime through `hook-state-store.ts` (`normalizeHookRef`),
@@ -118,6 +120,68 @@ export function normalizeHookRef(
  * `bareToken(hookGateRef(ref, tokens)) === ref` is what keeps a recompile idempotent, and
  * it is asserted directly rather than left to inspection.
  */
+/**
+ * Where the hook runtime lives, spelled so the shell can find it WITHOUT `npx`.
+ *
+ * 🔴 MEASURED 2026-09-19, warm cache, five runs each:
+ *
+ *     node <local>/dist/cli.js hook-runtime run-program …   193 ms
+ *     npx vigiles              hook-runtime run-program …  2545 ms
+ *
+ * Thirteen times, on every tool call, because `npx` re-resolves the package on
+ * each invocation — local, then global, then the registry. That search is the
+ * single largest cost in a hook's life; everything the runtime does inside adds
+ * up to less than a fifth of it.
+ *
+ * A harness with no project-root token gets the relative spelling, which is all
+ * it can be given — see {@link hookGateRef} for the same fallback.
+ */
+export function hookRuntimeRef(
+  projectRootTokens: readonly string[] | undefined,
+): string {
+  const rel = "node_modules/vigiles/dist/cli.js";
+  const token = projectRootTokens?.[0];
+  return token === undefined ? `node ${rel}` : `node "${token}/${rel}"`;
+}
+
+/**
+ * What the shell must do when the runtime above CANNOT START — a missing
+ * `node_modules/vigiles`, an unreadable file, an interpreter that dies before a
+ * single line of ours runs. No code of ours executes in that case, so the policy
+ * has to be expressed in the emitted command or not at all.
+ *
+ * 🔴 THIS IS NOT A NEW POLICY. `runHookProgramCommand`'s load-failure branch has
+ * decided it since 2026-08: *"an inject's purpose is to ADD context, not to
+ * ENFORCE a decision … Gates (file, bash, prompt, stop) remain conservative and
+ * fail closed."* That branch only reaches failures that happen AFTER the runtime
+ * starts. This carries the same rule one layer out, to the failures that happen
+ * before it.
+ *
+ * WHY THE SPLIT, RATHER THAN ONE ANSWER FOR EVERYTHING — the two failures are
+ * not comparable:
+ *
+ *   A GATE THAT SILENTLY PASSES IS WORSE THAN NO GATE. Its whole value is the
+ *   refusal, and a harness that reports protection it is not providing is the
+ *   one state worse than admitting it has none. So a gate whose runtime is
+ *   missing exits 2: loud, blocking, and the cause is on stderr.
+ *
+ *   A NUDGE THAT BLOCKS COSTS THE WHOLE REPOSITORY. Measured here 2026-08-10:
+ *   merge-conflict markers in `package.json` stopped every hook loading, the
+ *   Bash gate then refused `git merge --abort` — the one command that undoes the
+ *   cause — and the session could not be repaired from inside. A reminder is
+ *   never worth that, so a nudge exits 0 and says nothing it cannot say.
+ *
+ * The role is not a flag someone can flip: `Reaction` has no `deny` and an
+ * inject returns context, so "nudge" is a fact about the TYPE the author chose.
+ *
+ * (Industry does not agree on one answer either — husky and lefthook skip,
+ * pre-commit fails. Which is itself the argument for deciding by role instead
+ * of picking one and imposing it on both.)
+ */
+export function hookRuntimeMissingExit(kind: DispatchKind): 0 | 2 {
+  return kind === "inject" || kind === "react" ? 0 : 2;
+}
+
 export function hookGateRef(
   ref: string,
   projectRootTokens: readonly string[] | undefined,

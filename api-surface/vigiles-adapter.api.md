@@ -63,7 +63,7 @@ export interface HarnessAdapter {
     readonly capabilities: AdapterCapabilities;
     detect(root: string): number;
     readonly dialect: HarnessDialect;
-    readonly harnessTestDriver?: HarnessTestDriver;
+    readonly harnessTestDriver?: () => Promise<HarnessTestDriver>;
     readonly hookProtocol?: HookProtocol;
     readonly layout: PluginLayout;
     readonly modelMock?: ModelMock;

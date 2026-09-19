@@ -22,6 +22,7 @@ import {
   compileHookProgram,
   checkHookImports,
   HookCompileError,
+  hookRouting,
   stampHook,
   verifyHookStamp,
   experimental_defineFileGate,
@@ -2349,4 +2350,44 @@ test("noticeDelivery: a run() or nothing() reaction has nothing to deliver", () 
     "none",
   );
   assert.equal(noticeDelivery(nothing(), "PostToolUse", events).kind, "none");
+});
+
+// A `.mjs` hook is a supported authoring format and nothing type-checks it, so
+// a malformed `match` reaches `hookRouting` intact. It used to surface as
+// `Cannot read properties of undefined (reading 'join')` — a message naming an
+// internal property of an internal function, thrown as a plain TypeError, which
+// falls past the installer's `HookCompileError` catch and so loses the FILE name
+// too. Both directions, because an error-message test that cannot pass on good
+// input proves nothing.
+test("hookRouting: a malformed `match` names the field, not an internal property", () => {
+  assert.throws(
+    () =>
+      hookRouting({
+        role: "gate",
+        on: "PreToolUse",
+        match: { under: "secret" },
+        decide: () => ({ allow: true }),
+      } as unknown as Parameters<typeof hookRouting>[0]),
+    (e: unknown) => {
+      assert.ok(
+        e instanceof HookCompileError,
+        "must be catchable as a compile error",
+      );
+      assert.match(e.message, /`match` must be `\{ tools: \[\.\.\.\] \}`/);
+      assert.match(e.message, /under/, "says what it actually got");
+      assert.doesNotMatch(e.message, /reading 'join'/);
+      return true;
+    },
+  );
+
+  // …and the well-formed hook of the same role still routes.
+  assert.deepEqual(
+    hookRouting({
+      role: "gate",
+      on: "PreToolUse",
+      match: { tools: ["Write", "Edit"] },
+      decide: () => ({ allow: true }),
+    } as unknown as Parameters<typeof hookRouting>[0]),
+    { on: "PreToolUse", matcher: "Write|Edit" },
+  );
 });

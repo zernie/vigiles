@@ -56,7 +56,7 @@ import {
   noticeDelivery,
   isStampRepairEvent,
   isLoadPathRepairEvent,
-  projectRootOf,
+  resolveHookEvent,
   undecidablePathWarning,
   type HookProgramOutcome,
   type HookMode,
@@ -69,6 +69,7 @@ import {
   type HookProgram,
   type Decision,
   type RawHookEvent,
+  type HookEvent,
 } from "./core/hook-program.js";
 import {
   hasMergeConflictMarkers,
@@ -113,8 +114,11 @@ function injectableEventsFor(root: string): readonly string[] {
 export const loadHookProgram = loadHook;
 
 /** Load a registered provider (`.vigiles/providers/<name>`) → its definition. */
-export async function loadProvider(file: string): Promise<RegisteredProvider> {
-  const abs = resolve(process.cwd(), file);
+export async function loadProvider(
+  file: string,
+  root: string = process.cwd(),
+): Promise<RegisteredProvider> {
+  const abs = resolve(root, file);
   const { pathToFileURL } = require("node:url") as typeof import("node:url");
   let mod: { default?: unknown };
   try {
@@ -139,8 +143,11 @@ export async function loadProvider(file: string): Promise<RegisteredProvider> {
   return def as RegisteredProvider;
 }
 /** Path of the tamper-evident stamp sidecar for a hook file. */
-export function hookStampPath(file: string): string {
-  return resolve(process.cwd(), ".vigiles/hooks", basename(file) + ".json");
+export function hookStampPath(
+  file: string,
+  root: string = process.cwd(),
+): string {
+  return resolve(root, ".vigiles/hooks", basename(file) + ".json");
 }
 
 /**
@@ -149,7 +156,11 @@ export function hookStampPath(file: string): string {
  * thrown on) is announced — silence here would be a hook that believes it
  * remembered something.
  */
-function applyHookWrites(file: string, outcome: HookProgramOutcome): void {
+function applyHookWrites(
+  file: string,
+  outcome: HookProgramOutcome,
+  root: string,
+): void {
   const { ok, refused } = outcomeWrites(outcome);
   for (const name of refused) {
     console.error(
@@ -158,7 +169,7 @@ function applyHookWrites(file: string, outcome: HookProgramOutcome): void {
   }
   for (const w of ok) {
     try {
-      writeHookState(file, w);
+      writeHookState(file, w, { cwd: root });
     } catch (e) {
       console.error(
         `vigiles: could not record ${w.name} from ${file}: ${String(e)}`,
@@ -175,6 +186,7 @@ function applyHookWrites(file: string, outcome: HookProgramOutcome): void {
 async function gatherHookContext(
   program: AnyHook,
   file: string,
+  root: string,
 ): Promise<Record<string, string | boolean | StateFact>> {
   const needs = hookNeeds(program);
   if (needs.length === 0) return {};
@@ -182,7 +194,7 @@ async function gatherHookContext(
   const hasRef = needs.some(
     (n) => typeof n !== "string" && n.kind === "provider-ref",
   );
-  const registry = hasRef ? await loadProviderRegistry() : {};
+  const registry = hasRef ? await loadProviderRegistry(root) : {};
   const { execSync } =
     require("node:child_process") as typeof import("node:child_process");
   const { isCI } = require("ci-info") as { isCI: boolean };
@@ -194,12 +206,12 @@ async function gatherHookContext(
           encoding: "utf-8",
           stdio: ["ignore", "pipe", "ignore"],
         }),
-      cwd: process.cwd(),
+      cwd: root,
       platform: process.platform,
       isCI,
       // The namespace is bound HERE, from the hook's own path — core never sees
       // it, so no key a hook can spell reaches another owner's store.
-      readState: (key) => readHookState(file, key),
+      readState: (key) => readHookState(file, key, root),
       now: Date.now(),
     },
     registry,
@@ -211,11 +223,11 @@ async function gatherHookContext(
  * for `provider()` ref resolution. A bad/unloadable provider file is skipped (the
  * ref then yields its default ""), never crashes a live session.
  */
-async function loadProviderRegistry(): Promise<ProviderRegistry> {
+async function loadProviderRegistry(root: string): Promise<ProviderRegistry> {
   const registry: ProviderRegistry = {};
-  for (const file of discoverProviderFiles(process.cwd())) {
+  for (const file of discoverProviderFiles(root)) {
     try {
-      const def = await loadProvider(file);
+      const def = await loadProvider(file, root);
       registry[def.name] = def;
     } catch {
       /* skip an unloadable provider file */
@@ -230,9 +242,10 @@ function recordObservation(
   on: string,
   would: "deny" | "ask",
   reason: string,
+  root: string,
 ): void {
   try {
-    const dir = resolve(process.cwd(), ".vigiles");
+    const dir = resolve(root, ".vigiles");
     mkdirSync(dir, { recursive: true });
     const line =
       JSON.stringify({
@@ -259,30 +272,37 @@ function emitGate(
   on: string,
   mode: HookMode,
   file: string,
+  root: string,
 ): void {
   const action = gateAction(decision, mode);
   switch (action.kind) {
     case "block":
-      appendObservation({
-        kind: "hook",
-        event: on,
-        decision: "deny",
-        mode: "enforce",
-        rule: file,
-        reason: action.reason,
-      });
+      appendObservation(
+        {
+          kind: "hook",
+          event: on,
+          decision: "deny",
+          mode: "enforce",
+          rule: file,
+          reason: action.reason,
+        },
+        root,
+      );
       console.error(action.reason);
       process.exit(2);
       return;
     case "ask":
-      appendObservation({
-        kind: "hook",
-        event: on,
-        decision: "ask",
-        mode: "enforce",
-        rule: file,
-        reason: action.reason,
-      });
+      appendObservation(
+        {
+          kind: "hook",
+          event: on,
+          decision: "ask",
+          mode: "enforce",
+          rule: file,
+          reason: action.reason,
+        },
+        root,
+      );
       process.stdout.write(
         JSON.stringify({
           hookSpecificOutput: {
@@ -294,15 +314,18 @@ function emitGate(
       );
       return;
     case "observe":
-      appendObservation({
-        kind: "hook",
-        event: on,
-        decision: action.would,
-        mode: "observe",
-        rule: file,
-        reason: action.reason,
-      });
-      recordObservation(file, on, action.would, action.reason);
+      appendObservation(
+        {
+          kind: "hook",
+          event: on,
+          decision: action.would,
+          mode: "observe",
+          rule: file,
+          reason: action.reason,
+        },
+        root,
+      );
+      recordObservation(file, on, action.would, action.reason, root);
       console.error(
         `⚠ [vigiles observe] ${on}: would ${action.would} — ${action.reason}`,
       );
@@ -322,9 +345,9 @@ function emitGate(
  * observed wedge came from a `package.json` the author was not thinking about at
  * the time — it had merge-conflict markers in it, nothing to do with hooks.
  */
-function hookLoadPathFiles(hookFile: string): readonly string[] {
+function hookLoadPathFiles(hookFile: string, root: string): readonly string[] {
   const files: string[] = [];
-  let dir = dirname(resolve(process.cwd(), hookFile));
+  let dir = dirname(resolve(root, hookFile));
   for (;;) {
     const pkg = resolve(dir, "package.json");
     files.push(pkg);
@@ -348,7 +371,7 @@ function hookLoadPathFiles(hookFile: string): readonly string[] {
     if (up === dir) break;
     dir = up;
   }
-  files.push(resolve(process.cwd(), ".vigilesrc.json"));
+  files.push(resolve(root, ".vigilesrc.json"));
   return files;
 }
 
@@ -356,8 +379,11 @@ function hookLoadPathFiles(hookFile: string): readonly string[] {
  * The conflicted files on this hook's load path, if any — the difference between
  * "your hook is broken" and "your repo is mid-merge and the hook is collateral".
  */
-function conflictedLoadPathFiles(hookFile: string): readonly string[] {
-  return hookLoadPathFiles(hookFile)
+function conflictedLoadPathFiles(
+  hookFile: string,
+  root: string,
+): readonly string[] {
+  return hookLoadPathFiles(hookFile, root)
     .filter((p) => {
       try {
         return (
@@ -367,7 +393,7 @@ function conflictedLoadPathFiles(hookFile: string): readonly string[] {
         return false; // unreadable is a different problem; don't guess about it
       }
     })
-    .map((p) => relative(process.cwd(), p) || p);
+    .map((p) => relative(root, p) || p);
 }
 
 /**
@@ -399,16 +425,17 @@ function announceRepairEscape(file: string, why: string): boolean {
  * could paint you into a corner whose only escape was hand-editing
  * `.claude/settings.json` to unwire the gate. Observed 2026-08-03.
  */
-function verifyStampOrRefuse(file: string, event: RawHookEvent): void {
-  const stampPath = hookStampPath(file);
+function verifyStampOrRefuse(file: string, event: HookEvent): void {
+  const { root } = event;
+  const stampPath = hookStampPath(file, root);
   if (!existsSync(stampPath)) return;
   try {
     const { stamp } = JSON.parse(readFileSync(stampPath, "utf-8")) as {
       stamp?: string;
     };
-    const source = readFileSync(resolve(process.cwd(), file), "utf-8");
+    const source = readFileSync(resolve(root, file), "utf-8");
     if (stamp && !verifyHookStamp(source, stamp as SHA256Hash)) {
-      if (isStampRepairEvent(event, file, process.cwd())) {
+      if (isStampRepairEvent(event, file, root)) {
         announceRepairEscape(file, "does not match its compiled stamp");
         return;
       }
@@ -474,30 +501,39 @@ export async function runHookProgramCommand(
   } catch {
     /* no stdin */
   }
-  let event: {
-    tool_name?: string;
-    tool_input?: Record<string, unknown>;
-    tool_response?: unknown;
-    source?: string;
-    prompt?: string;
-    stop_hook_active?: boolean;
-    /** The session's cwd — Claude Code sends it on every hook payload. */
-    cwd?: string;
-  } = {};
+  let payload: RawHookEvent = {};
   try {
-    event = JSON.parse(raw) as typeof event;
+    payload = JSON.parse(raw) as RawHookEvent;
   } catch {
     /* malformed → empty event */
   }
-  // The root repo-relative path prefixes resolve against. `$CLAUDE_PROJECT_DIR`
-  // first (the same root the harness resolved THIS hook's own path against),
-  // then the payload's `cwd`; never `process.cwd()`, which under a git worktree
-  // can be a different checkout. See `projectRootOf`.
-  const projectRoot = projectRootOf(event, process.env);
+  // 🔴 THE ROOT IS RESOLVED ONCE, HERE, AND RIDES ON THE EVENT. Everything below
+  // reads `event.root`; nothing recomputes it and nothing is handed a root
+  // beside an event it might disagree with. That disagreement is the defect
+  // this shape exists to prevent — the stamp sidecar, the hook's own source,
+  // the state store, the ledger and the provider registry each used to resolve
+  // against `process.cwd()` while the decision layer resolved against the
+  // payload, so under a worktree the tamper check did not misfire, it did not
+  // run at all.
+  //
+  // This is the only `process.cwd()` on the runtime's own execution path, and
+  // it is the documented last resort for a payload that declares no root. The
+  // two others in this file are back-compat defaults on exported helpers
+  // (`loadProvider`, `hookStampPath`) for callers outside the runtime; the
+  // runtime itself always passes a root and never takes them.
+  const event = resolveHookEvent(payload, process.env, process.cwd());
+  const root = event.root;
+  // ⚠️ THE DECISION LAYER MUST NOT SEE THE FALLBACK, and this is not a detail.
+  // `pathView` treats an undefined root as "I cannot place this path" and errs
+  // toward SILENCE. Handing it `process.cwd()` instead would turn that silence
+  // into confident decisions measured against a directory nobody declared —
+  // quietly widening what gates fire on. IO paths need a usable root; verdicts
+  // need an honest one, and they are not the same question.
+  const declaredRoot = event.rootDeclared ? event.root : undefined;
 
   let program: AnyHook;
   try {
-    program = await loadHookProgram(file);
+    program = await loadHookProgram(file, root);
   } catch (err) {
     // A LOAD failure is a fact about the harness, not a verdict about the
     // command that happened to arrive — so it must still fail CLOSED (a gate
@@ -524,7 +560,7 @@ export async function runHookProgramCommand(
     //     not go through PreToolUse(Bash)).
     // Everything else stays BLOCKED, and the escapes are whitelists of commands
     // that are WRITES — see `isLoadPathRepairEvent` for why no command is one.
-    const conflicted = conflictedLoadPathFiles(file);
+    const conflicted = conflictedLoadPathFiles(file, root);
     // 🔴 THE THROWN MESSAGE IS THE ONLY THING THAT NAMES THE REAL CAUSE when the
     // merge-conflict heuristic above does not fire. Without it this said just
     // "cannot be loaded" — a diagnosis that sends the reader looking in the wrong
@@ -540,13 +576,13 @@ export async function runHookProgramCommand(
         : `cannot be loaded — ${thrown}`;
     if (
       isLoadPathRepairEvent(event, file, {
-        // The root the REST of this runtime already uses: `hookStampPath` and
-        // `verifyStampOrRefuse` read the hook and its sidecar via `process.cwd()`,
-        // so a repair accepted against any other root would name a file the
-        // runtime never reads. The hook's own path cannot supply it (a hook sits
-        // at any depth, and a `.git` probe would be a disk read core does not do).
-        root: process.cwd(),
-        loadPathFiles: hookLoadPathFiles(file),
+        // The root the REST of this runtime already uses — now the PROJECT's,
+        // not the process's. A repair accepted against any other root would name
+        // a file the runtime never reads. The hook's own path cannot supply it (a
+        // hook sits at any depth, and a `.git` probe would be a disk read core
+        // does not do), so it is passed in.
+        root,
+        loadPathFiles: hookLoadPathFiles(file, root),
       })
     ) {
       announceRepairEscape(file, cause);
@@ -565,7 +601,7 @@ export async function runHookProgramCommand(
       `${file}, ${HARNESS_CONFIG_FILES.join(", ")} is broken — those writes are ` +
       `allowed even while this refuses, and a Bash gate never gated file tools ` +
       `at all. The hook then loads and the gate decides normally again.\n` +
-      `vigiles: those paths resolve under ${process.cwd()} — plus any ancestor ` +
+      `vigiles: those paths resolve under ${root} — plus any ancestor ` +
       `\`package.json\` Node actually reads, so whatever is named above as the ` +
       `cause is writable. A path in a DIFFERENT checkout is refused: it cannot ` +
       `repair this failure.\n` +
@@ -597,7 +633,7 @@ export async function runHookProgramCommand(
 
   switch (dispatchKind(program)) {
     case "inject": {
-      const ctx = await gatherHookContext(program, file);
+      const ctx = await gatherHookContext(program, file, root);
       const injection = injectionOf(program as InjectHook, event, ctx);
       process.stdout.write(
         JSON.stringify({
@@ -609,24 +645,28 @@ export async function runHookProgramCommand(
       );
       // Writes land AFTER the output is emitted: a hook that recorded "I spoke"
       // must not have recorded it if emitting threw.
-      applyHookWrites(file, {
-        kind: "injection",
-        context: injection.context,
-        records: injection.records,
-      });
+      applyHookWrites(
+        file,
+        {
+          kind: "injection",
+          context: injection.context,
+          records: injection.records,
+        },
+        root,
+      );
       return;
     }
     case "react": {
-      const ctx = await gatherHookContext(program, file);
-      warnIfPathUndecidable(event, projectRoot);
-      const reaction = runReact(program as ReactHook, event, ctx, projectRoot);
+      const ctx = await gatherHookContext(program, file, root);
+      warnIfPathUndecidable(event, declaredRoot);
+      const reaction = runReact(program as ReactHook, event, ctx, declaredRoot);
       // A notice has to REACH someone. stderr at exit 0 goes to the debug log
       // and nothing else (the host's docs are explicit: "Claude never sees it"),
       // and a react always exits 0 because its type has no `deny` — so stderr
       // alone delivered nowhere. Emit the same `additionalContext` shape the
       // shipped refs/eval-lock nudges use, gated on the ACTIVE adapter's
       // `injectableEvents` so this is per-harness fact, not a CC literal.
-      const injectable = injectableEventsFor(projectRoot ?? process.cwd());
+      const injectable = injectableEventsFor(root);
       const delivery = noticeDelivery(reaction, program.on, injectable);
       if (delivery.kind === "inject") {
         process.stdout.write(
@@ -643,7 +683,7 @@ export async function runHookProgramCommand(
       // this harness does not inject it is the only trace that exists at all.
       // Removing it would break existing consumers to gain nothing.
       if (reaction.kind === "notice") console.error(reaction.message);
-      applyHookWrites(file, { kind: "reaction", reaction });
+      applyHookWrites(file, { kind: "reaction", reaction }, root);
       if (reaction.kind === "run") {
         const { spawnSync } =
           require("node:child_process") as typeof import("node:child_process");
@@ -656,48 +696,52 @@ export async function runHookProgramCommand(
       return;
     }
     case "file-gate": {
-      const ctx = await gatherHookContext(program, file);
-      warnIfPathUndecidable(event, projectRoot);
+      const ctx = await gatherHookContext(program, file, root);
+      warnIfPathUndecidable(event, declaredRoot);
       emitGate(
-        decideFileGate(program as FileGateHook, event, ctx, projectRoot),
+        decideFileGate(program as FileGateHook, event, ctx, declaredRoot),
         program.on,
         hookMode(program),
         file,
+        root,
       );
       return;
     }
     case "bash-gate": {
-      const ctx = await gatherHookContext(program, file);
-      // The same `projectRoot` the file gates get: without it every
+      const ctx = await gatherHookContext(program, file, root);
+      // The same `declaredRoot` the file gates get: without it every
       // repo-relative prefix in a DENYLIST matcher (`touches`/`writesTo`) is
       // matched by over-blocking alone, and with it an absolute token is placed
       // exactly. Measured bypass this closes: `sed -i s/a/b/ <abs>/paper.tex`
       // exited 0 against a guard that blocked the relative spelling.
       emitGate(
-        decideProgram(program as HookProgram, event, ctx, projectRoot),
+        decideProgram(program as HookProgram, event, ctx, declaredRoot),
         program.on,
         hookMode(program),
         file,
+        root,
       );
       return;
     }
     case "prompt-gate": {
-      const ctx = await gatherHookContext(program, file);
+      const ctx = await gatherHookContext(program, file, root);
       emitGate(
         decidePromptGate(program as PromptGateHook, event, ctx),
         program.on,
         hookMode(program),
         file,
+        root,
       );
       return;
     }
     case "stop-gate": {
-      const ctx = await gatherHookContext(program, file);
+      const ctx = await gatherHookContext(program, file, root);
       emitGate(
         decideStopGate(program as StopGateHook, event, ctx),
         program.on,
         hookMode(program),
         file,
+        root,
       );
       return;
     }

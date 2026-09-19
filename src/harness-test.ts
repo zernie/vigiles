@@ -652,7 +652,7 @@ export async function runHarnessTest(
   // Default (no adapter): the unchanged Claude Code driver — keeps the
   // sandbox/confined path and behaviour byte-for-byte identical.
   const driver: HarnessTestDriver = adapter
-    ? requireDriver(adapter)
+    ? await requireDriver(adapter)
     : claudeCodeDriver;
   const isClaudeCode = driver.runtime.name === claudeCodeRuntime.name;
 
@@ -775,13 +775,15 @@ export async function runHarness(
 }
 
 /** Pull the pillar-2 driver off an adapter, asserting it supports testing. */
-function requireDriver(adapter: HarnessAdapter): HarnessTestDriver {
+async function requireDriver(
+  adapter: HarnessAdapter,
+): Promise<HarnessTestDriver> {
   assertHarnessTestable(adapter);
   if (!adapter.harnessTestDriver) {
     throw new Error(
       `Adapter "${adapter.name}" declares harnessTesting but carries no harnessTestDriver — it cannot drive runHarnessTest.`,
     );
   }
-  return adapter.harnessTestDriver;
+  return await adapter.harnessTestDriver();
 }
 /* v8 ignore stop */

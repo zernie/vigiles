@@ -1,8 +1,19 @@
 #!/usr/bin/env node
 /**
  * MEASURE what a compiled hook costs to START — the ground truth behind issue
- * #216 and behind the lazy-load boundaries in `src/cli.ts`,
- * `src/core/hook-program.ts`, `src/hook-install.ts` and `src/core/bash-effects.ts`.
+ * #216 and behind every lazy-load boundary in the tree. Six of them now:
+ *
+ *   `src/cli.ts`                  the verb barrel, behind the dispatcher shim
+ *   `src/core/hook-program.ts`    `@iarna/toml`, behind its serialize site
+ *   `src/hook-install.ts`         `@iarna/toml`, behind the other one
+ *   `src/core/bash-effects.ts`    `mvdan-sh`, behind the first parse
+ *   `src/hook-runtime.ts`         the adapter registry, behind the react role
+ *   `src/core/adapter.ts`         the harness-test DRIVER, behind a thunk
+ *
+ * Keep this list current. Each entry is one convenient top-level `import` away
+ * from being undone by someone with no reason to suspect the file they are
+ * editing is on a hot path — which is why the graph, not this tool, is what
+ * enforces them (`src/hook-runtime-graph.test.ts`).
  *
  * A hook runs on EVERY matching tool call, so its startup cost is paid per tool
  * call, not per session. The competitors are a `grep` on stdin (~12 ms) and a
@@ -47,6 +58,30 @@
  *   bash gate (safe-bash-guard.mjs)             661 → 199 ms   (3.3x)
  *   file gate                                   628 →  80 ms   (7.9x)
  *   inject                                      610 →  83 ms   (7.3x)
+ *
+ * Measured 2026-09-19, Node 22.22.2, this container, --runs=12 — the SIXTH
+ * boundary (the harness-test driver behind a thunk). BEFORE is the same tree
+ * with the driver imported eagerly:
+ *
+ *   layer                                    before → after
+ *   bare `node -e ''`                            27 →  28 ms   (baseline held)
+ *   require dist/adapter-registry.js            119 →  37 ms
+ *
+ *   end-to-end run-program                    before → after
+ *   react                                       141 →  62 ms   (2.3x)
+ *
+ * Over baseline that is 114 → 34 ms: the hook's OWN cost fell 3.4x. Read the
+ * react row against the baseline row, never on its own — the 2026-09-08 numbers
+ * above sit on a 41 ms baseline and today's on 27 ms, so the two dates' absolute
+ * figures are not comparable and a naive diff across them flatters the change.
+ *
+ * 🔴 THE REACT ROW DID NOT EXIST UNTIL 2026-09-19, and that is the lesson worth
+ * keeping. React is the ONLY role that resolves an adapter; a file gate and an
+ * inject never do. Measuring only those said "the hook path is cheap" while
+ * react was loading the test harness, the compiler and a native binary on every
+ * matching tool call. An instrument that omits a role cannot see a regression
+ * confined to it — so when a new role or a new hot path appears, it gets a row
+ * here BEFORE anyone quotes this file as evidence of anything.
  *
  * ⚠️ The `dist/cli.js` row does NOT measure a bare load in either tree: `cli.js`
  * is the bin, so requiring it RUNS it, and with no argv it prints usage. It is
@@ -99,6 +134,11 @@ const EVENT = {
     hook_event_name: "UserPromptSubmit",
     prompt: "hello",
   }),
+  post: JSON.stringify({
+    hook_event_name: "PostToolUse",
+    tool_name: "Edit",
+    tool_input: { file_path: "notes/x.md" },
+  }),
 };
 
 /**
@@ -126,6 +166,21 @@ export default experimental_defineInject({
 });
 `,
   },
+  // 🔴 REACT IS THE ONLY ROLE THAT REACHES THE ADAPTER REGISTRY, and until
+  // 2026-09-19 this file had no row for it — so the instrument could not see
+  // the most expensive thing on any hook path. A file gate and an inject never
+  // resolve an adapter; measuring only those said "the hook path is cheap"
+  // while react was loading the test harness and a native binary.
+  react: {
+    event: EVENT.post,
+    source: `import { experimental_defineReact, tools, nothing } from __HOOK__;
+export default experimental_defineReact({
+  on: "PostToolUse",
+  match: tools("Edit"),
+  react: () => nothing(),
+});
+`,
+  },
 };
 
 function row(label, ms) {
@@ -144,6 +199,10 @@ try {
     "./dist/cli.js",
     "@iarna/toml",
     "mvdan-sh",
+    // The registry the react role resolves an adapter through. Priced as its own
+    // row because an adapter used to HOLD its harness-test driver, and a driver
+    // drags in the conformance suite, the compiler and a native `.node`.
+    "./dist/adapter-registry.js",
   ]) {
     row(`require ${mod}`, timeSpawn(["-e", `require(${JSON.stringify(mod)})`]));
   }
