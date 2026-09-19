@@ -223,6 +223,7 @@ import {
   HookCompileError,
   dispatchKind,
   hookRouting,
+  projectRootOf,
   type DispatchKind,
 } from "./core/hook-program.js";
 import {
@@ -6812,6 +6813,46 @@ function annotateLintForGitHub(report: LintReport, flags: string[]): void {
 }
 
 /**
+ * The project root a `hook-runtime` rail acts on — NEVER `process.cwd()` first.
+ *
+ * These rails are a SECOND execution path, wired by hand into a hooks config
+ * (`npx vigiles hook-runtime <kind>`), and every one of them used to ask
+ * `process.cwd()` where the project was. The hook process has no stable cwd: a
+ * git worktree, or a session that has `cd`-ed into a subdirectory, stands
+ * somewhere the project's files are not, and then the state store writes its
+ * marker beside the wrong repo and `.vigiles/*.json` is simply not found. The
+ * failure is SILENT in the permissive direction — no gates loaded reads exactly
+ * like a project that declared none.
+ *
+ * Same order the compiled runtime uses (`projectRootOf`, core/hook-program.ts):
+ * `$CLAUDE_PROJECT_DIR` first — the harness resolved the hook's own path against
+ * it — then the event's own `cwd`, which Claude Code puts in every hook payload.
+ * `process.cwd()` stays as the documented LAST resort, for the rails a human or
+ * the model invokes as a plain command with no event and no env to go on.
+ *
+ * Pass the parsed event wherever stdin was already read; the handlers that take
+ * only an argument pass nothing and get the env answer.
+ */
+function runtimeRoot(event: { readonly cwd?: unknown } = {}): string {
+  return projectRootOf(event, process.env) ?? process.cwd();
+}
+
+/**
+ * The hook payload as a root SOURCE — `{}` when stdin was absent or malformed,
+ * which {@link runtimeRoot} reads as "this event offers no root" and falls
+ * through. Deliberately separate from each handler's own parse: a rail that
+ * cannot understand its event still knows where the project is, and a rail that
+ * only wants `tool_name` should not have to widen its own type to say so.
+ */
+function eventRoot(raw: string): { readonly cwd?: unknown } {
+  try {
+    return JSON.parse(raw) as { cwd?: unknown };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Run a compiled skill's deterministic gate ladder: execute each step gate in
  * order (short-circuiting on the first failure), then the result gate. This is
  * the v0 runtime — it enforces the `vigiles:gate`/`vigiles:result` markers a
@@ -6823,7 +6864,8 @@ function runSkillCommand(target: string | undefined): void {
     console.error("Usage: vigiles hook-runtime run-skill <SKILL.md>");
     process.exit(2);
   }
-  const path = resolve(process.cwd(), target);
+  const root = runtimeRoot();
+  const path = resolve(root, target);
   if (!existsSync(path)) {
     console.error(`Not found: ${target}`);
     process.exit(2);
@@ -6834,7 +6876,7 @@ function runSkillCommand(target: string | undefined): void {
     return;
   }
   console.log(`Running gate ladder for ${target}:\n`);
-  const report = runSkillGates(gates, process.cwd());
+  const report = runSkillGates(gates, root);
   for (const r of report.results) {
     const label = r.at === "result" ? "result" : `step ${String(r.at)}`;
     console.log(`  ${r.ok ? "✓" : "✗"} ${label} — ${gateLabel(r.gate)}`);
@@ -6865,10 +6907,11 @@ function runSkillCommand(target: string | undefined): void {
  * feeds the message back to the model; exit 0 allows it and clears the marker.
  */
 function skillHookCommand(): void {
-  const decision = evaluateStopHook(process.cwd());
+  const root = runtimeRoot();
+  const decision = evaluateStopHook(root);
   if (decision.allow) {
     if (decision.message) console.log(decision.message);
-    clearActiveSkill(process.cwd());
+    clearActiveSkill(root);
     return;
   }
   console.error(decision.message);
@@ -6881,7 +6924,7 @@ function skillStartCommand(target: string | undefined): void {
     console.error("Usage: vigiles hook-runtime skill-start <SKILL.md>");
     process.exit(2);
   }
-  setActiveSkill(process.cwd(), target);
+  setActiveSkill(runtimeRoot(), target);
   // Record the fire in the flight recorder: the skill NAME is the parent dir of
   // its SKILL.md (skills/<name>/SKILL.md), falling back to the raw target.
   const parts = target.replace(/\\/g, "/").split("/").filter(Boolean);
@@ -6921,7 +6964,11 @@ function skillToolHookCommand(): void {
     /* malformed input → no tool, allow */
   }
   if (!tool) return;
-  const decision = evaluateSkillPreToolUse(process.cwd(), tool, command);
+  const decision = evaluateSkillPreToolUse(
+    runtimeRoot(eventRoot(raw)),
+    tool,
+    command,
+  );
   if (!decision.allow) {
     console.error(decision.message);
     process.exit(2);
@@ -6961,7 +7008,7 @@ function agentHookCommand(): void {
     /* malformed input → no tool, allow */
   }
 
-  const cwd = process.cwd();
+  const cwd = runtimeRoot(eventRoot(raw));
 
   // EXPERIMENTAL (parked P3 — do NOT auto-wire). The spawn/SubagentStop bracketing
   // is now nesting-safe: a depth-aware STACK (push on dispatch, POP on SubagentStop)
@@ -7050,7 +7097,7 @@ function guardHookCommand(): void {
   } catch {
     /* no stdin */
   }
-  const { decision } = runGuardHook(process.cwd(), raw);
+  const { decision } = runGuardHook(runtimeRoot(eventRoot(raw)), raw);
   if (!decision.allow) {
     console.error(decision.reason ?? "Blocked by a vigiles guard.");
     process.exit(2);
@@ -7063,7 +7110,7 @@ function agentStartCommand(target: string | undefined): void {
     console.error("Usage: vigiles hook-runtime agent-start <agents/<name>.md>");
     process.exit(2);
   }
-  pushActiveAgent(process.cwd(), target);
+  pushActiveAgent(runtimeRoot(), target);
   console.log(`Active agent: ${target}`);
 }
 
@@ -7091,7 +7138,7 @@ export async function handleHookRuntime(
       agentStartCommand(restArgs[0]);
       return;
     case "agent-done":
-      popActiveAgent(process.cwd());
+      popActiveAgent(runtimeRoot());
       return;
     case "skill":
       skillHookCommand();
@@ -7103,7 +7150,7 @@ export async function handleHookRuntime(
       skillStartCommand(restArgs[0]);
       return;
     case "skill-done":
-      clearActiveSkill(process.cwd());
+      clearActiveSkill(runtimeRoot());
       return;
     case "run-skill":
       runSkillCommand(restArgs[0]);
@@ -7124,11 +7171,11 @@ export async function handleHookRuntime(
       evalLockNudgeHookCommand();
       return;
     case "effect-enter":
-      setEffectActive(process.cwd());
+      setEffectActive(runtimeRoot());
       console.log("Effect boundary entered.");
       return;
     case "effect-exit":
-      clearEffectActive(process.cwd());
+      clearEffectActive(runtimeRoot());
       return;
     default:
       console.error(
@@ -7163,11 +7210,8 @@ function actionHookCommand(): void {
   } catch {
     /* malformed input → no event, allow */
   }
-  const decision = evaluateAction(
-    event,
-    loadActionGates(process.cwd()),
-    process.cwd(),
-  );
+  const root = runtimeRoot(eventRoot(raw));
+  const decision = evaluateAction(event, loadActionGates(root), root);
   if (!decision.allow) {
     console.error(decision.message);
     process.exit(2);
@@ -7211,7 +7255,7 @@ function evalLockNudgeHookCommand(): void {
     /* malformed → nothing to do */
   }
   if (!file) return;
-  const cwd = process.cwd();
+  const cwd = runtimeRoot(eventRoot(raw));
   const target = relative(cwd, resolve(cwd, file)) || file;
   // 🔴 THE SAME CONFIG `vigiles lint` READS. This used to pass `basePath` alone,
   // so a repo that had switched `untested-skill` off, or pointed `include` at
@@ -7290,7 +7334,7 @@ function refsHookCommand(): void {
   if (!file || !isInstructionFile(file)) return;
   const severity = ruleSeverity(loadConfig().rules["unmarked-refs"]);
   if (severity === false) return;
-  const cwd = process.cwd();
+  const cwd = runtimeRoot(eventRoot(raw));
   const target = relative(cwd, resolve(cwd, file)) || file;
   let markdown: string;
   try {
