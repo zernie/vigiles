@@ -277,26 +277,32 @@ function emitGate(
   const action = gateAction(decision, mode);
   switch (action.kind) {
     case "block":
-      appendObservation({
-        kind: "hook",
-        event: on,
-        decision: "deny",
-        mode: "enforce",
-        rule: file,
-        reason: action.reason,
-      }, root);
+      appendObservation(
+        {
+          kind: "hook",
+          event: on,
+          decision: "deny",
+          mode: "enforce",
+          rule: file,
+          reason: action.reason,
+        },
+        root,
+      );
       console.error(action.reason);
       process.exit(2);
       return;
     case "ask":
-      appendObservation({
-        kind: "hook",
-        event: on,
-        decision: "ask",
-        mode: "enforce",
-        rule: file,
-        reason: action.reason,
-      }, root);
+      appendObservation(
+        {
+          kind: "hook",
+          event: on,
+          decision: "ask",
+          mode: "enforce",
+          rule: file,
+          reason: action.reason,
+        },
+        root,
+      );
       process.stdout.write(
         JSON.stringify({
           hookSpecificOutput: {
@@ -308,14 +314,17 @@ function emitGate(
       );
       return;
     case "observe":
-      appendObservation({
-        kind: "hook",
-        event: on,
-        decision: action.would,
-        mode: "observe",
-        rule: file,
-        reason: action.reason,
-      }, root);
+      appendObservation(
+        {
+          kind: "hook",
+          event: on,
+          decision: action.would,
+          mode: "observe",
+          rule: file,
+          reason: action.reason,
+        },
+        root,
+      );
       recordObservation(file, on, action.would, action.reason, root);
       console.error(
         `⚠ [vigiles observe] ${on}: would ${action.would} — ${action.reason}`,

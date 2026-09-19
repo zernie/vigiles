@@ -2369,7 +2369,10 @@ test("hookRouting: a malformed `match` names the field, not an internal property
         decide: () => ({ allow: true }),
       } as unknown as Parameters<typeof hookRouting>[0]),
     (e: unknown) => {
-      assert.ok(e instanceof HookCompileError, "must be catchable as a compile error");
+      assert.ok(
+        e instanceof HookCompileError,
+        "must be catchable as a compile error",
+      );
       assert.match(e.message, /`match` must be `\{ tools: \[\.\.\.\] \}`/);
       assert.match(e.message, /under/, "says what it actually got");
       assert.doesNotMatch(e.message, /reading 'join'/);

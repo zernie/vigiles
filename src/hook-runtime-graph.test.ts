@@ -224,9 +224,10 @@ export default experimental_defineReact({
       }),
     );
     // The react role DOES reach the registry — that is the point of the probe.
-    expect(has(graph, "adapter-registry"), "react must reach the registry").toBe(
-      true,
-    );
+    expect(
+      has(graph, "adapter-registry"),
+      "react must reach the registry",
+    ).toBe(true);
     expect(has(graph, "harness-test")).toBe(false);
     expect(has(graph, "adapter-conformance")).toBe(false);
     expect(has(graph, "ast-grep")).toBe(false);

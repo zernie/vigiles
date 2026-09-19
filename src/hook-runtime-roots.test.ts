@@ -72,7 +72,10 @@ describe("the tamper stamp is anchored on the project root", () => {
     const elsewhere = makeTmpDir();
     try {
       const file = plantTamperedHook(dir);
-      const r = fire(file, { cwd: elsewhere, env: { CLAUDE_PROJECT_DIR: dir } });
+      const r = fire(file, {
+        cwd: elsewhere,
+        env: { CLAUDE_PROJECT_DIR: dir },
+      });
       expect(r.stderr).toMatch(/does not match its compiled stamp/);
       expect(r.exitCode).toBe(2);
     } finally {

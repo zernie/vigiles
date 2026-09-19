@@ -548,7 +548,9 @@ describe("hookRuntimeRef — how compile LAUNCHES the runtime", () => {
   });
 
   it("falls back to the relative spelling when the harness has no root token", () => {
-    expect(hookRuntimeRef(undefined)).toBe("node node_modules/vigiles/dist/cli.js");
+    expect(hookRuntimeRef(undefined)).toBe(
+      "node node_modules/vigiles/dist/cli.js",
+    );
   });
 });
 
