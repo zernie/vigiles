@@ -232,6 +232,8 @@ import {
   mergeHooksJson,
   mergeHooksToml,
   hookGateRef,
+  hookRuntimeRef,
+  hookRuntimeMissingExit,
   normalizeHookRef,
   serializeConfig,
 } from "./hook-install.js";
@@ -7436,7 +7438,15 @@ async function installHookFile(
     // emitter never produced it. Measured 2026-09-10 in a consumer repo: after a compile,
     // one `cd` into a subdirectory made a PreToolUse gate fail to load, and a gate that
     // cannot load must block — the repo seized, every command refused including the repair.
-    gateCommand: `npx vigiles hook-runtime run-program ${hookGateRef(ref, adapter.layout.projectRootTokens)}`,
+    //
+    // 🔴 AND LAUNCHED LOCALLY, NOT THROUGH `npx` — 193 ms against 2545 ms on a warm
+    // cache, thirteen times, on every tool call. The trailing `|| exit N` is what the
+    // shell does when that binary cannot start at all, and N is decided by the hook's
+    // ROLE: see `hookRuntimeRef` and `hookRuntimeMissingExit` for both measurements
+    // and for why a gate and a nudge must answer differently.
+    gateCommand:
+      `${hookRuntimeRef(adapter.layout.projectRootTokens)} hook-runtime run-program ` +
+      `${hookGateRef(ref, adapter.layout.projectRootTokens)} || exit ${hookRuntimeMissingExit(dispatchKind(program))}`,
     dialect: adapter.dialect,
     hookProtocol: adapter.hookProtocol,
     settingsFormat: adapter.layout.settingsFormat,

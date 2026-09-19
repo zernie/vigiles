@@ -265,7 +265,11 @@ test("compile (hook): recompiling is idempotent, whatever the path spelling", ()
     assert.equal(entries.length, 1, "one wiring per hook file, not four");
     assert.equal(
       entries[0].hooks[0].command,
-      'npx vigiles hook-runtime run-program "${CLAUDE_PROJECT_DIR}/guard.mjs"',
+      'node "${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js" ' +
+        'hook-runtime run-program "${CLAUDE_PROJECT_DIR}/guard.mjs" || exit 2',
+      // The local launcher, not `npx` (193 ms against 2545 ms per invocation),
+      // and `|| exit 2` because this fixture is a GATE: if the runtime cannot
+      // start at all, a gate must refuse rather than wave the command through.
     );
 
     // And the single surviving wiring still enforces.
