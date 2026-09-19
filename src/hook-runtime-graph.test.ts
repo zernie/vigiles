@@ -179,3 +179,70 @@ describe("hook-runtime module graph", () => {
     expect(has(graph, "cli-main.js")).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// THE FIFTH LAZY BOUNDARY: the harness-test DRIVER, behind a thunk on the
+// adapter (`HarnessAdapter.harnessTestDriver`).
+//
+// The react role is the one that reaches the adapter registry, and an adapter
+// used to HOLD its driver. A driver lives in `harness-test.ts`, which imports
+// the conformance suite, which imports the compiler, which imports the
+// cross-language symbol index, which loads a NATIVE `.node` binary. So every
+// react hook — on every matching tool call — loaded the test harness and a
+// native module to read one event table.
+//
+// Measured 2026-09-19, `require("./dist/adapter-registry.js")`:
+//
+//     eager thunk:  107 modules, 7 ast-grep, 1 native .node,  95 ms
+//     lazy  thunk:   18 modules, 0 ast-grep, 0 native .node,   6 ms
+//
+// ...against a `resolveAdapter()` whose own work is about one millisecond.
+// ---------------------------------------------------------------------------
+describe("the harness-test driver is not on the hook path", () => {
+  function reactFixture(): string {
+    const p = join(dir, "react.mjs");
+    writeFileSync(
+      p,
+      `import { experimental_defineReact, tools, nothing } from ${JSON.stringify(HOOK_DIST)};
+export default experimental_defineReact({
+  on: "PostToolUse",
+  match: tools("Edit"),
+  react: () => nothing(),
+});
+`,
+    );
+    return p;
+  }
+
+  test("a react run loads NEITHER the test harness NOR a native binary", () => {
+    const graph = graphOf(
+      ["hook-runtime", "run-program", reactFixture()],
+      JSON.stringify({
+        hook_event_name: "PostToolUse",
+        tool_name: "Edit",
+        tool_input: { file_path: "notes/x.md" },
+      }),
+    );
+    // The react role DOES reach the registry — that is the point of the probe.
+    expect(has(graph, "adapter-registry"), "react must reach the registry").toBe(
+      true,
+    );
+    expect(has(graph, "harness-test")).toBe(false);
+    expect(has(graph, "adapter-conformance")).toBe(false);
+    expect(has(graph, "ast-grep")).toBe(false);
+    expect(graph.some((m) => m.endsWith(".node"))).toBe(false);
+  });
+
+  // The other direction, because an "is absent" assertion that can never fail is
+  // worth nothing: CALLING the thunk is what loads the driver.
+  test("...but CALLING the thunk loads it, so the test tier still gets a driver", async () => {
+    const registry = (await import("./adapter-registry.js")) as {
+      resolveAdapter: (root: string) => {
+        harnessTestDriver?: () => Promise<unknown>;
+      };
+    };
+    const adapter = registry.resolveAdapter(REPO_ROOT);
+    expect(typeof adapter.harnessTestDriver).toBe("function");
+    expect(await adapter.harnessTestDriver?.()).toBeDefined();
+  });
+});
