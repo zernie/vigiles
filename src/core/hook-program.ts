@@ -2197,6 +2197,62 @@ export interface RawHookEvent {
   readonly cwd?: string;
 }
 
+/**
+ * A hook event whose project root has already been RESOLVED — the shape every
+ * consumer past the entry point takes.
+ *
+ * {@link RawHookEvent} is what arrives on stdin; this is what the runtime works
+ * with. The difference is one field, and that field is the whole point: with the
+ * root ON the event, an event and a root cannot be handed to different places
+ * and disagree. That divergence is not hypothetical. Measured 2026-09-19: the
+ * decision layer resolved against the payload while the tamper stamp resolved
+ * against `process.cwd()`, and under a git worktree the stamp check did not
+ * point at the wrong file — it returned silently and did not run at all.
+ *
+ * Threading the root as a second parameter beside the event fixes an instance
+ * and keeps the shape. A field removes the shape.
+ */
+export interface HookEvent extends RawHookEvent {
+  /**
+   * The project root, always usable — so no consumer repeats a `?? cwd` fallback
+   * and none can forget it.
+   */
+  readonly root: string;
+  /**
+   * Whether {@link root} came from the payload (`$CLAUDE_PROJECT_DIR` or the
+   * event's own `cwd`) or is the fallback standing in for a payload that
+   * declared none.
+   *
+   * 🔴 THIS IS THE FIELD A POLICY DECISION READS. What to do with an undeclared
+   * root differs by ROLE, not by call site: a gate that cannot locate the
+   * project is a gate that cannot decide, and a gate that cannot decide must
+   * refuse; a nudge in the same position must stay quiet, because a reminder is
+   * never worth a wedged repository. Collapsing both into one behaviour inside
+   * the resolver would make that choice unexpressible.
+   */
+  readonly rootDeclared: boolean;
+}
+
+/**
+ * Resolve a raw payload's project root ONCE, at the entry point.
+ *
+ * `fallback` is injected rather than read here, because this module does no IO
+ * and holds no ambient state — the caller supplies `process.cwd()`. That is what
+ * keeps `process.cwd()` to a single occurrence in the whole hook runtime.
+ */
+export function resolveHookEvent(
+  raw: RawHookEvent,
+  env: Readonly<Record<string, string | undefined>>,
+  fallback: string,
+): HookEvent {
+  const declared = projectRootOf(raw, env);
+  return {
+    ...raw,
+    root: declared ?? fallback,
+    rootDeclared: declared !== undefined,
+  };
+}
+
 /** The normalized outcome of running a hook program — discriminated by role. */
 export type HookProgramOutcome =
   | { readonly kind: "decision"; readonly decision: Decision }

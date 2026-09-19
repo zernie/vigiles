@@ -56,7 +56,7 @@ import {
   noticeDelivery,
   isStampRepairEvent,
   isLoadPathRepairEvent,
-  projectRootOf,
+  resolveHookEvent,
   undecidablePathWarning,
   type HookProgramOutcome,
   type HookMode,
@@ -69,6 +69,7 @@ import {
   type HookProgram,
   type Decision,
   type RawHookEvent,
+  type HookEvent,
 } from "./core/hook-program.js";
 import {
   hasMergeConflictMarkers,
@@ -415,11 +416,8 @@ function announceRepairEscape(file: string, why: string): boolean {
  * could paint you into a corner whose only escape was hand-editing
  * `.claude/settings.json` to unwire the gate. Observed 2026-08-03.
  */
-function verifyStampOrRefuse(
-  file: string,
-  event: RawHookEvent,
-  root: string,
-): void {
+function verifyStampOrRefuse(file: string, event: HookEvent): void {
+  const { root } = event;
   const stampPath = hookStampPath(file, root);
   if (!existsSync(stampPath)) return;
   try {
@@ -494,35 +492,35 @@ export async function runHookProgramCommand(
   } catch {
     /* no stdin */
   }
-  let event: {
-    tool_name?: string;
-    tool_input?: Record<string, unknown>;
-    tool_response?: unknown;
-    source?: string;
-    prompt?: string;
-    stop_hook_active?: boolean;
-    /** The session's cwd — Claude Code sends it on every hook payload. */
-    cwd?: string;
-  } = {};
+  let payload: RawHookEvent = {};
   try {
-    event = JSON.parse(raw) as typeof event;
+    payload = JSON.parse(raw) as RawHookEvent;
   } catch {
     /* malformed → empty event */
   }
-  // The root repo-relative path prefixes resolve against. `$CLAUDE_PROJECT_DIR`
-  // first (the same root the harness resolved THIS hook's own path against),
-  // then the payload's `cwd`; never `process.cwd()`, which under a git worktree
-  // can be a different checkout. See `projectRootOf`.
-  const projectRoot = projectRootOf(event, process.env);
-  // 🔴 EVERY PATH BELOW RESOLVES AGAINST THIS, NOT `process.cwd()`. The stamp
-  // sidecar, the hook's own source, the state store, the observation ledger and
-  // the provider registry all used to resolve against the process's directory —
-  // so with a `cd` into a subdirectory or a git worktree they addressed a
-  // different checkout. The stamp check failed WORST: an absent sidecar returns
-  // silently, so tamper detection did not misfire, it did not run.
-  // `process.cwd()` remains only as the last resort for a payload that carries
-  // no root at all — see `projectRootOf`, which returns undefined by design.
-  const root = projectRoot ?? process.cwd();
+  // 🔴 THE ROOT IS RESOLVED ONCE, HERE, AND RIDES ON THE EVENT. Everything below
+  // reads `event.root`; nothing recomputes it and nothing is handed a root
+  // beside an event it might disagree with. That disagreement is the defect
+  // this shape exists to prevent — the stamp sidecar, the hook's own source,
+  // the state store, the ledger and the provider registry each used to resolve
+  // against `process.cwd()` while the decision layer resolved against the
+  // payload, so under a worktree the tamper check did not misfire, it did not
+  // run at all.
+  //
+  // This is the only `process.cwd()` on the runtime's own execution path, and
+  // it is the documented last resort for a payload that declares no root. The
+  // two others in this file are back-compat defaults on exported helpers
+  // (`loadProvider`, `hookStampPath`) for callers outside the runtime; the
+  // runtime itself always passes a root and never takes them.
+  const event = resolveHookEvent(payload, process.env, process.cwd());
+  const root = event.root;
+  // ⚠️ THE DECISION LAYER MUST NOT SEE THE FALLBACK, and this is not a detail.
+  // `pathView` treats an undefined root as "I cannot place this path" and errs
+  // toward SILENCE. Handing it `process.cwd()` instead would turn that silence
+  // into confident decisions measured against a directory nobody declared —
+  // quietly widening what gates fire on. IO paths need a usable root; verdicts
+  // need an honest one, and they are not the same question.
+  const declaredRoot = event.rootDeclared ? event.root : undefined;
 
   let program: AnyHook;
   try {
@@ -622,7 +620,7 @@ export async function runHookProgramCommand(
     }
     return;
   }
-  verifyStampOrRefuse(file, event, root);
+  verifyStampOrRefuse(file, event);
 
   switch (dispatchKind(program)) {
     case "inject": {
@@ -651,8 +649,8 @@ export async function runHookProgramCommand(
     }
     case "react": {
       const ctx = await gatherHookContext(program, file, root);
-      warnIfPathUndecidable(event, projectRoot);
-      const reaction = runReact(program as ReactHook, event, ctx, projectRoot);
+      warnIfPathUndecidable(event, declaredRoot);
+      const reaction = runReact(program as ReactHook, event, ctx, declaredRoot);
       // A notice has to REACH someone. stderr at exit 0 goes to the debug log
       // and nothing else (the host's docs are explicit: "Claude never sees it"),
       // and a react always exits 0 because its type has no `deny` — so stderr
@@ -690,9 +688,9 @@ export async function runHookProgramCommand(
     }
     case "file-gate": {
       const ctx = await gatherHookContext(program, file, root);
-      warnIfPathUndecidable(event, projectRoot);
+      warnIfPathUndecidable(event, declaredRoot);
       emitGate(
-        decideFileGate(program as FileGateHook, event, ctx, projectRoot),
+        decideFileGate(program as FileGateHook, event, ctx, declaredRoot),
         program.on,
         hookMode(program),
         file,
@@ -702,13 +700,13 @@ export async function runHookProgramCommand(
     }
     case "bash-gate": {
       const ctx = await gatherHookContext(program, file, root);
-      // The same `projectRoot` the file gates get: without it every
+      // The same `declaredRoot` the file gates get: without it every
       // repo-relative prefix in a DENYLIST matcher (`touches`/`writesTo`) is
       // matched by over-blocking alone, and with it an absolute token is placed
       // exactly. Measured bypass this closes: `sed -i s/a/b/ <abs>/paper.tex`
       // exited 0 against a guard that blocked the relative spelling.
       emitGate(
-        decideProgram(program as HookProgram, event, ctx, projectRoot),
+        decideProgram(program as HookProgram, event, ctx, declaredRoot),
         program.on,
         hookMode(program),
         file,
