@@ -262,10 +262,20 @@ export function validateSymbolRef(
       path: file,
     };
   }
-  if (langForFile(file) === null) {
+  const support = langForFile(file);
+  if (support.kind === "unsupported") {
     return {
       type: "stale-ref",
       message: `Unsupported language for symbol check: "${file}"`,
+      path: file,
+    };
+  }
+  if (support.kind === "grammar-missing") {
+    // The language is parseable by this tool; the optional grammar is absent in THIS install.
+    // Distinct wording on purpose — see the union's docblock in core/symbols.ts.
+    return {
+      type: "stale-ref",
+      message: `Symbol not checked: the ${support.id} grammar is not installed (npm i -D ${support.pkg})`,
       path: file,
     };
   }

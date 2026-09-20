@@ -135,9 +135,6 @@
     }
   },
   "dependencies": {
-    "@ast-grep/lang-python": "^0.0.6",
-    "@ast-grep/lang-ruby": "^0.0.7",
-    "@ast-grep/lang-rust": "^0.0.7",
     "@ast-grep/napi": "^0.43.0",
     "@iarna/toml": "^2.2.5",
     "ci-info": "^4.4.0",
@@ -149,5 +146,10 @@
     "mvdan-sh": "^0.10.1",
     "ts-essentials": "^10.2.1",
     "typescript": "^5.9.3"
+  },
+  "optionalDependencies": {
+    "@ast-grep/lang-python": "^0.0.6",
+    "@ast-grep/lang-ruby": "^0.0.7",
+    "@ast-grep/lang-rust": "^0.0.7"
   }
 }

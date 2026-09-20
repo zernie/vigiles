@@ -14,19 +14,63 @@
  * delegated. Ambiguity (a name defined in several files) is reported, not guessed.
  */
 import { readFileSync, existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { extname } from "node:path";
 
 import { parse, Lang, registerDynamicLanguage } from "@ast-grep/napi";
-import python from "@ast-grep/lang-python";
-import rust from "@ast-grep/lang-rust";
-import ruby from "@ast-grep/lang-ruby";
 
-let registered = false;
-function ensureRegistered(): void {
-  if (registered) return;
-  // Non-web grammars ship as separate packages registered at runtime.
-  registerDynamicLanguage({ python, rust, ruby });
-  registered = true;
+/**
+ * The non-web grammars, as OPTIONAL packages keyed by the id ast-grep registers them under.
+ *
+ * 🔴 WHY OPTIONAL, AND WHY IT IS NOT A PREFERENCE. These three are the only packages in this
+ * dependency tree carrying a `postinstall` (measured 2026-09-20 with `npm query
+ * ":attr(scripts, [postinstall])"`). Since pnpm 10 a consumer's install FAILS on an
+ * unapproved lifecycle script, so every downstream project installing vigiles with pnpm got
+ * `ERR_PNPM_IGNORED_BUILDS` and a non-zero exit — for grammars most of them never use. The web
+ * grammars every user does need (TypeScript, TSX, JavaScript, CSS) are built into
+ * `@ast-grep/napi` and cost nothing.
+ *
+ * They load through `createRequire` rather than `await import()` on purpose: the packages are
+ * CommonJS (`"main": "index.js"`, no `exports`), so a synchronous require works and NOTHING in
+ * this module's public surface has to become async. Measured, not assumed.
+ */
+const OPTIONAL_GRAMMARS: Readonly<Record<string, string>> = {
+  python: "@ast-grep/lang-python",
+  rust: "@ast-grep/lang-rust",
+  ruby: "@ast-grep/lang-ruby",
+};
+
+// Anchored on THIS module's own file, not on the consumer's project root. Under pnpm a
+// consumer's root does not contain our transitive packages at all — the same addressing
+// mistake that made every hook fail there — and these grammars are OUR optional dependencies,
+// so they resolve from where this file lives. `__filename` rather than `import.meta.url`
+// because this package compiles to CommonJS (`module: Node16`, `main: ./dist/test.js`).
+const require_ = createRequire(__filename);
+
+/** Registered grammar ids, populated on first use. `null` until then. */
+let loaded: ReadonlySet<string> | null = null;
+
+function ensureRegistered(): ReadonlySet<string> {
+  if (loaded) return loaded;
+  const dynamic: Parameters<typeof registerDynamicLanguage>[0] = {};
+  const present = new Set<string>();
+  for (const [id, pkg] of Object.entries(OPTIONAL_GRAMMARS)) {
+    try {
+      dynamic[id] = require_(pkg) as (typeof dynamic)[string];
+      present.add(id);
+    } catch {
+      // Absent by design: an optional dependency the consumer did not install. The caller is
+      // told WHICH id is missing (see `langForFile`), so "not checked" never reads as "clean".
+    }
+  }
+  if (present.size > 0) registerDynamicLanguage(dynamic);
+  loaded = present;
+  return loaded;
+}
+
+/** Which optional grammars this process actually has. Exported so a report can say so. */
+export function installedGrammars(): ReadonlySet<string> {
+  return ensureRegistered();
 }
 
 /** A language key accepted by ast-grep's `parse` (core enum or registered id). */
@@ -50,10 +94,37 @@ const EXT_LANG: Record<string, LangKey> = {
   ".rbi": "ruby",
 };
 
-/** The ast-grep language for a file, or null if unsupported (graceful skip). */
-export function langForFile(file: string): LangKey | null {
-  if (file.endsWith(".d.ts")) return Lang.TypeScript;
-  return EXT_LANG[extname(file).toLowerCase()] ?? null;
+/**
+ * Whether this file's language can be parsed HERE, and if not, which of the two reasons.
+ *
+ * 🔴 THE THREE CASES ARE SEPARATE MEMBERS BECAUSE THEY ARE SEPARATE FACTS. The previous
+ * signature was `LangKey | null`, where `null` meant "extension not in the table" and callers
+ * printed "Unsupported language for symbol check". Making the grammars optional would have
+ * given that same `null` a second meaning — "the language IS ours, the package is simply not
+ * installed" — and both callers would have kept printing the first sentence. That is the
+ * failure this codebase exists to catch: a check that did not run, reported in the words of a
+ * check that did. A union makes the compiler demand the distinction at every call site.
+ */
+export type LangSupport =
+  | { readonly kind: "ready"; readonly lang: LangKey }
+  | {
+      readonly kind: "grammar-missing";
+      readonly id: string;
+      readonly pkg: string;
+    }
+  | { readonly kind: "unsupported" };
+
+export function langForFile(file: string): LangSupport {
+  const key = file.endsWith(".d.ts")
+    ? Lang.TypeScript
+    : EXT_LANG[extname(file).toLowerCase()];
+  if (key === undefined) return { kind: "unsupported" };
+  // A string key is one of the dynamically registered grammars; the enum members are built in.
+  if (typeof key === "string" && key in OPTIONAL_GRAMMARS) {
+    if (!ensureRegistered().has(key))
+      return { kind: "grammar-missing", id: key, pkg: OPTIONAL_GRAMMARS[key] };
+  }
+  return { kind: "ready", lang: key };
 }
 
 /** A symbol definition found in a file. */
@@ -117,8 +188,9 @@ export function definedSymbols(code: string, lang: LangKey): SymbolDef[] {
 
 /** Defined symbols for a file on disk, or [] if unreadable/unsupported. */
 export function definedSymbolsInFile(file: string): SymbolDef[] {
-  const lang = langForFile(file);
-  if (!lang) return [];
+  const support = langForFile(file);
+  if (support.kind !== "ready") return [];
+  const lang = support.lang;
   try {
     return definedSymbols(readFileSync(file, "utf-8"), lang);
   } catch {
