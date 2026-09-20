@@ -128,6 +128,17 @@ export default [
       // Relax some strict rules that are too noisy for this codebase
       "@typescript-eslint/restrict-template-expressions": "off",
       "@typescript-eslint/no-unnecessary-condition": "off",
+      // 🔴 THE PAYOFF HALF OF "Make The Distinction A Type". A tagged union forces every
+      // EXISTING call site once (the old comparisons stop compiling); it does nothing for the
+      // member added NEXT year unless a switch is checked for exhaustiveness. This rule is
+      // that guarantee. `considerDefaultExhaustiveForUnions` because a `default:` that
+      // handles the rest IS exhaustive — without it the rule fires on `switch (kind: string |
+      // undefined)` in handleHookRuntime, which has a proper default and nothing to enumerate:
+      // measured 2026-09-20, exactly one finding on the whole corpus and it was that one.
+      "@typescript-eslint/switch-exhaustiveness-check": [
+        "error",
+        { considerDefaultExhaustiveForUnions: true },
+      ],
       // Ban non-null assertions — use proper narrowing instead
       "@typescript-eslint/no-non-null-assertion": "error",
 
