@@ -256,7 +256,7 @@ export function multiScopeWarning(
   // about what a REAL SESSION loads under two names. A harness does not load a
   // declared root at all — vigiles reads it because the repo owner said to — so
   // including one here would make the warning state a falsehood about the
-  // harness the moment someone sets `surfaceRoots`.
+  // harness the moment someone declares `harnesses.<name>.roots`.
   const scopes = allScopes.filter((s) => s.declared !== true);
   if (scopes.length < 2) return undefined;
   const total = Object.values(counts).reduce((a, b) => a + b, 0);

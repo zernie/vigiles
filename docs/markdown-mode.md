@@ -114,7 +114,7 @@ file.
 `vigiles:` FRONTMATTER ("Level 1") mode docs. Frontmatter mode is now DISABLED in
 lint (2026-06-28): the parser/code is KEPT (src/core/frontmatter.ts,
 examples/frontmatter-CLAUDE.md, `vigiles generate schema`) but lint GATES it off
-via `FRONTMATTER_MODE_ENABLED = false` in src/cli.ts — a `vigiles:` block is INERT
+via `FRONTMATTER_MODE_ENABLED = false` in src/cli-main.ts — a `vigiles:` block is INERT
 (not read, not verified, never fails a build). This is the two-on-ramp collapse from
 research/pre-release-focus.md taken all the way (un-marketed → disabled), because a
 working-but-undocumented mode muddied the spec-first story. NOT deleted: flip the flag

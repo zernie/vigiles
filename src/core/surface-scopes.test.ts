@@ -182,7 +182,7 @@ test("scopeKey drops empty segments instead of emitting a leading slash", () => 
   );
 });
 
-// --- Declared roots (`.vigilesrc.json#surfaceRoots`, #240 step 4) ------------
+// --- Declared roots (`.vigilesrc.json#harnesses.<name>.roots`, #240) --------
 
 /**
  * The repo owner names `.ai`; it becomes a real scope, keyed at its own real

@@ -66,7 +66,8 @@ interface MaterializedSurfaces {
    * Mirror of the disk loader's field — the tally EXCLUDING declared roots.
    *
    * Always equal to `counts` here TODAY, because this twin has no config to read
-   * `surfaceRoots` from (the in-browser audit is handed a file map, not a repo).
+   * `harnesses.<name>.roots` from (the in-browser audit is handed a file map,
+   * not a repo).
    * It exists anyway so the two materializers keep the same shape: the pair has
    * repeatedly been bitten by one side growing a field the other did not.
    */
