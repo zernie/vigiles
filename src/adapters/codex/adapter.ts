@@ -25,14 +25,11 @@ export const codexAdapter = {
   name: "codex",
   // Full convergence with Claude Code: mockable (Responses SSE) + shell hooks
   // with veto (permissionDecision/exit 2). Both pillars, all tiers.
-  capabilities: {
-    referenceVerification: true,
-    harnessTesting: true,
-    shellHooks: true,
-    // Codex `[agents]` is a concurrency table, not a subagent tool-contract file
-    // — the subagent-surface rules report n/a here (a deliberate non-goal).
-    subagents: false,
-  },
+  harnessTesting: true,
+  shellHooks: true,
+  // Codex `[agents]` is a concurrency table, not a subagent tool-contract file
+  // — the subagent-surface rules report n/a here (a deliberate non-goal).
+  subagents: false,
   dialect: codexDialect,
   layout: codexLayout,
   runtime: codexRuntime,

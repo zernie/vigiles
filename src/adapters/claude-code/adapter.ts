@@ -19,12 +19,14 @@ export const claudeCodeAdapter = {
   name: "claude-code",
   // The reference harness: every tier. Mockable transport (Anthropic SSE) and
   // shell hooks (exit 2 / decision JSON) — both pillars, all tiers.
-  capabilities: {
-    referenceVerification: true,
-    harnessTesting: true,
-    shellHooks: true,
-    subagents: true,
-  },
+  //
+  // The flags are FLAT, not nested under `capabilities`, because TypeScript
+  // narrows a union by a discriminant on the object itself and never by
+  // `a.capabilities.x` — nesting them is what made "declares the capability,
+  // ships no port" expressible at all.
+  harnessTesting: true,
+  shellHooks: true,
+  subagents: true,
   dialect: claudeCodeDialect,
   layout: claudeCodeLayout,
   runtime: claudeCodeRuntime,

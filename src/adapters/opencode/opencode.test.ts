@@ -33,7 +33,7 @@ test("opencodeAdapter passes the conformance kit (a shellHooks:false adapter wit
 });
 
 test("the blocked shell-hook port is unrepresentable in the type, and absent at run time", () => {
-  assert.equal(opencodeAdapter.capabilities.shellHooks, false);
+  assert.equal(opencodeAdapter.shellHooks, false);
   // 🔴 WIDENED ON PURPOSE. `opencodeAdapter` is declared
   // `as const satisfies HarnessAdapter`, so its own type has no `hookProtocol`
   // property at all — writing `opencodeAdapter.hookProtocol` is now TS2339, and
@@ -45,10 +45,23 @@ test("the blocked shell-hook port is unrepresentable in the type, and absent at 
   assert.equal(asPort.hookProtocol, undefined);
 });
 
-test("opencodeAdapter IS harness-testable — assertHarnessTestable returns runtime+modelMock", () => {
-  const { runtime, modelMock } = assertHarnessTestable(opencodeAdapter);
-  assert.equal(runtime.name, "opencode");
-  assert.equal(modelMock.name, "opencode");
+test("opencodeAdapter is NOT harness-testable — the tier is declared unbuilt, and now says so", () => {
+  // 🔴 THIS TEST USED TO ASSERT THE OPPOSITE, and the opposite was the port's
+  // second live illegal state. The adapter declared `harnessTesting: true` with
+  // `runtime` and `modelMock` present and NO `harnessTestDriver`, so this test
+  // passed — `assertHarnessTestable` only looks at the two ports — while
+  // `runHarnessTest` threw "declares harnessTesting but carries no
+  // harnessTestDriver" the moment anything actually drove the tier.
+  //
+  // `docs/harnesses.md` already said OpenCode's mockable tier is "declared but
+  // not yet built". The flag now agrees with the docs, and the `false` arm of
+  // `TestingPorts` types `runtime`/`modelMock`/`harnessTestDriver` as `?:
+  // never` — so the old shape cannot be written back without a driver.
+  assert.equal(opencodeAdapter.harnessTesting, false);
+  assert.throws(
+    () => assertHarnessTestable(opencodeAdapter),
+    /does not support harness testing/,
+  );
 });
 
 // NOTE: we deliberately do NOT call assertAdapterLoadsHooks for opencode — that's

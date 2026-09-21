@@ -108,15 +108,13 @@ const modelMock: ModelMock = {
 
 export const myHarnessAdapter: HarnessAdapter = {
   name: "my-harness",
-  // What this harness can drive — gates which transport ports are required, and
-  // which surface lint rules apply. `subagents:false` makes the subagent rules
+  // What this harness can drive. These are DISCRIMINANTS: declaring a
+  // capability makes its ports required and denying one makes them forbidden,
+  // both at compile time. `subagents:false` makes the subagent rules
   // (subagent-tool-contract, …) report n/a instead of running.
-  capabilities: {
-    referenceVerification: true, // always
-    harnessTesting: true, // needs runtime + modelMock
-    shellHooks: true, // needs hookProtocol
-    subagents: true, // has a subagent surface (layout.surfaces.agent)
-  },
+  harnessTesting: true, // requires runtime + modelMock + harnessTestDriver
+  shellHooks: true, // requires hookProtocol
+  subagents: true, // has a subagent surface (layout.surfaces.agent)
   dialect,
   layout,
   runtime,

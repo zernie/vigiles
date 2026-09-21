@@ -7,7 +7,6 @@
 // @public
 export interface AdapterCapabilities {
     readonly harnessTesting: boolean;
-    readonly referenceVerification: true;
     readonly shellHooks: boolean;
     readonly subagents: boolean;
 }
@@ -15,12 +14,9 @@ export interface AdapterCapabilities {
 // @public
 export const ADAPTERS: readonly [{
     readonly name: "claude-code";
-    readonly capabilities: {
-        readonly referenceVerification: true;
-        readonly harnessTesting: true;
-        readonly shellHooks: true;
-        readonly subagents: true;
-    };
+    readonly harnessTesting: true;
+    readonly shellHooks: true;
+    readonly subagents: true;
     readonly dialect: HarnessDialect;
     readonly layout: PluginLayout;
     readonly runtime: HarnessRuntime;
@@ -31,12 +27,9 @@ export const ADAPTERS: readonly [{
     readonly detect: (root: string) => number;
 }, {
     readonly name: "codex";
-    readonly capabilities: {
-        readonly referenceVerification: true;
-        readonly harnessTesting: true;
-        readonly shellHooks: true;
-        readonly subagents: false;
-    };
+    readonly harnessTesting: true;
+    readonly shellHooks: true;
+    readonly subagents: false;
     readonly dialect: HarnessDialect;
     readonly layout: PluginLayout;
     readonly runtime: HarnessRuntime;
@@ -93,19 +86,8 @@ export function executableSourceDirs(layout: PluginLayout): readonly string[];
 // @public
 export function getAdapter(name: string): HarnessAdapter | undefined;
 
-// @public (undocumented)
-export interface HarnessAdapter {
-    readonly capabilities: AdapterCapabilities;
-    claims(path: string): boolean;
-    detect(root: string): number;
-    readonly dialect: HarnessDialect;
-    readonly harnessTestDriver?: () => Promise<HarnessTestDriver>;
-    readonly hookProtocol?: HookProtocol;
-    readonly layout: PluginLayout;
-    readonly modelMock?: ModelMock;
-    readonly name: string;
-    readonly runtime?: HarnessRuntime;
-}
+// @public
+export type HarnessAdapter = AdapterBase & TestingPorts & ShellHookPorts;
 
 // @public (undocumented)
 export interface HarnessDialect {

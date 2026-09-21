@@ -21,25 +21,26 @@ import type { HarnessTestDriver } from "./harness-driver.js";
 
 /**
  * Which vigiles pillars/tiers a harness can drive — the capability matrix made
- * executable (see `docs/harnesses.md`). Not every harness reaches every tier:
- * a closed, un-mockable one (Cursor, Devin, Amp, Amazon Q) can only ever do
- * pillar 1, and a harness whose hooks are in-process code modules (OpenCode)
- * has no shell-hook tier. Declaring this lets the conformance kit relax the
- * port requirements for what an adapter says it can't do (instead of forcing a
- * fake `runtime`/`modelMock`/`hookProtocol`), and lets the pillar-2 runners
- * refuse — rather than mysteriously hang on — an adapter that can't be mocked.
+ * executable (see `docs/harnesses.md`).
+ *
+ * 🔴 KEPT AS A TYPE, NOT AS A FIELD. The flags used to sit in a nested
+ * `capabilities` object on the adapter, and that nesting is precisely what made
+ * the illegal state below expressible: TypeScript narrows a union by a
+ * discriminant on the object ITSELF, never by `a.capabilities.x`, so no shape
+ * of this interface could have tied `harnessTesting: true` to the presence of a
+ * driver. The flags are now discriminants on `HarnessAdapter` directly; this
+ * interface remains as the documented projection of them.
+ *
+ * `referenceVerification` is gone. It was `true` on every adapter and its type
+ * was the literal `true` — a field that can hold one value carries no
+ * information, and the conformance check for it could not fail.
  */
 export interface AdapterCapabilities {
   /**
-   * Pillar 1 — reference verification (dialect + layout). Always `true`: every
-   * harness with an instruction-file format can have its references verified.
-   */
-  readonly referenceVerification: true;
-  /**
    * Pillar 2 — deterministic harness tests + evals: the binary can be spawned
-   * and pointed at a mock model. Requires `runtime` + `modelMock`. `false` for
-   * closed harnesses that route through a fixed backend (no BYOM): Cursor,
-   * Devin, Amp, Amazon Q — they are pillar-1-only adapters.
+   * and pointed at a mock model. Requires `runtime` + `modelMock` +
+   * `harnessTestDriver`. `false` for closed harnesses that route through a fixed
+   * backend (no BYOM): Cursor, Devin, Amp, Amazon Q — pillar-1-only adapters.
    */
   readonly harnessTesting: boolean;
   /**
@@ -57,57 +58,26 @@ export interface AdapterCapabilities {
    * is `false` those rules report **n/a** rather than running. `false` for Codex,
    * whose `[agents]` TOML is a concurrency table, not a tool-contract file — a
    * wholly different concept that deliberately shares the word.
+   *
+   * No port sits behind it, so it stays a plain flag on the base rather than
+   * becoming a discriminant of a union with nothing in its arms.
    */
   readonly subagents: boolean;
 }
 
-export interface HarnessAdapter {
+/**
+ * The fields EVERY adapter has, whatever it can drive. The capability-gated
+ * ports are deliberately NOT here — see the unions below.
+ */
+interface AdapterBase {
   /** Stable identifier, e.g. "claude-code". The CLI/registry key. */
   readonly name: string;
-  /** What this harness can drive — gates which ports below are required. */
-  readonly capabilities: AdapterCapabilities;
   /** Format axis: tool catalog, hook events, instruction targets, plugin-root token. */
   readonly dialect: HarnessDialect;
   /** Layout axis: where the instruction file / skills / agents / hooks live on disk. */
   readonly layout: PluginLayout;
-  /** Transport axis: the agent binary to spawn + the mock-model env. Present iff
-   *  `capabilities.harnessTesting`. */
-  readonly runtime?: HarnessRuntime;
-  /** Transport axis: how a hook signals a block/deny. Present iff
-   *  `capabilities.shellHooks`. */
-  readonly hookProtocol?: HookProtocol;
-  /** Transport axis: the mock model's wire format + endpoints. Present iff
-   *  `capabilities.harnessTesting`. */
-  readonly modelMock?: ModelMock;
-  /**
-   * Pillar-2 deterministic-runner driver: how `runHarnessTest` builds this
-   * harness's argv, starts its scripted mock, and parses its stdout. Present iff
-   * `capabilities.harnessTesting` (it composes the runtime + modelMock into the
-   * one seam the runner dispatches through). Carried on the bundle so the runner
-   * never imports a sibling adapter to find it.
-   */
-  /**
-   * 🔴 A THUNK, NOT THE DRIVER, and the indirection is the whole point. A driver
-   * lives in `harness-test.ts`, which imports the conformance suite, which
-   * imports the compiler, which imports the cross-language symbol index, which
-   * loads a NATIVE binary. Holding the driver eagerly meant every consumer of an
-   * adapter paid for all of it — including the hook runtime, which reads only
-   * `dialect` and `hookProtocol` and never runs a harness test at all.
-   *
-   * Measured 2026-09-19, `require("./adapter-registry.js")`:
-   *
-   *     eager:  107 modules, 7 ast-grep, 1 native .node
-   *
-   * ...on a path whose actual work takes about a millisecond. Calling the thunk
-   * is what loads the driver, so the test tier pays and the runtime does not.
-   *
-   * ASYNC because a dynamic `import()` is the only form that defers in BOTH
-   * environments this code runs in: the CJS `dist/` build (where TypeScript
-   * lowers it to a deferred `require`) and vitest loading the TS sources
-   * directly, where a synchronous `require` of a sibling `.ts` does not resolve
-   * at all — measured, not assumed.
-   */
-  readonly harnessTestDriver?: () => Promise<HarnessTestDriver>;
+  /** See {@link AdapterCapabilities.subagents}. */
+  readonly subagents: boolean;
   /**
    * How strongly a repo at `root` looks like it targets this harness — the CLI
    * uses it to auto-detect which adapter to use (the library selects by import).
@@ -141,3 +111,83 @@ export interface HarnessAdapter {
    */
   claims(path: string): boolean;
 }
+
+/**
+ * Pillar 2's three ports, present IFF `harnessTesting` — as a union, so
+ * declaring the capability without the ports is a COMPILE error.
+ *
+ * 🔴 THE STATE THIS REMOVES WAS SHIPPING. `opencodeAdapter` declared
+ * `harnessTesting: true` and carried no `harnessTestDriver`; the runner threw
+ * at `harness-test.ts:782` — at RUN time, after a driver was asked for — and
+ * the conformance kit did not catch it, because it checked `runtime` and
+ * `modelMock` and not the thunk. Adding a third check would have been the
+ * third place to remember. The union needs no check at all: the shape is
+ * unwritable.
+ *
+ * The `?: never` arms matter as much as the `true` arm. Without them a
+ * `false` adapter could still carry a driver, which is the same defect
+ * pointing the other way — a port nothing will ever call, read by a reader as
+ * capability that is not there.
+ */
+type TestingPorts =
+  | {
+      readonly harnessTesting: true;
+      /** Transport axis: the agent binary to spawn + the mock-model env. */
+      readonly runtime: HarnessRuntime;
+      /** Transport axis: the mock model's wire format + endpoints. */
+      readonly modelMock: ModelMock;
+      /**
+       * Pillar-2 deterministic-runner driver: how `runHarnessTest` builds this
+       * harness's argv, starts its scripted mock, and parses its stdout.
+       *
+       * 🔴 A THUNK, NOT THE DRIVER, and the indirection is the whole point. A
+       * driver lives in `harness-test.ts`, which imports the conformance suite,
+       * which imports the compiler, which imports the cross-language symbol
+       * index, which loads a NATIVE binary. Holding the driver eagerly meant
+       * every consumer of an adapter paid for all of it — including the hook
+       * runtime, which reads only `dialect` and `hookProtocol` and never runs a
+       * harness test at all.
+       *
+       * Measured 2026-09-19, `require("./adapter-registry.js")`:
+       *
+       *     eager:  107 modules, 7 ast-grep, 1 native .node
+       *
+       * ...on a path whose actual work takes about a millisecond. Calling the
+       * thunk is what loads the driver, so the test tier pays and the runtime
+       * does not.
+       *
+       * ASYNC because a dynamic `import()` is the only form that defers in BOTH
+       * environments this code runs in: the CJS `dist/` build (where TypeScript
+       * lowers it to a deferred `require`) and vitest loading the TS sources
+       * directly, where a synchronous `require` of a sibling `.ts` does not
+       * resolve at all — measured, not assumed.
+       */
+      readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    }
+  | {
+      readonly harnessTesting: false;
+      readonly runtime?: never;
+      readonly modelMock?: never;
+      readonly harnessTestDriver?: never;
+    };
+
+/** The shell-hook port, present IFF `shellHooks`. Same construction, same reason. */
+type ShellHookPorts =
+  | {
+      readonly shellHooks: true;
+      /** Transport axis: how a hook signals a block/deny. */
+      readonly hookProtocol: HookProtocol;
+    }
+  | { readonly shellHooks: false; readonly hookProtocol?: never };
+
+/**
+ * A harness, as one addable unit: the ports it implements plus the flags that
+ * say which ones those are.
+ *
+ * ⚠️ THE COST, NAMED SO NOBODY IS SURPRISED BY IT: a wrong adapter literal
+ * produces a TypeScript error against an INTERSECTION OF UNIONS, which reads
+ * badly — it will list both arms of each union rather than say "you declared
+ * harnessTesting and gave me no driver". That is why the conformance kit keeps
+ * its per-flag messages: the TYPE is the gate, the KIT is the explanation.
+ */
+export type HarnessAdapter = AdapterBase & TestingPorts & ShellHookPorts;

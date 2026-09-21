@@ -36,15 +36,19 @@ export function checkAdapterConformance(
     if (!cond) failures.push(msg);
   };
 
-  const caps = adapter.capabilities;
-  // Widen to boolean so a malformed (non-TS) adapter that set this false is still
-  // caught at runtime — the literal `true` type would make a direct check redundant.
-  const refVerification: boolean = caps.referenceVerification;
+  // 🔴 THE KIT IS THE EXPLANATION, THE TYPE IS THE GATE. Every check below is
+  // now unreachable for an adapter authored in TypeScript: `HarnessAdapter` is
+  // an intersection of discriminated unions, so "declares the capability, ships
+  // no port" and "denies the capability, ships the port" are both compile
+  // errors. The checks stay for the two cases the type does not reach — a
+  // third-party adapter authored in JavaScript, and an object crossing a
+  // package boundary through a cast — and because a TypeScript error against a
+  // 4-member intersection reads badly next to a sentence naming the field.
+  //
+  // `capabilities.referenceVerification` was checked here and is gone. It was
+  // typed as the literal `true` on every adapter, so the check could not fail;
+  // a field that can hold one value carries no information.
   need(adapter.name.length > 0, "name is empty");
-  need(
-    refVerification,
-    "capabilities.referenceVerification must be true (every adapter does pillar 1)",
-  );
 
   // --- Pillar 1 (always required): dialect + layout ---
   need(
@@ -142,14 +146,14 @@ export function checkAdapterConformance(
     ["dialect", adapter.dialect.name],
     ["layout", adapter.layout.name],
   ];
-  if (caps.harnessTesting) {
+  if (adapter.harnessTesting) {
     need(
       adapter.runtime !== undefined,
-      "capabilities.harnessTesting is true but runtime is missing",
+      "harnessTesting is true but runtime is missing",
     );
     need(
       adapter.modelMock !== undefined,
-      "capabilities.harnessTesting is true but modelMock is missing",
+      "harnessTesting is true but modelMock is missing",
     );
     if (adapter.runtime) {
       need(
@@ -169,16 +173,28 @@ export function checkAdapterConformance(
       );
       portNames.push(["modelMock", adapter.modelMock.name]);
     }
+    // 🔴 THE CHECK THAT WAS MISSING, AND THE STATE IT MISSED WAS SHIPPING.
+    // This block checked `runtime` and `modelMock` and not the DRIVER, so
+    // `opencodeAdapter` — `harnessTesting: true`, both ports present, no thunk
+    // — passed conformance and threw at run time inside `runHarnessTest`. The
+    // type now makes that shape unwritable in TypeScript; this is the same
+    // statement for an adapter the type never saw.
+    need(
+      typeof adapter.harnessTestDriver === "function",
+      "harnessTesting is true but harnessTestDriver is missing — the runner has nothing to dispatch through",
+    );
   } else {
     need(
-      adapter.runtime === undefined && adapter.modelMock === undefined,
-      "capabilities.harnessTesting is false — omit runtime/modelMock (a pillar-1-only adapter must not ship a half-wired transport)",
+      adapter.runtime === undefined &&
+        adapter.modelMock === undefined &&
+        adapter.harnessTestDriver === undefined,
+      "harnessTesting is false — omit runtime/modelMock/harnessTestDriver (a pillar-1-only adapter must not ship a half-wired transport)",
     );
   }
-  if (caps.shellHooks) {
+  if (adapter.shellHooks) {
     need(
       adapter.hookProtocol !== undefined,
-      "capabilities.shellHooks is true but hookProtocol is missing",
+      "shellHooks is true but hookProtocol is missing",
     );
     if (adapter.hookProtocol) {
       need(
@@ -213,7 +229,7 @@ export function checkAdapterConformance(
   } else {
     need(
       adapter.hookProtocol === undefined,
-      "capabilities.shellHooks is false — omit hookProtocol (hooks are code modules, not shell processes)",
+      "shellHooks is false — omit hookProtocol (hooks are code modules, not shell processes)",
     );
   }
 
@@ -283,11 +299,7 @@ export function assertHarnessTestable(adapter: HarnessAdapter): {
   runtime: NonNullable<HarnessAdapter["runtime"]>;
   modelMock: NonNullable<HarnessAdapter["modelMock"]>;
 } {
-  if (
-    !adapter.capabilities.harnessTesting ||
-    !adapter.runtime ||
-    !adapter.modelMock
-  ) {
+  if (!adapter.harnessTesting || !adapter.runtime || !adapter.modelMock) {
     throw new Error(
       `Adapter "${adapter.name}" does not support harness testing (pillar 2): it is reference-verification-only (no mockable runtime). Use it for compile/scan/lint, not runHarnessTest/runEval.`,
     );

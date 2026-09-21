@@ -37,7 +37,7 @@ const r = await runHarnessTest(spec, { adapter: codexAdapter });
 `codexAdapter` carries Codex's five ports plus the layer-2 `HarnessTestDriver`
 (argv + mock + parse), so `runHarnessTest` dispatches through it without the
 agnostic surface importing the adapter — exactly the seam Claude Code rides. The
-adapter must declare `capabilities.harnessTesting` and carry a
+adapter must declare `harnessTesting: true` and carry a
 `harnessTestDriver`; `codexAdapter` does both.
 
 ## A worked deterministic example

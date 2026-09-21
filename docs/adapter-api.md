@@ -135,32 +135,62 @@ module; this descriptor names the wire facts the bundle and tooling read.)
 
 ### `HarnessAdapter`
 
-The bundle. `name` + a `capabilities` descriptor + the ports + a `detect`. The
-two layer-1 ports (`dialect`, `layout`) are always required; the transport ports
-are **optional and gated by `capabilities`** — present iff the matching capability
-is declared, so a reference-only or code-module-hook harness isn't forced to ship
-a fake transport (the conformance kit enforces this both ways).
+The bundle. `name` + the capability flags + the ports + a `detect`. The two
+layer-1 ports (`dialect`, `layout`) are always required; the transport ports are
+**gated by the flags**, so a reference-only or code-module-hook harness is not
+forced to ship a fake transport.
+
+🔴 **The gate is the TYPE, not a convention.** The flags are DISCRIMINANTS of
+unions intersected into `HarnessAdapter`, so "declares the capability, ships no
+port" and "denies the capability, ships the port" are both compile errors.
+They used to live in a nested `capabilities` object, and that nesting is exactly
+what made the illegal state expressible: TypeScript narrows a union by a
+discriminant on the object itself and never by `a.capabilities.x`. It was not
+hypothetical — the OpenCode prototype shipped `harnessTesting: true` with no
+`harnessTestDriver`, and the runner threw at run time.
 
 ```ts
-interface AdapterCapabilities {
-  readonly referenceVerification: true; // layer 1 — always
-  readonly harnessTesting: boolean; // layer 2 — needs runtime + modelMock
-  readonly shellHooks: boolean; // shell-process hooks — needs hookProtocol
-  readonly subagents: boolean; // has subagents — gates the subagent lint rules
-}
-
-interface HarnessAdapter {
+interface AdapterBase {
   readonly name: string;
-  readonly capabilities: AdapterCapabilities;
   readonly dialect: HarnessDialect; // always
   readonly layout: PluginLayout; // always
-  readonly runtime?: HarnessRuntime; // iff capabilities.harnessTesting
-  readonly hookProtocol?: HookProtocol; // iff capabilities.shellHooks
-  readonly modelMock?: ModelMock; // iff capabilities.harnessTesting
+  readonly subagents: boolean; // gates the subagent lint rules; no port behind it
   /** Specificity score: 0 = not this harness; higher = a more specific match. */
   detect(root: string): number;
+  claims(path: string): boolean;
 }
+
+type TestingPorts =
+  | {
+      readonly harnessTesting: true;
+      readonly runtime: HarnessRuntime;
+      readonly modelMock: ModelMock;
+      readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    }
+  | {
+      readonly harnessTesting: false;
+      readonly runtime?: never;
+      readonly modelMock?: never;
+      readonly harnessTestDriver?: never;
+    };
+
+type ShellHookPorts =
+  | { readonly shellHooks: true; readonly hookProtocol: HookProtocol }
+  | { readonly shellHooks: false; readonly hookProtocol?: never };
+
+type HarnessAdapter = AdapterBase & TestingPorts & ShellHookPorts;
 ```
+
+`AdapterCapabilities` survives as the documented projection of the three flags.
+`referenceVerification` does not: it was typed as the literal `true` on every
+adapter, so neither the type nor its conformance check could ever fail.
+
+**The conformance kit still checks all of this**, and that is deliberate rather
+than redundant: the type reaches an adapter authored in TypeScript, and the kit
+reaches a third-party adapter authored in JavaScript or one crossing a package
+boundary through a cast. The type is the gate; the kit is the explanation,
+because a TypeScript error against a four-member intersection reads badly next
+to a sentence naming the field.
 
 `assertHarnessTestable(adapter)` is the guard the layer-2 runners call to refuse
 a non-`harnessTesting` adapter up front (returning its narrowed `runtime`+`modelMock`).

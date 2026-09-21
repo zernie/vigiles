@@ -21,12 +21,9 @@ export function claudeAvailable(): boolean;
 // @public (undocumented)
 export const claudeCodeAdapter: {
     readonly name: "claude-code";
-    readonly capabilities: {
-        readonly referenceVerification: true;
-        readonly harnessTesting: true;
-        readonly shellHooks: true;
-        readonly subagents: true;
-    };
+    readonly harnessTesting: true;
+    readonly shellHooks: true;
+    readonly subagents: true;
     readonly dialect: HarnessDialect;
     readonly layout: PluginLayout;
     readonly runtime: HarnessRuntime;

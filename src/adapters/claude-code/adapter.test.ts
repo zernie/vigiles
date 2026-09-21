@@ -25,8 +25,8 @@ import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
 test("claudeCodeAdapter bundles all five ports + a detect (full capabilities)", () => {
   assert.equal(claudeCodeAdapter.name, "claude-code");
   // Claude Code is a full-capability adapter — every transport port is present.
-  assert.equal(claudeCodeAdapter.capabilities.harnessTesting, true);
-  assert.equal(claudeCodeAdapter.capabilities.shellHooks, true);
+  assert.equal(claudeCodeAdapter.harnessTesting, true);
+  assert.equal(claudeCodeAdapter.shellHooks, true);
   assert.equal(claudeCodeAdapter.dialect.name, "claude-code");
   assert.equal(claudeCodeAdapter.layout.name, "claude-code");
   assert.equal(claudeCodeAdapter.runtime?.agentBinary, "claude");
@@ -136,12 +136,9 @@ test("conformance ACCEPTS a pillar-1-only adapter (no transport ports)", () => {
   // not demand them — the capability gate, not a fake transport.
   const pillar1Only: HarnessAdapter = {
     name: "cursor-ish",
-    capabilities: {
-      referenceVerification: true,
-      harnessTesting: false,
-      shellHooks: false,
-      subagents: false,
-    },
+    harnessTesting: false,
+    shellHooks: false,
+    subagents: false,
     dialect: { ...claudeCodeAdapter.dialect, name: "cursor-ish" },
     layout: { ...claudeCodeAdapter.layout, name: "cursor-ish" },
     claims: () => false,
@@ -155,26 +152,35 @@ test("conformance ACCEPTS a pillar-1-only adapter (no transport ports)", () => {
 });
 
 test("conformance REJECTS a half-wired adapter (claims harnessTesting, no runtime)", () => {
-  const halfWired: HarnessAdapter = {
+  // 🔴 THE CAST IS THE POINT, NOT A CONVENIENCE. This literal no longer
+  // type-checks as a `HarnessAdapter`: the capability flags are discriminants
+  // of unions, so "harnessTesting: true with no runtime" and "shellHooks: false
+  // with a hookProtocol" are both compile errors — which is the ratchet, and is
+  // why no adapter in this repo can be written this way again.
+  //
+  // The conformance kit still has to say it, for the case the type cannot
+  // reach: a third-party adapter authored in JavaScript, or one crossing a
+  // package boundary through a cast exactly like this one. So the test builds
+  // the shape the only way left, and asserts the kit explains it.
+  const halfWired = {
     name: "claude-code",
-    capabilities: {
-      referenceVerification: true,
-      harnessTesting: true, // claims it…
-      shellHooks: false,
-      subagents: true,
-    },
+    harnessTesting: true, // claims it…
+    shellHooks: false,
+    subagents: true,
     dialect: claudeCodeAdapter.dialect,
     layout: claudeCodeAdapter.layout,
-    // …but no runtime/modelMock, and a stray hookProtocol it disclaims.
+    // …but no runtime/modelMock/driver, and a stray hookProtocol it disclaims.
     hookProtocol: claudeCodeAdapter.hookProtocol,
     claims: () => false,
     detect: () => 0,
-  };
+  } as unknown as HarnessAdapter;
   const r = checkAdapterConformance(halfWired);
   assert.equal(r.ok, false);
   assert.ok(r.failures.some((m) => m.includes("runtime is missing")));
   assert.ok(r.failures.some((m) => m.includes("modelMock is missing")));
   assert.ok(r.failures.some((m) => m.includes("shellHooks is false")));
+  // The check that did NOT exist when opencodeAdapter shipped this state.
+  assert.ok(r.failures.some((m) => m.includes("harnessTestDriver is missing")));
 });
 
 test("detect: specificity score — empty 0, CLAUDE.md 1, manifest 3", () => {

@@ -64,9 +64,9 @@ describe("adapter contract (run over the whole registry)", () => {
       });
 
       // Shell-hook round-trip — gated on the capability, loud skip otherwise.
-      const hooksTest = adapter.capabilities.shellHooks ? it : it.skip;
+      const hooksTest = adapter.shellHooks ? it : it.skip;
       hooksTest(
-        adapter.capabilities.shellHooks
+        adapter.shellHooks
           ? "round-trips its native hooks config (JSON/TOML)"
           : "round-trips its native hooks config — n/a (no shell hooks)",
         () => {
@@ -82,7 +82,7 @@ describe("adapter contract (run over the whole registry)", () => {
       // miss that let Codex inject go unconfirmed). Events vigiles' shipped hooks
       // use: PostToolUse (nudges) + SessionStart (summary).
       hooksTest(
-        adapter.capabilities.shellHooks
+        adapter.shellHooks
           ? "honors additionalContext on the events vigiles' shipped hooks use"
           : "honors additionalContext — n/a (no shell hooks)",
         () => {
@@ -98,9 +98,9 @@ describe("adapter contract (run over the whole registry)", () => {
       );
 
       // Harness testing (pillar 2) — gated on the capability, loud skip otherwise.
-      const testableTest = adapter.capabilities.harnessTesting ? it : it.skip;
+      const testableTest = adapter.harnessTesting ? it : it.skip;
       testableTest(
-        adapter.capabilities.harnessTesting
+        adapter.harnessTesting
           ? "exposes a mockable runtime + modelMock (harness testing)"
           : "exposes a mockable runtime + modelMock — n/a (reference-only)",
         () => {

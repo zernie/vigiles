@@ -4739,7 +4739,7 @@ function checkSubagentToolContracts(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["subagent-tool-contract"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.subagents) {
+  if (!adapter.subagents) {
     reportNotApplicable(
       "Subagent tool-contract check",
       "subagents",
@@ -4799,7 +4799,7 @@ function checkHookEvents(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["hook-events"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.shellHooks) {
+  if (!adapter.shellHooks) {
     reportNotApplicable("Hook-event check", "shell hooks", adapter, silent);
     return { issues: 0, errors: 0 };
   }
@@ -4838,7 +4838,7 @@ function checkFrontmatterSchema(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["subagent-frontmatter"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.subagents) {
+  if (!adapter.subagents) {
     reportNotApplicable(
       "Subagent-frontmatter check",
       "subagents",
@@ -4987,7 +4987,7 @@ function checkDisallowedTools(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["disallowed-tools-contract"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.subagents) {
+  if (!adapter.subagents) {
     reportNotApplicable("Disallowed-tools check", "subagents", adapter, silent);
     return { issues: 0, errors: 0 };
   }
@@ -5371,7 +5371,7 @@ function checkHookBlockIneffective(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["hook-block-ineffective"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.shellHooks) {
+  if (!adapter.shellHooks) {
     reportNotApplicable("Hook-block check", "shell hooks", adapter, silent);
     return { issues: 0, errors: 0 };
   }
@@ -5421,7 +5421,7 @@ function checkHookMatcher(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["hook-matcher"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.shellHooks) {
+  if (!adapter.shellHooks) {
     reportNotApplicable("Hook-matcher check", "shell hooks", adapter, silent);
     return { issues: 0, errors: 0 };
   }
@@ -5460,7 +5460,7 @@ function checkMcpHookTargets(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["mcp-hook-target-resolves"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.shellHooks) {
+  if (!adapter.shellHooks) {
     reportNotApplicable(
       "MCP hook-target check",
       "shell hooks",
@@ -5501,7 +5501,7 @@ function checkHookScriptExists(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["hook-script-exists"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.shellHooks) {
+  if (!adapter.shellHooks) {
     reportNotApplicable(
       "Hook-script existence check",
       "shell hooks",
@@ -5549,7 +5549,7 @@ function checkMcpToolResolves(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["mcp-tool-resolves"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.subagents) {
+  if (!adapter.subagents) {
     reportNotApplicable(
       "MCP tool-resolution check",
       "subagents",
