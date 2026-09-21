@@ -743,6 +743,11 @@ const PREAPPROVAL_NOTE =
  * omits them under `"minimal"`).
  */
 export function dialectSupportsSkillFence(dialect: HarnessDialect): boolean {
+  // Downstream of the SkillFrontmatterProfile alias (src/core/dialect.ts). This
+  // function is the clearest argument for fixing it there: it already HAS a
+  // capability name — "supports skill fence" — and reaches it by comparing an
+  // adapter name.
+  // eslint-disable-next-line local/no-harness-names -- goes away with that alias
   return dialect.skillFrontmatter === "claude-code";
 }
 

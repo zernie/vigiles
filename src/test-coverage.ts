@@ -72,6 +72,11 @@ import {
   agentSurfaceName,
   type PluginLayout,
 } from "./core/layout.js";
+// 🔴 Same finding as src/scan.ts: a module listed as a harness-agnostic detector
+// importing the Claude Code adapter for a DEFAULT. Invisible to both existing
+// fences — unclassified for `boundaries/dependencies`, and `\.claude` does not
+// match `/claude-code/`. The default belongs to the caller, not the detector.
+// eslint-disable-next-line local/no-harness-names -- see above
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import {
   countEvidence,

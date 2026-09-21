@@ -26,6 +26,14 @@ import type { HarnessVocabulary } from "./vocabulary.js";
 import type { EventCapabilityTable } from "./event-capability.js";
 import type { InstructionBudget } from "./instruction-weight.js";
 
+// 🔴 THE ROOT SITE. This alias is the only harness name in the core that others
+// are downstream of: compile.ts defaults to it, branches on it and defaults it
+// again, and lethal-trifecta.ts compares against it — four of the eight core
+// findings are this one type, reached through a signature. That is why the rule
+// visits TYPE positions: reporting only the uses would have pointed at the
+// shadow. The fix is a CAPABILITY name ("full" | "minimal") or a boolean on the
+// dialect, not an adapter name in a type.
+// eslint-disable-next-line local/no-harness-names -- see above
 export type SkillFrontmatterProfile = "claude-code" | "minimal";
 
 export interface HarnessDialect {

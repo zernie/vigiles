@@ -1024,6 +1024,8 @@ function yamlScalar(value: string): string {
 
 function renderSkillFrontmatter(
   spec: SkillSpec,
+  // Downstream of the SkillFrontmatterProfile alias (src/core/dialect.ts).
+  // eslint-disable-next-line local/no-harness-names -- goes away with that alias
   profile: SkillFrontmatterProfile = "claude-code",
 ): string {
   const fm = [
@@ -1033,6 +1035,8 @@ function renderSkillFrontmatter(
   ];
   // The CC-only keys below are inert in a minimal (Codex/OpenCode) SKILL.md, so
   // they're omitted entirely under that profile.
+  // Downstream of the SkillFrontmatterProfile alias (src/core/dialect.ts).
+  // eslint-disable-next-line local/no-harness-names -- goes away with that alias
   if (profile === "claude-code") {
     if (spec.disableModelInvocation !== undefined) {
       fm.push(
@@ -1159,6 +1163,8 @@ export function compileSkill(
   const basePath = options.basePath ?? process.cwd();
   const specFile = options.specFile ?? "SKILL.md.spec.ts";
   const profile: SkillFrontmatterProfile =
+    // Downstream of the SkillFrontmatterProfile alias (src/core/dialect.ts).
+    // eslint-disable-next-line local/no-harness-names -- goes away with that alias
     options.dialect?.skillFrontmatter ?? "claude-code";
   const errors: CompileError[] = [];
 

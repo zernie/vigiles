@@ -312,6 +312,10 @@ export const REPLACED_KEYS: ReadonlyArray<{
 }> = [
   {
     key: "harness",
+    // The literal OLD config text this migration notice quotes back at the user:
+    // a historical artefact, not a fact about a harness, so there is no port to
+    // read it off. This is the one exemption here that is not debt.
+    // eslint-disable-next-line local/no-harness-names -- quoted legacy config
     was: '"harness": ["claude-code", "codex"]',
     now: "a KEY per harness",
   },
@@ -329,6 +333,10 @@ export function replacedKeyMessage(
   return (
     `.vigilesrc.json: ${present.map((k) => `"${k.key}"`).join(" and ")} ` +
     `${present.length === 1 ? "was" : "were"} replaced by one nested key, "harnesses".\n` +
+    // A worked EXAMPLE config in a diagnostic, and real debt: with a third
+    // adapter this sample goes stale, so it wants rendering from the adapter
+    // registry rather than two names typed out here.
+    // eslint-disable-next-line local/no-harness-names -- example config text
     `  Write:  { "harnesses": { "claude-code": { "roots": [".ai"] }, "codex": {} } }\n` +
     present.map((k) => `  - ${k.was}  →  ${k.now}`).join("\n") +
     `\n  The old harness ARRAY's order silently decided what got read: one order graded the ` +

@@ -489,6 +489,10 @@ export function unclaimedSurfaceFindings(
     message:
       `${d.dir}/ holds ${plural(d.kind, d.count)} that no harness vigiles knows about reads, ` +
       `so none of it is in this grade. Three ways out: keep it where it is and say so in ` +
+      // A worked EXAMPLE config in a diagnostic, and real debt: it names a
+      // harness the repo being audited may not even target, while `layouts` is
+      // already in scope here and knows which one it does.
+      // eslint-disable-next-line local/no-harness-names -- example config text
       `.vigilesrc.json (\`{"harnesses":{"claude-code":{"roots":["${d.root === "" ? "." : d.root}"]}}}\` ` +
       `— see docs/configuration.md), audit it on its own ` +
       `(\`vigiles audit ${d.root === "" ? "." : d.root}\`), or move it somewhere a harness ` +
