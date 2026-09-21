@@ -61,6 +61,21 @@ export interface HookProtocol {
    * other command — including the user's own hand-written hooks sharing a
    * matcher block — is preserved.
    *
+   * 🔴 `compiled` IS THE COMPILER'S CANONICAL BLOCK, NOT `registration`'s
+   * OUTPUT, and the asymmetry is load-bearing enough to state rather than
+   * leave to be discovered. `compileHookProgram` always produces the nested
+   * `{matcher?, hooks:[{type, command}]}` form (`CompiledHooks` —
+   * "the CC-shaped structured block a compiled hook program carries"), and each
+   * implementation converts to its own shape on the way in; Codex's flattens
+   * with `toTomlEntries`. `registration` goes the other way: it produces the
+   * NATIVE shape, for the settings block a human pastes. Feeding this method a
+   * `registration` result is a type-level no-op and a run-time TypeError on
+   * the flat side — found by the property test below, which asserted it.
+   *
+   * `managedBy` is the canonical hook-source reference whose commands this
+   * merge owns; a compiled block whose commands do not mention it is APPENDED,
+   * not replaced, which is what keeps a user's own hooks intact.
+   *
    * On `HookProtocol` because it is the same SHAPE question `registration`
    * answers, from the other direction: the CC shape nests several commands
    * under one matcher (so the granularity has to be the command), the Codex
