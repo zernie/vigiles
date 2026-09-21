@@ -188,7 +188,17 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
       r.stdout,
       /Instructions: CLAUDE\.md \(hand-written, no spec\)/,
     );
-    assert.match(r.stdout, /no structural issues found/);
+    // 🔴 The sentence CHANGED with #240, and this fixture is the case it is about:
+    // a repo with an instruction file and zero skills/agents/commands. `no structural
+    // issues found` read as "I checked and it is clean" when nothing had been checked.
+    // Asserted in both directions — the honest sentence present, the misleading one
+    // gone — because a test that only looks for the new text would still pass if both
+    // were printed.
+    assert.match(
+      r.stdout,
+      /nothing to check — 0 skills, 0 agents, 0 commands were read/,
+    );
+    assert.doesNotMatch(r.stdout, /no structural issues found/);
   });
 
   it("Codex repo: detects codex, reports AGENTS.md + skill + TOML MCP", () => {
