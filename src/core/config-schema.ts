@@ -243,6 +243,34 @@ export const vigilesConfigSchema = z
     audit: z.object({ measure: z.boolean().optional() }).strict().optional(),
     eval: z.object({ apiVersion: z.number().optional() }).strict().optional(),
     nudge: z.literal("dismissed").optional(),
+    /**
+     * The editor's pointer at the published JSON Schema. Accepted, never read.
+     *
+     * 🔴 IT IS DECLARED HERE RATHER THAN EXCUSED IN THE UNKNOWN-KEY WALKER, and
+     * the reason is that the walker is only half the surface. `dist/vigilesrc.
+     * schema.json` is generated FROM this object by
+     * `scripts/build-config-schema.mjs`, with `additionalProperties: false`, so
+     * a key missing here is refused TWICE: once by the CLI, and once by the
+     * editor being pointed at the schema. Measured before this key existed, on
+     * `{"$schema": <the schema's own $id>, "harnesses": {"claude-code": {}}}`:
+     *
+     * ```
+     * $ vigiles audit . --no-interactive
+     * ✗ .vigilesrc.json: unknown key "$schema" in (top level). Known: …
+     * (exit 2)
+     * $ # and the same document against dist/vigilesrc.schema.json:
+     * additionalProperties: should NOT have additional properties ($schema)
+     * ```
+     *
+     * An exception in the walker would have fixed the first line and left the
+     * second — a red squiggle on the one line whose entire job is to turn the
+     * squiggles on. One declaration, both halves, because both derive from here.
+     *
+     * It is LAST in the shape on purpose: `knownKeysAt` reads this object to
+     * build the "Known: …" candidate list, which is capped, so a key nobody
+     * misspells belongs past the cap rather than at the head of the suggestion.
+     */
+    $schema: z.string().optional(),
   })
   .strict();
 

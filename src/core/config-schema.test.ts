@@ -63,6 +63,51 @@ test("an unknown key inside a harness declaration is refused", () => {
 });
 
 /**
+ * 🔴 `$schema` IS ACCEPTED, AND STRICTNESS IS STILL ON — the two halves of one
+ * fix, asserted together because either alone is a different bug.
+ *
+ * The first half is the defect: the tool publishes `dist/vigilesrc.schema.json`
+ * for editors, whose own `$id` is the unpkg URL a reader pastes, and the
+ * documented way to point a document at a JSON Schema — a `"$schema"` key —
+ * exited 2 with `unknown key "$schema"`. The second half is what stops the fix
+ * from being "turn strictness off": a key that really is unknown must still be
+ * refused, with its message intact.
+ */
+test("$schema is accepted and ignored, while a genuinely unknown key still fails", () => {
+  const withPointer = {
+    $schema: "https://unpkg.com/vigiles/dist/vigilesrc.schema.json",
+    harnesses: { "claude-code": { roots: [".ai"] } },
+  };
+  assert.deepEqual(problems(withPointer), []);
+  // Accepted, not acted on: the rest parses exactly as it would without it.
+  assert.deepEqual(vigilesConfigSchema.parse(withPointer).harnesses, {
+    "claude-code": { roots: [".ai"] },
+  });
+
+  // The other half. A neighbouring `$`-prefixed key is NOT excused, and neither
+  // is an ordinary typo — strictness is intact, exactly one key wider.
+  assert.deepEqual(problems({ $schemas: "x" }), [
+    '.vigilesrc.json: unknown key "$schemas" in (top level). Did you mean "$schema"?',
+  ]);
+  assert.deepEqual(problems({ harnessez: {} }), [
+    '.vigilesrc.json: unknown key "harnessez" in (top level). Did you mean "harnesses"?',
+  ]);
+});
+
+/**
+ * The candidate list is derived from the schema's shape, so adding a key to the
+ * shape edits every "Known: …" message. `$schema` is declared LAST for exactly
+ * that reason — it lands past the display cap, so a misspelling of a real key
+ * still gets the same twelve names it got before.
+ */
+test("declaring $schema does not push a real candidate out of the suggestion list", () => {
+  const far = problems({ zzzzzzzzzzzz: 1 });
+  assert.equal(far.length, 1);
+  assert.match(far[0], /Known: ruleMarkers, rules, files/);
+  assert.doesNotMatch(far[0], /\$schema/);
+});
+
+/**
  * ⚠️ THE HARNESS NAME IS NOT CHECKED HERE, and that is deliberate rather than a
  * gap. `resolveDeclaredHarnesses` resolves the key against the adapter registry
  * and throws the existing `Unknown harness "claud-code". Known: …` — a message
