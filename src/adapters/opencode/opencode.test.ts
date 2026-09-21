@@ -103,14 +103,29 @@ test("the loader reads a real OpenCode-shaped plugin through opencodeLayout", ()
       join(dir, ".opencode", "agent", "reviewer.md"),
       "---\nname: reviewer\ndescription: review code\n---\nReview.\n",
     );
+    mkdirSync(join(dir, ".opencode", "skill", "tidy"), { recursive: true });
+    writeFileSync(
+      join(dir, ".opencode", "skill", "tidy", "SKILL.md"),
+      "---\nname: tidy\ndescription: tidy things up\n---\nTidy.\n",
+    );
 
     const loaded = loadPlugin(dir, opencodeLayout);
 
     // instruction file picked up under its own name
     assert.ok(loaded.files["AGENTS.md"]);
-    // agent surface materialized at its real path (materializeRoot is "", so the
-    // `.opencode/agent/` segment is NOT doubled).
+    // agent surface materialized at its real path (the materialize prefix is
+    // "", so the `.opencode/agent/` segment is NOT doubled).
     assert.ok(loaded.files[join(".opencode", "agent", "reviewer.md")]);
+    // 🔴 AND THE SKILL, WHICH THIS LOADER READ AS ZERO UNTIL 2026-09-21. The
+    // layout named `.opencode/skill` in `skillDir` while `surfaceDirs` — the
+    // list every reader actually ranged over — held only the agent and command
+    // dirs, so an OpenCode repo's skills were invisible and the repo graded as
+    // having none. One record keyed by kind means there is no second list to
+    // fall behind; this asserts the behaviour, not just the descriptor.
+    assert.ok(
+      loaded.files[join(".opencode", "skill", "tidy", "SKILL.md")],
+      "OpenCode's skill surface is materialized — the A1 regression",
+    );
   } finally {
     cleanupTmpDir(dir);
   }
