@@ -178,7 +178,17 @@ export function loadConfig(
   const problems: string[] = [];
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const present = REPLACED_KEYS.filter((k) => k.key in raw);
-    if (present.length > 0) problems.push(replacedKeyMessage(present));
+    if (present.length > 0) {
+      // The names the user's OWN removed `harness` key held, so the worked
+      // example in the message shows their migration rather than a fixed pair
+      // of names spelled into the core. A non-string entry is dropped: this is
+      // a config we have already refused, so the message must survive garbage.
+      const legacy: unknown = (raw as Record<string, unknown>).harness;
+      const names = (
+        Array.isArray(legacy) ? legacy : legacy === undefined ? [] : [legacy]
+      ).filter((n): n is string => typeof n === "string" && n.length > 0);
+      problems.push(replacedKeyMessage(present, names));
+    }
   }
   if (problems.length === 0) {
     const parsed = vigilesConfigSchema.safeParse(raw);

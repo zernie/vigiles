@@ -73,12 +73,6 @@ import {
   materializePrefix,
   type PluginLayout,
 } from "./core/layout.js";
-// 🔴 Same finding as src/scan.ts: a module listed as a harness-agnostic detector
-// importing the Claude Code adapter for a DEFAULT. Invisible to both existing
-// fences — unclassified for `boundaries/dependencies`, and `\.claude` does not
-// match `/claude-code/`. The default belongs to the caller, not the detector.
-// eslint-disable-next-line local/no-harness-names -- see above
-import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import {
   countEvidence,
   declaredSurfaceName,
@@ -288,7 +282,13 @@ export interface TestCoverageOptions {
    * manifest/settings paths. Defaults to Claude Code; a non-CC adapter passes its
    * own so the surface globs and hook-token expansion aren't hard-coded.
    */
-  readonly layout?: PluginLayout;
+  /**
+   * The layout to discover surfaces under. REQUIRED: it used to default to the
+   * Claude Code layout, which meant this harness-agnostic detector imported an
+   * adapter, and a caller that forgot to pass one silently graded a Codex repo
+   * with Claude Code's directories.
+   */
+  readonly layout: PluginLayout;
 }
 
 // ---------------------------------------------------------------------------
@@ -677,10 +677,10 @@ function tierOf(
  * count made indistinguishable.
  */
 export function findUntestedSurfaces(
-  options: TestCoverageOptions = {},
+  options: TestCoverageOptions,
 ): UntestedReport {
   const basePath = options.basePath ?? process.cwd();
-  const layout = options.layout ?? claudeCodeLayout;
+  const { layout } = options;
   const ignore = [...DEFAULT_IGNORE, ...(options.exclude ?? [])];
   const globs = options.include ?? DEFAULT_TEST_GLOBS;
 
@@ -809,7 +809,7 @@ export function coverageEvidenceCounts(report: UntestedReport): EvidenceCounts {
  */
 export function skillTestNudge(
   filePath: string,
-  options: TestCoverageOptions = {},
+  options: TestCoverageOptions,
 ): string | null {
   let report: UntestedReport;
   try {

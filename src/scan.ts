@@ -20,19 +20,16 @@ import { basename, dirname, join, resolve } from "node:path";
 // Claude Code default), and only the generic one takes the `ExcludeSet` that
 // makes `.vigilesrc.json#exclude` reach surface discovery.
 import { loadPlugins } from "./plugin-loader.js";
-// 🔴 A FINDING, NOT A FORMALITY, and one nothing else in the repo could see: this
-// module is listed as a harness-agnostic detector, yet it imports the Claude Code
-// adapter to use as a DEFAULT (`scanPlugin`'s `dialect`/`layout` parameters, and
-// four more sites below). `boundaries/dependencies` does not catch it because it
-// deliberately leaves this file unclassified; the CC-literal rule does not catch
-// it because `\.claude` needs the dot and this path spells `/claude-code/`.
-// Keeping the CC default is the stated backwards-compatibility guarantee, so this
-// is real debt with a known shape — the default belongs to the CALLER (the CLI
-// already resolves an adapter), not to the detector.
-// eslint-disable-next-line local/no-harness-names -- see above
-import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
-// eslint-disable-next-line local/no-harness-names -- see above
-import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
+// 🔴 THIS MODULE NO LONGER IMPORTS AN ADAPTER, and that is the point of the
+// change rather than tidiness. It is listed as a harness-agnostic detector and
+// it used to import `claudeCodeLayout` + `claudeCodeDialect` to DEFAULT five
+// parameters with. Neither of the other two fences could see it —
+// `boundaries/dependencies` deliberately leaves this file unclassified, and the
+// CC-literal rule's `\.claude` needs the dot while this path spells
+// `/claude-code/` — so it took a third rule to find, and two per-line disables
+// to live with. The default belongs to the CALLER: the CLI already resolves an
+// adapter before every one of these calls, and passing it is what removes the
+// import rather than hiding it.
 import { danglingRefs } from "./plugin-loader.js";
 import { isEmptyMachine } from "./score-core.js";
 import { brokenSkillRefs, formatSkillRefIssue } from "./skill-refs.js";
@@ -612,8 +609,8 @@ export interface ScanHarness {
 /** Scan a plugin/repo directory and report its surfaces + structural issues. */
 export function scanPlugin(
   dir: string,
-  layout?: PluginLayout,
-  dialect: HarnessDialect = claudeCodeDialect,
+  layout: PluginLayout,
+  dialect: HarnessDialect,
   opts: {
     sharedDirs?: readonly string[];
     sharedDirsRoot?: string;
@@ -657,7 +654,7 @@ export function scanPlugin(
     harnesses?: readonly ScanHarness[];
   } = {},
 ): ScanReport {
-  const lay = layout ?? claudeCodeLayout;
+  const lay = layout;
   // The declared harnesses, or the single positional one — so every path below
   // is the multi-harness path and a one-entry list is not a second code path.
   const declared: readonly ScanHarness[] =
@@ -948,7 +945,7 @@ export interface MarketplaceInfo {
  */
 export function inspectMarketplace(
   dir: string,
-  layout: PluginLayout = claudeCodeLayout,
+  layout: PluginLayout,
 ): MarketplaceInfo | null {
   const mpPath = join(dir, dirname(layout.manifestPath), "marketplace.json");
   if (!existsSync(mpPath)) return null;
@@ -1001,7 +998,7 @@ export function inspectMarketplace(
  */
 export function expandMarketplace(
   dir: string,
-  layout: PluginLayout = claudeCodeLayout,
+  layout: PluginLayout,
 ): string[] | null {
   const mp = inspectMarketplace(dir, layout);
   return mp ? [...mp.onDisk] : null;

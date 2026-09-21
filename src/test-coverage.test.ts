@@ -101,7 +101,10 @@ test("surface discovery + hook-token are layout-driven (non-CC harness)", () => 
   );
 
   // The default Claude Code layout sees none of it (different dirs/token).
-  assert.equal(findUntestedSurfaces({ basePath: dir }).total, 0);
+  assert.equal(
+    findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir }).total,
+    0,
+  );
   cleanupTmpDir(dir);
 });
 
@@ -109,7 +112,7 @@ test("skill is covered by a colocated eval", () => {
   const dir = makeTmpDir("tc-coloc");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "skills/foo/foo.eval.mjs", "// trigger eval\n");
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.equal(r.untested.length, 0);
   assert.deepEqual(
     r.covered.map((s) => s.name),
@@ -124,7 +127,10 @@ test("loose skill under .claude/skills is covered by its colocated eval", () => 
   // even after the user added exactly the file the warning recommended.
   const dir = makeTmpDir("tc-dotdir");
   write(dir, ".claude/skills/foo/SKILL.md", skill("foo"));
-  const before = findUntestedSurfaces({ basePath: dir });
+  const before = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.equal(before.untested.length, 1, "skill is found and flagged first");
   assert.equal(
     suggestedTestPath(before.untested[0]),
@@ -133,7 +139,10 @@ test("loose skill under .claude/skills is covered by its colocated eval", () => 
 
   // Add exactly the suggested colocated eval — it must now count as covered.
   write(dir, ".claude/skills/foo/foo.eval.mjs", "// trigger eval\n");
-  const after = findUntestedSurfaces({ basePath: dir });
+  const after = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.equal(after.untested.length, 0);
   assert.deepEqual(
     after.covered.map((s) => s.name),
@@ -149,7 +158,7 @@ test("a test that only NAMES the skill does NOT cover it", () => {
   const dir = makeTmpDir("tc-ref");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "test/foo.eval.mjs", 'skillResolved(t, "myplugin:foo");\n');
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.deepEqual(
     r.untested.map((x) => x.name),
     ["foo"],
@@ -160,7 +169,7 @@ test("a test that only NAMES the skill does NOT cover it", () => {
 test("skill with no test is flagged", () => {
   const dir = makeTmpDir("tc-untested");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.equal(r.untested.length, 1);
   assert.equal(r.untested[0].name, "foo");
   cleanupTmpDir(dir);
@@ -173,7 +182,7 @@ test("a command-only (disable-model-invocation) skill is NOT exempt — it still
     "skills/cmd/SKILL.md",
     skill("cmd", "disable-model-invocation: true\n"),
   );
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   // Invocation mode no longer exempts anything: the command-only skill is held
   // to the requirement like any other and flagged when it has no test.
   assert.equal(r.total, 1);
@@ -190,7 +199,7 @@ test("vigiles:ignore-test marker is the only exemption (and is counted)", () => 
     "skills/foo/SKILL.md",
     skill("foo") + "\n<!-- vigiles:ignore-test -->\n",
   );
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.equal(r.total, 0); // nothing held to the requirement
   assert.equal(r.exempt, 1); // the explicit opt-out is visible, not silent
   assert.equal(r.untested.length, 0);
@@ -202,7 +211,7 @@ test("agent is covered by a name-prefixed sibling, flagged otherwise", () => {
   write(dir, "agents/planner.md", "---\nname: planner\n---\nbody\n");
   write(dir, "agents/reviewer.md", "---\nname: reviewer\n---\nbody\n");
   write(dir, "agents/planner.harness.mjs", "// planner test\n");
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.deepEqual(
     r.covered.map((s) => s.name),
     ["planner"],
@@ -256,7 +265,10 @@ test("a hook rooted at the PROJECT var is discovered — not just the PLUGIN var
       },
     }),
   );
-  const names = findUntestedSurfaces({ basePath: dir })
+  const names = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  })
     .untested.filter((x) => x.kind === "hook")
     .map((x) => x.path)
     .sort();
@@ -287,9 +299,10 @@ test("a hook rooted at the PROJECT var is discovered — not just the PLUGIN var
     }),
   );
   assert.deepEqual(
-    findUntestedSurfaces({ basePath: dir2 }).untested.filter(
-      (x) => x.kind === "hook",
-    ),
+    findUntestedSurfaces({
+      layout: claudeCodeLayout,
+      basePath: dir2,
+    }).untested.filter((x) => x.kind === "hook"),
     [],
   );
   cleanupTmpDir(dir);
@@ -388,6 +401,7 @@ test("`.eval.` in the MIDDLE of a name is not the paid tier — the runner would
   );
   write(dir, ".claude/skills/parser/parser.eval.test.ts", "// deterministic\n");
   const r = findUntestedSurfaces({
+    layout: claudeCodeLayout,
     basePath: dir,
     include: ["**/*.test.ts"],
   });
@@ -414,7 +428,7 @@ test("…and the money hazard the infix was guarding stays closed", () => {
     const dir = makeTmpDir(`cov-eval-paid-${ext}`);
     write(dir, ".claude/skills/p/SKILL.md", "---\nname: p\n---\nbody\n");
     write(dir, `.claude/skills/p/p.eval.${ext}`, "// paid\n");
-    const r = findUntestedSurfaces({ basePath: dir });
+    const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
     assert.deepEqual(
       r.evals.covered.map((s) => s.name),
       ["p"],
@@ -486,7 +500,7 @@ test("hook scripts are discovered from plugin.json and matched by path", () => {
   // naming a hook is not testing it. This is the exact shape by which the
   // detector's own suite used to grant coverage to these two hooks.
   write(dir, "src/hooks.test.ts", 'runHook("hooks/pre-edit.sh", {});\n');
-  let r = findUntestedSurfaces({ basePath: dir });
+  let r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.equal(r.total, 2);
   assert.deepEqual(r.untested.map((s) => s.name).sort(), [
     "post-edit",
@@ -495,7 +509,7 @@ test("hook scripts are discovered from plugin.json and matched by path", () => {
 
   // A hook is covered by a name-prefixed SIBLING — placement, not mention.
   write(dir, "hooks/pre-edit.harness.mjs", "assert.ok(true);\n");
-  r = findUntestedSurfaces({ basePath: dir });
+  r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.deepEqual(
     r.covered.map((s) => s.name),
     ["pre-edit"],
@@ -510,7 +524,11 @@ test("hook scripts are discovered from plugin.json and matched by path", () => {
 test("per-surface kind toggles disable scanning", () => {
   const dir = makeTmpDir("tc-toggle");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
-  const r = findUntestedSurfaces({ basePath: dir, skills: false });
+  const r = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+    skills: false,
+  });
   assert.equal(r.total, 0);
   cleanupTmpDir(dir);
 });
@@ -518,7 +536,10 @@ test("per-surface kind toggles disable scanning", () => {
 test("formatUntestedReport: clean vs flagged, suggestedTestPath", () => {
   const dir = makeTmpDir("tc-fmt");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
-  const flagged = findUntestedSurfaces({ basePath: dir });
+  const flagged = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   const text = formatUntestedReport(flagged);
   assert.ok(text.includes("1 surface(s) with no test"));
   assert.ok(text.includes("skills/foo/foo.eval.mjs"));
@@ -530,7 +551,10 @@ test("formatUntestedReport: clean vs flagged, suggestedTestPath", () => {
   );
 
   write(dir, "skills/foo/foo.eval.mjs", "// covered\n");
-  const clean = findUntestedSurfaces({ basePath: dir });
+  const clean = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.ok(formatUntestedReport(clean).startsWith("✓"));
   cleanupTmpDir(dir);
 });
@@ -541,7 +565,10 @@ test("discovers a bare SKILL.md AT the base (single-skill-dir target)", () => {
   // silently vanish for exactly that target.
   const dir = makeTmpDir("cov-solo");
   write(dir, "SKILL.md", "---\nname: solo\ndescription: x\n---\nbody\n");
-  const report = findUntestedSurfaces({ basePath: dir });
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   const found = report.untested.find((s) => s.kind === "skill");
   assert.ok(found, "the root SKILL.md is reported as an untested skill");
   assert.equal(found.path, "SKILL.md");
@@ -555,7 +582,10 @@ test("a root SKILL.md is COVERED by a colocated eval (single-skill-dir target)",
   const dir = makeTmpDir("cov-solo-eval");
   write(dir, "SKILL.md", "---\nname: solo\ndescription: x\n---\nbody\n");
   write(dir, "solo.eval.mjs", "// colocated eval\n");
-  const report = findUntestedSurfaces({ basePath: dir });
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.equal(
     report.untested.filter((s) => s.kind === "skill").length,
     0,
@@ -578,7 +608,7 @@ test("tiers split at discovery: a harness-only skill is NOT evaluated, and vice 
   write(dir, "skills/evaled/evaled.eval.mjs", "// real model\n");
   write(dir, "skills/bare/SKILL.md", skill("bare"));
 
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   const names = (ss: readonly { name: string }[]) =>
     ss.map((s) => s.name).sort();
 
@@ -609,7 +639,7 @@ test("a `*.test.ts` is NOT a vigiles test — it is the one name a foreign runne
   const dir = makeTmpDir("cov-tier-ts");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "skills/foo/foo.test.ts", 'import "./SKILL.md";\n');
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.deepEqual(
     r.untested.map((s) => s.name),
     ["foo"],
@@ -624,7 +654,7 @@ test("…and the same file renamed to `.harness.ts` DOES count — TypeScript is
   const dir = makeTmpDir("cov-tier-ts-ok");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "skills/foo/foo.harness.ts", "const n: number = 1;\n");
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.deepEqual(
     r.untested.map((s) => s.name),
     [],
@@ -650,7 +680,7 @@ test("🔴 `foo.eval.ts` is the PAID tier — the split is by infix, not by `.ev
   const dir = makeTmpDir("cov-eval-ts");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "skills/foo/foo.eval.ts", "const n: number = 1;\n");
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.deepEqual(
     r.evals.untested.map((s) => s.name),
     [],
@@ -672,7 +702,7 @@ test("a clean UNION still says when nothing has measured firing", () => {
   write(dir, "skills/a/SKILL.md", skill("a"));
   write(dir, "skills/a/a.harness.mjs", "// deterministic only\n");
   const harnessOnly = formatUntestedReport(
-    findUntestedSurfaces({ basePath: dir }),
+    findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir }),
   );
   assert.ok(harnessOnly.startsWith("✓"), harnessOnly);
   assert.ok(harnessOnly.includes("no `*.eval.mjs`"), harnessOnly);
@@ -680,7 +710,9 @@ test("a clean UNION still says when nothing has measured firing", () => {
 
   // Add the eval and the caveat disappears — a plain ✓, nothing left unasked.
   write(dir, "skills/a/a.eval.mjs", "// real model\n");
-  const both = formatUntestedReport(findUntestedSurfaces({ basePath: dir }));
+  const both = formatUntestedReport(
+    findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir }),
+  );
   assert.ok(both.startsWith("✓"), both);
   assert.ok(!both.includes("eval.mjs`"), both);
   cleanupTmpDir(dir);
@@ -691,7 +723,9 @@ test("formatUntestedReport names the two gaps SEPARATELY (no test/eval slash)", 
   write(dir, "skills/a/SKILL.md", skill("a"));
   write(dir, "skills/a/a.harness.mjs", "// deterministic only\n");
   write(dir, "skills/b/SKILL.md", skill("b"));
-  const text = formatUntestedReport(findUntestedSurfaces({ basePath: dir }));
+  const text = formatUntestedReport(
+    findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir }),
+  );
   // Only `b` is in the union list…
   assert.ok(text.includes("1 surface(s) with no test"));
   // …but the breakdown says 1 needs a harness and 2 need firing measured, with
@@ -728,7 +762,7 @@ test("a surface named ONLY in a comment is NOT covered (the one-line probe)", ()
       "",
     ].join("\n"),
   );
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.deepEqual(
     r.untested.map((s) => s.name),
     ["argument-arc"],
@@ -748,7 +782,7 @@ test("a declaration cannot confer coverage on a file that asserts nothing", () =
     "test/liar.harness.mjs",
     "// vigiles:covers skills/alpha, skills/beta\n",
   );
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.deepEqual(r.untested.map((x) => x.name).sort(), ["alpha", "beta"]);
   cleanupTmpDir(dir);
 });
@@ -763,7 +797,11 @@ test("coverage cannot be changed by editing text INSIDE a test file", () => {
     "test/foo.test.ts",
     'loadSkill("skills/foo"); // vigiles:covers skills/foo\n',
   );
-  assert.equal(findUntestedSurfaces({ basePath: dir }).untested.length, 1);
+  assert.equal(
+    findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir }).untested
+      .length,
+    1,
+  );
   cleanupTmpDir(dir);
 });
 
@@ -786,11 +824,18 @@ test("a runtime-path harness covers nothing until its tests are colocated", () =
       "",
     ].join("\n"),
   );
-  assert.equal(findUntestedSurfaces({ basePath: dir }).untested.length, 2);
+  assert.equal(
+    findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir }).untested
+      .length,
+    2,
+  );
 
   // Colocate one, and exactly one flips.
   write(dir, "skills/alpha/alpha.harness.mjs", "assert.ok(true);\n");
-  const after = findUntestedSurfaces({ basePath: dir });
+  const after = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.deepEqual(
     after.untested.map((x) => x.name),
     ["beta"],
@@ -807,7 +852,9 @@ test("provenance is reported, and says placement is not proof of a run", () => {
   const dir = makeTmpDir("cov-provenance");
   write(dir, "skills/covered/SKILL.md", skill("covered"));
   write(dir, "skills/covered/covered.eval.mjs", "assert.ok(true);\n");
-  const report = formatUntestedReport(findUntestedSurfaces({ basePath: dir }));
+  const report = formatUntestedReport(
+    findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir }),
+  );
   assert.match(report, /1 colocated/);
   // The remaining hole is NAMED in the output rather than left for the reader
   // to discover: an empty colocated file still counts.
@@ -824,7 +871,7 @@ test("an EMPTY colocated file still counts — the known, reported hole", () => 
   const dir = makeTmpDir("cov-empty");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "skills/foo/foo.eval.mjs", "");
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.equal(r.untested.length, 0);
   assert.deepEqual(coverageEvidenceCounts(r), {
     executed: 0,
@@ -847,7 +894,10 @@ test("an EMPTY colocated file still counts — the known, reported hole", () => 
 test("skillTestNudge: an untested skill gets a nudge that names the test-harness skill", () => {
   const dir = makeTmpDir("nudge-untested");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
-  const msg = skillTestNudge("skills/foo/SKILL.md", { basePath: dir });
+  const msg = skillTestNudge("skills/foo/SKILL.md", {
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.ok(msg, "an untested skill must produce a nudge");
   // The load-bearing property: it points at the vocabulary, not at the duty.
   assert.match(msg, /test-harness/);
@@ -866,7 +916,10 @@ test("skillTestNudge: a harness-covered skill is nudged about FIRING, not about 
   const dir = makeTmpDir("nudge-uneval");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "skills/foo/foo.harness.mjs", "// vigiles:covers skills/foo\n");
-  const msg = skillTestNudge("skills/foo/SKILL.md", { basePath: dir });
+  const msg = skillTestNudge("skills/foo/SKILL.md", {
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.ok(msg, "covered-but-never-evaluated must still nudge");
   assert.match(msg, /FIRES/);
   assert.match(msg, /measureTriggerRate/);
@@ -911,7 +964,13 @@ test("skillTestNudge: silent when the surface is covered on both tiers", () => {
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "skills/foo/foo.harness.mjs", "// vigiles:covers skills/foo\n");
   write(dir, "skills/foo/foo.eval.mjs", "// vigiles:covers skills/foo\n");
-  assert.equal(skillTestNudge("skills/foo/SKILL.md", { basePath: dir }), null);
+  assert.equal(
+    skillTestNudge("skills/foo/SKILL.md", {
+      layout: claudeCodeLayout,
+      basePath: dir,
+    }),
+    null,
+  );
   cleanupTmpDir(dir);
 });
 
@@ -919,10 +978,18 @@ test("skillTestNudge: silent for a file that is not a surface, and for another s
   const dir = makeTmpDir("nudge-other");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "README.md", "# not a surface\n");
-  assert.equal(skillTestNudge("README.md", { basePath: dir }), null);
+  assert.equal(
+    skillTestNudge("README.md", { layout: claudeCodeLayout, basePath: dir }),
+    null,
+  );
   // An absolute-ish path ending in the surface path still matches (the hook
   // passes a repo-relative path, but a caller may not).
-  assert.ok(skillTestNudge("/abs/repo/skills/foo/SKILL.md", { basePath: dir }));
+  assert.ok(
+    skillTestNudge("/abs/repo/skills/foo/SKILL.md", {
+      layout: claudeCodeLayout,
+      basePath: dir,
+    }),
+  );
   cleanupTmpDir(dir);
 });
 
@@ -945,7 +1012,10 @@ test("skillTestNudge: a harness-covered AGENT is nudged about its CONTRACT, not 
   const dir = makeTmpDir("nudge-agent-uneval");
   write(dir, "agents/bar.md", skill("bar"));
   write(dir, "agents/bar.harness.mjs", "// deterministic only\n");
-  const msg = skillTestNudge("agents/bar.md", { basePath: dir });
+  const msg = skillTestNudge("agents/bar.md", {
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.ok(msg, "covered-but-never-evaluated must still nudge an agent");
   // What it must NOT say — the skill's question, and the tool that cannot run.
   assert.doesNotMatch(msg, /actually FIRES/);
@@ -975,7 +1045,10 @@ test("skillTestNudge: the SKILL sentence is untouched — the fix is a branch, n
   const dir = makeTmpDir("nudge-skill-uneval-still");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "skills/foo/foo.harness.mjs", "// deterministic only\n");
-  const msg = skillTestNudge("skills/foo/SKILL.md", { basePath: dir });
+  const msg = skillTestNudge("skills/foo/SKILL.md", {
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.ok(msg);
   assert.match(msg, /actually FIRES/);
   assert.match(msg, /measureTriggerRate\(spec, \{ evalDriver \}\)/);
@@ -1002,12 +1075,18 @@ test("evalTierQuestion: total over SurfaceKind — a hook has no eval-tier quest
 test("skillTestNudge: an agent surface is covered too, and a broken scan is silent", () => {
   const dir = makeTmpDir("nudge-agent");
   write(dir, "agents/bar.md", skill("bar"));
-  const msg = skillTestNudge("agents/bar.md", { basePath: dir });
+  const msg = skillTestNudge("agents/bar.md", {
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.ok(msg);
   assert.match(msg, /bar\.harness\.mjs/); // agents suggest a harness, not an eval
   // A nonexistent base must not throw out of a PostToolUse hook.
   assert.equal(
-    skillTestNudge("skills/foo/SKILL.md", { basePath: join(dir, "nope") }),
+    skillTestNudge("skills/foo/SKILL.md", {
+      layout: claudeCodeLayout,
+      basePath: join(dir, "nope"),
+    }),
     null,
   );
   cleanupTmpDir(dir);
@@ -1031,7 +1110,10 @@ test("a test named after ANOTHER skill does not cover the one it sits with", () 
     ".claude/skills/orchestrator/grader-ablation.eval.mjs",
     "// about grader\n",
   );
-  const report = findUntestedSurfaces({ basePath: dir });
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   const untested = report.untested.map((s) => s.name).sort();
   assert.deepEqual(untested, ["grader", "orchestrator"]);
   cleanupTmpDir(dir);
@@ -1047,7 +1129,10 @@ test("…and its own, correctly named test still covers it", () => {
     ".claude/skills/orchestrator/orchestrator.eval.mjs",
     "// about orchestrator\n",
   );
-  const report = findUntestedSurfaces({ basePath: dir });
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.deepEqual(
     report.untested.map((s) => s.name),
     [],
@@ -1068,7 +1153,10 @@ test("a test in a SUBDIRECTORY is not colocated, however well named", () => {
   const dir = makeTmpDir("cov-nested");
   write(dir, ".claude/skills/foo/SKILL.md", skill("foo"));
   write(dir, ".claude/skills/foo/tests/foo.harness.mjs", "// about foo\n");
-  const report = findUntestedSurfaces({ basePath: dir });
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.deepEqual(
     report.untested.map((s) => s.name),
     ["foo"],
@@ -1090,7 +1178,10 @@ test("…and a bundled script's own unit test does not credit the skill either",
     ".claude/skills/verify-citations/scripts/verify-cites.test.mjs",
     "// pure reducer\n",
   );
-  const report = findUntestedSurfaces({ basePath: dir });
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.deepEqual(
     report.untested.map((s) => s.name),
     ["verify-citations"],
@@ -1105,7 +1196,10 @@ test("a single-skill target takes its identity from `name:`, not the checkout di
   const dir = makeTmpDir("cov-root-identity");
   write(dir, "SKILL.md", skill("solo"));
   write(dir, "solo.eval.mjs", "// about solo\n");
-  const report = findUntestedSurfaces({ basePath: dir });
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.deepEqual(
     report.untested.map((s) => s.name),
     [],
@@ -1127,7 +1221,10 @@ test("a test still carrying `vigiles:covers` is named, with what changed", () =>
     ".claude/skills/foo/foo.harness.mjs",
     "// vigiles:covers skills/foo\n",
   );
-  const report = findUntestedSurfaces({ basePath: dir });
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.deepEqual(report.legacyCoversFiles, [
     ".claude/skills/foo/foo.harness.mjs",
   ]);
@@ -1143,7 +1240,10 @@ test("…and a repo that never used the marker hears nothing about it", () => {
   const dir = makeTmpDir("cov-no-legacy");
   write(dir, ".claude/skills/foo/SKILL.md", skill("foo"));
   write(dir, ".claude/skills/foo/foo.harness.mjs", "// an ordinary test\n");
-  const report = findUntestedSurfaces({ basePath: dir });
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.deepEqual(report.legacyCoversFiles, []);
   assert.doesNotMatch(formatUntestedReport(report), /retired/);
   cleanupTmpDir(dir);
@@ -1210,12 +1310,19 @@ test("a recorded run covers a surface that has NO file named after it", () => {
   const body = skill("alpha");
   write(dir, "skills/alpha/SKILL.md", body);
   write(dir, "test/pipeline.harness.mjs", "// builds paths at runtime\n");
-  assert.equal(findUntestedSurfaces({ basePath: dir }).untested.length, 1);
+  assert.equal(
+    findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir }).untested
+      .length,
+    1,
+  );
 
   artifact(dir, [
     { path: "skills/alpha/SKILL.md", name: "alpha", sha: surfaceSha(body) },
   ]);
-  const after = findUntestedSurfaces({ basePath: dir });
+  const after = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.equal(after.untested.length, 0);
   assert.deepEqual(coverageEvidenceCounts(after), {
     executed: 1,
@@ -1236,7 +1343,7 @@ test("execution OUTRANKS colocation, and the report words them differently", () 
   artifact(dir, [
     { path: "skills/alpha/SKILL.md", name: "alpha", sha: surfaceSha(alpha) },
   ]);
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.deepEqual(coverageEvidenceCounts(r), {
     executed: 1,
     colocated: 1,
@@ -1261,7 +1368,7 @@ test("a run against OLDER text grants nothing, and says so out loud", () => {
       sha: surfaceSha("the text it had LAST week"),
     },
   ]);
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.equal(r.untested.length, 1, "a stale run is not coverage");
   assert.deepEqual(
     (r.staleRuns ?? []).map((s) => s.path),
@@ -1293,7 +1400,10 @@ test("a record whose HARNESS was deleted grants nothing — and that is the perm
     },
   ]);
   // The precondition, so the assertion below cannot pass by measuring nothing.
-  const before = findUntestedSurfaces({ basePath: dir });
+  const before = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.equal(before.untested.length, 0);
   assert.deepEqual(coverageEvidenceCounts(before), {
     executed: 1,
@@ -1303,7 +1413,10 @@ test("a record whose HARNESS was deleted grants nothing — and that is the perm
 
   // FIRES: exactly one change — the harness is gone.
   rmSync(join(dir, "test/pipeline.harness.mjs"));
-  const after = findUntestedSurfaces({ basePath: dir });
+  const after = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.equal(after.untested.length, 1, "nothing left in this tree ran it");
   assert.deepEqual(coverageEvidenceCounts(after), {
     executed: 0,
@@ -1334,7 +1447,7 @@ test("…and a RENAMED harness is the same case, because the old name never retu
   ]);
   rmSync(join(dir, "test/old-name.harness.mjs"));
   write(dir, "test/new-name.harness.mjs", "// same file, new name\n");
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.deepEqual(coverageEvidenceCounts(r), {
     executed: 0,
     colocated: 0,
@@ -1367,7 +1480,9 @@ test("…but a spelling of the SAME file still counts — presence, not string e
       },
     ]);
     assert.deepEqual(
-      coverageEvidenceCounts(findUntestedSurfaces({ basePath: dir })),
+      coverageEvidenceCounts(
+        findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir }),
+      ),
       { executed: 1, colocated: 0, configured: 0 },
       by,
     );
@@ -1384,7 +1499,7 @@ test("a stale run is reported even when the repo is at ZERO untested", () => {
   artifact(dir, [
     { path: "skills/alpha/SKILL.md", name: "alpha", sha: surfaceSha("older") },
   ]);
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.equal(r.untested.length, 0);
   assert.match(formatUntestedReport(r), /BEFORE their current/);
   cleanupTmpDir(dir);
@@ -1410,7 +1525,7 @@ test("a re-run refreshes the surface and the stale notice goes away", () => {
       by: "new.harness.mjs",
     },
   ]);
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.equal(r.untested.length, 0);
   assert.deepEqual(r.staleRuns, [], "a permanent notice is an ignored notice");
   assert.deepEqual(coverageEvidenceCounts(r), {
@@ -1435,7 +1550,7 @@ test("an executed HARNESS does not silence `firing was never measured`", () => {
       tier: "harness",
     },
   ]);
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.equal(r.harness.untested.length, 0);
   assert.equal(r.evals.untested.length, 1);
   assert.match(formatUntestedReport(r), /no `\*\.eval\.mjs`|never measured/);
@@ -1449,7 +1564,7 @@ test("NO artifact ⇒ byte-for-byte the old behaviour, including the report text
   write(dir, "skills/alpha/SKILL.md", skill("alpha"));
   write(dir, "skills/beta/SKILL.md", skill("beta"));
   write(dir, "skills/beta/beta.harness.mjs", "assert.ok(true);\n");
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.deepEqual(
     r.untested.map((s) => s.name),
     ["alpha"],
@@ -1471,7 +1586,7 @@ test("a run record for a surface nobody discovers changes nothing", () => {
   artifact(dir, [
     { path: "skills/deleted/SKILL.md", name: "deleted", sha: "whatever" },
   ]);
-  const r = findUntestedSurfaces({ basePath: dir });
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.equal(r.untested.length, 1);
   assert.deepEqual(r.staleRuns, []);
   cleanupTmpDir(dir);
@@ -1586,7 +1701,10 @@ test("fires end-to-end: on Node 20 with no tsx, the REPORT itself suggests `.mjs
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   asNode20(() => {
     assert.equal(canRunTypeScript(detectNodeCaps(dir)), false);
-    const report = findUntestedSurfaces({ basePath: dir });
+    const report = findUntestedSurfaces({
+      layout: claudeCodeLayout,
+      basePath: dir,
+    });
     assert.equal(report.testExt, "mjs");
     const [surface] = report.untested;
     assert.ok(surface, "the skill must be reported untested");
@@ -1602,7 +1720,10 @@ test("fires end-to-end: on Node 20 with no tsx, the REPORT itself suggests `.mjs
   // `.mjs` is correct there, so asserting `.ts` against the host tested the
   // runner rather than the gate.
   asNodeWithStripTypes(() => {
-    assert.equal(findUntestedSurfaces({ basePath: dir }).testExt, "ts");
+    assert.equal(
+      findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir }).testExt,
+      "ts",
+    );
   });
   cleanupTmpDir(dir);
 });
@@ -1614,7 +1735,11 @@ test("silent: THIS repo — a real TypeScript project that CAN run TS — still 
   // protecting the ones with no runner.
   const repoRoot = join(__dirname, "..");
   assert.equal(canRunTypeScript(detectNodeCaps(repoRoot)), true);
-  assert.equal(findUntestedSurfaces({ basePath: repoRoot }).testExt, "ts");
+  assert.equal(
+    findUntestedSurfaces({ layout: claudeCodeLayout, basePath: repoRoot })
+      .testExt,
+    "ts",
+  );
 });
 
 test("an EXPLICIT `testExtension: ts` survives with no runner — the field exists to disagree", () => {
@@ -1644,15 +1769,17 @@ test("coverageCaveats collects the qualifiers, and is empty when there are none"
     ".claude/skills/foo/foo.harness.mjs",
     "// vigiles:covers skills/foo\n",
   );
-  const withMarker = coverageCaveats(findUntestedSurfaces({ basePath: dirty }));
+  const withMarker = coverageCaveats(
+    findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dirty }),
+  );
   assert.equal(withMarker.length, 1);
   assert.match(withMarker[0] ?? "", /retired `vigiles:covers` marker/);
   // Everything the lint renderer shows about caveats comes from here.
   for (const line of withMarker)
     assert.ok(
-      formatUntestedReport(findUntestedSurfaces({ basePath: dirty })).includes(
-        line,
-      ),
+      formatUntestedReport(
+        findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dirty }),
+      ).includes(line),
     );
   cleanupTmpDir(dirty);
 
@@ -1660,7 +1787,9 @@ test("coverageCaveats collects the qualifiers, and is empty when there are none"
   write(clean, ".claude/skills/foo/SKILL.md", skill("foo"));
   write(clean, ".claude/skills/foo/foo.harness.mjs", "// an ordinary test\n");
   assert.deepEqual(
-    coverageCaveats(findUntestedSurfaces({ basePath: clean })),
+    coverageCaveats(
+      findUntestedSurfaces({ layout: claudeCodeLayout, basePath: clean }),
+    ),
     [],
   );
   cleanupTmpDir(clean);
@@ -1676,7 +1805,10 @@ test("a `<surface>.test.*` beside an UNTESTED surface is named, with the reason"
   const dir = makeTmpDir("cov-retired-suffix");
   write(dir, ".claude/skills/foo/SKILL.md", skill("foo"));
   write(dir, ".claude/skills/foo/foo.test.mjs", "// a skill test, misnamed\n");
-  const report = findUntestedSurfaces({ basePath: dir });
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   // Unchanged: the name grants no coverage. This is about SAYING so.
   assert.equal(report.untested.length, 1);
   assert.deepEqual(report.retiredTestNames, [
@@ -1696,7 +1828,10 @@ test("…and says nothing when the surface IS covered — a stray unit test is n
   write(dir, ".claude/skills/foo/SKILL.md", skill("foo"));
   write(dir, ".claude/skills/foo/foo.harness.mjs", "// the real one\n");
   write(dir, ".claude/skills/foo/foo.test.mjs", "// somebody's unit test\n");
-  const report = findUntestedSurfaces({ basePath: dir });
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.equal(report.untested.length, 0);
   assert.deepEqual(report.retiredTestNames, []);
   assert.deepEqual(coverageCaveats(report), []);
@@ -1710,7 +1845,10 @@ test("…and nothing at all in a repo with no such file", () => {
   // the suffix is the whole reason this finding exists, so it has to be load-bearing.
   write(dir, ".claude/skills/foo/foo.notes.md", "not a test\n");
   write(dir, ".claude/skills/foo/foo.test.fixture.json", "{}\n");
-  const report = findUntestedSurfaces({ basePath: dir });
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
   assert.equal(report.untested.length, 1);
   assert.deepEqual(report.retiredTestNames, []);
   assert.doesNotMatch(formatUntestedReport(report), /vitest\/jest/);
@@ -1742,10 +1880,14 @@ test("a {surface} testGlob credits a centralized test", () => {
       "prompts: []\n",
     );
 
-    const before = findUntestedSurfaces({ basePath: dir });
+    const before = findUntestedSurfaces({
+      layout: claudeCodeLayout,
+      basePath: dir,
+    });
     assert.equal(before.untested.length, 1, "uncovered without the glob");
 
     const after = findUntestedSurfaces({
+      layout: claudeCodeLayout,
       basePath: dir,
       include: ["tests/{surface}/evals/promptfooconfig*.yaml"],
     });
@@ -1776,6 +1918,7 @@ test("a {surface} glob credits ONLY the surface it names", () => {
     );
 
     const r = findUntestedSurfaces({
+      layout: claudeCodeLayout,
       basePath: dir,
       include: ["tests/{surface}/evals/promptfooconfig*.yaml"],
     });
@@ -1806,6 +1949,7 @@ test("a plain custom glob still credits NOTHING by itself", () => {
     );
 
     const r = findUntestedSurfaces({
+      layout: claudeCodeLayout,
       basePath: dir,
       include: ["tests/*/evals/promptfooconfig*.yaml"],
     });
@@ -1842,7 +1986,11 @@ test("colocation still wins, and is reported as colocation", () => {
       ["**/*.harness.mjs", "tests/{surface}/evals/promptfooconfig*.yaml"],
       ["tests/{surface}/evals/promptfooconfig*.yaml", "**/*.harness.mjs"],
     ]) {
-      const r = findUntestedSurfaces({ basePath: dir, include });
+      const r = findUntestedSurfaces({
+        layout: claudeCodeLayout,
+        basePath: dir,
+        include,
+      });
       assert.equal(r.untested.length, 0);
       assert.equal(
         r.decisions[0]?.evidence,

@@ -4629,8 +4629,13 @@ function untestedRules(config: VigilesConfig | undefined): {
   readonly severity: (kind: SurfaceKind) => RuleSeverity;
   /** True when at least one of the three rules is on. */
   readonly anyEnabled: boolean;
-  /** The detector options the config asks for (no basePath/layout — the caller's). */
-  readonly options: TestCoverageOptions;
+  /**
+   * The detector options the config asks for. `basePath` and `layout` are the
+   * CALLER's and are excluded from the type, not merely omitted by convention —
+   * `layout` became required on `TestCoverageOptions` when the detector stopped
+   * defaulting it to Claude Code's.
+   */
+  readonly options: Omit<TestCoverageOptions, "basePath" | "layout">;
 } {
   const rules = config?.rules;
   const skillSev = ruleSeverity(rules?.["untested-skill"]);
@@ -8234,8 +8239,18 @@ export async function main(): Promise<void> {
       const json = args.includes("--json");
       // A single dir that's a marketplace (e.g. wshobson/agents' 80+ plugins
       // under one marketplace.json) expands into its members and ranks them.
+      // The layout is passed rather than defaulted: `inspectMarketplace` reads
+      // `dirname(layout.manifestPath)`, which is a different directory per
+      // harness, and it used to fall back to the Claude Code layout inside the
+      // harness-agnostic detector. `harnessLayoutFor` is the same resolution
+      // the audit itself uses a few lines down.
       const market =
-        dirs.length === 1 ? inspectMarketplace(resolve(dirs[0])) : null;
+        dirs.length === 1
+          ? inspectMarketplace(
+              resolve(dirs[0]),
+              harnessLayoutFor(resolve(dirs[0]), config, harnessFlagFrom(args)),
+            )
+          : null;
       // A marketplace whose members are all EXTERNAL expands to nothing, and the
       // fallback below already says what to do about that: the target is the
       // directory itself.

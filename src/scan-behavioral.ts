@@ -36,6 +36,13 @@ import {
 import { skillResolved } from "./harness-assert.js";
 import { claudeAvailable, type Trace } from "./harness-test.js";
 import { loadPlugin } from "./adapters/claude-code/plugin-loader.js";
+// The Claude Code default for candidate DISCOVERY. This module is the
+// application layer (it drives a real harness binary and already imports the
+// Claude Code loader above), which is where a default belongs — `src/scan.ts`
+// and `src/test-coverage.ts` are the harness-agnostic detectors, and they no
+// longer carry one.
+import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
+import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { codexEvalDriver, codexSkillFired } from "./adapters/codex/eval.js";
 import { codexDriver } from "./adapters/codex/driver.js";
 import { makeTmpDir } from "./core/tmp-root.js";
@@ -235,9 +242,11 @@ export async function probePluginTriggersWith(
   // description-less ones can't, so they're not behavioral candidates. Discover
   // them with the resolved layout/dialect (default CC) so a Codex repo's skills
   // aren't missed by the wrong layout.
-  const candidates = scanPlugin(dir, opts.layout, opts.dialect).skills.filter(
-    (s) => !s.userInvoked && s.hasDescription,
-  );
+  const candidates = scanPlugin(
+    dir,
+    opts.layout ?? claudeCodeLayout,
+    opts.dialect ?? claudeCodeDialect,
+  ).skills.filter((s) => !s.userInvoked && s.hasDescription);
   const results: SkillTriggerResult[] = [];
   for (const s of candidates) {
     const ps = promptSet[s.name];
@@ -354,6 +363,11 @@ export interface SelectionOptions {
   readonly concurrency?: number;
   /** Which harness drives it (default `"claude-code"`; others report n/a). */
   readonly harness?: ProbeHarness;
+  /** Layout + dialect for candidate discovery, mirroring {@link ProbeOptions} —
+   *  so a Codex repo's skills are found under the Codex layout, not silently
+   *  missed by the Claude Code one. */
+  readonly layout?: PluginLayout;
+  readonly dialect?: HarnessDialect;
 }
 
 /** One run's outcome for the matrix: which of the plugin's OWN skills fired. */
@@ -505,9 +519,11 @@ export async function measurePluginSelectionWith(
   probe: HarnessProbe,
   opts: SelectionOptions = {},
 ): Promise<SelectionReport> {
-  const candidates = scanPlugin(dir).skills.filter(
-    (s) => !s.userInvoked && s.hasDescription,
-  );
+  const candidates = scanPlugin(
+    dir,
+    opts.layout ?? claudeCodeLayout,
+    opts.dialect ?? claudeCodeDialect,
+  ).skills.filter((s) => !s.userInvoked && s.hasDescription);
   const skills = candidates.map((c) => c.name);
   if (skills.length < 2) {
     return {
@@ -678,7 +694,11 @@ function resolveSelectionPrompts(
   return (
     opts.prompts ??
     autoTriggerPrompts(
-      scanPlugin(dir)
+      scanPlugin(
+        dir,
+        opts.layout ?? claudeCodeLayout,
+        opts.dialect ?? claudeCodeDialect,
+      )
         .skills.filter((s) => !s.userInvoked && s.hasDescription)
         .map((s) => ({ name: s.name, description: s.description ?? "" })),
     )
@@ -1029,7 +1049,11 @@ export async function measureGateAdversarial(
       note: "needs the claude CLI + model auth",
     };
   }
-  const skills = scanPlugin(dir, opts.layout, opts.dialect).skills;
+  const skills = scanPlugin(
+    dir,
+    opts.layout ?? claudeCodeLayout,
+    opts.dialect ?? claudeCodeDialect,
+  ).skills;
   const gateNames = new Set(detectGateSkills(skills));
   const gates: GateUnderTest[] = skills
     .filter((s) => gateNames.has(s.name))

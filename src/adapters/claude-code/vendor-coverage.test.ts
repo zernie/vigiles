@@ -39,6 +39,8 @@ import {
 import { runHook } from "../../run-hook.js";
 import { stubBinDir } from "../../tool-stub.js";
 import { scanPlugin } from "../../scan.js";
+import { claudeCodeLayout } from "./layout.js";
+import { claudeCodeDialect } from "./dialect.js";
 
 // __dirname is dist/adapters/claude-code at runtime; vendored plugins are at the
 // repo root. Matches the relative climb in vendor.test.ts.
@@ -94,7 +96,7 @@ test("OMC scan (R1): skills carry trigger descriptions; agents declare a tool co
   // each ship a description (the trigger surface a model-gated eval would then
   // measure); its code-reviewer/critic agents DO declare a contract (via
   // disallowedTools: Write, Edit), so they are NOT the inherits-all footgun.
-  const report = scanPlugin(omcRoot);
+  const report = scanPlugin(omcRoot, claudeCodeLayout, claudeCodeDialect);
 
   for (const s of report.skills) {
     assert.ok(
@@ -215,7 +217,7 @@ test("wshobson scan (R1): ui-visual-validator surfaces the inherits-all footgun"
   // missing rail; this asserts the SAME footgun on the scan REPORT surface (what a
   // `vigiles audit` user sees): the agent ships no `tools:` line, so its contract is
   // null = inherits EVERY tool, despite being a read-only visual validator.
-  const report = scanPlugin(wsRoot);
+  const report = scanPlugin(wsRoot, claudeCodeLayout, claudeCodeDialect);
   const agent = report.agents.find((a) => a.name === "ui-visual-validator");
   assert.ok(agent, "expected the ui-visual-validator agent");
   assert.equal(
@@ -228,7 +230,7 @@ test("wshobson scan (R1): ui-visual-validator surfaces the inherits-all footgun"
 test("wshobson scan (R1): WCAG skills carry trigger descriptions", () => {
   // The two audit skills each ship a description — the surface a model-gated
   // trigger-rate eval would measure. The cheap tier just confirms it's present.
-  const report = scanPlugin(wsRoot);
+  const report = scanPlugin(wsRoot, claudeCodeLayout, claudeCodeDialect);
   assert.ok(report.skills.length >= 2, "expected ≥ 2 accessibility skills");
   for (const s of report.skills) {
     assert.ok(

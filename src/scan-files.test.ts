@@ -30,6 +30,8 @@ import { scanPlugin, type ScanReport } from "./scan.js";
 import { scanFiles, BROWSER_ROOT } from "./scan-files.js";
 import { buildAuditReport } from "./audit-report.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
+import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 
 const OPTS = { harness: "claude-code", vigilesVersion: "9.9.9-parity-test" };
 
@@ -85,7 +87,7 @@ describe("scanFiles parity with scanPlugin (buildAuditReport byte-identical)", (
       // repo root, where the vendored plugins live.
       const abs = resolve(__dirname, "..", "test/dogfood", name);
 
-      const diskReport = scanPlugin(abs);
+      const diskReport = scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
       const map = readDirToMap(abs);
       const fileReport = scanFiles(map);
 
@@ -161,7 +163,7 @@ describe("scanFiles parity for a SINGLE-SKILL-AT-ROOT repo (the shape no vendore
       for (const [rel, body] of Object.entries(files))
         writeFileSync(join(abs, rel), body);
 
-      const diskReport = scanPlugin(abs);
+      const diskReport = scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
       const fileReport = scanFiles(
         readDirToMap(abs),
         undefined,
@@ -239,7 +241,7 @@ describe("scanFiles parity for NESTED agents (the shape no vendored fixture has)
       writeFileSync(join(abs, rel), body);
     }
 
-    const diskReport = scanPlugin(abs);
+    const diskReport = scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
     const fileReport = scanFiles(
       readDirToMap(abs),
       undefined,
@@ -267,7 +269,11 @@ describe("scanFiles parity for NESTED agents (the shape no vendored fixture has)
       writeFileSync(join(abs, rel), body);
     }
     const expected = ["review:deep:perf", "review:security", "top"];
-    expect(scanPlugin(abs).agents.map((a) => a.name)).toEqual(expected);
+    expect(
+      scanPlugin(abs, claudeCodeLayout, claudeCodeDialect).agents.map(
+        (a) => a.name,
+      ),
+    ).toEqual(expected);
     expect(
       scanFiles(
         readDirToMap(abs),
@@ -278,7 +284,12 @@ describe("scanFiles parity for NESTED agents (the shape no vendored fixture has)
     ).toEqual(expected);
     // The untested count is the half that runs through the two SEPARATE
     // coverage discoverers, so pin it too: three agents, no colocated tests.
-    expect(buildAuditReport(scanPlugin(abs), OPTS).inventory.untested).toBe(3);
+    expect(
+      buildAuditReport(
+        scanPlugin(abs, claudeCodeLayout, claudeCodeDialect),
+        OPTS,
+      ).inventory.untested,
+    ).toBe(3);
     expect(
       buildAuditReport(
         scanFiles(readDirToMap(abs), undefined, undefined, basename(abs)),
@@ -319,7 +330,7 @@ describe("scanFiles parity for a TWO-SCOPE repo (root skills/ AND .claude/skills
       mkdirSync(dirname(join(abs, rel)), { recursive: true });
       writeFileSync(join(abs, rel), body);
     }
-    const diskReport = scanPlugin(abs);
+    const diskReport = scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
     const fileReport = scanFiles(
       readDirToMap(abs),
       undefined,

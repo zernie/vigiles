@@ -37,6 +37,8 @@ import { spawnSync } from "node:child_process";
 
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 import { scanPlugin } from "./scan.js";
+import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
+import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 
 const REPO_ROOT = resolve(__dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
@@ -303,11 +305,17 @@ test("`vigiles audit` reports the conflicted config as a finding", () => {
   try {
     // Clean tree: the audit says nothing about merge conflicts.
     assert.equal(
-      scanPlugin(dir).warnings.some((w) => /merge-conflict/.test(w)),
+      scanPlugin(dir, claudeCodeLayout, claudeCodeDialect).warnings.some((w) =>
+        /merge-conflict/.test(w),
+      ),
       false,
     );
     writeFileSync(join(dir, "package.json"), CONFLICTED_PACKAGE_JSON);
-    const warnings = scanPlugin(dir).warnings;
+    const warnings = scanPlugin(
+      dir,
+      claudeCodeLayout,
+      claudeCodeDialect,
+    ).warnings;
     assert.ok(
       warnings.some((w) => w.startsWith("package.json") && /merge-conflict/.test(w)), // prettier-ignore
       `expected a package.json merge-conflict warning, got ${JSON.stringify(warnings)}`,

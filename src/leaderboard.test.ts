@@ -386,7 +386,7 @@ test("a real hooks-only plugin dir grades on its hooks, not as empty", () => {
       },
     }),
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   // The loader SEES them — that is what made the 0 read as a contradiction.
   assert.equal(r.inlineHooks, 2, "the hooks are detected");
   assert.equal(r.skills.length + r.agents.length + r.commands, 0);
@@ -567,7 +567,7 @@ test("rankPlugins labels a plugin by its manifest name, not the dir basename", (
 //
 // 🔴 Found by sweeping for the shape of two sibling bugs (2026-08-12). `vigiles
 // audit` on ONE target resolves the adapter and threads `adapter.layout` into
-// `scanPlugin`; the MULTI-target branch of the same command called `scanPlugin(dir)`
+// `scanPlugin`; the MULTI-target branch of the same command called `scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)`
 // bare. A Codex plugin scanned with the Claude Code layout has fewer discoverable
 // surfaces — nothing to describe badly, nothing to leave untested, nothing to
 // deduct — so it does not score badly. It scores BETTER, and sorts UP the board.

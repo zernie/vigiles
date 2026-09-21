@@ -229,8 +229,11 @@ export interface SelectionMatrixOptions extends SelectionOptions {
 // @public
 export interface SelectionOptions {
     readonly concurrency?: number;
+    // (undocumented)
+    readonly dialect?: HarnessDialect;
     readonly effort?: string | number;
     readonly harness?: ProbeHarness;
+    readonly layout?: PluginLayout;
     readonly model?: string;
     readonly trials?: number;
 }

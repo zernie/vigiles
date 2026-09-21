@@ -12,6 +12,8 @@ import { brokenSkillRefs, formatSkillRefIssue } from "./skill-refs.js";
 import { scanPlugin } from "./scan.js";
 import { scanFiles } from "./scan-files.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
+import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 
 const s = (name: string, content: string) => ({
   name,
@@ -120,7 +122,9 @@ test("skill→skill refs are found in a `skills/` plugin, not just under `.claud
       mkdirSync(join(dir, root, "verify-citations"), { recursive: true });
       writeFileSync(join(dir, root, "find-venue", "SKILL.md"), REF_A);
       writeFileSync(join(dir, root, "verify-citations", "SKILL.md"), REF_B);
-      const issues = scanPlugin(dir).skillRefIssues ?? [];
+      const issues =
+        scanPlugin(dir, claudeCodeLayout, claudeCodeDialect).skillRefIssues ??
+        [];
       assert.equal(issues.length, 2, `${root}: expected both refs reported`);
       // The message names a file the reader can open — the REAL path, not the
       // synthetic key the lookup is done by.

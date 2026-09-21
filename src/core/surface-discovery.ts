@@ -495,6 +495,14 @@ export function unclaimedSurfaceFindings(
       claimers.push((path) =>
         declaredRootClaims(scope.layout, scope.roots, path),
       );
+  // The worked EXAMPLE config below names a harness, and it used to name a
+  // FIXED one — `claude-code`, spelled into the core, in a diagnostic shown to
+  // a repo that may target something else entirely. `layouts` was already in
+  // scope and already knew which harness the audit ran under; the example now
+  // reads the name off it. Empty `layouts` yields a placeholder rather than an
+  // invented name: an example that cannot be copied is better than one that
+  // names the wrong harness.
+  const exampleHarness = layouts[0]?.name ?? "<harness>";
   return unclaimedDirs(
     unclaimedSurfaces(discoverSurfaces(paths), claimers),
   ).map((d) => ({
@@ -502,11 +510,7 @@ export function unclaimedSurfaceFindings(
     message:
       `${d.dir}/ holds ${plural(d.kind, d.count)} that no harness vigiles knows about reads, ` +
       `so none of it is in this grade. Three ways out: keep it where it is and say so in ` +
-      // A worked EXAMPLE config in a diagnostic, and real debt: it names a
-      // harness the repo being audited may not even target, while `layouts` is
-      // already in scope here and knows which one it does.
-      // eslint-disable-next-line local/no-harness-names -- example config text
-      `.vigilesrc.json (\`{"harnesses":{"claude-code":{"roots":["${d.root === "" ? "." : d.root}"]}}}\` ` +
+      `.vigilesrc.json (\`{"harnesses":{"${exampleHarness}":{"roots":["${d.root === "" ? "." : d.root}"]}}}\` ` +
       `— see docs/configuration.md), audit it on its own ` +
       `(\`vigiles audit ${d.root === "" ? "." : d.root}\`), or move it somewhere a harness ` +
       `loads from (${knownHomes(layouts, d.kind)

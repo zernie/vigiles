@@ -326,18 +326,32 @@ export const REPLACED_KEYS: ReadonlyArray<{
   },
 ];
 
-/** The message a config written in the replaced shape gets. */
+/**
+ * The message a config written in the replaced shape gets.
+ *
+ * `names` are the harnesses the user's OWN config named under the removed
+ * `harness` key, so the worked example below shows THEIR migration.
+ *
+ * 🔴 IT USED TO BE A FIXED EXAMPLE — `{ "harnesses": { "claude-code": …,
+ * "codex": {} } }`, two names typed into the core. Its own comment called that
+ * debt and predicted the failure: "with a third adapter this sample goes
+ * stale". Reading the names from the config being migrated is better than
+ * reading them from the registry would have been, and it is available here:
+ * it shows the reader their own keys instead of somebody else's.
+ */
 export function replacedKeyMessage(
   present: ReadonlyArray<(typeof REPLACED_KEYS)[number]>,
+  names: readonly string[],
 ): string {
+  // Empty when the config used only `surfaceRoots`, or named no harness — a
+  // placeholder the reader will obviously replace, never an invented name.
+  const example = (names.length > 0 ? names : ["<harness>"])
+    .map((n, i) => `"${n}": ${i === 0 ? '{ "roots": [".ai"] }' : "{}"}`)
+    .join(", ");
   return (
     `.vigilesrc.json: ${present.map((k) => `"${k.key}"`).join(" and ")} ` +
     `${present.length === 1 ? "was" : "were"} replaced by one nested key, "harnesses".\n` +
-    // A worked EXAMPLE config in a diagnostic, and real debt: with a third
-    // adapter this sample goes stale, so it wants rendering from the adapter
-    // registry rather than two names typed out here.
-    // eslint-disable-next-line local/no-harness-names -- example config text
-    `  Write:  { "harnesses": { "claude-code": { "roots": [".ai"] }, "codex": {} } }\n` +
+    `  Write:  { "harnesses": { ${example} } }\n` +
     present.map((k) => `  - ${k.was}  →  ${k.now}`).join("\n") +
     `\n  The old harness ARRAY's order silently decided what got read: one order graded the ` +
     `skills and read no instruction file, the other read the instruction file and found no ` +
