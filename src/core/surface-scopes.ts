@@ -50,7 +50,7 @@ export interface SurfaceScope {
   readonly label: string;
   /**
    * This scope exists only because the REPO OWNER named its base in
-   * `.vigilesrc.json#surfaceRoots` — it is not a location the harness itself
+   * `.vigilesrc.json#harnesses["<name>"].roots` — it is not a location the harness itself
    * reads. Marked so {@link multiScopeWarning} can stay about the ambiguity it
    * describes (plugin-vs-project, both of which a real session loads) instead of
    * claiming the harness loads a declared root too.
@@ -89,7 +89,9 @@ export interface SurfaceProbe {
 }
 
 /**
- * The repo owner's `.vigilesrc.json#surfaceRoots`, normalized — or dropped.
+ * The repo owner's `.vigilesrc.json#harnesses["<name>"].roots`, normalized — or
+ * dropped. (The flat top-level `surfaceRoots` key this once read was removed in
+ * the same change that nested it under a harness name.)
  *
  * A DECLARATION BY THE REPO OWNER, never by an adapter: the rejected option B
  * let each harness declare roots, which inverts the dependency (registering a

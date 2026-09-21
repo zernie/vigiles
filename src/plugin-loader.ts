@@ -234,9 +234,13 @@ function readTree(
  * sandbox, and `warnings` for surfaces the deterministic tier can't drive. Merge
  * `settings` with any inline settings and spread `files` into the fixture.
  *
- * `surfaceRoots` is the repo owner's `.vigilesrc.json#surfaceRoots` — extra
- * repo-relative bases to read `<base>/<surfaceDir>/…` from, for a repo that
- * keeps its skills somewhere no harness reads. `excludes` still wins over it:
+ * `surfaceRoots` is this function's parameter name for what the repo owner
+ * writes as `.vigilesrc.json#harnesses["<name>"].roots` — extra repo-relative
+ * bases to read `<base>/<surfaceDir>/…` from, for a repo that keeps its skills
+ * somewhere no harness reads by default. The config key is nested UNDER a
+ * harness name precisely so a root cannot be declared without saying whose
+ * layout reads it; this parameter receives one harness's slice of that, which
+ * is why it is still a bare list here. `excludes` still wins over it:
  * both the per-tree check in {@link materializeSurfaces} and `readTree` drop an
  * excluded path whatever declared it, so a root that is declared AND excluded is
  * read exactly as if it had never been declared.
