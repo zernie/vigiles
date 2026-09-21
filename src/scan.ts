@@ -1175,6 +1175,22 @@ function instructionWeightLines(w: InstructionWeight): string[] {
           `  + ${String(w.unweighedPatterns.length)} pattern(s) not weighed: ${w.unweighedPatterns.join(", ")}`,
         ]
       : []),
+    // 🔴 THE NUMBER IS A FLOOR, AND SAYING SO IS THE WHOLE FIX. Both vendors
+    // load instruction files from OUTSIDE the repository ALONGSIDE the ones
+    // counted here — a home-directory file and an organization's managed one.
+    // The Claude Code page is explicit that those "don't count, and keep
+    // loading alongside `AGENTS.md`": they are ADDED to this sum in a real
+    // session, they are never subtracted from it.
+    //
+    // READING THEM WOULD BE THE WRONG FIX, not a better one. A grade that
+    // reached into `~` would depend on whose machine ran it, and the browser
+    // twin — which reads a GitHub tree — could never reproduce it; that is the
+    // same argument `scope: "local"` rests on, one directory further out. So
+    // the fix is this line: a total that silently omits files it KNOWS exist is
+    // the undecomposable number this whole report exists to prevent, and one
+    // line costs nothing and cannot be wrong. Unconditional, because the
+    // omission does not depend on anything in the repository.
+    `  ⌊ a FLOOR: a home-directory or organization-managed instruction file loads on top of this and is outside a repository audit`,
   ];
   if (w.overBy === null)
     return [head, ...redirectLines, ...importedLines, ...tail];

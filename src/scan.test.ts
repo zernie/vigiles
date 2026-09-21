@@ -2587,6 +2587,42 @@ test("weight: an ordinary instruction file is NOT called a redirect", () => {
   }
 });
 
+test("weight: the printed total SAYS it is a floor — and says nothing when there is no total", () => {
+  // 🔴 WHAT THE NUMBER LEAVES OUT, NAMED WHERE THE NUMBER IS PRINTED. Vendor,
+  // on the files beside an `AGENTS.md`: "Don't count, and keep loading
+  // alongside `AGENTS.md`: your `~/.claude/CLAUDE.md`, your organization's
+  // managed `CLAUDE.md`…". They are ADDED to what a real session loads, and
+  // they are outside a repository audit by construction — reading `~` for a
+  // grade would make the figure depend on whose machine ran it, and the browser
+  // twin could never reproduce it. So the fix is the sentence, not the read;
+  // without it the sum reads as complete.
+  const dir = makeTmpDir();
+  try {
+    writeFileSync(join(dir, "CLAUDE.md"), "a".repeat(10));
+    assert.match(
+      formatScanReport(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
+      /a FLOOR: a home-directory or organization-managed instruction file/,
+    );
+  } finally {
+    cleanupTmpDir(dir);
+  }
+
+  // THE OTHER HALF: a harness that declares no budget reports no weight at all,
+  // and a caveat printed with no number to qualify is noise.
+  const bare = makeTmpDir();
+  try {
+    writeFileSync(join(bare, "CLAUDE.md"), "a".repeat(10));
+    const r = scanPlugin(bare, claudeCodeLayout, {
+      ...claudeCodeDialect,
+      instructionBudget: undefined,
+    });
+    assert.equal(r.instructionWeight, null);
+    assert.doesNotMatch(formatScanReport(r), /a FLOOR/);
+  } finally {
+    cleanupTmpDir(bare);
+  }
+});
+
 test("weight: .claude/rules counts toward the Claude Code sum, docs/ does not", () => {
   const dir = makeTmpDir();
   try {
