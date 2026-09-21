@@ -108,6 +108,17 @@
  *
  * ⚠️ 3. A SUBDIRECTORY `AGENTS.md` IS ON DEMAND, and gets the treatment a
  * `paths:`-scoped rule gets, for the same reason — see {@link takeSubdirectories}.
+ * The vendor's extra condition on it ("that subdirectory has none of the three
+ * `CLAUDE.md` files of its own") is NOT modelled, and the measurement saying
+ * why it cannot be, from the map either engine builds, is at that function.
+ *
+ * ⏳ 4. TWO QUESTIONS THE VENDOR HAS NOT ANSWERED ARE HELD OPEN RATHER THAN
+ * GUESSED, each stated where it bites: whether a `CLAUDE.md` removed by
+ * `claudeMdExcludes` still counts for the presence check ({@link supersederOf}),
+ * and whether an explicit `@` token naming one of the "Not read" files is
+ * expanded ({@link isNeverRead}). Both are settled by ONE observation, and the
+ * vendor names the instrument: the `AGENTS.md loaded` line an interactive
+ * session prints, or an `InstructionsLoaded` hook transcript.
  */
 /**
  * 🔴 `minimatch` IS REQUIRED LAZILY, FOR THE REASON `core/markdown.ts` AND
@@ -169,6 +180,41 @@ const AGENTS_FILE = "AGENTS.md";
 const AGENTS_DIR = ".agents";
 
 /**
+ * The two cross-tool per-machine siblings, DERIVED through the one
+ * `siblingNamed` spelling rather than written out: Claude Code names its
+ * per-machine file with `local`, Codex with `override`, and both spellings of
+ * the `AGENTS.md` family are gitignored by convention.
+ *
+ * 🔴 USED FOR TWO DIFFERENT THINGS, and that is the point of it being a set
+ * rather than two comparisons inside {@link isNeverRead}. It answers "does this
+ * harness ever go looking for this name" (no), and it answers "is this file one
+ * machine's" — which is what {@link takeImportsOf} needs, because an imported
+ * file inherits the IMPORTER's scope, and a committed `AGENTS.md` importing
+ * `@AGENTS.local.md` would otherwise put a gitignored file into a published
+ * `committedTotal`. That is the very defect {@link InstructionScope} exists to
+ * prevent: the browser twin reads a GitHub tree and can never see the file.
+ *
+ * ⚠️ THE SECOND USE IS A CONVENTION, NOT A VENDOR RULE, and it is the SAME
+ * convention this module already applies to `CLAUDE.local.md` by name — the
+ * `.local.` / `.override.` infix means "one machine's", for both vendors. So
+ * this is the cross-tool family catching up with the rule its twin already
+ * follows, not a new one. What it costs if the convention is wrong in some
+ * repository — a committed `AGENTS.local.md` — is that the file leaves
+ * `committedTotal`; it stays in `effectiveTotal` and on its own breakdown row,
+ * so it is moved rather than dropped. Identical to the cost already accepted
+ * for `CLAUDE.local.md`.
+ */
+const CROSS_TOOL_LOCAL_LEAVES: ReadonlySet<string> = new Set([
+  siblingNamed(AGENTS_FILE, "local"),
+  siblingNamed(AGENTS_FILE, "override"),
+]);
+
+/** Is this path one machine's file by NAME — `X.local.md` / `X.override.md`? */
+function isPerMachineName(path: string): boolean {
+  return CROSS_TOOL_LOCAL_LEAVES.has(path.slice(path.lastIndexOf("/") + 1));
+}
+
+/**
  * Cross-tool instruction files Claude Code NEVER reads, at any depth. Vendor:
  *
  * > **Not read**: `AGENTS.local.md`, `AGENTS.override.md`, or anything under a
@@ -183,9 +229,10 @@ const AGENTS_DIR = ".agents";
  * REASON would be a confident wrong answer about a file the harness will never
  * open. That is the class this whole module exists to remove.
  *
- * The two sibling names are DERIVED through the one `siblingNamed` spelling
- * rather than written out, for the reason {@link localSiblingOf} is derived: a
- * second literal is a second thing to keep in step.
+ * The two sibling names come from {@link CROSS_TOOL_LOCAL_LEAVES}, which
+ * derives them through the one `siblingNamed` spelling rather than writing them
+ * out, for the reason {@link localSiblingOf} is derived: a second literal is a
+ * second thing to keep in step.
  *
  * ⚠️ WHAT THIS DOES NOT DO, stated rather than discovered later: a file it
  * refuses is named by NOTHING — it appears in neither `loaded` nor `unloaded`.
@@ -193,14 +240,38 @@ const AGENTS_DIR = ".agents";
  * inventing one for a single vendor sentence would put a branch into every
  * consumer of the union for a file that weighs nothing. Silence here is the
  * same answer the bound already gives every non-instruction file.
+ *
+ * ⏳ AND AN EXPLICIT `@` TOKEN NAMING ONE OF THESE FILES IS AN OPEN QUESTION,
+ * raised by the corpus rather than imagined: of the three real imports in the
+ * 214-file `AGENTS.md` sample (`core/instruction-chain.ts#resolveImports`), ONE
+ * is `@AGENTS.local.md` — a name this predicate refuses, written on purpose by
+ * the file beside it. The vendor's two sentences are peers in one bulleted
+ * list and neither qualifies the other:
+ *
+ * > **Inside each `AGENTS.md`**: `@path` imports are expanded …
+ * > **Not read**: `AGENTS.local.md`, `AGENTS.override.md`, or anything under a
+ * > `.agents/` directory
+ *
+ * Read as DISCOVERY, the second says where the loader goes looking and the
+ * token still loads the file. Read FLATLY, the name is never opened at all and
+ * the token resolves to nothing. {@link takeImportsOf} does not consult this
+ * predicate, so today the token IS honoured — but that is the behaviour that
+ * was already there, not a verdict reached here, and it is left alone rather
+ * than changed on a coin-flip. Settled by the same instrument as the exclusion
+ * question at {@link supersederOf}: one session, the documented `AGENTS.md
+ * loaded` line, or an `InstructionsLoaded` hook transcript.
+ *
+ * 🔴 WHAT IS DECIDED, BECAUSE IT IS RIGHT UNDER BOTH READINGS, is the SCOPE
+ * such a file gets if it is counted at all — see {@link isPerMachineName} and
+ * {@link takeImportsOf}. Under the flat reading the file is never taken and
+ * that code is simply unreachable; under the discovery reading it is taken, and
+ * scoring a `.local.` file as `repo` would put a gitignored file into a
+ * published `committedTotal`. Neither answer to the open question makes `repo`
+ * correct, which is what makes this one safe to take now.
  */
 function isNeverRead(path: string): boolean {
   const leaf = path.slice(path.lastIndexOf("/") + 1);
-  return (
-    path.startsWith(`${AGENTS_DIR}/`) ||
-    leaf === siblingNamed(AGENTS_FILE, "local") ||
-    leaf === siblingNamed(AGENTS_FILE, "override")
-  );
+  return path.startsWith(`${AGENTS_DIR}/`) || CROSS_TOOL_LOCAL_LEAVES.has(leaf);
 }
 
 /**
@@ -419,13 +490,39 @@ function takeRules(b: Building, ruleRe: RegExp): void {
  * the single number this feature exists to report, which is the over-report
  * `alwaysLoaded` shipped.
  *
- * ⚠️ WHAT IS NOT MODELLED, and it is a CONDITION rather than a file: the vendor
- * adds "and that subdirectory has none of the three `CLAUDE.md` files of its
- * own", so a nested `AGENTS.md` beside a nested `CLAUDE.md` is never read at
- * all rather than read on demand. Both answers keep it out of the weight, so
- * the number is the same either way; the REASON printed would differ. Deciding
- * it would mean running the supersede test per directory over a map the bound
- * never enumerates, so it is declared instead of guessed.
+ * 🔴 THE VENDOR'S EXTRA CONDITION IS NOT MODELLED, AND THE REASON IS A
+ * MEASUREMENT RATHER THAN A PREFERENCE. "…when Claude opens a file there with
+ * the Read tool AND THAT SUBDIRECTORY HAS NONE OF THE THREE `CLAUDE.md` FILES
+ * OF ITS OWN": with one of them beside it, a nested `AGENTS.md` is never read
+ * at all rather than read on demand. Both answers weigh zero, so the only thing
+ * at stake is the printed REASON — which is worth getting right, since "same
+ * number, confident wrong reason" is the class {@link isNeverRead} exists for.
+ *
+ * ⚠️ IT CANNOT BE ANSWERED FROM THE MAP THIS METHOD IS HANDED. Measured over
+ * both engines, which are the only two callers: `boundedInstructionFiles`
+ * (`surface-discovery-fs.ts`) and the browser twin (`scan-files.ts:700`) each
+ * build the map as `instructionCandidatePaths(...)` UNION the paths the imports
+ * pass resolved — nothing else. `instructionCandidatePaths` keeps
+ * `^[^/]+\\.md$` and `^\\.[^/]+\\/[^/]+\\.md$`, so NO `<dir>/…` path is ever a
+ * candidate. A subdirectory `AGENTS.md` therefore reaches this loop only
+ * because something IMPORTED it, and its sibling `<dir>/CLAUDE.md` is in the
+ * map only if something imported that too. Absence of the sibling carries no
+ * information at all, so a supersede verdict built on it would be a guess
+ * wearing a vendor quote.
+ *
+ * 🔴 AND WIDENING THE BOUND TO GET IT WOULD BE THE WRONG TRADE. The bound is
+ * what stops registering an adapter from widening the read in someone else's
+ * repository — the construction this whole port rests on. Enumerating every
+ * directory's `CLAUDE.md` family to decide a printed reason on a file that
+ * weighs nothing spends the load-bearing thing on a cosmetic one. So the
+ * condition is declared here, unmodelled, and the file keeps the honest
+ * "on-demand": it says what this chain knows, not what the loader would do.
+ *
+ * ⏳ WHAT WOULD CLOSE IT: a caller that legitimately holds a per-directory map —
+ * a future `vigiles audit <subpackage>` run, where that directory IS the
+ * working directory and its files are in the bound by construction. Then the
+ * question is the ROOT question, already answered by {@link supersederOf}, and
+ * no widening is needed.
  *
  * `reserved` holds the paths this chain owns at the root level. Without it, a
  * `.claude/AGENTS.md` that the supersede pass has not yet classified would be
@@ -471,12 +568,42 @@ interface Superseder {
  * EXIST; treating an excluded one as absent would be a paraphrase of it, and we
  * do not paraphrase a vendor rule to reach a nicer answer.
  *
- * ⚠️ SO THIS IS AN OPEN QUESTION, NOT A SETTLED ONE: in a repo that excludes its
- * own `CLAUDE.md` and ships an `AGENTS.md`, we say the `AGENTS.md` is
- * superseded, and the real loader may well read it. That direction UNDER-reports
- * — the wrong direction by this module's own policy — and it is taken anyway
- * because the alternative is inventing a rule the vendor has not written. It is
- * closed by OBSERVING a session with both files, not by re-reading the page.
+ * ⚠️ SO THIS IS AN OPEN QUESTION, AND IT STAYS OPEN ON PURPOSE. In a repo that
+ * excludes its own `CLAUDE.md` and ships an `AGENTS.md`, we say the `AGENTS.md`
+ * is superseded, and the real loader may well read it. That direction
+ * UNDER-reports — the wrong direction by this module's own policy — so the
+ * temptation is to flip it and call the flip safe. Both options, and what each
+ * costs, so the next reader inherits the question instead of re-deriving it:
+ *
+ *   READ THE MAP (what this does). Matches the vendor's wording, which is about
+ *   files you HAVE. Costs: if the loader honours the exclusion, an `AGENTS.md`
+ *   that really loads is reported at zero — an under-report, which reads as
+ *   "you are fine".
+ *
+ *   APPLY `isExcluded` HERE. Costs: if the loader does NOT honour it, we count
+ *   a file nobody loads — an over-report, the direction the version gate and
+ *   the unapplied-pattern rule above already take. It is also a composition of
+ *   two vendor rules that the vendor has not composed, which is exactly the
+ *   paraphrase this module refuses everywhere else.
+ *
+ * NEITHER IS FORCED BY EVIDENCE, and the page was re-read on 2026-09-21 to be
+ * sure: the `claudeMdExcludes` section says only that "patterns are matched
+ * against absolute file paths using glob syntax" and that the setting works at
+ * "user, project, local, or managed policy" layers; the three-row table and the
+ * "My AGENTS.md isn't loading" checklist are both phrased as presence ("look
+ * for a `CLAUDE.md`… if you find one"). Neither mentions the other. So this is
+ * the owner's call, not a refactor.
+ *
+ * ⏳ WHAT WOULD SETTLE IT, and the page names the instrument rather than leaving
+ * it to taste: start an interactive session in a repo holding an `AGENTS.md`, a
+ * `CLAUDE.md`, and a `claudeMdExcludes` pattern matching that `CLAUDE.md`, then
+ * look for the line the vendor documents — "you see a line such as `no
+ * CLAUDE.md found; AGENTS.md loaded: /home/you/repo/AGENTS.md`". Its presence
+ * settles it one way, its absence the other. `/context` will NOT answer:
+ * "`AGENTS.md` doesn't appear in `/memory` or `/context` when Claude reads it
+ * directly." The `InstructionsLoaded` hook logs "which `CLAUDE.md` and rules
+ * files are loaded, when they load, and why", which is the same answer with a
+ * transcript.
  *
  * 🔴 A COMMITTED SUPERSEDER WINS OVER THE PER-MACHINE ONE, and the order of
  * this array is the whole of that rule. Both can be present; picking the local
@@ -535,9 +662,23 @@ function takeImportsOf(b: Building, entry: LoadedInstruction): void {
     // `CLAUDE.local.md` does not load for a teammate, so it must not be in the
     // committed total either. And `via` travels with it, so the report can say
     // WHY a file nobody expected is in the count.
+    //
+    // 🔴 EXCEPT WHEN THE IMPORTED FILE IS ONE MACHINE'S BY NAME, which is not a
+    // hypothetical: `@AGENTS.local.md` is one of the three real imports in the
+    // measured 214-file corpus. Inheriting `repo` there would put a gitignored
+    // file into a published `committedTotal` — the browser twin reads a GitHub
+    // tree and can never see it, so the CLI and the browser would disagree
+    // about the same commit. That is the defect `InstructionScope` exists to
+    // prevent, and a token in a committed file does not make the target
+    // committed. Inheritance still applies in the other direction: a `local`
+    // importer keeps `local`, because `"local"` is the narrower answer.
+    //
+    // ⏳ THIS LINE DOES NOT DECIDE WHETHER THE TOKEN SHOULD LOAD AT ALL — that
+    // is the open question at `isNeverRead`, and this predicate is right under
+    // either of its answers. See the note there before "simplifying" this.
     take(b, path, {
       role: "import",
-      scope: entry.scope,
+      scope: isPerMachineName(path) ? "local" : entry.scope,
       via: { from: entry.path, token },
     });
   }

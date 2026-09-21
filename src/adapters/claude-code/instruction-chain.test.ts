@@ -279,6 +279,75 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
     ]);
   });
 
+  it("an `@AGENTS.local.md` import carries `local` scope — right under both readings", () => {
+    // ⏳ ONE OF THE THREE REAL IMPORTS IN THE 214-FILE `AGENTS.md` CORPUS, and
+    // it names a file the vendor's "Not read" list refuses. WHETHER THE TOKEN
+    // LOADS AT ALL IS OPEN: "Inside each `AGENTS.md`: `@path` imports are
+    // expanded" and "Not read: `AGENTS.local.md`…" are peers in one list and
+    // neither qualifies the other. Today's behaviour — honoured — is asserted
+    // here as behaviour, not as a verdict; see `isNeverRead` for both readings
+    // and the one observation that settles them.
+    //
+    // 🔴 WHAT THIS CASE IS REALLY FOR IS THE SCOPE, which is decidable without
+    // settling that. An import inherits the IMPORTER's scope, so a committed
+    // `AGENTS.md` naming this file would put a gitignored one into a published
+    // `committedTotal` — the browser twin reads a GitHub tree and can never see
+    // it, the disagreement `InstructionScope` exists to prevent. Under the
+    // other reading the file is never taken and this line cannot fire, so
+    // `repo` is wrong either way and `local` is wrong under neither.
+    const files = {
+      "AGENTS.md": "@AGENTS.local.md",
+      "AGENTS.local.md": "mine",
+    };
+    expect(chain(files).loaded).toEqual([
+      { path: "AGENTS.md", role: "root", scope: "repo" },
+      {
+        path: "AGENTS.local.md",
+        role: "import",
+        scope: "local",
+        via: { from: "AGENTS.md", token: "@AGENTS.local.md" },
+      },
+    ]);
+  });
+
+  it("an ordinary imported file still inherits the importer's scope", () => {
+    // The silent half of the rule above: only a PER-MACHINE NAME overrides the
+    // inheritance. A version that made every import `local` would empty
+    // `committedTotal` of every imported file and pass the case above.
+    const files = { "AGENTS.md": "@docs/style.md", "docs/style.md": "prose" };
+    expect(chain(files).loaded.map((e) => e.scope)).toEqual(["repo", "repo"]);
+  });
+
+  it("⏳ OPEN: an EXCLUDED CLAUDE.md still supersedes — pinned, not endorsed", () => {
+    // 🔴 THIS ASSERTION EXISTS SO THE QUESTION CANNOT BE ANSWERED BY ACCIDENT.
+    // Two vendor rules meet and the vendor composes neither: the supersede rule
+    // is about files you HAVE ("look for a `CLAUDE.md`… if you find one"),
+    // while `claudeMdExcludes` takes a file out of the chain without taking it
+    // off the disk. Re-read 2026-09-21 — the excludes section says only that
+    // patterns "are matched against absolute file paths", and the "My AGENTS.md
+    // isn't loading" checklist never mentions the setting.
+    //
+    // So `supersederOf` reads the MAP, which UNDER-reports if the real loader
+    // honours the exclusion: the `AGENTS.md` below would really load and we say
+    // it weighs nothing. That is the wrong direction by this module's own
+    // policy, and it is still what ships, because flipping it composes two
+    // rules the vendor has not composed. ⏳ Settled by ONE session: the
+    // documented `AGENTS.md loaded` line, or an `InstructionsLoaded`
+    // transcript. Change this expectation only WITH that observation.
+    const files = {
+      "CLAUDE.md": "root",
+      "AGENTS.md": "shared",
+      ".claude/settings.json": JSON.stringify({
+        claudeMdExcludes: ["**/CLAUDE.md"],
+      }),
+    };
+    expect(paths(files)).toEqual([]);
+    expect(chain(files).unloaded.map((e) => [e.path, e.reason.kind])).toEqual([
+      ["CLAUDE.md", "excluded-by-settings"],
+      ["AGENTS.md", "superseded"],
+    ]);
+  });
+
   it("`claudeMdExcludes` applies to an AGENTS.md too", () => {
     // "…and `claudeMdExcludes` patterns apply". Same argument as above: this is
     // the case a role-keyed exclusion check would miss.

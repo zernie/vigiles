@@ -377,6 +377,38 @@ export function isRepoRootedImport(token: string): boolean {
  * recursion, a depth budget or an exclude pass, and a recursive walk driven by
  * strings found in files is the exact defect zernie/vigiles#262 is about.
  *
+ * 🔴 AND THE SAME IS NOW MEASURED FOR `AGENTS.md`, WHICH USED TO BE THE HOLE IN
+ * THIS BOUND. The corpus above is `CLAUDE.md` BY CONSTRUCTION, so it said
+ * nothing about the family Claude Code reads natively since v2.1.277 — and a
+ * one-level bound justified by a corpus that could not contain the file is not
+ * justified, it is extrapolated. Measured over the same sample, by the same
+ * method, carrying the same two caveats (July sample of public repositories;
+ * the grep finds `@name.md` shapes only): 214 real `AGENTS.md` files, THREE
+ * carry an import at all — 1.4%:
+ *
+ *     1  @tasks/BASED.md
+ *     1  @ai-rules/rule-loading.md
+ *     1  @AGENTS.local.md
+ *
+ * Every one is a single concrete path at depth 1 — the same SHAPE and the same
+ * RARITY as the six on the `CLAUDE.md` side (3%). So one level is measured on
+ * both families rather than assumed to carry over from one.
+ *
+ * ⏳ THE THIRD OF THOSE THREE IS NOT AN ORDINARY IMPORT, and it is an OPEN
+ * QUESTION rather than a decided one: `AGENTS.local.md` is a name Claude Code
+ * lists under "Not read", so an explicit `@` token names a file the loader may
+ * never open. Both readings and the observation that settles them are at
+ * `isNeverRead` in `adapters/claude-code/instruction-chain.ts` — one harness's
+ * list belongs in one harness's adapter, not in the domain.
+ *
+ * ⚠️ AND THE VENDOR PUTS A NUMBER ON THE THING THIS BOUND APPROXIMATES, which
+ * the measurement above does not repeal: "Imported files can recursively import
+ * other files, with a maximum depth of FOUR HOPS" (same page, read 2026-09-21).
+ * So one level is a bound on what this reads, chosen because neither corpus has
+ * a second hop — not a claim that a second hop cannot exist. A repository that
+ * uses them is under-reported by the nested size, and the honest form of that
+ * is the sentence below rather than a depth counter nothing exercises.
+ *
  * 🔴 AND THE SIX ARE WHERE THE NUMBER IS MOST WRONG WITHOUT THIS PASS. Four of
  * them are `@AGENTS.md` — the workaround for Claude Code not yet reading
  * `AGENTS.md` natively (anthropics/claude-code#34235; reversed in v2.1.277, see
@@ -387,8 +419,9 @@ export function isRepoRootedImport(token: string): boolean {
  *
  * ⚠️ WHAT ONE LEVEL COSTS, stated rather than implied: a transitive import (an
  * imported file that imports again) is a real Claude Code feature, and its
- * nested size is NOT counted. The corpus above holds no such case; if one shows
- * up, that measurement is the thing to redo, not this loop.
+ * nested size is NOT counted. NEITHER corpus — 198 `CLAUDE.md`, 214
+ * `AGENTS.md`, 412 files, nine imports between them — holds one; if a real case
+ * shows up, those measurements are the thing to redo, not this loop.
  */
 export function resolveImports(
   layout: PluginLayout,
