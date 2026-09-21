@@ -162,6 +162,26 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
       JSON.stringify({ harnesses: { codex: {} } }),
     );
 
+    // 3c. #240's repo SHAPE, end to end through the real binary: skills in a
+    // dot-folder no harness reads (`.ai/`), with the instruction file at the
+    // root belonging to the OTHER harness. Two fixtures, because the fix and
+    // the symptom are the same tree with and without one config file.
+    for (const d of ["vlad240", "vlad240cfg"]) {
+      mk(`${d}/AGENTS.md`, "# Agent instructions\nRun `npm test` first.\n");
+      mk(`${d}/.codex/config.toml`, 'model = "gpt-5"\n');
+      for (const n of ["alpha", "beta"])
+        mk(
+          `${d}/.ai/skills/${n}/SKILL.md`,
+          `---\nname: ${n}\ndescription: ${desc(n)}\n---\n# ${n}\n`,
+        );
+    }
+    mk(
+      "vlad240cfg/.vigilesrc.json",
+      JSON.stringify({
+        harnesses: { "claude-code": { roots: [".ai"] }, codex: {} },
+      }),
+    );
+
     // 4. A marketplace: a marketplace.json over two member plugins.
     mk(
       "mp/.claude-plugin/marketplace.json",
@@ -274,6 +294,39 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.match(r.stdout, /Detected harness: codex/);
     // A single configured harness is unambiguous → no override notice.
     assert.doesNotMatch(r.stdout, /repo matches/);
+  });
+
+  /**
+   * #240 END TO END, through `node dist/cli.js` and a real `.vigilesrc.json`.
+   *
+   * scan.test.ts already asserts the SCAN reads both halves in either order,
+   * but it hands `scanPlugin` a `harnesses` array built in code. That leaves
+   * the seam a user actually walks unasserted: writing the key into the file
+   * and having it reach discovery. Both halves of the check live here — the
+   * symptom without the file, the fix with it, same tree otherwise.
+   */
+  it("#240: `.ai/` skills are NAMED without config, and GRADED once declared", () => {
+    // Half one — no config. The tree is found and reported rather than silently
+    // skipped, which is the part of #240 worth having on its own ("a scan that
+    // opened no skill … should say so instead of grading it 100").
+    const bare = run(`audit ${join(root, "vlad240")}`);
+    assert.match(bare.stdout, /Surfaces no harness reads/);
+    assert.match(bare.stdout, /\.ai\/skills\//);
+    // …and it points at the fix rather than only at moving the files.
+    assert.match(bare.stdout, /roots/);
+    // Not graded as a clean A: nothing readable was read.
+    assert.doesNotMatch(bare.stdout, /Harness health: A \(100\/100\)/);
+
+    // Half two — the SAME tree plus one config file. Config resolves from cwd,
+    // so run from inside the fixture the way a user does.
+    const cfg = run("audit .", join(root, "vlad240cfg"));
+    assert.match(cfg.stdout, /alpha/);
+    assert.match(cfg.stdout, /beta/);
+    // The instruction file belongs to the OTHER declared harness and is still
+    // read — this is the half that vanished under `harness` + `surfaceRoots`.
+    assert.match(cfg.stdout, /AGENTS\.md/);
+    // And the finding is gone, because the tree now has a reader.
+    assert.doesNotMatch(cfg.stdout, /Surfaces no harness reads/);
   });
 
   it("marketplace root: expands members into a ranked leaderboard", () => {
