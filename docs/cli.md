@@ -527,33 +527,28 @@ The rule-level lists — `orphans.exclude` and the `untested-*` rules' `exclude`
 **narrow their own rule further**. They never re-admit a path excluded here: both
 set means the union.
 
-### `harnesses` — which harnesses this repo targets, and where each one reads
+### `harnesses` — which tools this repo is written for
 
 ```json
-{ "harnesses": { "claude-code": { "roots": [".ai"] }, "codex": {} } }
+{ "harnesses": { "claude-code": {}, "codex": {} } }
 ```
 
-One key per harness (`claude-code`, `codex`; `claude` is an alias). The value is
-that harness's declaration — today just `roots`. `{}` means "this repo targets
-this harness, and it reads it where it normally reads it", which is the common
-case. Omit the whole key and the CLI auto-detects, as before.
+Leave the key out and vigiles works the tool out from what it finds. Set it when
+that guess is wrong, or when your skills sit in a folder no tool reads by default.
 
-Every declared harness is read **under its own layout**, and the results merge
-into one grade. That is the difference from the two flat keys this replaced
-(`harness` + `surfaceRoots`), where one global root list was read under whichever
-harness happened to be listed first — so a repo declaring both got its skills or
-its instruction file depending on array order, and no order gave it both.
+The names are `claude-code` (`claude` also works) and `codex`. `{}` means "yes,
+this repo is written for it, and everything is in the usual place".
 
-A file that TWO declared harnesses both read is read **once** and counted
-**once** (deduplicated by its real path on disk), so declaring one tree under two
-harnesses does not double-count it.
+Name two and both are graded in one report: Claude Code's `CLAUDE.md` and
+`.claude/skills`, Codex's `AGENTS.md` and `.agents/skills`. A file that both tools
+read is counted once, not twice.
 
-#### `roots` — skills that live where the harness does not read
+#### `roots` — when the skills live somewhere else
 
-`audit` discovers surfaces by SHAPE (a `skills/`, `agents/` or `commands/` dir
-directly under the repo root or a top-level dot-directory), then asks each
-registered harness "is this path yours?". A directory nobody claims is reported
-rather than graded:
+`audit` looks for `skills/`, `agents/` and `commands/` folders in the repo root
+and in dot-folders one level down: `.claude/`, `.agents/`, `.ai/` and the like. If
+it finds one that no tool actually reads, it says so instead of skipping it
+quietly:
 
 ```
 Surfaces no harness reads (1):
@@ -562,48 +557,41 @@ Surfaces no harness reads (1):
     a harness loads from (`.agents/skills/`, `.claude/skills/`, `skills/`).
 ```
 
-If those really are your skills and you want them graded where they are, name the
-root **under the harness whose layout reads that shape** — the finding goes away
-and the surfaces join the grade:
+If that folder is yours and you want it graded where it is, name it under the tool
+that should read it:
 
 ```json
 { "harnesses": { "claude-code": { "roots": [".ai"] } } }
 ```
 
-The root is the **parent** of the surface dir, not the surface dir itself:
-`".ai"` for `.ai/skills/<name>/SKILL.md`. vigiles reads `<root>/<surface>/…`
-using **that harness's own** surface dirs, so under `claude-code` `".ai"` means
-`.ai/skills`, `.ai/agents` and `.ai/commands`.
+Name the **parent** folder, not the skills folder: `".ai"`, not `".ai/skills"`.
+Under `claude-code` that one line covers `.ai/skills`, `.ai/agents` and
+`.ai/commands`.
 
-- **It only ADDS.** Everything read before is still read; a declared root cannot
-  relocate or replace an existing surface, and the files keep their real paths
-  as keys.
-- **The declaration is yours, not a harness's.** No adapter can name a root —
-  that is deliberate, so installing or registering a harness can never make
-  vigiles read more in somebody else's repository.
-- **The harness KEY says which layout reads it**, so there is nothing to guess.
-  A root under a harness that reads no surface there is a hard **error**, naming
-  the root, the harness and the paths looked for:
+Three things to know about it:
+
+- **It only adds.** Nothing that was read before stops being read.
+- **The tool you name decides where it looks.** Name a folder under a tool that
+  reads nothing there and you get an error, not a silent no-op:
 
   ```
-  $ echo '{"harnesses":{"codex":{"roots":[".ai"]}}}' > .vigilesrc.json && npx vigiles audit .
   ✗ .vigilesrc.json: harnesses["codex"].roots names ".ai", but codex reads no surface
     there — nothing would be graded and nothing would be said.
     Looked for: .ai/.agents/skills/, .ai/prompts/
     Either create one of those, or declare ".ai" under the harness whose layout does read it.
   ```
 
-  (Codex keeps skills at `.agents/skills`, so `.ai/skills` is not its shape —
-  that tree belongs under `"claude-code"`.)
+  Codex keeps its skills in `.agents/skills`, so a `.ai/skills` tree belongs under
+  `claude-code`.
 
-- **`exclude` wins.** A path both declared and excluded is excluded: no grade,
-  and no finding either.
-- Absolute entries, `"."`, and anything containing `..` are dropped.
+- **`exclude` wins.** A folder named here and excluded stays excluded: no grade,
+  no warning either. Absolute paths, `"."`, and anything containing `..` are
+  ignored.
 
-#### Migrating from `harness` / `surfaceRoots`
+#### Upgrading from `harness` / `surfaceRoots`
 
-Both keys are **removed**, with no alias and no fallback — a config using them is
-refused with the replacement spelled out:
+Both keys are gone, with no alias and no fallback. A config still using them is
+refused, and the message writes out the replacement:
 
 ```
 ✗ .vigilesrc.json: "harness" and "surfaceRoots" were replaced by one nested key, "harnesses".
