@@ -51,6 +51,11 @@
  *   through to the TOML `settingsPath`). The manifest field is CC-JSON-shaped.
  * - MCP detection (`mcpConfigFile`/`mcpManifestKey`) is JSON-shaped, so it won't
  *   see Codex's `[mcp_servers]` TOML table — a known layout-port gap.
+ * 🔴 THE PATHS BELOW ARE DOCUMENTED IN `docs/configuration.md`. Change any of
+ * them — `instructionFile`, `surfaceDirs`, `userSurfaceRoot`, `rulesDir` — and
+ * that page is wrong until you edit it too. The page marks this symbol with
+ * `vigiles:symbol`, so RENAMING it turns `vigiles lint` red and forces the
+ * edit; changing a VALUE in place does not, and nothing today catches that.
  */
 import type { PluginLayout } from "../../core/layout.js";
 

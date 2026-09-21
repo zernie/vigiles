@@ -490,115 +490,18 @@ npx vigiles audit ./marketplace-repo --single  # ...or audit that root as ONE ha
 npx vigiles audit ./repo --harness=codex # override harness detection
 ```
 
-### `exclude` — what the repo's own tooling does not police
+### Configuration
 
-A repo often carries markdown, specs, skills or test scripts that are **not its
-own**: a vendored plugin corpus, a third-party `CLAUDE.md` kept as benchmark data,
-a frozen reproduction written against an older vigiles. List those paths once,
-tsconfig-style, in `.vigilesrc.json`:
+`audit` and every other command read `.vigilesrc.json` from the repo root. The
+keys, what each one does, and a config using all of them are on one page:
+**[Configuration](configuration.md)**.
 
-```json
-{ "exclude": ["bench", "test/dogfood/**", "research/frozen-2025"] }
-```
+The two you are most likely to want:
 
-A bare directory name excludes its subtree (`"bench"`, `"bench/"` and `"bench/**"`
-mean the same thing); `node_modules`, `dist`, `.git` and `.vigiles` are always
-excluded. **One filter, every command:**
-
-| command         | what `exclude` drops                                                                                              |
-| --------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `compile`       | an excluded `*.spec.ts` is not loaded — a frozen spec cannot fail the build                                       |
-| `lint`          | instruction files, nested bundles, docs, skills/subagents/hooks, spec refs                                        |
-| `audit`         | the instruction file, the skills/subagents/commands discovery reads, and a declared harness root — `exclude` wins |
-| `test` / `eval` | an excluded `*.harness.*` / `*.eval.*` is not discovered, so it does not run                                      |
-
-It filters **discovery only**. A path you name on the command line is still
-processed, and one line says why:
-
-```
-$ npx vigiles compile bench/old/SKILL.md.spec.ts
-note: bench/old/SKILL.md.spec.ts matches exclude "bench" — compiling because you named it
-```
-
-(ripgrep and tsc do the same silently; ESLint skips the file with a warning;
-prettier skips it and reports it clean. vigiles processes it and says so.)
-
-The rule-level lists — `orphans.exclude` and the `untested-*` rules' `exclude` —
-**narrow their own rule further**. They never re-admit a path excluded here: both
-set means the union.
-
-### `harnesses` — which tools this repo is written for
-
-```json
-{ "harnesses": { "claude-code": {}, "codex": {} } }
-```
-
-Leave the key out and vigiles works the tool out from what it finds. Set it when
-that guess is wrong, or when your skills sit in a folder no tool reads by default.
-
-The names are `claude-code` (`claude` also works) and `codex`. `{}` means "yes,
-this repo is written for it, and everything is in the usual place".
-
-Name two and both are graded in one report: Claude Code's `CLAUDE.md` and
-`.claude/skills`, Codex's `AGENTS.md` and `.agents/skills`. A file that both tools
-read is counted once, not twice.
-
-#### `roots` — when the skills live somewhere else
-
-`audit` looks for `skills/`, `agents/` and `commands/` folders in the repo root
-and in dot-folders one level down: `.claude/`, `.agents/`, `.ai/` and the like. If
-it finds one that no tool actually reads, it says so instead of skipping it
-quietly:
-
-```
-Surfaces no harness reads (1):
-  ✗ .ai/skills/ holds 37 skills that no harness vigiles knows about reads, so none of
-    it is in this grade. Audit it directly (`vigiles audit .ai`) or move it somewhere
-    a harness loads from (`.agents/skills/`, `.claude/skills/`, `skills/`).
-```
-
-If that folder is yours and you want it graded where it is, name it under the tool
-that should read it:
-
-```json
-{ "harnesses": { "claude-code": { "roots": [".ai"] } } }
-```
-
-Name the **parent** folder, not the skills folder: `".ai"`, not `".ai/skills"`.
-Under `claude-code` that one line covers `.ai/skills`, `.ai/agents` and
-`.ai/commands`.
-
-Three things to know about it:
-
-- **It only adds.** Nothing that was read before stops being read.
-- **The tool you name decides where it looks.** Name a folder under a tool that
-  reads nothing there and you get an error, not a silent no-op:
-
-  ```
-  ✗ .vigilesrc.json: harnesses["codex"].roots names ".ai", but codex reads no surface
-    there — nothing would be graded and nothing would be said.
-    Looked for: .ai/.agents/skills/, .ai/prompts/
-    Either create one of those, or declare ".ai" under the harness whose layout does read it.
-  ```
-
-  Codex keeps its skills in `.agents/skills`, so a `.ai/skills` tree belongs under
-  `claude-code`.
-
-- **`exclude` wins.** A folder named here and excluded stays excluded: no grade,
-  no warning either. Absolute paths, `"."`, and anything containing `..` are
-  ignored.
-
-#### Upgrading from `harness` / `surfaceRoots`
-
-Both keys are gone, with no alias and no fallback. A config still using them is
-refused, and the message writes out the replacement:
-
-```
-✗ .vigilesrc.json: "harness" and "surfaceRoots" were replaced by one nested key, "harnesses".
-  Write:  { "harnesses": { "claude-code": { "roots": [".ai"] }, "codex": {} } }
-  - "harness": ["claude-code", "codex"]  →  a KEY per harness
-  - "surfaceRoots": [".ai"]              →  "roots" INSIDE the harness that reads them
-```
+| key                      | for                                                  |
+| ------------------------ | ---------------------------------------------------- |
+| `exclude`                | files in the repo that are not the repo's own        |
+| `harnesses.<name>.roots` | skills in a folder the tool does not read by default |
 
 ### `lint` in a monorepo, and getting both artefacts from one run
 

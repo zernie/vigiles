@@ -488,8 +488,11 @@ export function unclaimedSurfaceFindings(
     ...d,
     message:
       `${d.dir}/ holds ${plural(d.kind, d.count)} that no harness vigiles knows about reads, ` +
-      `so none of it is in this grade. Audit it directly (\`vigiles audit ${d.root === "" ? "." : d.root}\`) ` +
-      `or move it somewhere a harness loads from (${knownHomes(layouts, d.kind)
+      `so none of it is in this grade. Three ways out: keep it where it is and say so in ` +
+      `.vigilesrc.json (\`{"harnesses":{"claude-code":{"roots":["${d.root === "" ? "." : d.root}"]}}}\` ` +
+      `— see docs/configuration.md), audit it on its own ` +
+      `(\`vigiles audit ${d.root === "" ? "." : d.root}\`), or move it somewhere a harness ` +
+      `loads from (${knownHomes(layouts, d.kind)
         .map((h) => `\`${h}/\``)
         .join(", ")}).`,
   }));

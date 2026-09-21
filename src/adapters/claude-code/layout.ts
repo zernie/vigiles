@@ -2,6 +2,11 @@
  * claudeCodeLayout — the Claude Code plugin/repo layout (the `PluginLayout`
  * port's reference implementation). `loadPlugin` defaults to it; a Codex adapter
  * defines a sibling `codexLayout` and passes it to the same loader.
+ * 🔴 THE PATHS BELOW ARE DOCUMENTED IN `docs/configuration.md`. Change any of
+ * them — `instructionFile`, `surfaceDirs`, `userSurfaceRoot`, `rulesDir` — and
+ * that page is wrong until you edit it too. The page marks this symbol with
+ * `vigiles:symbol`, so RENAMING it turns `vigiles lint` red and forces the
+ * edit; changing a VALUE in place does not, and nothing today catches that.
  */
 import type { PluginLayout } from "../../core/layout.js";
 
