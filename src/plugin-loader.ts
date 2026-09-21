@@ -35,6 +35,7 @@ import { parse as parseToml } from "@iarna/toml";
 
 import { assertNever } from "./core/hash.js";
 import type { PluginLayout } from "./core/layout.js";
+import { excludedBy, excludesNothing, type Excluded } from "./exclude.js";
 import type { ExcludeSet } from "./exclude.js";
 import { entryOf, walkableRoot } from "./fs-walk.js";
 import {
@@ -163,26 +164,6 @@ function readHooks(root: string, layout: PluginLayout): unknown {
 }
 
 /**
- * Is this ABSOLUTE path dropped by `.vigilesrc.json#exclude`?
- *
- * The loader's half of the ONE exclusion policy (`src/exclude.ts`, #192). It is a
- * predicate rather than an `ExcludeSet` so the walk never has to remember which
- * root the patterns are relative to: `excludedBy` closes over `excludes.root`,
- * which is the REPO root and NOT the audited dir — `vigiles audit some/dir` must
- * still honour a root-relative `exclude`.
- */
-type Excluded = (absPath: string) => boolean;
-
-/** The default: exclude nothing (every caller that passes no `ExcludeSet`). */
-const never: Excluded = () => false;
-
-/** The `Excluded` face of an `ExcludeSet`, or {@link never} when there is none. */
-function excludedBy(excludes: ExcludeSet | undefined): Excluded {
-  if (!excludes) return never;
-  return (abs) => excludes.matches(relative(excludes.root, abs));
-}
-
-/**
  * Recursively collect text files under `dir` as `relativePath → contents`.
  *
  * 🔴 A DIRECTORY SYMLINK IS NOT DESCENDED INTO. `statSync` FOLLOWS a link, so a
@@ -211,7 +192,7 @@ function excludedBy(excludes: ExcludeSet | undefined): Excluded {
 function readTree(
   dir: string,
   base: string,
-  excluded: Excluded = never,
+  excluded: Excluded = excludesNothing,
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const entry of readdirSync(dir)) {
@@ -313,7 +294,7 @@ function materializeSurfaces(
   layout: PluginLayout,
   files: Record<string, string>,
   sources: Record<string, string>,
-  excluded: Excluded = never,
+  excluded: Excluded = excludesNothing,
 ): MaterializedSurfaces {
   const counts: Record<string, number> = {};
   const isDir = (p: string): boolean =>

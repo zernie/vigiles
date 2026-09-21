@@ -19,12 +19,24 @@
  * `src/cli-install.e2e.test.ts`, which drives the real `skills` CLI and finds the
  * install at `~/.agents/skills/`.
  *
- * 🔴 KNOWN LIMITATION — WALK-UP IS NOT EXPRESSED HERE. The vendor scans
- * `.agents/skills` in EVERY directory from the cwd up to the repository root;
- * `PluginLayout` names a single root-relative dir, so this descriptor covers only
- * `<root>/.agents/skills`. A skill in a subdirectory's own `.agents/skills` is
- * still invisible. Expressing walk-up needs a multi-root layout port — deliberately
- * left to that refactor rather than faked with a glob here.
+ * 🔴 KNOWN LIMITATION — WALK-UP IS STILL NOT EXPRESSED, AND NOT BY OVERSIGHT.
+ * The vendor scans `.agents/skills` in EVERY directory from the cwd up to the
+ * repository root; `PluginLayout` names a single root-relative dir, so this
+ * descriptor covers only `<root>/.agents/skills`. A skill in a SUBDIRECTORY's own
+ * `.agents/skills` is still invisible.
+ *
+ * The 2026-09-21 discovery refactor (`src/core/surface-discovery.ts`) did NOT
+ * close it, and the reason is the refactor's own bound: discovery looks in the
+ * repo root and its depth-1 dot-directories, because an unbounded walk grades
+ * vendored third-party trees as the project's own work (#240, measured by the
+ * reporter at 53 vendored skills beside 37 real ones). Reaching a subpackage's
+ * `.agents/skills` means walking arbitrary directories, which is exactly what
+ * that bound refuses, so the gap is a deliberate trade and not a TODO.
+ *
+ * What it costs in practice: for `vigiles audit` AT THE REPO ROOT — the normal
+ * invocation — the root IS the whole walk-up chain, so nothing is missed. The
+ * gap is a monorepo subpackage keeping its own `.agents/skills`; point vigiles
+ * at that subdirectory to audit it.
  *
  * ⚠️ `installCodexSkills` (`./eval.ts`) still writes the eval tier's skills to
  * `<cwd>/.codex/skills/`, and its comment claims that path was validated live

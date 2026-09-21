@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 446 project files. */
+  /** 452 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -349,6 +349,8 @@ declare module "vigiles/generated" {
     | "src/core/source-refs.ts"
     | "src/core/spec.test.ts"
     | "src/core/spec.ts"
+    | "src/core/surface-discovery.test.ts"
+    | "src/core/surface-discovery.ts"
     | "src/core/surface-scopes.test.ts"
     | "src/core/surface-scopes.ts"
     | "src/core/symbols.test.ts"
@@ -442,6 +444,8 @@ declare module "vigiles/generated" {
     | "src/jest.ts"
     | "src/judge.test.ts"
     | "src/judge.ts"
+    | "src/layout-registry.test.ts"
+    | "src/layout-registry.ts"
     | "src/leaderboard.test.ts"
     | "src/leaderboard.ts"
     | "src/lint-contract.test.ts"
@@ -533,6 +537,8 @@ declare module "vigiles/generated" {
     | "src/stats.test.ts"
     | "src/stats.ts"
     | "src/subagent-delivery.test.ts"
+    | "src/surface-discovery-fs.test.ts"
+    | "src/surface-discovery-fs.ts"
     | "src/test-coverage-files.ts"
     | "src/test-coverage.test.ts"
     | "src/test-coverage.ts"
@@ -867,6 +873,8 @@ declare module "vigiles/spec" {
       | "src/core/source-refs.ts"
       | "src/core/spec.test.ts"
       | "src/core/spec.ts"
+      | "src/core/surface-discovery.test.ts"
+      | "src/core/surface-discovery.ts"
       | "src/core/surface-scopes.test.ts"
       | "src/core/surface-scopes.ts"
       | "src/core/symbols.test.ts"
@@ -960,6 +968,8 @@ declare module "vigiles/spec" {
       | "src/jest.ts"
       | "src/judge.test.ts"
       | "src/judge.ts"
+      | "src/layout-registry.test.ts"
+      | "src/layout-registry.ts"
       | "src/leaderboard.test.ts"
       | "src/leaderboard.ts"
       | "src/lint-contract.test.ts"
@@ -1051,6 +1061,8 @@ declare module "vigiles/spec" {
       | "src/stats.test.ts"
       | "src/stats.ts"
       | "src/subagent-delivery.test.ts"
+      | "src/surface-discovery-fs.test.ts"
+      | "src/surface-discovery-fs.ts"
       | "src/test-coverage-files.ts"
       | "src/test-coverage.test.ts"
       | "src/test-coverage.ts"

@@ -2475,3 +2475,61 @@ test("weight: .claude/rules counts toward the Claude Code sum, docs/ does not", 
     cleanupTmpDir(dir);
   }
 });
+
+/**
+ * A harness living where NO registered adapter reads is reported and GRADED,
+ * instead of being graded around in silence (#240).
+ *
+ * Measured on the real CLI before this shipped, on a repo whose 37 skills sat
+ * under `.ai/`: `Harness health: A (100/100)` and `✓ no structural issues
+ * found`, while pointing the same binary at `<repo>/.ai` gave F (0/100) with
+ * fourteen real defects. The grade nobody would question was the wrong one.
+ *
+ * Both halves on ONE fixture: the unread tree beside a read one and beside two
+ * near-misses (`src/skills`, `packages/…/skills`) that must stay invisible —
+ * the reporter's own warning was that an unbounded walk finds 53 vendored
+ * third-party skills and grades them as this repo's machine.
+ */
+test("a surface directory no harness reads is a graded finding, its neighbours are not", () => {
+  const dir = makeTmpDir("unclaimed");
+  try {
+    const skill = (name: string): string =>
+      `---\nname: ${name}\ndescription: does ${name} things across many cases\ndisallowed-tools: WebFetch, WebSearch, Bash\n---\n# ${name}\n`;
+    write(dir, "CLAUDE.md", "# repo\n");
+    write(dir, ".claude/skills/alpha/SKILL.md", skill("alpha")); // read
+    write(dir, ".ai/skills/check-dor/SKILL.md", skill("check-dor")); // unread
+    write(dir, ".ai/skills/decompose/SKILL.md", skill("decompose")); // unread
+    write(dir, "src/skills/nope/SKILL.md", skill("nope")); // not a root
+    write(dir, "packages/x/skills/nope2/SKILL.md", skill("nope2")); // not a root
+
+    const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
+    assert.deepEqual(
+      r.unclaimedSurfaces.map((u) => `${u.dir}:${String(u.count)}`),
+      [".ai/skills:2"],
+    );
+    assert.deepEqual(
+      r.skills.map((s) => s.name),
+      ["alpha"],
+    );
+
+    // It reaches the GRADE, not just the inventory — the ring and the headline
+    // carry the same row on purpose, so they cannot disagree about it.
+    const structure = auditScore(r).categories.find(
+      (c) => c.key === "Structure",
+    );
+    assert.ok(structure !== undefined);
+    assert.ok(structure.score !== null && structure.score < 100);
+    assert.ok(
+      structure.findings.some((f) => f.includes("no harness reads")),
+      JSON.stringify(structure.findings),
+    );
+
+    // …and the report NAMES the directory, so the reader can act on it.
+    const text = formatScanReport(r);
+    assert.match(text, /Surfaces no harness reads \(1\)/);
+    assert.match(text, /\.ai\/skills\/ holds 2 skills/);
+    assert.doesNotMatch(text, /no structural issues found/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});

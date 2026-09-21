@@ -286,6 +286,16 @@ function structure(r: ScanReport): CategoryScore {
       weight: W_NO_DESCRIPTION,
       label: "functional dir(s) misplaced inside `.claude-plugin/` (invisible)",
     },
+    // A surface directory NO registered harness reads (#240). Same class as the
+    // row above — a real surface the harness cannot see — so the same weight and
+    // the same ring. It is graded rather than advisory for the reason the
+    // reporter gave: an empty scan that stays silent is indistinguishable from a
+    // clean one, and the A (100) it produced is the expensive half of the bug.
+    {
+      n: r.unclaimedSurfaces.length,
+      weight: W_NO_DESCRIPTION,
+      label: "surface dir(s) no harness reads (not in this grade)",
+    },
     {
       n: r.skillFenceIssues.length,
       weight: W_NO_DESCRIPTION,
@@ -327,6 +337,7 @@ function structure(r: ScanReport): CategoryScore {
     r.mcpHookIssues.length +
     r.frontmatterIssues.length +
     r.pluginLayoutIssues.length +
+    r.unclaimedSurfaces.length +
     r.skillFenceIssues.length +
     r.hookBlockFindings.length +
     r.hookMatcherFindings.length;

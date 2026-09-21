@@ -35,6 +35,7 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     skillResourceIssues: [],
     skillFenceIssues: [],
     pluginLayoutIssues: [],
+    unclaimedSurfaces: [],
     delegationTrifecta: [],
     hookBlockFindings: [],
     hookMatcherFindings: [],

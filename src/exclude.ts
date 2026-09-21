@@ -86,3 +86,29 @@ export function excludeSet(
     explain,
   };
 }
+
+/**
+ * Is this ABSOLUTE path dropped by `.vigilesrc.json#exclude`?
+ *
+ * The PREDICATE face, for a hand-rolled recursive walk that has an absolute path
+ * in hand and no glob (`readTree` in `src/plugin-loader.ts`, the bounded root
+ * walk in `src/surface-discovery-fs.ts`). A predicate rather than an
+ * `ExcludeSet` so the walk never has to remember which root the patterns are
+ * relative to: {@link excludedBy} closes over `excludes.root`, which is the REPO
+ * root and NOT the audited dir — `vigiles audit some/dir` must still honour a
+ * root-relative `exclude`.
+ *
+ * Lives HERE, beside the other two faces, because this file is the one
+ * exclusion policy (#192) and this was its third face living in one caller's
+ * private scope — which is how a second walk ends up writing a fourth.
+ */
+export type Excluded = (absPath: string) => boolean;
+
+/** The default: exclude nothing (every caller that passes no `ExcludeSet`). */
+export const excludesNothing: Excluded = () => false;
+
+/** The {@link Excluded} face of an `ExcludeSet`, or {@link excludesNothing}. */
+export function excludedBy(excludes: ExcludeSet | undefined): Excluded {
+  if (!excludes) return excludesNothing;
+  return (abs) => excludes.matches(relative(excludes.root, abs));
+}

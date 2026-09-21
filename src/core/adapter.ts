@@ -117,4 +117,27 @@ export interface HarnessAdapter {
    * `AGENTS.md` that many harnesses share) regardless of registration order.
    */
   detect(root: string): number;
+  /**
+   * Is this repo-relative path one THIS harness reads — "is it mine?"
+   *
+   * 🔴 THE POINT OF THIS METHOD IS WHAT IT CANNOT DO. It takes a path and
+   * returns a boolean: no root, no filesystem, no enumeration. An adapter can
+   * therefore LABEL a surface the domain already found and nothing else —
+   * **registering a new adapter cannot make vigiles read more in anyone's
+   * repository.** The rejected alternative was each adapter DECLARING roots for
+   * the audit to walk, which inverts that: shipping a Cursor adapter would start
+   * reading `.cursor/rules` in every user's repo, and a surface no adapter
+   * declared would stay invisible. Discovery is the domain's job
+   * (`core/surface-discovery.ts`); a claim is an adapter's. See
+   * `research/audit-harness-dx.md` §9.
+   *
+   * The consequence the audit reports: a surface NO registered adapter claims is
+   * a FINDING, not silence — measured on a real repo whose 37 skills under
+   * `.ai/` graded A (100/100) precisely because nothing read them (#240).
+   *
+   * Every shipped adapter implements this as `layoutClaims(<its layout>, path)`,
+   * so a layout that moves takes its claim with it and the two cannot drift.
+   * Override it only for a location the `PluginLayout` fields cannot express.
+   */
+  claims(path: string): boolean;
 }

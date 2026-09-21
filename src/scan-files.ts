@@ -49,6 +49,8 @@ import { verifyMcpServers } from "./core/mcp-config.js";
 import { agentPluginsMcpSources } from "./core/agent-plugins.js";
 import { verifyMcpHookTargets } from "./core/mcp-hook.js";
 import { pluginDirLayoutIssues } from "./core/plugin-dir-layout.js";
+import { unclaimedSurfaceFindings } from "./core/surface-discovery.js";
+import { REGISTERED_LAYOUTS } from "./layout-registry.js";
 import {
   assertDistinctScopeKeys,
   multiScopeWarning,
@@ -743,6 +745,12 @@ export function scanFiles(
     trifectaFindings,
     skillResourceIssues: skillResourceFindings,
     skillFenceIssues: skillFenceFindings,
+    // The browser twin has the WHOLE fetched key set in hand, so discovery needs
+    // no walk here — the pure classifier re-applies the same bounded-root rule.
+    unclaimedSurfaces: unclaimedSurfaceFindings(
+      Object.keys(files),
+      REGISTERED_LAYOUTS,
+    ),
     pluginLayoutIssues: pluginDirLayoutIssues(
       join(BROWSER_ROOT, dirname(lay.manifestPath)),
       [...new Set([...lay.surfaceDirs, lay.hooksConventionPath.split("/")[0]])],

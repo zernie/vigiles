@@ -18,6 +18,7 @@ import { join } from "node:path";
 import type { HarnessAdapter } from "../../core/adapter.js";
 import { opencodeDialect } from "./dialect.js";
 import { opencodeLayout } from "./layout.js";
+import { layoutClaims } from "../../core/surface-discovery.js";
 import { opencodeRuntime } from "./runtime.js";
 import { opencodeModelMock } from "./model-mock.js";
 
@@ -36,6 +37,11 @@ export const opencodeAdapter: HarnessAdapter = {
   runtime: opencodeRuntime,
   modelMock: opencodeModelMock,
   // No hookProtocol: OpenCode hooks are code modules, not shell processes.
+  // Derived from the layout, never listed again here — see `claims` on
+  // `HarnessAdapter` for why this method takes a PATH and not a root.
+  claims(path: string): boolean {
+    return layoutClaims(opencodeLayout, path);
+  },
   detect(root: string): number {
     // An `opencode.json` is a strong signal; a bare AGENTS.md is weak (many
     // harnesses read it). (Unused while unregistered — kept for symmetry.)

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { HarnessAdapter } from "../../core/adapter.js";
 import { claudeCodeDialect } from "./dialect.js";
 import { claudeCodeLayout } from "./layout.js";
+import { layoutClaims } from "../../core/surface-discovery.js";
 import { claudeCodeRuntime } from "./runtime.js";
 import { claudeCodeHookProtocol } from "./hook-protocol.js";
 import { claudeCodeModelMock } from "./model-mock.js";
@@ -33,6 +34,11 @@ export const claudeCodeAdapter: HarnessAdapter = {
   // init and would pull the whole test/compiler graph back in.
   harnessTestDriver: async () =>
     (await import("../../harness-test.js")).claudeCodeDriver,
+  // Derived from the layout, never listed again here — see `claims` on
+  // `HarnessAdapter` for why this method takes a PATH and not a root.
+  claims(path: string): boolean {
+    return layoutClaims(claudeCodeLayout, path);
+  },
   detect(root: string): number {
     // Most specific signal wins: a plugin manifest (3) > repo settings (2) >
     // a bare CLAUDE.md (1, weak — many tools also read it / AGENTS.md).

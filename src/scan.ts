@@ -57,6 +57,12 @@ import {
   pluginDirLayoutIssues,
   type PluginLayoutFinding,
 } from "./core/plugin-dir-layout.js";
+import {
+  unclaimedSurfaceFindings,
+  type UnclaimedSurfaceFinding,
+} from "./core/surface-discovery.js";
+import { boundedSurfacePaths } from "./surface-discovery-fs.js";
+import { REGISTERED_LAYOUTS } from "./layout-registry.js";
 import type { DelegationTrifectaFinding } from "./core/delegation-trifecta.js";
 import {
   hookBlockIssues,
@@ -383,6 +389,14 @@ export interface ScanReport {
    */
   readonly pluginLayoutIssues: readonly PluginLayoutFinding[];
   /**
+   * Surface directories found by SHAPE in the bounded root set that NO
+   * registered harness claims — a harness sitting somewhere vigiles does not
+   * read, reported instead of silently graded around (#240). Computed by
+   * `core/surface-discovery.ts` from paths alone; shared with the browser twin
+   * (one detector, no drift).
+   */
+  readonly unclaimedSurfaces: readonly UnclaimedSurfaceFinding[];
+  /**
    * Lethal trifectas that EMERGE across a delegation edge — a subagent whose
    * effective (own ∪ delegated-to) capability holds all three legs though no
    * single unit does. Shared by `scan` and the `delegation-trifecta` lint rule
@@ -708,6 +722,10 @@ export function scanPlugin(
     trifectaFindings,
     skillResourceIssues: skillResourceFindings,
     skillFenceIssues: skillFenceFindings,
+    unclaimedSurfaces: unclaimedSurfaceFindings(
+      boundedSurfacePaths(resolve(dir), opts.excludes),
+      REGISTERED_LAYOUTS,
+    ),
     pluginLayoutIssues: pluginDirLayoutIssues(
       resolve(dir, dirname(lay.manifestPath)),
       // The hooks dir is a misplaceable functional surface too, but it lives in
@@ -1211,6 +1229,17 @@ export function formatScanReport(r: ScanReport): string {
     ),
   );
 
+  // A harness sitting where no adapter reads (#240). Printed as a ✗ section like
+  // any other structural defect, because that is what it is: the grade above it
+  // was computed without this directory in it, and the old behaviour was to say
+  // nothing at all while returning A (100/100).
+  out.push(
+    ...section(
+      "Surfaces no harness reads",
+      r.unclaimedSurfaces.map((u) => `  ✗ ${u.message}`),
+    ),
+  );
+
   out.push(
     ...section(
       "Lethal trifecta across delegation (blast radius)",
@@ -1323,6 +1352,7 @@ export function formatScanReport(r: ScanReport): string {
     r.skillResourceIssues.length +
     r.skillFenceIssues.length +
     r.pluginLayoutIssues.length +
+    r.unclaimedSurfaces.length +
     r.hookBlockFindings.length +
     r.hookMatcherFindings.length +
     // Only HARD trifectas (✗) count as STRUCTURAL defects here. Both severities are

@@ -144,6 +144,7 @@ test("conformance ACCEPTS a pillar-1-only adapter (no transport ports)", () => {
     },
     dialect: { ...claudeCodeAdapter.dialect, name: "cursor-ish" },
     layout: { ...claudeCodeAdapter.layout, name: "cursor-ish" },
+    claims: () => false,
     detect: () => 0,
   };
   assertAdapterConformance(pillar1Only); // throws on failure → must not throw
@@ -166,6 +167,7 @@ test("conformance REJECTS a half-wired adapter (claims harnessTesting, no runtim
     layout: claudeCodeAdapter.layout,
     // …but no runtime/modelMock, and a stray hookProtocol it disclaims.
     hookProtocol: claudeCodeAdapter.hookProtocol,
+    claims: () => false,
     detect: () => 0,
   };
   const r = checkAdapterConformance(halfWired);
