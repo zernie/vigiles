@@ -17,10 +17,7 @@
  * consumers can't import it. Promote it (register + `vigiles/opencode` export +
  * the deferred transport renderers) only when OpenCode support actually ships.
  */
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
-import type { HarnessAdapter } from "../../core/adapter.js";
+import type { DetectSignal, HarnessAdapter } from "../../core/adapter.js";
 import { opencodeDialect } from "./dialect.js";
 import { opencodeLayout } from "./layout.js";
 import { layoutClaims } from "../../core/surface-discovery.js";
@@ -57,11 +54,14 @@ export const opencodeAdapter = {
   claims(path: string): boolean {
     return layoutClaims(opencodeLayout, path);
   },
-  detect(root: string): number {
+  detect(exists: (repoRelative: string) => boolean): DetectSignal {
     // An `opencode.json` is a strong signal; a bare AGENTS.md is weak (many
-    // harnesses read it). (Unused while unregistered — kept for symmetry.)
-    if (existsSync(join(root, "opencode.json"))) return 3;
-    if (existsSync(join(root, opencodeLayout.instructionFile))) return 1;
-    return 0;
+    // harnesses read it). (Unused while unregistered — kept for symmetry, and
+    // so the property tests have a THIRD implementation to run against.)
+    if (exists(opencodeLayout.manifestPath))
+      return { specificity: 3, via: "manifest" };
+    if (exists(opencodeLayout.instructionFile))
+      return { specificity: 1, via: "instruction-file" };
+    return { specificity: 0, via: "instruction-file" };
   },
 } as const satisfies HarnessAdapter;

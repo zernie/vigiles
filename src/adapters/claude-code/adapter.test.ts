@@ -3,7 +3,7 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { claudeCodeAdapter } from "./adapter.js";
@@ -142,7 +142,7 @@ test("conformance ACCEPTS a pillar-1-only adapter (no transport ports)", () => {
     dialect: { ...claudeCodeAdapter.dialect, name: "cursor-ish" },
     layout: { ...claudeCodeAdapter.layout, name: "cursor-ish" },
     claims: () => false,
-    detect: () => 0,
+    detect: () => ({ specificity: 0, via: "instruction-file" }) as const,
   };
   assertAdapterConformance(pillar1Only); // throws on failure → must not throw
   assert.throws(
@@ -172,7 +172,7 @@ test("conformance REJECTS a half-wired adapter (claims harnessTesting, no runtim
     // …but no runtime/modelMock/driver, and a stray hookProtocol it disclaims.
     hookProtocol: claudeCodeAdapter.hookProtocol,
     claims: () => false,
-    detect: () => 0,
+    detect: () => ({ specificity: 0, via: "instruction-file" }) as const,
   } as unknown as HarnessAdapter;
   const r = checkAdapterConformance(halfWired);
   assert.equal(r.ok, false);
@@ -183,15 +183,27 @@ test("conformance REJECTS a half-wired adapter (claims harnessTesting, no runtim
   assert.ok(r.failures.some((m) => m.includes("harnessTestDriver is missing")));
 });
 
-test("detect: specificity score — empty 0, CLAUDE.md 1, manifest 3", () => {
+test("detect: specificity + via — empty 0, CLAUDE.md 1, manifest 3", () => {
   const dir = makeTmpDir("adapter-detect");
+  // `detect` takes the DOMAIN's predicate now, not a root, so the test builds
+  // the same one the registry does. An adapter has no way to reach the disk.
+  const exists = (rel: string): boolean => existsSync(join(dir, rel));
   try {
-    assert.equal(claudeCodeAdapter.detect(dir), 0);
+    assert.deepEqual(claudeCodeAdapter.detect(exists), {
+      specificity: 0,
+      via: "instruction-file",
+    });
     writeFileSync(join(dir, "CLAUDE.md"), "# rules\n");
-    assert.equal(claudeCodeAdapter.detect(dir), 1); // weak signal
+    assert.deepEqual(claudeCodeAdapter.detect(exists), {
+      specificity: 1,
+      via: "instruction-file", // weak signal
+    });
     mkdirSync(join(dir, ".claude-plugin"));
     writeFileSync(join(dir, ".claude-plugin", "plugin.json"), "{}");
-    assert.equal(claudeCodeAdapter.detect(dir), 3); // strong signal wins
+    assert.deepEqual(claudeCodeAdapter.detect(exists), {
+      specificity: 3,
+      via: "manifest", // strong signal wins
+    });
   } finally {
     cleanupTmpDir(dir);
   }

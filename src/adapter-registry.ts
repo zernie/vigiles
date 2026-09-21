@@ -10,6 +10,9 @@
  * match a repo; `detect()` returns a specificity score so the strongest signal
  * wins regardless of order.
  */
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import type { HarnessAdapter } from "./core/adapter.js";
 import type { HarnessDeclaration } from "./core/types.js";
 import { normalizeSurfaceRoots } from "./core/surface-scopes.js";
@@ -81,14 +84,23 @@ export interface DetectResult {
  * `research/audit-harness-dx.md`.
  */
 export function detectAdapterResult(root: string): DetectResult {
-  const scored = ADAPTERS.map((a) => ({ a, score: a.detect(root) })).filter(
-    (s) => s.score > 0,
+  // 🔴 THE DOMAIN OWNS THE FILESYSTEM, THE ADAPTER OWNS THE QUESTION. `detect`
+  // used to be handed `root` and reach for `node:fs` itself, so an adapter
+  // could enumerate anything under it — the inversion `claims` exists to
+  // prevent, sitting right next to it. This predicate is the whole of what an
+  // adapter can do, and `adapter-properties.test.ts` asserts each one asks only
+  // about paths its own `claims` covers.
+  const exists = (repoRelative: string): boolean =>
+    existsSync(join(root, repoRelative));
+  const scored = ADAPTERS.map((a) => ({ a, signal: a.detect(exists) })).filter(
+    (s) => s.signal.specificity > 0,
   );
   if (scored.length === 0) {
     return { adapter: defaultAdapter, fallback: true, ambiguousWith: [] };
   }
-  const top = Math.max(...scored.map((s) => s.score));
-  let winners = scored.filter((s) => s.score === top).map((s) => s.a);
+  const top = Math.max(...scored.map((s) => s.signal.specificity));
+  const atTop = scored.filter((s) => s.signal.specificity === top);
+  let winners = atTop.map((s) => s.a);
 
   // Mirror-collapse: the only false-"both" tie is at the weak instruction-file level
   // (top === 1 — Claude Code via CLAUDE.md, Codex via AGENTS.md). When those two files
@@ -98,15 +110,38 @@ export function detectAdapterResult(root: string): DetectResult {
   // so it resolves to Claude Code without a spurious "matches claude-code, codex" notice.
   // A genuine dual instruction file (different content, or a real .codex/config.toml at
   // score 3) is NOT a mirror at top 1 → stays ambiguous, exactly as it should.
+  //
+  // 🔴 IT USED TO NAME A HARNESS TO DO THIS — `winners.some(w => w.name ===
+  // "codex")` and then `filter(w => w.name !== "codex")`, in the composition
+  // root, with the tie-break decided by which literal was typed here. What the
+  // rule is actually about is the KIND of marker that matched, which is what
+  // `DetectSignal.via` now carries: every winner matched only by its
+  // instruction file, and those files are a mirror, so it is one config. The
+  // adapter KEPT is the one whose instruction file is the mirror's real
+  // target; the others are dropped. A third harness reading `AGENTS.md` now
+  // collapses correctly with no edit here.
   if (
     winners.length > 1 &&
-    top === 1 &&
-    winners.some((w) => w.name === "codex") &&
-    detectInstructionMirror(root) !== null
+    atTop.every((s) => s.signal.via === "instruction-file")
   ) {
-    // At top === 1 with a mirror, both files exist so Claude Code (CLAUDE.md) is
-    // always a co-winner — dropping codex leaves a non-empty set.
-    winners = winners.filter((w) => w.name !== "codex");
+    const mirror = detectInstructionMirror(root);
+    if (mirror !== null) {
+      // A SYMLINK mirror names a real file and a link to it, so the collapse is
+      // principled: keep the adapter reading the real one. Never empty the set.
+      const notTheLink = winners.filter(
+        (w) => w.layout.instructionFile !== mirror.link,
+      );
+      if (notTheLink.length > 0) winners = notTheLink;
+      // ⚠️ A BYTE-IDENTICAL mirror names NEITHER file as the real one — it is
+      // two files a sync tool (rulesync/Ruler) keeps equal, and nothing in it
+      // says which harness the repo meant. The collapse still has to produce
+      // ONE answer, because that is its whole job: the files are one config, so
+      // a "matches both" notice would be wrong. The remaining tie is broken by
+      // REGISTRY ORDER, deterministically, with the reason written here rather
+      // than left to whoever reads `winners[0]` later. Same outcome as before,
+      // reached without comparing a name against a literal in this file.
+      if (winners.length > 1) winners = [winners[0]];
+    }
   }
 
   return {

@@ -4,10 +4,7 @@
  * (a `.claude-plugin/` manifest, a `.claude/settings.json`, or a `CLAUDE.md`).
  * This is the reference adapter a second harness (Codex, Gemini, …) mirrors.
  */
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
-import type { HarnessAdapter } from "../../core/adapter.js";
+import type { DetectSignal, HarnessAdapter } from "../../core/adapter.js";
 import { claudeCodeDialect } from "./dialect.js";
 import { claudeCodeLayout } from "./layout.js";
 import { layoutClaims } from "../../core/surface-discovery.js";
@@ -41,13 +38,17 @@ export const claudeCodeAdapter = {
   claims(path: string): boolean {
     return layoutClaims(claudeCodeLayout, path);
   },
-  detect(root: string): number {
+  // Takes the domain's `exists`, never a root: this adapter cannot enumerate
+  // anything, and it asks only about the three paths its own `claims` covers.
+  detect(exists: (repoRelative: string) => boolean): DetectSignal {
     // Most specific signal wins: a plugin manifest (3) > repo settings (2) >
     // a bare CLAUDE.md (1, weak — many tools also read it / AGENTS.md).
-    const has = (rel: string): boolean => existsSync(join(root, rel));
-    if (has(claudeCodeLayout.manifestPath)) return 3;
-    if (has(claudeCodeLayout.settingsPath)) return 2;
-    if (has(claudeCodeLayout.instructionFile)) return 1;
-    return 0;
+    if (exists(claudeCodeLayout.manifestPath))
+      return { specificity: 3, via: "manifest" };
+    if (exists(claudeCodeLayout.settingsPath))
+      return { specificity: 2, via: "settings" };
+    if (exists(claudeCodeLayout.instructionFile))
+      return { specificity: 1, via: "instruction-file" };
+    return { specificity: 0, via: "instruction-file" };
   },
 } as const satisfies HarnessAdapter;

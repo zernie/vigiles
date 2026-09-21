@@ -23,7 +23,7 @@ export const codexAdapter: {
     readonly modelMock: ModelMock;
     readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
     readonly claims: (path: string) => boolean;
-    readonly detect: (root: string) => number;
+    readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
 };
 
 // @public (undocumented)

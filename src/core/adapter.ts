@@ -66,6 +66,24 @@ export interface AdapterCapabilities {
 }
 
 /**
+ * How, and how strongly, a repo looks like this harness.
+ *
+ * `via` exists so the REGISTRY can break a tie without naming a harness. The
+ * one false "both" tie is at the weak instruction-file level, where two
+ * adapters match on mirrored root files; `via: "instruction-file"` is what
+ * makes that case recognisable from the outside, and it used to be recognised
+ * by comparing a winner's `name` against a literal in the registry.
+ */
+export interface DetectSignal {
+  /** 0 = not this harness; higher = a more specific match. The registry picks
+   *  the highest scorer, so a strong signal (a plugin manifest) beats a weak
+   *  one (a shared `AGENTS.md`) regardless of registration order. */
+  readonly specificity: number;
+  /** WHICH kind of marker produced the score. */
+  readonly via: "manifest" | "settings" | "instruction-file";
+}
+
+/**
  * The fields EVERY adapter has, whatever it can drive. The capability-gated
  * ports are deliberately NOT here — see the unions below.
  */
@@ -79,14 +97,26 @@ interface AdapterBase {
   /** See {@link AdapterCapabilities.subagents}. */
   readonly subagents: boolean;
   /**
-   * How strongly a repo at `root` looks like it targets this harness — the CLI
-   * uses it to auto-detect which adapter to use (the library selects by import).
-   * Returns a **specificity score**: 0 = not this harness; higher = a more
-   * specific match. The registry picks the highest scorer, so a strong signal
-   * (a `.claude-plugin/` manifest) beats a weak one (a bare `CLAUDE.md`, or an
-   * `AGENTS.md` that many harnesses share) regardless of registration order.
+   * How strongly, and by WHAT, a repo looks like it targets this harness — the
+   * CLI uses it to auto-detect which adapter to use (the library selects by
+   * import).
+   *
+   * 🔴 IT TAKES A PREDICATE, NOT A ROOT, and that is the same rule `claims`
+   * follows one docblock down. `detect(root: string)` handed every adapter a
+   * directory and `node:fs`: an adapter could enumerate anything under it, so
+   * registering an adapter COULD change what vigiles reads in someone's
+   * repository — the exact inversion `claims` exists to prevent, sitting
+   * unnoticed beside it. With `exists` injected, an adapter can ask about a
+   * path and nothing else, and the domain decides what asking means. It also
+   * removes `node:fs` from the adapter bundles.
+   *
+   * The property a test asserts (`adapter-properties.test.ts`): `detect` may
+   * only ask about paths its own `claims` returns true for. An adapter that
+   * wanted to detect by a marker it does not read would be refused by that,
+   * which is the intended trade — a detector that reads what it does not claim
+   * is how a grade starts covering files nobody declared.
    */
-  detect(root: string): number;
+  detect(exists: (repoRelative: string) => boolean): DetectSignal;
   /**
    * Is this repo-relative path one THIS harness reads — "is it mine?"
    *

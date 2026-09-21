@@ -10,10 +10,7 @@
  * emit the Claude-Code shape until the format-axis renderers land
  * (`research/code-adapter-architecture.md`). Pillar 2 (harness testing) is full.
  */
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
-import type { HarnessAdapter } from "../../core/adapter.js";
+import type { DetectSignal, HarnessAdapter } from "../../core/adapter.js";
 import { codexDialect } from "./dialect.js";
 import { codexLayout } from "./layout.js";
 import { layoutClaims } from "../../core/surface-discovery.js";
@@ -41,11 +38,16 @@ export const codexAdapter = {
   claims(path: string): boolean {
     return layoutClaims(codexLayout, path);
   },
-  detect(root: string): number {
+  detect(exists: (repoRelative: string) => boolean): DetectSignal {
     // A `.codex/config.toml` is a strong signal; a bare AGENTS.md is weak (many
-    // harnesses read it). (Unused while unregistered — kept for symmetry.)
-    if (existsSync(join(root, ".codex", "config.toml"))) return 3;
-    if (existsSync(join(root, codexLayout.instructionFile))) return 1;
-    return 0;
+    // harnesses read it). The manifest path IS `.codex/config.toml` — asked for
+    // by the layout field rather than respelled, so a layout that moves takes
+    // its detection with it (the path used to be typed out here as
+    // `join(root, ".codex", "config.toml")`).
+    if (exists(codexLayout.manifestPath))
+      return { specificity: 3, via: "manifest" };
+    if (exists(codexLayout.instructionFile))
+      return { specificity: 1, via: "instruction-file" };
+    return { specificity: 0, via: "instruction-file" };
   },
 } as const satisfies HarnessAdapter;
