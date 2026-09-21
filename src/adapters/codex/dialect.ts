@@ -49,7 +49,8 @@ export const codexDialect: HarnessDialect = {
   },
   instructionTargets: ["AGENTS.md"],
   pluginRootToken: "${PLUGIN_ROOT}",
-  // Codex SKILL.md frontmatter is name + description ONLY — the CC-only keys
-  // (disable-model-invocation, argument-hint, …) are not part of its format.
-  skillFrontmatter: "minimal",
+  // Codex SKILL.md frontmatter is name + description ONLY — the richer keys
+  // (disable-model-invocation, argument-hint, disallowed-tools, …) are not part
+  // of its format, so the compiler omits them instead of writing inert noise.
+  skillFrontmatterKeys: ["name", "description"],
 };

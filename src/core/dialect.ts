@@ -18,23 +18,33 @@
  * vocabulary: the concrete dialects live in the adapters, only this interface
  * lives in the core. That is the format axis of the hexagonal boundary.
  */
-/**
- * Which SKILL.md frontmatter keys a harness understands — see
- * `HarnessDialect.skillFrontmatter`.
- */
 import type { HarnessVocabulary } from "./vocabulary.js";
 import type { EventCapabilityTable } from "./event-capability.js";
 import type { InstructionBudget } from "./instruction-weight.js";
 
-// 🔴 THE ROOT SITE. This alias is the only harness name in the core that others
-// are downstream of: compile.ts defaults to it, branches on it and defaults it
-// again, and lethal-trifecta.ts compares against it — four of the eight core
-// findings are this one type, reached through a signature. That is why the rule
-// visits TYPE positions: reporting only the uses would have pointed at the
-// shadow. The fix is a CAPABILITY name ("full" | "minimal") or a boolean on the
-// dialect, not an adapter name in a type.
-// eslint-disable-next-line local/no-harness-names -- see above
-export type SkillFrontmatterProfile = "claude-code" | "minimal";
+/**
+ * Every SKILL.md frontmatter key the COMPILER knows how to render, in the order
+ * it renders them. A property of `renderSkillFrontmatter`, not of any harness:
+ * a dialect's {@link HarnessDialect.skillFrontmatterKeys} is a subset of this,
+ * and a key outside it can be declared but will never be emitted.
+ *
+ * 🔴 THIS REPLACES A TYPE ALIAS THAT SPELLED A HARNESS. It used to be
+ * `type SkillFrontmatterProfile = "claude-code" | "minimal"`, and it was the
+ * root of five of the eleven per-site lint disables on this branch: `compile.ts`
+ * defaulted to it, branched on it and defaulted it again, and
+ * `lethal-trifecta.ts` compared against it. Each of those is now a set
+ * membership test over key names, which are facts about a FILE FORMAT and carry
+ * no harness in them.
+ */
+export const RENDERABLE_SKILL_FRONTMATTER_KEYS = [
+  "name",
+  "description",
+  "disable-model-invocation",
+  "context",
+  "argument-hint",
+  "allowed-tools",
+  "disallowed-tools",
+] as const satisfies readonly string[];
 
 export interface HarnessDialect {
   /** Stable identifier, e.g. "claude-code". */
@@ -93,14 +103,17 @@ export interface HarnessDialect {
   /** The env token expanded to the plugin root in hook commands. */
   readonly pluginRootToken: string;
   /**
-   * Which SKILL.md frontmatter keys this harness understands — the profile the
-   * compiler renders under:
-   * - `"claude-code"` — the full Claude Code set (name, description, plus the
-   *   CC-only keys: disable-model-invocation, argument-hint, …).
-   * - `"minimal"` — name + description ONLY (the cross-tool SKILL.md shape Codex
-   *   and OpenCode read; CC-only keys are omitted because they'd be inert noise).
+   * The SKILL.md frontmatter keys this harness READS. The compiler emits a key
+   * iff it is listed here, so a harness that reads only the cross-tool shape
+   * declares `["name", "description"]` and the CC-only keys are omitted from its
+   * output rather than written as inert noise.
+   *
+   * Conformance requires `name` and `description` (a SKILL.md without them has
+   * no identity) and refuses a key outside
+   * {@link RENDERABLE_SKILL_FRONTMATTER_KEYS} — a key the compiler cannot render
+   * is a declaration nothing acts on.
    */
-  readonly skillFrontmatter: SkillFrontmatterProfile;
+  readonly skillFrontmatterKeys: readonly string[];
   /**
    * Tools that PRODUCE side effects (write, exec, network, spawn) — the
    * complement of read-only within `builtinAgentTools`. The basis for

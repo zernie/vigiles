@@ -121,9 +121,19 @@ export const claudeCodeDialect: HarnessDialect = {
   // tool-agnostic recognition of it lives in validate.ts's INSTRUCTION_FILES.
   instructionTargets: ["CLAUDE.md"],
   pluginRootToken: "${CLAUDE_PLUGIN_ROOT}",
-  // Claude Code reads the full SKILL.md frontmatter set (description,
-  // disable-model-invocation, argument-hint, …).
-  skillFrontmatter: "claude-code",
+  // Claude Code reads the full SKILL.md frontmatter set. Spelled out rather than
+  // aliased to the compiler's RENDERABLE_SKILL_FRONTMATTER_KEYS: that constant is
+  // "what vigiles can write", this list is "what Claude Code reads", and a new
+  // renderable key must not silently become a claim about the vendor.
+  skillFrontmatterKeys: [
+    "name",
+    "description",
+    "disable-model-invocation",
+    "context",
+    "argument-hint",
+    "allowed-tools",
+    "disallowed-tools",
+  ],
   // Tools that produce side effects in Claude Code. The complement — the
   // read-only tools — are: Read, Grep, Glob, ToolSearch, LSP, ListAgents,
   // TaskGet, TaskList, CronList. Bash (and PowerShell) are side-effecting

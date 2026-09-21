@@ -396,7 +396,7 @@ test("the remedy names only tools THIS harness ships (no Codex `shell` in a CC m
 // 🔴 Applied to every harness, this reported every Codex skill as holding all
 // three legs, scored it against Safety, and told the author to add a
 // `disallowed-tools:` line — a key Codex does not read and our own compiler drops
-// under its `skillFrontmatter: "minimal"` profile. The work gets done, the finding
+// under its `skillFrontmatterKeys: ["name", "description"]`. The work gets done, the finding
 // comes back, the score never moves. Both halves below: SILENT where the fence
 // does not exist, and unchanged where it does.
 

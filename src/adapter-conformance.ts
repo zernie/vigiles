@@ -18,6 +18,7 @@ import {
   vocabularyProjectionProblems,
 } from "./core/vocabulary-consistency.js";
 import { injectableEventsOf } from "./core/event-capability.js";
+import { RENDERABLE_SKILL_FRONTMATTER_KEYS } from "./core/dialect.js";
 import { makeTmpDir } from "./core/tmp-root.js";
 
 export interface ConformanceResult {
@@ -77,6 +78,20 @@ export function checkAdapterConformance(
     adapter.dialect.instructionTargets.length > 0,
     "dialect has no instructionTargets",
   );
+  // The key set replaced a two-valued profile enum, which means a dialect can
+  // now declare a set that no code path honours. Both halves are checkable:
+  // a key the compiler cannot render is a declaration nothing acts on, and a
+  // dialect that drops `name` or `description` emits a SKILL.md with no identity.
+  for (const key of adapter.dialect.skillFrontmatterKeys)
+    need(
+      (RENDERABLE_SKILL_FRONTMATTER_KEYS as readonly string[]).includes(key),
+      `dialect.skillFrontmatterKeys names "${key}", which the compiler cannot render`,
+    );
+  for (const required of ["name", "description"])
+    need(
+      adapter.dialect.skillFrontmatterKeys.includes(required),
+      `dialect.skillFrontmatterKeys omits "${required}" — a SKILL.md without it has no identity`,
+    );
   need(
     adapter.layout.instructionFile.length > 0,
     "layout.instructionFile is empty",

@@ -72,7 +72,7 @@ Where the harnesses land (✅ shipped · 🧪 internal prototype · ⛔ **blocke
 | **Cursor**                 | ✅   | ⛔ **closed, no BYOM** | ⛔                       | not built — Lint-only at best                                                |
 | **Devin / Amp / Amazon Q** | ✅   | ⛔ **un-mockable**     | varies                   | not built — Lint-only (closed backend)                                       |
 
-¹ **Codex Lint is format-correct for the surfaces that map.** References are verified against the Codex dialect, and `compile` emits Codex-shaped output — `AGENTS.md` (plain markdown) and minimal `SKILL.md` (`name`/`description` only, driven by `dialect.skillFrontmatter`), with Claude Code output byte-identical (the dogfood integrity hash is the guardrail).
+¹ **Codex Lint is format-correct for the surfaces that map.** References are verified against the Codex dialect, and `compile` emits Codex-shaped output — `AGENTS.md` (plain markdown) and minimal `SKILL.md` (`name`/`description` only, driven by `dialect.skillFrontmatterKeys`), with Claude Code output byte-identical (the dogfood integrity hash is the guardrail).
 
 **Subagents are a deliberate boundary, not a gap.** A Codex subagent is an `[agents.<name>]` TOML concurrency table (`max_threads`/`max_depth`), not a tool-contract file. vigiles's `agent()` doesn't map onto it, so it isn't compiled to Codex (it is still _verified_). The loader reads Codex's TOML manifest format-aware, so its `[mcp_servers]` table is detected like CC's JSON `mcpServers`.
 

@@ -3,39 +3,39 @@ import assert from "node:assert/strict";
 
 import { experimental_skill, prose } from "./core/spec.js";
 import {
-  claudeOnlyFrontmatterKeys,
+  optionalFrontmatterKeys,
   skillFrontmatterDropWarnings,
 } from "./skill-harness.js";
 
 const base = { name: "demo", description: "d", body: prose`x` };
 
-test("claudeOnlyFrontmatterKeys picks up disable-model-invocation + argument-hint", () => {
+test("optionalFrontmatterKeys picks up disable-model-invocation + argument-hint", () => {
   assert.deepEqual(
-    claudeOnlyFrontmatterKeys(experimental_skill({ ...base })),
+    optionalFrontmatterKeys(experimental_skill({ ...base })),
     [],
   );
   assert.deepEqual(
-    claudeOnlyFrontmatterKeys(
+    optionalFrontmatterKeys(
       experimental_skill({ ...base, disableModelInvocation: true }),
     ),
     ["disable-model-invocation"],
   );
   assert.deepEqual(
-    claudeOnlyFrontmatterKeys(
+    optionalFrontmatterKeys(
       experimental_skill({ ...base, argumentHint: "<x>" }),
     ),
     ["argument-hint"],
   );
   // `inputs` also drive the argument-hint key.
   assert.deepEqual(
-    claudeOnlyFrontmatterKeys(
+    optionalFrontmatterKeys(
       experimental_skill({ ...base, inputs: [{ name: "x", hint: "an x" }] }),
     ),
     ["argument-hint"],
   );
 });
 
-test("warns for a declared minimal-profile harness (codex) that drops CC-only keys", () => {
+test("warns for a declared harness whose dialect does not read the keys", () => {
   const spec = experimental_skill({ ...base, disableModelInvocation: true });
   const warnings = skillFrontmatterDropWarnings(spec, ["claude-code", "codex"]);
   assert.equal(warnings.length, 1);
@@ -44,7 +44,7 @@ test("warns for a declared minimal-profile harness (codex) that drops CC-only ke
   assert.match(warnings[0], /drops it/);
 });
 
-test("no warning when the only declared harness keeps the keys (claude-code)", () => {
+test("no warning when the only declared harness reads the keys", () => {
   const spec = experimental_skill({
     ...base,
     disableModelInvocation: true,
@@ -53,7 +53,7 @@ test("no warning when the only declared harness keeps the keys (claude-code)", (
   assert.deepEqual(skillFrontmatterDropWarnings(spec, ["claude-code"]), []);
 });
 
-test("no warning when the skill uses no CC-only keys", () => {
+test("no warning when the skill sets no optional keys", () => {
   assert.deepEqual(
     skillFrontmatterDropWarnings(experimental_skill({ ...base }), ["codex"]),
     [],

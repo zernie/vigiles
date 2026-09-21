@@ -37,7 +37,8 @@ import {
 } from "./tool-contract.js";
 import { purityViolations } from "./effects.js";
 import type { LinterCheckResult } from "./linters.js";
-import type { HarnessDialect, SkillFrontmatterProfile } from "./dialect.js";
+import type { HarnessDialect } from "./dialect.js";
+import { RENDERABLE_SKILL_FRONTMATTER_KEYS } from "./dialect.js";
 
 // vigiles's default compile target when a spec names none and no dialect is
 // injected — a product convention (vigiles emits CLAUDE.md by default), not a
@@ -1022,49 +1023,61 @@ function yamlScalar(value: string): string {
   return JSON.stringify(value);
 }
 
+/**
+ * Render a SKILL.md frontmatter block, emitting a key iff `keys` holds it.
+ *
+ * 🔴 ONE CODE PATH, NOT A PROFILE BRANCH. This used to take a
+ * `SkillFrontmatterProfile` (`"claude-code" | "minimal"`) and wrap five `push`
+ * calls in `if (profile === "claude-code")`. The branch was never about a
+ * harness: it was about which keys the reader on the other end parses, which is
+ * exactly what a key set says. A harness that reads four of the seven now gets
+ * four, instead of falling into whichever of two buckets someone picked for it.
+ */
 function renderSkillFrontmatter(
   spec: SkillSpec,
-  // Downstream of the SkillFrontmatterProfile alias (src/core/dialect.ts).
-  // eslint-disable-next-line local/no-harness-names -- goes away with that alias
-  profile: SkillFrontmatterProfile = "claude-code",
+  keys: readonly string[] = RENDERABLE_SKILL_FRONTMATTER_KEYS,
 ): string {
-  const fm = [
-    "---",
-    `name: ${yamlScalar(spec.name)}`,
-    `description: ${yamlScalar(spec.description)}`,
-  ];
-  // The CC-only keys below are inert in a minimal (Codex/OpenCode) SKILL.md, so
-  // they're omitted entirely under that profile.
-  // Downstream of the SkillFrontmatterProfile alias (src/core/dialect.ts).
-  // eslint-disable-next-line local/no-harness-names -- goes away with that alias
-  if (profile === "claude-code") {
-    if (spec.disableModelInvocation !== undefined) {
-      fm.push(
-        `disable-model-invocation: ${String(spec.disableModelInvocation)}`,
-      );
-    }
-    if (spec.context !== undefined) fm.push(`context: ${spec.context}`);
-    const argHint =
-      spec.inputs && spec.inputs.length > 0
-        ? renderArgumentHint(spec.inputs)
-        : spec.argumentHint;
-    if (argHint) fm.push(`argument-hint: ${yamlScalar(argHint)}`);
-    if (spec.tools && spec.tools.length > 0) {
-      // A Claude Code SKILL declares its tool contract under `allowed-tools`
-      // (NOT `tools:` — that's the SUBAGENT key), as a real YAML sequence. Flow
-      // style keeps it one line while parsing as a list, not a single comma
-      // scalar. Previously this emitted `tools: a, b` — the wrong key AND an
-      // ambiguous scalar, so the restriction was lost on the CC round-trip. (#107)
-      fm.push(`allowed-tools: [${spec.tools.join(", ")}]`);
-    }
-    if (spec.disallowedTools && spec.disallowedTools.length > 0) {
-      // 🔴 `disallowed-tools`, HYPHENATED — that is a skill's fence. A subagent's
-      // key is `disallowedTools:` (camelCase) and a different reader parses it, so
-      // writing the agent spelling here emits a key nothing looks at: inert, and
-      // inert in the direction that reads as protection. Same class as the #107
-      // defect two lines up, where `tools:` on a skill silently lost the contract.
-      fm.push(`disallowed-tools: [${spec.disallowedTools.join(", ")}]`);
-    }
+  const emits = (key: string): boolean => keys.includes(key);
+  const fm = ["---"];
+  if (emits("name")) fm.push(`name: ${yamlScalar(spec.name)}`);
+  if (emits("description")) {
+    fm.push(`description: ${yamlScalar(spec.description)}`);
+  }
+  if (
+    emits("disable-model-invocation") &&
+    spec.disableModelInvocation !== undefined
+  ) {
+    fm.push(`disable-model-invocation: ${String(spec.disableModelInvocation)}`);
+  }
+  if (emits("context") && spec.context !== undefined) {
+    fm.push(`context: ${spec.context}`);
+  }
+  const argHint =
+    spec.inputs && spec.inputs.length > 0
+      ? renderArgumentHint(spec.inputs)
+      : spec.argumentHint;
+  if (emits("argument-hint") && argHint) {
+    fm.push(`argument-hint: ${yamlScalar(argHint)}`);
+  }
+  if (emits("allowed-tools") && spec.tools && spec.tools.length > 0) {
+    // A Claude Code SKILL declares its tool contract under `allowed-tools`
+    // (NOT `tools:` — that's the SUBAGENT key), as a real YAML sequence. Flow
+    // style keeps it one line while parsing as a list, not a single comma
+    // scalar. Previously this emitted `tools: a, b` — the wrong key AND an
+    // ambiguous scalar, so the restriction was lost on the CC round-trip. (#107)
+    fm.push(`allowed-tools: [${spec.tools.join(", ")}]`);
+  }
+  if (
+    emits("disallowed-tools") &&
+    spec.disallowedTools &&
+    spec.disallowedTools.length > 0
+  ) {
+    // 🔴 `disallowed-tools`, HYPHENATED — that is a skill's fence. A subagent's
+    // key is `disallowedTools:` (camelCase) and a different reader parses it, so
+    // writing the agent spelling here emits a key nothing looks at: inert, and
+    // inert in the direction that reads as protection. Same class as the #107
+    // defect two lines up, where `tools:` on a skill silently lost the contract.
+    fm.push(`disallowed-tools: [${spec.disallowedTools.join(", ")}]`);
   }
   fm.push("---");
   return fm.join("\n");
@@ -1147,8 +1160,8 @@ export function compileSkill(
   options: {
     basePath?: string;
     specFile?: string;
-    /** The harness dialect — selects the SKILL.md frontmatter profile. Omitting
-     *  it defaults to the Claude Code profile, so existing callers are unchanged. */
+    /** The harness dialect — supplies `skillFrontmatterKeys`. Omitting it emits
+     *  every key the compiler can render, so existing callers are unchanged. */
     dialect?: HarnessDialect;
   } = {},
 ): CompileSkillResult {
@@ -1162,10 +1175,8 @@ export function compileSkill(
   spec = foldLegacyPostcondition(spec);
   const basePath = options.basePath ?? process.cwd();
   const specFile = options.specFile ?? "SKILL.md.spec.ts";
-  const profile: SkillFrontmatterProfile =
-    // Downstream of the SkillFrontmatterProfile alias (src/core/dialect.ts).
-    // eslint-disable-next-line local/no-harness-names -- goes away with that alias
-    options.dialect?.skillFrontmatter ?? "claude-code";
+  const frontmatterKeys =
+    options.dialect?.skillFrontmatterKeys ?? RENDERABLE_SKILL_FRONTMATTER_KEYS;
   const errors: CompileError[] = [];
 
   // Verify spec file naming
@@ -1260,7 +1271,7 @@ export function compileSkill(
 
   const marker = purityMarker(spec.purity);
   const content =
-    renderSkillFrontmatter(spec, profile) +
+    renderSkillFrontmatter(spec, frontmatterKeys) +
     // ONE newline, not two: `placeIntegrityHeader` puts the stamp AFTER the
     // frontmatter and supplies its own blank line on each side, so a second one
     // here becomes two blank lines in the artifact — which `prettier --check`

@@ -136,7 +136,7 @@ export interface HarnessDialect {
     readonly permissionDecisionHookEvents?: readonly string[];
     readonly pluginRootToken: string;
     readonly sideEffectingTools?: readonly string[];
-    readonly skillFrontmatter: SkillFrontmatterProfile;
+    readonly skillFrontmatterKeys: readonly string[];
     readonly subagentToolVocabulary?: HarnessVocabulary;
 }
 
