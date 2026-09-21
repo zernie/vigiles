@@ -143,7 +143,7 @@ jobs:
               - '!site/**'
 
             # `site` — the demo. It imports the built engine through three aliases
-            # (@engine/scan-files, @engine/audit-report, @engine/spec), so any src/
+            # (@engine/scan-files, @engine/audit-report, @engine/core/spec), so any src/
             # change can reach it and must run it. What CANNOT reach it: prose and
             # agent config. Verified 2026-08-19 by grepping the three bundles the
             # site actually loads — the lint rule table (`DEFAULT_RULES`,

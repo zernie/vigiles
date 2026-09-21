@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { playwright } from "@vitest/browser-playwright";
-import { aliases } from "./vite.aliases";
+import { aliases, ENGINE_ALIAS_IDS } from "./vite.aliases";
 import { ENGINE_VERSION } from "./vite.engine-version";
 import { engineStamp, sweepStaleEngineCaches } from "./vite.engine-stamp";
 
@@ -36,21 +36,15 @@ export default defineConfig({
   // the named exports (`scanFiles`, `buildAuditReport`) the browser test imports,
   // and folds in the transitive require-graph (+ the `node:zlib`→pako shim).
   optimizeDeps: {
-    // `@engine/spec` joined the list on 2026-09-08, when `linters.browser.test.ts`
-    // started importing `BUILTIN_LINTERS` to assert the hero's language chip and
-    // the Wedge's linter strip are both derived from the engine's real list.
-    // Without the pre-bundle the CJS dist has no named exports through Vite's
-    // ESM path and the suite fails to import at all — the same reason the three
-    // entries beside it are here.
-    include: [
-      "@engine/scan-files",
-      "@engine/audit-report",
-      "@engine/spec",
-      "@engine/core/layout",
-      "@engine/adapters/claude-code/layout",
-      "@engine/adapters/claude-code/dialect",
-      "pako",
-    ],
+    // 🔴 DERIVED FROM THE ALIAS LIST, NOT RESTATED. Without the pre-bundle the
+    // CJS dist has no named exports through Vite's ESM path and the suite fails
+    // to import AT ALL — "Failed to fetch dynamically imported module", which
+    // names neither the missing symbol nor this file. That is what made a
+    // hand-kept copy of the six ids expensive: the failure it produced could
+    // not point at itself. `ENGINE_MODULES` in `vite.aliases.ts` is now the one
+    // place an engine import is declared; `pako` is a real npm package and the
+    // only entry here that is not an engine alias.
+    include: [...ENGINE_ALIAS_IDS, "pako"],
     // @iarna/toml (a CJS engine dep) references bare `global`; the production
     // rollup build maps it, so give esbuild's pre-bundle the same define.
     esbuildOptions: { define: { global: "globalThis" } },

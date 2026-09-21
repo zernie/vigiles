@@ -1,4 +1,4 @@
-import { BUILTIN_LINTERS } from "@engine/spec";
+import { BUILTIN_LINTERS } from "@engine/core/spec";
 
 /**
  * The linter metadata the page DERIVES from the engine, in one place.

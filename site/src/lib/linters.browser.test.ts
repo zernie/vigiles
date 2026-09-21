@@ -12,7 +12,7 @@
  * — a one-way check would pass while the chip quietly dropped Ruby.
  */
 import { describe, it, expect } from "vitest";
-import { BUILTIN_LINTERS } from "@engine/spec";
+import { BUILTIN_LINTERS } from "@engine/core/spec";
 import {
   LINTER_LABELS,
   LANGUAGE_OF,
