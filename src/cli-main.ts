@@ -2104,7 +2104,7 @@ async function runLint(
   const files = findInstructionFiles(
     restArgs,
     excludes,
-    adapter.layout.agentDir,
+    adapter.layout.surfaces.agent ?? "",
   );
 
   // 1. Verify hashes and structure

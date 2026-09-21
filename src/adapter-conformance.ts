@@ -7,7 +7,7 @@
  * in their test suite. See `docs/authoring-an-adapter.md`.
  */
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, basename } from "node:path";
 
 import type { HarnessAdapter } from "./core/adapter.js";
 import { compileAgent } from "./core/compile.js";
@@ -19,6 +19,7 @@ import {
 } from "./core/vocabulary-consistency.js";
 import { injectableEventsOf } from "./core/event-capability.js";
 import { RENDERABLE_SKILL_FRONTMATTER_KEYS } from "./core/dialect.js";
+import { surfaceDirs } from "./core/layout.js";
 import { makeTmpDir } from "./core/tmp-root.js";
 
 export interface ConformanceResult {
@@ -97,7 +98,39 @@ export function checkAdapterConformance(
     "layout.instructionFile is empty",
   );
   need(adapter.layout.manifestPath.length > 0, "layout.manifestPath is empty");
-  need(adapter.layout.surfaceDirs.length > 0, "layout has no surfaceDirs");
+  need(
+    surfaceDirs(adapter.layout).length > 0,
+    "layout.surfaces names no surface — at least one kind is required",
+  );
+  // A2: TypeScript has no non-empty-string type worth the ceremony (the
+  // template-literal `${string}${string}` trick matches `""` too), so the "no
+  // second spelling of absent" rule is a test for every optional path. An
+  // absent key already means "this harness has no such thing"; `""` would be a
+  // second one, and every reader would have to remember to test for both.
+  const optionalPaths: readonly (readonly [string, string | undefined])[] = [
+    ["rulesDir", adapter.layout.rulesDir],
+    ["hookScriptsDir", adapter.layout.hookScriptsDir],
+    ["hooksConventionPath", adapter.layout.hooksConventionPath],
+    ["userSurfaceRoot", adapter.layout.userSurfaceRoot],
+    ["surfaces.skill", adapter.layout.surfaces.skill],
+    ["surfaces.agent", adapter.layout.surfaces.agent],
+    ["surfaces.command", adapter.layout.surfaces.command],
+  ];
+  for (const [field, value] of optionalPaths)
+    need(
+      value === undefined || value.length > 0,
+      `layout.${field} is "" — absence is spelled by omitting the key, never by an empty string`,
+    );
+  // A7: `hooksConventionPath` names a FILE, and every reader treats it as one
+  // (dirname it, parse it, round-trip it). `opencodeLayout` used to name the
+  // DIRECTORY `.opencode/plugin` there, so each of those readers was wrong
+  // about it in its own way. A basename with an extension is the cheapest
+  // statement of "this is a file" that does not touch the disk.
+  if (adapter.layout.hooksConventionPath !== undefined)
+    need(
+      /\.[^./]+$/.test(basename(adapter.layout.hooksConventionPath)),
+      `layout.hooksConventionPath "${adapter.layout.hooksConventionPath}" has no file extension — it names a standalone hooks FILE, not a directory (omit it when the harness has none)`,
+    );
   need(typeof adapter.detect === "function", "detect is not a function");
 
   // --- Pillar 2 transport ports: required ONLY for the capabilities the

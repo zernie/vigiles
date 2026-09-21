@@ -46,6 +46,8 @@ export default defineConfig({
       "@engine/scan-files",
       "@engine/audit-report",
       "@engine/spec",
+      "@engine/core/layout",
+      "@engine/adapters/claude-code/layout",
       "pako",
     ],
     // @iarna/toml (a CJS engine dep) references bare `global`; the production

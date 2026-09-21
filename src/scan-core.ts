@@ -209,13 +209,19 @@ function escapeRe(s: string): string {
 }
 
 export function makeClassifier(layout: PluginLayout): SurfaceClassifier {
-  // An empty dir means "this harness has no such surface" → never matches.
-  const at = (dir: string): string | null =>
+  // An ABSENT dir means "this harness has no such surface" → never matches.
+  // (`""` used to mean the same thing; a `Partial<Record<SurfaceKind, string>>`
+  // has one spelling for it, so this takes `string | undefined` and the empty
+  // string is no longer a value any layout can supply.)
+  const at = (dir: string | undefined): string | null =>
     dir ? `(?:^|/)${escapeRe(dir)}/` : null;
-  const skill = at(layout.skillDir);
-  const agent = at(layout.agentDir);
-  const command = at(layout.commandDir);
-  const rules = at(layout.rulesDir ?? "");
+  const skillDir = layout.surfaces.skill;
+  const agentDir = layout.surfaces.agent;
+  const commandDir = layout.surfaces.command;
+  const skill = at(skillDir);
+  const agent = at(agentDir);
+  const command = at(commandDir);
+  const rules = at(layout.rulesDir);
   const skillRe = skill ? new RegExp(`${skill}[^/]+/SKILL\\.md$`) : null;
   const agentRe = agent ? new RegExp(`${agent}${AGENT_FILE_LEAF_RE}$`) : null;
   const commandRe = command ? new RegExp(`${command}.+\\.md$`) : null;
@@ -235,14 +241,14 @@ export function makeClassifier(layout: PluginLayout): SurfaceClassifier {
   // (adapter-agnostic), and both patterns already tolerate depth on BOTH sides of
   // the `agents/` segment, so the recursion above does not leak through them.
   // See scan.test.ts for the regressions.
-  const nestedUnder = [
-    layout.skillDir &&
-      `${escapeRe(layout.skillDir)}/.+/${escapeRe(layout.agentDir)}/`,
-    layout.commandDir &&
-      `${escapeRe(layout.commandDir)}/(?:.+/)?${escapeRe(layout.agentDir)}/`,
-  ].filter((x): x is string => Boolean(x));
+  const nestedUnder = agentDir
+    ? [
+        skillDir && `${escapeRe(skillDir)}/.+/${escapeRe(agentDir)}/`,
+        commandDir && `${escapeRe(commandDir)}/(?:.+/)?${escapeRe(agentDir)}/`,
+      ].filter((x): x is string => Boolean(x))
+    : [];
   const nestedAgentRe =
-    layout.agentDir && nestedUnder.length
+    agentDir && nestedUnder.length
       ? new RegExp(`(?:^|/)(?:${nestedUnder.join("|")})`)
       : null;
   const isAgent = (f: string): boolean =>
@@ -259,9 +265,9 @@ export function makeClassifier(layout: PluginLayout): SurfaceClassifier {
   // skill. Excluding it here (rather than excluding it from agents) is what keeps
   // the two classifiers disjoint AND agreeing with the harness.
   const nestedSkillRe =
-    layout.skillDir && layout.agentDir
+    skillDir && agentDir
       ? new RegExp(
-          `(?:^|/)${escapeRe(layout.agentDir)}/(?:.+/)?${escapeRe(layout.skillDir)}/`,
+          `(?:^|/)${escapeRe(agentDir)}/(?:.+/)?${escapeRe(skillDir)}/`,
         )
       : null;
   const isSkill = (f: string): boolean =>
@@ -272,7 +278,9 @@ export function makeClassifier(layout: PluginLayout): SurfaceClassifier {
     isCommand: (f) => commandRe?.test(f) ?? false,
     isRule: (f) => ruleRe?.test(f) ?? false,
     agentName: (f) =>
-      isAgent(f) ? agentSurfaceName(f, layout.agentDir) : null,
+      isAgent(f) && agentDir !== undefined
+        ? agentSurfaceName(f, agentDir)
+        : null,
   };
 }
 

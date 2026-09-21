@@ -220,7 +220,7 @@ test("loadPlugin: the two-level warning excludes a declared root from its count"
  * dual-declaration audit over one tree still reported `skills = 1` — a green
  * mutation that says nothing about the protection. The guard bites only when a
  * layout RELOCATES (materializes under a prefix that is not the base), which is
- * what `materializeRoot` below does, so the two keys differ for ONE file and the
+ * what `relocating` below does, so the two keys differ for ONE file and the
  * count can actually be wrong.
  */
 test("loadPlugins reads a doubly-claimed file once, even under two keys", () => {
@@ -232,14 +232,26 @@ test("loadPlugins reads a doubly-claimed file once, even under two keys", () => 
       "---\nname: alpha\ndescription: d\n---\n# alpha\n",
     );
     // Two layouts reading the SAME repo-root `skills/` tree and materializing it
-    // under DIFFERENT prefixes — `materializeRoot` is what relocates a repo-root
-    // plugin scope, so one file arrives under two keys and a key-only merge
-    // cannot see that they are the same bytes.
-    const plain: PluginLayout = { ...claudeCodeLayout, materializeRoot: "" };
+    // under DIFFERENT prefixes — the materialize prefix is what relocates a
+    // repo-root plugin scope, so one file arrives under two keys and a key-only
+    // merge cannot see that they are the same bytes.
+    //
+    // 🔴 THIS FIXTURE USED TO BUILD AN ILLEGAL STATE, and that is worth saying
+    // because it is the only place in the tree that did. It set
+    // `materializeRoot: ""` beside `claudeCodeLayout`'s `userSurfaceRoot:
+    // ".claude"` — two fields naming the relocation prefix, deliberately made to
+    // DISAGREE, which nothing defined the meaning of. With one field the same
+    // two shapes are expressible and each now means something: `plain` is a
+    // layout with no second surface home (prefix ""), `relocating` is one whose
+    // second home is `mirror`.
+    const plain: PluginLayout = {
+      ...claudeCodeLayout,
+      userSurfaceRoot: undefined,
+    };
     const relocating: PluginLayout = {
       ...claudeCodeLayout,
       name: "relocating",
-      materializeRoot: "mirror",
+      userSurfaceRoot: "mirror",
     };
     const keys = (p: { files: Record<string, string> }): string[] =>
       Object.keys(p.files)
@@ -306,7 +318,7 @@ test("loadPlugins reads every declared harness's own tree", () => {
     );
     const plain: PluginLayout = {
       ...claudeCodeLayout,
-      materializeRoot: "",
+      userSurfaceRoot: undefined,
       // No settings file of its own, so the merge must reach past it.
       settingsPath: ".first/settings.json",
     };

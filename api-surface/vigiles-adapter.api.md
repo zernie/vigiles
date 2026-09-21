@@ -88,6 +88,9 @@ export interface DetectResult {
 }
 
 // @public
+export function executableSourceDirs(layout: PluginLayout): readonly string[];
+
+// @public
 export function getAdapter(name: string): HarnessAdapter | undefined;
 
 // @public (undocumented)
@@ -160,6 +163,9 @@ export interface HookProtocol {
 export function layoutClaims(layout: PluginLayout, path: string): boolean;
 
 // @public
+export function materializePrefix(layout: PluginLayout): string;
+
+// @public
 export interface ModelMock {
     readonly countTokensEndpoint?: string;
     readonly modelEndpoint: string;
@@ -169,13 +175,10 @@ export interface ModelMock {
 
 // @public
 export interface PluginLayout {
-    readonly agentDir: string;
-    readonly commandDir: string;
-    readonly hooksConventionPath: string;
+    readonly hooksConventionPath?: string;
+    readonly hookScriptsDir?: string;
     readonly instructionFile: string;
-    readonly intraRefDirs: readonly string[];
     readonly manifestPath: string;
-    readonly materializeRoot: string;
     readonly mcpConfigFile: string;
     readonly mcpManifestKey: string;
     readonly name: string;
@@ -184,13 +187,21 @@ export interface PluginLayout {
     readonly rulesDir?: string;
     readonly settingsFormat: "json" | "toml";
     readonly settingsPath: string;
-    readonly skillDir: string;
-    readonly surfaceDirs: readonly string[];
+    readonly surfaces: SurfaceDirs;
     readonly userSurfaceRoot?: string;
 }
 
 // @public
 export function resolveAdapter(root: string, harness?: string): HarnessAdapter;
+
+// @public
+export type SurfaceDirs = Readonly<Partial<Record<SurfaceKind, string>>>;
+
+// @public
+export function surfaceDirs(layout: PluginLayout): readonly string[];
+
+// @public
+export type SurfaceKind = "skill" | "agent" | "command";
 
 // (No @packageDocumentation comment for this package)
 

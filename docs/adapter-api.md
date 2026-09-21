@@ -63,23 +63,30 @@ tool-contract against `builtinAgentTools`/`neverAvailableTools`/`mcpToolPattern`
 
 Where the harness keeps things on disk.
 
-| Field                 | Type                | Meaning                                                                                        | Claude Code                                |
-| --------------------- | ------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `name`                | `string`            | stable id                                                                                      | `"claude-code"`                            |
-| `manifestPath`        | `string`            | plugin manifest                                                                                | `".claude-plugin/plugin.json"`             |
-| `hooksConventionPath` | `string`            | standalone hooks file convention                                                               | `"hooks/hooks.json"`                       |
-| `settingsPath`        | `string`            | repo settings carrying hooks                                                                   | `".claude/settings.json"`                  |
-| `settingsFormat`      | `"json" \| "toml"`  | how the settings file is encoded                                                               | `"json"` (Codex: `"toml"`)                 |
-| `instructionFile`     | `string`            | top-level instruction file                                                                     | `"CLAUDE.md"`                              |
-| `surfaceDirs`         | `readonly string[]` | surface dirs materialized into the sandbox                                                     | `["skills","agents","commands"]`           |
-| `skillDir`            | `string`            | dir holding `<dir>/<name>/SKILL.md`                                                            | `"skills"` (Codex: `".agents/skills"`)     |
-| `agentDir`            | `string`            | subagent dir (`""` = none); drives the subagent rules                                          | `"agents"` (OpenCode: `".opencode/agent"`) |
-| `commandDir`          | `string`            | slash-command dir (`<dir>/<name>.md`)                                                          | `"commands"` (Codex: `"prompts"`)          |
-| `materializeRoot`     | `string`            | dir surfaces are materialized under; `""` when the surface dirs already carry their own prefix | `".claude"` (Codex/OpenCode: `""`)         |
-| `pluginRootToken`     | `string`            | the plugin-root token (must match the dialect's)                                               | `"${CLAUDE_PLUGIN_ROOT}"`                  |
-| `mcpConfigFile`       | `string`            | standalone MCP config                                                                          | `".mcp.json"`                              |
-| `mcpManifestKey`      | `string`            | manifest key declaring MCP servers                                                             | `"mcpServers"`                             |
-| `intraRefDirs`        | `readonly string[]` | dirs scanned for dangling intra-plugin refs                                                    | `["hooks","skills","agents","commands"]`   |
+| Field                 | Type                                             | Meaning                                                                                                                                             | Claude Code                                                 |
+| --------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `name`                | `string`                                         | stable id                                                                                                                                           | `"claude-code"`                                             |
+| `manifestPath`        | `string`                                         | plugin manifest                                                                                                                                     | `".claude-plugin/plugin.json"`                              |
+| `hooksConventionPath` | `string?`                                        | standalone hooks FILE convention; omit when the harness has none (OpenCode's hooks are code modules)                                                | `"hooks/hooks.json"`                                        |
+| `settingsPath`        | `string`                                         | repo settings carrying hooks                                                                                                                        | `".claude/settings.json"`                                   |
+| `settingsFormat`      | `"json" \| "toml"`                               | how the settings file is encoded                                                                                                                    | `"json"` (Codex: `"toml"`)                                  |
+| `instructionFile`     | `string`                                         | top-level instruction file                                                                                                                          | `"CLAUDE.md"`                                               |
+| `surfaces`            | `Readonly<Partial<Record<SurfaceKind, string>>>` | where each model surface lives, keyed by kind (`skill`/`agent`/`command`); an ABSENT key is the only spelling of "this harness has no such surface" | `{ skill: "skills", agent: "agents", command: "commands" }` |
+| `userSurfaceRoot`     | `string?`                                        | the second home an END USER keeps the same surfaces under — and the prefix a relocated scope is keyed under                                         | `".claude"` (Codex/OpenCode: omitted)                       |
+| `rulesDir`            | `string?`                                        | path-scoped instruction dir (an instruction is READ, not invoked — so not a `SurfaceKind`)                                                          | `"rules"`                                                   |
+| `hookScriptsDir`      | `string?`                                        | dir holding executable hook SCRIPTS, distinct from where hooks are registered                                                                       | `"hooks"` (OpenCode: omitted)                               |
+| `pluginRootToken`     | `string`                                         | the plugin-root token (must match the dialect's)                                                                                                    | `"${CLAUDE_PLUGIN_ROOT}"`                                   |
+| `mcpConfigFile`       | `string`                                         | standalone MCP config                                                                                                                               | `".mcp.json"`                                               |
+| `mcpManifestKey`      | `string`                                         | manifest key declaring MCP servers                                                                                                                  | `"mcpServers"`                                              |
+
+Three things the layout no longer carries, because each was a second place
+naming a fact the fields above already hold:
+
+| was                      | now                                                                                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `surfaceDirs: string[]`  | `surfaceDirs(layout)` — derived from `surfaces`, so a list and a per-kind field can no longer disagree                                     |
+| `intraRefDirs: string[]` | `executableSourceDirs(layout)` — the surfaces plus `hookScriptsDir`                                                                        |
+| `materializeRoot`        | `materializePrefix(layout)` = `userSurfaceRoot ?? ""` — the two fields were equal in every shipped layout and undefined when they differed |
 
 **Consumed by:** `loadPlugin(path, layout)` — reads hooks (JSON or TOML per
 `settingsFormat`), materializes surfaces, expands `pluginRootToken`.

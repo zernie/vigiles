@@ -89,8 +89,8 @@ const SKILL_FILE = "SKILL.md";
 /**
  * Files the HARNESS loads directly — its instruction file
  * (`layout.instructionFile`, e.g. `CLAUDE.md` / `AGENTS.md`), a skill
- * (`SKILL.md`), a subagent (`<agentDir>/*.md`), or a slash command
- * (`<commandDir>/*.md`) — are load-bearing by their NAME/LOCATION, not because
+ * (`SKILL.md`), a subagent (`<surfaces.agent>/*.md`), or a slash command
+ * (`<surfaces.command>/*.md`) — are load-bearing by their NAME/LOCATION, not because
  * another `.md` links to them. They are categorically NOT docs, so they are
  * never orphans even when `orphans.include` broadens to the whole repo.
  *
@@ -111,16 +111,18 @@ function isHarnessLoadedFile(
   for (const layout of layouts) {
     if (base === layout.instructionFile) return true;
     // Subagent / slash-command surfaces live at a REAL surface root — the repo
-    // root, the user-surface root (e.g. `.claude/`), or the materialize root —
-    // NOT any nested dir that merely shares the name. A doc under `docs/prompts/`
-    // is documentation, not Codex's `prompts` command surface.
+    // root or the user-surface root (e.g. `.claude/`) — NOT any nested dir that
+    // merely shares the name. A doc under `docs/prompts/` is documentation, not
+    // Codex's `prompts` command surface. (This listed the user-surface root and
+    // the materialize root separately; they are one field now, so the set it
+    // built is unchanged and can no longer hold two different values.)
     const roots = [
       "",
-      ...[layout.userSurfaceRoot, layout.materializeRoot]
+      ...[layout.userSurfaceRoot]
         .filter((r): r is string => !!r)
         .map((r) => `${r}/`),
     ];
-    for (const dir of [layout.agentDir, layout.commandDir]) {
+    for (const dir of [layout.surfaces.agent, layout.surfaces.command]) {
       if (dir && roots.some((r) => norm.startsWith(`${r}${dir}/`))) {
         return true;
       }

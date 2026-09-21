@@ -59,19 +59,25 @@ const dialect: HarnessDialect = {
 const layout: PluginLayout = {
   name: "my-harness",
   manifestPath: ".myagent/config.json",
-  hooksConventionPath: "hooks/hooks.json",
+  hooksConventionPath: "hooks/hooks.json", // a FILE; omit it if the harness has none
   settingsPath: ".myagent/settings.json",
   settingsFormat: "json", // or "toml" (e.g. Codex's config.toml [hooks])
   instructionFile: "AGENTS.md",
-  surfaceDirs: ["skills", "agents"],
-  skillDir: "skills", // <dir>/<name>/SKILL.md
-  agentDir: "agents", // subagent dir; "" if the harness has no subagents
-  commandDir: "commands", // <dir>/<name>.md
-  materializeRoot: ".myagent",
+  surfaces: {
+    skill: "skills", // <dir>/<name>/SKILL.md
+    agent: "agents", // omit the key entirely if the harness has no subagents
+    command: "commands", // <dir>/<name>.md
+  },
+  // The second home a plain user keeps the same surfaces under — and the prefix
+  // a relocated scope is keyed under. Omit it when the surface dirs already
+  // carry their own prefix.
+  userSurfaceRoot: ".myagent",
   pluginRootToken: "${MY_PLUGIN_ROOT}",
   mcpConfigFile: ".mcp.json",
   mcpManifestKey: "mcpServers",
-  intraRefDirs: ["hooks", "skills", "agents"],
+  // Executable hook SCRIPTS, distinct from where hooks are REGISTERED. Omit it
+  // when the harness has no scripts dir (in-process code-module hooks).
+  hookScriptsDir: "hooks",
 };
 
 const runtime: HarnessRuntime = {
@@ -109,7 +115,7 @@ export const myHarnessAdapter: HarnessAdapter = {
     referenceVerification: true, // always
     harnessTesting: true, // needs runtime + modelMock
     shellHooks: true, // needs hookProtocol
-    subagents: true, // has a subagent surface (layout.agentDir)
+    subagents: true, // has a subagent surface (layout.surfaces.agent)
   },
   dialect,
   layout,

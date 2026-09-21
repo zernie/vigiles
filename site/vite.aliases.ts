@@ -18,6 +18,15 @@ export const aliases: Record<string, string> = {
   "@engine/spec": fileURLToPath(
     new URL("../dist/core/spec.js", import.meta.url),
   ),
+  // The layout port + the Claude Code layout: `fetchRepo.ts` DERIVES the set of
+  // harness directories it fetches from them, instead of keeping a hand-written
+  // copy of the directory names the layout already holds.
+  "@engine/core/layout": fileURLToPath(
+    new URL("../dist/core/layout.js", import.meta.url),
+  ),
+  "@engine/adapters/claude-code/layout": fileURLToPath(
+    new URL("../dist/adapters/claude-code/layout.js", import.meta.url),
+  ),
   // The /comparison snapshot is produced by a ROOT tool (tools/measure-validate-overlap.mjs)
   // and its freshness is asserted by a ROOT test (src/comparison-snapshot.test.ts), so it
   // LIVES at the root and the site consumes it. It used to live under site/, which made a

@@ -620,7 +620,12 @@ test("loadPlugin THROWS on a layout whose scopes would collide, rather than drop
     mkdirSync(join(root, ".claude", "skills", "b"), { recursive: true });
     writeFileSync(join(root, ".claude", "skills", "b", "SKILL.md"), "# b\n");
     assert.throws(
-      () => loadPlugin(root, { ...claudeCodeLayout, materializeRoot: "" }),
+      // Was `{ ...claudeCodeLayout, materializeRoot: "" }` — a layout whose
+      // materialize root disagreed with its `userSurfaceRoot`. That state has
+      // no field to live in any more; `userSurfaceRoot: ""` is the remaining
+      // way to make both scopes mint the same prefix (present, so the project
+      // scope exists; empty, so it does not relocate).
+      () => loadPlugin(root, { ...claudeCodeLayout, userSurfaceRoot: "" }),
       /silently shadow/,
     );
   } finally {

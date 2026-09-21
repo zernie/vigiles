@@ -21,15 +21,17 @@ const codexLayout: PluginLayout = {
   settingsPath: ".codex/config.toml",
   settingsFormat: "toml",
   instructionFile: "AGENTS.md",
-  surfaceDirs: ["prompts"],
-  skillDir: "skills",
-  agentDir: "",
-  commandDir: "prompts",
-  materializeRoot: ".codex",
+  // 🔴 THIS FIXTURE USED TO NAME FOUR SURFACE DIRS IN THREE FIELDS AND
+  // DISAGREE WITH ITSELF: `surfaceDirs: ["prompts"]` beside `skillDir:
+  // "skills"`, i.e. a skill dir no reader ranged over — the same shape that
+  // shipped live in `opencodeLayout`. One record, one place.
+  surfaces: { skill: "skills", command: "prompts" },
+  // No `agent` key: this shape has no subagent surface (it was `agentDir: ""`).
+  userSurfaceRoot: ".codex",
   pluginRootToken: "${CODEX_PLUGIN_ROOT}",
   mcpConfigFile: ".codex-mcp.json",
   mcpManifestKey: "mcp",
-  intraRefDirs: ["prompts", "hooks"],
+  hookScriptsDir: "hooks",
 };
 
 test("claudeCodeLayout is the default loadPlugin uses", () => {

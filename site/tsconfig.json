@@ -22,6 +22,10 @@
       "@engine/scan-files": ["../dist/scan-files.d.ts"],
       "@engine/audit-report": ["../dist/audit-report.d.ts"],
       "@engine/spec": ["../dist/core/spec.d.ts"],
+      "@engine/core/layout": ["../dist/core/layout.d.ts"],
+      "@engine/adapters/claude-code/layout": [
+        "../dist/adapters/claude-code/layout.d.ts"
+      ],
       "vigiles": ["../dist/test.d.ts"],
       "vigiles/eval": ["../dist/eval-surface.d.ts"]
     }

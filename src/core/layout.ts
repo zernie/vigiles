@@ -10,13 +10,68 @@
  * Paths are repo-relative (POSIX-style, `join`-friendly). The Claude Code
  * implementation is `claudeCodeLayout` in `src/adapters/claude-code/layout.ts`.
  */
+/**
+ * The three kinds of MODEL SURFACE — a thing a session can invoke by name.
+ *
+ * Instructions are deliberately not here: an instruction is READ, a surface is
+ * CALLED. That is why {@link PluginLayout.rulesDir} is not a key — counted, not
+ * felt: five of the seven consumers that range over the surfaces would have had
+ * to grow a `kind !== "rules"` branch (the empty-machine decision, the per-kind
+ * counts, the shape table, the known-homes map, `executableSourceDirs`), which
+ * is the per-value branch this record exists to remove.
+ */
+export type SurfaceKind = "skill" | "agent" | "command";
+
+/**
+ * Where each model surface lives, keyed by kind — repo-relative and COMPLETE
+ * (`.agents/skills`, never `skills` under a root the reader has to remember).
+ *
+ * A kind with no entry is a surface this harness does not have, and that is the
+ * ONLY spelling of "none": there is no `""`.
+ *
+ * 🔴 A RECORD, NOT A LIST, AND NOT A SECOND FIELD BESIDE A LIST. What this
+ * replaced was `surfaceDirs: readonly string[]` standing beside `skillDir`,
+ * `agentDir` and `commandDir` — four places naming the same three directories,
+ * with nothing relating them. `opencodeLayout` disagreed with itself in exactly
+ * the way that invites: `skillDir: ".opencode/skill"` while `surfaceDirs` held
+ * only the agent and command dirs, so OpenCode's skills were named by the port
+ * and never read by anything. With one record there is no second place to
+ * disagree with, `surfaceDirs()` is derived, and a duplicate kind is a
+ * duplicate object key (TS1117) rather than a conformance finding.
+ */
+export type SurfaceDirs = Readonly<Partial<Record<SurfaceKind, string>>>;
+
+/**
+ * Where one harness keeps the files vigiles reads: its instruction file, its
+ * model surfaces, its hook registrations and settings, plus the env token
+ * expanded to the plugin root. The loader reads all of it from this descriptor
+ * rather than hard-coding one harness's conventions, which is what lets a
+ * second harness be a VALUE passed to the same loader instead of a fork of it.
+ *
+ * 🔴 EVERY FIELD HOLDS ITS FACT ONCE. Four of the fields this interface used to
+ * have were second copies of a fact another field already held — `surfaceDirs`
+ * beside `skillDir`/`agentDir`/`commandDir`, `intraRefDirs` beside both, and
+ * `materializeRoot` beside `userSurfaceRoot` — and nothing related the copies,
+ * so a layout could disagree with itself and no check would see it. One did:
+ * `opencodeLayout` named a skill dir that `surfaceDirs` omitted, and OpenCode's
+ * skills were read by nothing. The copies are now `surfaceDirs()`,
+ * `executableSourceDirs()` and `materializePrefix()` — functions of what is
+ * left, so there is no second place to disagree with.
+ */
 export interface PluginLayout {
   /** Stable identifier, e.g. "claude-code". */
   readonly name: string;
   /** Plugin manifest, e.g. `.claude-plugin/plugin.json`. */
   readonly manifestPath: string;
-  /** Convention path for a standalone hooks file, e.g. `hooks/hooks.json`. */
-  readonly hooksConventionPath: string;
+  /**
+   * The conventional standalone hooks FILE a plugin may ship instead of inline
+   * registrations, e.g. `hooks/hooks.json`. A file, never a directory.
+   *
+   * Optional because OpenCode has no such file — its `.opencode/plugin` is a
+   * DIRECTORY of JS modules, and naming it here made every reader that treats
+   * this as a file (dirname, parse, round-trip) wrong about it.
+   */
+  readonly hooksConventionPath?: string;
   /** Repo settings carrying hooks, e.g. `.claude/settings.json` or `.codex/config.toml`. */
   readonly settingsPath: string;
   /**
@@ -27,40 +82,30 @@ export interface PluginLayout {
   readonly settingsFormat: "json" | "toml";
   /** Top-level instruction file, e.g. `CLAUDE.md`. */
   readonly instructionFile: string;
-  /** Surface dirs materialized into the sandbox, e.g. skills/agents/commands. */
-  readonly surfaceDirs: readonly string[];
   /**
-   * Project-level dir under which an END-USER (not a plugin author) keeps the
-   * same surfaces, e.g. `.claude` → `.claude/skills`, `.claude/agents`. When set,
-   * the loader reads each surface from BOTH `<root>/<surface>` (the plugin /
-   * skills-library shape) AND `<root>/<userSurfaceRoot>/<surface>` (the shape a
-   * plain Claude Code user has), normalizing to the same materialized key. Most
-   * Claude Code users are NOT publishing a plugin — their skills live here, so
-   * without this the loader would see an empty machine for a normal repo.
-   * Undefined ⇒ only the primary location is read (backwards-compatible).
+   * Where each model surface lives — see {@link SurfaceDirs}. At least one kind
+   * is required (conformance); a kind this harness does not have is an absent
+   * key, never `""`.
+   */
+  readonly surfaces: SurfaceDirs;
+  /**
+   * The dot-directory a plain END USER keeps the same surfaces under, when the
+   * harness has such a second home (`.claude` → `.claude/skills`). When set,
+   * every surface is read from BOTH `<surface>` and `<userSurfaceRoot>/<surface>`,
+   * and this is ALSO the prefix a relocated scope is keyed under.
+   *
+   * 🔴 IT USED TO BE TWO FIELDS. `materializeRoot` sat beside this one and was
+   * EQUAL to it in all three shipped layouts (`.claude`/`.claude`, `""`/absent,
+   * `""`/absent) while having no defined meaning when they differed — the
+   * scope-key guard existed precisely to catch a layout that named `.claude` as
+   * both its materialize root and a second scope's base, and with one field that
+   * state cannot be written. Absent means the surfaces have exactly one home and
+   * file-map keys equal on-disk paths; see {@link materializePrefix}.
    */
   readonly userSurfaceRoot?: string;
-  // Where each model surface lives, by KIND — repo-relative dir names so the
-  // scan/lint surface classifiers and the subagent-rule globs are layout-driven,
-  // not hard-coded to Claude Code's `skills`/`agents`/`commands`. A harness that
-  // names them differently (OpenCode's `.opencode/agent`, Codex's `prompts`)
-  // declares its own, so adding a harness needs no change to the classifiers. A
-  // harness without a surface still names a dir (it's simply never matched — the
-  // subagent rules gate on `capabilities.subagents`).
-  /** Skills dir, holding the nested `<dir>/<name>/SKILL.md`, e.g. `skills`. */
-  readonly skillDir: string;
-  /**
-   * Subagents dir, holding `<dir>/<name>.md` at ANY depth, e.g. `agents`
-   * (`""` = none). The depth rule, and the identifier that depth implies, are
-   * stated once in {@link AGENT_FILE_LEAF_RE} and {@link agentSurfaceName} —
-   * read those before writing a fourth thing that walks this dir.
-   */
-  readonly agentDir: string;
-  /** Slash-commands dir, holding flat `<dir>/<name>.md`, e.g. `commands`. */
-  readonly commandDir: string;
   /**
    * Path-scoped RULES dir, holding flat `<dir>/<name>.md`, e.g. `rules`
-   * (`""` or absent = this harness has no such layer).
+   * (absent = this harness has no such layer; `""` is refused by conformance).
    *
    * Claude Code loads `.claude/rules/*.md` as project instructions, scoped by a
    * `paths:` frontmatter key. It is an INSTRUCTION surface — often where a
@@ -69,12 +114,26 @@ export interface PluginLayout {
    * adopter reported five such files arriving in a session labelled "project
    * instructions" while `lint` did not mention them at all (#175.3).
    *
-   * Optional and additive: a layout that omits it behaves exactly as before, so
-   * this adds a directory to the existing checks rather than a new check.
+   * Not a {@link SurfaceKind}: an instruction is read, not invoked — see the
+   * docblock there for the count behind that.
    */
   readonly rulesDir?: string;
-  /** Dir the surfaces are materialized under, e.g. `.claude`. */
-  readonly materializeRoot: string;
+  /**
+   * The directory a plugin keeps its EXECUTABLE HOOK SCRIPTS in (`hooks`) —
+   * distinct from where the hooks are REGISTERED ({@link hooksConventionPath},
+   * {@link settingsPath}). Absent means the harness has no scripts directory to
+   * scan (OpenCode's hooks are in-process code modules).
+   *
+   * 🔴 IT REPLACES TWO AD-HOC DERIVATIONS AND ONE HAND-WRITTEN LIST, which is
+   * why it is a field rather than something computed at each site. The list was
+   * `intraRefDirs`, written out per layout and therefore free to disagree with
+   * the surfaces beside it (on `opencode` it did, dropping the skill dir). The
+   * derivations were `hooksConventionPath.split("/")[0]`, copied into `scan.ts`
+   * and `scan-files.ts` — which reads `hooks` from `hooks/hooks.json` but
+   * `.codex` from `.codex/hooks.json`, i.e. it did not name a scripts directory
+   * at all for Codex. Both are now {@link executableSourceDirs}.
+   */
+  readonly hookScriptsDir?: string;
   /** Env token expanded to the plugin's absolute root in hook commands. */
   readonly pluginRootToken: string;
   /**
@@ -94,8 +153,51 @@ export interface PluginLayout {
   readonly mcpConfigFile: string;
   /** Manifest key declaring MCP servers, e.g. `mcpServers`. */
   readonly mcpManifestKey: string;
-  /** Dirs scanned for dangling intra-plugin file references. */
-  readonly intraRefDirs: readonly string[];
+}
+
+/** The kinds, in the order every derived list emits them. Iterating a record's
+ *  own keys would make the output depend on literal order in each layout; this
+ *  makes it depend on nothing. */
+export const SURFACE_KINDS = ["skill", "agent", "command"] as const;
+
+/**
+ * Every surface dir a layout declares — what the `surfaceDirs` FIELD used to
+ * be, minus the possibility of disagreeing with the per-kind fields, because
+ * there are no per-kind fields left to disagree with.
+ */
+export function surfaceDirs(layout: PluginLayout): readonly string[] {
+  return SURFACE_KINDS.map((k) => layout.surfaces[k]).filter(
+    (d): d is string => d !== undefined,
+  );
+}
+
+/**
+ * Dirs whose non-prose files are scanned for intra-plugin references, and
+ * checked for misplacement inside the manifest dir: the surfaces plus
+ * {@link PluginLayout.hookScriptsDir}.
+ *
+ * Equal to the old hand-written `intraRefDirs` as a SET on Claude Code and
+ * Codex; on `opencode` it gains `.opencode/skill`, which the hand list had left
+ * out along with the rest of that layout's skill surface.
+ */
+export function executableSourceDirs(layout: PluginLayout): readonly string[] {
+  const dirs = surfaceDirs(layout);
+  return layout.hookScriptsDir === undefined
+    ? dirs
+    : [...dirs, layout.hookScriptsDir];
+}
+
+/**
+ * The prefix a relocated surface is keyed under — `userSurfaceRoot` when the
+ * harness has a second home for its surfaces, `""` when the surfaces carry
+ * their own prefix and a file-map key equals the on-disk path.
+ *
+ * One line, named, because it used to be a FIELD (`materializeRoot`) and the
+ * only thing that kept it equal to `userSurfaceRoot` was that nobody had
+ * written a layout where they differed.
+ */
+export function materializePrefix(layout: PluginLayout): string {
+  return layout.userSurfaceRoot ?? "";
 }
 
 /**

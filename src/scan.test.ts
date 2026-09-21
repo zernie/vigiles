@@ -22,6 +22,7 @@ import {
 } from "./scan.js";
 import { loadPlugin } from "./adapters/claude-code/plugin-loader.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import type { PluginLayout } from "./core/layout.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { codexLayout } from "./adapters/codex/layout.js";
@@ -217,11 +218,10 @@ test("subagent classification is layout-driven (ready for new harnesses)", () =>
     "---\nname: reviewer\ndescription: Reviews code for issues carefully\ntools: Reat\n---\nReview.\n",
   );
 
-  const customLayout = {
+  const customLayout: PluginLayout = {
     ...claudeCodeLayout,
-    agentDir: "subagents",
-    surfaceDirs: ["subagents"],
-    materializeRoot: "",
+    surfaces: { agent: "subagents" },
+    userSurfaceRoot: undefined,
   };
   const r = scanPlugin(dir, customLayout, claudeCodeDialect);
   const reviewer = r.agents.find((a) => a.name === "reviewer");
@@ -1827,11 +1827,10 @@ test("trifecta detector is dialect-injected — works under a non-CC layout", ()
     "subagents/wide.md",
     "---\nname: wide\ndescription: A subagent with no tools line under a custom dir\n---\nbody\n",
   );
-  const customLayout = {
+  const customLayout: PluginLayout = {
     ...claudeCodeLayout,
-    agentDir: "subagents",
-    surfaceDirs: ["subagents"],
-    materializeRoot: "",
+    surfaces: { agent: "subagents" },
+    userSurfaceRoot: undefined,
   };
   const r = scanPlugin(dir, customLayout, claudeCodeDialect);
   assert.equal(

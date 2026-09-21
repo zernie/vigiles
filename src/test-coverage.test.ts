@@ -30,6 +30,7 @@ import { isEvalScript } from "./coverage-evidence.js";
 import { SCRIPT_EXTS } from "./adapters/claude-code/run-scripts.js";
 import { surfaceSha } from "./coverage-artifact.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import type { PluginLayout } from "./core/layout.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { codexLayout } from "./adapters/codex/layout.js";
 import { testFileExt } from "./core/test-file-ext.js";
@@ -68,12 +69,14 @@ test("surface discovery + hook-token are layout-driven (non-CC harness)", () => 
     }),
   );
 
-  const layout = {
+  const layout: PluginLayout = {
     ...claudeCodeLayout,
-    skillDir: "mysurf/skill",
-    agentDir: "mysurf/agent",
-    commandDir: "mysurf/command",
-    materializeRoot: "",
+    surfaces: {
+      skill: "mysurf/skill",
+      agent: "mysurf/agent",
+      command: "mysurf/command",
+    },
+    userSurfaceRoot: undefined,
     manifestPath: "my-manifest.json",
     pluginRootToken: "${MY_PLUGIN_ROOT}",
   };
@@ -81,8 +84,16 @@ test("surface discovery + hook-token are layout-driven (non-CC harness)", () => 
   const r = findUntestedSurfaces({ basePath: dir, layout });
   const byKind = (k: string) =>
     r.untested.filter((s) => s.kind === k).map((s) => s.name);
-  assert.deepEqual(byKind("skill"), ["foo"], "skill found at layout.skillDir");
-  assert.deepEqual(byKind("agent"), ["bar"], "agent found at layout.agentDir");
+  assert.deepEqual(
+    byKind("skill"),
+    ["foo"],
+    "skill found at layout.surfaces.skill",
+  );
+  assert.deepEqual(
+    byKind("agent"),
+    ["bar"],
+    "agent found at layout.surfaces.agent",
+  );
   assert.deepEqual(
     byKind("hook"),
     ["present"],

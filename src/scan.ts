@@ -36,7 +36,11 @@ import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { danglingRefs } from "./plugin-loader.js";
 import { isEmptyMachine } from "./score-core.js";
 import { brokenSkillRefs, formatSkillRefIssue } from "./skill-refs.js";
-import type { PluginLayout } from "./core/layout.js";
+import {
+  executableSourceDirs,
+  materializePrefix,
+  type PluginLayout,
+} from "./core/layout.js";
 import type { ExcludeSet } from "./exclude.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import type { ToolIssue } from "./core/tool-contract.js";
@@ -716,7 +720,7 @@ export function scanPlugin(
   });
   const skills = scanSkills(loaded.files, cls, {
     root: resolve(dir),
-    materializeRoot: lay.materializeRoot,
+    materializeRoot: materializePrefix(lay),
     dialect,
     sources: loaded.sources,
     sharedDirs: opts.sharedDirs,
@@ -807,10 +811,14 @@ export function scanPlugin(
     ),
     pluginLayoutIssues: pluginDirLayoutIssues(
       resolve(dir, dirname(lay.manifestPath)),
-      // The hooks dir is a misplaceable functional surface too, but it lives in
-      // the layout as a convention PATH (`hooks/hooks.json`), not in surfaceDirs
-      // — derive its first segment and dedupe so the detector watches it as well.
-      [...new Set([...lay.surfaceDirs, lay.hooksConventionPath.split("/")[0]])],
+      // 🔴 THE HOOK SCRIPTS DIR IS NAMED, NOT DERIVED FROM A FILE PATH. This
+      // used to be `lay.hooksConventionPath.split("/")[0]`, copied here and into
+      // the twin: it reads `hooks` from `hooks/hooks.json`, but `.codex` from
+      // `.codex/hooks.json` — a REGISTRATION directory, not a scripts one, so
+      // for Codex the detector was watching the wrong directory entirely. The
+      // layout names it (`hookScriptsDir`) and `executableSourceDirs` joins it
+      // to the surfaces.
+      executableSourceDirs(lay),
       { existsSync, isDirectory: nodeIsDirectory },
     ),
     delegationTrifecta: collectDelegationTrifecta(agents, dialect),

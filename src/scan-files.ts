@@ -39,7 +39,12 @@ import { parse as parseToml } from "@iarna/toml";
 
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
-import type { PluginLayout } from "./core/layout.js";
+import {
+  executableSourceDirs,
+  materializePrefix,
+  surfaceDirs,
+  type PluginLayout,
+} from "./core/layout.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import { weighInstructions } from "./core/instruction-weight.js";
 import type { LoadedPlugin } from "./plugin-loader.js";
@@ -276,7 +281,12 @@ function readHooks(
     }
     if (m.hooks !== undefined) return m.hooks;
   }
-  if (hasFile(files, layout.hooksConventionPath)) {
+  // Optional: a harness whose hooks are in-process code modules has no
+  // standalone hooks FILE. Mirrors the disk loader.
+  if (
+    layout.hooksConventionPath !== undefined &&
+    hasFile(files, layout.hooksConventionPath)
+  ) {
     return readHooksJsonFile(files, layout.hooksConventionPath);
   }
   const settings = files[layout.settingsPath];
@@ -308,7 +318,7 @@ function surfaceHasLoadable(
   tree: Record<string, string>,
 ): boolean {
   const keys = Object.keys(tree);
-  return surface === layout.skillDir
+  return surface === layout.surfaces.skill
     ? keys.some((k) => basename(k) === "SKILL.md")
     : keys.some((k) => k.endsWith(".md"));
 }
@@ -331,7 +341,7 @@ function materializeSurfaces(
   const harnessCounts: Record<string, number> = {};
   const scopeTrees = (base: string): Map<string, Record<string, string>> => {
     const trees = new Map<string, Record<string, string>>();
-    for (const surface of layout.surfaceDirs) {
+    for (const surface of surfaceDirs(layout)) {
       const dirRel = base === "" ? surface : `${base}/${surface}`;
       trees.set(
         surface,
@@ -341,7 +351,7 @@ function materializeSurfaces(
     return trees;
   };
   const hasLoadable = (trees: ReadonlyMap<string, Record<string, string>>) =>
-    layout.surfaceDirs.some((s) =>
+    surfaceDirs(layout).some((s) =>
       surfaceHasLoadable(layout, s, trees.get(s) ?? {}),
     );
   const add = (key: string, content: string, onDisk: string): void => {
@@ -360,7 +370,7 @@ function materializeSurfaces(
     scope: SurfaceScope,
     trees: ReadonlyMap<string, Record<string, string>>,
   ): void => {
-    for (const surface of layout.surfaceDirs) {
+    for (const surface of surfaceDirs(layout)) {
       const tree = trees.get(surface) ?? {};
       const dirRel = scope.base === "" ? surface : `${scope.base}/${surface}`;
       for (const [rel, content] of Object.entries(tree))
@@ -377,7 +387,8 @@ function materializeSurfaces(
   };
 
   const source = surfaceSource(layout, {
-    hasRootSkillFile: Boolean(layout.skillDir) && hasFile(files, "SKILL.md"),
+    hasRootSkillFile:
+      layout.surfaces.skill !== undefined && hasFile(files, "SKILL.md"),
     // Disk mirrors the CLI: a nameless root SKILL.md takes the audited dir's
     // basename. In-browser there's no real dir, so use the repo name when the
     // caller (runAudit) supplies it, else the synthetic BROWSER_ROOT basename.
@@ -385,22 +396,28 @@ function materializeSurfaces(
     rootHasLoadable: hasLoadable(rootTrees),
     isPluginShaped:
       hasFile(files, layout.manifestPath) ||
-      hasFile(files, layout.hooksConventionPath),
+      (layout.hooksConventionPath !== undefined &&
+        hasFile(files, layout.hooksConventionPath)),
     userHasLoadable: hasLoadable(userTrees),
   });
 
   switch (source.kind) {
     case "single-skill": {
       const tree = readTreeUnder(files, "", "");
+      // Mirrors the disk loader: "single-skill" is only reachable for a layout
+      // that HAS a skill surface, and the check makes that visible to the type
+      // system rather than only to a reader.
+      const skillDir = layout.surfaces.skill;
+      if (skillDir === undefined) return { counts, harnessCounts, scopes: [] };
       for (const [rel, content] of Object.entries(tree)) {
         add(
-          join(layout.materializeRoot, layout.skillDir, source.skillName, rel),
+          join(materializePrefix(layout), skillDir, source.skillName, rel),
           content,
           join(BROWSER_ROOT, rel),
         );
       }
-      counts[layout.skillDir] = Object.keys(tree).length;
-      harnessCounts[layout.skillDir] = counts[layout.skillDir];
+      counts[skillDir] = Object.keys(tree).length;
+      harnessCounts[skillDir] = counts[skillDir];
       return { counts, harnessCounts, scopes: [] };
     }
     case "scopes": {
@@ -419,7 +436,7 @@ function materializeSurfaces(
 // Extensions + BOTH token boundaries live in core/source-refs.ts, so this and
 // its disk twin (plugin-loader.ts) cannot disagree and neither can omit one.
 function intraRefRe(layout: PluginLayout): RegExp {
-  return intraRefPattern(layout.intraRefDirs);
+  return intraRefPattern(executableSourceDirs(layout));
 }
 
 const NON_PLUGIN_VARS = new Set([
@@ -451,7 +468,7 @@ function executableContents(
   layout: PluginLayout,
 ): string[] {
   const out: string[] = [];
-  for (const surface of layout.intraRefDirs) {
+  for (const surface of executableSourceDirs(layout)) {
     if (!isDirRel(files, surface)) continue;
     for (const [k, content] of Object.entries(files)) {
       if (!k.startsWith(`${surface}/`)) continue;
@@ -692,7 +709,7 @@ export function scanFiles(
   });
   const skills = scanSkills(loaded.files, cls, {
     root: BROWSER_ROOT,
-    materializeRoot: lay.materializeRoot,
+    materializeRoot: materializePrefix(lay),
     dialect,
     sources: loaded.sources,
     existsSync: exists,
@@ -768,7 +785,9 @@ export function scanFiles(
     ),
     pluginLayoutIssues: pluginDirLayoutIssues(
       join(BROWSER_ROOT, dirname(lay.manifestPath)),
-      [...new Set([...lay.surfaceDirs, lay.hooksConventionPath.split("/")[0]])],
+      // See the note in scan.ts: the scripts dir is NAMED by the layout, not
+      // derived from the registration file's first segment.
+      executableSourceDirs(lay),
       { existsSync: exists, isDirectory: mapIsDirectory(files) },
     ),
     delegationTrifecta: collectDelegationTrifecta(agents, dialect),

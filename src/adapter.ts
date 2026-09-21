@@ -17,7 +17,15 @@
  */
 export type { HarnessAdapter, AdapterCapabilities } from "./core/adapter.js";
 export type { HarnessDialect } from "./core/dialect.js";
-export type { PluginLayout } from "./core/layout.js";
+export type { PluginLayout, SurfaceDirs, SurfaceKind } from "./core/layout.js";
+// The three derived readers. They are part of the port's surface, not helpers:
+// an adapter author reads a layout through them, and they are what replaced the
+// `surfaceDirs` / `intraRefDirs` / `materializeRoot` FIELDS.
+export {
+  executableSourceDirs,
+  materializePrefix,
+  surfaceDirs,
+} from "./core/layout.js";
 export type { HarnessRuntime } from "./core/runtime.js";
 export type { HookProtocol } from "./core/hook-protocol.js";
 export type { ModelMock } from "./core/model-mock.js";

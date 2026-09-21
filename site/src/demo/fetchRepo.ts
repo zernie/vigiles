@@ -45,6 +45,9 @@
  * Full rationale + the edge-case ledger: research/browser-demo-fetch-limits.md.
  * ────────────────────────────────────────────────────────────────────────────
  */
+import { executableSourceDirs } from "@engine/core/layout";
+import { claudeCodeLayout } from "@engine/adapters/claude-code/layout";
+
 import { normalizeSlug } from "@/lib/deeplink";
 
 /** repo-relative POSIX path → file content — the `scanFiles` input shape. */
@@ -91,15 +94,32 @@ const CONCURRENCY = 6;
 /** Top-level files that ARE a harness surface on their own. `SKILL.md` at the repo
  *  root is the single-skill plugin shape (loadPluginFromFiles' "single-skill" case). */
 const HARNESS_ROOT_FILES = new Set(["CLAUDE.md", ".mcp.json", "SKILL.md"]);
-/** Any path segment equal to one of these is a harness directory. */
-const HARNESS_DIRS = new Set([
-  ".claude",
-  ".claude-plugin",
-  "skills",
-  "hooks",
-  "agents",
-  "commands",
-]);
+/**
+ * Any path segment equal to one of these is a harness directory — DERIVED from
+ * the Claude Code layout, not listed.
+ *
+ * 🔴 IT USED TO BE A HAND-WRITTEN SET, and the engine had just finished
+ * removing the same shape from the port itself: a second place naming the
+ * directories a layout already names, free to fall behind it. It listed
+ * `skills`, `agents`, `commands`, `hooks`, `.claude`, `.claude-plugin`; the
+ * expression below produces exactly those six from `claudeCodeLayout`, and a
+ * layout that moves a surface now moves what the demo fetches with it.
+ *
+ * The demo grades CLAUDE CODE harnesses only — see the note above — so this
+ * derives from that ONE layout on purpose, rather than from the registry.
+ */
+const HARNESS_DIRS = new Set(
+  [
+    ...executableSourceDirs(claudeCodeLayout),
+    claudeCodeLayout.userSurfaceRoot,
+    claudeCodeLayout.manifestPath,
+  ]
+    .filter((d): d is string => d !== undefined)
+    // First segment only: `isHarnessPath` compares the first segment of a path,
+    // and a layout may name a nested dir (`.agents/skills`) or a file
+    // (`.claude-plugin/plugin.json`).
+    .map((d) => (d.includes("/") ? d.slice(0, d.indexOf("/")) : d)),
+);
 
 /**
  * A tree blob that's a harness surface: a top-level harness file, or a path whose
