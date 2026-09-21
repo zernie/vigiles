@@ -8,8 +8,11 @@
  * `vigiles:symbol`, so RENAMING it turns `vigiles lint` red and forces the
  * edit; changing a VALUE in place does not, and nothing today catches that.
  */
-import type { PluginLayout } from "../../core/layout.js";
+import { RULE_FILE_LEAF_RE, type PluginLayout } from "../../core/layout.js";
+import { settingsSourcePaths } from "../../core/instruction-chain.js";
+import type { InstructionChain } from "../../core/instruction-chain.js";
 import { jsonSettingsCodec } from "../../core/settings-codec.js";
+import { claudeCodeInstructionChain } from "./instruction-chain.js";
 
 export const claudeCodeLayout: PluginLayout = {
   name: "claude-code",
@@ -35,4 +38,19 @@ export const claudeCodeLayout: PluginLayout = {
   projectRootTokens: ["${CLAUDE_PROJECT_DIR}", "${CLAUDE_PROJECT}"],
   mcpConfigFile: ".mcp.json",
   mcpManifestKey: "mcpServers",
+  // What a repo-root session LOADS, and why each remaining candidate does not —
+  // see ./instruction-chain.ts for the vendor quotes behind every branch. The
+  // regexes and paths handed over are DERIVED from the fields above, so moving
+  // `rulesDir` or `userSurfaceRoot` moves the chain with it.
+  instructionChain(files): InstructionChain {
+    return claudeCodeInstructionChain(files, {
+      instructionFile: claudeCodeLayout.instructionFile,
+      userSurfaceRoot: claudeCodeLayout.userSurfaceRoot ?? "",
+      settingsPaths: settingsSourcePaths(claudeCodeLayout),
+      parseSettings: (text) => claudeCodeLayout.settings.parse(text),
+      ruleRe: new RegExp(
+        `(?:^|/)${claudeCodeLayout.rulesDir ?? ""}/${RULE_FILE_LEAF_RE}$`,
+      ),
+    });
+  },
 };

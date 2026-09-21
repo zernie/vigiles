@@ -15,10 +15,30 @@
  * Node-free by construction: markdown-it is pure JS with no node builtins, so
  * this bundles clean in the browser scan engine (reached via skill-resources).
  */
-import MarkdownIt from "markdown-it";
+/**
+ * 🔴 `markdown-it` IS REQUIRED LAZILY, AND THAT IS A MEASUREMENT, NOT A STYLE.
+ * The same wrapper is in `core/settings-codec.ts` with the reason recorded: a
+ * top-level import puts the parser into the module graph of every HOOK
+ * DECISION, because the hook runtime reaches the adapter registry and from
+ * there a layout. This module became reachable that way on 2026-09-21 when
+ * `PluginLayout.instructionChain` landed — measured by
+ * `src/hook-runtime-graph.test.ts`: the react graph went from 37 modules to 92
+ * with an eager import, and that test now names `markdown-it` so the regression
+ * cannot come back unnamed. `tsc` lowers this to CommonJS, so the `require`
+ * genuinely does not run until a parse is asked for.
+ *
+ * Each parser is built on FIRST USE and kept: construction is not free, and
+ * `parse()` is stateless across calls, so one instance per configuration is
+ * both correct and what the eager version did.
+ */
+type MarkdownItCtor = typeof import("markdown-it");
+type MarkdownItParser = InstanceType<MarkdownItCtor>;
+const MarkdownIt = (): MarkdownItCtor =>
+  require("markdown-it") as MarkdownItCtor;
 
 // One reusable parser; parse() is stateless across calls.
-const md = new MarkdownIt();
+let mdCached: MarkdownItParser | null = null;
+const md = (): MarkdownItParser => (mdCached ??= new (MarkdownIt())());
 
 /**
  * A SECOND parser, used only by {@link markdownRefs}, with link handling turned
@@ -34,9 +54,16 @@ const md = new MarkdownIt();
  *   turn "a destination this tool declines to resolve" into "no destination at
  *   all". Skipping by scheme is the caller's job and it already does it.
  */
-const mdRefs = new MarkdownIt();
-mdRefs.normalizeLink = (url: string): string => url;
-mdRefs.validateLink = (): boolean => true;
+let mdRefsCached: MarkdownItParser | null = null;
+const mdRefs = (): MarkdownItParser => {
+  if (mdRefsCached === null) {
+    const parser = new (MarkdownIt())();
+    parser.normalizeLink = (url: string): string => url;
+    parser.validateLink = (): boolean => true;
+    mdRefsCached = parser;
+  }
+  return mdRefsCached;
+};
 
 /**
  * A boolean per source line (0-based): `true` when the line lies inside a fenced
@@ -52,7 +79,7 @@ mdRefs.validateLink = (): boolean => true;
 export function fencedLineFlags(src: string): boolean[] {
   const lineCount = src.split("\n").length;
   const flags = new Array<boolean>(lineCount).fill(false);
-  for (const tok of md.parse(src, {})) {
+  for (const tok of md().parse(src, {})) {
     // Only real ``` / ~~~ fences (a block-level token); markdown-it's `map` is
     // a [start, end) 0-based line range covering the delimiters + body.
     if (tok.type !== "fence" || tok.map === null) continue;
@@ -60,6 +87,68 @@ export function fencedLineFlags(src: string): boolean[] {
     for (let i = start; i < end && i < lineCount; i++) flags[i] = true;
   }
   return flags;
+}
+
+/**
+ * A THIRD parser, with `html: true`, used only by {@link proseLines}.
+ *
+ * The default `md` above has HTML disabled, so `<!-- maintainer note -->` comes
+ * back as ordinary paragraph TEXT rather than as an `html_block` token — which
+ * would put an author's commented-out line into the prose a caller is reading.
+ * Measured: with the default parser, `"<!-- note -->\n\n@AGENTS.md"` yields two
+ * prose lines; with this one, one. Enabling html on the shared parser would
+ * change what every existing caller sees, so this is a sibling rather than a
+ * setting, exactly as `mdRefs` is.
+ */
+let mdProseCached: MarkdownItParser | null = null;
+const mdProse = (): MarkdownItParser =>
+  (mdProseCached ??= new (MarkdownIt())({ html: true }));
+
+/**
+ * The document's PROSE, as CommonMark sees it: one entry per source line that
+ * carries author text, with fenced code, indented code, raw HTML blocks, inline
+ * code spans and inline HTML removed, and blank lines dropped.
+ *
+ * 🔴 WHY A CALLER MUST NOT DO THIS BY SPLITTING LINES. The module header already
+ * records that the naive `inFence = !inFence` toggle was copy-pasted into five
+ * detectors and is wrong on nested or unbalanced fences. The same applies to
+ * every other part of "what is the author actually saying here": a `<!-- -->`
+ * spanning three lines, a four-backtick block containing a bare three-backtick
+ * line, an indented continuation. The parser has all of it.
+ *
+ * What it also does, and what a hand-written reader gets wrong quietly: block
+ * parsing strips the leading INDENT, normalises CRLF, and drops trailing
+ * whitespace and trailing blank lines — so `@AGENTS.md`, `  @AGENTS.md`,
+ * `@AGENTS.md  ` and a CRLF-terminated copy all arrive as the same string
+ * (measured against this repo's markdown-it, 2026-09-21).
+ *
+ * ⚠️ THE ONE THING IT DOES NOT NORMALISE IS A UTF-8 BOM: markdown-it hands back
+ * `"\uFEFF@AGENTS.md"` for a BOM-prefixed first line, so this strips it. That is
+ * a measurement, not a precaution.
+ */
+export function proseLines(src: string): readonly string[] {
+  const out: string[] = [];
+  for (const tok of mdProse().parse(src, {})) {
+    if (tok.type !== "inline") continue;
+    let line = "";
+    for (const child of tok.children ?? []) {
+      if (child.type === "softbreak" || child.type === "hardbreak") {
+        out.push(line);
+        line = "";
+        continue;
+      }
+      // A code span and an inline `<!-- -->` are not the author's prose; the
+      // corpus that motivated this is full of `@dataclass`-shaped text inside
+      // them, and none of it names a file.
+      if (child.type === "code_inline" || child.type === "html_inline")
+        continue;
+      line += child.content;
+    }
+    out.push(line);
+  }
+  return out
+    .map((line) => line.replace(/^\uFEFF/, ""))
+    .filter((line) => line !== "");
 }
 
 /** One fenced code block: its BODY (delimiters excluded) and where the body starts. */
@@ -96,7 +185,7 @@ export interface FencedBlock {
  */
 export function fencedCodeBlocks(src: string): FencedBlock[] {
   const out: FencedBlock[] = [];
-  for (const tok of md.parse(src, {})) {
+  for (const tok of md().parse(src, {})) {
     if (tok.type !== "fence" || tok.map === null) continue;
     // `content` is the body only; `map[0]` is the OPENING delimiter's 0-based
     // line, so the body's first line is 1-based `map[0] + 2`.
@@ -172,7 +261,7 @@ export function markdownRefs(src: string): MarkdownRef[] {
     // Cheap reject: no link syntax and no backtick means no reference, and most
     // lines of a real corpus are that.
     if (fenced[i] || (!line.includes("`") && !line.includes("]("))) continue;
-    for (const tok of mdRefs.parseInline(line, {})) {
+    for (const tok of mdRefs().parseInline(line, {})) {
       refsInInline(tok.children ?? [], i + 1, out);
     }
   }

@@ -43,10 +43,14 @@ export const codexDialect: HarnessDialect = {
     onExceed: "truncates",
     capturedFrom:
       "codex config project_doc_max_bytes default 32 * 1024; truncation quoted in openai/codex#7138",
-    // Read root-to-leaf and concatenated, so a nested AGENTS.md pays into the
-    // same budget — the sum is what gets cut, not the individual file.
-    alwaysLoaded: ["AGENTS.md", "**/AGENTS.md"],
   },
+  // 🔴 `alwaysLoaded: ["AGENTS.md", "**/AGENTS.md"]` USED TO STAND HERE, and it
+  // was wrong twice over: the core expanded that second glob by walking the
+  // whole repository (an adapter choosing what the domain reads), and the set it
+  // produced is not what a root session loads — Codex takes AT MOST ONE FILE PER
+  // DIRECTORY along root→cwd, so at the root it is one file. A monorepo with
+  // twelve package-level AGENTS.md files was told it was 12x over a budget no
+  // session approaches. Which files load is now `codexLayout.instructionChain`.
   instructionTargets: ["AGENTS.md"],
   pluginRootToken: "${PLUGIN_ROOT}",
   // Codex SKILL.md frontmatter is name + description ONLY — the richer keys

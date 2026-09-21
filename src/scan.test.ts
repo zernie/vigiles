@@ -2495,30 +2495,92 @@ test("conditional tool notes are GROUPED by condition, not repeated per tool", (
 // direction that matters — under-reporting reads as "you are fine", and on Codex
 // being over budget means rules are silently truncated away.
 
-test("weight: a nested AGENTS.md pays into the Codex budget, node_modules does not", () => {
+test("weight: at a root session Codex loads the ROOT file only — the walk is never entered", () => {
   const dir = makeTmpDir();
   try {
     mkdirSync(join(dir, "pkg/sub"), { recursive: true });
     mkdirSync(join(dir, "node_modules/dep"), { recursive: true });
     mkdirSync(join(dir, ".hidden"), { recursive: true });
     writeFileSync(join(dir, "AGENTS.md"), "a".repeat(100));
+    // 🔴 THE ASSERTION BELOW IS REVERSED FROM THE ONE THIS REPLACED, which said
+    // a nested AGENTS.md "pays into the same Codex budget" and counted 150.
+    // Vendor (zernie/vigiles#262): Codex walks root→cwd taking AT MOST ONE file
+    // per directory, so at a repo-root session there is nothing to walk down to.
+    // The old number was not merely generous — it is why a monorepo with twelve
+    // package-level files was told it was 12x over a budget no session reaches,
+    // on the harness where over-budget means rules are silently truncated away.
     writeFileSync(join(dir, "pkg/sub/AGENTS.md"), "b".repeat(50));
-    // Both of these are AGENTS.md by name and must NOT be counted: one belongs
-    // to a dependency, one is in a dot-directory the user did not author as
-    // project instructions. Counting them would make the number unactionable.
+    // And these two are not even ENUMERATED now: the bounded candidate set is
+    // the repo root plus its depth-1 dot-directories, so a dependency's file and
+    // a dot-directory's are outside it by construction rather than by a skip
+    // list that has to be remembered.
     writeFileSync(join(dir, "node_modules/dep/AGENTS.md"), "c".repeat(9999));
     writeFileSync(join(dir, ".hidden/AGENTS.md"), "d".repeat(9999));
 
     const r = scanPlugin(dir, codexLayout, codexDialect);
     const w = r.instructionWeight;
     assert.ok(w, "codex declares a budget, so a weight must be reported");
-    assert.equal(w.total, 150);
+    assert.equal(w.committedTotal, 100);
     assert.deepEqual(
       w.files.map((f) => f.path),
-      ["AGENTS.md", "pkg/sub/AGENTS.md"],
+      ["AGENTS.md"],
     );
     assert.equal(w.unit, "bytes");
     assert.equal(w.onExceed, "truncates");
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+/**
+ * 🔴 THE REDIRECT FIXTURE — the repo shape the glob list answered with a
+ * confident wrong number.
+ *
+ * `CLAUDE.md` holding nothing but `@AGENTS.md` is the documented workaround for
+ * Claude Code not auto-loading `AGENTS.md` (anthropics/claude-code#34235), and
+ * four of the six real imports in the measured 198-file corpus are exactly this.
+ * Before the import pass, vigiles reported such a repository as having an
+ * eleven-byte instruction file — reassuring, and wrong by two orders of
+ * magnitude.
+ */
+test("weight: a CLAUDE.md that is nothing but an import is REPORTED AS A REDIRECT, and its target is weighed", () => {
+  const dir = makeTmpDir();
+  try {
+    writeFileSync(join(dir, "CLAUDE.md"), "@AGENTS.md\n");
+    writeFileSync(join(dir, "AGENTS.md"), "a".repeat(50000));
+
+    const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
+    const w = r.instructionWeight;
+    assert.ok(w);
+    // Not 11. The repository really loads fifty thousand characters.
+    assert.equal(w.committedTotal, 50011);
+    assert.deepEqual(w.redirects, [{ path: "CLAUDE.md", to: ["AGENTS.md"] }]);
+
+    const out = formatScanReport(r);
+    // The FINDING, in words a reader can act on…
+    assert.match(out, /CLAUDE\.md is a REDIRECT/);
+    assert.match(out, /AGENTS\.md/);
+    // …and the provenance on the imported file's own breakdown row, because
+    // `AGENTS.md` inside a Claude Code weight otherwise reads as a bug.
+    assert.match(out, /via @AGENTS\.md in CLAUDE\.md/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("weight: an ordinary instruction file is NOT called a redirect", () => {
+  // The other half. A finding that fired on every repo would be switched off in
+  // a week, and this one prints above the number it is meant to qualify.
+  const dir = makeTmpDir();
+  try {
+    writeFileSync(join(dir, "CLAUDE.md"), "Real rules.\n\n@AGENTS.md\n");
+    writeFileSync(join(dir, "AGENTS.md"), "a".repeat(50));
+
+    const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
+    assert.deepEqual(r.instructionWeight?.redirects, []);
+    assert.doesNotMatch(formatScanReport(r), /REDIRECT/);
+    // The import is still weighed and still says where it came from.
+    assert.match(formatScanReport(r), /via @AGENTS\.md in CLAUDE\.md/);
   } finally {
     cleanupTmpDir(dir);
   }
@@ -2541,7 +2603,7 @@ test("weight: .claude/rules counts toward the Claude Code sum, docs/ does not", 
       claudeCodeDialect,
     ).instructionWeight;
     assert.ok(w);
-    assert.equal(w.total, 30);
+    assert.equal(w.committedTotal, 30);
     assert.equal(w.unit, "chars");
   } finally {
     cleanupTmpDir(dir);
@@ -2792,7 +2854,7 @@ test("#240: both halves are read, and the declaration ORDER does not decide whic
         `${order}: the instruction file is read`,
       );
       assert.ok(
-        (r.instructionWeight?.total ?? 0) > 0,
+        (r.instructionWeight?.committedTotal ?? 0) > 0,
         `${order}: …and it WEIGHS something — 0 was the old answer`,
       );
       // And the tree is no longer reported as unread, in either order.
@@ -2809,12 +2871,12 @@ test("#240: both halves are read, and the declaration ORDER does not decide whic
       {
         skills: ccFirst.skills.map((s) => s.name),
         instructions: ccFirst.instructions,
-        weight: ccFirst.instructionWeight?.total,
+        weight: ccFirst.instructionWeight?.committedTotal,
       },
       {
         skills: codexFirst.skills.map((s) => s.name),
         instructions: codexFirst.instructions,
-        weight: codexFirst.instructionWeight?.total,
+        weight: codexFirst.instructionWeight?.committedTotal,
       },
       "what is READ is identical in both declaration orders",
     );

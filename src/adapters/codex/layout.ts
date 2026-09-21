@@ -58,7 +58,10 @@
  * edit; changing a VALUE in place does not, and nothing today catches that.
  */
 import type { PluginLayout } from "../../core/layout.js";
+import type { InstructionChain } from "../../core/instruction-chain.js";
+import { settingsSourcePaths } from "../../core/instruction-chain.js";
 import { tomlSettingsCodec } from "../../core/settings-codec.js";
+import { codexInstructionChain } from "./instruction-chain.js";
 
 export const codexLayout: PluginLayout = {
   name: "codex",
@@ -98,4 +101,15 @@ export const codexLayout: PluginLayout = {
   pluginRootToken: "${PLUGIN_ROOT}",
   mcpConfigFile: ".mcp.json",
   mcpManifestKey: "mcp_servers",
+  // The root directory's ONE slot — override, then the committed file, then the
+  // names the repo itself declares in `config.toml`. See ./instruction-chain.ts
+  // for the vendor wording and for why `"**/AGENTS.md"` was not merely unbounded
+  // but wrong about what a root session loads.
+  instructionChain(files): InstructionChain {
+    return codexInstructionChain(files, {
+      instructionFile: codexLayout.instructionFile,
+      settingsPaths: settingsSourcePaths(codexLayout),
+      parseSettings: (text) => codexLayout.settings.parse(text),
+    });
+  },
 };

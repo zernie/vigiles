@@ -102,7 +102,14 @@ test("a root SKILL.md still wins outright (single-skill target)", () => {
     skillName: "solo",
     userHasLoadable: true,
   });
-  assert.deepEqual(s, { kind: "single-skill", skillName: "solo" });
+  // The variant CARRIES the skill dir, because only a layout that has one can
+  // produce it. Both engines used to re-read it and guard an `undefined` case
+  // that nothing could reach — two dead returns they had to keep identical.
+  assert.deepEqual(s, {
+    kind: "single-skill",
+    skillName: "solo",
+    skillDir: claudeCodeLayout.surfaces.skill,
+  });
 });
 
 test("a layout without a user surface root yields at most the root scope", () => {

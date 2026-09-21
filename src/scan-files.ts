@@ -46,6 +46,10 @@ import {
 } from "./core/layout.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import { weighInstructions } from "./core/instruction-weight.js";
+import {
+  instructionCandidatePaths,
+  resolveImports,
+} from "./core/instruction-chain.js";
 import type { LoadedPlugin } from "./plugin-loader.js";
 import { normalizeHooks, hookEventNames } from "./core/hook-normalize.js";
 import { verifyHookEvents, scoredIssues } from "./core/hook-events.js";
@@ -399,11 +403,10 @@ function materializeSurfaces(
   switch (source.kind) {
     case "single-skill": {
       const tree = readTreeUnder(files, "", "");
-      // Mirrors the disk loader: "single-skill" is only reachable for a layout
-      // that HAS a skill surface, and the check makes that visible to the type
-      // system rather than only to a reader.
-      const skillDir = layout.surfaces.skill;
-      if (skillDir === undefined) return { counts, harnessCounts, scopes: [] };
+      // Mirrors the disk loader: the skill dir is carried on the variant, so
+      // there is no `undefined` case to guard and no dead branch to keep in
+      // sync across the two engines.
+      const { skillDir } = source;
       for (const [rel, content] of Object.entries(tree)) {
         add(
           join(materializePrefix(layout), skillDir, source.skillName, rel),
@@ -690,6 +693,20 @@ export function scanFiles(
           hasSpec: hasFile(files, `${lay.instructionFile}.spec.ts`),
         }
       : null;
+  // The BOUNDED candidate set over the map, then the same one-level import pass
+  // the disk walk runs — `resolveImports` lives in the core precisely so these
+  // two cannot drift. An import the fetcher never fetched simply stays unread,
+  // and the weight says so (`unreadImports`) instead of quietly omitting it.
+  const instructionFiles = resolveImports(
+    lay,
+    Object.fromEntries(
+      instructionCandidatePaths(Object.keys(files), lay).map((p) => [
+        p,
+        files[p] ?? "",
+      ]),
+    ),
+    (p) => files[p],
+  );
   const mcpServers = collectMcpServers(files, lay);
   const declaredServers = Object.keys(mcpServers);
   // The repo's own test signal — same shared detector as the disk path, over the
@@ -817,10 +834,19 @@ export function scanFiles(
       ...loaded.warnings,
       ...conflictedHarnessConfigs((f) => files[f]).map(mergeConflictWarning),
     ],
-    // The browser side needs no directory walk — the file map IS the repo, so
-    // the glob filter inside weighInstructions does the whole job.
+    // 🔴 THE TWIN APPLIES THE SAME BOUND AS THE DISK WALK, and until now it
+    // applied none. The comment here used to read "the file map IS the repo, so
+    // the glob filter does the whole job" — which was true of a glob and is not
+    // true of a bound: `boundedInstructionFiles` enumerates the repo root plus
+    // depth-1 dot-directories and nothing else, so handing the whole fetched map
+    // over would make the browser weigh files the CLI never opens. Same filter,
+    // same import pass, same chain; only the storage differs.
     instructionWeight: dialect.instructionBudget
-      ? weighInstructions(files, dialect.instructionBudget)
+      ? weighInstructions(
+          lay.instructionChain(instructionFiles),
+          instructionFiles,
+          dialect.instructionBudget,
+        )
       : null,
     untested: coverage.untested.length,
     untestedHarness: coverage.harness.untested.length,

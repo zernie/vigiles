@@ -91,9 +91,31 @@ const CONCURRENCY = 6;
 // in the honest no-harness state that points at the CLI, not a report scanned with the
 // wrong layout. Do NOT re-add AGENTS.md/.codex here without wiring the Codex adapter
 // into runAudit — fetching a surface the scan then ignores is what produced the bug.
-/** Top-level files that ARE a harness surface on their own. `SKILL.md` at the repo
- *  root is the single-skill plugin shape (loadPluginFromFiles' "single-skill" case). */
-const HARNESS_ROOT_FILES = new Set(["CLAUDE.md", ".mcp.json", "SKILL.md"]);
+/**
+ * Top-level files that ARE a harness surface on their own — DERIVED from the
+ * Claude Code layout, not listed.
+ *
+ * 🔴 IT USED TO BE THE HAND-WRITTEN SET `["CLAUDE.md", ".mcp.json", "SKILL.md"]`,
+ * the same shape `HARNESS_DIRS` below had already stopped being: a second place
+ * naming files a layout already names, free to fall behind it. Two of the three
+ * come straight off the layout now, so a harness that renames its instruction
+ * file or its MCP config moves what the demo fetches with it.
+ *
+ * `SKILL.md` stays a literal because it is NOT a layout field: it is the
+ * single-skill plugin shape (`loadPluginFromFiles`' "single-skill" case), where
+ * the repo root IS the skill directory. Deriving it from `SURFACE_SHAPES` would
+ * mean deriving a ROOT file from a DIRECTORY shape, which is a different fact.
+ *
+ * ⚠️ The per-machine sibling (`CLAUDE.local.md`) is deliberately absent, and its
+ * absence is the same decision as `scope: "local"` in the engine: it is
+ * gitignored by convention, so a GitHub tree can never carry it. Adding it here
+ * would fetch a file that is never there and imply the demo could see one.
+ */
+const HARNESS_ROOT_FILES = new Set([
+  claudeCodeLayout.instructionFile,
+  claudeCodeLayout.mcpConfigFile,
+  "SKILL.md",
+]);
 /**
  * Any path segment equal to one of these is a harness directory — DERIVED from
  * the Claude Code layout, not listed.

@@ -12,7 +12,7 @@
  * stack on top later; this core stays pure so it runs anywhere in CI for free.
  */
 
-import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 // The COMPOSITION-ROOT loader, not the `vigiles/claude-code` wrapper: this
@@ -73,7 +73,10 @@ import {
   unclaimedSurfaceFindings,
   type UnclaimedSurfaceFinding,
 } from "./core/surface-discovery.js";
-import { boundedSurfacePaths } from "./surface-discovery-fs.js";
+import {
+  boundedInstructionFiles,
+  boundedSurfacePaths,
+} from "./surface-discovery-fs.js";
 import { REGISTERED_LAYOUTS } from "./layout-registry.js";
 import type { DelegationTrifectaFinding } from "./core/delegation-trifecta.js";
 import {
@@ -115,8 +118,8 @@ import {
 } from "./scan-core.js";
 import {
   weighInstructions,
-  type InstructionBudget,
   type InstructionWeight,
+  type WeighedFile,
 } from "./core/instruction-weight.js";
 import {
   blockIneffectiveEventsOf,
@@ -702,6 +705,16 @@ export function scanPlugin(
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
   const hookEventIssues = scoredIssues(allHookEventIssues);
   const instructionFile = instructionHarness.layout.instructionFile;
+  // The BOUNDED candidate set, read once and handed to the harness that owns
+  // the instruction file this repo has. It replaced `readAlwaysLoaded`, which
+  // expanded an ADAPTER's globs by walking the whole tree; the bound and the
+  // classification are now separate jobs held by separate modules, and only the
+  // second is the adapter's. See `core/instruction-chain.ts`.
+  const instructionFiles = boundedInstructionFiles(
+    resolve(dir),
+    instructionHarness.layout,
+    opts.excludes,
+  );
   const instructions: ScanInstructions | null =
     loaded.files[instructionFile] !== undefined
       ? {
@@ -863,7 +876,8 @@ export function scanPlugin(
     // exists is the only reading that is true of something.
     instructionWeight: instructionHarness.dialect.instructionBudget
       ? weighInstructions(
-          readAlwaysLoaded(dir, instructionHarness.dialect.instructionBudget),
+          instructionHarness.layout.instructionChain(instructionFiles),
+          instructionFiles,
           instructionHarness.dialect.instructionBudget,
         )
       : null,
@@ -1103,58 +1117,6 @@ function agentLines(a: ScanAgent): string[] {
 
 /** Format a scan report as human-readable text. */
 /**
- * Read every unconditionally-loaded instruction file off disk.
- *
- * Separate from `loadPlugin` on purpose: that materializes the harness's
- * SURFACES (skills, agents, hooks), while this reads what the harness loads
- * before any surface is involved — including `.claude/rules/**`, which is
- * exactly the directory a repo relocates into when it wants the root file to
- * look smaller.
- */
-function readAlwaysLoaded(
-  dir: string,
-  budget: InstructionBudget,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  const walk = (rel: string): void => {
-    const abs = join(dir, rel);
-    if (!existsSync(abs) || !statSync(abs).isDirectory()) return;
-    for (const entry of readdirSync(abs)) {
-      const child = `${rel}/${entry}`;
-      if (statSync(join(dir, child)).isDirectory()) walk(child);
-      else out[child] = readFileSync(join(dir, child), "utf-8");
-    }
-  };
-  // `**/NAME` — Codex reads nested AGENTS.md root-to-leaf and they all pay into
-  // the SAME budget, so leaving them out under-reports in the one direction that
-  // matters: the harness truncates silently, and an under-report reads as "you
-  // are fine". Skipped dirs are the ones that are never the user's instructions
-  // and would dominate the walk.
-  const SKIP = new Set(["node_modules", ".git", "dist", "build", "vendor"]);
-  const findNested = (name: string, rel = ""): void => {
-    const abs = rel === "" ? dir : join(dir, rel);
-    if (!existsSync(abs)) return;
-    for (const entry of readdirSync(abs)) {
-      if (SKIP.has(entry) || entry.startsWith(".")) continue;
-      const child = rel === "" ? entry : `${rel}/${entry}`;
-      const childAbs = join(dir, child);
-      if (statSync(childAbs).isDirectory()) findNested(name, child);
-      else if (entry === name && out[child] === undefined)
-        out[child] = readFileSync(childAbs, "utf-8");
-    }
-  };
-  for (const glob of budget.alwaysLoaded) {
-    if (!glob.includes("*")) {
-      const abs = join(dir, glob);
-      if (existsSync(abs) && statSync(abs).isFile())
-        out[glob] = readFileSync(abs, "utf-8");
-    } else if (glob.endsWith("/**")) walk(glob.slice(0, -3));
-    else if (glob.startsWith("**/")) findNested(glob.slice(3));
-  }
-  return out;
-}
-
-/**
  * The weight report. States the SUM first and the per-file breakdown second,
  * because the sum is the number a reader can act on and the breakdown is only
  * where to start.
@@ -1166,9 +1128,57 @@ function readAlwaysLoaded(
 function instructionWeightLines(w: InstructionWeight): string[] {
   const g = (n: number): string =>
     String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  const head = `Always-loaded instructions: ${g(w.total)} ${w.unit} (budget ${g(w.limit)})`;
-  if (w.overBy === null) return [head];
-  const factor = (w.total / w.limit).toFixed(1);
+  /** One breakdown row, with its provenance when it did not get in by location. */
+  const fileLine = (f: WeighedFile): string =>
+    `  ${g(f.size).padStart(9)}  ${f.path}` +
+    (f.via === undefined ? "" : `   via ${f.via.token} in ${f.via.from}`);
+  const head = `Always-loaded instructions: ${g(w.committedTotal)} ${w.unit} (budget ${g(w.limit)})`;
+  // 🔴 TWO NUMBERS, AND ONLY THE FIRST IS JUDGED. The committed total is what a
+  // teammate or CI loads from this commit; the effective total is what THIS
+  // working copy loads, per-machine files included. Scoring the second would
+  // make a published grade depend on a gitignored file and put the CLI and the
+  // browser engine — which reads a GitHub tree and can never see one —
+  // permanently out of agreement. Printing only the first would hide bytes the
+  // author is really paying for. See `core/instruction-chain.ts`.
+  const local = w.effectiveTotal - w.committedTotal;
+  // 🔴 A REDIRECT IS A FINDING, NOT A SIZE. A `CLAUDE.md` holding nothing but
+  // `@AGENTS.md` is fourteen bytes, and the repository it describes loads tens
+  // of kilobytes; printing the fourteen would be a confident wrong answer. The
+  // line says what the file IS and what it points at, above the number.
+  const redirectLines = w.redirects.map(
+    (r) =>
+      `  ↪ ${r.path} is a REDIRECT — its entire content is import(s): ${r.to.join(", ")}`,
+  );
+  // 🔴 AN IMPORTED FILE IS NAMED WHETHER OR NOT WE ARE OVER BUDGET. The
+  // breakdown below only prints when over, and an import is exactly the entry a
+  // reader cannot account for — `AGENTS.md` in a Claude Code weight reads as a
+  // bug until the line says which file asked for it.
+  const importedLines =
+    w.overBy === null
+      ? w.files.filter((f) => f.via !== undefined).map(fileLine)
+      : [];
+  const tail = [
+    ...(local > 0
+      ? [
+          `  + ${g(local)} ${w.unit} from per-machine file(s) — ${g(w.effectiveTotal)} in this working copy, not scored`,
+        ]
+      : []),
+    // Named rather than silently dropped: a number that omits a file it knows
+    // about is the under-report this whole report exists to prevent.
+    ...(w.unreadImports.length > 0
+      ? [
+          `  + ${String(w.unreadImports.length)} named import(s) not read: ${w.unreadImports.join(", ")}`,
+        ]
+      : []),
+    ...(w.unweighedPatterns.length > 0
+      ? [
+          `  + ${String(w.unweighedPatterns.length)} pattern(s) not weighed: ${w.unweighedPatterns.join(", ")}`,
+        ]
+      : []),
+  ];
+  if (w.overBy === null)
+    return [head, ...redirectLines, ...importedLines, ...tail];
+  const factor = (w.committedTotal / w.limit).toFixed(1);
   const consequence =
     w.onExceed === "truncates"
       ? "past the budget is SILENTLY TRUNCATED — those rules never reach the model"
@@ -1176,10 +1186,12 @@ function instructionWeightLines(w: InstructionWeight): string[] {
   return [
     `${head} — ${factor}x OVER by ${g(w.overBy)} ${w.unit}`,
     `  ${consequence}`,
-    ...w.files.slice(0, 5).map((f) => `  ${g(f.size).padStart(9)}  ${f.path}`),
+    ...redirectLines,
+    ...w.files.slice(0, 5).map(fileLine),
     ...(w.files.length > 5
       ? [`  …and ${String(w.files.length - 5)} more`]
       : []),
+    ...tail,
   ];
 }
 

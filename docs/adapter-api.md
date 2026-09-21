@@ -74,13 +74,15 @@ Where the harness keeps things on disk.
 | `surfaces`            | `Readonly<Partial<Record<SurfaceKind, string>>>` | where each model surface lives, keyed by kind (`skill`/`agent`/`command`); an ABSENT key is the only spelling of "this harness has no such surface"                                        | `{ skill: "skills", agent: "agents", command: "commands" }` |
 | `userSurfaceRoot`     | `string?`                                        | the second home an END USER keeps the same surfaces under — and the prefix a relocated scope is keyed under                                                                                | `".claude"` (Codex/OpenCode: omitted)                       |
 | `rulesDir`            | `string?`                                        | path-scoped instruction dir (an instruction is READ, not invoked — so not a `SurfaceKind`)                                                                                                 | `"rules"`                                                   |
+| `instructionChain`    | `(files) => InstructionChain`                    | METHOD: given the bounded candidate map the domain enumerated, which files this harness LOADS at a repo-root session, in order, and for each one it does not, WHY                          | see below                                                   |
 | `hookScriptsDir`      | `string?`                                        | dir holding executable hook SCRIPTS, distinct from where hooks are registered                                                                                                              | `"hooks"` (OpenCode: omitted)                               |
 | `pluginRootToken`     | `string`                                         | the plugin-root token (must match the dialect's)                                                                                                                                           | `"${CLAUDE_PLUGIN_ROOT}"`                                   |
 | `mcpConfigFile`       | `string`                                         | standalone MCP config                                                                                                                                                                      | `".mcp.json"`                                               |
 | `mcpManifestKey`      | `string`                                         | manifest key declaring MCP servers                                                                                                                                                         | `"mcpServers"`                                              |
 
-Three things the layout no longer carries, because each was a second place
-naming a fact the fields above already hold:
+Four things the layout no longer carries, because each was a second place
+naming a fact the fields above already hold — or, for the last, a mini-language
+the core had to interpret:
 
 | was                      | now                                                                                                                                        |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -88,8 +90,59 @@ naming a fact the fields above already hold:
 | `intraRefDirs: string[]` | `executableSourceDirs(layout)` — the surfaces plus `hookScriptsDir`                                                                        |
 | `materializeRoot`        | `materializePrefix(layout)` = `userSurfaceRoot ?? ""` — the two fields were equal in every shipped layout and undefined when they differed |
 
+| `alwaysLoaded: string[]` (on the DIALECT's `instructionBudget`) | `layout.instructionChain(files)` — see below |
+
+#### `instructionChain(files)`
+
+The one METHOD on this port, and it is a method for a reason no better data
+field fixes: which instruction files load is decided by things a path lookup
+cannot see — a rule's own frontmatter (`paths:` scopes it to an on-demand read),
+a SIBLING file (Codex's `AGENTS.override.md` takes the directory's one slot), and
+the REPOSITORY'S OWN SETTINGS (Claude Code's `claudeMdExcludes`, Codex's
+`project_doc_fallback_filenames`).
+
+It receives the map the DOMAIN enumerated and classifies those keys:
+
+```ts
+interface InstructionChain {
+  loaded: { path; role; scope }[]; // in load order
+  unloaded: { path; role; scope; reason }[]; // reason is a tagged union
+  imports: { path; from }[]; // `@path` tokens the loaded files NAME
+  patterns: { pattern; from }[]; // globs the domain will NOT walk
+}
+```
+
+- `role` — `root` · `root-local` · `rule` · `fallback` · `import`
+- `scope` — `repo` or `local`. A `local` file is READ and LINTED and never
+  SCORED: the browser engine reads a GitHub tree and can never see a gitignored
+  file, so scoring one would put the CLI and the browser permanently out of
+  agreement and make a published grade irreproducible between teammates. The
+  weight therefore carries two numbers, `committedTotal` and `effectiveTotal`.
+- `reason` — `{kind:"replaced", by}` · `{kind:"on-demand", when}` ·
+  `{kind:"excluded-by-settings", key}`. A file in `unloaded` without one does not
+  type-check.
+
+**The bound.** The domain enumerates candidates from `INSTRUCTION_SHAPES`
+(`core/instruction-chain.ts`): the repo root's markdown, a depth-1
+dot-directory's markdown, that dot-directory's `rules` tree read recursively,
+plus each layout's own `instructionFile` and settings sources. An adapter cannot
+add a root — `registering an adapter must not widen what vigiles reads in
+anyone's repository`, the same rule `core/surface-discovery.ts` states for
+surfaces. `src/adapter-properties.test.ts` asserts it: every path a chain names
+is a key of the map it was given.
+
+The one read outside that bound is the IMPORT pass, and what makes it legitimate
+is who chose the path: an `@import` token is written by the repository owner in
+their own instruction file, and the property tests require every reported import
+to literally occur in the file that reports it. It reads ONE level and does not
+recurse — measured across 198 real `CLAUDE.md` files, six carry an import at all
+and every one is a single concrete path at depth 1, four of them the `@AGENTS.md`
+workaround. `core/instruction-chain.ts#resolveImports` carries the numbers and
+what one level costs.
+
 **Consumed by:** `loadPlugin(path, layout)` — reads hooks through `settings.parse`,
-materializes surfaces, expands `pluginRootToken`.
+materializes surfaces, expands `pluginRootToken`. And by
+`weighInstructions(chain, files, budget)` — the instruction-weight report.
 
 ### `HarnessRuntime` (transport)
 

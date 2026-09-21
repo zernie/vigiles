@@ -519,3 +519,116 @@ describe("scanFiles — dangling-ref false positives (issue #110)", () => {
     expect(scanFiles(map).danglingRefs).toEqual([]);
   });
 });
+
+/**
+ * 🔴 THE SAME BLIND SPOT AGAIN, on the INSTRUCTION surface — and here the two
+ * engines were not merely at risk of disagreeing, they DID.
+ *
+ * `scanPlugin` expanded the dialect's `alwaysLoaded` globs by walking the repo;
+ * `scanFiles` ran the same globs over the whole fetched map with no walk and no
+ * bound. So the CLI counted `pkg/sub/AGENTS.md` (it recursed to find it) and
+ * `.claude/rules/**` (it descended), while the browser counted whatever the
+ * fetcher happened to hold. Neither number was the harness's answer, and nothing
+ * compared them: no vendored fixture ships `.claude/rules/`, a per-machine file
+ * or an `@import`, so the byte-parity gate above could not see any of it.
+ *
+ * Both engines now call ONE method (`layout.instructionChain`) over ONE bounded
+ * candidate set, and follow imports through ONE shared pass (`followImports`).
+ * This is the fixture that would notice if only one of them stopped.
+ */
+describe("scanFiles parity for INSTRUCTION files (the shape no vendored fixture has)", () => {
+  const files = {
+    ".claude-plugin/plugin.json":
+      '{"name":"instruction-repo","version":"0.1.0","description":"x"}',
+    "CLAUDE.md": `${"a".repeat(100)}\n@docs/style.md\n`,
+    // Read and linted, never scored: a gitignored file the browser can never see.
+    "CLAUDE.local.md": "b".repeat(70),
+    ".claude/rules/always.md": "c".repeat(50),
+    // On demand, not at launch — the Claude Code over-report this fixes.
+    ".claude/rules/scoped.md": '---\npaths: ["src/**"]\n---\nd',
+    // Recursive: the flat classifier read this and classified it as nothing.
+    ".claude/rules/team/deep.md": "e".repeat(30),
+    // Outside the dot-dir bound, reached only because CLAUDE.md NAMES it.
+    "docs/style.md": "f".repeat(20),
+    // Named by nobody, in a directory the bound never opens.
+    "docs/unnamed.md": "g".repeat(9999),
+    // 🔴 THE FILE THAT MAKES THE BOUND OBSERVABLE ON THE BROWSER SIDE, and
+    // without it a mutation removing the twin's bound stayed GREEN. The rules
+    // pattern is position-independent (`(?:^|/)rules/…`, because a harness's
+    // rules dir sits under whatever root it sits under), so a monorepo package's
+    // own `rules/` matches it. On disk it is unreachable — the walk opens the
+    // repo root and its depth-1 dot-directories only — so if the twin weighed
+    // its whole fetched map the two engines would disagree by exactly this file.
+    "packages/x/rules/theirs.md": "h".repeat(40),
+  } as const;
+
+  const write = (abs: string): void => {
+    for (const [rel, body] of Object.entries(files)) {
+      mkdirSync(dirname(join(abs, rel)), { recursive: true });
+      writeFileSync(join(abs, rel), body);
+    }
+  };
+
+  it("produces an identical AuditReport for a repo with a real instruction chain", () => {
+    const tmp = makeTmpDir("parity-instructions");
+    const abs = join(tmp, "instruction-repo");
+    write(abs);
+
+    const diskReport = scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
+    const fileReport = scanFiles(
+      readDirToMap(abs),
+      undefined,
+      undefined,
+      basename(abs),
+    );
+    expect(buildAuditReport(fileReport, OPTS)).toEqual(
+      normalizeRoot(buildAuditReport(diskReport, OPTS), abs),
+    );
+    expect(stabilize(fileReport)).toEqual(
+      stabilize(normalizeRoot(diskReport, abs)),
+    );
+    cleanupTmpDir(tmp);
+  });
+
+  it("…and BOTH engines reach the SAME numbers, which are the harness's answer", () => {
+    // Parity is agreement, not correctness. Pin the absolute figures so the pair
+    // cannot pass by being wrong together — which is exactly how they passed
+    // while one walked the repo and the other weighed the whole fetched map.
+    const tmp = makeTmpDir("parity-instructions-abs");
+    const abs = join(tmp, "instruction-repo");
+    write(abs);
+
+    const disk = scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
+    const browser = scanFiles(
+      readDirToMap(abs),
+      undefined,
+      undefined,
+      basename(abs),
+    );
+    // CLAUDE.md (100 + "\n@docs/style.md\n" = 116) + always 50 + deep 30
+    // + the imported docs/style.md 20 = 216. `scoped.md` is on demand,
+    // `docs/unnamed.md` was never named, and CLAUDE.local.md (70) is read but
+    // NOT scored — it is the difference between the two totals below.
+    for (const [name, r] of [
+      ["disk", disk],
+      ["browser", browser],
+    ] as const) {
+      expect([name, r.instructionWeight?.committedTotal]).toEqual([name, 216]);
+      expect([name, r.instructionWeight?.effectiveTotal]).toEqual([name, 286]);
+      expect([
+        name,
+        r.instructionWeight?.files.map((f) => f.path).sort(),
+      ]).toEqual([
+        name,
+        [
+          ".claude/rules/always.md",
+          ".claude/rules/team/deep.md",
+          "CLAUDE.local.md",
+          "CLAUDE.md",
+          "docs/style.md",
+        ],
+      ]);
+    }
+    cleanupTmpDir(tmp);
+  });
+});

@@ -26,6 +26,35 @@ export {
   materializePrefix,
   surfaceDirs,
 } from "./core/layout.js";
+/**
+ * The instruction-chain vocabulary `PluginLayout.instructionChain` speaks.
+ *
+ * Exported because the method is on the port: without these an adapter author
+ * cannot write a return type, which makes the interface unimplementable from
+ * outside this package. `EMPTY_CHAIN` is the honest answer for a harness with no
+ * instruction surface — spelling out five empty arrays at each such site invites
+ * one of them to be forgotten.
+ */
+export type {
+  InstructionChain,
+  InstructionRole,
+  InstructionScope,
+  LoadedInstruction,
+  NamedImport,
+  NotLoadedReason,
+  PatternFrom,
+  UnloadedInstruction,
+} from "./core/instruction-chain.js";
+export { EMPTY_CHAIN } from "./core/instruction-chain.js";
+/**
+ * ⚠️ `SettingsCodec` was in the same position and is exported here for the same
+ * reason: `PluginLayout.settings` has been typed as one since the codec landed,
+ * and the authoring barrel never re-exported it, so `docs/adapter-api.md`
+ * documents a field whose type a third party could not name. One line, and the
+ * alternative is a port that cannot be implemented from outside.
+ */
+export type { SettingsCodec } from "./core/settings-codec.js";
+export { jsonSettingsCodec, tomlSettingsCodec } from "./core/settings-codec.js";
 export type { HarnessRuntime } from "./core/runtime.js";
 export type { HookProtocol } from "./core/hook-protocol.js";
 export type { ModelMock } from "./core/model-mock.js";

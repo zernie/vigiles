@@ -87,23 +87,25 @@ export const claudeCodeDialect: HarnessDialect = {
   // budget here costs money and attention — not rules. (Codex is the opposite;
   // see its dialect, and see why `onExceed` is reported at all.)
   //
-  // 🔴 `alwaysLoaded` IS THE POINT, and `.claude/rules/**` is in it on a
-  // MEASUREMENT, not a doc: a consumer repo moved 225 837 characters out of
-  // CLAUDE.md into that directory and the request cost did not move, because
-  // the harness loads it either way. A per-file check would have called that
-  // split a success.
+  // 🔴 WHICH FILES THE SUM IS TAKEN OVER IS NO LONGER A FIELD HERE. It was
+  // `alwaysLoaded: ["CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md",
+  // ".claude/rules/**"]` — globs this dialect wrote and the CORE expanded by
+  // walking the repository, which is the defect zernie/vigiles#262 records.
+  // The set now comes from `claudeCodeLayout.instructionChain`, which can say
+  // what a glob cannot: that a `paths:`-scoped rule loads on demand, and that
+  // `CLAUDE.local.md` is a per-machine file that is read and never SCORED.
+  //
+  // What stays here is the harness's own NUMBER, which is a format fact: the
+  // rules directory counts on a MEASUREMENT, not a doc — a consumer repo moved
+  // 225 837 characters out of CLAUDE.md into it and the request cost did not
+  // move, because the harness loads it either way. A per-file check would have
+  // called that split a success.
   instructionBudget: {
     unit: "chars",
     limit: 40000,
     onExceed: "warns",
     capturedFrom:
-      "claude-code /doctor large-file warning; .claude/rules/** measured 2026-09-16 in a consumer repo",
-    alwaysLoaded: [
-      "CLAUDE.md",
-      "CLAUDE.local.md",
-      ".claude/CLAUDE.md",
-      ".claude/rules/**",
-    ],
+      "claude-code /doctor large-file warning; the rules dir measured 2026-09-16 in a consumer repo",
   },
   // The capability table — what each event CARRIES and HONOURS. Nine of the 31
   // events, each with its basis; see ./event-capability.ts. The three flat lists

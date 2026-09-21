@@ -231,6 +231,22 @@ export default experimental_defineReact({
     expect(has(graph, "harness-test")).toBe(false);
     expect(has(graph, "adapter-conformance")).toBe(false);
     expect(has(graph, "ast-grep")).toBe(false);
+    // 🔴 THE TWO PARSERS THE INSTRUCTION CHAIN NEEDS, NAMED HERE BECAUSE THEY
+    // WERE BRIEFLY ON THIS PATH. `claudeCodeLayout.instructionChain` reaches
+    // `minimatch` (claudeMdExcludes) and `markdown-it` (reading prose without
+    // code fences), and the layout IS on the hook path — a top-level import of
+    // the chain implementation took this graph from 37 modules to 92. It is
+    // lazily required for that reason; these two assertions say which names the
+    // ceiling below was defending against, so the next reader does not have to
+    // bisect to find out.
+    expect(has(graph, "minimatch")).toBe(false);
+    expect(has(graph, "markdown-it")).toBe(false);
+    // And the third, found only because the CEILING below fired after the first
+    // two were fixed: a rule's `paths:` frontmatter decides whether it loads, so
+    // the chain reaches the frontmatter reader and through it `js-yaml`. Each
+    // named assertion here was added AFTER the count caught something it could
+    // not have been told to look for — which is the argument for keeping both.
+    expect(has(graph, "js-yaml")).toBe(false);
     expect(graph.some((m) => m.endsWith(".node"))).toBe(false);
 
     // 🔴 AND A CEILING, because every assertion above names something we ALREADY
@@ -244,7 +260,10 @@ export default experimental_defineReact({
     // gate becomes a formality. The bound is roughly double the real figure —
     // routine growth passes, a graph explosion does not.
     //
-    // Measured 2026-09-19: 37 modules, identical across three runs (the count
+    // Measured 2026-09-19: 37 modules; 2026-09-21: 46, after the instruction
+    // chain put `core/instruction-chain.js`, the chain implementation and the
+    // frontmatter/markdown readers on the path. The three PARSERS they reach
+    // stay off it, lazily required — see above. Identical across runs (the count
     // is the repo's own CJS graph, so it is deterministic, not sampled). The
     // eager-driver tree this test was written against loaded 107 from
     // `adapter-registry` ALONE, so the bound catches that regression with room

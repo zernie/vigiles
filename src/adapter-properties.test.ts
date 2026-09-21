@@ -39,6 +39,7 @@ import {
   surfaceDirs,
 } from "./core/layout.js";
 import { layoutLocations } from "./core/surface-discovery.js";
+import { EMPTY_CHAIN, isInstructionShaped } from "./core/instruction-chain.js";
 import { ADAPTERS } from "./adapter-registry.js";
 import { opencodeAdapter } from "./adapters/opencode/adapter.js";
 
@@ -186,6 +187,187 @@ describe.each(IMPLEMENTATIONS.map((a) => [a.name, a] as const))(
     // Section 4 of the redesign requires every NEW port method to state how it
     // survives the bound. Two landed on this branch; these are those statements
     // as assertions rather than as prose in a docblock.
+
+    // ── instructionChain(files) ──────────────────────────────────────────
+    //
+    // 🔴 THE METHOD THAT REPLACED AN UNBOUNDED WALK, so its properties are the
+    // point of the change rather than paperwork about it. What it replaced —
+    // `dialect.instructionBudget.alwaysLoaded` plus `scan.ts:readAlwaysLoaded` —
+    // had ZERO tests and could not have had these, because the adapter supplied
+    // globs that DROVE the walk: there was no input map to state a property
+    // over. "An adapter cannot widen the read" only becomes checkable once the
+    // domain hands the candidates in.
+
+    /** A map holding one of every instruction shape, plus files that are none. */
+    const F: Readonly<Record<string, string>> = {
+      "CLAUDE.md": "cc root @docs/style.md",
+      "CLAUDE.local.md": "cc per-machine",
+      "AGENTS.md": "codex root",
+      "AGENTS.override.md": "codex per-machine",
+      ".claude/CLAUDE.md": "cc dot-dir",
+      ".claude/rules/plain.md": "a rule",
+      ".claude/rules/scoped.md": '---\npaths: ["src/**"]\n---\nscoped',
+      ".claude/rules/nested/deep.md": "a nested rule",
+      ".claude/settings.json": JSON.stringify({ claudeMdExcludes: [] }),
+      ".codex/config.toml": 'project_doc_fallback_filenames = ["CONTEXT.md"]\n',
+      "opencode.json": JSON.stringify({
+        instructions: ["packages/*/AGENTS.md", "docs/style.md"],
+      }),
+      "docs/style.md": "an imported file",
+    };
+
+    it("(i) every path it names is a key of the map it was GIVEN", () => {
+      // 🔴 THE MUTATION THAT MUST GO RED, named in the design: an adapter
+      // returning `packages/x/AGENTS.md` when that key is not in `F`. Verified
+      // by hand (see the commit message) — pushing one such entry into the
+      // Codex chain fails exactly this assertion and nothing else, which is
+      // what makes it the ratchet rather than a restatement.
+      const chain = adapter.layout.instructionChain(F);
+      for (const entry of [...chain.loaded, ...chain.unloaded]) {
+        expect(
+          Object.hasOwn(F, entry.path),
+          `chain named "${entry.path}", which is not a key of the given map`,
+        ).toBe(true);
+      }
+    });
+
+    it("(i.b) a path is never BOTH loaded and unloaded, and never listed twice", () => {
+      const chain = adapter.layout.instructionChain(F);
+      const all = [...chain.loaded, ...chain.unloaded].map((e) => e.path);
+      expect(new Set(all).size).toBe(all.length);
+    });
+
+    it("(ii) every IMPORT it reports literally occurs in the file it came from", () => {
+      // The import pass is the one read outside the dot-directory bound, and
+      // this is why that is allowed: the token was written by the REPOSITORY
+      // OWNER in their own file. The adapter found it; it did not choose it.
+      // Checked on the TOKEN as written, which is the exact bytes the author
+      // typed — `path` alone would also match a coincidence elsewhere in the
+      // file.
+      for (const { path, token, from } of adapter.layout.instructionChain(F)
+        .imports) {
+        expect(Object.hasOwn(F, from)).toBe(true);
+        expect(
+          F[from]?.includes(token),
+          `import token "${token}" is not text of "${from}"`,
+        ).toBe(true);
+        expect(token.endsWith(path)).toBe(true);
+      }
+    });
+
+    it("(iii) every PATTERN it reports likewise", () => {
+      for (const { pattern, from } of adapter.layout.instructionChain(F)
+        .patterns) {
+        expect(Object.hasOwn(F, from)).toBe(true);
+        expect(
+          F[from]?.includes(pattern),
+          `pattern "${pattern}" is not a token of "${from}"`,
+        ).toBe(true);
+      }
+    });
+
+    it("(iv) pure — the same map gives the same chain, and reads no clock or disk", () => {
+      expect(adapter.layout.instructionChain(F)).toEqual(
+        adapter.layout.instructionChain(F),
+      );
+    });
+
+    it("(iv.b) monotone — files that are not instruction-shaped change nothing", () => {
+      // The other half of "an adapter cannot widen the read": handing it MORE
+      // of the repo must not change its answer about what loads, or the bound
+      // would be doing nothing. The extra keys below are chosen by the DOMAIN's
+      // own predicate — `isInstructionShaped` is false for every one — so the
+      // property is stated against the bound rather than against a guess.
+      const noise: Record<string, string> = {
+        ...F,
+        "src/index.ts": "export {};",
+        "package.json": "{}",
+        "docs/guide.md": "prose",
+      };
+      for (const key of Object.keys(noise)) {
+        if (Object.hasOwn(F, key)) continue;
+        expect(isInstructionShaped(key), key).toBe(false);
+      }
+      expect(adapter.layout.instructionChain(noise)).toEqual(
+        adapter.layout.instructionChain(F),
+      );
+    });
+
+    it("a DEEPER instruction file is never LOADED, however the caller found it", () => {
+      // The bound never enumerates one, so this is about a caller with a wider
+      // map — the browser twin holding a whole fetched tree, or a future walk.
+      // Neither vendor loads a subpackage's file at a root session, so a chain
+      // that loaded one would resurrect the over-report by another route: it is
+      // reported with a reason, or not at all.
+      const deep = `packages/x/${adapter.layout.instructionFile}`;
+      const chain = adapter.layout.instructionChain({
+        ...F,
+        [deep]: "someone else's",
+      });
+      expect(chain.loaded.map((e) => e.path)).not.toContain(deep);
+    });
+
+    it("an empty map gives an empty chain — nothing is conjured from a name", () => {
+      expect(adapter.layout.instructionChain({})).toEqual(EMPTY_CHAIN);
+    });
+
+    it("an UNLOADED entry always carries a reason, and a loaded one never does", () => {
+      // A9 as a runtime check for an adapter arriving from outside TypeScript:
+      // "a file that does not load must say why" is a type here, and this is
+      // the same statement for a JavaScript implementation.
+      const chain = adapter.layout.instructionChain(F);
+      for (const entry of chain.unloaded) {
+        expect(typeof entry.reason.kind).toBe("string");
+      }
+      for (const entry of chain.loaded) {
+        expect(Object.hasOwn(entry, "reason")).toBe(false);
+      }
+    });
+
+    it("(v) a REDIRECT names a loaded file, and what it points at is one of its imports", () => {
+      // The finding has to be decomposable too: a redirect that named a file
+      // nothing loaded, or pointed at a path the chain never reported as an
+      // import, would be an assertion the reader cannot check against the rest
+      // of the report.
+      const chain = adapter.layout.instructionChain(F);
+      const loaded = new Set(chain.loaded.map((e) => e.path));
+      for (const redirect of chain.redirects) {
+        expect(loaded.has(redirect.path)).toBe(true);
+        expect(redirect.to.length).toBeGreaterThan(0);
+        for (const target of redirect.to) {
+          expect(
+            chain.imports.some(
+              (i) => i.from === redirect.path && i.path === target,
+            ),
+          ).toBe(true);
+        }
+      }
+    });
+
+    it("`via` is set for exactly the entries that got in through an import", () => {
+      // The field the printed breakdown reads. An import without it prints an
+      // unexplainable line; a non-import with it claims a provenance that is
+      // not true.
+      for (const entry of adapter.layout.instructionChain(F).loaded) {
+        expect(entry.via !== undefined, entry.path).toBe(
+          entry.role === "import",
+        );
+        if (entry.via === undefined) continue;
+        expect(Object.hasOwn(F, entry.via.from)).toBe(true);
+        expect(F[entry.via.from]?.includes(entry.via.token)).toBe(true);
+      }
+    });
+
+    it("scope is `local` only for a per-machine file — a rule is never local", () => {
+      // What keeps a published grade reproducible: `local` is the flag the
+      // weight refuses to score, so a chain that marked a committed file local
+      // would silently drop it out of the scored total.
+      for (const entry of adapter.layout.instructionChain(F).loaded) {
+        if (entry.scope === "local") {
+          expect(["root-local", "import"]).toContain(entry.role);
+        }
+      }
+    });
 
     it("settings.parse/render take TEXT and a VALUE — there is no path to read", () => {
       // The bound is structural here: neither method has a parameter that could

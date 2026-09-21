@@ -24,7 +24,10 @@
  * prototype — its skills become readable for the first time.
  */
 import type { PluginLayout } from "../../core/layout.js";
+import type { InstructionChain } from "../../core/instruction-chain.js";
+import { settingsSourcePaths } from "../../core/instruction-chain.js";
 import { jsonSettingsCodec } from "../../core/settings-codec.js";
+import { opencodeInstructionChain } from "./instruction-chain.js";
 
 export const opencodeLayout: PluginLayout = {
   name: "opencode",
@@ -55,4 +58,14 @@ export const opencodeLayout: PluginLayout = {
   pluginRootToken: "${OPENCODE_PLUGIN_ROOT}",
   mcpConfigFile: "opencode.json",
   mcpManifestKey: "mcp",
+  // The root file plus whatever `opencode.json#instructions` names: a concrete
+  // path is an import, a glob is a PATTERN that is reported and never walked.
+  // This is the only implementation here that populates `patterns`.
+  instructionChain(files): InstructionChain {
+    return opencodeInstructionChain(files, {
+      instructionFile: opencodeLayout.instructionFile,
+      settingsPaths: settingsSourcePaths(opencodeLayout),
+      parseSettings: (text) => opencodeLayout.settings.parse(text),
+    });
+  },
 };

@@ -6,7 +6,7 @@
  * out as a real heading.
  */
 import { describe, it, expect } from "vitest";
-import { fencedLineFlags, markdownRefs } from "./markdown.js";
+import { fencedLineFlags, markdownRefs, proseLines } from "./markdown.js";
 
 /** Indices (0-based) whose flag is true, for compact assertions. */
 const fencedIndices = (src: string): number[] =>
@@ -78,6 +78,45 @@ describe("fencedLineFlags", () => {
       "\n",
     );
     expect(fencedLineFlags(src).every((f) => !f)).toBe(true);
+  });
+});
+
+describe("proseLines", () => {
+  /**
+   * The normalisation CommonMark does for free, measured against this repo's
+   * markdown-it rather than assumed. Every entry is the SAME line: a caller
+   * splitting the source itself would have to reimplement each of these, and
+   * would get the fourth and fifth wrong quietly.
+   */
+  it.each([
+    ["column zero", "@AGENTS.md"],
+    ["a leading indent", "  @AGENTS.md"],
+    ["trailing spaces", "@AGENTS.md  "],
+    ["a CRLF line ending", "@AGENTS.md\r\n"],
+    ["a UTF-8 BOM", "\uFEFF@AGENTS.md"],
+    ["trailing blank lines", "@AGENTS.md\n\n\n"],
+  ])("returns one clean line for %s", (_name, src) => {
+    expect(proseLines(src)).toEqual(["@AGENTS.md"]);
+  });
+
+  it("drops fenced code, including a four-backtick block holding a bare fence", () => {
+    // The case the module header records as the reason this file exists: the
+    // naive `inFence = !inFence` toggle mis-toggles here and leaks the body out.
+    expect(proseLines("````\n```\n@media.md\n```\n````\n")).toEqual([]);
+    expect(proseLines("```py\n@dataclass\n```\n")).toEqual([]);
+  });
+
+  it("drops an HTML comment, one line or many", () => {
+    expect(proseLines("<!-- note -->\n\nbody\n")).toEqual(["body"]);
+    expect(proseLines("<!--\nhidden\n-->\nbody\n")).toEqual(["body"]);
+  });
+
+  it("drops an inline code span but keeps the prose around it", () => {
+    expect(proseLines("use `@dataclass` here")).toEqual(["use  here"]);
+  });
+
+  it("splits a paragraph at its line breaks, soft and hard", () => {
+    expect(proseLines("one\ntwo  \nthree")).toEqual(["one", "two", "three"]);
   });
 });
 

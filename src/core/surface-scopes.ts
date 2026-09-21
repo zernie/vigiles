@@ -60,7 +60,24 @@ export interface SurfaceScope {
 
 /** Which shape the audited target is, and every scope to read from it. */
 export type SurfaceSource =
-  | { readonly kind: "single-skill"; readonly skillName: string }
+  | {
+      readonly kind: "single-skill";
+      readonly skillName: string;
+      /**
+       * The layout's skill dir, CARRIED rather than re-read by the consumer.
+       *
+       * 🔴 IT USED TO BE RE-DERIVED AT BOTH CONSUMERS, AND THE BRANCH THAT
+       * FOLLOWED WAS UNREACHABLE. `layout.surfaces.skill` is optional, so each
+       * of `plugin-loader.ts` and `scan-files.ts` narrowed it again and wrote a
+       * `return` for the `undefined` case — a case this variant is never
+       * constructed in, since the test below is the condition for making one.
+       * Two dead returns, in two engines that must agree, plus a comment in each
+       * explaining why the code beneath it cannot run. Carrying the value is the
+       * same construction the rest of this port uses: keep one copy, where it is
+       * KNOWN, instead of re-deriving it where it is not.
+       */
+      readonly skillDir: string;
+    }
   | { readonly kind: "scopes"; readonly scopes: readonly SurfaceScope[] };
 
 /** What the caller must probe on its own storage for {@link surfaceSource}. */
@@ -152,8 +169,9 @@ export function surfaceSource(
   layout: PluginLayout,
   probe: SurfaceProbe,
 ): SurfaceSource {
-  if (layout.surfaces.skill !== undefined && probe.hasRootSkillFile) {
-    return { kind: "single-skill", skillName: probe.skillName };
+  const skillDir = layout.surfaces.skill;
+  if (skillDir !== undefined && probe.hasRootSkillFile) {
+    return { kind: "single-skill", skillName: probe.skillName, skillDir };
   }
   const scopes: SurfaceScope[] = [];
   if (layout.userSurfaceRoot !== undefined && probe.userHasLoadable) {

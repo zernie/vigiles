@@ -15,7 +15,21 @@
  * the regex parse in agent-runtime.ts); `core/frontmatter.ts` is a DIFFERENT
  * concern (the Level-1 `vigiles:` rule block) and is untouched.
  */
-import { load, YAMLException } from "js-yaml";
+/**
+ * 🔴 `js-yaml` IS REQUIRED LAZILY, AND THAT IS A MEASUREMENT, NOT A STYLE. The
+ * same wrapper is in `core/settings-codec.ts` and `core/markdown.ts` with the
+ * reason recorded: a top-level import puts the parser into the module graph of
+ * every HOOK DECISION, because the hook runtime reaches the adapter registry
+ * and from there a layout. This module became reachable that way on 2026-09-21
+ * through `PluginLayout.instructionChain` (a rule's `paths:` frontmatter is
+ * what decides whether it loads at launch) — measured by
+ * `src/hook-runtime-graph.test.ts`: 37 modules became 71 with an eager import.
+ * `tsc` lowers this to CommonJS, so the `require` does not run until a
+ * frontmatter block is actually parsed, and {@link frontmatterBody}, which needs
+ * no YAML at all, never triggers it.
+ */
+const yaml = (): typeof import("js-yaml") =>
+  require("js-yaml") as typeof import("js-yaml");
 
 export interface FrontmatterRead {
   /** Parsed mapping when the block is valid YAML, else null (malformed or scalar). */
@@ -40,13 +54,27 @@ const BLOCK_RE = /^\uFEFF?(?:<!--[\s\S]*?-->\s*)?---\r?\n([\s\S]*?)\r?\n---/;
 /** A YAML block-scalar indicator: `>`/`|` with optional chomp (`+`/`-`) + indent digit. */
 const BLOCK_SCALAR_RE = /^[|>][+-]?\d*$/;
 
+/**
+ * The markdown BODY — everything after the leading frontmatter block, or the
+ * whole text when there is none.
+ *
+ * Lives here, beside {@link readFrontmatter}, because `BLOCK_RE` above is the
+ * ONE statement of where frontmatter ends; a caller slicing the body for itself
+ * would be a second one, free to disagree (and the header records what the
+ * first one already has to know about BOMs and legacy stamp comments).
+ */
+export function frontmatterBody(markdown: string): string {
+  const m = BLOCK_RE.exec(markdown);
+  return m === null ? markdown : markdown.slice(m[0].length);
+}
+
 /** Extract + parse the leading frontmatter block, never throwing. */
 export function readFrontmatter(markdown: string): FrontmatterRead {
   const m = BLOCK_RE.exec(markdown);
   if (!m) return { data: null, block: null, malformed: false };
   const block = m[1];
   try {
-    const parsed = load(block);
+    const parsed = yaml().load(block);
     if (
       parsed !== null &&
       typeof parsed === "object" &&
@@ -62,7 +90,7 @@ export function readFrontmatter(markdown: string): FrontmatterRead {
     // not "malformed": it parsed fine. Salvage will read fields from the block.
     return { data: null, block, malformed: false };
   } catch (e) {
-    if (e instanceof YAMLException)
+    if (e instanceof yaml().YAMLException)
       return { data: null, block, malformed: true };
     throw e;
   }

@@ -10,6 +10,7 @@ import { loadPlugin } from "./plugin-loader.js";
 import { claudeCodeLayout } from "./layout.js";
 import type { PluginLayout } from "../../core/layout.js";
 import { tomlSettingsCodec } from "../../core/settings-codec.js";
+import { EMPTY_CHAIN } from "../../core/instruction-chain.js";
 import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
 
 // A hypothetical second harness's layout — different manifest, instruction file,
@@ -33,6 +34,11 @@ const codexLayout: PluginLayout = {
   mcpConfigFile: ".codex-mcp.json",
   mcpManifestKey: "mcp",
   hookScriptsDir: "hooks",
+  // This fixture exists to exercise the LOADER, which never asks for the
+  // instruction chain, so the empty answer is the honest one rather than a
+  // stub: it says "this shape loads nothing unasked", and the loader tests
+  // below neither read it nor depend on it.
+  instructionChain: () => EMPTY_CHAIN,
 };
 
 test("claudeCodeLayout is the default loadPlugin uses", () => {

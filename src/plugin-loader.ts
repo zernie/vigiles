@@ -545,11 +545,11 @@ function materializeSurfaces(
       // named (`vigiles audit <dir>`), not one this walk discovered, and refusing
       // to read the path someone explicitly pointed at is not a containment rule.
       const tree = readTree(root, root, excluded);
-      // `surfaceSource` only returns "single-skill" for a layout that HAS a
-      // skill surface, so the key is present here; the check is what makes that
-      // reasoning visible to the type system instead of to a reader.
-      const skillDir = layout.surfaces.skill;
-      if (skillDir === undefined) return { counts, harnessCounts, scopes: [] };
+      // The skill dir is CARRIED on the variant, because only a layout that has
+      // one can produce it. This used to re-read `layout.surfaces.skill` and
+      // guard the `undefined` case with a `return` that nothing could reach —
+      // see `SurfaceSource` for why that shape kept coming back.
+      const { skillDir } = source;
       for (const [rel, content] of Object.entries(tree)) {
         add(
           join(materializePrefix(layout), skillDir, source.skillName, rel),

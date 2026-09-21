@@ -1,11 +1,17 @@
 /**
- * The DISK half of surface discovery: enumerate the repo-relative paths inside
- * the bounded root set, so the pure classifier in `src/core/surface-discovery.ts`
- * can say which of them are surfaces.
+ * The DISK half of BOUNDED DISCOVERY: enumerate the repo-relative paths inside
+ * the bounded root set, so the pure classifiers in `src/core/surface-discovery.ts`
+ * and `src/core/instruction-chain.ts` can say what each of them is.
  *
- * Paths only — never contents. Discovery answers "is there a surface here that
- * nobody reads", which is a question about NAMES; reading a file nobody claims
- * would be doing the very work the finding says is not being done.
+ * Two enumerations, one bound. {@link boundedSurfacePaths} answers "is there a
+ * surface here that nobody reads" and returns PATHS ONLY — that is a question
+ * about NAMES, and reading a file nobody claims would be doing the very work the
+ * finding says is not being done. {@link boundedInstructionFiles} answers "what
+ * does this harness load without being asked" and must return CONTENTS, because
+ * the answer depends on them: a rule's own frontmatter decides whether it loads
+ * at launch, and the repository's settings decide which files are candidates at
+ * all. The header of `core/instruction-chain.ts` holds the reason that is a port
+ * method rather than a glob.
  *
  * 🔴 THE WALK IS BOUNDED BY CONSTRUCTION, NOT BY A DEPTH COUNTER. One `readdir`
  * of the repo root, one per DOT-DIRECTORY found there, and then descent ONLY
@@ -25,9 +31,14 @@
  * Symlinks go through the ONE policy (`src/fs-walk.ts`): `walkableRoot` at each
  * surface dir the layout-blind walk opens, `entryOf` for every entry below it.
  */
-import { readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  instructionCandidatePaths,
+  resolveImports,
+} from "./core/instruction-chain.js";
+import type { PluginLayout } from "./core/layout.js";
 import {
   SURFACE_SHAPES,
   discoverSurfaces,
@@ -124,4 +135,100 @@ export function discoverSurfacesOnDisk(
   excludes?: ExcludeSet,
 ): readonly DiscoveredSurface[] {
   return discoverSurfaces(boundedSurfacePaths(root, excludes));
+}
+
+/** Read one repo-relative file, or `undefined` for anything that is not one. */
+function readIfFile(root: string, rel: string): string | undefined {
+  const abs = join(root, rel);
+  if (entryOf(abs).kind !== "file") return undefined;
+  try {
+    return readFileSync(abs, "utf-8");
+  } catch {
+    return undefined; // unreadable: the same silence the walk gives elsewhere
+  }
+}
+
+/** Repo-relative paths of the files directly inside one discovery root. */
+function filesDirectlyIn(root: string, base: string): readonly string[] {
+  const baseAbs = base === "" ? root : join(root, base);
+  return namesIn(baseAbs).map((n) => (base === "" ? n : `${base}/${n}`));
+}
+
+/**
+ * Every instruction CANDIDATE on disk, with its contents — the input a harness's
+ * `instructionChain` is allowed to classify.
+ *
+ * 🔴 BOUNDED BY THE SAME CONSTRUCTION AS THE SURFACE WALK, and for the same
+ * reason. One `readdir` of the repo root, one per dot-directory found there, and
+ * a recursive descent ONLY into a `rules` directory inside one of those. `src/`,
+ * `packages/` and `node_modules/` are never entered — which is exactly what the
+ * thing this replaced did do: `scan.ts:readAlwaysLoaded` expanded an ADAPTER's
+ * `"**\/AGENTS.md"` by recursing through the whole tree, so registering an
+ * adapter widened what vigiles read in everyone's repository.
+ *
+ * The one read outside that bound is the IMPORT PASS below, and the difference
+ * is who chose the path.
+ */
+/**
+ * The `rules` tree under one dot-directory, read RECURSIVELY.
+ *
+ * Recursive because the vendor documents it that way — and because the scan
+ * classifier now says the same through `RULE_FILE_LEAF_RE`; a rule the loader
+ * reads and the classifier ignores is a file that is never checked, counted or
+ * weighed. The entry point goes through the same symlink and exclude policy as
+ * a surface dir, `filesUnder` applies `exclude` per entry below it.
+ */
+function addRulesTree(
+  root: string,
+  rulesRel: string | null,
+  excluded: (abs: string) => boolean,
+  out: string[],
+): void {
+  if (rulesRel === null) return;
+  const rel = rulesRel;
+  const abs = join(root, rel);
+  if (excluded(abs) || entryOf(abs).kind !== "dir") return;
+  if (!walkableRoot(abs, root)) return;
+  filesUnder(root, rel, excluded, out);
+}
+
+export function boundedInstructionFiles(
+  root: string,
+  layout: PluginLayout,
+  excludes?: ExcludeSet,
+): Record<string, string> {
+  const excluded = excludedBy(excludes);
+  const roots = ["", ...namesIn(root).filter((n) => isDiscoveryRoot(n))].filter(
+    (b) => b === "" || !excluded(join(root, b)),
+  );
+  // Every file directly inside a discovery root is a candidate PATH; the pure
+  // filter keeps the instruction-shaped ones plus the layout's own named files
+  // (`.codex/config.toml` is neither markdown nor an instruction — it is the
+  // settings source that decides WHICH files load, and is never weighed).
+  const candidates: string[] = [];
+  for (const base of roots) {
+    candidates.push(...filesDirectlyIn(root, base));
+    if (base !== "") {
+      addRulesTree(
+        root,
+        layout.rulesDir === undefined ? null : `${base}/${layout.rulesDir}`,
+        excluded,
+        candidates,
+      );
+    }
+  }
+  const candidateFiles: Record<string, string> = {};
+  for (const rel of instructionCandidatePaths(candidates, layout)) {
+    if (excluded(join(root, rel))) continue;
+    const text = readIfFile(root, rel);
+    if (text !== undefined) candidateFiles[rel] = text;
+  }
+  // The import pass is the ONE read outside the bound, and the pure half of it
+  // lives in the core so the browser twin runs the identical loop over its file
+  // map. It is ONE concrete path per token, one level deep — the corpus
+  // measurement behind that is in `resolveImports`. `exclude` is deliberately
+  // NOT applied to it: the path was written by the repository owner in their own
+  // instruction file, and the harness really does load it, so hiding its size
+  // would under-report the one number this report exists to give.
+  return resolveImports(layout, candidateFiles, (rel) => readIfFile(root, rel));
 }

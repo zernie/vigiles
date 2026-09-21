@@ -81,6 +81,9 @@ export interface DetectResult {
 }
 
 // @public
+export const EMPTY_CHAIN: InstructionChain;
+
+// @public
 export function executableSourceDirs(layout: PluginLayout): readonly string[];
 
 // @public
@@ -145,8 +148,52 @@ export interface HookProtocol {
     };
 }
 
+// @public (undocumented)
+export interface InstructionChain {
+    readonly imports: readonly NamedImport[];
+    readonly loaded: readonly LoadedInstruction[];
+    readonly patterns: readonly PatternFrom[];
+    readonly redirects: readonly {
+        readonly path: string;
+        readonly to: readonly string[];
+    }[];
+    readonly unloaded: readonly UnloadedInstruction[];
+}
+
+// @public
+export type InstructionRole =
+/** The committed team file at a directory's root (`CLAUDE.md`, `AGENTS.md`). */
+"root"
+/** One machine's file beside it (`CLAUDE.local.md`, `AGENTS.override.md`). */
+| "root-local"
+/** A file under {@link PluginLayout.rulesDir}. */
+| "rule"
+/** A repo-configured alternate name (Codex `project_doc_fallback_filenames`). */
+| "fallback"
+/** Reached through an `@path` token in a loaded file, not by location. */
+| "import";
+
+// @public
+export type InstructionScope = "repo" | "local";
+
+// @public
+export const jsonSettingsCodec: SettingsCodec;
+
 // @public
 export function layoutClaims(layout: PluginLayout, path: string): boolean;
+
+// @public
+export interface LoadedInstruction {
+    readonly path: string;
+    // (undocumented)
+    readonly role: InstructionRole;
+    // (undocumented)
+    readonly scope: InstructionScope;
+    readonly via?: {
+        readonly from: string;
+        readonly token: string;
+    };
+}
 
 // @public
 export function materializePrefix(layout: PluginLayout): string;
@@ -160,9 +207,43 @@ export interface ModelMock {
 }
 
 // @public
+export interface NamedImport {
+    readonly from: string;
+    readonly path: string;
+    readonly token: string;
+}
+
+// @public
+export type NotLoadedReason =
+/** Another file took this directory's one slot — Codex reads at most one. */
+    {
+    readonly kind: "replaced";
+    readonly by: string;
+}
+/** Loaded only when the agent reads a matching file — never at launch. */
+| {
+    readonly kind: "on-demand";
+    readonly when: "path-scoped" | "subdirectory";
+}
+/** A repo setting removed it — Claude Code's `claudeMdExcludes`. */
+| {
+    readonly kind: "excluded-by-settings";
+    readonly key: string;
+};
+
+// @public
+export interface PatternFrom {
+    // (undocumented)
+    readonly from: string;
+    // (undocumented)
+    readonly pattern: string;
+}
+
+// @public
 export interface PluginLayout {
     readonly hooksConventionPath?: string;
     readonly hookScriptsDir?: string;
+    instructionChain(files: Readonly<Record<string, string>>): InstructionChain;
     readonly instructionFile: string;
     readonly manifestPath: string;
     readonly mcpConfigFile: string;
@@ -180,6 +261,13 @@ export interface PluginLayout {
 // @public
 export function resolveAdapter(root: string, harness?: string): HarnessAdapter;
 
+// @public (undocumented)
+export interface SettingsCodec {
+    readonly label: string;
+    parse(text: string): Record<string, unknown>;
+    render(value: Record<string, unknown>): string;
+}
+
 // @public
 export type SurfaceDirs = Readonly<Partial<Record<SurfaceKind, string>>>;
 
@@ -188,6 +276,15 @@ export function surfaceDirs(layout: PluginLayout): readonly string[];
 
 // @public
 export type SurfaceKind = "skill" | "agent" | "command";
+
+// @public
+export const tomlSettingsCodec: SettingsCodec;
+
+// @public (undocumented)
+export interface UnloadedInstruction extends LoadedInstruction {
+    // (undocumented)
+    readonly reason: NotLoadedReason;
+}
 
 // (No @packageDocumentation comment for this package)
 

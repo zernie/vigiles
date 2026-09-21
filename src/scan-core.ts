@@ -62,6 +62,7 @@ import {
 } from "./adapters/claude-code/agent-tools.js";
 import {
   AGENT_FILE_LEAF_RE,
+  RULE_FILE_LEAF_RE,
   agentSurfaceName,
   type PluginLayout,
 } from "./core/layout.js";
@@ -225,9 +226,15 @@ export function makeClassifier(layout: PluginLayout): SurfaceClassifier {
   const skillRe = skill ? new RegExp(`${skill}[^/]+/SKILL\\.md$`) : null;
   const agentRe = agent ? new RegExp(`${agent}${AGENT_FILE_LEAF_RE}$`) : null;
   const commandRe = command ? new RegExp(`${command}.+\\.md$`) : null;
-  // Flat `<rulesDir>/<name>.md`, like commands. A layout without a rules dir
-  // yields null and every path below answers false — the additive default.
-  const ruleRe = rules ? new RegExp(`${rules}[^/]+\\.md$`) : null;
+  // 🔴 RECURSIVE, AND IT USED TO BE FLAT (`[^/]+\\.md$`) WHILE THE LOADER WALKED
+  // THE DIRECTORY RECURSIVELY. A rule in a subdirectory was therefore READ and
+  // never CLASSIFIED: it never became a rule entry, so it was never
+  // frontmatter-checked, never counted and never weighed — zernie/vigiles#262
+  // §3. The depth rule is quoted from `RULE_FILE_LEAF_RE` rather than spelled
+  // here, because the instruction chain has to ask the same question and two
+  // readers that each spell it disagree silently (the agent constant beside it
+  // records the measurement where that happened).
+  const ruleRe = rules ? new RegExp(`${rules}${RULE_FILE_LEAF_RE}$`) : null;
   // A subagent lives under the plugin's `agents/` dir AT ANY DEPTH (the harness
   // reads it recursively — see AGENT_FILE_LEAF_RE for the vendor's wording and
   // the measurement), but never under ANOTHER surface dir. Two real-world

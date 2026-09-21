@@ -1,6 +1,7 @@
 /**
- * Tests for the DISK half of surface discovery (`src/surface-discovery-fs.ts`):
- * that the walk is BOUNDED, and that `.vigilesrc.json#exclude` reaches it.
+ * Tests for the DISK half of BOUNDED DISCOVERY (`src/surface-discovery-fs.ts`):
+ * that both walks — surfaces and instructions — are BOUNDED, and that
+ * `.vigilesrc.json#exclude` reaches each of them.
  *
  * One fixture, asserted from both sides in the same test — the tree that must be
  * found sits beside the trees that must not, so "the walk stopped walking" and
@@ -13,9 +14,11 @@ import { join } from "node:path";
 
 import { excludeSet } from "./exclude.js";
 import {
+  boundedInstructionFiles,
   boundedSurfacePaths,
   discoverSurfacesOnDisk,
 } from "./surface-discovery-fs.js";
+import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 /** Write `<root>/<rel>/SKILL.md`, creating parents. */
@@ -106,6 +109,146 @@ test("exclude drops the named subtree, a descendant of it, and nothing else", ()
     ]);
     // A pattern matching nothing must change nothing.
     assert.deepEqual(dirsFor([".nonexistent"]), dirsFor([]));
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+/**
+ * The INSTRUCTION half of the same bound (`boundedInstructionFiles`).
+ *
+ * The thing this replaced walked wherever an adapter's glob pointed, so the
+ * negative half below is not decoration: `node_modules/dep/AGENTS.md` and
+ * `pkg/sub/AGENTS.md` were BOTH read and BOTH summed into the printed weight.
+ */
+test("the instruction walk covers the root, dot-dirs and the rules TREE, and nothing else", () => {
+  const root = makeTmpDir("instruction-bound");
+  try {
+    mkdirSync(join(root, ".claude/rules/team"), { recursive: true });
+    mkdirSync(join(root, "pkg/sub"), { recursive: true });
+    mkdirSync(join(root, "node_modules/dep"), { recursive: true });
+    writeFileSync(join(root, "CLAUDE.md"), "root");
+    writeFileSync(join(root, "README.md"), "prose");
+    writeFileSync(join(root, "package.json"), "{}");
+    writeFileSync(join(root, ".claude/CLAUDE.md"), "dot");
+    writeFileSync(join(root, ".claude/settings.json"), "{}");
+    writeFileSync(join(root, ".claude/rules/flat.md"), "flat");
+    writeFileSync(join(root, ".claude/rules/team/deep.md"), "deep");
+    writeFileSync(join(root, "pkg/sub/CLAUDE.md"), "nested");
+    writeFileSync(join(root, "node_modules/dep/CLAUDE.md"), "theirs");
+
+    const files = boundedInstructionFiles(root, claudeCodeLayout);
+    assert.deepEqual(Object.keys(files).sort(), [
+      ".claude/CLAUDE.md",
+      ".claude/rules/flat.md",
+      // The rules dir is read RECURSIVELY — the flat classifier that used to
+      // pair with it stopped at depth 1, so this file was read by the loader and
+      // classified by nothing (#262 §3).
+      ".claude/rules/team/deep.md",
+      // A settings SOURCE, in the map and never weighed: it decides WHICH files
+      // load (`claudeMdExcludes`), which is a different job from being one.
+      ".claude/settings.json",
+      "CLAUDE.md",
+      // Root markdown the harness will simply not recognize. It is in the bound
+      // because a repo may declare its OWN instruction filename in settings
+      // (Codex's `project_doc_fallback_filenames`), and the domain cannot know
+      // the name in advance; the harness ignores what it does not claim.
+      "README.md",
+    ]);
+    // `package.json` is at the root and is NOT markdown: the bound reads the
+    // root's markdown, not the root.
+    assert.equal(files["package.json"], undefined);
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+test("exclude reaches the instruction walk, including inside the rules tree", () => {
+  const root = makeTmpDir("instruction-exclude");
+  try {
+    mkdirSync(join(root, ".claude/rules/vendored"), { recursive: true });
+    writeFileSync(join(root, "CLAUDE.md"), "root");
+    writeFileSync(join(root, ".claude/rules/mine.md"), "mine");
+    writeFileSync(join(root, ".claude/rules/vendored/theirs.md"), "theirs");
+
+    const keys = (patterns: string[]): string[] =>
+      Object.keys(
+        boundedInstructionFiles(
+          root,
+          claudeCodeLayout,
+          excludeSet(root, patterns),
+        ),
+      ).sort();
+
+    assert.deepEqual(keys([]), [
+      ".claude/rules/mine.md",
+      ".claude/rules/vendored/theirs.md",
+      "CLAUDE.md",
+    ]);
+    // A DESCENDANT of the rules dir, which is the entry-point-only bug the
+    // surface walk already guards against — same policy, same failure shape.
+    assert.deepEqual(keys([".claude/rules/vendored"]), [
+      ".claude/rules/mine.md",
+      "CLAUDE.md",
+    ]);
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+/**
+ * The IMPORT pass: the one read outside the dot-directory bound, allowed because
+ * the repository OWNER wrote the path in their own file — and ONE LEVEL, which
+ * is a measurement rather than a shortcut (see `resolveImports`).
+ */
+test("an @import names one concrete path, and it is read — one level, no recursion", () => {
+  const root = makeTmpDir("instruction-imports");
+  try {
+    mkdirSync(join(root, "docs"), { recursive: true });
+    writeFileSync(join(root, "CLAUDE.md"), "@docs/a.md");
+    // The shape 4 of the 6 real imports in the measured corpus have: the
+    // AGENTS.md workaround for Claude Code not auto-loading it.
+    writeFileSync(join(root, "docs/a.md"), "@docs/b.md");
+    writeFileSync(join(root, "docs/b.md"), "leaf");
+    // Never named by anything: the pass follows tokens, it does not glob.
+    writeFileSync(join(root, "docs/unnamed.md"), "not imported");
+
+    const files = boundedInstructionFiles(root, claudeCodeLayout);
+    // 🔴 `docs/b.md` IS ABSENT ON PURPOSE. A transitive import is a real Claude
+    // Code feature and its nested size is NOT counted: no file in the 198-file
+    // corpus behind this decision has one, and a recursive walk driven by
+    // strings found in files is the defect #262 is about. If a real case turns
+    // up, the thing to redo is that measurement, not this assertion.
+    assert.deepEqual(Object.keys(files).sort(), ["CLAUDE.md", "docs/a.md"]);
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+test("an @import that escapes the repo is not read", () => {
+  const root = makeTmpDir("instruction-import-escape");
+  try {
+    writeFileSync(
+      join(root, "CLAUDE.md"),
+      "@../escape.md @~/notes.md @/etc/x.md",
+    );
+    assert.deepEqual(
+      Object.keys(boundedInstructionFiles(root, claudeCodeLayout)).sort(),
+      ["CLAUDE.md"],
+    );
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+test("an @import names a file that is not there — nothing is read, nothing throws", () => {
+  const root = makeTmpDir("instruction-import-missing");
+  try {
+    writeFileSync(join(root, "CLAUDE.md"), "@docs/gone.md");
+    assert.deepEqual(
+      Object.keys(boundedInstructionFiles(root, claudeCodeLayout)).sort(),
+      ["CLAUDE.md"],
+    );
   } finally {
     cleanupTmpDir(root);
   }

@@ -10,6 +10,7 @@
  * Paths are repo-relative (POSIX-style, `join`-friendly). The Claude Code
  * implementation is `claudeCodeLayout` in `src/adapters/claude-code/layout.ts`.
  */
+import type { InstructionChain } from "./instruction-chain.js";
 import type { SettingsCodec } from "./settings-codec.js";
 
 /**
@@ -130,6 +131,25 @@ export interface PluginLayout {
    */
   readonly rulesDir?: string;
   /**
+   * Which of the instruction-shaped files the DOMAIN enumerated this harness
+   * loads at a repo-root session, in load order — and for every one it does not
+   * load, WHY. Pure: a function of `files` alone, with no root, no `node:`
+   * module and no way to name a path the domain did not open.
+   *
+   * 🔴 IT REPLACED A GLOB MINI-LANGUAGE AND ITS PRIVATE INTERPRETER.
+   * `HarnessDialect.instructionBudget.alwaysLoaded` was an array of globs an
+   * ADAPTER wrote and the CORE walked the repository to expand, so shipping
+   * `"**\/AGENTS.md"` made vigiles read every directory of somebody else's
+   * project. See `./instruction-chain.ts` for the three defects that had, and
+   * for why none of them is expressible as a better glob.
+   *
+   * {@link instructionFile} still names the PRIMARY root file — the one
+   * `compile` writes, `init` scaffolds and `detect` scores. Whether it is in the
+   * loaded chain, and what else is, is this method's answer and never that
+   * field's.
+   */
+  instructionChain(files: Readonly<Record<string, string>>): InstructionChain;
+  /**
    * The directory a plugin keeps its EXECUTABLE HOOK SCRIPTS in (`hooks`) —
    * distinct from where the hooks are REGISTERED ({@link hooksConventionPath},
    * {@link settingsPath}). Absent means the harness has no scripts directory to
@@ -241,6 +261,25 @@ export function materializePrefix(layout: PluginLayout): string {
  * this. A fourth reader that hard-codes a depth is the defect coming back.
  */
 export const AGENT_FILE_LEAF_RE = "(?:.+/)?[^/]+\\.md";
+
+/**
+ * How DEEP a harness reads its {@link PluginLayout.rulesDir} — the one statement
+ * of that rule, as a RegExp source fragment matching the part of a path AFTER
+ * `<rulesDir>/`. Same shape and same reason as {@link AGENT_FILE_LEAF_RE}.
+ *
+ * 🔴 IT USED TO SAY `[^/]+`, in the scan classifier, while the loader walked the
+ * directory recursively — so a rule in a subdirectory was READ and never
+ * CLASSIFIED, which means it was never frontmatter-checked, never counted and
+ * never weighed. Verbatim from the vendor page (`code.claude.com/docs/en/memory`,
+ * quoted in zernie/vigiles#262): rules directories are read recursively, "all
+ * `.md` files are discovered recursively".
+ *
+ * The two readers are the scan classifier (`makeClassifier`, scan-core.ts) and
+ * the instruction chain (`core/instruction-chain.ts` implementations). They
+ * quote this instead of each spelling the rule, for the reason the agent
+ * constant above records: two readers that each spell it disagree silently.
+ */
+export const RULE_FILE_LEAF_RE = "(?:.+/)?[^/]+\\.md";
 
 /**
  * A subagent's identity, per the same docs paragraph: the path under
