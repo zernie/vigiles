@@ -24,6 +24,7 @@
  * prototype — its skills become readable for the first time.
  */
 import type { PluginLayout } from "../../core/layout.js";
+import { jsonSettingsCodec } from "../../core/settings-codec.js";
 
 export const opencodeLayout: PluginLayout = {
   name: "opencode",
@@ -35,7 +36,7 @@ export const opencodeLayout: PluginLayout = {
   // it. The field is optional now and this layout omits it; the adapter already
   // declares `shellHooks: false`, so no shell-hook reader asks.
   settingsPath: "opencode.json",
-  settingsFormat: "json",
+  settings: jsonSettingsCodec,
   instructionFile: "AGENTS.md",
   surfaces: {
     skill: ".opencode/skill",

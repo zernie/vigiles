@@ -35,10 +35,9 @@
  */
 import { basename, dirname, isAbsolute, join, relative } from "./posix-path.js";
 
-import { parse as parseToml } from "@iarna/toml";
-
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
+import type { SettingsCodec } from "./core/settings-codec.js";
 import {
   executableSourceDirs,
   materializePrefix,
@@ -234,21 +233,18 @@ function safeParseJson(
   }
 }
 
-/** Parse the layout's manifest (JSON or TOML) from the map, or null. */
+/** Parse the layout's manifest from the map through its CODEC, or null. */
 function readManifest(
   files: Record<string, string>,
   layout: PluginLayout,
 ): Record<string, unknown> | null {
   const text = files[layout.manifestPath];
   if (text === undefined) return null;
-  if (layout.settingsFormat === "toml") {
-    try {
-      return parseToml(text) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
+  try {
+    return layout.settings.parse(text);
+  } catch {
+    return null;
   }
-  return safeParseJson(text);
 }
 
 /** The `.hooks` field of a JSON file in the map, or undefined. */
@@ -259,11 +255,10 @@ function readHooksJsonFile(
   return safeParseJson(files[rel])?.hooks;
 }
 
-/** The `.hooks` of a settings file in the map, in the layout's format. */
-function readSettingsHooks(text: string, format: "json" | "toml"): unknown {
-  if (format === "json") return safeParseJson(text)?.hooks;
+/** The `.hooks` of a settings file in the map, through the layout's codec. */
+function readSettingsHooks(text: string, codec: SettingsCodec): unknown {
   try {
-    return (parseToml(text) as Record<string, unknown>).hooks;
+    return codec.parse(text).hooks;
   } catch {
     return undefined;
   }
@@ -291,7 +286,7 @@ function readHooks(
   }
   const settings = files[layout.settingsPath];
   if (settings !== undefined) {
-    return readSettingsHooks(settings, layout.settingsFormat);
+    return readSettingsHooks(settings, layout.settings);
   }
   return undefined;
 }

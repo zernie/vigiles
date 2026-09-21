@@ -9,13 +9,14 @@
  * edit; changing a VALUE in place does not, and nothing today catches that.
  */
 import type { PluginLayout } from "../../core/layout.js";
+import { jsonSettingsCodec } from "../../core/settings-codec.js";
 
 export const claudeCodeLayout: PluginLayout = {
   name: "claude-code",
   manifestPath: ".claude-plugin/plugin.json",
   hooksConventionPath: "hooks/hooks.json",
   settingsPath: ".claude/settings.json",
-  settingsFormat: "json",
+  settings: jsonSettingsCodec,
   instructionFile: "CLAUDE.md",
   surfaces: { skill: "skills", agent: "agents", command: "commands" },
   // A plain Claude Code USER keeps skills/agents/commands under `.claude/`, not at

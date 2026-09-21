@@ -249,11 +249,33 @@ export function checkAdapterConformance(
     adapter.dialect.instructionTargets.includes(adapter.layout.instructionFile),
     `layout.instructionFile "${adapter.layout.instructionFile}" is not one of dialect.instructionTargets`,
   );
+  // 🔴 THE ENUM CHECK THAT USED TO BE HERE IS DELETED, and its deletion is the
+  // ratchet rather than a loosening. It asserted
+  // `layout.settingsFormat === "json" || === "toml"` — the core re-checking a
+  // closed set it had itself declared, which is the tell that the "data" field
+  // was a hidden switch. With a CODEC there is no set to be outside of, so a
+  // third-party adapter whose settings are YAML is legal and every reader
+  // already handles it. What IS checked is the round trip, below: a codec has
+  // to be able to read back what it wrote.
   need(
-    adapter.layout.settingsFormat === "json" ||
-      adapter.layout.settingsFormat === "toml",
-    `layout.settingsFormat "${adapter.layout.settingsFormat}" is not "json" | "toml"`,
+    adapter.layout.settings.label.length > 0,
+    "layout.settings has no label",
   );
+  try {
+    const probe = { vigilesConformance: { n: 1 } };
+    const back = adapter.layout.settings.parse(
+      adapter.layout.settings.render(probe),
+    );
+    need(
+      JSON.stringify(back) === JSON.stringify(probe),
+      `layout.settings ("${adapter.layout.settings.label}") does not round-trip: rendered then parsed gave ${JSON.stringify(back)}`,
+    );
+  } catch (e) {
+    need(
+      false,
+      `layout.settings ("${adapter.layout.settings.label}") threw on its own output: ${String(e)}`,
+    );
+  }
 
   // Behavioural: the dialect drives the compiler — its own built-in tool must
   // pass the subagent tool-contract check under this dialect.
@@ -309,28 +331,45 @@ export function assertHarnessTestable(adapter: HarnessAdapter): {
 
 /**
  * Behavioural conformance the pure checks can't reach: write a minimal settings
- * file in the adapter's declared `settingsFormat` (with a hook), load it through
+ * file using the adapter's OWN codec and registration shape, load it through
  * the adapter's `layout`, and assert the hooks actually came back. This is what
  * catches a layout that points at the right file but in the wrong format (the
  * JSON-vs-TOML trap) — the pure checker would pass it, the agent would silently
  * run with zero hooks. Does filesystem IO, so it's a separate opt-in assert.
  */
 export function assertAdapterLoadsHooks(adapter: HarnessAdapter): void {
+  // Only a shell-hook harness has a hooks file to round-trip; the caller
+  // (`adapter-contract.test.ts`) already skips the others loudly, and the type
+  // is what says so — `hookProtocol` is `?: never` on the `shellHooks: false`
+  // arm, so this narrowing is the union doing its job rather than a guard.
+  if (!adapter.shellHooks) {
+    throw new Error(
+      `Adapter "${adapter.name}" declares shellHooks:false — there is no shell-hook settings round-trip to assert.`,
+    );
+  }
   const dir = makeTmpDir("conformance");
   try {
     const settingsAbs = join(dir, adapter.layout.settingsPath);
     mkdirSync(dirname(settingsAbs), { recursive: true });
-    const content =
-      adapter.layout.settingsFormat === "toml"
-        ? '[[hooks.PreToolUse]]\ncommand = "echo conformance"\n'
-        : JSON.stringify({
-            hooks: { PreToolUse: [{ command: "echo conformance" }] },
-          });
+    // 🔴 THE FIXTURE IS NOW BUILT FROM THE PORTS, not from a format branch.
+    // It used to be `settingsFormat === "toml" ? <TOML text> : <JSON text>`,
+    // which tested the two encodings the CHECK knew about rather than the ones
+    // the ADAPTER declares — a third encoding would have been handed JSON and
+    // failed for the wrong reason. `registration` supplies the harness's entry
+    // SHAPE and `settings.render` its ENCODING, which is exactly the pair this
+    // assertion exists to prove is wired to the same file.
+    const content = adapter.layout.settings.render(
+      adapter.hookProtocol.registration(
+        "PreToolUse",
+        undefined,
+        "echo conformance",
+      ) as unknown as Record<string, unknown>,
+    );
     writeFileSync(settingsAbs, content);
     const loaded = loadPlugin(dir, adapter.layout);
     if (!loaded.settings.hooks) {
       throw new Error(
-        `Adapter "${adapter.name}": loadPlugin read no hooks from a ${adapter.layout.settingsFormat} settings file at ${adapter.layout.settingsPath} — the settings-format wiring is broken.`,
+        `Adapter "${adapter.name}": loadPlugin read no hooks from a ${adapter.layout.settings.label} settings file at ${adapter.layout.settingsPath} — the settings codec / registration wiring is broken.`,
       );
     }
   } finally {

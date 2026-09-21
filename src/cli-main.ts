@@ -232,8 +232,6 @@ import {
 import {
   discoverHookFiles,
   discoverProviderFiles,
-  mergeHooksJson,
-  mergeHooksToml,
   hookGateRef,
   hookRuntimeRef,
   hookRuntimeMissingExit,
@@ -7483,7 +7481,7 @@ async function installHookFile(
       `${hookGateRef(ref, adapter.layout.projectRootTokens)} || exit ${hookRuntimeMissingExit(dispatchKind(program))}`,
     dialect: adapter.dialect,
     hookProtocol: adapter.hookProtocol,
-    settingsFormat: adapter.layout.settingsFormat,
+    settings: adapter.layout.settings,
     registeredProviders,
   });
 
@@ -7495,25 +7493,33 @@ async function installHookFile(
   );
 
   // Merge into the harness's native config, idempotently.
-  const format = adapter.layout.settingsFormat;
+  //
+  // 🔴 THREE FORMAT BRANCHES BECAME ZERO, and they were three because the ONE
+  // enum they all read was standing in for two different questions. Reading
+  // and writing the file is the ENCODING (`layout.settings`, a codec); folding
+  // our registrations into what is already there is the entry SHAPE
+  // (`hookProtocol.mergeRegistrations` — CC nests several commands under one
+  // matcher, Codex carries one command per entry). A TOML harness with
+  // CC-shaped entries was expressible under the enum and would have been
+  // merged wrong; neither port can be wrong about its own half.
   const settingsAbs = resolve(process.cwd(), adapter.layout.settingsPath);
   const existing: Record<string, unknown> = existsSync(settingsAbs)
-    ? format === "toml"
-      ? (parseToml(readFileSync(settingsAbs, "utf-8")) as Record<
-          string,
-          unknown
-        >)
-      : (JSON.parse(readFileSync(settingsAbs, "utf-8")) as Record<
-          string,
-          unknown
-        >)
+    ? adapter.layout.settings.parse(readFileSync(settingsAbs, "utf-8"))
     : {};
-  const merged =
-    format === "toml"
-      ? mergeHooksToml(existing, compiled.hooks, ref)
-      : mergeHooksJson(existing, compiled.hooks, ref);
+  // `shellHooks` narrows the adapter union: a harness whose hooks are code
+  // modules has no settings block to install into, and the type says so.
+  if (!adapter.shellHooks) {
+    throw new Error(
+      `Harness "${adapter.name}" has no shell-hook settings to install into (hooks are code modules).`,
+    );
+  }
+  const merged = adapter.hookProtocol.mergeRegistrations(
+    existing,
+    compiled.hooks,
+    ref,
+  );
   mkdirSync(dirname(settingsAbs), { recursive: true });
-  writeFileSync(settingsAbs, serializeConfig(merged, format));
+  writeFileSync(settingsAbs, adapter.layout.settings.render(merged));
 
   // No silent skips: warn loudly only where a hook's OUTPUT genuinely may not
   // apply on this harness. INJECT's `additionalContext` shape is now CONFIRMED

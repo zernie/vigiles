@@ -10,6 +10,8 @@
  * Paths are repo-relative (POSIX-style, `join`-friendly). The Claude Code
  * implementation is `claudeCodeLayout` in `src/adapters/claude-code/layout.ts`.
  */
+import type { SettingsCodec } from "./settings-codec.js";
+
 /**
  * The three kinds of MODEL SURFACE — a thing a session can invoke by name.
  *
@@ -75,11 +77,20 @@ export interface PluginLayout {
   /** Repo settings carrying hooks, e.g. `.claude/settings.json` or `.codex/config.toml`. */
   readonly settingsPath: string;
   /**
-   * How the settings file is encoded — `"json"` (Claude Code's settings.json) or
-   * `"toml"` (Codex's `config.toml` `[hooks]`). The loader dispatches a parser on
-   * it, so a TOML-configured harness's hooks aren't silently read as zero.
+   * How {@link manifestPath} and {@link settingsPath} are ENCODED — a codec,
+   * not a format name. It knows bytes-to-value and nothing about what the value
+   * means; the hooks-entry SHAPE lives on `HookProtocol.registration`.
+   *
+   * 🔴 IT USED TO BE `settingsFormat: "json" | "toml"`, and nine call sites
+   * branched on it. The type had exactly two inhabitants and both were ours, so
+   * a third-party adapter whose settings are YAML could declare nothing the
+   * core would honour — and the conformance kit re-checked the enum, which is
+   * the tell: a data field whose legal values the core already knows is not
+   * data, it is a hidden `switch`. Six of the nine branches were the encoding
+   * and are now `settings.parse` / `settings.render`; three were the entry
+   * shape and moved to the port that owns shapes.
    */
-  readonly settingsFormat: "json" | "toml";
+  readonly settings: SettingsCodec;
   /** Top-level instruction file, e.g. `CLAUDE.md`. */
   readonly instructionFile: string;
   /**

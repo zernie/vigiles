@@ -138,7 +138,11 @@ export interface HookProtocol {
     // @deprecated
     readonly injectableEvents: readonly string[];
     readonly matcherStyle?: "exact" | "regex";
+    mergeRegistrations(existing: Record<string, unknown>, compiled: Readonly<Record<string, readonly unknown[]>>, managedBy: string): Record<string, unknown>;
     readonly name: string;
+    registration(on: string, matcher: string | undefined, command: string): {
+        readonly hooks: Readonly<Record<string, readonly unknown[]>>;
+    };
 }
 
 // @public
@@ -167,7 +171,7 @@ export interface PluginLayout {
     readonly pluginRootToken: string;
     readonly projectRootTokens?: readonly string[];
     readonly rulesDir?: string;
-    readonly settingsFormat: "json" | "toml";
+    readonly settings: SettingsCodec;
     readonly settingsPath: string;
     readonly surfaces: SurfaceDirs;
     readonly userSurfaceRoot?: string;

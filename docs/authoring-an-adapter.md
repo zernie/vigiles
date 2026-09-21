@@ -61,7 +61,11 @@ const layout: PluginLayout = {
   manifestPath: ".myagent/config.json",
   hooksConventionPath: "hooks/hooks.json", // a FILE; omit it if the harness has none
   settingsPath: ".myagent/settings.json",
-  settingsFormat: "json", // or "toml" (e.g. Codex's config.toml [hooks])
+  // The ENCODING, as a codec. Two ship in the core (`jsonSettingsCodec`,
+  // `tomlSettingsCodec`); a harness with a third encoding supplies its own
+  // `{ label, parse, render }` and every reader already honours it. The entry
+  // SHAPE is a different question and lives on `HookProtocol.registration`.
+  settings: jsonSettingsCodec,
   instructionFile: "AGENTS.md",
   surfaces: {
     skill: "skills", // <dir>/<name>/SKILL.md

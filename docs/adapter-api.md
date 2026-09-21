@@ -63,21 +63,21 @@ tool-contract against `builtinAgentTools`/`neverAvailableTools`/`mcpToolPattern`
 
 Where the harness keeps things on disk.
 
-| Field                 | Type                                             | Meaning                                                                                                                                             | Claude Code                                                 |
-| --------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `name`                | `string`                                         | stable id                                                                                                                                           | `"claude-code"`                                             |
-| `manifestPath`        | `string`                                         | plugin manifest                                                                                                                                     | `".claude-plugin/plugin.json"`                              |
-| `hooksConventionPath` | `string?`                                        | standalone hooks FILE convention; omit when the harness has none (OpenCode's hooks are code modules)                                                | `"hooks/hooks.json"`                                        |
-| `settingsPath`        | `string`                                         | repo settings carrying hooks                                                                                                                        | `".claude/settings.json"`                                   |
-| `settingsFormat`      | `"json" \| "toml"`                               | how the settings file is encoded                                                                                                                    | `"json"` (Codex: `"toml"`)                                  |
-| `instructionFile`     | `string`                                         | top-level instruction file                                                                                                                          | `"CLAUDE.md"`                                               |
-| `surfaces`            | `Readonly<Partial<Record<SurfaceKind, string>>>` | where each model surface lives, keyed by kind (`skill`/`agent`/`command`); an ABSENT key is the only spelling of "this harness has no such surface" | `{ skill: "skills", agent: "agents", command: "commands" }` |
-| `userSurfaceRoot`     | `string?`                                        | the second home an END USER keeps the same surfaces under — and the prefix a relocated scope is keyed under                                         | `".claude"` (Codex/OpenCode: omitted)                       |
-| `rulesDir`            | `string?`                                        | path-scoped instruction dir (an instruction is READ, not invoked — so not a `SurfaceKind`)                                                          | `"rules"`                                                   |
-| `hookScriptsDir`      | `string?`                                        | dir holding executable hook SCRIPTS, distinct from where hooks are registered                                                                       | `"hooks"` (OpenCode: omitted)                               |
-| `pluginRootToken`     | `string`                                         | the plugin-root token (must match the dialect's)                                                                                                    | `"${CLAUDE_PLUGIN_ROOT}"`                                   |
-| `mcpConfigFile`       | `string`                                         | standalone MCP config                                                                                                                               | `".mcp.json"`                                               |
-| `mcpManifestKey`      | `string`                                         | manifest key declaring MCP servers                                                                                                                  | `"mcpServers"`                                              |
+| Field                 | Type                                             | Meaning                                                                                                                                                                                    | Claude Code                                                 |
+| --------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `name`                | `string`                                         | stable id                                                                                                                                                                                  | `"claude-code"`                                             |
+| `manifestPath`        | `string`                                         | plugin manifest                                                                                                                                                                            | `".claude-plugin/plugin.json"`                              |
+| `hooksConventionPath` | `string?`                                        | standalone hooks FILE convention; omit when the harness has none (OpenCode's hooks are code modules)                                                                                       | `"hooks/hooks.json"`                                        |
+| `settingsPath`        | `string`                                         | repo settings carrying hooks                                                                                                                                                               | `".claude/settings.json"`                                   |
+| `settings`            | `SettingsCodec`                                  | the bytes-to-value CODEC for the manifest and settings files (`label` / `parse` / `render`) — an encoding, not a format name; `jsonSettingsCodec` and `tomlSettingsCodec` ship in the core | `jsonSettingsCodec` (Codex: `tomlSettingsCodec`)            |
+| `instructionFile`     | `string`                                         | top-level instruction file                                                                                                                                                                 | `"CLAUDE.md"`                                               |
+| `surfaces`            | `Readonly<Partial<Record<SurfaceKind, string>>>` | where each model surface lives, keyed by kind (`skill`/`agent`/`command`); an ABSENT key is the only spelling of "this harness has no such surface"                                        | `{ skill: "skills", agent: "agents", command: "commands" }` |
+| `userSurfaceRoot`     | `string?`                                        | the second home an END USER keeps the same surfaces under — and the prefix a relocated scope is keyed under                                                                                | `".claude"` (Codex/OpenCode: omitted)                       |
+| `rulesDir`            | `string?`                                        | path-scoped instruction dir (an instruction is READ, not invoked — so not a `SurfaceKind`)                                                                                                 | `"rules"`                                                   |
+| `hookScriptsDir`      | `string?`                                        | dir holding executable hook SCRIPTS, distinct from where hooks are registered                                                                                                              | `"hooks"` (OpenCode: omitted)                               |
+| `pluginRootToken`     | `string`                                         | the plugin-root token (must match the dialect's)                                                                                                                                           | `"${CLAUDE_PLUGIN_ROOT}"`                                   |
+| `mcpConfigFile`       | `string`                                         | standalone MCP config                                                                                                                                                                      | `".mcp.json"`                                               |
+| `mcpManifestKey`      | `string`                                         | manifest key declaring MCP servers                                                                                                                                                         | `"mcpServers"`                                              |
 
 Three things the layout no longer carries, because each was a second place
 naming a fact the fields above already hold:
@@ -88,8 +88,8 @@ naming a fact the fields above already hold:
 | `intraRefDirs: string[]` | `executableSourceDirs(layout)` — the surfaces plus `hookScriptsDir`                                                                        |
 | `materializeRoot`        | `materializePrefix(layout)` = `userSurfaceRoot ?? ""` — the two fields were equal in every shipped layout and undefined when they differed |
 
-**Consumed by:** `loadPlugin(path, layout)` — reads hooks (JSON or TOML per
-`settingsFormat`), materializes surfaces, expands `pluginRootToken`.
+**Consumed by:** `loadPlugin(path, layout)` — reads hooks through `settings.parse`,
+materializes surfaces, expands `pluginRootToken`.
 
 ### `HarnessRuntime` (transport)
 
@@ -210,9 +210,16 @@ registration order.
 Pure (no IO). Returns `{ ok: boolean; failures: readonly string[] }`. Checks:
 every port populated; cross-port invariants (all port `name`s equal
 `adapter.name`; `layout.instructionFile` ∈ `dialect.instructionTargets`;
-`layout.pluginRootToken` === `dialect.pluginRootToken`; `settingsFormat` is
-`"json"|"toml"`); and a behavioural one — the dialect's own first built-in tool
-passes `compileAgent`'s tool-contract check.
+`layout.pluginRootToken` === `dialect.pluginRootToken`; `layout.settings`
+round-trips its own output); and a behavioural one — the dialect's own first
+built-in tool passes `compileAgent`'s tool-contract check.
+
+The enum check that used to sit here — `settingsFormat` is `"json"|"toml"` — is
+gone, and its absence is the point: the core re-checking a closed set it had
+itself declared is what told you the "data" field was a hidden switch. A codec
+has no set to be outside of, so a third-party adapter whose settings are YAML
+is legal, and what is checked instead is that its codec can read back what it
+wrote.
 
 ### `assertAdapterConformance(adapter): void`
 
@@ -221,11 +228,13 @@ Drop it in your adapter's test suite.
 
 ### `assertAdapterLoadsHooks(adapter): void`
 
-Does filesystem IO. Writes a minimal settings file in the adapter's
-`settingsFormat` (with a hook) to a temp dir, loads it through the adapter's
-`layout`, and throws if no hooks came back. This is what catches a layout that
-points at the right file in the **wrong format** (the JSON-vs-TOML trap) — the
-pure check passes it, but the agent would silently run zero hooks.
+Does filesystem IO. Writes a minimal settings file built from the adapter's own
+ports — `layout.settings.render(hookProtocol.registration(…))`, so the ENCODING
+and the entry SHAPE both come from the adapter rather than from a branch inside
+the check — to a temp dir, loads it through the adapter's `layout`, and throws
+if no hooks came back. This is what catches a layout that points at the right
+file in the **wrong format** (the JSON-vs-TOML trap) — the pure check passes it,
+but the agent would silently run zero hooks.
 
 ```ts
 import { test } from "vitest";
@@ -283,7 +292,7 @@ const { markdown, errors } = compileAgent(spec, {
   specFile: "reviewer.md.spec.ts",
 });
 
-// load a repo/plugin under your layout (hooks parsed per settingsFormat)
+// load a repo/plugin under your layout (hooks parsed through layout.settings)
 const plugin = loadPlugin("./my-project", myHarnessAdapter.layout);
 ```
 

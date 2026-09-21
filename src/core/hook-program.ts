@@ -48,16 +48,18 @@ import { sha256short, assertNever, type SHA256Hash } from "./hash.js";
  * ~170 ms `require("dist/core/hook-program.js")`, and this module is on the hot
  * path of `vigiles hook-runtime run-program`, which runs on EVERY matching tool
  * call. A hook DECIDES; it never serializes a settings block, so it paid 56 ms
- * per tool call for a compile-time dependency. Keep it a call-site require —
- * hoisting it back to the top is the regression, and `src/hook-runtime-graph.test.ts`
- * fails if `@iarna/toml` reappears in a decision's module graph.
+ * per tool call for a compile-time dependency.
+ *
+ * 🔴 THE LAZY REQUIRE MOVED, IT DID NOT GO AWAY. Serializing a settings block
+ * is now `SettingsCodec.render`, and `core/settings-codec.ts` keeps exactly
+ * this wrapper for exactly this reason — a codec is reached from strictly MORE
+ * places than this module was, so a top-level import there would have widened
+ * the regression rather than repeated it. `src/hook-runtime-graph.test.ts`
+ * still fails if `@iarna/toml` reappears in a decision's module graph.
  */
-const stringifyToml = (value: unknown): string =>
-  (require("@iarna/toml") as typeof import("@iarna/toml")).stringify(
-    value as never,
-  );
 import type { HarnessDialect } from "./dialect.js";
 import type { HookProtocol } from "./hook-protocol.js";
+import { jsonSettingsCodec, type SettingsCodec } from "./settings-codec.js";
 import {
   capabilityOf,
   type EventCapabilityTable,
@@ -1047,8 +1049,16 @@ export interface CompileHookOptions {
   readonly dialect?: HarnessDialect;
   /** Matcher style (exact vs anchored regex). Defaults to Claude Code's `"exact"`. */
   readonly hookProtocol?: HookProtocol;
-  /** Settings encoding — `"json"` (Claude Code) or `"toml"` (Codex). From `PluginLayout.settingsFormat`. */
-  readonly settingsFormat?: "json" | "toml";
+  /**
+   * Settings ENCODING, from `PluginLayout.settings`. Absent ⇒ JSON, the
+   * backwards-compatible default for a caller that injects no layout.
+   *
+   * It used to be `settingsFormat?: "json" | "toml"` and `renderSettingsBlock`
+   * branched on it for BOTH the encoding and the entry shape. The shape comes
+   * from `hookProtocol.registration` now, so the two can no longer be chosen
+   * independently of each other by accident.
+   */
+  readonly settings?: SettingsCodec;
   /** Names of registered providers (`.vigiles/providers/`) a `provider()` ref may resolve to. */
   readonly registeredProviders?: readonly string[];
 }
@@ -1168,24 +1178,39 @@ function styleMatcher(
  * Claude Code (the nested `{event:[{matcher,hooks:[{type,command}]}]}` shape);
  * TOML `[[hooks.<event>]]` with a flat `command` for Codex.
  */
+/**
+ * The settings block a user pastes: the harness's entry SHAPE
+ * (`hookProtocol.registration`) rendered in the harness's ENCODING
+ * (`settings.render`).
+ *
+ * 🔴 IT USED TO BUILD BOTH FROM ONE `"json" | "toml"` ARGUMENT — the TOML
+ * branch also hard-coded Codex's flat entry and the JSON branch Claude Code's
+ * nested one, so "TOML" silently meant "flat" and "JSON" meant "nested". Two
+ * facts on one switch: a JSON harness with flat entries, or a TOML one with
+ * nested entries, was unrepresentable, and the day one appeared the branch
+ * would have quietly produced the other harness's shape.
+ */
 function renderSettingsBlock(
   on: string,
   matcher: string | undefined,
   gateCommand: string,
-  format: "json" | "toml",
+  protocol: HookProtocol | undefined,
+  settings: SettingsCodec | undefined,
 ): string {
-  if (format === "toml") {
-    const entry: Record<string, string> =
-      matcher === undefined
-        ? { command: gateCommand }
-        : { matcher, command: gateCommand };
-    return stringifyToml({ hooks: { [on]: [entry] } }).trim();
-  }
-  const entry =
-    matcher === undefined
-      ? { hooks: [{ type: "command", command: gateCommand }] }
-      : { matcher, hooks: [{ type: "command", command: gateCommand }] };
-  return JSON.stringify({ hooks: { [on]: [entry] } }, null, 2);
+  const block = protocol
+    ? protocol.registration(on, matcher, gateCommand)
+    : {
+        hooks: {
+          [on]: [
+            matcher === undefined
+              ? { hooks: [{ type: "command", command: gateCommand }] }
+              : { matcher, hooks: [{ type: "command", command: gateCommand }] },
+          ],
+        },
+      };
+  return (settings ?? jsonSettingsCodec)
+    .render(block as unknown as Record<string, unknown>)
+    .trimEnd();
 }
 
 /**
@@ -1450,7 +1475,8 @@ export function compileHookProgram(
       on,
       matcher,
       gateCommand,
-      opts.settingsFormat ?? "json",
+      opts.hookProtocol,
+      opts.settings,
     ),
     stamp: stampHook(source),
     ...(fitWarnings.length > 0 ? { warnings: fitWarnings } : {}),

@@ -55,6 +55,7 @@ import { provide, dangerously, provider } from "./hook-providers.js";
 import { codexDialect } from "../adapters/codex/dialect.js";
 import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
 import { codexHookProtocol } from "../adapters/codex/hook-protocol.js";
+import { tomlSettingsCodec } from "./settings-codec.js";
 import { claudeCodeHookProtocol } from "../adapters/claude-code/hook-protocol.js";
 
 // The hook an author writes — a pure function against the closed API. No exit
@@ -679,7 +680,7 @@ test("compile (Codex): emits TOML `[[hooks.<event>]]` with a regex matcher", () 
     {
       dialect: codexDialect,
       hookProtocol: codexHookProtocol,
-      settingsFormat: "toml",
+      settings: tomlSettingsCodec,
       gateCommand: "npx vigiles hook-runtime run-program guard.mjs",
     },
   );
@@ -1177,7 +1178,7 @@ test("probe4: prompt/stop gates compile (no matcher) on Claude Code AND Codex", 
     {
       dialect: codexDialect,
       hookProtocol: codexHookProtocol,
-      settingsFormat: "toml",
+      settings: tomlSettingsCodec,
     },
   );
   assert.match(codex.settingsBlock, /\[\[hooks\.Stop\]\]/);

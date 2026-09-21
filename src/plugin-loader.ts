@@ -31,9 +31,8 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { resolve, join, relative, basename } from "node:path";
 
-import { parse as parseToml } from "@iarna/toml";
-
 import { assertNever } from "./core/hash.js";
+import type { SettingsCodec } from "./core/settings-codec.js";
 import {
   executableSourceDirs,
   materializePrefix,
@@ -119,36 +118,34 @@ function readHooksFile(path: string): unknown {
 }
 
 /**
- * Parse the layout's manifest in its declared `settingsFormat` — JSON (Claude
- * Code's plugin.json) or TOML (Codex's `config.toml`). A TOML harness's manifest
- * (hooks, `[mcp_servers]`) would otherwise read as empty through the JSON path.
- * Behaviour-identical to `safeReadJson` when the format is JSON.
+ * Parse the layout's manifest through its own CODEC. A TOML harness's manifest
+ * (hooks, `[mcp_servers]`) would otherwise read as empty through a JSON parse.
+ *
+ * One code path now, where there used to be `if (settingsFormat === "toml")`
+ * over a JSON fallback: the codec is the branch, so a third encoding needs no
+ * edit here.
  */
 function safeReadManifest(
   root: string,
   layout: PluginLayout,
 ): Record<string, unknown> | null {
-  const path = join(root, layout.manifestPath);
-  if (layout.settingsFormat === "toml") {
-    try {
-      return parseToml(readFileSync(path, "utf-8")) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
+  try {
+    const text = readFileSync(join(root, layout.manifestPath), "utf-8");
+    return layout.settings.parse(text);
+  } catch {
+    // Missing, unreadable, or malformed — the caller falls through to the
+    // other hook locations, exactly as it did for a bad JSON manifest.
+    return null;
   }
-  return safeReadJson(path);
 }
 
 /**
- * Read the `.hooks` field of a settings file in the layout's format — JSON
- * (Claude Code's settings.json) or TOML (Codex's `config.toml` `[hooks]`). A
- * TOML harness's hooks would otherwise be read as zero by the JSON path.
+ * Read the `.hooks` field of a settings file through the layout's codec. A TOML
+ * harness's hooks would otherwise be read as zero by a JSON parse.
  */
-function readSettingsHooks(path: string, format: "json" | "toml"): unknown {
-  if (format === "json") return readHooksFile(path);
+function readSettingsHooks(path: string, codec: SettingsCodec): unknown {
   try {
-    return (parseToml(readFileSync(path, "utf-8")) as Record<string, unknown>)
-      .hooks;
+    return codec.parse(readFileSync(path, "utf-8")).hooks;
   } catch {
     return undefined;
   }
@@ -179,7 +176,7 @@ function readHooks(root: string, layout: PluginLayout): unknown {
 
   const settingsPath = join(root, layout.settingsPath);
   if (existsSync(settingsPath))
-    return readSettingsHooks(settingsPath, layout.settingsFormat);
+    return readSettingsHooks(settingsPath, layout.settings);
 
   return undefined;
 }

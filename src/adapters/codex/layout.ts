@@ -58,13 +58,14 @@
  * edit; changing a VALUE in place does not, and nothing today catches that.
  */
 import type { PluginLayout } from "../../core/layout.js";
+import { tomlSettingsCodec } from "../../core/settings-codec.js";
 
 export const codexLayout: PluginLayout = {
   name: "codex",
   manifestPath: ".codex/config.toml",
   hooksConventionPath: ".codex/hooks.json",
   settingsPath: ".codex/config.toml",
-  settingsFormat: "toml",
+  settings: tomlSettingsCodec,
   instructionFile: "AGENTS.md",
   // Surfaces carry their OWN prefix and the materialize prefix is "" — the
   // OpenCode style, not the Claude Code one. Codex's skills and its prompts do

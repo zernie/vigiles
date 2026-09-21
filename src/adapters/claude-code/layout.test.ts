@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { loadPlugin } from "./plugin-loader.js";
 import { claudeCodeLayout } from "./layout.js";
 import type { PluginLayout } from "../../core/layout.js";
+import { tomlSettingsCodec } from "../../core/settings-codec.js";
 import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
 
 // A hypothetical second harness's layout — different manifest, instruction file,
@@ -19,7 +20,7 @@ const codexLayout: PluginLayout = {
   manifestPath: ".codex/config.json",
   hooksConventionPath: "hooks/codex-hooks.json",
   settingsPath: ".codex/config.toml",
-  settingsFormat: "toml",
+  settings: tomlSettingsCodec,
   instructionFile: "AGENTS.md",
   // 🔴 THIS FIXTURE USED TO NAME FOUR SURFACE DIRS IN THREE FIELDS AND
   // DISAGREE WITH ITSELF: `surfaceDirs: ["prompts"]` beside `skillDir:

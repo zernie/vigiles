@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 455 project files. */
+  /** 456 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -337,6 +337,7 @@ declare module "vigiles/generated" {
     | "src/core/runtime.ts"
     | "src/core/session.test.ts"
     | "src/core/session.ts"
+    | "src/core/settings-codec.ts"
     | "src/core/shell-vars.test.ts"
     | "src/core/shell-vars.ts"
     | "src/core/sidecar.test.ts"
@@ -864,6 +865,7 @@ declare module "vigiles/spec" {
       | "src/core/runtime.ts"
       | "src/core/session.test.ts"
       | "src/core/session.ts"
+      | "src/core/settings-codec.ts"
       | "src/core/shell-vars.test.ts"
       | "src/core/shell-vars.ts"
       | "src/core/sidecar.test.ts"
