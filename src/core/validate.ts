@@ -20,6 +20,7 @@ import { cosmiconfigSync } from "cosmiconfig";
 // sources — it failed every suite that touches `loadConfig`. A deferral that
 // only works in one of the two worlds the code runs in is not one line of
 // hygiene, it is a second module system.
+import { DEFAULT_INSTRUCTION_TARGETS } from "./dialect.js";
 import {
   vigilesConfigSchema,
   formatConfigIssues,
@@ -79,7 +80,12 @@ const CHECKBOX_RE = /^- \[([ xX])\]\s+(.+)$/;
 // The instruction filenames vigiles recognizes when no dialect is injected — a
 // validator-level default, not a harness dialect (the concrete dialects live in
 // the adapters; an injected ValidateOptions.dialect overrides this).
-const INSTRUCTION_FILES: readonly string[] = ["CLAUDE.md", "AGENTS.md"];
+//
+// 🔴 READ FROM `core/dialect.ts`, NOT RESTATED HERE, and NOT derived from the
+// adapter registry: `core ⊄ adapter`. The header on
+// `DEFAULT_INSTRUCTION_TARGETS` carries the measurement behind that refusal and
+// names the test that keeps this list and the registry in agreement instead.
+const INSTRUCTION_FILES: readonly string[] = DEFAULT_INSTRUCTION_TARGETS;
 
 // The default instruction file to validate when no config names one.
 const DEFAULT_FILES: string[] = [INSTRUCTION_FILES[0]];

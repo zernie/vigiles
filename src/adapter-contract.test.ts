@@ -21,7 +21,8 @@ import { describe, it, expect } from "vitest";
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { HarnessAdapter } from "./core/adapter.js";
-import { ADAPTERS } from "./adapter-registry.js";
+import { ADAPTERS, defaultAdapter } from "./adapter-registry.js";
+import { DEFAULT_INSTRUCTION_TARGETS } from "./core/dialect.js";
 import { opencodeAdapter } from "./adapters/opencode/adapter.js";
 import {
   assertAdapterConformance,
@@ -169,5 +170,50 @@ describe("adapter registry is complete", () => {
     const names = ADAPTERS.map((a) => a.name);
     expect(names).toContain("claude-code");
     expect(names).toContain("codex");
+  });
+});
+
+/**
+ * The core's no-dialect default vs the registry — a RATCHET, because the
+ * derivation the redesign would normally use is forbidden here.
+ *
+ * 🔴 WHY THIS IS A TEST AND NOT AN IMPORT. Every other "restated fact" on this
+ * branch was fixed by reading the registry (`KNOWN_INSTRUCTION_FILES` and
+ * `determineTargets` in `cli-main.ts` now do). `core/validate.ts` cannot:
+ * `src/core/CLAUDE.md` states "the core must not import an adapter (`core ⊄
+ * adapter`)", and the registry IS the adapters. Measured on a probe that added
+ * the import to `validate.ts` — `dist/core/validate.js` went from 108 to 136
+ * modules and pulled both harness adapters into the domain's graph, while
+ * `npx eslint src/core/validate.ts` reported 0 errors, because
+ * `boundaries/dependencies` judges DIRECT edges and `adapter-registry.ts` is
+ * the unclassified composition root. The lint's silence is where the rule
+ * looks, not permission.
+ *
+ * So the fact stays stated once, in the core, and this file — which is outside
+ * the core and already imports the registry — is what stops it drifting. A
+ * third adapter reading a filename neither of today's does fails HERE, with the
+ * name in the message, instead of being silently unrecognised by `vigiles lint`
+ * in a repository that uses it.
+ */
+describe("the core's no-dialect instruction filenames track the registry", () => {
+  it("recognizes exactly what the registered adapters declare they read", () => {
+    expect([...DEFAULT_INSTRUCTION_TARGETS].sort()).toEqual(
+      [
+        ...new Set(ADAPTERS.flatMap((a) => a.dialect.instructionTargets)),
+      ].sort(),
+    );
+  });
+
+  it("puts the compile target FIRST, which is the contract `[0]` carries", () => {
+    // `instructionTargets[0]` is documented as the default compile target, and
+    // `core/compile.ts` derives `DEFAULT_TARGET` from this list's head. If the
+    // two ever disagreed, vigiles would recognize one set of filenames and emit
+    // a file outside it — both halves looking correct on their own.
+    expect(DEFAULT_INSTRUCTION_TARGETS[0]).toBe(
+      defaultAdapter.dialect.instructionTargets[0],
+    );
+    expect(DEFAULT_INSTRUCTION_TARGETS[0]).toBe(
+      defaultAdapter.layout.instructionFile,
+    );
   });
 });

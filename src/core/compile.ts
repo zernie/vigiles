@@ -38,12 +38,20 @@ import {
 import { purityViolations } from "./effects.js";
 import type { LinterCheckResult } from "./linters.js";
 import type { HarnessDialect } from "./dialect.js";
-import { RENDERABLE_SKILL_FRONTMATTER_KEYS } from "./dialect.js";
+import {
+  DEFAULT_INSTRUCTION_TARGETS,
+  RENDERABLE_SKILL_FRONTMATTER_KEYS,
+} from "./dialect.js";
 
 // vigiles's default compile target when a spec names none and no dialect is
 // injected — a product convention (vigiles emits CLAUDE.md by default), not a
 // harness dialect. When a dialect IS injected its instructionTargets win.
-const DEFAULT_TARGET = "CLAUDE.md";
+//
+// DERIVED, not restated: this is the head of the one recognized-filenames list,
+// and `instructionTargets` already contracts that `[0]` is the default target.
+// Writing the literal here made "what vigiles recognizes" and "what vigiles
+// emits" two facts that could disagree while both looking right.
+const DEFAULT_TARGET = DEFAULT_INSTRUCTION_TARGETS[0];
 
 // ---------------------------------------------------------------------------
 // Hash utilities

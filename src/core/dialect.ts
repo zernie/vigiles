@@ -46,6 +46,39 @@ export const RENDERABLE_SKILL_FRONTMATTER_KEYS = [
   "disallowed-tools",
 ] as const satisfies readonly string[];
 
+/**
+ * The instruction filenames vigiles recognizes when NO dialect is injected, in
+ * precedence order — `[0]` is what a spec compiles into when it names no target.
+ *
+ * 🔴 IT IS THE CORE'S OWN DEFAULT, AND DERIVING IT FROM THE REGISTRY IS NOT
+ * ALLOWED HERE — worth saying, because that is the obvious fix and it is the
+ * wrong one. `src/core/CLAUDE.md` states the invariant ("the core must not
+ * import an adapter, `core ⊄ adapter`") and the registry IS the adapters.
+ * Measured on a probe that added `import { ADAPTERS } from
+ * "../adapter-registry.js"` to `validate.ts`: the module graph of
+ * `dist/core/validate.js` went from 108 to 136 modules and pulled BOTH
+ * `adapters/claude-code/adapter.js` and `adapters/codex/adapter.js` into the
+ * domain's own graph.
+ *
+ * ⚠️ AND THE LINT DOES NOT STOP IT — same probe: `npx eslint
+ * src/core/validate.ts` reported 0 errors, because `boundaries/dependencies`
+ * treats `src/adapter-registry.ts` as the unclassified composition root and
+ * judges DIRECT edges only. That silence is an artifact of where the rule
+ * looks, not permission. So the agreement between this list and the registry is
+ * held by a TEST that lives outside the core (`adapter-contract.test.ts`),
+ * where importing the registry is legal — a ratchet instead of an inversion.
+ *
+ * ONE PLACE, because it was two: `validate.ts` held `["CLAUDE.md", "AGENTS.md"]`
+ * and `compile.ts` held `DEFAULT_TARGET = "CLAUDE.md"`, which is this list's
+ * head under another name — {@link HarnessDialect.instructionTargets} already
+ * contracts that `[0]` is the default target, so the second was the first,
+ * restated.
+ */
+export const DEFAULT_INSTRUCTION_TARGETS: readonly string[] = [
+  "CLAUDE.md",
+  "AGENTS.md",
+];
+
 export interface HarnessDialect {
   /** Stable identifier, e.g. "claude-code". */
   readonly name: string;

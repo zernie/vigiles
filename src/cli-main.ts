@@ -3750,7 +3750,26 @@ interface DetectedProject {
   hasClaude: boolean;
 }
 
-const KNOWN_INSTRUCTION_FILES = ["CLAUDE.md", "AGENTS.md"];
+/**
+ * The instruction filenames `init` probes for on disk — DERIVED from the
+ * registered adapters, never listed.
+ *
+ * 🔴 THIS IS THE SAME DEFECT CLASS THE PORT REDESIGN REMOVES: a fact restated
+ * by hand beside the registry that owns it. The literal read `["CLAUDE.md",
+ * "AGENTS.md"]` and was correct only because the adapters happen to say that
+ * today — it could not have noticed a third adapter, and it did not notice when
+ * Claude Code's `instructionTargets` GAINED `AGENTS.md` (it was already there
+ * by coincidence).
+ *
+ * `instructionTargets` rather than `layout.instructionFile`, because the
+ * question here is "which files might exist and want a spec", which is every
+ * name a registered harness READS — a repository with only an `AGENTS.md` is
+ * one `init` must still see. Verified identical before and after over the
+ * registry as it stands: union = `["CLAUDE.md", "AGENTS.md"]`.
+ */
+const KNOWN_INSTRUCTION_FILES = [
+  ...new Set(ADAPTERS.flatMap((a) => a.dialect.instructionTargets)),
+];
 const KNOWN_OTHER_CONFIGS: Record<string, string> = {
   ".cursorrules": "Cursor",
   ".github/copilot-instructions.md": "GitHub Copilot",
@@ -3853,10 +3872,23 @@ function determineTargets(
   harnesses: string[],
 ): string[] {
   if (targetValue) return [targetValue];
-  const targets: string[] = [];
-  if (harnesses.includes("claude")) targets.push("CLAUDE.md");
-  if (harnesses.includes("codex")) targets.push("AGENTS.md");
-  if (targets.length === 0) targets.push("CLAUDE.md");
+  // 🔴 WHICH FILE A HARNESS COMPILES INTO IS THE LAYOUT'S ANSWER, not a pair of
+  // name literals here. This read `harnesses.includes("claude") -> "CLAUDE.md"`
+  // and `includes("codex") -> "AGENTS.md"` — the registry restated, in the one
+  // place a third adapter would be forgotten. `getAdapter` is alias-aware, so
+  // the short `"claude"` that `init` uses resolves exactly as it did.
+  //
+  // ITERATING THE REGISTRY, NOT `harnesses`, KEEPS THE ORDER FIXED: the old
+  // code always produced CLAUDE.md before AGENTS.md whatever order the config
+  // listed, and that order reaches the printed spec targets. Verified over all
+  // five inputs (each harness alone, both orders, and none): identical.
+  const selected = new Set(
+    harnesses.map((h) => getAdapter(h)?.name).filter((n) => n !== undefined),
+  );
+  const targets: string[] = ADAPTERS.filter((a) => selected.has(a.name)).map(
+    (a) => a.layout.instructionFile,
+  );
+  if (targets.length === 0) targets.push(defaultAdapter.layout.instructionFile);
   // Any existing instruction file without a spec also gets one.
   for (const f of detected.instructionFiles) {
     if (!f.hasSpec && !targets.includes(f.path)) targets.push(f.path);
