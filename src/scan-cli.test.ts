@@ -113,10 +113,14 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     mk("normal/CLAUDE.md", "# Project\nRun the build before committing.\n");
 
     // 2. A Codex repo: AGENTS.md + TOML config (with MCP) + a skill.
+    // The skill sits at `.agents/skills`, which is where Codex scans (vendor,
+    // learn.chatgpt.com/docs/build-skills). It was at a root-level `skills/`
+    // until 2026-09-21, i.e. this "real Codex repo" fixture was shaped like one
+    // no Codex user has; the assertions below only mean something at the real path.
     mk("codex/AGENTS.md", "# Agent instructions\nUse `npm test`.\n");
     mk("codex/.codex/config.toml", "[mcp_servers]\n");
     mk(
-      "codex/skills/foo/SKILL.md",
+      "codex/.agents/skills/foo/SKILL.md",
       `---\nname: foo\ndescription: ${desc("foo")}\n---\n# foo\n`,
     );
 
@@ -130,7 +134,7 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
       '[[hooks.PreToolUse]]\ncommand = "${PLUGIN_ROOT}/hooks/missing.sh"\n',
     );
     mk(
-      "codexlint/skills/foo/SKILL.md",
+      "codexlint/.agents/skills/foo/SKILL.md",
       `---\nname: foo\ndescription: ${desc("foo")}\n---\n# foo\n`,
     );
     mk(

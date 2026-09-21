@@ -2270,9 +2270,13 @@ test("a Codex repo is not scored against a fence its harness has no key for", ()
   const dir = makeTmpDir("scan-codex-fence");
   write(dir, "AGENTS.md", "# rules\n");
   write(dir, ".codex/config.toml", "[mcp_servers]\n");
+  // `.agents/skills`, not a root-level `skills/`: that is the directory Codex
+  // scans (vendor, learn.chatgpt.com/docs/build-skills). Moved 2026-09-21 with
+  // the layout — the precondition below is the whole point of the test, and it
+  // can only hold where the harness really looks.
   write(
     dir,
-    "skills/deploy/SKILL.md",
+    ".agents/skills/deploy/SKILL.md",
     "---\nname: deploy\ndescription: Ships the built artifact to production for the team\n---\n# deploy\n",
   );
   const r = scanPlugin(dir, codexLayout, codexDialect);
