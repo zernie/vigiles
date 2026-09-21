@@ -247,20 +247,21 @@ export function layoutClaims(layout: PluginLayout, path: string): boolean {
 }
 
 /**
- * Does a repo owner's DECLARED root (`.vigilesrc.json#surfaceRoots`) cause this
- * path to be read, under the layout that was actually detected?
+ * Does a repo owner's DECLARED root cause this path to be read, under the
+ * layout of the harness it was declared UNDER?
  *
  * 🔴 IT CLAIMS EXACTLY WHAT IT MAKES READABLE, AND NOT ONE PATH MORE. The set is
- * `<root>/<surfaceDir>/…` for the detected layout's own `surfaceDirs` — which is
+ * `<root>/<surfaceDir>/…` for that harness's own `surfaceDirs` — which is
  * verbatim the set `materializeSurfaces` reads for a declared scope. Derived
  * from the same field rather than listed twice, so the two cannot drift.
  *
- * The consequence is the point: declaring a root silences the finding only where
- * the declaration actually reaches. A repo detected as Codex that declares `.ai`
- * for its `.ai/skills` keeps the finding, because Codex's skill dir is
- * `.agents/skills` and `.ai/skills` is still read by nobody — the tool does not
- * go quiet over an answer that changed nothing. (That repo's fix is to say which
- * harness it targets: `"harness"` beside `"surfaceRoots"`.)
+ * The consequence is the point: a declaration silences the finding only where it
+ * actually reaches. Declaring `.ai` under `"codex"` does not silence a
+ * `.ai/skills/` tree, because Codex's skill dir is `.agents/skills` and
+ * `.ai/skills` is still read by nobody. Under the flat `surfaceRoots` key that
+ * was where the story ended — the tool stayed quiet about a declaration that
+ * changed nothing. Now the harness is part of the declaration, so the same fact
+ * is an ERROR the owner can act on ({@link unresolvedDeclaredRoots}).
  *
  * ⚠️ A declaration is the REPO OWNER's, never an adapter's. Nothing here lets a
  * harness widen what vigiles reads in someone else's repository — the property
@@ -271,12 +272,83 @@ export function declaredRootClaims(
   roots: readonly string[],
   path: string,
 ): boolean {
-  return roots.some((r) =>
-    layout.surfaceDirs.some((surface) => {
-      const dir = located(`${r}/${surface}`);
-      return dir !== null && (path === dir || path.startsWith(`${dir}/`));
-    }),
+  return declaredRootDirs(layout, roots).some(
+    (dir) => path === dir || path.startsWith(`${dir}/`),
   );
+}
+
+/**
+ * The repo-relative dirs a declaration REACHES: `<root>/<surfaceDir>` for every
+ * declared root crossed with this layout's own surface dirs.
+ *
+ * ONE derivation, read two ways — {@link declaredRootClaims} asks whether a
+ * found path is in the set, {@link unresolvedDeclaredRoots} asks whether any
+ * member of the set exists on disk. Two spellings of "where does this
+ * declaration reach" is how a declaration could be claimed by one and refused by
+ * the other.
+ */
+export function declaredRootDirs(
+  layout: PluginLayout,
+  roots: readonly string[],
+): readonly string[] {
+  const out: string[] = [];
+  for (const r of roots)
+    for (const surface of layout.surfaceDirs) {
+      const dir = located(`${r}/${surface}`);
+      if (dir !== null && !out.includes(dir)) out.push(dir);
+    }
+  return out;
+}
+
+/** One declared harness as this module needs it: a name and its layout + roots. */
+export interface DeclaredRootScope {
+  /** The harness KEY the root was declared under. */
+  readonly harness: string;
+  readonly layout: PluginLayout;
+  readonly roots: readonly string[];
+}
+
+/**
+ * Declared roots that reach NO directory on disk — the one silent state the
+ * nested shape would otherwise keep (#240).
+ *
+ * 🔴 WHY THIS IS AN ERROR AND NOT A WARNING. A root under a harness whose layout
+ * keeps that surface somewhere else is not a near-miss, it is a statement that
+ * cannot be true: `{"codex": {"roots": [".ai"]}}` over a `.ai/skills/` tree makes
+ * vigiles look at `.ai/.agents/skills/` and `.ai/prompts/`, finds neither, reads
+ * nothing, and changes not one line of the report. The owner wrote a line
+ * believing their skills were now graded. Silence there is the tool agreeing.
+ *
+ * ⚠️ IT CHECKS THE DIRECTORY, NOT ITS CONTENTS, and the difference is
+ * deliberate: an EMPTY `.ai/skills/` is a real, correctly-declared home that
+ * happens to hold nothing today, and failing a build over an empty directory
+ * would be a gate on repo state rather than on the declaration. What is refused
+ * is a declaration that names no directory at all.
+ *
+ * `dirExists` is injected (repo-relative path in, boolean out) so the rule is
+ * pure, node-free and testable without a filesystem — the same contract every
+ * other decision in this module keeps.
+ */
+export function unresolvedDeclaredRoots(
+  scopes: readonly DeclaredRootScope[],
+  dirExists: (repoRelativeDir: string) => boolean,
+): readonly string[] {
+  const out: string[] = [];
+  for (const scope of scopes) {
+    for (const root of scope.roots) {
+      const looked = declaredRootDirs(scope.layout, [root]);
+      if (looked.some((d) => dirExists(d))) continue;
+      out.push(
+        `.vigilesrc.json: harnesses["${scope.harness}"].roots names "${root}", ` +
+          `but ${scope.harness} reads no surface there — nothing would be graded and ` +
+          `nothing would be said.\n` +
+          `  Looked for: ${looked.length === 0 ? "(this harness declares no surface dirs)" : looked.map((d) => `${d}/`).join(", ")}\n` +
+          `  Either create one of those, or declare "${root}" under the harness whose ` +
+          `layout does read it.`,
+      );
+    }
+  }
+  return out;
 }
 
 /**
@@ -384,12 +456,12 @@ function knownHomes(
  * actually keep that kind of surface. Taking them apart is how the message and
  * the claim rule would come to disagree.
  *
- * `declared` is the repo owner's opt-in: roots they named in
- * `.vigilesrc.json#surfaceRoots`, which the loader then reads under the DETECTED
- * layout. It joins the claimers rather than filtering the findings afterwards,
- * so "no harness reads this" and "this is read" stay ONE question with one
- * answer. Omitted by the browser twin, which has no config — see
- * {@link declaredRootClaims} for what it does and does not silence.
+ * `declared` is the repo owner's opt-in: one entry per harness declared in
+ * `.vigilesrc.json#harnesses`, each carrying the roots declared under it and the
+ * LAYOUT those roots are read with. It joins the claimers rather than filtering
+ * the findings afterwards, so "no harness reads this" and "this is read" stay
+ * ONE question with one answer. Omitted by the browser twin, which has no
+ * config — see {@link declaredRootClaims} for what it does and does not silence.
  *
  * ⚠️ `exclude` needs no mention here and that is structural, not an oversight:
  * an excluded path never reaches `paths` (the walk drops it), so it can be
@@ -398,18 +470,18 @@ function knownHomes(
 export function unclaimedSurfaceFindings(
   paths: readonly string[],
   layouts: readonly PluginLayout[],
-  declared?: {
-    /** The layout the declaration materializes under — the DETECTED one. */
-    readonly layout: PluginLayout;
-    /** Normalized `.vigilesrc.json#surfaceRoots`. */
-    readonly roots: readonly string[];
-  },
+  declared?: readonly DeclaredRootScope[],
 ): readonly UnclaimedSurfaceFinding[] {
   const claimers = layouts.map((l) => (path: string) => layoutClaims(l, path));
-  if (declared !== undefined && declared.roots.length > 0)
-    claimers.push((path) =>
-      declaredRootClaims(declared.layout, declared.roots, path),
-    );
+  // ONE claimer per DECLARED HARNESS, not one for "the declaration". Under the
+  // flat shape there was a single (detected layout, global roots) pair, so a repo
+  // serving one tree to two harnesses could silence the finding for at most one
+  // of them; each declaration now carries the layout it was made under.
+  for (const scope of declared ?? [])
+    if (scope.roots.length > 0)
+      claimers.push((path) =>
+        declaredRootClaims(scope.layout, scope.roots, path),
+      );
   return unclaimedDirs(
     unclaimedSurfaces(discoverSurfaces(paths), claimers),
   ).map((d) => ({

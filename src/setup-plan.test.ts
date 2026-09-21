@@ -298,15 +298,21 @@ test("shouldPrompt: only a TTY human with unpinned choices", () => {
 // --- mergeProjectConfig: what `vigiles init` writes to .vigilesrc.json ---
 
 test("mergeProjectConfig: default init gates the FP-safe structural rules + harness", () => {
-  const out = mergeProjectConfig({}, { harness: "claude-code", strict: false });
+  const out = mergeProjectConfig(
+    {},
+    { harnesses: ["claude-code"], strict: false },
+  );
   const expected = Object.fromEntries(
     STRUCTURAL_RULES.map((r) => [r, "error"]),
   );
-  assert.deepEqual(out, { harness: "claude-code", rules: expected });
+  assert.deepEqual(out, { harnesses: { "claude-code": {} }, rules: expected });
 });
 
 test("mergeProjectConfig: default does NOT gate require-instructions-spec (stays opt-in)", () => {
-  const out = mergeProjectConfig({}, { harness: "claude-code", strict: false });
+  const out = mergeProjectConfig(
+    {},
+    { harnesses: ["claude-code"], strict: false },
+  );
   const rules = (out as { rules: Record<string, string> }).rules;
   assert.equal(
     rules["require-instructions-spec"],
@@ -323,47 +329,47 @@ test("mergeProjectConfig: default does NOT gate require-instructions-spec (stays
 test("mergeProjectConfig: --report-only writes the structural gate at warn, not error", () => {
   const out = mergeProjectConfig(
     {},
-    { harness: "claude-code", strict: false, reportOnly: true },
+    { harnesses: ["claude-code"], strict: false, reportOnly: true },
   );
   const expected = Object.fromEntries(STRUCTURAL_RULES.map((r) => [r, "warn"]));
-  assert.deepEqual(out, { harness: "claude-code", rules: expected });
+  assert.deepEqual(out, { harnesses: { "claude-code": {} }, rules: expected });
 });
 
 test("mergeProjectConfig: --report-only composes with --strict (workflow tier at warn)", () => {
   const out = mergeProjectConfig(
     {},
-    { harness: "claude-code", strict: true, reportOnly: true },
+    { harnesses: ["claude-code"], strict: true, reportOnly: true },
   );
   const expected = Object.fromEntries(
     [...STRUCTURAL_RULES, ...WORKFLOW_RULES].map((r) => [r, "warn"]),
   );
-  assert.deepEqual(out, { harness: "claude-code", rules: expected });
+  assert.deepEqual(out, { harnesses: { "claude-code": {} }, rules: expected });
 });
 
 test("mergeProjectConfig: test-only (lint:false) records harness but writes NO lint rules", () => {
   const out = mergeProjectConfig(
     {},
-    { harness: "claude-code", strict: false, lint: false },
+    { harnesses: ["claude-code"], strict: false, lint: false },
   );
   // Honors the positive-flag contract: `init --test` selects only the test
   // pillar, so the lint rule gate is not written.
-  assert.deepEqual(out, { harness: "claude-code" });
+  assert.deepEqual(out, { harnesses: { "claude-code": {} } });
 });
 
 test("mergeProjectConfig: lint:false with --strict still writes no rules", () => {
   const out = mergeProjectConfig(
     {},
-    { harness: "codex", strict: true, lint: false },
+    { harnesses: ["codex"], strict: true, lint: false },
   );
-  assert.deepEqual(out, { harness: "codex" });
+  assert.deepEqual(out, { harnesses: { codex: {} } });
 });
 
 test("mergeProjectConfig: array harness is recorded as-is (with default gates)", () => {
   const out = mergeProjectConfig(
     {},
-    { harness: ["claude-code", "codex"], strict: false },
+    { harnesses: ["claude-code", "codex"], strict: false },
   );
-  assert.deepEqual((out as { harness: unknown }).harness, [
+  assert.deepEqual(Object.keys((out as { harnesses: object }).harnesses), [
     "claude-code",
     "codex",
   ]);
@@ -372,27 +378,36 @@ test("mergeProjectConfig: array harness is recorded as-is (with default gates)",
 test("mergeProjectConfig: never clobbers an existing harness key", () => {
   // harness already set, but the default gate rules are still added → writes.
   const out = mergeProjectConfig(
-    { harness: "codex" },
-    { harness: "claude-code", strict: false },
+    { harnesses: { codex: {} } },
+    { harnesses: ["claude-code"], strict: false },
   );
-  assert.equal((out as { harness: string }).harness, "codex", "kept");
+  assert.deepEqual(
+    Object.keys((out as { harnesses: object }).harnesses),
+    ["codex"],
+    "kept",
+  );
 });
 
 test("mergeProjectConfig: preserves other existing keys", () => {
   const out = mergeProjectConfig(
     { maxRules: 50 },
-    { harness: "codex", strict: false },
+    { harnesses: ["codex"], strict: false },
   );
   assert.equal((out as { maxRules: number }).maxRules, 50);
-  assert.equal((out as { harness: string }).harness, "codex");
+  assert.deepEqual(Object.keys((out as { harnesses: object }).harnesses), [
+    "codex",
+  ]);
 });
 
 test("mergeProjectConfig: --strict adds the workflow-forcing tier on top of the gates", () => {
-  const out = mergeProjectConfig({}, { harness: "claude-code", strict: true });
+  const out = mergeProjectConfig(
+    {},
+    { harnesses: ["claude-code"], strict: true },
+  );
   const expected = Object.fromEntries(
     [...STRUCTURAL_RULES, ...WORKFLOW_RULES].map((r) => [r, "error"]),
   );
-  assert.deepEqual(out, { harness: "claude-code", rules: expected });
+  assert.deepEqual(out, { harnesses: { "claude-code": {} }, rules: expected });
 });
 
 test("WORKFLOW_RULES is require-instructions-spec + untested-*; nudge rules are NOT gated", () => {
@@ -410,7 +425,7 @@ test("WORKFLOW_RULES is require-instructions-spec + untested-*; nudge rules are 
 test("mergeProjectConfig: never clobbers a user-set severity, fills the rest", () => {
   const out = mergeProjectConfig(
     { harness: "codex", rules: { "subagent-tool-contract": "warn" } },
-    { harness: "codex", strict: false },
+    { harnesses: ["codex"], strict: false },
   );
   const rules = (out as { rules: Record<string, string> }).rules;
   assert.equal(rules["subagent-tool-contract"], "warn", "user severity kept");
@@ -423,8 +438,8 @@ test("mergeProjectConfig: fully-satisfied config returns null (no write)", () =>
   );
   assert.equal(
     mergeProjectConfig(
-      { harness: "codex", rules },
-      { harness: "codex", strict: true },
+      { harnesses: { codex: {} }, rules },
+      { harnesses: ["codex"], strict: true },
     ),
     null,
   );

@@ -931,7 +931,8 @@ export default instructionFile({
   it("mirrors CLAUDE.md → AGENTS.md byte-identically when ≥2 harnesses are declared", () => {
     writeFileSync(
       join(tmpDir, ".vigilesrc.json"),
-      JSON.stringify({ harness: ["claude-code", "codex"] }, null, 2) + "\n",
+      JSON.stringify({ harnesses: { "claude-code": {}, codex: {} } }, null, 2) +
+        "\n",
     );
     const { stdout, exitCode } = run("compile CLAUDE.md.spec.ts", tmpDir);
     assert.equal(exitCode, 0);
@@ -948,7 +949,7 @@ export default instructionFile({
     rmSync(join(tmpDir, "AGENTS.md"), { force: true });
     writeFileSync(
       join(tmpDir, ".vigilesrc.json"),
-      JSON.stringify({ harness: "claude-code" }, null, 2) + "\n",
+      JSON.stringify({ harnesses: { "claude-code": {} } }, null, 2) + "\n",
     );
     const { exitCode } = run("compile CLAUDE.md.spec.ts", tmpDir);
     assert.equal(exitCode, 0);
@@ -1008,7 +1009,11 @@ export default experimental_skill({
       );
       writeFileSync(
         join(dir, ".vigilesrc.json"),
-        JSON.stringify({ harness: ["claude-code", "codex"] }, null, 2) + "\n",
+        JSON.stringify(
+          { harnesses: { "claude-code": {}, codex: {} } },
+          null,
+          2,
+        ) + "\n",
       );
       const { stdout } = run("compile", dir);
       // Each file is its OWN compiled output — the mirror skipped the spec-owned
@@ -1037,7 +1042,11 @@ export default instructionFile({ target: "CLAUDE.md", rules: { "r": guidance("c"
       );
       writeFileSync(
         join(dir, ".vigilesrc.json"),
-        JSON.stringify({ harness: ["claude-code", "codex"] }, null, 2) + "\n",
+        JSON.stringify(
+          { harnesses: { "claude-code": {}, codex: {} } },
+          null,
+          2,
+        ) + "\n",
       );
       mkdirSync(join(dir, ".ruler")); // Ruler owns fan-out
       const { stdout } = run("compile CLAUDE.md.spec.ts", dir);
@@ -1067,7 +1076,11 @@ export default experimental_skill({
       );
       writeFileSync(
         join(dir, ".vigilesrc.json"),
-        JSON.stringify({ harness: ["claude-code", "codex"] }, null, 2) + "\n",
+        JSON.stringify(
+          { harnesses: { "claude-code": {}, codex: {} } },
+          null,
+          2,
+        ) + "\n",
       );
       const { stdout, exitCode } = run("compile SKILL.md.spec.ts", dir);
       assert.equal(exitCode, 0);
@@ -1110,7 +1123,11 @@ export default instructionFile({ target: "CLAUDE.md", rules: { r: guidance("c") 
       );
       writeFileSync(
         join(dir, ".vigilesrc.json"),
-        JSON.stringify({ harness: ["claude-code", "codex"] }, null, 2) + "\n",
+        JSON.stringify(
+          { harnesses: { "claude-code": {}, codex: {} } },
+          null,
+          2,
+        ) + "\n",
       );
       run("compile CLAUDE.md.spec.ts", dir); // first run writes the mirror
       const second = run("compile CLAUDE.md.spec.ts", dir); // already identical
@@ -1248,7 +1265,7 @@ describe("CLI: vigiles init auto-detection", () => {
     writeFileSync(join(dir, "CLAUDE.md"), "# Hand-written\n");
     writeFileSync(
       join(dir, ".vigilesrc.json"),
-      JSON.stringify({ harness: "codex" }),
+      JSON.stringify({ harnesses: { codex: {} } }),
     );
     const { stdout } = run("init --no-plugin", dir);
     assert.match(stdout, /Harness: codex/);
@@ -1284,8 +1301,8 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
       // A greenfield repo (no AGENTS.md) records the default harness.
       const cfg = JSON.parse(
         readFileSync(join(dir, ".vigilesrc.json"), "utf-8"),
-      ) as { harness?: unknown };
-      assert.equal(cfg.harness, "claude-code");
+      ) as { harnesses?: Record<string, unknown> };
+      assert.deepEqual(Object.keys(cfg.harnesses ?? {}), ["claude-code"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1406,8 +1423,12 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
       run("init --test --no-plugin --no-gha", dir);
       const cfg = JSON.parse(
         readFileSync(join(dir, ".vigilesrc.json"), "utf-8"),
-      ) as { harness?: unknown; rules?: unknown };
-      assert.equal(cfg.harness, "claude-code", "harness recorded");
+      ) as { harnesses?: Record<string, unknown>; rules?: unknown };
+      assert.deepEqual(
+        Object.keys(cfg.harnesses ?? {}),
+        ["claude-code"],
+        "harness recorded",
+      );
       assert.equal(cfg.rules, undefined, "no lint gate for a test-only setup");
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -1954,8 +1975,8 @@ describe("CLI: installation smoke test (deterministic)", () => {
       // deterministically instead of sniffing the cwd.
       const cfg = JSON.parse(
         readFileSync(join(dir, ".vigilesrc.json"), "utf-8"),
-      ) as { harness?: unknown };
-      assert.equal(cfg.harness, "codex");
+      ) as { harnesses?: Record<string, unknown> };
+      assert.deepEqual(Object.keys(cfg.harnesses ?? {}), ["codex"]);
       assertNoVendoring(dir);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -1979,8 +2000,11 @@ describe("CLI: installation smoke test (deterministic)", () => {
       // Both declared harnesses recorded as the supported set (canonical names).
       const cfg = JSON.parse(
         readFileSync(join(dir, ".vigilesrc.json"), "utf-8"),
-      ) as { harness?: unknown };
-      assert.deepEqual(cfg.harness, ["claude-code", "codex"]);
+      ) as { harnesses?: Record<string, unknown> };
+      assert.deepEqual(Object.keys(cfg.harnesses ?? {}), [
+        "claude-code",
+        "codex",
+      ]);
       assertNoVendoring(dir);
     } finally {
       rmSync(dir, { recursive: true, force: true });

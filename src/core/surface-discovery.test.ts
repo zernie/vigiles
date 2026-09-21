@@ -17,6 +17,7 @@ import {
   discoverSurfaces,
   layoutClaims,
   unclaimedSurfaceFindings,
+  unresolvedDeclaredRoots,
 } from "./surface-discovery.js";
 
 const ccClaims = (p: string): boolean => layoutClaims(claudeCodeLayout, p);
@@ -145,10 +146,9 @@ test("a declared root stops being a finding; an undeclared sibling still is", ()
     "undeclared: both fire",
   );
   assert.deepEqual(
-    unclaimedSurfaceFindings(paths, both, {
-      layout: claudeCodeLayout,
-      roots: [".ai"],
-    }).map((f) => f.dir),
+    unclaimedSurfaceFindings(paths, both, [
+      { harness: "claude-code", layout: claudeCodeLayout, roots: [".ai"] },
+    ]).map((f) => f.dir),
     [".vendor/skills"],
     "declaring `.ai` silences `.ai/skills` and NOTHING else",
   );
@@ -171,20 +171,17 @@ test("a declaration reaches only the detected layout's own surface dirs", () => 
     ".ai/skills/check-dor/SKILL.md",
     ".ai/.agents/skills/beta/SKILL.md",
   ];
-  const declared = { roots: [".ai"] };
   assert.deepEqual(
-    unclaimedSurfaceFindings(paths, both, {
-      ...declared,
-      layout: codexLayout,
-    }).map((f) => f.dir),
+    unclaimedSurfaceFindings(paths, both, [
+      { harness: "codex", layout: codexLayout, roots: [".ai"] },
+    ]).map((f) => f.dir),
     [".ai/skills"],
     "codex reads `.agents/skills`, so `.ai/skills` is still nobody's",
   );
   assert.deepEqual(
-    unclaimedSurfaceFindings(paths, both, {
-      ...declared,
-      layout: claudeCodeLayout,
-    }).map((f) => f.dir),
+    unclaimedSurfaceFindings(paths, both, [
+      { harness: "claude-code", layout: claudeCodeLayout, roots: [".ai"] },
+    ]).map((f) => f.dir),
     [],
     "claude-code reads `skills`, so both dirs under `.ai` are covered",
   );
@@ -199,4 +196,86 @@ test("a declared root does not leak to a sibling whose name starts the same", ()
   assert.equal(claims(".airline/skills/x/SKILL.md"), false);
   assert.equal(claims(".ai/skillsets/x/SKILL.md"), false);
   assert.equal(claims(".ai/README.md"), false);
+});
+
+// ---------------------------------------------------------------------------
+// unresolvedDeclaredRoots — the silent state the nested shape would keep (#240)
+// ---------------------------------------------------------------------------
+
+/**
+ * 🔴 BOTH HALVES, AND THE SECOND ONE IS THE POINT.
+ *
+ * A root declared under a harness whose layout keeps that surface elsewhere is
+ * refused by name; the SAME root under the harness that does read it is silent.
+ * Without the silent half this would pass for a check that refuses every
+ * declaration, which is a worse product than the silence it replaced.
+ */
+test("a root under a harness that reads nothing there is refused, by name", () => {
+  const onDisk = new Set([".ai", ".ai/skills", ".ai/skills/alpha"]);
+  const exists = (d: string): boolean => onDisk.has(d);
+
+  const refused = unresolvedDeclaredRoots(
+    [{ harness: "codex", layout: codexLayout, roots: [".ai"] }],
+    exists,
+  );
+  assert.equal(refused.length, 1);
+  // The three facts a reader needs: which root, which harness, what was looked
+  // for. A message missing the third leaves them guessing at the spelling.
+  assert.match(refused[0], /harnesses\["codex"\]\.roots names "\.ai"/);
+  assert.match(refused[0], /codex reads no surface there/);
+  assert.match(
+    refused[0],
+    /Looked for: \.ai\/\.agents\/skills\/, \.ai\/prompts\//,
+  );
+
+  assert.deepEqual(
+    unresolvedDeclaredRoots(
+      [{ harness: "claude-code", layout: claudeCodeLayout, roots: [".ai"] }],
+      exists,
+    ),
+    [],
+    "the same root under the harness that DOES read it is silent",
+  );
+});
+
+/**
+ * ONE surface dir existing is enough, and an EMPTY one still counts.
+ *
+ * The check is about the DECLARATION, not about repo state: a correctly-named
+ * `.ai/agents/` that happens to hold nothing today is a real home, and failing a
+ * build over an empty directory would gate on content rather than on the line
+ * the owner wrote.
+ */
+test("one existing surface dir is enough, and it need not hold anything", () => {
+  assert.deepEqual(
+    unresolvedDeclaredRoots(
+      [{ harness: "claude-code", layout: claudeCodeLayout, roots: [".ai"] }],
+      (d) => d === ".ai/agents",
+    ),
+    [],
+  );
+  assert.equal(
+    unresolvedDeclaredRoots(
+      [{ harness: "claude-code", layout: claudeCodeLayout, roots: [".ai"] }],
+      () => false,
+    ).length,
+    1,
+    "…but a root reaching NO directory at all is still refused",
+  );
+});
+
+/** Each declared root is judged on its own — one bad entry names only itself. */
+test("a good root beside a bad one is not tarred with it", () => {
+  const msgs = unresolvedDeclaredRoots(
+    [
+      {
+        harness: "claude-code",
+        layout: claudeCodeLayout,
+        roots: [".ai", ".nowhere"],
+      },
+    ],
+    (d) => d.startsWith(".ai/"),
+  );
+  assert.equal(msgs.length, 1);
+  assert.match(msgs[0], /names "\.nowhere"/);
 });

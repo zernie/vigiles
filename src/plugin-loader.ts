@@ -283,6 +283,82 @@ export function loadPlugin(
 }
 
 /**
+ * ONE declared harness for {@link loadPlugins}: the layout to read the repo
+ * under, and the extra roots declared for THAT harness.
+ */
+export interface HarnessLoad {
+  readonly layout: PluginLayout;
+  readonly roots?: readonly string[];
+}
+
+/**
+ * Load the repo once PER DECLARED HARNESS and merge the results into one
+ * `LoadedPlugin` (#240).
+ *
+ * 🔴 THE MERGE IS WHY THIS EXISTS, AND THE DEDUPLICATION IS ITS WHOLE CONTRACT.
+ * A repo that declares two harnesses is a repo whose grade must cover both — the
+ * flat `harness` array could not do that, because whichever name sat first
+ * decided the ONE layout everything was read under: measured on a repo with
+ * `AGENTS.md` + `.ai/skills/alpha/SKILL.md`, Claude-Code-first graded the skill
+ * and reported 0 chars of always-loaded instructions, Codex-first read
+ * `AGENTS.md` and reported no skill at all. Neither order produced both halves.
+ *
+ * ⚠️ AND THE OBVIOUS FIX HAS AN OBVIOUS SECOND BUG: a repo honest enough to say
+ * one tree serves both tools would then have that tree read twice and every
+ * skill in it counted twice, so declaring the truth would lower the grade. So the
+ * merge keys on the REAL ON-DISK PATH (`sources`), not on the materialized key:
+ * the first harness to claim a file keeps it, later ones skip it, and the counts
+ * are of files rather than of claims. Keying on the materialized key would not
+ * do — two layouts can reach one file under two different keys (`.ai/.agents`
+ * + `skills` and `.ai` + `.agents/skills` are the same directory), and that is
+ * exactly the case an honest dual declaration produces.
+ *
+ * Settings come from the FIRST harness that yields any, and the file-map merge
+ * is first-wins for the same reason: the primary harness is the one whose
+ * dialect the report is rendered in, so its reading of a shared path is the one
+ * the rest of the report is consistent with.
+ */
+export function loadPlugins(
+  pluginPath: string,
+  harnesses: readonly HarnessLoad[],
+  excludes?: ExcludeSet,
+): LoadedPlugin {
+  const loads = harnesses.map((h) =>
+    loadPlugin(pluginPath, h.layout, excludes, h.roots),
+  );
+  /* v8 ignore next -- callers always pass >=1; the guard keeps the type honest */
+  if (loads.length <= 1) return loads[0] ?? EMPTY_LOAD;
+  const files: Record<string, string> = {};
+  const sources: Record<string, string> = {};
+  const seenOnDisk = new Set<string>();
+  const warnings: string[] = [];
+  let settings: { hooks?: unknown } = {};
+  for (const load of loads) {
+    for (const [key, content] of Object.entries(load.files)) {
+      // A file with no recorded source is one the loader synthesized rather than
+      // read (there are none today); key it by its own key so it still dedupes.
+      const onDisk = load.sources[key] ?? key;
+      if (seenOnDisk.has(onDisk)) continue;
+      seenOnDisk.add(onDisk);
+      files[key] = content;
+      sources[key] = onDisk;
+    }
+    for (const w of load.warnings) if (!warnings.includes(w)) warnings.push(w);
+    if (settings.hooks === undefined && load.settings.hooks !== undefined)
+      settings = load.settings;
+  }
+  return { settings, files, sources, warnings };
+}
+
+/** The shape `loadPlugins` returns for an empty harness list. */
+const EMPTY_LOAD: LoadedPlugin = {
+  settings: {},
+  files: {},
+  sources: {},
+  warnings: [],
+};
+
+/**
  * Materialize every model surface (skills/agents/commands) into `files`, and
  * record each file's real on-disk path in `sources`. Best-effort (headless
  * activation of plugin skills/subagents/commands is not guaranteed; the body is

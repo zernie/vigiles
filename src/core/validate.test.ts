@@ -17,39 +17,70 @@ import {
   expandGlobs,
   findInstructionFiles,
   loadConfig,
-  normalizeSeverity,
-  asStringArray,
 } from "./validate.js";
+import { vigilesConfigSchema, formatConfigIssues } from "./config-schema.js";
 import type { MarkerType, ParseOptions } from "./types.js";
 
-describe("config value normalization (dogfood fixes)", () => {
-  it("normalizeSeverity maps ESLint idioms to vigiles severities", () => {
-    // #112: "off" (a truthy string) must disable, not render as warn.
-    assert.equal(normalizeSeverity("off"), false);
-    assert.equal(normalizeSeverity(0), false);
-    // numeric ESLint severities (the C5 dogfood finding).
-    assert.equal(normalizeSeverity(1), "warn");
-    assert.equal(normalizeSeverity(2), "error");
-    // vigiles-native values pass through untouched.
-    assert.equal(normalizeSeverity("warn"), "warn");
-    assert.equal(normalizeSeverity("error"), "error");
-    assert.equal(normalizeSeverity(false), false);
-    // the [severity, options] array form recurses on the head.
-    assert.deepEqual(normalizeSeverity([2, { x: 1 }]), ["error", { x: 1 }]);
-    // an unrecognized value is left as-is (pre-existing behavior).
-    assert.equal(normalizeSeverity("bogus"), "bogus");
+describe("config value normalization (now the schema's job)", () => {
+  /**
+   * The ESLint idioms are the reason `normalizeSeverity` existed (#112: `"off"`
+   * is a truthy string and rendered as a WARN, so a disabled rule kept gating).
+   * Same inputs, same outputs — the transform simply lives in the schema now, so
+   * it cannot be skipped by a reader that forgets to call it.
+   */
+  it("parses the ESLint severity idioms into real decisions", () => {
+    const sev = (v: unknown): unknown =>
+      vigilesConfigSchema.parse({ rules: { integrity: v } }).rules.integrity;
+    assert.equal(sev("off"), false);
+    assert.equal(sev(0), false);
+    assert.equal(sev(1), "warn");
+    assert.equal(sev(2), "error");
+    assert.equal(sev("warn"), "warn");
+    assert.equal(sev("error"), "error");
+    assert.equal(sev(false), false);
   });
 
-  it("asStringArray accepts a bare string as a one-element array", () => {
-    // C3/C4: a bare string must NOT be iterated char-by-char as globs.
-    assert.deepEqual(asStringArray("bench/**", [], "exclude"), ["bench/**"]);
-    assert.deepEqual(asStringArray(["a", "b"], [], "exclude"), ["a", "b"]);
-    assert.deepEqual(asStringArray(["a", 2, "b"], [], "exclude"), ["a", "b"]);
-    assert.deepEqual(asStringArray(undefined, ["fallback"], "exclude"), [
-      "fallback",
+  it("parses the [severity, options] form, mapping the head", () => {
+    assert.deepEqual(
+      vigilesConfigSchema.parse({
+        rules: { "untested-skill": ["error", { testExtension: ".t.ts" }] },
+      }).rules["untested-skill"],
+      ["error", { testExtension: ".t.ts" }],
+    );
+  });
+
+  /**
+   * 🔴 THE ONE DELIBERATE BEHAVIOUR CHANGE, and it is the direction #112 asked
+   * for. `normalizeSeverity("bogus")` used to return `"bogus"` — "left as-is,
+   * pre-existing behavior" — which downstream rendered as a warn. A misspelled
+   * severity now FAILS, with the accepted values named.
+   */
+  it("REFUSES an unrecognized severity instead of rendering it as a warn", () => {
+    const r = vigilesConfigSchema.safeParse({ rules: { integrity: "bogus" } });
+    assert.equal(r.success, false);
+    assert.deepEqual(formatConfigIssues(r.error.issues), [
+      ".vigilesrc.json: rules.integrity is not one of the accepted values " +
+        '("warn", "error", false, "off", 0, 1, 2, true).',
     ]);
-    // a non-string/array falls back with a warning.
-    assert.deepEqual(asStringArray(42, ["fb"], "exclude"), ["fb"]);
+  });
+
+  it("accepts a bare string as a one-element list, never char-by-char", () => {
+    // C3/C4: `"exclude": "bench/**"` must not spread into ["b","e","n",…].
+    assert.deepEqual(
+      vigilesConfigSchema.parse({ exclude: "bench/**" }).exclude,
+      ["bench/**"],
+    );
+    assert.deepEqual(
+      vigilesConfigSchema.parse({ exclude: ["a", "b"] }).exclude,
+      ["a", "b"],
+    );
+  });
+
+  it("REFUSES a non-string entry instead of silently dropping it", () => {
+    // The old `asStringArray(["a", 2, "b"])` returned ["a","b"] — the 2 vanished
+    // with no word said, which is the same silence the schema exists to end.
+    const r = vigilesConfigSchema.safeParse({ exclude: ["a", 2, "b"] });
+    assert.equal(r.success, false);
   });
 });
 
@@ -542,15 +573,88 @@ describe("loadConfig", () => {
     rmSync(configDir, { recursive: true, force: true });
   });
 
-  it("should fall back to defaults for invalid ruleMarkers", () => {
+  /**
+   * 🔴 A DELIBERATE BEHAVIOUR CHANGE, and the direction is the point.
+   *
+   * This used to read `{"ruleMarkers": ["invalid"]}`, print a `console.warn`,
+   * and silently use the defaults — so a repo that asked for something the tool
+   * does not support got the tool's own answer with no consequence. The same
+   * silence one key over (`surfaceRootz`) is what #240 measured. It is now a
+   * named refusal at the verb, and a WARNING plus the defaults on a hook rail,
+   * which is the one distinction the two readers are allowed to make.
+   */
+  it("REFUSES an invalid ruleMarkers value instead of quietly defaulting", () => {
     const configDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
     writeFileSync(
       join(configDir, ".vigilesrc.json"),
       JSON.stringify({ ruleMarkers: ["invalid"] }),
     );
     process.chdir(configDir);
-    const config = loadConfig();
-    assert.deepEqual(config.ruleMarkers, ["headings", "checkboxes"]);
+    assert.throws(
+      () => loadConfig(),
+      /ruleMarkers\.0 .*expected one of "headings"\|"checkboxes"/,
+    );
+    // The hook-rail reading of the SAME file: warn, then carry on. Asserted
+    // beside the throw, because "validation runs everywhere" and "a bad config
+    // may kill a hook" are different claims and only the first is true.
+    const warned: string[] = [];
+    const realWarn = console.warn;
+    console.warn = (...a: unknown[]) => warned.push(a.join(" "));
+    try {
+      assert.deepEqual(
+        loadConfig(undefined, { onInvalid: "warn" }).ruleMarkers,
+        ["headings", "checkboxes"],
+      );
+    } finally {
+      console.warn = realWarn;
+    }
+    assert.match(warned.join("\n"), /ruleMarkers\.0/);
+    assert.match(warned.join("\n"), /Using default configuration/);
+    process.chdir(originalCwd);
+    rmSync(configDir, { recursive: true, force: true });
+  });
+
+  /**
+   * 🔴 THE REPLACED KEYS FAIL LOUDLY AND NAME THE NEW SHAPE (#240).
+   *
+   * There is no alias and no deprecation window, on purpose: both old keys could
+   * be honoured only by picking ONE layout for a global root list, which IS the
+   * defect. A config that kept working would keep the defect with it.
+   */
+  it("refuses the replaced `harness` / `surfaceRoots` keys, naming the new one", () => {
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
+    writeFileSync(
+      join(configDir, ".vigilesrc.json"),
+      JSON.stringify({ harness: ["claude-code"], surfaceRoots: [".ai"] }),
+    );
+    process.chdir(configDir);
+    assert.throws(loadConfig, (e: Error) => {
+      assert.match(e.message, /"harness" and "surfaceRoots" were replaced/);
+      assert.match(
+        e.message,
+        /"harnesses": \{ "claude-code": \{ "roots": \[".ai"\] \}/,
+      );
+      assert.match(e.message, /order silently decided what got read/);
+      return true;
+    });
+    process.chdir(originalCwd);
+    rmSync(configDir, { recursive: true, force: true });
+  });
+
+  /** The same file in the new shape loads — so the test above is not just "any config throws". */
+  it("accepts the shape that replaced them", () => {
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
+    writeFileSync(
+      join(configDir, ".vigilesrc.json"),
+      JSON.stringify({
+        harnesses: { "claude-code": { roots: [".ai"] }, codex: {} },
+      }),
+    );
+    process.chdir(configDir);
+    assert.deepEqual(loadConfig().harnesses, {
+      "claude-code": { roots: [".ai"] },
+      codex: {},
+    });
     process.chdir(originalCwd);
     rmSync(configDir, { recursive: true, force: true });
   });

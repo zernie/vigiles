@@ -140,7 +140,7 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     mk(
       "codexlint/.vigilesrc.json",
       JSON.stringify({
-        harness: "codex",
+        harnesses: { codex: {} },
         rules: {
           "hook-script-exists": "warn",
           "untested-skill": "warn",
@@ -154,10 +154,13 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     mk("mixed/AGENTS.md", "# Codex\nRun `make`.\n");
 
     // 3b. A repo that AUTO-DETECTS as claude-code (only a CLAUDE.md) but
-    // config-DECLARES codex. Audit must honor the `.vigilesrc.json` `harness`
+    // config-DECLARES codex. Audit must honor the `.vigilesrc.json` `harnesses`
     // key (dogfood A: it used to ignore it and scan as Claude Code).
     mk("cfgharness/CLAUDE.md", "# CC file\nRun `npm test`.\n");
-    mk("cfgharness/.vigilesrc.json", JSON.stringify({ harness: "codex" }));
+    mk(
+      "cfgharness/.vigilesrc.json",
+      JSON.stringify({ harnesses: { codex: {} } }),
+    );
 
     // 4. A marketplace: a marketplace.json over two member plugins.
     mk(
@@ -257,10 +260,10 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.doesNotMatch(r.stderr, /^\s+at .+\(.*\)/m);
   });
 
-  it("honors the .vigilesrc.json `harness` key (audit no longer ignores config)", () => {
+  it("honors the .vigilesrc.json `harnesses` key (audit no longer ignores config)", () => {
     // dogfood A: this repo auto-detects as claude-code (only a CLAUDE.md), but
     // config declares codex. Audit must scan as codex — before the fix it
-    // ignored config.harness and reported claude-code. Config resolves from the
+    // ignored the declaration and reported claude-code. Config resolves from the
     // cwd (like `lint`), so run audit from INSIDE the fixture.
     const r = run("audit .", join(root, "cfgharness"));
     // Exit 2, not 0: scanned AS CODEX this fixture holds no AGENTS.md and no

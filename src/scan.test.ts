@@ -2544,7 +2544,7 @@ test("a surface directory no harness reads is a graded finding, its neighbours a
  * could come from anywhere. So the same directory is scanned twice, and the
  * assertions are the difference between the two.
  */
-test("a declared surfaceRoot is read and graded, and its finding disappears", () => {
+test("a declared harness root is read and graded, and its finding disappears", () => {
   const dir = makeTmpDir("declared-root");
   try {
     const skill = (name: string): string =>
@@ -2563,7 +2563,13 @@ test("a declared surfaceRoot is read and graded, and its finding disappears", ()
     assert.deepEqual(before.skills, [], "…and neither is graded");
 
     const after = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
-      surfaceRoots: [".ai"],
+      harnesses: [
+        {
+          layout: claudeCodeLayout,
+          dialect: claudeCodeDialect,
+          roots: [".ai"],
+        },
+      ],
     });
     assert.deepEqual(
       after.unclaimedSurfaces.map((u) => u.dir),
@@ -2586,7 +2592,7 @@ test("a declared surfaceRoot is read and graded, and its finding disappears", ()
 });
 
 /**
- * 🔴 `exclude` BEATS `surfaceRoots`, on BOTH halves at once.
+ * 🔴 `exclude` BEATS a declared harness root, on BOTH halves at once.
  *
  * Pinned because it is the interaction that is obvious today and forgotten in
  * six months: a path the owner both declared and excluded must be read exactly
@@ -2598,7 +2604,7 @@ test("a declared surfaceRoot is read and graded, and its finding disappears", ()
  * gives the same two zeroes, so the pair above cannot be passing because the
  * declaration silently failed to reach anything.
  */
-test("exclude beats a declared surfaceRoot — no grade AND no finding", () => {
+test("exclude beats a declared harness root — no grade AND no finding", () => {
   const dir = makeTmpDir("declared-vs-exclude");
   try {
     const skill = (name: string): string =>
@@ -2606,8 +2612,13 @@ test("exclude beats a declared surfaceRoot — no grade AND no finding", () => {
     write(dir, "CLAUDE.md", "# repo\n");
     write(dir, ".ai/skills/check-dor/SKILL.md", skill("check-dor"));
 
+    const cc = (roots: readonly string[]) => ({
+      layout: claudeCodeLayout,
+      dialect: claudeCodeDialect,
+      roots,
+    });
     const declaredOnly = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
-      surfaceRoots: [".ai"],
+      harnesses: [cc([".ai"])],
     });
     assert.deepEqual(
       declaredOnly.skills.map((s) => s.name),
@@ -2616,7 +2627,7 @@ test("exclude beats a declared surfaceRoot — no grade AND no finding", () => {
     assert.deepEqual(declaredOnly.unclaimedSurfaces, []);
 
     const both = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
-      surfaceRoots: [".ai"],
+      harnesses: [cc([".ai"])],
       excludes: excludeSet(dir, [".ai"]),
     });
     assert.deepEqual(both.skills, [], "excluded: not graded");
@@ -2629,6 +2640,112 @@ test("exclude beats a declared surfaceRoot — no grade AND no finding", () => {
       [excludedOnly.skills.length, excludedOnly.unclaimedSurfaces.length],
       [0, 0],
       "the declaration adds nothing once the path is excluded",
+    );
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+/**
+ * 🔴 THE TWO DEFECTS #240's REPORTER HIT, PINNED TOGETHER.
+ *
+ * Fixture: `AGENTS.md` + `.codex/config.toml` + `.ai/skills/alpha/SKILL.md` —
+ * "one tree served to both Claude Code and Codex", in his words.
+ *
+ * Under the flat `harness` array + global `surfaceRoots` this repo could not be
+ * graded whole, and the ORDER of the array decided which half was lost.
+ * MEASURED on the real CLI before the change:
+ *
+ * ```
+ * {"harness":["claude-code","codex"],"surfaceRoots":[".ai"]}
+ *     -> Skills (1), Always-loaded instructions: 0 chars
+ * {"harness":["codex","claude-code"],"surfaceRoots":[".ai"]}
+ *     -> no skills (`.ai/skills/ holds 1 skill that no harness … reads`),
+ *        Instructions: AGENTS.md
+ * ```
+ *
+ * Two separate failures: an array whose ORDER silently changed behaviour, and no
+ * order that produced BOTH halves. Both are asserted here, and the second is the
+ * one that makes the first worth fixing — order-independence alone would be
+ * satisfied by a shape that loses the same half every time.
+ *
+ * ⚠️ WHAT IS *NOT* CLAIMED, because the sweep predicted it and it is still true:
+ * the first declared harness is the PRIMARY, and its DIALECT runs the
+ * dialect-shaped checks (the lethal-trifecta fence is a Claude Code concept, so
+ * the Safety ring differs between the two orders). That is a per-harness fact
+ * being reported per-harness, not a surface going unread — which is why the
+ * assertions below are about what was READ.
+ */
+test("#240: both halves are read, and the declaration ORDER does not decide which", () => {
+  const dir = makeTmpDir("issue-240");
+  try {
+    write(dir, "AGENTS.md", "# Agents\n\nInstructions for both harnesses.\n");
+    write(dir, ".codex/config.toml", 'model = "gpt-5"\n');
+    write(
+      dir,
+      ".ai/skills/alpha/SKILL.md",
+      "---\nname: alpha\ndescription: does alpha things across many cases\n---\n# alpha\n",
+    );
+    const cc = {
+      layout: claudeCodeLayout,
+      dialect: claudeCodeDialect,
+      roots: [".ai"],
+    };
+    const codex = { layout: codexLayout, dialect: codexDialect, roots: [] };
+
+    // Declared BOTH ways. The positional layout/dialect is the primary, matching
+    // what the CLI passes, so this is the real two-order comparison.
+    const ccFirst = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
+      harnesses: [cc, codex],
+    });
+    const codexFirst = scanPlugin(dir, codexLayout, codexDialect, {
+      harnesses: [codex, cc],
+    });
+
+    for (const [order, r] of [
+      ["claude-code first", ccFirst],
+      ["codex first", codexFirst],
+    ] as const) {
+      // Half one: the skills under the declared root ARE graded.
+      assert.deepEqual(
+        r.skills.map((s) => s.name),
+        ["alpha"],
+        `${order}: the declared root's skill is in the grade`,
+      );
+      // Half two: the instruction file the repo actually HAS is read — and it
+      // belongs to the OTHER harness in the claude-code-first case, which is
+      // exactly the half that used to vanish.
+      assert.equal(
+        r.instructions?.file,
+        "AGENTS.md",
+        `${order}: the instruction file is read`,
+      );
+      assert.ok(
+        (r.instructionWeight?.total ?? 0) > 0,
+        `${order}: …and it WEIGHS something — 0 was the old answer`,
+      );
+      // And the tree is no longer reported as unread, in either order.
+      assert.deepEqual(
+        r.unclaimedSurfaces.map((u) => u.dir),
+        [],
+        `${order}: a declared root is not also a finding`,
+      );
+    }
+
+    // Order-independence stated as one comparison rather than two lists, so a
+    // future field that quietly depends on order fails HERE.
+    assert.deepEqual(
+      {
+        skills: ccFirst.skills.map((s) => s.name),
+        instructions: ccFirst.instructions,
+        weight: ccFirst.instructionWeight?.total,
+      },
+      {
+        skills: codexFirst.skills.map((s) => s.name),
+        instructions: codexFirst.instructions,
+        weight: codexFirst.instructionWeight?.total,
+      },
+      "what is READ is identical in both declaration orders",
     );
   } finally {
     cleanupTmpDir(dir);

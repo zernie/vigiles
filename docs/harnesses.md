@@ -35,10 +35,10 @@ The CLI detects the harness from the repo automatically — a `.claude-plugin/`,
 
 When detection is ambiguous, or you want a committed, deterministic choice, override it two ways:
 
-- **`harness` key in `.vigilesrc.json`** — `"codex"`, or `["claude-code", "codex"]` for a multi-harness repo. Written by `vigiles init`.
+- **`harnesses` key in `.vigilesrc.json`** — `{ "codex": {} }`, or `{ "claude-code": {}, "codex": {} }` for a multi-harness repo. Each value may declare that harness's own extra surface `roots` (see `docs/cli.md`). Written by `vigiles init`.
 - **`--harness=<name>` flag** — wins over the config file.
 
-**Precedence:** `--harness=` → config `harness` → auto-detect. A multi-harness or ambiguous match prints a loud notice instead of silently guessing. A repo declaring several harnesses also gets a byte-identical `CLAUDE.md`⇄`AGENTS.md` mirror on compile when no sync tool already fans it out.
+**Precedence:** `--harness=` → config `harnesses` → auto-detect. A multi-harness or ambiguous match prints a loud notice instead of silently guessing. A repo declaring several harnesses also gets a byte-identical `CLAUDE.md`⇄`AGENTS.md` mirror on compile when no sync tool already fans it out.
 
 ## What's actually harness-specific (the two axes)
 

@@ -58,6 +58,7 @@
     "dist/**/*.d.ts",
     "dist/**/*.d.mts",
     "dist/audit-report.template.html",
+    "dist/vigilesrc.schema.json",
     "!dist/**/*.test.js",
     "!dist/**/*.test.d.ts",
     "action.yml",
@@ -70,7 +71,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && node scripts/build-report.mjs",
+    "build": "tsc && node scripts/build-config-schema.mjs && node scripts/build-report.mjs",
     "build:core": "tsc",
     "test": "npm run build && vitest run",
     "coverage": "npm run build && vitest run --coverage",
@@ -145,7 +146,8 @@
     "minimatch": "^10.0.1",
     "mvdan-sh": "^0.10.1",
     "ts-essentials": "^10.2.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "zod": "^4.6.5"
   },
   "optionalDependencies": {
     "@ast-grep/lang-python": "^0.0.6",

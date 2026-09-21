@@ -237,9 +237,10 @@ sniffing:
 1. `--harness=<name>` flag — wins (`claude-code`/`codex`; `claude` is an alias).
 2. The **spec's own target** for an instruction file — a `CLAUDE.md.spec.ts` is
    claude-code, an `AGENTS.md.spec.ts` is codex.
-3. The **`harness` key** in `.vigilesrc.json` (written by `init`):
-   `"codex"`, or `["claude-code", "codex"]` to declare a multi-harness repo (the
-   first is used, with a loud notice; override per run with `--harness=`).
+3. The **`harnesses` key** in `.vigilesrc.json` (written by `init`):
+   `{ "codex": {} }`, or `{ "claude-code": {}, "codex": {} }` to declare a
+   multi-harness repo. For a single-dialect operation like `compile` the FIRST
+   key is used, with a loud notice; override per run with `--harness=`.
 4. Auto-detect from the repo, warning when it's ambiguous.
 
 ```bash
@@ -249,7 +250,7 @@ npx vigiles compile --harness=codex      # force the Codex dialect for this run
 
 Two multi-harness behaviours:
 
-- **Instruction-file mirror.** When `harness` declares ≥2 harnesses and no sync
+- **Instruction-file mirror.** When `harnesses` declares ≥2 harnesses and no sync
   tool (Ruler/rulesync) or existing mirror fans the file out, `compile` writes a
   **byte-identical** `CLAUDE.md`⇄`AGENTS.md` copy. It carries the source's
   integrity hash, so a hand-edit of the mirror trips the `integrity` check. It
@@ -504,12 +505,12 @@ A bare directory name excludes its subtree (`"bench"`, `"bench/"` and `"bench/**
 mean the same thing); `node_modules`, `dist`, `.git` and `.vigiles` are always
 excluded. **One filter, every command:**
 
-| command         | what `exclude` drops                                                                                            |
-| --------------- | --------------------------------------------------------------------------------------------------------------- |
-| `compile`       | an excluded `*.spec.ts` is not loaded — a frozen spec cannot fail the build                                     |
-| `lint`          | instruction files, nested bundles, docs, skills/subagents/hooks, spec refs                                      |
-| `audit`         | the instruction file, the skills/subagents/commands discovery reads, and a `surfaceRoots` root — `exclude` wins |
-| `test` / `eval` | an excluded `*.harness.*` / `*.eval.*` is not discovered, so it does not run                                    |
+| command         | what `exclude` drops                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `compile`       | an excluded `*.spec.ts` is not loaded — a frozen spec cannot fail the build                                       |
+| `lint`          | instruction files, nested bundles, docs, skills/subagents/hooks, spec refs                                        |
+| `audit`         | the instruction file, the skills/subagents/commands discovery reads, and a declared harness root — `exclude` wins |
+| `test` / `eval` | an excluded `*.harness.*` / `*.eval.*` is not discovered, so it does not run                                      |
 
 It filters **discovery only**. A path you name on the command line is still
 processed, and one line says why:
@@ -526,7 +527,28 @@ The rule-level lists — `orphans.exclude` and the `untested-*` rules' `exclude`
 **narrow their own rule further**. They never re-admit a path excluded here: both
 set means the union.
 
-### `surfaceRoots` — skills that live where no harness reads
+### `harnesses` — which harnesses this repo targets, and where each one reads
+
+```json
+{ "harnesses": { "claude-code": { "roots": [".ai"] }, "codex": {} } }
+```
+
+One key per harness (`claude-code`, `codex`; `claude` is an alias). The value is
+that harness's declaration — today just `roots`. `{}` means "this repo targets
+this harness, and it reads it where it normally reads it", which is the common
+case. Omit the whole key and the CLI auto-detects, as before.
+
+Every declared harness is read **under its own layout**, and the results merge
+into one grade. That is the difference from the two flat keys this replaced
+(`harness` + `surfaceRoots`), where one global root list was read under whichever
+harness happened to be listed first — so a repo declaring both got its skills or
+its instruction file depending on array order, and no order gave it both.
+
+A file that TWO declared harnesses both read is read **once** and counted
+**once** (deduplicated by its real path on disk), so declaring one tree under two
+harnesses does not double-count it.
+
+#### `roots` — skills that live where the harness does not read
 
 `audit` discovers surfaces by SHAPE (a `skills/`, `agents/` or `commands/` dir
 directly under the repo root or a top-level dot-directory), then asks each
@@ -540,17 +562,18 @@ Surfaces no harness reads (1):
     a harness loads from (`.agents/skills/`, `.claude/skills/`, `skills/`).
 ```
 
-If those really are your skills and you want them graded where they are, say so
-— the finding goes away and the surfaces join the grade:
+If those really are your skills and you want them graded where they are, name the
+root **under the harness whose layout reads that shape** — the finding goes away
+and the surfaces join the grade:
 
 ```json
-{ "surfaceRoots": [".ai"] }
+{ "harnesses": { "claude-code": { "roots": [".ai"] } } }
 ```
 
 The root is the **parent** of the surface dir, not the surface dir itself:
-`".ai"` for `.ai/skills/<name>/SKILL.md`. vigiles then reads
-`<root>/<surface>/…` using the **detected harness's own** surface dirs, so on
-Claude Code `".ai"` means `.ai/skills`, `.ai/agents` and `.ai/commands`.
+`".ai"` for `.ai/skills/<name>/SKILL.md`. vigiles reads `<root>/<surface>/…`
+using **that harness's own** surface dirs, so under `claude-code` `".ai"` means
+`.ai/skills`, `.ai/agents` and `.ai/commands`.
 
 - **It only ADDS.** Everything read before is still read; a declared root cannot
   relocate or replace an existing surface, and the files keep their real paths
@@ -558,14 +581,36 @@ Claude Code `".ai"` means `.ai/skills`, `.ai/agents` and `.ai/commands`.
 - **The declaration is yours, not a harness's.** No adapter can name a root —
   that is deliberate, so installing or registering a harness can never make
   vigiles read more in somebody else's repository.
-- **It does not invent a dialect.** The detected harness still decides what a
-  surface is. A repo detected as Codex — whose skills live at `.agents/skills` —
-  declaring `".ai"` does NOT pick up `.ai/skills`, and the finding correctly
-  stays. Pair it with `"harness"` when detection picks the wrong one:
-  `{ "harness": "claude-code", "surfaceRoots": [".ai"] }`.
+- **The harness KEY says which layout reads it**, so there is nothing to guess.
+  A root under a harness that reads no surface there is a hard **error**, naming
+  the root, the harness and the paths looked for:
+
+  ```
+  $ echo '{"harnesses":{"codex":{"roots":[".ai"]}}}' > .vigilesrc.json && npx vigiles audit .
+  ✗ .vigilesrc.json: harnesses["codex"].roots names ".ai", but codex reads no surface
+    there — nothing would be graded and nothing would be said.
+    Looked for: .ai/.agents/skills/, .ai/prompts/
+    Either create one of those, or declare ".ai" under the harness whose layout does read it.
+  ```
+
+  (Codex keeps skills at `.agents/skills`, so `.ai/skills` is not its shape —
+  that tree belongs under `"claude-code"`.)
+
 - **`exclude` wins.** A path both declared and excluded is excluded: no grade,
   and no finding either.
 - Absolute entries, `"."`, and anything containing `..` are dropped.
+
+#### Migrating from `harness` / `surfaceRoots`
+
+Both keys are **removed**, with no alias and no fallback — a config using them is
+refused with the replacement spelled out:
+
+```
+✗ .vigilesrc.json: "harness" and "surfaceRoots" were replaced by one nested key, "harnesses".
+  Write:  { "harnesses": { "claude-code": { "roots": [".ai"] }, "codex": {} } }
+  - "harness": ["claude-code", "codex"]  →  a KEY per harness
+  - "surfaceRoots": [".ai"]              →  "roots" INSIDE the harness that reads them
+```
 
 ### `lint` in a monorepo, and getting both artefacts from one run
 

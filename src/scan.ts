@@ -19,7 +19,7 @@ import { basename, dirname, join, resolve } from "node:path";
 // module always passes a layout explicitly (it never wanted the wrapper's
 // Claude Code default), and only the generic one takes the `ExcludeSet` that
 // makes `.vigilesrc.json#exclude` reach surface discovery.
-import { loadPlugin } from "./plugin-loader.js";
+import { loadPlugins } from "./plugin-loader.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { danglingRefs } from "./plugin-loader.js";
@@ -62,7 +62,6 @@ import {
   type UnclaimedSurfaceFinding,
 } from "./core/surface-discovery.js";
 import { boundedSurfacePaths } from "./surface-discovery-fs.js";
-import { normalizeSurfaceRoots } from "./core/surface-scopes.js";
 import { REGISTERED_LAYOUTS } from "./layout-registry.js";
 import type { DelegationTrifectaFinding } from "./core/delegation-trifecta.js";
 import {
@@ -81,7 +80,7 @@ import {
 import { formatEvidence, type EvidenceCounts } from "./coverage-evidence.js";
 import type { PurityLevel, EffectSurface } from "./core/effects.js";
 import {
-  makeClassifier,
+  makeUnionClassifier,
   scanAgents,
   scanSkills,
   skillRefSources,
@@ -579,6 +578,22 @@ function ownTestSignalOnDisk(dir: string): boolean {
   });
 }
 
+/**
+ * ONE harness a scan reads the repo under — the resolved form of a
+ * `.vigilesrc.json#harnesses` entry (#240).
+ *
+ * All three parts travel together on purpose. The LAYOUT says where this harness
+ * reads and what a surface is there; the DIALECT says what it understands (and
+ * carries its own instruction budget, in its own unit); the ROOTS are the extra
+ * places this repo's owner says that harness's surfaces also live. Splitting
+ * them is how a root came to be read under a layout nobody chose for it.
+ */
+export interface ScanHarness {
+  readonly layout: PluginLayout;
+  readonly dialect: HarnessDialect;
+  readonly roots: readonly string[];
+}
+
 /** Scan a plugin/repo directory and report its surfaces + structural issues. */
 export function scanPlugin(
   dir: string,
@@ -601,22 +616,58 @@ export function scanPlugin(
      */
     excludes?: ExcludeSet;
     /**
-     * The repo's `.vigilesrc.json#surfaceRoots` — repo-relative bases the OWNER
-     * declared, read with `lay`'s surface dirs so their skills/subagents/commands
-     * are graded instead of merely reported unread.
+     * The repo's `.vigilesrc.json#harnesses`, resolved — every declared harness
+     * with its own layout, dialect and roots, IN DECLARATION ORDER.
      *
-     * Rides in `opts` for the same reason `excludes` does. Omitting it is "this
-     * caller has no declaration to pass", which is also what a repo that set the
-     * key gets from a caller that does not forward it: the surfaces stay a
-     * FINDING — the honest side to fail on, since nothing is silenced.
+     * 🔴 THE LIST IS READ WHOLE, AND THAT IS THE FIX (#240). The repo is loaded
+     * once per entry, each under its OWN layout, and the file maps merge
+     * (deduplicated by on-disk path, so one tree serving two harnesses is
+     * counted once). Under the flat `harness` array only the first entry's
+     * layout was ever used, so a repo declaring both got its skills OR its
+     * instruction file depending on which name it happened to list first, and no
+     * order gave it both.
+     *
+     * The first entry is the PRIMARY: it supplies the dialect every
+     * dialect-shaped check runs under and the `harness` the report is labelled
+     * with. The INSTRUCTION FILE is the deliberate exception — it comes from the
+     * first declared harness whose instruction file is actually present, because
+     * reporting "no instruction file" for a repo holding the other declared
+     * harness's one is the half of the bug that has nothing to do with skills.
+     *
+     * Rides in `opts` for the same reason `excludes` does: ~25 call sites pass
+     * the first three positionals and nothing else. Omitting it means "this
+     * caller has no declaration to pass" and the scan runs single-harness on the
+     * positional `layout`/`dialect`, exactly as before.
      */
-    surfaceRoots?: readonly string[];
+    harnesses?: readonly ScanHarness[];
   } = {},
 ): ScanReport {
   const lay = layout ?? claudeCodeLayout;
-  const cls = makeClassifier(lay);
-  const declaredRoots = normalizeSurfaceRoots(opts.surfaceRoots);
-  const loaded = loadPlugin(dir, lay, opts.excludes, declaredRoots);
+  // The declared harnesses, or the single positional one — so every path below
+  // is the multi-harness path and a one-entry list is not a second code path.
+  const declared: readonly ScanHarness[] =
+    opts.harnesses && opts.harnesses.length > 0
+      ? opts.harnesses
+      : [{ layout: lay, dialect, roots: [] }];
+  // A path is a surface if ANY declared harness reads it as one. Classifying a
+  // merged file map with one layout would drop the other harness's surfaces
+  // silently — the same shape of miss as grading a scan that opened nothing.
+  const cls = makeUnionClassifier(declared.map((h) => h.layout));
+  const loaded = loadPlugins(
+    dir,
+    declared.map((h) => ({ layout: h.layout, roots: h.roots })),
+    opts.excludes,
+  );
+  // WHICH harness's instruction file this repo actually has. The first declared
+  // one that is present, not the first one declared: a repo listing
+  // `claude-code` before `codex` and shipping only `AGENTS.md` has an
+  // instruction file, and saying it does not was half of #240's wrong grade.
+  // Its dialect carries the budget the weight below is measured against, so the
+  // file named and the limit it is judged by come from the same harness.
+  const instructionHarness =
+    declared.find(
+      (h) => loaded.files[h.layout.instructionFile] !== undefined,
+    ) ?? declared[0];
   // Parse the raw `settings.hooks` ONCE at the boundary (parse-don't-validate):
   // tolerant of the Claude Code nested shape AND the Codex flat shape, so every
   // hook detector below consumes typed `HookRegistration[]` instead of re-walking
@@ -638,13 +689,12 @@ export function scanPlugin(
   const eventNames = hookEventNames(loaded.settings.hooks);
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
   const hookEventIssues = scoredIssues(allHookEventIssues);
+  const instructionFile = instructionHarness.layout.instructionFile;
   const instructions: ScanInstructions | null =
-    loaded.files[lay.instructionFile] !== undefined
+    loaded.files[instructionFile] !== undefined
       ? {
-          file: lay.instructionFile,
-          hasSpec: existsSync(
-            join(resolve(dir), `${lay.instructionFile}.spec.ts`),
-          ),
+          file: instructionFile,
+          hasSpec: existsSync(join(resolve(dir), `${instructionFile}.spec.ts`)),
         }
       : null;
   const mcpServers = collectMcpServers(resolve(dir), lay);
@@ -702,7 +752,7 @@ export function scanPlugin(
     // otherwise a plugin whose servers come from the Agent Plugins `mcp.json`
     // reports "MCP servers: no" while the report lists an MCP finding.
     mcp:
-      loaded.warnings.some((w) => w.includes("MCP server")) ||
+      loaded.warnings.some((w: string) => w.includes("MCP server")) ||
       declaredServers.length > 0,
     danglingRefs: danglingRefs(resolve(dir), lay),
     // Skill→skill references BY NAME, which `danglingRefs` structurally cannot
@@ -738,7 +788,11 @@ export function scanPlugin(
     unclaimedSurfaces: unclaimedSurfaceFindings(
       boundedSurfacePaths(resolve(dir), opts.excludes),
       REGISTERED_LAYOUTS,
-      { layout: lay, roots: declaredRoots },
+      declared.map((h) => ({
+        harness: h.layout.name,
+        layout: h.layout,
+        roots: h.roots,
+      })),
     ),
     pluginLayoutIssues: pluginDirLayoutIssues(
       resolve(dir, dirname(lay.manifestPath)),
@@ -786,10 +840,15 @@ export function scanPlugin(
         return existsSync(p) ? nodeReadFile(p) : undefined;
       }).map(mergeConflictWarning),
     ],
-    instructionWeight: dialect.instructionBudget
+    // Measured under the dialect whose instruction file this repo HAS — see
+    // `instructionHarness`. A budget is a harness's own number in a harness's own
+    // unit (Claude Code counts 40 000 chars, Codex 32 768 bytes), so there is no
+    // meaningful sum across two; reporting the one that owns the file that
+    // exists is the only reading that is true of something.
+    instructionWeight: instructionHarness.dialect.instructionBudget
       ? weighInstructions(
-          readAlwaysLoaded(dir, dialect.instructionBudget),
-          dialect.instructionBudget,
+          readAlwaysLoaded(dir, instructionHarness.dialect.instructionBudget),
+          instructionHarness.dialect.instructionBudget,
         )
       : null,
     untested: coverage.untested.length,

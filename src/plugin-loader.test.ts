@@ -13,8 +13,9 @@ import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { loadPlugin } from "./plugin-loader.js";
+import { loadPlugin, loadPlugins } from "./plugin-loader.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
+import type { PluginLayout } from "./core/layout.js";
 import { excludeSet } from "./exclude.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
@@ -193,6 +194,148 @@ test("loadPlugin: the two-level warning excludes a declared root from its count"
     assert.ok(warning, "the real plugin/project ambiguity still warns");
     assert.match(warning, /2 file\(s\) were read from both/);
     assert.doesNotMatch(warning, /3 file\(s\)/);
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// loadPlugins — one repo, several declared harnesses (#240)
+// ---------------------------------------------------------------------------
+
+/**
+ * 🔴 A FILE TWO HARNESSES BOTH READ IS READ ONCE AND COUNTED ONCE.
+ *
+ * The honest declaration for a repo serving one tree to both tools names that
+ * tree under both harness keys. If the merge appended blindly, being honest
+ * would DOUBLE every skill in it — the repo that told the truth would score
+ * worse than the one that named a single harness. So the merge keys on the real
+ * ON-DISK path, and the first harness to claim a file keeps it.
+ *
+ * ⚠️ THE FIXTURE IS SYNTHETIC ON PURPOSE, and this is the discriminating half —
+ * the CLI-level version of this test CANNOT fail. With the two shipped adapters a
+ * declared root materializes under its own base, so the key a file gets IS its
+ * repo-relative path, and the `files` object deduplicates by key whether or not
+ * the guard exists. MEASURED 2026-09-21: with `seenOnDisk` mutated off, a
+ * dual-declaration audit over one tree still reported `skills = 1` — a green
+ * mutation that says nothing about the protection. The guard bites only when a
+ * layout RELOCATES (materializes under a prefix that is not the base), which is
+ * what `materializeRoot` below does, so the two keys differ for ONE file and the
+ * count can actually be wrong.
+ */
+test("loadPlugins reads a doubly-claimed file once, even under two keys", () => {
+  const root = makeTmpDir("dual-claim");
+  try {
+    mkdirSync(join(root, "skills/alpha"), { recursive: true });
+    writeFileSync(
+      join(root, "skills/alpha/SKILL.md"),
+      "---\nname: alpha\ndescription: d\n---\n# alpha\n",
+    );
+    // Two layouts reading the SAME repo-root `skills/` tree and materializing it
+    // under DIFFERENT prefixes — `materializeRoot` is what relocates a repo-root
+    // plugin scope, so one file arrives under two keys and a key-only merge
+    // cannot see that they are the same bytes.
+    const plain: PluginLayout = { ...claudeCodeLayout, materializeRoot: "" };
+    const relocating: PluginLayout = {
+      ...claudeCodeLayout,
+      name: "relocating",
+      materializeRoot: "mirror",
+    };
+    const keys = (p: { files: Record<string, string> }): string[] =>
+      Object.keys(p.files)
+        .filter((k) => k.endsWith("/SKILL.md"))
+        .sort();
+    assert.deepEqual(
+      keys(loadPlugins(root, [{ layout: plain }])),
+      ["skills/alpha/SKILL.md"],
+      "one harness: one skill",
+    );
+    assert.deepEqual(
+      keys(loadPlugins(root, [{ layout: relocating }])),
+      ["mirror/skills/alpha/SKILL.md"],
+      "the other harness alone keys the SAME file differently — which is what " +
+        "makes the merge below a real question",
+    );
+    const two = loadPlugins(root, [{ layout: plain }, { layout: relocating }]);
+    assert.deepEqual(
+      keys(two),
+      ["skills/alpha/SKILL.md"],
+      "two harnesses over one tree: STILL one skill, not one per claimant",
+    );
+    // The surviving key is the FIRST claimant's, so the rest of the report is
+    // consistent with the harness whose dialect it is rendered in.
+    assert.equal(
+      two.sources["skills/alpha/SKILL.md"],
+      join(root, "skills/alpha/SKILL.md"),
+    );
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+/**
+ * The counterpart: two harnesses over DIFFERENT trees both get read. Without it
+ * the test above passes for a merge that simply drops everything after the first
+ * harness — "counted once" and "read at all" are separate claims.
+ */
+test("loadPlugins reads every declared harness's own tree", () => {
+  const root = makeTmpDir("dual-trees");
+  try {
+    for (const [base, name] of [
+      ["a", "alpha"],
+      ["b", "beta"],
+    ]) {
+      mkdirSync(join(root, `${base}/skills/${name}`), { recursive: true });
+      writeFileSync(
+        join(root, `${base}/skills/${name}/SKILL.md`),
+        `---\nname: ${name}\ndescription: d\n---\n# ${name}\n`,
+      );
+    }
+    // The SECOND harness is the only one with settings, and the only one with a
+    // surface that warns. Both merge halves are therefore exercised in the one
+    // direction that can be wrong — "first wins" must not mean "first only".
+    mkdirSync(join(root, "b/agents"), { recursive: true });
+    writeFileSync(
+      join(root, "b/agents/worker.md"),
+      "---\nname: worker\ndescription: d\n---\n# worker\n",
+    );
+    mkdirSync(join(root, ".second"), { recursive: true });
+    writeFileSync(
+      join(root, ".second/settings.json"),
+      JSON.stringify({ hooks: { PostToolUse: [] } }),
+    );
+    const plain: PluginLayout = {
+      ...claudeCodeLayout,
+      materializeRoot: "",
+      // No settings file of its own, so the merge must reach past it.
+      settingsPath: ".first/settings.json",
+    };
+    const both = loadPlugins(root, [
+      { layout: plain, roots: ["a"] },
+      {
+        layout: {
+          ...plain,
+          name: "second",
+          settingsPath: ".second/settings.json",
+        },
+        roots: ["b"],
+      },
+    ]);
+    assert.deepEqual(
+      Object.keys(both.files)
+        .filter((k) => k.endsWith("/SKILL.md"))
+        .sort(),
+      ["a/skills/alpha/SKILL.md", "b/skills/beta/SKILL.md"],
+    );
+    assert.ok(
+      both.warnings.some((w) => w.includes("subagent file(s)")),
+      "a warning raised by the SECOND harness survives the merge",
+    );
+    assert.deepEqual(
+      both.settings.hooks,
+      { PostToolUse: [] },
+      "…and so do its settings, when the first harness has none",
+    );
   } finally {
     cleanupTmpDir(root);
   }

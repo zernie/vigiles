@@ -96,7 +96,8 @@ import {
   formatMcpContractReport,
   preferCompiledHooksMessage,
 } from "./scan.js";
-import type { ScanReport } from "./scan.js";
+import type { ScanReport, ScanHarness } from "./scan.js";
+import { unresolvedDeclaredRoots } from "./core/surface-discovery.js";
 import {
   hasModelAccess,
   isMeteredAccess,
@@ -128,6 +129,8 @@ import {
   resolveHarnessAdapters,
   normalizeHarnessName,
   normalizeHarnessList,
+  declaredHarnessNames,
+  resolveDeclaredHarnesses,
   getAdapter,
   adapterForInstructionFile,
 } from "./adapter-registry.js";
@@ -890,7 +893,7 @@ async function compile(
   // dialect pick and the mirror from it — no re-parsing, no cwd-sniffing in the
   // helpers. A loud notice (never a silent guess) on a multi-harness or
   // ambiguous-detection pick.
-  const declaredHarnesses = normalizeHarnessList(config.harness);
+  const declaredHarnesses = declaredHarnessNames(config.harnesses);
   const selection = resolveHarnessSelection({
     root: process.cwd(),
     flag: opts.harnessFlag,
@@ -2061,7 +2064,7 @@ async function runLint(
   const lintSelection = resolveHarnessSelection({
     root: scanRoot,
     flag: harnessFlag,
-    configHarness: normalizeHarnessList(config?.harness),
+    configHarness: declaredHarnessNames(config?.harnesses),
   });
   const adapter = lintSelection.adapter;
 
@@ -4394,7 +4397,11 @@ async function setup(args: string[]): Promise<void> {
   // Detect project. An existing `.vigilesrc.json` `harness` (from a prior init /
   // a hand-authored config) wins over auto-detection (dogfood I3).
   const detected = detectProject();
-  const harnesses = resolveHarnesses(parsed, detected, loadConfig().harness);
+  const harnesses = resolveHarnesses(
+    parsed,
+    detected,
+    declaredHarnessNames(loadConfig().harnesses),
+  );
   printDetection(detected, harnesses);
 
   // Files actually written, accumulated for an honest commit hint.
@@ -4485,16 +4492,16 @@ async function setup(args: string[]): Promise<void> {
   }
 }
 
-/** Canonical, de-duplicated harness list → a config value (string when one). */
-function harnessConfigValue(harnesses: string[]): string | string[] {
-  const canon = [...new Set(harnesses.map(normalizeHarnessName))];
-  return canon.length === 1 ? canon[0] : canon;
+/** Canonical, de-duplicated harness names — the keys `harnesses` gets. */
+function harnessConfigKeys(harnesses: string[]): string[] {
+  return [...new Set(harnesses.map(normalizeHarnessName))];
 }
 
 /**
  * Merge the resolved harness(es) (and strict rule severities) into
- * `.vigilesrc.json` without clobbering existing keys — an existing `harness`
- * stays, a missing one is added, a malformed file is left untouched.
+ * `.vigilesrc.json` without clobbering existing keys — an existing
+ * `harnesses` block stays, a missing one is added, a malformed file is left
+ * untouched.
  */
 function writeProjectConfig(opts: {
   harnesses: string[];
@@ -4519,7 +4526,7 @@ function writeProjectConfig(opts: {
     }
   }
   const merged = mergeProjectConfig(existing, {
-    harness: harnessConfigValue(opts.harnesses),
+    harnesses: harnessConfigKeys(opts.harnesses),
     strict: opts.strict,
     reportOnly: opts.reportOnly,
     lint: opts.lint,
@@ -4596,7 +4603,7 @@ function harnessLayoutFor(
     return resolveHarnessSelection({
       root,
       flag,
-      configHarness: normalizeHarnessList(config?.harness),
+      configHarness: declaredHarnessNames(config?.harnesses),
     }).adapter.layout;
   } catch {
     return defaultAdapter.layout;
@@ -5754,7 +5761,7 @@ function flagValue(args: string[], name: string): string | undefined {
  * Resolve the adapter for a COMMAND, honouring the full precedence: `--harness=`
  * flag → `.vigilesrc.json` `harness` → auto-detect (dogfood A/I3). This is the
  * ONE resolution path a command may use — resolving via the raw auto-detect
- * alone silently ignores config.harness, which is the exact bug this closes.
+ * alone silently ignores `.vigilesrc.json#harnesses`, which is the exact bug this closes.
  * A dogfood test (src/cli-harness-resolution.test.ts) asserts cli.ts routes all
  * command harness resolution through here, so a future command can't regress.
  */
@@ -5765,7 +5772,7 @@ function resolveCommandHarness(
   return resolveHarnessSelection({
     root: dir,
     flag: harnessFlag,
-    configHarness: normalizeHarnessList(loadConfig().harness),
+    configHarness: declaredHarnessNames(loadConfig().harnesses),
   });
 }
 
@@ -7284,7 +7291,11 @@ function evalLockNudgeHookCommand(): void {
   // second gate saying the same thing is a branch no test can distinguish from
   // its absence (measured — the mutation passed), i.e. the dead-fragment class
   // this same change removed from the runner table.
-  const config = loadConfig(cwd);
+  // `onInvalid: "warn"` — a HOOK RAIL. This is a fresh process inside somebody's
+  // editing session, and a malformed `.vigilesrc.json` must not turn a JSON typo
+  // into a failed edit: the nudge not firing is the cheaper failure. The verbs
+  // throw on the same config; what is CHECKED is identical.
+  const config = loadConfig(cwd, { onInvalid: "warn" });
   const { options } = untestedRules(config);
   // 🔴 THE SAME LAYOUT `vigiles lint` RESOLVES, for the same reason as the config
   // above. This used to pass `basePath` alone, so the detector fell back to the
@@ -7350,7 +7361,10 @@ function refsHookCommand(): void {
   // Root first: the config read below is anchored on it, and reading the config
   // from the process's directory is how a disabled rule comes back to life.
   const cwd = runtimeRoot(eventRoot(raw));
-  const severity = ruleSeverity(loadConfig(cwd).rules["unmarked-refs"]);
+  // A hook rail — see `evalLockNudgeHookCommand` for why it warns, not throws.
+  const severity = ruleSeverity(
+    loadConfig(cwd, { onInvalid: "warn" }).rules["unmarked-refs"],
+  );
   if (severity === false) return;
   const target = relative(cwd, resolve(cwd, file)) || file;
   let markdown: string;
@@ -7556,7 +7570,7 @@ async function installHookFile(
  * harness-neutral, so when a repo targets both harnesses the SAME hook is merged
  * into `.claude/settings.json` AND `.codex/config.toml` (each in its native
  * format, with per-harness warnings) — never just the first. The harness set is
- * resolved from the `--harness=` flag, else `config.harness`, else auto-detect.
+ * resolved from the `--harness=` flag, else `.vigilesrc.json#harnesses`, else auto-detect.
  * Returns false if any hook failed to compile for any harness.
  */
 async function installHooks(
@@ -8158,7 +8172,12 @@ export async function main(): Promise<void> {
       if (specs.length > 0)
         valid =
           (await compile(specs, config, excludes, { harnessFlag })) && valid;
-      valid = (await installHooks(hooks, harnessFlag, config.harness)) && valid;
+      valid =
+        (await installHooks(
+          hooks,
+          harnessFlag,
+          declaredHarnessNames(config.harnesses),
+        )) && valid;
       // Keep an existing whole-harness registry in sync (cheap, opt-in) so the
       // user never hand-runs `generate-harness`. Skipped when no harness.gen.ts.
       if (specs.length > 0)
@@ -8302,16 +8321,67 @@ export async function main(): Promise<void> {
         const harnessFlag = harnessFlagFrom(args);
         // Honor the SAME precedence as lint/compile (dogfood A): --harness= flag,
         // else the `.vigilesrc.json` `harness` key, else auto-detect. Previously
-        // audit auto-detected and IGNORED config.harness, so a repo that
-        // config-declares `"harness": "codex"` but carries a CLAUDE.md was still
+        // audit auto-detected and IGNORED the declared harnesses, so a repo
+        // that config-declares `"harnesses": {"codex": {}}` but carries a CLAUDE.md was still
         // scanned as Claude Code. `resolveHarnessSelection` also carries the
         // ambiguity/multi-target `notice` so the warning stays consistent.
         const selection = resolveHarnessSelection({
           root,
           flag: harnessFlag,
-          configHarness: normalizeHarnessList(config.harness),
+          configHarness: declaredHarnessNames(config.harnesses),
         });
         const adapter = selection.adapter;
+        // EVERY declared harness, each with the roots declared under it — the
+        // list the scan reads WHOLE. The flag still wins (an explicit override
+        // is singular, and the user typed it), and a repo with no declaration
+        // scans under the one detected adapter exactly as before.
+        //
+        // The PRIMARY is `adapter`, so the report is still labelled and
+        // dialect-checked by one harness; the list is what stops the OTHER
+        // declared harness's skills and instruction file from being invisible.
+        const scanHarnesses: ScanHarness[] =
+          harnessFlag === undefined || harnessFlag === ""
+            ? resolveDeclaredHarnesses(root, config.harnesses)
+                .map((d) => ({
+                  layout: d.adapter.layout,
+                  dialect: d.adapter.dialect,
+                  roots: d.roots,
+                }))
+                // The primary first, whatever order the object was written in:
+                // `resolveHarnessSelection` already decided which harness this
+                // report is FOR, and the scan's first entry is the one that
+                // supplies the dialect. Two different answers to "which is
+                // primary" is the bug this change exists to remove.
+                .sort((a, b) =>
+                  a.layout.name === adapter.layout.name
+                    ? -1
+                    : b.layout.name === adapter.layout.name
+                      ? 1
+                      : 0,
+                )
+            : [];
+        // A declared root under a harness that reads no surface there is
+        // REFUSED, not ignored. It is the one silent state the nested shape
+        // would otherwise keep: the line changes nothing, and saying nothing is
+        // the tool agreeing with a belief that is false.
+        const badRoots = unresolvedDeclaredRoots(
+          scanHarnesses.map((h) => ({
+            harness: h.layout.name,
+            layout: h.layout,
+            roots: h.roots,
+          })),
+          (rel) => {
+            const abs = resolve(root, rel);
+            return (
+              lstatSync(abs, { throwIfNoEntry: false })?.isDirectory() === true
+            );
+          },
+        );
+        if (badRoots.length > 0) {
+          for (const msg of badRoots) console.error(`✗ ${msg}`);
+          process.exitCode = 2;
+          return;
+        }
         const report = scanPlugin(targets[0], adapter.layout, adapter.dialect, {
           sharedDirs: config.sharedDirs,
           sharedDirsRoot: sharedDirsRootFor(targets[0]),
@@ -8322,10 +8392,10 @@ export async function main(): Promise<void> {
           // grade was computed over a tree the user had told the tool to ignore.
           excludes,
           // The repo owner's answer to "N skills no harness reads": these are
-          // mine, grade them. Read with THIS adapter's surface dirs — the
-          // declaration says where, the detected dialect still says what.
+          // mine, grade them — each root under the harness whose layout reads
+          // it, so no array order decides which half of the repo is seen.
           // `exclude` still wins over it; the walk drops an excluded path first.
-          surfaceRoots: config.surfaceRoots,
+          harnesses: scanHarnesses,
         });
         if (!json) {
           console.log(`Detected harness: ${adapter.name}`);
