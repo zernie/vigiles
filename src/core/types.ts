@@ -452,8 +452,22 @@ export interface VigilesConfig {
    *
    * ONE filter, every pass (#192): `compile` does not load an excluded spec,
    * `lint` does not discover an excluded instruction file, nested bundle, doc, or
-   * surface, `audit` does not read an excluded instruction file, and
-   * `test`/`eval` do not discover an excluded script. It filters DISCOVERY only:
+   * surface, `audit` does not read an excluded instruction file NOR grade an
+   * excluded SURFACE (skill/subagent/command — `loadPlugin` takes the
+   * `ExcludeSet` and its walk drops them, so they are absent from the file map
+   * the whole report is computed from), and `test`/`eval` do not discover an
+   * excluded script.
+   *
+   * ⚠️ `audit`'s surface half landed 2026-09-21 and is NOT yet total, and the
+   * two remaining holes are named rather than hidden. The `lint` RULE checkers
+   * re-enter `scanPlugin` without an `ExcludeSet` (all twenty share a
+   * `(config, silent, adapter, root)` signature through `overBundles`, whose
+   * whole point is that one wrapper covers them), and `discoverAdoptableSurfaces`
+   * — the shallow readdir behind `audit`'s adopt nudge, shared with `init` —
+   * carries an inline `eslint-disable` citing the exception table at the top of
+   * `src/exclude.ts`. Both still see an excluded surface.
+   *
+   * It filters DISCOVERY only:
    * a path you name on the command line is still processed, and one line says
    * which pattern it matched. The rule-level `orphans.exclude` and
    * `untested-*` `exclude` NARROW their own rule further and never re-admit a

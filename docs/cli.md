@@ -508,7 +508,7 @@ excluded. **One filter, every command:**
 | --------------- | ---------------------------------------------------------------------------- |
 | `compile`       | an excluded `*.spec.ts` is not loaded — a frozen spec cannot fail the build  |
 | `lint`          | instruction files, nested bundles, docs, skills/subagents/hooks, spec refs   |
-| `audit`         | an excluded `CLAUDE.md`/`AGENTS.md` is not read into the rule map            |
+| `audit`         | the instruction file, and the skills/subagents/commands discovery reads      |
 | `test` / `eval` | an excluded `*.harness.*` / `*.eval.*` is not discovered, so it does not run |
 
 It filters **discovery only**. A path you name on the command line is still

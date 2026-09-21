@@ -8315,6 +8315,12 @@ export async function main(): Promise<void> {
         const report = scanPlugin(targets[0], adapter.layout, adapter.dialect, {
           sharedDirs: config.sharedDirs,
           sharedDirsRoot: sharedDirsRootFor(targets[0]),
+          // `.vigilesrc.json#exclude` reaches surface DISCOVERY, not just the
+          // instruction file. Measured 2026-09-21 before this line existed: a repo
+          // with `{"exclude": [".claude"]}` and one skill at `.claude/skills/demo`
+          // still printed `Skills (1): ✓ demo` and docked Safety to 90 for it — the
+          // grade was computed over a tree the user had told the tool to ignore.
+          excludes,
         });
         if (!json) {
           console.log(`Detected harness: ${adapter.name}`);

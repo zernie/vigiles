@@ -15,13 +15,18 @@
 import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { loadPlugin } from "./adapters/claude-code/plugin-loader.js";
+// The COMPOSITION-ROOT loader, not the `vigiles/claude-code` wrapper: this
+// module always passes a layout explicitly (it never wanted the wrapper's
+// Claude Code default), and only the generic one takes the `ExcludeSet` that
+// makes `.vigilesrc.json#exclude` reach surface discovery.
+import { loadPlugin } from "./plugin-loader.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { danglingRefs } from "./plugin-loader.js";
 import { isEmptyMachine } from "./score-core.js";
 import { brokenSkillRefs, formatSkillRefIssue } from "./skill-refs.js";
 import type { PluginLayout } from "./core/layout.js";
+import type { ExcludeSet } from "./exclude.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import type { ToolIssue } from "./core/tool-contract.js";
 import {
@@ -564,11 +569,27 @@ export function scanPlugin(
   dir: string,
   layout?: PluginLayout,
   dialect: HarnessDialect = claudeCodeDialect,
-  opts: { sharedDirs?: readonly string[]; sharedDirsRoot?: string } = {},
+  opts: {
+    sharedDirs?: readonly string[];
+    sharedDirsRoot?: string;
+    /**
+     * The repo's `.vigilesrc.json#exclude`, so surface DISCOVERY honours it.
+     *
+     * It rides in `opts` rather than as a fifth positional parameter because ~25
+     * call sites pass the first three and nothing else; a required parameter here
+     * would be twenty-odd mechanical edits for one behavioural change.
+     *
+     * ⚠️ Omitting it is NOT "the repo excludes nothing" — it is "this caller has
+     * no ExcludeSet to give", and the walk then reads everything. Today only
+     * `audit` supplies one; the `lint` rule checkers below still do not (they
+     * share a `(config, silent, adapter, root)` signature through `overBundles`).
+     */
+    excludes?: ExcludeSet;
+  } = {},
 ): ScanReport {
   const lay = layout ?? claudeCodeLayout;
   const cls = makeClassifier(lay);
-  const loaded = loadPlugin(dir, lay);
+  const loaded = loadPlugin(dir, lay, opts.excludes);
   // Parse the raw `settings.hooks` ONCE at the boundary (parse-don't-validate):
   // tolerant of the Claude Code nested shape AND the Codex flat shape, so every
   // hook detector below consumes typed `HookRegistration[]` instead of re-walking
@@ -629,7 +650,17 @@ export function scanPlugin(
   // deterministic tier (`Tested`), and the real-model tier (`Evaluated`). The
   // tiers differ in cost, cadence AND in the question they answer, so collapsing
   // them here would make the difference unrecoverable downstream.
-  const coverage = findUntestedSurfaces({ basePath: dir, layout: lay });
+  const coverage = findUntestedSurfaces({
+    basePath: dir,
+    layout: lay,
+    // The SAME `.vigilesrc.json#exclude`, in this walk's string face. Untested-
+    // surface discovery is a second walk over the same trees, so leaving it out
+    // would have excluded a skill from the GRADE while still naming it in
+    // "Untested surfaces: 1" — a report contradicting itself about whether the
+    // file exists. `exclude` here NARROWS (it unions with DEFAULT_IGNORE), which
+    // is the documented relationship between the repo floor and a rule's own list.
+    exclude: opts.excludes ? [...opts.excludes.ignore] : undefined,
+  });
   const caveats = coverageCaveats(coverage);
   return {
     dir,

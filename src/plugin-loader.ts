@@ -35,6 +35,7 @@ import { parse as parseToml } from "@iarna/toml";
 
 import { assertNever } from "./core/hash.js";
 import type { PluginLayout } from "./core/layout.js";
+import type { ExcludeSet } from "./exclude.js";
 import { entryOf, walkableRoot } from "./fs-walk.js";
 import {
   intraRefPattern,
@@ -162,6 +163,26 @@ function readHooks(root: string, layout: PluginLayout): unknown {
 }
 
 /**
+ * Is this ABSOLUTE path dropped by `.vigilesrc.json#exclude`?
+ *
+ * The loader's half of the ONE exclusion policy (`src/exclude.ts`, #192). It is a
+ * predicate rather than an `ExcludeSet` so the walk never has to remember which
+ * root the patterns are relative to: `excludedBy` closes over `excludes.root`,
+ * which is the REPO root and NOT the audited dir — `vigiles audit some/dir` must
+ * still honour a root-relative `exclude`.
+ */
+type Excluded = (absPath: string) => boolean;
+
+/** The default: exclude nothing (every caller that passes no `ExcludeSet`). */
+const never: Excluded = () => false;
+
+/** The `Excluded` face of an `ExcludeSet`, or {@link never} when there is none. */
+function excludedBy(excludes: ExcludeSet | undefined): Excluded {
+  if (!excludes) return never;
+  return (abs) => excludes.matches(relative(excludes.root, abs));
+}
+
+/**
  * Recursively collect text files under `dir` as `relativePath → contents`.
  *
  * 🔴 A DIRECTORY SYMLINK IS NOT DESCENDED INTO. `statSync` FOLLOWS a link, so a
@@ -187,12 +208,22 @@ function readHooks(root: string, layout: PluginLayout): unknown {
  * `entryOf` has already cleared would cost a syscall per directory to answer a
  * question that cannot come out differently.
  */
-function readTree(dir: string, base: string): Record<string, string> {
+function readTree(
+  dir: string,
+  base: string,
+  excluded: Excluded = never,
+): Record<string, string> {
   const out: Record<string, string> = {};
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
+    // `.vigilesrc.json#exclude`, applied HERE — per entry, inside the recursion —
+    // and not merely at the surface-dir entry point. A vendored tree is usually
+    // excluded at its own root (`bench`, `vendor/corpus`), which is a descendant
+    // of a surface dir, so a check that only guarded the walk's start would let
+    // every one of its files into the file map the whole report is computed from.
+    if (excluded(full)) continue;
     const { kind, size } = entryOf(full);
-    if (kind === "dir") Object.assign(out, readTree(full, base));
+    if (kind === "dir") Object.assign(out, readTree(full, base, excluded));
     // The cap keeps a stray binary out of the in-memory file map, and the size
     // comes from the SAME stat that classified the entry. Asking a second time
     // needed its own `catch` — reachable only if the file vanished between the two
@@ -213,8 +244,10 @@ function readTree(dir: string, base: string): Record<string, string> {
 export function loadPlugin(
   pluginPath: string,
   layout: PluginLayout,
+  excludes?: ExcludeSet,
 ): LoadedPlugin {
   const root = resolve(pluginPath);
+  const excluded = excludedBy(excludes);
   const hooks = readHooks(root, layout);
   // Expand the plugin-root token to the real absolute path so the actual hook
   // scripts execute — we test the shipped wiring, not a reimplementation.
@@ -227,11 +260,11 @@ export function loadPlugin(
   const files: Record<string, string> = {};
   const sources: Record<string, string> = {};
   const instructions = join(root, layout.instructionFile);
-  if (existsSync(instructions)) {
+  if (existsSync(instructions) && !excluded(instructions)) {
     files[layout.instructionFile] = readFileSync(instructions, "utf-8");
     sources[layout.instructionFile] = instructions;
   }
-  const surfaces = materializeSurfaces(root, layout, files, sources);
+  const surfaces = materializeSurfaces(root, layout, files, sources, excluded);
 
   return {
     settings: resolvedHooks ? { hooks: resolvedHooks } : {},
@@ -280,6 +313,7 @@ function materializeSurfaces(
   layout: PluginLayout,
   files: Record<string, string>,
   sources: Record<string, string>,
+  excluded: Excluded = never,
 ): MaterializedSurfaces {
   const counts: Record<string, number> = {};
   const isDir = (p: string): boolean =>
@@ -294,7 +328,9 @@ function materializeSurfaces(
    * outside is still read.
    */
   const surfaceTree = (dir: string): Record<string, string> =>
-    isDir(dir) && walkableRoot(dir, root) ? readTree(dir, dir) : {};
+    isDir(dir) && walkableRoot(dir, root) && !excluded(dir)
+      ? readTree(dir, dir, excluded)
+      : {};
   /** Every surface tree of one scope, read once, keyed by surface dir. */
   const scopeTrees = (base: string): Map<string, Record<string, string>> => {
     const trees = new Map<string, Record<string, string>>();
@@ -387,7 +423,7 @@ function materializeSurfaces(
       // No `walkableRoot` here on purpose: `root` is the directory the CALLER
       // named (`vigiles audit <dir>`), not one this walk discovered, and refusing
       // to read the path someone explicitly pointed at is not a containment rule.
-      const tree = readTree(root, root);
+      const tree = readTree(root, root, excluded);
       for (const [rel, content] of Object.entries(tree)) {
         add(
           join(layout.materializeRoot, layout.skillDir, source.skillName, rel),
