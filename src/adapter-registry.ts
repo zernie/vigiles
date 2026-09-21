@@ -20,11 +20,41 @@ import { codexAdapter } from "./adapters/codex/adapter.js";
 /** The default adapter when detection finds no harness markers. */
 export const defaultAdapter: HarnessAdapter = claudeCodeAdapter;
 
-/** All registered adapters. detect() specificity (not order) breaks ties. */
-export const ADAPTERS: readonly HarnessAdapter[] = [
+/**
+ * All registered adapters. detect() specificity (not order) breaks ties.
+ *
+ * 🔴 `as const satisfies`, NOT a `readonly HarnessAdapter[]` ANNOTATION, and the
+ * difference is the whole of {@link HarnessName}. An annotation widens
+ * `name: "claude-code"` to `string`, so the registry cannot say which names
+ * exist and every consumer that needed to know had to write the list out again
+ * — which is how `ProbeHarness = "claude-code" | "codex"` and the lint rule's
+ * `DEFAULT_NAMES` came to be hand-maintained copies of this array. `satisfies`
+ * keeps the literal types while still checking each element against the port.
+ */
+export const ADAPTERS = [
   claudeCodeAdapter,
   codexAdapter,
-];
+] as const satisfies readonly HarnessAdapter[];
+
+/**
+ * Every registered harness name, derived from {@link ADAPTERS} — `"claude-code"
+ * | "codex"` today, and whatever the array holds tomorrow.
+ *
+ * ⚠️ WHAT THIS DOES NOT CATCH, stated because the type looks stronger than it
+ * is: two adapters declaring the SAME name collapse the union silently (a union
+ * of duplicates is that one member), so this type would still read
+ * `"claude-code" | "codex"` with three adapters registered and two of them
+ * called `codex`. `adapter-contract.test.ts` asserts the set size instead —
+ * a test, because there is no type-level cardinality to assert against.
+ *
+ * ⚠️ AND IT IS NOT A CEILING ON COMPARING NAMES. A branded or literal string is
+ * still comparable to a string literal in TypeScript (`===` uses comparability,
+ * not assignability — measured in the redesign's section 7), so this type cannot
+ * make `adapter.name === "codex"` an error. What stops that is the
+ * `local/no-harness-names` lint rule; what this type does is remove the REASON
+ * to write such a comparison, by letting the one list be the only list.
+ */
+export type HarnessName = (typeof ADAPTERS)[number]["name"];
 
 /** The result of auto-detecting a harness from a repo's layout. */
 export interface DetectResult {

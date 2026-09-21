@@ -15,7 +15,7 @@ import { claudeCodeRuntime } from "./runtime.js";
 import { claudeCodeHookProtocol } from "./hook-protocol.js";
 import { claudeCodeModelMock } from "./model-mock.js";
 
-export const claudeCodeAdapter: HarnessAdapter = {
+export const claudeCodeAdapter = {
   name: "claude-code",
   // The reference harness: every tier. Mockable transport (Anthropic SSE) and
   // shell hooks (exit 2 / decision JSON) — both pillars, all tiers.
@@ -48,4 +48,4 @@ export const claudeCodeAdapter: HarnessAdapter = {
     if (has(claudeCodeLayout.instructionFile)) return 1;
     return 0;
   },
-};
+} as const satisfies HarnessAdapter;

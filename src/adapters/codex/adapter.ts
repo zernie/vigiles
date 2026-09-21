@@ -21,7 +21,7 @@ import { codexRuntime } from "./runtime.js";
 import { codexHookProtocol } from "./hook-protocol.js";
 import { codexModelMock } from "./model-mock.js";
 
-export const codexAdapter: HarnessAdapter = {
+export const codexAdapter = {
   name: "codex",
   // Full convergence with Claude Code: mockable (Responses SSE) + shell hooks
   // with veto (permissionDecision/exit 2). Both pillars, all tiers.
@@ -51,4 +51,4 @@ export const codexAdapter: HarnessAdapter = {
     if (existsSync(join(root, codexLayout.instructionFile))) return 1;
     return 0;
   },
-};
+} as const satisfies HarnessAdapter;

@@ -100,6 +100,29 @@
  * is a change to the code and not to this rule.
  *
  * ─────────────────────────────────────────────────────────────────────────────
+ * WHERE THE NAMES COME FROM — not from here
+ *
+ * `names` is REQUIRED. This file used to carry
+ * `DEFAULT_NAMES = ["claude-code", "codex", "opencode"]`, and a hand-written
+ * list of which adapters exist goes stale in silence: a fourth adapter would be
+ * linted against a list that did not know its name, and nothing would report it.
+ * `eslint.config.mjs` now derives the list by reading `src/adapters/`, so
+ * registering an adapter turns the rule on for its name with no edit here.
+ *
+ * ⚠️ MEASURED AND REJECTED: a second, LIST-FREE arm. The redesign proposed
+ * `BinaryExpression[operator=/^[!=]==$/] > MemberExpression[property.name="name"]`
+ * beside this rule, on the argument that "never compare `.name` in the domain"
+ * cannot go stale. Run over `src/core/**` plus the four detectors it produces 46
+ * findings, 21 of them non-test and essentially all correct code — `spec.ts`
+ * comparing a spec type's name, `vocabulary-consistency.ts` comparing a term's,
+ * `hook-program.ts` comparing an event's. Narrowing to `.name === <literal>`
+ * still leaves 14. The selector cannot tell an ADAPTER's name from any other
+ * `.name`, and a rule that opens at `error` with fourteen findings against
+ * correct code is switched off the same day. Making the domain unable to
+ * RECEIVE a harness name is the construction that works, and it is a change to
+ * the code, not to this file.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
  * TOKENS, NOT SUBSTRINGS
  *
  * A string matches only when the name stands as a whole token — bounded by a
@@ -130,9 +153,6 @@
  * is deleted together with the line it guards, and a leftover one surfaces as an
  * unused-disable-directive warning rather than a failure.
  */
-
-/** The canonical adapter names. Config may override; these are the registry's. */
-const DEFAULT_NAMES = ["claude-code", "codex", "opencode"];
 
 /** `claude-code` → `claudecode`, so identifier segments can be matched to it. */
 const squash = (name) => name.replace(/[^a-z0-9]+/gi, "").toLowerCase();
@@ -193,6 +213,14 @@ export default {
           names: { type: "array", items: { type: "string" }, minItems: 1 },
           identifiers: { type: "boolean" },
         },
+        // 🔴 REQUIRED, and it used to have a DEFAULT_NAMES fallback baked into
+        // this file. A hand-written list of the adapters that exist is the same
+        // defect the port redesign removes everywhere else: it goes stale
+        // SILENTLY — a fourth adapter would have been linted against a list that
+        // did not know its name, and nothing would have said so. The caller now
+        // supplies the list, and `eslint.config.mjs` derives it by reading
+        // `src/adapters/`, so there is no copy to keep true.
+        required: ["names"],
         additionalProperties: false,
       },
     ],
@@ -209,7 +237,7 @@ export default {
 
   create(context) {
     const opts = context.options[0] ?? {};
-    const names = opts.names ?? DEFAULT_NAMES;
+    const names = opts.names;
     const checkIdentifiers = opts.identifiers === true;
 
     /** squashed spelling → the canonical name, for identifier matching. */

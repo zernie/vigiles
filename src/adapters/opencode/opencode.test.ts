@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { HarnessAdapter } from "../../core/adapter.js";
 import { opencodeAdapter } from "./adapter.js";
 import { opencodeDialect } from "./dialect.js";
 import { opencodeLayout } from "./layout.js";
@@ -31,9 +32,17 @@ test("opencodeAdapter passes the conformance kit (a shellHooks:false adapter wit
   assertAdapterConformance(opencodeAdapter);
 });
 
-test("the blocked shell-hook port is concrete — shellHooks:false and no hookProtocol", () => {
+test("the blocked shell-hook port is unrepresentable in the type, and absent at run time", () => {
   assert.equal(opencodeAdapter.capabilities.shellHooks, false);
-  assert.equal(opencodeAdapter.hookProtocol, undefined);
+  // 🔴 WIDENED ON PURPOSE. `opencodeAdapter` is declared
+  // `as const satisfies HarnessAdapter`, so its own type has no `hookProtocol`
+  // property at all — writing `opencodeAdapter.hookProtocol` is now TS2339, and
+  // that compile error is the ratchet this line used to stand in for. A
+  // third-party adapter authored in JavaScript gets no such check, so the
+  // RUN-TIME fact is still asserted, through the widened port type every
+  // consumer of the registry sees.
+  const asPort: HarnessAdapter = opencodeAdapter;
+  assert.equal(asPort.hookProtocol, undefined);
 });
 
 test("opencodeAdapter IS harness-testable — assertHarnessTestable returns runtime+modelMock", () => {
@@ -96,5 +105,12 @@ test("the loader reads a real OpenCode-shaped plugin through opencodeLayout", ()
 
 test("the OpenCode prototype is internal-only — not in the public registry", () => {
   assert.equal(getAdapter("opencode"), undefined);
-  assert.ok(!ADAPTERS.some((a) => a.name === "opencode"));
+  // 🔴 WIDENED, AND THE WIDENING IS THE POINT. `ADAPTERS` is
+  // `as const satisfies`, so `a.name` is `"claude-code" | "codex"` and the
+  // direct comparison is now TS2367 — "these types have no overlap" is
+  // TypeScript agreeing with the assertion at compile time. The run-time check
+  // is kept through a widened view, because it is also asserting that the
+  // registry the CLI walks has not gained an entry behind the type's back.
+  const names: readonly string[] = ADAPTERS.map((a) => a.name);
+  assert.ok(!names.includes(opencodeAdapter.name));
 });

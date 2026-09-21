@@ -22,7 +22,7 @@ import { layoutClaims } from "../../core/surface-discovery.js";
 import { opencodeRuntime } from "./runtime.js";
 import { opencodeModelMock } from "./model-mock.js";
 
-export const opencodeAdapter: HarnessAdapter = {
+export const opencodeAdapter = {
   name: "opencode",
   // Pillar 1 + mockable (openai-chat SSE), but hooks are in-process JS/TS plugin
   // modules — no shell-hook tier, hence shellHooks:false and NO hookProtocol.
@@ -49,4 +49,4 @@ export const opencodeAdapter: HarnessAdapter = {
     if (existsSync(join(root, opencodeLayout.instructionFile))) return 1;
     return 0;
   },
-};
+} as const satisfies HarnessAdapter;

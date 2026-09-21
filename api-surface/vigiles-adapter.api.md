@@ -13,7 +13,39 @@ export interface AdapterCapabilities {
 }
 
 // @public
-export const ADAPTERS: readonly HarnessAdapter[];
+export const ADAPTERS: readonly [{
+    readonly name: "claude-code";
+    readonly capabilities: {
+        readonly referenceVerification: true;
+        readonly harnessTesting: true;
+        readonly shellHooks: true;
+        readonly subagents: true;
+    };
+    readonly dialect: HarnessDialect;
+    readonly layout: PluginLayout;
+    readonly runtime: HarnessRuntime;
+    readonly hookProtocol: HookProtocol;
+    readonly modelMock: ModelMock;
+    readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    readonly claims: (path: string) => boolean;
+    readonly detect: (root: string) => number;
+}, {
+    readonly name: "codex";
+    readonly capabilities: {
+        readonly referenceVerification: true;
+        readonly harnessTesting: true;
+        readonly shellHooks: true;
+        readonly subagents: false;
+    };
+    readonly dialect: HarnessDialect;
+    readonly layout: PluginLayout;
+    readonly runtime: HarnessRuntime;
+    readonly hookProtocol: HookProtocol;
+    readonly modelMock: ModelMock;
+    readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    readonly claims: (path: string) => boolean;
+    readonly detect: (root: string) => number;
+}];
 
 // @public
 export function assertAdapterConformance(adapter: HarnessAdapter): void;
@@ -93,6 +125,9 @@ export interface HarnessDialect {
     readonly skillFrontmatterKeys: readonly string[];
     readonly subagentToolVocabulary?: HarnessVocabulary;
 }
+
+// @public
+export type HarnessName = (typeof ADAPTERS)[number]["name"];
 
 // @public
 export interface HarnessRuntime {

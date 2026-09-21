@@ -19,7 +19,23 @@ export function buildClaudeArgs(spec: HarnessTestSpec, hasSettings: boolean): st
 export function claudeAvailable(): boolean;
 
 // @public (undocumented)
-export const claudeCodeAdapter: HarnessAdapter;
+export const claudeCodeAdapter: {
+    readonly name: "claude-code";
+    readonly capabilities: {
+        readonly referenceVerification: true;
+        readonly harnessTesting: true;
+        readonly shellHooks: true;
+        readonly subagents: true;
+    };
+    readonly dialect: HarnessDialect;
+    readonly layout: PluginLayout;
+    readonly runtime: HarnessRuntime;
+    readonly hookProtocol: HookProtocol;
+    readonly modelMock: ModelMock;
+    readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    readonly claims: (path: string) => boolean;
+    readonly detect: (root: string) => number;
+};
 
 // @public
 export type ClaudeCodeBoundedTool = ClaudeCodeReadOnlyTool | "Write" | "Edit" | "NotebookEdit" | "Bash" | "PowerShell";

@@ -46,4 +46,5 @@ export {
   resolveAdapter,
   getAdapter,
   type DetectResult,
+  type HarnessName,
 } from "./adapter-registry.js";

@@ -5,8 +5,32 @@ import sonarjs from "eslint-plugin-sonarjs";
 import boundaries from "eslint-plugin-boundaries";
 import globals from "globals";
 
+import { readdirSync } from "node:fs";
+
 import experimentalName from "./eslint-rules/experimental-name.mjs";
 import noHarnessNames from "./eslint-rules/no-harness-names.mjs";
+
+/**
+ * The harness names `local/no-harness-names` forbids, READ FROM THE ADAPTER
+ * DIRECTORY rather than written out here.
+ *
+ * 🔴 THE LIST USED TO LIVE IN THE RULE, as `DEFAULT_NAMES = ["claude-code",
+ * "codex", "opencode"]`, and a hand-written list of what exists is exactly the
+ * defect the port redesign is removing everywhere else: a new adapter would have
+ * left the rule silent for its name until somebody remembered this file. Reading
+ * the directory makes registering an adapter turn the rule on for it.
+ *
+ * ⚠️ THE ASSUMPTION IS THAT A DIRECTORY IS NAMED AFTER ITS ADAPTER, and it is
+ * checked — but by `adapter-contract.test.ts` ("every implementation's directory
+ * is named after it"), which runs under vitest and not under eslint. So a
+ * mis-named directory leaves the rule silent for that name until the test runs.
+ * Named rather than hidden; the alternative (importing the registry into the
+ * eslint config) would make linting depend on a TypeScript build.
+ */
+const HARNESS_NAMES = readdirSync("src/adapters", { withFileTypes: true })
+  .filter((e) => e.isDirectory())
+  .map((e) => e.name)
+  .sort();
 
 // The repo's own rules. Two members — see each rule's header for why it is a rule
 // and not something else. `experimental-name` replaced a standalone script that
@@ -297,7 +321,9 @@ export default [
     files: HARNESS_AGNOSTIC_DETECTORS,
     ignores: ["src/**/*.test.ts"],
     plugins: { local },
-    rules: { "local/no-harness-names": "error" },
+    rules: {
+      "local/no-harness-names": ["error", { names: HARNESS_NAMES }],
+    },
   },
   // The identifier half, CORE ONLY — because that is where it turns on silent.
   // Measured, non-test: `src/core/**` has 0 identifier hits, while `src/scan.ts`
@@ -316,7 +342,12 @@ export default [
     files: ["src/core/**/*.ts"],
     ignores: ["src/**/*.test.ts"],
     plugins: { local },
-    rules: { "local/no-harness-names": ["error", { identifiers: true }] },
+    rules: {
+      "local/no-harness-names": [
+        "error",
+        { names: HARNESS_NAMES, identifiers: true },
+      ],
+    },
   },
   // No barrel imports: internal modules must import the LEAF that defines a
   // symbol, never the package's own public barrel entry points (the
