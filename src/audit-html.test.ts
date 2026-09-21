@@ -25,6 +25,7 @@ const report: AuditReport = {
     overall: 81,
     grade: "B",
     empty: false,
+    instructionsOnly: false,
     categories: [
       { key: "Truthfulness", score: 100, weight: 1, findings: [] },
       { key: "Triggering", score: 100, weight: 1, findings: [] },

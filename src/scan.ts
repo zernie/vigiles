@@ -19,6 +19,7 @@ import { loadPlugin } from "./adapters/claude-code/plugin-loader.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { danglingRefs } from "./plugin-loader.js";
+import { isEmptyMachine } from "./score-core.js";
 import { brokenSkillRefs, formatSkillRefIssue } from "./skill-refs.js";
 import type { PluginLayout } from "./core/layout.js";
 import type { HarnessDialect } from "./core/dialect.js";
@@ -1301,9 +1302,15 @@ export function formatScanReport(r: ScanReport): string {
     // ⚠ risk is ungraded and does NOT count either.
     r.trifectaFindings.filter((t) => t.finding.severity === "hard").length;
   out.push(
-    broken === 0
-      ? "✓ no structural issues found"
-      : `⚠ ${String(broken)} structural issue(s) — see ✗/⚠ above`,
+    broken > 0
+      ? `⚠ ${String(broken)} structural issue(s) — see ✗/⚠ above`
+      : // 🔴 "NOTHING WAS FOUND" IS NOT "NOTHING IS WRONG" (#240). With zero
+        // surfaces read, `broken` is zero for want of anything to count, and this
+        // line was the sentence the reporter quoted under an A (100): a repo whose
+        // 37 skills sat in a directory this tool does not know by name.
+        isEmptyMachine(r)
+        ? "⚠ nothing to check — 0 skills, 0 agents, 0 commands were read"
+        : "✓ no structural issues found",
   );
   return out.join("\n");
 }
