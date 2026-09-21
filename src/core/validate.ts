@@ -263,6 +263,12 @@ export function loadConfig(searchFrom?: string): VigilesConfig {
         [],
         "sharedDirs",
       );
+    if (userConfig.surfaceRoots !== undefined)
+      config.surfaceRoots = asStringArray(
+        userConfig.surfaceRoots,
+        [],
+        "surfaceRoots",
+      );
     if (config.orphans) {
       config.orphans = {
         ...config.orphans,

@@ -46,6 +46,7 @@ import {
 import {
   assertDistinctScopeKeys,
   multiScopeWarning,
+  normalizeSurfaceRoots,
   scopeKey,
   surfaceSource,
   type SurfaceScope,
@@ -58,6 +59,17 @@ import {
  */
 interface MaterializedSurfaces {
   readonly counts: Record<string, number>;
+  /**
+   * The same tally EXCLUDING declared roots — what the HARNESS itself reads.
+   *
+   * Two tallies because two warnings ask different questions of the number.
+   * `counts` feeds the eval-tier notices ("N subagent file(s)"), which are about
+   * everything materialized and must therefore include a declared root's files.
+   * `multiScopeWarning` is about how much sits at the harness's OWN two levels,
+   * so folding a declared root into its total would report files it is not
+   * talking about.
+   */
+  readonly harnessCounts: Record<string, number>;
   readonly scopes: readonly SurfaceScope[];
 }
 
@@ -221,11 +233,19 @@ function readTree(
  * the files (CLAUDE.md + skills + agents + commands) to write into the test
  * sandbox, and `warnings` for surfaces the deterministic tier can't drive. Merge
  * `settings` with any inline settings and spread `files` into the fixture.
+ *
+ * `surfaceRoots` is the repo owner's `.vigilesrc.json#surfaceRoots` — extra
+ * repo-relative bases to read `<base>/<surfaceDir>/…` from, for a repo that
+ * keeps its skills somewhere no harness reads. `excludes` still wins over it:
+ * both the per-tree check in {@link materializeSurfaces} and `readTree` drop an
+ * excluded path whatever declared it, so a root that is declared AND excluded is
+ * read exactly as if it had never been declared.
  */
 export function loadPlugin(
   pluginPath: string,
   layout: PluginLayout,
   excludes?: ExcludeSet,
+  surfaceRoots?: readonly string[],
 ): LoadedPlugin {
   const root = resolve(pluginPath);
   const excluded = excludedBy(excludes);
@@ -245,7 +265,14 @@ export function loadPlugin(
     files[layout.instructionFile] = readFileSync(instructions, "utf-8");
     sources[layout.instructionFile] = instructions;
   }
-  const surfaces = materializeSurfaces(root, layout, files, sources, excluded);
+  const surfaces = materializeSurfaces(
+    root,
+    layout,
+    files,
+    sources,
+    excluded,
+    surfaceRoots,
+  );
 
   return {
     settings: resolvedHooks ? { hooks: resolvedHooks } : {},
@@ -295,8 +322,10 @@ function materializeSurfaces(
   files: Record<string, string>,
   sources: Record<string, string>,
   excluded: Excluded = excludesNothing,
+  surfaceRoots?: readonly string[],
 ): MaterializedSurfaces {
   const counts: Record<string, number> = {};
+  const harnessCounts: Record<string, number> = {};
   const isDir = (p: string): boolean =>
     existsSync(p) && statSync(p).isDirectory();
   /**
@@ -335,6 +364,16 @@ function materializeSurfaces(
     layout.userSurfaceRoot !== undefined
       ? scopeTrees(layout.userSurfaceRoot)
       : new Map<string, Record<string, string>>();
+  // Declared roots are read HERE, up front and once, for the same reason the two
+  // above are: `surfaceSource` needs to know which of them hold anything before
+  // it can decide the scope list, and re-reading them afterwards would be a
+  // second walk that could disagree with the first.
+  const declaredRoots = normalizeSurfaceRoots(surfaceRoots);
+  const declaredTrees = new Map<
+    string,
+    ReadonlyMap<string, Record<string, string>>
+  >();
+  for (const base of declaredRoots) declaredTrees.set(base, scopeTrees(base));
 
   /** Copy one scope's already-read trees into `files`, keyed by that scope. */
   const materializeScope = (
@@ -349,7 +388,10 @@ function materializeSurfaces(
           content,
           join(root, scope.base, surface, rel),
         );
-      counts[surface] = (counts[surface] ?? 0) + Object.keys(tree).length;
+      const n = Object.keys(tree).length;
+      counts[surface] = (counts[surface] ?? 0) + n;
+      if (scope.declared !== true)
+        harnessCounts[surface] = (harnessCounts[surface] ?? 0) + n;
     }
   };
 
@@ -387,6 +429,16 @@ function materializeSurfaces(
     }
   };
 
+  /** The already-read trees a scope materializes from — never a second walk. */
+  const treesOf = (
+    scope: SurfaceScope,
+  ): ReadonlyMap<string, Record<string, string>> =>
+    scope.declared === true
+      ? (declaredTrees.get(scope.base) ?? new Map())
+      : scope.base === ""
+        ? rootTrees
+        : userTrees;
+
   const source = surfaceSource(layout, {
     hasRootSkillFile: existsSync(join(root, "SKILL.md")),
     skillName: basename(root),
@@ -395,6 +447,7 @@ function materializeSurfaces(
       existsSync(join(root, layout.manifestPath)) ||
       existsSync(join(root, layout.hooksConventionPath)),
     userHasLoadable: hasLoadable(userTrees),
+    declaredRoots,
   });
 
   switch (source.kind) {
@@ -413,14 +466,15 @@ function materializeSurfaces(
         );
       }
       counts[layout.skillDir] = Object.keys(tree).length;
-      return { counts, scopes: [] };
+      harnessCounts[layout.skillDir] = counts[layout.skillDir];
+      return { counts, harnessCounts, scopes: [] };
     }
     case "scopes": {
       assertDistinctScopeKeys(source.scopes, layout.name);
       for (const scope of source.scopes)
-        materializeScope(scope, scope.base === "" ? rootTrees : userTrees);
+        materializeScope(scope, treesOf(scope));
       materializeRules();
-      return { counts, scopes: source.scopes };
+      return { counts, harnessCounts, scopes: source.scopes };
     }
     /* v8 ignore next 2 -- exhaustiveness guard, unreachable given SurfaceSource */
     default:
@@ -437,13 +491,13 @@ function materializeSurfaces(
  */
 function pluginWarnings(
   root: string,
-  { counts, scopes }: MaterializedSurfaces,
+  { counts, harnessCounts, scopes }: MaterializedSurfaces,
   hooks: unknown,
   files: Record<string, string>,
   layout: PluginLayout,
 ): string[] {
   const warnings: string[] = [];
-  const multiScope = multiScopeWarning(scopes, counts);
+  const multiScope = multiScopeWarning(scopes, harnessCounts);
   if (multiScope !== undefined) warnings.push(multiScope);
   if (counts.agents) {
     warnings.push(

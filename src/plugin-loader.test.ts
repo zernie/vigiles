@@ -106,3 +106,94 @@ test("loadPlugin: an excluded instruction file is not read", () => {
     cleanupTmpDir(root);
   }
 });
+
+/**
+ * A declared root that holds NOTHING LOADABLE must not become a scope.
+ *
+ * 🔴 WHY THIS TEST EXISTS, AND IT IS NOT A HYPOTHETICAL. `surfaceSource` falls
+ * back to the project scope only when the scope list is EMPTY — that fallback is
+ * the reason a plain repo is not read as an empty machine. An empty declared
+ * root, counted as a scope, makes the list non-empty and cancels the fallback,
+ * so a repo loses the `.claude/` tree it always had by adding one config line
+ * that names a directory with nothing in it.
+ *
+ * MEASURED both ways on this exact fixture: with the probe filter the keys are
+ * `["CLAUDE.md", ".claude/skills/alpha/README.md"]`; with it removed they are
+ * `["CLAUDE.md"]` — the project tree silently gone.
+ */
+test("loadPlugin: an EMPTY declared root does not cancel the project scope", () => {
+  const root = makeTmpDir("declared-empty");
+  try {
+    writeFileSync(join(root, "CLAUDE.md"), "# demo project\n");
+    // Declared, and present on disk, but holding no loadable file.
+    mkdirSync(join(root, ".ai", "skills"), { recursive: true });
+    // The project tree the fallback exists to keep reading. Deliberately a
+    // NON-loadable file: that is what makes `userHasLoadable` false and puts the
+    // repo on the fallback path this test is about.
+    mkdirSync(join(root, ".claude", "skills", "alpha"), { recursive: true });
+    writeFileSync(
+      join(root, ".claude", "skills", "alpha", "README.md"),
+      "hi\n",
+    );
+
+    assert.deepEqual(
+      Object.keys(loadPlugin(root, claudeCodeLayout, undefined, [".ai"]).files),
+      ["CLAUDE.md", ".claude/skills/alpha/README.md"],
+      "the empty declaration changed nothing",
+    );
+    // The positive half, on the same fixture: fill the declared root and it DOES
+    // become a scope — so "no new key" above is about emptiness, not about the
+    // declaration being ignored outright.
+    mkdirSync(join(root, ".ai", "skills", "check-dor"), { recursive: true });
+    writeFileSync(
+      join(root, ".ai", "skills", "check-dor", "SKILL.md"),
+      "---\nname: check-dor\ndescription: checks the definition of ready\n---\nbody\n",
+    );
+    assert.deepEqual(
+      Object.keys(loadPlugin(root, claudeCodeLayout, undefined, [".ai"]).files),
+      [
+        "CLAUDE.md",
+        ".claude/skills/alpha/README.md",
+        ".ai/skills/check-dor/SKILL.md",
+      ],
+    );
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+/**
+ * The two-level warning counts the HARNESS's OWN levels, not a declared root.
+ *
+ * It fires only when the plugin and project scopes are both present, and every
+ * sentence in it is about what a real session loads under two names. A declared
+ * root is not such a level, so its files must not be added to the total — the
+ * warning would then report a number about files it is not talking about.
+ *
+ * Both halves on one fixture: the warning still FIRES (the real ambiguity is
+ * there) and the number is 2, not the 3 that includes the declared skill.
+ */
+test("loadPlugin: the two-level warning excludes a declared root from its count", () => {
+  const root = makeTmpDir("declared-count");
+  try {
+    const skill = (name: string): string =>
+      `---\nname: ${name}\ndescription: does ${name} things for the fixture\n---\nbody\n`;
+    writeFileSync(join(root, "CLAUDE.md"), "# demo project\n");
+    for (const [rel, name] of [
+      ["skills/plugin-one", "plugin-one"],
+      [".claude/skills/project-one", "project-one"],
+      [".ai/skills/declared-one", "declared-one"],
+    ] as const) {
+      mkdirSync(join(root, rel), { recursive: true });
+      writeFileSync(join(root, rel, "SKILL.md"), skill(name));
+    }
+    const warning = loadPlugin(root, claudeCodeLayout, undefined, [
+      ".ai",
+    ]).warnings.find((w) => w.includes("TWO discovery levels"));
+    assert.ok(warning, "the real plugin/project ambiguity still warns");
+    assert.match(warning, /2 file\(s\) were read from both/);
+    assert.doesNotMatch(warning, /3 file\(s\)/);
+  } finally {
+    cleanupTmpDir(root);
+  }
+});

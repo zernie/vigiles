@@ -62,6 +62,7 @@ import {
   type UnclaimedSurfaceFinding,
 } from "./core/surface-discovery.js";
 import { boundedSurfacePaths } from "./surface-discovery-fs.js";
+import { normalizeSurfaceRoots } from "./core/surface-scopes.js";
 import { REGISTERED_LAYOUTS } from "./layout-registry.js";
 import type { DelegationTrifectaFinding } from "./core/delegation-trifecta.js";
 import {
@@ -599,11 +600,23 @@ export function scanPlugin(
      * share a `(config, silent, adapter, root)` signature through `overBundles`).
      */
     excludes?: ExcludeSet;
+    /**
+     * The repo's `.vigilesrc.json#surfaceRoots` — repo-relative bases the OWNER
+     * declared, read with `lay`'s surface dirs so their skills/subagents/commands
+     * are graded instead of merely reported unread.
+     *
+     * Rides in `opts` for the same reason `excludes` does. Omitting it is "this
+     * caller has no declaration to pass", which is also what a repo that set the
+     * key gets from a caller that does not forward it: the surfaces stay a
+     * FINDING — the honest side to fail on, since nothing is silenced.
+     */
+    surfaceRoots?: readonly string[];
   } = {},
 ): ScanReport {
   const lay = layout ?? claudeCodeLayout;
   const cls = makeClassifier(lay);
-  const loaded = loadPlugin(dir, lay, opts.excludes);
+  const declaredRoots = normalizeSurfaceRoots(opts.surfaceRoots);
+  const loaded = loadPlugin(dir, lay, opts.excludes, declaredRoots);
   // Parse the raw `settings.hooks` ONCE at the boundary (parse-don't-validate):
   // tolerant of the Claude Code nested shape AND the Codex flat shape, so every
   // hook detector below consumes typed `HookRegistration[]` instead of re-walking
@@ -725,6 +738,7 @@ export function scanPlugin(
     unclaimedSurfaces: unclaimedSurfaceFindings(
       boundedSurfacePaths(resolve(dir), opts.excludes),
       REGISTERED_LAYOUTS,
+      { layout: lay, roots: declaredRoots },
     ),
     pluginLayoutIssues: pluginDirLayoutIssues(
       resolve(dir, dirname(lay.manifestPath)),

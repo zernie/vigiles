@@ -487,6 +487,36 @@ export interface VigilesConfig {
    */
   sharedDirs?: readonly string[];
   /**
+   * Repo-relative dirs that hold this repo's skills/subagents/commands even
+   * though no harness reads them there — `[".ai"]` for a repo whose skills live
+   * at `.ai/skills/<name>/SKILL.md` (#240).
+   *
+   * Without it such a tree is DISCOVERED and reported ("holds N skills that no
+   * harness vigiles knows about reads") but never graded, because nothing loads
+   * it. Naming it here is the owner answering that finding: the surfaces are
+   * read from `<root>/<surfaceDir>/…` using the DETECTED harness's own surface
+   * dirs (`.ai/skills`, `.ai/agents`, `.ai/commands` for Claude Code), graded
+   * with everything else, and the finding for them goes away.
+   *
+   * 🔴 A DECLARATION BY THE REPO OWNER, NEVER BY AN ADAPTER. The rejected design
+   * had each harness declare its roots, which inverts the dependency: adding a
+   * Cursor adapter would start reading `.cursor/rules` in every user's repo. A
+   * key in the repo's own config widens exactly one repository — its own.
+   *
+   * It does NOT invent a dialect. The declaration says WHERE; the detected
+   * harness still says what a surface is, so a root whose layout keeps skills
+   * elsewhere (Codex reads `.agents/skills`) is read there and `.ai/skills`
+   * stays a finding. A repo in that position declares `"harness"` too.
+   *
+   * ⚠️ `exclude` WINS. A path both declared and excluded is excluded — the walk
+   * drops it before either the grade or the finding can see it, so declaring a
+   * root you also exclude is read exactly as if you had declared nothing.
+   *
+   * Entries that are absolute, `"."`/empty, or contain a `..` segment are
+   * dropped (a `..` would reach outside the audited repo); duplicates collapse.
+   */
+  surfaceRoots?: readonly string[];
+  /**
    * The harness(es) this repo targets — selects the compile dialect / skill
    * frontmatter profile / instruction-file shape, instead of sniffing the cwd.
    * A single name (`"codex"`) for the common single-harness repo, or an array

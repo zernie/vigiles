@@ -27,6 +27,7 @@ import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { codexLayout } from "./adapters/codex/layout.js";
 import { codexDialect } from "./adapters/codex/dialect.js";
 import { auditScore } from "./audit-score.js";
+import { excludeSet } from "./exclude.js";
 
 function write(dir: string, rel: string, content: string): void {
   const abs = join(dir, rel);
@@ -2529,6 +2530,106 @@ test("a surface directory no harness reads is a graded finding, its neighbours a
     assert.match(text, /Surfaces no harness reads \(1\)/);
     assert.match(text, /\.ai\/skills\/ holds 2 skills/);
     assert.doesNotMatch(text, /no structural issues found/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+/**
+ * Step 4 of #240: the repo owner ANSWERS that finding in their own config, and
+ * the answer is honoured — the tree is read, graded, and no longer reported.
+ *
+ * The acceptance test is a PAIR on one fixture, because either half alone is
+ * ambiguous: silence could mean "declared" or "discovery broke", and a grade
+ * could come from anywhere. So the same directory is scanned twice, and the
+ * assertions are the difference between the two.
+ */
+test("a declared surfaceRoot is read and graded, and its finding disappears", () => {
+  const dir = makeTmpDir("declared-root");
+  try {
+    const skill = (name: string): string =>
+      `---\nname: ${name}\ndescription: does ${name} things across many cases\ndisallowed-tools: WebFetch, WebSearch, Bash\n---\n# ${name}\n`;
+    write(dir, "CLAUDE.md", "# repo\n");
+    write(dir, ".ai/skills/check-dor/SKILL.md", skill("check-dor"));
+    write(dir, ".ai/skills/decompose/SKILL.md", skill("decompose"));
+    write(dir, ".vendor/skills/theirs/SKILL.md", skill("theirs"));
+
+    const before = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
+    assert.deepEqual(
+      before.unclaimedSurfaces.map((u) => u.dir),
+      [".ai/skills", ".vendor/skills"],
+      "undeclared: both trees are findings",
+    );
+    assert.deepEqual(before.skills, [], "…and neither is graded");
+
+    const after = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
+      surfaceRoots: [".ai"],
+    });
+    assert.deepEqual(
+      after.unclaimedSurfaces.map((u) => u.dir),
+      [".vendor/skills"],
+      "declared: `.ai` silenced, the UNdeclared neighbour still fires",
+    );
+    assert.deepEqual(
+      after.skills.map((s) => s.name).sort(),
+      ["check-dor", "decompose"],
+      "…and the declared skills are now IN the grade",
+    );
+    // The report says so too: the inventory names them and the finding is gone.
+    const text = formatScanReport(after);
+    assert.match(text, /Skills \(2\)/);
+    assert.doesNotMatch(text, /\.ai\/skills\/ holds/);
+    assert.match(text, /\.vendor\/skills\/ holds 1 skill/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+/**
+ * 🔴 `exclude` BEATS `surfaceRoots`, on BOTH halves at once.
+ *
+ * Pinned because it is the interaction that is obvious today and forgotten in
+ * six months: a path the owner both declared and excluded must be read exactly
+ * as if it had never been declared — no grade, and no finding either (an
+ * excluded tree is not the repo's business, so nagging about it would be the
+ * mirror of the bug).
+ *
+ * The third scan is the discriminator: excluding a root that was NOT declared
+ * gives the same two zeroes, so the pair above cannot be passing because the
+ * declaration silently failed to reach anything.
+ */
+test("exclude beats a declared surfaceRoot — no grade AND no finding", () => {
+  const dir = makeTmpDir("declared-vs-exclude");
+  try {
+    const skill = (name: string): string =>
+      `---\nname: ${name}\ndescription: does ${name} things across many cases\ndisallowed-tools: WebFetch, WebSearch, Bash\n---\n# ${name}\n`;
+    write(dir, "CLAUDE.md", "# repo\n");
+    write(dir, ".ai/skills/check-dor/SKILL.md", skill("check-dor"));
+
+    const declaredOnly = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
+      surfaceRoots: [".ai"],
+    });
+    assert.deepEqual(
+      declaredOnly.skills.map((s) => s.name),
+      ["check-dor"],
+    );
+    assert.deepEqual(declaredOnly.unclaimedSurfaces, []);
+
+    const both = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
+      surfaceRoots: [".ai"],
+      excludes: excludeSet(dir, [".ai"]),
+    });
+    assert.deepEqual(both.skills, [], "excluded: not graded");
+    assert.deepEqual(both.unclaimedSurfaces, [], "excluded: not reported");
+
+    const excludedOnly = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
+      excludes: excludeSet(dir, [".ai"]),
+    });
+    assert.deepEqual(
+      [excludedOnly.skills.length, excludedOnly.unclaimedSurfaces.length],
+      [0, 0],
+      "the declaration adds nothing once the path is excluded",
+    );
   } finally {
     cleanupTmpDir(dir);
   }

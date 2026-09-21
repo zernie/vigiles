@@ -504,12 +504,12 @@ A bare directory name excludes its subtree (`"bench"`, `"bench/"` and `"bench/**
 mean the same thing); `node_modules`, `dist`, `.git` and `.vigiles` are always
 excluded. **One filter, every command:**
 
-| command         | what `exclude` drops                                                         |
-| --------------- | ---------------------------------------------------------------------------- |
-| `compile`       | an excluded `*.spec.ts` is not loaded — a frozen spec cannot fail the build  |
-| `lint`          | instruction files, nested bundles, docs, skills/subagents/hooks, spec refs   |
-| `audit`         | the instruction file, and the skills/subagents/commands discovery reads      |
-| `test` / `eval` | an excluded `*.harness.*` / `*.eval.*` is not discovered, so it does not run |
+| command         | what `exclude` drops                                                                                            |
+| --------------- | --------------------------------------------------------------------------------------------------------------- |
+| `compile`       | an excluded `*.spec.ts` is not loaded — a frozen spec cannot fail the build                                     |
+| `lint`          | instruction files, nested bundles, docs, skills/subagents/hooks, spec refs                                      |
+| `audit`         | the instruction file, the skills/subagents/commands discovery reads, and a `surfaceRoots` root — `exclude` wins |
+| `test` / `eval` | an excluded `*.harness.*` / `*.eval.*` is not discovered, so it does not run                                    |
 
 It filters **discovery only**. A path you name on the command line is still
 processed, and one line says why:
@@ -525,6 +525,47 @@ prettier skips it and reports it clean. vigiles processes it and says so.)
 The rule-level lists — `orphans.exclude` and the `untested-*` rules' `exclude` —
 **narrow their own rule further**. They never re-admit a path excluded here: both
 set means the union.
+
+### `surfaceRoots` — skills that live where no harness reads
+
+`audit` discovers surfaces by SHAPE (a `skills/`, `agents/` or `commands/` dir
+directly under the repo root or a top-level dot-directory), then asks each
+registered harness "is this path yours?". A directory nobody claims is reported
+rather than graded:
+
+```
+Surfaces no harness reads (1):
+  ✗ .ai/skills/ holds 37 skills that no harness vigiles knows about reads, so none of
+    it is in this grade. Audit it directly (`vigiles audit .ai`) or move it somewhere
+    a harness loads from (`.agents/skills/`, `.claude/skills/`, `skills/`).
+```
+
+If those really are your skills and you want them graded where they are, say so
+— the finding goes away and the surfaces join the grade:
+
+```json
+{ "surfaceRoots": [".ai"] }
+```
+
+The root is the **parent** of the surface dir, not the surface dir itself:
+`".ai"` for `.ai/skills/<name>/SKILL.md`. vigiles then reads
+`<root>/<surface>/…` using the **detected harness's own** surface dirs, so on
+Claude Code `".ai"` means `.ai/skills`, `.ai/agents` and `.ai/commands`.
+
+- **It only ADDS.** Everything read before is still read; a declared root cannot
+  relocate or replace an existing surface, and the files keep their real paths
+  as keys.
+- **The declaration is yours, not a harness's.** No adapter can name a root —
+  that is deliberate, so installing or registering a harness can never make
+  vigiles read more in somebody else's repository.
+- **It does not invent a dialect.** The detected harness still decides what a
+  surface is. A repo detected as Codex — whose skills live at `.agents/skills` —
+  declaring `".ai"` does NOT pick up `.ai/skills`, and the finding correctly
+  stays. Pair it with `"harness"` when detection picks the wrong one:
+  `{ "harness": "claude-code", "surfaceRoots": [".ai"] }`.
+- **`exclude` wins.** A path both declared and excluded is excluded: no grade,
+  and no finding either.
+- Absolute entries, `"."`, and anything containing `..` are dropped.
 
 ### `lint` in a monorepo, and getting both artefacts from one run
 

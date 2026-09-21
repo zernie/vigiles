@@ -62,6 +62,15 @@ import {
 /** Mirror of plugin-loader.ts `MaterializedSurfaces`. */
 interface MaterializedSurfaces {
   readonly counts: Record<string, number>;
+  /**
+   * Mirror of the disk loader's field — the tally EXCLUDING declared roots.
+   *
+   * Always equal to `counts` here TODAY, because this twin has no config to read
+   * `surfaceRoots` from (the in-browser audit is handed a file map, not a repo).
+   * It exists anyway so the two materializers keep the same shape: the pair has
+   * repeatedly been bitten by one side growing a field the other did not.
+   */
+  readonly harnessCounts: Record<string, number>;
   readonly scopes: readonly SurfaceScope[];
 }
 import { hookBlockIssues } from "./core/hook-block-ineffective.js";
@@ -318,6 +327,7 @@ function materializeSurfaces(
 ): MaterializedSurfaces {
   const { out, sources } = acc;
   const counts: Record<string, number> = {};
+  const harnessCounts: Record<string, number> = {};
   const scopeTrees = (base: string): Map<string, Record<string, string>> => {
     const trees = new Map<string, Record<string, string>>();
     for (const surface of layout.surfaceDirs) {
@@ -358,7 +368,10 @@ function materializeSurfaces(
           content,
           join(BROWSER_ROOT, dirRel, rel),
         );
-      counts[surface] = (counts[surface] ?? 0) + Object.keys(tree).length;
+      const n = Object.keys(tree).length;
+      counts[surface] = (counts[surface] ?? 0) + n;
+      if (scope.declared !== true)
+        harnessCounts[surface] = (harnessCounts[surface] ?? 0) + n;
     }
   };
 
@@ -386,13 +399,14 @@ function materializeSurfaces(
         );
       }
       counts[layout.skillDir] = Object.keys(tree).length;
-      return { counts, scopes: [] };
+      harnessCounts[layout.skillDir] = counts[layout.skillDir];
+      return { counts, harnessCounts, scopes: [] };
     }
     case "scopes": {
       assertDistinctScopeKeys(source.scopes, layout.name);
       for (const scope of source.scopes)
         materializeScope(scope, scope.base === "" ? rootTrees : userTrees);
-      return { counts, scopes: source.scopes };
+      return { counts, harnessCounts, scopes: source.scopes };
     }
   }
 }
@@ -495,13 +509,13 @@ function danglingRefs(
 function pluginWarnings(
   files: Record<string, string>,
   layout: PluginLayout,
-  { counts, scopes }: MaterializedSurfaces,
+  { counts, harnessCounts, scopes }: MaterializedSurfaces,
   hooks: unknown,
   materialized: Record<string, string>,
   rootName: string,
 ): string[] {
   const warnings: string[] = [];
-  const multiScope = multiScopeWarning(scopes, counts);
+  const multiScope = multiScopeWarning(scopes, harnessCounts);
   if (multiScope !== undefined) warnings.push(multiScope);
   if (counts.agents) {
     warnings.push(

@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { claudeCodeLayout } from "../adapters/claude-code/layout.js";
 import { codexLayout } from "../adapters/codex/layout.js";
 import {
+  declaredRootClaims,
   discoverSurfaces,
   layoutClaims,
   unclaimedSurfaceFindings,
@@ -123,4 +124,79 @@ test("a claim does not leak to a sibling whose name merely starts the same", () 
   assert.equal(ccClaims(".claude-plugin/plugin.json"), true);
   assert.equal(ccClaims(".claudey/skills/alpha/SKILL.md"), false);
   assert.equal(ccClaims("skills-archive/alpha/SKILL.md"), false);
+});
+
+/**
+ * Step 4 of #240: the repo owner answers the finding in their OWN config, and it
+ * goes away — while the identical unnamed directory beside it still fires.
+ *
+ * Both halves on ONE call, because "declaring silenced it" and "the rule stopped
+ * firing" are the same output from the quiet side.
+ */
+test("a declared root stops being a finding; an undeclared sibling still is", () => {
+  const paths = [
+    ".ai/skills/check-dor/SKILL.md",
+    ".ai/skills/decompose/SKILL.md",
+    ".vendor/skills/theirs/SKILL.md",
+  ];
+  assert.deepEqual(
+    unclaimedSurfaceFindings(paths, both).map((f) => f.dir),
+    [".ai/skills", ".vendor/skills"],
+    "undeclared: both fire",
+  );
+  assert.deepEqual(
+    unclaimedSurfaceFindings(paths, both, {
+      layout: claudeCodeLayout,
+      roots: [".ai"],
+    }).map((f) => f.dir),
+    [".vendor/skills"],
+    "declaring `.ai` silences `.ai/skills` and NOTHING else",
+  );
+});
+
+/**
+ * 🔴 A DECLARATION SILENCES ONLY WHAT IT MAKES READABLE.
+ *
+ * `declaredRootClaims` is derived from the DETECTED layout's `surfaceDirs`, so
+ * under Codex — whose skills live at `.agents/skills` — declaring `.ai` does not
+ * reach `.ai/skills`, and the finding must SURVIVE. Otherwise setting the key
+ * would buy silence about a directory that is still read by nobody, which is the
+ * exact failure this whole module exists to end.
+ *
+ * The positive half is on the same input: `.ai/.agents/skills` IS what Codex
+ * would read under that root, and it is silenced.
+ */
+test("a declaration reaches only the detected layout's own surface dirs", () => {
+  const paths = [
+    ".ai/skills/check-dor/SKILL.md",
+    ".ai/.agents/skills/beta/SKILL.md",
+  ];
+  const declared = { roots: [".ai"] };
+  assert.deepEqual(
+    unclaimedSurfaceFindings(paths, both, {
+      ...declared,
+      layout: codexLayout,
+    }).map((f) => f.dir),
+    [".ai/skills"],
+    "codex reads `.agents/skills`, so `.ai/skills` is still nobody's",
+  );
+  assert.deepEqual(
+    unclaimedSurfaceFindings(paths, both, {
+      ...declared,
+      layout: claudeCodeLayout,
+    }).map((f) => f.dir),
+    [],
+    "claude-code reads `skills`, so both dirs under `.ai` are covered",
+  );
+});
+
+/** A declared claim is a path-BOUNDARY prefix, exactly as a layout claim is. */
+test("a declared root does not leak to a sibling whose name starts the same", () => {
+  const claims = (p: string): boolean =>
+    declaredRootClaims(claudeCodeLayout, [".ai"], p);
+  assert.equal(claims(".ai/skills/x/SKILL.md"), true);
+  assert.equal(claims(".ai/skills"), true);
+  assert.equal(claims(".airline/skills/x/SKILL.md"), false);
+  assert.equal(claims(".ai/skillsets/x/SKILL.md"), false);
+  assert.equal(claims(".ai/README.md"), false);
 });

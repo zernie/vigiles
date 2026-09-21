@@ -8321,6 +8321,11 @@ export async function main(): Promise<void> {
           // still printed `Skills (1): ✓ demo` and docked Safety to 90 for it — the
           // grade was computed over a tree the user had told the tool to ignore.
           excludes,
+          // The repo owner's answer to "N skills no harness reads": these are
+          // mine, grade them. Read with THIS adapter's surface dirs — the
+          // declaration says where, the detected dialect still says what.
+          // `exclude` still wins over it; the walk drops an excluded path first.
+          surfaceRoots: config.surfaceRoots,
         });
         if (!json) {
           console.log(`Detected harness: ${adapter.name}`);

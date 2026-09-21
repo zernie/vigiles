@@ -247,6 +247,39 @@ export function layoutClaims(layout: PluginLayout, path: string): boolean {
 }
 
 /**
+ * Does a repo owner's DECLARED root (`.vigilesrc.json#surfaceRoots`) cause this
+ * path to be read, under the layout that was actually detected?
+ *
+ * 🔴 IT CLAIMS EXACTLY WHAT IT MAKES READABLE, AND NOT ONE PATH MORE. The set is
+ * `<root>/<surfaceDir>/…` for the detected layout's own `surfaceDirs` — which is
+ * verbatim the set `materializeSurfaces` reads for a declared scope. Derived
+ * from the same field rather than listed twice, so the two cannot drift.
+ *
+ * The consequence is the point: declaring a root silences the finding only where
+ * the declaration actually reaches. A repo detected as Codex that declares `.ai`
+ * for its `.ai/skills` keeps the finding, because Codex's skill dir is
+ * `.agents/skills` and `.ai/skills` is still read by nobody — the tool does not
+ * go quiet over an answer that changed nothing. (That repo's fix is to say which
+ * harness it targets: `"harness"` beside `"surfaceRoots"`.)
+ *
+ * ⚠️ A declaration is the REPO OWNER's, never an adapter's. Nothing here lets a
+ * harness widen what vigiles reads in someone else's repository — the property
+ * the module header exists to protect. See `research/audit-harness-dx.md` §9.
+ */
+export function declaredRootClaims(
+  layout: PluginLayout,
+  roots: readonly string[],
+  path: string,
+): boolean {
+  return roots.some((r) =>
+    layout.surfaceDirs.some((surface) => {
+      const dir = located(`${r}/${surface}`);
+      return dir !== null && (path === dir || path.startsWith(`${dir}/`));
+    }),
+  );
+}
+
+/**
  * The discovered surfaces NO registered harness claims — the finding.
  *
  * `claimers` is every registered adapter's `claims`, so "unclaimed" means "no
@@ -350,12 +383,33 @@ function knownHomes(
  * halves of the same fact: who claims a path, and where those claimants
  * actually keep that kind of surface. Taking them apart is how the message and
  * the claim rule would come to disagree.
+ *
+ * `declared` is the repo owner's opt-in: roots they named in
+ * `.vigilesrc.json#surfaceRoots`, which the loader then reads under the DETECTED
+ * layout. It joins the claimers rather than filtering the findings afterwards,
+ * so "no harness reads this" and "this is read" stay ONE question with one
+ * answer. Omitted by the browser twin, which has no config — see
+ * {@link declaredRootClaims} for what it does and does not silence.
+ *
+ * ⚠️ `exclude` needs no mention here and that is structural, not an oversight:
+ * an excluded path never reaches `paths` (the walk drops it), so it can be
+ * neither a finding nor a graded surface however it was declared.
  */
 export function unclaimedSurfaceFindings(
   paths: readonly string[],
   layouts: readonly PluginLayout[],
+  declared?: {
+    /** The layout the declaration materializes under — the DETECTED one. */
+    readonly layout: PluginLayout;
+    /** Normalized `.vigilesrc.json#surfaceRoots`. */
+    readonly roots: readonly string[];
+  },
 ): readonly UnclaimedSurfaceFinding[] {
   const claimers = layouts.map((l) => (path: string) => layoutClaims(l, path));
+  if (declared !== undefined && declared.roots.length > 0)
+    claimers.push((path) =>
+      declaredRootClaims(declared.layout, declared.roots, path),
+    );
   return unclaimedDirs(
     unclaimedSurfaces(discoverSurfaces(paths), claimers),
   ).map((d) => ({
