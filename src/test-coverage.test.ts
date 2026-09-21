@@ -873,12 +873,16 @@ test("skillTestNudge: a harness-covered skill is nudged about FIRING, not about 
 
 test("skillTestNudge: the firing remedy is runnable on a NON-default harness too", () => {
   // The half that pins the reason. Same repo shape, Codex layout: the surfaces
-  // live under `.codex/`, the nudge finds them (that is what layout-awareness
-  // bought), and the remedy it prints must be one this repo can actually run.
+  // live under `.agents/skills/`, the nudge finds them (that is what
+  // layout-awareness bought), and the remedy it prints must be one this repo can
+  // actually run. The path moved off `.codex/skills` on 2026-09-21 because that
+  // is not a directory Codex reads — the vendor scans `.agents/skills`
+  // (learn.chatgpt.com/docs/build-skills) — so the old fixture measured
+  // layout-awareness against a location no Codex user has.
   const dir = makeTmpDir("nudge-uneval-codex");
-  write(dir, ".codex/skills/foo/SKILL.md", skill("foo"));
-  write(dir, ".codex/skills/foo/foo.harness.mjs", "// deterministic only\n");
-  const msg = skillTestNudge(".codex/skills/foo/SKILL.md", {
+  write(dir, ".agents/skills/foo/SKILL.md", skill("foo"));
+  write(dir, ".agents/skills/foo/foo.harness.mjs", "// deterministic only\n");
+  const msg = skillTestNudge(".agents/skills/foo/SKILL.md", {
     basePath: dir,
     layout: codexLayout,
   });

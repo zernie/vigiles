@@ -16,6 +16,7 @@ import { join } from "node:path";
 import type { HarnessAdapter } from "../../core/adapter.js";
 import { codexDialect } from "./dialect.js";
 import { codexLayout } from "./layout.js";
+import { layoutClaims } from "../../core/surface-discovery.js";
 import { codexRuntime } from "./runtime.js";
 import { codexHookProtocol } from "./hook-protocol.js";
 import { codexModelMock } from "./model-mock.js";
@@ -38,6 +39,11 @@ export const codexAdapter: HarnessAdapter = {
   hookProtocol: codexHookProtocol,
   modelMock: codexModelMock,
   harnessTestDriver: async () => (await import("./driver.js")).codexDriver,
+  // Derived from the layout, never listed again here — see `claims` on
+  // `HarnessAdapter` for why this method takes a PATH and not a root.
+  claims(path: string): boolean {
+    return layoutClaims(codexLayout, path);
+  },
   detect(root: string): number {
     // A `.codex/config.toml` is a strong signal; a bare AGENTS.md is weak (many
     // harnesses read it). (Unused while unregistered — kept for symmetry.)

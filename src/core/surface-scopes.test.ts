@@ -17,6 +17,7 @@ import type { PluginLayout } from "./layout.js";
 import {
   assertDistinctScopeKeys,
   multiScopeWarning,
+  normalizeSurfaceRoots,
   scopeKey,
   surfaceSource,
   type SurfaceScope,
@@ -28,6 +29,7 @@ const probe = {
   rootHasLoadable: false,
   isPluginShaped: false,
   userHasLoadable: false,
+  declaredRoots: [] as readonly string[],
 };
 
 function scopesOf(p: Partial<typeof probe>, layout = claudeCodeLayout) {
@@ -178,4 +180,133 @@ test("scopeKey drops empty segments instead of emitting a leading slash", () => 
     ),
     "skills/x/SKILL.md",
   );
+});
+
+// --- Declared roots (`.vigilesrc.json#harnesses.<name>.roots`, #240) --------
+
+/**
+ * The repo owner names `.ai`; it becomes a real scope, keyed at its own real
+ * location so it cannot land on top of the canonical `<materializeRoot>/…` key.
+ *
+ * The silent half is on the same call: with the declaration removed, the scope
+ * list is just the project fallback — so "the loop ran" and "the loop is gone"
+ * are distinguishable.
+ */
+test("a declared root is APPENDED as a scope keyed at its own location", () => {
+  const withDecl = scopesOf({ declaredRoots: [".ai"] });
+  assert.deepEqual(
+    withDecl.map(
+      (s) => `${s.base}|${s.materializeUnder}|${String(s.declared)}`,
+    ),
+    // 🔴 The project fallback SURVIVES in front of it. A declaration adds; it
+    // never takes away what was already going to be read.
+    [".claude|.claude|undefined", ".ai|.ai|true"],
+  );
+  assert.equal(
+    scopeKey(withDecl[1], "skills", "x/SKILL.md"),
+    ".ai/skills/x/SKILL.md",
+  );
+  assert.deepEqual(
+    scopesOf({}).map((s) => s.base),
+    [".claude"],
+    "without the declaration: only the project fallback",
+  );
+});
+
+/**
+ * 🔴 THE KEY COLLISION IS REFUSED BEFORE IT CAN SHADOW ANYTHING. Declaring the
+ * dir the harness already reads is a NO-OP, not a second reading of the same
+ * tree under the same prefix — which `assertDistinctScopeKeys` would throw on,
+ * turning a harmless config line into a crashed audit.
+ */
+test("declaring a root the layout already reads changes nothing", () => {
+  const scopes = scopesOf({
+    userHasLoadable: true,
+    declaredRoots: [".claude"],
+  });
+  assert.deepEqual(
+    scopes.map((s) => s.base),
+    [".claude"],
+    "no duplicate scope",
+  );
+  assert.doesNotThrow(() => {
+    assertDistinctScopeKeys(scopes, claudeCodeLayout.name);
+  });
+  // And the same for a declaration that equals `materializeRoot` while the
+  // PLUGIN scope is the one holding it — the prefix is already spoken for.
+  const rootOnly = scopesOf({
+    rootHasLoadable: true,
+    declaredRoots: [".claude"],
+  });
+  assert.doesNotThrow(() => {
+    assertDistinctScopeKeys(rootOnly, claudeCodeLayout.name);
+  });
+});
+
+/**
+ * Declared scopes are appended, never promoted: the canonical key stays with the
+ * scope the HARNESS reads, so a declaration cannot relocate a real surface.
+ */
+test("a declared root never takes the canonical materializeRoot key", () => {
+  const scopes = scopesOf({
+    rootHasLoadable: true,
+    userHasLoadable: true,
+    declaredRoots: [".ai"],
+  });
+  assert.deepEqual(
+    scopes.map((s) => s.materializeUnder),
+    [".claude", "", ".ai"],
+  );
+  assert.doesNotThrow(() => {
+    assertDistinctScopeKeys(scopes, claudeCodeLayout.name);
+  });
+});
+
+/**
+ * The multi-scope warning describes what a REAL SESSION loads under two names.
+ * A declared root is not such a level, so it must not trip the warning — and the
+ * genuine two-level case beside it must still trip it.
+ */
+test("multiScopeWarning ignores a declared scope and still fires for two real ones", () => {
+  const declared = scopesOf({ userHasLoadable: true, declaredRoots: [".ai"] });
+  assert.equal(declared.length, 2, "two scopes exist");
+  assert.equal(
+    multiScopeWarning(declared, { skills: 3 }),
+    undefined,
+    "…but only one is a harness level",
+  );
+  assert.ok(
+    multiScopeWarning(
+      scopesOf({
+        rootHasLoadable: true,
+        userHasLoadable: true,
+        declaredRoots: [".ai"],
+      }),
+      { skills: 4 },
+    )?.includes("TWO discovery levels"),
+  );
+});
+
+/**
+ * Normalization drops what cannot be honoured, and keeps everything else.
+ *
+ * `..` is the one entry that could do damage — it reaches OUTSIDE the audited
+ * repo — so it is pinned on the same call as the forms that must survive.
+ */
+test("normalizeSurfaceRoots drops escapes and keeps ordinary roots", () => {
+  assert.deepEqual(
+    normalizeSurfaceRoots([
+      ".ai",
+      "./tools/",
+      "nested/skills-home",
+      ".ai",
+      "",
+      ".",
+      "/etc",
+      "../outside",
+      "a/../../b",
+    ]),
+    [".ai", "tools", "nested/skills-home"],
+  );
+  assert.deepEqual(normalizeSurfaceRoots(undefined), []);
 });

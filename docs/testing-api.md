@@ -301,7 +301,7 @@ is tested under both runners in [`test/runners/`](../test/runners/).
 ## `measureTriggerRate` options
 
 ```ts
-const report = await measureTriggerRate({
+const report = await paid_measureTriggerRate({
   skillsDir: ".claude/skills", // loose skills — auto-packaged. XOR pluginDir.
   pluginDir: "./my-plugin", //    already-packaged plugin. XOR skillsDir.
   prompts: [...], //              recall set (≥ minPrompts, NCD-diverse)

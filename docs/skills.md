@@ -98,7 +98,7 @@ A gate is one of:
 
 A skill's **firing** and its **gates** are testable without a spec, from the public testing API — see [`docs/harness-testing.md`](harness-testing.md) and [`docs/testing-api.md`](testing-api.md):
 
-- **Does the description actually fire?** `measureTriggerRate` (`vigiles/testing`) reports recall and precision against prompts that should and should not reach the skill.
+- **Does the description actually fire?** `paid_measureTriggerRate` (`vigiles/eval`) reports recall and precision against prompts that should and should not reach the skill.
 - **Does the gate ladder behave?** `vigiles hook-runtime run-skill <SKILL.md>` runs the markers directly, so a test can assert the exit code.
 - **Live E2E** (`test/e2e`, `npm run test:cli-e2e`): drives the _real_ `claude` CLI against a scripted mock Anthropic endpoint (`ANTHROPIC_BASE_URL`), asserting the tool-use loop and Stop-hook enforcement with no real model.
 

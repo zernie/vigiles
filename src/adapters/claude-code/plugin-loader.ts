@@ -16,7 +16,16 @@ import { claudeCodeLayout } from "./layout.js";
 
 export type { LoadedPlugin } from "../../plugin-loader.js";
 
-/** Load the real Claude Code harness at `pluginPath` (defaults to `claudeCodeLayout`). */
+/**
+ * Load the real Claude Code harness at `pluginPath` (defaults to `claudeCodeLayout`).
+ *
+ * 🔴 DELIBERATELY NOT FORWARDING an `ExcludeSet`. The generic loader takes one
+ * (`.vigilesrc.json#exclude` filters surface discovery), but this is the PUBLIC
+ * `vigiles/claude-code` face, and a parameter whose type and constructor are both
+ * internal would land in the published surface as a name no consumer can write.
+ * In-repo callers that hold an ExcludeSet — `scan.ts` — import the composition
+ * root directly, which is where the layout is required anyway.
+ */
 export function loadPlugin(
   pluginPath: string,
   layout: PluginLayout = claudeCodeLayout,

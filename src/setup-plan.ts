@@ -213,7 +213,8 @@ export const NUDGE_RULES = [
 export function mergeProjectConfig(
   existing: Record<string, unknown>,
   opts: {
-    harness: string | string[];
+    /** Canonical harness names this repo targets, in the order to declare them. */
+    harnesses: readonly string[];
     strict: boolean;
     reportOnly?: boolean;
     /** Whether the LINT pillar is on (default true). The rule gate is a lint-layer
@@ -224,8 +225,15 @@ export function mergeProjectConfig(
 ): Record<string, unknown> | null {
   const config = { ...existing };
   let changed = false;
-  if (config.harness === undefined) {
-    config.harness = opts.harness;
+  // The NESTED key (#240). `init` writes the declaration with no roots — a repo
+  // whose surfaces sit where its harness reads them needs none, and a root is a
+  // fact only the owner knows. Writing the flat `harness`/`surfaceRoots` pair
+  // here would emit a config the loader now REFUSES, which is why this one line
+  // moved with the shape even though the rest of `init` did not.
+  if (config.harnesses === undefined) {
+    config.harnesses = Object.fromEntries(
+      opts.harnesses.map((h) => [h, {}]),
+    ) as Record<string, Record<string, never>>;
     changed = true;
   }
   // The rule gate belongs to the LINT layer — a test-only setup records the

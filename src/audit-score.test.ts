@@ -24,7 +24,15 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
   return {
     dir: "/x",
     instructions: null,
-    skills: [],
+    // 🔴 ONE skill, not zero — and it is the fixture's whole point. `triggering()`
+    // answers an empty `skills` list with `null` (#240: a score over nothing is not
+    // a score), so a fixture with no skill could no longer assert "100 on every
+    // category" without asserting the very lie that guard exists to stop. The skill
+    // is `userInvoked` so `trifectaExposure` still counts 0 assessable surfaces and
+    // the Safety ring stays n/a, which is what the assertion below reads.
+    skills: [
+      { name: "clean", hasDescription: true, userInvoked: true },
+    ] as unknown as ScanReport["skills"],
     agents: [],
     hooks: [],
     inlineHooks: 0,
@@ -44,6 +52,7 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     skillResourceIssues: [],
     skillFenceIssues: [],
     pluginLayoutIssues: [],
+    unclaimedSurfaces: [],
     delegationTrifecta: [],
     hookBlockFindings: [],
     hookMatcherFindings: [],
@@ -673,7 +682,10 @@ describe("auditScore", () => {
   });
 
   it("an empty machine (no surface, no instructions) is empty — overall 0, all n/a", () => {
-    const s = auditScore(makeReport({ commands: 0, mcp: false }));
+    // `skills: []` is stated HERE, not inherited: the shared fixture now carries one
+    // skill, and "empty machine" means every surface count is zero — naming them all
+    // is what makes this test a test of emptiness rather than of the fixture.
+    const s = auditScore(makeReport({ commands: 0, mcp: false, skills: [] }));
     expect(s.empty).toBe(true);
     expect(s.overall).toBe(0);
     expect(s.categories.every((c) => c.score === null)).toBe(true);

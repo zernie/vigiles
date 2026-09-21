@@ -513,7 +513,8 @@ test("compile (hook): a repo targeting BOTH harnesses installs the SAME hook int
     // to install into one harness while instruction files mirrored to both).
     writeFileSync(
       resolve(dir, ".vigilesrc.json"),
-      JSON.stringify({ harness: ["claude-code", "codex"] }, null, 2) + "\n",
+      JSON.stringify({ harnesses: { "claude-code": {}, codex: {} } }, null, 2) +
+        "\n",
     );
     writeFileSync(resolve(dir, "guard.mjs"), GATE_PKG);
     const r = spawnSync("node", [CLI, "compile", "guard.mjs"], {

@@ -14,6 +14,9 @@ export const SAMPLE: AuditReport = {
     overall: 77,
     grade: "C",
     empty: false,
+    // A real graded harness: skills/agents/commands WERE read, so neither the
+    // empty nor the instructions-only qualifier applies (see AuditScore).
+    instructionsOnly: false,
     categories: [
       { key: "Truthfulness", score: 100, weight: 1, findings: [] },
       {

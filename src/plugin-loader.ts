@@ -35,6 +35,8 @@ import { parse as parseToml } from "@iarna/toml";
 
 import { assertNever } from "./core/hash.js";
 import type { PluginLayout } from "./core/layout.js";
+import { excludedBy, excludesNothing, type Excluded } from "./exclude.js";
+import type { ExcludeSet } from "./exclude.js";
 import { entryOf, walkableRoot } from "./fs-walk.js";
 import {
   intraRefPattern,
@@ -44,6 +46,7 @@ import {
 import {
   assertDistinctScopeKeys,
   multiScopeWarning,
+  normalizeSurfaceRoots,
   scopeKey,
   surfaceSource,
   type SurfaceScope,
@@ -56,6 +59,17 @@ import {
  */
 interface MaterializedSurfaces {
   readonly counts: Record<string, number>;
+  /**
+   * The same tally EXCLUDING declared roots — what the HARNESS itself reads.
+   *
+   * Two tallies because two warnings ask different questions of the number.
+   * `counts` feeds the eval-tier notices ("N subagent file(s)"), which are about
+   * everything materialized and must therefore include a declared root's files.
+   * `multiScopeWarning` is about how much sits at the harness's OWN two levels,
+   * so folding a declared root into its total would report files it is not
+   * talking about.
+   */
+  readonly harnessCounts: Record<string, number>;
   readonly scopes: readonly SurfaceScope[];
 }
 
@@ -187,12 +201,22 @@ function readHooks(root: string, layout: PluginLayout): unknown {
  * `entryOf` has already cleared would cost a syscall per directory to answer a
  * question that cannot come out differently.
  */
-function readTree(dir: string, base: string): Record<string, string> {
+function readTree(
+  dir: string,
+  base: string,
+  excluded: Excluded = excludesNothing,
+): Record<string, string> {
   const out: Record<string, string> = {};
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
+    // `.vigilesrc.json#exclude`, applied HERE — per entry, inside the recursion —
+    // and not merely at the surface-dir entry point. A vendored tree is usually
+    // excluded at its own root (`bench`, `vendor/corpus`), which is a descendant
+    // of a surface dir, so a check that only guarded the walk's start would let
+    // every one of its files into the file map the whole report is computed from.
+    if (excluded(full)) continue;
     const { kind, size } = entryOf(full);
-    if (kind === "dir") Object.assign(out, readTree(full, base));
+    if (kind === "dir") Object.assign(out, readTree(full, base, excluded));
     // The cap keeps a stray binary out of the in-memory file map, and the size
     // comes from the SAME stat that classified the entry. Asking a second time
     // needed its own `catch` — reachable only if the file vanished between the two
@@ -209,12 +233,26 @@ function readTree(dir: string, base: string): Record<string, string> {
  * the files (CLAUDE.md + skills + agents + commands) to write into the test
  * sandbox, and `warnings` for surfaces the deterministic tier can't drive. Merge
  * `settings` with any inline settings and spread `files` into the fixture.
+ *
+ * `surfaceRoots` is this function's parameter name for what the repo owner
+ * writes as `.vigilesrc.json#harnesses["<name>"].roots` — extra repo-relative
+ * bases to read `<base>/<surfaceDir>/…` from, for a repo that keeps its skills
+ * somewhere no harness reads by default. The config key is nested UNDER a
+ * harness name precisely so a root cannot be declared without saying whose
+ * layout reads it; this parameter receives one harness's slice of that, which
+ * is why it is still a bare list here. `excludes` still wins over it:
+ * both the per-tree check in {@link materializeSurfaces} and `readTree` drop an
+ * excluded path whatever declared it, so a root that is declared AND excluded is
+ * read exactly as if it had never been declared.
  */
 export function loadPlugin(
   pluginPath: string,
   layout: PluginLayout,
+  excludes?: ExcludeSet,
+  surfaceRoots?: readonly string[],
 ): LoadedPlugin {
   const root = resolve(pluginPath);
+  const excluded = excludedBy(excludes);
   const hooks = readHooks(root, layout);
   // Expand the plugin-root token to the real absolute path so the actual hook
   // scripts execute — we test the shipped wiring, not a reimplementation.
@@ -227,11 +265,18 @@ export function loadPlugin(
   const files: Record<string, string> = {};
   const sources: Record<string, string> = {};
   const instructions = join(root, layout.instructionFile);
-  if (existsSync(instructions)) {
+  if (existsSync(instructions) && !excluded(instructions)) {
     files[layout.instructionFile] = readFileSync(instructions, "utf-8");
     sources[layout.instructionFile] = instructions;
   }
-  const surfaces = materializeSurfaces(root, layout, files, sources);
+  const surfaces = materializeSurfaces(
+    root,
+    layout,
+    files,
+    sources,
+    excluded,
+    surfaceRoots,
+  );
 
   return {
     settings: resolvedHooks ? { hooks: resolvedHooks } : {},
@@ -240,6 +285,82 @@ export function loadPlugin(
     warnings: pluginWarnings(root, surfaces, resolvedHooks, files, layout),
   };
 }
+
+/**
+ * ONE declared harness for {@link loadPlugins}: the layout to read the repo
+ * under, and the extra roots declared for THAT harness.
+ */
+export interface HarnessLoad {
+  readonly layout: PluginLayout;
+  readonly roots?: readonly string[];
+}
+
+/**
+ * Load the repo once PER DECLARED HARNESS and merge the results into one
+ * `LoadedPlugin` (#240).
+ *
+ * 🔴 THE MERGE IS WHY THIS EXISTS, AND THE DEDUPLICATION IS ITS WHOLE CONTRACT.
+ * A repo that declares two harnesses is a repo whose grade must cover both — the
+ * flat `harness` array could not do that, because whichever name sat first
+ * decided the ONE layout everything was read under: measured on a repo with
+ * `AGENTS.md` + `.ai/skills/alpha/SKILL.md`, Claude-Code-first graded the skill
+ * and reported 0 chars of always-loaded instructions, Codex-first read
+ * `AGENTS.md` and reported no skill at all. Neither order produced both halves.
+ *
+ * ⚠️ AND THE OBVIOUS FIX HAS AN OBVIOUS SECOND BUG: a repo honest enough to say
+ * one tree serves both tools would then have that tree read twice and every
+ * skill in it counted twice, so declaring the truth would lower the grade. So the
+ * merge keys on the REAL ON-DISK PATH (`sources`), not on the materialized key:
+ * the first harness to claim a file keeps it, later ones skip it, and the counts
+ * are of files rather than of claims. Keying on the materialized key would not
+ * do — two layouts can reach one file under two different keys (`.ai/.agents`
+ * + `skills` and `.ai` + `.agents/skills` are the same directory), and that is
+ * exactly the case an honest dual declaration produces.
+ *
+ * Settings come from the FIRST harness that yields any, and the file-map merge
+ * is first-wins for the same reason: the primary harness is the one whose
+ * dialect the report is rendered in, so its reading of a shared path is the one
+ * the rest of the report is consistent with.
+ */
+export function loadPlugins(
+  pluginPath: string,
+  harnesses: readonly HarnessLoad[],
+  excludes?: ExcludeSet,
+): LoadedPlugin {
+  const loads = harnesses.map((h) =>
+    loadPlugin(pluginPath, h.layout, excludes, h.roots),
+  );
+  /* v8 ignore next -- callers always pass >=1; the guard keeps the type honest */
+  if (loads.length <= 1) return loads[0] ?? EMPTY_LOAD;
+  const files: Record<string, string> = {};
+  const sources: Record<string, string> = {};
+  const seenOnDisk = new Set<string>();
+  const warnings: string[] = [];
+  let settings: { hooks?: unknown } = {};
+  for (const load of loads) {
+    for (const [key, content] of Object.entries(load.files)) {
+      // A file with no recorded source is one the loader synthesized rather than
+      // read (there are none today); key it by its own key so it still dedupes.
+      const onDisk = load.sources[key] ?? key;
+      if (seenOnDisk.has(onDisk)) continue;
+      seenOnDisk.add(onDisk);
+      files[key] = content;
+      sources[key] = onDisk;
+    }
+    for (const w of load.warnings) if (!warnings.includes(w)) warnings.push(w);
+    if (settings.hooks === undefined && load.settings.hooks !== undefined)
+      settings = load.settings;
+  }
+  return { settings, files, sources, warnings };
+}
+
+/** The shape `loadPlugins` returns for an empty harness list. */
+const EMPTY_LOAD: LoadedPlugin = {
+  settings: {},
+  files: {},
+  sources: {},
+  warnings: [],
+};
 
 /**
  * Materialize every model surface (skills/agents/commands) into `files`, and
@@ -280,8 +401,11 @@ function materializeSurfaces(
   layout: PluginLayout,
   files: Record<string, string>,
   sources: Record<string, string>,
+  excluded: Excluded = excludesNothing,
+  surfaceRoots?: readonly string[],
 ): MaterializedSurfaces {
   const counts: Record<string, number> = {};
+  const harnessCounts: Record<string, number> = {};
   const isDir = (p: string): boolean =>
     existsSync(p) && statSync(p).isDirectory();
   /**
@@ -294,7 +418,9 @@ function materializeSurfaces(
    * outside is still read.
    */
   const surfaceTree = (dir: string): Record<string, string> =>
-    isDir(dir) && walkableRoot(dir, root) ? readTree(dir, dir) : {};
+    isDir(dir) && walkableRoot(dir, root) && !excluded(dir)
+      ? readTree(dir, dir, excluded)
+      : {};
   /** Every surface tree of one scope, read once, keyed by surface dir. */
   const scopeTrees = (base: string): Map<string, Record<string, string>> => {
     const trees = new Map<string, Record<string, string>>();
@@ -318,6 +444,16 @@ function materializeSurfaces(
     layout.userSurfaceRoot !== undefined
       ? scopeTrees(layout.userSurfaceRoot)
       : new Map<string, Record<string, string>>();
+  // Declared roots are read HERE, up front and once, for the same reason the two
+  // above are: `surfaceSource` needs to know which of them hold anything before
+  // it can decide the scope list, and re-reading them afterwards would be a
+  // second walk that could disagree with the first.
+  const declaredRoots = normalizeSurfaceRoots(surfaceRoots);
+  const declaredTrees = new Map<
+    string,
+    ReadonlyMap<string, Record<string, string>>
+  >();
+  for (const base of declaredRoots) declaredTrees.set(base, scopeTrees(base));
 
   /** Copy one scope's already-read trees into `files`, keyed by that scope. */
   const materializeScope = (
@@ -332,7 +468,10 @@ function materializeSurfaces(
           content,
           join(root, scope.base, surface, rel),
         );
-      counts[surface] = (counts[surface] ?? 0) + Object.keys(tree).length;
+      const n = Object.keys(tree).length;
+      counts[surface] = (counts[surface] ?? 0) + n;
+      if (scope.declared !== true)
+        harnessCounts[surface] = (harnessCounts[surface] ?? 0) + n;
     }
   };
 
@@ -370,6 +509,16 @@ function materializeSurfaces(
     }
   };
 
+  /** The already-read trees a scope materializes from — never a second walk. */
+  const treesOf = (
+    scope: SurfaceScope,
+  ): ReadonlyMap<string, Record<string, string>> =>
+    scope.declared === true
+      ? (declaredTrees.get(scope.base) ?? new Map())
+      : scope.base === ""
+        ? rootTrees
+        : userTrees;
+
   const source = surfaceSource(layout, {
     hasRootSkillFile: existsSync(join(root, "SKILL.md")),
     skillName: basename(root),
@@ -378,6 +527,7 @@ function materializeSurfaces(
       existsSync(join(root, layout.manifestPath)) ||
       existsSync(join(root, layout.hooksConventionPath)),
     userHasLoadable: hasLoadable(userTrees),
+    declaredRoots,
   });
 
   switch (source.kind) {
@@ -387,7 +537,7 @@ function materializeSurfaces(
       // No `walkableRoot` here on purpose: `root` is the directory the CALLER
       // named (`vigiles audit <dir>`), not one this walk discovered, and refusing
       // to read the path someone explicitly pointed at is not a containment rule.
-      const tree = readTree(root, root);
+      const tree = readTree(root, root, excluded);
       for (const [rel, content] of Object.entries(tree)) {
         add(
           join(layout.materializeRoot, layout.skillDir, source.skillName, rel),
@@ -396,14 +546,15 @@ function materializeSurfaces(
         );
       }
       counts[layout.skillDir] = Object.keys(tree).length;
-      return { counts, scopes: [] };
+      harnessCounts[layout.skillDir] = counts[layout.skillDir];
+      return { counts, harnessCounts, scopes: [] };
     }
     case "scopes": {
       assertDistinctScopeKeys(source.scopes, layout.name);
       for (const scope of source.scopes)
-        materializeScope(scope, scope.base === "" ? rootTrees : userTrees);
+        materializeScope(scope, treesOf(scope));
       materializeRules();
-      return { counts, scopes: source.scopes };
+      return { counts, harnessCounts, scopes: source.scopes };
     }
     /* v8 ignore next 2 -- exhaustiveness guard, unreachable given SurfaceSource */
     default:
@@ -420,13 +571,13 @@ function materializeSurfaces(
  */
 function pluginWarnings(
   root: string,
-  { counts, scopes }: MaterializedSurfaces,
+  { counts, harnessCounts, scopes }: MaterializedSurfaces,
   hooks: unknown,
   files: Record<string, string>,
   layout: PluginLayout,
 ): string[] {
   const warnings: string[] = [];
-  const multiScope = multiScopeWarning(scopes, counts);
+  const multiScope = multiScopeWarning(scopes, harnessCounts);
   if (multiScope !== undefined) warnings.push(multiScope);
   if (counts.agents) {
     warnings.push(

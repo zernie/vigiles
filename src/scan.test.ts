@@ -27,6 +27,7 @@ import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { codexLayout } from "./adapters/codex/layout.js";
 import { codexDialect } from "./adapters/codex/dialect.js";
 import { auditScore } from "./audit-score.js";
+import { excludeSet } from "./exclude.js";
 
 function write(dir: string, rel: string, content: string): void {
   const abs = join(dir, rel);
@@ -2270,9 +2271,13 @@ test("a Codex repo is not scored against a fence its harness has no key for", ()
   const dir = makeTmpDir("scan-codex-fence");
   write(dir, "AGENTS.md", "# rules\n");
   write(dir, ".codex/config.toml", "[mcp_servers]\n");
+  // `.agents/skills`, not a root-level `skills/`: that is the directory Codex
+  // scans (vendor, learn.chatgpt.com/docs/build-skills). Moved 2026-09-21 with
+  // the layout — the precondition below is the whole point of the test, and it
+  // can only hold where the harness really looks.
   write(
     dir,
-    "skills/deploy/SKILL.md",
+    ".agents/skills/deploy/SKILL.md",
     "---\nname: deploy\ndescription: Ships the built artifact to production for the team\n---\n# deploy\n",
   );
   const r = scanPlugin(dir, codexLayout, codexDialect);
@@ -2467,6 +2472,281 @@ test("weight: .claude/rules counts toward the Claude Code sum, docs/ does not", 
     assert.ok(w);
     assert.equal(w.total, 30);
     assert.equal(w.unit, "chars");
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+/**
+ * A harness living where NO registered adapter reads is reported and GRADED,
+ * instead of being graded around in silence (#240).
+ *
+ * Measured on the real CLI before this shipped, on a repo whose 37 skills sat
+ * under `.ai/`: `Harness health: A (100/100)` and `✓ no structural issues
+ * found`, while pointing the same binary at `<repo>/.ai` gave F (0/100) with
+ * fourteen real defects. The grade nobody would question was the wrong one.
+ *
+ * Both halves on ONE fixture: the unread tree beside a read one and beside two
+ * near-misses (`src/skills`, `packages/…/skills`) that must stay invisible —
+ * the reporter's own warning was that an unbounded walk finds 53 vendored
+ * third-party skills and grades them as this repo's machine.
+ */
+test("a surface directory no harness reads is a graded finding, its neighbours are not", () => {
+  const dir = makeTmpDir("unclaimed");
+  try {
+    const skill = (name: string): string =>
+      `---\nname: ${name}\ndescription: does ${name} things across many cases\ndisallowed-tools: WebFetch, WebSearch, Bash\n---\n# ${name}\n`;
+    write(dir, "CLAUDE.md", "# repo\n");
+    write(dir, ".claude/skills/alpha/SKILL.md", skill("alpha")); // read
+    write(dir, ".ai/skills/check-dor/SKILL.md", skill("check-dor")); // unread
+    write(dir, ".ai/skills/decompose/SKILL.md", skill("decompose")); // unread
+    write(dir, "src/skills/nope/SKILL.md", skill("nope")); // not a root
+    write(dir, "packages/x/skills/nope2/SKILL.md", skill("nope2")); // not a root
+
+    const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
+    assert.deepEqual(
+      r.unclaimedSurfaces.map((u) => `${u.dir}:${String(u.count)}`),
+      [".ai/skills:2"],
+    );
+    assert.deepEqual(
+      r.skills.map((s) => s.name),
+      ["alpha"],
+    );
+
+    // It reaches the GRADE, not just the inventory — the ring and the headline
+    // carry the same row on purpose, so they cannot disagree about it.
+    const structure = auditScore(r).categories.find(
+      (c) => c.key === "Structure",
+    );
+    assert.ok(structure !== undefined);
+    assert.ok(structure.score !== null && structure.score < 100);
+    assert.ok(
+      structure.findings.some((f) => f.includes("no harness reads")),
+      JSON.stringify(structure.findings),
+    );
+
+    // …and the report NAMES the directory, so the reader can act on it.
+    const text = formatScanReport(r);
+    assert.match(text, /Surfaces no harness reads \(1\)/);
+    assert.match(text, /\.ai\/skills\/ holds 2 skills/);
+    assert.doesNotMatch(text, /no structural issues found/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+/**
+ * Step 4 of #240: the repo owner ANSWERS that finding in their own config, and
+ * the answer is honoured — the tree is read, graded, and no longer reported.
+ *
+ * The acceptance test is a PAIR on one fixture, because either half alone is
+ * ambiguous: silence could mean "declared" or "discovery broke", and a grade
+ * could come from anywhere. So the same directory is scanned twice, and the
+ * assertions are the difference between the two.
+ */
+test("a declared harness root is read and graded, and its finding disappears", () => {
+  const dir = makeTmpDir("declared-root");
+  try {
+    const skill = (name: string): string =>
+      `---\nname: ${name}\ndescription: does ${name} things across many cases\ndisallowed-tools: WebFetch, WebSearch, Bash\n---\n# ${name}\n`;
+    write(dir, "CLAUDE.md", "# repo\n");
+    write(dir, ".ai/skills/check-dor/SKILL.md", skill("check-dor"));
+    write(dir, ".ai/skills/decompose/SKILL.md", skill("decompose"));
+    write(dir, ".vendor/skills/theirs/SKILL.md", skill("theirs"));
+
+    const before = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
+    assert.deepEqual(
+      before.unclaimedSurfaces.map((u) => u.dir),
+      [".ai/skills", ".vendor/skills"],
+      "undeclared: both trees are findings",
+    );
+    assert.deepEqual(before.skills, [], "…and neither is graded");
+
+    const after = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
+      harnesses: [
+        {
+          layout: claudeCodeLayout,
+          dialect: claudeCodeDialect,
+          roots: [".ai"],
+        },
+      ],
+    });
+    assert.deepEqual(
+      after.unclaimedSurfaces.map((u) => u.dir),
+      [".vendor/skills"],
+      "declared: `.ai` silenced, the UNdeclared neighbour still fires",
+    );
+    assert.deepEqual(
+      after.skills.map((s) => s.name).sort(),
+      ["check-dor", "decompose"],
+      "…and the declared skills are now IN the grade",
+    );
+    // The report says so too: the inventory names them and the finding is gone.
+    const text = formatScanReport(after);
+    assert.match(text, /Skills \(2\)/);
+    assert.doesNotMatch(text, /\.ai\/skills\/ holds/);
+    assert.match(text, /\.vendor\/skills\/ holds 1 skill/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+/**
+ * 🔴 `exclude` BEATS a declared harness root, on BOTH halves at once.
+ *
+ * Pinned because it is the interaction that is obvious today and forgotten in
+ * six months: a path the owner both declared and excluded must be read exactly
+ * as if it had never been declared — no grade, and no finding either (an
+ * excluded tree is not the repo's business, so nagging about it would be the
+ * mirror of the bug).
+ *
+ * The third scan is the discriminator: excluding a root that was NOT declared
+ * gives the same two zeroes, so the pair above cannot be passing because the
+ * declaration silently failed to reach anything.
+ */
+test("exclude beats a declared harness root — no grade AND no finding", () => {
+  const dir = makeTmpDir("declared-vs-exclude");
+  try {
+    const skill = (name: string): string =>
+      `---\nname: ${name}\ndescription: does ${name} things across many cases\ndisallowed-tools: WebFetch, WebSearch, Bash\n---\n# ${name}\n`;
+    write(dir, "CLAUDE.md", "# repo\n");
+    write(dir, ".ai/skills/check-dor/SKILL.md", skill("check-dor"));
+
+    const cc = (roots: readonly string[]) => ({
+      layout: claudeCodeLayout,
+      dialect: claudeCodeDialect,
+      roots,
+    });
+    const declaredOnly = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
+      harnesses: [cc([".ai"])],
+    });
+    assert.deepEqual(
+      declaredOnly.skills.map((s) => s.name),
+      ["check-dor"],
+    );
+    assert.deepEqual(declaredOnly.unclaimedSurfaces, []);
+
+    const both = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
+      harnesses: [cc([".ai"])],
+      excludes: excludeSet(dir, [".ai"]),
+    });
+    assert.deepEqual(both.skills, [], "excluded: not graded");
+    assert.deepEqual(both.unclaimedSurfaces, [], "excluded: not reported");
+
+    const excludedOnly = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
+      excludes: excludeSet(dir, [".ai"]),
+    });
+    assert.deepEqual(
+      [excludedOnly.skills.length, excludedOnly.unclaimedSurfaces.length],
+      [0, 0],
+      "the declaration adds nothing once the path is excluded",
+    );
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+/**
+ * 🔴 THE TWO DEFECTS #240's REPORTER HIT, PINNED TOGETHER.
+ *
+ * Fixture: `AGENTS.md` + `.codex/config.toml` + `.ai/skills/alpha/SKILL.md` —
+ * "one tree served to both Claude Code and Codex", in his words.
+ *
+ * Under the flat `harness` array + global `surfaceRoots` this repo could not be
+ * graded whole, and the ORDER of the array decided which half was lost.
+ * MEASURED on the real CLI before the change:
+ *
+ * ```
+ * {"harness":["claude-code","codex"],"surfaceRoots":[".ai"]}
+ *     -> Skills (1), Always-loaded instructions: 0 chars
+ * {"harness":["codex","claude-code"],"surfaceRoots":[".ai"]}
+ *     -> no skills (`.ai/skills/ holds 1 skill that no harness … reads`),
+ *        Instructions: AGENTS.md
+ * ```
+ *
+ * Two separate failures: an array whose ORDER silently changed behaviour, and no
+ * order that produced BOTH halves. Both are asserted here, and the second is the
+ * one that makes the first worth fixing — order-independence alone would be
+ * satisfied by a shape that loses the same half every time.
+ *
+ * ⚠️ WHAT IS *NOT* CLAIMED, because the sweep predicted it and it is still true:
+ * the first declared harness is the PRIMARY, and its DIALECT runs the
+ * dialect-shaped checks (the lethal-trifecta fence is a Claude Code concept, so
+ * the Safety ring differs between the two orders). That is a per-harness fact
+ * being reported per-harness, not a surface going unread — which is why the
+ * assertions below are about what was READ.
+ */
+test("#240: both halves are read, and the declaration ORDER does not decide which", () => {
+  const dir = makeTmpDir("issue-240");
+  try {
+    write(dir, "AGENTS.md", "# Agents\n\nInstructions for both harnesses.\n");
+    write(dir, ".codex/config.toml", 'model = "gpt-5"\n');
+    write(
+      dir,
+      ".ai/skills/alpha/SKILL.md",
+      "---\nname: alpha\ndescription: does alpha things across many cases\n---\n# alpha\n",
+    );
+    const cc = {
+      layout: claudeCodeLayout,
+      dialect: claudeCodeDialect,
+      roots: [".ai"],
+    };
+    const codex = { layout: codexLayout, dialect: codexDialect, roots: [] };
+
+    // Declared BOTH ways. The positional layout/dialect is the primary, matching
+    // what the CLI passes, so this is the real two-order comparison.
+    const ccFirst = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
+      harnesses: [cc, codex],
+    });
+    const codexFirst = scanPlugin(dir, codexLayout, codexDialect, {
+      harnesses: [codex, cc],
+    });
+
+    for (const [order, r] of [
+      ["claude-code first", ccFirst],
+      ["codex first", codexFirst],
+    ] as const) {
+      // Half one: the skills under the declared root ARE graded.
+      assert.deepEqual(
+        r.skills.map((s) => s.name),
+        ["alpha"],
+        `${order}: the declared root's skill is in the grade`,
+      );
+      // Half two: the instruction file the repo actually HAS is read — and it
+      // belongs to the OTHER harness in the claude-code-first case, which is
+      // exactly the half that used to vanish.
+      assert.equal(
+        r.instructions?.file,
+        "AGENTS.md",
+        `${order}: the instruction file is read`,
+      );
+      assert.ok(
+        (r.instructionWeight?.total ?? 0) > 0,
+        `${order}: …and it WEIGHS something — 0 was the old answer`,
+      );
+      // And the tree is no longer reported as unread, in either order.
+      assert.deepEqual(
+        r.unclaimedSurfaces.map((u) => u.dir),
+        [],
+        `${order}: a declared root is not also a finding`,
+      );
+    }
+
+    // Order-independence stated as one comparison rather than two lists, so a
+    // future field that quietly depends on order fails HERE.
+    assert.deepEqual(
+      {
+        skills: ccFirst.skills.map((s) => s.name),
+        instructions: ccFirst.instructions,
+        weight: ccFirst.instructionWeight?.total,
+      },
+      {
+        skills: codexFirst.skills.map((s) => s.name),
+        instructions: codexFirst.instructions,
+        weight: codexFirst.instructionWeight?.total,
+      },
+      "what is READ is identical in both declaration orders",
+    );
   } finally {
     cleanupTmpDir(dir);
   }

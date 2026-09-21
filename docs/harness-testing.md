@@ -724,7 +724,7 @@ is deletion. In `x.eval.mjs`, replace
 
 ```js
 const trials = Number(process.env.VIGILES_TRIALS || process.argv[2] || 3);
-const report = await measureTriggerRate({ …spec…, trials });
+const report = await paid_measureTriggerRate({ …spec…, trials });
 console.log(formatTriggerRateReport(report));
 if (report.n === 0) throw new Error("no runs executed");
 assertTriggerRate(report, { min: 0.8 });

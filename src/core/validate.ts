@@ -2,6 +2,31 @@ import { readFileSync, lstatSync, existsSync, realpathSync } from "node:fs";
 import { globSync } from "glob";
 import { resolve, basename as pathBasename } from "node:path";
 import { cosmiconfigSync } from "cosmiconfig";
+// 🔴 A TOP-LEVEL IMPORT, and the lazy `require` it replaced is recorded because
+// the instinct to reintroduce it is correct-sounding: Zod is a ~45 ms cold
+// import and this module is on the CLI's barrel. Two measured facts settle it.
+//
+// (1) It does not reach the HOT rail at all. A compiled hook's decision
+//     (`vigiles hook-runtime run-program`) never loads the verb barrel — the
+//     dispatcher shim in `src/cli.ts` branches before it, and
+//     `src/hook-runtime-graph.test.ts` fails the day that stops being true — so
+//     it never loads this file, lazily or otherwise.
+// (2) On the rails that DO load the barrel (the PostToolUse `refs` and
+//     `eval-lock-nudge` nudges) the floor is ~316 ms of Node startup plus ~85
+//     existing requires, against which 45 ms is ~13%, not a breach.
+//
+// And the attempt is on record as well: an in-body `require("./config-schema")`
+// resolves in `dist` (CommonJS) and NOT under vitest, which imports the `.ts`
+// sources — it failed every suite that touches `loadConfig`. A deferral that
+// only works in one of the two worlds the code runs in is not one line of
+// hygiene, it is a second module system.
+import {
+  vigilesConfigSchema,
+  formatConfigIssues,
+  REPLACED_KEYS,
+  replacedKeyMessage,
+  VigilesConfigError,
+} from "./config-schema.js";
 
 import type {
   ParsedRule,
@@ -12,6 +37,7 @@ import type {
   ValidatePathsResult,
   RulesConfig,
   VigilesConfig,
+  HarnessDeclaration,
   MarkerType,
   ParseOptions,
   ValidateOptions,
@@ -29,6 +55,7 @@ export type {
   ValidatePathsResult,
   RulesConfig,
   VigilesConfig,
+  HarnessDeclaration,
   MarkerType,
   ParseOptions,
   ValidateOptions,
@@ -45,8 +72,6 @@ const DISABLE_RE = /<!--\s*vigiles-disable\s*-->/;
 const RULE_HEADER_RE = /^###\s+(.+)$/;
 const CHECKBOX_RE = /^- \[([ xX])\]\s+(.+)$/;
 
-const VALID_MARKERS: readonly MarkerType[] = ["headings", "checkboxes"];
-
 // ---------------------------------------------------------------------------
 // Default config
 // ---------------------------------------------------------------------------
@@ -59,104 +84,27 @@ const INSTRUCTION_FILES: readonly string[] = ["CLAUDE.md", "AGENTS.md"];
 // The default instruction file to validate when no config names one.
 const DEFAULT_FILES: string[] = [INSTRUCTION_FILES[0]];
 
-export const DEFAULT_RULES: Required<RulesConfig> = {
-  // 🔴 BOTH DROP TO "warn", and that is a deliberate behaviour change.
-  //
-  // They used to feed the exit code directly and could not be tiered at all
-  // (#181), so a single unreferenced doc turned a PR red with no way to say
-  // "report it, do not block". Naming them as rules made the contradiction
-  // visible: both are HEURISTIC-BEHAVIORAL (an NCD similarity proxy, an
-  // "unreferenced" guess that an OSS sweep measured at ~100% false positives on
-  // nav-managed doc sites), and this repo's own calibration rule is that a
-  // heuristic never defaults to `error` because it cries wolf. `orphan-docs`
-  // already DECLARED `warn` in its meta while behaving as `error` — the gate
-  // caught that disagreement the moment the rule was registered properly.
-  //
-  // Set either to `"error"` to keep the old blocking behaviour.
-  // Hard error, like `compile` itself: a dead reference is decidable from the
-  // filesystem, not a proxy — the calibration rule's `external-decidable` tier.
-  "spec-refs": "error",
-  "orphan-docs": "warn",
-  "duplicate-rules": "warn",
-  "require-instructions-spec": "warn",
-  // Default OFF — the consistent `require-<surface>-spec` parallel. Skills are
-  // legitimately hand-written, so requiring a .spec.ts per SKILL.md is the wrong
-  // default (it would nag about vendored/fixture/bench skills); the coverage that
-  // matters is the `untested-*` rules ("every skill/agent/hook ships with a test
-  // or eval"). Set `require-skill-spec` explicitly if your team wants every skill
-  // spec-managed.
-  "require-skill-spec": false,
-  integrity: "warn",
-  coverage: false,
-  // Per-kind surface-coverage: a skill/agent/hook must ship with a test or eval.
-  "untested-skill": "warn",
-  "untested-subagent": "warn",
-  "untested-hook": "warn",
-  "unmarked-refs": "warn",
-  // High-precision (never-available + close typos only), so on by default at warn.
-  "subagent-tool-contract": "warn",
-  // High-precision (close typos only), on by default at warn.
-  "hook-events": "warn",
-  // Missing required frontmatter (name/description) — on by default at warn.
-  "subagent-frontmatter": "warn",
-  // A declared MCP server with no command/url can't start — on by default at warn.
-  "mcp-config": "warn",
-  // Best-practice nudge (skills load without frontmatter) — warn, not error.
-  "skill-frontmatter": "warn",
-  // High-precision (gated on a declared MCP set; built-ins allowlisted) — warn.
-  "mcp-tool-resolves": "warn",
-  // A hook script referenced but missing never runs — on by default at warn.
-  "hook-script-exists": "warn",
-  // Discovery nudge toward compiled hooks (one finding) — default OFF: it's a
-  // recommendation, not a defect (the hand-written shell lane stays first-class),
-  // so it shouldn't fire unasked. Set "warn"/"error" to opt in.
-  "prefer-compiled-hooks": false,
-  // High-precision (close-typo only) deny-list mirror of subagent-tool-contract.
-  "disallowed-tools-contract": "warn",
-  // Deterministic NCD precision proxy (near-identical skill descriptions) — warn.
-  "description-overlap": "warn",
-  // A model-invocable skill's description so long the trigger signal is buried —
-  // WARN only (heuristic proxy, generous 500-char budget); never gates.
-  "skill-description-budget": "warn",
-  // Malformed-YAML frontmatter — WARN only (js-yaml is stricter than some loaders).
-  "frontmatter-valid": "warn",
-  // A mcp_tool hook incomplete / targeting an undeclared server — on by default at warn.
-  "mcp-hook-target-resolves": "warn",
-  // Lethal-trifecta capability set-intersection (read-private + ingest-untrusted +
-  // exfiltrate in one unit) — WARN by default (don't-cry-wolf rollout); raise to error.
-  "lethal-trifecta": "warn",
-  // A SKILL.md body referencing a missing bundled resource — WARN by default
-  // (don't-cry-wolf rollout, FP-safe); raise to error to gate CI.
-  "skill-resource-resolves": "warn",
-  // A SKILL.md missing its opening `---` fence (invisible skill) — WARN by
-  // default (FP-safe key whitelist); raise to error to gate CI.
-  "skill-missing-fence": "warn",
-  // Functional dirs nested inside `.claude-plugin/` (invisible surfaces) — WARN
-  // by default; raise to error to gate CI.
-  "plugin-dir-layout": "warn",
-  // A lethal trifecta emerging across a delegation edge (combined blast radius) —
-  // WARN by default (don't-cry-wolf rollout); raise to error to gate CI.
-  "delegation-trifecta": "warn",
-  // A hook that looks like it blocks but silently doesn't (#19009) — WARN by
-  // default (FP-safe literal patterns); raise to error to gate CI.
-  "hook-block-ineffective": "warn",
-  // A hook matcher that doesn't fire as written (tool typo, an MCP pattern
-  // that matches no tool name, or one too narrow for real server names) — WARN
-  // by default (high-precision); raise to error to gate CI.
-  "hook-matcher": "warn",
-  // Builder calls quoted inside ```ts fences in markdown — default OFF. Measured
-  // over 2 582 markdown files across two repos: 52 refs, 0 true positives, and
-  // every error raised was a false one (a design sketch's `cmd("npm test")`, a
-  // vendored third-party CLAUDE.md). A fence in prose is a DRAWING of config;
-  // reading it as config is the defect. Opt in where markdown IS the source.
-  "doc-refs": false,
-};
+/**
+ * The shipped default severity of every rule — DERIVED from the schema, never
+ * listed twice.
+ *
+ * It used to be the literal beside the type, which is exactly the pair that
+ * drifts: `rule-meta.test.ts` already cross-checks each rule's documented
+ * `defaultSeverity` against this object, and it could only ever catch a doc that
+ * disagreed with the literal, never a literal that disagreed with what parsing
+ * actually produced. Reading it out of the parser closes that gap: this IS what
+ * a `{}` config loads as.
+ */
+export const DEFAULT_RULES: Required<RulesConfig> = defaultConfig()
+  .rules as Required<RulesConfig>;
 
-const DEFAULT_CONFIG: VigilesConfig = {
-  ruleMarkers: ["headings", "checkboxes"],
-  rules: DEFAULT_RULES,
-  files: DEFAULT_FILES,
-};
+/** The default rule markers — read from the schema, like every other default. */
+const DEFAULT_MARKERS: readonly MarkerType[] = defaultConfig().ruleMarkers;
+
+/** A freshly parsed empty config — the defaults, straight from the schema. */
+function defaultConfig(): VigilesConfig {
+  return vigilesConfigSchema.parse({});
+}
 
 // ---------------------------------------------------------------------------
 // Instruction file discovery
@@ -175,44 +123,7 @@ export function findInstructionFiles(
 // ---------------------------------------------------------------------------
 
 /**
- * ESLint users write `"off"` / `0` / `1` / `2` for severity; normalize to
- * vigiles's `"warn" | "error" | false` so a rule the user meant to DISABLE
- * (`"off"`) or GATE (`2`) actually does — instead of a truthy string / number
- * silently rendering as a non-gating warn (issue #112 + numeric severities). The
- * array form `[sev, opts]` recurses on the head. An unrecognized value is left
- * as-is (it renders as a warn, the pre-existing behavior).
- */
-export function normalizeSeverity(v: unknown): unknown {
-  if (Array.isArray(v)) return [normalizeSeverity(v[0]), v[1]];
-  if (v === "off" || v === 0 || v === false) return false;
-  if (v === "error" || v === 2) return "error";
-  if (v === "warn" || v === 1) return "warn";
-  return v;
-}
-
-/**
- * Coerce a config value that should be a `string[]`: a bare STRING becomes a
- * one-element array (the natural first-value mistake), so `exclude` /
- * `orphans.include` don't silently iterate a string's CHARACTERS as globs — a
- * no-op at best, and garbage "orphan" matches (`.`, `/`, `README.md`) at worst.
- * A non-string/array value falls back with a warning (the `ruleMarkers` pattern).
- */
-export function asStringArray(
-  v: unknown,
-  fallback: readonly string[],
-  key: string,
-): readonly string[] {
-  if (typeof v === "string") return [v];
-  if (Array.isArray(v))
-    return v.filter((x): x is string => typeof x === "string");
-  console.warn(
-    `Invalid ${key} in config: expected a string or string[], got ${JSON.stringify(v)}. Ignoring.`,
-  );
-  return fallback;
-}
-
-/**
- * Read `.vigilesrc.json`.
+ * Read and VALIDATE `.vigilesrc.json`.
  *
  * 🔴 `searchFrom` IS NOT A CONVENIENCE. cosmiconfig defaults to the process's
  * working directory and walks up — right for a CLI verb, where the user is
@@ -223,76 +134,61 @@ export function asStringArray(
  * "off" was never found. Nothing in the output distinguishes that from a project
  * that never configured the rule.
  *
- * Every CLI verb still calls this with no argument and is unaffected.
+ * 🔴 `onInvalid` IS THE ONE PLACE THE CALL SITES DIFFER, AND IT IS NOT A SPLIT
+ * IN WHAT IS CHECKED. Every reader validates; they disagree only about what a
+ * bad config is allowed to do to them. A VERB is a human standing at a prompt
+ * having just edited the file — `"throw"`, so the line they typed is refused out
+ * loud. A HOOK RAIL is a fresh process inside somebody's editing session, and a
+ * hook that dies on a malformed config turns a typo in a JSON file into a failed
+ * edit, which is a worse outcome than the nudge not firing — `"warn"`, print the
+ * same lines to stderr and carry on with the defaults.
+ *
+ * The two hook rails are `refsHookCommand` and `evalLockNudgeHookCommand`
+ * (`vigiles hook-runtime refs` / `eval-lock-nudge`, both registered as
+ * PostToolUse `Edit|Write` in `.claude-plugin/plugin.json`). Every other reader
+ * is a verb.
+ *
+ * ⚠️ THE SCHEMA MODULE IS REQUIRED IN-BODY, and that is hygiene rather than an
+ * optimization worth a paragraph: Zod is a ~45 ms cold import, `tsc` emits
+ * CommonJS across 230 separate files, so a `require` in a function body genuinely
+ * does not execute until the function is called. A rail that never reads a
+ * config never pays for the validator.
  */
-export function loadConfig(searchFrom?: string): VigilesConfig {
+export function loadConfig(
+  searchFrom?: string,
+  { onInvalid = "throw" }: { onInvalid?: "throw" | "warn" } = {},
+): VigilesConfig {
+  let raw: unknown;
   try {
     const explorer = cosmiconfigSync("vigiles", {
       searchPlaces: [".vigilesrc.json"],
       mergeSearchPlaces: false,
     });
-    const result = explorer.search(searchFrom);
-    if (!result?.config) return { ...DEFAULT_CONFIG };
-
-    const userConfig = result.config as Partial<VigilesConfig> & {
-      rules?: Partial<RulesConfig>;
-    };
-
-    const config: VigilesConfig = {
-      ...DEFAULT_CONFIG,
-      ...userConfig,
-      // Normalize ESLint-idiom severities ("off"/0/1/2) across the merged rules,
-      // so a config value coerces to a real gating decision instead of a truthy
-      // string silently downgrading to warn.
-      rules: Object.fromEntries(
-        Object.entries({ ...DEFAULT_RULES, ...userConfig.rules }).map(
-          ([k, v]) => [k, normalizeSeverity(v)],
-        ),
-      ) as Required<RulesConfig>,
-      files: Array.isArray(userConfig.files) ? userConfig.files : DEFAULT_FILES,
-    };
-
-    // Parse-don't-validate the array-shaped keys ONCE here: a bare string is
-    // accepted as [string]; anything else warns + falls back. Downstream code
-    // then always sees a real string[] (no char-by-char glob spread).
-    if (userConfig.exclude !== undefined)
-      config.exclude = asStringArray(userConfig.exclude, [], "exclude");
-    if (userConfig.sharedDirs !== undefined)
-      config.sharedDirs = asStringArray(
-        userConfig.sharedDirs,
-        [],
-        "sharedDirs",
-      );
-    if (config.orphans) {
-      config.orphans = {
-        ...config.orphans,
-        include:
-          config.orphans.include === undefined
-            ? undefined
-            : asStringArray(config.orphans.include, [], "orphans.include"),
-        exclude:
-          config.orphans.exclude === undefined
-            ? undefined
-            : asStringArray(config.orphans.exclude, [], "orphans.exclude"),
-      };
-    }
-
-    if (
-      !Array.isArray(config.ruleMarkers) ||
-      !config.ruleMarkers.every((m): m is MarkerType =>
-        (VALID_MARKERS as readonly string[]).includes(m),
-      )
-    ) {
-      console.warn(
-        `Invalid ruleMarkers in config: ${JSON.stringify(config.ruleMarkers)}. Using default.`,
-      );
-      config.ruleMarkers = [...DEFAULT_CONFIG.ruleMarkers];
-    }
-
-    return config;
+    raw = explorer.search(searchFrom)?.config;
   } catch {
-    return { ...DEFAULT_CONFIG };
+    // No file, unreadable file, malformed JSON — the defaults, as always. A
+    // config we CAN read and refuse is a different thing and is handled below.
+    return defaultConfig();
   }
+  if (raw === undefined || raw === null) return defaultConfig();
+
+  // The replaced keys get their own message BEFORE the schema's, because the
+  // reader is someone whose config used to work: `.strict()` would tell them
+  // "unknown key harness", which is true and useless. See REPLACED_KEYS.
+  const problems: string[] = [];
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const present = REPLACED_KEYS.filter((k) => k.key in raw);
+    if (present.length > 0) problems.push(replacedKeyMessage(present));
+  }
+  if (problems.length === 0) {
+    const parsed = vigilesConfigSchema.safeParse(raw);
+    if (parsed.success) return parsed.data;
+    problems.push(...formatConfigIssues(parsed.error.issues));
+  }
+  if (onInvalid === "throw") throw new VigilesConfigError(problems.join("\n"));
+  for (const line of problems) console.warn(`⚠ ${line}`);
+  console.warn("⚠ Using default configuration.");
+  return defaultConfig();
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +199,7 @@ export function parseRules(
   content: string,
   { ruleMarkers }: ParseOptions = {},
 ): ParsedRule[] {
-  const markers = ruleMarkers ?? DEFAULT_CONFIG.ruleMarkers;
+  const markers = ruleMarkers ?? DEFAULT_MARKERS;
   const lines = content.split("\n");
   const rules: ParsedRule[] = [];
 

@@ -92,12 +92,20 @@ export function verifySymbolRefs(
   const errors: SymbolRefError[] = [];
   for (const ref of symbolRefs(markdown)) {
     const full = resolve(basePath, ref.file);
+    const support = langForFile(ref.file);
     if (!existsSync(full)) {
       errors.push({ ...ref, reason: `File not found: "${ref.file}"` });
-    } else if (langForFile(ref.file) === null) {
+    } else if (support.kind === "unsupported") {
       errors.push({
         ...ref,
         reason: `Unsupported language for symbol check: "${ref.file}"`,
+      });
+    } else if (support.kind === "grammar-missing") {
+      // NOT "unsupported": the language is one this tool parses, the optional grammar just is
+      // not installed here. Saying it the other way would report an un-run check as a verdict.
+      errors.push({
+        ...ref,
+        reason: `Symbol not checked: the ${support.id} grammar is not installed (npm i -D ${support.pkg})`,
       });
     } else if (!fileDefinesSymbol(full, ref.symbol)) {
       errors.push({

@@ -114,14 +114,14 @@ file.
 `vigiles:` FRONTMATTER ("Level 1") mode docs. Frontmatter mode is now DISABLED in
 lint (2026-06-28): the parser/code is KEPT (src/core/frontmatter.ts,
 examples/frontmatter-CLAUDE.md, `vigiles generate schema`) but lint GATES it off
-via `FRONTMATTER_MODE_ENABLED = false` in src/cli.ts — a `vigiles:` block is INERT
-(not read, not verified, never fails a build). This is the two-on-ramp collapse from
-research/pre-release-focus.md taken all the way (un-marketed → disabled), because a
-working-but-undocumented mode muddied the spec-first story. NOT deleted: flip the flag
-to re-enable. To un-park the DOCS: lift this content back above, re-enable the flag,
+via `FRONTMATTER_MODE_ENABLED = false` in src/cli-main.ts — a `vigiles:` block is INERT
+(not read, not verified, never fails a build). This is the two-on-ramp collapse taken
+all the way (un-marketed → disabled), because a working-but-undocumented mode muddied
+the spec-first story. NOT deleted: flip the flag to re-enable. To un-park the
+DOCS: lift this content back above, re-enable the flag,
 and restore the inner `<!~~ … ~~>` markers to real HTML comment markers (they are
 written with `~~` here ONLY so a nested comment-close doesn't close this parked
-comment). See research/roadmap.md "Launch readiness".
+comment).
 
 === Original three-rung ladder ===
 

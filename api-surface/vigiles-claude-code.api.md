@@ -4,6 +4,8 @@
 
 ```ts
 
+import type { IgnoreLike } from 'glob';
+
 // @public
 export function assertNoCollision(report: SelectionReport, opts?: {
     maxOffDiagonal?: number;

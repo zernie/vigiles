@@ -332,3 +332,87 @@ describe("exclude — every options-object detector call in cli.ts carries the E
     });
   }
 });
+
+/**
+ * Row 12 — `audit` does not GRADE an excluded surface (#192, landed 2026-09-21).
+ *
+ * A separate fixture from the one above on purpose: the shape that mattered here
+ * is a vendored tree sitting INSIDE the audited bundle's own surface dir, not a
+ * vendored bundle sitting beside it. The root `loadPlugin` walk only ever opens
+ * `skills/` and `.claude/skills/`, so a `vendored/` dir at the repo root never
+ * reached it and the row above could not have caught this.
+ *
+ * Measured before the fix, on this exact fixture: `audit` printed the vendored
+ * skill under `Skills (…)` and scored it, although `exclude` named its directory.
+ * Both directions are driven, because the failure mode is a filter that stopped
+ * filtering.
+ */
+describe("exclude e2e — `audit` and a vendored skill inside the surface dir", () => {
+  let dir: string;
+
+  function makeSurfaceFixture(exclude: readonly string[]): string {
+    const d = mkdtempSync(join(tmpdir(), "vigiles-exclude-surface-"));
+    const w = (rel: string, text: string): void => {
+      mkdirSync(join(d, rel, ".."), { recursive: true });
+      writeFileSync(join(d, rel), text);
+    };
+    w(".vigilesrc.json", JSON.stringify({ exclude }));
+    w("package.json", JSON.stringify({ name: "fx", version: "0.0.0" }));
+    w("CLAUDE.md", "# fx\n\nrules.\n");
+    w(
+      ".claude/skills/mine/SKILL.md",
+      "---\nname: mine\ndescription: the project's own skill, always graded\n---\n\nBody.\n",
+    );
+    w(
+      ".claude/skills/vendored/SKILL.md",
+      "---\nname: vendored\ndescription: somebody else's skill, copied in verbatim\n---\n\nBody.\n",
+    );
+    return d;
+  }
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+  it("excluded: the vendored skill is not read, the project's own still is", () => {
+    dir = makeSurfaceFixture([".claude/skills/vendored"]);
+    const r = run("audit --no-html", dir);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /^Skills \(1\):/m, "one surface read, not two");
+    assert.match(
+      r.out,
+      /^ {2}✓ mine$/m,
+      "the repo's own surface is still read",
+    );
+    assert.doesNotMatch(
+      r.out,
+      /^ {2}✓ vendored$/m,
+      "an excluded surface must not be read into the graded machine",
+    );
+    // The GRADE moves with it, which is the half a user feels: the vendored
+    // skill's missing `disallowed-tools:` fence is no longer charged to this repo.
+    assert.match(r.out, /Harness health: A \(90\/100\)/);
+  });
+
+  it("control: with `exclude: []` the vendored skill IS read and graded", () => {
+    const d = makeSurfaceFixture([]);
+    try {
+      const r = run("audit --no-html", d);
+      assert.equal(r.code, 0, r.out);
+      assert.match(
+        r.out,
+        /^Skills \(2\):/m,
+        "without the exclude the same fixture reads both — else this proves nothing",
+      );
+      assert.match(r.out, /^ {2}✓ vendored$/m);
+      assert.match(r.out, /Harness health: B \(80\/100\)/);
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  // ⚠️ NOT asserted, and named rather than hidden: the ADOPT nudge still lists
+  // `.claude/skills/vendored/SKILL.md`. It comes from `discoverAdoptableSurfaces`,
+  // a shallow readdir shared with `init` whose `eslint-disable` cites the
+  // exception table at the top of `src/exclude.ts`. Closing it changes `init`'s
+  // behaviour too, so it is a separate fix, not a loose end here.
+});

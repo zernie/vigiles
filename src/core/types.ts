@@ -1,4 +1,12 @@
 import type { HarnessDialect } from "./dialect.js";
+// TYPE-ONLY, and that matters: `types.ts` is imported by node-free core modules,
+// and a value import of the schema would pull Zod (and its ~45 ms cold cost) into
+// every one of them. A `import type` is erased, so there is no runtime edge and
+// no cycle, even though config-schema.ts imports nothing from here.
+import type {
+  HarnessDeclarationShape,
+  VigilesConfigShape,
+} from "./config-schema.js";
 
 /** A parsed rule from a markdown instruction file. */
 export interface ParsedRule {
@@ -409,113 +417,42 @@ export function ruleOptions<T>(
   return undefined;
 }
 
-/** Full vigiles configuration. Loaded from .vigilesrc.json. */
-export interface VigilesConfig {
-  // --- Validation ---
-  ruleMarkers: MarkerType[];
-  rules: Required<RulesConfig>;
-  files: string[];
+/**
+ * ONE harness's entry in {@link VigilesConfig.harnesses} — what this repo tells
+ * that harness about itself. Today that is only `roots`; the OBJECT (rather than
+ * a bare array of roots) is what leaves room for a second per-harness fact
+ * without another top-level key, which is how `surfaceRoots` came to exist
+ * beside `harness` in the first place.
+ *
+ * `{}` is meaningful and is the common case: "this repo targets this harness,
+ * and it reads it where it normally reads it."
+ *
+ * `roots` are extra repo-relative dirs THIS harness's surfaces live under, read
+ * with THIS harness's own `surfaceDirs` — `[".ai"]` under `"claude-code"` means
+ * `.ai/skills`, `.ai/agents`, `.ai/commands`. Every entry must resolve to at
+ * least one surface dir that exists on disk under this harness's layout; one
+ * that does not is a hard error, because a root declared under a harness that
+ * reads nothing there changes nothing and used to say nothing.
+ */
+export type HarnessDeclaration = HarnessDeclarationShape;
 
-  // --- Compilation ---
-  /** Maximum number of rules allowed per spec. */
-  maxRules?: number;
-  /** Maximum estimated tokens for compiled output. */
-  maxTokens?: number;
-  /** Maximum lines per prose section. */
-  maxSectionLines?: number;
-  /** Skip config-enabled checks, only verify rule exists in catalog. */
-  catalogOnly?: boolean;
-  /** Custom linter configs (rulesDir). */
-  linters?: Record<string, { rulesDir?: string | string[] }>;
-  /** Orphan-docs check configuration. Include/exclude globs, tsconfig-style. */
-  /**
-   * Which bundles `lint` scores: `"root"` (default) or `"all"`.
-   *
-   * A monorepo holding `skills/` plus `plugins/  * /skills/` had its nested skills
-   * silently uncounted — the counters looked complete while whole surfaces were
-   * never read (#185). `"all"` scores every discovered bundle in one pass, so a
-   * CI gate keeps ONE exit code over the whole repo.
-   *
-   * Root-only remains the default because descending unconditionally would score
-   * vendored third-party plugins (a repo may keep a pinned corpus on disk) as if
-   * they were the project's own. The default no longer hides the skip: `lint`
-   * names the bundles it did not score.
-   */
-  bundles?: "root" | "all";
-  orphans?: OrphansConfig;
-  /**
-   * Paths and globs the repo's own tooling does NOT police — vendored corpora,
-   * benchmark fixtures, frozen reproductions (tsconfig-style, relative to the
-   * repo root; a bare directory name such as `"bench"` excludes its subtree, as
-   * do `"bench/"` and `"bench/**"`). `node_modules`/`dist`/`.git`/`.vigiles` are
-   * always excluded.
-   *
-   * ONE filter, every pass (#192): `compile` does not load an excluded spec,
-   * `lint` does not discover an excluded instruction file, nested bundle, doc, or
-   * surface, `audit` does not read an excluded instruction file, and
-   * `test`/`eval` do not discover an excluded script. It filters DISCOVERY only:
-   * a path you name on the command line is still processed, and one line says
-   * which pattern it matched. The rule-level `orphans.exclude` and
-   * `untested-*` `exclude` NARROW their own rule further and never re-admit a
-   * path excluded here (union, not override). Parsed once in `src/exclude.ts`.
-   */
-  exclude?: readonly string[];
-  /**
-   * Top-level dir names shared across skills, e.g. `["scripts", "references"]`.
-   * OPT-IN: many skill libraries keep ONE top-level `scripts/`/`references/` tree
-   * rather than a copy beside every `SKILL.md`, so a bundled ref like
-   * `scripts/promptfoo/x.py` lives at the REPO ROOT. When a `SKILL.md` body ref's
-   * first path segment is a declared shared dir, `skill-resource-resolves` / audit
-   * ALSO resolves it against the repo root, not only the skill's own dir. Scoped
-   * to declared dirs on purpose: a repo that omits this key behaves exactly as
-   * before (skill-dir-only resolution), and a ref outside a shared dir is never
-   * masked by a same-named repo-root file. See feedback P1-4.
-   */
-  sharedDirs?: readonly string[];
-  /**
-   * The harness(es) this repo targets — selects the compile dialect / skill
-   * frontmatter profile / instruction-file shape, instead of sniffing the cwd.
-   * A single name (`"codex"`) for the common single-harness repo, or an array
-   * (`["claude-code", "codex"]`) declaring the supported set. Written by
-   * `vigiles init`. Omitted → the CLI auto-detects (backwards-compatible).
-   * Canonical adapter names; `"claude"` is accepted as an alias for
-   * `"claude-code"`. See research/multi-harness-compile.md.
-   */
-  harness?: string | string[];
-
-  /**
-   * `vigiles audit` preferences. `measure` is the sticky remembered answer to the
-   * "run the executing checks against your harness?" prompt — at a TTY `audit`
-   * asks once, then records the choice here so it never asks again. `true` runs
-   * the executing checks (safety battery · live MCP · skill firing) on every
-   * interactive run, `false` keeps them off (edit this key to change). Written by
-   * the audit consent prompt, not `init`. Headless runs never execute regardless
-   * (audit is a local report, not a CI step — there is no execution flag).
-   */
-  audit?: { measure?: boolean };
-
-  /**
-   * `vigiles eval` preferences. `apiVersion` is the hand-bumped **behavior epoch**
-   * folded into the eval LOCK's input hash (`src/eval-lock.ts`): bump it when a
-   * harness-side change YOU made (a CLAUDE.md edit, a global hook) would shift
-   * eval outputs but isn't otherwise visible to the lock — so `vigiles eval
-   * --check` reports the committed eval results STALE and forces a local re-run.
-   * Default 1. Distinct from the (auto-resolved) `claude` CLI version, which is
-   * recorded as provenance but deliberately NOT hashed.
-   */
-  eval?: { apiVersion?: number };
-
-  /**
-   * Suppress the adoption nudges `audit` prints (the "N surfaces not yet
-   * spec-managed → create specs" invitation). Set `"dismissed"` to hide them —
-   * the "remembered decline" half of the non-evil adoption contract, so a team
-   * that deliberately runs the integrity GATE alone (no specs/plugin) isn't
-   * nagged on every run. USER-SET only: `audit`/`lint` are pure reads and never
-   * write this (a read never writes). The deterministic findings + fixes are
-   * unaffected — this silences only the invitation, never a real finding.
-   */
-  nudge?: "dismissed";
-}
+/**
+ * Full vigiles configuration, loaded from `.vigilesrc.json`.
+ *
+ * 🔴 DERIVED FROM THE SCHEMA, NOT WRITTEN BESIDE IT. The shape, the defaults and
+ * the per-key prose all live in `./config-schema.ts`; this is
+ * `z.infer<typeof vigilesConfigSchema>` with the defaults applied, so the type
+ * says exactly what a parsed config carries — `rules` non-optional and complete
+ * because every rule key has a schema default, optional keys optional because
+ * the schema says so. A hand-written twin is the copy that drifts: `harness` and
+ * `surfaceRoots` lived in that twin, in `docs/cli.md` and in the loader's
+ * coercions, and the three disagreed about what was read (#240).
+ *
+ * The re-export is TYPE-ONLY on purpose — `types.ts` is imported by node-free
+ * core modules, and a value import of the schema module would pull Zod into
+ * every one of them.
+ */
+export type VigilesConfig = VigilesConfigShape;
 
 /** Valid marker types for rule detection. */
 export type MarkerType = "headings" | "checkboxes";

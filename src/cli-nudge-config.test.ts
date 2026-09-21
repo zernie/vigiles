@@ -175,12 +175,18 @@ test("…and an `exclude` that hides the covering test is honoured too", () => {
 //
 // 🔴 Reproduced 2026-08-12. `skillTestNudge` was called with `basePath` alone, so
 // `test-coverage.ts` fell back to `claudeCodeLayout`. In a Codex repo whose only
-// surface is `.codex/skills/demo/SKILL.md`, discovery returned ZERO surfaces, the
+// surface is the harness's skills dir, discovery returned ZERO surfaces, the
 // edited skill matched nothing, and the hook said nothing at all — while `vigiles
 // lint`, which threads `adapter.layout` into the very same function, reported that
 // skill as untested. Silence is the worst failure mode a nudge has: nobody goes
 // looking for a message that never arrives.
-const CODEX_SKILL = ".codex/skills/demo/SKILL.md";
+//
+// The PATH here moved 2026-09-21, and the reason is not cosmetic: this fixture is
+// the stand-in for "a real Codex repo", so it has to sit where Codex actually
+// looks. The vendor scans `.agents/skills` (learn.chatgpt.com/docs/build-skills);
+// `.codex/skills` — what this said before — is a directory Codex reads nothing
+// from, so the old fixture proved the nudge fires on a path no user has.
+const CODEX_SKILL = ".agents/skills/demo/SKILL.md";
 
 test("a CODEX repo gets the nudge its own linter gives — the layout is not assumed", () => {
   write(".codex/config.toml", "[mcp_servers]\n");
@@ -190,7 +196,7 @@ test("a CODEX repo gets the nudge its own linter gives — the layout is not ass
   );
   assert.match(
     lint(),
-    /skill \.codex\/skills\/demo\/SKILL\.md — add e\.g\./,
+    /skill \.agents\/skills\/demo\/SKILL\.md — add e\.g\./,
     "precondition: lint resolves the Codex adapter and sees the surface",
   );
   assert.match(

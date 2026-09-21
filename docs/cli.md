@@ -226,8 +226,8 @@ See the [agent setup & workflows guide](agent-setup.md).
 > compiler** (`.spec.ts` → `.md`). It is a _different system_ from the
 > **`@vigiles/rule-enforcer`** package (dir `rule-enforcer/`), which turns _prose_
 > rules from your CLAUDE.md into enforceable lint rules (route → synthesize →
-> gate). Same word "compile", unrelated jobs. See
-> `research/rule-enforceability.md`.
+> gate). Same word "compile", unrelated jobs. That tier has its own page:
+> [`rule-enforcer/README.md`](../rule-enforcer/README.md).
 
 `compile` renders each `.spec.ts` to its instruction file / `SKILL.md` /
 subagent. Which **harness dialect** it renders (the `SKILL.md` frontmatter
@@ -237,9 +237,10 @@ sniffing:
 1. `--harness=<name>` flag — wins (`claude-code`/`codex`; `claude` is an alias).
 2. The **spec's own target** for an instruction file — a `CLAUDE.md.spec.ts` is
    claude-code, an `AGENTS.md.spec.ts` is codex.
-3. The **`harness` key** in `.vigilesrc.json` (written by `init`):
-   `"codex"`, or `["claude-code", "codex"]` to declare a multi-harness repo (the
-   first is used, with a loud notice; override per run with `--harness=`).
+3. The **`harnesses` key** in `.vigilesrc.json` (written by `init`):
+   `{ "codex": {} }`, or `{ "claude-code": {}, "codex": {} }` to declare a
+   multi-harness repo. For a single-dialect operation like `compile` the FIRST
+   key is used, with a loud notice; override per run with `--harness=`.
 4. Auto-detect from the repo, warning when it's ambiguous.
 
 ```bash
@@ -249,7 +250,7 @@ npx vigiles compile --harness=codex      # force the Codex dialect for this run
 
 Two multi-harness behaviours:
 
-- **Instruction-file mirror.** When `harness` declares ≥2 harnesses and no sync
+- **Instruction-file mirror.** When `harnesses` declares ≥2 harnesses and no sync
   tool (Ruler/rulesync) or existing mirror fans the file out, `compile` writes a
   **byte-identical** `CLAUDE.md`⇄`AGENTS.md` copy. It carries the source's
   integrity hash, so a hand-edit of the mirror trips the `integrity` check. It
@@ -489,42 +490,18 @@ npx vigiles audit ./marketplace-repo --single  # ...or audit that root as ONE ha
 npx vigiles audit ./repo --harness=codex # override harness detection
 ```
 
-### `exclude` — what the repo's own tooling does not police
+### Configuration
 
-A repo often carries markdown, specs, skills or test scripts that are **not its
-own**: a vendored plugin corpus, a third-party `CLAUDE.md` kept as benchmark data,
-a frozen reproduction written against an older vigiles. List those paths once,
-tsconfig-style, in `.vigilesrc.json`:
+`audit` and every other command read `.vigilesrc.json` from the repo root. The
+keys, what each one does, and a config using all of them are on one page:
+**[Configuration](configuration.md)**.
 
-```json
-{ "exclude": ["bench", "test/dogfood/**", "research/frozen-2025"] }
-```
+The two you are most likely to want:
 
-A bare directory name excludes its subtree (`"bench"`, `"bench/"` and `"bench/**"`
-mean the same thing); `node_modules`, `dist`, `.git` and `.vigiles` are always
-excluded. **One filter, every command:**
-
-| command         | what `exclude` drops                                                         |
-| --------------- | ---------------------------------------------------------------------------- |
-| `compile`       | an excluded `*.spec.ts` is not loaded — a frozen spec cannot fail the build  |
-| `lint`          | instruction files, nested bundles, docs, skills/subagents/hooks, spec refs   |
-| `audit`         | an excluded `CLAUDE.md`/`AGENTS.md` is not read into the rule map            |
-| `test` / `eval` | an excluded `*.harness.*` / `*.eval.*` is not discovered, so it does not run |
-
-It filters **discovery only**. A path you name on the command line is still
-processed, and one line says why:
-
-```
-$ npx vigiles compile bench/old/SKILL.md.spec.ts
-note: bench/old/SKILL.md.spec.ts matches exclude "bench" — compiling because you named it
-```
-
-(ripgrep and tsc do the same silently; ESLint skips the file with a warning;
-prettier skips it and reports it clean. vigiles processes it and says so.)
-
-The rule-level lists — `orphans.exclude` and the `untested-*` rules' `exclude` —
-**narrow their own rule further**. They never re-admit a path excluded here: both
-set means the union.
+| key                      | for                                                  |
+| ------------------------ | ---------------------------------------------------- |
+| `exclude`                | files in the repo that are not the repo's own        |
+| `harnesses.<name>.roots` | skills in a folder the tool does not read by default |
 
 ### `lint` in a monorepo, and getting both artefacts from one run
 

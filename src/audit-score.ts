@@ -103,6 +103,13 @@ export interface AuditScore {
   readonly categories: readonly CategoryScore[];
   /** No loadable surface at all — overall 0, every category n/a. */
   readonly empty: boolean;
+  /**
+   * An instruction file was read and NOT ONE surface was — the state #240 was
+   * filed about. It is not `empty` (there is something to grade: refs, layout),
+   * so it carries a real score; but a score over zero skills, zero agents and
+   * zero commands must not be printed as if the machine had been inspected.
+   */
+  readonly instructionsOnly: boolean;
 }
 
 // Per-item penalties are the SHARED leaderboard weights (imported above) so the
@@ -189,6 +196,20 @@ function truthfulness(r: ScanReport): CategoryScore {
 }
 
 function triggering(r: ScanReport): CategoryScore {
+  // 🔴 NO SKILL READ IS NOT A PERFECT SCORE. Every input below is drawn from
+  // `r.skills`, so with an empty list `scoreFrom` sums zero penalties and returns
+  // 100 — a number about nothing. That is how a repo whose skills live in a
+  // directory this tool does not know by name (#240) audits as A: the zero guard
+  // `isEmptyAudit` is switched off by the presence of an instruction file, and the
+  // graders then run over empty arrays. `evaluated()` below already answers this
+  // shape with `null`; this is the same answer for the same reason.
+  if (r.skills.length === 0)
+    return {
+      key: "Triggering",
+      score: null,
+      weight: 1,
+      findings: ["no skill read — nothing whose triggering could be scored"],
+    };
   const noDesc = r.skills.filter((s) => !s.hasDescription).length;
   const { score, findings } = scoreFrom([
     {
@@ -265,6 +286,16 @@ function structure(r: ScanReport): CategoryScore {
       weight: W_NO_DESCRIPTION,
       label: "functional dir(s) misplaced inside `.claude-plugin/` (invisible)",
     },
+    // A surface directory NO registered harness reads (#240). Same class as the
+    // row above — a real surface the harness cannot see — so the same weight and
+    // the same ring. It is graded rather than advisory for the reason the
+    // reporter gave: an empty scan that stays silent is indistinguishable from a
+    // clean one, and the A (100) it produced is the expensive half of the bug.
+    {
+      n: r.unclaimedSurfaces.length,
+      weight: W_NO_DESCRIPTION,
+      label: "surface dir(s) no harness reads (not in this grade)",
+    },
     {
       n: r.skillFenceIssues.length,
       weight: W_NO_DESCRIPTION,
@@ -306,6 +337,7 @@ function structure(r: ScanReport): CategoryScore {
     r.mcpHookIssues.length +
     r.frontmatterIssues.length +
     r.pluginLayoutIssues.length +
+    r.unclaimedSurfaces.length +
     r.skillFenceIssues.length +
     r.hookBlockFindings.length +
     r.hookMatcherFindings.length;
@@ -428,6 +460,17 @@ function safety(r: ScanReport): CategoryScore {
  * ring never silently reports 0 for a report that simply doesn't carry the field.
  */
 function tested(r: ScanReport): CategoryScore {
+  // Same guard as `triggering()` above and `evaluated()` below: with no surface on
+  // disk the gap count is zero for want of anything to count, and printing 100 for
+  // that reads as "tested" rather than "nothing was read".
+  if (isEmptyMachine(r))
+    return {
+      key: "Tested",
+      score: null,
+      weight: 1,
+      advisory: true,
+      findings: ["no surface to test"],
+    };
   const untestedHarness = r.untestedHarness ?? r.untested;
   const { score, findings } = scoreFrom([
     {
@@ -600,6 +643,7 @@ export function auditScore(
         findings: ["no loadable plugin surface"],
       })),
       empty: true,
+      instructionsOnly: false,
     };
   }
   const categories: CategoryScore[] = [
@@ -618,7 +662,13 @@ export function auditScore(
   // A confident breakage caps the headline too, so it can never read `A` while a
   // surface is definitively dead (score-core.ts::applyBreakageCap).
   const overall = applyBreakageCap(summed, report);
-  return { overall, grade: gradeFor(overall), categories, empty: false };
+  return {
+    overall,
+    grade: gradeFor(overall),
+    categories,
+    empty: false,
+    instructionsOnly: isEmptyMachine(report),
+  };
 }
 
 /**
@@ -672,6 +722,12 @@ export function formatAuditScore(s: AuditScore): string {
     }
   }
   lines.push("");
-  lines.push(`Harness health: ${s.grade} (${String(s.overall)}/100)`);
+  lines.push(
+    s.instructionsOnly
+      ? `Harness health: ${s.grade} (${String(s.overall)}/100) — instructions only: ` +
+          `no skill, agent or command was read. If this repo ships them somewhere ` +
+          `this tool did not look, the grade is about the instruction file alone.`
+      : `Harness health: ${s.grade} (${String(s.overall)}/100)`,
+  );
   return lines.join("\n");
 }

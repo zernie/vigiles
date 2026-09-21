@@ -15,12 +15,18 @@
 import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { loadPlugin } from "./adapters/claude-code/plugin-loader.js";
+// The COMPOSITION-ROOT loader, not the `vigiles/claude-code` wrapper: this
+// module always passes a layout explicitly (it never wanted the wrapper's
+// Claude Code default), and only the generic one takes the `ExcludeSet` that
+// makes `.vigilesrc.json#exclude` reach surface discovery.
+import { loadPlugins } from "./plugin-loader.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { danglingRefs } from "./plugin-loader.js";
+import { isEmptyMachine } from "./score-core.js";
 import { brokenSkillRefs, formatSkillRefIssue } from "./skill-refs.js";
 import type { PluginLayout } from "./core/layout.js";
+import type { ExcludeSet } from "./exclude.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import type { ToolIssue } from "./core/tool-contract.js";
 import {
@@ -51,6 +57,12 @@ import {
   pluginDirLayoutIssues,
   type PluginLayoutFinding,
 } from "./core/plugin-dir-layout.js";
+import {
+  unclaimedSurfaceFindings,
+  type UnclaimedSurfaceFinding,
+} from "./core/surface-discovery.js";
+import { boundedSurfacePaths } from "./surface-discovery-fs.js";
+import { REGISTERED_LAYOUTS } from "./layout-registry.js";
 import type { DelegationTrifectaFinding } from "./core/delegation-trifecta.js";
 import {
   hookBlockIssues,
@@ -68,7 +80,7 @@ import {
 import { formatEvidence, type EvidenceCounts } from "./coverage-evidence.js";
 import type { PurityLevel, EffectSurface } from "./core/effects.js";
 import {
-  makeClassifier,
+  makeUnionClassifier,
   scanAgents,
   scanSkills,
   skillRefSources,
@@ -377,6 +389,14 @@ export interface ScanReport {
    */
   readonly pluginLayoutIssues: readonly PluginLayoutFinding[];
   /**
+   * Surface directories found by SHAPE in the bounded root set that NO
+   * registered harness claims — a harness sitting somewhere vigiles does not
+   * read, reported instead of silently graded around (#240). Computed by
+   * `core/surface-discovery.ts` from paths alone; shared with the browser twin
+   * (one detector, no drift).
+   */
+  readonly unclaimedSurfaces: readonly UnclaimedSurfaceFinding[];
+  /**
    * Lethal trifectas that EMERGE across a delegation edge — a subagent whose
    * effective (own ∪ delegated-to) capability holds all three legs though no
    * single unit does. Shared by `scan` and the `delegation-trifecta` lint rule
@@ -558,16 +578,96 @@ function ownTestSignalOnDisk(dir: string): boolean {
   });
 }
 
+/**
+ * ONE harness a scan reads the repo under — the resolved form of a
+ * `.vigilesrc.json#harnesses` entry (#240).
+ *
+ * All three parts travel together on purpose. The LAYOUT says where this harness
+ * reads and what a surface is there; the DIALECT says what it understands (and
+ * carries its own instruction budget, in its own unit); the ROOTS are the extra
+ * places this repo's owner says that harness's surfaces also live. Splitting
+ * them is how a root came to be read under a layout nobody chose for it.
+ */
+export interface ScanHarness {
+  readonly layout: PluginLayout;
+  readonly dialect: HarnessDialect;
+  readonly roots: readonly string[];
+}
+
 /** Scan a plugin/repo directory and report its surfaces + structural issues. */
 export function scanPlugin(
   dir: string,
   layout?: PluginLayout,
   dialect: HarnessDialect = claudeCodeDialect,
-  opts: { sharedDirs?: readonly string[]; sharedDirsRoot?: string } = {},
+  opts: {
+    sharedDirs?: readonly string[];
+    sharedDirsRoot?: string;
+    /**
+     * The repo's `.vigilesrc.json#exclude`, so surface DISCOVERY honours it.
+     *
+     * It rides in `opts` rather than as a fifth positional parameter because ~25
+     * call sites pass the first three and nothing else; a required parameter here
+     * would be twenty-odd mechanical edits for one behavioural change.
+     *
+     * ⚠️ Omitting it is NOT "the repo excludes nothing" — it is "this caller has
+     * no ExcludeSet to give", and the walk then reads everything. Today only
+     * `audit` supplies one; the `lint` rule checkers below still do not (they
+     * share a `(config, silent, adapter, root)` signature through `overBundles`).
+     */
+    excludes?: ExcludeSet;
+    /**
+     * The repo's `.vigilesrc.json#harnesses`, resolved — every declared harness
+     * with its own layout, dialect and roots, IN DECLARATION ORDER.
+     *
+     * 🔴 THE LIST IS READ WHOLE, AND THAT IS THE FIX (#240). The repo is loaded
+     * once per entry, each under its OWN layout, and the file maps merge
+     * (deduplicated by on-disk path, so one tree serving two harnesses is
+     * counted once). Under the flat `harness` array only the first entry's
+     * layout was ever used, so a repo declaring both got its skills OR its
+     * instruction file depending on which name it happened to list first, and no
+     * order gave it both.
+     *
+     * The first entry is the PRIMARY: it supplies the dialect every
+     * dialect-shaped check runs under and the `harness` the report is labelled
+     * with. The INSTRUCTION FILE is the deliberate exception — it comes from the
+     * first declared harness whose instruction file is actually present, because
+     * reporting "no instruction file" for a repo holding the other declared
+     * harness's one is the half of the bug that has nothing to do with skills.
+     *
+     * Rides in `opts` for the same reason `excludes` does: ~25 call sites pass
+     * the first three positionals and nothing else. Omitting it means "this
+     * caller has no declaration to pass" and the scan runs single-harness on the
+     * positional `layout`/`dialect`, exactly as before.
+     */
+    harnesses?: readonly ScanHarness[];
+  } = {},
 ): ScanReport {
   const lay = layout ?? claudeCodeLayout;
-  const cls = makeClassifier(lay);
-  const loaded = loadPlugin(dir, lay);
+  // The declared harnesses, or the single positional one — so every path below
+  // is the multi-harness path and a one-entry list is not a second code path.
+  const declared: readonly ScanHarness[] =
+    opts.harnesses && opts.harnesses.length > 0
+      ? opts.harnesses
+      : [{ layout: lay, dialect, roots: [] }];
+  // A path is a surface if ANY declared harness reads it as one. Classifying a
+  // merged file map with one layout would drop the other harness's surfaces
+  // silently — the same shape of miss as grading a scan that opened nothing.
+  const cls = makeUnionClassifier(declared.map((h) => h.layout));
+  const loaded = loadPlugins(
+    dir,
+    declared.map((h) => ({ layout: h.layout, roots: h.roots })),
+    opts.excludes,
+  );
+  // WHICH harness's instruction file this repo actually has. The first declared
+  // one that is present, not the first one declared: a repo listing
+  // `claude-code` before `codex` and shipping only `AGENTS.md` has an
+  // instruction file, and saying it does not was half of #240's wrong grade.
+  // Its dialect carries the budget the weight below is measured against, so the
+  // file named and the limit it is judged by come from the same harness.
+  const instructionHarness =
+    declared.find(
+      (h) => loaded.files[h.layout.instructionFile] !== undefined,
+    ) ?? declared[0];
   // Parse the raw `settings.hooks` ONCE at the boundary (parse-don't-validate):
   // tolerant of the Claude Code nested shape AND the Codex flat shape, so every
   // hook detector below consumes typed `HookRegistration[]` instead of re-walking
@@ -589,13 +689,12 @@ export function scanPlugin(
   const eventNames = hookEventNames(loaded.settings.hooks);
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
   const hookEventIssues = scoredIssues(allHookEventIssues);
+  const instructionFile = instructionHarness.layout.instructionFile;
   const instructions: ScanInstructions | null =
-    loaded.files[lay.instructionFile] !== undefined
+    loaded.files[instructionFile] !== undefined
       ? {
-          file: lay.instructionFile,
-          hasSpec: existsSync(
-            join(resolve(dir), `${lay.instructionFile}.spec.ts`),
-          ),
+          file: instructionFile,
+          hasSpec: existsSync(join(resolve(dir), `${instructionFile}.spec.ts`)),
         }
       : null;
   const mcpServers = collectMcpServers(resolve(dir), lay);
@@ -628,7 +727,17 @@ export function scanPlugin(
   // deterministic tier (`Tested`), and the real-model tier (`Evaluated`). The
   // tiers differ in cost, cadence AND in the question they answer, so collapsing
   // them here would make the difference unrecoverable downstream.
-  const coverage = findUntestedSurfaces({ basePath: dir, layout: lay });
+  const coverage = findUntestedSurfaces({
+    basePath: dir,
+    layout: lay,
+    // The SAME `.vigilesrc.json#exclude`, in this walk's string face. Untested-
+    // surface discovery is a second walk over the same trees, so leaving it out
+    // would have excluded a skill from the GRADE while still naming it in
+    // "Untested surfaces: 1" — a report contradicting itself about whether the
+    // file exists. `exclude` here NARROWS (it unions with DEFAULT_IGNORE), which
+    // is the documented relationship between the repo floor and a rule's own list.
+    exclude: opts.excludes ? [...opts.excludes.ignore] : undefined,
+  });
   const caveats = coverageCaveats(coverage);
   return {
     dir,
@@ -643,7 +752,7 @@ export function scanPlugin(
     // otherwise a plugin whose servers come from the Agent Plugins `mcp.json`
     // reports "MCP servers: no" while the report lists an MCP finding.
     mcp:
-      loaded.warnings.some((w) => w.includes("MCP server")) ||
+      loaded.warnings.some((w: string) => w.includes("MCP server")) ||
       declaredServers.length > 0,
     danglingRefs: danglingRefs(resolve(dir), lay),
     // Skill→skill references BY NAME, which `danglingRefs` structurally cannot
@@ -676,6 +785,15 @@ export function scanPlugin(
     trifectaFindings,
     skillResourceIssues: skillResourceFindings,
     skillFenceIssues: skillFenceFindings,
+    unclaimedSurfaces: unclaimedSurfaceFindings(
+      boundedSurfacePaths(resolve(dir), opts.excludes),
+      REGISTERED_LAYOUTS,
+      declared.map((h) => ({
+        harness: h.layout.name,
+        layout: h.layout,
+        roots: h.roots,
+      })),
+    ),
     pluginLayoutIssues: pluginDirLayoutIssues(
       resolve(dir, dirname(lay.manifestPath)),
       // The hooks dir is a misplaceable functional surface too, but it lives in
@@ -722,10 +840,15 @@ export function scanPlugin(
         return existsSync(p) ? nodeReadFile(p) : undefined;
       }).map(mergeConflictWarning),
     ],
-    instructionWeight: dialect.instructionBudget
+    // Measured under the dialect whose instruction file this repo HAS — see
+    // `instructionHarness`. A budget is a harness's own number in a harness's own
+    // unit (Claude Code counts 40 000 chars, Codex 32 768 bytes), so there is no
+    // meaningful sum across two; reporting the one that owns the file that
+    // exists is the only reading that is true of something.
+    instructionWeight: instructionHarness.dialect.instructionBudget
       ? weighInstructions(
-          readAlwaysLoaded(dir, dialect.instructionBudget),
-          dialect.instructionBudget,
+          readAlwaysLoaded(dir, instructionHarness.dialect.instructionBudget),
+          instructionHarness.dialect.instructionBudget,
         )
       : null,
     untested: coverage.untested.length,
@@ -1179,6 +1302,17 @@ export function formatScanReport(r: ScanReport): string {
     ),
   );
 
+  // A harness sitting where no adapter reads (#240). Printed as a ✗ section like
+  // any other structural defect, because that is what it is: the grade above it
+  // was computed without this directory in it, and the old behaviour was to say
+  // nothing at all while returning A (100/100).
+  out.push(
+    ...section(
+      "Surfaces no harness reads",
+      r.unclaimedSurfaces.map((u) => `  ✗ ${u.message}`),
+    ),
+  );
+
   out.push(
     ...section(
       "Lethal trifecta across delegation (blast radius)",
@@ -1291,6 +1425,7 @@ export function formatScanReport(r: ScanReport): string {
     r.skillResourceIssues.length +
     r.skillFenceIssues.length +
     r.pluginLayoutIssues.length +
+    r.unclaimedSurfaces.length +
     r.hookBlockFindings.length +
     r.hookMatcherFindings.length +
     // Only HARD trifectas (✗) count as STRUCTURAL defects here. Both severities are
@@ -1301,9 +1436,15 @@ export function formatScanReport(r: ScanReport): string {
     // ⚠ risk is ungraded and does NOT count either.
     r.trifectaFindings.filter((t) => t.finding.severity === "hard").length;
   out.push(
-    broken === 0
-      ? "✓ no structural issues found"
-      : `⚠ ${String(broken)} structural issue(s) — see ✗/⚠ above`,
+    broken > 0
+      ? `⚠ ${String(broken)} structural issue(s) — see ✗/⚠ above`
+      : // 🔴 "NOTHING WAS FOUND" IS NOT "NOTHING IS WRONG" (#240). With zero
+        // surfaces read, `broken` is zero for want of anything to count, and this
+        // line was the sentence the reporter quoted under an A (100): a repo whose
+        // 37 skills sat in a directory this tool does not know by name.
+        isEmptyMachine(r)
+        ? "⚠ nothing to check — 0 skills, 0 agents, 0 commands were read"
+        : "✓ no structural issues found",
   );
   return out.join("\n");
 }

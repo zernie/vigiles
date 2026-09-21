@@ -48,6 +48,14 @@ export interface SurfaceScope {
   readonly materializeUnder: string;
   /** Human label for warnings — `plugin` (root) or `project` (`.claude/`). */
   readonly label: string;
+  /**
+   * This scope exists only because the REPO OWNER named its base in
+   * `.vigilesrc.json#harnesses["<name>"].roots` — it is not a location the harness itself
+   * reads. Marked so {@link multiScopeWarning} can stay about the ambiguity it
+   * describes (plugin-vs-project, both of which a real session loads) instead of
+   * claiming the harness loads a declared root too.
+   */
+  readonly declared?: boolean;
 }
 
 /** Which shape the audited target is, and every scope to read from it. */
@@ -67,6 +75,52 @@ export interface SurfaceProbe {
   readonly isPluginShaped: boolean;
   /** Some `<root>/<userSurfaceRoot>/<surface>/` holds a loadable file. */
   readonly userHasLoadable: boolean;
+  /**
+   * The repo owner's declared roots, normalized by {@link normalizeSurfaceRoots},
+   * in declaration order.
+   *
+   * Unlike the flags above this is NOT a probe result — the caller passes the
+   * declaration as written and does not check whether each root holds anything.
+   * It does not have to: a declared scope is appended AFTER the no-scope
+   * fallback, so an empty one adds an empty tree and changes nothing, while a
+   * filter here would be a guard with no observable behaviour to defend.
+   */
+  readonly declaredRoots?: readonly string[];
+}
+
+/**
+ * The repo owner's `.vigilesrc.json#harnesses["<name>"].roots`, normalized — or
+ * dropped. (The flat top-level `surfaceRoots` key this once read was removed in
+ * the same change that nested it under a harness name.)
+ *
+ * A DECLARATION BY THE REPO OWNER, never by an adapter: the rejected option B
+ * let each harness declare roots, which inverts the dependency (registering a
+ * Cursor adapter would start reading `.cursor/rules` in everyone's repo). A key
+ * in the repo's own config cannot do that — it widens exactly one repository,
+ * the one whose owner wrote it. See `research/audit-harness-dx.md` §9.
+ *
+ * Dropped rather than errored, because the failure of a bad entry is harmless
+ * (nothing extra is read) while refusing to audit over a config typo is not:
+ * absolute paths, `.`/empty, and anything with a `..` segment, which would reach
+ * OUTSIDE the audited repo and is the only entry that could do real damage.
+ * Order is kept and duplicates collapse, so the scope list is stable.
+ */
+export function normalizeSurfaceRoots(
+  roots: readonly string[] | undefined,
+): readonly string[] {
+  const out: string[] = [];
+  for (const raw of roots ?? []) {
+    const r = raw
+      .split("\\")
+      .join("/")
+      .replace(/^(?:\.\/)+/, "")
+      .replace(/\/+$/, "")
+      .trim();
+    if (r === "" || r === "." || r.startsWith("/")) continue;
+    if (r.split("/").includes("..")) continue;
+    if (!out.includes(r)) out.push(r);
+  }
+  return out;
 }
 
 /**
@@ -120,6 +174,34 @@ export function surfaceSource(
       label: "project",
     });
   }
+  // The repo owner's declared roots, read with the DETECTED layout's surface
+  // dirs — `.ai` + `skills` for Claude Code. It does not invent a dialect: the
+  // declaration says WHERE, the layout still says what a surface is and how it
+  // is read. A root already serving as a scope's base is skipped (declaring
+  // `.claude` to Claude Code is a no-op, not a second reading of one tree), and
+  // so is one equal to `materializeRoot` — that key belongs to the scope holding
+  // it, and two scopes minting one prefix is what {@link assertDistinctScopeKeys}
+  // exists to refuse. Each keeps its OWN base as the key prefix, like a non-first
+  // plugin scope, so nothing is relocated on top of anything.
+  //
+  // 🔴 APPENDED LAST, AFTER THE NO-SCOPE FALLBACK, AND THE ORDER IS THE POINT: a
+  // declaration may only ADD. Run before the fallback, a declared root makes the
+  // list non-empty and CANCELS it — measured on a repo whose `.claude/skills`
+  // held only a non-loadable file: adding one config line naming another
+  // directory dropped `.claude/skills/alpha/README.md` out of the loaded files.
+  // Nobody would connect that to the line they wrote. Pinned by
+  // `plugin-loader.test.ts` ("an EMPTY declared root does not cancel the project
+  // scope"), which asserts the full key list both before and after filling it.
+  for (const base of probe.declaredRoots ?? []) {
+    if (base === layout.materializeRoot) continue;
+    if (scopes.some((sc) => sc.base === base)) continue;
+    scopes.push({
+      base,
+      materializeUnder: base,
+      label: "declared",
+      declared: true,
+    });
+  }
   return { kind: "scopes", scopes };
 }
 
@@ -167,9 +249,15 @@ export function assertDistinctScopeKeys(
  * rather than quietly relocating one on top of the other.
  */
 export function multiScopeWarning(
-  scopes: readonly SurfaceScope[],
+  allScopes: readonly SurfaceScope[],
   counts: Record<string, number>,
 ): string | undefined {
+  // Declared roots are excluded, and not for tidiness: every sentence below is
+  // about what a REAL SESSION loads under two names. A harness does not load a
+  // declared root at all — vigiles reads it because the repo owner said to — so
+  // including one here would make the warning state a falsehood about the
+  // harness the moment someone declares `harnesses.<name>.roots`.
+  const scopes = allScopes.filter((s) => s.declared !== true);
   if (scopes.length < 2) return undefined;
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   return (

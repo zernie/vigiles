@@ -11,6 +11,8 @@
  * wins regardless of order.
  */
 import type { HarnessAdapter } from "./core/adapter.js";
+import type { HarnessDeclaration } from "./core/types.js";
+import { normalizeSurfaceRoots } from "./core/surface-scopes.js";
 import { detectInstructionMirror } from "./core/compose.js";
 import { claudeCodeAdapter } from "./adapters/claude-code/adapter.js";
 import { codexAdapter } from "./adapters/codex/adapter.js";
@@ -237,4 +239,69 @@ export function resolveHarnessAdapters(opts: {
       : [detectAdapterResult(root).adapter];
   const seen = new Set<string>();
   return adapters.filter((a) => !seen.has(a.name) && seen.add(a.name));
+}
+
+// ---------------------------------------------------------------------------
+// The repo's own declaration — `.vigilesrc.json#harnesses` (#240)
+// ---------------------------------------------------------------------------
+
+/**
+ * One declared harness, resolved: the adapter its KEY names, and the extra
+ * surface roots declared under it, normalized.
+ *
+ * The pair is the whole point of the nested shape. Under the two flat keys the
+ * roots were global and the harness list was ordered, so the layout a root was
+ * read under was decided by array position; here the layout comes from the key
+ * the root sits under, so there is no order to get wrong and nothing to guess.
+ */
+export interface DeclaredHarness {
+  readonly adapter: HarnessAdapter;
+  /** Normalized `.vigilesrc.json#harnesses.<name>.roots`, in declaration order. */
+  readonly roots: readonly string[];
+}
+
+/**
+ * The declared harness NAMES, in declaration order — the `string[]` every
+ * existing single-dialect picker already takes.
+ *
+ * Deliberately NOT resolving adapters: `resolveHarnessSelection` /
+ * `resolveHarnessAdapters` resolve (and throw on) an unknown name themselves,
+ * and two places deciding what an unknown name means is how the two error
+ * wordings would drift.
+ */
+export function declaredHarnessNames(
+  harnesses?: Readonly<Record<string, HarnessDeclaration>>,
+): string[] {
+  return normalizeHarnessList(Object.keys(harnesses ?? {}));
+}
+
+/**
+ * Every declared harness with its roots, in declaration order.
+ *
+ * Throws on an unknown key, through the SAME `resolveAdapter` the `--harness=`
+ * flag goes through — so `{"claud-code": {}}` fails with the identical
+ * `Unknown harness "claud-code". Known: claude-code, codex.` a bad flag gets.
+ * That was already the loud half of the old shape and it is kept verbatim.
+ *
+ * Aliases collapse: `{"claude": {"roots":["a"]}, "claude-code": {"roots":["b"]}}`
+ * is ONE Claude Code declaration reading both roots, not two competing ones —
+ * the same de-duplication `resolveHarnessAdapters` does, extended to carry the
+ * union of what each spelling declared.
+ */
+export function resolveDeclaredHarnesses(
+  root: string,
+  harnesses?: Readonly<Record<string, HarnessDeclaration>>,
+): DeclaredHarness[] {
+  const out: Array<{ adapter: HarnessAdapter; roots: string[] }> = [];
+  for (const [key, decl] of Object.entries(harnesses ?? {})) {
+    const adapter = resolveAdapter(root, key);
+    const roots = [...normalizeSurfaceRoots(decl?.roots)];
+    const prev = out.find((d) => d.adapter.name === adapter.name);
+    if (prev) {
+      for (const r of roots) if (!prev.roots.includes(r)) prev.roots.push(r);
+    } else {
+      out.push({ adapter, roots });
+    }
+  }
+  return out;
 }

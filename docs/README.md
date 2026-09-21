@@ -46,6 +46,7 @@ The docs are grouped by what you're trying to do:
 ## Reference — "the exact flag, symbol, or rule"
 
 - [`cli.md`](cli.md) — the full CLI: every verb and flag, the Claude Code plugin, `lint` vs `audit`.
+- [`configuration.md`](configuration.md) — every `.vigilesrc.json` key: what it does, its default, an example.
 - [`commands-and-how-they-relate.md`](commands-and-how-they-relate.md) — the mental model: how `audit` / `lint` / `test` / `eval` / `init` fit together, and why measuring "do my skills fire?" uses `init`, not `audit`.
 - [`testing-matrix.md`](testing-matrix.md) — every use case of the harness-testing API mapped to the tier that tests it, and what each tier costs.
 - [`testing-api.md`](testing-api.md) — the full harness-testing API: every predicate, assertion, `check`, matcher, and option (`measureTriggerRate` / `runEval` / significance).

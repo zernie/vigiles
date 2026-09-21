@@ -276,6 +276,41 @@ export function makeClassifier(layout: PluginLayout): SurfaceClassifier {
   };
 }
 
+/**
+ * ONE classifier over SEVERAL layouts — a path is a skill if ANY declared
+ * harness would read it as one.
+ *
+ * 🔴 IT EXISTS BECAUSE A MERGED FILE MAP HAS NO SINGLE LAYOUT. A repo declaring
+ * `{"harnesses": {"claude-code": {…}, "codex": {}}}` is read under BOTH layouts
+ * and the two file maps merge into one, at which point classifying with one
+ * layout drops the other's surfaces on the floor — Codex's `prompts/x.md` is not
+ * a Claude Code command, and silently counting it as nothing is the same shape of
+ * bug as reading no surfaces and grading A (100).
+ *
+ * `agentName` answers from the FIRST layout that calls the path an agent, so the
+ * name is always the one the layout that claimed it would give — never a name
+ * derived under a layout that would not have read the file at all.
+ *
+ * A single-layout list behaves byte-identically to {@link makeClassifier}, which
+ * is what lets every existing caller keep passing one layout.
+ */
+export function makeUnionClassifier(
+  layouts: readonly PluginLayout[],
+): SurfaceClassifier {
+  const cs = layouts.map(makeClassifier);
+  const any =
+    (pick: (c: SurfaceClassifier) => (f: string) => boolean) =>
+    (f: string): boolean =>
+      cs.some((c) => pick(c)(f));
+  return {
+    isSkill: any((c) => c.isSkill),
+    isAgent: any((c) => c.isAgent),
+    isCommand: any((c) => c.isCommand),
+    isRule: any((c) => c.isRule),
+    agentName: (f) => cs.find((c) => c.isAgent(f))?.agentName(f) ?? null,
+  };
+}
+
 function skillName(path: string): string {
   return (
     path

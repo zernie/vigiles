@@ -113,10 +113,14 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     mk("normal/CLAUDE.md", "# Project\nRun the build before committing.\n");
 
     // 2. A Codex repo: AGENTS.md + TOML config (with MCP) + a skill.
+    // The skill sits at `.agents/skills`, which is where Codex scans (vendor,
+    // learn.chatgpt.com/docs/build-skills). It was at a root-level `skills/`
+    // until 2026-09-21, i.e. this "real Codex repo" fixture was shaped like one
+    // no Codex user has; the assertions below only mean something at the real path.
     mk("codex/AGENTS.md", "# Agent instructions\nUse `npm test`.\n");
     mk("codex/.codex/config.toml", "[mcp_servers]\n");
     mk(
-      "codex/skills/foo/SKILL.md",
+      "codex/.agents/skills/foo/SKILL.md",
       `---\nname: foo\ndescription: ${desc("foo")}\n---\n# foo\n`,
     );
 
@@ -130,13 +134,13 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
       '[[hooks.PreToolUse]]\ncommand = "${PLUGIN_ROOT}/hooks/missing.sh"\n',
     );
     mk(
-      "codexlint/skills/foo/SKILL.md",
+      "codexlint/.agents/skills/foo/SKILL.md",
       `---\nname: foo\ndescription: ${desc("foo")}\n---\n# foo\n`,
     );
     mk(
       "codexlint/.vigilesrc.json",
       JSON.stringify({
-        harness: "codex",
+        harnesses: { codex: {} },
         rules: {
           "hook-script-exists": "warn",
           "untested-skill": "warn",
@@ -150,10 +154,33 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     mk("mixed/AGENTS.md", "# Codex\nRun `make`.\n");
 
     // 3b. A repo that AUTO-DETECTS as claude-code (only a CLAUDE.md) but
-    // config-DECLARES codex. Audit must honor the `.vigilesrc.json` `harness`
+    // config-DECLARES codex. Audit must honor the `.vigilesrc.json` `harnesses`
     // key (dogfood A: it used to ignore it and scan as Claude Code).
     mk("cfgharness/CLAUDE.md", "# CC file\nRun `npm test`.\n");
-    mk("cfgharness/.vigilesrc.json", JSON.stringify({ harness: "codex" }));
+    mk(
+      "cfgharness/.vigilesrc.json",
+      JSON.stringify({ harnesses: { codex: {} } }),
+    );
+
+    // 3c. #240's repo SHAPE, end to end through the real binary: skills in a
+    // dot-folder no harness reads (`.ai/`), with the instruction file at the
+    // root belonging to the OTHER harness. Two fixtures, because the fix and
+    // the symptom are the same tree with and without one config file.
+    for (const d of ["vlad240", "vlad240cfg"]) {
+      mk(`${d}/AGENTS.md`, "# Agent instructions\nRun `npm test` first.\n");
+      mk(`${d}/.codex/config.toml`, 'model = "gpt-5"\n');
+      for (const n of ["alpha", "beta"])
+        mk(
+          `${d}/.ai/skills/${n}/SKILL.md`,
+          `---\nname: ${n}\ndescription: ${desc(n)}\n---\n# ${n}\n`,
+        );
+    }
+    mk(
+      "vlad240cfg/.vigilesrc.json",
+      JSON.stringify({
+        harnesses: { "claude-code": { roots: [".ai"] }, codex: {} },
+      }),
+    );
 
     // 4. A marketplace: a marketplace.json over two member plugins.
     mk(
@@ -184,7 +211,17 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
       r.stdout,
       /Instructions: CLAUDE\.md \(hand-written, no spec\)/,
     );
-    assert.match(r.stdout, /no structural issues found/);
+    // 🔴 The sentence CHANGED with #240, and this fixture is the case it is about:
+    // a repo with an instruction file and zero skills/agents/commands. `no structural
+    // issues found` read as "I checked and it is clean" when nothing had been checked.
+    // Asserted in both directions — the honest sentence present, the misleading one
+    // gone — because a test that only looks for the new text would still pass if both
+    // were printed.
+    assert.match(
+      r.stdout,
+      /nothing to check — 0 skills, 0 agents, 0 commands were read/,
+    );
+    assert.doesNotMatch(r.stdout, /no structural issues found/);
   });
 
   it("Codex repo: detects codex, reports AGENTS.md + skill + TOML MCP", () => {
@@ -243,10 +280,10 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.doesNotMatch(r.stderr, /^\s+at .+\(.*\)/m);
   });
 
-  it("honors the .vigilesrc.json `harness` key (audit no longer ignores config)", () => {
+  it("honors the .vigilesrc.json `harnesses` key (audit no longer ignores config)", () => {
     // dogfood A: this repo auto-detects as claude-code (only a CLAUDE.md), but
     // config declares codex. Audit must scan as codex — before the fix it
-    // ignored config.harness and reported claude-code. Config resolves from the
+    // ignored the declaration and reported claude-code. Config resolves from the
     // cwd (like `lint`), so run audit from INSIDE the fixture.
     const r = run("audit .", join(root, "cfgharness"));
     // Exit 2, not 0: scanned AS CODEX this fixture holds no AGENTS.md and no
@@ -257,6 +294,39 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.match(r.stdout, /Detected harness: codex/);
     // A single configured harness is unambiguous → no override notice.
     assert.doesNotMatch(r.stdout, /repo matches/);
+  });
+
+  /**
+   * #240 END TO END, through `node dist/cli.js` and a real `.vigilesrc.json`.
+   *
+   * scan.test.ts already asserts the SCAN reads both halves in either order,
+   * but it hands `scanPlugin` a `harnesses` array built in code. That leaves
+   * the seam a user actually walks unasserted: writing the key into the file
+   * and having it reach discovery. Both halves of the check live here — the
+   * symptom without the file, the fix with it, same tree otherwise.
+   */
+  it("#240: `.ai/` skills are NAMED without config, and GRADED once declared", () => {
+    // Half one — no config. The tree is found and reported rather than silently
+    // skipped, which is the part of #240 worth having on its own ("a scan that
+    // opened no skill … should say so instead of grading it 100").
+    const bare = run(`audit ${join(root, "vlad240")}`);
+    assert.match(bare.stdout, /Surfaces no harness reads/);
+    assert.match(bare.stdout, /\.ai\/skills\//);
+    // …and it points at the fix rather than only at moving the files.
+    assert.match(bare.stdout, /roots/);
+    // Not graded as a clean A: nothing readable was read.
+    assert.doesNotMatch(bare.stdout, /Harness health: A \(100\/100\)/);
+
+    // Half two — the SAME tree plus one config file. Config resolves from cwd,
+    // so run from inside the fixture the way a user does.
+    const cfg = run("audit .", join(root, "vlad240cfg"));
+    assert.match(cfg.stdout, /alpha/);
+    assert.match(cfg.stdout, /beta/);
+    // The instruction file belongs to the OTHER declared harness and is still
+    // read — this is the half that vanished under `harness` + `surfaceRoots`.
+    assert.match(cfg.stdout, /AGENTS\.md/);
+    // And the finding is gone, because the tree now has a reader.
+    assert.doesNotMatch(cfg.stdout, /Surfaces no harness reads/);
   });
 
   it("marketplace root: expands members into a ranked leaderboard", () => {

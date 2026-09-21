@@ -50,6 +50,14 @@ export interface AuditScore {
   grade: "A" | "B" | "C" | "D" | "F";
   categories: CategoryScore[];
   empty: boolean;
+  /**
+   * The repo has an instruction file but NO skill, agent or command was read —
+   * distinct from `empty` (nothing at all) and from a real graded harness. The
+   * grade is computed over the instruction file alone, so a renderer that prints
+   * the number without this qualifier repeats #240's headline: a confident A for
+   * a harness the tool never saw.
+   */
+  instructionsOnly: boolean;
 }
 
 /** One recommendation's overall-points gain if its single fix is applied. */

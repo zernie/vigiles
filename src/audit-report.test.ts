@@ -38,6 +38,7 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     skillResourceIssues: [],
     skillFenceIssues: [],
     pluginLayoutIssues: [],
+    unclaimedSurfaces: [],
     delegationTrifecta: [],
     hookBlockFindings: [],
     hookMatcherFindings: [],
@@ -229,6 +230,7 @@ describe("buildAuditReport", () => {
       "categories",
       "empty",
       "grade",
+      "instructionsOnly",
       "overall",
     ]);
     expect(Object.keys(r.score.categories[0]).sort()).toEqual([

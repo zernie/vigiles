@@ -61,6 +61,7 @@ export function getAdapter(name: string): HarnessAdapter | undefined;
 // @public (undocumented)
 export interface HarnessAdapter {
     readonly capabilities: AdapterCapabilities;
+    claims(path: string): boolean;
     detect(root: string): number;
     readonly dialect: HarnessDialect;
     readonly harnessTestDriver?: () => Promise<HarnessTestDriver>;
@@ -119,6 +120,9 @@ export interface HookProtocol {
     readonly matcherStyle?: "exact" | "regex";
     readonly name: string;
 }
+
+// @public
+export function layoutClaims(layout: PluginLayout, path: string): boolean;
 
 // @public
 export interface ModelMock {

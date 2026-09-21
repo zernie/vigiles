@@ -22,6 +22,15 @@ export type { HarnessRuntime } from "./core/runtime.js";
 export type { HookProtocol } from "./core/hook-protocol.js";
 export type { ModelMock } from "./core/model-mock.js";
 
+/**
+ * The `claims(path)` helper every shipped adapter uses: derive "is this path
+ * mine?" from the adapter's own `PluginLayout`, so a layout that moves takes its
+ * claim with it. Override `claims` by hand only for a location the layout fields
+ * cannot express. See `core/surface-discovery.ts` for why a claim is a question
+ * about a PATH and never about a root.
+ */
+export { layoutClaims } from "./core/surface-discovery.js";
+
 export {
   checkAdapterConformance,
   assertAdapterConformance,

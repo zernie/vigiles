@@ -37,13 +37,14 @@ conformance kit tells you what's missing.
 
 ## Write the adapter
 
-A `HarnessAdapter` bundles the five ports plus a `detect(root)` predicate the CLI
-uses to recognize a repo:
+A `HarnessAdapter` bundles the five ports plus two predicates — `detect(root)`,
+which the CLI uses to recognize a repo, and `claims(path)`, which labels a
+surface the audit found on its own:
 
 ```ts
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { HarnessAdapter } from "vigiles/adapter";
+import { layoutClaims, type HarnessAdapter } from "vigiles/adapter";
 
 const dialect: HarnessDialect = {
   name: "my-harness",
@@ -120,6 +121,15 @@ export const myHarnessAdapter: HarnessAdapter = {
   // AGENTS.md), so the registry picks the right adapter for a repo that looks
   // like several.
   detect: (root) => (existsSync(join(root, ".myagent")) ? 2 : 0),
+  // claims answers "is this repo-relative path one my harness reads?" — a PATH,
+  // never a root. The audit discovers surfaces by shape on its own and asks
+  // every registered adapter to label what it found, so your adapter can never
+  // widen what vigiles reads in somebody else's repo. A surface NO adapter
+  // claims is reported as a finding rather than silently graded around.
+  // `layoutClaims` derives the answer from your layout, so a layout that moves
+  // takes its claim with it; override it only for a location the PluginLayout
+  // fields cannot express.
+  claims: (path) => layoutClaims(layout, path),
 };
 ```
 

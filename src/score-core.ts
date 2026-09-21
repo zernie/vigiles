@@ -353,6 +353,14 @@ export function reportDeductions(r: ScanReport): Deduction[] {
       weight: W_NO_DESCRIPTION,
       label: "functional dir(s) misplaced inside `.claude-plugin/` (invisible)",
     },
+    // A surface dir NO registered harness reads (#240). Same weight and label as
+    // the Structure ring's row by construction — the two are kept identical on
+    // purpose, so the headline and the breakdown cannot disagree about it.
+    {
+      n: r.unclaimedSurfaces.length,
+      weight: W_NO_DESCRIPTION,
+      label: "surface dir(s) no harness reads (not in this grade)",
+    },
     {
       n: r.hookBlockFindings.length,
       weight: W_MISSING_HOOK,

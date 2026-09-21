@@ -9,7 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Lang } from "@ast-grep/napi";
 
-import { definedSymbols, langForFile, fileDefinesSymbol } from "./symbols.js";
+import {
+  definedSymbols,
+  langForFile,
+  fileDefinesSymbol,
+  installedGrammars,
+} from "./symbols.js";
 
 test("extracts functions, constants, classes and methods (TypeScript)", () => {
   const defs = definedSymbols(
@@ -48,11 +53,41 @@ test("extracts Ruby class/method/constant", () => {
 });
 
 test("langForFile maps extensions and skips unsupported", () => {
-  assert.equal(langForFile("a.py"), "python");
-  assert.equal(langForFile("a.rs"), "rust");
-  assert.equal(langForFile("a.rb"), "ruby");
-  assert.equal(langForFile("a.txt"), null);
-  assert.notEqual(langForFile("a.ts"), null);
+  // The optional grammars are installed in this repo's own tree, so they read as ready here.
+  assert.deepEqual(langForFile("a.py"), { kind: "ready", lang: "python" });
+  assert.deepEqual(langForFile("a.rs"), { kind: "ready", lang: "rust" });
+  assert.deepEqual(langForFile("a.rb"), { kind: "ready", lang: "ruby" });
+  assert.deepEqual(langForFile("a.txt"), { kind: "unsupported" });
+  assert.equal(langForFile("a.ts").kind, "ready");
+  assert.equal(langForFile("a.d.ts").kind, "ready");
+});
+
+// 🔴 THE THIRD CASE IS THE WHOLE POINT OF THE UNION, so it gets its own test rather than
+// riding along above: a language this tool HANDLES whose optional package is absent must not
+// come back as "unsupported". Before the union both answers were `null`, and both call sites
+// printed "Unsupported language for symbol check" — an un-run check phrased as a verdict.
+test("an absent optional grammar is 'grammar-missing', never 'unsupported'", () => {
+  const seen = installedGrammars();
+  assert.ok(
+    seen.has("python"),
+    "fixture assumption: this repo installs the grammars",
+  );
+
+  // The built-ins must not be able to land in that branch, whatever the optional set holds.
+  for (const f of ["a.ts", "a.tsx", "a.js", "a.css"])
+    assert.equal(langForFile(f).kind, "ready", f);
+
+  // And the shape a consumer without the package would get, asserted on the type's own terms.
+  const missing = {
+    kind: "grammar-missing",
+    id: "ruby",
+    pkg: "@ast-grep/lang-ruby",
+  } as const;
+  assert.notEqual(missing.kind, "unsupported");
+  assert.match(
+    `Symbol not checked: the ${missing.id} grammar is not installed (npm i -D ${missing.pkg})`,
+    /not installed \(npm i -D @ast-grep\/lang-ruby\)/,
+  );
 });
 
 test("fileDefinesSymbol checks one named file (no project index)", () => {
