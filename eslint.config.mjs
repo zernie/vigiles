@@ -6,12 +6,20 @@ import boundaries from "eslint-plugin-boundaries";
 import globals from "globals";
 
 import experimentalName from "./eslint-rules/experimental-name.mjs";
+import noHarnessNames from "./eslint-rules/no-harness-names.mjs";
 
-// The repo's own rules. One member so far — see the rule's header for why it is
-// a rule and not the standalone script it replaces (short version: the script
-// hand-rolled a parser over declaration lines, and its one cross-file need, the
-// public/internal exemption, was itself the thing contradicting its rationale).
-const local = { rules: { "experimental-name": experimentalName } };
+// The repo's own rules. Two members — see each rule's header for why it is a rule
+// and not something else. `experimental-name` replaced a standalone script that
+// hand-rolled a parser over declaration lines; `no-harness-names` closes the gap
+// the three existing harness fences leave open (they match `.claude`, adapter
+// IMPORTS and the port contract — none of them matches the string "claude-code",
+// and none of them looks at a TYPE).
+const local = {
+  rules: {
+    "experimental-name": experimentalName,
+    "no-harness-names": noHarnessNames,
+  },
+};
 
 // Hexagonal boundary (see research/code-adapter-architecture.md). After the
 // reshape the two element types are whole directories: the reference-verification
@@ -266,6 +274,49 @@ export default [
         },
       ],
     },
+  },
+  // Harness-NAME boundary (`local/no-harness-names`), the sibling of the block
+  // above and deliberately a separate rule id rather than two more selectors in
+  // it. Three reasons, all mechanical: (1) the sites that need an exemption take
+  // a targeted `eslint-disable-next-line local/no-harness-names` instead of
+  // switching off the CC-literal and globSync guards on the same line; (2) flat
+  // config REPLACES a rule's options rather than merging, so the four files below
+  // that also carry discovery selectors would have had to restate every harness
+  // selector too — the drift seam this file already works around twice; (3) the
+  // identifier half (`claudeCodeLayout` → segments → `claudecode`) is not
+  // expressible as a selector regex, which sees an identifier as one flat string.
+  //
+  // WHAT IT CATCHES THAT THE BLOCK ABOVE DOES NOT: `CC_LITERAL_RE` is
+  // `CLAUDE_PLUGIN_ROOT|\.claude|ANTHROPIC_`. `.claude` needs the dot, so the
+  // canonical adapter NAME "claude-code" walks past it, and "codex"/"opencode"
+  // were never in it. Measured on this tree with all three existing fences green:
+  // eight such nodes in `src/core/**` (non-test), five of them traceable to ONE
+  // type alias — `SkillFrontmatterProfile = "claude-code" | "minimal"` — whose
+  // name then propagates into every signature that mentions it.
+  {
+    files: HARNESS_AGNOSTIC_DETECTORS,
+    ignores: ["src/**/*.test.ts"],
+    plugins: { local },
+    rules: { "local/no-harness-names": "error" },
+  },
+  // The identifier half, CORE ONLY — because that is where it turns on silent.
+  // Measured, non-test: `src/core/**` has 0 identifier hits, while `src/scan.ts`
+  // (6) and `src/test-coverage.ts` (2) hold `claudeCodeLayout`/`claudeCodeDialect`.
+  // Three of those eight are the import specifiers, which the STRING half already
+  // catches via the `/claude-code/` module path (and which carry a disable naming
+  // the debt). The other five are USES, where the adapter is the DEFAULT value of
+  // a layout/dialect parameter — the stated backwards-compatibility guarantee
+  // ("Claude Code stays the default everywhere"). Turning identifiers on for these
+  // two files would open with findings against sanctioned code, which is how a
+  // rule gets switched off rather than fixed.
+  // ⚠️ So it is a DECLARED hole: there the rule sees the import and not the five
+  // uses downstream of it. Closing it is port injection in the code, not an edit
+  // here.
+  {
+    files: ["src/core/**/*.ts"],
+    ignores: ["src/**/*.test.ts"],
+    plugins: { local },
+    rules: { "local/no-harness-names": ["error", { identifiers: true }] },
   },
   // No barrel imports: internal modules must import the LEAF that defines a
   // symbol, never the package's own public barrel entry points (the

@@ -20,7 +20,18 @@ import { basename, dirname, join, resolve } from "node:path";
 // Claude Code default), and only the generic one takes the `ExcludeSet` that
 // makes `.vigilesrc.json#exclude` reach surface discovery.
 import { loadPlugins } from "./plugin-loader.js";
+// 🔴 A FINDING, NOT A FORMALITY, and one nothing else in the repo could see: this
+// module is listed as a harness-agnostic detector, yet it imports the Claude Code
+// adapter to use as a DEFAULT (`scanPlugin`'s `dialect`/`layout` parameters, and
+// four more sites below). `boundaries/dependencies` does not catch it because it
+// deliberately leaves this file unclassified; the CC-literal rule does not catch
+// it because `\.claude` needs the dot and this path spells `/claude-code/`.
+// Keeping the CC default is the stated backwards-compatibility guarantee, so this
+// is real debt with a known shape — the default belongs to the CALLER (the CLI
+// already resolves an adapter), not to the detector.
+// eslint-disable-next-line local/no-harness-names -- see above
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
+// eslint-disable-next-line local/no-harness-names -- see above
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { danglingRefs } from "./plugin-loader.js";
 import { isEmptyMachine } from "./score-core.js";
