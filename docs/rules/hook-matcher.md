@@ -151,8 +151,9 @@ server list are injected via the Codex adapter.
 ## Why
 
 A hook that never matches is enforcement that silently does nothing — exactly
-the "false confidence" failure class vigiles exists to eliminate
-(`research/hook-pain-points.md`). But a checker that reports a _working_ matcher
+the "false confidence" failure class vigiles exists to eliminate (the same class
+as a guard that `exit 1`s where `2` is required — see
+[compiled-hooks.md](../compiled-hooks.md)). But a checker that reports a _working_ matcher
 as dead is the same failure with the sign flipped: a user who obeys it ends up
 with a hook that lints clean and never runs. That is why the pattern half of this
 rule is decided by compiling and probing rather than by how the string looks.

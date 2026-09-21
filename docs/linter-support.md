@@ -4,8 +4,9 @@
 > you NAME actually exists + is enabled (11 linters: ESLint, Ruff, Pylint, Clippy, Stylelint,
 > RuboCop, Detekt, Ktlint, Checkstyle, golangci-lint, Cedar). It is **NOT** the prose→rule
 > _routing_ map (which auto-maps freeform prose to a rule and supports ESLint + Pylint + Ruff
-> route-only). Don't conflate the two — see `research/rule-enforceability.md` for
-> routing/synthesis coverage.
+> route-only). Don't conflate the two: this page's 11 catalogs are what `enforce()` can
+> VERIFY, and the three above are what prose routing can MAP. The routing/synthesis tier is
+> [`@vigiles/rule-enforcer`](../rule-enforcer/README.md).
 
 vigiles verifies that every `enforce()` rule in your spec actually exists and is enabled in your project. The rule name is resolved against the linter's own catalog rather than matched as a string, and the enabled state is read out of your config -- so a rule that is real but switched off is reported as clearly as one that was never real.
 

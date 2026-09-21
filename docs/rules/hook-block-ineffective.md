@@ -1,8 +1,10 @@
 # hook-block-ineffective
 
-Flag a **hook that appears to block or deny but silently doesn't** — the #1
-verified hook pain in the wild (see `research/hook-pain-points.md`). The author
-wires up a guard, the guard "runs" without error, but nothing is ever prevented.
+Flag a **hook that appears to block or deny but silently doesn't** — the most
+common hook failure reported upstream ([#45427](https://github.com/anthropics/claude-code/issues/45427),
+[#24327](https://github.com/anthropics/claude-code/issues/24327)): `exit 1` where
+`2` is required, or the wrong JSON field. The author wires up a guard, the guard
+"runs" without error, but nothing is ever prevented.
 
 Two distinct failure shapes are detected:
 

@@ -226,8 +226,8 @@ See the [agent setup & workflows guide](agent-setup.md).
 > compiler** (`.spec.ts` → `.md`). It is a _different system_ from the
 > **`@vigiles/rule-enforcer`** package (dir `rule-enforcer/`), which turns _prose_
 > rules from your CLAUDE.md into enforceable lint rules (route → synthesize →
-> gate). Same word "compile", unrelated jobs. See
-> `research/rule-enforceability.md`.
+> gate). Same word "compile", unrelated jobs. That tier has its own page:
+> [`rule-enforcer/README.md`](../rule-enforcer/README.md).
 
 `compile` renders each `.spec.ts` to its instruction file / `SKILL.md` /
 subagent. Which **harness dialect** it renders (the `SKILL.md` frontmatter

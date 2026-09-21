@@ -14,8 +14,8 @@ enforced — already ships in `vigiles audit` as the **rule inventory**
 model-based **synthesis** of a rule for the residue, gated.
 
 > Folded in 2026-07-14 from the former standalone `zernie/agent-rules-compiler`
-> repo (now archived with a pointer here). Decision + rationale:
-> `migratsiya/49` in the private knowledge base.
+> repo (now archived with a pointer here), to stop two repositories carrying one
+> engine.
 
 ## The pipeline
 
