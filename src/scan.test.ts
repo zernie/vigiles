@@ -2537,7 +2537,8 @@ test("weight: at a root session Codex loads the ROOT file only — the walk is n
  * confident wrong number.
  *
  * `CLAUDE.md` holding nothing but `@AGENTS.md` is the documented workaround for
- * Claude Code not auto-loading `AGENTS.md` (anthropics/claude-code#34235), and
+ * Claude Code not yet reading `AGENTS.md` natively (anthropics/claude-code#34235
+ * — reversed in v2.1.277; the idiom and its files remain), and
  * four of the six real imports in the measured 198-file corpus are exactly this.
  * Before the import pass, vigiles reported such a repository as having an
  * eleven-byte instruction file — reassuring, and wrong by two orders of

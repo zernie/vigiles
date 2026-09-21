@@ -47,6 +47,7 @@
  */
 import { executableSourceDirs } from "@engine/core/layout";
 import { claudeCodeLayout } from "@engine/adapters/claude-code/layout";
+import { claudeCodeDialect } from "@engine/adapters/claude-code/dialect";
 
 import { normalizeSlug } from "@/lib/deeplink";
 
@@ -110,9 +111,24 @@ const CONCURRENCY = 6;
  * absence is the same decision as `scope: "local"` in the engine: it is
  * gitignored by convention, so a GitHub tree can never carry it. Adding it here
  * would fetch a file that is never there and imply the demo could see one.
+ *
+ * 🔴 `instructionTargets` IS SPREAD HERE, AND IT IS WHAT KEEPS THE TWO ENGINES
+ * AGREEING. Since v2.1.277 Claude Code reads `AGENTS.md` natively, so the CLI's
+ * chain loads one — and a twin that fetched only `layout.instructionFile` would
+ * hand the chain a map with no `AGENTS.md` in it and print a weight of zero for
+ * a repository that really loads the file. Not a wrong DIGIT: a missing file,
+ * on the browser side only, which is the CLI/browser disagreement the `scope`
+ * rule exists to prevent. Spread rather than listed, so the dialect stays the
+ * one place the filename lives.
+ *
+ * ⚠️ FETCHING IT IS NOT DETECTING ON IT. `isHarnessMarker` below still does not
+ * accept a bare `AGENTS.md` as proof of a Claude Code harness, exactly as
+ * `claudeCodeAdapter.detect` does not — that file is Codex's to own and this
+ * harness only READS it. A repo holding nothing but an `AGENTS.md` still lands
+ * in the no-harness state.
  */
 const HARNESS_ROOT_FILES = new Set([
-  claudeCodeLayout.instructionFile,
+  ...claudeCodeDialect.instructionTargets,
   claudeCodeLayout.mcpConfigFile,
   "SKILL.md",
 ]);

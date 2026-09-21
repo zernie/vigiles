@@ -27,6 +27,15 @@ export const aliases: Record<string, string> = {
   "@engine/adapters/claude-code/layout": fileURLToPath(
     new URL("../dist/adapters/claude-code/layout.js", import.meta.url),
   ),
+  // And the DIALECT beside it, for the same "derive, do not re-list" reason:
+  // `fetchRepo.ts` takes the root instruction filenames it fetches from
+  // `instructionTargets`, which since v2.1.277 names `AGENTS.md` as well as
+  // `CLAUDE.md`. A twin that fetched only `layout.instructionFile` would hand
+  // the chain a map with no `AGENTS.md` in it and print a weight of zero for a
+  // repository that really loads it.
+  "@engine/adapters/claude-code/dialect": fileURLToPath(
+    new URL("../dist/adapters/claude-code/dialect.js", import.meta.url),
+  ),
   // The /comparison snapshot is produced by a ROOT tool (tools/measure-validate-overlap.mjs)
   // and its freshness is asserted by a ROOT test (src/comparison-snapshot.test.ts), so it
   // LIVES at the root and the site consumes it. It used to live under site/, which made a

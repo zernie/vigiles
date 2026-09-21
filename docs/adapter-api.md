@@ -119,8 +119,15 @@ interface InstructionChain {
   agreement and make a published grade irreproducible between teammates. The
   weight therefore carries two numbers, `committedTotal` and `effectiveTotal`.
 - `reason` — `{kind:"replaced", by}` · `{kind:"on-demand", when}` ·
-  `{kind:"excluded-by-settings", key}`. A file in `unloaded` without one does not
-  type-check.
+  `{kind:"excluded-by-settings", key}` · `{kind:"superseded", by, byScope}`. A
+  file in `unloaded` without one does not type-check.
+  - `superseded` is a CROSS-FAMILY switch, not `replaced`'s same-directory slot:
+    Claude Code reads `AGENTS.md` only when no `CLAUDE.md`, `.claude/CLAUDE.md`
+    or `CLAUDE.local.md` is present (vendor, v2.1.277+). `byScope` carries
+    whether the file that did it is committed — when it is `local`, a gitignored
+    file has changed the MEMBERSHIP of the load rather than its size, so
+    `committedTotal` keeps a file `effectiveTotal` drops and the effective
+    number can come out BELOW the committed one.
 
 **The bound.** The domain enumerates candidates from `INSTRUCTION_SHAPES`
 (`core/instruction-chain.ts`): the repo root's markdown, a depth-1

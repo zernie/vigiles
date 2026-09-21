@@ -229,6 +229,33 @@ export type NotLoadedReason =
 | {
     readonly kind: "excluded-by-settings";
     readonly key: string;
+}
+/**
+* A file of a DIFFERENT instruction family is present, and its presence turns
+* this whole family off — Claude Code reading `AGENTS.md` only when no
+* `CLAUDE.md` counts.
+*
+* 🔴 NOT THE SAME THING AS `replaced`, AND CONFLATING THEM WOULD LOSE THE ONE
+* FACT THAT MATTERS. `replaced` is Codex taking at most ONE file per
+* directory out of a same-named family, so the loser is a near-copy of the
+* winner in the same place. `superseded` is a cross-family switch: the
+* superseding file may sit in a different directory (`.claude/CLAUDE.md`),
+* carries entirely different content, and — the part `replaced` has no room
+* for — MAY NOT BE COMMITTED.
+*
+* 🔴 WHICH IS WHY `byScope` IS A FIELD AND NOT A LOOKUP AT THE PRINT SITE.
+* When the superseding file is `"local"`, a gitignored file has changed the
+* MEMBERSHIP of the load, not just its size: a teammate on the same commit
+* loads this file and this working copy does not. `weighInstructions` reads
+* exactly this field to keep `committedTotal` right in that case — see
+* `WeighedFile.supersededLocallyBy`. A consumer that only knew `by` would
+* have to re-derive the scope from the path, which is the "second list"
+* defect this redesign removes.
+*/
+| {
+    readonly kind: "superseded";
+    readonly by: string;
+    readonly byScope: InstructionScope;
 };
 
 // @public

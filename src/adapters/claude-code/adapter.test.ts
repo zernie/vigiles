@@ -245,3 +245,37 @@ test("getAdapter looks up by name", () => {
   assert.equal(getAdapter("claude-code"), claudeCodeAdapter);
   assert.equal(getAdapter("nope"), undefined);
 });
+
+test("instructionTargets names AGENTS.md — and detect/claims are UNCHANGED by it", () => {
+  // 🔴 THE MEASUREMENT BEHIND THE FIELD, AS AN ASSERTION. `AGENTS.md` joined
+  // `instructionTargets` on 2026-09-21 because the vendor reversed itself
+  // ("Claude Code can read `AGENTS.md` as your project instructions", v2.1.277+
+  // — see dialect.ts for the quote). The expected objection is that a second
+  // target makes this adapter score a bare `AGENTS.md` repository and start
+  // fighting Codex for it. It does not: `detect` reads the LAYOUT, never this
+  // field. The two halves are pinned together on purpose, because the first
+  // without the second is the change nobody would have merged.
+  assert.deepEqual(claudeCodeAdapter.dialect.instructionTargets, [
+    "CLAUDE.md",
+    "AGENTS.md",
+  ]);
+  // [0] is the default COMPILE target (`core/compile.ts`), so the order is part
+  // of the contract: this harness READS AGENTS.md, it does not author it.
+  assert.equal(claudeCodeAdapter.dialect.instructionTargets[0], "CLAUDE.md");
+
+  const asked: string[] = [];
+  claudeCodeAdapter.detect((p) => {
+    asked.push(p);
+    return false;
+  });
+  assert.deepEqual(asked, [
+    ".claude-plugin/plugin.json",
+    ".claude/settings.json",
+    "CLAUDE.md",
+  ]);
+  // And the reason it cannot change without someone deciding to: `claims` is
+  // derived from the layout, and `adapter-properties.test.ts` refuses a
+  // `detect` that asks about a path `claims` does not cover — so detecting on
+  // AGENTS.md would force Claude Code to CLAIM a path Codex already owns.
+  assert.equal(claudeCodeAdapter.claims("AGENTS.md"), false);
+});

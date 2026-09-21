@@ -100,7 +100,8 @@ export interface LoadedInstruction {
    *
    * 🔴 IT IS A FIELD AND NOT A PRINT-SITE LOOKUP BECAUSE THE READER CANNOT
    * DECOMPOSE THE NUMBER WITHOUT IT. `AGENTS.md` appearing in a CLAUDE CODE
-   * weight looks like a bug — Claude Code does not auto-load it — and the only
+   * weight looks like a bug — whether it got there by LOCATION or because
+   * somebody wrote an import is a difference the size cannot show — and the only
    * thing that makes it legible, and actionable, is the line the user wrote:
    * `via @AGENTS.md in CLAUDE.md`. A total a reader cannot take apart is the
    * failure mode this whole report exists to prevent.
@@ -128,7 +129,36 @@ export type NotLoadedReason =
       readonly when: "path-scoped" | "subdirectory";
     }
   /** A repo setting removed it — Claude Code's `claudeMdExcludes`. */
-  | { readonly kind: "excluded-by-settings"; readonly key: string };
+  | { readonly kind: "excluded-by-settings"; readonly key: string }
+  /**
+   * A file of a DIFFERENT instruction family is present, and its presence turns
+   * this whole family off — Claude Code reading `AGENTS.md` only when no
+   * `CLAUDE.md` counts.
+   *
+   * 🔴 NOT THE SAME THING AS `replaced`, AND CONFLATING THEM WOULD LOSE THE ONE
+   * FACT THAT MATTERS. `replaced` is Codex taking at most ONE file per
+   * directory out of a same-named family, so the loser is a near-copy of the
+   * winner in the same place. `superseded` is a cross-family switch: the
+   * superseding file may sit in a different directory (`.claude/CLAUDE.md`),
+   * carries entirely different content, and — the part `replaced` has no room
+   * for — MAY NOT BE COMMITTED.
+   *
+   * 🔴 WHICH IS WHY `byScope` IS A FIELD AND NOT A LOOKUP AT THE PRINT SITE.
+   * When the superseding file is `"local"`, a gitignored file has changed the
+   * MEMBERSHIP of the load, not just its size: a teammate on the same commit
+   * loads this file and this working copy does not. `weighInstructions` reads
+   * exactly this field to keep `committedTotal` right in that case — see
+   * `WeighedFile.supersededLocallyBy`. A consumer that only knew `by` would
+   * have to re-derive the scope from the path, which is the "second list"
+   * defect this redesign removes.
+   */
+  | {
+      readonly kind: "superseded";
+      /** The file whose presence did it. */
+      readonly by: string;
+      /** Whether that file is committed, or one machine's. */
+      readonly byScope: InstructionScope;
+    };
 
 export interface UnloadedInstruction extends LoadedInstruction {
   readonly reason: NotLoadedReason;
@@ -177,9 +207,13 @@ export interface InstructionChain {
    * instructions, and a finding rather than a footnote.
    *
    * 🔴 WHY THIS IS A NAMED SHAPE. Four of the six real imports in the measured
-   * corpus are `@AGENTS.md`, because Claude Code does not auto-load `AGENTS.md`
-   * (anthropics/claude-code#34235), and the idiom that follows is a `CLAUDE.md`
-   * holding that one line and nothing else. Reported as a size, such a repo has
+   * corpus are `@AGENTS.md`, written when Claude Code did not yet read
+   * `AGENTS.md` natively (anthropics/claude-code#34235; it does since v2.1.277 —
+   * see `adapters/claude-code/dialect.ts`), and the idiom that follows is a
+   * `CLAUDE.md` holding that one line and nothing else. THE SHAPE DID NOT GO
+   * AWAY WITH THE VENDOR CHANGE: those files are still in those repositories,
+   * the `CLAUDE.md` beside them SUPPRESSES the `AGENTS.md`, and the vendor's own
+   * table still gives the case a row. Reported as a size, such a repo has
    * a ~14-byte instruction file — a confident wrong answer about a repository
    * that really loads tens of kilobytes. The report says "this file is a
    * redirect, here is what it points at" instead of printing a reassuring
@@ -344,10 +378,12 @@ export function isRepoRootedImport(token: string): boolean {
  * strings found in files is the exact defect zernie/vigiles#262 is about.
  *
  * 🔴 AND THE SIX ARE WHERE THE NUMBER IS MOST WRONG WITHOUT THIS PASS. Four of
- * them are `@AGENTS.md` — the known workaround for Claude Code not auto-loading
- * `AGENTS.md` (anthropics/claude-code#34235, cited in the CC dialect). That file
- * is in nobody's always-loaded set, so skipping imports misses its whole size:
- * an under-report, which reads as "you are fine".
+ * them are `@AGENTS.md` — the workaround for Claude Code not yet reading
+ * `AGENTS.md` natively (anthropics/claude-code#34235; reversed in v2.1.277, see
+ * `adapters/claude-code/dialect.ts`). Skipping imports would still miss that
+ * file's whole size in exactly those repositories, because the vendor's rule is
+ * that a `CLAUDE.md` SUPPRESSES `AGENTS.md` — so the import is the only way in,
+ * and dropping it is an under-report, which reads as "you are fine".
  *
  * ⚠️ WHAT ONE LEVEL COSTS, stated rather than implied: a transitive import (an
  * imported file that imports again) is a real Claude Code feature, and its

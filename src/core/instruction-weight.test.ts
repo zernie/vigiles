@@ -184,6 +184,85 @@ describe("what the glob list got WRONG, and the chain gets right", () => {
   });
 });
 
+describe("a PER-MACHINE file can change the MEMBERSHIP of the load, not just its size", () => {
+  // 🔴 THE CASE THE TWO-NUMBER CONTRACT DID NOT MODEL UNTIL 2026-09-21, and the
+  // reason it did not is worth more than the fix. Every per-machine effect this
+  // module had seen was ADDITIVE — `CLAUDE.local.md` appends its own bytes — so
+  // `effectiveTotal` was written as "the sum of everything loaded" and that was
+  // right for as long as a local file could only ADD. Claude Code's supersede
+  // rule breaks it in the other direction:
+  //
+  //   "Because `CLAUDE.local.md` counts, adding one to keep your own
+  //    uncommitted instructions in a project that relies on `AGENTS.md` stops
+  //    Claude from reading `AGENTS.md` for you."
+  //
+  // So a gitignored file REMOVES a committed file from the load. The committed
+  // number has to keep a file this working copy never opens, and the effective
+  // number has to drop it — the two totals move in opposite directions, and
+  // `effectiveTotal` comes out BELOW `committedTotal`.
+
+  it("AGENTS.md stays in the COMMITTED total and leaves the EFFECTIVE one", () => {
+    const w = weighThrough(
+      claudeCodeLayout,
+      { "AGENTS.md": "a".repeat(100), "CLAUDE.local.md": "b".repeat(7) },
+      cc,
+    );
+    expect([w.committedTotal, w.effectiveTotal]).toEqual([100, 7]);
+    // …and the reader can decompose both numbers, which is the whole contract:
+    // the line says which file it is, that it is committed, and what silenced it.
+    expect(
+      w.files.map((f) => [f.path, f.scope, f.supersededLocallyBy]),
+    ).toEqual([
+      ["AGENTS.md", "repo", "CLAUDE.local.md"],
+      ["CLAUDE.local.md", "local", undefined],
+    ]);
+  });
+
+  it("the budget verdict is still taken on the committed total — over by the AGENTS.md alone", () => {
+    // The direction that matters for a published grade: a teammate on this
+    // commit really is over, and a gitignored file in MY working copy must not
+    // be able to hide that by removing the file from what I load.
+    const w = weighThrough(
+      claudeCodeLayout,
+      { "AGENTS.md": "a".repeat(40100), "CLAUDE.local.md": "b" },
+      cc,
+    );
+    expect(w.overBy).toBe(100);
+    expect(w.effectiveTotal).toBe(1);
+  });
+
+  it("superseded by a COMMITTED file instead — it pays into NEITHER total", () => {
+    // The other half, and without it the first test proves only that some
+    // superseded entry is counted. Nobody loads this AGENTS.md — not a
+    // teammate, not CI, not this working copy — so it is absent from the file
+    // list entirely rather than carried with a marker.
+    const files = {
+      "CLAUDE.md": "a".repeat(10),
+      "AGENTS.md": "b".repeat(9999),
+    };
+    const w = weighThrough(claudeCodeLayout, files, cc);
+    expect([w.committedTotal, w.effectiveTotal]).toEqual([10, 10]);
+    expect(w.files.map((f) => f.path)).toEqual(["CLAUDE.md"]);
+    // …and it is not silently dropped: the chain still says why.
+    expect(
+      claudeCodeLayout.instructionChain(files).unloaded[0]?.reason,
+    ).toEqual({ kind: "superseded", by: "CLAUDE.md", byScope: "repo" });
+  });
+
+  it("with no local file at all, the same repo loads AGENTS.md and both totals agree", () => {
+    // The control: remove ONE gitignored byte from the first test's map and the
+    // membership flips back. This is the pair that makes "membership, not size"
+    // a measurement instead of a claim.
+    const w = weighThrough(
+      claudeCodeLayout,
+      { "AGENTS.md": "a".repeat(100) },
+      cc,
+    );
+    expect([w.committedTotal, w.effectiveTotal]).toEqual([100, 100]);
+    expect(w.files[0]?.supersededLocallyBy).toBe(undefined);
+  });
+});
+
 describe("what could NOT be weighed is printed, not dropped", () => {
   it("an import the run never read is named", () => {
     const w = weighThrough(
@@ -207,9 +286,10 @@ describe("what could NOT be weighed is printed, not dropped", () => {
 
 describe("an imported file carries its PROVENANCE into the report", () => {
   it("says who named it and with what text", () => {
-    // `AGENTS.md` inside a CLAUDE CODE weight reads as a bug — Claude Code does
-    // not auto-load it — until the line says `via @AGENTS.md in CLAUDE.md`. The
-    // user wrote that line; it is the thing they can act on.
+    // `AGENTS.md` inside a CLAUDE CODE weight reads as a bug until the line says
+    // `via @AGENTS.md in CLAUDE.md`. The user wrote that line; it is the thing
+    // they can act on — and since v2.1.277 the provenance is the ONLY thing
+    // separating this case from an `AGENTS.md` that got in by location.
     const w = weighThrough(
       claudeCodeLayout,
       { "CLAUDE.md": "@AGENTS.md", "AGENTS.md": "z".repeat(40) },

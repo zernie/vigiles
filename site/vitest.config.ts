@@ -48,6 +48,7 @@ export default defineConfig({
       "@engine/spec",
       "@engine/core/layout",
       "@engine/adapters/claude-code/layout",
+      "@engine/adapters/claude-code/dialect",
       "pako",
     ],
     // @iarna/toml (a CJS engine dep) references bare `global`; the production

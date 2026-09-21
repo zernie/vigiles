@@ -40,6 +40,7 @@ import type {
   InstructionChain,
   InstructionRole,
   InstructionScope,
+  LoadedInstruction,
 } from "./instruction-chain.js";
 
 /** What the harness counts, and what it does when the count is exceeded. */
@@ -75,6 +76,29 @@ export interface WeighedFile {
    * failure this report exists to prevent.
    */
   readonly via?: { readonly from: string; readonly token: string };
+  /**
+   * Set when this file pays into {@link InstructionWeight.committedTotal} but
+   * NOT into {@link InstructionWeight.effectiveTotal}: a PER-MACHINE file in
+   * this working copy supersedes it, so a teammate on the same commit loads it
+   * and you do not. Names the file that did it.
+   *
+   * 🔴 THE ONE CASE WHERE THE TWO TOTALS MOVE IN OPPOSITE DIRECTIONS, and the
+   * reason this is a field rather than a filter at the print site. Every other
+   * per-machine effect is ADDITIVE — a `CLAUDE.local.md` appends its own bytes,
+   * so `effective = committed + locals` — which is why it was safe for
+   * `effectiveTotal` to be "the sum of everything loaded". Claude Code's
+   * supersede rule breaks that: "Because `CLAUDE.local.md` counts, adding one
+   * to keep your own uncommitted instructions in a project that relies on
+   * `AGENTS.md` stops Claude from reading `AGENTS.md` for you." The gitignored
+   * file changes the MEMBERSHIP of the load, not its size, and the committed
+   * number has to keep a file this working copy never opens.
+   *
+   * A reader who could not see this on the file's own line would meet a
+   * `committedTotal` larger than the `effectiveTotal` beside it with nothing
+   * accounting for the gap — the undecomposable total this whole report exists
+   * to prevent.
+   */
+  readonly supersededLocallyBy?: string;
 }
 
 export interface InstructionWeight {
@@ -90,9 +114,14 @@ export interface InstructionWeight {
    */
   readonly committedTotal: number;
   /**
-   * What THIS working copy actually loads — `committedTotal` plus the
-   * per-machine files. Never compared against the budget; printed beside it so
-   * the difference is visible rather than silently either counted or dropped.
+   * What THIS working copy actually loads. Never compared against the budget;
+   * printed beside it so the difference is visible rather than silently either
+   * counted or dropped.
+   *
+   * ⚠️ IT IS NOT "`committedTotal` PLUS THE PER-MACHINE FILES", and it used to
+   * say so. A per-machine file can also SUBTRACT: Claude Code stops reading
+   * `AGENTS.md` at all once a `CLAUDE.local.md` exists, so this number can come
+   * out BELOW `committedTotal`. See {@link WeighedFile.supersededLocallyBy}.
    */
   readonly effectiveTotal: number;
   /** `null` when {@link committedTotal} is within budget; else how far over. */
@@ -146,24 +175,56 @@ export function weighInstructions(
   files: Readonly<Record<string, string>>,
   budget: InstructionBudget,
 ): InstructionWeight {
-  const weighed = chain.loaded
-    .flatMap((entry): WeighedFile[] => {
-      const text = files[entry.path];
-      return text === undefined
-        ? []
-        : [
-            {
-              path: entry.path,
-              size: sizeIn(text, budget.unit),
-              role: entry.role,
-              scope: entry.scope,
-              ...(entry.via === undefined ? {} : { via: entry.via }),
-            },
-          ];
-    })
-    .sort((a, b) => b.size - a.size || a.path.localeCompare(b.path));
+  /**
+   * A committed file this working copy does NOT load, only because a
+   * per-machine file supersedes it — so a teammate's total keeps it and ours
+   * does not. Read straight off the chain's own reason rather than re-derived
+   * from the path, which is why `byScope` is on {@link NotLoadedReason}.
+   *
+   * The other superseded entries — the ones a COMMITTED file silenced — are
+   * correctly absent: nobody loads those, so they pay into neither total.
+   */
+  const supersededByLocal: readonly {
+    readonly entry: LoadedInstruction;
+    readonly by: string;
+  }[] = chain.unloaded.flatMap((e) =>
+    e.scope === "repo" &&
+    e.reason.kind === "superseded" &&
+    e.reason.byScope === "local"
+      ? [{ entry: e, by: e.reason.by }]
+      : [],
+  );
+  const weighOne = (
+    entry: LoadedInstruction,
+    supersededLocallyBy?: string,
+  ): WeighedFile[] => {
+    const text = files[entry.path];
+    return text === undefined
+      ? []
+      : [
+          {
+            path: entry.path,
+            size: sizeIn(text, budget.unit),
+            role: entry.role,
+            scope: entry.scope,
+            ...(entry.via === undefined ? {} : { via: entry.via }),
+            ...(supersededLocallyBy === undefined
+              ? {}
+              : { supersededLocallyBy }),
+          },
+        ];
+  };
+  const weighed = [
+    ...chain.loaded.flatMap((e) => weighOne(e)),
+    ...supersededByLocal.flatMap((s) => weighOne(s.entry, s.by)),
+  ].sort((a, b) => b.size - a.size || a.path.localeCompare(b.path));
   const sum = (of: readonly WeighedFile[]): number =>
     of.reduce((total, f) => total + f.size, 0);
+  // COMMITTED is still "every `repo`-scoped file in the list", unchanged — the
+  // superseded entry is a committed file and joins the list with `scope:
+  // "repo"`, so the formula did not have to learn a second rule. EFFECTIVE is
+  // the one that changed: it was `sum(weighed)`, which was only ever right
+  // while the list held nothing this working copy fails to load.
   const committedTotal = sum(weighed.filter((f) => f.scope === "repo"));
   return {
     unit: budget.unit,
@@ -171,7 +232,9 @@ export function weighInstructions(
     onExceed: budget.onExceed,
     files: weighed,
     committedTotal,
-    effectiveTotal: sum(weighed),
+    effectiveTotal: sum(
+      weighed.filter((f) => f.supersededLocallyBy === undefined),
+    ),
     overBy:
       committedTotal > budget.limit ? committedTotal - budget.limit : null,
     unreadImports: [

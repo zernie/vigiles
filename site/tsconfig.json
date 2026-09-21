@@ -26,6 +26,9 @@
       "@engine/adapters/claude-code/layout": [
         "../dist/adapters/claude-code/layout.d.ts"
       ],
+      "@engine/adapters/claude-code/dialect": [
+        "../dist/adapters/claude-code/dialect.d.ts"
+      ],
       "vigiles": ["../dist/test.d.ts"],
       "vigiles/eval": ["../dist/eval-surface.d.ts"]
     }

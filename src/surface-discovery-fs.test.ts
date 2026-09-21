@@ -207,7 +207,7 @@ test("an @import names one concrete path, and it is read — one level, no recur
     mkdirSync(join(root, "docs"), { recursive: true });
     writeFileSync(join(root, "CLAUDE.md"), "@docs/a.md");
     // The shape 4 of the 6 real imports in the measured corpus have: the
-    // AGENTS.md workaround for Claude Code not auto-loading it.
+    // AGENTS.md workaround, from before Claude Code read it natively (v2.1.277).
     writeFileSync(join(root, "docs/a.md"), "@docs/b.md");
     writeFileSync(join(root, "docs/b.md"), "leaf");
     // Never named by anything: the pass follows tokens, it does not glob.

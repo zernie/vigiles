@@ -156,6 +156,196 @@ describe("what does NOT load, and why", () => {
   });
 });
 
+describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09-21)", () => {
+  // 🔴 THE ROW THIS SUITE IS BUILT FROM. The vendor states the whole rule as a
+  // three-row table, and each row below is one of them, verbatim in the name:
+  //
+  //   | An AGENTS.md, and no CLAUDE.md/CLAUDE.local.md at or above | AGENTS.md |
+  //   | An AGENTS.md AND a CLAUDE.md/CLAUDE.local.md at or above   | CLAUDE.md files only |
+  //   | A CLAUDE.md that already imports AGENTS.md                 | CLAUDE.md, with AGENTS.md through the import |
+  //
+  // The rows are mutually exclusive on PRESENCE, which is why this is a switch
+  // and not a merge, and why the reason is `superseded` rather than `replaced`.
+
+  it("row 1 — with no CLAUDE.md family at all, both spellings LOAD at session start", () => {
+    // "At session start: every `AGENTS.md` and `.claude/AGENTS.md` in your
+    // working directory and the directories above it."
+    const files = { "AGENTS.md": "shared", ".claude/AGENTS.md": "dot" };
+    expect(chain(files).loaded).toEqual([
+      { path: "AGENTS.md", role: "root", scope: "repo" },
+      { path: ".claude/AGENTS.md", role: "root", scope: "repo" },
+    ]);
+    expect(chain(files).unloaded).toEqual([]);
+  });
+
+  it("row 2 — a CLAUDE.md supersedes it, and the reason NAMES the file that did it", () => {
+    const files = { "CLAUDE.md": "root", "AGENTS.md": "shared" };
+    expect(paths(files)).toEqual(["CLAUDE.md"]);
+    expect(chain(files).unloaded).toEqual([
+      {
+        path: "AGENTS.md",
+        role: "root",
+        scope: "repo",
+        reason: { kind: "superseded", by: "CLAUDE.md", byScope: "repo" },
+      },
+    ]);
+  });
+
+  it("row 2 — `.claude/CLAUDE.md` counts too, on its own", () => {
+    // The vendor lists three files, not one, and this is the spelling a reader
+    // is most likely to forget: it is not at the repo root.
+    const files = { ".claude/CLAUDE.md": "dot", "AGENTS.md": "shared" };
+    expect(paths(files)).toEqual([".claude/CLAUDE.md"]);
+    expect(chain(files).unloaded[0]?.reason).toEqual({
+      kind: "superseded",
+      by: ".claude/CLAUDE.md",
+      byScope: "repo",
+    });
+  });
+
+  it("row 3 — a CLAUDE.md that IMPORTS it still loads it, as an import", () => {
+    // "A `CLAUDE.md` that already imports `AGENTS.md`" -> "Your `CLAUDE.md`,
+    // with `AGENTS.md` included through the import". This is the idiom four of
+    // the six real imports in the measured corpus use, so classifying it as
+    // superseded would have deleted a real load AND the redirect finding with
+    // it. What makes it come out right is ORDER: the imports pass runs before
+    // the supersede verdict.
+    const files = { "CLAUDE.md": "@AGENTS.md\n", "AGENTS.md": "shared" };
+    expect(chain(files).loaded).toEqual([
+      { path: "CLAUDE.md", role: "root", scope: "repo" },
+      {
+        path: "AGENTS.md",
+        role: "import",
+        scope: "repo",
+        via: { from: "CLAUDE.md", token: "@AGENTS.md" },
+      },
+    ]);
+    expect(chain(files).unloaded).toEqual([]);
+    expect(chain(files).redirects).toEqual([
+      { path: "CLAUDE.md", to: ["AGENTS.md"] },
+    ]);
+  });
+
+  it("a PER-MACHINE CLAUDE.local.md supersedes it — and `byScope` says so", () => {
+    // 🔴 THE SENTENCE THAT COSTS A NUMBER: "Because `CLAUDE.local.md` counts,
+    // adding one to keep your own uncommitted instructions in a project that
+    // relies on `AGENTS.md` stops Claude from reading `AGENTS.md` for you." A
+    // gitignored file has changed the MEMBERSHIP of the load — a teammate on
+    // this commit loads AGENTS.md and this working copy loads none of it. The
+    // weight reads `byScope` to keep both totals right.
+    const files = { "CLAUDE.local.md": "mine", "AGENTS.md": "shared" };
+    expect(paths(files)).toEqual(["CLAUDE.local.md"]);
+    expect(chain(files).unloaded[0]?.reason).toEqual({
+      kind: "superseded",
+      by: "CLAUDE.local.md",
+      byScope: "local",
+    });
+  });
+
+  it("a COMMITTED superseder wins over the per-machine one when both exist", () => {
+    // 🔴 THE PRECEDENCE RATCHET, and it is not cosmetic: naming the local file
+    // here would put AGENTS.md into `committedTotal`, claiming a teammate loads
+    // it — but that teammate has the CLAUDE.md, so they do not. The order of
+    // the candidate array in `supersederOf` is the whole of this rule.
+    const files = {
+      "CLAUDE.md": "root",
+      "CLAUDE.local.md": "mine",
+      "AGENTS.md": "shared",
+    };
+    expect(chain(files).unloaded[0]?.reason).toEqual({
+      kind: "superseded",
+      by: "CLAUDE.md",
+      byScope: "repo",
+    });
+  });
+
+  it("`.claude/rules/` does NOT count — it keeps loading ALONGSIDE AGENTS.md", () => {
+    // The other half of the vendor's own list ("Don't count, and keep loading
+    // alongside `AGENTS.md`"). A reader who added the rules dir to the
+    // superseder array would turn AGENTS.md off in every repo that has one.
+    expect(
+      paths({ ".claude/rules/a.md": "a rule", "AGENTS.md": "shared" }),
+    ).toEqual(["AGENTS.md", ".claude/rules/a.md"]);
+  });
+
+  it("`@path` imports inside an AGENTS.md are expanded — role-blind, as the vendor says", () => {
+    // "Inside each `AGENTS.md`: `@path` imports are expanded". Asserted on an
+    // AGENTS.md that got in as a ROOT file, because an import pass keyed on
+    // role would pass every CLAUDE.md case and fail exactly this one.
+    const files = { "AGENTS.md": "@docs/style.md", "docs/style.md": "prose" };
+    expect(paths(files)).toEqual(["AGENTS.md", "docs/style.md"]);
+    expect(chain(files).imports).toEqual([
+      { path: "docs/style.md", token: "@docs/style.md", from: "AGENTS.md" },
+    ]);
+  });
+
+  it("`claudeMdExcludes` applies to an AGENTS.md too", () => {
+    // "…and `claudeMdExcludes` patterns apply". Same argument as above: this is
+    // the case a role-keyed exclusion check would miss.
+    const files = {
+      "AGENTS.md": "shared",
+      ".claude/settings.json": JSON.stringify({
+        claudeMdExcludes: ["**/AGENTS.md"],
+      }),
+    };
+    expect(paths(files)).toEqual([]);
+    expect(chain(files).unloaded[0]?.reason).toEqual({
+      kind: "excluded-by-settings",
+      key: "claudeMdExcludes",
+    });
+  });
+
+  it("a subdirectory's AGENTS.md is ON DEMAND — the same treatment a `paths:` rule gets", () => {
+    // "As Claude works in subdirectories: a subdirectory's `AGENTS.md`, when
+    // Claude opens a file there with the Read tool."
+    const files = { "AGENTS.md": "root", "pkg/AGENTS.md": "nested" };
+    expect(paths(files)).toEqual(["AGENTS.md"]);
+    expect(chain(files).unloaded).toEqual([
+      {
+        path: "pkg/AGENTS.md",
+        role: "root",
+        scope: "repo",
+        reason: { kind: "on-demand", when: "subdirectory" },
+      },
+    ]);
+  });
+
+  it("`.claude/AGENTS.md` is a ROOT candidate, never a `subdirectory` one", () => {
+    // It has a slash and the right leaf name, so the subdirectory pass would
+    // claim it if the root pass had not reserved it — and the printed reason
+    // would then be "on-demand" for a file that is simply superseded.
+    const files = { "CLAUDE.md": "root", ".claude/AGENTS.md": "dot" };
+    expect(chain(files).unloaded).toEqual([
+      {
+        path: ".claude/AGENTS.md",
+        role: "root",
+        scope: "repo",
+        reason: { kind: "superseded", by: "CLAUDE.md", byScope: "repo" },
+      },
+    ]);
+  });
+
+  it.each([
+    ["AGENTS.local.md", { "AGENTS.local.md": "x", "pkg/AGENTS.local.md": "y" }],
+    [
+      "AGENTS.override.md",
+      { "AGENTS.override.md": "x", "pkg/AGENTS.override.md": "y" },
+    ],
+    ["anything under .agents/", { ".agents/AGENTS.md": "x" }],
+  ])("does NOT name %s — the vendor's own 'Not read' list", (_name, extra) => {
+    // 🔴 `AGENTS.override.md` IS CODEX'S, and this is the assertion that keeps
+    // it there: the only executable model of it is `overrideSiblingOf` in
+    // `adapters/codex/instruction-chain.ts`. `.agents/AGENTS.md` is the one
+    // that would be claimed by accident — it is dot-directory markdown, so the
+    // bound really does hand it over, and a leaf-name match would call it
+    // "on-demand".
+    const files = { "AGENTS.md": "shared", ...extra };
+    const c = chain(files);
+    const named = [...c.loaded, ...c.unloaded].map((e) => e.path);
+    expect(named).toEqual(["AGENTS.md"]);
+  });
+});
+
 describe("imports: the repo owner names the path, the adapter only finds it", () => {
   it("reports an `@path` token whether or not the file was read", () => {
     expect(chain({ "CLAUDE.md": "see @docs/style.md" }).imports).toEqual([
@@ -177,10 +367,13 @@ describe("imports: the repo owner names the path, the adapter only finds it", ()
   });
 
   it("@AGENTS.md — the shape 4 of those 6 real imports actually have", () => {
-    // The known workaround for Claude Code not auto-loading AGENTS.md
-    // (anthropics/claude-code#34235). It is in nobody's always-loaded set, so
-    // skipping imports would miss its whole size — an under-report, which reads
-    // as "you are fine".
+    // The workaround written before Claude Code read AGENTS.md natively
+    // (anthropics/claude-code#34235; reversed in v2.1.277). It still has to
+    // work: the CLAUDE.md beside it SUPPRESSES the AGENTS.md, so the import is
+    // the only way that text loads, and dropping it would be an under-report —
+    // which reads as "you are fine". The vendor's own table gives this its own
+    // row: "A CLAUDE.md that already imports AGENTS.md" -> "Your CLAUDE.md,
+    // with AGENTS.md included through the import".
     expect(paths({ "CLAUDE.md": "@AGENTS.md", "AGENTS.md": "shared" })).toEqual(
       ["CLAUDE.md", "AGENTS.md"],
     );
@@ -273,9 +466,11 @@ describe("imports: the repo owner names the path, the adapter only finds it", ()
 
 describe("a CLAUDE.md that is NOTHING BUT an import is a REDIRECT", () => {
   // 🔴 THE FINDING, NOT THE NUMBER. Four of the six real imports measured are
-  // `@AGENTS.md`, because Claude Code does not auto-load AGENTS.md
-  // (anthropics/claude-code#34235), and the idiom that follows is a CLAUDE.md
-  // holding that one line. Reported as a size, such a repo has a fourteen-byte
+  // `@AGENTS.md`, written before Claude Code read AGENTS.md natively
+  // (anthropics/claude-code#34235; reversed in v2.1.277), and the idiom that
+  // follows is a CLAUDE.md holding that one line. Those files did not disappear
+  // when the vendor changed, and the CLAUDE.md beside them still suppresses the
+  // AGENTS.md — so the redirect is exactly as load-bearing as it was. Reported as a size, such a repo has a fourteen-byte
   // instruction file — a confident wrong answer about a repository that really
   // loads tens of kilobytes.
   it.each([
