@@ -60,7 +60,8 @@
         ]
       }
     ],
-    "empty": false
+    "empty": false,
+    "instructionsOnly": false
   },
   "verdict": {
     "sentence": "Two fixes away from a D.",
