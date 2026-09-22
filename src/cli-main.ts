@@ -104,11 +104,7 @@ import {
   type ExecuteDecision,
 } from "./scan-trigger-suggest.js";
 import type { ModelAccess } from "./core/live-driver.js";
-import { checkDialectDrift, formatDialectDrift } from "./dialect-drift.js";
-import {
-  checkSkillReachability,
-  formatSkillReachability,
-} from "./skill-reachability.js";
+import { buildInstallReader } from "./core/install-reader.js";
 import { addVigilesDeclaration } from "./plugin-declaration.js";
 import {
   probePluginTriggers,
@@ -8474,19 +8470,15 @@ export async function main(): Promise<void> {
           if (selection.kind === "notice") {
             console.log(`⚠ ${selection.notice}`);
           }
-          // Freshness: warn if our hand-maintained CC catalog drifted from the
-          // user's INSTALLED claude-code (read-local, best-effort, never throws).
-          if (adapter.name === "claude-code") {
-            const drift = formatDialectDrift(checkDialectDrift());
-            if (drift) console.log(drift);
-            // Adoption: this repo depends on vigiles, but can the agent SEE the
-            // skills it ships? `npm install` drops them in node_modules, which
-            // Claude Code never scans — the plugin install is what wires them,
-            // and until it runs the whole teaching surface is silently absent.
-            // Advisory only (machine state, not repo state) — never scored.
-            const reach = formatSkillReachability(checkSkillReachability(root));
-            if (reach) console.log(reach);
-          }
+          // Install diagnostics from the DRIVING harness — "is what vigiles
+          // assumes about this harness's install true on this machine". Advisory
+          // only (machine state, not repo state), never scored, printed as-is.
+          // This used to be `if (adapter.name === "claude-code") { …two Claude
+          // Code checks… }`; the checks were right and the gate was the defect.
+          for (const line of adapter.advisories(
+            buildInstallReader(adapter, root),
+          ))
+            console.log(line);
           console.log("");
         }
         // The versioned AuditReport is the product boundary — the same JSON the

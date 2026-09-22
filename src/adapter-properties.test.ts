@@ -96,6 +96,56 @@ describe.each(IMPLEMENTATIONS.map((a) => [a.name, a] as const))(
       expect(once.specificity).toBe(0);
     });
 
+    it("advisories() asks the repo only about paths this adapter CLAIMS", () => {
+      // The same bound as `detect`, one method along, and it needs its own
+      // property for the same reason `detect` did: the reader is the ONLY way
+      // `advisories` can reach a repo, so recording its calls records
+      // everything the adapter looked at. An adapter that read `package.json`
+      // or a sibling harness's config would fail here.
+      //
+      // The reader answers NOTHING (every read is null) so every branch is
+      // driven to its "nothing found" path, which is the branch that asks the
+      // most questions.
+      const askedRepo: string[] = [];
+      const askedHome: string[] = [];
+      const lines = adapter.advisories({
+        repo: (p) => {
+          askedRepo.push(p);
+          return null;
+        },
+        home: (p) => {
+          askedHome.push(p);
+          return null;
+        },
+        repoDependsOnVigiles: true,
+        vendoredSkillNames: [],
+      });
+      for (const path of askedRepo) {
+        expect(
+          adapter.claims(path),
+          `advisories() asked the repo about "${path}", which claims() does not cover`,
+        ).toBe(true);
+      }
+      // `[]` is a legal answer; what is not legal is a non-string in the list.
+      expect(Array.isArray(lines)).toBe(true);
+      for (const line of lines) expect(typeof line).toBe("string");
+    });
+
+    it("advisories() is a pure function of its reader — nothing found means nothing claimed about this install", () => {
+      // The complementary half: given a reader that finds nothing AND a repo
+      // that does not depend on vigiles, no advisory may be invented. This is
+      // what stops an adapter printing machine-state chatter into every audit.
+      const silent = {
+        repo: () => null,
+        home: () => null,
+        repoDependsOnVigiles: false,
+        vendoredSkillNames: [] as readonly string[],
+      };
+      const once = adapter.advisories(silent);
+      const twice = adapter.advisories(silent);
+      expect([...once]).toEqual([...twice]);
+    });
+
     it("claims() answers about a PATH and reads nothing — a path that cannot exist still gets an answer", () => {
       // `claims` takes no root and no filesystem; the check is that a
       // syntactically valid path nothing could have created still returns a

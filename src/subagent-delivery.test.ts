@@ -28,7 +28,7 @@
 import { describe, expect, it } from "vitest";
 
 import { runHarnessTest, scriptModel } from "./harness-test.js";
-import { onPathClaudeVersion } from "./dialect-drift.js";
+import { onPathClaudeVersion } from "./adapters/claude-code/dialect-drift.js";
 
 /** A subagent whose whole job is one observable side effect. */
 const ECHOER = `---

@@ -64,4 +64,9 @@ export const opencodeAdapter = {
       return { specificity: 1, via: "instruction-file" };
     return { specificity: 0, via: "instruction-file" };
   },
+  /** Nothing to say about an opencode install — see the Codex adapter for why
+   *  `[]` is the answer rather than an absent capability. */
+  advisories(): readonly string[] {
+    return [];
+  },
 } as const satisfies HarnessAdapter;

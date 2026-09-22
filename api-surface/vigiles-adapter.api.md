@@ -26,6 +26,7 @@ export const ADAPTERS: readonly [{
     readonly liveDriver: () => Promise<HarnessLiveDriver>;
     readonly claims: (path: string) => boolean;
     readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
+    readonly advisories: (read: InstallReader) => readonly string[];
 }, {
     readonly name: "codex";
     readonly harnessTesting: true;
@@ -40,6 +41,7 @@ export const ADAPTERS: readonly [{
     readonly liveDriver: () => Promise<HarnessLiveDriver>;
     readonly claims: (path: string) => boolean;
     readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
+    readonly advisories: () => readonly string[];
 }];
 
 // @public

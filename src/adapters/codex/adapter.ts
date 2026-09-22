@@ -51,4 +51,17 @@ export const codexAdapter = {
       return { specificity: 1, via: "instruction-file" };
     return { specificity: 0, via: "instruction-file" };
   },
+  /**
+   * Nothing to say about a Codex install today, and `[]` IS the answer rather
+   * than a missing capability: the CLI prints whatever it is given, so an empty
+   * list produces exactly the silence a `localAdvisories: false` flag would
+   * have bought, without a second fact to keep in step with this method.
+   *
+   * What would go here: anything about THIS machine's `codex` install that bears
+   * on how far the report can be trusted — a vendor version whose tool catalog
+   * has drifted from ours, or a config the agent cannot read from this repo.
+   */
+  advisories(): readonly string[] {
+    return [];
+  },
 } as const satisfies HarnessAdapter;

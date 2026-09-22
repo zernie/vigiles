@@ -143,6 +143,10 @@ test("conformance ACCEPTS a pillar-1-only adapter (no transport ports)", () => {
     layout: { ...claudeCodeAdapter.layout, name: "cursor-ish" },
     claims: () => false,
     detect: () => ({ specificity: 0, via: "instruction-file" }) as const,
+    // `[]` is the honest answer for a harness with nothing to say about its
+    // install — which is exactly why `advisories` is required rather than a
+    // capability flag: a pillar-1-only adapter still implements it.
+    advisories: () => [],
   };
   assertAdapterConformance(pillar1Only); // throws on failure → must not throw
   assert.throws(
@@ -278,4 +282,52 @@ test("instructionTargets names AGENTS.md — and detect/claims are UNCHANGED by 
   // `detect` that asks about a path `claims` does not cover — so detecting on
   // AGENTS.md would force Claude Code to CLAIM a path Codex already owns.
   assert.equal(claudeCodeAdapter.claims("AGENTS.md"), false);
+});
+
+test("advisories() actually CONSULTS the reader — the bound property is not vacuous here", () => {
+  // `adapter-properties.test.ts` asserts every repo path `advisories` asks
+  // about is one this adapter claims. That property passes trivially for an
+  // adapter that asks about nothing, which is the honest answer for a harness
+  // with no install checks — but NOT for this one, whose whole reason to
+  // implement the method is two checks that read the repo and the machine.
+  // Without this, deleting the reachability check would leave the bound green.
+  const askedRepo: string[] = [];
+  const askedHome: string[] = [];
+  claudeCodeAdapter.advisories({
+    repo: (p) => {
+      askedRepo.push(p);
+      return null;
+    },
+    home: (p) => {
+      askedHome.push(p);
+      return null;
+    },
+    repoDependsOnVigiles: true,
+    vendoredSkillNames: [],
+  });
+  assert.ok(
+    askedRepo.length > 0,
+    "advisories() asked the repo nothing — the reachability check is not wired",
+  );
+  assert.ok(
+    askedHome.some((p) => p.includes("installed_plugins.json")),
+    "advisories() never looked for the plugin install record",
+  );
+});
+
+test("advisories() says nothing about a repo that does not depend on vigiles", () => {
+  // The other half, and the one that keeps this out of every unrelated audit:
+  // a non-consumer is never nagged. `checkDialectDrift` reads this machine's
+  // own install, so the only assertion that holds everywhere is that the
+  // reachability line is absent.
+  const lines = claudeCodeAdapter.advisories({
+    repo: () => null,
+    home: () => null,
+    repoDependsOnVigiles: false,
+    vendoredSkillNames: [],
+  });
+  assert.ok(
+    !lines.some((l) => l.includes("NOT reachable")),
+    `advisories() nagged a non-consumer: ${lines.join(" / ")}`,
+  );
 });

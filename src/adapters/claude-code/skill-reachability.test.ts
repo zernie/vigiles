@@ -23,8 +23,11 @@ import {
   checkSkillReachability,
   formatSkillReachability,
 } from "./skill-reachability.js";
-import { SHIPPED_SKILLS } from "./setup-plan.js";
-import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import { SHIPPED_SKILLS } from "../../setup-plan.js";
+import { buildInstallReader } from "../../core/install-reader.js";
+import type { InstallReader } from "../../core/adapter.js";
+import { claudeCodeAdapter } from "./adapter.js";
+import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
 
 /** A repo that depends on vigiles, plus a fake $HOME to point the check at. */
 function scaffold(opts: {
@@ -39,7 +42,12 @@ function scaffold(opts: {
   readonly nodeModulesSkills?: boolean;
   /** Make the audited dir vigiles itself. */
   readonly self?: boolean;
-}): { dir: string; home: string; cleanup: () => void } {
+}): {
+  dir: string;
+  home: string;
+  read: InstallReader;
+  cleanup: () => void;
+} {
   const dir = makeTmpDir("reach-repo");
   const home = makeTmpDir("reach-home");
   writeFileSync(
@@ -79,6 +87,10 @@ function scaffold(opts: {
   return {
     dir,
     home,
+    // The check reads through the DOMAIN's bounded reader now, not `node:fs`,
+    // so the fixture hands it the real one built over this scaffold — the same
+    // function the CLI wires, pointed at a throwaway repo and $HOME.
+    read: buildInstallReader(claudeCodeAdapter, dir, { home }),
     cleanup: () => {
       cleanupTmpDir(dir);
       cleanupTmpDir(home);
@@ -103,7 +115,7 @@ const OTHER_PLUGIN_ONLY = JSON.stringify({
 test("says nothing about a repo that does not depend on vigiles", () => {
   const s = scaffold({ dependsOnVigiles: false });
   try {
-    assert.equal(checkSkillReachability(s.dir, { home: s.home }), null);
+    assert.equal(checkSkillReachability(s.read), null);
   } finally {
     s.cleanup();
   }
@@ -112,7 +124,7 @@ test("says nothing about a repo that does not depend on vigiles", () => {
 test("says nothing when the audited dir IS the vigiles plugin itself", () => {
   const s = scaffold({ self: true });
   try {
-    assert.equal(checkSkillReachability(s.dir, { home: s.home }), null);
+    assert.equal(checkSkillReachability(s.read), null);
   } finally {
     s.cleanup();
   }
@@ -129,7 +141,7 @@ test("a user-scope install in the GLOBAL registry counts as reachable, even when
     nodeModulesSkills: true,
   });
   try {
-    const r = checkSkillReachability(s.dir, { home: s.home });
+    const r = checkSkillReachability(s.read);
     assert.ok(r);
     assert.equal(r.reachable, true);
     assert.deepEqual([...r.sources], ["global-plugin"]);
@@ -152,7 +164,7 @@ test("a project-level enabledPlugins entry is NOT reachable on its own — Claud
     settings: JSON.stringify({ enabledPlugins: { "vigiles@vigiles": true } }),
   });
   try {
-    const r = checkSkillReachability(s.dir, { home: s.home });
+    const r = checkSkillReachability(s.read);
     assert.ok(r);
     assert.equal(r.reachable, false);
     assert.deepEqual([...r.sources], []);
@@ -167,9 +179,7 @@ test("declared-but-not-installed says so specifically, and names the per-machine
     settings: JSON.stringify({ enabledPlugins: { "vigiles@vigiles": true } }),
   });
   try {
-    const msg = formatSkillReachability(
-      checkSkillReachability(s.dir, { home: s.home }),
-    );
+    const msg = formatSkillReachability(checkSkillReachability(s.read));
     assert.ok(msg);
     // It must NOT read as "you forgot to configure it" — the repo DID declare
     // it. The missing step is the per-machine install.
@@ -186,7 +196,7 @@ test("a global install PLUS a project declaration is reachable — the declarati
     settings: JSON.stringify({ enabledPlugins: { "vigiles@vigiles": true } }),
   });
   try {
-    const r = checkSkillReachability(s.dir, { home: s.home });
+    const r = checkSkillReachability(s.read);
     assert.ok(r);
     assert.equal(r.reachable, true);
     assert.deepEqual([...r.sources], ["global-plugin"]);
@@ -201,7 +211,7 @@ test("enabledPlugins set to FALSE is not reachable, and is not 'declared' either
     settings: JSON.stringify({ enabledPlugins: { "vigiles@vigiles": false } }),
   });
   try {
-    const r = checkSkillReachability(s.dir, { home: s.home });
+    const r = checkSkillReachability(s.read);
     assert.ok(r);
     assert.equal(r.reachable, false);
     assert.equal(r.declaredNotInstalled, false);
@@ -213,7 +223,7 @@ test("enabledPlugins set to FALSE is not reachable, and is not 'declared' either
 test("skills vendored into the repo's .claude/skills count as reachable", () => {
   const s = scaffold({ repoSkills: ["test-harness"] });
   try {
-    const r = checkSkillReachability(s.dir, { home: s.home });
+    const r = checkSkillReachability(s.read);
     assert.ok(r);
     assert.equal(r.reachable, true);
     assert.deepEqual([...r.sources], ["repo-skills"]);
@@ -228,7 +238,7 @@ test("unrelated repo skills do NOT count — 38 skills, none of them vigiles', i
     settings: OTHER_PLUGIN_ONLY,
   });
   try {
-    const r = checkSkillReachability(s.dir, { home: s.home });
+    const r = checkSkillReachability(s.read);
     assert.ok(r);
     assert.equal(r.reachable, false);
     assert.deepEqual([...r.sources], []);
@@ -243,7 +253,7 @@ test("un-wired + skills stranded in node_modules is LOUD, names the stranded ski
     nodeModulesSkills: true,
   });
   try {
-    const r = checkSkillReachability(s.dir, { home: s.home });
+    const r = checkSkillReachability(s.read);
     assert.ok(r);
     assert.equal(r.reachable, false);
     assert.deepEqual([...r.strandedSkills], [...SHIPPED_SKILLS]);
@@ -263,7 +273,7 @@ test("un-wired + skills stranded in node_modules is LOUD, names the stranded ski
 test("un-wired with NOTHING in node_modules still warns, without claiming stranded skills", () => {
   const s = scaffold({ settings: OTHER_PLUGIN_ONLY });
   try {
-    const r = checkSkillReachability(s.dir, { home: s.home });
+    const r = checkSkillReachability(s.read);
     assert.ok(r);
     assert.equal(r.reachable, false);
     assert.deepEqual([...r.strandedSkills], []);
@@ -282,7 +292,7 @@ test("malformed JSON anywhere degrades to un-wired instead of throwing", () => {
     nodeModulesSkills: true,
   });
   try {
-    const r = checkSkillReachability(s.dir, { home: s.home });
+    const r = checkSkillReachability(s.read);
     assert.ok(r);
     assert.equal(r.reachable, false);
   } finally {
@@ -294,7 +304,12 @@ test("an unreadable package.json means we cannot tell — say nothing rather tha
   const dir = makeTmpDir("reach-nopkg");
   const home = makeTmpDir("reach-home");
   try {
-    assert.equal(checkSkillReachability(dir, { home }), null);
+    assert.equal(
+      checkSkillReachability(
+        buildInstallReader(claudeCodeAdapter, dir, { home }),
+      ),
+      null,
+    );
   } finally {
     cleanupTmpDir(dir);
     cleanupTmpDir(home);
@@ -309,7 +324,9 @@ test("a plain `dependencies` entry counts, not just devDependencies", () => {
       join(dir, "package.json"),
       JSON.stringify({ name: "c", dependencies: { vigiles: "^4" } }),
     );
-    const r = checkSkillReachability(dir, { home });
+    const r = checkSkillReachability(
+      buildInstallReader(claudeCodeAdapter, dir, { home }),
+    );
     assert.ok(r);
     assert.equal(r.reachable, false);
   } finally {
@@ -326,7 +343,7 @@ test("an empty install record for vigiles is not an install", () => {
     }),
   });
   try {
-    const r = checkSkillReachability(s.dir, { home: s.home });
+    const r = checkSkillReachability(s.read);
     assert.ok(r);
     assert.equal(r.reachable, false);
   } finally {

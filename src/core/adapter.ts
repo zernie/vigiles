@@ -141,6 +141,61 @@ interface AdapterBase {
    * Override it only for a location the `PluginLayout` fields cannot express.
    */
   claims(path: string): boolean;
+  /**
+   * Diagnostics about THIS harness's INSTALL on this machine that bear on how
+   * far the report can be trusted — never scored, printed as-is, one string per
+   * line. `[]` is the honest answer for a harness with nothing to say.
+   *
+   * 🔴 REQUIRED, NOT A CAPABILITY FLAG. A `localAdvisories: boolean` would be a
+   * flag with nothing behind it — the argument {@link AdapterCapabilities.subagents}
+   * already makes from the other side — because an empty array says exactly what
+   * `false` would say, and cannot fall out of step with the method the way a
+   * flag beside a port can.
+   *
+   * WHAT IT REPLACES: `if (adapter.name === "claude-code") { …two Claude Code
+   * install checks… }` in the CLI. Those checks are real and they are genuinely
+   * this harness's (one reads the installed vendor package, the other the
+   * plugin install), and run against another harness's repo they would print a
+   * fix line for a CLI that repo does not use. So the gate was right and its
+   * SHAPE was wrong: the consumer now prints uniformly and the knowledge sits
+   * with the adapter that has it.
+   *
+   * 🔴 IT TAKES A READER, NOT A ROOT — the same bound as `detect(exists)` one
+   * docblock up, for the same reason: handed a root, an adapter could enumerate
+   * anything in the repository, and registering an adapter would change what
+   * vigiles reads. {@link InstallReader.repo} answers only for paths this
+   * adapter `claims`, which `adapter-properties.test.ts` asserts.
+   */
+  advisories(read: InstallReader): readonly string[];
+}
+
+/**
+ * What {@link AdapterBase.advisories} may read.
+ *
+ * Built by the DOMAIN and handed in, so the adapter holds no filesystem. The two
+ * plain FACTS are here rather than as reads because the shipped checks need them
+ * from files NO adapter claims (`package.json`, and vigiles's own package inside
+ * `node_modules`) — an unclaimed read is exactly what the bound forbids, so the
+ * domain reads them once and passes the answer.
+ */
+export interface InstallReader {
+  /**
+   * A repo file's contents, or null when it is missing, unreadable, or NOT a
+   * path this adapter claims. A refusal and an absence are deliberately the same
+   * answer: an adapter must not be able to probe for the existence of files
+   * outside its own surface.
+   */
+  readonly repo: (repoRelative: string) => string | null;
+  /**
+   * A file under the user's HOME, or null. This is a read of the MACHINE, never
+   * of the repository — the plugin-install record lives there — and everything
+   * it feeds is advisory-only.
+   */
+  readonly home: (homeRelative: string) => string | null;
+  /** Does this repo take a dependency on vigiles? (From `package.json`, unclaimed.) */
+  readonly repoDependsOnVigiles: boolean;
+  /** Skill names vigiles ships inside its own installed package, if it is installed. */
+  readonly vendoredSkillNames: readonly string[];
 }
 
 /**

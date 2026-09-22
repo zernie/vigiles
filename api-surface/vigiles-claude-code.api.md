@@ -33,6 +33,7 @@ export const claudeCodeAdapter: {
     readonly liveDriver: () => Promise<HarnessLiveDriver>;
     readonly claims: (path: string) => boolean;
     readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
+    readonly advisories: (read: InstallReader) => readonly string[];
 };
 
 // @public

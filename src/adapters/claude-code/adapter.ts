@@ -4,7 +4,16 @@
  * (a `.claude-plugin/` manifest, a `.claude/settings.json`, or a `CLAUDE.md`).
  * This is the reference adapter a second harness (Codex, Gemini, …) mirrors.
  */
-import type { DetectSignal, HarnessAdapter } from "../../core/adapter.js";
+import type {
+  DetectSignal,
+  HarnessAdapter,
+  InstallReader,
+} from "../../core/adapter.js";
+import { checkDialectDrift, formatDialectDrift } from "./dialect-drift.js";
+import {
+  checkSkillReachability,
+  formatSkillReachability,
+} from "./skill-reachability.js";
 import { claudeCodeDialect } from "./dialect.js";
 import { claudeCodeLayout } from "./layout.js";
 import { layoutClaims } from "../../core/surface-discovery.js";
@@ -53,5 +62,26 @@ export const claudeCodeAdapter = {
     if (exists(claudeCodeLayout.instructionFile))
       return { specificity: 1, via: "instruction-file" };
     return { specificity: 0, via: "instruction-file" };
+  },
+  /**
+   * The two install diagnostics that used to sit behind
+   * `if (adapter.name === "claude-code")` in the CLI, now reached through the
+   * port. Both are genuinely THIS harness's and both would MISLEAD on another
+   * one — the reachability fix line is `claude plugin install`, which a Codex
+   * user cannot run — which is why the gate was right and only its shape wrong.
+   *
+   * Never throws and never scores: each check degrades to "nothing to say".
+   */
+  advisories(read: InstallReader): readonly string[] {
+    return [
+      // Our hand-maintained tool/hook catalog vs the `@anthropic-ai/claude-code`
+      // actually installed on this machine. A machine read, not a repo read.
+      formatDialectDrift(checkDialectDrift()),
+      // Can the agent SEE the skills vigiles ships here? `npm install` drops
+      // them in node_modules, which Claude Code never scans; the plugin install
+      // is what wires them, and until it runs the teaching surface is silently
+      // absent.
+      formatSkillReachability(checkSkillReachability(read)),
+    ].filter((line): line is string => line !== null);
   },
 } as const satisfies HarnessAdapter;

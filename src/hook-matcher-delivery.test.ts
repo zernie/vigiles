@@ -39,7 +39,7 @@
 import { describe, expect, it } from "vitest";
 
 import { runHarnessTest, scriptModel } from "./harness-test.js";
-import { onPathClaudeVersion } from "./dialect-drift.js";
+import { onPathClaudeVersion } from "./adapters/claude-code/dialect-drift.js";
 
 /**
  * A hook whose entire job is to record that it was spawned. It takes the marker

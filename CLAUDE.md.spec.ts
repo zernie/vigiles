@@ -303,7 +303,7 @@ BUILD + TOOLING + GENERATED:
       "Shared CLI flag → config bridge (applyConfigFlags): --max-rules / --catalog-only override the loaded config so every GitHub Action input maps to a real CLI flag.",
     "src/cli-commands.ts":
       "The canonical vigiles command surface — the SINGLE SOURCE OF TRUTH (VERBS + HOOK_RUNTIME_KINDS) the self-command-refs dogfood cross-references vigiles's OWN docs/comments against, so a renamed…",
-    "src/dialect-drift.ts":
+    "src/adapters/claude-code/dialect-drift.ts":
       "Dialect freshness/drift detection — the read-local backstop for the hand-maintained claudeCodeDialect (CC is a black box).",
     "src/self-command-refs.ts":
       "Self-command-reference verification — the cross-referencing engine applied to vigiles's OWN docs (the cohesive-cli-surface enforcement): every `vigiles <cmd>` reference must resolve to a real VERB…",
