@@ -49,6 +49,11 @@ import type {
   ModelTurn,
   ModelRequest,
 } from "./core/harness-driver.js";
+import type { Trace, SubagentTrace } from "./core/eval-driver.js";
+// `Trace`/`SubagentTrace` moved to `core/eval-driver.ts` so a core PORT
+// (`HarnessLiveDriver.firedFor`) can take a trace — the core may not import
+// this module. Re-exported here unchanged.
+export type { Trace, SubagentTrace } from "./core/eval-driver.js";
 import { assertHarnessTestable } from "./adapter-conformance.js";
 import { recordCheck } from "./check-count.js";
 import { probeTrace } from "./coverage-probe.js";
@@ -146,70 +151,6 @@ export interface HarnessTestSpec {
    * under `"auto"`/`"strict"` — use `sandbox: false` there if you trust the code.
    */
   readonly sandbox?: SandboxMode;
-}
-
-/**
- * The observable record of ONE run — the unified shape produced by BOTH testing
- * tiers: `runHarnessTest`'s result and `runEval`'s `measure` ctx (`eval.ts`)
- * both satisfy it. That's what lets the bare predicates in `harness-assert.ts`
- * (`usedTool` / `skillResolved` / `toolCount` / `toolUsedWith` / `hookFired` /
- * `outputContains`) run over either, with the testing helpers asserting and eval
- * measuring over the same vocabulary.
- */
-export interface Trace {
-  /**
-   * The tools the agent invoked, each paired with its result — parsed from the
-   * transcript. Empty unless the run captured the stream (`transcript: true` on
-   * the harness tier; always on the eval tier). Lets a test assert on the
-   * agent's *actions* (skills, MCP tools, subagents) instead of grepping stdout.
-   */
-  readonly toolCalls: readonly ToolCall[];
-  /**
-   * The hooks that fired during the run, each with its decision — parsed from
-   * the CLI's `hook_response` stream events. Same capture requirement as
-   * `toolCalls` (empty without the stream). Lets a test assert hook firing
-   * honestly instead of via a marker file.
-   */
-  readonly hooks: readonly HookFire[];
-  /** The agent's final answer text (the terminal `result` event), or "". */
-  readonly output: string;
-  /**
-   * The requests the model received, captured by the scripted mock — each with
-   * its `system` prompt and `messages`, flattened to text. Lets a test assert
-   * what actually reached the model (a SessionStart hook's injected context, a
-   * slash command's expansion), not just that a hook fired. **Harness tier
-   * only**: the mock sees the requests, so this is populated by `runHarnessTest`
-   * (with or without `transcript`); the eval tier drives the real API, so its
-   * `modelRequests` is always empty.
-   */
-  readonly modelRequests: readonly ModelRequest[];
-  /** Number of model turns. */
-  readonly turns: number;
-  /**
-   * Sub-agent (`Task`) runs as nested traces, keyed by `subagent_type`. A
-   * subagent runs its own session; CC tags its events with `parent_tool_use_id`
-   * (= the `Task` tool call) so its tool calls are recovered into a sub-trace
-   * here, lettng a test assert what the subagent DID (not just that `Task` fired).
-   * Empty unless the stream was captured / the harness emits subagent events.
-   */
-  readonly subagents?: readonly SubagentTrace[];
-  /** Final contents of a file under the working dir, or null if absent. */
-  file(path: string): string | null;
-}
-
-/** A sub-agent (`Task`) run as a nested trace: its name + the tools it used. */
-export interface SubagentTrace {
-  /** The `subagent_type` from the `Task` tool input. */
-  readonly name: string;
-  /** The tools the subagent invoked (events tagged with the Task's id). */
-  readonly toolCalls: readonly ToolCall[];
-  /**
-   * The subagent's RETURNED text — the dispatch tool_result the orchestrator
-   * receives back. This is where a `result()` contract's `vigiles:ok`/`vigiles:err`
-   * block lands, so `subagent(name, [output(/vigiles:ok/)])` can assert the typed
-   * outcome. "" if not captured.
-   */
-  readonly output: string;
 }
 
 export interface HarnessTestResult extends Trace {

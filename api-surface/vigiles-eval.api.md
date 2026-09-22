@@ -261,13 +261,13 @@ export function paid_runEval<M extends Metrics>(spec: EvalSpec<M>): Promise<Eval
 // @public
 export interface ParsedModelRun {
     // (undocumented)
-    readonly hooks: ReturnType<typeof parseHooks>;
+    readonly hooks: HookFire[];
     // (undocumented)
     readonly output: string;
     // (undocumented)
-    readonly subagents: ReturnType<typeof parseSubagents>;
+    readonly subagents: SubagentTrace[];
     // (undocumented)
-    readonly toolCalls: ReturnType<typeof parseToolCalls>;
+    readonly toolCalls: ToolCall[];
     // (undocumented)
     readonly turns: number;
     // (undocumented)

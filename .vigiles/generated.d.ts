@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 464 project files. */
+  /** 465 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -260,6 +260,7 @@ declare module "vigiles/generated" {
     | "src/core/edit-distance.ts"
     | "src/core/effects.test.ts"
     | "src/core/effects.ts"
+    | "src/core/eval-driver.ts"
     | "src/core/eval-load-phase.test.ts"
     | "src/core/eval-load-phase.ts"
     | "src/core/event-capability.test.ts"
@@ -796,6 +797,7 @@ declare module "vigiles/spec" {
       | "src/core/edit-distance.ts"
       | "src/core/effects.test.ts"
       | "src/core/effects.ts"
+      | "src/core/eval-driver.ts"
       | "src/core/eval-load-phase.test.ts"
       | "src/core/eval-load-phase.ts"
       | "src/core/event-capability.test.ts"
