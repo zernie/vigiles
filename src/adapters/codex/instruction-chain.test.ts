@@ -40,13 +40,30 @@ describe("at most ONE file per directory", () => {
     ]);
   });
 
-  it("the override is `local` scope — read, linted, never scored", () => {
+  it("a committed override is the directory's instruction file, and is scored", () => {
+    // 🔴 THIS TEST USED TO PIN THE OPPOSITE — `["root-local", "local"]`, "read,
+    // linted, never scored". That was a model built by ANALOGY with Claude
+    // Code's `CLAUDE.local.md`, and the vendor says no such thing. Its guide,
+    // verbatim: "In each directory along the path, it checks for
+    // `AGENTS.override.md`, then `AGENTS.md`". The only "temporary" override it
+    // describes is the GLOBAL one, `~/.codex/AGENTS.override.md`; the page never
+    // mentions `.gitignore`. Measured on the browser engine, where every file in
+    // the map is committed by construction, a repository holding both files
+    // published `committed 0` — while Codex loads the override's bytes.
     expect(
       chain({ "AGENTS.override.md": "mine" }).loaded.map((e) => [
         e.role,
         e.scope,
       ]),
-    ).toEqual([["root-local", "local"]]);
+    ).toEqual([["root", "repo"]]);
+  });
+
+  it("and it still takes the slot: a committed override replaces AGENTS.md", () => {
+    // The control half. Scoring the override must not score BOTH files — the
+    // vendor's precedence gives each directory one slot, and the override wins it.
+    const c = chain({ "AGENTS.override.md": "mine", "AGENTS.md": "team" });
+    expect(c.loaded.map((e) => e.path)).toEqual(["AGENTS.override.md"]);
+    expect(c.unloaded.map((e) => e.path)).toContain("AGENTS.md");
   });
 
   it("derives the override name from the instruction file", () => {
@@ -108,13 +125,17 @@ describe("what a root session does NOT load", () => {
     ]);
   });
 
-  it("a nested OVERRIDE keeps its local scope in the report", () => {
-    expect(
-      chain({ "pkg/AGENTS.override.md": "b" }).unloaded.map((e) => [
-        e.role,
-        e.scope,
-      ]),
-    ).toEqual([["root-local", "local"]]);
+  it("a nested override is a repository file too, loaded on demand like its sibling", () => {
+    // Pinned `["root-local", "local"]` until the scope was corrected at the
+    // root (see "a committed override is the directory's instruction file").
+    // The nested copy is the same file one directory down: repository scope,
+    // and "on demand" for the same reason a nested `AGENTS.md` is.
+    const [e] = chain({ "pkg/AGENTS.override.md": "b" }).unloaded;
+    expect([e.role, e.scope, e.reason]).toEqual([
+      "root",
+      "repo",
+      { kind: "on-demand", when: "subdirectory" },
+    ]);
   });
 
   it("names no imports and no patterns — Codex's project doc has no include", () => {

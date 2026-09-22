@@ -168,7 +168,11 @@ export interface InstructionChain {
 export type InstructionRole =
 /** The committed team file at a directory's root (`CLAUDE.md`, `AGENTS.md`). */
 "root"
-/** One machine's file beside it (`CLAUDE.local.md`, `AGENTS.override.md`). */
+/**
+* One machine's file beside it (`CLAUDE.local.md`). NOT Codex's
+* `AGENTS.override.md`: the vendor documents that as the directory's
+* first-priority instruction file, and only its global copy as temporary.
+*/
 | "root-local"
 /** A file under {@link PluginLayout.rulesDir}. */
 | "rule"

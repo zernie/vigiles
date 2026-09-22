@@ -82,11 +82,21 @@ export function codexInstructionChain(
   input: CodexChainInput,
 ): InstructionChain {
   const override = overrideSiblingOf(input.instructionFile);
-  // The root directory's ONE slot, in the vendor's precedence order. The
-  // override is `scope: "local"` — like Claude Code's, it is a per-machine file,
-  // so it is read and linted and never scored.
+  // The root directory's ONE slot, in the vendor's precedence order.
+  //
+  // 🔴 THE OVERRIDE IS A REPOSITORY FILE, NOT A PER-MACHINE ONE. It used to be
+  // `scope: "local"` on the reasoning "like Claude Code's, it is a per-machine
+  // file" — an analogy, and the vendor does not support it. Codex's guide:
+  // "In each directory along the path, it checks for `AGENTS.override.md`,
+  // then `AGENTS.md`". The one override it calls temporary is the GLOBAL
+  // `~/.codex/AGENTS.override.md`; the guide never mentions `.gitignore`.
+  // Measured on the browser engine, where every file is committed by
+  // construction: a repository holding both files published `committed 0`,
+  // while Codex loads the override's bytes. Same class as the invented
+  // `.codex/config.local.toml` earlier in this PR — a sibling modelled by
+  // analogy instead of by observation.
   const candidates: readonly LoadedInstruction[] = [
-    { path: override, role: "root-local", scope: "local" },
+    { path: override, role: "root", scope: "repo" },
     { path: input.instructionFile, role: "root", scope: "repo" },
     ...fallbackNames(files, input).map(
       (name): LoadedInstruction => ({
@@ -127,8 +137,8 @@ export function codexInstructionChain(
     if (!leaves.has(path.slice(path.lastIndexOf("/") + 1))) continue;
     unloaded.push({
       path,
-      role: path.endsWith(override) ? "root-local" : "root",
-      scope: path.endsWith(override) ? "local" : "repo",
+      role: "root",
+      scope: "repo",
       reason: { kind: "on-demand", when: "subdirectory" },
     });
   }
