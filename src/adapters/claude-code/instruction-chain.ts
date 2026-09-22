@@ -524,6 +524,12 @@ function takeRules(b: Building, ruleRe: RegExp): void {
  * question is the ROOT question, already answered by {@link supersederOf}, and
  * no widening is needed.
  *
+ * ⚠️ AND THE CONDITION IS MOOT FOR AN IMPORTED FILE, WHICH IS WHY THIS PASS NOW
+ * RUNS LAST. A `<dir>/CLAUDE.md` that something `@`-imports is taken by the
+ * imports pass before this loop sees it, so the only paths reaching here are
+ * the ones nothing imported — the ones the condition was always about. The
+ * ordering, and the bug that came from the other order, are stated at the call.
+ *
  * `reserved` holds the paths this chain owns at the root level. Without it, a
  * `.claude/AGENTS.md` that the supersede pass has not yet classified would be
  * read as a SUBDIRECTORY file, because it has a slash and the right basename —
@@ -561,49 +567,38 @@ interface Superseder {
  * "a `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in your working
  * directory or any directory above it".
  *
- * 🔴 PRESENCE, NOT LOADING, and the two come apart in one case the vendor does
- * not address. A `CLAUDE.md` the repo's own `claudeMdExcludes` removes from the
- * chain is still a `CLAUDE.md` in the working directory, so this reads the MAP
- * rather than `b.loaded`. The vendor text is a statement about files that
- * EXIST; treating an excluded one as absent would be a paraphrase of it, and we
- * do not paraphrase a vendor rule to reach a nicer answer.
+ * 🔴 AN EXCLUDED `CLAUDE.md` DOES NOT SUPERSEDE, AND THAT IS A MEASUREMENT.
+ * Two vendor rules meet here and the vendor composes neither: the supersede
+ * rule is phrased about files you HAVE ("look for a `CLAUDE.md`… if you find
+ * one"), while `claudeMdExcludes` takes a file out of the chain without taking
+ * it off the disk. The page answers neither way, so this was run rather than
+ * argued — Claude Code **2.1.278**, fixtures and runner under
+ * `test/fixtures/instruction-chain-vendor/`, each file holding a codeword the
+ * model is then asked to recite with the file-reading tools denied:
  *
- * ⚠️ SO THIS IS AN OPEN QUESTION, AND IT STAYS OPEN ON PURPOSE. In a repo that
- * excludes its own `CLAUDE.md` and ships an `AGENTS.md`, we say the `AGENTS.md`
- * is superseded, and the real loader may well read it. That direction
- * UNDER-reports — the wrong direction by this module's own policy — so the
- * temptation is to flip it and call the flip safe. Both options, and what each
- * costs, so the next reader inherits the question instead of re-deriving it:
+ *   c0  both files, no settings                  → ALPHA only. Supersede happens at all.
+ *   c1  `claudeMdExcludes` hides the CLAUDE.md   → **BETA, and no ALPHA**. The AGENTS.md LOADS.
+ *   c3  root hidden, `.claude/CLAUDE.md` kept    → GAMMA only. A SURVIVING candidate still supersedes.
  *
- *   READ THE MAP (what this does). Matches the vendor's wording, which is about
- *   files you HAVE. Costs: if the loader honours the exclusion, an `AGENTS.md`
- *   that really loads is reported at zero — an under-report, which reads as
- *   "you are fine".
+ * c0 is the control: without it, c1 is a reading of an instrument nobody
+ * checked. c3 is what fixes the SHAPE of the fix — the answer is not "ignore
+ * exclusions", it is "the first candidate that is present AND not excluded",
+ * and the survivor is what gets named in `by`. Hence the predicate below
+ * rather than a boolean bypass.
  *
- *   APPLY `isExcluded` HERE. Costs: if the loader does NOT honour it, we count
- *   a file nobody loads — an over-report, the direction the version gate and
- *   the unapplied-pattern rule above already take. It is also a composition of
- *   two vendor rules that the vendor has not composed, which is exactly the
- *   paraphrase this module refuses everywhere else.
+ * 🔴 AND THE OBVIOUS INSTRUMENT IS THE WRONG ONE, which is worth a line here
+ * because it nearly reversed this conclusion. An `InstructionsLoaded` hook
+ * looks like the exact tool for the job and is BLIND TO `AGENTS.md`: case c2 —
+ * a repository holding only an `AGENTS.md` — recites BETA (so the file
+ * plainly loaded) while the hook logs NOTHING. Read on the hook alone, c1's
+ * silence says "nothing loaded" and this whole function stays as it was. The
+ * silence is a fact about the hook. Both instruments are in the runner, with
+ * c2 as the case that tells them apart.
  *
- * NEITHER IS FORCED BY EVIDENCE, and the page was re-read on 2026-09-21 to be
- * sure: the `claudeMdExcludes` section says only that "patterns are matched
- * against absolute file paths using glob syntax" and that the setting works at
- * "user, project, local, or managed policy" layers; the three-row table and the
- * "My AGENTS.md isn't loading" checklist are both phrased as presence ("look
- * for a `CLAUDE.md`… if you find one"). Neither mentions the other. So this is
- * the owner's call, not a refactor.
- *
- * ⏳ WHAT WOULD SETTLE IT, and the page names the instrument rather than leaving
- * it to taste: start an interactive session in a repo holding an `AGENTS.md`, a
- * `CLAUDE.md`, and a `claudeMdExcludes` pattern matching that `CLAUDE.md`, then
- * look for the line the vendor documents — "you see a line such as `no
- * CLAUDE.md found; AGENTS.md loaded: /home/you/repo/AGENTS.md`". Its presence
- * settles it one way, its absence the other. `/context` will NOT answer:
- * "`AGENTS.md` doesn't appear in `/memory` or `/context` when Claude reads it
- * directly." The `InstructionsLoaded` hook logs "which `CLAUDE.md` and rules
- * files are loaded, when they load, and why", which is the same answer with a
- * transcript.
+ * ⚠️ WHAT THE MEASUREMENT DOES NOT COVER: it was taken on ONE build, and the
+ * vendor has already reversed a neighbouring fact once (`AGENTS.md` auto-load,
+ * v2.1.277). So the build number is part of the claim, not decoration. Re-run
+ * the fixtures before trusting this on a much later version.
  *
  * 🔴 A COMMITTED SUPERSEDER WINS OVER THE PER-MACHINE ONE, and the order of
  * this array is the whole of that rule. Both can be present; picking the local
@@ -633,6 +628,7 @@ interface Superseder {
 function supersederOf(
   files: Readonly<Record<string, string>>,
   input: ClaudeCodeChainInput,
+  isExcluded: (path: string) => boolean,
 ): Superseder | undefined {
   const candidates: readonly Superseder[] = [
     { path: input.instructionFile, scope: "repo" },
@@ -642,7 +638,13 @@ function supersederOf(
     },
     { path: localSiblingOf(input.instructionFile), scope: "local" },
   ];
-  return candidates.find((c) => files[c.path] !== undefined);
+  // PRESENT AND NOT EXCLUDED — c3 is why both halves are here. A bypass that
+  // just skipped the check when anything was excluded would name the wrong
+  // file in `by`, or none at all, in a repo that excludes one candidate and
+  // keeps another.
+  return candidates.find(
+    (c) => files[c.path] !== undefined && !isExcluded(c.path),
+  );
 }
 
 /** One loaded file's `@import` tokens: reported, and TAKEN when already present. */
@@ -715,7 +717,7 @@ export function claudeCodeInstructionChain(
   // CLAUDE.md in your working directory or above it". Both spellings, in the
   // same root-then-dot-directory order as the two takes above; the vendor states
   // no order BETWEEN them, and it cannot matter to a sum.
-  const superseder = supersederOf(files, input);
+  const superseder = supersederOf(files, input, b.isExcluded);
   const crossToolPaths = [
     AGENTS_FILE,
     `${input.userSurfaceRoot}/${AGENTS_FILE}`,
@@ -731,11 +733,6 @@ export function claudeCodeInstructionChain(
     role: "root-local",
     scope: "local",
   });
-  takeSubdirectories(
-    b,
-    new Set([input.instructionFile, AGENTS_FILE]),
-    new Set(crossToolPaths),
-  );
 
   // THE IMPORTS PASS, ONE LEVEL. It reads a SNAPSHOT of what is loaded so far,
   // so a file pulled in by an import is not itself scanned for imports — see
@@ -761,6 +758,30 @@ export function claudeCodeInstructionChain(
   // got in as a ROOT file, since a role-keyed version of either would pass every
   // `CLAUDE.md` case and fail exactly those two.
   for (const entry of [...b.loaded]) takeImportsOf(b, entry);
+
+  // THE SUBDIRECTORY PASS, AFTER THE IMPORTS AND NOT BEFORE THEM. Order is the
+  // whole of a fixed bug: this pass claims ANY slash path whose leaf is an
+  // instruction name, and `takeImportsOf` skips a path already `known`. Running
+  // it first therefore swallowed `@pkg/CLAUDE.md` and `@pkg/AGENTS.md` — a
+  // file the root instruction file literally imports, which the loader expands
+  // at session start (measured on 2.1.278, case `q2-import`: an `InstructionsLoaded` entry reading
+  // `pkg/CLAUDE.md | load_reason: include | parent_file_path: CLAUDE.md`) — and
+  // filed it `on-demand/subdirectory`, dropping its bytes from BOTH totals. Only
+  // the leaf name decided it, so `@pkg/style.md` was counted and `@pkg/CLAUDE.md`
+  // was not: the same import, reported two ways.
+  //
+  // 🔴 THE FIX IS THE ORDER, NOT A CONDITION, and that is why it is cheap. A
+  // sibling test — "is there a `pkg/CLAUDE.md` next to this `pkg/AGENTS.md`" —
+  // is the shape this pass CANNOT answer (see its own header: no `<dir>/…` path
+  // is ever a candidate, so absence carries no information). Letting the imports
+  // pass go first makes the question moot BY CONSTRUCTION: an imported file is
+  // taken because a token names it, and what this pass then sees is exactly the
+  // set nothing imported. The bound is untouched — no new path is read.
+  takeSubdirectories(
+    b,
+    new Set([input.instructionFile, AGENTS_FILE]),
+    new Set(crossToolPaths),
+  );
 
   // THE VERDICT, LAST: anything cross-tool that the passes above did not claim
   // is present, unread, and the reason is a file rather than a setting. `scope`

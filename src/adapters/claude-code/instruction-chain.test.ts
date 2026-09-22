@@ -318,22 +318,20 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
     expect(chain(files).loaded.map((e) => e.scope)).toEqual(["repo", "repo"]);
   });
 
-  it("⏳ OPEN: an EXCLUDED CLAUDE.md still supersedes — pinned, not endorsed", () => {
-    // 🔴 THIS ASSERTION EXISTS SO THE QUESTION CANNOT BE ANSWERED BY ACCIDENT.
-    // Two vendor rules meet and the vendor composes neither: the supersede rule
-    // is about files you HAVE ("look for a `CLAUDE.md`… if you find one"),
-    // while `claudeMdExcludes` takes a file out of the chain without taking it
-    // off the disk. Re-read 2026-09-21 — the excludes section says only that
-    // patterns "are matched against absolute file paths", and the "My AGENTS.md
-    // isn't loading" checklist never mentions the setting.
+  it("an EXCLUDED CLAUDE.md does NOT supersede — measured, cc 2.1.278", () => {
+    // 🔴 THIS ASSERTION USED TO BE PINNED THE OTHER WAY, and the pin said so:
+    // two vendor rules meet and the vendor composes neither, so we shipped the
+    // literal reading (presence on disk) and wrote down what would settle it —
+    // "one session, the documented `AGENTS.md loaded` line, or an
+    // `InstructionsLoaded` transcript. Change this expectation only WITH that
+    // observation." That observation now exists, and it goes the other way:
+    // with the root `CLAUDE.md` excluded, `AGENTS.md` LOADS.
     //
-    // So `supersederOf` reads the MAP, which UNDER-reports if the real loader
-    // honours the exclusion: the `AGENTS.md` below would really load and we say
-    // it weighs nothing. That is the wrong direction by this module's own
-    // policy, and it is still what ships, because flipping it composes two
-    // rules the vendor has not composed. ⏳ Settled by ONE session: the
-    // documented `AGENTS.md loaded` line, or an `InstructionsLoaded`
-    // transcript. Change this expectation only WITH that observation.
+    // Fixtures and the transcripts are in
+    // `test/fixtures/instruction-chain-vendor/`; `supersederOf`'s header has
+    // the three-row table. The old behaviour UNDER-reported, which is the
+    // direction this module's own policy calls wrong — an `AGENTS.md` that
+    // really loads was graded at zero bytes.
     const files = {
       "CLAUDE.md": "root",
       "AGENTS.md": "shared",
@@ -341,11 +339,43 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
         claudeMdExcludes: ["**/CLAUDE.md"],
       }),
     };
-    expect(paths(files)).toEqual([]);
+    expect(paths(files)).toEqual(["AGENTS.md"]);
     expect(chain(files).unloaded.map((e) => [e.path, e.reason.kind])).toEqual([
       ["CLAUDE.md", "excluded-by-settings"],
-      ["AGENTS.md", "superseded"],
     ]);
+  });
+
+  it("a SURVIVING candidate still supersedes, and it is the one named", () => {
+    // Fixture c3's SHAPE, and it is what makes the fix a predicate rather than
+    // a bypass: one candidate excluded, another surviving. Measured on
+    // 2.1.278 — `AGENTS.md` does NOT load while the surviving `CLAUDE.md`
+    // does. A version that skipped the supersede check whenever anything was
+    // excluded would load `AGENTS.md` here; one that ignored exclusions
+    // entirely would name the wrong file in `by`.
+    //
+    // ⚠️ THE EXCLUDED CANDIDATE IS THE DOT-DIRECTORY ONE, WHICH IS A SWAP OF
+    // THE FIXTURE, AND THE REASON IS THE LIMIT ABOVE `compileExcludes`. The
+    // vendor matches these globs against ABSOLUTE paths, so the fixture picks
+    // the root file out with `**\/<repo-dir>\/CLAUDE.md` — a pattern that
+    // cannot match the RELATIVE paths this chain is handed, and which
+    // `compileExcludes` therefore reports as unapplied rather than guessing a
+    // repo directory name. `**\/.claude\/CLAUDE.md` is the same shape the
+    // other way round and IS expressible, so it is what gets asserted.
+    const files = {
+      "CLAUDE.md": "root",
+      ".claude/CLAUDE.md": "gamma",
+      "AGENTS.md": "shared",
+      ".claude/settings.json": JSON.stringify({
+        claudeMdExcludes: ["**/.claude/CLAUDE.md"],
+      }),
+    };
+    expect(paths(files)).toEqual(["CLAUDE.md"]);
+    expect(chain(files).unloaded).toContainEqual({
+      path: "AGENTS.md",
+      role: "root",
+      scope: "repo",
+      reason: { kind: "superseded", by: "CLAUDE.md", byScope: "repo" },
+    });
   });
 
   it("`claudeMdExcludes` applies to an AGENTS.md too", () => {
@@ -362,6 +392,34 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
       kind: "excluded-by-settings",
       key: "claudeMdExcludes",
     });
+  });
+
+  it("an IMPORTED subdirectory instruction file is LOADED, not on-demand", () => {
+    // 🔴 THE REGRESSION THIS PINS. `takeSubdirectories` claims any slash path
+    // whose leaf is an instruction name, and `takeImportsOf` skips a path
+    // already taken. While the subdirectory pass ran FIRST, a `CLAUDE.md` that
+    // the root file literally imports was filed `on-demand/subdirectory` and
+    // its bytes left BOTH totals — even though the loader expands it at
+    // session start (measured on 2.1.278: an `InstructionsLoaded` entry
+    // reading `pkg/CLAUDE.md | load_reason: include | parent_file_path:
+    // CLAUDE.md`).
+    //
+    // Only the LEAF NAME decided it, which is the tell: the same import was
+    // reported two different ways depending on what the target was called.
+    // `pkg/style.md` — the third case below — was counted all along.
+    for (const leaf of ["CLAUDE.md", "AGENTS.md", "style.md"]) {
+      const files = {
+        "CLAUDE.md": `see @pkg/${leaf}`,
+        [`pkg/${leaf}`]: "nested",
+      };
+      expect(paths(files), leaf).toEqual(["CLAUDE.md", `pkg/${leaf}`]);
+      expect(chain(files).loaded[1], leaf).toEqual({
+        path: `pkg/${leaf}`,
+        role: "import",
+        scope: "repo",
+        via: { from: "CLAUDE.md", token: `@pkg/${leaf}` },
+      });
+    }
   });
 
   it("a subdirectory's AGENTS.md is ON DEMAND — the same treatment a `paths:` rule gets", () => {
