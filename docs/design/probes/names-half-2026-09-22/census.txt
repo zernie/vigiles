@@ -1,0 +1,115 @@
+
+/home/user/vigiles/src/adapter-conformance.ts
+  209:7  error  Definition for rule '@typescript-eslint/no-deprecated' was not found  @typescript-eslint/no-deprecated
+
+/home/user/vigiles/src/adapter-registry.ts
+  198:32  error  HARNESS_VAR_LITERAL  no-restricted-syntax
+
+/home/user/vigiles/src/check.ts
+  306:11  error  ANY_NAME_LITERAL  no-restricted-syntax
+  310:24  error  ANY_NAME_LITERAL  no-restricted-syntax
+
+/home/user/vigiles/src/cli-main.ts
+  1828:5   warning  Unused eslint-disable directive (no problems were reported from 'no-restricted-syntax')
+  1847:7   warning  Unused eslint-disable directive (no problems were reported from 'no-restricted-syntax')
+  2852:5   warning  Unused eslint-disable directive (no problems were reported from 'no-restricted-syntax')
+  2861:5   warning  Unused eslint-disable directive (no problems were reported from 'no-restricted-syntax')
+  2941:5   warning  Unused eslint-disable directive (no problems were reported from 'no-restricted-syntax')
+  3432:7   warning  Unused eslint-disable directive (no problems were reported from 'no-restricted-syntax')
+  3540:22  error    HARNESS_VAR_LITERAL                                                                      no-restricted-syntax
+  4172:11  error    ANY_NAME_LITERAL                                                                         no-restricted-syntax
+  4260:7   error    ANY_NAME_LITERAL                                                                         no-restricted-syntax
+  5823:5   error    ANY_NAME_LITERAL                                                                         no-restricted-syntax
+  5823:5   error    ADAPTER_NAME_LITERAL                                                                     no-restricted-syntax
+  7566:5   error    Definition for rule '@typescript-eslint/no-deprecated' was not found                     @typescript-eslint/no-deprecated
+  7582:14  error    ANY_NAME_LITERAL                                                                         no-restricted-syntax
+  7582:14  error    ADAPTER_NAME_LITERAL                                                                     no-restricted-syntax
+  7899:5   error    ANY_NAME_LITERAL                                                                         no-restricted-syntax
+  7899:5   error    ADAPTER_NAME_LITERAL                                                                     no-restricted-syntax
+  8060:7   error    HARNESS_VAR_LITERAL                                                                      no-restricted-syntax
+  8460:15  error    ANY_NAME_LITERAL                                                                         no-restricted-syntax
+  8460:15  error    ADAPTER_NAME_LITERAL                                                                     no-restricted-syntax
+  8500:13  error    ANY_NAME_LITERAL                                                                         no-restricted-syntax
+  8500:13  error    ADAPTER_NAME_LITERAL                                                                     no-restricted-syntax
+  8524:12  error    ANY_NAME_LITERAL                                                                         no-restricted-syntax
+  8524:12  error    ADAPTER_NAME_LITERAL                                                                     no-restricted-syntax
+  8730:13  error    ANY_NAME_LITERAL                                                                         no-restricted-syntax
+  8730:13  error    ADAPTER_NAME_LITERAL                                                                     no-restricted-syntax
+  8775:11  error    ANY_NAME_LITERAL                                                                         no-restricted-syntax
+  8775:11  error    ADAPTER_NAME_LITERAL                                                                     no-restricted-syntax
+
+/home/user/vigiles/src/core/config-schema.ts
+  318:5  error  Definition for rule 'local/no-harness-names' was not found  local/no-harness-names
+
+/home/user/vigiles/src/core/event-capability.ts
+  170:3  error  Definition for rule '@typescript-eslint/no-deprecated' was not found  @typescript-eslint/no-deprecated
+  174:3  error  Definition for rule '@typescript-eslint/no-deprecated' was not found  @typescript-eslint/no-deprecated
+
+/home/user/vigiles/src/core/hook-program.ts
+  1078:1  error  Definition for rule '@typescript-eslint/no-explicit-any' was not found                @typescript-eslint/no-explicit-any
+  1081:1  error  Definition for rule '@typescript-eslint/no-unnecessary-type-arguments' was not found  @typescript-eslint/no-unnecessary-type-arguments
+  1093:1  error  Definition for rule '@typescript-eslint/no-unnecessary-type-arguments' was not found  @typescript-eslint/no-unnecessary-type-arguments
+
+/home/user/vigiles/src/core/skill-normalize.ts
+  56:3  error  Definition for rule '@typescript-eslint/no-deprecated' was not found  @typescript-eslint/no-deprecated
+
+/home/user/vigiles/src/core/spec.ts
+    72:1  error    Definition for rule '@typescript-eslint/no-empty-object-type' was not found            @typescript-eslint/no-empty-object-type
+    79:1  error    Definition for rule '@typescript-eslint/no-empty-object-type' was not found            @typescript-eslint/no-empty-object-type
+    86:1  error    Definition for rule '@typescript-eslint/no-empty-object-type' was not found            @typescript-eslint/no-empty-object-type
+   103:1  error    Definition for rule '@typescript-eslint/no-redundant-type-constituents' was not found  @typescript-eslint/no-redundant-type-constituents
+   103:1  error    Definition for rule '@typescript-eslint/no-duplicate-type-constituents' was not found  @typescript-eslint/no-duplicate-type-constituents
+   114:1  error    Definition for rule '@typescript-eslint/no-redundant-type-constituents' was not found  @typescript-eslint/no-redundant-type-constituents
+   114:1  error    Definition for rule '@typescript-eslint/no-duplicate-type-constituents' was not found  @typescript-eslint/no-duplicate-type-constituents
+   254:5  error    Definition for rule '@typescript-eslint/no-unnecessary-type-assertion' was not found   @typescript-eslint/no-unnecessary-type-assertion
+  1412:1  warning  Unused eslint-disable directive (no problems were reported from 'no-redeclare')
+
+/home/user/vigiles/src/core/vocabulary-consistency.ts
+  60:3  error  Definition for rule '@typescript-eslint/no-deprecated' was not found  @typescript-eslint/no-deprecated
+  76:3  error  Definition for rule '@typescript-eslint/no-deprecated' was not found  @typescript-eslint/no-deprecated
+
+/home/user/vigiles/src/coverage-probe.ts
+  668:9  error  ANY_NAME_LITERAL  no-restricted-syntax
+
+/home/user/vigiles/src/eval.ts
+  1171:9  error  ANY_NAME_LITERAL  no-restricted-syntax
+
+/home/user/vigiles/src/harness-assert.ts
+  476:7   error    ANY_NAME_LITERAL                                                               no-restricted-syntax
+  597:7   error    ANY_NAME_LITERAL                                                               no-restricted-syntax
+  601:22  error    ANY_NAME_LITERAL                                                               no-restricted-syntax
+  807:1   warning  Unused eslint-disable directive (no problems were reported from 'max-params')
+  974:3   warning  Unused eslint-disable directive (no problems were reported from 'max-params')
+
+/home/user/vigiles/src/hook-runtime.ts
+  105:3  error  Definition for rule '@typescript-eslint/no-deprecated' was not found  @typescript-eslint/no-deprecated
+
+/home/user/vigiles/src/jest.ts
+  1:1  error    Definition for rule '@typescript-eslint/no-explicit-any' was not found         @typescript-eslint/no-explicit-any
+  1:1  warning  Unused eslint-disable directive (no problems were reported from 'max-params')
+
+/home/user/vigiles/src/posix-path.ts
+  22:1  error    Definition for rule 'sonarjs/cognitive-complexity' was not found                      sonarjs/cognitive-complexity
+  22:1  error    Definition for rule 'sonarjs/nested-control-flow' was not found                       sonarjs/nested-control-flow
+  22:1  warning  Unused eslint-disable directive (no problems were reported from 'complexity')
+  22:1  warning  Unused eslint-disable directive (no problems were reported from 'max-depth')
+  22:1  warning  Unused eslint-disable directive (no problems were reported from 'no-param-reassign')
+
+/home/user/vigiles/src/scan-behavioral.ts
+   114:7  error  HARNESS_VAR_LITERAL  no-restricted-syntax
+   600:7  error  HARNESS_VAR_LITERAL  no-restricted-syntax
+  1037:7  error  HARNESS_VAR_LITERAL  no-restricted-syntax
+
+/home/user/vigiles/src/setup-plan.ts
+  450:9  error  HARNESS_VAR_LITERAL  no-restricted-syntax
+  471:9  error  HARNESS_VAR_LITERAL  no-restricted-syntax
+
+/home/user/vigiles/src/skill-contract.ts
+  152:58  error  ANY_NAME_LITERAL  no-restricted-syntax
+
+/home/user/vigiles/src/skill-reachability.ts
+  107:7  error  ANY_NAME_LITERAL  no-restricted-syntax
+
+✖ 71 problems (58 errors, 13 warnings)
+  0 errors and 13 warnings potentially fixable with the `--fix` option.
+

@@ -14,6 +14,18 @@ The port has one defect class wearing five coats: **a fact is stored in more tha
 
 ## 1. The final interfaces
 
+> 🔴 **STALE as of 2026-09-22 — the five new flags below are superseded.**
+> `SkillFiringPorts`, `AdoptabilityPorts`, `AdvisoryPorts`, `skillSelectionEvent`
+> and `runtime.modelAvailability` were measured against this document's own §0
+> principle ("a fact stored in more than one place, and nothing relates the
+> copies") and **three of the five are second copies**: `skillFiring` equals
+> `harnessTesting` on all three implementations, `skillSelectionEvent` equals
+> `EvalDriver.experimental !== undefined`, and `adoptability: false` encodes a
+> TODO with no vendor referent. A tsc probe shows the type cannot relate any of
+> them to the ports that would make them true. Read
+> [`port-redesign-names-half-2026-09-22.md`](port-redesign-names-half-2026-09-22.md)
+> instead; the rest of this document stands.
+
 Every field's docblock says what the field **is**; the second sentence, where present, says what its absence means, so absence has one spelling per field.
 
 ```ts
