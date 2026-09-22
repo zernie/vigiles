@@ -185,6 +185,31 @@ test("conformance REJECTS a half-wired adapter (claims harnessTesting, no runtim
   assert.ok(r.failures.some((m) => m.includes("shellHooks is false")));
   // The check that did NOT exist when opencodeAdapter shipped this state.
   assert.ok(r.failures.some((m) => m.includes("harnessTestDriver is missing")));
+  // …and the same for the port #263 added. The gap recurred once: `liveDriver`
+  // became required in this arm of the type and the kit was not told, so a
+  // cast adapter passed here and threw later in `modelAccessFor`.
+  assert.ok(r.failures.some((m) => m.includes("liveDriver is missing")));
+});
+
+// The OTHER arm of the same pair. A `harnessTesting: false` adapter carrying an
+// executing-tier port is half-wired in the opposite direction — the runner will
+// never dispatch through it, so the port is a promise nothing keeps. The type
+// says `?: never`; this says it for an adapter the type never compiled.
+test("conformance: harnessTesting false must not carry liveDriver either", () => {
+  const strayPort = {
+    ...claudeCodeAdapter,
+    harnessTesting: false,
+    runtime: undefined,
+    modelMock: undefined,
+    harnessTestDriver: undefined,
+    liveDriver: claudeCodeAdapter.liveDriver,
+  } as unknown as HarnessAdapter;
+  const r = checkAdapterConformance(strayPort);
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.failures.some((m) => m.includes("harnessTesting is false")),
+    `expected the false-arm failure, got: ${r.failures.join(" | ")}`,
+  );
 });
 
 test("detect: specificity + via — empty 0, CLAUDE.md 1, manifest 3", () => {

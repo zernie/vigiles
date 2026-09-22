@@ -183,12 +183,24 @@ export function checkAdapterConformance(
       typeof adapter.harnessTestDriver === "function",
       "harnessTesting is true but harnessTestDriver is missing — the runner has nothing to dispatch through",
     );
+    // ⚠️ AND THE SAME STATEMENT FOR THE PORT ADDED BY #263, because the comment
+    // above describes a gap that has now recurred once. `liveDriver` is
+    // REQUIRED in this arm of the type, so TypeScript covers every adapter it
+    // compiles — and this function exists for the adapters it does not: a
+    // third-party JavaScript one, or a cast object. Without this line such an
+    // adapter passed conformance and threw later inside `modelAccessFor` or a
+    // behavioral probe, which is exactly how `opencodeAdapter` shipped.
+    need(
+      typeof adapter.liveDriver === "function",
+      "harnessTesting is true but liveDriver is missing — the executing tiers have no model access or probe to read",
+    );
   } else {
     need(
       adapter.runtime === undefined &&
         adapter.modelMock === undefined &&
-        adapter.harnessTestDriver === undefined,
-      "harnessTesting is false — omit runtime/modelMock/harnessTestDriver (a pillar-1-only adapter must not ship a half-wired transport)",
+        adapter.harnessTestDriver === undefined &&
+        adapter.liveDriver === undefined,
+      "harnessTesting is false — omit runtime/modelMock/harnessTestDriver/liveDriver (a pillar-1-only adapter must not ship a half-wired transport)",
     );
   }
   if (adapter.shellHooks) {
