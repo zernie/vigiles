@@ -99,12 +99,11 @@ import {
 import type { ScanReport, ScanHarness } from "./scan.js";
 import { unresolvedDeclaredRoots } from "./core/surface-discovery.js";
 import {
-  hasModelAccess,
-  isMeteredAccess,
   decideExecute,
   formatExecuteSkip,
   type ExecuteDecision,
 } from "./scan-trigger-suggest.js";
+import type { ModelAccess } from "./core/live-driver.js";
 import { checkDialectDrift, formatDialectDrift } from "./dialect-drift.js";
 import {
   checkSkillReachability,
@@ -188,6 +187,7 @@ import {
 } from "./core/rule-catalog.js";
 import {
   runAdoptabilityTier,
+  draftWith,
   formatAdoptability,
   type AdoptabilityResult,
 } from "./adoptability.js";
@@ -7993,7 +7993,7 @@ async function resolveExecution(
   s: ExecutableSurfaces,
   decision: ExecuteDecision,
   json: boolean,
-  harness: string,
+  access: ModelAccess,
 ): Promise<{ execute: boolean; note: string | null }> {
   if (decision.kind === "run") return { execute: true, note: null };
   if (decision.kind === "skip")
@@ -8002,7 +8002,7 @@ async function resolveExecution(
       note: json ? null : formatExecuteSkip(decision.reason),
     };
   // ask — prompt once, then remember the answer.
-  const answer = await askOnce(buildExecuteDisclosure(s, harness));
+  const answer = await askOnce(buildExecuteDisclosure(s, access));
   const yes = /^y(es)?$/i.test(answer); // default NO (executes your hooks / servers)
   rememberAuditMeasure(yes);
   return {
@@ -8014,12 +8014,13 @@ async function resolveExecution(
 }
 
 /** The bundled consent prompt — discloses exactly what will execute (and what it
- *  costs) so the yes is informed. Default NO. Harness-aware: a Codex repo measures
- *  via the codex CLI (not a Claude env var), so the cost wording must not falsely
- *  read "no model access" in exactly the case the prompt is meant to disclose. */
+ *  costs) so the yes is informed. Default NO. Harness-aware WITHOUT knowing which
+ *  harness: the cost wording comes from the driving adapter's own `access`, so a
+ *  repo on any harness is disclosed in that harness's terms — the old version had
+ *  to name Codex to stop the prompt falsely reading "no model access". */
 function buildExecuteDisclosure(
   s: ExecutableSurfaces,
-  harness: string,
+  access: ModelAccess,
 ): string {
   const lines = ["\nRun the executing checks against your harness?"];
   if (s.hasMcp)
@@ -8031,34 +8032,57 @@ function buildExecuteDisclosure(
       s.triggerableSkills >= 2
         ? "measure whether skills fire and collide"
         : "measure whether skills fire";
-    lines.push(`  · ${what} (${triggerCostWording(harness)})`);
+    lines.push(`  · ${what} (${triggerCostWording(access)})`);
   }
   if (s.gateSkills > 0) {
     // The adversarial-gate eval runs the FULL (unstubbed) skill — the most
     // expensive check — so disclose it separately when gate skills are present.
     lines.push(
-      `  · test whether ${String(s.gateSkills)} enforcement-gate skill${s.gateSkills === 1 ? "" : "s"} hold under pressure — runs the full skill (${triggerCostWording(harness)})`,
+      `  · test whether ${String(s.gateSkills)} enforcement-gate skill${s.gateSkills === 1 ? "" : "s"} hold under pressure — runs the full skill (${triggerCostWording(access)})`,
     );
   }
   if (s.adoptableRefs) {
     lines.push(
-      `  · draft + verify your instruction file's references (${triggerCostWording(harness)})`,
+      `  · draft + verify your instruction file's references (${triggerCostWording(access)})`,
     );
   }
   lines.push("Asked once — remembered in .vigilesrc.json. [y/N] ");
   return lines.join("\n");
 }
 
-/** Cost/availability wording for the trigger tier, per harness. Codex runs on the
- *  codex CLI (its own auth/plan), so it's never gated on a Claude env var. */
-function triggerCostWording(harness: string): string {
-  if (harness === "codex")
-    return "your Codex CLI, $0 metered — skips if `codex` isn't on PATH";
-  return !hasModelAccess(process.env)
-    ? "needs model access — none detected, will skip"
-    : isMeteredAccess(process.env)
-      ? "⚠ spends API credits"
-      : "your subscription, $0 metered";
+/**
+ * Cost/availability wording for the trigger tier, read off the DRIVING HARNESS's
+ * own answer instead of branching on its name.
+ *
+ * 🔴 IT REPLACES THREE THINGS AT ONCE: `harness === "codex"`, and the pair of
+ * Claude-env predicates that ran for every other harness. The old Codex arm was a
+ * guess ("skips if `codex` isn't on PATH") because nothing had asked; `access`
+ * asks, so the prompt now discloses what will actually happen.
+ */
+function triggerCostWording(access: ModelAccess): string {
+  switch (access.kind) {
+    case "none":
+      return `needs model access — none detected, will skip (${access.fix})`;
+    case "metered":
+      return "⚠ spends API credits";
+    case "subscription":
+      return "your subscription, $0 metered";
+  }
+}
+
+/**
+ * This adapter's answer to "is a real model reachable, and on whose bill".
+ *
+ * A reference-only harness has no executing tier at all, which is a `none` whose
+ * `fix` says so rather than a Claude-shaped credential hint.
+ */
+async function modelAccessFor(adapter: HarnessAdapter): Promise<ModelAccess> {
+  if (!adapter.harnessTesting)
+    return {
+      kind: "none",
+      fix: `${adapter.name} has no executing-tier driver in this build`,
+    };
+  return (await adapter.liveDriver()).access(process.env);
 }
 
 /** Run the trigger tier: a curated `--prompts` file, else auto-generated probes. */
@@ -8485,15 +8509,23 @@ export async function main(): Promise<void> {
         // `Evaluated` ring needs to know whether this run will ever ask the
         // skill-firing question — see `firingMeasured` below.
         const isForeign = root !== process.cwd();
+        // ONE read of "can we reach a model, and on whose bill", from the driving
+        // adapter. It replaces a name check OR-ed with one harness's env vars at
+        // four sites below, and the two hard-coded "authenticate the `claude` CLI"
+        // strings that printed whatever harness was driving.
+        const modelAccess = await modelAccessFor(adapter);
         const surfaces: ExecutableSurfaces = {
           hasMcp: report.mcp && !isForeign,
           triggerableSkills: report.skills.filter(
             (s) => s.hasDescription && !s.userInvoked,
           ).length,
           gateSkills: detectGateSkills(report.skills).length,
-          adoptableRefs:
-            adapter.name === "claude-code" &&
-            existsSync(resolve(root, adapter.layout.instructionFile)),
+          // NOT gated on a harness name any more. The drafter is the adapter's
+          // own eval driver and the verifier is deterministic and harness-free,
+          // so an instruction file is an instruction file: prose, on any harness.
+          adoptableRefs: existsSync(
+            resolve(root, adapter.layout.instructionFile),
+          ),
         };
         // `decideExecute` is PURE and prompt-free, so the read-vs-run outcome can
         // be known before anything prints. Only a settled `run` (a remembered yes)
@@ -8516,7 +8548,7 @@ export async function main(): Promise<void> {
         const firingMeasured =
           execDecision.kind === "run" &&
           surfaces.triggerableSkills > 0 &&
-          (adapter.name === "codex" || hasModelAccess(process.env));
+          modelAccess.kind !== "none";
         // The report scaffold WITHOUT the rule map — the map's catalog
         // enrichment (enabled-state / "documented but OFF") enumerates the repo's
         // linter, which is gated on the SAME audit.measure consent as the
@@ -8626,7 +8658,7 @@ export async function main(): Promise<void> {
           surfaces,
           execDecision,
           json,
-          adapter.name,
+          modelAccess,
         );
         // Consent is now settled (and remembered via .vigilesrc.json, which
         // computeRuleRouting re-reads) — route the prose rules, enumerating the
@@ -8716,18 +8748,14 @@ export async function main(): Promise<void> {
         // of the same consent (`execute`), and only when a model is reachable;
         // otherwise it's a one-line note (never a hang).
         if (execute && surfaces.triggerableSkills > 0) {
-          // Model-access detection is per-harness: `hasModelAccess` reads Claude
-          // env (claude CLI / ANTHROPIC_API_KEY). A Codex repo authenticates the
-          // codex CLI instead, so we DON'T gate it on a Claude var — the Codex
-          // probe checks `codexDriver.available()` internally and self-reports
-          // unavailable. (harness-parity: never block Codex behind a CC check.)
-          const modelReachable =
-            adapter.name === "codex" || hasModelAccess(process.env);
-          if (modelReachable) {
+          // The adapter answered this once, above. `fix` is THIS harness's own
+          // sentence: the string here used to say "authenticate the `claude` CLI
+          // or set ANTHROPIC_API_KEY" whatever harness the repo was on.
+          if (modelAccess.kind !== "none") {
             await runTriggerTier(targets[0], report, adapter, args);
           } else if (!json) {
             console.log(
-              "\nℹ skill firing not measured — no model access (authenticate the `claude` CLI or set ANTHROPIC_API_KEY).",
+              `\nℹ skill firing not measured — no model access (${modelAccess.fix}).`,
             );
           }
         }
@@ -8736,16 +8764,23 @@ export async function main(): Promise<void> {
         // VERIFIES each, so "M broken right now" is trustworthy though the extraction
         // is probabilistic. Same consent as the trigger tier (`surfaces.adoptableRefs`
         // makes a bare instruction-file repo consent-eligible — the prime adoption
-        // target). v1: instruction-file only; drafting drives the `claude` CLI, so
-        // `adoptableRefs` is Claude Code only (the Codex deferral note is printed
-        // below as a LOUD harness-parity deferral, never a silent CC-only path).
+        // target).
+        //
+        // 🔴 NO LONGER CLAUDE CODE ONLY, and the feature gate that said so is
+        // gone rather than widened. The drafter is the driving adapter's own eval
+        // driver (`draftWith`); the verifier was always deterministic and
+        // harness-free. What made this CC-only was that `defaultDraft` defaulted
+        // to the Claude runner and parser and nobody had passed anything else —
+        // a TODO, which the old `adapter.name === "claude-code"` froze into the
+        // report as if it were a vendor fact.
         let adoptabilityResult: AdoptabilityResult | undefined;
         if (execute && surfaces.adoptableRefs) {
-          if (hasModelAccess(process.env)) {
+          if (modelAccess.kind !== "none" && adapter.harnessTesting) {
             const instrPath = resolve(root, adapter.layout.instructionFile);
             adoptabilityResult = await runAdoptabilityTier({
               instructionContent: readFileSync(instrPath, "utf-8"),
               basePath: root,
+              draft: draftWith((await adapter.liveDriver()).evalDriver),
             });
             if (!json)
               console.log(
@@ -8758,22 +8793,13 @@ export async function main(): Promise<void> {
           } else if (!json && surfaces.triggerableSkills === 0) {
             // Only when the trigger tier didn't already print the same note.
             console.log(
-              "\nℹ adoptability not measured — no model access (authenticate the `claude` CLI or set ANTHROPIC_API_KEY).",
+              `\nℹ adoptability not measured — no model access (${modelAccess.kind === "none" ? modelAccess.fix : `${adapter.name} has no executing-tier driver`}).`,
             );
           }
         }
-        // LOUD harness-parity deferral: adoptability drafting drives the `claude`
-        // CLI, so a Codex repo with an instruction file is told it's a follow-up,
-        // never silently skipped (research/adoption-gateway-preview.md, increment 4).
-        if (
-          !json &&
-          adapter.name === "codex" &&
-          existsSync(resolve(root, adapter.layout.instructionFile))
-        ) {
-          console.log(
-            "\nℹ adoptability preview (what vigiles would catch in your repo) is Claude Code only for now — Codex support is a follow-up.",
-          );
-        }
+        // The "adoptability preview is Claude Code only for now — Codex support
+        // is a follow-up" note used to print here. It is DELETED, not reworded:
+        // Codex is not a follow-up, so there is nothing to defer.
         // The loud read-vs-run nudge for a headless / remembered-no skip — printed
         // AFTER the report so the deterministic read leads.
         if (execNote) console.log(execNote);

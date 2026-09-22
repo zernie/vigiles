@@ -28,6 +28,7 @@ import {
   parseClaudeRun,
   type AgentRunner,
   type ModelOutputParser,
+  type EvalDriver,
 } from "./eval.js";
 
 /** A reference the model proposes as machine-verifiable. */
@@ -210,6 +211,34 @@ async function defaultDraft(
 
 /** Injectable drafter — the real one calls a model; tests pass a fake. */
 export type Drafter = (content: string) => Promise<DraftedRef[]>;
+
+/**
+ * Build the real drafter from a harness's EVAL DRIVER, instead of the hard-wired
+ * `spawnAgent` + `parseClaudeRun` defaults above.
+ *
+ * 🔴 THIS IS WHY THE PREVIEW IS NOT CLAUDE-CODE-ONLY. `defaultDraft`'s two
+ * defaults ARE the two members of the Claude eval driver, and nothing else in
+ * the drafter is harness-specific: the prompt is over an instruction file's
+ * prose, and prose is prose. The VERIFIER is deterministic and harness-free
+ * ("LLM proposes, deterministic disposes", this file's header), so "M broken
+ * right now" is exactly as trustworthy driven by one harness as by another;
+ * only the draft's RECALL varies by model, which it already does across models
+ * of the same harness.
+ *
+ * `model` is passed through to whichever runner: the trigger tier already does
+ * this, and a runner that does not understand the alias ignores it.
+ */
+export function draftWith(
+  driver: EvalDriver,
+  opts: DraftOptions = {},
+): Drafter {
+  return (content: string) =>
+    defaultDraft(content, {
+      ...opts,
+      runner: driver.runner,
+      parse: driver.parse,
+    });
+}
 
 export interface AdoptabilityTierOptions {
   readonly instructionContent: string;
