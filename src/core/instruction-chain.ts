@@ -61,6 +61,7 @@
  * exists to prevent.
  */
 import type { PluginLayout } from "./layout.js";
+import { ruleFileRe } from "./layout.js";
 
 /** What a file IS to the harness that loads it. */
 export type InstructionRole =
@@ -291,11 +292,35 @@ export const INSTRUCTION_SHAPES: ReadonlyArray<{
 }> = [
   { what: "root markdown", re: /^[^/]+\.md$/ },
   { what: "dot-directory markdown", re: /^\.[^/]+\/[^/]+\.md$/ },
-  {
-    what: "dot-directory rules tree",
-    re: /^\.[^/]+\/rules\/(?:[^/]+\/)*[^/]+\.md$/,
-  },
 ];
+
+/**
+ * 🔴 THE RULES TREE IS NOT IN THE TABLE ABOVE, and that is the fix for #271.
+ *
+ * It used to be, as `/^\.[^/]+\/rules\/…/` — a shape that spelled the word
+ * `rules` itself and demanded a leading dot. Measured against three layouts
+ * built from the TYPE rather than taken from the registry, it answered the same
+ * thing for all of them:
+ *
+ *   rulesDir "rules", no userSurfaceRoot   -> `rules/a.md` NOT a candidate
+ *   rulesDir "guidelines" under `.x`       -> `.x/guidelines/a.md` NOT a candidate
+ *   no rulesDir at all                     -> `.github/rules/a.md` IS a candidate
+ *
+ * Three wrong answers of two kinds: a home the layout DECLARED going unread,
+ * and somebody else's tree being read for a layout that declared none. The
+ * second is the same defect `ruleFileRe` was created for one commit earlier —
+ * fixed there for the CLASSIFIER and left standing here in the BOUND, which is
+ * exactly the "two readers, one fact" split this port exists to remove.
+ *
+ * So the bound asks the layout, through the same function the classifier uses.
+ * This does not let an adapter widen the bound: `rulesDir` is a directory NAME,
+ * the regexp is anchored at the repository root, and a layout that declares no
+ * rules home gets `null` and matches nothing.
+ */
+function isDeclaredRuleFile(path: string, layout: PluginLayout): boolean {
+  const re = ruleFileRe(layout);
+  return re !== null && re.test(path);
+}
 
 /**
  * The files that carry SETTINGS for one layout — the parse target and the
@@ -390,7 +415,10 @@ export function instructionCandidatePaths(
     layout.instructionFile,
     ...settingsSourcePaths(layout),
   ]);
-  return paths.filter((p) => named.has(p) || isInstructionShaped(p));
+  return paths.filter(
+    (p) =>
+      named.has(p) || isInstructionShaped(p) || isDeclaredRuleFile(p, layout),
+  );
 }
 
 /**

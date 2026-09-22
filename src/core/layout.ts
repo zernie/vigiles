@@ -326,14 +326,28 @@ export const RULE_FILE_LEAF_RE = "(?:.+/)?[^/]+\\.md";
  * `userSurfaceRoot` so that moving either field moves both readers at once.
  * `null` when the layout declares no rules layer.
  */
-export function ruleFileRe(
+export function rulesHome(
   layout: Pick<PluginLayout, "rulesDir" | "userSurfaceRoot">,
-): RegExp | null {
+): string | null {
   const dir = layout.rulesDir;
   if (dir === undefined || dir === "") return null;
   const root = layout.userSurfaceRoot;
-  const under = root === undefined || root === "" ? dir : `${root}/${dir}`;
-  return new RegExp(`^${escapeRe(under)}/${RULE_FILE_LEAF_RE}$`);
+  return root === undefined || root === "" ? dir : `${root}/${dir}`;
+}
+
+export function ruleFileRe(
+  layout: Pick<PluginLayout, "rulesDir" | "userSurfaceRoot">,
+): RegExp | null {
+  // 🔴 THREE READERS, ONE SPELLING. The regexp here, the disk walk in
+  // `surface-discovery-fs.ts` and the bound in `core/instruction-chain.ts` all
+  // need "where does this layout keep its rules"; each one spelling it
+  // separately is how #271 happened — the walk joined `<base>/<rulesDir>` for
+  // EVERY dot-directory while this anchored to one, so the pair disagreed about
+  // a repository they were both handed. `rulesHome` is that answer, once.
+  const under = rulesHome(layout);
+  return under === null
+    ? null
+    : new RegExp(`^${escapeRe(under)}/${RULE_FILE_LEAF_RE}$`);
 }
 
 /**

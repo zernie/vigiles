@@ -30,6 +30,8 @@
  * So every property below ranges over `IMPLEMENTATIONS`, not over `ADAPTERS`.
  */
 import { describe, it, expect } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import type { HarnessAdapter } from "./core/adapter.js";
 import type { PluginLayout } from "./core/layout.js";
@@ -39,7 +41,13 @@ import {
   surfaceDirs,
 } from "./core/layout.js";
 import { layoutLocations } from "./core/surface-discovery.js";
-import { EMPTY_CHAIN, isInstructionShaped } from "./core/instruction-chain.js";
+import {
+  EMPTY_CHAIN,
+  instructionCandidatePaths,
+  isInstructionShaped,
+} from "./core/instruction-chain.js";
+import { boundedInstructionFiles } from "./surface-discovery-fs.js";
+import { makeTmpDir } from "./core/tmp-root.js";
 import { ADAPTERS } from "./adapter-registry.js";
 import { opencodeAdapter } from "./adapters/opencode/adapter.js";
 
@@ -555,5 +563,128 @@ describe.each(IMPLEMENTATIONS.map((a) => [a.name, a] as const))(
         expect(JSON.stringify(alsoTheirs)).toContain(ref);
       });
     }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 THE TWO ENUMERATORS, OVER LAYOUTS THE REGISTRY DOES NOT HOLD
+//
+// Every property above ranges over `IMPLEMENTATIONS`, which is the registry
+// plus one prototype. That is the right bound for "can a SHIPPED adapter widen
+// what the domain sees" and the wrong one for "is the PORT's contract sound":
+// all three registered layouts happen to declare `rulesDir` and
+// `userSurfaceRoot` together, or neither, so no test in this repository has
+// ever handed the pair a layout that declares one without the other.
+//
+// These cases are generated from the TYPE instead. `PluginLayout` permits a
+// `rulesDir` with no `userSurfaceRoot`, and permits a rules home not spelled
+// `rules`; a third-party adapter may write either, and the port owes them an
+// answer. The property is the one `instructionCandidatePaths` already claims in
+// its own docblock — "the pair cannot disagree about what is a candidate" —
+// asserted against a layout that did not come from the registry.
+/**
+ * The fields a `PluginLayout` requires but this property does not exercise.
+ *
+ * Spelled out rather than spread from a shipped layout on purpose: borrowing
+ * Claude Code's object would smuggle its `rulesDir` and `userSurfaceRoot` back
+ * in, and the whole point of these cases is to be a layout the registry does
+ * NOT hold.
+ */
+const LAYOUT_BASE = {
+  name: "arbitrary",
+  manifestPath: ".x/plugin.json",
+  settingsPath: ".x/settings.json",
+  settings: { label: "json", parse: JSON.parse, render: JSON.stringify },
+  instructionFile: "CLAUDE.md",
+  surfaces: {},
+  pluginRootToken: "${X_PLUGIN_ROOT}",
+  mcpConfigFile: ".x/mcp.json",
+  mcpManifestKey: "mcpServers",
+  instructionChain: () => EMPTY_CHAIN,
+} as const satisfies Omit<PluginLayout, "rulesDir" | "userSurfaceRoot">;
+
+const ARBITRARY_LAYOUTS: ReadonlyArray<readonly [string, PluginLayout]> = [
+  [
+    "a rules home at the repository ROOT (rulesDir, no userSurfaceRoot)",
+    {
+      ...LAYOUT_BASE,
+      rulesDir: "rules",
+    },
+  ],
+  [
+    "a rules home NOT spelled `rules`",
+    {
+      ...LAYOUT_BASE,
+      userSurfaceRoot: ".x",
+      rulesDir: "guidelines",
+    },
+  ],
+  [
+    "no rules home at all",
+    {
+      ...LAYOUT_BASE,
+      userSurfaceRoot: ".x",
+    },
+  ],
+];
+
+/** One repository, holding every rules-home shape at once. */
+const RULES_HOMES: Record<string, string> = {
+  "CLAUDE.md": "root instruction",
+  "rules/a.md": "a rules tree at the repository root",
+  ".x/rules/a.md": "the conventional dot-directory rules tree",
+  ".x/guidelines/a.md": "a rules home under another name",
+  ".github/rules/a.md": "SOMEBODY ELSE'S rules tree",
+};
+
+describe.each(ARBITRARY_LAYOUTS)(
+  "the disk walk and the file map enumerate the same candidates — %s",
+  (_what, layout) => {
+    it("both enumerators name the same set", () => {
+      const root = makeTmpDir("bound-parity");
+      for (const [rel, text] of Object.entries(RULES_HOMES)) {
+        mkdirSync(join(root, dirname(rel)), { recursive: true });
+        writeFileSync(join(root, rel), text);
+      }
+
+      const fromDisk = Object.keys(boundedInstructionFiles(root, layout));
+      const fromMap = instructionCandidatePaths(
+        Object.keys(RULES_HOMES),
+        layout,
+      );
+
+      expect([...fromDisk].sort()).toEqual([...fromMap].sort());
+    });
+
+    it("and neither names a rules tree this layout did not declare", () => {
+      // The control half. A property that only compares the two engines is
+      // satisfied by both being wrong in the same way — which is exactly how
+      // the root `SKILL.md` defect survived a reader once already.
+      const fromMap = instructionCandidatePaths(
+        Object.keys(RULES_HOMES),
+        layout,
+      );
+      expect(fromMap).not.toContain(".github/rules/a.md");
+    });
+
+    it("finds the rules home this layout DECLARED", () => {
+      // 🔴 THE HALF PARITY CANNOT SUPPLY, and the run that proved it: with only
+      // the two assertions above, the ROOT-rules case passed GREEN. Both
+      // enumerators miss `rules/a.md` in the same way — the disk walk guards
+      // the root base out, the file map demands a leading dot — and a property
+      // that compares two readers is satisfied by both being wrong together.
+      // Agreement is not correctness; this asserts the layout's own claim.
+      const declared = layout.rulesDir;
+      if (declared === undefined) return;
+      const root = layout.userSurfaceRoot;
+      const home = root === undefined ? declared : `${root}/${declared}`;
+      const want = `${home}/a.md`;
+      // The fixture really holds it, so a miss below is the bound's answer and
+      // not a typo in this test.
+      expect(Object.keys(RULES_HOMES)).toContain(want);
+      expect(
+        instructionCandidatePaths(Object.keys(RULES_HOMES), layout),
+      ).toContain(want);
+    });
   },
 );

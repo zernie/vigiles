@@ -39,6 +39,7 @@ import {
   resolveImports,
 } from "./core/instruction-chain.js";
 import type { PluginLayout } from "./core/layout.js";
+import { rulesHome } from "./core/layout.js";
 import {
   SURFACE_SHAPES,
   discoverSurfaces,
@@ -208,15 +209,18 @@ export function boundedInstructionFiles(
   const candidates: string[] = [];
   for (const base of roots) {
     candidates.push(...filesDirectlyIn(root, base));
-    if (base !== "") {
-      addRulesTree(
-        root,
-        layout.rulesDir === undefined ? null : `${base}/${layout.rulesDir}`,
-        excluded,
-        candidates,
-      );
-    }
   }
+  // 🔴 THE RULES TREE HAS ONE HOME, AND THE LAYOUT NAMES IT (#271).
+  //
+  // This used to run INSIDE the loop above, joining `<base>/<rulesDir>` for
+  // every discovery root and guarding the repository root out with
+  // `if (base !== "")`. Two wrong answers fell out of that, measured on layouts
+  // built from the type: a layout declaring `rulesDir` with no
+  // `userSurfaceRoot` had its tree skipped entirely, while `.github/rules` was
+  // walked for every layout, declared or not. `rulesHome` is the same answer
+  // `ruleFileRe` gives the classifier, so the walk and the filter can no longer
+  // disagree about which tree belongs to this harness.
+  addRulesTree(root, rulesHome(layout), excluded, candidates);
   const candidateFiles: Record<string, string> = {};
   for (const rel of instructionCandidatePaths(candidates, layout)) {
     if (excluded(join(root, rel))) continue;
