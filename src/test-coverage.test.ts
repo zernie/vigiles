@@ -2002,3 +2002,56 @@ test("colocation still wins, and is reported as colocation", () => {
     cleanupTmpDir(dir);
   }
 });
+
+// 🔴 A LAYOUT WITH NO SKILL SURFACE MUST FIND NO SKILLS — including the bare
+// root `SKILL.md`, which is the one path that did not ask. A third-party
+// harness declaring only agents (or only commands) got a phantom untested
+// skill out of a file its harness never loads, carrying the token
+// `undefined/<name>` into the report and lowering Tested. Both engines had the
+// branch, so both are asserted here against the SAME repo — a fix in one and
+// not the other is exactly how the hook-token defect above survived a reader.
+//
+// The control half is the second layout: the same file, with a skill surface
+// declared, IS found. Without it this test would pass on an engine that found
+// nothing at all.
+test("no skill surface in the layout → a root SKILL.md is not a skill (both engines)", () => {
+  const dir = makeTmpDir("tc-noskill");
+  write(dir, "SKILL.md", skill("solo"));
+  const files = { "SKILL.md": skill("solo") };
+
+  const agentsOnly: PluginLayout = {
+    ...claudeCodeLayout,
+    surfaces: { agent: "agents", command: "commands" },
+  };
+  const withSkills: PluginLayout = {
+    ...claudeCodeLayout,
+    surfaces: { skill: "skills", agent: "agents", command: "commands" },
+  };
+  const skillNames = (r: {
+    untested: readonly { kind: string; name: string }[];
+  }) => r.untested.filter((s) => s.kind === "skill").map((s) => s.name);
+
+  assert.deepEqual(
+    skillNames(findUntestedSurfaces({ basePath: dir, layout: agentsOnly })),
+    [],
+    "disk: no skill surface declared → no skill reported",
+  );
+  assert.deepEqual(
+    skillNames(findUntestedSurfacesInFiles(files, agentsOnly, "repo")),
+    [],
+    "browser: no skill surface declared → no skill reported",
+  );
+
+  // Control: the very same `SKILL.md` IS a skill once the surface exists.
+  assert.deepEqual(
+    skillNames(findUntestedSurfaces({ basePath: dir, layout: withSkills })),
+    ["solo"],
+    "disk control: with a skill surface the root SKILL.md is found",
+  );
+  assert.deepEqual(
+    skillNames(findUntestedSurfacesInFiles(files, withSkills, "repo")),
+    ["solo"],
+    "browser control: with a skill surface the root SKILL.md is found",
+  );
+  cleanupTmpDir(dir);
+});

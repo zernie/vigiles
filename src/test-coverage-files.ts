@@ -113,20 +113,24 @@ function discoverSkills(
   repoName: string,
 ): Surface[] {
   const out: Surface[] = [];
+  // 🔴 THE GATE MOVES TO THE TOP so it covers the root-`SKILL.md` case below too
+  // — the twin of this function on disk had the same hole. A layout declaring no
+  // skill surface reported a root `SKILL.md` as an untested skill, with a token
+  // reading `undefined/<name>`, lowering Tested for a repo whose harness never
+  // loads skills at all. Shape matches `discoverAgents` right below.
   const skillDir = layout.surfaces.skill;
-  if (skillDir !== undefined) {
-    const prefixes = surfacePrefixes(skillDir, materializePrefix(layout));
-    for (const path of matchSurface(files, prefixes, "[^/]+/SKILL\\.md")) {
-      const name = basename(dirname(path));
-      const content = files[path];
-      out.push({
-        kind: "skill",
-        path,
-        name,
-        tokens: [`${skillDir}/${name}`, `:${name}`],
-        ignored: content.includes(IGNORE_MARKER),
-      });
-    }
+  if (skillDir === undefined) return out;
+  const prefixes = surfacePrefixes(skillDir, materializePrefix(layout));
+  for (const path of matchSurface(files, prefixes, "[^/]+/SKILL\\.md")) {
+    const name = basename(dirname(path));
+    const content = files[path];
+    out.push({
+      kind: "skill",
+      path,
+      name,
+      tokens: [`${skillDir}/${name}`, `:${name}`],
+      ignored: content.includes(IGNORE_MARKER),
+    });
   }
   // Single-skill-directory target: a bare `SKILL.md` at the repo root.
   //
@@ -145,7 +149,7 @@ function discoverSkills(
       kind: "skill",
       path: "SKILL.md",
       name,
-      tokens: [`${layout.surfaces.skill}/${name}`, `:${name}`],
+      tokens: [`${skillDir}/${name}`, `:${name}`],
       ignored: content.includes(IGNORE_MARKER),
     });
   }

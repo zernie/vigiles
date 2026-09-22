@@ -354,12 +354,17 @@ function discoverSkills(
   layout: PluginLayout,
 ): Surface[] {
   const out: Surface[] = [];
+  // 🔴 ONE GATE FOR THE WHOLE FUNCTION, and it is structural rather than
+  // repeated. A harness whose layout declares no skill surface has no skills to
+  // find — `surfaceGlobs` already returned `[]` for the nested case, but the
+  // root-`SKILL.md` case below did not ask, so a third-party layout with only
+  // agents or commands still reported an untested skill, and its token read
+  // `undefined/<name>`. Narrowing here makes that token unwritable instead of
+  // merely unwritten: `skillDir` is a `string` from this line on.
+  const skillDir = layout.surfaces.skill;
+  if (skillDir === undefined) return out;
   const found = globSync(
-    surfaceGlobs(
-      layout.surfaces.skill,
-      "*/SKILL.md",
-      materializePrefix(layout),
-    ),
+    surfaceGlobs(skillDir, "*/SKILL.md", materializePrefix(layout)),
     { cwd: basePath, ignore },
   );
   for (const path of found.sort()) {
@@ -369,7 +374,7 @@ function discoverSkills(
       kind: "skill",
       path,
       name,
-      tokens: [`${layout.surfaces.skill}/${name}`, `:${name}`],
+      tokens: [`${skillDir}/${name}`, `:${name}`],
       ignored: content.includes(IGNORE_MARKER),
     });
   }
@@ -391,7 +396,7 @@ function discoverSkills(
       kind: "skill",
       path: "SKILL.md",
       name,
-      tokens: [`${layout.surfaces.skill}/${name}`, `:${name}`],
+      tokens: [`${skillDir}/${name}`, `:${name}`],
       ignored: content.includes(IGNORE_MARKER),
     });
   }
