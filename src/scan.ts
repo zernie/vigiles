@@ -1157,12 +1157,36 @@ function instructionWeightLines(w: InstructionWeight): string[] {
     w.overBy === null
       ? w.files.filter((f) => f.via !== undefined).map(fileLine)
       : [];
+  // 🔴 THE DELTA HAS A SIGN NOW, AND SUPPRESSING THE NEGATIVE ONE WAS THE WORST
+  // OF THE THREE OPTIONS. `local > 0` was written when a per-machine file could
+  // only ADD bytes; the supersede rule makes it subtract, and the model already
+  // reports that (`supersededLocallyBy`, `effectiveTotal` below `committedTotal`
+  // — see `core/instruction-weight.ts`). The printer was the last reader still
+  // assuming one direction, so the header announced the larger COMMITTED number
+  // as what is always loaded and nothing said this working copy loads a
+  // different, smaller chain. That is a confident over-report — the same
+  // undecomposable total the breakdown exists to prevent, pointing the other
+  // way. Both signs print; only exactly zero stays silent, because there is
+  // nothing to decompose.
+  const superseded = w.files.filter((f) => f.supersededLocallyBy !== undefined);
+  const deltaLine = (): string => {
+    const here = `${g(w.effectiveTotal)} in this working copy, not scored`;
+    if (local > 0) {
+      return `  + ${g(local)} ${w.unit} from per-machine file(s) — ${here}`;
+    }
+    // NAMED, not just signed. A reader meeting "−93" has to be told which
+    // committed file stopped being loaded and what silenced it, or the number
+    // is an accusation with no defendant.
+    const by = superseded
+      .map((f) => `${f.path} (silenced by ${String(f.supersededLocallyBy)})`)
+      .join(", ");
+    return (
+      `  − ${g(-local)} ${w.unit}: a per-machine file SUPERSEDES committed instruction(s) — ${here}` +
+      (by === "" ? "" : `\n      not loaded here: ${by}`)
+    );
+  };
   const tail = [
-    ...(local > 0
-      ? [
-          `  + ${g(local)} ${w.unit} from per-machine file(s) — ${g(w.effectiveTotal)} in this working copy, not scored`,
-        ]
-      : []),
+    ...(local === 0 ? [] : [deltaLine()]),
     // Named rather than silently dropped: a number that omits a file it knows
     // about is the under-report this whole report exists to prevent.
     ...(w.unreadImports.length > 0

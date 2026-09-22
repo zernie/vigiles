@@ -2921,3 +2921,44 @@ test("#240: both halves are read, and the declaration ORDER does not decide whic
     cleanupTmpDir(dir);
   }
 });
+
+// 🔴 THE PER-MACHINE DELTA HAS TWO SIGNS, and the printer only had one. Claude
+// Code's supersede rule lets a gitignored `CLAUDE.local.md` REMOVE a committed
+// `AGENTS.md` from the load, so `effectiveTotal` comes out BELOW
+// `committedTotal` — a state the model already reports through
+// `supersededLocallyBy`. The old `local > 0` guard suppressed the line outright,
+// leaving the header announcing the larger COMMITTED number as "always loaded"
+// with nothing saying this working copy loads a smaller, different chain.
+//
+// Both directions are asserted here against the SAME renderer, because a fix
+// that printed a bare "−93" without naming the silenced file would pass a
+// one-sided test and still leave the reader unable to decompose the number.
+test("instruction weight: the per-machine delta prints in BOTH directions", () => {
+  // Negative: a small local file supersedes a large committed AGENTS.md.
+  const down = makeTmpDir("weight-down");
+  writeFileSync(join(down, "AGENTS.md"), "a".repeat(400));
+  writeFileSync(join(down, "CLAUDE.local.md"), "b".repeat(20));
+  const outDown = formatScanReport(
+    scanPlugin(down, claudeCodeLayout, claudeCodeDialect),
+  );
+  assert.match(outDown, /−\s*380 chars/, "the negative delta is printed");
+  assert.match(outDown, /SUPERSEDES/, "and says what happened");
+  assert.match(
+    outDown,
+    /not loaded here: AGENTS\.md \(silenced by CLAUDE\.local\.md\)/,
+    "and names the committed file this working copy does not load",
+  );
+  cleanupTmpDir(down);
+
+  // Positive control: the same mechanism, additive. Without this the test could
+  // pass on a renderer that had simply flipped the sign it handles.
+  const up = makeTmpDir("weight-up");
+  writeFileSync(join(up, "CLAUDE.md"), "a".repeat(400));
+  writeFileSync(join(up, "CLAUDE.local.md"), "b".repeat(20));
+  const outUp = formatScanReport(
+    scanPlugin(up, claudeCodeLayout, claudeCodeDialect),
+  );
+  assert.match(outUp, /\+\s*20 chars from per-machine file/, "additive delta");
+  assert.doesNotMatch(outUp, /SUPERSEDES/, "nothing was superseded here");
+  cleanupTmpDir(up);
+});
