@@ -186,11 +186,14 @@ function addRulesTree(
   out: string[],
 ): void {
   if (rulesRel === null) return;
-  const rel = rulesRel;
-  const abs = join(root, rel);
-  if (excluded(abs) || entryOf(abs).kind !== "dir") return;
-  if (!walkableRoot(abs, root)) return;
-  filesUnder(root, rel, excluded, out);
+  // The same entry question `openableSurfaceDir` answers for a surface dir, so
+  // it is asked through that function rather than spelled a second time. The
+  // second spelling was `kind !== "dir"`, and `entryOf` says "skip" for a
+  // symlinked directory on purpose — so a `.claude/rules` linked to a shared
+  // policy directory was dropped whole, while the same link as `.claude/skills`
+  // was walked.
+  if (!openableSurfaceDir(root, rulesRel, excluded)) return;
+  filesUnder(root, rulesRel, excluded, out);
 }
 
 export function boundedInstructionFiles(

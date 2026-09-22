@@ -9,7 +9,7 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { excludeSet } from "./exclude.js";
@@ -160,6 +160,63 @@ test("the instruction walk covers the root, dot-dirs and the rules TREE, and not
     assert.equal(files["package.json"], undefined);
   } finally {
     cleanupTmpDir(root);
+  }
+});
+
+test("a SYMLINKED rules home is walked, as a symlinked surface dir already is", () => {
+  // Codex review on #265. `entryOf` answers "skip" for a symlinked directory ON
+  // PURPOSE — that rule is for entries a walk finds INSIDE a tree — so the
+  // rules walk, which asked `kind !== "dir"`, dropped a `.claude/rules` that
+  // is a link to a shared policy directory, and with it every rule the harness
+  // loads from there. The surface walk beside it asked the same question
+  // correctly (`openableSurfaceDir`: refuse a FILE, let `walkableRoot` judge a
+  // link) and says why in its own comment. Two spellings of one entry check.
+  const root = makeTmpDir("rules-symlink");
+  try {
+    mkdirSync(join(root, "shared-policy"), { recursive: true });
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    writeFileSync(join(root, "shared-policy/team.md"), "a rule");
+    symlinkSync(
+      join(root, "shared-policy"),
+      join(root, ".claude/rules"),
+      "dir",
+    );
+
+    const files = boundedInstructionFiles(root, claudeCodeLayout);
+    assert.equal(files[".claude/rules/team.md"], "a rule");
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+test("a rules home that is a FILE, or a link that loops back over the root, is not walked", () => {
+  // The control half: the fix must not turn "follow a link" into "follow
+  // anything". A file named `rules` is refused by the entry check, and a link
+  // whose target contains the scanned root is refused by `walkableRoot`.
+  const root = makeTmpDir("rules-symlink-refused");
+  try {
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    writeFileSync(join(root, ".claude/rules"), "not a directory");
+    const asFile = boundedInstructionFiles(root, claudeCodeLayout);
+    assert.deepEqual(
+      Object.keys(asFile).filter((k) => k.startsWith(".claude/rules")),
+      [],
+    );
+  } finally {
+    cleanupTmpDir(root);
+  }
+  const loop = makeTmpDir("rules-symlink-loop");
+  try {
+    mkdirSync(join(loop, ".claude"), { recursive: true });
+    writeFileSync(join(loop, "CLAUDE.md"), "root");
+    symlinkSync(loop, join(loop, ".claude/rules"), "dir");
+    const looped = boundedInstructionFiles(loop, claudeCodeLayout);
+    assert.deepEqual(
+      Object.keys(looped).filter((k) => k.startsWith(".claude/rules")),
+      [],
+    );
+  } finally {
+    cleanupTmpDir(loop);
   }
 });
 
