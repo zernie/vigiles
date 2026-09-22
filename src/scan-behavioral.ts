@@ -26,22 +26,31 @@ import type { PluginLayout } from "./core/layout.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import {
   measureTriggerRate,
-  claudeEvalDriver,
   runPool,
   runSkillSelectionTrial,
   stubbedPluginDir,
   type TriggerRateReport,
   type EvalDriver,
 } from "./eval.js";
-import { skillResolved } from "./harness-assert.js";
-import { claudeAvailable, type Trace } from "./harness-test.js";
+// eslint-disable-next-line local/no-harness-names -- IMPORT PATH, not a decision: this module is the application layer that drives a real harness binary, and Claude Code is the documented DEFAULT for candidate discovery. The rule flags the module path the way it flags `scan.ts`'s (rule header, "three are the import specifiers"); what it is guarding against — a name-driven BRANCH — is gone from this file.
 import { loadPlugin } from "./adapters/claude-code/plugin-loader.js";
-import { codexEvalDriver, codexSkillFired } from "./adapters/codex/eval.js";
-import { codexDriver } from "./adapters/codex/driver.js";
+// The Claude Code default for candidate DISCOVERY. This module is the
+// application layer (it drives a real harness binary and already imports the
+// Claude Code loader above), which is where a default belongs — `src/scan.ts`
+// and `src/test-coverage.ts` are the harness-agnostic detectors, and they no
+// longer carry one.
+// eslint-disable-next-line local/no-harness-names -- IMPORT PATH, not a decision: this module is the application layer that drives a real harness binary, and Claude Code is the documented DEFAULT for candidate discovery. The rule flags the module path the way it flags `scan.ts`'s (rule header, "three are the import specifiers"); what it is guarding against — a name-driven BRANCH — is gone from this file.
+import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
+// eslint-disable-next-line local/no-harness-names -- IMPORT PATH, not a decision: this module is the application layer that drives a real harness binary, and Claude Code is the documented DEFAULT for candidate discovery. The rule flags the module path the way it flags `scan.ts`'s (rule header, "three are the import specifiers"); what it is guarding against — a name-driven BRANCH — is gone from this file.
+import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
+import {
+  isEventFiring,
+  type EventFiringDriver,
+  type HarnessLiveDriver,
+} from "./core/live-driver.js";
+import type { HarnessAdapter } from "./core/adapter.js";
+import { defaultAdapter, getAdapter } from "./adapter-registry.js";
 import { makeTmpDir } from "./core/tmp-root.js";
-
-/** Which harness drives the behavioral column (default Claude Code). */
-export type ProbeHarness = "claude-code" | "codex";
 
 /** Author-supplied prompt sets for one skill (bare skill name → these). */
 export interface SkillPrompts {
@@ -81,8 +90,9 @@ export interface ProbeOptions {
   readonly model?: string;
   readonly minPrompts?: number;
   readonly minDistance?: number;
-  /** Which harness to drive (default `"claude-code"`). */
-  readonly harness?: ProbeHarness;
+  /** Which harness drives it — the adapter itself, not its name (default
+   *  {@link defaultAdapter}). A reference-only adapter reports `available: false`. */
+  readonly adapter?: HarnessAdapter;
   /** Layout + dialect for candidate discovery — so a Codex repo's skills (under
    *  the Codex layout) are found, not silently missed by the default CC layout. */
   readonly layout?: PluginLayout;
@@ -90,47 +100,67 @@ export interface ProbeOptions {
 }
 
 /**
- * Per-harness probe wiring: the eval driver (runner+parse), how to build the
- * `fired` predicate for a skill, whether to stub bodies, and an availability
- * gate. Claude detects firing via the `Skill` tool_use (namespaced by the
- * plugin name); Codex has no skill event, so firing is the SKILL.md read
- * (`codexSkillFired`, bare name) — see `research/codex-prototype-findings.md`.
+ * Resolve the adapter driving a behavioral measurement.
+ *
+ * 🔴 THE ONE SANCTIONED STRING→ADAPTER CONVERSION. `opts.adapter` is the way in;
+ * the deprecated `harness` NAME is accepted for one release because
+ * `SelectionOptions` is public API (`vigiles/claude-code`), and it is resolved
+ * HERE, through the registry, rather than compared to a literal anywhere.
  */
-export interface HarnessProbe {
-  readonly evalDriver: EvalDriver;
-  readonly firedFor: (name: string) => (t: Trace) => boolean;
-  readonly stub: boolean;
+function adapterFor(opts: {
+  readonly adapter?: HarnessAdapter;
+  readonly harness?: string;
+}): HarnessAdapter {
+  return (
+    opts.adapter ??
+    (opts.harness ? getAdapter(opts.harness) : undefined) ??
+    defaultAdapter
+  );
+}
+
+/**
+ * The executing-tier wiring for one adapter: its live driver plus the CLI-presence
+ * gate. This is what `buildProbe(dir, harness)` used to switch on a NAME to build;
+ * both halves now come off the adapter, so adding a harness adds no branch here.
+ *
+ * ⚠️ `available` IS THE BINARY PROBE, NOT `liveDriver.access(env)`, and the
+ * difference is load-bearing. `access` answers "is a model reachable and on whose
+ * bill" — for Claude Code that is an env-only read by design (deciding whether to
+ * OFFER a measurement must not spend a token), which is NOT the same question as
+ * "is the CLI installed". Routing this gate through `access` would make the
+ * behavioral column go dark for anyone driving a logged-in `claude` from a plain
+ * shell with none of the env vars set, and light up for anyone with a key but no
+ * binary. The CLI-presence fact already has exactly one home — `available` on the
+ * MOCK-tier driver, which is the same binary and the same probe both tiers need
+ * (`claudeAvailable` / `codexDriver.available`, the two functions `buildProbe`
+ * itself called) — so it is read from there rather than copied onto a second port.
+ */
+async function probeFor(adapter: HarnessAdapter): Promise<{
+  readonly live: HarnessLiveDriver;
   readonly available: () => boolean;
+} | null> {
+  if (!adapter.harnessTesting) return null;
+  const [live, test] = await Promise.all([
+    adapter.liveDriver(),
+    adapter.harnessTestDriver(),
+  ]);
+  // Wrapped rather than handed over bare: an extracted method loses its `this`.
+  return { live, available: () => test.available() };
 }
 
-function buildProbe(dir: string, harness: ProbeHarness): HarnessProbe {
-  if (harness === "codex") {
-    return {
-      evalDriver: codexEvalDriver,
-      firedFor: (name) => (t) => codexSkillFired(t, name),
-      // Codex stubbing of a non-Claude plugin isn't validated; install the real
-      // skills (firing is the SKILL.md read, detected regardless of body).
-      stub: false,
-      available: () => codexDriver.available(),
-    };
-  }
-  const ns = pluginName(dir);
-  return {
-    evalDriver: claudeEvalDriver,
-    firedFor: (name) => (t) => skillResolved(t, ns ? `${ns}:${name}` : name),
-    stub: true,
-    available: claudeAvailable,
-  };
-}
-
-/** Plugin name from `.claude-plugin/plugin.json` (the skill id's namespace). */
-function pluginName(dir: string): string | null {
-  const p = join(dir, ".claude-plugin", "plugin.json");
+/**
+ * The plugin manifest's `name` — the namespace a harness may prefix onto a skill
+ * id. Read through the LAYOUT's path and codec, never a `.claude-plugin` literal,
+ * so a TOML-manifest harness is read with its own parser.
+ */
+function manifestName(dir: string, layout: PluginLayout): string | null {
+  const p = join(dir, layout.manifestPath);
   if (!existsSync(p)) return null;
   try {
-    return (
-      (JSON.parse(readFileSync(p, "utf-8")) as { name?: string }).name ?? null
-    );
+    const parsed = layout.settings.parse(readFileSync(p, "utf-8")) as {
+      name?: unknown;
+    };
+    return typeof parsed.name === "string" ? parsed.name : null;
   } catch {
     return null;
   }
@@ -180,7 +210,10 @@ function isStubbedHookArtifact(
 interface ProbeCtx {
   readonly dir: string;
   readonly opts: ProbeOptions;
-  readonly probe: HarnessProbe;
+  readonly live: HarnessLiveDriver;
+  /** The manifest name the DOMAIN read, handed to `firedFor` so the driver
+   *  reads no disk (the bound `claims` and `detect` keep, for the same reason). */
+  readonly plugin: { readonly name: string | null };
 }
 
 /** Probe one skill via the harness probe's eval driver → result, never throwing. */
@@ -193,16 +226,16 @@ async function probeSkill(
     const r: TriggerRateReport = await measureTriggerRate(
       {
         pluginDir: ctx.dir,
-        stubSkillBodies: ctx.probe.stub,
+        stubSkillBodies: ctx.live.installsStubs,
         prompts: ps.prompts,
         irrelevantPrompts: ps.irrelevant,
         minPrompts: ctx.opts.minPrompts,
         minDistance: ctx.opts.minDistance,
         model: ctx.opts.model,
         concurrency: ctx.opts.concurrency,
-        fired: ctx.probe.firedFor(name),
+        fired: ctx.live.firedFor(name, ctx.plugin),
       },
-      { evalDriver: ctx.probe.evalDriver },
+      { evalDriver: ctx.live.evalDriver },
     );
     return {
       skill: name,
@@ -227,17 +260,25 @@ async function probeSkill(
 export async function probePluginTriggersWith(
   dir: string,
   promptSet: TriggerPromptSet,
-  probe: HarnessProbe,
+  live: HarnessLiveDriver,
   opts: ProbeOptions = {},
 ): Promise<BehavioralReport> {
-  const ctx: ProbeCtx = { dir, opts, probe };
+  const layout = opts.layout ?? claudeCodeLayout;
+  const ctx: ProbeCtx = {
+    dir,
+    opts,
+    live,
+    plugin: { name: manifestName(dir, layout) },
+  };
   // Only model-invocable, describable skills can auto-trigger; user-invoked and
   // description-less ones can't, so they're not behavioral candidates. Discover
   // them with the resolved layout/dialect (default CC) so a Codex repo's skills
   // aren't missed by the wrong layout.
-  const candidates = scanPlugin(dir, opts.layout, opts.dialect).skills.filter(
-    (s) => !s.userInvoked && s.hasDescription,
-  );
+  const candidates = scanPlugin(
+    dir,
+    layout,
+    opts.dialect ?? claudeCodeDialect,
+  ).skills.filter((s) => !s.userInvoked && s.hasDescription);
   const results: SkillTriggerResult[] = [];
   for (const s of candidates) {
     const ps = promptSet[s.name];
@@ -253,19 +294,20 @@ export async function probePluginTriggersWith(
   }
   return {
     available: true,
-    results: relabelTriggerArtifact(dir, probe, results),
-    experimental: probe.evalDriver.experimental,
+    results: relabelTriggerArtifact(dir, live, results),
+    experimental: live.evalDriver.experimental,
   };
 }
 
 /** Relabel an all-zero-recall stubbed run on a hooked plugin as unmeasured (Layer 1). */
 function relabelTriggerArtifact(
   dir: string,
-  probe: HarnessProbe,
+  live: HarnessLiveDriver,
   results: readonly SkillTriggerResult[],
 ): SkillTriggerResult[] {
   const recalls = results.filter((r) => r.measured).map((r) => r.recall ?? 0);
-  if (!isStubbedHookArtifact(dir, probe.stub, recalls)) return [...results];
+  if (!isStubbedHookArtifact(dir, live.installsStubs, recalls))
+    return [...results];
   return results.map((r) =>
     r.measured && (r.recall ?? 0) === 0
       ? { skill: r.skill, measured: false, note: HOOK_PRIMED_NOTE }
@@ -283,9 +325,9 @@ export async function probePluginTriggers(
   promptSet: TriggerPromptSet,
   opts: ProbeOptions = {},
 ): Promise<BehavioralReport> {
-  const probe = buildProbe(dir, opts.harness ?? "claude-code");
-  if (!probe.available()) return { available: false, results: [] };
-  return probePluginTriggersWith(dir, promptSet, probe, opts);
+  const probe = await probeFor(adapterFor(opts));
+  if (!probe?.available()) return { available: false, results: [] };
+  return probePluginTriggersWith(dir, promptSet, probe.live, opts);
 }
 
 const pct = (x: number): string => `${(x * 100).toFixed(0)}%`;
@@ -352,8 +394,21 @@ export interface SelectionOptions {
   readonly effort?: string | number;
   /** Parallel runs across the prompts × trials grid (default 1). */
   readonly concurrency?: number;
-  /** Which harness drives it (default `"claude-code"`; others report n/a). */
-  readonly harness?: ProbeHarness;
+  /** Which harness drives it — the adapter itself (default {@link defaultAdapter}).
+   *  A harness whose firing signal is INFERRED rather than a discrete event reports
+   *  n/a: the matrix asks WHICH skill fired, which an inference cannot answer. */
+  readonly adapter?: HarnessAdapter;
+  /**
+   * @deprecated Pass {@link SelectionOptions.adapter} instead. Kept for one
+   * release because this options type is public API (`vigiles/claude-code`);
+   * a name is resolved through the registry, never compared to a literal.
+   */
+  readonly harness?: string;
+  /** Layout + dialect for candidate discovery, mirroring {@link ProbeOptions} —
+   *  so a Codex repo's skills are found under the Codex layout, not silently
+   *  missed by the Claude Code one. */
+  readonly layout?: PluginLayout;
+  readonly dialect?: HarnessDialect;
 }
 
 /** One run's outcome for the matrix: which of the plugin's OWN skills fired. */
@@ -498,16 +553,26 @@ function selectionJobs(
   });
 }
 
-/** The injectable core (for tests): drive the matrix via a fake/real probe. */
+/**
+ * The injectable core (for tests): drive the matrix via a fake/real driver.
+ *
+ * 🔴 IT TAKES AN {@link EventFiringDriver}, NOT ANY LIVE DRIVER, AND THAT IS THE
+ * RATCHET. The matrix asks WHICH of the plugin's skills fired on each prompt; a
+ * harness that only INFERS firing cannot answer that, and the old guard was a
+ * name check in the wrapper below — invisible to anyone calling this core
+ * directly. Now an inferred driver is a compile error at every call site.
+ */
 export async function measurePluginSelectionWith(
   dir: string,
   promptSet: TriggerPromptSet,
-  probe: HarnessProbe,
+  probe: EventFiringDriver,
   opts: SelectionOptions = {},
 ): Promise<SelectionReport> {
-  const candidates = scanPlugin(dir).skills.filter(
-    (s) => !s.userInvoked && s.hasDescription,
-  );
+  const candidates = scanPlugin(
+    dir,
+    opts.layout ?? claudeCodeLayout,
+    opts.dialect ?? claudeCodeDialect,
+  ).skills.filter((s) => !s.userInvoked && s.hasDescription);
   const skills = candidates.map((c) => c.name);
   if (skills.length < 2) {
     return {
@@ -530,7 +595,7 @@ export async function measurePluginSelectionWith(
   // Selection is decided at the frontmatter (the selector picks BEFORE the body
   // loads), so stub each body to a no-op: the run stops AT selection instead of
   // executing the whole workflow — the same affordability trick trigger-rate uses.
-  const pluginDir = probe.stub ? stubbedPluginDir(dir) : dir;
+  const pluginDir = probe.installsStubs ? stubbedPluginDir(dir) : dir;
   try {
     const d = probe.evalDriver;
     const outcomes = await runPool(
@@ -562,12 +627,28 @@ export async function measurePluginSelectionWith(
     // dropped-hook artifact — flag it instead of presenting a 0%-collision result
     // computed from a plugin that never fired.
     const recalls = report.perSkill.filter((s) => s.n > 0).map((s) => s.recall);
-    return isStubbedHookArtifact(dir, probe.stub, recalls)
+    return isStubbedHookArtifact(dir, probe.installsStubs, recalls)
       ? { ...report, note: HOOK_PRIMED_NOTE }
       : report;
   } finally {
-    if (probe.stub) rmSync(pluginDir, { recursive: true, force: true });
+    if (probe.installsStubs)
+      rmSync(pluginDir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Why the matrix cannot run on this harness — the DRIVER's own reason, carried
+ * verbatim, rather than a sentence written at the call site next to a name check.
+ */
+function selectionUnavailableNote(
+  name: string,
+  live: HarnessLiveDriver | undefined,
+): string {
+  if (!live)
+    return `selection-collision needs an executing-tier driver, which ${name} does not have`;
+  const why =
+    live.firing.kind === "inferred" ? live.firing.caveat : "no firing event";
+  return `selection-collision needs a discrete skill-selection event, which ${name} does not emit (${why})`;
 }
 
 /**
@@ -580,23 +661,25 @@ export async function measurePluginSelection(
   promptSet: TriggerPromptSet,
   opts: SelectionOptions = {},
 ): Promise<SelectionReport> {
-  const harness = opts.harness ?? "claude-code";
-  if (harness !== "claude-code") {
+  const adapter = adapterFor(opts);
+  const probe = await probeFor(adapter);
+  // The n/a reason now comes from the DRIVER's own firing signal and carries the
+  // driver's own caveat, instead of being a name check with the reason inlined.
+  if (!probe || !isEventFiring(probe.live)) {
     return {
       ...emptySelection([]),
       available: false,
-      note: `selection-collision is Claude Code only (no skill-selection event on ${harness})`,
+      note: selectionUnavailableNote(adapter.name, probe?.live),
     };
   }
-  const probe = buildProbe(dir, harness);
   if (!probe.available()) {
     return {
       ...emptySelection([]),
       available: false,
-      note: "needs the claude CLI + model auth",
+      note: `needs the ${adapter.name} CLI + model auth`,
     };
   }
-  return measurePluginSelectionWith(dir, promptSet, probe, opts);
+  return measurePluginSelectionWith(dir, promptSet, probe.live, opts);
 }
 
 /** Format the selection-collision matrix as a scan-report section. */
@@ -658,7 +741,7 @@ export async function measureSelectionMatrix(
  */
 export async function measureSelectionMatrixWith(
   dir: string,
-  probe: HarnessProbe,
+  probe: EventFiringDriver,
   opts: SelectionMatrixOptions = {},
 ): Promise<SelectionReport> {
   return measurePluginSelectionWith(
@@ -678,7 +761,11 @@ function resolveSelectionPrompts(
   return (
     opts.prompts ??
     autoTriggerPrompts(
-      scanPlugin(dir)
+      scanPlugin(
+        dir,
+        opts.layout ?? claudeCodeLayout,
+        opts.dialect ?? claudeCodeDialect,
+      )
         .skills.filter((s) => !s.userInvoked && s.hasDescription)
         .map((s) => ({ name: s.name, description: s.description ?? "" })),
     )
@@ -827,7 +914,8 @@ export interface GateOptions {
   readonly trials?: number;
   /** Concurrent harness runs (default 1). */
   readonly concurrency?: number;
-  readonly harness?: ProbeHarness;
+  /** Which harness drives it — the adapter itself (default {@link defaultAdapter}). */
+  readonly adapter?: HarnessAdapter;
   readonly layout?: PluginLayout;
   readonly dialect?: HarnessDialect;
   /** Author-supplied attack prompts (bare skill name → prompts); overrides derive. */
@@ -1013,29 +1101,37 @@ export async function measureGateAdversarial(
   dir: string,
   opts: GateOptions = {},
 ): Promise<GateAdversarialReport> {
-  const harness = opts.harness ?? "claude-code";
-  if (harness !== "claude-code") {
+  const adapter = adapterFor(opts);
+  const probe = await probeFor(adapter);
+  // Same gate as the collision matrix and for the same reason: the attack is only
+  // meaningful once the gate skill has actually been SELECTED, which an inferred
+  // firing signal cannot establish. Read off the driver, not off a name.
+  if (!probe || !isEventFiring(probe.live)) {
     return {
       available: false,
       results: [],
-      note: `adversarial-gate is Claude Code only (no Skill selection on ${harness})`,
+      note: `adversarial-gate needs a discrete skill-selection event, which ${adapter.name} does not emit`,
     };
   }
-  const probe = buildProbe(dir, harness);
   if (!probe.available()) {
     return {
       available: false,
       results: [],
-      note: "needs the claude CLI + model auth",
+      note: `needs the ${adapter.name} CLI + model auth`,
     };
   }
-  const skills = scanPlugin(dir, opts.layout, opts.dialect).skills;
+  const skills = scanPlugin(
+    dir,
+    opts.layout ?? claudeCodeLayout,
+    opts.dialect ?? claudeCodeDialect,
+  ).skills;
   const gateNames = new Set(detectGateSkills(skills));
   const gates: GateUnderTest[] = skills
     .filter((s) => gateNames.has(s.name))
     .map((s) => ({ name: s.name, description: s.description ?? "" }));
   const deps: GateEvalDeps = {
-    driver: claudeEvalDriver,
+    // The driving adapter's own eval transport, not a hard-wired Claude one.
+    driver: probe.live.evalDriver,
     judge: judgeGateReal,
     derive: deriveAttackReal,
   };

@@ -98,6 +98,31 @@ test("frontmatter-valid now sees a broken rule file", () => {
   }
 });
 
+test("a rule in a SUBDIRECTORY is classified — the dir is read recursively", () => {
+  // 🔴 THE CLASSIFIER USED TO BE FLAT (`<rulesDir>/[^/]+\.md`) WHILE THE LOADER
+  // WALKED THE DIRECTORY RECURSIVELY, so a nested rule was READ into the file
+  // map and classified as nothing: never frontmatter-checked, never counted,
+  // never weighed (zernie/vigiles#262 §3). Vendor: all `.md` files under a rules
+  // directory are discovered recursively. The depth rule now lives once, in
+  // `RULE_FILE_LEAF_RE`, and both readers quote it.
+  const dir = withRules((d) => {
+    skillAt(d, ".claude", "demo");
+    mkdirSync(join(d, ".claude", "rules", "team"), { recursive: true });
+    writeFileSync(join(d, ".claude", "rules", "team", "git.md"), BROKEN_RULE);
+  });
+  try {
+    const loaded = loadPlugin(dir, claudeCodeLayout);
+    const cls = makeClassifier(claudeCodeLayout);
+    assert.equal(cls.isRule(".claude/rules/team/git.md"), true);
+    assert.deepEqual(
+      malformedFrontmatterFor(loaded.files, cls).map((i) => i.path),
+      [".claude/rules/team/git.md"],
+    );
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
 test("a WELL-FORMED rule file is not flagged", () => {
   // The other half — the check must not fire merely because the layer is now
   // visible, which would be the loudest possible way to get this reverted.

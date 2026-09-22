@@ -363,7 +363,18 @@ export function mergeHooksToml(
   return { ...existing, hooks: { ...before, ...rewritten } };
 }
 
-/** Serialize a merged config back to its on-disk text (with trailing newline). */
+/**
+ * Serialize a merged config back to its on-disk text.
+ *
+ * ⚠️ DEPRECATED IN PLACE, not deleted, and the distinction matters: the
+ * harness-driven path (`installHookFile` in `cli-main.ts`) goes through
+ * `PluginLayout.settings.render` now, so no adapter's encoding is decided here
+ * any more. The one remaining caller is `cli-main.ts`'s Codex-plugin wiring,
+ * which writes `.codex/config.toml` for a harness it names ITSELF, at the
+ * composition root — a caller that already knows the encoding, rather than one
+ * branching on a layout field. Its `format` argument is therefore a literal at
+ * the call site, not a value read off a port.
+ */
 export function serializeConfig(
   merged: Record<string, unknown>,
   format: "json" | "toml",

@@ -33,6 +33,7 @@ import { basename, dirname } from "./posix-path.js";
 import {
   AGENT_FILE_LEAF_RE,
   agentSurfaceName,
+  materializePrefix,
   type PluginLayout,
 } from "./core/layout.js";
 import type {
@@ -112,19 +113,24 @@ function discoverSkills(
   repoName: string,
 ): Surface[] {
   const out: Surface[] = [];
-  if (layout.skillDir) {
-    const prefixes = surfacePrefixes(layout.skillDir, layout.materializeRoot);
-    for (const path of matchSurface(files, prefixes, "[^/]+/SKILL\\.md")) {
-      const name = basename(dirname(path));
-      const content = files[path];
-      out.push({
-        kind: "skill",
-        path,
-        name,
-        tokens: [`${layout.skillDir}/${name}`, `:${name}`],
-        ignored: content.includes(IGNORE_MARKER),
-      });
-    }
+  // 🔴 THE GATE MOVES TO THE TOP so it covers the root-`SKILL.md` case below too
+  // — the twin of this function on disk had the same hole. A layout declaring no
+  // skill surface reported a root `SKILL.md` as an untested skill, with a token
+  // reading `undefined/<name>`, lowering Tested for a repo whose harness never
+  // loads skills at all. Shape matches `discoverAgents` right below.
+  const skillDir = layout.surfaces.skill;
+  if (skillDir === undefined) return out;
+  const prefixes = surfacePrefixes(skillDir, materializePrefix(layout));
+  for (const path of matchSurface(files, prefixes, "[^/]+/SKILL\\.md")) {
+    const name = basename(dirname(path));
+    const content = files[path];
+    out.push({
+      kind: "skill",
+      path,
+      name,
+      tokens: [`${skillDir}/${name}`, `:${name}`],
+      ignored: content.includes(IGNORE_MARKER),
+    });
   }
   // Single-skill-directory target: a bare `SKILL.md` at the repo root.
   //
@@ -143,7 +149,7 @@ function discoverSkills(
       kind: "skill",
       path: "SKILL.md",
       name,
-      tokens: [`${layout.skillDir}/${name}`, `:${name}`],
+      tokens: [`${skillDir}/${name}`, `:${name}`],
       ignored: content.includes(IGNORE_MARKER),
     });
   }
@@ -155,8 +161,9 @@ function discoverAgents(
   layout: PluginLayout,
 ): Surface[] {
   const out: Surface[] = [];
-  if (!layout.agentDir) return out;
-  const prefixes = surfacePrefixes(layout.agentDir, layout.materializeRoot);
+  const agentDir = layout.surfaces.agent;
+  if (agentDir === undefined) return out;
+  const prefixes = surfacePrefixes(agentDir, materializePrefix(layout));
   // Same depth rule as the scan classifier — quoted from AGENT_FILE_LEAF_RE, not
   // respelled. This discoverer feeds the `Tested` metric; when it disagreed with
   // the classifier, `audit` printed a subagent count and an untested-surface
@@ -164,8 +171,7 @@ function discoverAgents(
   for (const path of matchSurface(files, prefixes, AGENT_FILE_LEAF_RE)) {
     if (path.endsWith(".spec.ts")) continue;
     const content = files[path];
-    const name =
-      agentSurfaceName(path, layout.agentDir) ?? basename(path, ".md");
+    const name = agentSurfaceName(path, agentDir) ?? basename(path, ".md");
     const dir = dirname(path);
     out.push({
       kind: "agent",

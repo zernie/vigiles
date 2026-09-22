@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { findOrphanDocs, formatOrphanReport } from "./orphans.js";
 import { makeTmpDir, cleanupTmpDir } from "./test-utils.js";
+import type { PluginLayout } from "./layout.js";
 import { claudeCodeLayout } from "../adapters/claude-code/layout.js";
 
 // Harness surfaces are injected (core stays harness-agnostic). Real usage passes
@@ -79,12 +80,13 @@ describe("findOrphanDocs()", () => {
       // any nested dir that shares the name.
       writeFileSync(join(dir, "prompts/run.md"), "# a real command surface");
       writeFileSync(join(dir, "docs/prompts/guide.md"), "# unreferenced doc");
-      const codexLayout = {
+      const codexLayout: PluginLayout = {
         ...claudeCodeLayout,
         name: "codex",
         instructionFile: "AGENTS.md",
-        agentDir: "",
-        commandDir: "prompts",
+        // No `agent` key — a harness without that surface omits it (it used to
+        // be `agentDir: ""`, a second spelling of the same absence).
+        surfaces: { skill: "skills", command: "prompts" },
       };
       const report = findOrphanDocs({
         basePath: dir,

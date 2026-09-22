@@ -34,6 +34,66 @@ export interface HookProtocol {
    */
   readonly matcherStyle?: "exact" | "regex";
   /**
+   * The config fragment that registers ONE command on ONE event, in this
+   * harness's native settings SHAPE. Claude Code nests
+   * `{matcher, hooks: [{type: "command", command}]}`; Codex is flat
+   * `{matcher, command}`.
+   *
+   * 🔴 THE SHAPE HALF OF WHAT `settingsFormat` WAS STANDING IN FOR, and it does
+   * not belong with the encoding. `PluginLayout.settingsFormat` was a
+   * `"json" | "toml"` enum that three call sites read as "which entry shape",
+   * which is neither what its name says nor what its values mean — a TOML
+   * harness with CC-shaped entries, or a JSON harness with flat ones, were both
+   * expressible and both would have been read wrong. A constructor cannot be
+   * wrong about its own shape.
+   *
+   * Reading already tolerates both shapes (`core/hook-normalize.ts`); this
+   * makes WRITING symmetric.
+   */
+  registration(
+    on: string,
+    matcher: string | undefined,
+    command: string,
+  ): { readonly hooks: Readonly<Record<string, readonly unknown[]>> };
+  /**
+   * Merge a compiled hook's registrations into an already-parsed settings
+   * object, idempotently: entries this hook file manages are REPLACED, every
+   * other command — including the user's own hand-written hooks sharing a
+   * matcher block — is preserved.
+   *
+   * 🔴 `compiled` IS THE COMPILER'S CANONICAL BLOCK, NOT `registration`'s
+   * OUTPUT, and the asymmetry is load-bearing enough to state rather than
+   * leave to be discovered. `compileHookProgram` always produces the nested
+   * `{matcher?, hooks:[{type, command}]}` form (`CompiledHooks` —
+   * "the CC-shaped structured block a compiled hook program carries"), and each
+   * implementation converts to its own shape on the way in; Codex's flattens
+   * with `toTomlEntries`. `registration` goes the other way: it produces the
+   * NATIVE shape, for the settings block a human pastes. Feeding this method a
+   * `registration` result is a type-level no-op and a run-time TypeError on
+   * the flat side — found by the property test below, which asserted it.
+   *
+   * `managedBy` is the canonical hook-source reference whose commands this
+   * merge owns; a compiled block whose commands do not mention it is APPENDED,
+   * not replaced, which is what keeps a user's own hooks intact.
+   *
+   * On `HookProtocol` because it is the same SHAPE question `registration`
+   * answers, from the other direction: the CC shape nests several commands
+   * under one matcher (so the granularity has to be the command), the Codex
+   * shape carries one command per entry (so entry- and command-granularity
+   * coincide). Typed structurally here, because the concrete entry types are
+   * the application layer's.
+   *
+   * ⚠️ There is no `registrations(config)` INVERSE yet — reading a third shape
+   * would need one, and that is deferred until a third shape exists. What
+   * exists now is: write one (`registration`), and merge into a parsed object
+   * (this).
+   */
+  mergeRegistrations(
+    existing: Record<string, unknown>,
+    compiled: Readonly<Record<string, readonly unknown[]>>,
+    managedBy: string,
+  ): Record<string, unknown>;
+  /**
    * The events whose hook can inject **developer context** into the agent by
    * printing `{ hookSpecificOutput: { hookEventName, additionalContext } }` on
    * stdout. The inject *shape* is shared across Claude Code and Codex (so the

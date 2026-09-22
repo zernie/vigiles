@@ -28,7 +28,20 @@ import {
   parseClaudeRun,
   type AgentRunner,
   type ModelOutputParser,
+  type EvalDriver,
+  type RunOut,
 } from "./eval.js";
+
+/**
+ * The harness CLI did not run, as distinct from running and finding nothing.
+ * A named class so the caller can tell the two apart without matching prose.
+ */
+export class DraftRunFailed extends Error {
+  constructor(reason: string) {
+    super(`could not run the drafting model — ${reason}`);
+    this.name = "DraftRunFailed";
+  }
+}
 
 /** A reference the model proposes as machine-verifiable. */
 export interface DraftedRef {
@@ -184,6 +197,12 @@ export interface DraftOptions {
   readonly cwd?: string;
   readonly runner?: AgentRunner;
   readonly parse?: ModelOutputParser;
+  /**
+   * The driver's own reader for a failure the exit code does not carry — a
+   * refusal, or a turn error inside a zero-exit run. Supplied by
+   * {@link draftWith}; absent means the exit code is the only signal.
+   */
+  readonly runError?: (out: RunOut) => string | null;
 }
 
 /* v8 ignore start — the single real model call; the orchestration is tested with a fake draft. */
@@ -204,12 +223,63 @@ async function defaultDraft(
     timeoutMs: 120000,
     env: process.env as Record<string, string>,
   });
+  // 🔴 THE EXIT CODE IS READ, AND IT WAS NOT. A runner that could not start the
+  // harness binary returns code 1 with empty stdout; `parse` then yields no
+  // output, `parseDraftJson` yields `[]`, and the report prints "no
+  // machine-verifiable references found" — a valid-looking answer to a question
+  // nothing ever asked. Found on review of #265: the unconditional
+  // `subscription` on the Codex driver lets this path run with no binary
+  // present, and unlike the behavioral probe there is nothing here that
+  // self-reports unavailability.
+  //
+  // Thrown rather than returned empty, because "the run failed" and "the model
+  // found nothing" are different answers and the caller has to be able to say
+  // which. `runError` is the driver's own reader for a failure the exit code
+  // does not carry — a refusal or a turn error inside a zero-exit run.
+  if (out.code !== 0) {
+    throw new DraftRunFailed(
+      `the harness CLI exited ${String(out.code)}${out.stderr ? `: ${out.stderr.trim().slice(0, 200)}` : " with no output"}`,
+    );
+  }
+  const driverError = opts.runError?.(out);
+  if (driverError !== null && driverError !== undefined) {
+    throw new DraftRunFailed(driverError);
+  }
   return parseDraftJson(parse(out).output);
 }
 /* v8 ignore stop */
 
 /** Injectable drafter — the real one calls a model; tests pass a fake. */
 export type Drafter = (content: string) => Promise<DraftedRef[]>;
+
+/**
+ * Build the real drafter from a harness's EVAL DRIVER, instead of the hard-wired
+ * `spawnAgent` + `parseClaudeRun` defaults above.
+ *
+ * 🔴 THIS IS WHY THE PREVIEW IS NOT CLAUDE-CODE-ONLY. `defaultDraft`'s two
+ * defaults ARE the two members of the Claude eval driver, and nothing else in
+ * the drafter is harness-specific: the prompt is over an instruction file's
+ * prose, and prose is prose. The VERIFIER is deterministic and harness-free
+ * ("LLM proposes, deterministic disposes", this file's header), so "M broken
+ * right now" is exactly as trustworthy driven by one harness as by another;
+ * only the draft's RECALL varies by model, which it already does across models
+ * of the same harness.
+ *
+ * `model` is passed through to whichever runner: the trigger tier already does
+ * this, and a runner that does not understand the alias ignores it.
+ */
+export function draftWith(
+  driver: EvalDriver,
+  opts: DraftOptions = {},
+): Drafter {
+  return (content: string) =>
+    defaultDraft(content, {
+      ...opts,
+      runner: driver.runner,
+      parse: driver.parse,
+      runError: driver.runError,
+    });
+}
 
 export interface AdoptabilityTierOptions {
   readonly instructionContent: string;

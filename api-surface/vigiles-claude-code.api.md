@@ -19,7 +19,22 @@ export function buildClaudeArgs(spec: HarnessTestSpec, hasSettings: boolean): st
 export function claudeAvailable(): boolean;
 
 // @public (undocumented)
-export const claudeCodeAdapter: HarnessAdapter;
+export const claudeCodeAdapter: {
+    readonly name: "claude-code";
+    readonly harnessTesting: true;
+    readonly shellHooks: true;
+    readonly subagents: true;
+    readonly dialect: HarnessDialect;
+    readonly layout: PluginLayout;
+    readonly runtime: HarnessRuntime;
+    readonly hookProtocol: HookProtocol;
+    readonly modelMock: ModelMock;
+    readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    readonly liveDriver: () => Promise<HarnessLiveDriver>;
+    readonly claims: (path: string) => boolean;
+    readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
+    readonly advisories: (read: InstallReader) => readonly string[];
+};
 
 // @public
 export type ClaudeCodeBoundedTool = ClaudeCodeReadOnlyTool | "Write" | "Edit" | "NotebookEdit" | "Bash" | "PowerShell";
@@ -136,7 +151,7 @@ export interface HarnessDialect {
     readonly permissionDecisionHookEvents?: readonly string[];
     readonly pluginRootToken: string;
     readonly sideEffectingTools?: readonly string[];
-    readonly skillFrontmatter: SkillFrontmatterProfile;
+    readonly skillFrontmatterKeys: readonly string[];
     readonly subagentToolVocabulary?: HarnessVocabulary;
 }
 
@@ -215,9 +230,14 @@ export interface SelectionMatrixOptions extends SelectionOptions {
 
 // @public
 export interface SelectionOptions {
+    readonly adapter?: HarnessAdapter;
     readonly concurrency?: number;
+    // (undocumented)
+    readonly dialect?: HarnessDialect;
     readonly effort?: string | number;
-    readonly harness?: ProbeHarness;
+    // @deprecated (undocumented)
+    readonly harness?: string;
+    readonly layout?: PluginLayout;
     readonly model?: string;
     readonly trials?: number;
 }

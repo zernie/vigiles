@@ -12,7 +12,7 @@
  * stack on top later; this core stays pure so it runs anywhere in CI for free.
  */
 
-import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 // The COMPOSITION-ROOT loader, not the `vigiles/claude-code` wrapper: this
@@ -20,23 +20,24 @@ import { basename, dirname, join, resolve } from "node:path";
 // Claude Code default), and only the generic one takes the `ExcludeSet` that
 // makes `.vigilesrc.json#exclude` reach surface discovery.
 import { loadPlugins } from "./plugin-loader.js";
-// 🔴 A FINDING, NOT A FORMALITY, and one nothing else in the repo could see: this
-// module is listed as a harness-agnostic detector, yet it imports the Claude Code
-// adapter to use as a DEFAULT (`scanPlugin`'s `dialect`/`layout` parameters, and
-// four more sites below). `boundaries/dependencies` does not catch it because it
-// deliberately leaves this file unclassified; the CC-literal rule does not catch
-// it because `\.claude` needs the dot and this path spells `/claude-code/`.
-// Keeping the CC default is the stated backwards-compatibility guarantee, so this
-// is real debt with a known shape — the default belongs to the CALLER (the CLI
-// already resolves an adapter), not to the detector.
-// eslint-disable-next-line local/no-harness-names -- see above
-import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
-// eslint-disable-next-line local/no-harness-names -- see above
-import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
+// 🔴 THIS MODULE NO LONGER IMPORTS AN ADAPTER, and that is the point of the
+// change rather than tidiness. It is listed as a harness-agnostic detector and
+// it used to import `claudeCodeLayout` + `claudeCodeDialect` to DEFAULT five
+// parameters with. Neither of the other two fences could see it —
+// `boundaries/dependencies` deliberately leaves this file unclassified, and the
+// CC-literal rule's `\.claude` needs the dot while this path spells
+// `/claude-code/` — so it took a third rule to find, and two per-line disables
+// to live with. The default belongs to the CALLER: the CLI already resolves an
+// adapter before every one of these calls, and passing it is what removes the
+// import rather than hiding it.
 import { danglingRefs } from "./plugin-loader.js";
 import { isEmptyMachine } from "./score-core.js";
 import { brokenSkillRefs, formatSkillRefIssue } from "./skill-refs.js";
-import type { PluginLayout } from "./core/layout.js";
+import {
+  executableSourceDirs,
+  materializePrefix,
+  type PluginLayout,
+} from "./core/layout.js";
 import type { ExcludeSet } from "./exclude.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import type { ToolIssue } from "./core/tool-contract.js";
@@ -72,7 +73,10 @@ import {
   unclaimedSurfaceFindings,
   type UnclaimedSurfaceFinding,
 } from "./core/surface-discovery.js";
-import { boundedSurfacePaths } from "./surface-discovery-fs.js";
+import {
+  boundedInstructionFiles,
+  boundedSurfacePaths,
+} from "./surface-discovery-fs.js";
 import { REGISTERED_LAYOUTS } from "./layout-registry.js";
 import type { DelegationTrifectaFinding } from "./core/delegation-trifecta.js";
 import {
@@ -114,8 +118,8 @@ import {
 } from "./scan-core.js";
 import {
   weighInstructions,
-  type InstructionBudget,
   type InstructionWeight,
+  type WeighedFile,
 } from "./core/instruction-weight.js";
 import {
   blockIneffectiveEventsOf,
@@ -608,8 +612,8 @@ export interface ScanHarness {
 /** Scan a plugin/repo directory and report its surfaces + structural issues. */
 export function scanPlugin(
   dir: string,
-  layout?: PluginLayout,
-  dialect: HarnessDialect = claudeCodeDialect,
+  layout: PluginLayout,
+  dialect: HarnessDialect,
   opts: {
     sharedDirs?: readonly string[];
     sharedDirsRoot?: string;
@@ -653,7 +657,7 @@ export function scanPlugin(
     harnesses?: readonly ScanHarness[];
   } = {},
 ): ScanReport {
-  const lay = layout ?? claudeCodeLayout;
+  const lay = layout;
   // The declared harnesses, or the single positional one — so every path below
   // is the multi-harness path and a one-entry list is not a second code path.
   const declared: readonly ScanHarness[] =
@@ -701,6 +705,16 @@ export function scanPlugin(
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
   const hookEventIssues = scoredIssues(allHookEventIssues);
   const instructionFile = instructionHarness.layout.instructionFile;
+  // The BOUNDED candidate set, read once and handed to the harness that owns
+  // the instruction file this repo has. It replaced `readAlwaysLoaded`, which
+  // expanded an ADAPTER's globs by walking the whole tree; the bound and the
+  // classification are now separate jobs held by separate modules, and only the
+  // second is the adapter's. See `core/instruction-chain.ts`.
+  const instructionFiles = boundedInstructionFiles(
+    resolve(dir),
+    instructionHarness.layout,
+    opts.excludes,
+  );
   const instructions: ScanInstructions | null =
     loaded.files[instructionFile] !== undefined
       ? {
@@ -716,7 +730,7 @@ export function scanPlugin(
   });
   const skills = scanSkills(loaded.files, cls, {
     root: resolve(dir),
-    materializeRoot: lay.materializeRoot,
+    materializeRoot: materializePrefix(lay),
     dialect,
     sources: loaded.sources,
     sharedDirs: opts.sharedDirs,
@@ -807,10 +821,14 @@ export function scanPlugin(
     ),
     pluginLayoutIssues: pluginDirLayoutIssues(
       resolve(dir, dirname(lay.manifestPath)),
-      // The hooks dir is a misplaceable functional surface too, but it lives in
-      // the layout as a convention PATH (`hooks/hooks.json`), not in surfaceDirs
-      // — derive its first segment and dedupe so the detector watches it as well.
-      [...new Set([...lay.surfaceDirs, lay.hooksConventionPath.split("/")[0]])],
+      // 🔴 THE HOOK SCRIPTS DIR IS NAMED, NOT DERIVED FROM A FILE PATH. This
+      // used to be `lay.hooksConventionPath.split("/")[0]`, copied here and into
+      // the twin: it reads `hooks` from `hooks/hooks.json`, but `.codex` from
+      // `.codex/hooks.json` — a REGISTRATION directory, not a scripts one, so
+      // for Codex the detector was watching the wrong directory entirely. The
+      // layout names it (`hookScriptsDir`) and `executableSourceDirs` joins it
+      // to the surfaces.
+      executableSourceDirs(lay),
       { existsSync, isDirectory: nodeIsDirectory },
     ),
     delegationTrifecta: collectDelegationTrifecta(agents, dialect),
@@ -858,7 +876,8 @@ export function scanPlugin(
     // exists is the only reading that is true of something.
     instructionWeight: instructionHarness.dialect.instructionBudget
       ? weighInstructions(
-          readAlwaysLoaded(dir, instructionHarness.dialect.instructionBudget),
+          instructionHarness.layout.instructionChain(instructionFiles),
+          instructionFiles,
           instructionHarness.dialect.instructionBudget,
         )
       : null,
@@ -940,7 +959,7 @@ export interface MarketplaceInfo {
  */
 export function inspectMarketplace(
   dir: string,
-  layout: PluginLayout = claudeCodeLayout,
+  layout: PluginLayout,
 ): MarketplaceInfo | null {
   const mpPath = join(dir, dirname(layout.manifestPath), "marketplace.json");
   if (!existsSync(mpPath)) return null;
@@ -993,7 +1012,7 @@ export function inspectMarketplace(
  */
 export function expandMarketplace(
   dir: string,
-  layout: PluginLayout = claudeCodeLayout,
+  layout: PluginLayout,
 ): string[] | null {
   const mp = inspectMarketplace(dir, layout);
   return mp ? [...mp.onDisk] : null;
@@ -1098,58 +1117,6 @@ function agentLines(a: ScanAgent): string[] {
 
 /** Format a scan report as human-readable text. */
 /**
- * Read every unconditionally-loaded instruction file off disk.
- *
- * Separate from `loadPlugin` on purpose: that materializes the harness's
- * SURFACES (skills, agents, hooks), while this reads what the harness loads
- * before any surface is involved — including `.claude/rules/**`, which is
- * exactly the directory a repo relocates into when it wants the root file to
- * look smaller.
- */
-function readAlwaysLoaded(
-  dir: string,
-  budget: InstructionBudget,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  const walk = (rel: string): void => {
-    const abs = join(dir, rel);
-    if (!existsSync(abs) || !statSync(abs).isDirectory()) return;
-    for (const entry of readdirSync(abs)) {
-      const child = `${rel}/${entry}`;
-      if (statSync(join(dir, child)).isDirectory()) walk(child);
-      else out[child] = readFileSync(join(dir, child), "utf-8");
-    }
-  };
-  // `**/NAME` — Codex reads nested AGENTS.md root-to-leaf and they all pay into
-  // the SAME budget, so leaving them out under-reports in the one direction that
-  // matters: the harness truncates silently, and an under-report reads as "you
-  // are fine". Skipped dirs are the ones that are never the user's instructions
-  // and would dominate the walk.
-  const SKIP = new Set(["node_modules", ".git", "dist", "build", "vendor"]);
-  const findNested = (name: string, rel = ""): void => {
-    const abs = rel === "" ? dir : join(dir, rel);
-    if (!existsSync(abs)) return;
-    for (const entry of readdirSync(abs)) {
-      if (SKIP.has(entry) || entry.startsWith(".")) continue;
-      const child = rel === "" ? entry : `${rel}/${entry}`;
-      const childAbs = join(dir, child);
-      if (statSync(childAbs).isDirectory()) findNested(name, child);
-      else if (entry === name && out[child] === undefined)
-        out[child] = readFileSync(childAbs, "utf-8");
-    }
-  };
-  for (const glob of budget.alwaysLoaded) {
-    if (!glob.includes("*")) {
-      const abs = join(dir, glob);
-      if (existsSync(abs) && statSync(abs).isFile())
-        out[glob] = readFileSync(abs, "utf-8");
-    } else if (glob.endsWith("/**")) walk(glob.slice(0, -3));
-    else if (glob.startsWith("**/")) findNested(glob.slice(3));
-  }
-  return out;
-}
-
-/**
  * The weight report. States the SUM first and the per-file breakdown second,
  * because the sum is the number a reader can act on and the breakdown is only
  * where to start.
@@ -1161,9 +1128,103 @@ function readAlwaysLoaded(
 function instructionWeightLines(w: InstructionWeight): string[] {
   const g = (n: number): string =>
     String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  const head = `Always-loaded instructions: ${g(w.total)} ${w.unit} (budget ${g(w.limit)})`;
-  if (w.overBy === null) return [head];
-  const factor = (w.total / w.limit).toFixed(1);
+  /** One breakdown row, with its provenance when it did not get in by location. */
+  const fileLine = (f: WeighedFile): string =>
+    `  ${g(f.size).padStart(9)}  ${f.path}` +
+    (f.via === undefined ? "" : `   via ${f.via.token} in ${f.via.from}`);
+  const head = `Always-loaded instructions: ${g(w.committedTotal)} ${w.unit} (budget ${g(w.limit)})`;
+  // 🔴 TWO NUMBERS, AND ONLY THE FIRST IS JUDGED. The committed total is what a
+  // teammate or CI loads from this commit; the effective total is what THIS
+  // working copy loads, per-machine files included. Scoring the second would
+  // make a published grade depend on a gitignored file and put the CLI and the
+  // browser engine — which reads a GitHub tree and can never see one —
+  // permanently out of agreement. Printing only the first would hide bytes the
+  // author is really paying for. See `core/instruction-chain.ts`.
+  const local = w.effectiveTotal - w.committedTotal;
+  // 🔴 A REDIRECT IS A FINDING, NOT A SIZE. A `CLAUDE.md` holding nothing but
+  // `@AGENTS.md` is fourteen bytes, and the repository it describes loads tens
+  // of kilobytes; printing the fourteen would be a confident wrong answer. The
+  // line says what the file IS and what it points at, above the number.
+  const redirectLines = w.redirects.map(
+    (r) =>
+      `  ↪ ${r.path} is a REDIRECT — its entire content is import(s): ${r.to.join(", ")}`,
+  );
+  // 🔴 AN IMPORTED FILE IS NAMED WHETHER OR NOT WE ARE OVER BUDGET. The
+  // breakdown below only prints when over, and an import is exactly the entry a
+  // reader cannot account for — `AGENTS.md` in a Claude Code weight reads as a
+  // bug until the line says which file asked for it.
+  const importedLines =
+    w.overBy === null
+      ? w.files.filter((f) => f.via !== undefined).map(fileLine)
+      : [];
+  // 🔴 THE DELTA HAS A SIGN NOW, AND SUPPRESSING THE NEGATIVE ONE WAS THE WORST
+  // OF THE THREE OPTIONS. `local > 0` was written when a per-machine file could
+  // only ADD bytes; the supersede rule makes it subtract, and the model already
+  // reports that (`supersededLocallyBy`, `effectiveTotal` below `committedTotal`
+  // — see `core/instruction-weight.ts`). The printer was the last reader still
+  // assuming one direction, so the header announced the larger COMMITTED number
+  // as what is always loaded and nothing said this working copy loads a
+  // different, smaller chain. That is a confident over-report — the same
+  // undecomposable total the breakdown exists to prevent, pointing the other
+  // way. Both signs print; only exactly zero stays silent, because there is
+  // nothing to decompose.
+  const removedHere = w.files.filter((f) => f.notLoadedHere !== undefined);
+  const deltaLine = (): string => {
+    const here = `${g(w.effectiveTotal)} in this working copy, not scored`;
+    if (local > 0) {
+      return `  + ${g(local)} ${w.unit} from per-machine file(s) — ${here}`;
+    }
+    // NAMED, not just signed. A reader meeting "−93" has to be told which
+    // committed file stopped being loaded and what silenced it, or the number
+    // is an accusation with no defendant.
+    // The VERB comes off the entry, because the two doors to this state read
+    // very differently to someone deciding what to do about it: a superseding
+    // file is one they wrote, an exclusion is a pattern they set.
+    const by = removedHere
+      .map(
+        (f) =>
+          `${f.path} (${f.notLoadedHere?.why === "excluded" ? "excluded" : "silenced"} by ${String(f.notLoadedHere?.by)})`,
+      )
+      .join(", ");
+    return (
+      `  − ${g(-local)} ${w.unit}: a per-machine file REMOVES committed instruction(s) — ${here}` +
+      (by === "" ? "" : `\n      not loaded here: ${by}`)
+    );
+  };
+  const tail = [
+    ...(local === 0 ? [] : [deltaLine()]),
+    // Named rather than silently dropped: a number that omits a file it knows
+    // about is the under-report this whole report exists to prevent.
+    ...(w.unreadImports.length > 0
+      ? [
+          `  + ${String(w.unreadImports.length)} named import(s) not read: ${w.unreadImports.join(", ")}`,
+        ]
+      : []),
+    ...(w.unweighedPatterns.length > 0
+      ? [
+          `  + ${String(w.unweighedPatterns.length)} pattern(s) not weighed: ${w.unweighedPatterns.join(", ")}`,
+        ]
+      : []),
+    // 🔴 THE NUMBER IS A FLOOR, AND SAYING SO IS THE WHOLE FIX. Both vendors
+    // load instruction files from OUTSIDE the repository ALONGSIDE the ones
+    // counted here — a home-directory file and an organization's managed one.
+    // The Claude Code page is explicit that those "don't count, and keep
+    // loading alongside `AGENTS.md`": they are ADDED to this sum in a real
+    // session, they are never subtracted from it.
+    //
+    // READING THEM WOULD BE THE WRONG FIX, not a better one. A grade that
+    // reached into `~` would depend on whose machine ran it, and the browser
+    // twin — which reads a GitHub tree — could never reproduce it; that is the
+    // same argument `scope: "local"` rests on, one directory further out. So
+    // the fix is this line: a total that silently omits files it KNOWS exist is
+    // the undecomposable number this whole report exists to prevent, and one
+    // line costs nothing and cannot be wrong. Unconditional, because the
+    // omission does not depend on anything in the repository.
+    `  ⌊ a FLOOR: a home-directory or organization-managed instruction file loads on top of this and is outside a repository audit`,
+  ];
+  if (w.overBy === null)
+    return [head, ...redirectLines, ...importedLines, ...tail];
+  const factor = (w.committedTotal / w.limit).toFixed(1);
   const consequence =
     w.onExceed === "truncates"
       ? "past the budget is SILENTLY TRUNCATED — those rules never reach the model"
@@ -1171,10 +1232,12 @@ function instructionWeightLines(w: InstructionWeight): string[] {
   return [
     `${head} — ${factor}x OVER by ${g(w.overBy)} ${w.unit}`,
     `  ${consequence}`,
-    ...w.files.slice(0, 5).map((f) => `  ${g(f.size).padStart(9)}  ${f.path}`),
+    ...redirectLines,
+    ...w.files.slice(0, 5).map(fileLine),
     ...(w.files.length > 5
       ? [`  …and ${String(w.files.length - 5)} more`]
       : []),
+    ...tail,
   ];
 }
 

@@ -99,17 +99,12 @@ import {
 import type { ScanReport, ScanHarness } from "./scan.js";
 import { unresolvedDeclaredRoots } from "./core/surface-discovery.js";
 import {
-  hasModelAccess,
-  isMeteredAccess,
   decideExecute,
   formatExecuteSkip,
   type ExecuteDecision,
 } from "./scan-trigger-suggest.js";
-import { checkDialectDrift, formatDialectDrift } from "./dialect-drift.js";
-import {
-  checkSkillReachability,
-  formatSkillReachability,
-} from "./skill-reachability.js";
+import type { ModelAccess } from "./core/live-driver.js";
+import { buildInstallReader } from "./core/install-reader.js";
 import { addVigilesDeclaration } from "./plugin-declaration.js";
 import {
   probePluginTriggers,
@@ -120,7 +115,6 @@ import {
   formatGateReport,
   detectGateSkills,
   type TriggerPromptSet,
-  type ProbeHarness,
 } from "./scan-behavioral.js";
 import {
   ADAPTERS,
@@ -189,7 +183,9 @@ import {
 } from "./core/rule-catalog.js";
 import {
   runAdoptabilityTier,
+  draftWith,
   formatAdoptability,
+  DraftRunFailed,
   type AdoptabilityResult,
 } from "./adoptability.js";
 
@@ -232,8 +228,6 @@ import {
 import {
   discoverHookFiles,
   discoverProviderFiles,
-  mergeHooksJson,
-  mergeHooksToml,
   hookGateRef,
   hookRuntimeRef,
   hookRuntimeMissingExit,
@@ -2104,7 +2098,7 @@ async function runLint(
   const files = findInstructionFiles(
     restArgs,
     excludes,
-    adapter.layout.agentDir,
+    adapter.layout.surfaces.agent ?? "",
   );
 
   // 1. Verify hashes and structure
@@ -3752,7 +3746,26 @@ interface DetectedProject {
   hasClaude: boolean;
 }
 
-const KNOWN_INSTRUCTION_FILES = ["CLAUDE.md", "AGENTS.md"];
+/**
+ * The instruction filenames `init` probes for on disk — DERIVED from the
+ * registered adapters, never listed.
+ *
+ * 🔴 THIS IS THE SAME DEFECT CLASS THE PORT REDESIGN REMOVES: a fact restated
+ * by hand beside the registry that owns it. The literal read `["CLAUDE.md",
+ * "AGENTS.md"]` and was correct only because the adapters happen to say that
+ * today — it could not have noticed a third adapter, and it did not notice when
+ * Claude Code's `instructionTargets` GAINED `AGENTS.md` (it was already there
+ * by coincidence).
+ *
+ * `instructionTargets` rather than `layout.instructionFile`, because the
+ * question here is "which files might exist and want a spec", which is every
+ * name a registered harness READS — a repository with only an `AGENTS.md` is
+ * one `init` must still see. Verified identical before and after over the
+ * registry as it stands: union = `["CLAUDE.md", "AGENTS.md"]`.
+ */
+const KNOWN_INSTRUCTION_FILES = [
+  ...new Set(ADAPTERS.flatMap((a) => a.dialect.instructionTargets)),
+];
 const KNOWN_OTHER_CONFIGS: Record<string, string> = {
   ".cursorrules": "Cursor",
   ".github/copilot-instructions.md": "GitHub Copilot",
@@ -3855,10 +3868,23 @@ function determineTargets(
   harnesses: string[],
 ): string[] {
   if (targetValue) return [targetValue];
-  const targets: string[] = [];
-  if (harnesses.includes("claude")) targets.push("CLAUDE.md");
-  if (harnesses.includes("codex")) targets.push("AGENTS.md");
-  if (targets.length === 0) targets.push("CLAUDE.md");
+  // 🔴 WHICH FILE A HARNESS COMPILES INTO IS THE LAYOUT'S ANSWER, not a pair of
+  // name literals here. This read `harnesses.includes("claude") -> "CLAUDE.md"`
+  // and `includes("codex") -> "AGENTS.md"` — the registry restated, in the one
+  // place a third adapter would be forgotten. `getAdapter` is alias-aware, so
+  // the short `"claude"` that `init` uses resolves exactly as it did.
+  //
+  // ITERATING THE REGISTRY, NOT `harnesses`, KEEPS THE ORDER FIXED: the old
+  // code always produced CLAUDE.md before AGENTS.md whatever order the config
+  // listed, and that order reaches the printed spec targets. Verified over all
+  // five inputs (each harness alone, both orders, and none): identical.
+  const selected = new Set(
+    harnesses.map((h) => getAdapter(h)?.name).filter((n) => n !== undefined),
+  );
+  const targets: string[] = ADAPTERS.filter((a) => selected.has(a.name)).map(
+    (a) => a.layout.instructionFile,
+  );
+  if (targets.length === 0) targets.push(defaultAdapter.layout.instructionFile);
   // Any existing instruction file without a spec also gets one.
   for (const f of detected.instructionFiles) {
     if (!f.hasSpec && !targets.includes(f.path)) targets.push(f.path);
@@ -4257,6 +4283,7 @@ function ensureVigilesDevDep(): string[] {
  * (`claude`). Everything else passes through trimmed + lowercased. */
 function shortHarness(name: string): string {
   const n = name.trim().toLowerCase();
+  // eslint-disable-next-line no-restricted-syntax -- COMPOSITION ROOT'S OWN UI, not a harness decision: `init` keys its install/plan path on a short form, and this is the one place the two spellings are related. Nothing about the harness is read from the answer.
   return n === "claude-code" ? "claude" : n;
 }
 
@@ -4629,8 +4656,13 @@ function untestedRules(config: VigilesConfig | undefined): {
   readonly severity: (kind: SurfaceKind) => RuleSeverity;
   /** True when at least one of the three rules is on. */
   readonly anyEnabled: boolean;
-  /** The detector options the config asks for (no basePath/layout — the caller's). */
-  readonly options: TestCoverageOptions;
+  /**
+   * The detector options the config asks for. `basePath` and `layout` are the
+   * CALLER's and are excluded from the type, not merely omitted by convention —
+   * `layout` became required on `TestCoverageOptions` when the detector stopped
+   * defaulting it to Claude Code's.
+   */
+  readonly options: Omit<TestCoverageOptions, "basePath" | "layout">;
 } {
   const rules = config?.rules;
   const skillSev = ruleSeverity(rules?.["untested-skill"]);
@@ -4739,7 +4771,7 @@ function checkSubagentToolContracts(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["subagent-tool-contract"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.subagents) {
+  if (!adapter.subagents) {
     reportNotApplicable(
       "Subagent tool-contract check",
       "subagents",
@@ -4799,7 +4831,7 @@ function checkHookEvents(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["hook-events"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.shellHooks) {
+  if (!adapter.shellHooks) {
     reportNotApplicable("Hook-event check", "shell hooks", adapter, silent);
     return { issues: 0, errors: 0 };
   }
@@ -4838,7 +4870,7 @@ function checkFrontmatterSchema(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["subagent-frontmatter"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.subagents) {
+  if (!adapter.subagents) {
     reportNotApplicable(
       "Subagent-frontmatter check",
       "subagents",
@@ -4987,7 +5019,7 @@ function checkDisallowedTools(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["disallowed-tools-contract"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.subagents) {
+  if (!adapter.subagents) {
     reportNotApplicable("Disallowed-tools check", "subagents", adapter, silent);
     return { issues: 0, errors: 0 };
   }
@@ -5371,7 +5403,7 @@ function checkHookBlockIneffective(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["hook-block-ineffective"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.shellHooks) {
+  if (!adapter.shellHooks) {
     reportNotApplicable("Hook-block check", "shell hooks", adapter, silent);
     return { issues: 0, errors: 0 };
   }
@@ -5421,7 +5453,7 @@ function checkHookMatcher(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["hook-matcher"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.shellHooks) {
+  if (!adapter.shellHooks) {
     reportNotApplicable("Hook-matcher check", "shell hooks", adapter, silent);
     return { issues: 0, errors: 0 };
   }
@@ -5460,7 +5492,7 @@ function checkMcpHookTargets(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["mcp-hook-target-resolves"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.shellHooks) {
+  if (!adapter.shellHooks) {
     reportNotApplicable(
       "MCP hook-target check",
       "shell hooks",
@@ -5501,7 +5533,7 @@ function checkHookScriptExists(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["hook-script-exists"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.shellHooks) {
+  if (!adapter.shellHooks) {
     reportNotApplicable(
       "Hook-script existence check",
       "shell hooks",
@@ -5549,7 +5581,7 @@ function checkMcpToolResolves(
 ): { issues: number; errors: number } {
   const sev = ruleSeverity(config?.rules?.["mcp-tool-resolves"]);
   if (!sev) return { issues: 0, errors: 0 };
-  if (!adapter.capabilities.subagents) {
+  if (!adapter.subagents) {
     reportNotApplicable(
       "MCP tool-resolution check",
       "subagents",
@@ -5784,8 +5816,6 @@ async function handleMeasure(
   const json = args.includes("--json");
   const harnessFlag = harnessFlagFrom(args);
   const adapter = resolveCommandHarness(dir, harnessFlag).adapter;
-  const harness: ProbeHarness =
-    adapter.name === "codex" ? "codex" : "claude-code";
 
   const promptsPath = flagValue(args, "--prompts");
   if (!promptsPath) {
@@ -5820,13 +5850,13 @@ async function handleMeasure(
     concurrency,
     minPrompts: num("--min-prompts"),
     model,
-    harness,
+    adapter,
   });
   const collisions = await measurePluginSelection(dir, promptSet, {
     concurrency,
     trials: num("--trials"),
     model,
-    harness,
+    adapter,
   });
   if (json) {
     console.log(JSON.stringify({ trigger, collisions }, null, 2));
@@ -7478,7 +7508,7 @@ async function installHookFile(
       `${hookGateRef(ref, adapter.layout.projectRootTokens)} || exit ${hookRuntimeMissingExit(dispatchKind(program))}`,
     dialect: adapter.dialect,
     hookProtocol: adapter.hookProtocol,
-    settingsFormat: adapter.layout.settingsFormat,
+    settings: adapter.layout.settings,
     registeredProviders,
   });
 
@@ -7490,25 +7520,33 @@ async function installHookFile(
   );
 
   // Merge into the harness's native config, idempotently.
-  const format = adapter.layout.settingsFormat;
+  //
+  // 🔴 THREE FORMAT BRANCHES BECAME ZERO, and they were three because the ONE
+  // enum they all read was standing in for two different questions. Reading
+  // and writing the file is the ENCODING (`layout.settings`, a codec); folding
+  // our registrations into what is already there is the entry SHAPE
+  // (`hookProtocol.mergeRegistrations` — CC nests several commands under one
+  // matcher, Codex carries one command per entry). A TOML harness with
+  // CC-shaped entries was expressible under the enum and would have been
+  // merged wrong; neither port can be wrong about its own half.
   const settingsAbs = resolve(process.cwd(), adapter.layout.settingsPath);
   const existing: Record<string, unknown> = existsSync(settingsAbs)
-    ? format === "toml"
-      ? (parseToml(readFileSync(settingsAbs, "utf-8")) as Record<
-          string,
-          unknown
-        >)
-      : (JSON.parse(readFileSync(settingsAbs, "utf-8")) as Record<
-          string,
-          unknown
-        >)
+    ? adapter.layout.settings.parse(readFileSync(settingsAbs, "utf-8"))
     : {};
-  const merged =
-    format === "toml"
-      ? mergeHooksToml(existing, compiled.hooks, ref)
-      : mergeHooksJson(existing, compiled.hooks, ref);
+  // `shellHooks` narrows the adapter union: a harness whose hooks are code
+  // modules has no settings block to install into, and the type says so.
+  if (!adapter.shellHooks) {
+    throw new Error(
+      `Harness "${adapter.name}" has no shell-hook settings to install into (hooks are code modules).`,
+    );
+  }
+  const merged = adapter.hookProtocol.mergeRegistrations(
+    existing,
+    compiled.hooks,
+    ref,
+  );
   mkdirSync(dirname(settingsAbs), { recursive: true });
-  writeFileSync(settingsAbs, serializeConfig(merged, format));
+  writeFileSync(settingsAbs, adapter.layout.settings.render(merged));
 
   // No silent skips: warn loudly only where a hook's OUTPUT genuinely may not
   // apply on this harness. INJECT's `additionalContext` shape is now CONFIRMED
@@ -7536,6 +7574,7 @@ async function installHookFile(
       `(stderr at exit 0 goes to the debug log, not the transcript, and the model ` +
       `never sees it). Injectable here: ${injectable.join(", ") || "(none)"}. ` +
       `Move the hook to one of those events, or use run() if you meant an action.`;
+    // eslint-disable-next-line no-restricted-syntax -- KEPT ON PURPOSE (design §2 "the eighth site" / §6). This is a per-channel MEASUREMENT STATUS — react output is CONFIRMED only on Claude Code — and there is no port to read it from: `EventCapability` carries `carries`/`honours`/`matcher`/`denyShape` and no verified-status column. The fix is that column, owned by the capability table, not by this port. Until it exists, a name check that says so is honest and a fabricated capability field would not be.
   } else if (adapter.name !== "claude-code") {
     if (role === "inject" && !injectable.includes(event)) {
       warning =
@@ -7852,8 +7891,6 @@ async function runAutoTrigger(
   args: string[],
 ): Promise<void> {
   const json = args.includes("--json");
-  const harness: ProbeHarness =
-    adapter.name === "codex" ? "codex" : "claude-code";
   const skills: PromptSkill[] = report.skills
     .filter((s) => s.hasDescription && !s.userInvoked && s.description)
     .map((s) => ({ name: s.name, description: s.description ?? "" }));
@@ -7876,7 +7913,7 @@ async function runAutoTrigger(
     minPrompts: AUTO_RECALL_COUNT,
     minDistance: AUTO_MIN_DISTANCE,
     model,
-    harness,
+    adapter,
     // Discover candidates with the resolved adapter's layout/dialect — a Codex
     // repo's skills live under the Codex layout, not the default CC one.
     layout: adapter.layout,
@@ -7889,14 +7926,14 @@ async function runAutoTrigger(
   // invocable skills (a lone skill can't collide); reuses the same auto prompts.
   const collisions =
     skills.length >= 2
-      ? await measurePluginSelection(dir, promptSet, { model, harness })
+      ? await measurePluginSelection(dir, promptSet, { model, adapter })
       : null;
   // Third behavioral eval (same consent): adversarial-gate — do enforcement-gate
   // skills HOLD when the agent is told to violate them? Auto-derives its own
   // attacks; a no-op (no model calls) when the plugin declares no gate skills.
   const gates = await measureGateAdversarial(dir, {
     model,
-    harness,
+    adapter,
     layout: adapter.layout,
     dialect: adapter.dialect,
   });
@@ -7955,7 +7992,7 @@ async function resolveExecution(
   s: ExecutableSurfaces,
   decision: ExecuteDecision,
   json: boolean,
-  harness: string,
+  access: ModelAccess,
 ): Promise<{ execute: boolean; note: string | null }> {
   if (decision.kind === "run") return { execute: true, note: null };
   if (decision.kind === "skip")
@@ -7964,7 +8001,7 @@ async function resolveExecution(
       note: json ? null : formatExecuteSkip(decision.reason),
     };
   // ask — prompt once, then remember the answer.
-  const answer = await askOnce(buildExecuteDisclosure(s, harness));
+  const answer = await askOnce(buildExecuteDisclosure(s, access));
   const yes = /^y(es)?$/i.test(answer); // default NO (executes your hooks / servers)
   rememberAuditMeasure(yes);
   return {
@@ -7976,12 +8013,13 @@ async function resolveExecution(
 }
 
 /** The bundled consent prompt — discloses exactly what will execute (and what it
- *  costs) so the yes is informed. Default NO. Harness-aware: a Codex repo measures
- *  via the codex CLI (not a Claude env var), so the cost wording must not falsely
- *  read "no model access" in exactly the case the prompt is meant to disclose. */
+ *  costs) so the yes is informed. Default NO. Harness-aware WITHOUT knowing which
+ *  harness: the cost wording comes from the driving adapter's own `access`, so a
+ *  repo on any harness is disclosed in that harness's terms — the old version had
+ *  to name Codex to stop the prompt falsely reading "no model access". */
 function buildExecuteDisclosure(
   s: ExecutableSurfaces,
-  harness: string,
+  access: ModelAccess,
 ): string {
   const lines = ["\nRun the executing checks against your harness?"];
   if (s.hasMcp)
@@ -7993,34 +8031,57 @@ function buildExecuteDisclosure(
       s.triggerableSkills >= 2
         ? "measure whether skills fire and collide"
         : "measure whether skills fire";
-    lines.push(`  · ${what} (${triggerCostWording(harness)})`);
+    lines.push(`  · ${what} (${triggerCostWording(access)})`);
   }
   if (s.gateSkills > 0) {
     // The adversarial-gate eval runs the FULL (unstubbed) skill — the most
     // expensive check — so disclose it separately when gate skills are present.
     lines.push(
-      `  · test whether ${String(s.gateSkills)} enforcement-gate skill${s.gateSkills === 1 ? "" : "s"} hold under pressure — runs the full skill (${triggerCostWording(harness)})`,
+      `  · test whether ${String(s.gateSkills)} enforcement-gate skill${s.gateSkills === 1 ? "" : "s"} hold under pressure — runs the full skill (${triggerCostWording(access)})`,
     );
   }
   if (s.adoptableRefs) {
     lines.push(
-      `  · draft + verify your instruction file's references (${triggerCostWording(harness)})`,
+      `  · draft + verify your instruction file's references (${triggerCostWording(access)})`,
     );
   }
   lines.push("Asked once — remembered in .vigilesrc.json. [y/N] ");
   return lines.join("\n");
 }
 
-/** Cost/availability wording for the trigger tier, per harness. Codex runs on the
- *  codex CLI (its own auth/plan), so it's never gated on a Claude env var. */
-function triggerCostWording(harness: string): string {
-  if (harness === "codex")
-    return "your Codex CLI, $0 metered — skips if `codex` isn't on PATH";
-  return !hasModelAccess(process.env)
-    ? "needs model access — none detected, will skip"
-    : isMeteredAccess(process.env)
-      ? "⚠ spends API credits"
-      : "your subscription, $0 metered";
+/**
+ * Cost/availability wording for the trigger tier, read off the DRIVING HARNESS's
+ * own answer instead of branching on its name.
+ *
+ * 🔴 IT REPLACES THREE THINGS AT ONCE: `harness === "codex"`, and the pair of
+ * Claude-env predicates that ran for every other harness. The old Codex arm was a
+ * guess ("skips if `codex` isn't on PATH") because nothing had asked; `access`
+ * asks, so the prompt now discloses what will actually happen.
+ */
+function triggerCostWording(access: ModelAccess): string {
+  switch (access.kind) {
+    case "none":
+      return `needs model access — none detected, will skip (${access.fix})`;
+    case "metered":
+      return "⚠ spends API credits";
+    case "subscription":
+      return "your subscription, $0 metered";
+  }
+}
+
+/**
+ * This adapter's answer to "is a real model reachable, and on whose bill".
+ *
+ * A reference-only harness has no executing tier at all, which is a `none` whose
+ * `fix` says so rather than a Claude-shaped credential hint.
+ */
+async function modelAccessFor(adapter: HarnessAdapter): Promise<ModelAccess> {
+  if (!adapter.harnessTesting)
+    return {
+      kind: "none",
+      fix: `${adapter.name} has no executing-tier driver in this build`,
+    };
+  return (await adapter.liveDriver()).access(process.env);
 }
 
 /** Run the trigger tier: a curated `--prompts` file, else auto-generated probes. */
@@ -8234,8 +8295,18 @@ export async function main(): Promise<void> {
       const json = args.includes("--json");
       // A single dir that's a marketplace (e.g. wshobson/agents' 80+ plugins
       // under one marketplace.json) expands into its members and ranks them.
+      // The layout is passed rather than defaulted: `inspectMarketplace` reads
+      // `dirname(layout.manifestPath)`, which is a different directory per
+      // harness, and it used to fall back to the Claude Code layout inside the
+      // harness-agnostic detector. `harnessLayoutFor` is the same resolution
+      // the audit itself uses a few lines down.
       const market =
-        dirs.length === 1 ? inspectMarketplace(resolve(dirs[0])) : null;
+        dirs.length === 1
+          ? inspectMarketplace(
+              resolve(dirs[0]),
+              harnessLayoutFor(resolve(dirs[0]), config, harnessFlagFrom(args)),
+            )
+          : null;
       // A marketplace whose members are all EXTERNAL expands to nothing, and the
       // fallback below already says what to do about that: the target is the
       // directory itself.
@@ -8402,19 +8473,15 @@ export async function main(): Promise<void> {
           if (selection.kind === "notice") {
             console.log(`⚠ ${selection.notice}`);
           }
-          // Freshness: warn if our hand-maintained CC catalog drifted from the
-          // user's INSTALLED claude-code (read-local, best-effort, never throws).
-          if (adapter.name === "claude-code") {
-            const drift = formatDialectDrift(checkDialectDrift());
-            if (drift) console.log(drift);
-            // Adoption: this repo depends on vigiles, but can the agent SEE the
-            // skills it ships? `npm install` drops them in node_modules, which
-            // Claude Code never scans — the plugin install is what wires them,
-            // and until it runs the whole teaching surface is silently absent.
-            // Advisory only (machine state, not repo state) — never scored.
-            const reach = formatSkillReachability(checkSkillReachability(root));
-            if (reach) console.log(reach);
-          }
+          // Install diagnostics from the DRIVING harness — "is what vigiles
+          // assumes about this harness's install true on this machine". Advisory
+          // only (machine state, not repo state), never scored, printed as-is.
+          // This used to be `if (adapter.name === "claude-code") { …two Claude
+          // Code checks… }`; the checks were right and the gate was the defect.
+          for (const line of adapter.advisories(
+            buildInstallReader(adapter, root),
+          ))
+            console.log(line);
           console.log("");
         }
         // The versioned AuditReport is the product boundary — the same JSON the
@@ -8437,15 +8504,23 @@ export async function main(): Promise<void> {
         // `Evaluated` ring needs to know whether this run will ever ask the
         // skill-firing question — see `firingMeasured` below.
         const isForeign = root !== process.cwd();
+        // ONE read of "can we reach a model, and on whose bill", from the driving
+        // adapter. It replaces a name check OR-ed with one harness's env vars at
+        // four sites below, and the two hard-coded "authenticate the `claude` CLI"
+        // strings that printed whatever harness was driving.
+        const modelAccess = await modelAccessFor(adapter);
         const surfaces: ExecutableSurfaces = {
           hasMcp: report.mcp && !isForeign,
           triggerableSkills: report.skills.filter(
             (s) => s.hasDescription && !s.userInvoked,
           ).length,
           gateSkills: detectGateSkills(report.skills).length,
-          adoptableRefs:
-            adapter.name === "claude-code" &&
-            existsSync(resolve(root, adapter.layout.instructionFile)),
+          // NOT gated on a harness name any more. The drafter is the adapter's
+          // own eval driver and the verifier is deterministic and harness-free,
+          // so an instruction file is an instruction file: prose, on any harness.
+          adoptableRefs: existsSync(
+            resolve(root, adapter.layout.instructionFile),
+          ),
         };
         // `decideExecute` is PURE and prompt-free, so the read-vs-run outcome can
         // be known before anything prints. Only a settled `run` (a remembered yes)
@@ -8468,7 +8543,7 @@ export async function main(): Promise<void> {
         const firingMeasured =
           execDecision.kind === "run" &&
           surfaces.triggerableSkills > 0 &&
-          (adapter.name === "codex" || hasModelAccess(process.env));
+          modelAccess.kind !== "none";
         // The report scaffold WITHOUT the rule map — the map's catalog
         // enrichment (enabled-state / "documented but OFF") enumerates the repo's
         // linter, which is gated on the SAME audit.measure consent as the
@@ -8578,7 +8653,7 @@ export async function main(): Promise<void> {
           surfaces,
           execDecision,
           json,
-          adapter.name,
+          modelAccess,
         );
         // Consent is now settled (and remembered via .vigilesrc.json, which
         // computeRuleRouting re-reads) — route the prose rules, enumerating the
@@ -8668,18 +8743,14 @@ export async function main(): Promise<void> {
         // of the same consent (`execute`), and only when a model is reachable;
         // otherwise it's a one-line note (never a hang).
         if (execute && surfaces.triggerableSkills > 0) {
-          // Model-access detection is per-harness: `hasModelAccess` reads Claude
-          // env (claude CLI / ANTHROPIC_API_KEY). A Codex repo authenticates the
-          // codex CLI instead, so we DON'T gate it on a Claude var — the Codex
-          // probe checks `codexDriver.available()` internally and self-reports
-          // unavailable. (harness-parity: never block Codex behind a CC check.)
-          const modelReachable =
-            adapter.name === "codex" || hasModelAccess(process.env);
-          if (modelReachable) {
+          // The adapter answered this once, above. `fix` is THIS harness's own
+          // sentence: the string here used to say "authenticate the `claude` CLI
+          // or set ANTHROPIC_API_KEY" whatever harness the repo was on.
+          if (modelAccess.kind !== "none") {
             await runTriggerTier(targets[0], report, adapter, args);
           } else if (!json) {
             console.log(
-              "\nℹ skill firing not measured — no model access (authenticate the `claude` CLI or set ANTHROPIC_API_KEY).",
+              `\nℹ skill firing not measured — no model access (${modelAccess.fix}).`,
             );
           }
         }
@@ -8688,44 +8759,56 @@ export async function main(): Promise<void> {
         // VERIFIES each, so "M broken right now" is trustworthy though the extraction
         // is probabilistic. Same consent as the trigger tier (`surfaces.adoptableRefs`
         // makes a bare instruction-file repo consent-eligible — the prime adoption
-        // target). v1: instruction-file only; drafting drives the `claude` CLI, so
-        // `adoptableRefs` is Claude Code only (the Codex deferral note is printed
-        // below as a LOUD harness-parity deferral, never a silent CC-only path).
+        // target).
+        //
+        // 🔴 NO LONGER CLAUDE CODE ONLY, and the feature gate that said so is
+        // gone rather than widened. The drafter is the driving adapter's own eval
+        // driver (`draftWith`); the verifier was always deterministic and
+        // harness-free. What made this CC-only was that `defaultDraft` defaulted
+        // to the Claude runner and parser and nobody had passed anything else —
+        // a TODO, which the old `adapter.name === "claude-code"` froze into the
+        // report as if it were a vendor fact.
         let adoptabilityResult: AdoptabilityResult | undefined;
         if (execute && surfaces.adoptableRefs) {
-          if (hasModelAccess(process.env)) {
+          if (modelAccess.kind !== "none" && adapter.harnessTesting) {
             const instrPath = resolve(root, adapter.layout.instructionFile);
-            adoptabilityResult = await runAdoptabilityTier({
-              instructionContent: readFileSync(instrPath, "utf-8"),
-              basePath: root,
-            });
-            if (!json)
-              console.log(
-                "\n" +
-                  formatAdoptability(
-                    adoptabilityResult,
-                    adapter.layout.instructionFile,
-                  ),
-              );
+            // 🔴 CAUGHT, because a FAILED RUN and an EMPTY RESULT are different
+            // answers and this tier used to print the second for both. It
+            // reaches the harness binary directly — no behavioral probe in
+            // front of it to self-report unavailability — so on a machine
+            // without that CLI the drafter would exit non-zero with no output
+            // and the report would say "no machine-verifiable references
+            // found". `DraftRunFailed` is thrown for exactly that; anything
+            // else is a real bug and is left to propagate.
+            try {
+              adoptabilityResult = await runAdoptabilityTier({
+                instructionContent: readFileSync(instrPath, "utf-8"),
+                basePath: root,
+                draft: draftWith((await adapter.liveDriver()).evalDriver),
+              });
+              if (!json)
+                console.log(
+                  "\n" +
+                    formatAdoptability(
+                      adoptabilityResult,
+                      adapter.layout.instructionFile,
+                    ),
+                );
+            } catch (e) {
+              if (!(e instanceof DraftRunFailed)) throw e;
+              if (!json)
+                console.log(`\nℹ adoptability not measured — ${e.message}.`);
+            }
           } else if (!json && surfaces.triggerableSkills === 0) {
             // Only when the trigger tier didn't already print the same note.
             console.log(
-              "\nℹ adoptability not measured — no model access (authenticate the `claude` CLI or set ANTHROPIC_API_KEY).",
+              `\nℹ adoptability not measured — no model access (${modelAccess.kind === "none" ? modelAccess.fix : `${adapter.name} has no executing-tier driver`}).`,
             );
           }
         }
-        // LOUD harness-parity deferral: adoptability drafting drives the `claude`
-        // CLI, so a Codex repo with an instruction file is told it's a follow-up,
-        // never silently skipped (research/adoption-gateway-preview.md, increment 4).
-        if (
-          !json &&
-          adapter.name === "codex" &&
-          existsSync(resolve(root, adapter.layout.instructionFile))
-        ) {
-          console.log(
-            "\nℹ adoptability preview (what vigiles would catch in your repo) is Claude Code only for now — Codex support is a follow-up.",
-          );
-        }
+        // The "adoptability preview is Claude Code only for now — Codex support
+        // is a follow-up" note used to print here. It is DELETED, not reworded:
+        // Codex is not a follow-up, so there is nothing to defer.
         // The loud read-vs-run nudge for a headless / remembered-no skip — printed
         // AFTER the report so the deterministic read leads.
         if (execNote) console.log(execNote);

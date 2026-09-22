@@ -63,26 +63,93 @@ tool-contract against `builtinAgentTools`/`neverAvailableTools`/`mcpToolPattern`
 
 Where the harness keeps things on disk.
 
-| Field                 | Type                | Meaning                                                                                        | Claude Code                                |
-| --------------------- | ------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `name`                | `string`            | stable id                                                                                      | `"claude-code"`                            |
-| `manifestPath`        | `string`            | plugin manifest                                                                                | `".claude-plugin/plugin.json"`             |
-| `hooksConventionPath` | `string`            | standalone hooks file convention                                                               | `"hooks/hooks.json"`                       |
-| `settingsPath`        | `string`            | repo settings carrying hooks                                                                   | `".claude/settings.json"`                  |
-| `settingsFormat`      | `"json" \| "toml"`  | how the settings file is encoded                                                               | `"json"` (Codex: `"toml"`)                 |
-| `instructionFile`     | `string`            | top-level instruction file                                                                     | `"CLAUDE.md"`                              |
-| `surfaceDirs`         | `readonly string[]` | surface dirs materialized into the sandbox                                                     | `["skills","agents","commands"]`           |
-| `skillDir`            | `string`            | dir holding `<dir>/<name>/SKILL.md`                                                            | `"skills"` (Codex: `".agents/skills"`)     |
-| `agentDir`            | `string`            | subagent dir (`""` = none); drives the subagent rules                                          | `"agents"` (OpenCode: `".opencode/agent"`) |
-| `commandDir`          | `string`            | slash-command dir (`<dir>/<name>.md`)                                                          | `"commands"` (Codex: `"prompts"`)          |
-| `materializeRoot`     | `string`            | dir surfaces are materialized under; `""` when the surface dirs already carry their own prefix | `".claude"` (Codex/OpenCode: `""`)         |
-| `pluginRootToken`     | `string`            | the plugin-root token (must match the dialect's)                                               | `"${CLAUDE_PLUGIN_ROOT}"`                  |
-| `mcpConfigFile`       | `string`            | standalone MCP config                                                                          | `".mcp.json"`                              |
-| `mcpManifestKey`      | `string`            | manifest key declaring MCP servers                                                             | `"mcpServers"`                             |
-| `intraRefDirs`        | `readonly string[]` | dirs scanned for dangling intra-plugin refs                                                    | `["hooks","skills","agents","commands"]`   |
+| Field                 | Type                                             | Meaning                                                                                                                                                                                    | Claude Code                                                 |
+| --------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `name`                | `string`                                         | stable id                                                                                                                                                                                  | `"claude-code"`                                             |
+| `manifestPath`        | `string`                                         | plugin manifest                                                                                                                                                                            | `".claude-plugin/plugin.json"`                              |
+| `hooksConventionPath` | `string?`                                        | standalone hooks FILE convention; omit when the harness has none (OpenCode's hooks are code modules)                                                                                       | `"hooks/hooks.json"`                                        |
+| `settingsPath`        | `string`                                         | repo settings carrying hooks                                                                                                                                                               | `".claude/settings.json"`                                   |
+| `settings`            | `SettingsCodec`                                  | the bytes-to-value CODEC for the manifest and settings files (`label` / `parse` / `render`) — an encoding, not a format name; `jsonSettingsCodec` and `tomlSettingsCodec` ship in the core | `jsonSettingsCodec` (Codex: `tomlSettingsCodec`)            |
+| `instructionFile`     | `string`                                         | top-level instruction file                                                                                                                                                                 | `"CLAUDE.md"`                                               |
+| `surfaces`            | `Readonly<Partial<Record<SurfaceKind, string>>>` | where each model surface lives, keyed by kind (`skill`/`agent`/`command`); an ABSENT key is the only spelling of "this harness has no such surface"                                        | `{ skill: "skills", agent: "agents", command: "commands" }` |
+| `userSurfaceRoot`     | `string?`                                        | the second home an END USER keeps the same surfaces under — and the prefix a relocated scope is keyed under                                                                                | `".claude"` (Codex/OpenCode: omitted)                       |
+| `rulesDir`            | `string?`                                        | path-scoped instruction dir (an instruction is READ, not invoked — so not a `SurfaceKind`)                                                                                                 | `"rules"`                                                   |
+| `instructionChain`    | `(files) => InstructionChain`                    | METHOD: given the bounded candidate map the domain enumerated, which files this harness LOADS at a repo-root session, in order, and for each one it does not, WHY                          | see below                                                   |
+| `hookScriptsDir`      | `string?`                                        | dir holding executable hook SCRIPTS, distinct from where hooks are registered                                                                                                              | `"hooks"` (OpenCode: omitted)                               |
+| `pluginRootToken`     | `string`                                         | the plugin-root token (must match the dialect's)                                                                                                                                           | `"${CLAUDE_PLUGIN_ROOT}"`                                   |
+| `mcpConfigFile`       | `string`                                         | standalone MCP config                                                                                                                                                                      | `".mcp.json"`                                               |
+| `mcpManifestKey`      | `string`                                         | manifest key declaring MCP servers                                                                                                                                                         | `"mcpServers"`                                              |
 
-**Consumed by:** `loadPlugin(path, layout)` — reads hooks (JSON or TOML per
-`settingsFormat`), materializes surfaces, expands `pluginRootToken`.
+Four things the layout no longer carries, because each was a second place
+naming a fact the fields above already hold — or, for the last, a mini-language
+the core had to interpret:
+
+| was                      | now                                                                                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `surfaceDirs: string[]`  | `surfaceDirs(layout)` — derived from `surfaces`, so a list and a per-kind field can no longer disagree                                     |
+| `intraRefDirs: string[]` | `executableSourceDirs(layout)` — the surfaces plus `hookScriptsDir`                                                                        |
+| `materializeRoot`        | `materializePrefix(layout)` = `userSurfaceRoot ?? ""` — the two fields were equal in every shipped layout and undefined when they differed |
+
+| `alwaysLoaded: string[]` (on the DIALECT's `instructionBudget`) | `layout.instructionChain(files)` — see below |
+
+#### `instructionChain(files)`
+
+The one METHOD on this port, and it is a method for a reason no better data
+field fixes: which instruction files load is decided by things a path lookup
+cannot see — a rule's own frontmatter (`paths:` scopes it to an on-demand read),
+a SIBLING file (Codex's `AGENTS.override.md` takes the directory's one slot), and
+the REPOSITORY'S OWN SETTINGS (Claude Code's `claudeMdExcludes`, Codex's
+`project_doc_fallback_filenames`).
+
+It receives the map the DOMAIN enumerated and classifies those keys:
+
+```ts
+interface InstructionChain {
+  loaded: { path; role; scope }[]; // in load order
+  unloaded: { path; role; scope; reason }[]; // reason is a tagged union
+  imports: { path; from }[]; // `@path` tokens the loaded files NAME
+  patterns: { pattern; from }[]; // globs the domain will NOT walk
+}
+```
+
+- `role` — `root` · `root-local` · `rule` · `fallback` · `import`
+- `scope` — `repo` or `local`. A `local` file is READ and LINTED and never
+  SCORED: the browser engine reads a GitHub tree and can never see a gitignored
+  file, so scoring one would put the CLI and the browser permanently out of
+  agreement and make a published grade irreproducible between teammates. The
+  weight therefore carries two numbers, `committedTotal` and `effectiveTotal`.
+- `reason` — `{kind:"replaced", by}` · `{kind:"on-demand", when}` ·
+  `{kind:"excluded-by-settings", key}` · `{kind:"superseded", by, byScope}`. A
+  file in `unloaded` without one does not type-check.
+  - `superseded` is a CROSS-FAMILY switch, not `replaced`'s same-directory slot:
+    Claude Code reads `AGENTS.md` only when no `CLAUDE.md`, `.claude/CLAUDE.md`
+    or `CLAUDE.local.md` is present (vendor, v2.1.277+). `byScope` carries
+    whether the file that did it is committed — when it is `local`, a gitignored
+    file has changed the MEMBERSHIP of the load rather than its size, so
+    `committedTotal` keeps a file `effectiveTotal` drops and the effective
+    number can come out BELOW the committed one.
+
+**The bound.** The domain enumerates candidates from `INSTRUCTION_SHAPES`
+(`core/instruction-chain.ts`): the repo root's markdown, a depth-1
+dot-directory's markdown, that dot-directory's `rules` tree read recursively,
+plus each layout's own `instructionFile` and settings sources. An adapter cannot
+add a root — `registering an adapter must not widen what vigiles reads in
+anyone's repository`, the same rule `core/surface-discovery.ts` states for
+surfaces. `src/adapter-properties.test.ts` asserts it: every path a chain names
+is a key of the map it was given.
+
+The one read outside that bound is the IMPORT pass, and what makes it legitimate
+is who chose the path: an `@import` token is written by the repository owner in
+their own instruction file, and the property tests require every reported import
+to literally occur in the file that reports it. It reads ONE level and does not
+recurse — measured across 198 real `CLAUDE.md` files, six carry an import at all
+and every one is a single concrete path at depth 1, four of them the `@AGENTS.md`
+workaround. `core/instruction-chain.ts#resolveImports` carries the numbers and
+what one level costs.
+
+**Consumed by:** `loadPlugin(path, layout)` — reads hooks through `settings.parse`,
+materializes surfaces, expands `pluginRootToken`. And by
+`weighInstructions(chain, files, budget)` — the instruction-weight report.
 
 ### `HarnessRuntime` (transport)
 
@@ -128,32 +195,62 @@ module; this descriptor names the wire facts the bundle and tooling read.)
 
 ### `HarnessAdapter`
 
-The bundle. `name` + a `capabilities` descriptor + the ports + a `detect`. The
-two layer-1 ports (`dialect`, `layout`) are always required; the transport ports
-are **optional and gated by `capabilities`** — present iff the matching capability
-is declared, so a reference-only or code-module-hook harness isn't forced to ship
-a fake transport (the conformance kit enforces this both ways).
+The bundle. `name` + the capability flags + the ports + a `detect`. The two
+layer-1 ports (`dialect`, `layout`) are always required; the transport ports are
+**gated by the flags**, so a reference-only or code-module-hook harness is not
+forced to ship a fake transport.
+
+🔴 **The gate is the TYPE, not a convention.** The flags are DISCRIMINANTS of
+unions intersected into `HarnessAdapter`, so "declares the capability, ships no
+port" and "denies the capability, ships the port" are both compile errors.
+They used to live in a nested `capabilities` object, and that nesting is exactly
+what made the illegal state expressible: TypeScript narrows a union by a
+discriminant on the object itself and never by `a.capabilities.x`. It was not
+hypothetical — the OpenCode prototype shipped `harnessTesting: true` with no
+`harnessTestDriver`, and the runner threw at run time.
 
 ```ts
-interface AdapterCapabilities {
-  readonly referenceVerification: true; // layer 1 — always
-  readonly harnessTesting: boolean; // layer 2 — needs runtime + modelMock
-  readonly shellHooks: boolean; // shell-process hooks — needs hookProtocol
-  readonly subagents: boolean; // has subagents — gates the subagent lint rules
-}
-
-interface HarnessAdapter {
+interface AdapterBase {
   readonly name: string;
-  readonly capabilities: AdapterCapabilities;
   readonly dialect: HarnessDialect; // always
   readonly layout: PluginLayout; // always
-  readonly runtime?: HarnessRuntime; // iff capabilities.harnessTesting
-  readonly hookProtocol?: HookProtocol; // iff capabilities.shellHooks
-  readonly modelMock?: ModelMock; // iff capabilities.harnessTesting
+  readonly subagents: boolean; // gates the subagent lint rules; no port behind it
   /** Specificity score: 0 = not this harness; higher = a more specific match. */
   detect(root: string): number;
+  claims(path: string): boolean;
 }
+
+type TestingPorts =
+  | {
+      readonly harnessTesting: true;
+      readonly runtime: HarnessRuntime;
+      readonly modelMock: ModelMock;
+      readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    }
+  | {
+      readonly harnessTesting: false;
+      readonly runtime?: never;
+      readonly modelMock?: never;
+      readonly harnessTestDriver?: never;
+    };
+
+type ShellHookPorts =
+  | { readonly shellHooks: true; readonly hookProtocol: HookProtocol }
+  | { readonly shellHooks: false; readonly hookProtocol?: never };
+
+type HarnessAdapter = AdapterBase & TestingPorts & ShellHookPorts;
 ```
+
+`AdapterCapabilities` survives as the documented projection of the three flags.
+`referenceVerification` does not: it was typed as the literal `true` on every
+adapter, so neither the type nor its conformance check could ever fail.
+
+**The conformance kit still checks all of this**, and that is deliberate rather
+than redundant: the type reaches an adapter authored in TypeScript, and the kit
+reaches a third-party adapter authored in JavaScript or one crossing a package
+boundary through a cast. The type is the gate; the kit is the explanation,
+because a TypeScript error against a four-member intersection reads badly next
+to a sentence naming the field.
 
 `assertHarnessTestable(adapter)` is the guard the layer-2 runners call to refuse
 a non-`harnessTesting` adapter up front (returning its narrowed `runtime`+`modelMock`).
@@ -173,9 +270,16 @@ registration order.
 Pure (no IO). Returns `{ ok: boolean; failures: readonly string[] }`. Checks:
 every port populated; cross-port invariants (all port `name`s equal
 `adapter.name`; `layout.instructionFile` ∈ `dialect.instructionTargets`;
-`layout.pluginRootToken` === `dialect.pluginRootToken`; `settingsFormat` is
-`"json"|"toml"`); and a behavioural one — the dialect's own first built-in tool
-passes `compileAgent`'s tool-contract check.
+`layout.pluginRootToken` === `dialect.pluginRootToken`; `layout.settings`
+round-trips its own output); and a behavioural one — the dialect's own first
+built-in tool passes `compileAgent`'s tool-contract check.
+
+The enum check that used to sit here — `settingsFormat` is `"json"|"toml"` — is
+gone, and its absence is the point: the core re-checking a closed set it had
+itself declared is what told you the "data" field was a hidden switch. A codec
+has no set to be outside of, so a third-party adapter whose settings are YAML
+is legal, and what is checked instead is that its codec can read back what it
+wrote.
 
 ### `assertAdapterConformance(adapter): void`
 
@@ -184,11 +288,13 @@ Drop it in your adapter's test suite.
 
 ### `assertAdapterLoadsHooks(adapter): void`
 
-Does filesystem IO. Writes a minimal settings file in the adapter's
-`settingsFormat` (with a hook) to a temp dir, loads it through the adapter's
-`layout`, and throws if no hooks came back. This is what catches a layout that
-points at the right file in the **wrong format** (the JSON-vs-TOML trap) — the
-pure check passes it, but the agent would silently run zero hooks.
+Does filesystem IO. Writes a minimal settings file built from the adapter's own
+ports — `layout.settings.render(hookProtocol.registration(…))`, so the ENCODING
+and the entry SHAPE both come from the adapter rather than from a branch inside
+the check — to a temp dir, loads it through the adapter's `layout`, and throws
+if no hooks came back. This is what catches a layout that points at the right
+file in the **wrong format** (the JSON-vs-TOML trap) — the pure check passes it,
+but the agent would silently run zero hooks.
 
 ```ts
 import { test } from "vitest";
@@ -246,7 +352,7 @@ const { markdown, errors } = compileAgent(spec, {
   specFile: "reviewer.md.spec.ts",
 });
 
-// load a repo/plugin under your layout (hooks parsed per settingsFormat)
+// load a repo/plugin under your layout (hooks parsed through layout.settings)
 const plugin = loadPlugin("./my-project", myHarnessAdapter.layout);
 ```
 

@@ -70,14 +70,9 @@ import { globSync } from "glob";
 import {
   AGENT_FILE_LEAF_RE,
   agentSurfaceName,
+  materializePrefix,
   type PluginLayout,
 } from "./core/layout.js";
-// 🔴 Same finding as src/scan.ts: a module listed as a harness-agnostic detector
-// importing the Claude Code adapter for a DEFAULT. Invisible to both existing
-// fences — unclassified for `boundaries/dependencies`, and `\.claude` does not
-// match `/claude-code/`. The default belongs to the caller, not the detector.
-// eslint-disable-next-line local/no-harness-names -- see above
-import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import {
   countEvidence,
   declaredSurfaceName,
@@ -106,16 +101,17 @@ import {
 /**
  * The two on-disk locations a surface dir can occupy: the plugin-root form
  * (`skills/…`) and the materialized form (`.claude/skills/…`) — derived from the
- * layout so a non-Claude-Code harness (its own `materializeRoot` / surface dir)
- * is discovered without hard-coding `.claude`. An empty `dir` (a harness lacking
- * the surface, e.g. Codex subagents) yields no globs.
+ * layout so a non-Claude-Code harness (its own materialize prefix / surface dir)
+ * is discovered without hard-coding `.claude`. An ABSENT `dir` (a harness
+ * lacking the surface, e.g. Codex subagents) yields no globs — it used to be an
+ * empty string, which was a second spelling of the same fact.
  */
 function surfaceGlobs(
-  dir: string,
+  dir: string | undefined,
   leaf: string,
   materializeRoot: string,
 ): string[] {
-  if (!dir) return [];
+  if (dir === undefined) return [];
   const matForm = materializeRoot ? `${materializeRoot}/${dir}` : dir;
   return [...new Set([`${dir}/${leaf}`, `${matForm}/${leaf}`])];
 }
@@ -286,7 +282,13 @@ export interface TestCoverageOptions {
    * manifest/settings paths. Defaults to Claude Code; a non-CC adapter passes its
    * own so the surface globs and hook-token expansion aren't hard-coded.
    */
-  readonly layout?: PluginLayout;
+  /**
+   * The layout to discover surfaces under. REQUIRED: it used to default to the
+   * Claude Code layout, which meant this harness-agnostic detector imported an
+   * adapter, and a caller that forgot to pass one silently graded a Codex repo
+   * with Claude Code's directories.
+   */
+  readonly layout: PluginLayout;
 }
 
 // ---------------------------------------------------------------------------
@@ -352,8 +354,17 @@ function discoverSkills(
   layout: PluginLayout,
 ): Surface[] {
   const out: Surface[] = [];
+  // 🔴 ONE GATE FOR THE WHOLE FUNCTION, and it is structural rather than
+  // repeated. A harness whose layout declares no skill surface has no skills to
+  // find — `surfaceGlobs` already returned `[]` for the nested case, but the
+  // root-`SKILL.md` case below did not ask, so a third-party layout with only
+  // agents or commands still reported an untested skill, and its token read
+  // `undefined/<name>`. Narrowing here makes that token unwritable instead of
+  // merely unwritten: `skillDir` is a `string` from this line on.
+  const skillDir = layout.surfaces.skill;
+  if (skillDir === undefined) return out;
   const found = globSync(
-    surfaceGlobs(layout.skillDir, "*/SKILL.md", layout.materializeRoot),
+    surfaceGlobs(skillDir, "*/SKILL.md", materializePrefix(layout)),
     { cwd: basePath, ignore },
   );
   for (const path of found.sort()) {
@@ -363,7 +374,7 @@ function discoverSkills(
       kind: "skill",
       path,
       name,
-      tokens: [`${layout.skillDir}/${name}`, `:${name}`],
+      tokens: [`${skillDir}/${name}`, `:${name}`],
       ignored: content.includes(IGNORE_MARKER),
     });
   }
@@ -385,7 +396,7 @@ function discoverSkills(
       kind: "skill",
       path: "SKILL.md",
       name,
-      tokens: [`${layout.skillDir}/${name}`, `:${name}`],
+      tokens: [`${skillDir}/${name}`, `:${name}`],
       ignored: content.includes(IGNORE_MARKER),
     });
   }
@@ -415,13 +426,18 @@ function discoverAgents(
   // classifier in the first place, so only one dialect is authoritative and the
   // other is allowed to over-match.
   const found = globSync(
-    surfaceGlobs(layout.agentDir, "**/*.md", layout.materializeRoot),
+    surfaceGlobs(layout.surfaces.agent, "**/*.md", materializePrefix(layout)),
     { cwd: basePath, ignore },
   );
-  const prefixes = layout.materializeRoot
-    ? [layout.agentDir, `${layout.materializeRoot}/${layout.agentDir}`]
-    : [layout.agentDir];
-  const isAgentFile = layout.agentDir
+  const agentDir = layout.surfaces.agent;
+  const matPrefix = materializePrefix(layout);
+  const prefixes =
+    agentDir === undefined
+      ? []
+      : matPrefix
+        ? [agentDir, `${matPrefix}/${agentDir}`]
+        : [agentDir];
+  const isAgentFile = agentDir
     ? new RegExp(
         `^(?:${[...new Set(prefixes)]
           .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
@@ -438,7 +454,9 @@ function discoverAgents(
     const rel = path.split(sep).join("/");
     if (isAgentFile && !isAgentFile.test(rel)) continue;
     const content = read(join(basePath, path));
-    const name = agentSurfaceName(rel, layout.agentDir) ?? basename(rel, ".md");
+    const name =
+      (agentDir === undefined ? null : agentSurfaceName(rel, agentDir)) ??
+      basename(rel, ".md");
     const dir = dirname(path);
     out.push({
       kind: "agent",
@@ -664,10 +682,10 @@ function tierOf(
  * count made indistinguishable.
  */
 export function findUntestedSurfaces(
-  options: TestCoverageOptions = {},
+  options: TestCoverageOptions,
 ): UntestedReport {
   const basePath = options.basePath ?? process.cwd();
-  const layout = options.layout ?? claudeCodeLayout;
+  const { layout } = options;
   const ignore = [...DEFAULT_IGNORE, ...(options.exclude ?? [])];
   const globs = options.include ?? DEFAULT_TEST_GLOBS;
 
@@ -796,7 +814,7 @@ export function coverageEvidenceCounts(report: UntestedReport): EvidenceCounts {
  */
 export function skillTestNudge(
   filePath: string,
-  options: TestCoverageOptions = {},
+  options: TestCoverageOptions,
 ): string | null {
   let report: UntestedReport;
   try {

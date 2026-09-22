@@ -3,7 +3,7 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { claudeCodeAdapter } from "./adapter.js";
@@ -25,8 +25,8 @@ import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
 test("claudeCodeAdapter bundles all five ports + a detect (full capabilities)", () => {
   assert.equal(claudeCodeAdapter.name, "claude-code");
   // Claude Code is a full-capability adapter — every transport port is present.
-  assert.equal(claudeCodeAdapter.capabilities.harnessTesting, true);
-  assert.equal(claudeCodeAdapter.capabilities.shellHooks, true);
+  assert.equal(claudeCodeAdapter.harnessTesting, true);
+  assert.equal(claudeCodeAdapter.shellHooks, true);
   assert.equal(claudeCodeAdapter.dialect.name, "claude-code");
   assert.equal(claudeCodeAdapter.layout.name, "claude-code");
   assert.equal(claudeCodeAdapter.runtime?.agentBinary, "claude");
@@ -136,16 +136,17 @@ test("conformance ACCEPTS a pillar-1-only adapter (no transport ports)", () => {
   // not demand them — the capability gate, not a fake transport.
   const pillar1Only: HarnessAdapter = {
     name: "cursor-ish",
-    capabilities: {
-      referenceVerification: true,
-      harnessTesting: false,
-      shellHooks: false,
-      subagents: false,
-    },
+    harnessTesting: false,
+    shellHooks: false,
+    subagents: false,
     dialect: { ...claudeCodeAdapter.dialect, name: "cursor-ish" },
     layout: { ...claudeCodeAdapter.layout, name: "cursor-ish" },
     claims: () => false,
-    detect: () => 0,
+    detect: () => ({ specificity: 0, via: "instruction-file" }) as const,
+    // `[]` is the honest answer for a harness with nothing to say about its
+    // install — which is exactly why `advisories` is required rather than a
+    // capability flag: a pillar-1-only adapter still implements it.
+    advisories: () => [],
   };
   assertAdapterConformance(pillar1Only); // throws on failure → must not throw
   assert.throws(
@@ -155,37 +156,83 @@ test("conformance ACCEPTS a pillar-1-only adapter (no transport ports)", () => {
 });
 
 test("conformance REJECTS a half-wired adapter (claims harnessTesting, no runtime)", () => {
-  const halfWired: HarnessAdapter = {
+  // 🔴 THE CAST IS THE POINT, NOT A CONVENIENCE. This literal no longer
+  // type-checks as a `HarnessAdapter`: the capability flags are discriminants
+  // of unions, so "harnessTesting: true with no runtime" and "shellHooks: false
+  // with a hookProtocol" are both compile errors — which is the ratchet, and is
+  // why no adapter in this repo can be written this way again.
+  //
+  // The conformance kit still has to say it, for the case the type cannot
+  // reach: a third-party adapter authored in JavaScript, or one crossing a
+  // package boundary through a cast exactly like this one. So the test builds
+  // the shape the only way left, and asserts the kit explains it.
+  const halfWired = {
     name: "claude-code",
-    capabilities: {
-      referenceVerification: true,
-      harnessTesting: true, // claims it…
-      shellHooks: false,
-      subagents: true,
-    },
+    harnessTesting: true, // claims it…
+    shellHooks: false,
+    subagents: true,
     dialect: claudeCodeAdapter.dialect,
     layout: claudeCodeAdapter.layout,
-    // …but no runtime/modelMock, and a stray hookProtocol it disclaims.
+    // …but no runtime/modelMock/driver, and a stray hookProtocol it disclaims.
     hookProtocol: claudeCodeAdapter.hookProtocol,
     claims: () => false,
-    detect: () => 0,
-  };
+    detect: () => ({ specificity: 0, via: "instruction-file" }) as const,
+  } as unknown as HarnessAdapter;
   const r = checkAdapterConformance(halfWired);
   assert.equal(r.ok, false);
   assert.ok(r.failures.some((m) => m.includes("runtime is missing")));
   assert.ok(r.failures.some((m) => m.includes("modelMock is missing")));
   assert.ok(r.failures.some((m) => m.includes("shellHooks is false")));
+  // The check that did NOT exist when opencodeAdapter shipped this state.
+  assert.ok(r.failures.some((m) => m.includes("harnessTestDriver is missing")));
+  // …and the same for the port #263 added. The gap recurred once: `liveDriver`
+  // became required in this arm of the type and the kit was not told, so a
+  // cast adapter passed here and threw later in `modelAccessFor`.
+  assert.ok(r.failures.some((m) => m.includes("liveDriver is missing")));
 });
 
-test("detect: specificity score — empty 0, CLAUDE.md 1, manifest 3", () => {
+// The OTHER arm of the same pair. A `harnessTesting: false` adapter carrying an
+// executing-tier port is half-wired in the opposite direction — the runner will
+// never dispatch through it, so the port is a promise nothing keeps. The type
+// says `?: never`; this says it for an adapter the type never compiled.
+test("conformance: harnessTesting false must not carry liveDriver either", () => {
+  const strayPort = {
+    ...claudeCodeAdapter,
+    harnessTesting: false,
+    runtime: undefined,
+    modelMock: undefined,
+    harnessTestDriver: undefined,
+    liveDriver: claudeCodeAdapter.liveDriver,
+  } as unknown as HarnessAdapter;
+  const r = checkAdapterConformance(strayPort);
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.failures.some((m) => m.includes("harnessTesting is false")),
+    `expected the false-arm failure, got: ${r.failures.join(" | ")}`,
+  );
+});
+
+test("detect: specificity + via — empty 0, CLAUDE.md 1, manifest 3", () => {
   const dir = makeTmpDir("adapter-detect");
+  // `detect` takes the DOMAIN's predicate now, not a root, so the test builds
+  // the same one the registry does. An adapter has no way to reach the disk.
+  const exists = (rel: string): boolean => existsSync(join(dir, rel));
   try {
-    assert.equal(claudeCodeAdapter.detect(dir), 0);
+    assert.deepEqual(claudeCodeAdapter.detect(exists), {
+      specificity: 0,
+      via: "instruction-file",
+    });
     writeFileSync(join(dir, "CLAUDE.md"), "# rules\n");
-    assert.equal(claudeCodeAdapter.detect(dir), 1); // weak signal
+    assert.deepEqual(claudeCodeAdapter.detect(exists), {
+      specificity: 1,
+      via: "instruction-file", // weak signal
+    });
     mkdirSync(join(dir, ".claude-plugin"));
     writeFileSync(join(dir, ".claude-plugin", "plugin.json"), "{}");
-    assert.equal(claudeCodeAdapter.detect(dir), 3); // strong signal wins
+    assert.deepEqual(claudeCodeAdapter.detect(exists), {
+      specificity: 3,
+      via: "manifest", // strong signal wins
+    });
   } finally {
     cleanupTmpDir(dir);
   }
@@ -226,4 +273,86 @@ test("resolveAdapter: --harness override wins, unknown throws", () => {
 test("getAdapter looks up by name", () => {
   assert.equal(getAdapter("claude-code"), claudeCodeAdapter);
   assert.equal(getAdapter("nope"), undefined);
+});
+
+test("instructionTargets names AGENTS.md — and detect/claims are UNCHANGED by it", () => {
+  // 🔴 THE MEASUREMENT BEHIND THE FIELD, AS AN ASSERTION. `AGENTS.md` joined
+  // `instructionTargets` on 2026-09-21 because the vendor reversed itself
+  // ("Claude Code can read `AGENTS.md` as your project instructions", v2.1.277+
+  // — see dialect.ts for the quote). The expected objection is that a second
+  // target makes this adapter score a bare `AGENTS.md` repository and start
+  // fighting Codex for it. It does not: `detect` reads the LAYOUT, never this
+  // field. The two halves are pinned together on purpose, because the first
+  // without the second is the change nobody would have merged.
+  assert.deepEqual(claudeCodeAdapter.dialect.instructionTargets, [
+    "CLAUDE.md",
+    "AGENTS.md",
+  ]);
+  // [0] is the default COMPILE target (`core/compile.ts`), so the order is part
+  // of the contract: this harness READS AGENTS.md, it does not author it.
+  assert.equal(claudeCodeAdapter.dialect.instructionTargets[0], "CLAUDE.md");
+
+  const asked: string[] = [];
+  claudeCodeAdapter.detect((p) => {
+    asked.push(p);
+    return false;
+  });
+  assert.deepEqual(asked, [
+    ".claude-plugin/plugin.json",
+    ".claude/settings.json",
+    "CLAUDE.md",
+  ]);
+  // And the reason it cannot change without someone deciding to: `claims` is
+  // derived from the layout, and `adapter-properties.test.ts` refuses a
+  // `detect` that asks about a path `claims` does not cover — so detecting on
+  // AGENTS.md would force Claude Code to CLAIM a path Codex already owns.
+  assert.equal(claudeCodeAdapter.claims("AGENTS.md"), false);
+});
+
+test("advisories() actually CONSULTS the reader — the bound property is not vacuous here", () => {
+  // `adapter-properties.test.ts` asserts every repo path `advisories` asks
+  // about is one this adapter claims. That property passes trivially for an
+  // adapter that asks about nothing, which is the honest answer for a harness
+  // with no install checks — but NOT for this one, whose whole reason to
+  // implement the method is two checks that read the repo and the machine.
+  // Without this, deleting the reachability check would leave the bound green.
+  const askedRepo: string[] = [];
+  const askedHome: string[] = [];
+  claudeCodeAdapter.advisories({
+    repo: (p) => {
+      askedRepo.push(p);
+      return null;
+    },
+    home: (p) => {
+      askedHome.push(p);
+      return null;
+    },
+    repoDependsOnVigiles: true,
+    vendoredSkillNames: [],
+  });
+  assert.ok(
+    askedRepo.length > 0,
+    "advisories() asked the repo nothing — the reachability check is not wired",
+  );
+  assert.ok(
+    askedHome.some((p) => p.includes("installed_plugins.json")),
+    "advisories() never looked for the plugin install record",
+  );
+});
+
+test("advisories() says nothing about a repo that does not depend on vigiles", () => {
+  // The other half, and the one that keeps this out of every unrelated audit:
+  // a non-consumer is never nagged. `checkDialectDrift` reads this machine's
+  // own install, so the only assertion that holds everywhere is that the
+  // reachability line is absent.
+  const lines = claudeCodeAdapter.advisories({
+    repo: () => null,
+    home: () => null,
+    repoDependsOnVigiles: false,
+    vendoredSkillNames: [],
+  });
+  assert.ok(
+    !lines.some((l) => l.includes("NOT reachable")),
+    `advisories() nagged a non-consumer: ${lines.join(" / ")}`,
+  );
 });

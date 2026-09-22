@@ -36,6 +36,6 @@ export const opencodeDialect: HarnessDialect = {
   instructionTargets: ["AGENTS.md", "CLAUDE.md"],
   pluginRootToken: "${OPENCODE_PLUGIN_ROOT}",
   // OpenCode reads the minimal cross-tool SKILL.md frontmatter (name +
-  // description); the CC-only keys are not part of its format.
-  skillFrontmatter: "minimal",
+  // description); the richer keys are not part of its format.
+  skillFrontmatterKeys: ["name", "description"],
 };

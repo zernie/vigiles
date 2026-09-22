@@ -1323,6 +1323,40 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
+  it("the spec target is the LAYOUT's instruction file, per registered harness", () => {
+    // 🔴 THE HALF NOTHING ASSERTED UNTIL NOW. `determineTargets` used to read
+    // `harnesses.includes("claude") -> "CLAUDE.md"` and `includes("codex") ->
+    // "AGENTS.md"` — the registry restated by hand — and it now maps each
+    // selected adapter to `layout.instructionFile`. Nothing in this suite
+    // checked WHICH spec file `init` writes for a harness, so both the literal
+    // and the derivation passed. A third adapter would have silently got no
+    // target at all.
+    const dir = freshProject();
+    try {
+      run("init --harness=codex --no-plugin", dir);
+      assert.ok(existsSync(join(dir, "AGENTS.md.spec.ts")));
+      assert.ok(!existsSync(join(dir, "CLAUDE.md.spec.ts")));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    // …and BOTH harnesses get BOTH specs, in registry order (which is what the
+    // printed "Edit <target>" line follows).
+    const both = freshProject();
+    try {
+      const { stdout } = run("init --harness=claude,codex --no-plugin", both);
+      assert.ok(existsSync(join(both, "CLAUDE.md.spec.ts")));
+      assert.ok(existsSync(join(both, "AGENTS.md.spec.ts")));
+      assert.ok(
+        stdout.indexOf("CLAUDE.md.spec.ts") <
+          stdout.indexOf("AGENTS.md.spec.ts"),
+        "CLAUDE.md is listed before AGENTS.md — registry order, not config order",
+      );
+    } finally {
+      rmSync(both, { recursive: true, force: true });
+    }
+  });
+
   it("--harness=claude,codex: the CI test job installs BOTH binaries", () => {
     const dir = freshProject();
     try {

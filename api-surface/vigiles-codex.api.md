@@ -11,7 +11,22 @@ export function buildCodexArgs(ctx: HarnessDriverContext): string[];
 export const CODEX_TRIGGER_RATE_EXPERIMENTAL: string;
 
 // @public (undocumented)
-export const codexAdapter: HarnessAdapter;
+export const codexAdapter: {
+    readonly name: "codex";
+    readonly harnessTesting: true;
+    readonly shellHooks: true;
+    readonly subagents: false;
+    readonly dialect: HarnessDialect;
+    readonly layout: PluginLayout;
+    readonly runtime: HarnessRuntime;
+    readonly hookProtocol: HookProtocol;
+    readonly modelMock: ModelMock;
+    readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    readonly liveDriver: () => Promise<HarnessLiveDriver>;
+    readonly claims: (path: string) => boolean;
+    readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
+    readonly advisories: () => readonly string[];
+};
 
 // @public (undocumented)
 export const codexDialect: HarnessDialect;
@@ -40,6 +55,9 @@ export const codexHookProtocol: HookProtocol;
 
 // @public (undocumented)
 export const codexLayout: PluginLayout;
+
+// @public
+export const codexLiveDriver: HarnessLiveDriver;
 
 // @public
 export function codexMockArgs(baseUrl: string): string[];

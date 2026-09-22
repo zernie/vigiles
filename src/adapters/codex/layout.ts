@@ -52,36 +52,64 @@
  * - MCP detection (`mcpConfigFile`/`mcpManifestKey`) is JSON-shaped, so it won't
  *   see Codex's `[mcp_servers]` TOML table — a known layout-port gap.
  * 🔴 THE PATHS BELOW ARE DOCUMENTED IN `docs/configuration.md`. Change any of
- * them — `instructionFile`, `surfaceDirs`, `userSurfaceRoot`, `rulesDir` — and
+ * them — `instructionFile`, `surfaces`, `userSurfaceRoot`, `rulesDir` — and
  * that page is wrong until you edit it too. The page marks this symbol with
  * `vigiles:symbol`, so RENAMING it turns `vigiles lint` red and forces the
  * edit; changing a VALUE in place does not, and nothing today catches that.
  */
 import type { PluginLayout } from "../../core/layout.js";
+import type { InstructionChain } from "../../core/instruction-chain.js";
+import { settingsSourcePaths } from "../../core/instruction-chain.js";
+import { tomlSettingsCodec } from "../../core/settings-codec.js";
+import { codexInstructionChain } from "./instruction-chain.js";
 
 export const codexLayout: PluginLayout = {
   name: "codex",
   manifestPath: ".codex/config.toml",
   hooksConventionPath: ".codex/hooks.json",
   settingsPath: ".codex/config.toml",
-  settingsFormat: "toml",
+  settings: tomlSettingsCodec,
   instructionFile: "AGENTS.md",
-  // Surfaces carry their OWN prefix and `materializeRoot` is "" — the OpenCode
-  // style, not the Claude Code one. Codex's skills and its prompts do NOT share a
-  // parent (`.agents/` vs `.codex/`), so no single `materializeRoot` can name
+  // Surfaces carry their OWN prefix and the materialize prefix is "" — the
+  // OpenCode style, not the Claude Code one. Codex's skills and its prompts do
+  // NOT share a parent (`.agents/` vs `.codex/`), so no single root can name
   // both; spelling each dir in full is the only shape that keeps the reported key
   // equal to the real on-disk path.
-  surfaceDirs: [".agents/skills", "prompts"],
-  skillDir: ".agents/skills",
-  agentDir: "", // Codex `[agents]` is a TOML concurrency table, not a subagent dir
-  // Custom prompts are documented ONLY at `~/.codex/prompts` (user-global,
-  // top-level `.md`, and marked deprecated in favour of skills). No repo-level
-  // location is documented, so this prototype's root-level `prompts/` is left as
-  // it was rather than moved on a guess.
-  commandDir: "prompts",
-  materializeRoot: "",
+  surfaces: {
+    skill: ".agents/skills",
+    // No `agent` key: Codex `[agents]` is a TOML concurrency table, not a
+    // subagent dir. An ABSENT key is the only spelling of "this harness has no
+    // such surface" — it used to be `agentDir: ""`, a second spelling that every
+    // reader had to remember to test for.
+    //
+    // Custom prompts are documented ONLY at `~/.codex/prompts` (user-global,
+    // top-level `.md`, and marked deprecated in favour of skills). No repo-level
+    // location is documented, so this prototype's root-level `prompts/` is left
+    // as it was rather than moved on a guess.
+    command: "prompts",
+  },
+  // No `userSurfaceRoot`: the surfaces carry their own prefix, so the
+  // materialize prefix is "" and a file-map key equals the on-disk path. That
+  // used to be spelled twice, as `materializeRoot: ""` beside an absent
+  // `userSurfaceRoot`.
+  //
+  // ⚠️ `hookScriptsDir: "hooks"` carries over the value the hand-written
+  // `intraRefDirs` had. NOTHING in the vendor pages confirms a repo-level
+  // `hooks/` directory for Codex; it is kept as it was rather than "aligned"
+  // from a guess, the same stance `installCodexSkills` takes above.
+  hookScriptsDir: "hooks",
   pluginRootToken: "${PLUGIN_ROOT}",
   mcpConfigFile: ".mcp.json",
   mcpManifestKey: "mcp_servers",
-  intraRefDirs: [".agents/skills", "prompts", "hooks"],
+  // The root directory's ONE slot — override, then the committed file, then the
+  // names the repo itself declares in `config.toml`. See ./instruction-chain.ts
+  // for the vendor wording and for why `"**/AGENTS.md"` was not merely unbounded
+  // but wrong about what a root session loads.
+  instructionChain(files): InstructionChain {
+    return codexInstructionChain(files, {
+      instructionFile: codexLayout.instructionFile,
+      settingsPaths: settingsSourcePaths(codexLayout),
+      parseSettings: (text) => codexLayout.settings.parse(text),
+    });
+  },
 };

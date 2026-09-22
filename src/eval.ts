@@ -49,6 +49,34 @@ import {
   sumCosts,
 } from "./eval-cost.js";
 import { ncd } from "./core/proofs.js";
+import type { HarnessLiveDriver } from "./core/live-driver.js";
+import {
+  hasModelAccess,
+  isMeteredAccess,
+  CLAUDE_CODE_ACCESS_FIX,
+} from "./adapters/claude-code/model-access.js";
+import type {
+  AgentRunArgs,
+  AgentRunner,
+  EvalDriver,
+  EvalUsage,
+  ModelOutputParser,
+  ParsedModelRun,
+  RunOut,
+} from "./core/eval-driver.js";
+// The executing tiers' shared shapes moved to core so a core PORT
+// (`HarnessLiveDriver`) can reference them — the core may not import this
+// module. Re-exported here unchanged, so `vigiles/eval` and every existing
+// `from "./eval.js"` import resolve exactly as before.
+export type {
+  AgentRunArgs,
+  AgentRunner,
+  EvalDriver,
+  EvalUsage,
+  ModelOutputParser,
+  ParsedModelRun,
+  RunOut,
+} from "./core/eval-driver.js";
 import {
   parseToolCalls,
   parseResultEvent,
@@ -141,21 +169,6 @@ export interface EvalArm {
    * the cache, and never read from an env var. Omit for the harness default.
    */
   readonly effort?: string | number;
-}
-
-/** Per-run resource use, parsed from the terminal `result` event (0 when absent). */
-export interface EvalUsage {
-  /** `total_cost_usd` reported by claude. */
-  readonly costUsd: number;
-  /** Wall-clock `duration_ms` of the run. */
-  readonly durationMs: number;
-  /** Fresh (uncached) input tokens, billed at full input price. */
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  /** Tokens written to the prompt cache this run (~1.25× input price). */
-  readonly cacheCreationTokens: number;
-  /** Tokens served from the prompt cache this run (~0.1× input price). */
-  readonly cacheReadTokens: number;
 }
 
 /**
@@ -335,55 +348,6 @@ function writeFiles(cwd: string, files: Record<string, string>): void {
     writeFileSync(full, content);
   }
 }
-
-/** The raw output of one trial: the agent's exit code + captured streams. */
-export interface RunOut {
-  code: number;
-  stdout: string;
-  /** Captured stderr, when the runner provides it (used for rate-limit detection). */
-  stderr?: string;
-}
-
-/** The per-trial arguments handed to an {@link AgentRunner}. */
-export interface AgentRunArgs {
-  readonly task: string;
-  readonly cwd: string;
-  readonly model: string;
-  /**
-   * Reasoning-budget level for the run (`claude --effort`). Part of the
-   * MEASUREMENT, not a run knob: it changes the model's output distribution, not
-   * the sample size — so it lives on the spec next to `model` (never an env),
-   * and it is hashed into both the cache key and the eval lock. Deliberately
-   * `string | number` rather than a literal union: the binary accepts an alias
-   * map, is case-insensitive, and takes an integer budget, and its own valid set
-   * MOVED between builds (2.1.42 had no `xhigh`, 2.1.257 does) — a hard-coded
-   * union would reject a valid level after any upstream addition. A wrong value
-   * is caught at RUNTIME instead, by {@link effortRejection}, which is what the
-   * binary actually tells us. Omit for the harness default.
-   */
-  readonly effort?: string | number;
-  readonly tools: readonly string[];
-  readonly hasSettings: boolean;
-  readonly pluginDir: string | undefined;
-  readonly timeoutMs: number;
-  /** Extra env layered over `process.env` for this run (e.g. `VIGILES_INTERCEPT_TOOLS`). */
-  readonly env?: Record<string, string>;
-  /**
-   * When true, `env` is the COMPLETE spawn environment (an ephemeral run env from
-   * `ephemeralRunEnv`) — the runner does NOT prepend `process.env`, so the
-   * real `$HOME` / secrets are scrubbed. Default false: `env` is an overlay over
-   * `process.env` (the byte-identical-to-today path). Set only by `ephemeralEnv`.
-   */
-  readonly replaceEnv?: boolean;
-}
-
-/**
- * Runs one trial and returns its raw output. The default (`spawnAgent`)
- * drives the real `claude` CLI; `runEvalWith` takes one explicitly, so the eval
- * orchestration is testable without a model (pass a fake returning canned
- * stream-json) and a custom runtime can be plugged in.
- */
-export type AgentRunner = (args: AgentRunArgs) => Promise<RunOut>;
 
 /**
  * Resolve the environment a trial's subprocess actually runs with — the
@@ -1078,23 +1042,6 @@ function usageFrom(result: Record<string, unknown> | null): EvalUsage {
 export function parseUsage(stdout: string): EvalUsage {
   return usageFrom(parseResultEvent(stdout));
 }
-
-/**
- * The harness-specific half of a run trace: how a real model's raw stdout maps
- * to the common fields. Claude Code's `parseClaudeRun` reads its stream-json; a
- * second harness (Codex) supplies its own parser of `codex exec --json` JSONL, so
- * the eval tier (`measureTriggerRate`/`runEval`) isn't bound to Claude's format.
- * The non-harness fields (cwd/exitCode/stdout/file/sh) stay in `makeContext`.
- */
-export interface ParsedModelRun {
-  readonly turns: number;
-  readonly output: string;
-  readonly toolCalls: ReturnType<typeof parseToolCalls>;
-  readonly hooks: ReturnType<typeof parseHooks>;
-  readonly subagents: ReturnType<typeof parseSubagents>;
-  readonly usage: EvalUsage;
-}
-export type ModelOutputParser = (out: RunOut) => ParsedModelRun;
 
 /** Parse Claude Code's stream-json stdout into the common trace fields. */
 export function parseClaudeRun(out: RunOut): ParsedModelRun {
@@ -2302,38 +2249,6 @@ export interface TriggerRateReport {
 }
 
 /**
- * An eval-tier transport: how to RUN a real harness turn and PARSE its output.
- * The default is Claude Code (`claudeEvalDriver`); a second harness supplies its
- * own (e.g. `codexEvalDriver` from `vigiles/codex`) and passes it as
- * `measureTriggerRate(spec, { evalDriver })` — the eval-tier analog of
- * `runHarnessTest`'s `{ adapter }`. `runError` lets the loop drop an
- * errored/rate-limited turn instead of scoring it as a miss.
- */
-export interface EvalDriver {
-  readonly runner: AgentRunner;
-  readonly parse: ModelOutputParser;
-  readonly runError?: (out: RunOut) => string | null;
-  /**
-   * The harness this driver runs (e.g. `"claude-code"`, `"codex"`). Folded into a
-   * trigger-rate eval's LOCK hash so a report recorded on one harness is marked
-   * STALE if the eval is later switched to another (a different harness can fire a
-   * skill differently). Optional for back-compat — absent defaults to
-   * `"claude-code"`, so an existing single-harness lock is unaffected.
-   */
-  readonly harness?: string;
-  /**
-   * When set, this driver's trigger-rate number is EXPERIMENTAL and not
-   * validated — the string is the human caveat explaining why (e.g. Codex has no
-   * skill-selection event, so firing is inferred from a SKILL.md read, which can
-   * be wrong in both directions). Absent = supported/trustworthy (the default,
-   * Claude Code). `measureTriggerRate` copies it onto the report and warns; the
-   * formatter prints it. Precision-first: never let a possibly-wrong number read
-   * as a measurement.
-   */
-  readonly experimental?: string;
-}
-
-/**
  * The default (Claude Code) eval driver: real `claude` + stream-json parsing.
  *
  * This lives at the COMPOSITION ROOT (`src/eval.ts`) on purpose, not in
@@ -2350,6 +2265,45 @@ export const claudeEvalDriver: EvalDriver = {
   runner: spawnAgent,
   parse: parseClaudeRun,
   harness: "claude-code",
+};
+
+/**
+ * The Claude Code {@link HarnessLiveDriver} — the EXECUTING tiers' side of the
+ * adapter, reached through `claudeCodeAdapter.liveDriver()`.
+ *
+ * It lives HERE, at the composition root, for exactly the reason
+ * `claudeEvalDriver` above does: it is assembled from the wired default runner
+ * and `whichSkillsFired`, and moving it into `src/adapters/claude-code/` would
+ * make `eval.ts → adapters/claude-code → eval.ts` a cycle. The adapter reaches
+ * it through a dynamic `import()`, so nothing pays for this graph until an
+ * executing tier actually runs.
+ */
+export const claudeCodeLiveDriver: HarnessLiveDriver = {
+  evalDriver: claudeEvalDriver,
+  // Env-only, and never a spent token: deciding whether to OFFER a measurement
+  // must not cost one. The three arms are what the consent prompt words
+  // differently — a key bills per token, a session is $0 metered, and neither
+  // present means the tier is skipped with `fix` printed.
+  access: (env) =>
+    isMeteredAccess(env)
+      ? { kind: "metered" }
+      : hasModelAccess(env)
+        ? { kind: "subscription" }
+        : { kind: "none", fix: CLAUDE_CODE_ACCESS_FIX },
+  // A discrete `Skill` tool_use in the trace says WHICH skill was selected, so
+  // the selection-collision matrix and the adversarial gate can run here.
+  firing: { kind: "event" },
+  // Claude Code namespaces a plugin's skill as `<plugin>:<skill>`; the manifest
+  // name is handed in by the domain, which read it off the layout.
+  firedFor:
+    (skill, plugin) =>
+    (t): boolean =>
+      whichSkillsFired(t).includes(
+        plugin.name ? `${plugin.name}:${skill}` : skill,
+      ),
+  // The probe may rebuild the plugin to skills-only stubs: this is the harness
+  // whose plugin shape vigiles packages, so a stubbed rebuild is validated.
+  installsStubs: true,
 };
 
 /**

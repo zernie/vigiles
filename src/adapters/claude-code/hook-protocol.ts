@@ -7,6 +7,7 @@
  */
 import type { HookProtocol } from "../../core/hook-protocol.js";
 import { claudeCodeHookCondition } from "./hook-condition.js";
+import { mergeHooksJson } from "../../hook-install.js";
 
 export const claudeCodeHookProtocol: HookProtocol = {
   name: "claude-code",
@@ -47,4 +48,24 @@ export const claudeCodeHookProtocol: HookProtocol = {
   // at all. See ./hook-condition.ts — without it a conditional guard was reported
   // as blocking every disaster in the battery.
   condition: claudeCodeHookCondition,
+  // Claude Code NESTS: one matcher block holds a list of commands.
+  registration(on, matcher, command) {
+    const entry =
+      matcher === undefined
+        ? { hooks: [{ type: "command", command }] }
+        : { matcher, hooks: [{ type: "command", command }] };
+    return { hooks: { [on]: [entry] } };
+  },
+  // Delegates to the JSON merge, which is where the measured behaviour and its
+  // test suite live (`hook-install.ts` / `hook-install.test.ts`). The port owns
+  // WHICH merge; the module owns HOW. The cast is the structural-to-concrete
+  // step the core cannot take: `CompiledHooks` is the application layer's type,
+  // and a core port may not name it.
+  mergeRegistrations(existing, compiled, managedBy) {
+    return mergeHooksJson(
+      existing as Parameters<typeof mergeHooksJson>[0],
+      compiled as Parameters<typeof mergeHooksJson>[1],
+      managedBy,
+    );
+  },
 };

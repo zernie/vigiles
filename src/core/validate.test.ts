@@ -18,6 +18,7 @@ import {
   findInstructionFiles,
   loadConfig,
 } from "./validate.js";
+import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
 import { vigilesConfigSchema, formatConfigIssues } from "./config-schema.js";
 import type { MarkerType, ParseOptions } from "./types.js";
 
@@ -926,5 +927,49 @@ describe("findInstructionFiles", () => {
       "nonexistent.md",
     ]);
     assert.deepEqual(result, ["CLAUDE.md"]);
+  });
+});
+
+describe("which filenames count as an instruction file — the dialect decides", () => {
+  // 🔴 THE ONE CONSUMER `instructionTargets` GAINING `AGENTS.md` ACTUALLY MOVED,
+  // measured before the edit and asserted after it. Injecting the Claude Code
+  // dialect used to make vigiles recognise FEWER instruction files than its own
+  // no-dialect default: an `AGENTS.md` came back with zero findings under the CC
+  // dialect and `require-instructions-spec` without one. Since v2.1.277 Claude
+  // Code really does read `AGENTS.md`, so the narrower answer was the wrong one.
+  const rulesOf = (opts: Parameters<typeof validate>[1]): string[] => {
+    const r = validate("# x\n", opts);
+    return [...r.errors, ...r.warnings].map((e) => e.rule);
+  };
+
+  it("an AGENTS.md is an instruction file under the Claude Code dialect", () => {
+    assert.deepEqual(
+      rulesOf({
+        filePath: join(tmpdir(), "no-such-dir-vigiles", "AGENTS.md"),
+        dialect: claudeCodeDialect,
+      }),
+      ["require-instructions-spec"],
+    );
+  });
+
+  it("…the same answer the no-dialect default already gave", () => {
+    // The pair is the point: one of these alone would pass with the two
+    // answers still disagreeing, which is exactly the state this fixed.
+    assert.deepEqual(
+      rulesOf({ filePath: join(tmpdir(), "no-such-dir-vigiles", "AGENTS.md") }),
+      ["require-instructions-spec"],
+    );
+  });
+
+  it("and an ordinary markdown file is still NOT one", () => {
+    // The other half. A dialect that recognised everything would make the rule
+    // fire on every README in the repository.
+    assert.deepEqual(
+      rulesOf({
+        filePath: join(tmpdir(), "no-such-dir-vigiles", "NOTES.md"),
+        dialect: claudeCodeDialect,
+      }),
+      [],
+    );
   });
 });

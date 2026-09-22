@@ -61,7 +61,7 @@ import {
 } from "../../dist/harness-test.js";
 import { requestContains, skip } from "../../dist/harness-assert.js";
 import { claudeCodeHookProtocol } from "../../dist/adapters/claude-code/hook-protocol.js";
-import { onPathClaudeVersion } from "../../dist/dialect-drift.js";
+import { onPathClaudeVersion } from "../../dist/adapters/claude-code/dialect-drift.js";
 
 // Loud skip, never a silent pass: the alarm only means something where the real
 // binary is present.

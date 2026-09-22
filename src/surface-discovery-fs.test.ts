@@ -1,6 +1,7 @@
 /**
- * Tests for the DISK half of surface discovery (`src/surface-discovery-fs.ts`):
- * that the walk is BOUNDED, and that `.vigilesrc.json#exclude` reaches it.
+ * Tests for the DISK half of BOUNDED DISCOVERY (`src/surface-discovery-fs.ts`):
+ * that both walks — surfaces and instructions — are BOUNDED, and that
+ * `.vigilesrc.json#exclude` reaches each of them.
  *
  * One fixture, asserted from both sides in the same test — the tree that must be
  * found sits beside the trees that must not, so "the walk stopped walking" and
@@ -8,14 +9,16 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { excludeSet } from "./exclude.js";
 import {
+  boundedInstructionFiles,
   boundedSurfacePaths,
   discoverSurfacesOnDisk,
 } from "./surface-discovery-fs.js";
+import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 /** Write `<root>/<rel>/SKILL.md`, creating parents. */
@@ -106,6 +109,203 @@ test("exclude drops the named subtree, a descendant of it, and nothing else", ()
     ]);
     // A pattern matching nothing must change nothing.
     assert.deepEqual(dirsFor([".nonexistent"]), dirsFor([]));
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+/**
+ * The INSTRUCTION half of the same bound (`boundedInstructionFiles`).
+ *
+ * The thing this replaced walked wherever an adapter's glob pointed, so the
+ * negative half below is not decoration: `node_modules/dep/AGENTS.md` and
+ * `pkg/sub/AGENTS.md` were BOTH read and BOTH summed into the printed weight.
+ */
+test("the instruction walk covers the root, dot-dirs and the rules TREE, and nothing else", () => {
+  const root = makeTmpDir("instruction-bound");
+  try {
+    mkdirSync(join(root, ".claude/rules/team"), { recursive: true });
+    mkdirSync(join(root, "pkg/sub"), { recursive: true });
+    mkdirSync(join(root, "node_modules/dep"), { recursive: true });
+    writeFileSync(join(root, "CLAUDE.md"), "root");
+    writeFileSync(join(root, "README.md"), "prose");
+    writeFileSync(join(root, "package.json"), "{}");
+    writeFileSync(join(root, ".claude/CLAUDE.md"), "dot");
+    writeFileSync(join(root, ".claude/settings.json"), "{}");
+    writeFileSync(join(root, ".claude/rules/flat.md"), "flat");
+    writeFileSync(join(root, ".claude/rules/team/deep.md"), "deep");
+    writeFileSync(join(root, "pkg/sub/CLAUDE.md"), "nested");
+    writeFileSync(join(root, "node_modules/dep/CLAUDE.md"), "theirs");
+
+    const files = boundedInstructionFiles(root, claudeCodeLayout);
+    assert.deepEqual(Object.keys(files).sort(), [
+      ".claude/CLAUDE.md",
+      ".claude/rules/flat.md",
+      // The rules dir is read RECURSIVELY — the flat classifier that used to
+      // pair with it stopped at depth 1, so this file was read by the loader and
+      // classified by nothing (#262 §3).
+      ".claude/rules/team/deep.md",
+      // A settings SOURCE, in the map and never weighed: it decides WHICH files
+      // load (`claudeMdExcludes`), which is a different job from being one.
+      ".claude/settings.json",
+      "CLAUDE.md",
+      // Root markdown the harness will simply not recognize. It is in the bound
+      // because a repo may declare its OWN instruction filename in settings
+      // (Codex's `project_doc_fallback_filenames`), and the domain cannot know
+      // the name in advance; the harness ignores what it does not claim.
+      "README.md",
+    ]);
+    // `package.json` is at the root and is NOT markdown: the bound reads the
+    // root's markdown, not the root.
+    assert.equal(files["package.json"], undefined);
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+test("a SYMLINKED rules home is walked, as a symlinked surface dir already is", () => {
+  // Codex review on #265. `entryOf` answers "skip" for a symlinked directory ON
+  // PURPOSE — that rule is for entries a walk finds INSIDE a tree — so the
+  // rules walk, which asked `kind !== "dir"`, dropped a `.claude/rules` that
+  // is a link to a shared policy directory, and with it every rule the harness
+  // loads from there. The surface walk beside it asked the same question
+  // correctly (`openableSurfaceDir`: refuse a FILE, let `walkableRoot` judge a
+  // link) and says why in its own comment. Two spellings of one entry check.
+  const root = makeTmpDir("rules-symlink");
+  try {
+    mkdirSync(join(root, "shared-policy"), { recursive: true });
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    writeFileSync(join(root, "shared-policy/team.md"), "a rule");
+    symlinkSync(
+      join(root, "shared-policy"),
+      join(root, ".claude/rules"),
+      "dir",
+    );
+
+    const files = boundedInstructionFiles(root, claudeCodeLayout);
+    assert.equal(files[".claude/rules/team.md"], "a rule");
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+test("a rules home that is a FILE, or a link that loops back over the root, is not walked", () => {
+  // The control half: the fix must not turn "follow a link" into "follow
+  // anything". A file named `rules` is refused by the entry check, and a link
+  // whose target contains the scanned root is refused by `walkableRoot`.
+  const root = makeTmpDir("rules-symlink-refused");
+  try {
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    writeFileSync(join(root, ".claude/rules"), "not a directory");
+    const asFile = boundedInstructionFiles(root, claudeCodeLayout);
+    assert.deepEqual(
+      Object.keys(asFile).filter((k) => k.startsWith(".claude/rules")),
+      [],
+    );
+  } finally {
+    cleanupTmpDir(root);
+  }
+  const loop = makeTmpDir("rules-symlink-loop");
+  try {
+    mkdirSync(join(loop, ".claude"), { recursive: true });
+    writeFileSync(join(loop, "CLAUDE.md"), "root");
+    symlinkSync(loop, join(loop, ".claude/rules"), "dir");
+    const looped = boundedInstructionFiles(loop, claudeCodeLayout);
+    assert.deepEqual(
+      Object.keys(looped).filter((k) => k.startsWith(".claude/rules")),
+      [],
+    );
+  } finally {
+    cleanupTmpDir(loop);
+  }
+});
+
+test("exclude reaches the instruction walk, including inside the rules tree", () => {
+  const root = makeTmpDir("instruction-exclude");
+  try {
+    mkdirSync(join(root, ".claude/rules/vendored"), { recursive: true });
+    writeFileSync(join(root, "CLAUDE.md"), "root");
+    writeFileSync(join(root, ".claude/rules/mine.md"), "mine");
+    writeFileSync(join(root, ".claude/rules/vendored/theirs.md"), "theirs");
+
+    const keys = (patterns: string[]): string[] =>
+      Object.keys(
+        boundedInstructionFiles(
+          root,
+          claudeCodeLayout,
+          excludeSet(root, patterns),
+        ),
+      ).sort();
+
+    assert.deepEqual(keys([]), [
+      ".claude/rules/mine.md",
+      ".claude/rules/vendored/theirs.md",
+      "CLAUDE.md",
+    ]);
+    // A DESCENDANT of the rules dir, which is the entry-point-only bug the
+    // surface walk already guards against — same policy, same failure shape.
+    assert.deepEqual(keys([".claude/rules/vendored"]), [
+      ".claude/rules/mine.md",
+      "CLAUDE.md",
+    ]);
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+/**
+ * The IMPORT pass: the one read outside the dot-directory bound, allowed because
+ * the repository OWNER wrote the path in their own file — and ONE LEVEL, which
+ * is a measurement rather than a shortcut (see `resolveImports`).
+ */
+test("an @import names one concrete path, and it is read — one level, no recursion", () => {
+  const root = makeTmpDir("instruction-imports");
+  try {
+    mkdirSync(join(root, "docs"), { recursive: true });
+    writeFileSync(join(root, "CLAUDE.md"), "@docs/a.md");
+    // The shape 4 of the 6 real imports in the measured corpus have: the
+    // AGENTS.md workaround, from before Claude Code read it natively (v2.1.277).
+    writeFileSync(join(root, "docs/a.md"), "@docs/b.md");
+    writeFileSync(join(root, "docs/b.md"), "leaf");
+    // Never named by anything: the pass follows tokens, it does not glob.
+    writeFileSync(join(root, "docs/unnamed.md"), "not imported");
+
+    const files = boundedInstructionFiles(root, claudeCodeLayout);
+    // 🔴 `docs/b.md` IS ABSENT ON PURPOSE. A transitive import is a real Claude
+    // Code feature and its nested size is NOT counted: no file in the 198-file
+    // corpus behind this decision has one, and a recursive walk driven by
+    // strings found in files is the defect #262 is about. If a real case turns
+    // up, the thing to redo is that measurement, not this assertion.
+    assert.deepEqual(Object.keys(files).sort(), ["CLAUDE.md", "docs/a.md"]);
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+test("an @import that escapes the repo is not read", () => {
+  const root = makeTmpDir("instruction-import-escape");
+  try {
+    writeFileSync(
+      join(root, "CLAUDE.md"),
+      "@../escape.md @~/notes.md @/etc/x.md",
+    );
+    assert.deepEqual(
+      Object.keys(boundedInstructionFiles(root, claudeCodeLayout)).sort(),
+      ["CLAUDE.md"],
+    );
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+test("an @import names a file that is not there — nothing is read, nothing throws", () => {
+  const root = makeTmpDir("instruction-import-missing");
+  try {
+    writeFileSync(join(root, "CLAUDE.md"), "@docs/gone.md");
+    assert.deepEqual(
+      Object.keys(boundedInstructionFiles(root, claudeCodeLayout)).sort(),
+      ["CLAUDE.md"],
+    );
   } finally {
     cleanupTmpDir(root);
   }

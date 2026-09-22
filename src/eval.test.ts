@@ -19,6 +19,8 @@ import {
   cpSync as cpSyncForTest,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { claudeCodeLiveDriver } from "./eval.js";
+import type { Trace } from "./core/eval-driver.js";
 import { join } from "node:path";
 
 import {
@@ -3052,4 +3054,47 @@ test("spawnAgent refuses to spend model calls when a foreign test runner owns th
     /running under vitest/,
     "the paid tier started under a foreign runner — a collected eval would bill on every push",
   );
+});
+
+// claudeCodeLiveDriver — the EXECUTING tiers' port for this harness (#263). The
+// adapter contract asserts the object is coherent (its firing signal agrees with
+// `EvalDriver.experimental`, `access` lands inside the union); what it cannot
+// assert is the PREDICATE, because that needs a trace. These two cover it.
+test("claudeCodeLiveDriver.firedFor NAMESPACES the skill when the plugin has a manifest name", () => {
+  // Claude Code records a plugin's skill as `<plugin>:<skill>`, so the bare name
+  // must NOT match — a false negative here reads as a skill that never fired,
+  // which is the measurement the whole trigger tier reports.
+  const trace = (id: string): Trace => ({
+    turns: 1,
+    output: "",
+    hooks: [],
+    modelRequests: [],
+    file: () => null,
+    toolCalls: [
+      { name: "Skill", input: { skill: id }, isError: false, resultText: "" },
+    ],
+  });
+  const fired = claudeCodeLiveDriver.firedFor("foo", { name: "myplugin" });
+  assert.equal(fired(trace("myplugin:foo")), true);
+  assert.equal(fired(trace("foo")), false);
+  assert.equal(fired(trace("myplugin:bar")), false);
+});
+
+test("claudeCodeLiveDriver.firedFor uses the BARE name when there is no manifest name", () => {
+  // A standalone skill directory has no plugin manifest to namespace it. The
+  // manifest name is handed in by the DOMAIN precisely so this method reads no
+  // disk, so `null` is a value it must handle rather than go looking for.
+  const trace = (id: string): Trace => ({
+    turns: 1,
+    output: "",
+    hooks: [],
+    modelRequests: [],
+    file: () => null,
+    toolCalls: [
+      { name: "Skill", input: { skill: id }, isError: false, resultText: "" },
+    ],
+  });
+  const fired = claudeCodeLiveDriver.firedFor("foo", { name: null });
+  assert.equal(fired(trace("foo")), true);
+  assert.equal(fired(trace("myplugin:foo")), false);
 });

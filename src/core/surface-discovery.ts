@@ -64,7 +64,13 @@
  * and call THIS for the decision, so the pair this repo has repeatedly been
  * bitten by fixing on one side only cannot disagree about what a surface is.
  */
-import { AGENT_FILE_LEAF_RE, type PluginLayout } from "./layout.js";
+import {
+  AGENT_FILE_LEAF_RE,
+  materializePrefix,
+  surfaceDirs,
+  type PluginLayout,
+  type SurfaceKind,
+} from "./layout.js";
 
 /** A surface kind discovery can recognize from a path alone. */
 export type DiscoveredKind = "skill" | "agent" | "command";
@@ -182,8 +188,8 @@ function located(dir: string | undefined): string | null {
  * (as `codexLayout` just did, `.codex/skills` → `.agents/skills`) moves its claim
  * with it and the two cannot drift.
  *
- * ⚠️ `materializeRoot` goes through {@link located} because `codexLayout` sets it
- * to `""` and a directory prefix of `""` is meaningless. It is DEFENCE IN DEPTH,
+ * ⚠️ The materialize prefix goes through {@link located} because `codexLayout`
+ * has none (`""`) and a directory prefix of `""` is meaningless. It is DEFENCE IN DEPTH,
  * not the load-bearing guard, and the difference was MEASURED rather than
  * assumed: removing this filter alone leaves `layoutClaims(codexLayout,
  * "src/index.ts")` at `false`, because the boundary form `path.startsWith(`${d}/`)`
@@ -202,9 +208,9 @@ export function layoutLocations(layout: PluginLayout): {
   const add = (d: string | null): void => {
     if (d !== null) dirs.add(d);
   };
-  add(located(layout.materializeRoot));
+  add(located(materializePrefix(layout)));
   add(user);
-  for (const s of layout.surfaceDirs) {
+  for (const s of surfaceDirs(layout)) {
     add(located(s));
     if (user !== null) add(located(`${user}/${s}`));
   }
@@ -218,6 +224,10 @@ export function layoutLocations(layout: PluginLayout): {
     layout.settingsPath,
     layout.hooksConventionPath,
   ]) {
+    // `hooksConventionPath` is optional now — a harness whose hooks are code
+    // modules has none. Absent contributes no dir and no file, which is what
+    // the old `""` sentinel was filtered into below anyway.
+    if (p === undefined) continue;
     const at = p.lastIndexOf("/");
     if (at > 0) add(p.slice(0, at));
   }
@@ -229,7 +239,7 @@ export function layoutLocations(layout: PluginLayout): {
       layout.manifestPath,
       layout.settingsPath,
       layout.hooksConventionPath,
-    ].filter((f) => f !== ""),
+    ].filter((f): f is string => f !== undefined && f !== ""),
   };
 }
 
@@ -293,7 +303,7 @@ export function declaredRootDirs(
 ): readonly string[] {
   const out: string[] = [];
   for (const r of roots)
-    for (const surface of layout.surfaceDirs) {
+    for (const surface of surfaceDirs(layout)) {
       const dir = located(`${r}/${surface}`);
       if (dir !== null && !out.includes(dir)) out.push(dir);
     }
@@ -431,8 +441,11 @@ function knownHomes(
   layouts: readonly PluginLayout[],
   kind: DiscoveredKind,
 ): readonly string[] {
-  const dirOf = (l: PluginLayout): string =>
-    ({ skill: l.skillDir, agent: l.agentDir, command: l.commandDir })[kind];
+  // `DiscoveredKind` and `SurfaceKind` are the same three words; the cast is the
+  // one place they are related, and it is here rather than in the port because a
+  // discovered kind is a fact about a PATH the domain found, not about a layout.
+  const dirOf = (l: PluginLayout): string | undefined =>
+    l.surfaces[kind as SurfaceKind];
   const homes = new Set<string>();
   for (const l of layouts) {
     const dir = located(dirOf(l));
@@ -482,6 +495,14 @@ export function unclaimedSurfaceFindings(
       claimers.push((path) =>
         declaredRootClaims(scope.layout, scope.roots, path),
       );
+  // The worked EXAMPLE config below names a harness, and it used to name a
+  // FIXED one — `claude-code`, spelled into the core, in a diagnostic shown to
+  // a repo that may target something else entirely. `layouts` was already in
+  // scope and already knew which harness the audit ran under; the example now
+  // reads the name off it. Empty `layouts` yields a placeholder rather than an
+  // invented name: an example that cannot be copied is better than one that
+  // names the wrong harness.
+  const exampleHarness = layouts[0]?.name ?? "<harness>";
   return unclaimedDirs(
     unclaimedSurfaces(discoverSurfaces(paths), claimers),
   ).map((d) => ({
@@ -489,11 +510,7 @@ export function unclaimedSurfaceFindings(
     message:
       `${d.dir}/ holds ${plural(d.kind, d.count)} that no harness vigiles knows about reads, ` +
       `so none of it is in this grade. Three ways out: keep it where it is and say so in ` +
-      // A worked EXAMPLE config in a diagnostic, and real debt: it names a
-      // harness the repo being audited may not even target, while `layouts` is
-      // already in scope here and knows which one it does.
-      // eslint-disable-next-line local/no-harness-names -- example config text
-      `.vigilesrc.json (\`{"harnesses":{"claude-code":{"roots":["${d.root === "" ? "." : d.root}"]}}}\` ` +
+      `.vigilesrc.json (\`{"harnesses":{"${exampleHarness}":{"roots":["${d.root === "" ? "." : d.root}"]}}}\` ` +
       `— see docs/configuration.md), audit it on its own ` +
       `(\`vigiles audit ${d.root === "" ? "." : d.root}\`), or move it somewhere a harness ` +
       `loads from (${knownHomes(layouts, d.kind)

@@ -5,7 +5,7 @@
  * 🔴 THIS EXISTS BECAUSE THE LOADER USED TO CHOOSE. It read the repo-root
  * `skills/` **or** the project-level `.claude/skills/` — never both — and
  * materialized whichever it picked under the SAME canonical
- * `<materializeRoot>/<surface>/…` key. Two real files, one key: the loser was
+ * `<materializePrefix>/<surface>/…` key. Two real files, one key: the loser was
  * never read, and the winner's content sat under the loser's name. Measured
  * 2026-08-18 on `nyldn/claude-octopus` (pinned corpus): **50 skill names exist in
  * both `skills/` and `.claude/skills/`, and all 50 pairs differ** — the `.claude/`
@@ -31,7 +31,7 @@
  * and call THIS for the decision, so the pair that this repo has repeatedly been
  * bitten by fixing on one side only cannot disagree about scoping.
  */
-import type { PluginLayout } from "./layout.js";
+import { materializePrefix, type PluginLayout } from "./layout.js";
 
 /**
  * One discovery level, and the prefix its files are materialized under.
@@ -60,7 +60,24 @@ export interface SurfaceScope {
 
 /** Which shape the audited target is, and every scope to read from it. */
 export type SurfaceSource =
-  | { readonly kind: "single-skill"; readonly skillName: string }
+  | {
+      readonly kind: "single-skill";
+      readonly skillName: string;
+      /**
+       * The layout's skill dir, CARRIED rather than re-read by the consumer.
+       *
+       * 🔴 IT USED TO BE RE-DERIVED AT BOTH CONSUMERS, AND THE BRANCH THAT
+       * FOLLOWED WAS UNREACHABLE. `layout.surfaces.skill` is optional, so each
+       * of `plugin-loader.ts` and `scan-files.ts` narrowed it again and wrote a
+       * `return` for the `undefined` case — a case this variant is never
+       * constructed in, since the test below is the condition for making one.
+       * Two dead returns, in two engines that must agree, plus a comment in each
+       * explaining why the code beneath it cannot run. Carrying the value is the
+       * same construction the rest of this port uses: keep one copy, where it is
+       * KNOWN, instead of re-deriving it where it is not.
+       */
+      readonly skillDir: string;
+    }
   | { readonly kind: "scopes"; readonly scopes: readonly SurfaceScope[] };
 
 /** What the caller must probe on its own storage for {@link surfaceSource}. */
@@ -127,7 +144,7 @@ export function normalizeSurfaceRoots(
  * Classify the target and list every scope to read, HIGHEST-PRECEDENCE FIRST.
  *
  * Precedence decides only one thing: which scope keeps the canonical
- * `<materializeRoot>/…` key. The project scope takes it, because that key IS
+ * `<materializePrefix>/…` key. The project scope takes it, because that key IS
  * where a project skill lives — `.claude/skills/deploy/SKILL.md` is loaded from
  * exactly that path and answers to `/deploy`. A plugin scope keeps its own real
  * location (`skills/deploy/SKILL.md`), which is likewise where the harness reads
@@ -135,32 +152,39 @@ export function normalizeSurfaceRoots(
  *
  * 🔴 THE COLLISION IS STRUCTURAL, NOT CHECKED. Only the FIRST scope is relocated;
  * every later one keeps `base` as its prefix. Since the first scope is the only
- * one that can produce a `<materializeRoot>/…` key, and every other prefix is a
+ * one that can produce a `<materializePrefix>/…` key, and every other prefix is a
  * distinct real directory, two scopes cannot mint the same key — there is no
  * ordering, no "if already taken", and no last-write-wins to get wrong.
  * {@link assertDistinctScopeKeys} is the LOUD backstop for a future
- * `PluginLayout` that breaks the premise (e.g. one naming `.claude` as BOTH its
- * `materializeRoot` and a second scope's base).
+ * `PluginLayout` that breaks the premise (e.g. one naming `.claude` as BOTH the
+ * materialize prefix and a second scope's base).
+ *
+ * ⚠️ HALF OF WHAT IT GUARDED IS NOW UNREPRESENTABLE. The premise used to have
+ * two ways to break: a declared root colliding with the prefix, and a layout
+ * whose `materializeRoot` differed from its `userSurfaceRoot` at all. The second
+ * field is gone — the prefix IS `userSurfaceRoot ?? ""` — so only the first
+ * remains, and this backstop is kept for it.
  */
 export function surfaceSource(
   layout: PluginLayout,
   probe: SurfaceProbe,
 ): SurfaceSource {
-  if (layout.skillDir && probe.hasRootSkillFile) {
-    return { kind: "single-skill", skillName: probe.skillName };
+  const skillDir = layout.surfaces.skill;
+  if (skillDir !== undefined && probe.hasRootSkillFile) {
+    return { kind: "single-skill", skillName: probe.skillName, skillDir };
   }
   const scopes: SurfaceScope[] = [];
   if (layout.userSurfaceRoot !== undefined && probe.userHasLoadable) {
     scopes.push({
       base: layout.userSurfaceRoot,
-      materializeUnder: layout.materializeRoot,
+      materializeUnder: materializePrefix(layout),
       label: "project",
     });
   }
   if (probe.rootHasLoadable || probe.isPluginShaped) {
     scopes.push({
       base: "",
-      materializeUnder: scopes.length === 0 ? layout.materializeRoot : "",
+      materializeUnder: scopes.length === 0 ? materializePrefix(layout) : "",
       label: "plugin",
     });
   }
@@ -170,7 +194,7 @@ export function surfaceSource(
   if (scopes.length === 0 && layout.userSurfaceRoot !== undefined) {
     scopes.push({
       base: layout.userSurfaceRoot,
-      materializeUnder: layout.materializeRoot,
+      materializeUnder: materializePrefix(layout),
       label: "project",
     });
   }
@@ -179,7 +203,7 @@ export function surfaceSource(
   // declaration says WHERE, the layout still says what a surface is and how it
   // is read. A root already serving as a scope's base is skipped (declaring
   // `.claude` to Claude Code is a no-op, not a second reading of one tree), and
-  // so is one equal to `materializeRoot` — that key belongs to the scope holding
+  // so is one equal to the materialize prefix — that key belongs to the scope holding
   // it, and two scopes minting one prefix is what {@link assertDistinctScopeKeys}
   // exists to refuse. Each keeps its OWN base as the key prefix, like a non-first
   // plugin scope, so nothing is relocated on top of anything.
@@ -193,7 +217,7 @@ export function surfaceSource(
   // `plugin-loader.test.ts` ("an EMPTY declared root does not cancel the project
   // scope"), which asserts the full key list both before and after filling it.
   for (const base of probe.declaredRoots ?? []) {
-    if (base === layout.materializeRoot) continue;
+    if (base === materializePrefix(layout)) continue;
     if (scopes.some((sc) => sc.base === base)) continue;
     scopes.push({
       base,

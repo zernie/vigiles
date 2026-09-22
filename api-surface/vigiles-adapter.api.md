@@ -7,13 +7,42 @@
 // @public
 export interface AdapterCapabilities {
     readonly harnessTesting: boolean;
-    readonly referenceVerification: true;
     readonly shellHooks: boolean;
     readonly subagents: boolean;
 }
 
 // @public
-export const ADAPTERS: readonly HarnessAdapter[];
+export const ADAPTERS: readonly [{
+    readonly name: "claude-code";
+    readonly harnessTesting: true;
+    readonly shellHooks: true;
+    readonly subagents: true;
+    readonly dialect: HarnessDialect;
+    readonly layout: PluginLayout;
+    readonly runtime: HarnessRuntime;
+    readonly hookProtocol: HookProtocol;
+    readonly modelMock: ModelMock;
+    readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    readonly liveDriver: () => Promise<HarnessLiveDriver>;
+    readonly claims: (path: string) => boolean;
+    readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
+    readonly advisories: (read: InstallReader) => readonly string[];
+}, {
+    readonly name: "codex";
+    readonly harnessTesting: true;
+    readonly shellHooks: true;
+    readonly subagents: false;
+    readonly dialect: HarnessDialect;
+    readonly layout: PluginLayout;
+    readonly runtime: HarnessRuntime;
+    readonly hookProtocol: HookProtocol;
+    readonly modelMock: ModelMock;
+    readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    readonly liveDriver: () => Promise<HarnessLiveDriver>;
+    readonly claims: (path: string) => boolean;
+    readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
+    readonly advisories: () => readonly string[];
+}];
 
 // @public
 export function assertAdapterConformance(adapter: HarnessAdapter): void;
@@ -56,21 +85,16 @@ export interface DetectResult {
 }
 
 // @public
+export const EMPTY_CHAIN: InstructionChain;
+
+// @public
+export function executableSourceDirs(layout: PluginLayout): readonly string[];
+
+// @public
 export function getAdapter(name: string): HarnessAdapter | undefined;
 
-// @public (undocumented)
-export interface HarnessAdapter {
-    readonly capabilities: AdapterCapabilities;
-    claims(path: string): boolean;
-    detect(root: string): number;
-    readonly dialect: HarnessDialect;
-    readonly harnessTestDriver?: () => Promise<HarnessTestDriver>;
-    readonly hookProtocol?: HookProtocol;
-    readonly layout: PluginLayout;
-    readonly modelMock?: ModelMock;
-    readonly name: string;
-    readonly runtime?: HarnessRuntime;
-}
+// @public
+export type HarnessAdapter = AdapterBase & TestingPorts & ShellHookPorts;
 
 // @public (undocumented)
 export interface HarnessDialect {
@@ -90,9 +114,12 @@ export interface HarnessDialect {
     readonly permissionDecisionHookEvents?: readonly string[];
     readonly pluginRootToken: string;
     readonly sideEffectingTools?: readonly string[];
-    readonly skillFrontmatter: SkillFrontmatterProfile;
+    readonly skillFrontmatterKeys: readonly string[];
     readonly subagentToolVocabulary?: HarnessVocabulary;
 }
+
+// @public
+export type HarnessName = (typeof ADAPTERS)[number]["name"];
 
 // @public
 export interface HarnessRuntime {
@@ -118,11 +145,66 @@ export interface HookProtocol {
     // @deprecated
     readonly injectableEvents: readonly string[];
     readonly matcherStyle?: "exact" | "regex";
+    mergeRegistrations(existing: Record<string, unknown>, compiled: Readonly<Record<string, readonly unknown[]>>, managedBy: string): Record<string, unknown>;
     readonly name: string;
+    registration(on: string, matcher: string | undefined, command: string): {
+        readonly hooks: Readonly<Record<string, readonly unknown[]>>;
+    };
+}
+
+// @public (undocumented)
+export interface InstructionChain {
+    readonly imports: readonly NamedImport[];
+    readonly loaded: readonly LoadedInstruction[];
+    readonly patterns: readonly PatternFrom[];
+    readonly redirects: readonly {
+        readonly path: string;
+        readonly to: readonly string[];
+    }[];
+    readonly unloaded: readonly UnloadedInstruction[];
 }
 
 // @public
+export type InstructionRole =
+/** The committed team file at a directory's root (`CLAUDE.md`, `AGENTS.md`). */
+"root"
+/**
+* One machine's file beside it (`CLAUDE.local.md`). NOT Codex's
+* `AGENTS.override.md`: the vendor documents that as the directory's
+* first-priority instruction file, and only its global copy as temporary.
+*/
+| "root-local"
+/** A file under {@link PluginLayout.rulesDir}. */
+| "rule"
+/** A repo-configured alternate name (Codex `project_doc_fallback_filenames`). */
+| "fallback"
+/** Reached through an `@path` token in a loaded file, not by location. */
+| "import";
+
+// @public
+export type InstructionScope = "repo" | "local";
+
+// @public
+export const jsonSettingsCodec: SettingsCodec;
+
+// @public
 export function layoutClaims(layout: PluginLayout, path: string): boolean;
+
+// @public
+export interface LoadedInstruction {
+    readonly path: string;
+    // (undocumented)
+    readonly role: InstructionRole;
+    // (undocumented)
+    readonly scope: InstructionScope;
+    readonly via?: {
+        readonly from: string;
+        readonly token: string;
+    };
+}
+
+// @public
+export function materializePrefix(layout: PluginLayout): string;
 
 // @public
 export interface ModelMock {
@@ -133,29 +215,132 @@ export interface ModelMock {
 }
 
 // @public
+export interface NamedImport {
+    readonly from: string;
+    readonly path: string;
+    readonly token: string;
+}
+
+// @public
+export type NotLoadedReason =
+/** Another file took this directory's one slot — Codex reads at most one. */
+    {
+    readonly kind: "replaced";
+    readonly by: string;
+}
+/** Loaded only when the agent reads a matching file — never at launch. */
+| {
+    readonly kind: "on-demand";
+    readonly when: "path-scoped" | "subdirectory";
+}
+/**
+* A setting removed it — Claude Code's `claudeMdExcludes`.
+*
+* 🔴 `byScope` FOR THE SAME REASON IT EXISTS ON `superseded` BELOW, and it was
+* missing here while being right there. The patterns from
+* `.claude/settings.json` and from its gitignored `.local` sibling were
+* flattened into one list, so an exclusion nobody else has removed the file
+* from `committedTotal` too. Measured 2026-09-22 on a repo with a 500-char
+* `.claude/rules/policy.md`:
+*
+*   no excludes                      committed=800  effective=800
+*   excluded in settings.json        committed=300  effective=300
+*   excluded in settings.LOCAL.json  committed=300  effective=300  <- wrong
+*
+* The third row is a gitignored file lowering the PUBLISHED score, which is
+* the one thing the two-number contract exists to prevent, and it put the CLI
+* permanently out of agreement with the browser engine that reads a GitHub
+* tree and can never see that file.
+*/
+| {
+    readonly kind: "excluded-by-settings";
+    readonly key: string;
+    readonly by: string;
+    readonly byScope: InstructionScope;
+}
+/**
+* A file of a DIFFERENT instruction family is present, and its presence turns
+* this whole family off — Claude Code reading `AGENTS.md` only when no
+* `CLAUDE.md` counts.
+*
+* 🔴 NOT THE SAME THING AS `replaced`, AND CONFLATING THEM WOULD LOSE THE ONE
+* FACT THAT MATTERS. `replaced` is Codex taking at most ONE file per
+* directory out of a same-named family, so the loser is a near-copy of the
+* winner in the same place. `superseded` is a cross-family switch: the
+* superseding file may sit in a different directory (`.claude/CLAUDE.md`),
+* carries entirely different content, and — the part `replaced` has no room
+* for — MAY NOT BE COMMITTED.
+*
+* 🔴 WHICH IS WHY `byScope` IS A FIELD AND NOT A LOOKUP AT THE PRINT SITE.
+* When the superseding file is `"local"`, a gitignored file has changed the
+* MEMBERSHIP of the load, not just its size: a teammate on the same commit
+* loads this file and this working copy does not. `weighInstructions` reads
+* exactly this field to keep `committedTotal` right in that case — see
+* `WeighedFile.supersededLocallyBy`. A consumer that only knew `by` would
+* have to re-derive the scope from the path, which is the "second list"
+* defect this redesign removes.
+*/
+| {
+    readonly kind: "superseded";
+    readonly by: string;
+    readonly byScope: InstructionScope;
+};
+
+// @public
+export interface PatternFrom {
+    // (undocumented)
+    readonly from: string;
+    // (undocumented)
+    readonly pattern: string;
+}
+
+// @public
 export interface PluginLayout {
-    readonly agentDir: string;
-    readonly commandDir: string;
-    readonly hooksConventionPath: string;
+    readonly hooksConventionPath?: string;
+    readonly hookScriptsDir?: string;
+    instructionChain(files: Readonly<Record<string, string>>): InstructionChain;
     readonly instructionFile: string;
-    readonly intraRefDirs: readonly string[];
     readonly manifestPath: string;
-    readonly materializeRoot: string;
     readonly mcpConfigFile: string;
     readonly mcpManifestKey: string;
     readonly name: string;
     readonly pluginRootToken: string;
     readonly projectRootTokens?: readonly string[];
     readonly rulesDir?: string;
-    readonly settingsFormat: "json" | "toml";
+    readonly settings: SettingsCodec;
+    readonly settingsLocalInfix?: string;
     readonly settingsPath: string;
-    readonly skillDir: string;
-    readonly surfaceDirs: readonly string[];
+    readonly surfaces: SurfaceDirs;
     readonly userSurfaceRoot?: string;
 }
 
 // @public
 export function resolveAdapter(root: string, harness?: string): HarnessAdapter;
+
+// @public (undocumented)
+export interface SettingsCodec {
+    readonly label: string;
+    parse(text: string): Record<string, unknown>;
+    render(value: Record<string, unknown>): string;
+}
+
+// @public
+export type SurfaceDirs = Readonly<Partial<Record<SurfaceKind, string>>>;
+
+// @public
+export function surfaceDirs(layout: PluginLayout): readonly string[];
+
+// @public
+export type SurfaceKind = "skill" | "agent" | "command";
+
+// @public
+export const tomlSettingsCodec: SettingsCodec;
+
+// @public (undocumented)
+export interface UnloadedInstruction extends LoadedInstruction {
+    // (undocumented)
+    readonly reason: NotLoadedReason;
+}
 
 // (No @packageDocumentation comment for this package)
 

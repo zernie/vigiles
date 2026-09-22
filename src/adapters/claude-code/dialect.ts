@@ -87,23 +87,25 @@ export const claudeCodeDialect: HarnessDialect = {
   // budget here costs money and attention — not rules. (Codex is the opposite;
   // see its dialect, and see why `onExceed` is reported at all.)
   //
-  // 🔴 `alwaysLoaded` IS THE POINT, and `.claude/rules/**` is in it on a
-  // MEASUREMENT, not a doc: a consumer repo moved 225 837 characters out of
-  // CLAUDE.md into that directory and the request cost did not move, because
-  // the harness loads it either way. A per-file check would have called that
-  // split a success.
+  // 🔴 WHICH FILES THE SUM IS TAKEN OVER IS NO LONGER A FIELD HERE. It was
+  // `alwaysLoaded: ["CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md",
+  // ".claude/rules/**"]` — globs this dialect wrote and the CORE expanded by
+  // walking the repository, which is the defect zernie/vigiles#262 records.
+  // The set now comes from `claudeCodeLayout.instructionChain`, which can say
+  // what a glob cannot: that a `paths:`-scoped rule loads on demand, and that
+  // `CLAUDE.local.md` is a per-machine file that is read and never SCORED.
+  //
+  // What stays here is the harness's own NUMBER, which is a format fact: the
+  // rules directory counts on a MEASUREMENT, not a doc — a consumer repo moved
+  // 225 837 characters out of CLAUDE.md into it and the request cost did not
+  // move, because the harness loads it either way. A per-file check would have
+  // called that split a success.
   instructionBudget: {
     unit: "chars",
     limit: 40000,
     onExceed: "warns",
     capturedFrom:
-      "claude-code /doctor large-file warning; .claude/rules/** measured 2026-09-16 in a consumer repo",
-    alwaysLoaded: [
-      "CLAUDE.md",
-      "CLAUDE.local.md",
-      ".claude/CLAUDE.md",
-      ".claude/rules/**",
-    ],
+      "claude-code /doctor large-file warning; the rules dir measured 2026-09-16 in a consumer repo",
   },
   // The capability table — what each event CARRIES and HONOURS. Nine of the 31
   // events, each with its basis; see ./event-capability.ts. The three flat lists
@@ -114,16 +116,80 @@ export const claudeCodeDialect: HarnessDialect = {
   // `hookSpecificOutput.permissionDecision:"deny"`; the legacy top-level
   // `decision` field is ignored there.
   permissionDecisionHookEvents: ["PreToolUse"],
-  // Claude Code natively reads CLAUDE.md only — it does NOT auto-load AGENTS.md
-  // (anthropics/claude-code#34235 is open; AGENTS.md works solely via an
-  // `@AGENTS.md` import inside CLAUDE.md or a symlink). AGENTS.md is the
-  // cross-tool standard (Codex's native target), not a CC dialect fact; vigiles's
-  // tool-agnostic recognition of it lives in validate.ts's INSTRUCTION_FILES.
-  instructionTargets: ["CLAUDE.md"],
+  // 🔴 THIS LIST GAINED `AGENTS.md` ON 2026-09-21, REVERSING WHAT STOOD HERE.
+  // The comment it replaces read "Claude Code natively reads CLAUDE.md only — it
+  // does NOT auto-load AGENTS.md (anthropics/claude-code#34235 is open; AGENTS.md
+  // works solely via an `@AGENTS.md` import inside CLAUDE.md or a symlink)".
+  // That is no longer true. Vendor, `https://code.claude.com/docs/en/memory`,
+  // read 2026-09-21:
+  //
+  //   "Claude Code can read `AGENTS.md` as your project instructions, so a
+  //    repository already set up for other coding agents works without adding a
+  //    `CLAUDE.md`, an import, or a setting."
+  //
+  //   "Reading `AGENTS.md` directly requires Claude Code v2.1.277 or later."
+  //
+  // The conditions under which it actually loads are NOT a dialect fact and are
+  // not restated here — they depend on sibling files and on settings, which is
+  // exactly why they live in `./instruction-chain.ts` as a method. This field
+  // answers the narrower question its docblock asks: which filenames does this
+  // harness READ as project instructions.
+  //
+  // 🔴 WHAT CHANGED WHEN `AGENTS.md` WAS ADDED — MEASURED, NOT EXPECTED, AND THE
+  // EXPECTED ANSWER WAS WRONG. The obvious worry is `detect`: a second target
+  // ought to make this adapter score a bare `AGENTS.md` repository and start
+  // fighting Codex for it. It does not, and cannot, because `detect` never reads
+  // this field — it asks the LAYOUT (`claudeCodeLayout.instructionFile`).
+  // Recorded by instrumenting `adapter.detect` with a call-recording predicate,
+  // before and after the edit:
+  //
+  //     detect asked: [".claude-plugin/plugin.json", ".claude/settings.json",
+  //                    "CLAUDE.md"]        — IDENTICAL both ways
+  //     claims("AGENTS.md"): false         — IDENTICAL both ways
+  //
+  // That separation is load-bearing rather than incidental: `claims` is derived
+  // from `layoutLocations`, and `adapter-properties.test.ts` refuses a `detect`
+  // that asks about a path `claims` does not cover. So a Claude Code adapter
+  // that detected on `AGENTS.md` would have to CLAIM it, and two registered
+  // adapters claiming one path is the collision `claims` exists to prevent. The
+  // file stays owned by Codex and merely READ here — which is the same reason
+  // `instruction-chain.ts` keeps `AGENTS.md` as a local constant instead of
+  // putting it on `PluginLayout`.
+  //
+  // THE ONE CONSUMER THAT DID CHANGE is `core/validate.ts:300`
+  // (`recognized = dialect?.instructionTargets ?? INSTRUCTION_FILES`), and the
+  // change fixes a real inconsistency. Measured on an `AGENTS.md` path:
+  //
+  //     before — with the CC dialect injected: []
+  //     before — with NO dialect:              ["require-instructions-spec"]
+  //     after  — either way:                   ["require-instructions-spec"]
+  //
+  // i.e. injecting this dialect used to make vigiles recognise FEWER instruction
+  // files than its own no-dialect default, so an `AGENTS.md` that Claude Code
+  // really does read was linted as if it were an ordinary markdown file. Full
+  // unit suite with this edit alone: 4 failed / 4185 passed — the same four
+  // `spec.test.ts` pylint/rubocop CLI tests that fail on this branch regardless.
+  //
+  // ORDER IS PART OF THE CONTRACT: `instructionTargets[0]` is the default
+  // COMPILE target (`core/compile.ts:792`), and what `vigiles init` writes for
+  // Claude Code is still `CLAUDE.md`. `AGENTS.md` is second because this harness
+  // reads it, not because it authors it. `docs/adapter-api.md` already documented
+  // `["CLAUDE.md","AGENTS.md"]` for this adapter; the code now agrees with it.
+  instructionTargets: ["CLAUDE.md", "AGENTS.md"],
   pluginRootToken: "${CLAUDE_PLUGIN_ROOT}",
-  // Claude Code reads the full SKILL.md frontmatter set (description,
-  // disable-model-invocation, argument-hint, …).
-  skillFrontmatter: "claude-code",
+  // Claude Code reads the full SKILL.md frontmatter set. Spelled out rather than
+  // aliased to the compiler's RENDERABLE_SKILL_FRONTMATTER_KEYS: that constant is
+  // "what vigiles can write", this list is "what Claude Code reads", and a new
+  // renderable key must not silently become a claim about the vendor.
+  skillFrontmatterKeys: [
+    "name",
+    "description",
+    "disable-model-invocation",
+    "context",
+    "argument-hint",
+    "allowed-tools",
+    "disallowed-tools",
+  ],
   // Tools that produce side effects in Claude Code. The complement — the
   // read-only tools — are: Read, Grep, Glob, ToolSearch, LSP, ListAgents,
   // TaskGet, TaskList, CronList. Bash (and PowerShell) are side-effecting

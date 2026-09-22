@@ -41,9 +41,9 @@ runs:
         $SUDO apt-get update
         $SUDO apt-get install -y bubblewrap
         # Pin claude-code to the dialect-validated version (VALIDATED_CC_VERSION
-        # in src/dialect-drift.ts — the single source of truth), so the real-claude
+        # in src/adapters/claude-code/dialect-drift.ts — the single source of truth), so the real-claude
         # tiers stay reproducible across CC releases.
-        CC=$(grep -oP -m1 'VALIDATED_CC_VERSION = "\K[0-9.]+' src/dialect-drift.ts)
+        CC=$(grep -oP -m1 'VALIDATED_CC_VERSION = "\K[0-9.]+' src/adapters/claude-code/dialect-drift.ts)
         [ -n "$CC" ] || { echo "could not read VALIDATED_CC_VERSION"; exit 1; }
         npm i -g "@anthropic-ai/claude-code@$CC"
         $SUDO sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true

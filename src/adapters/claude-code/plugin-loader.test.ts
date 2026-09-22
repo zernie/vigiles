@@ -498,6 +498,71 @@ test("loadPlugin tolerates a malformed plugin.json (does not crash)", () => {
   }
 });
 
+/**
+ * 🔴 THE STANDALONE HOOKS FILE HAD NO MALFORMED CASE, and that gap became
+ * visible only as a coverage number.
+ *
+ * `loadPlugin tolerates a malformed plugin.json` above used to reach
+ * `safeReadJson`'s catch, because `safeReadManifest` ended in `return
+ * safeReadJson(path)` for a JSON layout. The codec refactor (7945515) gave the
+ * manifest read and the settings read each their OWN try/catch, so that test now
+ * lands in `safeReadManifest` and `safeReadJson` was left with one caller —
+ * `readHooksFile` — and no test that made it fail.
+ *
+ * The missing ASSERTION, not the missing line, is the point: nothing said that a
+ * broken `hooks/hooks.json` leaves the rest of the plugin loadable. The two
+ * tests below are the two ways that caller is reached — the convention path, and
+ * a manifest that names a hooks file that is not there.
+ */
+test("loadPlugin tolerates a malformed hooks/hooks.json — no hooks, everything else still loads", () => {
+  const root = makeTmpDir("badhooksfile");
+  try {
+    mkdirSync(join(root, ".claude-plugin"), { recursive: true });
+    mkdirSync(join(root, "hooks"), { recursive: true });
+    mkdirSync(join(root, "skills", "rca"), { recursive: true });
+    writeFileSync(
+      join(root, ".claude-plugin", "plugin.json"),
+      JSON.stringify({ name: "p", version: "0.1.0", description: "x" }),
+    );
+    writeFileSync(join(root, "CLAUDE.md"), "# x\n");
+    writeFileSync(
+      join(root, "skills", "rca", "SKILL.md"),
+      "---\nname: rca\ndescription: Investigate an incident\n---\n# rca\n",
+    );
+    writeFileSync(join(root, "hooks", "hooks.json"), "{ not json");
+
+    const loaded = loadPlugin(root);
+    assert.deepEqual(loaded.settings, {});
+    assert.equal(loaded.files["CLAUDE.md"], "# x\n");
+    assert.ok(loaded.files[".claude/skills/rca/SKILL.md"] !== undefined);
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
+test("loadPlugin tolerates a manifest naming a hooks file that does not exist", () => {
+  const root = makeTmpDir("missinghooksfile");
+  try {
+    mkdirSync(join(root, ".claude-plugin"), { recursive: true });
+    writeFileSync(
+      join(root, ".claude-plugin", "plugin.json"),
+      JSON.stringify({
+        name: "p",
+        version: "0.1.0",
+        description: "x",
+        hooks: "./hooks/gone.json",
+      }),
+    );
+    writeFileSync(join(root, "CLAUDE.md"), "# x\n");
+
+    const loaded = loadPlugin(root);
+    assert.deepEqual(loaded.settings, {});
+    assert.equal(loaded.files["CLAUDE.md"], "# x\n");
+  } finally {
+    cleanupTmpDir(root);
+  }
+});
+
 test("a fully-covered plugin (hooks + CLAUDE.md + skills) has no warnings", () => {
   const root = makePlugin();
   try {
@@ -620,7 +685,12 @@ test("loadPlugin THROWS on a layout whose scopes would collide, rather than drop
     mkdirSync(join(root, ".claude", "skills", "b"), { recursive: true });
     writeFileSync(join(root, ".claude", "skills", "b", "SKILL.md"), "# b\n");
     assert.throws(
-      () => loadPlugin(root, { ...claudeCodeLayout, materializeRoot: "" }),
+      // Was `{ ...claudeCodeLayout, materializeRoot: "" }` — a layout whose
+      // materialize root disagreed with its `userSurfaceRoot`. That state has
+      // no field to live in any more; `userSurfaceRoot: ""` is the remaining
+      // way to make both scopes mint the same prefix (present, so the project
+      // scope exists; empty, so it does not relocate).
+      () => loadPlugin(root, { ...claudeCodeLayout, userSurfaceRoot: "" }),
       /silently shadow/,
     );
   } finally {

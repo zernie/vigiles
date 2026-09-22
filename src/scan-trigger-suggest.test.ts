@@ -2,40 +2,17 @@
  * audit read-vs-run decision tests — the pure `decideExecute` that makes a plain
  * `audit` a deterministic READ and gates ALL execution (safety battery + live MCP
  * + trigger-rate) behind one consent: ask at a TTY (remembered), `--measure` is
- * the headless yes, headless stays a read + a loud nudge. Plus the model-access
- * helpers (disclosure wording) and the prompts scaffold.
+ * the headless yes, headless stays a read + a loud nudge. Plus the prompts
+ * scaffold. The model-access helpers moved out with the Claude Code env vars
+ * they read — `src/adapters/claude-code/model-access.test.ts`.
  */
 import { describe, it, expect } from "vitest";
 import {
-  hasModelAccess,
-  isMeteredAccess,
   decideExecute,
   formatExecuteSkip,
   scaffoldTriggerPrompts,
   type ExecuteEnv,
 } from "./scan-trigger-suggest.js";
-
-describe("hasModelAccess", () => {
-  it("true for a metered API key", () => {
-    expect(hasModelAccess({ ANTHROPIC_API_KEY: "sk-x" })).toBe(true);
-  });
-  it("true inside an authenticated Claude Code session (no key)", () => {
-    expect(hasModelAccess({ CLAUDECODE: "1" })).toBe(true);
-    expect(hasModelAccess({ CLAUDE_CODE_ENTRYPOINT: "remote" })).toBe(true);
-  });
-  it("false with nothing set", () => {
-    expect(hasModelAccess({})).toBe(false);
-    expect(hasModelAccess({ CLAUDECODE: "0" })).toBe(false);
-  });
-});
-
-describe("isMeteredAccess", () => {
-  it("metered iff a paid API key is set (subscription is not metered)", () => {
-    expect(isMeteredAccess({ ANTHROPIC_API_KEY: "sk-x" })).toBe(true);
-    expect(isMeteredAccess({ CLAUDECODE: "1" })).toBe(false);
-    expect(isMeteredAccess({})).toBe(false);
-  });
-});
 
 describe("decideExecute", () => {
   // The default: an interactive human, something executable present, no sticky.

@@ -21,6 +21,7 @@ import { join, resolve } from "node:path";
 
 import { findUntestedSurfaces } from "./test-coverage.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 
 // __dirname is src/ (vitest) or dist/ (built) — both one level under the root.
 const ROOT = resolve(__dirname, "..");
@@ -47,7 +48,10 @@ test("the BEHAVIOUR: a colocated `foo.test.mjs` does not cover, `foo.harness.mjs
   write(dir, "skills/foo/SKILL.md", SKILL);
   write(dir, "skills/foo/foo.test.mjs", "// followed the pre-15.x advice\n");
   assert.deepEqual(
-    findUntestedSurfaces({ basePath: dir }).untested.map((s) => s.path),
+    findUntestedSurfaces({
+      layout: claudeCodeLayout,
+      basePath: dir,
+    }).untested.map((s) => s.path),
     ["skills/foo/SKILL.md"],
     "`*.test.*` must NOT count — this is the documented breaking change",
   );
@@ -55,7 +59,10 @@ test("the BEHAVIOUR: a colocated `foo.test.mjs` does not cover, `foo.harness.mjs
   // …and the migration the docs prescribe actually works: a rename, nothing else.
   write(dir, "skills/foo/foo.harness.mjs", "// same file, renamed\n");
   assert.deepEqual(
-    findUntestedSurfaces({ basePath: dir }).untested.map((s) => s.path),
+    findUntestedSurfaces({
+      layout: claudeCodeLayout,
+      basePath: dir,
+    }).untested.map((s) => s.path),
     [],
     "the rename the migration note prescribes must restore the credit",
   );

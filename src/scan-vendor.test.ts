@@ -20,6 +20,8 @@ import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { scanPlugin, type ScanReport } from "./scan.js";
+import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
+import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 
 // __dirname is dist/ at runtime; the vendored plugins live at the repo root.
 const VENDOR = resolve(__dirname, "..", "test/dogfood");
@@ -63,7 +65,9 @@ for (const prefix of [
   "superpowers",
 ]) {
   test(`FP-guard: no high-precision rule fires on ${prefix}`, () => {
-    const findings = ruleFindings(scanPlugin(vendored(prefix)));
+    const findings = ruleFindings(
+      scanPlugin(vendored(prefix), claudeCodeLayout, claudeCodeDialect),
+    );
     for (const [rule, n] of Object.entries(findings)) {
       assert.equal(
         n,
@@ -77,7 +81,11 @@ for (const prefix of [
 // TRUE-POSITIVE — the bug fixture (MIT; see test/dogfood/README.md) reproduces THREE
 // real defects: tool-contract, frontmatter-valid, AND a hard lethal-trifecta.
 test("true-positive: madappgang-frontend tester reproduces AskUserQuestion + malformed YAML + lethal-trifecta", () => {
-  const r = scanPlugin(vendored("madappgang-frontend"));
+  const r = scanPlugin(
+    vendored("madappgang-frontend"),
+    claudeCodeLayout,
+    claudeCodeDialect,
+  );
 
   const tester = r.agents.find((a) => a.name === "tester");
   assert.ok(tester, "the tester agent should load");
@@ -111,7 +119,11 @@ test("true-positive: madappgang-frontend tester reproduces AskUserQuestion + mal
 // skill clean while naming a file it had not read. Upstream had 50 such pairs and
 // every one of them differed.
 test("true-positive: claude-octopus flow-define exists in BOTH scopes, and the .claude copy's YAML is broken", () => {
-  const r = scanPlugin(vendored("claude-octopus"));
+  const r = scanPlugin(
+    vendored("claude-octopus"),
+    claudeCodeLayout,
+    claudeCodeDialect,
+  );
 
   assert.deepEqual(
     r.skills.map((sk) => sk.path).sort(),
@@ -137,7 +149,11 @@ test("true-positive: claude-octopus flow-define exists in BOTH scopes, and the .
 // deterministically separable, and flagging would cry wolf on every nudge/lint
 // hook (incl. vigiles's own refs-nudge.sh). See test/dogfood/README.md.
 test("calibration: davila7 PostToolUse exit-2 hook is NOT flagged (feedback, not a failed block)", () => {
-  const r = scanPlugin(vendored("davila7-perf-guard"));
+  const r = scanPlugin(
+    vendored("davila7-perf-guard"),
+    claudeCodeLayout,
+    claudeCodeDialect,
+  );
   assert.deepEqual(
     r.hookBlockFindings,
     [],
@@ -171,7 +187,7 @@ for (const prefix of [
   "davila7-perf-guard",
 ]) {
   test(`FP-guard: no foreign-runner or empty-fence finding on ${prefix}`, () => {
-    const r = scanPlugin(vendored(prefix));
+    const r = scanPlugin(vendored(prefix), claudeCodeLayout, claudeCodeDialect);
     assert.deepEqual(
       r.warnings.filter((w) => w.includes("COLLECTS AND EXECUTES")),
       [],

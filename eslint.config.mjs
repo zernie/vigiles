@@ -5,8 +5,32 @@ import sonarjs from "eslint-plugin-sonarjs";
 import boundaries from "eslint-plugin-boundaries";
 import globals from "globals";
 
+import { readdirSync } from "node:fs";
+
 import experimentalName from "./eslint-rules/experimental-name.mjs";
 import noHarnessNames from "./eslint-rules/no-harness-names.mjs";
+
+/**
+ * The harness names `local/no-harness-names` forbids, READ FROM THE ADAPTER
+ * DIRECTORY rather than written out here.
+ *
+ * 🔴 THE LIST USED TO LIVE IN THE RULE, as `DEFAULT_NAMES = ["claude-code",
+ * "codex", "opencode"]`, and a hand-written list of what exists is exactly the
+ * defect the port redesign is removing everywhere else: a new adapter would have
+ * left the rule silent for its name until somebody remembered this file. Reading
+ * the directory makes registering an adapter turn the rule on for it.
+ *
+ * ⚠️ THE ASSUMPTION IS THAT A DIRECTORY IS NAMED AFTER ITS ADAPTER, and it is
+ * checked — but by `adapter-contract.test.ts` ("every implementation's directory
+ * is named after it"), which runs under vitest and not under eslint. So a
+ * mis-named directory leaves the rule silent for that name until the test runs.
+ * Named rather than hidden; the alternative (importing the registry into the
+ * eslint config) would make linting depend on a TypeScript build.
+ */
+const HARNESS_NAMES = readdirSync("src/adapters", { withFileTypes: true })
+  .filter((e) => e.isDirectory())
+  .map((e) => e.name)
+  .sort();
 
 // The repo's own rules. Two members — see each rule's header for why it is a rule
 // and not something else. `experimental-name` replaced a standalone script that
@@ -64,7 +88,72 @@ const HARNESS_AGNOSTIC_DETECTORS = [
   "src/scan.ts",
   "src/test-coverage.ts",
   "src/plugin-loader.ts",
+  // Added 2026-09-22 with the #263 names half. This module is named for the
+  // harness-AGNOSTIC read-vs-run decision and held `hasModelAccess`, whose whole
+  // body was `ANTHROPIC_API_KEY` / `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT`. Now
+  // that the predicate lives in the Claude Code adapter and every harness
+  // answers through `HarnessLiveDriver.access`, this file holds zero `ANTHROPIC_`
+  // tokens — and the fence is what stops it being re-declared here.
+  "src/scan-trigger-suggest.ts",
 ];
+/**
+ * Where a harness NAME literal (`"claude-code"`, `"codex"`, `"opencode"`) is an
+ * error — a SUPERSET of the detectors above, and deliberately a separate list.
+ *
+ * 🔴 IT CANNOT BE THE SAME LIST. `HARNESS_AGNOSTIC_DETECTORS` also drives the
+ * CC_LITERAL fence (`.claude`, `ANTHROPIC_`, `CLAUDE_PLUGIN_ROOT`), which
+ * `src/scan-behavioral.ts` would trip on its Claude Code import paths while
+ * being perfectly entitled to them — it is the application layer that drives a
+ * real harness binary. Two fences, two sets.
+ *
+ * Added 2026-09-22 with the #263 names half, which emptied this file of
+ * name-driven behaviour: `scan-behavioral.ts` went from nine harness literals to
+ * three, and all three are now IMPORT PATHS rather than decisions. The rule is
+ * what stops a fourth coming back as a decision.
+ *
+ * ⚠️ `src/cli-main.ts` IS DELIBERATELY NOT HERE, AND THAT IS A MEASUREMENT, NOT
+ * AN OVERSIGHT. The design for this stage listed it with "5 disables, under the
+ * rule's own precedent of eleven". Measured on the finished tree it is
+ * EIGHTEEN, seventeen of them against sanctioned code: four Claude Code import
+ * paths (248, 258, 278, 290) and thirteen `init` onboarding sites, including
+ * user-facing prose like `"Codex / GitHub Copilot"` (3809, 4476). That is
+ * exactly the shape this rule's own header rejects — "a rule that opens with
+ * findings against sanctioned code is switched off the same day, not fixed" —
+ * so the property is held over `cli-main.ts` by the narrower fence below, which
+ * measures TWO findings instead of eighteen.
+ */
+const HARNESS_NAME_FENCE = [
+  ...HARNESS_AGNOSTIC_DETECTORS,
+  "src/scan-behavioral.ts",
+];
+
+/**
+ * The same invariant over `src/cli-main.ts`, narrowed from "may not SPELL a
+ * harness" to "may not DECIDE by one" — because in the composition root the
+ * first is false (its `init` path installs vigiles's plugin into a named
+ * harness and prints that harness's name to a human) and the second is the
+ * thing #263 removed.
+ *
+ * 🔴 THE NAMES ARE IN THE PATTERN, and that is what makes this usable at
+ * `error`. The redesign measured a name-FREE version of this selector
+ * (`.name === <any Literal>`) and rejected it: of its findings, two were
+ * `harness === ""` — false positives at error level. A literal that must BE a
+ * harness name cannot match `""`. It also drops the
+ * `MemberExpression[property.name="name"]` receiver, closing the other hole the
+ * redesign named (§8.4): a comparison made through a differently-named variable.
+ *
+ * Measured over all of `src/**` non-test on the finished tree: TWO findings,
+ * both in `cli-main.ts`, each disabled at its line with its reason.
+ */
+const HARNESS_DECISION_SELECTOR = {
+  selector: `BinaryExpression[operator=/^[!=]==$/] > Literal[value=/^(${HARNESS_NAMES.join("|")})$/]`,
+  message:
+    "Do not DECIDE by harness name in the CLI. Read the fact off the adapter — " +
+    "a port method, a capability field, or a tagged union on one of its " +
+    "drivers. If this really is the composition root's own UI (init " +
+    "onboarding) or a measurement status with no port behind it yet, disable " +
+    "this line and say which, in a comment.",
+};
 const CC_LITERAL_RE = "CLAUDE_PLUGIN_ROOT|\\.claude|ANTHROPIC_";
 const CC_LITERAL_MSG =
   "Harness-agnostic code must not hard-code a Claude Code literal " +
@@ -294,11 +383,32 @@ export default [
   // type alias — `SkillFrontmatterProfile = "claude-code" | "minimal"` — whose
   // name then propagates into every signature that mentions it.
   {
-    files: HARNESS_AGNOSTIC_DETECTORS,
+    files: HARNESS_NAME_FENCE,
     ignores: ["src/**/*.test.ts"],
     plugins: { local },
-    rules: { "local/no-harness-names": "error" },
+    rules: {
+      "local/no-harness-names": ["error", { names: HARNESS_NAMES }],
+    },
   },
+  // The same invariant over `src/cli-main.ts`, narrowed from "may not SPELL a
+  // harness" to "may not DECIDE by one" — because in the composition root the
+  // first is false (its `init` path installs vigiles's plugin into a named
+  // harness and prints that harness's name to a human) and the second is the
+  // thing #263 removed.
+  //
+  // 🔴 THE NAMES ARE IN THE PATTERN, and that is what makes this usable at
+  // `error`. The redesign measured a name-FREE version of this selector
+  // (`.name === <any Literal>`) and rejected it: 46 findings over the detectors,
+  // of which two were `harness === ""` — false positives at error level. A
+  // literal that must BE a harness name cannot match `""`. It also drops the
+  // `MemberExpression[property.name="name"]` receiver, closing the other hole
+  // the redesign named: a comparison through a differently-named variable.
+  //
+  // Measured over all of `src/**` non-test on the finished tree: TWO findings,
+  // both in this file, both disabled below with their reason — `shortHarness`
+  // (the canonical→short mapping `init` keys on) and the one application-layer
+  // name-check §2/§6 of the design keeps on purpose.
+
   // The identifier half, CORE ONLY — because that is where it turns on silent.
   // Measured, non-test: `src/core/**` has 0 identifier hits, while `src/scan.ts`
   // (6) and `src/test-coverage.ts` (2) hold `claudeCodeLayout`/`claudeCodeDialect`.
@@ -316,7 +426,12 @@ export default [
     files: ["src/core/**/*.ts"],
     ignores: ["src/**/*.test.ts"],
     plugins: { local },
-    rules: { "local/no-harness-names": ["error", { identifiers: true }] },
+    rules: {
+      "local/no-harness-names": [
+        "error",
+        { names: HARNESS_NAMES, identifiers: true },
+      ],
+    },
   },
   // No barrel imports: internal modules must import the LEAF that defines a
   // symbol, never the package's own public barrel entry points (the
@@ -418,6 +533,8 @@ export default [
       "no-restricted-syntax": [
         "error",
         ...DISCOVERY_SELECTORS,
+        // #263: the CLI reads harness facts off the adapter, never off its name.
+        HARNESS_DECISION_SELECTOR,
         {
           selector: 'CallExpression[callee.name="readdirSync"]',
           message:

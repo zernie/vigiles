@@ -71,7 +71,7 @@ export interface CompileHookOptions {
     readonly gateCommand?: string;
     readonly hookProtocol?: HookProtocol;
     readonly registeredProviders?: readonly string[];
-    readonly settingsFormat?: "json" | "toml";
+    readonly settings?: SettingsCodec;
 }
 
 // @public

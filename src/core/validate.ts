@@ -20,6 +20,7 @@ import { cosmiconfigSync } from "cosmiconfig";
 // sources — it failed every suite that touches `loadConfig`. A deferral that
 // only works in one of the two worlds the code runs in is not one line of
 // hygiene, it is a second module system.
+import { DEFAULT_INSTRUCTION_TARGETS } from "./dialect.js";
 import {
   vigilesConfigSchema,
   formatConfigIssues,
@@ -79,7 +80,12 @@ const CHECKBOX_RE = /^- \[([ xX])\]\s+(.+)$/;
 // The instruction filenames vigiles recognizes when no dialect is injected — a
 // validator-level default, not a harness dialect (the concrete dialects live in
 // the adapters; an injected ValidateOptions.dialect overrides this).
-const INSTRUCTION_FILES: readonly string[] = ["CLAUDE.md", "AGENTS.md"];
+//
+// 🔴 READ FROM `core/dialect.ts`, NOT RESTATED HERE, and NOT derived from the
+// adapter registry: `core ⊄ adapter`. The header on
+// `DEFAULT_INSTRUCTION_TARGETS` carries the measurement behind that refusal and
+// names the test that keeps this list and the registry in agreement instead.
+const INSTRUCTION_FILES: readonly string[] = DEFAULT_INSTRUCTION_TARGETS;
 
 // The default instruction file to validate when no config names one.
 const DEFAULT_FILES: string[] = [INSTRUCTION_FILES[0]];
@@ -178,7 +184,17 @@ export function loadConfig(
   const problems: string[] = [];
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const present = REPLACED_KEYS.filter((k) => k.key in raw);
-    if (present.length > 0) problems.push(replacedKeyMessage(present));
+    if (present.length > 0) {
+      // The names the user's OWN removed `harness` key held, so the worked
+      // example in the message shows their migration rather than a fixed pair
+      // of names spelled into the core. A non-string entry is dropped: this is
+      // a config we have already refused, so the message must survive garbage.
+      const legacy: unknown = (raw as Record<string, unknown>).harness;
+      const names = (
+        Array.isArray(legacy) ? legacy : legacy === undefined ? [] : [legacy]
+      ).filter((n): n is string => typeof n === "string" && n.length > 0);
+      problems.push(replacedKeyMessage(present, names));
+    }
   }
   if (problems.length === 0) {
     const parsed = vigilesConfigSchema.safeParse(raw);

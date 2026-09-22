@@ -10,10 +10,7 @@
  * emit the Claude-Code shape until the format-axis renderers land
  * (`research/code-adapter-architecture.md`). Pillar 2 (harness testing) is full.
  */
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
-import type { HarnessAdapter } from "../../core/adapter.js";
+import type { DetectSignal, HarnessAdapter } from "../../core/adapter.js";
 import { codexDialect } from "./dialect.js";
 import { codexLayout } from "./layout.js";
 import { layoutClaims } from "../../core/surface-discovery.js";
@@ -21,34 +18,50 @@ import { codexRuntime } from "./runtime.js";
 import { codexHookProtocol } from "./hook-protocol.js";
 import { codexModelMock } from "./model-mock.js";
 
-export const codexAdapter: HarnessAdapter = {
+export const codexAdapter = {
   name: "codex",
   // Full convergence with Claude Code: mockable (Responses SSE) + shell hooks
   // with veto (permissionDecision/exit 2). Both pillars, all tiers.
-  capabilities: {
-    referenceVerification: true,
-    harnessTesting: true,
-    shellHooks: true,
-    // Codex `[agents]` is a concurrency table, not a subagent tool-contract file
-    // — the subagent-surface rules report n/a here (a deliberate non-goal).
-    subagents: false,
-  },
+  harnessTesting: true,
+  shellHooks: true,
+  // Codex `[agents]` is a concurrency table, not a subagent tool-contract file
+  // — the subagent-surface rules report n/a here (a deliberate non-goal).
+  subagents: false,
   dialect: codexDialect,
   layout: codexLayout,
   runtime: codexRuntime,
   hookProtocol: codexHookProtocol,
   modelMock: codexModelMock,
   harnessTestDriver: async () => (await import("./driver.js")).codexDriver,
+  liveDriver: async () => (await import("./eval.js")).codexLiveDriver,
   // Derived from the layout, never listed again here — see `claims` on
   // `HarnessAdapter` for why this method takes a PATH and not a root.
   claims(path: string): boolean {
     return layoutClaims(codexLayout, path);
   },
-  detect(root: string): number {
+  detect(exists: (repoRelative: string) => boolean): DetectSignal {
     // A `.codex/config.toml` is a strong signal; a bare AGENTS.md is weak (many
-    // harnesses read it). (Unused while unregistered — kept for symmetry.)
-    if (existsSync(join(root, ".codex", "config.toml"))) return 3;
-    if (existsSync(join(root, codexLayout.instructionFile))) return 1;
-    return 0;
+    // harnesses read it). The manifest path IS `.codex/config.toml` — asked for
+    // by the layout field rather than respelled, so a layout that moves takes
+    // its detection with it (the path used to be typed out here as
+    // `join(root, ".codex", "config.toml")`).
+    if (exists(codexLayout.manifestPath))
+      return { specificity: 3, via: "manifest" };
+    if (exists(codexLayout.instructionFile))
+      return { specificity: 1, via: "instruction-file" };
+    return { specificity: 0, via: "instruction-file" };
   },
-};
+  /**
+   * Nothing to say about a Codex install today, and `[]` IS the answer rather
+   * than a missing capability: the CLI prints whatever it is given, so an empty
+   * list produces exactly the silence a `localAdvisories: false` flag would
+   * have bought, without a second fact to keep in step with this method.
+   *
+   * What would go here: anything about THIS machine's `codex` install that bears
+   * on how far the report can be trusted — a vendor version whose tool catalog
+   * has drifted from ours, or a config the agent cannot read from this repo.
+   */
+  advisories(): readonly string[] {
+    return [];
+  },
+} as const satisfies HarnessAdapter;

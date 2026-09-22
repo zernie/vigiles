@@ -126,9 +126,11 @@ function targetName(target: string): string {
 /**
  * Detect whether `CLAUDE.md` and `AGENTS.md` at `root` are ONE artifact, not two
  * — a symlink in either direction (`ln -s CLAUDE.md AGENTS.md`) or byte-identical
- * content (a sync tool keeping them in lockstep). Claude Code reads CLAUDE.md
- * only ([anthropics/claude-code#34235]); users bridge to the AGENTS.md tools this
- * way (see `research/sync-tool-compatibility.md` requirement 7). When mirrored,
+ * content (a sync tool keeping them in lockstep). The idiom predates Claude Code
+ * reading `AGENTS.md` natively ([anthropics/claude-code#34235], reversed in
+ * v2.1.277) and outlives it, because a repo with BOTH files loads only the
+ * `CLAUDE.md` — so the mirror is still how one text reaches both toolchains (see
+ * `research/sync-tool-compatibility.md` requirement 7). When mirrored,
  * vigiles must treat them as the same file — hash + `require-instructions-spec` run once on the
  * real one, and the mirror is never flagged as a second, spec-less instruction
  * file. Returns null when one is absent, or both exist but genuinely differ.

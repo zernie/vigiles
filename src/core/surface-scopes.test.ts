@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { claudeCodeLayout } from "../adapters/claude-code/layout.js";
 import { codexLayout } from "../adapters/codex/layout.js";
 import { opencodeLayout } from "../adapters/opencode/layout.js";
-import type { PluginLayout } from "./layout.js";
+import { materializePrefix, type PluginLayout } from "./layout.js";
 import {
   assertDistinctScopeKeys,
   multiScopeWarning,
@@ -102,7 +102,14 @@ test("a root SKILL.md still wins outright (single-skill target)", () => {
     skillName: "solo",
     userHasLoadable: true,
   });
-  assert.deepEqual(s, { kind: "single-skill", skillName: "solo" });
+  // The variant CARRIES the skill dir, because only a layout that has one can
+  // produce it. Both engines used to re-read it and guard an `undefined` case
+  // that nothing could reach — two dead returns they had to keep identical.
+  assert.deepEqual(s, {
+    kind: "single-skill",
+    skillName: "solo",
+    skillDir: claudeCodeLayout.surfaces.skill,
+  });
 });
 
 test("a layout without a user surface root yields at most the root scope", () => {
@@ -111,7 +118,11 @@ test("a layout without a user surface root yields at most the root scope", () =>
   for (const layout of [codexLayout, opencodeLayout]) {
     assert.equal(layout.userSurfaceRoot, undefined, layout.name);
     assert.deepEqual(scopesOf({ rootHasLoadable: true }, layout), [
-      { base: "", materializeUnder: layout.materializeRoot, label: "plugin" },
+      {
+        base: "",
+        materializeUnder: materializePrefix(layout),
+        label: "plugin",
+      },
     ]);
     assert.deepEqual(scopesOf({}, layout), []);
   }
@@ -144,10 +155,22 @@ test("assertDistinctScopeKeys THROWS when two scopes would share a prefix", () =
   }, /silently shadow/);
 });
 
-test("a layout naming its materializeRoot as a SECOND scope base is caught", () => {
-  // Constructed against the real decision function, not a hand-built list: a
-  // layout whose `materializeRoot` is empty makes both scopes mint "" prefixes.
-  const bad: PluginLayout = { ...claudeCodeLayout, materializeRoot: "" };
+test("a layout whose user root mints the same prefix as the plugin scope is caught", () => {
+  // Constructed against the real decision function, not a hand-built list.
+  //
+  // 🔴 THE DEFECT THIS PLANTS USED TO BE A DIFFERENT ONE, AND THAT DIFFERENCE
+  // IS THE RATCHET. It was `{ ...claudeCodeLayout, materializeRoot: "" }` — a
+  // layout whose materialize root DISAGREED with its `userSurfaceRoot`
+  // (".claude"), which is the state A5 removed: there is no second field to
+  // disagree with any more, and that line no longer type-checks.
+  //
+  // What is still reachable — and so is what this now plants — is a layout
+  // declaring `userSurfaceRoot: ""`: present, so the project scope is created,
+  // and empty, so its prefix equals the plugin scope's. Note the LAYERS: the
+  // type refuses the old shape, `adapter-conformance.ts` refuses `""` for any
+  // shipped adapter ("absence is spelled by omitting the key"), and this
+  // backstop catches a hand-built one that got past both.
+  const bad: PluginLayout = { ...claudeCodeLayout, userSurfaceRoot: "" };
   const scopes = scopesOf(
     { rootHasLoadable: true, userHasLoadable: true },
     bad,
@@ -155,6 +178,28 @@ test("a layout naming its materializeRoot as a SECOND scope base is caught", () 
   assert.throws(() => {
     assertDistinctScopeKeys(scopes, bad.name);
   }, /silently shadow/);
+});
+
+test("no shipped or prototype layout can produce two scopes with one prefix", () => {
+  // The property the test above plants a counterexample for, asserted over
+  // every implementation of the port in this repo and every probe shape — so it
+  // covers the THIRD implementation too, which is where the port's illegal
+  // states were actually live.
+  for (const layout of [claudeCodeLayout, codexLayout, opencodeLayout]) {
+    for (const probe of [
+      { rootHasLoadable: true },
+      { userHasLoadable: true },
+      { rootHasLoadable: true, userHasLoadable: true },
+      {},
+    ]) {
+      const prefixes = scopesOf(probe, layout).map((sc) => sc.materializeUnder);
+      assert.equal(
+        new Set(prefixes).size,
+        prefixes.length,
+        `${layout.name} minted a duplicate prefix: [${prefixes.join(", ")}]`,
+      );
+    }
+  }
 });
 
 // --- The warning -------------------------------------------------------------

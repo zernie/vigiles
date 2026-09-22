@@ -1,6 +1,6 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -189,6 +189,32 @@ test("resolveHarnessSelection: a CLAUDE.md⇄AGENTS.md MIRROR collapses to Claud
     cleanupTmpDir(dir);
   }
 });
+
+// 🔴 BOTH SYMLINK DIRECTIONS, because a draft of the mirror-collapse read the
+// direction as intent and silently reversed one of them. A repository whose
+// `CLAUDE.md` is a link to `AGENTS.md` was resolved to the AGENTS-reading
+// harness, and the audit then went looking for that harness's surfaces —
+// `.claude/skills` vanished from a repo that has them. The link is a BRIDGE an
+// AGENTS-first repository adds so Claude Code works, so its direction is not a
+// statement about which harness was meant; the collapse breaks the tie by
+// registry order either way. These two cases are what pins that down.
+for (const [name, link, target] of [
+  ["AGENTS.md -> CLAUDE.md", "AGENTS.md", "CLAUDE.md"],
+  ["CLAUDE.md -> AGENTS.md", "CLAUDE.md", "AGENTS.md"],
+] as const) {
+  test(`resolveHarnessSelection: a SYMLINK mirror (${name}) collapses to Claude Code`, () => {
+    const dir = makeTmpDir();
+    try {
+      writeFileSync(join(dir, target), "# shared rules\n");
+      symlinkSync(join(dir, target), join(dir, link));
+      const sel = resolveHarnessSelection({ root: dir });
+      assert.equal(sel.kind, "ok"); // not a "matches both" notice
+      assert.equal(sel.adapter.name, "claude-code");
+    } finally {
+      cleanupTmpDir(dir);
+    }
+  });
+}
 
 // resolveHarnessAdapters — the FULL fan-out set (unlike resolveHarnessSelection's
 // single pick): an install writes the same artifact into EVERY enabled harness.

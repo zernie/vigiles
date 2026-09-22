@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:1e82fe5eeae8f1fc compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:95d306a64ee5dfaf compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -203,7 +203,7 @@ BUILD + TOOLING + GENERATED:
 - `.github/workflows/pages.yml` — ONE GitHub Pages deploy for the WHOLE site (a repo gets one Pages site), on push to main — REPLACED the old separate api-docs.yml + build-only site.yml (combined in #76).
 - `src/cli-flags.ts` — Shared CLI flag → config bridge (applyConfigFlags): --max-rules / --catalog-only override the loaded config so every GitHub Action input maps to a real CLI flag.
 - `src/cli-commands.ts` — The canonical vigiles command surface — the SINGLE SOURCE OF TRUTH (VERBS + HOOK_RUNTIME_KINDS) the self-command-refs dogfood cross-references vigiles's OWN docs/comments against, so a renamed…
-- `src/dialect-drift.ts` — Dialect freshness/drift detection — the read-local backstop for the hand-maintained claudeCodeDialect (CC is a black box).
+- `src/adapters/claude-code/dialect-drift.ts` — Dialect freshness/drift detection — the read-local backstop for the hand-maintained claudeCodeDialect (CC is a black box).
 - `src/self-command-refs.ts` — Self-command-reference verification — the cross-referencing engine applied to vigiles's OWN docs (the cohesive-cli-surface enforcement): every `vigiles <cmd>` reference must resolve to a real VERB…
 - `src/doc-command-coverage.ts` — Doc-command coverage — the INVERSE of self-command-refs and the deterministic FLOOR under the document-the-why rule. self-command-refs checks docs→code (every `vigiles <cmd>` ref resolves); this…
 - `src/doc-test-script-coverage.ts` — Doc-test-script coverage — the SIBLING of doc-command-coverage.ts aimed at the other reader.

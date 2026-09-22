@@ -37,6 +37,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import type { HarnessLiveDriver } from "../../core/live-driver.js";
 
 import type {
   ParsedModelRun,
@@ -269,6 +270,57 @@ export const codexEvalDriver: EvalDriver = {
   harness: "codex",
   // Codex-only: the trigger-rate number is not validated (see the constant above).
   experimental: CODEX_TRIGGER_RATE_EXPERIMENTAL,
+};
+
+/**
+ * The Codex {@link HarnessLiveDriver} — the EXECUTING tiers' side of the
+ * adapter, reached through `codexAdapter.liveDriver()`.
+ *
+ * It is the object `scan-behavioral.ts:buildProbe` used to build from
+ * `harness === "codex"`: the same four answers, now carried by the adapter that
+ * knows them instead of switched on by a name in the application layer.
+ */
+export const codexLiveDriver: HarnessLiveDriver = {
+  evalDriver: codexEvalDriver,
+  // 🔴 ANSWERED WITHOUT TOUCHING THE MACHINE, and that is a CONSTRAINT of the
+  // caller rather than a property of this harness. `access` is read on the
+  // AUDIT path, before `decideExecute` and `resolveExecution` have established
+  // consent — including `--json`, `--no-interactive` and a remembered "no" —
+  // and that path promises to execute nothing. A first draft probed the binary
+  // with `codexDriver.available()`, which spawns `codex --version`; harmless in
+  // itself, and still a process this run had no permission to start.
+  //
+  // Claude Code's `access` reads env only, so with this one the guarantee stops
+  // being a property of whichever adapter happens to be driving and becomes
+  // structural: NO adapter executes anything to answer it.
+  //
+  // What that costs, stated rather than hidden: a machine with no codex binary
+  // is told the tier is reachable and finds out at RUN time instead, where the
+  // probe self-reports unavailable and the tier reports a miss. That is exactly
+  // what shipped before the port existed (`adapter.name === "codex"` was true
+  // with no probe at all), so this is not a regression — it is the old answer
+  // with the reason written down. The remedy string that used to ride on
+  // `{ kind: "none", fix }` is deleted rather than parked: it had no reader
+  // left, and an exported constant nothing prints is a claim, not a feature.
+  //
+  // "Subscription" rather than "metered": the codex CLI carries its own auth
+  // (a ChatGPT plan or an API key) and nothing outside a run can tell which,
+  // so the CLI words this harness $0 metered, as it always has.
+  access: () => ({ kind: "subscription" }),
+  // NO skill-selection event exists here, so firing is INFERRED from the
+  // SKILL.md read — wrong in both directions (see the constant above). The
+  // caveat travels with the signal so a report can never print the number bare,
+  // and the selection-collision matrix refuses this driver at the type level.
+  firing: { kind: "inferred", caveat: CODEX_TRIGGER_RATE_EXPERIMENTAL },
+  // No namespace: firing is the SKILL.md read, which carries the bare name.
+  firedFor:
+    (skill) =>
+    (t): boolean =>
+      codexSkillFired(t, skill),
+  // A MEASURED LIMITATION, not a capability: stubbing a Claude-shaped plugin
+  // for Codex is unvalidated, so the real skills are installed and firing is
+  // detected regardless of body.
+  installsStubs: false,
 };
 
 /**

@@ -842,7 +842,7 @@ export function experimental_verifyPluginGuards(
   // A harness whose hooks are not shell processes has nothing this tier can
   // drive. Saying so is the `no-silent-skips` half — an empty `hooks` list with
   // no note is indistinguishable from "we looked and it was fine".
-  if (!adapter.capabilities.shellHooks || !adapter.hookProtocol)
+  if (!adapter.shellHooks || !adapter.hookProtocol)
     return {
       ...base,
       hooks: [],

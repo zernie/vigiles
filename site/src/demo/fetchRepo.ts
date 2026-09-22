@@ -45,6 +45,10 @@
  * Full rationale + the edge-case ledger: research/browser-demo-fetch-limits.md.
  * ────────────────────────────────────────────────────────────────────────────
  */
+import { executableSourceDirs } from "@engine/core/layout";
+import { claudeCodeLayout } from "@engine/adapters/claude-code/layout";
+import { claudeCodeDialect } from "@engine/adapters/claude-code/dialect";
+
 import { normalizeSlug } from "@/lib/deeplink";
 
 /** repo-relative POSIX path → file content — the `scanFiles` input shape. */
@@ -88,18 +92,72 @@ const CONCURRENCY = 6;
 // in the honest no-harness state that points at the CLI, not a report scanned with the
 // wrong layout. Do NOT re-add AGENTS.md/.codex here without wiring the Codex adapter
 // into runAudit — fetching a surface the scan then ignores is what produced the bug.
-/** Top-level files that ARE a harness surface on their own. `SKILL.md` at the repo
- *  root is the single-skill plugin shape (loadPluginFromFiles' "single-skill" case). */
-const HARNESS_ROOT_FILES = new Set(["CLAUDE.md", ".mcp.json", "SKILL.md"]);
-/** Any path segment equal to one of these is a harness directory. */
-const HARNESS_DIRS = new Set([
-  ".claude",
-  ".claude-plugin",
-  "skills",
-  "hooks",
-  "agents",
-  "commands",
+/**
+ * Top-level files that ARE a harness surface on their own — DERIVED from the
+ * Claude Code layout, not listed.
+ *
+ * 🔴 IT USED TO BE THE HAND-WRITTEN SET `["CLAUDE.md", ".mcp.json", "SKILL.md"]`,
+ * the same shape `HARNESS_DIRS` below had already stopped being: a second place
+ * naming files a layout already names, free to fall behind it. Two of the three
+ * come straight off the layout now, so a harness that renames its instruction
+ * file or its MCP config moves what the demo fetches with it.
+ *
+ * `SKILL.md` stays a literal because it is NOT a layout field: it is the
+ * single-skill plugin shape (`loadPluginFromFiles`' "single-skill" case), where
+ * the repo root IS the skill directory. Deriving it from `SURFACE_SHAPES` would
+ * mean deriving a ROOT file from a DIRECTORY shape, which is a different fact.
+ *
+ * ⚠️ The per-machine sibling (`CLAUDE.local.md`) is deliberately absent, and its
+ * absence is the same decision as `scope: "local"` in the engine: it is
+ * gitignored by convention, so a GitHub tree can never carry it. Adding it here
+ * would fetch a file that is never there and imply the demo could see one.
+ *
+ * 🔴 `instructionTargets` IS SPREAD HERE, AND IT IS WHAT KEEPS THE TWO ENGINES
+ * AGREEING. Since v2.1.277 Claude Code reads `AGENTS.md` natively, so the CLI's
+ * chain loads one — and a twin that fetched only `layout.instructionFile` would
+ * hand the chain a map with no `AGENTS.md` in it and print a weight of zero for
+ * a repository that really loads the file. Not a wrong DIGIT: a missing file,
+ * on the browser side only, which is the CLI/browser disagreement the `scope`
+ * rule exists to prevent. Spread rather than listed, so the dialect stays the
+ * one place the filename lives.
+ *
+ * ⚠️ FETCHING IT IS NOT DETECTING ON IT. `isHarnessMarker` below still does not
+ * accept a bare `AGENTS.md` as proof of a Claude Code harness, exactly as
+ * `claudeCodeAdapter.detect` does not — that file is Codex's to own and this
+ * harness only READS it. A repo holding nothing but an `AGENTS.md` still lands
+ * in the no-harness state.
+ */
+const HARNESS_ROOT_FILES = new Set([
+  ...claudeCodeDialect.instructionTargets,
+  claudeCodeLayout.mcpConfigFile,
+  "SKILL.md",
 ]);
+/**
+ * Any path segment equal to one of these is a harness directory — DERIVED from
+ * the Claude Code layout, not listed.
+ *
+ * 🔴 IT USED TO BE A HAND-WRITTEN SET, and the engine had just finished
+ * removing the same shape from the port itself: a second place naming the
+ * directories a layout already names, free to fall behind it. It listed
+ * `skills`, `agents`, `commands`, `hooks`, `.claude`, `.claude-plugin`; the
+ * expression below produces exactly those six from `claudeCodeLayout`, and a
+ * layout that moves a surface now moves what the demo fetches with it.
+ *
+ * The demo grades CLAUDE CODE harnesses only — see the note above — so this
+ * derives from that ONE layout on purpose, rather than from the registry.
+ */
+const HARNESS_DIRS = new Set(
+  [
+    ...executableSourceDirs(claudeCodeLayout),
+    claudeCodeLayout.userSurfaceRoot,
+    claudeCodeLayout.manifestPath,
+  ]
+    .filter((d): d is string => d !== undefined)
+    // First segment only: `isHarnessPath` compares the first segment of a path,
+    // and a layout may name a nested dir (`.agents/skills`) or a file
+    // (`.claude-plugin/plugin.json`).
+    .map((d) => (d.includes("/") ? d.slice(0, d.indexOf("/")) : d)),
+);
 
 /**
  * A tree blob that's a harness surface: a top-level harness file, or a path whose

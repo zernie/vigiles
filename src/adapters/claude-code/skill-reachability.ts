@@ -43,18 +43,15 @@
  * still warrants a warning, with a different fix line: the collaborator runs the
  * install, the repo cannot run it for them.
  *
- * Shape follows `src/dialect-drift.ts`: pure parsers + a best-effort local read
+ * Shape follows `./dialect-drift.ts`: pure parsers + a best-effort local read
  * that NEVER throws + a formatter that returns null when there is nothing to
  * say, so `vigiles audit` can print it without a new verb, flag, or failure mode.
  * It is ADVISORY — it never touches the audit score, because reachability is a
  * property of the machine (is the plugin installed?), not of the repo, and a
  * score that moved between a laptop and CI for identical source would be a lie.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-
-import { SHIPPED_SKILLS } from "./setup-plan.js";
+import type { InstallReader } from "../../core/adapter.js";
+import { SHIPPED_SKILLS } from "../../setup-plan.js";
 
 /** The plugin id `claude plugin install` records — `<plugin>@<marketplace>`. */
 export const VIGILES_PLUGIN_ID = "vigiles@vigiles";
@@ -92,32 +89,6 @@ export interface SkillReachability {
 }
 
 /**
- * Is `vigiles` a declared dependency of this package.json text? Pure. Any of the
- * four dependency fields counts — the question is "did this repo take vigiles
- * on", not how.
- */
-export function declaresVigilesDependency(pkgJson: string): boolean {
-  let pkg: Record<string, unknown>;
-  try {
-    pkg = JSON.parse(pkgJson) as Record<string, unknown>;
-  } catch {
-    return false;
-  }
-  // The vigiles repo itself is not a consumer — it IS the plugin.
-  if (pkg.name === "vigiles") return false;
-  const fields = [
-    "dependencies",
-    "devDependencies",
-    "peerDependencies",
-    "optionalDependencies",
-  ];
-  return fields.some((f) => {
-    const deps = pkg[f];
-    return typeof deps === "object" && deps !== null && "vigiles" in deps;
-  });
-}
-
-/**
  * Does the global registry record a live install of the vigiles plugin? Pure over
  * the raw `installed_plugins.json` text. An entry with an EMPTY array is a
  * leftover record, not an install, so it does not count.
@@ -149,67 +120,51 @@ export function hasEnabledPlugin(settingsJson: string): boolean {
   }
 }
 
-/** Directory names directly under `dir`, or [] when it isn't readable. */
-function dirNames(dir: string): string[] {
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
-  } catch {
-    return [];
-  }
-}
-
-/** Read a file, or null when it isn't there / isn't readable. Never throws. */
-function readOrNull(path: string): string | null {
-  try {
-    return existsSync(path) ? readFileSync(path, "utf-8") : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Best-effort, read-local reachability check for `vigiles audit`. Returns null
- * when the question does not apply — the repo has no package.json, or does not
- * depend on vigiles, or IS vigiles — so a non-consumer is never nagged. NEVER
- * throws: every read degrades to "not found".
+ * when the question does not apply — the repo does not depend on vigiles, or IS
+ * vigiles — so a non-consumer is never nagged. NEVER throws: every read the
+ * reader performs degrades to "not found".
  *
- * `opts.home` overrides `$HOME` (tests, and any caller with a relocated config).
+ * 🔴 IT READS THROUGH A REPO-BOUND {@link InstallReader}, NOT `node:fs`. Two of
+ * its five reads are of files NO adapter claims (`package.json`, vigiles's own
+ * package under `node_modules`), so the domain performs those and passes the
+ * ANSWER; the rest go through a reader that refuses any path this adapter does
+ * not claim. That is why this module no longer imports `node:fs` at all.
+ *
+ * ⚠️ ONE MEASURED CHANGE, NAMED BECAUSE IT IS A CHANGE: the repo-vendored check
+ * used to ENUMERATE `.claude/skills/` and compare directory names. Enumeration
+ * is precisely what the reader exists to prevent, and it is not needed here —
+ * the names being looked for are a fixed list — so each shipped skill is probed
+ * for its own `SKILL.md` instead. The narrow difference: a directory named after
+ * a shipped skill but holding no `SKILL.md` used to count as reachable and no
+ * longer does. It was never loadable by the agent, which is the question asked.
  */
 export function checkSkillReachability(
-  dir: string,
-  opts: { readonly home?: string } = {},
+  read: InstallReader,
 ): SkillReachability | null {
-  const pkgJson = readOrNull(join(dir, "package.json"));
-  if (pkgJson === null || !declaresVigilesDependency(pkgJson)) return null;
+  if (!read.repoDependsOnVigiles) return null;
 
-  const home = opts.home ?? homedir();
   const sources: ReachabilitySource[] = [];
 
-  const installed = readOrNull(
-    join(home, ".claude", "plugins", "installed_plugins.json"),
-  );
+  const installed = read.home(".claude/plugins/installed_plugins.json");
   if (installed !== null && hasGlobalPluginInstall(installed))
     sources.push("global-plugin");
 
   // Vendored copies: only vigiles's OWN skill names count. A repo with 38
   // unrelated skills in `.claude/skills/` is still un-wired.
-  const repoSkills = new Set(dirNames(join(dir, ".claude", "skills")));
-  if (SHIPPED_SKILLS.some((s) => repoSkills.has(s)))
+  if (SHIPPED_SKILLS.some((s) => read.repo(`.claude/skills/${s}/SKILL.md`)))
     sources.push("repo-skills");
 
   const reachable = sources.length > 0;
 
   // A project declaration is NOT a source — it makes Claude Code prompt for an
   // install, it does not perform one. Only meaningful while unreachable.
-  const settings = readOrNull(join(dir, ".claude", "settings.json"));
+  const settings = read.repo(".claude/settings.json");
   const declaredNotInstalled =
     !reachable && settings !== null && hasEnabledPlugin(settings);
 
-  const vendored = new Set(
-    dirNames(join(dir, "node_modules", "vigiles", "skills")),
-  );
+  const vendored = new Set(read.vendoredSkillNames);
   return {
     reachable,
     sources,

@@ -57,3 +57,10 @@ research/audit-captures/
 # (generated/, selftest/, synth-agent/), gold-set DATA (gold/), and exact-byte
 # run artifacts (results.json, gate-demo-output.txt) that must not be reflowed.
 rule-enforcer/
+
+# Frozen design probes: the tsc/eslint inputs a design document cites BY LINE
+# NUMBER (`p2-live-driver.ts(41,52)` in port-redesign-names-half-2026-09-22.md).
+# Reflowing them would move the coordinate the evidence rests on, so their bytes
+# are the record. ESLint already skips them (no matching configuration) and tsc
+# never sees them — `tsconfig.json` includes `src/**` only.
+docs/design/probes/

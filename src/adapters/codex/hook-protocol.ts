@@ -3,7 +3,8 @@
  * Finding: it is essentially IDENTICAL to Claude Code's (exit 2 / `decision:block`
  * / `permissionDecision:deny`) — the thin `HookProtocol` port was the right call.
  * The genuine deltas are the env vars a hook receives + the TOML config format
- * (the latter lives in PluginLayout.settingsFormat, not here).
+ * (the ENCODING lives in PluginLayout.settings, a codec; the entry SHAPE is
+ * `registration`/`mergeRegistrations` below).
  *
  * Context injection (`hookSpecificOutput.additionalContext`) is ALSO shared — same
  * shape, confirmed against the official Codex hooks docs
@@ -14,6 +15,7 @@
  * Codex marks a hook run failed if it emits an unsupported field for the event.
  */
 import type { HookProtocol } from "../../core/hook-protocol.js";
+import { mergeHooksToml } from "../../hook-install.js";
 
 export const codexHookProtocol: HookProtocol = {
   name: "codex",
@@ -41,4 +43,17 @@ export const codexHookProtocol: HookProtocol = {
     "permission_mode",
     "PLUGIN_ROOT",
   ],
+  // Codex is FLAT: `[[hooks.<event>]]` carries one `{matcher?, command}` per
+  // entry. Same fact `toTomlEntries` encodes on the merge side.
+  registration(on, matcher, command) {
+    const entry = matcher === undefined ? { command } : { matcher, command };
+    return { hooks: { [on]: [entry] } };
+  },
+  mergeRegistrations(existing, compiled, managedBy) {
+    return mergeHooksToml(
+      existing as Parameters<typeof mergeHooksToml>[0],
+      compiled as Parameters<typeof mergeHooksToml>[1],
+      managedBy,
+    ) as Record<string, unknown>;
+  },
 };

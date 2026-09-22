@@ -735,20 +735,20 @@ const PREAPPROVAL_NOTE =
 /**
  * Whether THIS harness understands a skill-level `disallowed-tools:` at all.
  *
- * Read off the dialect record that already exists — `skillFrontmatter` is exactly
- * "which SKILL.md keys this harness understands", and `disallowed-tools` is one of
- * the Claude-Code-only ones. No new capability flag: a second field saying the
- * same thing is a second thing to keep true, and the compiler already branches on
- * this one (`renderSkillFrontmatter` emits the tool keys under `"claude-code"` and
- * omits them under `"minimal"`).
+ * Read off the dialect record that already exists — `skillFrontmatterKeys` is
+ * exactly "which SKILL.md keys this harness reads", so the question "is there a
+ * fence here?" is the membership of the one key that IS the fence. No new
+ * capability flag: a second field saying the same thing is a second thing to
+ * keep true, and the compiler already emits from this one.
+ *
+ * 🔴 IT USED TO ASK THE WRONG QUESTION. The body was
+ * `dialect.skillFrontmatter === "claude-code"` — a harness name standing in for
+ * a key, which made a harness that read `disallowed-tools:` under any other name
+ * unfenceable by construction. The function already HAD its capability name;
+ * only the fact it read was wrong.
  */
 export function dialectSupportsSkillFence(dialect: HarnessDialect): boolean {
-  // Downstream of the SkillFrontmatterProfile alias (src/core/dialect.ts). This
-  // function is the clearest argument for fixing it there: it already HAS a
-  // capability name — "supports skill fence" — and reaches it by comparing an
-  // adapter name.
-  // eslint-disable-next-line local/no-harness-names -- goes away with that alias
-  return dialect.skillFrontmatter === "claude-code";
+  return dialect.skillFrontmatterKeys.includes("disallowed-tools");
 }
 
 /**
@@ -759,7 +759,7 @@ export function dialectSupportsSkillFence(dialect: HarnessDialect): boolean {
  * the block comment above for the measurement).
  *
  * 🔴 AND IT IS A CLAUDE-CODE MECHANISM, which this applied to every harness. On a
- * Codex repo (`skillFrontmatter: "minimal"` — name + description only, and our own
+ * Codex repo (`skillFrontmatterKeys: ["name", "description"]` — and our own
  * compiler drops the tool keys there) every skill was reported as holding all
  * three legs, scored against Safety, and handed the remedy "add a
  * `disallowed-tools:` line". That line is INERT in Codex: the author does the

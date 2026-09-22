@@ -21,6 +21,23 @@ describe("isHarnessPath — top-level surfaces only", () => {
     expect(isHarnessPath(".mcp.json")).toBe(true);
   });
 
+  it("FETCHES a root AGENTS.md — the CLI's chain loads one, so the twin must see it", () => {
+    // Since v2.1.277 Claude Code reads `AGENTS.md` natively. A twin that did
+    // not fetch it would hand the chain a map without it and print a weight of
+    // zero for a repo that really loads the file — a missing FILE on the
+    // browser side only, not a wrong digit.
+    expect(isHarnessPath("AGENTS.md")).toBe(true);
+  });
+
+  it("…but a bare AGENTS.md is NOT a harness MARKER — that file is Codex's", () => {
+    // The other half, and the one that keeps the demo honest: fetching a file
+    // is not detecting on it. `claudeCodeAdapter.detect` makes the same split —
+    // it scores `CLAUDE.md` and never `AGENTS.md` — so a repo holding nothing
+    // but an AGENTS.md stays in the no-harness state instead of being graded as
+    // an empty Claude Code machine.
+    expect(isHarnessMarker("AGENTS.md")).toBe(false);
+  });
+
   it("does NOT match a harness word nested in an ordinary source tree", () => {
     // The bug: `src/hooks/useThing.ts` in a plain React app was treated as a
     // harness → graded an empty machine instead of the no-harness state.

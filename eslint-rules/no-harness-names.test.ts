@@ -38,8 +38,18 @@ const tester = new RuleTester({
   },
 });
 
+/**
+ * The repo's adapter names. `eslint.config.mjs` derives the real list by reading
+ * `src/adapters/`; the tester states it, because a RuleTester case must be able
+ * to fail for a reason other than "somebody added a directory".
+ */
+const NAMES = ["claude-code", "codex", "opencode"];
+
 /** The core configuration: identifiers included (measured 0 hits there today). */
-const CORE = [{ identifiers: true }];
+const CORE = [{ names: NAMES, identifiers: true }];
+
+/** The detector configuration: the string half only. */
+const STRINGS_ONLY = [{ names: NAMES }];
 
 interface Position {
   /** What this row claims the rule can see. */
@@ -210,8 +220,9 @@ tester.run("no-harness-names (positions)", rule as never, {
     // `src/test-coverage.ts` are configured. If someone turns it on for them
     // this case fails, which is the conversation we want to have.
     {
-      name: "default options: the identifier half is OFF (the declared hole)",
+      name: "identifiers off: the identifier half is OFF (the declared hole)",
       code: "const layout = claudeCodeLayout;",
+      options: STRINGS_ONLY,
     },
     // …and the string half stays on for them regardless.
   ],
@@ -226,22 +237,25 @@ tester.run("no-harness-names (positions)", rule as never, {
   })),
 });
 
-tester.run("no-harness-names (string half, default options)", rule as never, {
+tester.run("no-harness-names (string half only)", rule as never, {
   valid: [
     {
-      name: "identifier is not reported by default",
+      name: "identifier is not reported when the identifier half is off",
       code: "const a = codexDriver;",
+      options: STRINGS_ONLY,
     },
   ],
   invalid: [
     {
       name: "a string is reported even with the identifier half off",
       code: 'const n = adapter.name === "codex";',
+      options: STRINGS_ONLY,
       errors: 1,
     },
     {
       name: "a type-position string is reported even with the identifier half off",
       code: 'type H = "claude-code";',
+      options: STRINGS_ONLY,
       errors: 1,
     },
   ],

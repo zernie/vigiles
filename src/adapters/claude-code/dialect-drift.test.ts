@@ -18,7 +18,7 @@ import {
   findClaudeCodeBundle,
   formatDialectDrift,
 } from "./dialect-drift.js";
-import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
+import { claudeCodeDialect } from "./dialect.js";
 
 describe("dialect-drift parsers (pure)", () => {
   it("parses tool-input interface names, sorted + de-duped", () => {

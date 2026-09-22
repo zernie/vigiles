@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # 🔴 `ready_for_review` IS NOT IN THE DEFAULT LIST, and leaving it out makes the
+    # draft gate below work only halfway. The default is opened, synchronize,
+    # reopened — marking a draft ready is none of those, so "open as draft, push
+    # for free, mark ready" would run NOTHING and the PR would reach the merge
+    # button with zero checks. Zero checks and passed checks look identical in the
+    # checks list. Measured the hard way in a sibling repository on 2026-09-05,
+    # where the gate had shipped without this line.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   # ── WHICH JOBS THIS COMMIT ACTUALLY NEEDS ────────────────────────────────────
@@ -65,6 +73,24 @@ jobs:
   # src/ci-path-filter.test.ts, which fails if the setting is missing.
   changes:
     runs-on: ubuntu-latest
+    # 🔴 A DRAFT PULL REQUEST PAYS NOTHING. Until 2026-09-21 this workflow had no
+    # draft condition at all, so every push to an open draft bought the full run
+    # (~13 billable minutes, measured on run 1133). Pushes to a working branch are
+    # how work survives a container dying and must not be discouraged; the cost
+    # moves instead from "every save" to "every piece of work offered for review",
+    # which is when `ready_for_review` fires and the checks run in full.
+    #
+    # ⚠️ WRITTEN THIS WAY ON PURPOSE, not `github.event.pull_request.draft == false`
+    # alone: on a `push` to main there is no `pull_request` object, a bare `.draft`
+    # is not false but MISSING, and the condition would evaluate false and silently
+    # kill every check on the default branch.
+    #
+    # ⚠️ AND IT SITS ON BOTH UNCONDITIONAL JOBS. `changes` and `check` are the only
+    # two with no `needs:`; `test`, `harness` and `site` gate on `changes` outputs
+    # and skip with it. Putting this on `changes` alone leaves `check` running, so
+    # the draft would be cheaper rather than free — a half-applied gate that looks
+    # applied.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     timeout-minutes: 5
     # BOTH lines are required, and the second is the one that is easy to get
     # wrong. A job-level `permissions:` block REPLACES the default for this job
@@ -117,7 +143,7 @@ jobs:
               - '!site/**'
 
             # `site` — the demo. It imports the built engine through three aliases
-            # (@engine/scan-files, @engine/audit-report, @engine/spec), so any src/
+            # (@engine/scan-files, @engine/audit-report, @engine/core/spec), so any src/
             # change can reach it and must run it. What CANNOT reach it: prose and
             # agent config. Verified 2026-08-19 by grepping the three bundles the
             # site actually loads — the lint rule table (`DEFAULT_RULES`,
@@ -255,11 +281,11 @@ jobs:
         # blocked, instead of skipping.
         run: |
           # Pin claude-code to the dialect-validated version — SINGLE SOURCE OF
-          # TRUTH: VALIDATED_CC_VERSION in src/dialect-drift.ts. Keeps the
+          # TRUTH: VALIDATED_CC_VERSION in src/adapters/claude-code/dialect-drift.ts. Keeps the
           # dialect-drift alarm deterministic (fires only on a deliberate bump,
           # not every unpinned CC release on an unrelated PR) and the real-claude
           # harness/eval tests reproducible.
-          CC=$(grep -oP -m1 'VALIDATED_CC_VERSION = "\K[0-9.]+' src/dialect-drift.ts)
+          CC=$(grep -oP -m1 'VALIDATED_CC_VERSION = "\K[0-9.]+' src/adapters/claude-code/dialect-drift.ts)
           [ -n "$CC" ] || { echo "could not read VALIDATED_CC_VERSION"; exit 1; }
           echo "Pinning @anthropic-ai/claude-code@$CC"
           # Codex is pinned for the SAME reason, and the reason stopped being
@@ -360,6 +386,24 @@ jobs:
 
   check:
     runs-on: ubuntu-latest
+    # 🔴 A DRAFT PULL REQUEST PAYS NOTHING. Until 2026-09-21 this workflow had no
+    # draft condition at all, so every push to an open draft bought the full run
+    # (~13 billable minutes, measured on run 1133). Pushes to a working branch are
+    # how work survives a container dying and must not be discouraged; the cost
+    # moves instead from "every save" to "every piece of work offered for review",
+    # which is when `ready_for_review` fires and the checks run in full.
+    #
+    # ⚠️ WRITTEN THIS WAY ON PURPOSE, not `github.event.pull_request.draft == false`
+    # alone: on a `push` to main there is no `pull_request` object, a bare `.draft`
+    # is not false but MISSING, and the condition would evaluate false and silently
+    # kill every check on the default branch.
+    #
+    # ⚠️ AND IT SITS ON BOTH UNCONDITIONAL JOBS. `changes` and `check` are the only
+    # two with no `needs:`; `test`, `harness` and `site` gate on `changes` outputs
+    # and skip with it. Putting this on `changes` alone leaves `check` running, so
+    # the draft would be cheaper rather than free — a half-applied gate that looks
+    # applied.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     # measured 2m36s.
     timeout-minutes: 10
     # pull-requests: write lets the dogfooded action post its sticky PR comment.
@@ -475,7 +519,7 @@ jobs:
 
       - name: Install claude CLI (pinned to the dialect-validated version; no API key needed)
         run: |
-          CC=$(grep -oP -m1 'VALIDATED_CC_VERSION = "\K[0-9.]+' src/dialect-drift.ts)
+          CC=$(grep -oP -m1 'VALIDATED_CC_VERSION = "\K[0-9.]+' src/adapters/claude-code/dialect-drift.ts)
           [ -n "$CC" ] || { echo "could not read VALIDATED_CC_VERSION"; exit 1; }
           npm i -g "@anthropic-ai/claude-code@$CC"
 

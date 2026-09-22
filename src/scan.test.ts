@@ -22,6 +22,7 @@ import {
 } from "./scan.js";
 import { loadPlugin } from "./adapters/claude-code/plugin-loader.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import type { PluginLayout } from "./core/layout.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { codexLayout } from "./adapters/codex/layout.js";
@@ -117,7 +118,7 @@ test("scanPlugin discovers skills in an end-user .claude/skills repo (not a plug
       ".claude/agents/reviewer.md",
       "---\nname: reviewer\ntools: Read\n---\nbody\n",
     );
-    const r = scanPlugin(dir);
+    const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
     assert.equal(r.skills.length, 1, "the .claude/skills skill is discovered");
     assert.equal(r.skills[0].name, "rca");
     assert.ok(r.skills[0].hasDescription);
@@ -144,7 +145,7 @@ test("scanPlugin resolves a .claude/skills skill's bundled resource on real disk
       "---\nname: rca\ndescription: RCA with a helper script bundled beside it\n---\nRun `scripts/run.sh` first.\n",
     );
     write(dir, ".claude/skills/rca/scripts/run.sh", "#!/usr/bin/env bash\n");
-    const r = scanPlugin(dir);
+    const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
     assert.equal(
       r.skills[0].resourceIssues.length,
       0,
@@ -163,7 +164,7 @@ test("scanPlugin loads a single skill directory passed directly", () => {
       "SKILL.md",
       "---\nname: solo\ndescription: A single skill pointed at directly here\n---\n# solo\n",
     );
-    const r = scanPlugin(dir);
+    const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
     assert.equal(r.skills.length, 1, "the sole SKILL.md is scanned as a skill");
     assert.equal(r.skills[0].name, "solo");
   } finally {
@@ -185,7 +186,7 @@ test("sharedDirs resolve against sharedDirsRoot, not a scoped subdir (P1-4 + P0-
     write(repo, "scripts/leak.py", "# shared tree at the repo root\n");
     const sub = join(repo, "packages", "foo");
     // With sharedDirsRoot = repo root → the shared ref resolves, no false flag.
-    const ok = scanPlugin(sub, undefined, undefined, {
+    const ok = scanPlugin(sub, claudeCodeLayout, claudeCodeDialect, {
       sharedDirs: ["scripts"],
       sharedDirsRoot: repo,
     });
@@ -195,7 +196,7 @@ test("sharedDirs resolve against sharedDirsRoot, not a scoped subdir (P1-4 + P0-
       "scripts/leak.py resolves against the repo root, not the scoped subdir",
     );
     // Without sharedDirsRoot the subdir scan can't see the top-level tree → flags.
-    const bad = scanPlugin(sub, undefined, undefined, {
+    const bad = scanPlugin(sub, claudeCodeLayout, claudeCodeDialect, {
       sharedDirs: ["scripts"],
     });
     assert.equal(bad.skills[0].resourceIssues.length, 1);
@@ -217,11 +218,10 @@ test("subagent classification is layout-driven (ready for new harnesses)", () =>
     "---\nname: reviewer\ndescription: Reviews code for issues carefully\ntools: Reat\n---\nReview.\n",
   );
 
-  const customLayout = {
+  const customLayout: PluginLayout = {
     ...claudeCodeLayout,
-    agentDir: "subagents",
-    surfaceDirs: ["subagents"],
-    materializeRoot: "",
+    surfaces: { agent: "subagents" },
+    userSurfaceRoot: undefined,
   };
   const r = scanPlugin(dir, customLayout, claudeCodeDialect);
   const reviewer = r.agents.find((a) => a.name === "reviewer");
@@ -232,13 +232,16 @@ test("subagent classification is layout-driven (ready for new harnesses)", () =>
   );
 
   // Default Claude Code layout (agentDir "agents") must not classify it.
-  assert.equal(scanPlugin(dir).agents.length, 0);
+  assert.equal(
+    scanPlugin(dir, claudeCodeLayout, claudeCodeDialect).agents.length,
+    0,
+  );
   cleanupTmpDir(dir);
 });
 
 test("scanPlugin reports skills with description + user-invoked flags", () => {
   const dir = fixture();
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const byName = Object.fromEntries(r.skills.map((s) => [s.name, s]));
   assert.equal(r.skills.length, 3);
   assert.equal(byName.good.hasDescription, true);
@@ -255,7 +258,7 @@ test("scanPlugin reports the REAL on-disk surface path, not the phantom .claude/
   // diagnostic / GitHub annotation points at a file that actually exists.
   const dir = fixture();
   try {
-    const r = scanPlugin(dir);
+    const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
     for (const a of r.agents) {
       assert.ok(
         a.path.startsWith("agents/") && !a.path.startsWith(".claude/"),
@@ -307,7 +310,7 @@ test("scanPlugin reads a YAML block-scalar description (not just `>`)", () => {
     "skills/chomped/SKILL.md",
     "---\nname: chomped\ndescription: >-\n  Another folded description, chomped variant, also well over\n  the twenty character minimum.\n---\n# chomped\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.skills.length, 2);
   assert.ok(r.skills.every((s) => s.hasDescription));
   cleanupTmpDir(dir);
@@ -322,7 +325,9 @@ test("scanPlugin reads a multi-line QUOTED description (value on the next line)"
     "skills/q/SKILL.md",
     '---\nname: q\ndescription:\n  "Generates PDF documents using React-PDF with TypeScript.\n  Use when creating reports, invoices, or resumes."\nallowed-tools: Read\n---\n# q\n',
   );
-  const q = scanPlugin(dir).skills.find((s) => s.name === "q");
+  const q = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect).skills.find(
+    (s) => s.name === "q",
+  );
   assert.equal(q?.hasDescription, true);
   cleanupTmpDir(dir);
 });
@@ -347,7 +352,9 @@ test("scanPlugin resolves a relative hook path against the plugin root, not cwd"
       },
     }),
   );
-  const h = scanPlugin(dir).hooks.find((x) => x.script.includes("present.sh"));
+  const h = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect).hooks.find(
+    (x) => x.script.includes("present.sh"),
+  );
   assert.equal(h?.status, "ok");
   cleanupTmpDir(dir);
 });
@@ -375,7 +382,7 @@ test("scanPlugin treats an existence-guarded hook command as optional, not missi
       },
     }),
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.ok(
     !r.hooks.some((h) => h.status === "missing"),
     "a guarded optional hook must not be flagged missing",
@@ -412,7 +419,7 @@ test("scanPlugin does not flag a glob pattern in a hook command as a missing scr
         },
       }),
     );
-    const r = scanPlugin(dir);
+    const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
     assert.ok(
       !r.hooks.some((h) => h.status === "missing"),
       "a glob pattern in the command must not be read as a missing script",
@@ -474,7 +481,7 @@ test("scanPlugin counts hand-written hooks for prefer-compiled-hooks (managed on
       },
     }),
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(
     r.manualHookCount,
     2,
@@ -491,7 +498,7 @@ test("scanPlugin counts hand-written hooks for prefer-compiled-hooks (managed on
 test("scanPlugin reports manualHookCount 0 when there are no hand-written hooks", () => {
   const dir = makeTmpDir("scan-no-manual-hooks");
   write(dir, "CLAUDE.md", "# x\n");
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.manualHookCount, 0);
   assert.doesNotMatch(formatScanReport(r), /hand-written hook/);
   cleanupTmpDir(dir);
@@ -502,7 +509,7 @@ test("scanPlugin reports the instruction file on any repo (spec-managed vs hand-
   // surface the instruction file, not look empty.
   const bare = makeTmpDir("scan-instr-bare");
   write(bare, "CLAUDE.md", "# Project\nRun the build.\n");
-  const r1 = scanPlugin(bare);
+  const r1 = scanPlugin(bare, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(r1.instructions, { file: "CLAUDE.md", hasSpec: false });
   assert.match(
     formatScanReport(r1),
@@ -514,7 +521,7 @@ test("scanPlugin reports the instruction file on any repo (spec-managed vs hand-
   const managed = makeTmpDir("scan-instr-managed");
   write(managed, "CLAUDE.md", "# Project\n");
   write(managed, "CLAUDE.md.spec.ts", "export default {};\n");
-  const r2 = scanPlugin(managed);
+  const r2 = scanPlugin(managed, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(r2.instructions, { file: "CLAUDE.md", hasSpec: true });
   assert.match(
     formatScanReport(r2),
@@ -525,7 +532,7 @@ test("scanPlugin reports the instruction file on any repo (spec-managed vs hand-
   // No instruction file → null, no Instructions line.
   const none = makeTmpDir("scan-instr-none");
   write(none, "skills/foo/SKILL.md", "---\nname: foo\ndescription: foo\n---\n");
-  const r3 = scanPlugin(none);
+  const r3 = scanPlugin(none, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r3.instructions, null);
   assert.doesNotMatch(formatScanReport(r3), /Instructions:/);
   cleanupTmpDir(none);
@@ -542,13 +549,17 @@ test("scanPlugin flags a never-available agent tool, suppresses unrecognized plu
     "agents/lead.md",
     "---\nname: lead\ntools: Read, Bash, Agent, TeamCreate, TaskGet, AskUserQuestion\n---\nbody\n",
   );
-  const agent = scanPlugin(dir).agents.find((a) => a.name === "lead");
+  const agent = scanPlugin(
+    dir,
+    claudeCodeLayout,
+    claudeCodeDialect,
+  ).agents.find((a) => a.name === "lead");
   assert.equal(agent?.toolIssues.length, 1, "only the withheld tool scores");
   assert.equal(agent?.toolIssues[0].kind, "never-available");
   assert.equal(agent?.toolIssues[0].tool, "AskUserQuestion");
   // the report leads with the ✗ + the actionable message
   assert.match(
-    formatScanReport(scanPlugin(dir)),
+    formatScanReport(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
     /never available to a subagent/,
   );
 });
@@ -556,7 +567,11 @@ test("scanPlugin flags a never-available agent tool, suppresses unrecognized plu
 test("scanPlugin flags a typo'd agent tool with a did-you-mean", () => {
   const dir = makeTmpDir("scan-tooltypo");
   write(dir, "agents/t.md", "---\nname: t\ntools: Read, Edt\n---\nbody\n");
-  const agent = scanPlugin(dir).agents.find((a) => a.name === "t");
+  const agent = scanPlugin(
+    dir,
+    claudeCodeLayout,
+    claudeCodeDialect,
+  ).agents.find((a) => a.name === "t");
   assert.equal(agent?.toolIssues.length, 1);
   assert.match(agent?.toolIssues[0].message ?? "", /Did you mean "Edit"\?/);
 });
@@ -568,7 +583,11 @@ test("scanPlugin: an inline ARRAY tools form parses (no [Read / Bash] artifacts)
     "agents/a.md",
     '---\nname: a\ntools: [Read, "Bash", Edit]\n---\nbody\n',
   );
-  const agent = scanPlugin(dir).agents.find((a) => a.name === "a");
+  const agent = scanPlugin(
+    dir,
+    claudeCodeLayout,
+    claudeCodeDialect,
+  ).agents.find((a) => a.name === "a");
   assert.deepEqual(agent?.tools, ["Read", "Bash", "Edit"]);
   assert.deepEqual(agent?.toolIssues, []);
 });
@@ -591,7 +610,7 @@ test("scanPlugin flags a typo'd hook event, suppresses a framework/custom event"
       },
     }),
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.hookEventIssues.length, 1);
   assert.equal(r.hookEventIssues[0].event, "PreToolUSe");
   assert.match(formatScanReport(r), /Hook events/);
@@ -607,7 +626,10 @@ test("scanPlugin does NOT flag a hooks ARRAY (non-CC custom format)", () => {
     "hooks/hooks.json",
     JSON.stringify([{ name: "h", event: "tool-use", action: {} }]),
   );
-  assert.deepEqual(scanPlugin(dir).hookEventIssues, []);
+  assert.deepEqual(
+    scanPlugin(dir, claudeCodeLayout, claudeCodeDialect).hookEventIssues,
+    [],
+  );
   cleanupTmpDir(dir);
 });
 
@@ -627,7 +649,7 @@ test("subagent-frontmatter flags a prose-only AGENT, but NOT a frontmatter-less 
     "agents/proseonly.md",
     "You are an expert. No frontmatter here.\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.ok(
     !r.frontmatterIssues.some((i) => i.path.includes("noname")),
     "a frontmatter-less skill is NOT flagged (dir/body fallbacks)",
@@ -661,7 +683,7 @@ test("scanPlugin recommends explicit skill frontmatter (skillMetaIssues), but it
     "skills/bar/SKILL.md",
     "---\nname: bar\ndescription: A bar skill with a proper explicit description here\n---\n# bar\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.skillMetaIssues.length, 1);
   assert.ok(r.skillMetaIssues[0].path.includes("foo"));
   assert.deepEqual(r.skillMetaIssues[0].missing, ["name"]);
@@ -684,7 +706,7 @@ test("scanPlugin flags an MCP server that can't start (no command/url)", () => {
       },
     }),
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.mcpIssues.length, 1);
   assert.equal(r.mcpIssues[0].server, "broken");
   assert.match(formatScanReport(r), /MCP config/);
@@ -715,7 +737,7 @@ test("scanPlugin reads the Agent Plugins standard's root mcp.json", () => {
       },
     }),
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.mcpIssues.length, 1);
   assert.equal(r.mcpIssues[0].server, "broken");
   cleanupTmpDir(dir);
@@ -731,7 +753,7 @@ test("a root mcp.json is IGNORED without an Agent Plugins manifest", () => {
     "mcp.json",
     JSON.stringify({ mcpServers: { broken: { args: ["x"] } } }),
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.mcpIssues.length, 0);
   cleanupTmpDir(dir);
 });
@@ -748,11 +770,18 @@ test("scanPlugin flags an mcp__server__tool whose server the plugin doesn't decl
     "agents/a.md",
     "---\nname: a\ntools: Read, mcp__github__search, mcp__linear__create, mcp__ide__getDiagnostics\n---\nbody\n",
   );
-  const agent = scanPlugin(dir).agents.find((x) => x.name === "a");
+  const agent = scanPlugin(
+    dir,
+    claudeCodeLayout,
+    claudeCodeDialect,
+  ).agents.find((x) => x.name === "a");
   // github = declared (ok), ide = built-in (allowlisted), linear = undeclared (flagged)
   assert.equal(agent?.mcpToolIssues.length, 1);
   assert.equal(agent?.mcpToolIssues[0].server, "linear");
-  assert.match(formatScanReport(scanPlugin(dir)), /can't resolve/);
+  assert.match(
+    formatScanReport(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
+    /can't resolve/,
+  );
   cleanupTmpDir(dir);
 });
 
@@ -765,7 +794,11 @@ test("scanPlugin does NOT flag mcp tools when the plugin declares no servers", (
     "agents/a.md",
     "---\nname: a\ntools: Task, mcp__ide__getDiagnostics, mcp__anything__x\n---\nbody\n",
   );
-  const agent = scanPlugin(dir).agents.find((x) => x.name === "a");
+  const agent = scanPlugin(
+    dir,
+    claudeCodeLayout,
+    claudeCodeDialect,
+  ).agents.find((x) => x.name === "a");
   assert.deepEqual(agent?.mcpToolIssues, []);
   cleanupTmpDir(dir);
 });
@@ -785,7 +818,7 @@ test("scanPlugin reports malformed-YAML frontmatter as an informational note, no
     "skills/good/SKILL.md",
     "---\nname: good\ndescription: a perfectly valid description here\n---\n# good\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.malformedFrontmatter.length, 1);
   assert.match(r.malformedFrontmatter[0].path, /bad\/SKILL\.md$/);
   // It's a soft note, NOT counted in the structural verdict.
@@ -814,7 +847,7 @@ test("scanPlugin flags near-duplicate model-invocable skill descriptions, skips 
     "skills/c/SKILL.md",
     `---\nname: c\ndescription: ${dup}\ndisable-model-invocation: true\n---\n# c\n`,
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.descriptionOverlaps.length, 1);
   // The pair is labelled by name AND path: since the loader reads both discovery
   // levels, a name alone can name two different files (`skills/x` +
@@ -839,7 +872,7 @@ test("scanPlugin flags an agent model/color typo, not a valid value or full mode
     "agents/ok.md",
     "---\nname: o\ndescription: d\nmodel: claude-sonnet-4-5\ncolor: cyan\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const fields = r.frontmatterValueIssues.map(
     (i) => `${i.field}:${i.suggestion}`,
   );
@@ -856,13 +889,20 @@ test("scanPlugin flags a disallowedTools typo (blocks nothing), not a valid/unkn
     "agents/a.md",
     "---\nname: a\ntools: Read\ndisallowedTools: Bsh, Bash, Agent, mcp__x__y\n---\nbody\n",
   );
-  const agent = scanPlugin(dir).agents.find((x) => x.name === "a");
+  const agent = scanPlugin(
+    dir,
+    claudeCodeLayout,
+    claudeCodeDialect,
+  ).agents.find((x) => x.name === "a");
   // Bsh = typo of Bash (flagged); Bash = legitimately blocked; Agent =
   // never-available (harmless to block); mcp__x__y = a real plugin tool to block.
   assert.equal(agent?.disallowedToolIssues.length, 1);
   assert.equal(agent?.disallowedToolIssues[0].tool, "Bsh");
   assert.match(agent?.disallowedToolIssues[0].message ?? "", /blocks nothing/);
-  assert.match(formatScanReport(scanPlugin(dir)), /Did you mean "Bash"\?/);
+  assert.match(
+    formatScanReport(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
+    /Did you mean "Bash"\?/,
+  );
   cleanupTmpDir(dir);
 });
 
@@ -893,7 +933,7 @@ test("scanPlugin flags a mcp_tool hook targeting an undeclared server + an incom
       },
     }),
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.mcpHookIssues.length, 2);
   assert.ok(
     r.mcpHookIssues.some(
@@ -907,7 +947,7 @@ test("scanPlugin flags a mcp_tool hook targeting an undeclared server + an incom
 
 test("scanPlugin reports agent tool contracts incl. inherits-all", () => {
   const dir = fixture();
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const byName = Object.fromEntries(r.agents.map((a) => [a.name, a]));
   assert.deepEqual(byName.withtools.tools, ["Read", "Grep"]);
   assert.equal(byName.notools.tools, null); // no tools: line → inherits all
@@ -930,7 +970,7 @@ test("scanPlugin does not misclassify a '-agents' skill dir as an agent", () => 
     "---\nname: my-commands\ndescription: A skill whose directory ends in commands here\n---\n# y\n",
   );
   write(dir, "agents/real.md", "---\nname: real\ntools: Read\n---\nbody\n");
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(
     r.agents.map((a) => a.name),
     ["real"],
@@ -968,7 +1008,7 @@ test("scanPlugin does not treat a skill-internal agents/ dir as subagents", () =
     "agents/reviewer.md",
     "---\nname: reviewer\ndescription: Review a diff for correctness\ntools: Read\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   // Only the real top-level subagent registers; the nested files are ignored.
   assert.deepEqual(
     r.agents.map((a) => a.name),
@@ -998,7 +1038,7 @@ test("scanPlugin does not treat a commands/agents/ dir as subagents", () => {
     "agents/reviewer.md",
     "---\nname: reviewer\ndescription: Review a diff for correctness\ntools: Read\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   // Only the real top-level subagent registers; the commands are not subagents.
   assert.deepEqual(
     r.agents.map((a) => a.name),
@@ -1034,7 +1074,7 @@ test("scanPlugin reads agents/ SUBDIRECTORIES, scoping the name by subfolder", (
     "agents/review/deep/perf.md",
     "---\nname: perf\ndescription: Reviews a diff for performance defects.\ntools: Read\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(
     r.agents.map((a) => a.name),
     ["review:deep:perf", "review:security", "top"],
@@ -1048,7 +1088,7 @@ test("a nested agent's own defects are reported, not just its existence", () => 
   // the surface that was never opened.
   const dir = makeTmpDir("scan-recursive-agent-defects");
   write(dir, "agents/team/broken.md", "# Broken\nno frontmatter at all\n");
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(
     r.agents.map((a) => a.name),
     ["team:broken"],
@@ -1079,7 +1119,7 @@ test("recursion does not leak through the two nesting traps, even at depth", () 
     "agents/reviewer.md",
     "---\nname: reviewer\ndescription: Review a diff for correctness\ntools: Read\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(
     r.agents.map((a) => a.name),
     ["reviewer"],
@@ -1105,7 +1145,7 @@ test("a SKILL.md nested under agents/ is counted ONCE, as an agent", () => {
     "agents/real.md",
     "---\nname: real\ndescription: A genuine top-level agent alongside it.\ntools: Read\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(
     r.agents.map((a) => a.name),
     ["real", "team:skills:helper:SKILL"],
@@ -1136,7 +1176,7 @@ test("a plugin's own skills/ is untouched by that mirror exclusion", () => {
     "---\nname: skill-creator\ndescription: Creates new skills end to end for this repo.\n---\nbody\n",
   );
   write(dir, "skills/skill-creator/agents/analyzer.md", "# Analyzer\nprose\n");
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(
     r.skills.map((s) => s.name),
     ["deployer", "skill-creator"],
@@ -1167,7 +1207,7 @@ test("the coverage discoverer sees exactly the agents the scan classifier does",
       "---\nname: x\ndescription: An agent for the coverage-agreement probe.\ntools: Read\n---\nbody\n",
     );
   }
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.agents.length, 4);
   // `untested` counts surfaces with no vigiles test; none of these has one, so
   // it must equal the agent count. If the discoverers disagree, so do these.
@@ -1180,7 +1220,7 @@ test("scanPlugin still flags a real top-level subagent missing frontmatter", () 
   // genuine top-level agents/ file that really is missing name/description.
   const dir = makeTmpDir("scan-real-agent-missing-fm");
   write(dir, "agents/broken.md", "# Broken\nno frontmatter at all\n");
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(
     r.agents.map((a) => a.name),
     ["broken"],
@@ -1193,7 +1233,7 @@ test("scanPlugin still flags a real top-level subagent missing frontmatter", () 
 
 test("scanPlugin resolves hook scripts: ok / missing / unresolved", () => {
   const dir = fixture();
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const byBase = (suffix: string) =>
     r.hooks.find((h) => h.script.endsWith(suffix));
   assert.equal(byBase("hooks/present.sh")?.status, "ok"); // ${CLAUDE_PLUGIN_ROOT}
@@ -1206,7 +1246,7 @@ test("scanPlugin resolves hook scripts: ok / missing / unresolved", () => {
 
 test("scanPlugin counts commands and detects MCP", () => {
   const dir = fixture();
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.commands, 1);
   assert.equal(r.mcp, true);
   cleanupTmpDir(dir);
@@ -1214,7 +1254,9 @@ test("scanPlugin counts commands and detects MCP", () => {
 
 test("formatScanReport flags the missing hook + the no-description skill", () => {
   const dir = fixture();
-  const text = formatScanReport(scanPlugin(dir));
+  const text = formatScanReport(
+    scanPlugin(dir, claudeCodeLayout, claudeCodeDialect),
+  );
   assert.ok(text.includes("structural issue")); // absent.sh + nodesc
   assert.ok(/✗ .*hooks\/absent\.sh/.test(text));
   assert.ok(text.includes("inherits all")); // the notools agent footgun
@@ -1238,7 +1280,7 @@ test("scanPlugin surfaces a dangling ref from a hook script, but ignores prose m
     "skills/docs/SKILL.md",
     "---\nname: docs\ndescription: A skill mentioning skills/not-real/SKILL.md as an example here\n---\nSee skills/not-real/SKILL.md\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(r.danglingRefs, ["skills/missing-helper/SKILL.md"]);
   const text = formatScanReport(r);
   assert.ok(text.includes("Broken references"));
@@ -1274,7 +1316,10 @@ test("scanPlugin: the reference extractor does not accuse a file that is present
   // 4. CONTROL — a genuinely missing ref on a real code line, reported under
   //    the name the author actually wrote.
   write(dir, "hooks/d.js", 'const p = "hooks/gone.json";\nload(p);\n');
-  assert.deepEqual(scanPlugin(dir).danglingRefs, ["hooks/gone.json"]);
+  assert.deepEqual(
+    scanPlugin(dir, claudeCodeLayout, claudeCodeDialect).danglingRefs,
+    ["hooks/gone.json"],
+  );
   cleanupTmpDir(dir);
 });
 
@@ -1299,7 +1344,7 @@ test("scanPlugin: an inline `node -e` hook is not reported as a missing script",
       },
     }),
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(r.hooks, []); // no script token at all…
   assert.equal(r.inlineHooks, 1); // …it is an inline one-liner, and says so
   cleanupTmpDir(dir);
@@ -1328,7 +1373,7 @@ test("scanPlugin: a hook script on the RIGHT of && is still existence-checked", 
       },
     }),
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(
     r.hooks.map((h) => [h.script, h.status]),
     [["hooks/gone.mjs", "missing"]],
@@ -1353,14 +1398,17 @@ test("expandMarketplace expands a marketplace root into member plugin dirs", () 
   );
   write(dir, "plugins/a/skills/sa/SKILL.md", "---\nname: sa\n---\n# sa\n");
   write(dir, "plugins/b/skills/sb/SKILL.md", "---\nname: sb\n---\n# sb\n");
-  const members = expandMarketplace(dir);
+  const members = expandMarketplace(dir, claudeCodeLayout);
   assert.ok(members);
   assert.equal(members.length, 2); // gone + ext skipped
   assert.ok(
     members.every((m) => m.endsWith("plugins/a") || m.endsWith("plugins/b")),
   );
   // a non-marketplace dir returns null
-  assert.equal(expandMarketplace(join(dir, "plugins/a")), null);
+  assert.equal(
+    expandMarketplace(join(dir, "plugins/a"), claudeCodeLayout),
+    null,
+  );
   cleanupTmpDir(dir);
 });
 
@@ -1383,15 +1431,18 @@ test("inspectMarketplace classifies on-disk vs external + dedupes aliased dirs",
     }),
   );
   write(dir, "plugins/a/skills/sa/SKILL.md", "---\nname: sa\n---\n# sa\n");
-  const mp = inspectMarketplace(dir);
+  const mp = inspectMarketplace(dir, claudeCodeLayout);
   assert.ok(mp);
   assert.equal(mp.name, "mp");
   assert.equal(mp.total, 6);
   assert.equal(mp.onDisk.length, 1, "three aliases of plugins/a dedupe to one");
   assert.equal(mp.external, 3, "two url/github + one missing string path");
   // expandMarketplace delegates → also deduped
-  assert.deepEqual(expandMarketplace(dir), [...mp.onDisk]);
-  assert.equal(inspectMarketplace(join(dir, "plugins/a")), null); // not a marketplace
+  assert.deepEqual(expandMarketplace(dir, claudeCodeLayout), [...mp.onDisk]);
+  assert.equal(
+    inspectMarketplace(join(dir, "plugins/a"), claudeCodeLayout),
+    null,
+  ); // not a marketplace
   cleanupTmpDir(dir);
 });
 
@@ -1409,12 +1460,12 @@ test("inspectMarketplace reports a CURATED marketplace (all external, none on di
       ],
     }),
   );
-  const mp = inspectMarketplace(dir);
+  const mp = inspectMarketplace(dir, claudeCodeLayout);
   assert.ok(mp);
   assert.equal(mp.onDisk.length, 0);
   assert.equal(mp.external, 2);
   assert.equal(mp.total, 2);
-  assert.deepEqual(expandMarketplace(dir), []); // marketplace, but nothing on disk
+  assert.deepEqual(expandMarketplace(dir, claudeCodeLayout), []); // marketplace, but nothing on disk
   cleanupTmpDir(dir);
 });
 
@@ -1429,7 +1480,11 @@ test("effect surface: agent with only read-only tools is pure", () => {
     "agents/reader.md",
     "---\nname: reader\ndescription: Reads files\ntools: Read, Grep, Glob\n---\nbody\n",
   );
-  const agent = scanPlugin(dir).agents.find((a) => a.name === "reader");
+  const agent = scanPlugin(
+    dir,
+    claudeCodeLayout,
+    claudeCodeDialect,
+  ).agents.find((a) => a.name === "reader");
   assert.ok(agent, "agent found");
   assert.equal(agent.purity, "pure");
   assert.deepEqual(agent.effectBuckets.sideEffecting, []);
@@ -1445,7 +1500,11 @@ test("effect surface: agent with side-effecting tools (no Bash) is bounded", () 
     "agents/writer.md",
     "---\nname: writer\ndescription: Writes files\ntools: Read, Write, Edit\n---\nbody\n",
   );
-  const agent = scanPlugin(dir).agents.find((a) => a.name === "writer");
+  const agent = scanPlugin(
+    dir,
+    claudeCodeLayout,
+    claudeCodeDialect,
+  ).agents.find((a) => a.name === "writer");
   assert.ok(agent, "agent found");
   assert.equal(agent.purity, "bounded");
   assert.ok(
@@ -1463,7 +1522,11 @@ test("effect surface: agent with Bash is unrestricted", () => {
     "agents/runner.md",
     "---\nname: runner\ndescription: Runs commands\ntools: Read, Bash\n---\nbody\n",
   );
-  const agent = scanPlugin(dir).agents.find((a) => a.name === "runner");
+  const agent = scanPlugin(
+    dir,
+    claudeCodeLayout,
+    claudeCodeDialect,
+  ).agents.find((a) => a.name === "runner");
   assert.ok(agent, "agent found");
   assert.equal(agent.purity, "unrestricted");
   assert.ok(
@@ -1481,7 +1544,11 @@ test("effect surface: agent with no tools line (inherits-all) is unrestricted", 
     "agents/wildcard.md",
     "---\nname: wildcard\ndescription: Does anything\n---\nbody\n",
   );
-  const agent = scanPlugin(dir).agents.find((a) => a.name === "wildcard");
+  const agent = scanPlugin(
+    dir,
+    claudeCodeLayout,
+    claudeCodeDialect,
+  ).agents.find((a) => a.name === "wildcard");
   assert.ok(agent, "agent found");
   assert.equal(agent.tools, null, "no tools: line → inherits all");
   assert.equal(agent.purity, "unrestricted");
@@ -1514,7 +1581,7 @@ test("effect surface: harness-level puritySummary aggregates correctly", () => {
     "agents/wild.md",
     "---\nname: wild\ndescription: Wild\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.puritySummary.pure, 1);
   assert.equal(r.puritySummary.bounded, 1);
   assert.equal(r.puritySummary.unrestricted, 2);
@@ -1538,7 +1605,9 @@ test("effect surface: formatScanReport includes purity tags per agent and the su
     "agents/runner.md",
     "---\nname: runner\ndescription: Runs shell commands here\ntools: Bash\n---\nbody\n",
   );
-  const text = formatScanReport(scanPlugin(dir));
+  const text = formatScanReport(
+    scanPlugin(dir, claudeCodeLayout, claudeCodeDialect),
+  );
   // Each agent line includes the purity tag in brackets.
   assert.match(text, /reader.*\[pure\]/);
   assert.match(text, /writer.*\[bounded\]/);
@@ -1555,7 +1624,7 @@ test("effect surface: puritySummary is in the JSON shape (ScanReport)", () => {
     "agents/a.md",
     "---\nname: a\ndescription: Does stuff\ntools: Read\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   // The puritySummary field is present on the report object (JSON shape).
   assert.ok("puritySummary" in r);
   assert.equal(typeof r.puritySummary.pure, "number");
@@ -1587,7 +1656,7 @@ test("verifyLiveMcpTools: flags a tool absent from the live server (with a did-y
     "agents/probe.md",
     "---\nname: probe\ndescription: Probes the server\ntools: Read, mcp__fixture__echo, mcp__fixture__ekho\n---\nbody\n",
   );
-  const report = scanPlugin(dir);
+  const report = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const errs = await verifyLiveMcpTools(
     report,
     claudeCodeLayout,
@@ -1611,7 +1680,7 @@ test("verifyLiveMcpTools: no declared servers → nothing started, no errors", a
     "agents/probe.md",
     "---\nname: probe\ndescription: Probes a ghost\ntools: mcp__ghost__whatever\n---\nbody\n",
   );
-  const report = scanPlugin(dir);
+  const report = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const errs = await verifyLiveMcpTools(
     report,
     claudeCodeLayout,
@@ -1634,7 +1703,7 @@ test("scanPlugin flags a HARD lethal trifecta on a subagent with all three legs"
     "agents/exfil.md",
     "---\nname: exfil\ndescription: Reads code, fetches the web, and posts\ntools: Read, WebFetch\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const agent = r.agents.find((a) => a.name === "exfil");
   assert.ok(agent?.trifecta, "the subagent carries a trifecta finding");
   assert.equal(agent.trifecta?.severity, "hard");
@@ -1655,7 +1724,7 @@ test("scanPlugin reports an inherits-all subagent trifecta as ADVISORY", () => {
     "agents/wide.md",
     "---\nname: wide\ndescription: No tools line\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const agent = r.agents.find((a) => a.name === "wide");
   assert.equal(agent?.trifecta?.severity, "advisory");
   assert.match(formatScanReport(r), /⚠ subagent wide/);
@@ -1688,7 +1757,7 @@ test("a skill with NO disallowed-tools fence holds all three legs; user-invoked 
     "skills/manual/SKILL.md",
     "---\nname: manual\ndescription: A user-invoked skill that also has all the legs here\ndisable-model-invocation: true\nallowed-tools: Read, WebFetch\n---\n# manual\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const leaky = r.skills.find((s) => s.name === "leaky");
   const manual = r.skills.find((s) => s.name === "manual");
   assert.equal(leaky?.trifecta?.severity, "advisory");
@@ -1720,7 +1789,7 @@ test("🔴 a NARROW allowed-tools does not reduce the finding (pre-approval, not
     "skills/wide/SKILL.md",
     "---\nname: wide\ndescription: A model-invocable skill declaring every tool it could ever want\nallowed-tools: Read, Grep, Glob, Bash, WebFetch, WebSearch\n---\n# wide\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const narrow = r.skills.find((s) => s.name === "narrow")?.trifecta;
   const wide = r.skills.find((s) => s.name === "wide")?.trifecta;
   assert.notEqual(narrow, null, "a narrow allowed-tools is NOT a fence");
@@ -1740,7 +1809,7 @@ test("a disallowed-tools that CLOSES a leg clears the finding", () => {
     "skills/fenced/SKILL.md",
     "---\nname: fenced\ndescription: A model-invocable skill that fences off the network entirely\ndisallowed-tools: WebFetch, WebSearch, Bash\n---\n# fenced\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.skills.find((s) => s.name === "fenced")?.trifecta, null);
   assert.equal(r.trifectaFindings.length, 0);
   cleanupTmpDir(dir);
@@ -1757,7 +1826,7 @@ test("the SPACE-separated spelling of that same fence also clears it (#217)", ()
     "skills/fenced/SKILL.md",
     "---\nname: fenced\ndescription: A model-invocable skill that fences off the network entirely\ndisallowed-tools: WebFetch WebSearch Bash\n---\n# fenced\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.skills.find((s) => s.name === "fenced")?.trifecta, null);
   assert.equal(r.trifectaFindings.length, 0);
   cleanupTmpDir(dir);
@@ -1772,7 +1841,7 @@ test("a PARTIAL disallowed-tools closes no leg and names the suppliers still sta
     "skills/half/SKILL.md",
     "---\nname: half\ndescription: A model-invocable skill that denies exactly one read tool\ndisallowed-tools: Read\n---\n# half\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const f = r.skills.find((s) => s.name === "half")?.trifecta;
   assert.equal(f?.fence, "ineffective");
   assert.equal(f?.severity, "advisory", "never LOUDER than declaring no fence");
@@ -1792,7 +1861,7 @@ test("the report AGGREGATES unfenced skills into one line but still counts every
       `---\nname: ${n}\ndescription: A model-invocable skill with no tool fence declared at all\n---\n# ${n}\n`,
     );
   }
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const text = formatScanReport(r);
   assert.equal(r.trifectaFindings.length, 3, "every unit is still a finding");
   // The header counts UNITS (3), not the lines the aggregate collapsed them into.
@@ -1812,7 +1881,7 @@ test("scanPlugin: a two-leg subagent is NOT a trifecta (Rule of Two)", () => {
     "agents/safe.md",
     "---\nname: safe\ndescription: Reads and searches but cannot exfiltrate\ntools: Read, WebSearch\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.agents.find((a) => a.name === "safe")?.trifecta, null);
   assert.equal(r.trifectaFindings.length, 0);
   cleanupTmpDir(dir);
@@ -1827,11 +1896,10 @@ test("trifecta detector is dialect-injected — works under a non-CC layout", ()
     "subagents/wide.md",
     "---\nname: wide\ndescription: A subagent with no tools line under a custom dir\n---\nbody\n",
   );
-  const customLayout = {
+  const customLayout: PluginLayout = {
     ...claudeCodeLayout,
-    agentDir: "subagents",
-    surfaceDirs: ["subagents"],
-    materializeRoot: "",
+    surfaces: { agent: "subagents" },
+    userSurfaceRoot: undefined,
   };
   const r = scanPlugin(dir, customLayout, claudeCodeDialect);
   assert.equal(
@@ -1872,7 +1940,7 @@ test("a skill whose FENCE is in a malformed block is not credited with it", () =
     "skills/broken/SKILL.md",
     `---\nname: broken\ndescription: A model-invocable skill whose frontmatter does not parse\ndisallowed-tools: [WebFetch, WebSearch, Bash\n---\n# broken\n`,
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const skill = r.skills.find((s) => s.name === "broken");
   assert.equal(skill?.trifecta?.severity, "advisory");
   assert.equal(skill?.trifecta?.fence, "none", "a salvaged fence is no fence");
@@ -1898,7 +1966,7 @@ test("a subagent whose tools list is MALFORMED gets the same treatment", () => {
     "agents/broken.md",
     `---\nname: broken\ndescription: A subagent whose frontmatter does not parse\ntools: ${UNCLOSED_TOOLS}\n---\nbody\n`,
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const agent = r.agents.find((a) => a.name === "broken");
   assert.equal(agent?.trifecta?.severity, "advisory");
   assert.match(agent?.trifecta?.message ?? "", /not valid YAML/);
@@ -1919,7 +1987,7 @@ test("a SALVAGED all-three contract still convicts — the refusal is one-direct
     "---\nname: leaky\ndescription: Broken YAML, and every leg declared: a colon\n  bad: indent\n" +
       "tools: Read, WebSearch, WebFetch, NotARealTool\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const agent = r.agents.find((a) => a.name === "leaky");
   assert.ok(r.malformedFrontmatter.some((i) => i.path.includes("leaky.md")));
   assert.equal(agent?.trifecta?.severity, "hard", "not demoted to advisory");
@@ -1948,7 +2016,7 @@ test("a VALID narrow contract is unaffected — the refusal is scoped to unparse
     "agents/fine.md",
     "---\nname: fine\ndescription: A subagent whose frontmatter parses cleanly\ntools: [Read, Bash]\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.skills.find((s) => s.name === "fine")?.trifecta, null);
   assert.equal(r.agents.find((a) => a.name === "fine")?.trifecta, null);
   assert.deepEqual(r.agents.find((a) => a.name === "fine")?.tools, [
@@ -1972,7 +2040,7 @@ test("scanPlugin flags a SKILL.md body referencing a missing bundled resource", 
   );
   // Only scripts/extract.py exists; references/api.md does NOT.
   write(dir, "skills/pdf/scripts/extract.py", "print('hi')\n");
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const pdf = r.skills.find((s) => s.name === "pdf");
   assert.equal(
     pdf?.resourceIssues.length,
@@ -2024,7 +2092,7 @@ test("skill-resource line number is FILE-relative, not body-relative", () => {
     "fixture self-check: the broken ref is on file line 11",
   );
 
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const found = r.skills.find((s) => s.name === "demo")?.resourceIssues ?? [];
   assert.equal(found.length, 1, "the missing bundled resource is flagged");
   assert.equal(found[0].ref, "references/api.md");
@@ -2043,7 +2111,7 @@ test("skill-resource is FP-safe: URLs and $VAR tokens are not flagged", () => {
     "skills/web/SKILL.md",
     "---\nname: web\ndescription: A skill that links out to docs and runtime paths here\n---\n# web\n\nSee [docs](https://example.test/api.md) and `${CLAUDE_PLUGIN_ROOT}/x.sh` and `../sibling/y.sh`.\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(
     r.skills.find((s) => s.name === "web")?.resourceIssues.length,
     0,
@@ -2102,7 +2170,7 @@ test("a directory symlink is not descended into, so a cycle cannot hang the scan
   let report: ReturnType<typeof scanPlugin> | null = null;
   let thrown = "";
   try {
-    report = scanPlugin(dir);
+    report = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   } catch (e) {
     thrown = e instanceof Error ? e.message : String(e);
   }
@@ -2170,7 +2238,7 @@ test("a surface ROOT that links back over the repo is refused, so the walk stays
   symlinkSync(join(dir), join(dir, ".claude", "skills"), "dir");
   symlinkSync(join(dir), join(dir, "skills"), "dir");
 
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(
     r.warnings.filter((w) => w.includes("planted.test.mjs")),
     [],
@@ -2201,7 +2269,7 @@ test("…but a shared skills directory linked in from OUTSIDE is still read", ()
   );
   symlinkSync(join(dir, "shared"), join(repo, ".claude", "skills"), "dir");
 
-  const r = scanPlugin(repo);
+  const r = scanPlugin(repo, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(
     r.skills.map((s) => s.name),
     ["linked"],
@@ -2247,7 +2315,9 @@ test("…but a symlink to a FILE is still collected — it cannot recurse", () =
   );
   // And the skill beside it is still found, so the walk did not bail at the link.
   assert.deepEqual(
-    scanPlugin(dir).skills.map((x) => x.name),
+    scanPlugin(dir, claudeCodeLayout, claudeCodeDialect).skills.map(
+      (x) => x.name,
+    ),
     ["s"],
   );
   cleanupTmpDir(dir);
@@ -2305,7 +2375,7 @@ test("…while the same skill under Claude Code is still reported and still scor
     "skills/deploy/SKILL.md",
     "---\nname: deploy\ndescription: Ships the built artifact to production for the team\n---\n# deploy\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.skills[0]?.trifecta?.fence, "none");
   assert.equal(r.trifectaFindings.filter((f) => f.kind === "skill").length, 1);
   assert.ok(
@@ -2336,7 +2406,7 @@ test("advisory vocabulary notes REACH the report (computed-then-dropped guard)",
     "agents/p.md",
     "---\nname: p\ndescription: Probe agent\ntools: Agent, NotARealTool\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
 
   const notes = r.vocabularyNotes ?? [];
   assert.equal(
@@ -2377,7 +2447,7 @@ test("a clean plugin produces NO vocabulary notes (the silent half)", () => {
     "agents/p.md",
     "---\nname: p\ndescription: Probe agent\ntools: Read, Grep\n---\nbody\n",
   );
-  const r = scanPlugin(dir);
+  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(r.vocabularyNotes, []);
   assert.doesNotMatch(formatScanReport(r), /Vocabulary notes/);
   cleanupTmpDir(dir);
@@ -2394,7 +2464,8 @@ test("conditional tool notes are GROUPED by condition, not repeated per tool", (
     "---\nname: orch\ndescription: Orchestrator subagent\n" +
       "tools: Read, Agent, CronCreate, CronDelete, CronList, TaskCreate, TaskList\n---\nbody\n",
   );
-  const notes = scanPlugin(dir).vocabularyNotes ?? [];
+  const notes =
+    scanPlugin(dir, claudeCodeLayout, claudeCodeDialect).vocabularyNotes ?? [];
   // 6 conditional tools across 3 distinct conditions + Agent's own = 3 lines.
   assert.equal(notes.length, 3, notes.map((n) => n.message).join("\n"));
   assert.ok(
@@ -2424,32 +2495,131 @@ test("conditional tool notes are GROUPED by condition, not repeated per tool", (
 // direction that matters — under-reporting reads as "you are fine", and on Codex
 // being over budget means rules are silently truncated away.
 
-test("weight: a nested AGENTS.md pays into the Codex budget, node_modules does not", () => {
+test("weight: at a root session Codex loads the ROOT file only — the walk is never entered", () => {
   const dir = makeTmpDir();
   try {
     mkdirSync(join(dir, "pkg/sub"), { recursive: true });
     mkdirSync(join(dir, "node_modules/dep"), { recursive: true });
     mkdirSync(join(dir, ".hidden"), { recursive: true });
     writeFileSync(join(dir, "AGENTS.md"), "a".repeat(100));
+    // 🔴 THE ASSERTION BELOW IS REVERSED FROM THE ONE THIS REPLACED, which said
+    // a nested AGENTS.md "pays into the same Codex budget" and counted 150.
+    // Vendor (zernie/vigiles#262): Codex walks root→cwd taking AT MOST ONE file
+    // per directory, so at a repo-root session there is nothing to walk down to.
+    // The old number was not merely generous — it is why a monorepo with twelve
+    // package-level files was told it was 12x over a budget no session reaches,
+    // on the harness where over-budget means rules are silently truncated away.
     writeFileSync(join(dir, "pkg/sub/AGENTS.md"), "b".repeat(50));
-    // Both of these are AGENTS.md by name and must NOT be counted: one belongs
-    // to a dependency, one is in a dot-directory the user did not author as
-    // project instructions. Counting them would make the number unactionable.
+    // And these two are not even ENUMERATED now: the bounded candidate set is
+    // the repo root plus its depth-1 dot-directories, so a dependency's file and
+    // a dot-directory's are outside it by construction rather than by a skip
+    // list that has to be remembered.
     writeFileSync(join(dir, "node_modules/dep/AGENTS.md"), "c".repeat(9999));
     writeFileSync(join(dir, ".hidden/AGENTS.md"), "d".repeat(9999));
 
     const r = scanPlugin(dir, codexLayout, codexDialect);
     const w = r.instructionWeight;
     assert.ok(w, "codex declares a budget, so a weight must be reported");
-    assert.equal(w.total, 150);
+    assert.equal(w.committedTotal, 100);
     assert.deepEqual(
       w.files.map((f) => f.path),
-      ["AGENTS.md", "pkg/sub/AGENTS.md"],
+      ["AGENTS.md"],
     );
     assert.equal(w.unit, "bytes");
     assert.equal(w.onExceed, "truncates");
   } finally {
     cleanupTmpDir(dir);
+  }
+});
+
+/**
+ * 🔴 THE REDIRECT FIXTURE — the repo shape the glob list answered with a
+ * confident wrong number.
+ *
+ * `CLAUDE.md` holding nothing but `@AGENTS.md` is the documented workaround for
+ * Claude Code not yet reading `AGENTS.md` natively (anthropics/claude-code#34235
+ * — reversed in v2.1.277; the idiom and its files remain), and
+ * four of the six real imports in the measured 198-file corpus are exactly this.
+ * Before the import pass, vigiles reported such a repository as having an
+ * eleven-byte instruction file — reassuring, and wrong by two orders of
+ * magnitude.
+ */
+test("weight: a CLAUDE.md that is nothing but an import is REPORTED AS A REDIRECT, and its target is weighed", () => {
+  const dir = makeTmpDir();
+  try {
+    writeFileSync(join(dir, "CLAUDE.md"), "@AGENTS.md\n");
+    writeFileSync(join(dir, "AGENTS.md"), "a".repeat(50000));
+
+    const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
+    const w = r.instructionWeight;
+    assert.ok(w);
+    // Not 11. The repository really loads fifty thousand characters.
+    assert.equal(w.committedTotal, 50011);
+    assert.deepEqual(w.redirects, [{ path: "CLAUDE.md", to: ["AGENTS.md"] }]);
+
+    const out = formatScanReport(r);
+    // The FINDING, in words a reader can act on…
+    assert.match(out, /CLAUDE\.md is a REDIRECT/);
+    assert.match(out, /AGENTS\.md/);
+    // …and the provenance on the imported file's own breakdown row, because
+    // `AGENTS.md` inside a Claude Code weight otherwise reads as a bug.
+    assert.match(out, /via @AGENTS\.md in CLAUDE\.md/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("weight: an ordinary instruction file is NOT called a redirect", () => {
+  // The other half. A finding that fired on every repo would be switched off in
+  // a week, and this one prints above the number it is meant to qualify.
+  const dir = makeTmpDir();
+  try {
+    writeFileSync(join(dir, "CLAUDE.md"), "Real rules.\n\n@AGENTS.md\n");
+    writeFileSync(join(dir, "AGENTS.md"), "a".repeat(50));
+
+    const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
+    assert.deepEqual(r.instructionWeight?.redirects, []);
+    assert.doesNotMatch(formatScanReport(r), /REDIRECT/);
+    // The import is still weighed and still says where it came from.
+    assert.match(formatScanReport(r), /via @AGENTS\.md in CLAUDE\.md/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("weight: the printed total SAYS it is a floor — and says nothing when there is no total", () => {
+  // 🔴 WHAT THE NUMBER LEAVES OUT, NAMED WHERE THE NUMBER IS PRINTED. Vendor,
+  // on the files beside an `AGENTS.md`: "Don't count, and keep loading
+  // alongside `AGENTS.md`: your `~/.claude/CLAUDE.md`, your organization's
+  // managed `CLAUDE.md`…". They are ADDED to what a real session loads, and
+  // they are outside a repository audit by construction — reading `~` for a
+  // grade would make the figure depend on whose machine ran it, and the browser
+  // twin could never reproduce it. So the fix is the sentence, not the read;
+  // without it the sum reads as complete.
+  const dir = makeTmpDir();
+  try {
+    writeFileSync(join(dir, "CLAUDE.md"), "a".repeat(10));
+    assert.match(
+      formatScanReport(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
+      /a FLOOR: a home-directory or organization-managed instruction file/,
+    );
+  } finally {
+    cleanupTmpDir(dir);
+  }
+
+  // THE OTHER HALF: a harness that declares no budget reports no weight at all,
+  // and a caveat printed with no number to qualify is noise.
+  const bare = makeTmpDir();
+  try {
+    writeFileSync(join(bare, "CLAUDE.md"), "a".repeat(10));
+    const r = scanPlugin(bare, claudeCodeLayout, {
+      ...claudeCodeDialect,
+      instructionBudget: undefined,
+    });
+    assert.equal(r.instructionWeight, null);
+    assert.doesNotMatch(formatScanReport(r), /a FLOOR/);
+  } finally {
+    cleanupTmpDir(bare);
   }
 });
 
@@ -2470,7 +2640,7 @@ test("weight: .claude/rules counts toward the Claude Code sum, docs/ does not", 
       claudeCodeDialect,
     ).instructionWeight;
     assert.ok(w);
-    assert.equal(w.total, 30);
+    assert.equal(w.committedTotal, 30);
     assert.equal(w.unit, "chars");
   } finally {
     cleanupTmpDir(dir);
@@ -2721,7 +2891,7 @@ test("#240: both halves are read, and the declaration ORDER does not decide whic
         `${order}: the instruction file is read`,
       );
       assert.ok(
-        (r.instructionWeight?.total ?? 0) > 0,
+        (r.instructionWeight?.committedTotal ?? 0) > 0,
         `${order}: …and it WEIGHS something — 0 was the old answer`,
       );
       // And the tree is no longer reported as unread, in either order.
@@ -2738,16 +2908,57 @@ test("#240: both halves are read, and the declaration ORDER does not decide whic
       {
         skills: ccFirst.skills.map((s) => s.name),
         instructions: ccFirst.instructions,
-        weight: ccFirst.instructionWeight?.total,
+        weight: ccFirst.instructionWeight?.committedTotal,
       },
       {
         skills: codexFirst.skills.map((s) => s.name),
         instructions: codexFirst.instructions,
-        weight: codexFirst.instructionWeight?.total,
+        weight: codexFirst.instructionWeight?.committedTotal,
       },
       "what is READ is identical in both declaration orders",
     );
   } finally {
     cleanupTmpDir(dir);
   }
+});
+
+// 🔴 THE PER-MACHINE DELTA HAS TWO SIGNS, and the printer only had one. Claude
+// Code's supersede rule lets a gitignored `CLAUDE.local.md` REMOVE a committed
+// `AGENTS.md` from the load, so `effectiveTotal` comes out BELOW
+// `committedTotal` — a state the model already reports through
+// `supersededLocallyBy`. The old `local > 0` guard suppressed the line outright,
+// leaving the header announcing the larger COMMITTED number as "always loaded"
+// with nothing saying this working copy loads a smaller, different chain.
+//
+// Both directions are asserted here against the SAME renderer, because a fix
+// that printed a bare "−93" without naming the silenced file would pass a
+// one-sided test and still leave the reader unable to decompose the number.
+test("instruction weight: the per-machine delta prints in BOTH directions", () => {
+  // Negative: a small local file supersedes a large committed AGENTS.md.
+  const down = makeTmpDir("weight-down");
+  writeFileSync(join(down, "AGENTS.md"), "a".repeat(400));
+  writeFileSync(join(down, "CLAUDE.local.md"), "b".repeat(20));
+  const outDown = formatScanReport(
+    scanPlugin(down, claudeCodeLayout, claudeCodeDialect),
+  );
+  assert.match(outDown, /−\s*380 chars/, "the negative delta is printed");
+  assert.match(outDown, /REMOVES/, "and says what happened");
+  assert.match(
+    outDown,
+    /not loaded here: AGENTS\.md \(silenced by CLAUDE\.local\.md\)/,
+    "and names the committed file this working copy does not load",
+  );
+  cleanupTmpDir(down);
+
+  // Positive control: the same mechanism, additive. Without this the test could
+  // pass on a renderer that had simply flipped the sign it handles.
+  const up = makeTmpDir("weight-up");
+  writeFileSync(join(up, "CLAUDE.md"), "a".repeat(400));
+  writeFileSync(join(up, "CLAUDE.local.md"), "b".repeat(20));
+  const outUp = formatScanReport(
+    scanPlugin(up, claudeCodeLayout, claudeCodeDialect),
+  );
+  assert.match(outUp, /\+\s*20 chars from per-machine file/, "additive delta");
+  assert.doesNotMatch(outUp, /REMOVES/, "nothing was removed here");
+  cleanupTmpDir(up);
 });

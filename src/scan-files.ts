@@ -35,13 +35,21 @@
  */
 import { basename, dirname, isAbsolute, join, relative } from "./posix-path.js";
 
-import { parse as parseToml } from "@iarna/toml";
-
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
-import type { PluginLayout } from "./core/layout.js";
+import type { SettingsCodec } from "./core/settings-codec.js";
+import {
+  executableSourceDirs,
+  materializePrefix,
+  surfaceDirs,
+  type PluginLayout,
+} from "./core/layout.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import { weighInstructions } from "./core/instruction-weight.js";
+import {
+  instructionCandidatePaths,
+  resolveImports,
+} from "./core/instruction-chain.js";
 import type { LoadedPlugin } from "./plugin-loader.js";
 import { normalizeHooks, hookEventNames } from "./core/hook-normalize.js";
 import { verifyHookEvents, scoredIssues } from "./core/hook-events.js";
@@ -229,21 +237,18 @@ function safeParseJson(
   }
 }
 
-/** Parse the layout's manifest (JSON or TOML) from the map, or null. */
+/** Parse the layout's manifest from the map through its CODEC, or null. */
 function readManifest(
   files: Record<string, string>,
   layout: PluginLayout,
 ): Record<string, unknown> | null {
   const text = files[layout.manifestPath];
   if (text === undefined) return null;
-  if (layout.settingsFormat === "toml") {
-    try {
-      return parseToml(text) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
+  try {
+    return layout.settings.parse(text);
+  } catch {
+    return null;
   }
-  return safeParseJson(text);
 }
 
 /** The `.hooks` field of a JSON file in the map, or undefined. */
@@ -254,11 +259,10 @@ function readHooksJsonFile(
   return safeParseJson(files[rel])?.hooks;
 }
 
-/** The `.hooks` of a settings file in the map, in the layout's format. */
-function readSettingsHooks(text: string, format: "json" | "toml"): unknown {
-  if (format === "json") return safeParseJson(text)?.hooks;
+/** The `.hooks` of a settings file in the map, through the layout's codec. */
+function readSettingsHooks(text: string, codec: SettingsCodec): unknown {
   try {
-    return (parseToml(text) as Record<string, unknown>).hooks;
+    return codec.parse(text).hooks;
   } catch {
     return undefined;
   }
@@ -276,12 +280,17 @@ function readHooks(
     }
     if (m.hooks !== undefined) return m.hooks;
   }
-  if (hasFile(files, layout.hooksConventionPath)) {
+  // Optional: a harness whose hooks are in-process code modules has no
+  // standalone hooks FILE. Mirrors the disk loader.
+  if (
+    layout.hooksConventionPath !== undefined &&
+    hasFile(files, layout.hooksConventionPath)
+  ) {
     return readHooksJsonFile(files, layout.hooksConventionPath);
   }
   const settings = files[layout.settingsPath];
   if (settings !== undefined) {
-    return readSettingsHooks(settings, layout.settingsFormat);
+    return readSettingsHooks(settings, layout.settings);
   }
   return undefined;
 }
@@ -308,7 +317,7 @@ function surfaceHasLoadable(
   tree: Record<string, string>,
 ): boolean {
   const keys = Object.keys(tree);
-  return surface === layout.skillDir
+  return surface === layout.surfaces.skill
     ? keys.some((k) => basename(k) === "SKILL.md")
     : keys.some((k) => k.endsWith(".md"));
 }
@@ -331,7 +340,7 @@ function materializeSurfaces(
   const harnessCounts: Record<string, number> = {};
   const scopeTrees = (base: string): Map<string, Record<string, string>> => {
     const trees = new Map<string, Record<string, string>>();
-    for (const surface of layout.surfaceDirs) {
+    for (const surface of surfaceDirs(layout)) {
       const dirRel = base === "" ? surface : `${base}/${surface}`;
       trees.set(
         surface,
@@ -341,7 +350,7 @@ function materializeSurfaces(
     return trees;
   };
   const hasLoadable = (trees: ReadonlyMap<string, Record<string, string>>) =>
-    layout.surfaceDirs.some((s) =>
+    surfaceDirs(layout).some((s) =>
       surfaceHasLoadable(layout, s, trees.get(s) ?? {}),
     );
   const add = (key: string, content: string, onDisk: string): void => {
@@ -360,7 +369,7 @@ function materializeSurfaces(
     scope: SurfaceScope,
     trees: ReadonlyMap<string, Record<string, string>>,
   ): void => {
-    for (const surface of layout.surfaceDirs) {
+    for (const surface of surfaceDirs(layout)) {
       const tree = trees.get(surface) ?? {};
       const dirRel = scope.base === "" ? surface : `${scope.base}/${surface}`;
       for (const [rel, content] of Object.entries(tree))
@@ -377,7 +386,8 @@ function materializeSurfaces(
   };
 
   const source = surfaceSource(layout, {
-    hasRootSkillFile: Boolean(layout.skillDir) && hasFile(files, "SKILL.md"),
+    hasRootSkillFile:
+      layout.surfaces.skill !== undefined && hasFile(files, "SKILL.md"),
     // Disk mirrors the CLI: a nameless root SKILL.md takes the audited dir's
     // basename. In-browser there's no real dir, so use the repo name when the
     // caller (runAudit) supplies it, else the synthetic BROWSER_ROOT basename.
@@ -385,22 +395,27 @@ function materializeSurfaces(
     rootHasLoadable: hasLoadable(rootTrees),
     isPluginShaped:
       hasFile(files, layout.manifestPath) ||
-      hasFile(files, layout.hooksConventionPath),
+      (layout.hooksConventionPath !== undefined &&
+        hasFile(files, layout.hooksConventionPath)),
     userHasLoadable: hasLoadable(userTrees),
   });
 
   switch (source.kind) {
     case "single-skill": {
       const tree = readTreeUnder(files, "", "");
+      // Mirrors the disk loader: the skill dir is carried on the variant, so
+      // there is no `undefined` case to guard and no dead branch to keep in
+      // sync across the two engines.
+      const { skillDir } = source;
       for (const [rel, content] of Object.entries(tree)) {
         add(
-          join(layout.materializeRoot, layout.skillDir, source.skillName, rel),
+          join(materializePrefix(layout), skillDir, source.skillName, rel),
           content,
           join(BROWSER_ROOT, rel),
         );
       }
-      counts[layout.skillDir] = Object.keys(tree).length;
-      harnessCounts[layout.skillDir] = counts[layout.skillDir];
+      counts[skillDir] = Object.keys(tree).length;
+      harnessCounts[skillDir] = counts[skillDir];
       return { counts, harnessCounts, scopes: [] };
     }
     case "scopes": {
@@ -419,7 +434,7 @@ function materializeSurfaces(
 // Extensions + BOTH token boundaries live in core/source-refs.ts, so this and
 // its disk twin (plugin-loader.ts) cannot disagree and neither can omit one.
 function intraRefRe(layout: PluginLayout): RegExp {
-  return intraRefPattern(layout.intraRefDirs);
+  return intraRefPattern(executableSourceDirs(layout));
 }
 
 const NON_PLUGIN_VARS = new Set([
@@ -451,7 +466,7 @@ function executableContents(
   layout: PluginLayout,
 ): string[] {
   const out: string[] = [];
-  for (const surface of layout.intraRefDirs) {
+  for (const surface of executableSourceDirs(layout)) {
     if (!isDirRel(files, surface)) continue;
     for (const [k, content] of Object.entries(files)) {
       if (!k.startsWith(`${surface}/`)) continue;
@@ -678,6 +693,20 @@ export function scanFiles(
           hasSpec: hasFile(files, `${lay.instructionFile}.spec.ts`),
         }
       : null;
+  // The BOUNDED candidate set over the map, then the same one-level import pass
+  // the disk walk runs — `resolveImports` lives in the core precisely so these
+  // two cannot drift. An import the fetcher never fetched simply stays unread,
+  // and the weight says so (`unreadImports`) instead of quietly omitting it.
+  const instructionFiles = resolveImports(
+    lay,
+    Object.fromEntries(
+      instructionCandidatePaths(Object.keys(files), lay).map((p) => [
+        p,
+        files[p] ?? "",
+      ]),
+    ),
+    (p) => files[p],
+  );
   const mcpServers = collectMcpServers(files, lay);
   const declaredServers = Object.keys(mcpServers);
   // The repo's own test signal — same shared detector as the disk path, over the
@@ -692,7 +721,7 @@ export function scanFiles(
   });
   const skills = scanSkills(loaded.files, cls, {
     root: BROWSER_ROOT,
-    materializeRoot: lay.materializeRoot,
+    materializeRoot: materializePrefix(lay),
     dialect,
     sources: loaded.sources,
     existsSync: exists,
@@ -768,7 +797,9 @@ export function scanFiles(
     ),
     pluginLayoutIssues: pluginDirLayoutIssues(
       join(BROWSER_ROOT, dirname(lay.manifestPath)),
-      [...new Set([...lay.surfaceDirs, lay.hooksConventionPath.split("/")[0]])],
+      // See the note in scan.ts: the scripts dir is NAMED by the layout, not
+      // derived from the registration file's first segment.
+      executableSourceDirs(lay),
       { existsSync: exists, isDirectory: mapIsDirectory(files) },
     ),
     delegationTrifecta: collectDelegationTrifecta(agents, dialect),
@@ -803,10 +834,19 @@ export function scanFiles(
       ...loaded.warnings,
       ...conflictedHarnessConfigs((f) => files[f]).map(mergeConflictWarning),
     ],
-    // The browser side needs no directory walk — the file map IS the repo, so
-    // the glob filter inside weighInstructions does the whole job.
+    // 🔴 THE TWIN APPLIES THE SAME BOUND AS THE DISK WALK, and until now it
+    // applied none. The comment here used to read "the file map IS the repo, so
+    // the glob filter does the whole job" — which was true of a glob and is not
+    // true of a bound: `boundedInstructionFiles` enumerates the repo root plus
+    // depth-1 dot-directories and nothing else, so handing the whole fetched map
+    // over would make the browser weigh files the CLI never opens. Same filter,
+    // same import pass, same chain; only the storage differs.
     instructionWeight: dialect.instructionBudget
-      ? weighInstructions(files, dialect.instructionBudget)
+      ? weighInstructions(
+          lay.instructionChain(instructionFiles),
+          instructionFiles,
+          dialect.instructionBudget,
+        )
       : null,
     untested: coverage.untested.length,
     untestedHarness: coverage.harness.untested.length,

@@ -1,0 +1,690 @@
+/**
+ * The DISCOVERY BOUND, as properties over every implementation of the port in
+ * this repo — the two registered adapters AND the `opencode` prototype.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE ONE QUESTION EVERY PROPERTY HERE ASKS
+ *
+ * Can an adapter change what the domain SEES, rather than how it interprets
+ * what it sees? Discovery is the domain's job (`core/surface-discovery.ts`); an
+ * adapter LABELS what the domain already found. If that inverts — if shipping
+ * an adapter starts reading `.cursor/rules` in every user's repository, or a
+ * surface no adapter declared becomes invisible — the audit grades a set of
+ * files nobody chose, and the grade is about vigiles rather than about the
+ * repo. `claims(path)` was designed for this; `detect` was not, and until
+ * 2026-09-21 it took a `root` and reached for `node:fs` itself, right beside
+ * the method whose docblock explains why that is wrong.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 🔴 WHY THESE RUN AGAINST A THIRD IMPLEMENTATION, AND WHY THAT IS THE POINT
+ *
+ * A port checked against two implementations and broken by a third is the
+ * failure this whole redesign exists to prevent, and it is not hypothetical:
+ * BOTH of the port's live illegal states were in `opencode`, the one
+ * implementation the contract suite did not range over. Its layout named a
+ * skill dir that `surfaceDirs` omitted (so OpenCode's skills were read by
+ * nothing), and its adapter declared `harnessTesting: true` behind no driver
+ * (so the runner threw at run time). Two implementations agreed with each
+ * other; the third was where the shape had room to go wrong.
+ *
+ * So every property below ranges over `IMPLEMENTATIONS`, not over `ADAPTERS`.
+ */
+import { describe, it, expect } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import type { HarnessAdapter } from "./core/adapter.js";
+import type { PluginLayout } from "./core/layout.js";
+import {
+  executableSourceDirs,
+  materializePrefix,
+  surfaceDirs,
+} from "./core/layout.js";
+import { layoutLocations } from "./core/surface-discovery.js";
+import {
+  EMPTY_CHAIN,
+  instructionCandidatePaths,
+  isInstructionShaped,
+} from "./core/instruction-chain.js";
+import { boundedInstructionFiles } from "./surface-discovery-fs.js";
+import { makeTmpDir } from "./core/tmp-root.js";
+import { ADAPTERS } from "./adapter-registry.js";
+import { opencodeAdapter } from "./adapters/opencode/adapter.js";
+
+/** Every implementation of the port in this repo: shipped and prototype. */
+const IMPLEMENTATIONS: readonly HarnessAdapter[] = [
+  ...ADAPTERS,
+  opencodeAdapter,
+];
+
+describe.each(IMPLEMENTATIONS.map((a) => [a.name, a] as const))(
+  "%s — the discovery bound",
+  (_name, adapter) => {
+    it("detect() asks only about paths this adapter CLAIMS", () => {
+      // The strongest form of "an adapter cannot probe what it does not claim",
+      // and the reason `detect` takes a predicate: the predicate is the only
+      // way it can ask anything, so recording the calls records everything it
+      // looked at.
+      //
+      // A fourth adapter that wanted to detect by a marker it does not read —
+      // a lockfile, a CI config — would fail this. That is the intended trade
+      // and not an oversight: a detector reading what it does not claim is how
+      // a grade starts covering files nobody declared.
+      const asked: string[] = [];
+      const record = (rel: string): boolean => {
+        asked.push(rel);
+        return false;
+      };
+      adapter.detect(record);
+      expect(asked.length).toBeGreaterThan(0);
+      for (const path of asked) {
+        expect(
+          adapter.claims(path),
+          `detect() asked about "${path}", which claims() does not cover`,
+        ).toBe(true);
+      }
+    });
+
+    it("detect() reaches no filesystem of its own — a predicate that always answers yes still terminates with a signal", () => {
+      // The other half: if `detect` kept a `node:fs` import it could ignore the
+      // predicate entirely and this would still pass, so this pairs with the
+      // call-recording above rather than replacing it. What it pins is that
+      // every branch produces a signal, including the strongest one.
+      const signal = adapter.detect(() => true);
+      expect(signal.specificity).toBeGreaterThan(0);
+      expect(["manifest", "settings", "instruction-file"]).toContain(
+        signal.via,
+      );
+    });
+
+    it("detect() is pure in its predicate — the same answers give the same signal", () => {
+      const once = adapter.detect(() => false);
+      const twice = adapter.detect(() => false);
+      expect(once).toEqual(twice);
+      expect(once.specificity).toBe(0);
+    });
+
+    it("advisories() asks the repo only about paths this adapter CLAIMS", () => {
+      // The same bound as `detect`, one method along, and it needs its own
+      // property for the same reason `detect` did: the reader is the ONLY way
+      // `advisories` can reach a repo, so recording its calls records
+      // everything the adapter looked at. An adapter that read `package.json`
+      // or a sibling harness's config would fail here.
+      //
+      // The reader answers NOTHING (every read is null) so every branch is
+      // driven to its "nothing found" path, which is the branch that asks the
+      // most questions.
+      const askedRepo: string[] = [];
+      const askedHome: string[] = [];
+      const lines = adapter.advisories({
+        repo: (p) => {
+          askedRepo.push(p);
+          return null;
+        },
+        home: (p) => {
+          askedHome.push(p);
+          return null;
+        },
+        repoDependsOnVigiles: true,
+        vendoredSkillNames: [],
+      });
+      for (const path of askedRepo) {
+        expect(
+          adapter.claims(path),
+          `advisories() asked the repo about "${path}", which claims() does not cover`,
+        ).toBe(true);
+      }
+      // `[]` is a legal answer; what is not legal is a non-string in the list.
+      expect(Array.isArray(lines)).toBe(true);
+      for (const line of lines) expect(typeof line).toBe("string");
+    });
+
+    it("advisories() is a pure function of its reader — nothing found means nothing claimed about this install", () => {
+      // The complementary half: given a reader that finds nothing AND a repo
+      // that does not depend on vigiles, no advisory may be invented. This is
+      // what stops an adapter printing machine-state chatter into every audit.
+      const silent = {
+        repo: () => null,
+        home: () => null,
+        repoDependsOnVigiles: false,
+        vendoredSkillNames: [] as readonly string[],
+      };
+      const once = adapter.advisories(silent);
+      const twice = adapter.advisories(silent);
+      expect([...once]).toEqual([...twice]);
+    });
+
+    it("claims() answers about a PATH and reads nothing — a path that cannot exist still gets an answer", () => {
+      // `claims` takes no root and no filesystem; the check is that a
+      // syntactically valid path nothing could have created still returns a
+      // boolean rather than touching the disk.
+      for (const path of [
+        "definitely/not/here-8f3a.md",
+        "../escape.md",
+        "",
+        "a".repeat(300),
+      ]) {
+        expect(typeof adapter.claims(path)).toBe("boolean");
+      }
+    });
+
+    it("every location the layout names is CLAIMED by the adapter that names it", () => {
+      // The pair that has to hold for the unclaimed-surface finding to mean
+      // anything: if a layout named a location its own `claims` refused, the
+      // audit would report the adapter's own directory as unread by any
+      // harness.
+      const { dirs, files } = layoutLocations(adapter.layout);
+      for (const file of files) {
+        expect(
+          adapter.claims(file),
+          `layout names the file "${file}" but claims() refuses it`,
+        ).toBe(true);
+      }
+      for (const dir of dirs) {
+        if (dir === "") continue;
+        expect(
+          adapter.claims(`${dir}/probe.md`),
+          `layout names the dir "${dir}" but claims() refuses a file inside it`,
+        ).toBe(true);
+      }
+    });
+  },
+);
+
+describe.each(IMPLEMENTATIONS.map((a) => [a.name, a.layout] as const))(
+  "%s — the layout's derived readers",
+  (_name, layout: PluginLayout) => {
+    it("names at least one surface, and every surface dir is non-empty", () => {
+      const dirs = surfaceDirs(layout);
+      expect(dirs.length).toBeGreaterThan(0);
+      for (const d of dirs) expect(d).not.toBe("");
+    });
+
+    it("surfaceDirs() is exactly the values of `surfaces` — there is no second list to disagree with", () => {
+      // The property that makes A1 unreachable, stated as a property rather
+      // than left to the type: `opencodeLayout` used to name `.opencode/skill`
+      // in `skillDir` while `surfaceDirs` held only the agent and command
+      // dirs, so its skills were named by the port and read by nothing.
+      expect([...surfaceDirs(layout)].sort()).toEqual(
+        Object.values(layout.surfaces).sort(),
+      );
+    });
+
+    it("executableSourceDirs() is the surfaces plus the hook scripts dir, and nothing else", () => {
+      const expected = [
+        ...surfaceDirs(layout),
+        ...(layout.hookScriptsDir === undefined ? [] : [layout.hookScriptsDir]),
+      ];
+      expect([...executableSourceDirs(layout)].sort()).toEqual(expected.sort());
+    });
+
+    it("the materialize prefix is the user surface root, or empty — never a third value", () => {
+      // A5: these were two fields, equal in every shipped layout and undefined
+      // when they differed. One field cannot differ from itself; this states it
+      // for a layout arriving from outside TypeScript too.
+      expect(materializePrefix(layout)).toBe(layout.userSurfaceRoot ?? "");
+    });
+
+    it("no optional path is spelled as an empty string", () => {
+      // A2. Absence has ONE spelling: the key is omitted.
+      for (const [field, value] of [
+        ["rulesDir", layout.rulesDir],
+        ["hookScriptsDir", layout.hookScriptsDir],
+        ["hooksConventionPath", layout.hooksConventionPath],
+        ["userSurfaceRoot", layout.userSurfaceRoot],
+      ] as const) {
+        expect(value, `layout.${field} is ""`).not.toBe("");
+      }
+    });
+  },
+);
+
+describe.each(IMPLEMENTATIONS.map((a) => [a.name, a] as const))(
+  "%s — the new port methods, against the same bound",
+  (_name, adapter) => {
+    // Section 4 of the redesign requires every NEW port method to state how it
+    // survives the bound. Two landed on this branch; these are those statements
+    // as assertions rather than as prose in a docblock.
+
+    // ── instructionChain(files) ──────────────────────────────────────────
+    //
+    // 🔴 THE METHOD THAT REPLACED AN UNBOUNDED WALK, so its properties are the
+    // point of the change rather than paperwork about it. What it replaced —
+    // `dialect.instructionBudget.alwaysLoaded` plus `scan.ts:readAlwaysLoaded` —
+    // had ZERO tests and could not have had these, because the adapter supplied
+    // globs that DROVE the walk: there was no input map to state a property
+    // over. "An adapter cannot widen the read" only becomes checkable once the
+    // domain hands the candidates in.
+
+    /** A map holding one of every instruction shape, plus files that are none. */
+    const F: Readonly<Record<string, string>> = {
+      "CLAUDE.md": "cc root @docs/style.md",
+      "CLAUDE.local.md": "cc per-machine",
+      "AGENTS.md": "codex root",
+      "AGENTS.override.md": "codex per-machine",
+      ".claude/CLAUDE.md": "cc dot-dir",
+      ".claude/rules/plain.md": "a rule",
+      ".claude/rules/scoped.md": '---\npaths: ["src/**"]\n---\nscoped',
+      ".claude/rules/nested/deep.md": "a nested rule",
+      ".claude/settings.json": JSON.stringify({ claudeMdExcludes: [] }),
+      ".codex/config.toml": 'project_doc_fallback_filenames = ["CONTEXT.md"]\n',
+      "opencode.json": JSON.stringify({
+        instructions: ["packages/*/AGENTS.md", "docs/style.md"],
+      }),
+      "docs/style.md": "an imported file",
+    };
+
+    it("(i) every path it names is a key of the map it was GIVEN", () => {
+      // 🔴 THE MUTATION THAT MUST GO RED, named in the design: an adapter
+      // returning `packages/x/AGENTS.md` when that key is not in `F`. Verified
+      // by hand (see the commit message) — pushing one such entry into the
+      // Codex chain fails exactly this assertion and nothing else, which is
+      // what makes it the ratchet rather than a restatement.
+      const chain = adapter.layout.instructionChain(F);
+      for (const entry of [...chain.loaded, ...chain.unloaded]) {
+        expect(
+          Object.hasOwn(F, entry.path),
+          `chain named "${entry.path}", which is not a key of the given map`,
+        ).toBe(true);
+      }
+    });
+
+    it("(i.b) a path is never BOTH loaded and unloaded, and never listed twice", () => {
+      const chain = adapter.layout.instructionChain(F);
+      const all = [...chain.loaded, ...chain.unloaded].map((e) => e.path);
+      expect(new Set(all).size).toBe(all.length);
+    });
+
+    it("(ii) every IMPORT it reports literally occurs in the file it came from", () => {
+      // The import pass is the one read outside the dot-directory bound, and
+      // this is why that is allowed: the token was written by the REPOSITORY
+      // OWNER in their own file. The adapter found it; it did not choose it.
+      // Checked on the TOKEN as written, which is the exact bytes the author
+      // typed — `path` alone would also match a coincidence elsewhere in the
+      // file.
+      for (const { path, token, from } of adapter.layout.instructionChain(F)
+        .imports) {
+        expect(Object.hasOwn(F, from)).toBe(true);
+        expect(
+          F[from]?.includes(token),
+          `import token "${token}" is not text of "${from}"`,
+        ).toBe(true);
+        expect(token.endsWith(path)).toBe(true);
+      }
+    });
+
+    it("(iii) every PATTERN it reports likewise", () => {
+      for (const { pattern, from } of adapter.layout.instructionChain(F)
+        .patterns) {
+        expect(Object.hasOwn(F, from)).toBe(true);
+        expect(
+          F[from]?.includes(pattern),
+          `pattern "${pattern}" is not a token of "${from}"`,
+        ).toBe(true);
+      }
+    });
+
+    it("(iv) pure — the same map gives the same chain, and reads no clock or disk", () => {
+      expect(adapter.layout.instructionChain(F)).toEqual(
+        adapter.layout.instructionChain(F),
+      );
+    });
+
+    it("(iv.b) monotone — files that are not instruction-shaped change nothing", () => {
+      // The other half of "an adapter cannot widen the read": handing it MORE
+      // of the repo must not change its answer about what loads, or the bound
+      // would be doing nothing. The extra keys below are chosen by the DOMAIN's
+      // own predicate — `isInstructionShaped` is false for every one — so the
+      // property is stated against the bound rather than against a guess.
+      const noise: Record<string, string> = {
+        ...F,
+        "src/index.ts": "export {};",
+        "package.json": "{}",
+        "docs/guide.md": "prose",
+      };
+      for (const key of Object.keys(noise)) {
+        if (Object.hasOwn(F, key)) continue;
+        expect(isInstructionShaped(key), key).toBe(false);
+      }
+      expect(adapter.layout.instructionChain(noise)).toEqual(
+        adapter.layout.instructionChain(F),
+      );
+    });
+
+    it("a DEEPER instruction file is never LOADED, however the caller found it", () => {
+      // The bound never enumerates one, so this is about a caller with a wider
+      // map — the browser twin holding a whole fetched tree, or a future walk.
+      // Neither vendor loads a subpackage's file at a root session, so a chain
+      // that loaded one would resurrect the over-report by another route: it is
+      // reported with a reason, or not at all.
+      const deep = `packages/x/${adapter.layout.instructionFile}`;
+      const chain = adapter.layout.instructionChain({
+        ...F,
+        [deep]: "someone else's",
+      });
+      expect(chain.loaded.map((e) => e.path)).not.toContain(deep);
+    });
+
+    it("an empty map gives an empty chain — nothing is conjured from a name", () => {
+      expect(adapter.layout.instructionChain({})).toEqual(EMPTY_CHAIN);
+    });
+
+    it("an UNLOADED entry always carries a reason, and a loaded one never does", () => {
+      // A9 as a runtime check for an adapter arriving from outside TypeScript:
+      // "a file that does not load must say why" is a type here, and this is
+      // the same statement for a JavaScript implementation.
+      const chain = adapter.layout.instructionChain(F);
+      for (const entry of chain.unloaded) {
+        expect(typeof entry.reason.kind).toBe("string");
+      }
+      for (const entry of chain.loaded) {
+        expect(Object.hasOwn(entry, "reason")).toBe(false);
+      }
+    });
+
+    it("(v) a REDIRECT names a loaded file, and what it points at is one of its imports", () => {
+      // The finding has to be decomposable too: a redirect that named a file
+      // nothing loaded, or pointed at a path the chain never reported as an
+      // import, would be an assertion the reader cannot check against the rest
+      // of the report.
+      const chain = adapter.layout.instructionChain(F);
+      const loaded = new Set(chain.loaded.map((e) => e.path));
+      for (const redirect of chain.redirects) {
+        expect(loaded.has(redirect.path)).toBe(true);
+        expect(redirect.to.length).toBeGreaterThan(0);
+        for (const target of redirect.to) {
+          expect(
+            chain.imports.some(
+              (i) => i.from === redirect.path && i.path === target,
+            ),
+          ).toBe(true);
+        }
+      }
+    });
+
+    it("`via` is set for exactly the entries that got in through an import", () => {
+      // The field the printed breakdown reads. An import without it prints an
+      // unexplainable line; a non-import with it claims a provenance that is
+      // not true.
+      for (const entry of adapter.layout.instructionChain(F).loaded) {
+        expect(entry.via !== undefined, entry.path).toBe(
+          entry.role === "import",
+        );
+        if (entry.via === undefined) continue;
+        expect(Object.hasOwn(F, entry.via.from)).toBe(true);
+        expect(F[entry.via.from]?.includes(entry.via.token)).toBe(true);
+      }
+    });
+
+    it("scope is `local` only for a per-machine file — a rule is never local", () => {
+      // What keeps a published grade reproducible: `local` is the flag the
+      // weight refuses to score, so a chain that marked a committed file local
+      // would silently drop it out of the scored total.
+      for (const entry of adapter.layout.instructionChain(F).loaded) {
+        if (entry.scope === "local") {
+          expect(["root-local", "import"]).toContain(entry.role);
+        }
+      }
+    });
+
+    it("settings.parse/render take TEXT and a VALUE — there is no path to read", () => {
+      // The bound is structural here: neither method has a parameter that could
+      // name a file, so a codec cannot widen what the domain reads even in
+      // principle. What IS checkable is that it is a codec and not a reader —
+      // it round-trips a value it was handed, with no IO.
+      const probe = { hooks: { PreToolUse: [{ command: "echo probe" }] } };
+      const text = adapter.layout.settings.render(probe);
+      expect(typeof text).toBe("string");
+      expect(adapter.layout.settings.parse(text)).toEqual(probe);
+    });
+
+    it("settings.render ends in exactly one newline — the shape a harness's own tooling writes", () => {
+      const text = adapter.layout.settings.render({ a: 1 });
+      expect(text.endsWith("\n")).toBe(true);
+      expect(text.endsWith("\n\n")).toBe(false);
+    });
+
+    it("settings.parse throws on malformed text rather than returning something", () => {
+      // Every caller already catches. A codec that swallowed a parse error
+      // would turn "this file is broken" into "this file has no hooks", which
+      // is the failure mode the format wiring exists to prevent.
+      expect(() =>
+        adapter.layout.settings.parse("\u0000 not a config \u0000 ["),
+      ).toThrow();
+    });
+
+    if (adapter.shellHooks) {
+      it("hookProtocol.registration is a PURE CONSTRUCTOR of three strings", () => {
+        const a = adapter.hookProtocol.registration(
+          "PreToolUse",
+          "Bash",
+          "echo hi",
+        );
+        const b = adapter.hookProtocol.registration(
+          "PreToolUse",
+          "Bash",
+          "echo hi",
+        );
+        expect(a).toEqual(b);
+        // It registers the event it was given, and exactly one entry for it.
+        expect(Object.keys(a.hooks)).toEqual(["PreToolUse"]);
+        expect(a.hooks.PreToolUse).toHaveLength(1);
+      });
+
+      it("registration round-trips through this adapter's own codec and loader shape", () => {
+        // The pair that `assertAdapterLoadsHooks` proves end-to-end on disk,
+        // asserted here without IO: the SHAPE the protocol writes survives the
+        // ENCODING the layout declares. These were one `"json" | "toml"` field
+        // and could disagree; they cannot now, but only a test says they agree.
+        const block = adapter.hookProtocol.registration(
+          "PreToolUse",
+          undefined,
+          "echo probe",
+        ) as unknown as Record<string, unknown>;
+        const back = adapter.layout.settings.parse(
+          adapter.layout.settings.render(block),
+        );
+        expect(back).toEqual(block);
+      });
+
+      it("mergeRegistrations is idempotent — recompiling replaces, never duplicates", () => {
+        // 🔴 TWO THINGS THIS TEST GOT WRONG FIRST, both now in the port's
+        // docblock because both are real contracts nothing else stated:
+        //
+        // 1. `compiled` is the COMPILER's canonical nested block, not
+        //    `registration`'s native output. Feeding it a `registration`
+        //    result type-checks and then throws inside the flat merge.
+        // 2. Idempotence is conditional on `managedBy`: a command that does
+        //    not mention the hook source is APPENDED, not replaced — which is
+        //    exactly what keeps a user's own hand-written hooks intact.
+        const ref = ".vigiles/hooks/probe.mjs";
+        const compiled = {
+          PreToolUse: [
+            { hooks: [{ type: "command", command: `node ${ref}` }] },
+          ],
+        };
+        const once = adapter.hookProtocol.mergeRegistrations({}, compiled, ref);
+        const twice = adapter.hookProtocol.mergeRegistrations(
+          once,
+          compiled,
+          ref,
+        );
+        expect(twice).toEqual(once);
+      });
+
+      it("what registration() tells you to PASTE is what mergeRegistrations() would INSTALL", () => {
+        // 🔴 THIS PROPERTY EXISTS BECAUSE A MUTATION SURVIVED WITHOUT IT.
+        // Making Codex's `registration` emit Claude Code's NESTED entry
+        // (`{matcher, hooks:[{type, command}]}` instead of the flat
+        // `{matcher, command}`) left 147 tests green: the TOML still rendered
+        // `[[hooks.PreToolUse]]` and still contained a `command = "..."` line,
+        // just one table deeper, and the round-trip check passes for any shape
+        // because a codec does not know what a shape means.
+        //
+        // What DOES distinguish them is that vigiles emits the same
+        // registration twice, by two different routes — the block a human
+        // pastes (`registration`) and the block `install` merges into the
+        // settings file (`mergeRegistrations`) — and if those disagree, one of
+        // the two is a hook the harness will not run. Nothing compared them.
+        const ref = ".vigiles/hooks/probe.mjs";
+        const command = `node ${ref}`;
+        const pasted = adapter.hookProtocol.registration(
+          "PreToolUse",
+          undefined,
+          command,
+        );
+        const installed = adapter.hookProtocol.mergeRegistrations(
+          {},
+          { PreToolUse: [{ hooks: [{ type: "command", command }] }] },
+          ref,
+        );
+        expect(installed).toEqual(pasted);
+      });
+
+      it("mergeRegistrations PRESERVES a command it does not manage", () => {
+        // The other half, and the one that would make a silent data-loss bug:
+        // "idempotent" is satisfied by a merge that throws the existing file
+        // away every time.
+        const ref = ".vigiles/hooks/probe.mjs";
+        const compiled = {
+          PreToolUse: [
+            { hooks: [{ type: "command", command: `node ${ref}` }] },
+          ],
+        };
+        const mine = adapter.hookProtocol.mergeRegistrations({}, compiled, ref);
+        const alsoTheirs = adapter.hookProtocol.mergeRegistrations(
+          mine,
+          {
+            PreToolUse: [{ hooks: [{ type: "command", command: "their.sh" }] }],
+          },
+          ".vigiles/hooks/theirs.mjs",
+        );
+        expect(JSON.stringify(alsoTheirs)).toContain("their.sh");
+        expect(JSON.stringify(alsoTheirs)).toContain(ref);
+      });
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 THE TWO ENUMERATORS, OVER LAYOUTS THE REGISTRY DOES NOT HOLD
+//
+// Every property above ranges over `IMPLEMENTATIONS`, which is the registry
+// plus one prototype. That is the right bound for "can a SHIPPED adapter widen
+// what the domain sees" and the wrong one for "is the PORT's contract sound":
+// all three registered layouts happen to declare `rulesDir` and
+// `userSurfaceRoot` together, or neither, so no test in this repository has
+// ever handed the pair a layout that declares one without the other.
+//
+// These cases are generated from the TYPE instead. `PluginLayout` permits a
+// `rulesDir` with no `userSurfaceRoot`, and permits a rules home not spelled
+// `rules`; a third-party adapter may write either, and the port owes them an
+// answer. The property is the one `instructionCandidatePaths` already claims in
+// its own docblock — "the pair cannot disagree about what is a candidate" —
+// asserted against a layout that did not come from the registry.
+/**
+ * The fields a `PluginLayout` requires but this property does not exercise.
+ *
+ * Spelled out rather than spread from a shipped layout on purpose: borrowing
+ * Claude Code's object would smuggle its `rulesDir` and `userSurfaceRoot` back
+ * in, and the whole point of these cases is to be a layout the registry does
+ * NOT hold.
+ */
+const LAYOUT_BASE = {
+  name: "arbitrary",
+  manifestPath: ".x/plugin.json",
+  settingsPath: ".x/settings.json",
+  settings: { label: "json", parse: JSON.parse, render: JSON.stringify },
+  instructionFile: "CLAUDE.md",
+  surfaces: {},
+  pluginRootToken: "${X_PLUGIN_ROOT}",
+  mcpConfigFile: ".x/mcp.json",
+  mcpManifestKey: "mcpServers",
+  instructionChain: () => EMPTY_CHAIN,
+} as const satisfies Omit<PluginLayout, "rulesDir" | "userSurfaceRoot">;
+
+const ARBITRARY_LAYOUTS: ReadonlyArray<readonly [string, PluginLayout]> = [
+  [
+    "a rules home at the repository ROOT (rulesDir, no userSurfaceRoot)",
+    {
+      ...LAYOUT_BASE,
+      rulesDir: "rules",
+    },
+  ],
+  [
+    "a rules home NOT spelled `rules`",
+    {
+      ...LAYOUT_BASE,
+      userSurfaceRoot: ".x",
+      rulesDir: "guidelines",
+    },
+  ],
+  [
+    "no rules home at all",
+    {
+      ...LAYOUT_BASE,
+      userSurfaceRoot: ".x",
+    },
+  ],
+];
+
+/** One repository, holding every rules-home shape at once. */
+const RULES_HOMES: Record<string, string> = {
+  "CLAUDE.md": "root instruction",
+  "rules/a.md": "a rules tree at the repository root",
+  ".x/rules/a.md": "the conventional dot-directory rules tree",
+  ".x/guidelines/a.md": "a rules home under another name",
+  ".github/rules/a.md": "SOMEBODY ELSE'S rules tree",
+};
+
+describe.each(ARBITRARY_LAYOUTS)(
+  "the disk walk and the file map enumerate the same candidates — %s",
+  (_what, layout) => {
+    it("both enumerators name the same set", () => {
+      const root = makeTmpDir("bound-parity");
+      for (const [rel, text] of Object.entries(RULES_HOMES)) {
+        mkdirSync(join(root, dirname(rel)), { recursive: true });
+        writeFileSync(join(root, rel), text);
+      }
+
+      const fromDisk = Object.keys(boundedInstructionFiles(root, layout));
+      const fromMap = instructionCandidatePaths(
+        Object.keys(RULES_HOMES),
+        layout,
+      );
+
+      expect([...fromDisk].sort()).toEqual([...fromMap].sort());
+    });
+
+    it("and neither names a rules tree this layout did not declare", () => {
+      // The control half. A property that only compares the two engines is
+      // satisfied by both being wrong in the same way — which is exactly how
+      // the root `SKILL.md` defect survived a reader once already.
+      const fromMap = instructionCandidatePaths(
+        Object.keys(RULES_HOMES),
+        layout,
+      );
+      expect(fromMap).not.toContain(".github/rules/a.md");
+    });
+
+    it("finds the rules home this layout DECLARED", () => {
+      // 🔴 THE HALF PARITY CANNOT SUPPLY, and the run that proved it: with only
+      // the two assertions above, the ROOT-rules case passed GREEN. Both
+      // enumerators miss `rules/a.md` in the same way — the disk walk guards
+      // the root base out, the file map demands a leading dot — and a property
+      // that compares two readers is satisfied by both being wrong together.
+      // Agreement is not correctness; this asserts the layout's own claim.
+      const declared = layout.rulesDir;
+      if (declared === undefined) return;
+      const root = layout.userSurfaceRoot;
+      const home = root === undefined ? declared : `${root}/${declared}`;
+      const want = `${home}/a.md`;
+      // The fixture really holds it, so a miss below is the bound's answer and
+      // not a typo in this test.
+      expect(Object.keys(RULES_HOMES)).toContain(want);
+      expect(
+        instructionCandidatePaths(Object.keys(RULES_HOMES), layout),
+      ).toContain(want);
+    });
+  },
+);

@@ -31,10 +31,14 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { resolve, join, relative, basename } from "node:path";
 
-import { parse as parseToml } from "@iarna/toml";
-
 import { assertNever } from "./core/hash.js";
-import type { PluginLayout } from "./core/layout.js";
+import type { SettingsCodec } from "./core/settings-codec.js";
+import {
+  executableSourceDirs,
+  materializePrefix,
+  surfaceDirs,
+  type PluginLayout,
+} from "./core/layout.js";
 import { excludedBy, excludesNothing, type Excluded } from "./exclude.js";
 import type { ExcludeSet } from "./exclude.js";
 import { entryOf, walkableRoot } from "./fs-walk.js";
@@ -114,36 +118,34 @@ function readHooksFile(path: string): unknown {
 }
 
 /**
- * Parse the layout's manifest in its declared `settingsFormat` — JSON (Claude
- * Code's plugin.json) or TOML (Codex's `config.toml`). A TOML harness's manifest
- * (hooks, `[mcp_servers]`) would otherwise read as empty through the JSON path.
- * Behaviour-identical to `safeReadJson` when the format is JSON.
+ * Parse the layout's manifest through its own CODEC. A TOML harness's manifest
+ * (hooks, `[mcp_servers]`) would otherwise read as empty through a JSON parse.
+ *
+ * One code path now, where there used to be `if (settingsFormat === "toml")`
+ * over a JSON fallback: the codec is the branch, so a third encoding needs no
+ * edit here.
  */
 function safeReadManifest(
   root: string,
   layout: PluginLayout,
 ): Record<string, unknown> | null {
-  const path = join(root, layout.manifestPath);
-  if (layout.settingsFormat === "toml") {
-    try {
-      return parseToml(readFileSync(path, "utf-8")) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
+  try {
+    const text = readFileSync(join(root, layout.manifestPath), "utf-8");
+    return layout.settings.parse(text);
+  } catch {
+    // Missing, unreadable, or malformed — the caller falls through to the
+    // other hook locations, exactly as it did for a bad JSON manifest.
+    return null;
   }
-  return safeReadJson(path);
 }
 
 /**
- * Read the `.hooks` field of a settings file in the layout's format — JSON
- * (Claude Code's settings.json) or TOML (Codex's `config.toml` `[hooks]`). A
- * TOML harness's hooks would otherwise be read as zero by the JSON path.
+ * Read the `.hooks` field of a settings file through the layout's codec. A TOML
+ * harness's hooks would otherwise be read as zero by a JSON parse.
  */
-function readSettingsHooks(path: string, format: "json" | "toml"): unknown {
-  if (format === "json") return readHooksFile(path);
+function readSettingsHooks(path: string, codec: SettingsCodec): unknown {
   try {
-    return (parseToml(readFileSync(path, "utf-8")) as Record<string, unknown>)
-      .hooks;
+    return codec.parse(readFileSync(path, "utf-8")).hooks;
   } catch {
     return undefined;
   }
@@ -165,12 +167,16 @@ function readHooks(root: string, layout: PluginLayout): unknown {
     if (typeof m.hooks === "string") return readHooksFile(join(root, m.hooks));
     if (m.hooks !== undefined) return m.hooks;
   }
-  const conventionPath = join(root, layout.hooksConventionPath);
-  if (existsSync(conventionPath)) return readHooksFile(conventionPath);
+  // Optional: a harness whose hooks are in-process code modules has no
+  // standalone hooks FILE, so there is nothing to look for here.
+  if (layout.hooksConventionPath !== undefined) {
+    const conventionPath = join(root, layout.hooksConventionPath);
+    if (existsSync(conventionPath)) return readHooksFile(conventionPath);
+  }
 
   const settingsPath = join(root, layout.settingsPath);
   if (existsSync(settingsPath))
-    return readSettingsHooks(settingsPath, layout.settingsFormat);
+    return readSettingsHooks(settingsPath, layout.settings);
 
   return undefined;
 }
@@ -391,7 +397,7 @@ function surfaceHasLoadable(
   tree: Record<string, string>,
 ): boolean {
   const keys = Object.keys(tree);
-  return surface === layout.skillDir
+  return surface === layout.surfaces.skill
     ? keys.some((k) => basename(k) === "SKILL.md")
     : keys.some((k) => k.endsWith(".md"));
 }
@@ -424,12 +430,12 @@ function materializeSurfaces(
   /** Every surface tree of one scope, read once, keyed by surface dir. */
   const scopeTrees = (base: string): Map<string, Record<string, string>> => {
     const trees = new Map<string, Record<string, string>>();
-    for (const surface of layout.surfaceDirs)
+    for (const surface of surfaceDirs(layout))
       trees.set(surface, surfaceTree(join(root, base, surface)));
     return trees;
   };
   const hasLoadable = (trees: ReadonlyMap<string, Record<string, string>>) =>
-    layout.surfaceDirs.some((s) =>
+    surfaceDirs(layout).some((s) =>
       surfaceHasLoadable(layout, s, trees.get(s) ?? {}),
     );
   const add = (key: string, content: string, onDisk: string): void => {
@@ -460,7 +466,7 @@ function materializeSurfaces(
     scope: SurfaceScope,
     trees: ReadonlyMap<string, Record<string, string>>,
   ): void => {
-    for (const surface of layout.surfaceDirs) {
+    for (const surface of surfaceDirs(layout)) {
       const tree = trees.get(surface) ?? {};
       for (const [rel, content] of Object.entries(tree))
         add(
@@ -525,7 +531,8 @@ function materializeSurfaces(
     rootHasLoadable: hasLoadable(rootTrees),
     isPluginShaped:
       existsSync(join(root, layout.manifestPath)) ||
-      existsSync(join(root, layout.hooksConventionPath)),
+      (layout.hooksConventionPath !== undefined &&
+        existsSync(join(root, layout.hooksConventionPath))),
     userHasLoadable: hasLoadable(userTrees),
     declaredRoots,
   });
@@ -538,15 +545,20 @@ function materializeSurfaces(
       // named (`vigiles audit <dir>`), not one this walk discovered, and refusing
       // to read the path someone explicitly pointed at is not a containment rule.
       const tree = readTree(root, root, excluded);
+      // The skill dir is CARRIED on the variant, because only a layout that has
+      // one can produce it. This used to re-read `layout.surfaces.skill` and
+      // guard the `undefined` case with a `return` that nothing could reach —
+      // see `SurfaceSource` for why that shape kept coming back.
+      const { skillDir } = source;
       for (const [rel, content] of Object.entries(tree)) {
         add(
-          join(layout.materializeRoot, layout.skillDir, source.skillName, rel),
+          join(materializePrefix(layout), skillDir, source.skillName, rel),
           content,
           join(root, rel),
         );
       }
-      counts[layout.skillDir] = Object.keys(tree).length;
-      harnessCounts[layout.skillDir] = counts[layout.skillDir];
+      counts[skillDir] = Object.keys(tree).length;
+      harnessCounts[skillDir] = counts[skillDir];
       return { counts, harnessCounts, scopes: [] };
     }
     case "scopes": {
@@ -625,7 +637,7 @@ function hasMcp(root: string, layout: PluginLayout): boolean {
 // so this and its browser twin (scan-files.ts) cannot disagree on them and
 // neither can omit one. See that module for the two boundary defects.
 function intraRefRe(layout: PluginLayout): RegExp {
-  return intraRefPattern(layout.intraRefDirs);
+  return intraRefPattern(executableSourceDirs(layout));
 }
 
 // Shell vars that root a path OUTSIDE the plugin (the user's project / home), so
@@ -726,7 +738,7 @@ function executableSources(
   layout: PluginLayout,
 ): Record<string, string> {
   const sources: Record<string, string> = {};
-  for (const surface of layout.intraRefDirs) {
+  for (const surface of executableSourceDirs(layout)) {
     const dir = join(root, surface);
     if (!existsSync(dir) || !statSync(dir).isDirectory()) continue;
     if (!walkableRoot(dir, root)) continue; // the walk's entry point, see fs-walk
