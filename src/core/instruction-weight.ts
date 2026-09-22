@@ -98,7 +98,11 @@ export interface WeighedFile {
    * accounting for the gap — the undecomposable total this whole report exists
    * to prevent.
    */
-  readonly supersededLocallyBy?: string;
+  readonly notLoadedHere?: {
+    /** The per-machine file that did it — a superseder, or a settings file. */
+    readonly by: string;
+    readonly why: "superseded" | "excluded";
+  };
 }
 
 export interface InstructionWeight {
@@ -184,19 +188,37 @@ export function weighInstructions(
    * The other superseded entries — the ones a COMMITTED file silenced — are
    * correctly absent: nobody loads those, so they pay into neither total.
    */
-  const supersededByLocal: readonly {
+  //
+  // 🔴 TWO REASONS, ONE RULE. It used to match `superseded` alone, and the
+  // second reason — a `claudeMdExcludes` pattern read out of the gitignored
+  // settings sibling — reached the same state by a different door and was not
+  // handled: the file left BOTH totals, so a gitignored file lowered the
+  // published score. Measured; the numbers are on `excluded-by-settings` in
+  // `core/instruction-chain.ts`. The rule is about the SCOPE of whatever
+  // removed the file, not about which of the two did.
+  type LocallyRemoved = {
     readonly entry: LoadedInstruction;
     readonly by: string;
-  }[] = chain.unloaded.flatMap((e) =>
-    e.scope === "repo" &&
-    e.reason.kind === "superseded" &&
-    e.reason.byScope === "local"
-      ? [{ entry: e, by: e.reason.by }]
-      : [],
+    readonly why: "superseded" | "excluded";
+  };
+  const notLoadedHere: readonly LocallyRemoved[] = chain.unloaded.flatMap(
+    (e): LocallyRemoved[] => {
+      if (e.scope !== "repo") return [];
+      if (e.reason.kind === "superseded" && e.reason.byScope === "local") {
+        return [{ entry: e, by: e.reason.by, why: "superseded" as const }];
+      }
+      if (
+        e.reason.kind === "excluded-by-settings" &&
+        e.reason.byScope === "local"
+      ) {
+        return [{ entry: e, by: e.reason.by, why: "excluded" as const }];
+      }
+      return [];
+    },
   );
   const weighOne = (
     entry: LoadedInstruction,
-    supersededLocallyBy?: string,
+    notLoadedHereBy?: { by: string; why: "superseded" | "excluded" },
   ): WeighedFile[] => {
     const text = files[entry.path];
     return text === undefined
@@ -208,15 +230,17 @@ export function weighInstructions(
             role: entry.role,
             scope: entry.scope,
             ...(entry.via === undefined ? {} : { via: entry.via }),
-            ...(supersededLocallyBy === undefined
+            ...(notLoadedHereBy === undefined
               ? {}
-              : { supersededLocallyBy }),
+              : { notLoadedHere: notLoadedHereBy }),
           },
         ];
   };
   const weighed = [
     ...chain.loaded.flatMap((e) => weighOne(e)),
-    ...supersededByLocal.flatMap((s) => weighOne(s.entry, s.by)),
+    ...notLoadedHere.flatMap((s) =>
+      weighOne(s.entry, { by: s.by, why: s.why }),
+    ),
   ].sort((a, b) => b.size - a.size || a.path.localeCompare(b.path));
   const sum = (of: readonly WeighedFile[]): number =>
     of.reduce((total, f) => total + f.size, 0);
@@ -232,9 +256,7 @@ export function weighInstructions(
     onExceed: budget.onExceed,
     files: weighed,
     committedTotal,
-    effectiveTotal: sum(
-      weighed.filter((f) => f.supersededLocallyBy === undefined),
-    ),
+    effectiveTotal: sum(weighed.filter((f) => f.notLoadedHere === undefined)),
     overBy:
       committedTotal > budget.limit ? committedTotal - budget.limit : null,
     unreadImports: [

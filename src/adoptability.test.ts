@@ -14,6 +14,8 @@ import {
   parseDraftJson,
   runAdoptabilityTier,
   formatAdoptability,
+  draftWith,
+  DraftRunFailed,
   type DraftedRef,
 } from "./adoptability.js";
 
@@ -183,5 +185,57 @@ describe("formatAdoptability", () => {
     expect(out).toMatch(/1 broken right now/);
     expect(out).toMatch(/File not found/);
     expect(out).toMatch(/vigiles init/);
+  });
+});
+
+describe("a FAILED run is not an empty result", () => {
+  // 🔴 THE TIER REACHES THE HARNESS BINARY DIRECTLY — no behavioral probe in
+  // front of it to self-report unavailability — so when the binary is missing
+  // the runner returns a non-zero code with empty stdout, the parser yields no
+  // output, `parseDraftJson` yields `[]`, and the report printed "no
+  // machine-verifiable references found in CLAUDE.md". A confident answer to a
+  // question that was never asked, and indistinguishable from the real thing.
+  //
+  // Surfaced on review of #265, against the unconditional `subscription` this
+  // PR gave the Codex driver: that removed the last gate in front of this path.
+  const spawnFailed = { code: 1, stdout: "", stderr: "codex: not found" };
+
+  it("a non-zero exit throws instead of drafting nothing", async () => {
+    const draft = draftWith({
+      runner: () => Promise.resolve(spawnFailed),
+      parse: () => ({ output: "", toolCalls: [], usage: undefined }),
+      runError: () => null,
+      harness: "codex",
+    } as never);
+    await expect(draft("# rules\n")).rejects.toBeInstanceOf(DraftRunFailed);
+    await expect(draft("# rules\n")).rejects.toThrow(/not found/);
+  });
+
+  it("a ZERO exit the driver calls failed throws too", async () => {
+    // The exit code is not the only signal: a refusal or a turn error can ride
+    // inside a successful process. `runError` is the driver's own reader for it.
+    const draft = draftWith({
+      runner: () => Promise.resolve({ code: 0, stdout: "{}" }),
+      parse: () => ({ output: "", toolCalls: [], usage: undefined }),
+      runError: () => "turn failed: rate limited",
+      harness: "codex",
+    } as never);
+    await expect(draft("# rules\n")).rejects.toThrow(/rate limited/);
+  });
+
+  it("control: a clean run still drafts, so this is not just 'always throw'", async () => {
+    const draft = draftWith({
+      runner: () => Promise.resolve({ code: 0, stdout: "ok" }),
+      parse: () => ({
+        output: JSON.stringify([{ kind: "file", ref: "README.md" }]),
+        toolCalls: [],
+        usage: undefined,
+      }),
+      runError: () => null,
+      harness: "codex",
+    } as never);
+    expect(await draft("# rules\n")).toEqual([
+      { kind: "file", ref: "README.md" },
+    ]);
   });
 });

@@ -29,7 +29,19 @@ import {
   type AgentRunner,
   type ModelOutputParser,
   type EvalDriver,
+  type RunOut,
 } from "./eval.js";
+
+/**
+ * The harness CLI did not run, as distinct from running and finding nothing.
+ * A named class so the caller can tell the two apart without matching prose.
+ */
+export class DraftRunFailed extends Error {
+  constructor(reason: string) {
+    super(`could not run the drafting model — ${reason}`);
+    this.name = "DraftRunFailed";
+  }
+}
 
 /** A reference the model proposes as machine-verifiable. */
 export interface DraftedRef {
@@ -185,6 +197,12 @@ export interface DraftOptions {
   readonly cwd?: string;
   readonly runner?: AgentRunner;
   readonly parse?: ModelOutputParser;
+  /**
+   * The driver's own reader for a failure the exit code does not carry — a
+   * refusal, or a turn error inside a zero-exit run. Supplied by
+   * {@link draftWith}; absent means the exit code is the only signal.
+   */
+  readonly runError?: (out: RunOut) => string | null;
 }
 
 /* v8 ignore start — the single real model call; the orchestration is tested with a fake draft. */
@@ -205,6 +223,28 @@ async function defaultDraft(
     timeoutMs: 120000,
     env: process.env as Record<string, string>,
   });
+  // 🔴 THE EXIT CODE IS READ, AND IT WAS NOT. A runner that could not start the
+  // harness binary returns code 1 with empty stdout; `parse` then yields no
+  // output, `parseDraftJson` yields `[]`, and the report prints "no
+  // machine-verifiable references found" — a valid-looking answer to a question
+  // nothing ever asked. Found on review of #265: the unconditional
+  // `subscription` on the Codex driver lets this path run with no binary
+  // present, and unlike the behavioral probe there is nothing here that
+  // self-reports unavailability.
+  //
+  // Thrown rather than returned empty, because "the run failed" and "the model
+  // found nothing" are different answers and the caller has to be able to say
+  // which. `runError` is the driver's own reader for a failure the exit code
+  // does not carry — a refusal or a turn error inside a zero-exit run.
+  if (out.code !== 0) {
+    throw new DraftRunFailed(
+      `the harness CLI exited ${String(out.code)}${out.stderr ? `: ${out.stderr.trim().slice(0, 200)}` : " with no output"}`,
+    );
+  }
+  const driverError = opts.runError?.(out);
+  if (driverError !== null && driverError !== undefined) {
+    throw new DraftRunFailed(driverError);
+  }
   return parseDraftJson(parse(out).output);
 }
 /* v8 ignore stop */
@@ -237,6 +277,7 @@ export function draftWith(
       ...opts,
       runner: driver.runner,
       parse: driver.parse,
+      runError: driver.runError,
     });
 }
 

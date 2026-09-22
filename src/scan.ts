@@ -1168,7 +1168,7 @@ function instructionWeightLines(w: InstructionWeight): string[] {
   // undecomposable total the breakdown exists to prevent, pointing the other
   // way. Both signs print; only exactly zero stays silent, because there is
   // nothing to decompose.
-  const superseded = w.files.filter((f) => f.supersededLocallyBy !== undefined);
+  const removedHere = w.files.filter((f) => f.notLoadedHere !== undefined);
   const deltaLine = (): string => {
     const here = `${g(w.effectiveTotal)} in this working copy, not scored`;
     if (local > 0) {
@@ -1177,11 +1177,17 @@ function instructionWeightLines(w: InstructionWeight): string[] {
     // NAMED, not just signed. A reader meeting "−93" has to be told which
     // committed file stopped being loaded and what silenced it, or the number
     // is an accusation with no defendant.
-    const by = superseded
-      .map((f) => `${f.path} (silenced by ${String(f.supersededLocallyBy)})`)
+    // The VERB comes off the entry, because the two doors to this state read
+    // very differently to someone deciding what to do about it: a superseding
+    // file is one they wrote, an exclusion is a pattern they set.
+    const by = removedHere
+      .map(
+        (f) =>
+          `${f.path} (${f.notLoadedHere?.why === "excluded" ? "excluded" : "silenced"} by ${String(f.notLoadedHere?.by)})`,
+      )
       .join(", ");
     return (
-      `  − ${g(-local)} ${w.unit}: a per-machine file SUPERSEDES committed instruction(s) — ${here}` +
+      `  − ${g(-local)} ${w.unit}: a per-machine file REMOVES committed instruction(s) — ${here}` +
       (by === "" ? "" : `\n      not loaded here: ${by}`)
     );
   };

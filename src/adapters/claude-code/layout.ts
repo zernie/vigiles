@@ -9,7 +9,7 @@
  * edit; changing a VALUE in place does not, and nothing today catches that.
  */
 import { ruleFileRe, type PluginLayout } from "../../core/layout.js";
-import { settingsSourcePaths } from "../../core/instruction-chain.js";
+import { settingsSources } from "../../core/instruction-chain.js";
 import type { InstructionChain } from "../../core/instruction-chain.js";
 import { jsonSettingsCodec } from "../../core/settings-codec.js";
 import { claudeCodeInstructionChain } from "./instruction-chain.js";
@@ -50,7 +50,7 @@ export const claudeCodeLayout: PluginLayout = {
     return claudeCodeInstructionChain(files, {
       instructionFile: claudeCodeLayout.instructionFile,
       userSurfaceRoot: claudeCodeLayout.userSurfaceRoot ?? "",
-      settingsPaths: settingsSourcePaths(claudeCodeLayout),
+      settingsSources: settingsSources(claudeCodeLayout),
       parseSettings: (text) => claudeCodeLayout.settings.parse(text),
       // ANCHORED to `.claude/rules`, not to any path segment spelled `rules`
       // — see `ruleFileRe`. `??` is safe here and not a silent default: this

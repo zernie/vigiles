@@ -128,8 +128,32 @@ export type NotLoadedReason =
       readonly kind: "on-demand";
       readonly when: "path-scoped" | "subdirectory";
     }
-  /** A repo setting removed it — Claude Code's `claudeMdExcludes`. */
-  | { readonly kind: "excluded-by-settings"; readonly key: string }
+  /**
+   * A setting removed it — Claude Code's `claudeMdExcludes`.
+   *
+   * 🔴 `byScope` FOR THE SAME REASON IT EXISTS ON `superseded` BELOW, and it was
+   * missing here while being right there. The patterns from
+   * `.claude/settings.json` and from its gitignored `.local` sibling were
+   * flattened into one list, so an exclusion nobody else has removed the file
+   * from `committedTotal` too. Measured 2026-09-22 on a repo with a 500-char
+   * `.claude/rules/policy.md`:
+   *
+   *   no excludes                      committed=800  effective=800
+   *   excluded in settings.json        committed=300  effective=300
+   *   excluded in settings.LOCAL.json  committed=300  effective=300  <- wrong
+   *
+   * The third row is a gitignored file lowering the PUBLISHED score, which is
+   * the one thing the two-number contract exists to prevent, and it put the CLI
+   * permanently out of agreement with the browser engine that reads a GitHub
+   * tree and can never see that file.
+   */
+  | {
+      readonly kind: "excluded-by-settings";
+      readonly key: string;
+      /** The settings file whose pattern matched. */
+      readonly by: string;
+      readonly byScope: InstructionScope;
+    }
   /**
    * A file of a DIFFERENT instruction family is present, and its presence turns
    * this whole family off — Claude Code reading `AGENTS.md` only when no
@@ -309,14 +333,40 @@ export function siblingNamed(path: string, infix: string): string {
     : `${path}.${infix}`;
 }
 
+/** A settings file the chain parses, and whether a teammate has it too. */
+export interface SettingsSource {
+  readonly path: string;
+  readonly scope: InstructionScope;
+}
+
+/**
+ * The settings files in precedence order, each carrying its SCOPE.
+ *
+ * The scope is the whole point: a pattern read out of a gitignored sibling may
+ * not change what a teammate on this commit is scored for. Callers that only
+ * need the paths use {@link settingsSourcePaths}, which is this list flattened.
+ */
+export function settingsSources(
+  layout: PluginLayout,
+): readonly SettingsSource[] {
+  const infix = layout.settingsLocalInfix;
+  const committed: SettingsSource = {
+    path: layout.settingsPath,
+    scope: "repo",
+  };
+  return infix === undefined
+    ? [committed]
+    : [
+        committed,
+        { path: siblingNamed(layout.settingsPath, infix), scope: "local" },
+      ];
+}
+
 export function settingsSourcePaths(layout: PluginLayout): readonly string[] {
   // DECLARED, not derived — see `PluginLayout.settingsLocalInfix` for the
   // measurement. A harness that names no infix has no per-machine settings
   // layer, and inventing one for it manufactures a file to read.
-  const infix = layout.settingsLocalInfix;
-  return infix === undefined
-    ? [layout.settingsPath]
-    : [layout.settingsPath, siblingNamed(layout.settingsPath, infix)];
+  return settingsSources(layout).map((s) => s.path);
 }
 
 /** Does this repo-relative path match one of the {@link INSTRUCTION_SHAPES}? */

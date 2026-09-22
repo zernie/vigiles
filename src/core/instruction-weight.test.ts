@@ -210,9 +210,7 @@ describe("a PER-MACHINE file can change the MEMBERSHIP of the load, not just its
     expect([w.committedTotal, w.effectiveTotal]).toEqual([100, 7]);
     // …and the reader can decompose both numbers, which is the whole contract:
     // the line says which file it is, that it is committed, and what silenced it.
-    expect(
-      w.files.map((f) => [f.path, f.scope, f.supersededLocallyBy]),
-    ).toEqual([
+    expect(w.files.map((f) => [f.path, f.scope, f.notLoadedHere?.by])).toEqual([
       ["AGENTS.md", "repo", "CLAUDE.local.md"],
       ["CLAUDE.local.md", "local", undefined],
     ]);
@@ -259,7 +257,7 @@ describe("a PER-MACHINE file can change the MEMBERSHIP of the load, not just its
       cc,
     );
     expect([w.committedTotal, w.effectiveTotal]).toEqual([100, 100]);
-    expect(w.files[0]?.supersededLocallyBy).toBe(undefined);
+    expect(w.files[0]?.notLoadedHere?.by).toBe(undefined);
   });
 });
 
@@ -352,5 +350,60 @@ describe("over / under budget", () => {
       0,
       null,
     ]);
+  });
+});
+
+describe("a PER-MACHINE exclusion leaves the committed total alone", () => {
+  // 🔴 THE SECOND DOOR TO THE SAME STATE, and only the first was handled. A
+  // `CLAUDE.local.md` superseding a committed file was modelled from the start;
+  // a `claudeMdExcludes` pattern read out of the GITIGNORED settings sibling
+  // reaches exactly the same place — this working copy does not load the file,
+  // a teammate on the same commit does — and the patterns from both settings
+  // files were flattened into one list, so the file left BOTH totals.
+  //
+  // Measured before the fix, on this shape:
+  //
+  //   no excludes                      committed=800  effective=800
+  //   excluded in settings.json        committed=300  effective=300
+  //   excluded in settings.LOCAL.json  committed=300  effective=300   <- wrong
+  //
+  // The third row is a gitignored file lowering the PUBLISHED score, and the
+  // CLI disagreeing permanently with the browser engine, which reads a GitHub
+  // tree and can never see that file.
+  const rule = { ".claude/rules/policy.md": "P".repeat(500) };
+  const base = { "CLAUDE.md": "C".repeat(300), ...rule };
+  const excludes = JSON.stringify({ claudeMdExcludes: ["**/rules/**"] });
+
+  it("a COMMITTED exclusion lowers both totals — a teammate has it too", () => {
+    const w = weighThrough(
+      claudeCodeLayout,
+      { ...base, ".claude/settings.json": excludes },
+      cc,
+    );
+    expect([w.committedTotal, w.effectiveTotal]).toEqual([300, 300]);
+  });
+
+  it("a LOCAL exclusion lowers only the effective total", () => {
+    const w = weighThrough(
+      claudeCodeLayout,
+      { ...base, ".claude/settings.local.json": excludes },
+      cc,
+    );
+    expect([w.committedTotal, w.effectiveTotal]).toEqual([800, 300]);
+    // …and the file says WHO removed it and WHY, so the gap is decomposable.
+    // `why` is carried rather than inferred: an exclusion and a superseder are
+    // different things to act on, and the printed line says which.
+    expect(
+      w.files
+        .filter((f) => f.notLoadedHere !== undefined)
+        .map((f) => [f.path, f.notLoadedHere?.why, f.notLoadedHere?.by]),
+    ).toEqual([
+      [".claude/rules/policy.md", "excluded", ".claude/settings.local.json"],
+    ]);
+  });
+
+  it("control: no exclusion at all, the totals agree", () => {
+    const w = weighThrough(claudeCodeLayout, base, cc);
+    expect([w.committedTotal, w.effectiveTotal]).toEqual([800, 800]);
   });
 });

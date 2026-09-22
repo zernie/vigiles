@@ -2942,7 +2942,7 @@ test("instruction weight: the per-machine delta prints in BOTH directions", () =
     scanPlugin(down, claudeCodeLayout, claudeCodeDialect),
   );
   assert.match(outDown, /−\s*380 chars/, "the negative delta is printed");
-  assert.match(outDown, /SUPERSEDES/, "and says what happened");
+  assert.match(outDown, /REMOVES/, "and says what happened");
   assert.match(
     outDown,
     /not loaded here: AGENTS\.md \(silenced by CLAUDE\.local\.md\)/,
@@ -2959,6 +2959,6 @@ test("instruction weight: the per-machine delta prints in BOTH directions", () =
     scanPlugin(up, claudeCodeLayout, claudeCodeDialect),
   );
   assert.match(outUp, /\+\s*20 chars from per-machine file/, "additive delta");
-  assert.doesNotMatch(outUp, /SUPERSEDES/, "nothing was superseded here");
+  assert.doesNotMatch(outUp, /REMOVES/, "nothing was removed here");
   cleanupTmpDir(up);
 });

@@ -112,6 +112,11 @@ describe("what does NOT load, and why", () => {
     expect(chain(files).unloaded[0]?.reason).toEqual({
       kind: "excluded-by-settings",
       key: "claudeMdExcludes",
+      // Committed settings → `repo`. The scope is what keeps a pattern out of
+      // the gitignored sibling from lowering the PUBLISHED total; see the
+      // measurement on `excluded-by-settings` in core.
+      by: ".claude/settings.json",
+      byScope: "repo",
     });
   });
 
@@ -429,6 +434,11 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
     expect(chain(files).unloaded[0]?.reason).toEqual({
       kind: "excluded-by-settings",
       key: "claudeMdExcludes",
+      // Committed settings → `repo`. The scope is what keeps a pattern out of
+      // the gitignored sibling from lowering the PUBLISHED total; see the
+      // measurement on `excluded-by-settings` in core.
+      by: ".claude/settings.json",
+      byScope: "repo",
     });
   });
 

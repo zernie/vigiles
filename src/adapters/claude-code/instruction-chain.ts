@@ -138,6 +138,7 @@ import type {
   InstructionScope,
   LoadedInstruction,
   NamedImport,
+  SettingsSource,
   UnloadedInstruction,
 } from "../../core/instruction-chain.js";
 import {
@@ -407,8 +408,12 @@ export interface ClaudeCodeChainInput {
   readonly instructionFile: string;
   /** `.claude`. */
   readonly userSurfaceRoot: string;
-  /** The settings files, in precedence order (repo, then the local sibling). */
-  readonly settingsPaths: readonly string[];
+  /**
+   * The settings files, in precedence order (repo, then the local sibling),
+   * each with its SCOPE — a pattern out of the gitignored sibling may not
+   * change what a teammate on this commit is scored for.
+   */
+  readonly settingsSources: readonly SettingsSource[];
   /** The layout's own codec — this module does not know the encoding. */
   readonly parseSettings: (text: string) => Record<string, unknown>;
   /** {@link RULE_FILE_LEAF_RE}, compiled against the rules dir. */
@@ -429,7 +434,12 @@ interface Building {
   readonly loaded: LoadedInstruction[];
   readonly unloaded: UnloadedInstruction[];
   readonly imports: NamedImport[];
-  readonly isExcluded: (path: string) => boolean;
+  /**
+   * The settings source that excludes `path`, or `undefined`. A VERDICT rather
+   * than a boolean, because the caller has to know whether the pattern came
+   * from a file a teammate also has — see `NotLoadedReason` in core.
+   */
+  readonly excluderOf: (path: string) => SettingsSource | undefined;
 }
 
 /** Into `loaded`, or into `unloaded` with the settings reason; absent → nothing. */
@@ -439,11 +449,17 @@ function take(
   entry: Omit<LoadedInstruction, "path">,
 ): void {
   if (b.files[path] === undefined) return;
-  if (b.isExcluded(path)) {
+  const excluder = b.excluderOf(path);
+  if (excluder !== undefined) {
     b.unloaded.push({
       path,
       ...entry,
-      reason: { kind: "excluded-by-settings", key: EXCLUDES_KEY },
+      reason: {
+        kind: "excluded-by-settings",
+        key: EXCLUDES_KEY,
+        by: excluder.path,
+        byScope: excluder.scope,
+      },
     });
     return;
   }
@@ -693,17 +709,22 @@ export function claudeCodeInstructionChain(
   files: Readonly<Record<string, string>>,
   input: ClaudeCodeChainInput,
 ): InstructionChain {
-  const excluded = compileExcludes(
-    input.settingsPaths.flatMap((p) =>
-      excludesIn(files[p], input.parseSettings),
+  // PER SOURCE, not flattened. Flattening lost which file a pattern came from,
+  // and that is the whole fact `byScope` needs — see the measurement on
+  // `excluded-by-settings` in core.
+  const excluders = input.settingsSources.map((source) => ({
+    source,
+    matchers: compileExcludes(
+      excludesIn(files[source.path], input.parseSettings),
     ),
-  );
+  }));
   const b: Building = {
     files,
     loaded: [],
     unloaded: [],
     imports: [],
-    isExcluded: (path) => excluded.some((m) => m.match(path)),
+    excluderOf: (path) =>
+      excluders.find((e) => e.matchers.some((m) => m.match(path)))?.source,
   };
 
   // ORDER. The one ordering fact the vendor states is that the local file is
@@ -720,7 +741,11 @@ export function claudeCodeInstructionChain(
   // CLAUDE.md in your working directory or above it". Both spellings, in the
   // same root-then-dot-directory order as the two takes above; the vendor states
   // no order BETWEEN them, and it cannot matter to a sum.
-  const superseder = supersederOf(files, input, b.isExcluded);
+  const superseder = supersederOf(
+    files,
+    input,
+    (p) => b.excluderOf(p) !== undefined,
+  );
   const crossToolPaths = [
     AGENTS_FILE,
     `${input.userSurfaceRoot}/${AGENTS_FILE}`,

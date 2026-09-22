@@ -229,10 +229,30 @@ export type NotLoadedReason =
     readonly kind: "on-demand";
     readonly when: "path-scoped" | "subdirectory";
 }
-/** A repo setting removed it — Claude Code's `claudeMdExcludes`. */
+/**
+* A setting removed it — Claude Code's `claudeMdExcludes`.
+*
+* 🔴 `byScope` FOR THE SAME REASON IT EXISTS ON `superseded` BELOW, and it was
+* missing here while being right there. The patterns from
+* `.claude/settings.json` and from its gitignored `.local` sibling were
+* flattened into one list, so an exclusion nobody else has removed the file
+* from `committedTotal` too. Measured 2026-09-22 on a repo with a 500-char
+* `.claude/rules/policy.md`:
+*
+*   no excludes                      committed=800  effective=800
+*   excluded in settings.json        committed=300  effective=300
+*   excluded in settings.LOCAL.json  committed=300  effective=300  <- wrong
+*
+* The third row is a gitignored file lowering the PUBLISHED score, which is
+* the one thing the two-number contract exists to prevent, and it put the CLI
+* permanently out of agreement with the browser engine that reads a GitHub
+* tree and can never see that file.
+*/
 | {
     readonly kind: "excluded-by-settings";
     readonly key: string;
+    readonly by: string;
+    readonly byScope: InstructionScope;
 }
 /**
 * A file of a DIFFERENT instruction family is present, and its presence turns

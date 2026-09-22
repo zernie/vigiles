@@ -185,6 +185,7 @@ import {
   runAdoptabilityTier,
   draftWith,
   formatAdoptability,
+  DraftRunFailed,
   type AdoptabilityResult,
 } from "./adoptability.js";
 
@@ -8771,19 +8772,33 @@ export async function main(): Promise<void> {
         if (execute && surfaces.adoptableRefs) {
           if (modelAccess.kind !== "none" && adapter.harnessTesting) {
             const instrPath = resolve(root, adapter.layout.instructionFile);
-            adoptabilityResult = await runAdoptabilityTier({
-              instructionContent: readFileSync(instrPath, "utf-8"),
-              basePath: root,
-              draft: draftWith((await adapter.liveDriver()).evalDriver),
-            });
-            if (!json)
-              console.log(
-                "\n" +
-                  formatAdoptability(
-                    adoptabilityResult,
-                    adapter.layout.instructionFile,
-                  ),
-              );
+            // 🔴 CAUGHT, because a FAILED RUN and an EMPTY RESULT are different
+            // answers and this tier used to print the second for both. It
+            // reaches the harness binary directly — no behavioral probe in
+            // front of it to self-report unavailability — so on a machine
+            // without that CLI the drafter would exit non-zero with no output
+            // and the report would say "no machine-verifiable references
+            // found". `DraftRunFailed` is thrown for exactly that; anything
+            // else is a real bug and is left to propagate.
+            try {
+              adoptabilityResult = await runAdoptabilityTier({
+                instructionContent: readFileSync(instrPath, "utf-8"),
+                basePath: root,
+                draft: draftWith((await adapter.liveDriver()).evalDriver),
+              });
+              if (!json)
+                console.log(
+                  "\n" +
+                    formatAdoptability(
+                      adoptabilityResult,
+                      adapter.layout.instructionFile,
+                    ),
+                );
+            } catch (e) {
+              if (!(e instanceof DraftRunFailed)) throw e;
+              if (!json)
+                console.log(`\nℹ adoptability not measured — ${e.message}.`);
+            }
           } else if (!json && surfaces.triggerableSkills === 0) {
             // Only when the trigger tier didn't already print the same note.
             console.log(
