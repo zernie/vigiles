@@ -8,9 +8,6 @@
 export function buildCodexArgs(ctx: HarnessDriverContext): string[];
 
 // @public
-export const CODEX_ACCESS_FIX = "install the `codex` CLI and authenticate it (ChatGPT sign-in or an API key)";
-
-// @public
 export const CODEX_TRIGGER_RATE_EXPERIMENTAL: string;
 
 // @public (undocumented)

@@ -37,7 +37,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { codexDriver } from "./driver.js";
 import type { HarnessLiveDriver } from "../../core/live-driver.js";
 
 import type {
@@ -258,14 +257,6 @@ export const CODEX_TRIGGER_RATE_EXPERIMENTAL =
   "`vigiles audit` is fully supported on Codex.";
 
 /**
- * The one line printed instead of running when `codex` is not reachable. It
- * names THIS harness's CLI: the string it replaces told every user to
- * authenticate `claude`, whatever harness their repo was on.
- */
-export const CODEX_ACCESS_FIX =
-  "install the `codex` CLI and authenticate it (ChatGPT sign-in or an API key)";
-
-/**
  * The Codex eval driver — pass to `measureTriggerRate(spec, { evalDriver:
  * codexEvalDriver })` to run a trigger-rate eval natively on `codex exec`. Pair
  * the spec's `fired` with `codexSkillFired` (Codex has no Skill-tool event).
@@ -291,16 +282,31 @@ export const codexEvalDriver: EvalDriver = {
  */
 export const codexLiveDriver: HarnessLiveDriver = {
   evalDriver: codexEvalDriver,
-  // A BINARY probe, not an env read, and that is the harness's own shape: the
-  // codex CLI carries its own auth (ChatGPT plan or an API key) and vigiles
-  // cannot tell which from the outside without a run. So the honest answer is
-  // "reachable on a plan you already pay for" when the binary is there —
-  // matching what the CLI has always worded for this harness ($0 metered).
-  // `--version` prints and exits; it reaches no model backend.
-  access: () =>
-    codexDriver.available()
-      ? { kind: "subscription" }
-      : { kind: "none", fix: CODEX_ACCESS_FIX },
+  // 🔴 ANSWERED WITHOUT TOUCHING THE MACHINE, and that is a CONSTRAINT of the
+  // caller rather than a property of this harness. `access` is read on the
+  // AUDIT path, before `decideExecute` and `resolveExecution` have established
+  // consent — including `--json`, `--no-interactive` and a remembered "no" —
+  // and that path promises to execute nothing. A first draft probed the binary
+  // with `codexDriver.available()`, which spawns `codex --version`; harmless in
+  // itself, and still a process this run had no permission to start.
+  //
+  // Claude Code's `access` reads env only, so with this one the guarantee stops
+  // being a property of whichever adapter happens to be driving and becomes
+  // structural: NO adapter executes anything to answer it.
+  //
+  // What that costs, stated rather than hidden: a machine with no codex binary
+  // is told the tier is reachable and finds out at RUN time instead, where the
+  // probe self-reports unavailable and the tier reports a miss. That is exactly
+  // what shipped before the port existed (`adapter.name === "codex"` was true
+  // with no probe at all), so this is not a regression — it is the old answer
+  // with the reason written down. The remedy string that used to ride on
+  // `{ kind: "none", fix }` is deleted rather than parked: it had no reader
+  // left, and an exported constant nothing prints is a claim, not a feature.
+  //
+  // "Subscription" rather than "metered": the codex CLI carries its own auth
+  // (a ChatGPT plan or an API key) and nothing outside a run can tell which,
+  // so the CLI words this harness $0 metered, as it always has.
+  access: () => ({ kind: "subscription" }),
   // NO skill-selection event exists here, so firing is INFERRED from the
   // SKILL.md read — wrong in both directions (see the constant above). The
   // caveat travels with the signal so a report can never print the number bare,
