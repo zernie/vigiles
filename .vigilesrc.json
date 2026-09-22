@@ -48,6 +48,7 @@
     ".claude/worktrees/**",
     "bench/**",
     "startup/**",
-    "rule-enforcer/**"
+    "rule-enforcer/**",
+    "test/fixtures/instruction-chain-vendor/**"
   ]
 }

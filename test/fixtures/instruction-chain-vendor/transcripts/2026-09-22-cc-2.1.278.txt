@@ -1,0 +1,63 @@
+claude: 2.1.278 (Claude Code)
+
+===== c0
+{
+  "hooks": {
+      {
+        "hooks": [
+          {
+  CANARY  KESTREL-4401 recited
+  canary raw: KESTREL-4401 
+  LOADED  CLAUDE.md                reason=session_start
+
+===== c1
+{
+  "claudeMdExcludes": [
+    "**/CLAUDE.md"
+  ],
+  "hooks": {
+  CANARY  ZARAFSHAN-7714 recited
+  canary raw: ZARAFSHAN-7714 
+  (hook logged nothing — see c2: it is BLIND to AGENTS.md, so this is not a verdict)
+
+===== c1-probe
+{
+  "claudeMdExcludes": [
+    "**/CLAUDE.md"
+  ],
+  "hooks": {
+  CANARY  ZARAFSHAN-7714 recited
+  CANARY  PIKA-5150 recited
+  canary raw: PIKA-5150 ZARAFSHAN-7714 
+  LOADED  .claude/rules/probe.md   reason=session_start
+
+===== c2
+{
+  "hooks": {
+      {
+        "hooks": [
+          {
+  CANARY  ZARAFSHAN-7714 recited
+  canary raw: ZARAFSHAN-7714 
+  (hook logged nothing — see c2: it is BLIND to AGENTS.md, so this is not a verdict)
+
+===== c3
+{
+  "claudeMdExcludes": [
+    "**/c3/CLAUDE.md"
+  ],
+  "hooks": {
+  CANARY  MARMOT-9090 recited
+  canary raw: MARMOT-9090 
+  LOADED  .claude/CLAUDE.md        reason=session_start
+
+===== q2-import
+{
+  "hooks": {
+      {
+        "hooks": [
+          {
+  CANARY  OSPREY-2211 recited
+  canary raw: OSPREY-2211 
+  LOADED  CLAUDE.md                reason=session_start
+  LOADED  pkg/CLAUDE.md            reason=include  (parent: CLAUDE.md)
