@@ -142,6 +142,7 @@ import type {
 } from "../../core/instruction-chain.js";
 import {
   isRepoRootedImport,
+  resolveImportPath,
   siblingNamed,
 } from "../../core/instruction-chain.js";
 import {
@@ -653,9 +654,11 @@ function takeImportsOf(b: Building, entry: LoadedInstruction): void {
   if (text === undefined) return;
   const known = new Set([...b.loaded, ...b.unloaded].map((e) => e.path));
   for (const token of importTokens(text)) {
-    // The token as WRITTEN carries the `@`; the path is what it resolves to.
-    const path = token.slice(1);
-    if (!isRepoRootedImport(path)) continue;
+    // The token as WRITTEN carries the `@`; the path is what it resolves to —
+    // against the IMPORTING FILE's directory, measured, see `resolveImportPath`.
+    const written = token.slice(1);
+    if (!isRepoRootedImport(written)) continue;
+    const path = resolveImportPath(entry.path, written);
     if (!b.imports.some((n) => n.path === path && n.from === entry.path)) {
       b.imports.push({ path, token, from: entry.path });
     }

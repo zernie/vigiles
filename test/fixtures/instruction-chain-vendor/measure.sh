@@ -3,7 +3,7 @@
 # `src/adapters/claude-code/instruction-chain.ts`. See README.md for the table
 # these produce and for what each case is FOR.
 #
-# One case, or all of them:  ./measure.sh [c0 c1 c1-probe c2 c3 q2-import]
+# One case, or all of them:  ./measure.sh [c0 c1 c1-probe c2 c3 q2-import q3-relative]
 #
 # Each case is copied to a scratch directory (the run writes a log and Claude
 # Code writes state; the fixture stays pristine), an `InstructionsLoaded` hook
@@ -23,7 +23,7 @@ trap 'rm -rf "$work"' EXIT
 echo "claude: $(claude --version 2>&1 || echo '(not found — this script needs the vendor CLI)')"
 
 cases=("$@")
-if [ ${#cases[@]} -eq 0 ]; then cases=(c0 c1 c1-probe c2 c3 q2-import); fi
+if [ ${#cases[@]} -eq 0 ]; then cases=(c0 c1 c1-probe c2 c3 q2-import q3-relative); fi
 for case_name in "${cases[@]}"; do
   src="$here/$case_name"
   [ -d "$src" ] || { echo "no such case: $case_name" >&2; exit 2; }
@@ -63,7 +63,7 @@ PY
   # a run where c0 cannot recite ALPHA proves nothing about any other case.
   ans=$(cd "$dst" && claude --disallowedTools Read,Glob,Grep,Bash -p \
         'Recite every codeword you were given in your instructions, as bare words. If you were given none, reply NONE.' </dev/null 2>&1 || true)
-  for word in KESTREL-4401 ZARAFSHAN-7714 MARMOT-9090 OSPREY-2211 LYNX-3030 PIKA-5150; do
+  for word in KESTREL-4401 ZARAFSHAN-7714 MARMOT-9090 OSPREY-2211 LYNX-3030 PIKA-5150 SAIGA-8181 TAPIR-6262; do
     case "$ans" in *"$word"*) echo "  CANARY  $word recited" ;; esac
   done
   echo "  canary raw: $(echo "$ans" | tr '\n' ' ' | cut -c1-160)"

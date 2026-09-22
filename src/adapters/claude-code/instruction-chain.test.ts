@@ -310,6 +310,44 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
     ]);
   });
 
+  it("an import resolves against the IMPORTING file, not the repo root", () => {
+    // 🔴 MEASURED, cc 2.1.278, fixture `q3-relative`: `.claude/CLAUDE.md`
+    // holding `@notes.md` loads `.claude/notes.md`. The fixture keeps BOTH
+    // candidates on disk with different codewords, so "it found nothing" is
+    // not an available reading — the model recited SAIGA-8181 (the sibling)
+    // and not TAPIR-6262 (the root file), and the hook logged
+    // `.claude/notes.md | load_reason: include | parent: .claude/CLAUDE.md`.
+    //
+    // Resolving against the root is wrong in BOTH directions at once: the
+    // sibling is reported unread, and a root file that merely shares its name
+    // is charged for its bytes.
+    const files = {
+      ".claude/CLAUDE.md": "see @notes.md",
+      ".claude/notes.md": "the sibling",
+      "notes.md": "the root file, which this import does NOT name",
+    };
+    expect(paths(files)).toEqual([".claude/CLAUDE.md", ".claude/notes.md"]);
+    expect(chain(files).loaded[1]).toEqual({
+      path: ".claude/notes.md",
+      role: "import",
+      scope: "repo",
+      via: { from: ".claude/CLAUDE.md", token: "@notes.md" },
+    });
+  });
+
+  it("`@./x` and `@x` are the same file, not two", () => {
+    // Without the normalisation the leading `./` survives into the key, so the
+    // file is looked up at `./notes.md`, found absent, and reported unread —
+    // beside the very file it names.
+    const files = { "CLAUDE.md": "see @./notes.md", "notes.md": "prose" };
+    expect(paths(files)).toEqual(["CLAUDE.md", "notes.md"]);
+    expect(chain(files).imports[0]).toEqual({
+      path: "notes.md",
+      token: "@./notes.md",
+      from: "CLAUDE.md",
+    });
+  });
+
   it("an ordinary imported file still inherits the importer's scope", () => {
     // The silent half of the rule above: only a PER-MACHINE NAME overrides the
     // inheritance. A version that made every import `local` would empty

@@ -354,6 +354,38 @@ export function isRepoRootedImport(token: string): boolean {
 }
 
 /**
+ * Where an `@import` token inside `from` actually points.
+ *
+ * 🔴 RELATIVE TO THE IMPORTING FILE, NOT TO THE REPOSITORY ROOT, and that is a
+ * MEASUREMENT rather than a reading of the docs — Claude Code 2.1.278, fixture
+ * `q3-relative` in `test/fixtures/instruction-chain-vendor/`. The case is built
+ * so the answer cannot be "it found nothing": `.claude/CLAUDE.md` holds
+ * `@notes.md` and BOTH candidates exist, each with its own codeword.
+ *
+ *   recited: SAIGA-8181 (`.claude/notes.md`)   not TAPIR-6262 (`notes.md`)
+ *   hook:    .claude/notes.md  load_reason: include  parent: .claude/CLAUDE.md
+ *
+ * Resolving against the root instead reports that file unread and charges the
+ * weight of a DIFFERENT file that happens to share its name — wrong in both
+ * directions at once, and silent.
+ *
+ * ⚠️ A TOKEN WITH `..` STAYS REFUSED even though this resolution would make
+ * some of them land inside the repository (`@../notes.md` from `.claude/`).
+ * {@link isRepoRootedImport} rejects them before this is called, and lifting
+ * that is a separate decision needing its own fixture: the refusal is what
+ * stops an instruction file deciding what vigiles opens on the machine running
+ * it, and "it happens to stay inside" is a property of one path, not a rule.
+ */
+export function resolveImportPath(from: string, token: string): string {
+  const slash = from.lastIndexOf("/");
+  const dir = slash === -1 ? "" : from.slice(0, slash + 1);
+  // Normalise `./` away — `@./notes.md` and `@notes.md` are the same file, and
+  // storing them as two keys would report one of them unread.
+  const cleaned = token.replace(/^(\.\/)+/, "");
+  return `${dir}${cleaned}`;
+}
+
+/**
  * Read the `@import` paths the loaded files NAME — ONE LEVEL, no recursion.
  * Returns a NEW map: the candidates handed in, plus whatever they named.
  *
