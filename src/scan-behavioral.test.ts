@@ -26,11 +26,13 @@ import {
   gateRubric,
   formatGateReport,
   type BehavioralReport,
-  type HarnessProbe,
   type GateVerdict,
 } from "./scan-behavioral.js";
 import { parseClaudeRun, type AgentRunArgs, type EvalDriver } from "./eval.js";
+import type { EventFiringDriver, ModelAccess } from "./core/live-driver.js";
+import type { Trace } from "./core/eval-driver.js";
 import { skillResolved } from "./harness-assert.js";
+import { claudeCodeAdapter } from "./adapters/claude-code/adapter.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 function write(dir: string, rel: string, content: string): void {
@@ -90,12 +92,24 @@ const fakeRunner = (
   return Promise.resolve({ code: 0, stdout });
 };
 
-// A Claude-shaped probe wrapping the fake runner (no real binary).
-const fakeProbe: HarnessProbe = {
+// The shared shape of a fake EXECUTING-tier driver: everything except the runner
+// and the stubbing choice, which each fake below sets. `event` firing is what the
+// selection matrix requires, and `EventFiringDriver` is what its core now takes —
+// so a fake that claimed `inferred` would not compile at those call sites.
+const fakeLiveBase = {
+  firedFor:
+    (skill: string, plugin: { readonly name: string | null }) =>
+    (t: Trace): boolean =>
+      skillResolved(t, plugin.name ? `${plugin.name}:${skill}` : skill),
+  access: (): ModelAccess => ({ kind: "subscription" }),
+  firing: { kind: "event" },
+} as const;
+
+// A Claude-shaped driver wrapping the fake runner (no real binary).
+const fakeProbe: EventFiringDriver = {
+  ...fakeLiveBase,
   evalDriver: { runner: fakeRunner, parse: parseClaudeRun },
-  firedFor: (name) => (t) => skillResolved(t, `myplugin:${name}`),
-  stub: false,
-  available: () => true,
+  installsStubs: false,
 };
 
 test("probePluginTriggersWith probes only model-invocable described skills", async () => {
@@ -128,7 +142,7 @@ test("probePluginTriggersWith probes only model-invocable described skills", asy
 
 test("probePluginTriggersWith carries the driver's EXPERIMENTAL caveat (Codex); formatter shows it", async () => {
   const dir = plugin();
-  const codexish: HarnessProbe = {
+  const codexish: EventFiringDriver = {
     ...fakeProbe,
     evalDriver: {
       runner: fakeRunner,
@@ -231,11 +245,10 @@ const multiRunner = (
   return Promise.resolve({ code: 0, stdout });
 };
 
-const multiProbe: HarnessProbe = {
+const multiProbe: EventFiringDriver = {
+  ...fakeLiveBase,
   evalDriver: { runner: multiRunner, parse: parseClaudeRun },
-  firedFor: (name) => (t) => skillResolved(t, `myplugin:${name}`),
-  stub: false,
-  available: () => true,
+  installsStubs: false,
 };
 
 test("measurePluginSelectionWith catches a sibling hijack (fake driver)", async () => {
@@ -303,11 +316,10 @@ const silentRunner = (): Promise<{ code: number; stdout: string }> =>
     code: 0,
     stdout: JSON.stringify({ type: "result", num_turns: 1 }),
   });
-const silentStubProbe: HarnessProbe = {
+const silentStubProbe: EventFiringDriver = {
+  ...fakeLiveBase,
   evalDriver: { runner: silentRunner, parse: parseClaudeRun },
-  firedFor: (name) => (t) => skillResolved(t, `myplugin:${name}`),
-  stub: true,
-  available: () => true,
+  installsStubs: true,
 };
 
 test("selection: stubbed 0% on a SessionStart-hooked plugin is labeled an artifact", async () => {
@@ -370,26 +382,47 @@ test("measurePluginSelectionWith needs ≥2 model-invocable skills", async () =>
   cleanupTmpDir(dir);
 });
 
-test("measurePluginSelection reports n/a for a non-Claude harness", async () => {
+// The n/a reason is now DERIVED from the driver's own firing signal, not from a
+// harness name: the note names the missing skill-selection event and carries the
+// driver's own caveat verbatim, so the same code refuses any future harness that
+// infers firing, with that harness's words rather than ours.
+test("measurePluginSelection reports n/a for an INFERRED-firing harness, in its own words", async () => {
   const r = await measurePluginSelection(
     "/nonexistent",
     {},
-    {
-      harness: "codex",
-    },
+    // The deprecated NAME path on purpose: it must still resolve through the registry.
+    { harness: "codex" },
   );
   assert.equal(r.available, false);
-  assert.match(r.note ?? "", /Claude Code only/);
+  assert.match(r.note ?? "", /skill-selection event/);
+  assert.match(r.note ?? "", /codex/);
+  // The driver's caveat, not a sentence written at this call site.
+  assert.match(r.note ?? "", /inferred from a SKILL\.md read/);
   assert.match(formatSelectionReport(r), /unavailable/);
+});
+
+// The supported path, by ADAPTER rather than by name — the same refusal must not
+// fire for a harness that does emit the event.
+test("measurePluginSelection does NOT refuse an EVENT-firing adapter", async () => {
+  // "/nonexistent" holds no skills, so whether or not a `claude` binary is on
+  // this machine the run stops at the >=2-skills gate and spends nothing. What is
+  // asserted is only that the FIRING gate did not refuse it.
+  const r = await measurePluginSelection(
+    "/nonexistent",
+    {},
+    { adapter: claudeCodeAdapter },
+  );
+  assert.doesNotMatch(r.note ?? "", /skill-selection event/);
 });
 
 test("measureSelectionMatrix delegates + reports n/a off Claude Code (no model)", async () => {
   // The real wrapper: derives prompts, then hands off to measurePluginSelection,
   // which short-circuits to unavailable on a non-Claude harness (no binary needed).
   const dir = plugin();
+  // The deprecated NAME path, kept one release for the public options type.
   const r = await measureSelectionMatrix(dir, { harness: "codex" });
   assert.equal(r.available, false);
-  assert.match(r.note ?? "", /Claude Code only/);
+  assert.match(r.note ?? "", /skill-selection event/);
   cleanupTmpDir(dir);
 });
 

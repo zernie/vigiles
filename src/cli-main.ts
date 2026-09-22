@@ -120,7 +120,6 @@ import {
   formatGateReport,
   detectGateSkills,
   type TriggerPromptSet,
-  type ProbeHarness,
 } from "./scan-behavioral.js";
 import {
   ADAPTERS,
@@ -5819,8 +5818,6 @@ async function handleMeasure(
   const json = args.includes("--json");
   const harnessFlag = harnessFlagFrom(args);
   const adapter = resolveCommandHarness(dir, harnessFlag).adapter;
-  const harness: ProbeHarness =
-    adapter.name === "codex" ? "codex" : "claude-code";
 
   const promptsPath = flagValue(args, "--prompts");
   if (!promptsPath) {
@@ -5855,13 +5852,13 @@ async function handleMeasure(
     concurrency,
     minPrompts: num("--min-prompts"),
     model,
-    harness,
+    adapter,
   });
   const collisions = await measurePluginSelection(dir, promptSet, {
     concurrency,
     trials: num("--trials"),
     model,
-    harness,
+    adapter,
   });
   if (json) {
     console.log(JSON.stringify({ trigger, collisions }, null, 2));
@@ -7895,8 +7892,6 @@ async function runAutoTrigger(
   args: string[],
 ): Promise<void> {
   const json = args.includes("--json");
-  const harness: ProbeHarness =
-    adapter.name === "codex" ? "codex" : "claude-code";
   const skills: PromptSkill[] = report.skills
     .filter((s) => s.hasDescription && !s.userInvoked && s.description)
     .map((s) => ({ name: s.name, description: s.description ?? "" }));
@@ -7919,7 +7914,7 @@ async function runAutoTrigger(
     minPrompts: AUTO_RECALL_COUNT,
     minDistance: AUTO_MIN_DISTANCE,
     model,
-    harness,
+    adapter,
     // Discover candidates with the resolved adapter's layout/dialect — a Codex
     // repo's skills live under the Codex layout, not the default CC one.
     layout: adapter.layout,
@@ -7932,14 +7927,14 @@ async function runAutoTrigger(
   // invocable skills (a lone skill can't collide); reuses the same auto prompts.
   const collisions =
     skills.length >= 2
-      ? await measurePluginSelection(dir, promptSet, { model, harness })
+      ? await measurePluginSelection(dir, promptSet, { model, adapter })
       : null;
   // Third behavioral eval (same consent): adversarial-gate — do enforcement-gate
   // skills HOLD when the agent is told to violate them? Auto-derives its own
   // attacks; a no-op (no model calls) when the plugin declares no gate skills.
   const gates = await measureGateAdversarial(dir, {
     model,
-    harness,
+    adapter,
     layout: adapter.layout,
     dialect: adapter.dialect,
   });
