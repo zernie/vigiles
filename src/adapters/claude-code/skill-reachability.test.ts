@@ -1,5 +1,5 @@
 /**
- * Tests for the shipped-skill reachability alarm (`src/skill-reachability.ts`).
+ * Tests for the shipped-skill reachability alarm (`src/adapters/claude-code/skill-reachability.ts`).
  *
  * The defect it exists for, observed in a real consumer repo: `npm install
  * vigiles` puts six user-facing skills on disk at `node_modules/vigiles/skills/`,

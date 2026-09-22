@@ -43,7 +43,7 @@
  * still warrants a warning, with a different fix line: the collaborator runs the
  * install, the repo cannot run it for them.
  *
- * Shape follows `src/dialect-drift.ts`: pure parsers + a best-effort local read
+ * Shape follows `./dialect-drift.ts`: pure parsers + a best-effort local read
  * that NEVER throws + a formatter that returns null when there is nothing to
  * say, so `vigiles audit` can print it without a new verb, flag, or failure mode.
  * It is ADVISORY — it never touches the audit score, because reachability is a

@@ -281,11 +281,11 @@ jobs:
         # blocked, instead of skipping.
         run: |
           # Pin claude-code to the dialect-validated version — SINGLE SOURCE OF
-          # TRUTH: VALIDATED_CC_VERSION in src/dialect-drift.ts. Keeps the
+          # TRUTH: VALIDATED_CC_VERSION in src/adapters/claude-code/dialect-drift.ts. Keeps the
           # dialect-drift alarm deterministic (fires only on a deliberate bump,
           # not every unpinned CC release on an unrelated PR) and the real-claude
           # harness/eval tests reproducible.
-          CC=$(grep -oP -m1 'VALIDATED_CC_VERSION = "\K[0-9.]+' src/dialect-drift.ts)
+          CC=$(grep -oP -m1 'VALIDATED_CC_VERSION = "\K[0-9.]+' src/adapters/claude-code/dialect-drift.ts)
           [ -n "$CC" ] || { echo "could not read VALIDATED_CC_VERSION"; exit 1; }
           echo "Pinning @anthropic-ai/claude-code@$CC"
           # Codex is pinned for the SAME reason, and the reason stopped being
@@ -519,7 +519,7 @@ jobs:
 
       - name: Install claude CLI (pinned to the dialect-validated version; no API key needed)
         run: |
-          CC=$(grep -oP -m1 'VALIDATED_CC_VERSION = "\K[0-9.]+' src/dialect-drift.ts)
+          CC=$(grep -oP -m1 'VALIDATED_CC_VERSION = "\K[0-9.]+' src/adapters/claude-code/dialect-drift.ts)
           [ -n "$CC" ] || { echo "could not read VALIDATED_CC_VERSION"; exit 1; }
           npm i -g "@anthropic-ai/claude-code@$CC"
 
