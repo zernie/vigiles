@@ -12,16 +12,15 @@
  * this is the pure decision + helpers.
  */
 
-// `ModelEnv` / `hasModelAccess` / `isMeteredAccess` MOVED to
-// `src/adapters/claude-code/model-access.ts`: their whole body was one
-// harness's environment variables, sitting in the module named for the
-// harness-agnostic read-vs-run decision. Re-exported here for one step while
-// the call sites migrate to `HarnessLiveDriver.access`.
-export type { ModelEnv } from "./adapters/claude-code/model-access.js";
-export {
-  hasModelAccess,
-  isMeteredAccess,
-} from "./adapters/claude-code/model-access.js";
+// 🔴 `ModelEnv` / `hasModelAccess` / `isMeteredAccess` USED TO LIVE HERE, and
+// their whole body was ONE harness's environment variables (`ANTHROPIC_API_KEY`,
+// `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`) sitting in the module named for the
+// harness-AGNOSTIC read-vs-run decision. They now live in
+// `src/adapters/claude-code/model-access.ts` and are reached through
+// `HarnessLiveDriver.access`, which every harness answers in its own terms.
+//
+// This file is in `HARNESS_AGNOSTIC_DETECTORS` (`eslint.config.mjs`), so the
+// literal boundary now refuses `ANTHROPIC_` here: they cannot come back.
 
 /** Why the executing checks were skipped (drives the "not run" nudge). */
 export type ExecuteSkipReason =

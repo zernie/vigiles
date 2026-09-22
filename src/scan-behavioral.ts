@@ -32,13 +32,16 @@ import {
   type TriggerRateReport,
   type EvalDriver,
 } from "./eval.js";
+// eslint-disable-next-line local/no-harness-names -- IMPORT PATH, not a decision: this module is the application layer that drives a real harness binary, and Claude Code is the documented DEFAULT for candidate discovery. The rule flags the module path the way it flags `scan.ts`'s (rule header, "three are the import specifiers"); what it is guarding against — a name-driven BRANCH — is gone from this file.
 import { loadPlugin } from "./adapters/claude-code/plugin-loader.js";
 // The Claude Code default for candidate DISCOVERY. This module is the
 // application layer (it drives a real harness binary and already imports the
 // Claude Code loader above), which is where a default belongs — `src/scan.ts`
 // and `src/test-coverage.ts` are the harness-agnostic detectors, and they no
 // longer carry one.
+// eslint-disable-next-line local/no-harness-names -- IMPORT PATH, not a decision: this module is the application layer that drives a real harness binary, and Claude Code is the documented DEFAULT for candidate discovery. The rule flags the module path the way it flags `scan.ts`'s (rule header, "three are the import specifiers"); what it is guarding against — a name-driven BRANCH — is gone from this file.
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
+// eslint-disable-next-line local/no-harness-names -- IMPORT PATH, not a decision: this module is the application layer that drives a real harness binary, and Claude Code is the documented DEFAULT for candidate discovery. The rule flags the module path the way it flags `scan.ts`'s (rule header, "three are the import specifiers"); what it is guarding against — a name-driven BRANCH — is gone from this file.
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import {
   isEventFiring,

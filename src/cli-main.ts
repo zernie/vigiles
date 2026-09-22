@@ -4282,6 +4282,7 @@ function ensureVigilesDevDep(): string[] {
  * (`claude`). Everything else passes through trimmed + lowercased. */
 function shortHarness(name: string): string {
   const n = name.trim().toLowerCase();
+  // eslint-disable-next-line no-restricted-syntax -- COMPOSITION ROOT'S OWN UI, not a harness decision: `init` keys its install/plan path on a short form, and this is the one place the two spellings are related. Nothing about the harness is read from the answer.
   return n === "claude-code" ? "claude" : n;
 }
 
@@ -7572,6 +7573,7 @@ async function installHookFile(
       `(stderr at exit 0 goes to the debug log, not the transcript, and the model ` +
       `never sees it). Injectable here: ${injectable.join(", ") || "(none)"}. ` +
       `Move the hook to one of those events, or use run() if you meant an action.`;
+    // eslint-disable-next-line no-restricted-syntax -- KEPT ON PURPOSE (design §2 "the eighth site" / §6). This is a per-channel MEASUREMENT STATUS — react output is CONFIRMED only on Claude Code — and there is no port to read it from: `EventCapability` carries `carries`/`honours`/`matcher`/`denyShape` and no verified-status column. The fix is that column, owned by the capability table, not by this port. Until it exists, a name check that says so is honest and a fabricated capability field would not be.
   } else if (adapter.name !== "claude-code") {
     if (role === "inject" && !injectable.includes(event)) {
       warning =

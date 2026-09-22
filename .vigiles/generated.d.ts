@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 468 project files. */
+  /** 469 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -135,6 +135,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/instruction-chain.ts"
     | "src/adapters/claude-code/layout.test.ts"
     | "src/adapters/claude-code/layout.ts"
+    | "src/adapters/claude-code/model-access.test.ts"
     | "src/adapters/claude-code/model-access.ts"
     | "src/adapters/claude-code/model-mock.ts"
     | "src/adapters/claude-code/plugin-loader.test.ts"
@@ -675,6 +676,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/instruction-chain.ts"
       | "src/adapters/claude-code/layout.test.ts"
       | "src/adapters/claude-code/layout.ts"
+      | "src/adapters/claude-code/model-access.test.ts"
       | "src/adapters/claude-code/model-access.ts"
       | "src/adapters/claude-code/model-mock.ts"
       | "src/adapters/claude-code/plugin-loader.test.ts"

@@ -124,6 +124,16 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
       `---\nname: foo\ndescription: ${desc("foo")}\n---\n# foo\n`,
     );
 
+    // 2c. A Codex repo whose ONLY executable surface is its instruction file —
+    // no skills, no MCP. Before #263 this repo was consent-INELIGIBLE (the
+    // adoptability gate was `adapter.name === "claude-code" && …`) and was told
+    // its preview was a Claude-Code-only follow-up.
+    mk(
+      "codexadopt/AGENTS.md",
+      "# Agent instructions\nRun `npm test` before committing.\nSee `package.json`.\n",
+    );
+    mk("codexadopt/.codex/config.toml", 'model = "gpt-5"\n');
+
     // 2b. A Codex repo wired for `lint` — exercises the layout-driven path end to
     // end: a TOML [hooks] referencing the harness's OWN `${PLUGIN_ROOT}` token (a
     // MISSING script → hook-script-exists fires), an untested skill, and a
@@ -234,6 +244,46 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     );
     assert.match(r.stdout, /Skills \(1\)/);
     assert.match(r.stdout, /MCP servers: yes/); // read from the TOML [mcp_servers]
+  });
+
+  /**
+   * #263 END TO END, through `node dist/cli.js` and a real Codex repo.
+   *
+   * The adoptability preview — "what would vigiles catch in YOUR repo?" — used
+   * to be gated on `adapter.name === "claude-code"`, with a paired branch that
+   * printed "adoptability preview … is Claude Code only for now — Codex support
+   * is a follow-up". Reading `defaultDraft`, the reason was that its two
+   * defaults ARE the two members of the Claude eval driver and nobody had
+   * passed anything else: a TODO frozen into the report as if it were a vendor
+   * fact. The drafter now takes the driving adapter's own eval driver, and the
+   * VERIFIER was always deterministic and harness-free.
+   *
+   * 🔴 WHY THROUGH THE REAL BINARY AND NOT A UNIT TEST. What was deleted was a
+   * WIRING decision in `cli-main.ts` — two branches and a printed sentence — and
+   * a unit test of the drafter would have passed on either side of the change.
+   * Both halves are asserted here: the sentence is gone, and the repo is now
+   * consent-ELIGIBLE, which is the thing the gate actually denied.
+   */
+  it("#263: a Codex repo's instruction file is adoptability-eligible, and nothing is deferred to a follow-up", () => {
+    // `--no-interactive` keeps this a deterministic read: no consent prompt, no
+    // model call, no `codex` binary needed. The eligibility is still observable,
+    // because it decides whether the executing-checks nudge prints at all.
+    const r = run(`audit ${join(root, "codexadopt")} --no-interactive`);
+    assert.equal(r.exitCode, 0);
+    assert.match(r.stdout, /Detected harness: codex/);
+
+    // HALF ONE — the deferral sentence is gone. It named Claude Code as the
+    // only supported harness for a tier that never needed one.
+    assert.doesNotMatch(r.stdout, /Claude Code only/);
+    assert.doesNotMatch(r.stdout, /adoptability preview/i);
+
+    // HALF TWO — and it is gone because the tier is ELIGIBLE here, not because
+    // the note was merely deleted. This fixture has NO skills and no repo-local
+    // MCP, so the only thing that can make it consent-eligible is its
+    // instruction file — exactly what `adoptableRefs` used to refuse on Codex.
+    // With the gate in place this nudge did not print at all.
+    assert.match(r.stdout, /Executing checks .* skipped/);
+    assert.match(r.stdout, /AGENTS\.md/);
   });
 
   it("Codex repo: `lint` runs the layout-driven rules (hook token, untested) and reports subagent n/a", () => {
