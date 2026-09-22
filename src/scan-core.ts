@@ -62,7 +62,7 @@ import {
 } from "./adapters/claude-code/agent-tools.js";
 import {
   AGENT_FILE_LEAF_RE,
-  RULE_FILE_LEAF_RE,
+  ruleFileRe,
   agentSurfaceName,
   type PluginLayout,
 } from "./core/layout.js";
@@ -222,7 +222,6 @@ export function makeClassifier(layout: PluginLayout): SurfaceClassifier {
   const skill = at(skillDir);
   const agent = at(agentDir);
   const command = at(commandDir);
-  const rules = at(layout.rulesDir);
   const skillRe = skill ? new RegExp(`${skill}[^/]+/SKILL\\.md$`) : null;
   const agentRe = agent ? new RegExp(`${agent}${AGENT_FILE_LEAF_RE}$`) : null;
   const commandRe = command ? new RegExp(`${command}.+\\.md$`) : null;
@@ -234,7 +233,13 @@ export function makeClassifier(layout: PluginLayout): SurfaceClassifier {
   // here, because the instruction chain has to ask the same question and two
   // readers that each spell it disagree silently (the agent constant beside it
   // records the measurement where that happened).
-  const ruleRe = rules ? new RegExp(`${rules}${RULE_FILE_LEAF_RE}$`) : null;
+  // 🔴 THE PREFIX COMES FROM `ruleFileRe` NOW, not from `at()`. `at()` is
+  // deliberately loose — `(?:^|/)skills/` has to match a published plugin's
+  // root AND `.claude/skills` — and rules have exactly ONE home, so the same
+  // looseness let `.github/rules/policy.md` be classified as a Claude Code
+  // rule here just as it was weighed as one by the chain. Sharing the leaf and
+  // not the prefix is what let the two readers named above disagree.
+  const ruleRe = ruleFileRe(layout);
   // A subagent lives under the plugin's `agents/` dir AT ANY DEPTH (the harness
   // reads it recursively — see AGENT_FILE_LEAF_RE for the vendor's wording and
   // the measurement), but never under ANOTHER surface dir. Two real-world

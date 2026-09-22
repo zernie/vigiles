@@ -131,6 +131,28 @@ export interface PluginLayout {
    */
   readonly rulesDir?: string;
   /**
+   * The WORD a per-machine settings sibling inserts before the extension, e.g.
+   * `local` → `.claude/settings.local.json` (absent = this harness has no
+   * per-machine settings layer that we have OBSERVED).
+   *
+   * 🔴 THE CORE USED TO SYNTHESIZE THIS FOR EVERYBODY, and the function it used
+   * says on its own docblock why that cannot be right: "Both vendors name a
+   * per-machine file by inserting a word before the extension, and they choose
+   * DIFFERENT words — Claude Code `local`, Codex `override` — so the word is the
+   * argument and the spelling is not." `settingsSourcePaths` passed `"local"`
+   * unconditionally three lines below it, so a Codex repository holding
+   * `.codex/config.local.toml` had that file read as a real settings layer, and
+   * a `project_doc_fallback_filenames` in it could name an instruction file we
+   * then scored — out of a file the harness never opens. `opencode.local.json`
+   * the same.
+   *
+   * Absence is the honest default: only the adapter knows whether its vendor
+   * has such a layer, and we model what has been observed rather than what is
+   * plausible by analogy. Every other {@link siblingNamed} caller already lives
+   * in an adapter for exactly this reason.
+   */
+  readonly settingsLocalInfix?: string;
+  /**
    * Which of the instruction-shaped files the DOMAIN enumerated this harness
    * loads at a repo-root session, in load order — and for every one it does not
    * load, WHY. Pure: a function of `files` alone, with no root, no `node:`
@@ -280,6 +302,50 @@ export const AGENT_FILE_LEAF_RE = "(?:.+/)?[^/]+\\.md";
  * constant above records: two readers that each spell it disagree silently.
  */
 export const RULE_FILE_LEAF_RE = "(?:.+/)?[^/]+\\.md";
+
+/**
+ * The WHOLE rule-file matcher for a layout — the prefix as well as the leaf.
+ *
+ * 🔴 THE LEAF WAS SHARED AND THE PREFIX WAS NOT, so the two readers the constant
+ * above names went on disagreeing about the half it did not cover. Both spelled
+ * it `(?:^|/)<rulesDir>/`, which is deliberately loose for SURFACES — Claude
+ * Code reads `skills/` at a published plugin's root AND at `.claude/skills`, two
+ * legitimate homes — and wrong for RULES, which have exactly one home. Measured
+ * on the instruction chain at 2026-09-22:
+ *
+ *   loaded: CLAUDE.md · .claude/rules/mine.md · .github/rules/policy.md
+ *                                             · .agents/rules/policy.md
+ *
+ * The bound walks every depth-1 dot-directory's `rules` tree, so ANY of them
+ * matched — 8,000 characters of somebody else's policy charged to the
+ * always-loaded budget and able to push the report over it. Not one foreign
+ * directory, as the review that found it supposed: all of them.
+ *
+ * Anchoring is what {@link PluginLayout.rulesDir} already says in prose —
+ * "Claude Code loads `.claude/rules/*.md`" — and the prefix is built from
+ * `userSurfaceRoot` so that moving either field moves both readers at once.
+ * `null` when the layout declares no rules layer.
+ */
+export function ruleFileRe(
+  layout: Pick<PluginLayout, "rulesDir" | "userSurfaceRoot">,
+): RegExp | null {
+  const dir = layout.rulesDir;
+  if (dir === undefined || dir === "") return null;
+  const root = layout.userSurfaceRoot;
+  const under = root === undefined || root === "" ? dir : `${root}/${dir}`;
+  return new RegExp(`^${escapeRe(under)}/${RULE_FILE_LEAF_RE}$`);
+}
+
+/**
+ * ⚠️ The fourth copy of this three-liner in `src/` (`core/linters.ts`,
+ * `rule-inventory.ts`, `tool-intercept.ts`, `test-coverage-files.ts` hold the
+ * others). Consolidating them is its own change with its own callers to walk;
+ * duplicating it here is the smaller of two wrongs while the subject is a
+ * measured over-report.
+ */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 /**
  * A subagent's identity, per the same docs paragraph: the path under

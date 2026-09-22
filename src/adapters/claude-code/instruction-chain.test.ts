@@ -691,3 +691,41 @@ describe("a CLAUDE.md that is NOTHING BUT an import is a REDIRECT", () => {
     ]);
   });
 });
+
+describe("rules are anchored to THIS harness's directory, not to the word", () => {
+  // 🔴 THE MATCHER WAS `(?:^|/)rules/…`, so any path segment spelled `rules`
+  // qualified. The bound walks every depth-1 dot-directory's `rules` tree, so
+  // `.github/rules/` and `.agents/rules/` — somebody else's tooling — were
+  // LOADED and charged to the always-loaded budget, able to push a report over
+  // it on bytes the harness never reads. Measured 2026-09-22 before the fix:
+  //
+  //   loaded: CLAUDE.md · .agents/rules/policy.md · .claude/rules/mine.md
+  //                                               · .github/rules/policy.md
+  //
+  // The loose form is right for SURFACES — `skills/` lives both at a published
+  // plugin's root and under `.claude/` — and wrong here, because
+  // `PluginLayout.rulesDir` says in prose that rules have exactly one home.
+  it("loads its own rules tree and no other directory's", () => {
+    const files = {
+      "CLAUDE.md": "root",
+      ".claude/rules/mine.md": "ours",
+      ".claude/rules/nested/deep.md": "ours, recursively",
+      ".github/rules/policy.md": "somebody else's",
+      ".agents/rules/policy.md": "somebody else's",
+      "rules/policy.md": "not a harness directory at all",
+    };
+    expect(paths(files).sort()).toEqual([
+      ".claude/rules/mine.md",
+      ".claude/rules/nested/deep.md",
+      "CLAUDE.md",
+    ]);
+  });
+
+  it("keeps the recursion, which is the half the leaf constant already fixed", () => {
+    // The anchoring must not quietly re-flatten the tree: a rule in a
+    // subdirectory is read by the loader and has to stay classified.
+    expect(paths({ ".claude/rules/a/b/c.md": "deep" })).toEqual([
+      ".claude/rules/a/b/c.md",
+    ]);
+  });
+});

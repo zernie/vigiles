@@ -8,7 +8,7 @@
  * `vigiles:symbol`, so RENAMING it turns `vigiles lint` red and forces the
  * edit; changing a VALUE in place does not, and nothing today catches that.
  */
-import { RULE_FILE_LEAF_RE, type PluginLayout } from "../../core/layout.js";
+import { ruleFileRe, type PluginLayout } from "../../core/layout.js";
 import { settingsSourcePaths } from "../../core/instruction-chain.js";
 import type { InstructionChain } from "../../core/instruction-chain.js";
 import { jsonSettingsCodec } from "../../core/settings-codec.js";
@@ -29,6 +29,10 @@ export const claudeCodeLayout: PluginLayout = {
   userSurfaceRoot: ".claude",
   // `.claude/rules/*.md` — path-scoped project instructions (see PluginLayout).
   rulesDir: "rules",
+  // `.claude/settings.local.json` — the per-machine layer, gitignored by
+  // `init`. Declared because only this adapter knows the word; Codex and
+  // OpenCode name none, so none is synthesized for them.
+  settingsLocalInfix: "local",
   // Plugin hook SCRIPTS (`hooks/*.sh`), distinct from where hooks are
   // REGISTERED (`hooks/hooks.json`, `.claude/settings.json`).
   hookScriptsDir: "hooks",
@@ -48,9 +52,11 @@ export const claudeCodeLayout: PluginLayout = {
       userSurfaceRoot: claudeCodeLayout.userSurfaceRoot ?? "",
       settingsPaths: settingsSourcePaths(claudeCodeLayout),
       parseSettings: (text) => claudeCodeLayout.settings.parse(text),
-      ruleRe: new RegExp(
-        `(?:^|/)${claudeCodeLayout.rulesDir ?? ""}/${RULE_FILE_LEAF_RE}$`,
-      ),
+      // ANCHORED to `.claude/rules`, not to any path segment spelled `rules`
+      // — see `ruleFileRe`. `??` is safe here and not a silent default: this
+      // layout declares `rulesDir`, and a layout that did not would want no
+      // rule matcher at all rather than one matching nothing.
+      ruleRe: ruleFileRe(claudeCodeLayout) ?? /(?!)/,
     });
   },
 };

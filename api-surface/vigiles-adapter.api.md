@@ -284,6 +284,7 @@ export interface PluginLayout {
     readonly projectRootTokens?: readonly string[];
     readonly rulesDir?: string;
     readonly settings: SettingsCodec;
+    readonly settingsLocalInfix?: string;
     readonly settingsPath: string;
     readonly surfaces: SurfaceDirs;
     readonly userSurfaceRoot?: string;

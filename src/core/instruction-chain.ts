@@ -310,7 +310,13 @@ export function siblingNamed(path: string, infix: string): string {
 }
 
 export function settingsSourcePaths(layout: PluginLayout): readonly string[] {
-  return [layout.settingsPath, siblingNamed(layout.settingsPath, "local")];
+  // DECLARED, not derived — see `PluginLayout.settingsLocalInfix` for the
+  // measurement. A harness that names no infix has no per-machine settings
+  // layer, and inventing one for it manufactures a file to read.
+  const infix = layout.settingsLocalInfix;
+  return infix === undefined
+    ? [layout.settingsPath]
+    : [layout.settingsPath, siblingNamed(layout.settingsPath, infix)];
 }
 
 /** Does this repo-relative path match one of the {@link INSTRUCTION_SHAPES}? */

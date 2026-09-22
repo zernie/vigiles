@@ -63,12 +63,27 @@ describe("the bound: what may be handed to a harness at all", () => {
   it("takes each layout's SETTINGS sources, which are not instruction-shaped", () => {
     // `.codex/config.toml` is neither markdown nor an instruction: it is the
     // file that decides WHICH instructions load. Two roles, one map.
+    //
+    // 🔴 `.codex/config.local.toml` USED TO BE IN THIS LIST, and it is not a
+    // file Codex is known to read — the core synthesized a `local` sibling for
+    // every layout. A repository that happened to hold one had it parsed as a
+    // real settings layer, so a `project_doc_fallback_filenames` inside it
+    // could name an instruction file we then weighed and scored. The infix is
+    // declared per adapter now; Codex declares none.
     expect(
       instructionCandidatePaths(
         [".codex/config.toml", ".codex/config.local.toml", ".codex/notes.txt"],
         codexLayout,
       ),
-    ).toEqual([".codex/config.toml", ".codex/config.local.toml"]);
+    ).toEqual([".codex/config.toml"]);
+    // Control: the harness that DOES declare one still gets it, so this is a
+    // narrowing of who, not a removal of the feature.
+    expect(
+      instructionCandidatePaths(
+        [".claude/settings.json", ".claude/settings.local.json"],
+        claudeCodeLayout,
+      ),
+    ).toEqual([".claude/settings.json", ".claude/settings.local.json"]);
   });
 
   it("every shape has a name, and the names are distinct", () => {
@@ -89,14 +104,34 @@ describe("the bound: what may be handed to a harness at all", () => {
 });
 
 describe("settingsSourcePaths: the parse target and its per-machine sibling", () => {
-  it("derives the local sibling rather than listing it", () => {
+  // 🔴 THIS USED TO ASSERT THE SIBLING WAS DERIVED FOR EVERY LAYOUT, and the
+  // derivation was the defect: `siblingNamed`'s own docblock says the two
+  // vendors choose DIFFERENT words, so a core that picks one picks wrong for
+  // somebody. It spelled `.codex/config.local.toml` — a file Codex is not known
+  // to read — into the candidate set. The spelling is still derived from the
+  // word; the WORD is now declared by the adapter that observed it.
+  it("spells the sibling from the infix the LAYOUT declares", () => {
     expect(settingsSourcePaths(claudeCodeLayout)).toEqual([
       ".claude/settings.json",
       ".claude/settings.local.json",
     ]);
-    expect(settingsSourcePaths(codexLayout)).toEqual([
-      ".codex/config.toml",
-      ".codex/config.local.toml",
+  });
+
+  it("names no sibling for a layout that declares no infix", () => {
+    expect(codexLayout.settingsLocalInfix).toBeUndefined();
+    expect(settingsSourcePaths(codexLayout)).toEqual([".codex/config.toml"]);
+  });
+
+  it("still DERIVES the spelling, so moving the settings path moves both", () => {
+    // Not a literal second path on the layout: the infix is the one fact that
+    // is not already known, and a layout carrying both would let them disagree.
+    const moved = {
+      ...claudeCodeLayout,
+      settingsPath: ".elsewhere/conf.json",
+    };
+    expect(settingsSourcePaths(moved)).toEqual([
+      ".elsewhere/conf.json",
+      ".elsewhere/conf.local.json",
     ]);
   });
 });
