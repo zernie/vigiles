@@ -435,10 +435,23 @@ export function isRepoRootedImport(token: string): boolean {
 export function resolveImportPath(from: string, token: string): string {
   const slash = from.lastIndexOf("/");
   const dir = slash === -1 ? "" : from.slice(0, slash + 1);
-  // Normalise `./` away — `@./notes.md` and `@notes.md` are the same file, and
-  // storing them as two keys would report one of them unread.
-  const cleaned = token.replace(/^(\.\/)+/, "");
-  return `${dir}${cleaned}`;
+  // 🔴 EVERY `.` SEGMENT, NOT JUST THE LEADING ONE. A first fix stripped
+  // `^(\./)+` only, which made `@./notes.md` and `@notes.md` one key and left
+  // `@docs/./style.md` as `docs/./style.md`. That is invisible on disk — `join`
+  // normalises it for the reader — and wrong in the browser, whose file map is
+  // keyed `docs/style.md`: the file is reported unread and its bytes vanish
+  // from the weight. Two engines, one path, and only one of them normalising is
+  // the disagreement the shared candidate set exists to prevent.
+  //
+  // `..` is NOT handled here and must not be: `isRepoRootedImport` refuses those
+  // tokens before this is called, and collapsing one would quietly turn a
+  // refused path into an accepted one.
+  return `${dir}${token}`
+    .split("/")
+    .filter(
+      (seg, i, all) => seg !== "." && (seg !== "" || i === all.length - 1),
+    )
+    .join("/");
 }
 
 /**

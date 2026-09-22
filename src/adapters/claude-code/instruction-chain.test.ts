@@ -353,6 +353,29 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
     });
   });
 
+  it("a `.` segment in the MIDDLE normalises too, not just a leading one", () => {
+    // 🔴 THE FIRST FIX STRIPPED `^(./)+` ONLY, and the test above passed on it.
+    // `@docs/./style.md` survived as `docs/./style.md`: invisible on disk,
+    // because `join` normalises it for the reader, and wrong in the browser,
+    // whose file map is keyed `docs/style.md` — file reported unread, bytes
+    // gone from the weight. Repeated separators are the same defect.
+    const files = {
+      "CLAUDE.md": "see @docs/./style.md and @a//b.md",
+      "docs/style.md": "prose",
+      "a/b.md": "more",
+    };
+    expect(paths(files).sort()).toEqual([
+      "CLAUDE.md",
+      "a/b.md",
+      "docs/style.md",
+    ]);
+    expect(
+      chain(files)
+        .imports.map((i) => i.path)
+        .sort(),
+    ).toEqual(["a/b.md", "docs/style.md"]);
+  });
+
   it("an ordinary imported file still inherits the importer's scope", () => {
     // The silent half of the rule above: only a PER-MACHINE NAME overrides the
     // inheritance. A version that made every import `local` would empty
