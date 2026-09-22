@@ -33,6 +33,7 @@ export const codexAdapter = {
   hookProtocol: codexHookProtocol,
   modelMock: codexModelMock,
   harnessTestDriver: async () => (await import("./driver.js")).codexDriver,
+  liveDriver: async () => (await import("./eval.js")).codexLiveDriver,
   // Derived from the layout, never listed again here — see `claims` on
   // `HarnessAdapter` for why this method takes a PATH and not a root.
   claims(path: string): boolean {

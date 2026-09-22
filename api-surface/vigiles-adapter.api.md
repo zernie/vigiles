@@ -23,6 +23,7 @@ export const ADAPTERS: readonly [{
     readonly hookProtocol: HookProtocol;
     readonly modelMock: ModelMock;
     readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    readonly liveDriver: () => Promise<HarnessLiveDriver>;
     readonly claims: (path: string) => boolean;
     readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
 }, {
@@ -36,6 +37,7 @@ export const ADAPTERS: readonly [{
     readonly hookProtocol: HookProtocol;
     readonly modelMock: ModelMock;
     readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    readonly liveDriver: () => Promise<HarnessLiveDriver>;
     readonly claims: (path: string) => boolean;
     readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
 }];

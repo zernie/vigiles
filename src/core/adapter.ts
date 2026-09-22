@@ -18,6 +18,7 @@ import type { HarnessRuntime } from "./runtime.js";
 import type { HookProtocol } from "./hook-protocol.js";
 import type { ModelMock } from "./model-mock.js";
 import type { HarnessTestDriver } from "./harness-driver.js";
+import type { HarnessLiveDriver } from "./live-driver.js";
 
 /**
  * Which vigiles pillars/tiers a harness can drive — the capability matrix made
@@ -193,12 +194,33 @@ type TestingPorts =
        * resolve at all — measured, not assumed.
        */
       readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+      /**
+       * The EXECUTING tiers' driver: how vigiles drives this harness against a
+       * REAL model on the user's own credentials — which eval transport, how
+       * firing shows in the trace, whether a model is reachable and on whose
+       * bill, and whether the probe may stub the skill bodies. See
+       * {@link HarnessLiveDriver}.
+       *
+       * A THUNK, for the same measured load-cost reason as the line above: the
+       * eval transport reaches the whole real-model graph, and an adapter is
+       * read by the hook runtime, which never runs a model at all.
+       *
+       * 🔴 IN THIS ARM RATHER THAN BEHIND A FLAG OF ITS OWN. Every
+       * implementation that can go live can also be mocked, and this
+       * capability's own docblock already claims both tiers. A `liveEval:
+       * boolean` beside it would be `true` exactly when `harnessTesting` is —
+       * a second copy of one fact, which is the state this union exists to
+       * make unwritable. The `?: never` below is the other half: a `false`
+       * adapter cannot carry a live driver nothing will ever call.
+       */
+      readonly liveDriver: () => Promise<HarnessLiveDriver>;
     }
   | {
       readonly harnessTesting: false;
       readonly runtime?: never;
       readonly modelMock?: never;
       readonly harnessTestDriver?: never;
+      readonly liveDriver?: never;
     };
 
 /** The shell-hook port, present IFF `shellHooks`. Same construction, same reason. */

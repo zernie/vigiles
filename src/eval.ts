@@ -49,6 +49,12 @@ import {
   sumCosts,
 } from "./eval-cost.js";
 import { ncd } from "./core/proofs.js";
+import type { HarnessLiveDriver } from "./core/live-driver.js";
+import {
+  hasModelAccess,
+  isMeteredAccess,
+  CLAUDE_CODE_ACCESS_FIX,
+} from "./adapters/claude-code/model-access.js";
 import type {
   AgentRunArgs,
   AgentRunner,
@@ -2259,6 +2265,45 @@ export const claudeEvalDriver: EvalDriver = {
   runner: spawnAgent,
   parse: parseClaudeRun,
   harness: "claude-code",
+};
+
+/**
+ * The Claude Code {@link HarnessLiveDriver} — the EXECUTING tiers' side of the
+ * adapter, reached through `claudeCodeAdapter.liveDriver()`.
+ *
+ * It lives HERE, at the composition root, for exactly the reason
+ * `claudeEvalDriver` above does: it is assembled from the wired default runner
+ * and `whichSkillsFired`, and moving it into `src/adapters/claude-code/` would
+ * make `eval.ts → adapters/claude-code → eval.ts` a cycle. The adapter reaches
+ * it through a dynamic `import()`, so nothing pays for this graph until an
+ * executing tier actually runs.
+ */
+export const claudeCodeLiveDriver: HarnessLiveDriver = {
+  evalDriver: claudeEvalDriver,
+  // Env-only, and never a spent token: deciding whether to OFFER a measurement
+  // must not cost one. The three arms are what the consent prompt words
+  // differently — a key bills per token, a session is $0 metered, and neither
+  // present means the tier is skipped with `fix` printed.
+  access: (env) =>
+    isMeteredAccess(env)
+      ? { kind: "metered" }
+      : hasModelAccess(env)
+        ? { kind: "subscription" }
+        : { kind: "none", fix: CLAUDE_CODE_ACCESS_FIX },
+  // A discrete `Skill` tool_use in the trace says WHICH skill was selected, so
+  // the selection-collision matrix and the adversarial gate can run here.
+  firing: { kind: "event" },
+  // Claude Code namespaces a plugin's skill as `<plugin>:<skill>`; the manifest
+  // name is handed in by the domain, which read it off the layout.
+  firedFor:
+    (skill, plugin) =>
+    (t): boolean =>
+      whichSkillsFired(t).includes(
+        plugin.name ? `${plugin.name}:${skill}` : skill,
+      ),
+  // The probe may rebuild the plugin to skills-only stubs: this is the harness
+  // whose plugin shape vigiles packages, so a stubbed rebuild is validated.
+  installsStubs: true,
 };
 
 /**

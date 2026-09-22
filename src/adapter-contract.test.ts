@@ -114,6 +114,79 @@ describe("adapter contract (run over the whole registry)", () => {
   }
 });
 
+/**
+ * The EXECUTING tiers' driver — asserted over EVERY implementation in the repo,
+ * shipped and prototype, for the reason `ALL_IMPLEMENTATIONS` exists above: the
+ * shape this catches (a `harnessTesting: true` adapter whose driver is a promise
+ * of nothing) is exactly what `opencode` shipped for the MOCK tier while the
+ * contract suite ranged over `ADAPTERS` alone and saw nothing.
+ *
+ * The TYPE already makes the port's PRESENCE unwritable-without and
+ * unwritable-with (`TestingPorts`). What a type cannot check is whether the
+ * object the thunk RESOLVES TO agrees with itself and with the public field that
+ * duplicates part of it.
+ *
+ * 🔴 WHY HERE AND NOT IN `src/core/`: the assertion ranges over the REGISTRY,
+ * and the core may not import the registry (`src/core/CLAUDE.md` — the same
+ * reason `DEFAULT_INSTRUCTION_TARGETS` is pinned in this file).
+ * `boundaries/dependencies` would stay GREEN on such an import anyway, because
+ * `adapter-registry.ts` is the unclassified composition root: its silence there
+ * is not permission.
+ */
+describe("live driver contract (every implementation, shipped and prototype)", () => {
+  for (const adapter of ALL_IMPLEMENTATIONS) {
+    const testableTest = adapter.harnessTesting ? it : it.skip;
+    testableTest(
+      adapter.harnessTesting
+        ? `${adapter.name}: its live driver resolves, and its firing signal agrees with EvalDriver.experimental`
+        : `${adapter.name}: live driver — n/a (reference-only)`,
+      async () => {
+        // "Does not resolve" is a real failure mode: the thunk is a dynamic
+        // import, so a bad specifier or a module-init throw shows up only here.
+        const live = await adapter.liveDriver?.();
+        expect(
+          live,
+          `${adapter.name}.liveDriver() resolved nothing`,
+        ).toBeTruthy();
+        if (!live) return;
+
+        // ONE FACT, TWO PLACES — related here rather than deduplicated, because
+        // `EvalDriver.experimental` is a PUBLIC field (`vigiles/codex` exports
+        // the driver, and a trigger-rate report copies the string onto itself),
+        // so removing it is a major. The typed `firing` is what the measurement
+        // tiers branch on; this asserts the copies cannot drift.
+        expect(
+          live.firing.kind === "inferred",
+          `${adapter.name}: firing.kind=${live.firing.kind} but EvalDriver.experimental is ${live.evalDriver.experimental === undefined ? "absent" : "set"} — an inferred number must carry its caveat, and a caveat must mean inferred`,
+        ).toBe(live.evalDriver.experimental !== undefined);
+        if (live.firing.kind === "inferred") {
+          expect(
+            live.firing.caveat.length,
+            `${adapter.name}: inferred firing with an empty caveat — the report would print the number bare`,
+          ).toBeGreaterThan(0);
+        }
+
+        // `access` must land inside the union on an EMPTY environment, which is
+        // the case the CLI hits in CI: an adapter that threw, or answered with a
+        // fourth kind, would take the whole audit down at consent time.
+        const access = live.access({});
+        expect(
+          ["none", "subscription", "metered"],
+          `${adapter.name}.access({}) returned kind=${access.kind}`,
+        ).toContain(access.kind);
+        // The `none` arm is the only one the CLI PRINTS, so it must say
+        // something, and it must be this harness's own words.
+        if (access.kind === "none") {
+          expect(
+            access.fix.length,
+            `${adapter.name}.access({}) is "none" with an empty fix — the CLI would print a blank reason`,
+          ).toBeGreaterThan(0);
+        }
+      },
+    );
+  }
+});
+
 describe("adapter registry is complete", () => {
   it("every src/adapters/<dir> is registered in ADAPTERS (or a declared prototype)", () => {
     const dirs = readdirSync(resolve(__dirname, "adapters"), {

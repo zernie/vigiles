@@ -37,6 +37,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { codexDriver } from "./driver.js";
+import type { HarnessLiveDriver } from "../../core/live-driver.js";
 
 import type {
   ParsedModelRun,
@@ -256,6 +258,14 @@ export const CODEX_TRIGGER_RATE_EXPERIMENTAL =
   "`vigiles audit` is fully supported on Codex.";
 
 /**
+ * The one line printed instead of running when `codex` is not reachable. It
+ * names THIS harness's CLI: the string it replaces told every user to
+ * authenticate `claude`, whatever harness their repo was on.
+ */
+export const CODEX_ACCESS_FIX =
+  "install the `codex` CLI and authenticate it (ChatGPT sign-in or an API key)";
+
+/**
  * The Codex eval driver — pass to `measureTriggerRate(spec, { evalDriver:
  * codexEvalDriver })` to run a trigger-rate eval natively on `codex exec`. Pair
  * the spec's `fired` with `codexSkillFired` (Codex has no Skill-tool event).
@@ -269,6 +279,42 @@ export const codexEvalDriver: EvalDriver = {
   harness: "codex",
   // Codex-only: the trigger-rate number is not validated (see the constant above).
   experimental: CODEX_TRIGGER_RATE_EXPERIMENTAL,
+};
+
+/**
+ * The Codex {@link HarnessLiveDriver} — the EXECUTING tiers' side of the
+ * adapter, reached through `codexAdapter.liveDriver()`.
+ *
+ * It is the object `scan-behavioral.ts:buildProbe` used to build from
+ * `harness === "codex"`: the same four answers, now carried by the adapter that
+ * knows them instead of switched on by a name in the application layer.
+ */
+export const codexLiveDriver: HarnessLiveDriver = {
+  evalDriver: codexEvalDriver,
+  // A BINARY probe, not an env read, and that is the harness's own shape: the
+  // codex CLI carries its own auth (ChatGPT plan or an API key) and vigiles
+  // cannot tell which from the outside without a run. So the honest answer is
+  // "reachable on a plan you already pay for" when the binary is there —
+  // matching what the CLI has always worded for this harness ($0 metered).
+  // `--version` prints and exits; it reaches no model backend.
+  access: () =>
+    codexDriver.available()
+      ? { kind: "subscription" }
+      : { kind: "none", fix: CODEX_ACCESS_FIX },
+  // NO skill-selection event exists here, so firing is INFERRED from the
+  // SKILL.md read — wrong in both directions (see the constant above). The
+  // caveat travels with the signal so a report can never print the number bare,
+  // and the selection-collision matrix refuses this driver at the type level.
+  firing: { kind: "inferred", caveat: CODEX_TRIGGER_RATE_EXPERIMENTAL },
+  // No namespace: firing is the SKILL.md read, which carries the bare name.
+  firedFor:
+    (skill) =>
+    (t): boolean =>
+      codexSkillFired(t, skill),
+  // A MEASURED LIMITATION, not a capability: stubbing a Claude-shaped plugin
+  // for Codex is unvalidated, so the real skills are installed and firing is
+  // detected regardless of body.
+  installsStubs: false,
 };
 
 /**

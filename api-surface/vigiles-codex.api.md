@@ -8,6 +8,9 @@
 export function buildCodexArgs(ctx: HarnessDriverContext): string[];
 
 // @public
+export const CODEX_ACCESS_FIX = "install the `codex` CLI and authenticate it (ChatGPT sign-in or an API key)";
+
+// @public
 export const CODEX_TRIGGER_RATE_EXPERIMENTAL: string;
 
 // @public (undocumented)
@@ -22,6 +25,7 @@ export const codexAdapter: {
     readonly hookProtocol: HookProtocol;
     readonly modelMock: ModelMock;
     readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
+    readonly liveDriver: () => Promise<HarnessLiveDriver>;
     readonly claims: (path: string) => boolean;
     readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
 };
@@ -53,6 +57,9 @@ export const codexHookProtocol: HookProtocol;
 
 // @public (undocumented)
 export const codexLayout: PluginLayout;
+
+// @public
+export const codexLiveDriver: HarnessLiveDriver;
 
 // @public
 export function codexMockArgs(baseUrl: string): string[];

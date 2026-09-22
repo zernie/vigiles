@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 465 project files. */
+  /** 467 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -133,6 +133,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/instruction-chain.ts"
     | "src/adapters/claude-code/layout.test.ts"
     | "src/adapters/claude-code/layout.ts"
+    | "src/adapters/claude-code/model-access.ts"
     | "src/adapters/claude-code/model-mock.ts"
     | "src/adapters/claude-code/plugin-loader.test.ts"
     | "src/adapters/claude-code/plugin-loader.ts"
@@ -312,6 +313,7 @@ declare module "vigiles/generated" {
     | "src/core/linter-contract.test.ts"
     | "src/core/linters.test.ts"
     | "src/core/linters.ts"
+    | "src/core/live-driver.ts"
     | "src/core/markdown.test.ts"
     | "src/core/markdown.ts"
     | "src/core/mcp-config.test.ts"
@@ -670,6 +672,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/instruction-chain.ts"
       | "src/adapters/claude-code/layout.test.ts"
       | "src/adapters/claude-code/layout.ts"
+      | "src/adapters/claude-code/model-access.ts"
       | "src/adapters/claude-code/model-mock.ts"
       | "src/adapters/claude-code/plugin-loader.test.ts"
       | "src/adapters/claude-code/plugin-loader.ts"
@@ -849,6 +852,7 @@ declare module "vigiles/spec" {
       | "src/core/linter-contract.test.ts"
       | "src/core/linters.test.ts"
       | "src/core/linters.ts"
+      | "src/core/live-driver.ts"
       | "src/core/markdown.test.ts"
       | "src/core/markdown.ts"
       | "src/core/mcp-config.test.ts"

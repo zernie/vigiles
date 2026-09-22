@@ -12,37 +12,16 @@
  * this is the pure decision + helpers.
  */
 
-/** Only the env vars that signal a reachable model (parse, don't validate). */
-export interface ModelEnv {
-  readonly ANTHROPIC_API_KEY?: string;
-  readonly CLAUDECODE?: string;
-  readonly CLAUDE_CODE_ENTRYPOINT?: string;
-}
-
-/**
- * Is a real model reachable for the trigger tier? Either a metered API key
- * (`ANTHROPIC_API_KEY`), OR an authenticated Claude Code session (`CLAUDECODE=1`
- * / `CLAUDE_CODE_ENTRYPOINT`, web/desktop/CLI) — the latter drives the `claude`
- * CLI on the user's subscription, no key needed and $0 metered. A tiny env-only
- * predicate (not a live probe), so it never spends a token just to decide.
- */
-export function hasModelAccess(env: ModelEnv): boolean {
-  return Boolean(
-    env.ANTHROPIC_API_KEY ||
-    env.CLAUDECODE === "1" ||
-    env.CLAUDE_CODE_ENTRYPOINT,
-  );
-}
-
-/**
- * Is the reachable model METERED (a paid API key) rather than a subscription?
- * Only affects the consent DISCLOSURE wording (a metered key bills per token; a
- * subscription is $0 metered) — the run/skip decision itself is consent-driven,
- * not metered-driven.
- */
-export function isMeteredAccess(env: ModelEnv): boolean {
-  return Boolean(env.ANTHROPIC_API_KEY);
-}
+// `ModelEnv` / `hasModelAccess` / `isMeteredAccess` MOVED to
+// `src/adapters/claude-code/model-access.ts`: their whole body was one
+// harness's environment variables, sitting in the module named for the
+// harness-agnostic read-vs-run decision. Re-exported here for one step while
+// the call sites migrate to `HarnessLiveDriver.access`.
+export type { ModelEnv } from "./adapters/claude-code/model-access.js";
+export {
+  hasModelAccess,
+  isMeteredAccess,
+} from "./adapters/claude-code/model-access.js";
 
 /** Why the executing checks were skipped (drives the "not run" nudge). */
 export type ExecuteSkipReason =

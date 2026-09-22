@@ -33,6 +33,9 @@ export const claudeCodeAdapter = {
   // init and would pull the whole test/compiler graph back in.
   harnessTestDriver: async () =>
     (await import("../../harness-test.js")).claudeCodeDriver,
+  // The executing tiers' driver, thunked for the same reason: it reaches the
+  // real-model graph, which an adapter READ (the hook runtime) must not pay for.
+  liveDriver: async () => (await import("../../eval.js")).claudeCodeLiveDriver,
   // Derived from the layout, never listed again here — see `claims` on
   // `HarnessAdapter` for why this method takes a PATH and not a root.
   claims(path: string): boolean {
