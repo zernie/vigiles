@@ -30,6 +30,13 @@ import { parse, Lang, registerDynamicLanguage } from "@ast-grep/napi";
  * grammars every user does need (TypeScript, TSX, JavaScript, CSS) are built into
  * `@ast-grep/napi` and cost nothing.
  *
+ * 🔴 AND WHY OPTIONAL *PEER*, NOT `optionalDependencies` (#257). The first attempt moved them to
+ * `optionalDependencies` and changed nothing: an optional dependency is still installed by
+ * default, postinstall included, so pnpm failed exactly as before. An optional peer
+ * (`peerDependencies` + `peerDependenciesMeta.optional`) is installed by neither npm nor pnpm
+ * unless the consumer lists it, so a default install carries no lifecycle script at all.
+ * `src/package-install-scripts.e2e.test.ts` holds that property against the packed tarball.
+ *
  * They load through `createRequire` rather than `await import()` on purpose: the packages are
  * CommonJS (`"main": "index.js"`, no `exports`), so a synchronous require works and NOTHING in
  * this module's public surface has to become async. Measured, not assumed.
@@ -42,9 +49,12 @@ const OPTIONAL_GRAMMARS: Readonly<Record<string, string>> = {
 
 // Anchored on THIS module's own file, not on the consumer's project root. Under pnpm a
 // consumer's root does not contain our transitive packages at all — the same addressing
-// mistake that made every hook fail there — and these grammars are OUR optional dependencies,
-// so they resolve from where this file lives. `__filename` rather than `import.meta.url`
-// because this package compiles to CommonJS (`module: Node16`, `main: ./dist/test.js`).
+// mistake that made every hook fail there. These grammars are OUR optional peers, and both
+// managers make a peer resolvable from the package that declares it (npm hoists it beside us,
+// pnpm links it into our own virtual-store `node_modules`), so they resolve from where this
+// file lives. Measured on npm 10.9 and pnpm 12.5 against the packed tarball. `__filename`
+// rather than `import.meta.url` because this package compiles to CommonJS (`module: Node16`,
+// `main: ./dist/test.js`).
 const require_ = createRequire(__filename);
 
 /** Registered grammar ids, populated on first use. `null` until then. */

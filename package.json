@@ -97,6 +97,9 @@
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
+    "@ast-grep/lang-python": "^0.0.6",
+    "@ast-grep/lang-ruby": "^0.0.7",
+    "@ast-grep/lang-rust": "^0.0.7",
     "@eslint/js": "^10.0.1",
     "@jackchuka/mdschema": "^0.12.8",
     "@microsoft/api-extractor": "^7.58.9",
@@ -124,10 +127,22 @@
     "vitest": "^4.1.8"
   },
   "peerDependencies": {
+    "@ast-grep/lang-python": "^0.0.6",
+    "@ast-grep/lang-ruby": "^0.0.7",
+    "@ast-grep/lang-rust": "^0.0.7",
     "jest": ">=28",
     "vitest": ">=1"
   },
   "peerDependenciesMeta": {
+    "@ast-grep/lang-python": {
+      "optional": true
+    },
+    "@ast-grep/lang-ruby": {
+      "optional": true
+    },
+    "@ast-grep/lang-rust": {
+      "optional": true
+    },
     "jest": {
       "optional": true
     },
@@ -148,10 +163,5 @@
     "ts-essentials": "^10.2.1",
     "typescript": "^5.9.3",
     "zod": "^4.6.5"
-  },
-  "optionalDependencies": {
-    "@ast-grep/lang-python": "^0.0.6",
-    "@ast-grep/lang-ruby": "^0.0.7",
-    "@ast-grep/lang-rust": "^0.0.7"
   }
 }

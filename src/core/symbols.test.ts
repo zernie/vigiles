@@ -4,9 +4,10 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Lang } from "@ast-grep/napi";
 
 import {
@@ -88,6 +89,97 @@ test("an absent optional grammar is 'grammar-missing', never 'unsupported'", () 
     `Symbol not checked: the ${missing.id} grammar is not installed (npm i -D ${missing.pkg})`,
     /not installed \(npm i -D @ast-grep\/lang-ruby\)/,
   );
+});
+
+// 🔴 THE TEST ABOVE ASSERTS THE SHAPE, THIS ONE RUNS THE PATH. The grammars are optional peer
+// dependencies (#257): a default `npm i vigiles` / `pnpm add vigiles` installs none of them, so the
+// absent-module branch is what most consumers execute. This repo has them installed, so the only
+// way to reach that branch honestly is a child process in which requiring them FAILS, the same way
+// it fails in a consumer's tree (`MODULE_NOT_FOUND`). A stub inside this process would not do: the
+// registration result is cached per process, and the other tests here need the real grammars.
+test("with the grammar modules absent, .py/.rb/.rs say 'not installed' and never 'not defined'", () => {
+  const dir = mkdtempSync(join(tmpdir(), "vigiles-sym-absent-"));
+  try {
+    mkdirSync(join(dir, "src"));
+    writeFileSync(join(dir, "src", "app.py"), "def handler():\n    pass\n");
+    writeFileSync(join(dir, "src", "app.rb"), "def handler\nend\n");
+    writeFileSync(join(dir, "src", "app.rs"), "fn handler() {}\n");
+    writeFileSync(join(dir, "src", "app.ts"), "export function handler() {}\n");
+    // Make every `@ast-grep/lang-*` resolution fail exactly as an uninstalled package does.
+    const block = join(dir, "block-grammars.cjs");
+    writeFileSync(
+      block,
+      `const Module = require("node:module");\n` +
+        `const orig = Module._resolveFilename;\n` +
+        `Module._resolveFilename = function (req, ...rest) {\n` +
+        `  if (/^@ast-grep\\/lang-/.test(req)) {\n` +
+        `    const e = new Error("Cannot find module '" + req + "'");\n` +
+        `    e.code = "MODULE_NOT_FOUND";\n` +
+        `    throw e;\n` +
+        `  }\n` +
+        `  return orig.call(this, req, ...rest);\n` +
+        `};\n`,
+    );
+    const probe = join(dir, "probe.ts");
+    const md = ["py", "rb", "rs", "ts"]
+      .flatMap((x) => [
+        `- \`vigiles:symbol src/app.${x}#handler\``,
+        `- \`vigiles:symbol src/app.${x}#missing\``,
+      ])
+      .join("\n");
+    writeFileSync(
+      probe,
+      `import { verifySymbolRefs } from ${JSON.stringify(resolve("src/core/refs.ts"))};\n` +
+        `import { installedGrammars } from ${JSON.stringify(resolve("src/core/symbols.ts"))};\n` +
+        `console.log(JSON.stringify({\n` +
+        `  installed: [...installedGrammars()],\n` +
+        `  errors: verifySymbolRefs(${JSON.stringify(md)}, ${JSON.stringify(dir)})\n` +
+        `    .map((e) => e.file + "#" + e.symbol + " :: " + e.reason),\n` +
+        `}));\n`,
+    );
+    const r = spawnSync(
+      process.execPath,
+      ["--require", block, "--import", "tsx", probe],
+      { encoding: "utf8", cwd: resolve(".") },
+    );
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const out = JSON.parse(r.stdout.trim().split("\n").pop() ?? "") as {
+      installed: string[];
+      errors: string[];
+    };
+
+    // The blocker actually blocked — otherwise every assertion below is vacuous.
+    assert.deepEqual(out.installed, []);
+
+    const pkgFor = { py: "python", rb: "ruby", rs: "rust" } as const;
+    for (const [ext, lang] of Object.entries(pkgFor)) {
+      for (const sym of ["handler", "missing"]) {
+        const line = out.errors.find((e) =>
+          e.startsWith(`src/app.${ext}#${sym} ::`),
+        );
+        assert.ok(line, `${ext}#${sym} must be reported, not silently passed`);
+        assert.match(
+          line,
+          new RegExp(
+            `the ${lang} grammar is not installed \\(npm i -D @ast-grep/lang-${lang}\\)`,
+          ),
+        );
+        // The two answers must stay different: an un-run check is not a missing symbol.
+        assert.doesNotMatch(line, /is not defined in/);
+        assert.doesNotMatch(line, /Unsupported language/);
+      }
+    }
+
+    // The built-in grammars are untouched by the absence: a real hit passes, a real miss fails.
+    assert.ok(!out.errors.some((e) => e.startsWith("src/app.ts#handler ::")));
+    assert.ok(
+      out.errors.includes(
+        'src/app.ts#missing :: "missing" is not defined in src/app.ts',
+      ),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("fileDefinesSymbol checks one named file (no project index)", () => {
