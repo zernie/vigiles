@@ -14,7 +14,13 @@ import { spawn } from "node:child_process";
 import { availableParallelism } from "node:os";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { globSync } from "glob";
 import {
   CHECK_COUNT_ENV,
@@ -63,7 +69,20 @@ export interface ScriptRunResult {
 export const SKIP_EXIT_CODE = 77;
 
 /**
- * Classify one script's run from its exit code and its reported check count.
+ * What the runner's load hook saw of one script (`harness-resolve-hooks.mts`).
+ *
+ * `marked` — the hook saw the script's module as an ES module and planted a
+ * marker import at the top of it. `linked` — that marker evaluated, which ESM
+ * only does once the WHOLE import graph was found, parsed and linked.
+ */
+export interface LoadEvidence {
+  readonly marked: boolean;
+  readonly linked: boolean;
+}
+
+/**
+ * Classify one script's run from its exit code, its reported check count and
+ * what the load hook saw.
  *
  * 🔴 THE FOURTH STATE, AND WHY. Exit codes answer "did it fail?", never "did it
  * do anything?". Measured 2026-08-08: a file whose whole body is
@@ -86,81 +105,52 @@ export const SKIP_EXIT_CODE = 77;
  * none of it says zero. This is the `undefined`-vs-`[]` distinction
  * `assertNoWrite` already draws: "nobody looked" must not read as "nothing
  * happened".
+ *
+ * 🔴 DID IT LOAD? A non-zero exit from a script whose module was marked and
+ * never linked is did-not-load: `"skip"` with the loader's exit code, which
+ * keeps its coverage (`fail` RETRACTS it, see `runsFromResults`). A module that
+ * never linked executed no assertion — the same "did not run" as a missing
+ * `claude`, arriving through a different door. MEASURED, twice on 2026-08-20: a
+ * container restore left an old `node_modules`, every harness in a consumer repo
+ * died on `Named export 'recordCheck' not found`, and its ledger fell from 48
+ * records to 34 and from 47 to 33 for surfaces nothing had touched. The run is
+ * still red: `cli-main.ts` fails on any skip the author did not declare.
+ *
+ * This used to be decided by grepping the child's OUTPUT for loader phrases,
+ * and that was wrong in the dangerous direction (#243): a harness that printed
+ * a hook transcript containing "Cannot find module", then failed an assertion,
+ * was read as did-not-load and kept its coverage. Output is no longer an input.
+ * Anything without a marker (CommonJS, an entry the hook never saw) can never
+ * claim did-not-load — it is a `fail`, the side that retracts rather than hides.
+ * A syntax error in the script itself also never links, so it too is
+ * did-not-load; that is the owner's call, not an accident.
  */
 export function statusFor(
   code: number,
   checks: number | undefined,
-  output?: string,
+  load?: LoadEvidence,
 ): ScriptStatus {
   if (code === SKIP_EXIT_CODE) return "skip";
-  // 🔴 `checks === undefined` GUARDS THE TEXT MATCH, and it is the load-bearing
-  // half. A script that REPORTED a count executed: the counter is written by an
-  // exit handler that exists only once the module was linked and run
-  // (`check-count.ts`), so the count is a STRUCTURAL fact about the child, while
-  // `didNotLoad` is a guess about its text.
-  //
-  // MEASURED: `statusFor(1, 3, "<hook stderr: Cannot find module …>\nAssertionError")`
-  // returned `"skip"` and the run exited 0 — a harness that ran, recorded three
-  // checks and FAILED an assertion, reported as skipped. That is not an exotic
-  // input: vigiles harnesses drive hooks and print their transcripts, so a
-  // loader phrase in the output is ordinary EVIDENCE about the thing under test,
-  // not a diagnosis of the harness. Watching the child from outside cannot tell
-  // those apart. The count can, and it was already in hand.
-  if (code !== 0)
-    return checks === undefined && didNotLoad(output) ? "skip" : "fail";
+  if (code !== 0) {
+    // A reported count is written by an exit handler that exists only once the
+    // module ran (`check-count.ts`), so it overrules a missing marker file.
+    const neverLinked =
+      load?.marked === true && !load.linked && checks === undefined;
+    return neverLinked ? "skip" : "fail";
+  }
   return checks === 0 ? "vacuous" : "pass";
 }
 
 /**
- * Did the script fail to LOAD, rather than fail?
+ * Did this script fail to LOAD — as opposed to declaring a skip (exit 77)?
+ * The one predicate behind both the CLI's "never ran" failure and `--min`.
  *
- * 🔴 The distinction is not cosmetic, because `fail` RETRACTS coverage while
- * `skip` does not (see the table on `runsFromResults`). The rule for `fail` —
- * "it ran and proved nothing, so it must not keep yesterday's green record
- * alive" — is right, and it does not describe a file the runtime never
- * evaluated. A module that cannot resolve executed no assertion; it is the same
- * "did not run" as a missing `claude` CLI, arriving through a different door.
- *
- * MEASURED, twice in one session on 2026-08-20: a container restore left an old
- * `node_modules` behind, every harness in the consumer repo died on `Named export
- * 'recordCheck' not found`, and the ledger dropped from 48 records to 34 and from
- * 47 to 33. Nothing about those surfaces had changed — the machine had.
- *
- * ⚠️ This does NOT make a broken environment quiet: a script classified here
- * fails the run by default (`cli-main.ts`, right after `anyFailed`), because a
- * skip the AUTHOR never declared is not a skip. What this classification buys is
- * only that a machine problem may not delete a measurement taken on a machine
- * that worked.
- *
- * 🔴 That default is new, and the sentence it replaces was false. It read
- * «`--no-skip` — which this repo's own CI passes — still fails the run».
- * Measured: `--no-skip` appears ZERO times under `.github/`, `package.json`,
- * `scripts/` and `.claude/`; CI passes `--min=14` and nothing else. The
- * safety net the non-fatal classification leaned on was never strung.
- *
- * Deliberately literal, and only the loader's own vocabulary: these strings come
- * from Node's module resolution, not from user code. A test that legitimately
- * asserts on one of them exits 0 or asserts, and never reaches here.
+ * Deliberately NOT a fifth `ScriptStatus`: coverage retraction reads the status
+ * as a bare string (`coverage-artifact.ts`), so a new member would start
+ * retracting silently with no type error.
  */
-function didNotLoad(output: string | undefined): boolean {
-  if (output === undefined || output === "") return false;
-  return (
-    output.includes("ERR_MODULE_NOT_FOUND") ||
-    output.includes("Cannot find package") ||
-    output.includes("Cannot find module") ||
-    /SyntaxError: Named export '[^']*' not found/.test(output) ||
-    // Same event, ESM spelling. Node phrases a missing named export one way for
-    // a CommonJS target and another for an ES module, and only the first was
-    // listed — so the 2026-08-20 class below still RETRACTED coverage whenever
-    // the dependency happened to be ESM. Measured on Node 22:
-    //   CJS: SyntaxError: Named export 'recordCheck' not found. The requested module …
-    //   ESM: SyntaxError: The requested module './x.mjs' does not provide an export named 'recordCheck'
-    /SyntaxError: The requested module '[^']*' does not provide an export named/.test(
-      output,
-    ) ||
-    output.includes("ERR_UNSUPPORTED_DIR_IMPORT") ||
-    output.includes("ERR_PACKAGE_PATH_NOT_EXPORTED")
-  );
+export function loadFailed(r: ScriptRunResult): boolean {
+  return r.status === "skip" && r.code !== SKIP_EXIT_CODE;
 }
 
 /** Filename extensions accepted for harness/eval scripts (JS and TS). */
@@ -293,6 +283,26 @@ function readCheckReport(
   }
 }
 
+/**
+ * What the load hook left behind for one child. A missing or malformed
+ * `seenFile` means the hook never saw the script, so `marked` is false and the
+ * run can never be read as did-not-load.
+ */
+function readLoadEvidence(seenFile: string, loadedFile: string): LoadEvidence {
+  return { marked: readMarked(seenFile), linked: existsSync(loadedFile) };
+}
+
+function readMarked(seenFile: string): boolean {
+  try {
+    const seen = JSON.parse(readFileSync(seenFile, "utf8")) as {
+      marked?: unknown;
+    };
+    return seen.marked === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Extra wiring for {@link runScripts}. */
 export interface RunScriptsOptions {
   /**
@@ -371,6 +381,8 @@ export async function runScripts(
         return;
       }
       const countFile = join(countDir, `${String(i)}.count`);
+      const seenFile = join(countDir, `${String(i)}.seen`);
+      const loadedFile = join(countDir, `${String(i)}.loaded`);
       // Resolve a harness's bare `vigiles` import from the CLI's OWN install, so
       // running the gate does not require installing the package into the
       // project — which, in a repo that already has a package.json, drags in the
@@ -381,16 +393,34 @@ export async function runScripts(
       const hook = pathToFileURL(
         join(selfRoot, "dist", "harness-resolve-hooks.mjs"),
       ).href;
-      const child = spawn("node", ["--import", hookImport(hook), ...argv], {
-        cwd,
-        stdio: ["ignore", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          ...env,
-          VIGILES_SELF_ROOT: selfRoot,
-          [CHECK_COUNT_ENV]: countFile,
+      // 🔴 OUR HOOK IS REGISTERED BEFORE `--import tsx`, and the order is
+      // load-bearing. Hooks chain last-in-first-out, so this makes tsx the
+      // OUTER hook: it transpiles the source we already marked, and its source
+      // map describes that source. The other order was measured wrong: tsx
+      // emits each module on ONE line with an inline map, a prefix added after
+      // it shifts every generated column, and a stack frame on line 2 was
+      // reported on line 3 (Node 20.20 and 22.22). The format we see from the
+      // inner position is the same (`module` in a `type: module` scope,
+      // `commonjs` otherwise — also measured).
+      const probe = {
+        entryURL: scriptURL(cwd, file),
+        loadedFile,
+        seenFile,
+      };
+      const child = spawn(
+        "node",
+        ["--import", hookImport(hook, probe), ...argv],
+        {
+          cwd,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            ...env,
+            VIGILES_SELF_ROOT: selfRoot,
+            [CHECK_COUNT_ENV]: countFile,
+          },
         },
-      });
+      );
       const chunks: Buffer[] = [];
       child.stdout.on("data", (c: Buffer) => chunks.push(c));
       child.stderr.on("data", (c: Buffer) => chunks.push(c));
@@ -401,7 +431,11 @@ export async function runScripts(
         resolveRun({
           file,
           code,
-          status: statusFor(code, report?.checks, output),
+          status: statusFor(
+            code,
+            report?.checks,
+            readLoadEvidence(seenFile, loadedFile),
+          ),
           checks: report?.checks,
           ...(report ? { surfaces: report.surfaces } : {}),
         });
@@ -556,12 +590,29 @@ export function formatScriptSummary(
 }
 
 /**
- * A `--import` argument that registers the resolver hook without a temp file:
+ * A `--import` argument that registers the harness hooks without a temp file:
  * a data: URL calling `module.register`. Inline because writing a shim into the
  * user's tree to run their tests would be a side effect the runner has no
- * business having.
+ * business having. The per-child probe rides in `data`, not the environment,
+ * so a process the script spawns does not inherit it.
  */
-function hookImport(hookHref: string): string {
-  const src = `import {register} from "node:module";register(${JSON.stringify(hookHref)});`;
+function hookImport(hookHref: string, probe: object): string {
+  const src = `import {register} from "node:module";register(${JSON.stringify(hookHref)},{data:${JSON.stringify(probe)}});`;
   return `data:text/javascript,${encodeURIComponent(src)}`;
+}
+
+/**
+ * The URL Node will load the SCRIPT under — for `eval` too, where the process
+ * entry is `eval-entry.js` and the script is what it imports. ESM resolution
+ * realpaths file URLs, so a symlinked path must be realpathed here or the hook
+ * would never recognise it (which is safe — no marker, no did-not-load claim —
+ * but blind).
+ */
+function scriptURL(cwd: string, file: string): string {
+  const abs = resolve(cwd, file);
+  try {
+    return pathToFileURL(realpathSync(abs)).href;
+  } catch {
+    return pathToFileURL(abs).href;
+  }
 }

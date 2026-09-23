@@ -5,7 +5,7 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -20,6 +20,7 @@ import {
   SCRIPT_EXTS,
   decideRunScripts,
   statusFor,
+  loadFailed,
   SKIP_EXIT_CODE,
 } from "./run-scripts.js";
 import { EXCLUDE_FLOOR, excludeSet } from "../../exclude.js";
@@ -299,60 +300,46 @@ test("statusFor: 0 reported checks is its own state, and silence is NOT zero", (
   assert.equal(statusFor(1, 0), "fail");
 });
 
-test("statusFor: a script that REPORTED checks executed, whatever its output says", () => {
-  // FIRES on the planted defect (#243, measured): a harness that ran, recorded
-  // three checks and failed an assertion, whose output carries a loader phrase
-  // because it printed the transcript of a hook under test. Before the `checks`
-  // guard this returned "skip" and the whole run exited 0.
-  const hookTranscript =
-    "  hook stderr: Error: Cannot find module './missing.js'\n" +
-    "AssertionError [ERR_ASSERTION]: guard must deny the write";
-  assert.equal(
-    statusFor(1, 3, hookTranscript),
-    "fail",
-    "it reported a count, so it ran — a loader phrase in its output is evidence, not a diagnosis",
-  );
+// --- did it LOAD? (#243) — decided by a marker, never by the child's output ----
+//
+// `LoadEvidence` comes from the runner's own load hook: `marked` = the hook saw
+// the script's entry module as an ES module and planted a marker import at the
+// top of it; `linked` = that marker evaluated, i.e. the whole import graph was
+// found, parsed and linked. Only "marked and never linked" is did-not-load.
+const linked = { marked: true, linked: true } as const;
+const neverLinked = { marked: true, linked: false } as const;
+const unmarked = { marked: false, linked: false } as const;
 
-  // SILENT on the clean case: nothing reported and the loader's own words.
-  assert.equal(
-    statusFor(
-      1,
-      undefined,
-      "Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'vigiles'",
-    ),
-    "skip",
-    "never evaluated — must not retract coverage taken on a working machine",
-  );
-
-  // `0` is a claim ("loaded the library, used none of it"), so it is not silence
-  // and the file demonstrably ran.
-  assert.equal(
-    statusFor(1, 0, "Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'x'"),
-    "fail",
-    "a reported zero still proves the module linked and ran",
-  );
+test("statusFor: marked but never linked is did-not-load (a skip that keeps coverage)", () => {
+  assert.equal(statusFor(1, undefined, neverLinked), "skip");
+  // The exit code stays whatever the loader gave it, so the caller can still
+  // tell this apart from a DECLARED skip (77) — see `loadFailed`.
 });
 
-test("didNotLoad knows BOTH spellings of a missing named export", () => {
-  // Node phrases the same event differently for a CommonJS and an ES module.
-  // Only the CJS form was listed, so the 2026-08-20 class — the one the whole
-  // non-retracting classification was built for — still retracted whenever the
-  // dependency was ESM. Both strings measured on Node 22.
-  const cjs =
-    "SyntaxError: Named export 'recordCheck' not found. The requested module './d.cjs' is a CommonJS module";
-  const esm =
-    "SyntaxError: The requested module './d.mjs' does not provide an export named 'recordCheck'";
-  assert.equal(statusFor(1, undefined, cjs), "skip");
-  assert.equal(
-    statusFor(1, undefined, esm),
-    "skip",
-    "same event, ESM spelling — must not retract either",
-  );
-  // And neither spelling may swallow a genuine parse error in the harness itself.
-  assert.equal(
-    statusFor(1, undefined, "SyntaxError: Unexpected token ';'"),
-    "fail",
-  );
+test("statusFor: a script that LINKED and then exited non-zero failed, whatever it printed", () => {
+  // The #243 bug: a harness that printed a hook transcript containing
+  // "Cannot find module" and then failed an assertion was read as did-not-load.
+  // Output is no longer an input at all, so no text can move this.
+  assert.equal(statusFor(1, undefined, linked), "fail");
+  assert.equal(statusFor(1, 3, linked), "fail");
+});
+
+test("statusFor: no marker means no claim — conservatively a fail", () => {
+  // CommonJS entries (and anything the hook never saw) get no marker, so the
+  // absence of `linked` proves nothing about them. Retracting is the safe side.
+  assert.equal(statusFor(1, undefined, unmarked), "fail");
+  assert.equal(statusFor(1, undefined), "fail", "no evidence at all");
+});
+
+test("statusFor: a reported count proves the module ran, even with a missing marker file", () => {
+  assert.equal(statusFor(1, 0, neverLinked), "fail");
+  assert.equal(statusFor(1, 2, neverLinked), "fail");
+});
+
+test("statusFor: exit 0 and exit 77 do not consult load evidence", () => {
+  assert.equal(statusFor(0, 2, neverLinked), "pass");
+  assert.equal(statusFor(0, 0, neverLinked), "vacuous");
+  assert.equal(statusFor(SKIP_EXIT_CODE, undefined, unmarked), "skip");
 });
 
 test("discoverScripts does not accept a directory as a script", () => {
@@ -739,39 +726,176 @@ test("eval tier (entry set) stays strictly serial — overlap there is billed tw
   }
 });
 
-// ── a script that could not LOAD did not run ──────────────────────────────────
-// The distinction decides whether coverage is RETRACTED: `fail` retracts, `skip`
-// does not. Measured twice on 2026-08-20 — a container restore left a stale
-// node_modules, every harness died on `Named export 'recordCheck' not found`, and
-// the consumer's ledger fell 48 → 34 and 47 → 33 for surfaces nothing had touched.
-test("a module-resolution failure is a skip, not a fail", () => {
-  const loaderErrors = [
-    "Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/x/y.mjs'",
-    "Error: Cannot find package 'js-yaml' imported from /x/y.mjs",
-    "SyntaxError: Named export 'recordCheck' not found. The requested module 'vigiles' is a CommonJS module",
-    "Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './nope' is not defined",
-  ];
-  for (const out of loaderErrors)
-    assert.equal(
-      statusFor(1, undefined, out),
-      "skip",
-      `a loader error must not retract coverage: ${out.slice(0, 48)}`,
+// ── a script that could not LOAD did not run (#243) ───────────────────────────
+// The distinction decides whether coverage is RETRACTED: `fail` retracts, a
+// did-not-load `skip` does not. Measured twice on 2026-08-20 — a container
+// restore left a stale node_modules, every harness died on `Named export
+// 'recordCheck' not found`, and the consumer's ledger fell 48 → 34 and 47 → 33
+// for surfaces nothing had touched.
+//
+// Every case below runs a REAL child through the runner's load hook, because
+// the whole point of the change is that the answer comes from the module
+// system's link phase and not from reading what the child printed.
+
+/** A fixture dir with `type: module` and the repo's own tsx reachable. */
+function loadFixtureDir(): string {
+  const dir = makeTmpDir("run-scripts-load");
+  writeFileSync(join(dir, "package.json"), '{"type":"module"}\n');
+  mkdirSync(join(dir, "node_modules"));
+  symlinkSync(
+    resolve(process.cwd(), "node_modules", "tsx"),
+    join(dir, "node_modules", "tsx"),
+  );
+  writeFileSync(join(dir, "dep.mjs"), "export const real = 1;\n");
+  writeFileSync(
+    join(dir, "dep-throws.mjs"),
+    'throw new Error("dependency blew up at top level");\n',
+  );
+  return dir;
+}
+
+const LOAD_FIXTURES: Record<string, { src: string; want: string }> = {
+  "pass.mjs": { src: 'console.log("ok");\n', want: "pass" },
+  "exit0.mjs": { src: "process.exit(0);\n", want: "pass" },
+  "skip77.mjs": { src: "process.exit(77);\n", want: "declared-skip" },
+  "bare-fail.mjs": {
+    src: 'import assert from "node:assert";\nassert.equal(1, 2);\n',
+    want: "fail",
+  },
+  "plain-throw.mjs": {
+    src: 'throw new Error("plain top-level throw");\n',
+    want: "fail",
+  },
+  // (a) THE #243 BUG: ran, printed a loader phrase as evidence, failed.
+  "log-then-fail.mjs": {
+    src:
+      'import assert from "node:assert";\n' +
+      "console.error(\"hook stderr: Error: Cannot find module 'foo' ERR_MODULE_NOT_FOUND\");\n" +
+      "assert.equal(1, 2);\n",
+    want: "fail",
+  },
+  "missing-import.mjs": {
+    src: 'import { x } from "./nope.mjs";\nconsole.log(x);\n',
+    want: "did-not-load",
+  },
+  // (b) the 2026-08-20 class: a named export that a dependency lacks.
+  "missing-export.mjs": {
+    src: 'import { recordCheck } from "./dep.mjs";\nconsole.log(recordCheck);\n',
+    want: "did-not-load",
+  },
+  "missing-package.mjs": {
+    src: 'import "definitely-not-installed-pkg-xyz";\n',
+    want: "did-not-load",
+  },
+  // A dependency that EVALUATES and throws is code that ran.
+  "import-dep-throws.mjs": {
+    src: 'import "./dep-throws.mjs";\nconsole.log("body");\n',
+    want: "fail",
+  },
+  // Owner decision: a syntax error in the harness itself never linked either.
+  "syntax-error.mjs": { src: "const = 1;\n", want: "did-not-load" },
+  "shebang-fail.mjs": {
+    src: '#!/usr/bin/env node\nimport assert from "node:assert";\nassert.equal(1, 2);\n',
+    want: "fail",
+  },
+  // A dynamic import in the body: the body ran.
+  "dyn-import-fail.mjs": {
+    src: 'await import("./nope.mjs");\n',
+    want: "fail",
+  },
+  // CommonJS gets no marker, so it can never claim did-not-load.
+  "cjs-missing.cjs": { src: 'require("./nope.cjs");\n', want: "fail" },
+  // (e) TypeScript under tsx, in a `type: module` scope.
+  "ts-fail.ts": {
+    src: 'const n: number = 1;\nif (n !== 2) throw new Error("ts assertion failed");\n',
+    want: "fail",
+  },
+  "ts-missing-export.ts": {
+    src: 'import { recordCheck } from "./dep.mjs";\nconst f: unknown = recordCheck;\nconsole.log(f);\n',
+    want: "did-not-load",
+  },
+};
+
+function outcome(r: {
+  status: string;
+  code: number;
+}): "pass" | "fail" | "vacuous" | "did-not-load" | "declared-skip" {
+  if (r.status === "skip")
+    return r.code === SKIP_EXIT_CODE ? "declared-skip" : "did-not-load";
+  return r.status as "pass" | "fail" | "vacuous";
+}
+
+test("each load/run outcome is classified from the link phase, not from output", async () => {
+  const dir = loadFixtureDir();
+  try {
+    const files = Object.keys(LOAD_FIXTURES);
+    for (const f of files) writeFileSync(join(dir, f), LOAD_FIXTURES[f].src);
+    const results = await runScripts(files, dir);
+    assert.deepEqual(
+      Object.fromEntries(results.map((r) => [r.file, outcome(r)])),
+      Object.fromEntries(files.map((f) => [f, LOAD_FIXTURES[f].want])),
     );
+    // `loadFailed` is the one predicate the CLI uses for both the "never ran"
+    // message and `--min`: exactly the did-not-load rows, never a declared skip.
+    assert.deepEqual(
+      results.filter(loadFailed).map((r) => r.file),
+      files.filter((f) => LOAD_FIXTURES[f].want === "did-not-load"),
+    );
+    assert.equal(
+      anyFailed(results),
+      true,
+      "a failing harness still turns the run red",
+    );
+  } finally {
+    cleanupTmpDir(dir);
+  }
 });
 
-test("an ordinary failure is still a fail, and still retracts", () => {
-  // The whole point of the retraction rule: a script that RAN and proved nothing
-  // must not keep yesterday's green record alive.
-  assert.equal(
-    statusFor(1, 3, "AssertionError: expected 1 to equal 2"),
-    "fail",
-  );
-  assert.equal(statusFor(1, 0, ""), "fail");
-  assert.equal(statusFor(1, undefined, undefined), "fail");
-  // …and a passing run that merely MENTIONS a loader string is untouched, because
-  // the check only applies on a non-zero exit.
-  assert.equal(
-    statusFor(0, 2, "ERR_MODULE_NOT_FOUND appears in this output"),
-    "pass",
-  );
+test("the marker shifts no line numbers — JS and TypeScript under tsx", async () => {
+  // The marker is written on the SAME line as the file's first line, so a
+  // stack frame's line is what the author sees in the editor. Under tsx this
+  // also depends on WHERE the hook sits: tsx emits each module on one line with
+  // an inline source map, so a prefix added AFTER tsx shifts every generated
+  // column and the map resolves to the wrong original line (measured: 3:1
+  // instead of 2:7). Ours is registered before tsx, so tsx transpiles the
+  // marked source and its map is correct.
+  const dir = loadFixtureDir();
+  try {
+    const body = (tag: string, ts: boolean): string =>
+      'import { writeFileSync } from "node:fs";\n' +
+      (ts ? "const x: number = 1;\n" : "const x = 1;\n") +
+      // Short statements on purpose: a column shift then lands on the NEXT
+      // original line, which is what a wrong hook order does under tsx.
+      'const e = new Error("h");\n' +
+      `writeFileSync("${tag}.stack", String(e.stack));\n` +
+      "console.log(x);\n";
+    writeFileSync(join(dir, "line.mjs"), body("js", false));
+    writeFileSync(join(dir, "line.ts"), body("ts", true));
+    const results = await runScripts(["line.mjs", "line.ts"], dir);
+    assert.deepEqual(
+      results.map((r) => r.status),
+      ["pass", "pass"],
+    );
+    assert.match(
+      readFileSync(join(dir, "js.stack"), "utf8"),
+      /line\.mjs:3:\d+/,
+    );
+    assert.match(readFileSync(join(dir, "ts.stack"), "utf8"), /line\.ts:3:\d+/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("a script path that does not exist is a fail, not did-not-load", async () => {
+  // No file, so no realpath and no module the hook could ever see: the probe
+  // falls back to the plain path, nothing is marked, and nothing may claim
+  // "did not load" — there is no coverage to keep for a file that is not there.
+  const dir = makeTmpDir("run-scripts-missing");
+  try {
+    const [r] = await runScripts(["gone.harness.mjs"], dir);
+    assert.equal(r?.status, "fail");
+    assert.equal(loadFailed(r), false);
+  } finally {
+    cleanupTmpDir(dir);
+  }
 });
