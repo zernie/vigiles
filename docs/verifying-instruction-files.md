@@ -112,6 +112,8 @@ There's a small family of inline **marks** that `lint` checks, each binding a re
 - `` `vigiles:symbol file#name` `` — **the named file actually defines that symbol** (function, class, method, constant), parsed with [ast-grep](https://ast-grep.github.io) across JS/TS, Python, Ruby, Rust, and CSS. Rename it and `lint` fails. In markdown mode the `refs-hook` forces the mark, blocking edits that leave a code reference bare.
 - `` `vigiles:mcp server#tool` `` — **the referenced MCP tool exists on its server.** `lint` reads `.mcp.json`, starts the server, lists its tools, and flags a renamed/removed one with a "did you mean" — catching e.g. the GitHub MCP server renaming `create_issue` → `issue_write`, which otherwise fails silently.
 
+**Nothing to install for any language.** JS/TS and CSS use the grammars built into `@ast-grep/napi`; Python, Ruby and Rust use WebAssembly builds of their tree-sitter grammars that ship with vigiles (`@vscode/tree-sitter-wasm`). No install scripts run, so a default `npm install`, `pnpm add` or `yarn add` needs no approval, and those three languages need no platform-specific binary.
+
 **Typo-safe at authoring time, too.** `vigiles generate types` emits a `.vigiles/generated.d.ts` so `enforce("eslint/no-consolee")` red-squiggles in your editor. `generate-schema` gives the YAML-frontmatter mode the same via your YAML language server. Both have `--check` CI freshness modes. [How it works →](linter-support.md#generate-types)
 
 ## From prose to enforced: the rule map (experimental)

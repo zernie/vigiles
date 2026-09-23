@@ -56,8 +56,9 @@ The harness vocabulary the compiler verifies against.
 | `instructionTargets`  | `readonly string[]` | instruction-file targets (also the h1)                  | `["CLAUDE.md","AGENTS.md"]`          | `["AGENTS.md"]`                                      |
 | `pluginRootToken`     | `string`            | env token expanded to the plugin root                   | `"${CLAUDE_PLUGIN_ROOT}"`            | `"${PLUGIN_ROOT}"`                                   |
 
-**Consumed by:** `compileAgent(spec, { dialect })` — verifies the subagent
-tool-contract against `builtinAgentTools`/`neverAvailableTools`/`mcpToolPattern`.
+**Consumed by:** the subagent tool-contract check (`vigiles compile` / `vigiles lint`,
+and the conformance kit) — verifies a subagent's `tools:` against
+`builtinAgentTools`/`neverAvailableTools`/`mcpToolPattern`.
 
 ### `PluginLayout` (format)
 
@@ -272,7 +273,8 @@ every port populated; cross-port invariants (all port `name`s equal
 `adapter.name`; `layout.instructionFile` ∈ `dialect.instructionTargets`;
 `layout.pluginRootToken` === `dialect.pluginRootToken`; `layout.settings`
 round-trips its own output); and a behavioural one — the dialect's own first
-built-in tool passes `compileAgent`'s tool-contract check.
+built-in tool passes the subagent tool-contract check (the same validator
+`vigiles compile` runs on a subagent's `tools:`).
 
 The enum check that used to sit here — `settingsFormat` is `"json"|"toml"` — is
 gone, and its absence is the point: the core re-checking a closed set it had
@@ -338,29 +340,33 @@ interface DetectResult {
 
 ## Applying an adapter (the programmatic path)
 
-`vigiles/adapter` gives you the **contract**; you apply it with the verification
-core. This path is fully supported for third-party adapters today:
+`vigiles/adapter` gives you the **contract**; you validate it with the conformance
+kit and apply it through the public loaders. This path is fully supported for
+third-party adapters today:
 
 ```ts
-import { compileAgent } from "vigiles/linting";
+import { assertAdapterConformance } from "vigiles/adapter";
 import { loadPlugin } from "vigiles/claude-code";
 import { myHarnessAdapter } from "./my-harness-adapter.js";
 
-// verify a subagent's tool contract under your dialect
-const { markdown, errors } = compileAgent(spec, {
-  dialect: myHarnessAdapter.dialect,
-  specFile: "reviewer.md.spec.ts",
-});
+// every port populated, the ports agree, and the dialect's own built-in tool
+// passes the subagent tool-contract check
+assertAdapterConformance(myHarnessAdapter);
 
 // load a repo/plugin under your layout (hooks parsed through layout.settings)
 const plugin = loadPlugin("./my-project", myHarnessAdapter.layout);
 ```
 
+Compiling specs is not a library call: the compiler left `vigiles/linting` in the
+major that moved Python/Ruby/Rust parsing to WebAssembly (#257). Specs compile
+through the CLI (`vigiles compile`), which picks your adapter from the registry
+(below) or `--harness <name>`.
+
 ## Third-party adapters
 
 - **Programmatic use — supported now.** Implement the ports, validate with the
-  conformance kit, and pass `adapter.dialect` / `adapter.layout` to the core
-  functions above. Nothing is gated on the adapter living in _our_ tree.
+  conformance kit, and pass `adapter.layout` to the loaders above. Nothing is
+  gated on the adapter living in _our_ tree.
 - **CLI auto-detection — partial.** `ADAPTERS` is vigiles's internal registry;
   the `vigiles` CLI binary only auto-detects adapters compiled into it. A config-
   based mechanism for the CLI to load an _external_ adapter package is planned

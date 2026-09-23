@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 472 project files. */
+  /** 478 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -227,6 +227,10 @@ declare module "vigiles/generated" {
     | "src/comparison-snapshot.test.ts"
     | "src/core/CLAUDE.md"
     | "src/core/CLAUDE.md.spec.ts"
+    | "src/core/__fixtures__/symbols/golden.json"
+    | "src/core/__fixtures__/symbols/sample.py"
+    | "src/core/__fixtures__/symbols/sample.rb"
+    | "src/core/__fixtures__/symbols/sample.rs"
     | "src/core/adapter.ts"
     | "src/core/adopt-surface.test.ts"
     | "src/core/adopt.test.ts"
@@ -383,6 +387,7 @@ declare module "vigiles/generated" {
     | "src/core/tmp-root.ts"
     | "src/core/tool-contract.test.ts"
     | "src/core/tool-contract.ts"
+    | "src/core/tree-sitter-wasm.ts"
     | "src/core/types.ts"
     | "src/core/validate.test.ts"
     | "src/core/validate.ts"
@@ -483,6 +488,7 @@ declare module "vigiles/generated" {
     | "src/observe.ts"
     | "src/optimize.test.ts"
     | "src/optimize.ts"
+    | "src/package-install-scripts.e2e.test.ts"
     | "src/plugin-declaration.test.ts"
     | "src/plugin-declaration.ts"
     | "src/plugin-loader.test.ts"
@@ -771,6 +777,10 @@ declare module "vigiles/spec" {
       | "src/comparison-snapshot.test.ts"
       | "src/core/CLAUDE.md"
       | "src/core/CLAUDE.md.spec.ts"
+      | "src/core/__fixtures__/symbols/golden.json"
+      | "src/core/__fixtures__/symbols/sample.py"
+      | "src/core/__fixtures__/symbols/sample.rb"
+      | "src/core/__fixtures__/symbols/sample.rs"
       | "src/core/adapter.ts"
       | "src/core/adopt-surface.test.ts"
       | "src/core/adopt.test.ts"
@@ -927,6 +937,7 @@ declare module "vigiles/spec" {
       | "src/core/tmp-root.ts"
       | "src/core/tool-contract.test.ts"
       | "src/core/tool-contract.ts"
+      | "src/core/tree-sitter-wasm.ts"
       | "src/core/types.ts"
       | "src/core/validate.test.ts"
       | "src/core/validate.ts"
@@ -1027,6 +1038,7 @@ declare module "vigiles/spec" {
       | "src/observe.ts"
       | "src/optimize.test.ts"
       | "src/optimize.ts"
+      | "src/package-install-scripts.e2e.test.ts"
       | "src/plugin-declaration.test.ts"
       | "src/plugin-declaration.ts"
       | "src/plugin-loader.test.ts"

@@ -195,14 +195,14 @@ describe("experimental_skill()", () => {
 // ---------------------------------------------------------------------------
 
 describe("compileClaude()", () => {
-  it("compiles a minimal spec to markdown", () => {
+  it("compiles a minimal spec to markdown", async () => {
     const spec = instructionFile({
       rules: {
         "no-console": enforce("eslint/no-console", "Use structured logger."),
         "research-first": guidance("Google unfamiliar APIs first."),
       },
     });
-    const { markdown, errors } = compileClaude(spec);
+    const { markdown, errors } = await compileClaude(spec);
     assert.ok(markdown.includes("<!-- vigiles:sha256:"));
     assert.ok(markdown.includes("# CLAUDE.md"));
     assert.ok(markdown.includes("### No Console"));
@@ -215,54 +215,54 @@ describe("compileClaude()", () => {
     assert.equal(errors.length, 0);
   });
 
-  it("includes commands section", () => {
+  it("includes commands section", async () => {
     const spec = instructionFile({
       commands: { "npm test": "Run tests" },
       rules: {},
     });
-    const { markdown } = compileClaude(spec, { basePath: process.cwd() });
+    const { markdown } = await compileClaude(spec, { basePath: process.cwd() });
     assert.ok(markdown.includes("## Commands"));
     assert.ok(markdown.includes("`npm test` — Run tests"));
   });
 
-  it("includes key files section", () => {
+  it("includes key files section", async () => {
     const spec = instructionFile({
       keyFiles: { "src/core/spec.ts": "Spec system" },
       rules: {},
     });
-    const { markdown } = compileClaude(spec, { basePath: process.cwd() });
+    const { markdown } = await compileClaude(spec, { basePath: process.cwd() });
     assert.ok(markdown.includes("## Key Files"));
     assert.ok(markdown.includes("`src/core/spec.ts` — Spec system"));
   });
 
-  it("reports errors for missing key files", () => {
+  it("reports errors for missing key files", async () => {
     const spec = instructionFile({
       keyFiles: { "src/nonexistent-file-xyz.ts": "Does not exist" },
       rules: {},
     });
-    const { errors } = compileClaude(spec, { basePath: process.cwd() });
+    const { errors } = await compileClaude(spec, { basePath: process.cwd() });
     assert.equal(errors.length, 1);
     assert.equal(errors[0].type, "stale-file");
   });
 
-  it("reports errors for missing npm scripts", () => {
+  it("reports errors for missing npm scripts", async () => {
     const spec = instructionFile({
       commands: { "npm run nonexistent-script-xyz": "Does not exist" },
       rules: {},
     });
-    const { errors } = compileClaude(spec, { basePath: process.cwd() });
+    const { errors } = await compileClaude(spec, { basePath: process.cwd() });
     assert.equal(errors.length, 1);
     assert.equal(errors[0].type, "stale-command");
   });
 
-  it("symbol() renders `file#symbol` and verifies the named file defines it", () => {
+  it("symbol() renders `file#symbol` and verifies the named file defines it", async () => {
     const ok = instructionFile({
       sections: {
         u: prose`Use ${symbol("src/core/symbols.ts", "definedSymbols")}.`,
       },
       rules: {},
     });
-    const okRes = compileClaude(ok, { basePath: process.cwd() });
+    const okRes = await compileClaude(ok, { basePath: process.cwd() });
     assert.equal(okRes.errors.length, 0);
     assert.match(
       okRes.markdown,
@@ -275,41 +275,43 @@ describe("compileClaude()", () => {
       },
       rules: {},
     });
-    const badRes = compileClaude(bad, { basePath: process.cwd() });
+    const badRes = await compileClaude(bad, { basePath: process.cwd() });
     assert.ok(badRes.errors.some((e) => e.type === "stale-ref"));
   });
 
-  it("includes sections in output", () => {
+  it("includes sections in output", async () => {
     const spec = instructionFile({
       sections: {
         architecture: "TypeScript strict-mode codebase.",
       },
       rules: {},
     });
-    const { markdown } = compileClaude(spec);
+    const { markdown } = await compileClaude(spec);
     assert.ok(markdown.includes("## Architecture"));
     assert.ok(markdown.includes("TypeScript strict-mode codebase."));
   });
 
-  it("enforces maxRules limit", () => {
+  it("enforces maxRules limit", async () => {
     const rules: Record<string, ReturnType<typeof guidance>> = {};
     for (let i = 0; i < 5; i++) {
       rules[`rule-${String(i)}`] = guidance("test");
     }
     const spec = instructionFile({ rules });
-    const { errors } = compileClaude(spec, { maxRules: 3 });
+    const { errors } = await compileClaude(spec, { maxRules: 3 });
     assert.equal(errors.length, 1);
     assert.ok(errors[0].message.includes("exceeds maxRules"));
   });
 
-  it("returns linterResults for enforce rules", () => {
+  it("returns linterResults for enforce rules", async () => {
     const spec = instructionFile({
       rules: {
         "no-console": enforce("eslint/no-console", "Use logger."),
       },
     });
     // eslint is installed in this project, so this should work
-    const { linterResults } = compileClaude(spec, { basePath: process.cwd() });
+    const { linterResults } = await compileClaude(spec, {
+      basePath: process.cwd(),
+    });
     assert.equal(linterResults.length, 1);
     assert.equal(linterResults[0].linter, "eslint");
     assert.equal(linterResults[0].rule, "no-console");
@@ -318,13 +320,13 @@ describe("compileClaude()", () => {
 });
 
 describe("compileSkill()", () => {
-  it("compiles a skill with string body", () => {
+  it("compiles a skill with string body", async () => {
     const spec = experimental_skill({
       name: "test-skill",
       description: "A test skill",
       body: "Do the thing.\n\n## Step 1\nDo step 1.",
     });
-    const { markdown, errors } = compileSkill(spec);
+    const { markdown, errors } = await compileSkill(spec);
     assert.ok(markdown.includes("<!-- vigiles:sha256:"));
     assert.ok(markdown.includes("name: test-skill\n"));
     assert.ok(markdown.includes("description: A test skill"));
@@ -332,7 +334,7 @@ describe("compileSkill()", () => {
     assert.equal(errors.length, 0);
   });
 
-  it("an over-long inline code block is a WARNING, not a blocking error", () => {
+  it("an over-long inline code block is a WARNING, not a blocking error", async () => {
     // A >20-line inline code block is an authoring smell worth surfacing, but it
     // never breaks the harness — so it's a non-blocking warning, and a faithful
     // adoption of a code-heavy skill still compiles (errors stay empty).
@@ -342,7 +344,7 @@ describe("compileSkill()", () => {
       description: "A skill with a big code example",
       body: `Do the thing.\n\n${bigBlock}\n`,
     });
-    const { errors, warnings } = compileSkill(spec);
+    const { errors, warnings } = await compileSkill(spec);
     assert.equal(errors.length, 0); // does NOT block compilation
     assert.ok(
       warnings.some((w) => w.type === "inline-code-too-long"),
@@ -350,7 +352,7 @@ describe("compileSkill()", () => {
     );
   });
 
-  it("renders context: fork and a forked skill's typed output contract", () => {
+  it("renders context: fork and a forked skill's typed output contract", async () => {
     const spec = experimental_skill({
       name: "review",
       description: "Review a file.",
@@ -358,7 +360,7 @@ describe("compileSkill()", () => {
       output: result({ defects: "string[]" }, { reason: "string" }),
       body: "Review the file.",
     });
-    const { markdown, errors } = compileSkill(spec);
+    const { markdown, errors } = await compileSkill(spec);
     assert.equal(errors.length, 0);
     assert.ok(markdown.includes("context: fork"));
     assert.ok(markdown.includes("## Output contract"));
@@ -366,101 +368,101 @@ describe("compileSkill()", () => {
     assert.ok(markdown.includes('"defects": string[]'));
   });
 
-  it("errors when output is set WITHOUT context: fork (inline = no return)", () => {
+  it("errors when output is set WITHOUT context: fork (inline = no return)", async () => {
     const spec = experimental_skill({
       name: "review",
       description: "Review a file.",
       output: result({ ok: "boolean" }, { reason: "string" }),
       body: "Review the file.",
     });
-    const { errors } = compileSkill(spec);
+    const { errors } = await compileSkill(spec);
     assert.ok(errors.some((e) => e.type === "output-without-fork"));
   });
 
-  it("compiles a skill with tagged template body", () => {
+  it("compiles a skill with tagged template body", async () => {
     const spec = experimental_skill({
       name: "test-skill",
       description: "A test skill",
       body: prose`Check ${file("package.json")} and run ${cmd("npm test")}.`,
     });
-    const { markdown } = compileSkill(spec, { basePath: process.cwd() });
+    const { markdown } = await compileSkill(spec, { basePath: process.cwd() });
     assert.ok(markdown.includes("`package.json`"));
     assert.ok(markdown.includes("`npm test`"));
   });
 
-  it("reports errors for missing file refs in body", () => {
+  it("reports errors for missing file refs in body", async () => {
     const spec = experimental_skill({
       name: "test-skill",
       description: "A test skill",
       body: prose`Check ${file("nonexistent-xyz.ts")}.`,
     });
-    const { errors } = compileSkill(spec, { basePath: process.cwd() });
+    const { errors } = await compileSkill(spec, { basePath: process.cwd() });
     assert.equal(errors.length, 1);
     assert.equal(errors[0].type, "stale-file");
   });
 
-  it("verifies a dir() ref against a real directory", () => {
+  it("verifies a dir() ref against a real directory", async () => {
     const spec = experimental_skill({
       name: "test-skill",
       description: "A test skill",
       body: prose`The engine lives in ${dir("src/core")}.`,
     });
-    const { markdown, errors } = compileSkill(spec, {
+    const { markdown, errors } = await compileSkill(spec, {
       basePath: process.cwd(),
     });
     assert.equal(errors.length, 0);
     assert.ok(markdown.includes("`src/core`"));
   });
 
-  it("flags a dir() ref to a missing directory", () => {
+  it("flags a dir() ref to a missing directory", async () => {
     const spec = experimental_skill({
       name: "test-skill",
       description: "A test skill",
       body: prose`See ${dir("src/nonexistent-dir-xyz")}.`,
     });
-    const { errors } = compileSkill(spec, { basePath: process.cwd() });
+    const { errors } = await compileSkill(spec, { basePath: process.cwd() });
     assert.equal(errors.length, 1);
     assert.equal(errors[0].type, "stale-file");
   });
 
-  it("flags a dir() ref that points at a FILE, not a directory", () => {
+  it("flags a dir() ref that points at a FILE, not a directory", async () => {
     const spec = experimental_skill({
       name: "test-skill",
       description: "A test skill",
       body: prose`See ${dir("package.json")}.`,
     });
-    const { errors } = compileSkill(spec, { basePath: process.cwd() });
+    const { errors } = await compileSkill(spec, { basePath: process.cwd() });
     assert.equal(errors.length, 1);
     assert.equal(errors[0].type, "stale-ref");
     assert.match(errors[0].message, /Not a directory/);
   });
 
-  it("verifies a glob() ref that matches at least one file", () => {
+  it("verifies a glob() ref that matches at least one file", async () => {
     const spec = experimental_skill({
       name: "test-skill",
       description: "A test skill",
       body: prose`Specs: ${glob("src/core/*.test.ts")}.`,
     });
-    const { markdown, errors } = compileSkill(spec, {
+    const { markdown, errors } = await compileSkill(spec, {
       basePath: process.cwd(),
     });
     assert.equal(errors.length, 0);
     assert.ok(markdown.includes("`src/core/*.test.ts`"));
   });
 
-  it("flags a glob() ref that matches nothing", () => {
+  it("flags a glob() ref that matches nothing", async () => {
     const spec = experimental_skill({
       name: "test-skill",
       description: "A test skill",
       body: prose`Specs: ${glob("src/**/*.nonexistent-ext")}.`,
     });
-    const { errors } = compileSkill(spec, { basePath: process.cwd() });
+    const { errors } = await compileSkill(spec, { basePath: process.cwd() });
     assert.equal(errors.length, 1);
     assert.equal(errors[0].type, "stale-ref");
     assert.match(errors[0].message, /matched no files/);
   });
 
-  it("includes frontmatter fields", () => {
+  it("includes frontmatter fields", async () => {
     const spec = experimental_skill({
       name: "my-skill",
       description: "My skill desc",
@@ -468,12 +470,12 @@ describe("compileSkill()", () => {
       argumentHint: "<some arg>",
       body: "Instructions here.",
     });
-    const { markdown } = compileSkill(spec);
+    const { markdown } = await compileSkill(spec);
     assert.ok(markdown.includes("disable-model-invocation: true"));
     assert.ok(markdown.includes("argument-hint: <some arg>"));
   });
 
-  it("claude-code dialect frontmatter is unchanged (default == claudeCodeDialect)", () => {
+  it("claude-code dialect frontmatter is unchanged (default == claudeCodeDialect)", async () => {
     const spec = experimental_skill({
       name: "my-skill",
       description: "My skill desc",
@@ -483,14 +485,15 @@ describe("compileSkill()", () => {
     });
     // No dialect (default) and the explicit CC dialect must be byte-identical —
     // the full CC frontmatter set, exactly as before.
-    const def = compileSkill(spec).markdown;
-    const cc = compileSkill(spec, { dialect: claudeCodeDialect }).markdown;
+    const def = (await compileSkill(spec)).markdown;
+    const cc = (await compileSkill(spec, { dialect: claudeCodeDialect }))
+      .markdown;
     assert.equal(def, cc);
     assert.ok(cc.includes("disable-model-invocation: true"));
     assert.ok(cc.includes("argument-hint: <some arg>"));
   });
 
-  it("codex (minimal) dialect emits ONLY name + description frontmatter", () => {
+  it("codex (minimal) dialect emits ONLY name + description frontmatter", async () => {
     const spec = experimental_skill({
       name: "my-skill",
       description: "My skill desc",
@@ -498,7 +501,7 @@ describe("compileSkill()", () => {
       argumentHint: "<some arg>",
       body: "Instructions here.",
     });
-    const { markdown } = compileSkill(spec, { dialect: codexDialect });
+    const { markdown } = await compileSkill(spec, { dialect: codexDialect });
     assert.ok(markdown.includes("name: my-skill"));
     assert.ok(markdown.includes("description: My skill desc"));
     // The CC-only keys must be ABSENT under the minimal profile.
@@ -593,21 +596,21 @@ describe("estimateTokens()", () => {
 // ---------------------------------------------------------------------------
 
 describe("maxTokens budget", () => {
-  it("errors when compiled output exceeds maxTokens", () => {
+  it("errors when compiled output exceeds maxTokens", async () => {
     const spec = instructionFile({
       sections: { prose: "x".repeat(1000) },
       rules: {},
     });
-    const { errors, tokens } = compileClaude(spec, { maxTokens: 100 });
+    const { errors, tokens } = await compileClaude(spec, { maxTokens: 100 });
     assert.ok(tokens > 100);
     assert.ok(errors.some((e) => e.type === "budget-exceeded"));
   });
 
-  it("passes when under budget", () => {
+  it("passes when under budget", async () => {
     const spec = instructionFile({
       rules: { test: guidance("Short.") },
     });
-    const { errors } = compileClaude(spec, { maxTokens: 10000 });
+    const { errors } = await compileClaude(spec, { maxTokens: 10000 });
     assert.ok(!errors.some((e) => e.type === "budget-exceeded"));
   });
 });
@@ -617,63 +620,63 @@ describe("maxTokens budget", () => {
 // ---------------------------------------------------------------------------
 
 describe("section guardrails", () => {
-  it("errors when section contains a top-level header", () => {
+  it("errors when section contains a top-level header", async () => {
     const spec = instructionFile({
       sections: { about: "Some intro\n# Overview\nMore text" },
       rules: {},
     });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     assert.ok(errors.some((e) => e.type === "section-has-header"));
   });
 
-  it("errors when section contains a second-level header", () => {
+  it("errors when section contains a second-level header", async () => {
     const spec = instructionFile({
       sections: { about: "Some intro\n## Subsection\nMore text" },
       rules: {},
     });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     assert.ok(errors.some((e) => e.type === "section-has-header"));
   });
 
-  it("allows ### and deeper headers in sections", () => {
+  it("allows ### and deeper headers in sections", async () => {
     const spec = instructionFile({
       sections: { about: "Some intro\n### Detail\nMore text" },
       rules: {},
     });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     assert.ok(!errors.some((e) => e.type === "section-has-header"));
   });
 
-  it("does not flag # inside code fences", () => {
+  it("does not flag # inside code fences", async () => {
     const spec = instructionFile({
       sections: { about: "Example:\n```\n# this is a comment\n```" },
       rules: {},
     });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     assert.ok(!errors.some((e) => e.type === "section-has-header"));
   });
 
-  it("does not flag # inside tilde code fences", () => {
+  it("does not flag # inside tilde code fences", async () => {
     const spec = instructionFile({
       sections: { about: "Example:\n~~~\n## heading in fence\n~~~" },
       rules: {},
     });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     assert.ok(!errors.some((e) => e.type === "section-has-header"));
   });
 
-  it("flags # after code fence closes", () => {
+  it("flags # after code fence closes", async () => {
     const spec = instructionFile({
       sections: {
         about: "Example:\n```\n# safe\n```\n# not safe",
       },
       rules: {},
     });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     assert.ok(errors.some((e) => e.type === "section-has-header"));
   });
 
-  it("errors when section exceeds maxSectionLines", () => {
+  it("errors when section exceeds maxSectionLines", async () => {
     const longContent = Array.from(
       { length: 50 },
       (_, i) => `Line ${String(i + 1)}`,
@@ -682,13 +685,13 @@ describe("section guardrails", () => {
       sections: { wall: longContent },
       rules: {},
     });
-    const { errors } = compileClaude(spec, { maxSectionLines: 20 });
+    const { errors } = await compileClaude(spec, { maxSectionLines: 20 });
     assert.ok(errors.some((e) => e.type === "section-too-long"));
     assert.ok(errors[0].message.includes("50 lines"));
     assert.ok(errors[0].message.includes("max 20"));
   });
 
-  it("passes when section is at exact maxSectionLines boundary", () => {
+  it("passes when section is at exact maxSectionLines boundary", async () => {
     const content = Array.from(
       { length: 20 },
       (_, i) => `Line ${String(i + 1)}`,
@@ -697,22 +700,22 @@ describe("section guardrails", () => {
       sections: { ok: content },
       rules: {},
     });
-    const { errors } = compileClaude(spec, { maxSectionLines: 20 });
+    const { errors } = await compileClaude(spec, { maxSectionLines: 20 });
     assert.ok(!errors.some((e) => e.type === "section-too-long"));
   });
 
-  it("allows a normal section under the generous default (no maxSectionLines)", () => {
+  it("allows a normal section under the generous default (no maxSectionLines)", async () => {
     // 100 lines is well under the 200-line default — real prose sections are short.
     const content = Array.from(
       { length: 100 },
       (_, i) => `Line ${String(i + 1)}`,
     ).join("\n");
     const spec = instructionFile({ sections: { ok: content }, rules: {} });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     assert.ok(!errors.some((e) => e.type === "section-too-long"));
   });
 
-  it("applies a generous DEFAULT cap (200 lines) with no maxSectionLines set", () => {
+  it("applies a generous DEFAULT cap (200 lines) with no maxSectionLines set", async () => {
     // An egregious dump trips the default guard even when the author set no cap —
     // TS types can't bound string length, so this is the compile-time backstop.
     const dump = Array.from(
@@ -720,7 +723,7 @@ describe("section guardrails", () => {
       (_, i) => `Line ${String(i + 1)}`,
     ).join("\n");
     const spec = instructionFile({ sections: { wall: dump }, rules: {} });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     const tooLong = errors.find((e) => e.type === "section-too-long");
     assert.ok(tooLong, "the default cap should fire on a 250-line section");
     assert.ok(tooLong.message.includes("max 200"));
@@ -733,39 +736,39 @@ describe("section guardrails", () => {
 // ---------------------------------------------------------------------------
 
 describe("reserved section keys", () => {
-  it("errors when section key is 'commands'", () => {
+  it("errors when section key is 'commands'", async () => {
     const spec = instructionFile({
       sections: { commands: "Should use the commands field instead." },
       rules: {},
     });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     assert.ok(errors.some((e) => e.type === "reserved-section-key"));
   });
 
-  it("errors when section key is 'rules'", () => {
+  it("errors when section key is 'rules'", async () => {
     const spec = instructionFile({
       sections: { rules: "Should use the rules field instead." },
       rules: {},
     });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     assert.ok(errors.some((e) => e.type === "reserved-section-key"));
   });
 
-  it("errors when section key is 'keyFiles'", () => {
+  it("errors when section key is 'keyFiles'", async () => {
     const spec = instructionFile({
       sections: { keyFiles: "Should use the keyFiles field instead." },
       rules: {},
     });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     assert.ok(errors.some((e) => e.type === "reserved-section-key"));
   });
 
-  it("allows non-reserved section keys", () => {
+  it("allows non-reserved section keys", async () => {
     const spec = instructionFile({
       sections: { architecture: "This is fine." },
       rules: {},
     });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     assert.ok(!errors.some((e) => e.type === "reserved-section-key"));
   });
 });
@@ -775,7 +778,7 @@ describe("reserved section keys", () => {
 // ---------------------------------------------------------------------------
 
 describe("per-spec maxSectionLines", () => {
-  it("uses spec.maxSectionLines when set", () => {
+  it("uses spec.maxSectionLines when set", async () => {
     const longContent = Array.from(
       { length: 30 },
       (_, i) => `Line ${String(i + 1)}`,
@@ -785,11 +788,11 @@ describe("per-spec maxSectionLines", () => {
       maxSectionLines: 20,
       rules: {},
     });
-    const { errors } = compileClaude(spec);
+    const { errors } = await compileClaude(spec);
     assert.ok(errors.some((e) => e.type === "section-too-long"));
   });
 
-  it("compile option overrides spec maxSectionLines", () => {
+  it("compile option overrides spec maxSectionLines", async () => {
     const longContent = Array.from(
       { length: 30 },
       (_, i) => `Line ${String(i + 1)}`,
@@ -801,12 +804,12 @@ describe("per-spec maxSectionLines", () => {
     });
     // But compile option says 20, which is stricter
     // Actually spec takes precedence — let's verify:
-    const { errors } = compileClaude(spec, { maxSectionLines: 10 });
+    const { errors } = await compileClaude(spec, { maxSectionLines: 10 });
     // spec.maxSectionLines (50) takes precedence over options (10)
     assert.ok(!errors.some((e) => e.type === "section-too-long"));
   });
 
-  it("falls back to compile option when spec has no maxSectionLines", () => {
+  it("falls back to compile option when spec has no maxSectionLines", async () => {
     const longContent = Array.from(
       { length: 30 },
       (_, i) => `Line ${String(i + 1)}`,
@@ -815,7 +818,7 @@ describe("per-spec maxSectionLines", () => {
       sections: { wall: longContent },
       rules: {},
     });
-    const { errors } = compileClaude(spec, { maxSectionLines: 20 });
+    const { errors } = await compileClaude(spec, { maxSectionLines: 20 });
     assert.ok(errors.some((e) => e.type === "section-too-long"));
   });
 });
@@ -825,28 +828,28 @@ describe("per-spec maxSectionLines", () => {
 // ---------------------------------------------------------------------------
 
 describe("sections with refs", () => {
-  it("compiles sections with file() refs and validates them", () => {
+  it("compiles sections with file() refs and validates them", async () => {
     const spec = instructionFile({
       sections: {
         architecture: prose`Core engine in ${file("src/core/spec.ts")}.`,
       },
       rules: {},
     });
-    const { markdown, errors } = compileClaude(spec, {
+    const { markdown, errors } = await compileClaude(spec, {
       basePath: process.cwd(),
     });
     assert.ok(markdown.includes("`src/core/spec.ts`"));
     assert.equal(errors.length, 0);
   });
 
-  it("reports stale file refs in sections", () => {
+  it("reports stale file refs in sections", async () => {
     const spec = instructionFile({
       sections: {
         architecture: prose`See ${file("src/nonexistent-xyz.ts")}.`,
       },
       rules: {},
     });
-    const { errors } = compileClaude(spec, { basePath: process.cwd() });
+    const { errors } = await compileClaude(spec, { basePath: process.cwd() });
     assert.equal(errors.length, 1);
     assert.equal(errors[0].type, "stale-file");
   });
@@ -1078,13 +1081,13 @@ describe("checkLinterRule()", () => {
 // ---------------------------------------------------------------------------
 
 describe("enforce() linter integration in compileClaude", () => {
-  it("verifies eslint rules during compilation", () => {
+  it("verifies eslint rules during compilation", async () => {
     const spec = instructionFile({
       rules: {
         "no-console": enforce("eslint/no-console", "Use logger."),
       },
     });
-    const { errors, linterResults } = compileClaude(spec, {
+    const { errors, linterResults } = await compileClaude(spec, {
       basePath: process.cwd(),
     });
     assert.equal(linterResults.length, 1);
@@ -1092,24 +1095,24 @@ describe("enforce() linter integration in compileClaude", () => {
     assert.equal(errors.filter((e) => e.type === "invalid-rule").length, 0);
   });
 
-  it("errors on nonexistent linter rule during compilation", () => {
+  it("errors on nonexistent linter rule during compilation", async () => {
     const spec = instructionFile({
       rules: {
         fake: enforce("eslint/completely-fake-xyz", "Doesn't exist."),
       },
     });
-    const { errors } = compileClaude(spec, { basePath: process.cwd() });
+    const { errors } = await compileClaude(spec, { basePath: process.cwd() });
     assert.ok(errors.some((e) => e.type === "invalid-rule"));
     assert.ok(errors.some((e) => e.message.includes("completely-fake-xyz")));
   });
 
-  it("respects catalogOnly option", () => {
+  it("respects catalogOnly option", async () => {
     const spec = instructionFile({
       rules: {
         "no-console": enforce("eslint/no-console", "Use logger."),
       },
     });
-    const { linterResults } = compileClaude(spec, {
+    const { linterResults } = await compileClaude(spec, {
       basePath: process.cwd(),
       catalogOnly: true,
     });
@@ -1123,7 +1126,7 @@ describe("enforce() linter integration in compileClaude", () => {
 // ---------------------------------------------------------------------------
 
 describe("linter verification disable options", () => {
-  it("per-rule: verify: false skips linter check", () => {
+  it("per-rule: verify: false skips linter check", async () => {
     const spec = instructionFile({
       rules: {
         "fake-rule": enforce("eslint/totally-fake-xyz", "Doesn't exist.", {
@@ -1131,7 +1134,7 @@ describe("linter verification disable options", () => {
         }),
       },
     });
-    const { errors, linterResults } = compileClaude(spec, {
+    const { errors, linterResults } = await compileClaude(spec, {
       basePath: process.cwd(),
     });
     // Should NOT produce errors or linter results — verification skipped
@@ -1139,17 +1142,17 @@ describe("linter verification disable options", () => {
     assert.ok(!errors.some((e) => e.type === "invalid-rule"));
   });
 
-  it("per-rule: verify: true (default) checks linter", () => {
+  it("per-rule: verify: true (default) checks linter", async () => {
     const spec = instructionFile({
       rules: {
         "fake-rule": enforce("eslint/totally-fake-xyz", "Doesn't exist."),
       },
     });
-    const { errors } = compileClaude(spec, { basePath: process.cwd() });
+    const { errors } = await compileClaude(spec, { basePath: process.cwd() });
     assert.ok(errors.some((e) => e.type === "invalid-rule"));
   });
 
-  it("global: verifyLinters: false skips ALL linter checks", () => {
+  it("global: verifyLinters: false skips ALL linter checks", async () => {
     const spec = instructionFile({
       rules: {
         "fake-a": enforce("eslint/fake-a-xyz", "Nope."),
@@ -1157,7 +1160,7 @@ describe("linter verification disable options", () => {
         "real-rule": enforce("eslint/no-console", "Use logger."),
       },
     });
-    const { errors, linterResults } = compileClaude(spec, {
+    const { errors, linterResults } = await compileClaude(spec, {
       basePath: process.cwd(),
       verifyLinters: false,
     });
@@ -1166,14 +1169,14 @@ describe("linter verification disable options", () => {
     assert.ok(!errors.some((e) => e.type === "invalid-rule"));
   });
 
-  it("per-linter: false skips that linter only", () => {
+  it("per-linter: false skips that linter only", async () => {
     const spec = instructionFile({
       rules: {
         "eslint-fake": enforce("eslint/fake-xyz", "Nope."),
         "ruff-fake": enforce("ruff/FAKE999", "Nope."),
       },
     });
-    const { errors, linterResults } = compileClaude(spec, {
+    const { errors, linterResults } = await compileClaude(spec, {
       basePath: process.cwd(),
       linterModes: { eslint: false },
     });
@@ -1185,13 +1188,13 @@ describe("linter verification disable options", () => {
     assert.ok(!errors.some((e) => e.message.includes("fake-xyz")));
   });
 
-  it("per-linter: catalog-only skips config check", () => {
+  it("per-linter: catalog-only skips config check", async () => {
     const spec = instructionFile({
       rules: {
         "no-console": enforce("eslint/no-console", "Use logger."),
       },
     });
-    const { linterResults } = compileClaude(spec, {
+    const { linterResults } = await compileClaude(spec, {
       basePath: process.cwd(),
       linterModes: { eslint: "catalog-only" },
     });
@@ -1200,14 +1203,14 @@ describe("linter verification disable options", () => {
     // In catalog-only mode, config-enabled check is skipped
   });
 
-  it("per-rule verify: false takes priority over global verifyLinters: true", () => {
+  it("per-rule verify: false takes priority over global verifyLinters: true", async () => {
     const spec = instructionFile({
       rules: {
         "skip-this": enforce("eslint/fake-xyz", "Skip.", { verify: false }),
         "check-this": enforce("eslint/no-console", "Check."),
       },
     });
-    const { linterResults } = compileClaude(spec, {
+    const { linterResults } = await compileClaude(spec, {
       basePath: process.cwd(),
     });
     // Only the verified rule produces a result
@@ -1215,13 +1218,13 @@ describe("linter verification disable options", () => {
     assert.equal(linterResults[0].rule, "no-console");
   });
 
-  it("global verifyLinters: false overrides per-linter modes", () => {
+  it("global verifyLinters: false overrides per-linter modes", async () => {
     const spec = instructionFile({
       rules: {
         "no-console": enforce("eslint/no-console", "Use logger."),
       },
     });
-    const { linterResults } = compileClaude(spec, {
+    const { linterResults } = await compileClaude(spec, {
       basePath: process.cwd(),
       verifyLinters: false,
       linterModes: { eslint: true },
@@ -1236,20 +1239,25 @@ describe("linter verification disable options", () => {
 // ---------------------------------------------------------------------------
 
 describe("adoptDiff()", () => {
-  it("detects unchanged compiled file", () => {
+  it("detects unchanged compiled file", async () => {
     const spec = instructionFile({
       rules: { test: guidance("Hello.") },
     });
     const tmpDir = join(process.cwd(), ".vigiles-test-adopt-tmp");
     mkdirSync(tmpDir, { recursive: true });
     try {
-      const { markdown } = compileClaude(spec, {
+      const { markdown } = await compileClaude(spec, {
         basePath: tmpDir,
         specFile: "CLAUDE.md.spec.ts",
       });
       writeFileSync(join(tmpDir, "CLAUDE.md"), markdown);
 
-      const result = adoptDiff("CLAUDE.md", spec, tmpDir, claudeCodeDialect);
+      const result = await adoptDiff(
+        "CLAUDE.md",
+        spec,
+        tmpDir,
+        claudeCodeDialect,
+      );
       assert.equal(result.hasHash, true);
       assert.equal(result.valid, true);
       assert.equal(result.changed, false);
@@ -1258,14 +1266,14 @@ describe("adoptDiff()", () => {
     }
   });
 
-  it("detects manually edited file", () => {
+  it("detects manually edited file", async () => {
     const spec = instructionFile({
       rules: { test: guidance("Hello.") },
     });
     const tmpDir = join(process.cwd(), ".vigiles-test-adopt-edit-tmp");
     mkdirSync(tmpDir, { recursive: true });
     try {
-      const { markdown } = compileClaude(spec, {
+      const { markdown } = await compileClaude(spec, {
         basePath: tmpDir,
         specFile: "CLAUDE.md.spec.ts",
       });
@@ -1274,7 +1282,12 @@ describe("adoptDiff()", () => {
         markdown + "\n### Hand-written rule\nSome extra content.\n";
       writeFileSync(join(tmpDir, "CLAUDE.md"), tampered);
 
-      const result = adoptDiff("CLAUDE.md", spec, tmpDir, claudeCodeDialect);
+      const result = await adoptDiff(
+        "CLAUDE.md",
+        spec,
+        tmpDir,
+        claudeCodeDialect,
+      );
       assert.equal(result.hasHash, true);
       assert.equal(result.valid, false);
       assert.equal(result.changed, true);
@@ -1284,13 +1297,18 @@ describe("adoptDiff()", () => {
     }
   });
 
-  it("handles file without hash", () => {
+  it("handles file without hash", async () => {
     const spec = instructionFile({ rules: {} });
     const tmpDir = join(process.cwd(), ".vigiles-test-adopt-nohash-tmp");
     mkdirSync(tmpDir, { recursive: true });
     try {
       writeFileSync(join(tmpDir, "CLAUDE.md"), "# Hand-written\n");
-      const result = adoptDiff("CLAUDE.md", spec, tmpDir, claudeCodeDialect);
+      const result = await adoptDiff(
+        "CLAUDE.md",
+        spec,
+        tmpDir,
+        claudeCodeDialect,
+      );
       assert.equal(result.hasHash, false);
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
@@ -1357,33 +1375,33 @@ describe("type exports", () => {
 // ---------------------------------------------------------------------------
 
 describe("spec file naming convention", () => {
-  it("accepts valid CLAUDE.md.spec.ts name", () => {
+  it("accepts valid CLAUDE.md.spec.ts name", async () => {
     const spec = instructionFile({ rules: {} });
-    const { errors } = compileClaude(spec, {
+    const { errors } = await compileClaude(spec, {
       specFile: "CLAUDE.md.spec.ts",
     });
     assert.ok(!errors.some((e) => e.type === "spec-name-mismatch"));
   });
 
-  it("accepts valid nested path spec name", () => {
+  it("accepts valid nested path spec name", async () => {
     const spec = instructionFile({ rules: {} });
-    const { errors } = compileClaude(spec, {
+    const { errors } = await compileClaude(spec, {
       specFile: "src/CLAUDE.md.spec.ts",
     });
     assert.ok(!errors.some((e) => e.type === "spec-name-mismatch"));
   });
 
-  it("errors when spec file does not end with .spec.ts", () => {
+  it("errors when spec file does not end with .spec.ts", async () => {
     const spec = instructionFile({ rules: {} });
-    const { errors } = compileClaude(spec, {
+    const { errors } = await compileClaude(spec, {
       specFile: "CLAUDE.md.ts",
     });
     assert.ok(errors.some((e) => e.type === "spec-name-mismatch"));
   });
 
-  it("errors when spec file does not match target", () => {
+  it("errors when spec file does not match target", async () => {
     const spec = instructionFile({ rules: {} });
-    const { errors } = compileClaude(spec, {
+    const { errors } = await compileClaude(spec, {
       specFile: "AGENTS.md.spec.ts",
     });
     // Default target is CLAUDE.md, but spec says AGENTS.md
@@ -1391,25 +1409,25 @@ describe("spec file naming convention", () => {
     assert.ok(errors[0].message.includes("doesn't match"));
   });
 
-  it("accepts SKILL.md.spec.ts for skills", () => {
+  it("accepts SKILL.md.spec.ts for skills", async () => {
     const spec = experimental_skill({
       name: "test",
       description: "Test skill",
       body: "Do the thing.",
     });
-    const { errors } = compileSkill(spec, {
+    const { errors } = await compileSkill(spec, {
       specFile: "skills/test/SKILL.md.spec.ts",
     });
     assert.ok(!errors.some((e) => e.type === "spec-name-mismatch"));
   });
 
-  it("errors for skills with wrong spec name", () => {
+  it("errors for skills with wrong spec name", async () => {
     const spec = experimental_skill({
       name: "test",
       description: "Test skill",
       body: "Do the thing.",
     });
-    const { errors } = compileSkill(spec, {
+    const { errors } = await compileSkill(spec, {
       specFile: "skills/test/skill.spec.ts",
     });
     assert.ok(errors.some((e) => e.type === "spec-name-mismatch"));
@@ -1421,60 +1439,60 @@ describe("spec file naming convention", () => {
 // ---------------------------------------------------------------------------
 
 describe("output target", () => {
-  it("defaults to CLAUDE.md heading", () => {
+  it("defaults to CLAUDE.md heading", async () => {
     const spec = instructionFile({ rules: {} });
-    const { markdown } = compileClaude(spec);
+    const { markdown } = await compileClaude(spec);
     assert.ok(markdown.includes("# CLAUDE.md"));
   });
 
-  it("uses custom target for heading", () => {
+  it("uses custom target for heading", async () => {
     const spec = instructionFile({ target: "AGENTS.md", rules: {} });
-    const { markdown } = compileClaude(spec);
+    const { markdown } = await compileClaude(spec);
     assert.ok(markdown.includes("# AGENTS.md"));
     assert.ok(!markdown.includes("# CLAUDE.md"));
   });
 
-  it("defaults specFile based on target", () => {
+  it("defaults specFile based on target", async () => {
     const spec = instructionFile({ target: "AGENTS.md", rules: {} });
     // Without explicit specFile, it should derive from target
-    const { markdown } = compileClaude(spec);
+    const { markdown } = await compileClaude(spec);
     assert.ok(markdown.includes("compiled from AGENTS.md.spec.ts"));
   });
 
-  it("accepts AGENTS.md.spec.ts naming for AGENTS.md target", () => {
+  it("accepts AGENTS.md.spec.ts naming for AGENTS.md target", async () => {
     const spec = instructionFile({ target: "AGENTS.md", rules: {} });
-    const { errors } = compileClaude(spec, {
+    const { errors } = await compileClaude(spec, {
       specFile: "AGENTS.md.spec.ts",
     });
     assert.ok(!errors.some((e) => e.type === "spec-name-mismatch"));
   });
 
-  it("accepts custom target name", () => {
+  it("accepts custom target name", async () => {
     const spec = instructionFile({ target: "CODEX.md", rules: {} });
-    const { markdown } = compileClaude(spec);
+    const { markdown } = await compileClaude(spec);
     assert.ok(markdown.includes("# CODEX.md"));
   });
 
-  it("returns all targets from array", () => {
+  it("returns all targets from array", async () => {
     const spec = instructionFile({
       target: ["CLAUDE.md", "AGENTS.md"],
       rules: {},
     });
-    const { targets, markdown } = compileClaude(spec);
+    const { targets, markdown } = await compileClaude(spec);
     assert.deepEqual(targets, ["CLAUDE.md", "AGENTS.md"]);
     // Primary target is first in array
     assert.ok(markdown.includes("# CLAUDE.md"));
   });
 
-  it("returns single target in targets array", () => {
+  it("returns single target in targets array", async () => {
     const spec = instructionFile({ target: "AGENTS.md", rules: {} });
-    const { targets } = compileClaude(spec);
+    const { targets } = await compileClaude(spec);
     assert.deepEqual(targets, ["AGENTS.md"]);
   });
 
-  it("defaults targets to CLAUDE.md", () => {
+  it("defaults targets to CLAUDE.md", async () => {
     const spec = instructionFile({ rules: {} });
-    const { targets } = compileClaude(spec);
+    const { targets } = await compileClaude(spec);
     assert.deepEqual(targets, ["CLAUDE.md"]);
   });
 });
@@ -1484,37 +1502,37 @@ describe("output target", () => {
 // ---------------------------------------------------------------------------
 
 describe("edge cases", () => {
-  it("compileClaude with empty spec produces valid markdown", () => {
+  it("compileClaude with empty spec produces valid markdown", async () => {
     const spec = instructionFile({ rules: {} });
-    const { markdown, errors, tokens } = compileClaude(spec);
+    const { markdown, errors, tokens } = await compileClaude(spec);
     assert.ok(markdown.includes("# CLAUDE.md"));
     assert.equal(errors.length, 0);
     assert.ok(tokens > 0);
   });
 
-  it("compileClaude with only sections (no rules)", () => {
+  it("compileClaude with only sections (no rules)", async () => {
     const spec = instructionFile({
       sections: { about: "This is a project." },
       rules: {},
     });
-    const { markdown } = compileClaude(spec);
+    const { markdown } = await compileClaude(spec);
     assert.ok(markdown.includes("## About"));
     assert.ok(!markdown.includes("## Rules"));
   });
 
-  it("maxRules at exact boundary passes", () => {
+  it("maxRules at exact boundary passes", async () => {
     const rules: Record<string, ReturnType<typeof guidance>> = {};
     for (let i = 0; i < 3; i++) {
       rules[`rule-${String(i)}`] = guidance("test");
     }
     const spec = instructionFile({ rules });
-    const { errors } = compileClaude(spec, { maxRules: 3 });
+    const { errors } = await compileClaude(spec, { maxRules: 3 });
     assert.ok(!errors.some((e) => e.type === "invalid-rule"));
   });
 
-  it("maxTokens at exact boundary passes", () => {
+  it("maxTokens at exact boundary passes", async () => {
     const spec = instructionFile({ rules: { a: guidance("x") } });
-    const { tokens, errors } = compileClaude(spec, { maxTokens: 99999 });
+    const { tokens, errors } = await compileClaude(spec, { maxTokens: 99999 });
     // Should pass — output is small
     assert.ok(!errors.some((e) => e.type === "budget-exceeded"));
     assert.ok(tokens > 0);
@@ -1531,29 +1549,29 @@ describe("edge cases", () => {
     assert.ok(a.length > 0);
   });
 
-  it("rule ID with underscores compiles to title case", () => {
+  it("rule ID with underscores compiles to title case", async () => {
     const spec = instructionFile({
       rules: { no_console_log: guidance("Don't.") },
     });
-    const { markdown } = compileClaude(spec);
+    const { markdown } = await compileClaude(spec);
     assert.ok(markdown.includes("### No Console Log"));
   });
 
-  it("rule ID with hyphens compiles to title case", () => {
+  it("rule ID with hyphens compiles to title case", async () => {
     const spec = instructionFile({
       rules: { "barrel-imports-only": guidance("Use barrels.") },
     });
-    const { markdown } = compileClaude(spec);
+    const { markdown } = await compileClaude(spec);
     assert.ok(markdown.includes("### Barrel Imports Only"));
   });
 
-  it("compileSkill with empty body", () => {
+  it("compileSkill with empty body", async () => {
     const spec = experimental_skill({
       name: "empty",
       description: "Nothing",
       body: "",
     });
-    const { markdown } = compileSkill(spec);
+    const { markdown } = await compileSkill(spec);
     assert.ok(markdown.includes("name: empty"));
     assert.ok(markdown.includes("description: Nothing"));
   });
@@ -1564,7 +1582,7 @@ describe("edge cases", () => {
     assert.equal(result, null);
   });
 
-  it("multiple enforce rules all get linter-checked", () => {
+  it("multiple enforce rules all get linter-checked", async () => {
     const spec = instructionFile({
       rules: {
         "rule-a": enforce("eslint/no-console", "A"),
@@ -1572,7 +1590,7 @@ describe("edge cases", () => {
         "rule-c": guidance("Not checked."),
       },
     });
-    const { linterResults } = compileClaude(spec, {
+    const { linterResults } = await compileClaude(spec, {
       basePath: process.cwd(),
     });
     // Only enforce() rules produce linter results
@@ -1580,34 +1598,34 @@ describe("edge cases", () => {
     assert.ok(linterResults.every((r) => r.exists));
   });
 
-  it("sections with file() ref to nonexistent file reports error", () => {
+  it("sections with file() ref to nonexistent file reports error", async () => {
     const spec = instructionFile({
       sections: {
         arch: prose`See ${file("totally-fake-file-xyz.ts")}.`,
       },
       rules: {},
     });
-    const { errors } = compileClaude(spec, { basePath: process.cwd() });
+    const { errors } = await compileClaude(spec, { basePath: process.cwd() });
     assert.ok(errors.some((e) => e.type === "stale-file"));
   });
 
-  it("cmd() validation catches missing npm scripts in commands", () => {
+  it("cmd() validation catches missing npm scripts in commands", async () => {
     const spec = instructionFile({
       commands: {
         "npm run nonexistent-xyz": "Does not exist",
       },
       rules: {},
     });
-    const { errors } = compileClaude(spec, { basePath: process.cwd() });
+    const { errors } = await compileClaude(spec, { basePath: process.cwd() });
     assert.ok(errors.some((e) => e.type === "stale-command"));
   });
 
-  it("cmd() validation passes for real npm scripts", () => {
+  it("cmd() validation passes for real npm scripts", async () => {
     const spec = instructionFile({
       commands: { "npm test": "Run tests", "npm run build": "Build" },
       rules: {},
     });
-    const { errors } = compileClaude(spec, { basePath: process.cwd() });
+    const { errors } = await compileClaude(spec, { basePath: process.cwd() });
     assert.ok(!errors.some((e) => e.type === "stale-command"));
   });
 });
@@ -1617,7 +1635,7 @@ describe("edge cases", () => {
 // ---------------------------------------------------------------------------
 
 describe("compile → hash → verify → adopt roundtrip", () => {
-  it("full lifecycle works end-to-end", () => {
+  it("full lifecycle works end-to-end", async () => {
     const spec = instructionFile({
       commands: { "npm test": "Run tests" },
       keyFiles: { "src/core/spec.ts": "Spec system" },
@@ -1633,10 +1651,13 @@ describe("compile → hash → verify → adopt roundtrip", () => {
     mkdirSync(tmpDir, { recursive: true });
     try {
       // Step 1: Compile
-      const { markdown, errors, linterResults, tokens } = compileClaude(spec, {
-        basePath: process.cwd(),
-        specFile: "CLAUDE.md.spec.ts",
-      });
+      const { markdown, errors, linterResults, tokens } = await compileClaude(
+        spec,
+        {
+          basePath: process.cwd(),
+          specFile: "CLAUDE.md.spec.ts",
+        },
+      );
       assert.equal(errors.length, 0);
       assert.ok(tokens > 0);
       assert.ok(linterResults.length > 0);
@@ -1652,7 +1673,7 @@ describe("compile → hash → verify → adopt roundtrip", () => {
       assert.equal(hashResult.specFile, "CLAUDE.md.spec.ts");
 
       // Step 4: Adopt shows no changes
-      const adoptResult = adoptDiff(
+      const adoptResult = await adoptDiff(
         "CLAUDE.md",
         spec,
         tmpDir,
@@ -1673,7 +1694,7 @@ describe("compile → hash → verify → adopt roundtrip", () => {
       assert.equal(hashResult2.valid, false);
 
       // Step 7: Adopt detects the change
-      const adoptResult2 = adoptDiff(
+      const adoptResult2 = await adoptDiff(
         "CLAUDE.md",
         spec,
         tmpDir,

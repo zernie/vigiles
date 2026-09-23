@@ -28,14 +28,14 @@ test("the Claude Code dialect has the expected shape", () => {
   assert.ok(claudeCodeDialect.mcpToolPattern.test("mcp__server__do_thing"));
 });
 
-test("compileAgent verifies the tool contract against the injected CC dialect", () => {
+test("compileAgent verifies the tool contract against the injected CC dialect", async () => {
   const okAgent = experimental_agent({
     name: "reviewer",
     description: "Reviews code",
     tools: ["Read", "Grep"],
     body: "Review the diff.",
   });
-  const ok = compileAgent(okAgent, {
+  const ok = await compileAgent(okAgent, {
     specFile: "reviewer.md.spec.ts",
     dialect: claudeCodeDialect,
   });
@@ -47,7 +47,7 @@ test("compileAgent verifies the tool contract against the injected CC dialect", 
     tools: ["Reed"], // typo
     body: "Review the diff.",
   });
-  const bad = compileAgent(badAgent, {
+  const bad = await compileAgent(badAgent, {
     specFile: "reviewer.md.spec.ts",
     dialect: claudeCodeDialect,
   });
@@ -56,7 +56,7 @@ test("compileAgent verifies the tool contract against the injected CC dialect", 
   assert.match(unknown.message, /Did you mean "Read"\?/);
 });
 
-test("an injected dialect swaps the catalog — Codex-prep seam", () => {
+test("an injected dialect swaps the catalog — Codex-prep seam", async () => {
   // A hypothetical second harness: a different built-in tool set. The compiler
   // verifies against THIS dialect, proving the catalog is no longer hard-coded.
   const codexish: HarnessDialect = {
@@ -76,7 +76,7 @@ test("an injected dialect swaps the catalog — Codex-prep seam", () => {
     body: "Work.",
   });
   // Under the codex-ish dialect: Shell is a built-in → no error.
-  const withCodex = compileAgent(a, {
+  const withCodex = await compileAgent(a, {
     specFile: "worker.md.spec.ts",
     dialect: codexish,
   });
@@ -85,7 +85,7 @@ test("an injected dialect swaps the catalog — Codex-prep seam", () => {
     0,
   );
   // Under the Claude Code dialect: Shell is unknown → flagged.
-  const withCc = compileAgent(a, {
+  const withCc = await compileAgent(a, {
     specFile: "worker.md.spec.ts",
     dialect: claudeCodeDialect,
   });

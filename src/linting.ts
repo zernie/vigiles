@@ -1,34 +1,22 @@
+// 🔴 PUBLIC ENTRY POINT `vigiles/linting` — every export here is a promise to users. The default for a
+// symbol is INTERNAL. It is exported only if (a) a NAMED external consumer uses it, or (b) it is
+// a deliberate extension point listed in STABILITY.md (the adapter kit is the example). "Might
+// be useful" is neither. Review point: the diff of `api-surface/vigiles-linting.api.md`, which
+// `npm run api:check` fails on.
 /**
- * `vigiles/linting` — Pillar 1 entry point: the **linting layer** for instruction
- * files. The spec builders/types that describe a CLAUDE.md, a SKILL.md or an
- * agent, plus the public compile entry points, under one concern-named import.
+ * `vigiles/linting` — Pillar 1 entry point: what a spec AUTHOR imports to describe a CLAUDE.md,
+ * a SKILL.md or an agent — the builders, the verified-reference constructors and their types.
+ * Compiling is the CLI's job (`vigiles compile` / `vigiles lint`), not this subpath's.
  *
- * Curated (named, not `export *`) so the internal compiler validators, hash
- * helpers, and the linter cross-reference ENGINE stay out of the public surface,
- * the api reports, and the docs site (the CLI imports those from the source).
+ * Curated (named, not `export *`) so the internal compiler, validators, hash helpers and the
+ * linter cross-reference ENGINE stay out of the public surface, the api reports and the docs.
  *
- * 🔴 THAT SENTENCE USED TO BE FALSE, and so did the one after it (fixed
- * 2026-08-21). The file claimed to be curated while `export * from
- * "./core/spec.js"` sat one line below it, and it claimed "the spec builders are
- * also at the package root (`vigiles`)" — measured against `vigiles.api.md`: 191
- * exports there and zero matches for `claude`, `agent`, `enforce` or `result`.
- * The builders' second door is `vigiles/spec`, not the root. Both claims read as
- * documentation of a decision and were descriptions of the opposite one; a
- * header nobody re-reads is where an `export *` hides best.
- *
- * WHAT THE CURATION DROPS (28 symbols, measured — nothing in this repo imported
- * any of them from here; every in-repo user takes them from `vigiles/spec`, and
- * the one live consumer of this subpath in the docs takes `compileAgent`): the
- * typed-COMPOSITION family — `experimental_pipe`/`_pipeStep`/`_start`/
- * `_andThen`/`_needs`, `Pipeline`, `PipeStep`, `Supplies`, `Handoff`,
- * `NeedsContract`, `OkOf`, `TypedAgentSpec`, `TypedOutcome`, `Shape`,
- * `OutputFieldType` and the `result()` builder. Those verify HANDOFFS between
- * workers; they compile to nothing and lint nothing, so they are not pillar 1.
- *
- * ⚠️ The cut is not a clean slice along that line, and pretending otherwise
- * would strand a signature: the `result()` FUNCTION leaves, but the
- * `OutputContract` TYPE stays, because `compileAgent`/`compileSkill` name it in
- * their own types. A consumer who needs to BUILD one imports `vigiles/spec`.
+ * WHAT THE CURATION DROPS (28 symbols, measured 2026-08-21 — nothing in this repo imported any
+ * of them from here; every in-repo user takes them from `vigiles/spec`): the typed-COMPOSITION
+ * family — `experimental_pipe`/`_pipeStep`/`_start`/`_andThen`/`_needs`, `Pipeline`, `PipeStep`,
+ * `Supplies`, `Handoff`, `NeedsContract`, `OkOf`, `TypedAgentSpec`, `TypedOutcome`, `Shape`,
+ * `OutputFieldType` and the `result()` builder. Those verify HANDOFFS between workers; they
+ * compile to nothing and lint nothing, so they are not pillar 1.
  */
 
 // --- the spec authoring builders: rules, refs, prose, and the three spec kinds ---
@@ -113,26 +101,15 @@ export {
   type AgentSpecInput,
   type Railway,
   type RailwayStep,
-  // Pinned by compileAgent/compileSkill's own signatures — see the ⚠️ above.
+  // Named by `SkillSpec` / `AgentSpec` (their `output` field), so an author can type one.
   type OutputContract,
 } from "./core/spec.js";
 
-// Compile: only the public entry points + their option/result types.
-export {
-  compileClaude,
-  compileSkill,
-  compileAgent,
-  compileRailway,
-  CompileError,
-} from "./core/compile.js";
-export type {
-  CompileClaudeOptions,
-  CompileClaudeResult,
-  CompileSkillResult,
-  CompileAgentResult,
-  CompileRailwayOptions,
-  CompileRailwayResult,
-} from "./core/compile.js";
+// NO COMPILE ENTRY POINTS HERE (removed in the major that ships #257). `compileClaude`,
+// `compileSkill`, `compileAgent`, `compileRailway` and their option/result types were public
+// with no external caller — measured across the repos that depend on vigiles, every import is a
+// spec builder — and the promise froze them synchronous while the symbol check they run became
+// async. Spec authors run `vigiles compile`; the CLI imports the compiler from source.
 
 // core/linters is the cross-reference ENGINE (checkLinterRule/editDistance/…),
 // consumed by compile — not part of the public authoring surface.

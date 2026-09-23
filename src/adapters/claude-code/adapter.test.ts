@@ -54,6 +54,39 @@ test("conformance kit catches a broken adapter", () => {
   assert.ok(r.failures.some((m) => m.includes("builtinAgentTools")));
 });
 
+// The tool-contract line of the kit, pinned on both halves. It calls the subagent tool-contract
+// validator directly (not `compileAgent`), so this is what proves the wiring: a dialect whose
+// FIRST built-in tool its own contract check rejects must fail with that exact line, and the
+// real adapter must not carry it.
+test("conformance reports a dialect that rejects its own built-in tool, and passes a good one", () => {
+  const good = checkAdapterConformance(claudeCodeAdapter);
+  assert.ok(
+    !good.failures.some((m) => m.includes("rejects its own built-in tool")),
+    good.failures.join(" | "),
+  );
+  // A catalog whose FIRST entry is a typo of a real tool: the declared vocabulary (which the
+  // contract check reads) does not know it, so the contract check rejects it.
+  const first = "Reed";
+  const bad: HarnessAdapter = {
+    ...claudeCodeAdapter,
+    dialect: {
+      ...claudeCodeAdapter.dialect,
+      builtinAgentTools: [
+        first,
+        ...claudeCodeAdapter.dialect.builtinAgentTools,
+      ],
+    },
+  };
+  const r = checkAdapterConformance(bad);
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.failures.some((m) =>
+      m.startsWith(`dialect rejects its own built-in tool "${first}"`),
+    ),
+    `expected the tool-contract failure, got: ${r.failures.join(" | ")}`,
+  );
+});
+
 test("conformance kit catches a dialect that contradicts ITSELF", () => {
   // The exact state that shipped for months: `Agent` claimed as both declarable
   // and never-available, while its own alias `Task` sat in the built-in catalog.

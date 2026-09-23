@@ -51,7 +51,7 @@ import { cpus } from "node:os";
  * skipped. So the gap is declared and PRINTED instead of silently held.
  *
  * `scripts/check-covers-ci.test.ts` asserts this list plus `check` accounts for
- * every job in ci.yml, so a NEW job is a failing test rather than a silent
+ * every job in every workflow, so a NEW job is a failing test rather than a silent
  * seventh thing nobody runs locally.
  */
 export const CI_JOBS_NOT_COVERED = [
@@ -64,6 +64,11 @@ export const CI_JOBS_NOT_COVERED = [
     job: "e2e",
     cmd: "npm run test:e2e",
     why: "the e2e vitest project (real built CLI over fixture repos)",
+  },
+  {
+    job: "alpine",
+    cmd: "npm run build && npx vitest run --project e2e src/package-install-scripts.e2e.test.ts",
+    why: "platform.yml: the packaging e2e again inside node:22-alpine (musl) — needs that container",
   },
   {
     job: "harness",
@@ -79,6 +84,34 @@ export const CI_JOBS_NOT_COVERED = [
     job: "changes",
     cmd: "",
     why: "the path-filter classifier — decides which jobs run; nothing to run locally",
+  },
+  // Jobs in the OTHER workflows. None is a code gate, so none has a local command; they are named
+  // because the guard test reads every workflow, and an unnamed job there is indistinguishable
+  // from a forgotten one.
+  {
+    job: "describe",
+    cmd: "",
+    why: "pr-describe.yml: writes the PR description — not a check on the code",
+  },
+  {
+    job: "validate",
+    cmd: "",
+    why: "pr-title.yml: the Conventional-Commit title linter — reads the PR title, not the tree",
+  },
+  {
+    job: "release",
+    cmd: "",
+    why: "release.yml: semantic-release on main — publishes, checks nothing",
+  },
+  {
+    job: "build-and-deploy",
+    cmd: "",
+    why: "pages.yml: deploys the site on main — the site job in ci.yml is its check",
+  },
+  {
+    job: "cleanup",
+    cmd: "",
+    why: "delete-merged-branches.yml: manual branch housekeeping",
   },
 ];
 

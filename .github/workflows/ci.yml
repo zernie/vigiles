@@ -617,13 +617,35 @@ jobs:
     needs: changes
     if: needs.changes.outputs.root == 'true'
     runs-on: ubuntu-latest
-    # measured 1m16s.
-    timeout-minutes: 10
+    # measured 1m16s before the packaging matrix below; it adds three installs of the tarball
+    # (npm, pnpm, yarn 4), ~15 s each on a warm local cache — headroom for a cold one.
+    timeout-minutes: 15
+    env:
+      VIGILES_INSTALL_E2E_STRICT: "1"
     container:
       image: node:20-bookworm
       options: --privileged --device /dev/net/tun
     steps:
       - uses: actions/checkout@v4
+      # src/package-install-scripts.e2e.test.ts installs the packed tarball with npm, pnpm and
+      # yarn 4 (corepack, default Plug'n'Play) and, with VIGILES_INSTALL_E2E_STRICT=1 (set on this
+      # job only), FAILS when a manager does not launch — a skipped pnpm must never read as a
+      # passed one (#257 is a pnpm-only failure). Not keyed on CI=true: the `test` job runs the
+      # same file under coverage with no pnpm installed.
+      # The image has npm and a bundled corepack but no pnpm, so both are provided here, pinned.
+      # Same Node as harness-tier below, so its setup-node resolves the same toolcache directory
+      # and these global installs stay first on PATH.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install pnpm 12.5.1 and corepack 0.34.6 for the packaging e2e
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: |
+          npm install -g corepack@0.34.6
+          corepack install -g pnpm@12.5.1
+          pnpm --version
+          corepack yarn@4 --version
       - uses: ./.github/actions/harness-tier
         with:
           tier: e2e

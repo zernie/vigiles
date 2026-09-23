@@ -135,8 +135,8 @@ test("compileGeneratorSkill verifies gate refs and errors clearly without genSki
   assert.ok(none.errors.some((e) => /genSkill/.test(e.message)));
 });
 
-test("a skill can declare a disallowed-tools FENCE, and it uses the skill's key", () => {
-  const { markdown, errors } = compileSkill(
+test("a skill can declare a disallowed-tools FENCE, and it uses the skill's key", async () => {
+  const { markdown, errors } = await compileSkill(
     experimental_skill({
       name: "fenced",
       description: "Has a fence.",
@@ -158,8 +158,8 @@ test("a skill can declare a disallowed-tools FENCE, and it uses the skill's key"
   assert.match(markdown, /\nallowed-tools: \[Read, Grep\]\n/);
 });
 
-test("a disallowed-tools entry that is a typo of a real tool is an ERROR, not a fence", () => {
-  const { errors } = compileSkill(
+test("a disallowed-tools entry that is a typo of a real tool is an ERROR, not a fence", async () => {
+  const { errors } = await compileSkill(
     experimental_skill({
       name: "typo-fence",
       description: "Fence with a typo.",
@@ -185,11 +185,11 @@ test("a disallowed-tools entry that is a typo of a real tool is an ERROR, not a 
 // path producing the defect the product hunts for. If quoting fires when it is not
 // needed, every already-compiled file changes bytes and every integrity hash moves,
 // which reads to users as "vigiles rewrote my whole repo".
-test("compile quotes a description YAML would otherwise mis-read", () => {
+test("compile quotes a description YAML would otherwise mis-read", async () => {
   // The real shape that broke two shipped skills: a colon-space inside prose.
   const withColon =
     "Узнать, сколько берут за услугу — ловит ошибки, где замер врёт: неаналоги в выборке.";
-  const { markdown } = compileSkill({
+  const { markdown } = await compileSkill({
     name: "benchmark-price",
     description: withColon,
     tools: ["Read", "WebSearch"],
@@ -258,8 +258,8 @@ const ADVERSARIAL_SCALARS: readonly (readonly [string, string])[] = [
 ];
 
 for (const [label, description] of ADVERSARIAL_SCALARS) {
-  test(`compile round-trips a description: ${label}`, () => {
-    const { markdown } = compileSkill({
+  test(`compile round-trips a description: ${label}`, async () => {
+    const { markdown } = await compileSkill({
       name: "probe-skill",
       description,
       body: "Body.",
@@ -296,8 +296,8 @@ const SAFE_SCALARS: readonly string[] = [
 ];
 
 for (const description of SAFE_SCALARS) {
-  test(`compile leaves a safe description bare: ${description.slice(0, 32)}…`, () => {
-    const { markdown } = compileSkill({
+  test(`compile leaves a safe description bare: ${description.slice(0, 32)}…`, async () => {
+    const { markdown } = await compileSkill({
       name: "probe-skill",
       description,
       body: "Body.",
@@ -309,9 +309,9 @@ for (const description of SAFE_SCALARS) {
   });
 }
 
-test("compile leaves an already-safe description bare — no hash churn", () => {
+test("compile leaves an already-safe description bare — no hash churn", async () => {
   const plain = "Search products on ozon.kz and return live listings.";
-  const { markdown } = compileSkill({
+  const { markdown } = await compileSkill({
     name: "ozon-search-kz",
     description: plain,
     body: "Body.",

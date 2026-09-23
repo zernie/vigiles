@@ -39,7 +39,7 @@ test("symbolRefs matches the vigiles:symbol mark, ignores everything else", () =
   );
 });
 
-test("verifies the named file defines the marked symbol (error otherwise)", () => {
+test("verifies the named file defines the marked symbol (error otherwise)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "vigiles-symref-"));
   try {
     mkdirSync(join(dir, "src"));
@@ -48,17 +48,21 @@ test("verifies the named file defines the marked symbol (error otherwise)", () =
       "export function parseConfig(x){return x}\n",
     );
     assert.equal(
-      verifySymbolRefs("Use `vigiles:symbol src/config.ts#parseConfig`.\n", dir)
-        .length,
+      (
+        await verifySymbolRefs(
+          "Use `vigiles:symbol src/config.ts#parseConfig`.\n",
+          dir,
+        )
+      ).length,
       0,
     );
-    const missing = verifySymbolRefs(
+    const missing = await verifySymbolRefs(
       "Use `vigiles:symbol src/config.ts#loadConfig`.\n",
       dir,
     );
     assert.equal(missing.length, 1);
     assert.match(missing[0].reason, /"loadConfig" is not defined/);
-    const noFile = verifySymbolRefs(
+    const noFile = await verifySymbolRefs(
       "Use `vigiles:symbol src/gone.ts#parseConfig`.\n",
       dir,
     );
@@ -69,22 +73,22 @@ test("verifies the named file defines the marked symbol (error otherwise)", () =
   }
 });
 
-test("a rename surfaces live (re-parses the named file each time)", () => {
+test("a rename surfaces live (re-parses the named file each time)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "vigiles-symref-rename-"));
   try {
     mkdirSync(join(dir, "src"));
     const src = join(dir, "src", "config.ts");
     const md = "Call `vigiles:symbol src/config.ts#parseConfig`.\n";
     writeFileSync(src, "export function parseConfig(){}\n");
-    assert.equal(verifySymbolRefs(md, dir).length, 0);
+    assert.equal((await verifySymbolRefs(md, dir)).length, 0);
     writeFileSync(src, "export function loadConfig(){}\n");
-    assert.equal(verifySymbolRefs(md, dir).length, 1);
+    assert.equal((await verifySymbolRefs(md, dir)).length, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("cross-language: resolves a Ruby vigiles:symbol mark", () => {
+test("cross-language: resolves a Ruby vigiles:symbol mark", async () => {
   const dir = mkdtempSync(join(tmpdir(), "vigiles-symref-rb-"));
   try {
     mkdirSync(join(dir, "app"));
@@ -93,13 +97,21 @@ test("cross-language: resolves a Ruby vigiles:symbol mark", () => {
       "class User\n  def full_name\n  end\nend\n",
     );
     assert.equal(
-      verifySymbolRefs("See `vigiles:symbol app/user.rb#full_name`.\n", dir)
-        .length,
+      (
+        await verifySymbolRefs(
+          "See `vigiles:symbol app/user.rb#full_name`.\n",
+          dir,
+        )
+      ).length,
       0,
     );
     assert.equal(
-      verifySymbolRefs("See `vigiles:symbol app/user.rb#display_name`.\n", dir)
-        .length,
+      (
+        await verifySymbolRefs(
+          "See `vigiles:symbol app/user.rb#display_name`.\n",
+          dir,
+        )
+      ).length,
       1,
     );
   } finally {
@@ -128,8 +140,11 @@ test("vigiles:ignore-file opts the whole file out", () => {
   assert.equal(unmarkedCodeRefs(md).length, 0);
 });
 
-test("collectRefIssues lists unmarked rule refs with enforce() guidance", () => {
-  const issues = collectRefIssues("Enforce `eslint/no-console` here.\n", ".");
+test("collectRefIssues lists unmarked rule refs with enforce() guidance", async () => {
+  const issues = await collectRefIssues(
+    "Enforce `eslint/no-console` here.\n",
+    ".",
+  );
   assert.equal(issues.length, 1);
   assert.match(
     issues[0] ?? "",
@@ -138,17 +153,20 @@ test("collectRefIssues lists unmarked rule refs with enforce() guidance", () => 
   assert.match(issues[0] ?? "", /enforce\("eslint\/no-console"\)/);
 });
 
-test("collectRefIssues is empty for identifiers, paths, prose, and ignored spans", () => {
+test("collectRefIssues is empty for identifiers, paths, prose, and ignored spans", async () => {
   assert.deepEqual(
-    collectRefIssues("Call `runHook` before commit.\n", "."),
+    await collectRefIssues("Call `runHook` before commit.\n", "."),
     [],
   );
   assert.deepEqual(
-    collectRefIssues("See `src/config.ts` and `docs/x.md`.\n", "."),
+    await collectRefIssues("See `src/config.ts` and `docs/x.md`.\n", "."),
     [],
   );
   assert.deepEqual(
-    collectRefIssues("Use `eslint/no-console`. <!-- vigiles:ignore -->\n", "."),
+    await collectRefIssues(
+      "Use `eslint/no-console`. <!-- vigiles:ignore -->\n",
+      ".",
+    ),
     [],
   );
 });

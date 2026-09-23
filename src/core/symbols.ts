@@ -13,68 +13,47 @@
  * imports / Zeitwerk / tsconfig". Resolution is per-language and architectural —
  * delegated. Ambiguity (a name defined in several files) is reported, not guessed.
  */
-import { readFileSync, existsSync } from "node:fs";
-import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 
-import { parse, Lang, registerDynamicLanguage } from "@ast-grep/napi";
+import { parse, Lang } from "@ast-grep/napi";
+
+import {
+  ID_KINDS as ID_KIND_LIST,
+  SCOPE_KINDS as SCOPE_KIND_LIST,
+  loadWasmGrammar,
+  wasmDefinedSymbols,
+  type WasmLang,
+} from "./tree-sitter-wasm.js";
 
 /**
- * The non-web grammars, as OPTIONAL packages keyed by the id ast-grep registers them under.
+ * Python, Ruby and Rust are parsed by WebAssembly builds of their tree-sitter grammars
+ * (`./tree-sitter-wasm.ts`); TypeScript, TSX, JavaScript and CSS by the grammars built into
+ * `@ast-grep/napi`.
  *
- * 🔴 WHY OPTIONAL, AND WHY IT IS NOT A PREFERENCE. These three are the only packages in this
- * dependency tree carrying a `postinstall` (measured 2026-09-20 with `npm query
- * ":attr(scripts, [postinstall])"`). Since pnpm 10 a consumer's install FAILS on an
- * unapproved lifecycle script, so every downstream project installing vigiles with pnpm got
- * `ERR_PNPM_IGNORED_BUILDS` and a non-zero exit — for grammars most of them never use. The web
- * grammars every user does need (TypeScript, TSX, JavaScript, CSS) are built into
- * `@ast-grep/napi` and cost nothing.
- *
- * They load through `createRequire` rather than `await import()` on purpose: the packages are
- * CommonJS (`"main": "index.js"`, no `exports`), so a synchronous require works and NOTHING in
- * this module's public surface has to become async. Measured, not assumed.
+ * 🔴 WHY NOT `@ast-grep/lang-*` ANY MORE (#257). Those native grammars were the only packages in
+ * the tree carrying a `postinstall`, and since pnpm 10 an unapproved dependency build script
+ * FAILS a consumer's install (`ERR_PNPM_IGNORED_BUILDS`) — for every `pnpm add vigiles`, whether
+ * or not the project has a single `.py` file. Making them optional peers stopped the failure but
+ * moved the cost onto the user: a `.py` reference then reported "grammar not installed" after an
+ * upgrade. The WASM grammars are a plain dependency with no install script and no native
+ * binary, so they are simply there. `src/package-install-scripts.e2e.test.ts` holds both halves
+ * against the packed tarball: no install script in the tree, and a `.py` lookup that works
+ * right after a default install.
  */
-const OPTIONAL_GRAMMARS: Readonly<Record<string, string>> = {
-  python: "@ast-grep/lang-python",
-  rust: "@ast-grep/lang-rust",
-  ruby: "@ast-grep/lang-ruby",
-};
+const WASM_LANGS: ReadonlySet<string> = new Set<WasmLang>([
+  "python",
+  "ruby",
+  "rust",
+]);
 
-// Anchored on THIS module's own file, not on the consumer's project root. Under pnpm a
-// consumer's root does not contain our transitive packages at all — the same addressing
-// mistake that made every hook fail there — and these grammars are OUR optional dependencies,
-// so they resolve from where this file lives. `__filename` rather than `import.meta.url`
-// because this package compiles to CommonJS (`module: Node16`, `main: ./dist/test.js`).
-const require_ = createRequire(__filename);
-
-/** Registered grammar ids, populated on first use. `null` until then. */
-let loaded: ReadonlySet<string> | null = null;
-
-function ensureRegistered(): ReadonlySet<string> {
-  if (loaded) return loaded;
-  const dynamic: Parameters<typeof registerDynamicLanguage>[0] = {};
-  const present = new Set<string>();
-  for (const [id, pkg] of Object.entries(OPTIONAL_GRAMMARS)) {
-    try {
-      dynamic[id] = require_(pkg) as (typeof dynamic)[string];
-      present.add(id);
-    } catch {
-      // Absent by design: an optional dependency the consumer did not install. The caller is
-      // told WHICH id is missing (see `langForFile`), so "not checked" never reads as "clean".
-    }
-  }
-  if (present.size > 0) registerDynamicLanguage(dynamic);
-  loaded = present;
-  return loaded;
+function isWasmLang(key: LangKey): key is WasmLang {
+  return typeof key === "string" && WASM_LANGS.has(key);
 }
 
-/** Which optional grammars this process actually has. Exported so a report can say so. */
-export function installedGrammars(): ReadonlySet<string> {
-  return ensureRegistered();
-}
-
-/** A language key accepted by ast-grep's `parse` (core enum or registered id). */
-type LangKey = Lang | string;
+/** A language key: an `@ast-grep/napi` built-in, or one of the WASM grammars. */
+type LangKey = Lang | WasmLang;
 
 const EXT_LANG: Record<string, LangKey> = {
   ".ts": Lang.TypeScript,
@@ -97,34 +76,42 @@ const EXT_LANG: Record<string, LangKey> = {
 /**
  * Whether this file's language can be parsed HERE, and if not, which of the two reasons.
  *
- * 🔴 THE THREE CASES ARE SEPARATE MEMBERS BECAUSE THEY ARE SEPARATE FACTS. The previous
- * signature was `LangKey | null`, where `null` meant "extension not in the table" and callers
- * printed "Unsupported language for symbol check". Making the grammars optional would have
- * given that same `null` a second meaning — "the language IS ours, the package is simply not
- * installed" — and both callers would have kept printing the first sentence. That is the
- * failure this codebase exists to catch: a check that did not run, reported in the words of a
- * check that did. A union makes the compiler demand the distinction at every call site.
+ * 🔴 THE THREE CASES ARE SEPARATE MEMBERS BECAUSE THEY ARE SEPARATE FACTS. "Extension not in
+ * the table" and "the language IS ours but its grammar failed to load in this process" must not
+ * share one `null`: both callers would print the first sentence, and a check that did not run
+ * would read as a verdict. With WASM grammars shipped as a regular dependency there is no
+ * install or platform gap left, so `grammar-load-failed` should not happen — but if the runtime
+ * genuinely cannot load, the report carries the loader's own error text, never "not defined"
+ * and never an install instruction the user cannot act on.
  */
 export type LangSupport =
   | { readonly kind: "ready"; readonly lang: LangKey }
   | {
-      readonly kind: "grammar-missing";
-      readonly id: string;
-      readonly pkg: string;
+      readonly kind: "grammar-load-failed";
+      readonly lang: WasmLang;
+      readonly error: string;
     }
   | { readonly kind: "unsupported" };
 
-export function langForFile(file: string): LangSupport {
+export async function langForFile(file: string): Promise<LangSupport> {
   const key = file.endsWith(".d.ts")
     ? Lang.TypeScript
     : EXT_LANG[extname(file).toLowerCase()];
   if (key === undefined) return { kind: "unsupported" };
-  // A string key is one of the dynamically registered grammars; the enum members are built in.
-  if (typeof key === "string" && key in OPTIONAL_GRAMMARS) {
-    if (!ensureRegistered().has(key))
-      return { kind: "grammar-missing", id: key, pkg: OPTIONAL_GRAMMARS[key] };
+  if (isWasmLang(key)) {
+    // Lazy: the first .py/.rb/.rs reference starts the runtime; later ones hit the cache.
+    const error = await loadWasmGrammar(key);
+    if (error !== null)
+      return { kind: "grammar-load-failed", lang: key, error };
   }
   return { kind: "ready", lang: key };
+}
+
+/** The one sentence both callers print for a symbol reference that could not be checked. */
+export function notCheckedReason(
+  support: Extract<LangSupport, { kind: "grammar-load-failed" }>,
+): string {
+  return `Symbol not checked: the ${support.lang} grammar failed to load: ${support.error}`;
 }
 
 /** A symbol definition found in a file. */
@@ -139,15 +126,8 @@ export interface SymbolDef {
   readonly line: number;
 }
 
-const ID_KINDS = new Set(["identifier", "constant", "type_identifier"]);
-const SCOPE_KINDS = new Set([
-  "class_declaration",
-  "class_definition",
-  "class",
-  "module",
-  "interface_declaration",
-  "enum_declaration",
-]);
+const ID_KINDS: ReadonlySet<string> = new Set(ID_KIND_LIST);
+const SCOPE_KINDS: ReadonlySet<string> = new Set(SCOPE_KIND_LIST);
 
 interface RawNode {
   kind(): string;
@@ -171,9 +151,15 @@ function recordNode(node: RawNode, scope: string, out: SymbolDef[]): void {
   }
 }
 
-/** Extract the symbols defined in a single file's source. */
-export function definedSymbols(code: string, lang: LangKey): SymbolDef[] {
-  ensureRegistered();
+/**
+ * Extract the symbols defined in a single file's source. Async because the Python / Ruby / Rust
+ * grammars are WebAssembly, whose instantiation is async; the napi languages resolve at once.
+ */
+export async function definedSymbols(
+  code: string,
+  lang: LangKey,
+): Promise<SymbolDef[]> {
+  if (isWasmLang(lang)) return wasmDefinedSymbols(code, lang);
   const out: SymbolDef[] = [];
   const walk = (node: RawNode, scope: string): void => {
     recordNode(node, scope, out);
@@ -187,15 +173,18 @@ export function definedSymbols(code: string, lang: LangKey): SymbolDef[] {
 }
 
 /** Defined symbols for a file on disk, or [] if unreadable/unsupported. */
-export function definedSymbolsInFile(file: string): SymbolDef[] {
-  const support = langForFile(file);
+export async function definedSymbolsInFile(file: string): Promise<SymbolDef[]> {
+  const support = await langForFile(file);
   if (support.kind !== "ready") return [];
-  const lang = support.lang;
+  let code: string;
   try {
-    return definedSymbols(readFileSync(file, "utf-8"), lang);
+    code = await readFile(file, "utf-8");
   } catch {
     return [];
   }
+  // Deliberately OUTSIDE the try: a parser failure is not an empty file. Swallowing it would
+  // turn "could not parse" into "is not defined" — a check that did not run, read as a verdict.
+  return definedSymbols(code, support.lang);
 }
 
 // A co-located declaration file that may declare symbols the source defines
@@ -217,15 +206,19 @@ const DECL_SIBLING: Record<string, string> = {
  * fallback we also consult a co-located declaration file (`.rbi` / `.d.ts`), so
  * typed dynamic symbols resolve without running Sorbet / the TS compiler.
  */
-export function fileDefinesSymbol(file: string, name: string): boolean {
-  if (definedSymbolsInFile(file).some((d) => d.name === name)) return true;
+export async function fileDefinesSymbol(
+  file: string,
+  name: string,
+): Promise<boolean> {
+  if ((await definedSymbolsInFile(file)).some((d) => d.name === name))
+    return true;
   const ext = extname(file);
   const decl = DECL_SIBLING[ext];
   if (decl && !file.endsWith(decl)) {
     const sibling = file.slice(0, -ext.length) + decl;
     if (
       existsSync(sibling) &&
-      definedSymbolsInFile(sibling).some((d) => d.name === name)
+      (await definedSymbolsInFile(sibling)).some((d) => d.name === name)
     ) {
       return true;
     }

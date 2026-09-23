@@ -67,10 +67,10 @@ test("opencodeAdapter is NOT harness-testable — the tier is declared unbuilt, 
 // NOTE: we deliberately do NOT call assertAdapterLoadsHooks for opencode — that's
 // a shell-hook settings round-trip, which does not apply to code-module hooks.
 
-test("the compiler verifies a subagent tool contract under opencodeDialect", () => {
+test("the compiler verifies a subagent tool contract under opencodeDialect", async () => {
   // An OpenCode built-in passes; a Claude-Code-only tool (NotebookEdit) is
   // flagged — proving the SAME compiler validates against the injected catalog.
-  const ok = compileAgent(
+  const ok = await compileAgent(
     experimental_agent({
       name: "w",
       description: "x",
@@ -81,7 +81,7 @@ test("the compiler verifies a subagent tool contract under opencodeDialect", () 
   );
   assert.equal(ok.errors.filter((e) => e.type === "unknown-tool").length, 0);
 
-  const bad = compileAgent(
+  const bad = await compileAgent(
     experimental_agent({
       name: "w",
       description: "x",

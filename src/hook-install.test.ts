@@ -78,6 +78,56 @@ describe("mergeHooksJson", () => {
     expect(out.hooks?.PreToolUse).toHaveLength(1);
   });
 
+  // Recompiling a hook whose wiring changed used to drop its entry and append the
+  // new one at the END, so one changed command showed up in the diff as three
+  // entries swapping places. Measured on a real settings.json: the DNA guard gained
+  // `|| exit 2` and moved from first to last among three PreToolUse entries.
+  it("replaces a recompiled hook IN PLACE, keeping the order of its neighbours", () => {
+    const existing = {
+      hooks: {
+        PreToolUse: [
+          wiredByHand(".claude/hooks/a.hook.ts"),
+          wiredByHand(".claude/hooks/x.hook.ts"),
+          wiredByHand(".claude/hooks/b.hook.ts"),
+        ],
+      },
+    };
+    const recompiled = {
+      PreToolUse: [
+        {
+          matcher: "Bash",
+          hooks: [
+            {
+              type: "command" as const,
+              command:
+                "npx vigiles hook-runtime run-program .claude/hooks/x.hook.ts || exit 2",
+            },
+          ],
+        },
+      ],
+    };
+    const out = mergeHooksJson(existing, recompiled, ".claude/hooks/x.hook.ts");
+    expect(
+      out.hooks?.PreToolUse?.map(
+        (e) => e.hooks[0]?.command.match(/\w+\.hook\.ts/)?.[0],
+      ),
+    ).toEqual(["a.hook.ts", "x.hook.ts", "b.hook.ts"]);
+    expect(out.hooks?.PreToolUse?.[1]?.hooks[0]?.command).toContain(
+      "|| exit 2",
+    );
+  });
+
+  it("appends a hook that was not wired before", () => {
+    const existing = {
+      hooks: { PreToolUse: [wiredByHand(".claude/hooks/a.hook.ts")] },
+    };
+    const out = mergeHooksJson(existing, compiled, ".vigiles/hooks/g.mjs");
+    expect(out.hooks?.PreToolUse?.map((e) => e.hooks[0]?.command)).toEqual([
+      existing.hooks.PreToolUse[0]?.hooks[0]?.command,
+      compiled.PreToolUse[0]?.hooks[0]?.command,
+    ]);
+  });
+
   // The over-match that ACTUALLY threatens this change: `$CLAUDE_PROJECT_DIR` is
   // stripped because it IS the project root by definition. Any OTHER variable
   // names an unknown location — a sibling checkout, a plugin dir — and treating

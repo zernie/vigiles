@@ -13,9 +13,9 @@ import { compileClaude } from "./compile.js";
 
 /** Compile an adopted file the way `vigiles init` does, returning the markdown
  *  + errors. Pure (sections-only specs touch no linter/fs). */
-function recompile(markdown: string, target = "CLAUDE.md") {
+async function recompile(markdown: string, target = "CLAUDE.md") {
   const spec = adoptToSpec(markdown, target);
-  return compileClaude(
+  return await compileClaude(
     {
       _specType: "claude",
       target: spec.target,
@@ -125,7 +125,7 @@ Be nice.
     expect(spec.sections["Rules"]).toBe("Be nice.");
   });
 
-  it("round-trips a nested-fence file through compile with zero drift", () => {
+  it("round-trips a nested-fence file through compile with zero drift", async () => {
     const md = `# CLAUDE.md
 
 ## Setup
@@ -140,7 +140,7 @@ To open a code block, type:
 
 Be nice.
 `;
-    const { markdown, errors } = recompile(md);
+    const { markdown, errors } = await recompile(md);
     expect(errors).toEqual([]);
     // The exact source of the outer block is reproduced (no blank lines injected
     // around the in-block `##`, which the mis-split used to do).
@@ -249,7 +249,7 @@ describe("adoptMarkdown — generated source", () => {
 });
 
 describe("round-trip — compile(adopt(file)) ≈ file", () => {
-  it("reproduces a clean structured file with no compile errors", () => {
+  it("reproduces a clean structured file with no compile errors", async () => {
     const md = `# CLAUDE.md
 
 ## Positioning
@@ -266,7 +266,7 @@ What this project does and why.
 
 Use the structured logger, not console.log.
 `;
-    const out = recompile(md);
+    const out = await recompile(md);
     expect(out.errors).toEqual([]);
     expect(out.markdown).toContain("## Positioning");
     expect(out.markdown).toContain("What this project does and why.");
@@ -278,17 +278,17 @@ Use the structured logger, not console.log.
     expect(out.markdown).toContain("\n# CLAUDE.md\n");
   });
 
-  it("preserves backtick-heavy content verbatim through the round-trip", () => {
+  it("preserves backtick-heavy content verbatim through the round-trip", async () => {
     const md =
       "# CLAUDE.md\n\n## Commands\n\n- `npm run build` — compile\n- `npm test` — test\n";
-    const out = recompile(md);
+    const out = await recompile(md);
     expect(out.errors).toEqual([]);
     expect(out.markdown).toContain("- `npm run build` — compile");
     expect(out.markdown).toContain("- `npm test` — test");
   });
 
-  it("reproduces a raw-tier (heading-less) file under Overview, no errors", () => {
-    const out = recompile(
+  it("reproduces a raw-tier (heading-less) file under Overview, no errors", async () => {
+    const out = await recompile(
       "Plain agent instructions.\n\nDo the thing.\n",
       "AGENTS.md",
     );

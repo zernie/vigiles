@@ -33,8 +33,8 @@ test("experimental_agent() sets the spec type", () => {
   assert.equal(a.name, "reviewer");
 });
 
-test("compileAgent renders frontmatter (name/description/model/tools) + hash", () => {
-  const { markdown, errors } = compileAgent(
+test("compileAgent renders frontmatter (name/description/model/tools) + hash", async () => {
+  const { markdown, errors } = await compileAgent(
     experimental_agent({
       name: "reviewer",
       description: "Review a diff for correctness.",
@@ -70,10 +70,10 @@ test("compileAgent renders frontmatter (name/description/model/tools) + hash", (
   assert.match(markdown, /You are a careful code reviewer\./);
 });
 
-test("compileAgent renders color + disallowedTools (deny-side, no allowlist)", () => {
+test("compileAgent renders color + disallowedTools (deny-side, no allowlist)", async () => {
   // disallowedTools is the inherit-all-minus-a-few form — used INSTEAD of a `tools`
   // allowlist (with an allowlist it would be redundant), so no `tools` here.
-  const { markdown, errors } = compileAgent(
+  const { markdown, errors } = await compileAgent(
     experimental_agent({
       name: "broad-worker",
       description: "Does most things but never shells out.",
@@ -89,8 +89,8 @@ test("compileAgent renders color + disallowedTools (deny-side, no allowlist)", (
   assert.match(markdown, /\ndisallowedTools: Bash\n/);
 });
 
-test("compileAgent flags a disallowedTools entry that's a close typo (blocks nothing)", () => {
-  const { errors } = compileAgent(
+test("compileAgent flags a disallowedTools entry that's a close typo (blocks nothing)", async () => {
+  const { errors } = await compileAgent(
     experimental_agent({
       name: "x",
       description: "y",
@@ -105,8 +105,8 @@ test("compileAgent flags a disallowedTools entry that's a close typo (blocks not
   );
 });
 
-test("compileAgent: minimal agent omits model/tools and has no rules section", () => {
-  const { markdown, errors } = compileAgent(
+test("compileAgent: minimal agent omits model/tools and has no rules section", async () => {
+  const { markdown, errors } = await compileAgent(
     experimental_agent({
       name: "echo",
       description: "Echo things.",
@@ -120,8 +120,8 @@ test("compileAgent: minimal agent omits model/tools and has no rules section", (
   assert.doesNotMatch(markdown, /## Rules/);
 });
 
-test("compileAgent accepts built-in and MCP tools, flags unknown with a hint", () => {
-  const ok = compileAgent(
+test("compileAgent accepts built-in and MCP tools, flags unknown with a hint", async () => {
+  const ok = await compileAgent(
     experimental_agent({
       name: "a",
       description: "d",
@@ -133,7 +133,7 @@ test("compileAgent accepts built-in and MCP tools, flags unknown with a hint", (
   assert.deepEqual(ok.errors, []);
 
   // a near-miss → "did you mean", and a far token → no hint
-  const bad = compileAgent(
+  const bad = await compileAgent(
     experimental_agent({
       name: "a",
       description: "d",
@@ -150,8 +150,8 @@ test("compileAgent accepts built-in and MCP tools, flags unknown with a hint", (
   assert.ok(far && !/Did you mean/.test(far.message)); // no close match → no hint
 });
 
-test("compileAgent flags tools that are never available to a subagent", () => {
-  const { errors } = compileAgent(
+test("compileAgent flags tools that are never available to a subagent", async () => {
+  const { errors } = await compileAgent(
     experimental_agent({
       name: "a",
       description: "d",
@@ -170,11 +170,11 @@ test("compileAgent flags tools that are never available to a subagent", () => {
   );
 });
 
-test("compileAgent accepts Agent — the docs' own delegating example compiles", () => {
+test("compileAgent accepts Agent — the docs' own delegating example compiles", async () => {
   // `tools: Agent(worker, researcher), Read, Bash` ships in the vendor docs and
   // failed to compile until 2026-08-17, because vigiles had the 2.1.63 rename
   // backwards and treated the current name as never-available.
-  const { errors } = compileAgent(
+  const { errors } = await compileAgent(
     experimental_agent({
       name: "coordinator",
       description: "Coordinates work across specialized agents",
@@ -189,11 +189,11 @@ test("compileAgent accepts Agent — the docs' own delegating example compiles",
   );
 });
 
-test("compileAgent verifies body references against the filesystem", () => {
+test("compileAgent verifies body references against the filesystem", async () => {
   const dir = makeTmpDir("agent");
   try {
     writeFileSync(join(dir, "real.ts"), "export const x = 1;\n");
-    const ok = compileAgent(
+    const ok = await compileAgent(
       experimental_agent({
         name: "a",
         description: "d",
@@ -203,7 +203,7 @@ test("compileAgent verifies body references against the filesystem", () => {
     );
     assert.deepEqual(ok.errors, []);
 
-    const stale = compileAgent(
+    const stale = await compileAgent(
       experimental_agent({
         name: "a",
         description: "d",
@@ -217,8 +217,8 @@ test("compileAgent verifies body references against the filesystem", () => {
   }
 });
 
-test("compileAgent renders a Rules section the worker must follow", () => {
-  const { markdown, errors } = compileAgent(
+test("compileAgent renders a Rules section the worker must follow", async () => {
+  const { markdown, errors } = await compileAgent(
     experimental_agent({
       name: "a",
       description: "d",
@@ -244,8 +244,8 @@ test("compileAgent renders a Rules section the worker must follow", () => {
   );
 });
 
-test("compileAgent flags a bad spec filename", () => {
-  const notSpec = compileAgent(
+test("compileAgent flags a bad spec filename", async () => {
+  const notSpec = await compileAgent(
     experimental_agent({ name: "a", description: "d" }),
     {
       specFile: "agents/reviewer.md",
@@ -254,7 +254,7 @@ test("compileAgent flags a bad spec filename", () => {
   );
   assert.ok(notSpec.errors.some((e) => e.type === "spec-name-mismatch"));
 
-  const notMd = compileAgent(
+  const notMd = await compileAgent(
     experimental_agent({ name: "a", description: "d" }),
     {
       specFile: "reviewer.spec.ts",
@@ -264,7 +264,7 @@ test("compileAgent flags a bad spec filename", () => {
   assert.ok(notMd.errors.some((e) => e.type === "spec-name-mismatch"));
 });
 
-test("dogfood: a real OSS subagent as a spec, with the tool rail it shipped WITHOUT", () => {
+test("dogfood: a real OSS subagent as a spec, with the tool rail it shipped WITHOUT", async () => {
   // Reproduces the shape of wshobson's real `ui-visual-validator` subagent
   // (test/dogfood/wshobson-accessibility@.../agents/ui-visual-validator.md):
   // model: sonnet, a multi-`##`-section role contract, and — critically — it
@@ -290,7 +290,7 @@ test("dogfood: a real OSS subagent as a spec, with the tool rail it shipped WITH
     },
   });
 
-  const { markdown, errors } = compileAgent(reviewer, {
+  const { markdown, errors } = await compileAgent(reviewer, {
     specFile: "agents/ui-visual-validator.md.spec.ts",
     dialect: claudeCodeDialect,
   });
@@ -308,8 +308,8 @@ test("dogfood: a real OSS subagent as a spec, with the tool rail it shipped WITH
   );
 });
 
-test("compileAgent rejects a section that clashes with the rules field", () => {
-  const { errors } = compileAgent(
+test("compileAgent rejects a section that clashes with the rules field", async () => {
+  const { errors } = await compileAgent(
     experimental_agent({
       name: "a",
       description: "d",
@@ -320,10 +320,10 @@ test("compileAgent rejects a section that clashes with the rules field", () => {
   assert.ok(errors.some((e) => e.type === "reserved-section-key"));
 });
 
-test("compileAgent verifies refs inside sections", () => {
+test("compileAgent verifies refs inside sections", async () => {
   const dir = makeTmpDir("agent-sections");
   try {
-    const { errors } = compileAgent(
+    const { errors } = await compileAgent(
       experimental_agent({
         name: "a",
         description: "d",
@@ -339,7 +339,7 @@ test("compileAgent verifies refs inside sections", () => {
   }
 });
 
-test("adoptDiff round-trips a compiled agent (valid hash, no changes)", () => {
+test("adoptDiff round-trips a compiled agent (valid hash, no changes)", async () => {
   const dir = makeTmpDir("agent-adopt");
   try {
     const spec = experimental_agent({
@@ -348,13 +348,18 @@ test("adoptDiff round-trips a compiled agent (valid hash, no changes)", () => {
       tools: ["Read", "Grep"],
       body: "Review carefully.",
     });
-    const { markdown } = compileAgent(spec, {
+    const { markdown } = await compileAgent(spec, {
       basePath: dir,
       specFile: "agents/reviewer.md.spec.ts",
       dialect: claudeCodeDialect,
     });
     writeFileSync(join(dir, "agents-reviewer.md"), markdown);
-    const res = adoptDiff("agents-reviewer.md", spec, dir, claudeCodeDialect);
+    const res = await adoptDiff(
+      "agents-reviewer.md",
+      spec,
+      dir,
+      claudeCodeDialect,
+    );
     assert.equal(res.changed, false);
     assert.equal(res.hasHash, true);
   } finally {
@@ -366,8 +371,8 @@ test("adoptDiff round-trips a compiled agent (valid hash, no changes)", () => {
 // purity floor contract — compileAgent
 // ---------------------------------------------------------------------------
 
-test('purity: "pure" agent with read-only tools compiles clean', () => {
-  const { errors } = compileAgent(
+test('purity: "pure" agent with read-only tools compiles clean', async () => {
+  const { errors } = await compileAgent(
     experimental_agent({
       name: "analyzer",
       description: "Analyze code without mutating.",
@@ -380,8 +385,8 @@ test('purity: "pure" agent with read-only tools compiles clean', () => {
   assert.deepEqual(errors, []);
 });
 
-test('purity: "pure" agent with a side-effecting tool errors, naming the tool', () => {
-  const { errors } = compileAgent(
+test('purity: "pure" agent with a side-effecting tool errors, naming the tool', async () => {
+  const { errors } = await compileAgent(
     experimental_agent({
       name: "bad",
       description: "Tries to write.",
@@ -397,8 +402,8 @@ test('purity: "pure" agent with a side-effecting tool errors, naming the tool', 
   assert.match(pureErrors[0].message, /side-effecting/);
 });
 
-test('purity: "pure" agent with Bash errors', () => {
-  const { errors } = compileAgent(
+test('purity: "pure" agent with Bash errors', async () => {
+  const { errors } = await compileAgent(
     experimental_agent({
       name: "bad",
       description: "Runs bash.",
@@ -413,8 +418,8 @@ test('purity: "pure" agent with Bash errors', () => {
   assert.match(pureErrors[0].message, /"Bash"/);
 });
 
-test('purity: "pure" agent with an unknown/MCP tool errors', () => {
-  const { errors } = compileAgent(
+test('purity: "pure" agent with an unknown/MCP tool errors', async () => {
+  const { errors } = await compileAgent(
     experimental_agent({
       name: "bad",
       description: "Uses MCP.",
@@ -429,8 +434,8 @@ test('purity: "pure" agent with an unknown/MCP tool errors', () => {
   assert.match(pureErrors[0].message, /unknown effect class/);
 });
 
-test('purity: "pure" agent with wildcard tools errors', () => {
-  const { errors } = compileAgent(
+test('purity: "pure" agent with wildcard tools errors', async () => {
+  const { errors } = await compileAgent(
     experimental_agent({
       name: "bad",
       description: "Inherits all.",
@@ -445,8 +450,8 @@ test('purity: "pure" agent with wildcard tools errors', () => {
   assert.match(pureErrors[0].message, /inherits-all/);
 });
 
-test('purity: "pure" agent with NO tools list errors (absent = inherits-all)', () => {
-  const { errors } = compileAgent(
+test('purity: "pure" agent with NO tools list errors (absent = inherits-all)', async () => {
+  const { errors } = await compileAgent(
     experimental_agent({
       name: "bad",
       description: "Pure but no tools — inherits everything.",
@@ -460,9 +465,9 @@ test('purity: "pure" agent with NO tools list errors (absent = inherits-all)', (
   assert.match(pureErrors[0].message, /inherits-all/);
 });
 
-test('purity: "bounded" allows decidable side-effecting tools AND Bash (runtime-gated)', () => {
+test('purity: "bounded" allows decidable side-effecting tools AND Bash (runtime-gated)', async () => {
   // Write/Edit are fine in a bounded unit — effects confined to the boundary.
-  const ok = compileAgent(
+  const ok = await compileAgent(
     experimental_agent({
       name: "editor",
       description: "Edits within a boundary.",
@@ -480,7 +485,7 @@ test('purity: "bounded" allows decidable side-effecting tools AND Bash (runtime-
   // Bash is decidable at the COMMAND level (isReadOnlyBash), so a bounded unit
   // may declare it — the runtime `decidePurityGate` confines it (read-only Bash
   // allowed, mutating Bash denied), not compile.
-  const withBash = compileAgent(
+  const withBash = await compileAgent(
     experimental_agent({
       name: "editor2",
       description: "Observes via Bash.",
@@ -496,7 +501,7 @@ test('purity: "bounded" allows decidable side-effecting tools AND Bash (runtime-
   );
 
   // But MCP / unknown-effect tools stay barred at the bounded floor.
-  const bad = compileAgent(
+  const bad = await compileAgent(
     experimental_agent({
       name: "editor3",
       description: "Tries an MCP tool.",
@@ -510,8 +515,8 @@ test('purity: "bounded" allows decidable side-effecting tools AND Bash (runtime-
   assert.ok(boundedErrors.length > 0);
 });
 
-test("compileAgent emits a vigiles:purity marker the runtime gate reads", () => {
-  const { markdown } = compileAgent(
+test("compileAgent emits a vigiles:purity marker the runtime gate reads", async () => {
+  const { markdown } = await compileAgent(
     experimental_agent({
       name: "editor",
       description: "Edits within a boundary.",
@@ -524,7 +529,7 @@ test("compileAgent emits a vigiles:purity marker the runtime gate reads", () => 
   assert.match(markdown, /<!--\s*vigiles:purity:bounded\s*-->/);
 
   // dangerously-unrestricted maps to the neutral runtime level `unrestricted`.
-  const loud = compileAgent(
+  const loud = await compileAgent(
     experimental_agent({
       name: "writer",
       description: "Writes.",
@@ -537,16 +542,16 @@ test("compileAgent emits a vigiles:purity marker the runtime gate reads", () => 
   assert.match(loud.markdown, /<!--\s*vigiles:purity:unrestricted\s*-->/);
 
   // no purity declared → no marker.
-  const plain = compileAgent(
+  const plain = await compileAgent(
     experimental_agent({ name: "plain", description: "No floor.", body: "b" }),
     { specFile: "agents/plain.md.spec.ts", dialect: claudeCodeDialect },
   );
   assert.doesNotMatch(plain.markdown, /vigiles:purity/);
 });
 
-test('purity: "dangerously-unrestricted" / omitted + side-effecting tools compiles (no enforcement)', () => {
+test('purity: "dangerously-unrestricted" / omitted + side-effecting tools compiles (no enforcement)', async () => {
   // omitted
-  const omitted = compileAgent(
+  const omitted = await compileAgent(
     experimental_agent({
       name: "writer",
       description: "Writes files.",
@@ -561,7 +566,7 @@ test('purity: "dangerously-unrestricted" / omitted + side-effecting tools compil
   );
 
   // explicit escape hatch
-  const escaped = compileAgent(
+  const escaped = await compileAgent(
     experimental_agent({
       name: "writer2",
       description: "Writes files.",
@@ -581,8 +586,8 @@ test('purity: "dangerously-unrestricted" / omitted + side-effecting tools compil
 // purity floor contract — compileSkill
 // ---------------------------------------------------------------------------
 
-test('purity: "pure" skill with read-only tools compiles clean', () => {
-  const { errors } = compileSkill(
+test('purity: "pure" skill with read-only tools compiles clean', async () => {
+  const { errors } = await compileSkill(
     experimental_skill({
       name: "review",
       description: "Review code.",
@@ -598,8 +603,8 @@ test('purity: "pure" skill with read-only tools compiles clean', () => {
   );
 });
 
-test('purity: "pure" skill with a side-effecting tool errors', () => {
-  const { errors } = compileSkill(
+test('purity: "pure" skill with a side-effecting tool errors', async () => {
+  const { errors } = await compileSkill(
     experimental_skill({
       name: "bad",
       description: "Writes stuff.",
@@ -614,8 +619,8 @@ test('purity: "pure" skill with a side-effecting tool errors', () => {
   assert.match(pureErrors[0].message, /"Write"/);
 });
 
-test('purity: "pure" skill with no tools declared errors (absent = inherits-all)', () => {
-  const { errors } = compileSkill(
+test('purity: "pure" skill with no tools declared errors (absent = inherits-all)', async () => {
+  const { errors } = await compileSkill(
     experimental_skill({
       name: "noop",
       description: "Claims pure but inherits all tools.",
@@ -629,8 +634,8 @@ test('purity: "pure" skill with no tools declared errors (absent = inherits-all)
   assert.match(pureErrors[0].message, /inherits-all/);
 });
 
-test('purity: "pure" skill with wildcard tools errors', () => {
-  const { errors } = compileSkill(
+test('purity: "pure" skill with wildcard tools errors', async () => {
+  const { errors } = await compileSkill(
     experimental_skill({
       name: "bad",
       description: "Wildcard.",
@@ -645,8 +650,8 @@ test('purity: "pure" skill with wildcard tools errors', () => {
   assert.match(pureErrors[0].message, /inherits-all/);
 });
 
-test("experimental_effect() body compiles to <!-- vigiles:effect --> markers in an agent", () => {
-  const { markdown } = compileAgent(
+test("experimental_effect() body compiles to <!-- vigiles:effect --> markers in an agent", async () => {
+  const { markdown } = await compileAgent(
     experimental_agent({
       name: "releaser",
       description: "Cut a release.",
@@ -678,8 +683,8 @@ test("experimental_effect() body compiles to <!-- vigiles:effect --> markers in 
   );
 });
 
-test("experimental_effect() with a bad inner file ref reports stale-file error", () => {
-  const { errors } = compileAgent(
+test("experimental_effect() with a bad inner file ref reports stale-file error", async () => {
+  const { errors } = await compileAgent(
     experimental_agent({
       name: "releaser",
       description: "Cut a release.",
@@ -696,8 +701,8 @@ test("experimental_effect() with a bad inner file ref reports stale-file error",
   );
 });
 
-test("experimental_effect() in a SKILL is a compile error (subagent-only primitive)", () => {
-  const { errors } = compileSkill(
+test("experimental_effect() in a SKILL is a compile error (subagent-only primitive)", async () => {
+  const { errors } = await compileSkill(
     experimental_skill({
       name: "release",
       description: "Cut a release.",

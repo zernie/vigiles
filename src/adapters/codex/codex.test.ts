@@ -40,10 +40,10 @@ test("codex is SHIPPED — registered in the public adapter registry", () => {
   assert.ok(ADAPTERS.some((a) => a.name === "codex"));
 });
 
-test("the compiler verifies a subagent tool contract under codexDialect", () => {
+test("the compiler verifies a subagent tool contract under codexDialect", async () => {
   // A Codex built-in passes; a Claude Code tool (Read) is flagged — proving the
   // SAME compiler validates against the injected Codex catalog.
-  const ok = compileAgent(
+  const ok = await compileAgent(
     experimental_agent({
       name: "w",
       description: "x",
@@ -54,7 +54,7 @@ test("the compiler verifies a subagent tool contract under codexDialect", () => 
   );
   assert.equal(ok.errors.filter((e) => e.type === "unknown-tool").length, 0);
 
-  const bad = compileAgent(
+  const bad = await compileAgent(
     experimental_agent({
       name: "w",
       description: "x",
