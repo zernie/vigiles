@@ -79,6 +79,18 @@ export interface Frame {
   bundle(abs: string): Bundle;
 }
 
+/**
+ * Node on Windows hands out `C:\\repo`, and `../posix-path.js` recognises only a leading `/`
+ * as absolute. The frame works in `/`-separated form, so every path entering it passes here:
+ * backslashes become `/`, and a drive-letter path (`C:/…`) counts as absolute.
+ */
+function slashed(p: string): string {
+  return p.replaceAll("\\", "/");
+}
+function isAbs(p: string): boolean {
+  return isAbsolute(p) || /^[A-Za-z]:\//.test(p);
+}
+
 /** `rel` is `abs`'s position below `root` when it does not climb out. */
 function isBelow(rel: string): boolean {
   return rel === "" || (rel !== ".." && !rel.startsWith("../"));
@@ -97,28 +109,32 @@ function isBelow(rel: string): boolean {
  * `exclude`, `sharedDirs` and every printed path agree on one root.
  */
 export function frameFor(cwd: string, target: string): Frame {
-  return frameAt(isBelow(relative(cwd, target)) ? cwd : target);
+  return frameAt(
+    isBelow(relative(slashed(cwd), slashed(target))) ? cwd : target,
+  );
 }
 
 /** The frame rooted at an absolute directory. */
 export function frameAt(root: string): Frame {
-  const repo = (abs: string): RepoPath => {
-    if (!isAbsolute(abs))
+  const base = normalize(slashed(root));
+  const repo = (raw: string): RepoPath => {
+    const abs = slashed(raw);
+    if (!isAbs(abs))
       throw new Error(
-        `frame.repo() takes an absolute path, got "${abs}" — a relative string has no frame to convert from`,
+        `frame.repo() takes an absolute path, got "${raw}" — a relative string has no frame to convert from`,
       );
-    return (relative(root, abs) || ".") as RepoPath;
+    return (relative(base, abs) || ".") as RepoPath;
   };
-  const bundle = (abs: string): Bundle => {
-    const dir = normalize(abs);
+  const bundle = (raw: string): Bundle => {
+    const dir = normalize(slashed(raw));
     const path = (p: BundlePath): RepoPath => repo(join(dir, p));
     return {
       abs: dir,
       at: repo(dir),
       path,
       // The ONE place a plain string is taken to be bundle-relative.
-      scanned: (p) => (isAbsolute(p) ? repo(p) : path(p as BundlePath)),
+      scanned: (p) => (isAbs(slashed(p)) ? repo(p) : path(p as BundlePath)),
     };
   };
-  return { root: normalize(root), repo, bundle };
+  return { root: base, repo, bundle };
 }

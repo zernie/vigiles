@@ -77,3 +77,38 @@ describe("frameFor — which directory is the root", () => {
 // @ts-expect-error — a bundle-relative string has no frame and must not pass.
 const forged: RepoPath = "skills/x/SKILL.md";
 void forged;
+
+describe("frame — Windows paths (Node hands out `C:\\repo` there)", () => {
+  it("converts a backslashed absolute path into a `/`-separated RepoPath", () => {
+    const frame = frameAt("C:\\repo");
+    assert.equal(
+      frame.repo("C:\\repo\\plugins\\p\\skills\\x\\SKILL.md"),
+      "plugins/p/skills/x/SKILL.md",
+    );
+    assert.equal(frame.repo("C:\\repo"), ".");
+  });
+
+  it("builds a nested bundle and re-expresses its scan paths from the root", () => {
+    const bundle = frameAt("C:\\repo").bundle("C:\\repo\\plugins\\p");
+    assert.equal(bundle.at, "plugins/p");
+    assert.equal(
+      bundle.scanned("skills/x/SKILL.md"),
+      "plugins/p/skills/x/SKILL.md",
+    );
+    assert.equal(
+      bundle.scanned("C:\\repo\\plugins\\p\\hooks\\h.sh"),
+      "plugins/p/hooks/h.sh",
+    );
+  });
+
+  it("still refuses a relative path", () => {
+    assert.throws(
+      () => frameAt("C:\\repo").repo("plugins\\p"),
+      /absolute path/,
+    );
+  });
+
+  it("keeps a target below cwd in cwd's frame", () => {
+    assert.equal(frameFor("C:\\repo", "C:\\repo\\plugins\\p").root, "C:/repo");
+  });
+});

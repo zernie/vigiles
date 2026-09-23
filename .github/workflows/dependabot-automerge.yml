@@ -54,6 +54,10 @@ jobs:
           # 🔴 The number comes FROM THE EVENT, not from a search by branch name. A search would find the PR
           # but would not prove the green run belongs to it.
           PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          # 🔴 The SHA the green run tested. If the bot pushes to the PR between that run and this
+          # step, merging by number alone would land the new, untested head;
+          # `--match-head-commit` makes that case fail instead.
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           # An empty number is NOT "nothing to do": fork PRs come with an empty array, and
@@ -62,5 +66,5 @@ jobs:
             echo "::error::CI run did not yield a PR number (fork?) — nothing merged, resolve manually"
             exit 1
           fi
-          gh pr merge "${PR}" --repo "${REPO}" --squash --delete-branch
+          gh pr merge "${PR}" --repo "${REPO}" --squash --delete-branch --match-head-commit "${HEAD_SHA}"
           echo "merged PR #${PR} on green CI run ${RUN_ID}"
