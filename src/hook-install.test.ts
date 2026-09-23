@@ -11,6 +11,7 @@ import {
   normalizeHookRef,
   serializeConfig,
   discoverHookFiles,
+  discoverProviderFiles,
 } from "./hook-install.js";
 import {
   mkdtempSync,
@@ -448,6 +449,46 @@ describe("normalizeHookRef", () => {
 });
 
 describe("discoverHookFiles", () => {
+  it.each(["mjs", "cjs", "js", "mts", "cts", "ts"])(
+    "excludes colocated harness and test companions with .%s extension",
+    (ext) => {
+      const dir = mkdtempSync(join(tmpdir(), "vig-companions-"));
+      const sources = [
+        `gate.${ext}`,
+        `gate.hook.${ext}`,
+        `harness-check.${ext}`,
+        `test-tier-nudge.hook.${ext}`,
+        `gate.harness.helper.${ext}`,
+        `gate.test.helper.${ext}`,
+      ];
+      try {
+        for (const sourceDir of [".vigiles/hooks", ".vigiles/providers"]) {
+          mkdirSync(join(dir, sourceDir), { recursive: true });
+          for (const file of [
+            ...sources,
+            `gate.harness.${ext}`,
+            `gate.test.${ext}`,
+            `gate.hook.test.${ext}`,
+            "gate.d.ts",
+            "gate.mjs.json",
+          ]) {
+            writeFileSync(join(dir, sourceDir, file), "");
+          }
+        }
+
+        const found = [discoverHookFiles(dir), discoverProviderFiles(dir)];
+
+        expect(found).toEqual(
+          [".vigiles/hooks", ".vigiles/providers"].map((sourceDir) =>
+            [...sources].sort().map((file) => join(sourceDir, file)),
+          ),
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("finds JS/TS sources under .vigiles/hooks, excludes stamps", () => {
     const dir = mkdtempSync(join(tmpdir(), "vig-hooks-"));
     try {

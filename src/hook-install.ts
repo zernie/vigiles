@@ -45,7 +45,12 @@ function discoverSources(cwd: string, dir: string): string[] {
   const abs = join(cwd, dir);
   if (!existsSync(abs)) return [];
   return readdirSync(abs)
-    .filter((f) => HOOK_SOURCE_RE.test(f) && !f.endsWith(".d.ts"))
+    .filter(
+      (f) =>
+        HOOK_SOURCE_RE.test(f) &&
+        !f.endsWith(".d.ts") &&
+        !/\.(?:harness|test)\.[^.]+$/.test(f),
+    )
     .sort()
     .map((f) => join(dir, f));
 }
