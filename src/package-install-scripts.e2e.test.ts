@@ -23,9 +23,11 @@
  * so a new dependency that brings one fails here the day it is added.
  *
  * 🔴 A MANAGER THAT DOES NOT LAUNCH IS A DECLARED SKIP, NEVER A PASS. Its test is skipped BY
- * NAME with the reason; under `CI=true` (or `VIGILES_INSTALL_E2E_STRICT=1`) it FAILS instead,
- * because there a missing manager is a broken environment, and "pnpm passed" must not print the
- * same as "pnpm was never tried" (the same cure `research-paper-pipeline`'s install-e2e uses).
+ * NAME with the reason; under `VIGILES_INSTALL_E2E_STRICT=1` it FAILS instead, because there a
+ * missing manager is a broken environment, and "pnpm passed" must not print the same as "pnpm was
+ * never tried" (the same cure `research-paper-pipeline`'s install-e2e uses). The switch is set by
+ * the one CI job that installs the managers (`e2e` in ci.yml), NOT keyed on `CI=true`: every job
+ * has `CI=true`, and the coverage job runs this file too, with no pnpm on PATH.
  * Yarn classic (1.x) is deliberately not in the matrix: it is not a supported manager.
  *
  * It needs the registry (it installs the tarball's real dependency tree), so it lives in the
@@ -47,8 +49,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 const ROOT = resolve(".");
-const STRICT =
-  process.env.CI === "true" || process.env.VIGILES_INSTALL_E2E_STRICT === "1";
+const STRICT = process.env.VIGILES_INSTALL_E2E_STRICT === "1";
 
 /** Can we reach the npm registry? `npm ping` asks the configured registry itself. */
 function registryReachable(): boolean {
@@ -148,8 +149,10 @@ describe.skipIf(!online)("the packed tarball, installed with defaults", () => {
     test(`${m.name}: installs with no flags, then checks .py and .ts references`, (ctx) => {
       if (!launches(m)) {
         const say = `NOT MEASURED: ${m.name} does not launch here — ${m.why}`;
-        // Under CI a missing manager fails: measuring the others alone must not look like a pass.
-        if (STRICT) assert.fail(`${say} (strict mode: CI=true)`);
+        // Where the managers are provisioned, a missing one fails: measuring the others alone
+        // must not look like a pass.
+        if (STRICT)
+          assert.fail(`${say} (strict mode: VIGILES_INSTALL_E2E_STRICT=1)`);
         ctx.skip(say);
         return;
       }

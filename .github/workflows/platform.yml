@@ -35,12 +35,14 @@ permissions:
 jobs:
   # Same test file as ci.yml's `e2e` job — pack the tarball, install it with npm, pnpm and yarn 4
   # at their defaults, check a .py and a .ts reference with the installed bin — inside
-  # node:22-alpine. CI=true (set by Actions) makes a manager that does not launch a failure, not a
-  # skip. Simulated locally in node:22-alpine 2026-09-23: all three cells green, 71 s end to end.
+  # node:22-alpine. VIGILES_INSTALL_E2E_STRICT=1 makes a manager that does not launch a failure,
+  # not a skip. Simulated locally in node:22-alpine 2026-09-23: all three cells green, 71 s end to end.
   alpine:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      VIGILES_INSTALL_E2E_STRICT: "1"
     container:
       image: node:22-alpine
     steps:
