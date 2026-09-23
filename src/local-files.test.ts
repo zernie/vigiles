@@ -49,6 +49,7 @@ import { pushActiveAgent } from "./adapters/claude-code/agent-runtime.js";
 import { setEffectActive } from "./adapters/claude-code/effect-region.js";
 import {
   formatTrackedLocalFiles,
+  committedIgnoreFileLacksEntries,
   trackedLocalFiles,
 } from "./local-files-tracked.js";
 
@@ -208,6 +209,9 @@ describe("through git", () => {
   for (const [label, content] of [
     ["a later !entry cancels the entry", "/coverage.json\n!/coverage.json\n"],
     ["a leading space makes a different pattern", " /coverage.json\n"],
+    // Second Codex pass: git re-includes on ANY matching negation, anchored or not.
+    ["an unanchored !entry cancels it", "/coverage.json\n!coverage.json\n"],
+    ["a wildcard negation cancels it", "/coverage.json\n!*.json\n"],
   ] as const) {
     test(`a hand-edited ignore file is repaired when ${label}`, () => {
       mkdirSync(vigilesDir(), { recursive: true });
@@ -222,6 +226,118 @@ describe("through git", () => {
       assert.ok(readFileSync(gitignore(), "utf-8").startsWith(content));
     });
   }
+
+  test("after an unrelated negation the repair happens once, then the file is left alone", () => {
+    // The price of treating ANY later negation as cancelling: one extra append.
+    // What must not happen is an append on every call.
+    mkdirSync(vigilesDir(), { recursive: true });
+    ensureLocalFilesIgnored(vigilesDir());
+    writeFileSync(
+      gitignore(),
+      readFileSync(gitignore(), "utf-8") + "!keep-me.json\n",
+    );
+    ensureLocalFilesIgnored(vigilesDir());
+    const once = readFileSync(gitignore(), "utf-8");
+    ensureLocalFilesIgnored(vigilesDir());
+    assert.equal(
+      readFileSync(gitignore(), "utf-8"),
+      once,
+      "second call changed the file",
+    );
+    writeFileSync(join(vigilesDir(), "coverage.json"), "{}\n");
+    assert.equal(
+      git("check-ignore", "-q", `${VIGILES_DIR}/coverage.json`).status,
+      0,
+    );
+  });
+
+  test("a TRACKED ignore file is reported while its COMMITTED copy lacks vigiles' entries", () => {
+    // Asked of HEAD, not of the worktree (Codex review on #275, third pass):
+    // "modified" could not tell vigiles' additions from the owner's own edit.
+    const commit = (msg: string): void => {
+      git("add", "-f", `${VIGILES_DIR}/.gitignore`);
+      git(
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "-m",
+        msg,
+      );
+    };
+    mkdirSync(vigilesDir(), { recursive: true });
+    writeFileSync(gitignore(), "# our own rules\n");
+    commit("own rules");
+    assert.equal(committedIgnoreFileLacksEntries(dir), true, "HEAD lacks them");
+    ensureLocalFilesIgnored(vigilesDir());
+    git("add", "-f", `${VIGILES_DIR}/.gitignore`);
+    assert.equal(
+      committedIgnoreFileLacksEntries(dir),
+      true,
+      "staged is not committed",
+    );
+    assert.match(
+      formatTrackedLocalFiles([], true) ?? "",
+      /\.vigiles\/\.gitignore is tracked by git.*committed version lacks/,
+    );
+    commit("vigiles entries");
+    assert.equal(
+      committedIgnoreFileLacksEntries(dir),
+      false,
+      "committed once, silent after",
+    );
+    // The owner's own unrelated edit, staged or not, is not vigiles' to report.
+    writeFileSync(
+      gitignore(),
+      readFileSync(gitignore(), "utf-8") + "/scratch.txt\n",
+    );
+    assert.equal(
+      committedIgnoreFileLacksEntries(dir),
+      false,
+      "owner edit, unstaged",
+    );
+    git("add", "-f", `${VIGILES_DIR}/.gitignore`);
+    assert.equal(
+      committedIgnoreFileLacksEntries(dir),
+      false,
+      "owner edit, staged",
+    );
+  });
+
+  test("a package nested in a larger worktree reads ITS OWN committed ignore file", () => {
+    // `HEAD:<path>` is root-relative; a package in a monorepo read the root's
+    // file, found none, and stayed silent (Codex review on #275).
+    const pkg = join(dir, "packages", "p");
+    mkdirSync(join(pkg, VIGILES_DIR), { recursive: true });
+    writeFileSync(join(pkg, VIGILES_DIR, ".gitignore"), "# our own rules\n");
+    git("add", "-f", `packages/p/${VIGILES_DIR}/.gitignore`);
+    git(
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "user.name=t",
+      "commit",
+      "-q",
+      "-m",
+      "pkg",
+    );
+    assert.equal(
+      committedIgnoreFileLacksEntries(pkg),
+      true,
+      "the package's own copy lacks them",
+    );
+  });
+
+  test("silent where it cannot tell: no HEAD, or the ignore file never committed", () => {
+    ensureLocalFilesIgnored(vigilesDir());
+    assert.equal(
+      committedIgnoreFileLacksEntries(dir),
+      false,
+      "fresh repo, no HEAD",
+    );
+  });
 
   test("committed .vigiles/ paths stay committable", () => {
     writeEveryLocalFile();

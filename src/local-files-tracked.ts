@@ -15,7 +15,15 @@
 import { spawnSync } from "node:child_process";
 import { posix } from "node:path";
 
-import { LOCAL_FILES, VIGILES_DIR } from "./local-files.js";
+import {
+  LOCAL_FILES,
+  LOCAL_GITIGNORE_FILE,
+  VIGILES_DIR,
+  entriesNotInEffect,
+} from "./local-files.js";
+
+/** `.vigiles/.gitignore`, repo-relative. */
+const IGNORE_FILE = posix.join(VIGILES_DIR, LOCAL_GITIGNORE_FILE);
 
 /**
  * The per-checkout files under `<root>/.vigiles/` that git tracks, as
@@ -39,6 +47,36 @@ export function trackedLocalFiles(root: string): string[] {
 }
 
 /**
+ * Does the COMMITTED `.vigiles/.gitignore` (the one at `HEAD`) lack entries
+ * vigiles needs — i.e. will vigiles' additions show up as a change to a tracked
+ * file until someone commits them.
+ *
+ * The question is asked of `HEAD`, not of the worktree's dirtiness, and that
+ * is the point (Codex review on #275, third pass). "The file is modified" was
+ * the earlier predicate; it could not tell vigiles' additions from the owner's
+ * own unrelated edit, and then advised committing work in progress. Reading the
+ * committed copy answers only for vigiles' entries, staged or not, and says
+ * nothing once they are committed, whatever else the owner is editing.
+ * `HEAD:./path`, not `HEAD:path`: without `./` git resolves the path from the
+ * REPOSITORY root, so a package nested in a larger worktree read the wrong file
+ * — or none — and stayed silent (Codex review on #275, gitrevisions(7)).
+ * Silent on every "cannot tell": not in a repo, no `HEAD`, file not committed.
+ */
+export function committedIgnoreFileLacksEntries(root: string): boolean {
+  try {
+    const r = spawnSync("git", ["show", `HEAD:./${IGNORE_FILE}`], {
+      cwd: root,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    if (r.status !== 0 || typeof r.stdout !== "string") return false;
+    return entriesNotInEffect(r.stdout).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The one-line warning for {@link trackedLocalFiles}, or `null` when there is
  * nothing to say. Files inside a tracked local DIRECTORY (`state/`,
  * `eval-cache/`) are named by that directory, so one line stays one line and the
@@ -46,23 +84,38 @@ export function trackedLocalFiles(root: string): string[] {
  */
 export function formatTrackedLocalFiles(
   tracked: readonly string[],
+  committedLacksEntries = false,
 ): string | null {
-  if (tracked.length === 0) return null;
-  // `.vigiles/state/.claude/hooks/x.json` → `.vigiles/state`: the list entry.
-  const entries = [
-    ...new Set(tracked.map((p) => p.split("/").slice(0, 2).join("/"))),
-  ];
-  const one = entries.length === 1;
-  return (
-    `⚠ ${entries.join(", ")} ${one ? "is" : "are"} tracked by git, but ` +
-    `${VIGILES_DIR}/ local files describe one checkout and would credit a ` +
-    `machine where nothing ran. .gitignore does not untrack a tracked file; ` +
-    `untrack ${one ? "it" : "them"} once: git rm -r --cached ${entries.join(" ")}`
-  );
+  const lines: string[] = [];
+  if (tracked.length > 0) {
+    // `.vigiles/state/.claude/hooks/x.json` → `.vigiles/state`: the list entry.
+    const entries = [
+      ...new Set(tracked.map((p) => p.split("/").slice(0, 2).join("/"))),
+    ];
+    const one = entries.length === 1;
+    lines.push(
+      `⚠ ${entries.join(", ")} ${one ? "is" : "are"} tracked by git, but ` +
+        `${VIGILES_DIR}/ local files describe one checkout and would credit a ` +
+        `machine where nothing ran. .gitignore does not untrack a tracked file; ` +
+        `untrack ${one ? "it" : "them"} once: git rm -r --cached ${entries.join(" ")}`,
+    );
+  }
+  // Not "untrack it": the repo may keep its own rules there, and untracking
+  // would take them away from everyone else.
+  if (committedLacksEntries)
+    lines.push(
+      `⚠ ${IGNORE_FILE} is tracked by git and its committed version lacks ` +
+        `vigiles' local-file entries, which vigiles adds to your copy. Commit ` +
+        `those lines once; entries are appended only when missing.`,
+    );
+  return lines.length > 0 ? lines.join("\n") : null;
 }
 
 /** Print the warning for `root` to stderr when there is one. CLI-only. */
 export function warnTrackedLocalFiles(root: string): void {
-  const line = formatTrackedLocalFiles(trackedLocalFiles(root));
+  const line = formatTrackedLocalFiles(
+    trackedLocalFiles(root),
+    committedIgnoreFileLacksEntries(root),
+  );
   if (line) process.stderr.write(line + "\n");
 }

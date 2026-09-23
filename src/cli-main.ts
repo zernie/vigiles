@@ -107,6 +107,7 @@ import type { ModelAccess } from "./core/live-driver.js";
 import { buildInstallReader } from "./core/install-reader.js";
 import { addVigilesDeclaration } from "./plugin-declaration.js";
 import { warnTrackedLocalFiles } from "./local-files-tracked.js";
+import { VIGILES_DIR, ensureLocalFilesIgnored } from "./local-files.js";
 import {
   probePluginTriggers,
   formatBehavioralReport,
@@ -287,7 +288,7 @@ import {
   anyFailed,
   scriptGlob,
   decideRunScripts,
-  SKIP_EXIT_CODE,
+  loadFailed,
   type ScriptRunResult,
 } from "./adapters/claude-code/run-scripts.js";
 import {
@@ -6400,6 +6401,20 @@ async function handleRunScripts(
   excludes: ExcludeSet,
 ): Promise<void> {
   const cwd = process.cwd();
+  // The ignore file keeps NEW copies of `.vigiles/` local files out of git, but
+  // cannot untrack one a repo already committed. Said here, on the CLI, because
+  // it spawns `git` — never from a hook runtime — and said FIRST, before any
+  // early return: a repo whose harness was removed still carries the stale
+  // committed artifact, and "no files found" must not swallow the warning
+  // (Codex review on #274).
+  //
+  // The ignore file is brought up to date FIRST, and only where `.vigiles/`
+  // already exists: the writers below would otherwise make their edit after the
+  // check, so a tracked ignore file dirtied by this very run went unreported on
+  // the one run a user may ever do (Codex review on #275).
+  const vigilesDir = join(cwd, VIGILES_DIR);
+  if (existsSync(vigilesDir)) ensureLocalFilesIgnored(vigilesDir);
+  warnTrackedLocalFiles(cwd);
   // Harness/eval scripts may be authored in JS or TS (see run-scripts.ts).
   const defaultGlob = scriptGlob(kind === "test" ? "harness" : "eval");
 
@@ -6422,9 +6437,13 @@ async function handleRunScripts(
     excludes.ignore,
   );
 
-  // `--min=N`: a CI gate asserts at least N scripts actually RAN — so a bad path,
-  // a renamed file, or a glob that matched nothing fails LOUD instead of passing
-  // green with zero evals executed. Default 0 (off) keeps local runs ergonomic.
+  // `--min=N`: a CI gate asserts at least N scripts actually LOADED — so a bad
+  // path, a renamed file, a glob that matched nothing, or a file that matched and
+  // never linked fails LOUD instead of passing green with nothing executed.
+  // Checked twice: here against files MATCHED (cheap, before anything runs), and
+  // after the run against scripts that LOADED — a matched file that could not be
+  // evaluated is not a script that ran (#243). A declared skip (exit 77) did
+  // load, so it counts. Default 0 (off) keeps local runs ergonomic.
   const minFlag = args.find((a) => a.startsWith("--min="));
   const minRequired = minFlag
     ? Math.max(0, Number.parseInt(minFlag.split("=")[1] ?? "", 10) || 0)
@@ -6545,11 +6564,16 @@ async function handleRunScripts(
   // a flag: the run already happened, and this is the runner recording what it
   // saw — the same shape as the flight-recorder ledger it already appends to.
   recordRunCoverage(cwd, results, kind, harnessFlagFrom(args));
-  // The ignore file keeps NEW copies of `.vigiles/` local files out of git, but
-  // cannot untrack one a repo already committed. Said here, on the CLI, because
-  // it spawns `git` — never from a hook runtime.
-  warnTrackedLocalFiles(cwd);
   console.log("\n" + formatScriptSummary(results));
+
+  const loadedCount = results.filter((r) => !loadFailed(r)).length;
+  const belowFloor = loadedCount < minRequired;
+  if (belowFloor) {
+    console.error(
+      `\n✗ vigiles ${kind}: --min=${String(minRequired)} but only ${String(loadedCount)} of ` +
+        `${String(files.length)} matched ${kind} file(s) loaded.`,
+    );
+  }
 
   if (anyFailed(results)) process.exit(1);
 
@@ -6558,22 +6582,23 @@ async function handleRunScripts(
   // the runtime could not evaluate exits with whatever the loader gave it, 1 in
   // practice. Both are classified `"skip"` so that neither RETRACTS coverage —
   // which is right, a file that did not run proved nothing either way — but only
-  // the declared one is a reason to stay green.
+  // the declared one is a reason to stay green. Which is which is decided by the
+  // runner's load hook (a marker import that evaluates only once the module
+  // graph linked), not by reading the child's output — see `statusFor`.
   //
   // Reported as #243: `vigiles test .` printed a resolver stack over a `⊘`, said
   // `0 passed, 1 skipped`, and exited 0. Downstream a consumer's README shipped
   // that exact command as its first setup step, so a new reader's suite silently
   // never ran. `--no-skip` would have caught it and is not the default; `--min=1`
-  // does not, because it counts files MATCHED, not scripts executed.
+  // did not either, because it counted files MATCHED — it now also counts the
+  // scripts that loaded (above).
   //
   // This is deliberately NOT a fifth `ScriptStatus`. Coverage retraction reads the
   // status as a bare STRING (`executedScripts`, `coverage-artifact.ts`, whose
   // parameter is typed `string`), so a new member would start retracting silently
   // with no type error — breaking the one property the classification exists to
   // protect.
-  const notEvaluated = results.filter(
-    (r) => r.status === "skip" && r.code !== SKIP_EXIT_CODE,
-  );
+  const notEvaluated = results.filter(loadFailed);
   if (notEvaluated.length > 0) {
     console.error(
       `\n✗ vigiles ${kind}: ${String(notEvaluated.length)} script(s) never ran — the runtime could not load them:\n` +
@@ -6586,6 +6611,7 @@ async function handleRunScripts(
     );
     process.exit(1);
   }
+  if (belowFloor) process.exit(1);
 
   // `--no-skip`: in a context that ASSERTS the capability is present (a CI job),
   // a skipped tier is untested surface — fail loudly instead of passing green.

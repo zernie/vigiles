@@ -68,6 +68,16 @@ Unit-tier `runHook` tests need no `claude` and always run. A skip passes by
 default; in a CI job that **asserts** the capability is present, add `--no-skip`
 so a skipped tier **fails** (a green-with-skips is untested surface).
 
+**A script that never loaded is not a skip you declared.** If a script's imports
+cannot be found or linked (a missing package, a missing named export, a syntax
+error), the run **fails** with "never ran — the runtime could not load them", but
+that script's previous coverage is kept: it proved nothing either way. The runner
+decides this from Node's module link phase, not from what the script printed, so
+a harness that prints a loader error as evidence and then fails an assertion is a
+plain failure. A CommonJS script cannot be marked this way, so any non-zero exit
+from one is a failure. `--min=N` counts scripts that **loaded** (a declared skip
+counts; a file that matched and never loaded does not).
+
 **A file that verified nothing says so: `∅ … 0 CHECKS`.** Exit codes answer "did
 it fail?", never "did it do anything?", so a script that ran NOTHING used to print
 the same `✓` as one that ran and passed — the classic shape being a file that
