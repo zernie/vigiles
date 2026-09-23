@@ -118,7 +118,7 @@ jobs:
     steps:
       # `push` ONLY — see the cost note above. Default depth is fine: the action
       # fetches what it needs on top of it (`initial-fetch-depth`, default 100).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: github.event_name == 'push'
 
       - uses: dorny/paths-filter@v4.0.3
@@ -179,14 +179,14 @@ jobs:
       CHECKSTYLE_VERSION: "13.8.0" # 13.x requires JDK >= 17
       GOLANGCI_LINT_VERSION: "2.12.2"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: "npm"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
@@ -196,25 +196,25 @@ jobs:
 
       # One JDK serves detekt + ktlint + checkstyle. Temurin 21 is preinstalled
       # on ubuntu-24.04 runners, so this is env setup (~seconds), not a download.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: "temurin"
           java-version: "21"
 
       - name: Cache pip packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: pip-${{ runner.os }}-ruff-pylint
 
       - name: Cache gem packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.local/share/gem
           key: gem-${{ runner.os }}-rubocop
 
       - name: Cache JVM/Go linter tools
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.vigiles-linter-tools
           key: linter-tools-${{ runner.os }}-detekt${{ env.DETEKT_VERSION }}-ktlint${{ env.KTLINT_VERSION }}-checkstyle${{ env.CHECKSTYLE_VERSION }}-golangci${{ env.GOLANGCI_LINT_VERSION }}
@@ -413,11 +413,11 @@ jobs:
     steps:
       # fetch-depth: 0 so the dogfooded action's capability-diff can reach the
       # PR base commit (it materializes it as a detached worktree).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
 
@@ -508,9 +508,9 @@ jobs:
     # measured 45s.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: "npm"
@@ -549,9 +549,9 @@ jobs:
     # measured 3m35s.
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: "npm"
@@ -582,7 +582,7 @@ jobs:
       # job bond cannot distinguish "this step wedged" from "the suite is slow".
       - name: Cache the Playwright browser
         id: pw-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           # Keyed on the resolved Playwright version: a bump must miss the cache,
@@ -626,7 +626,7 @@ jobs:
       image: node:20-bookworm
       options: --privileged --device /dev/net/tun
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # src/package-install-scripts.e2e.test.ts installs the packed tarball with npm, pnpm and
       # yarn 4 (corepack, default Plug'n'Play) and, with VIGILES_INSTALL_E2E_STRICT=1 (set on this
       # job only), FAILS when a manager does not launch — a skipped pnpm must never read as a
@@ -635,7 +635,7 @@ jobs:
       # The image has npm and a bundled corepack but no pnpm, so both are provided here, pinned.
       # Same Node as harness-tier below, so its setup-node resolves the same toolcache directory
       # and these global installs stay first on PATH.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
       - name: Install pnpm 12.5.1 and corepack 0.34.6 for the packaging e2e
