@@ -86,9 +86,8 @@ jobs:
     # kill every check on the default branch.
     #
     # ⚠️ AND IT SITS ON BOTH UNCONDITIONAL JOBS. `changes` and `check` are the only
-    # two with no `needs:` besides `package-alpine`, which carries the same draft
-    # gate; `test`, `harness`, `site` and `e2e` gate on `changes` outputs and skip
-    # with it. Putting this on `changes` alone leaves `check` running, so
+    # two with no `needs:`; `test`, `harness` and `site` gate on `changes` outputs
+    # and skip with it. Putting this on `changes` alone leaves `check` running, so
     # the draft would be cheaper rather than free — a half-applied gate that looks
     # applied.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -400,9 +399,8 @@ jobs:
     # kill every check on the default branch.
     #
     # ⚠️ AND IT SITS ON BOTH UNCONDITIONAL JOBS. `changes` and `check` are the only
-    # two with no `needs:` besides `package-alpine`, which carries the same draft
-    # gate; `test`, `harness`, `site` and `e2e` gate on `changes` outputs and skip
-    # with it. Putting this on `changes` alone leaves `check` running, so
+    # two with no `needs:`; `test`, `harness` and `site` gate on `changes` outputs
+    # and skip with it. Putting this on `changes` alone leaves `check` running, so
     # the draft would be cheaper rather than free — a half-applied gate that looks
     # applied.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -647,38 +645,3 @@ jobs:
       - uses: ./.github/actions/harness-tier
         with:
           tier: e2e
-
-  # 🔴 RUNS WHEN THE PR IS READY FOR REVIEW, so a platform failure blocks the merge instead of
-  # showing up on main afterwards; drafts pay nothing, as everywhere in this workflow. NOT on
-  # push to main — that would pay twice for the same commit and only report after the fact.
-  # ⏳ INTERIM trigger (2026-09-23): the non-draft gate, kept on ONE line so it is easy to swap;
-  # merge-queue / a shared `ready-to-merge` label are under review.
-  #
-  # The Alpine / musl cell of the packaging e2e (#257). Same test file as the e2e job above —
-  # pack the tarball, install it with npm, pnpm and yarn 4 at their defaults, check a .py and a
-  # .ts reference with the installed bin — on a libc where a native prebuild is the thing most
-  # likely to be missing. CI=true makes a manager that does not launch a failure, not a skip.
-  # Simulated locally in node:22-alpine 2026-09-23: all three cells green, 81 s end to end
-  # (managers 6 s, npm ci 19 s, build 22 s, test 34 s).
-  package-alpine:
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    container:
-      image: node:22-alpine
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install pnpm 12.5.1 (corepack) and fetch yarn 4
-        env:
-          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
-        run: |
-          corepack enable pnpm
-          corepack install -g pnpm@12.5.1
-          pnpm --version
-          corepack yarn@4 --version
-      - run: npm ci
-      - run: npm run build
-      - name: Packaging e2e on musl (npm, pnpm, yarn 4)
-        env:
-          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
-        run: npx vitest run --project e2e src/package-install-scripts.e2e.test.ts

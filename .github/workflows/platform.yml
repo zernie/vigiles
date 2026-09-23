@@ -1,0 +1,61 @@
+# Platform cells: the packaging e2e again on another libc (Alpine / musl), where a native prebuild
+# is the thing most likely to be missing. Moved out of ci.yml (#257).
+#
+# 🔴 WHEN IT RUNS — ONCE, WHEN A PULL REQUEST IS OFFERED FOR MERGE. The trigger list is `opened` +
+# `ready_for_review` and deliberately NOT `synchronize`. A draft pays nothing; marking it ready
+# runs this once. A push AFTER that leaves the new head commit without this check, and the branch
+# ruleset requires it on the latest commit ("Checks from earlier commits don't satisfy the
+# requirement"), so the PR is blocked until the check is re-run on purpose: `workflow_dispatch` on
+# the branch, or draft → ready again.
+#
+# 🔴 WHY NOT A LABEL. A label stays on the PR, so a `labeled` trigger re-fires on every later push;
+# and any OTHER label fires `labeled` too, the job's `if:` skips, a skipped job reports Success,
+# and a required check is satisfied with the platform never run. `ready_for_review` fires once per
+# transition and cannot produce a green by skipping.
+#
+# There is no merge queue to hang this on: merge queues exist only for organization-owned
+# repositories, and this one belongs to a personal account.
+#
+# The job name `alpine` is load-bearing: it is the check name the branch ruleset requires.
+name: platform
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: platform-${{ github.event.pull_request.number || github.ref }}
+  # A cancelled run is a failed check, so cancelling still blocks the merge; it only saves minutes.
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Same test file as ci.yml's `e2e` job — pack the tarball, install it with npm, pnpm and yarn 4
+  # at their defaults, check a .py and a .ts reference with the installed bin — inside
+  # node:22-alpine. CI=true (set by Actions) makes a manager that does not launch a failure, not a
+  # skip. Simulated locally in node:22-alpine 2026-09-23: all three cells green, 71 s end to end.
+  alpine:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: node:22-alpine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm 12.5.1 (corepack) and fetch yarn 4
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: |
+          corepack enable pnpm
+          corepack install -g pnpm@12.5.1
+          pnpm --version
+          corepack yarn@4 --version
+      - run: npm ci
+      - run: npm run build
+      - name: Packaging e2e on musl (npm, pnpm, yarn 4)
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: npx vitest run --project e2e src/package-install-scripts.e2e.test.ts
