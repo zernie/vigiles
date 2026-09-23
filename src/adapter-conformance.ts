@@ -10,8 +10,7 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 
 import type { HarnessAdapter } from "./core/adapter.js";
-import { compileAgent } from "./core/compile.js";
-import { experimental_agent } from "./core/spec.js";
+import { authoringIssues, verifyToolContract } from "./core/tool-contract.js";
 import { loadPlugin } from "./plugin-loader.js";
 import {
   dialectVocabularyProblems,
@@ -289,23 +288,18 @@ export function checkAdapterConformance(
     );
   }
 
-  // Behavioural: the dialect drives the compiler — its own built-in tool must
-  // pass the subagent tool-contract check under this dialect.
+  // Behavioural: the dialect drives the subagent tool-contract check — its own built-in tool
+  // must pass that check under this dialect. This calls the SAME validator `compileAgent` uses
+  // (`verifyToolContract` + `authoringIssues`) rather than `compileAgent` itself: the tool
+  // contract is what this line claims to check, and compiling a whole agent would tie this
+  // synchronous public kit to the compiler's (async) reference validation for nothing.
   const tool = adapter.dialect.builtinAgentTools[0];
   if (tool) {
-    const spec = experimental_agent({
-      name: "conformance",
-      description: "conformance probe",
-      tools: [tool],
-      body: "probe",
-    });
-    const r = compileAgent(spec, {
-      specFile: "conformance.md.spec.ts",
-      dialect: adapter.dialect,
-    });
+    const issues = authoringIssues(verifyToolContract([tool], adapter.dialect));
     need(
-      !r.errors.some((e) => e.type === "unknown-tool"),
-      `dialect rejects its own built-in tool "${tool}"`,
+      issues.length === 0,
+      `dialect rejects its own built-in tool "${tool}"` +
+        (issues.length ? `: ${issues.map((i) => i.message).join("; ")}` : ""),
     );
   }
 

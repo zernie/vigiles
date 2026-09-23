@@ -209,8 +209,8 @@ test("evaluateStopHook blocks when the result gate fails", () => {
 // parseSkillPurity + evaluateSkillPreToolUse — the skill purity gate
 // ---------------------------------------------------------------------------
 
-test("parseSkillPurity reads the vigiles:purity marker compileSkill emits", () => {
-  const { markdown } = compileSkill(
+test("parseSkillPurity reads the vigiles:purity marker compileSkill emits", async () => {
+  const { markdown } = await compileSkill(
     experimental_skill({
       name: "editor",
       description: "Edits within a boundary.",
@@ -223,8 +223,8 @@ test("parseSkillPurity reads the vigiles:purity marker compileSkill emits", () =
   assert.equal(parseSkillPurity(markdown), "bounded");
 });
 
-test("parseSkillPurity returns null when no marker is present", () => {
-  const { markdown } = compileSkill(
+test("parseSkillPurity returns null when no marker is present", async () => {
+  const { markdown } = await compileSkill(
     experimental_skill({
       name: "reader",
       description: "Reads files.",
@@ -235,10 +235,10 @@ test("parseSkillPurity returns null when no marker is present", () => {
   assert.equal(parseSkillPurity(markdown), null);
 });
 
-test("evaluateSkillPreToolUse: bounded skill — Bash command-refined, Write allowed, Read allowed", () => {
+test("evaluateSkillPreToolUse: bounded skill — Bash command-refined, Write allowed, Read allowed", async () => {
   const dir = makeTmpDir("skill-purity");
   try {
-    const { markdown } = compileSkill(
+    const { markdown } = await compileSkill(
       experimental_skill({
         name: "editor",
         description: "Edits + observes via Bash.",
@@ -296,10 +296,10 @@ test("evaluateSkillPreToolUse allows when the active skill's .md is missing", ()
   }
 });
 
-test("evaluateSkillPreToolUse allows everything when skill declares no purity marker", () => {
+test("evaluateSkillPreToolUse allows everything when skill declares no purity marker", async () => {
   const dir = makeTmpDir("skill-purity-none-marker");
   try {
-    const { markdown } = compileSkill(
+    const { markdown } = await compileSkill(
       experimental_skill({
         name: "reader",
         description: "Reads files.",
@@ -327,9 +327,9 @@ test("evaluateSkillPreToolUse allows everything when skill declares no purity ma
 const CLI = resolve(__dirname, "..", "..", "..", "dist", "cli.js");
 
 /** Set up a temp project with a compiled bounded skill and mark it active. */
-function projectWithBoundedSkill(): string {
+async function projectWithBoundedSkill(): Promise<string> {
   const dir = makeTmpDir("skill-hook-cli");
-  const { markdown } = compileSkill(
+  const { markdown } = await compileSkill(
     experimental_skill({
       name: "editor",
       description: "Edits + observes.",
@@ -348,8 +348,8 @@ function projectWithBoundedSkill(): string {
   return dir;
 }
 
-test("skill-tool-hook CLI allows (exit 0) a read-only Bash command for a bounded skill", () => {
-  const dir = projectWithBoundedSkill();
+test("skill-tool-hook CLI allows (exit 0) a read-only Bash command for a bounded skill", async () => {
+  const dir = await projectWithBoundedSkill();
   try {
     const r = runHook(
       `node ${CLI} hook-runtime skill-tool`,
@@ -367,8 +367,8 @@ test("skill-tool-hook CLI allows (exit 0) a read-only Bash command for a bounded
   }
 });
 
-test("skill-tool-hook CLI blocks (exit 2) a mutating Bash command for a bounded skill", () => {
-  const dir = projectWithBoundedSkill();
+test("skill-tool-hook CLI blocks (exit 2) a mutating Bash command for a bounded skill", async () => {
+  const dir = await projectWithBoundedSkill();
   try {
     const r = runHook(
       `node ${CLI} hook-runtime skill-tool`,
@@ -405,8 +405,8 @@ test("skill-tool-hook CLI allows when no skill is active", () => {
   }
 });
 
-test("skill-tool-hook CLI allows on a malformed/empty event (no tool name)", () => {
-  const dir = projectWithBoundedSkill();
+test("skill-tool-hook CLI allows on a malformed/empty event (no tool name)", async () => {
+  const dir = await projectWithBoundedSkill();
   try {
     const r = runHook(`node ${CLI} hook-runtime skill-tool`, {}, { cwd: dir });
     assert.equal(r.blocked, false);

@@ -18,8 +18,8 @@ import { Lang } from "@ast-grep/napi";
 
 import { definedSymbols, langForFile, fileDefinesSymbol } from "./symbols.js";
 
-test("extracts functions, constants, classes and methods (TypeScript)", () => {
-  const defs = definedSymbols(
+test("extracts functions, constants, classes and methods (TypeScript)", async () => {
+  const defs = await definedSymbols(
     `export function parseConfig(x) { return x; }
 export const MAX = 3;
 export class Widget { render() {} }`,
@@ -34,8 +34,8 @@ export class Widget { render() {} }`,
   assert.ok((render?.line ?? 0) > 0); // 1-based line is populated
 });
 
-test("extracts Python defs including bare-assignment constants", () => {
-  const defs = definedSymbols(
+test("extracts Python defs including bare-assignment constants", async () => {
+  const defs = await definedSymbols(
     `def parse_config(x):\n    return x\nMAX = 3\nclass Widget:\n    def render(self):\n        pass`,
     "python",
   );
@@ -45,8 +45,8 @@ test("extracts Python defs including bare-assignment constants", () => {
   assert.equal(defs.find((d) => d.name === "render")?.scope, "Widget");
 });
 
-test("extracts Ruby class/method/constant", () => {
-  const defs = definedSymbols(
+test("extracts Ruby class/method/constant", async () => {
+  const defs = await definedSymbols(
     `class User\n  def full_name\n  end\nend\nMAX = 3`,
     "ruby",
   );
@@ -54,14 +54,17 @@ test("extracts Ruby class/method/constant", () => {
   assert.ok(defs.some((d) => d.name === "MAX"));
 });
 
-test("langForFile maps extensions and skips unsupported", () => {
+test("langForFile maps extensions and skips unsupported", async () => {
   // The WASM grammars ship as a regular dependency, so they load and read as ready.
-  assert.deepEqual(langForFile("a.py"), { kind: "ready", lang: "python" });
-  assert.deepEqual(langForFile("a.rs"), { kind: "ready", lang: "rust" });
-  assert.deepEqual(langForFile("a.rb"), { kind: "ready", lang: "ruby" });
-  assert.deepEqual(langForFile("a.txt"), { kind: "unsupported" });
-  assert.equal(langForFile("a.ts").kind, "ready");
-  assert.equal(langForFile("a.d.ts").kind, "ready");
+  assert.deepEqual(await langForFile("a.py"), {
+    kind: "ready",
+    lang: "python",
+  });
+  assert.deepEqual(await langForFile("a.rs"), { kind: "ready", lang: "rust" });
+  assert.deepEqual(await langForFile("a.rb"), { kind: "ready", lang: "ruby" });
+  assert.deepEqual(await langForFile("a.txt"), { kind: "unsupported" });
+  assert.equal((await langForFile("a.ts")).kind, "ready");
+  assert.equal((await langForFile("a.d.ts")).kind, "ready");
 });
 
 // 🔴 PARITY WITH THE NATIVE GRAMMARS (#257). Python/Ruby/Rust moved from `@ast-grep/lang-*`
@@ -75,17 +78,23 @@ const FIXTURES = resolve("src/core/__fixtures__/symbols");
 const golden = JSON.parse(
   readFileSync(join(FIXTURES, "golden.json"), "utf8"),
 ) as Record<"python" | "ruby" | "rust", string[]>;
-const flat = (file: string, lang: "python" | "ruby" | "rust"): string[] =>
-  definedSymbols(readFileSync(join(FIXTURES, file), "utf8"), lang)
+const flat = async (
+  file: string,
+  lang: "python" | "ruby" | "rust",
+): Promise<string[]> =>
+  (await definedSymbols(readFileSync(join(FIXTURES, file), "utf8"), lang))
     .map((d) => `${String(d.line)}:${d.kind}:${d.scope}:${d.name}`)
     .sort();
 
-test("Python definitions match the native grammar exactly", () => {
-  assert.deepEqual(flat("sample.py", "python"), [...golden.python].sort());
+test("Python definitions match the native grammar exactly", async () => {
+  assert.deepEqual(
+    await flat("sample.py", "python"),
+    [...golden.python].sort(),
+  );
 });
 
-test("Ruby definitions match the native grammar exactly", () => {
-  assert.deepEqual(flat("sample.rb", "ruby"), [...golden.ruby].sort());
+test("Ruby definitions match the native grammar exactly", async () => {
+  assert.deepEqual(await flat("sample.rb", "ruby"), [...golden.ruby].sort());
 });
 
 // Rust is NOT the same grammar: `lang-rust` was tree-sitter-rust 0.23.2, the WASM build is a 0.24
@@ -96,8 +105,8 @@ test("Ruby definitions match the native grammar exactly", () => {
 // "T: Clone", was never a name (the old walk took the text of a whole bound). On 584 files of
 // serde/regex/anyhow/tokio the diff was confined to these kinds, and the only names the old
 // code found and the new does not were four such bound texts ("E: Error", "U: ?Sized").
-test("Rust definitions match the native grammar except the pinned 0.24 generic-parameter delta", () => {
-  const now = flat("sample.rs", "rust");
+test("Rust definitions match the native grammar except the pinned 0.24 generic-parameter delta", async () => {
+  const now = await flat("sample.rs", "rust");
   const before = new Set(golden.rust);
   assert.deepEqual([...golden.rust].filter((x) => !now.includes(x)).sort(), [
     "46:constrained_type_parameter::T",
@@ -114,15 +123,19 @@ test("Rust definitions match the native grammar except the pinned 0.24 generic-p
   ]);
 });
 
-test("fileDefinesSymbol resolves real .py/.rb/.rs hits and misses", () => {
+test("fileDefinesSymbol resolves real .py/.rb/.rs hits and misses", async () => {
   for (const [file, hit] of [
     ["sample.py", "parse_config"],
     ["sample.rb", "full_name"],
     ["sample.rs", "parse_config"],
   ] as const) {
-    assert.equal(fileDefinesSymbol(join(FIXTURES, file), hit), true, file);
     assert.equal(
-      fileDefinesSymbol(join(FIXTURES, file), "no_such_symbol"),
+      await fileDefinesSymbol(join(FIXTURES, file), hit),
+      true,
+      file,
+    );
+    assert.equal(
+      await fileDefinesSymbol(join(FIXTURES, file), "no_such_symbol"),
       false,
       file,
     );
@@ -156,7 +169,7 @@ test("when the WASM runtime cannot load, .py/.rb/.rs say 'not checked: <error>' 
         `  return orig.call(this, req, ...rest);\n` +
         `};\n`,
     );
-    const probe = join(dir, "probe.ts");
+    const probe = join(dir, "probe.mts"); // .mts: the probe awaits at top level
     const md = ["py", "rb", "rs", "ts"]
       .flatMap((x) => [
         `- \`vigiles:symbol src/app.${x}#handler\``,
@@ -165,9 +178,11 @@ test("when the WASM runtime cannot load, .py/.rb/.rs say 'not checked: <error>' 
       .join("\n");
     writeFileSync(
       probe,
-      `import { verifySymbolRefs } from ${JSON.stringify(resolve("src/core/refs.ts"))};\n` +
-        `console.log(JSON.stringify(verifySymbolRefs(${JSON.stringify(md)}, ${JSON.stringify(dir)})\n` +
-        `  .map((e) => e.file + "#" + e.symbol + " :: " + e.reason)));\n`,
+      // refs.ts is CommonJS under tsx: from an ES module its exports arrive on `default`.
+      `import refs from ${JSON.stringify(resolve("src/core/refs.ts"))};\n` +
+        `const { verifySymbolRefs } = refs;\n` +
+        `const errors = await verifySymbolRefs(${JSON.stringify(md)}, ${JSON.stringify(dir)});\n` +
+        `console.log(JSON.stringify(errors.map((e) => e.file + "#" + e.symbol + " :: " + e.reason)));\n`,
     );
     const r = spawnSync(
       process.execPath,
@@ -213,7 +228,7 @@ test("when the WASM runtime cannot load, .py/.rb/.rs say 'not checked: <error>' 
   }
 });
 
-test("fileDefinesSymbol checks one named file (no project index)", () => {
+test("fileDefinesSymbol checks one named file (no project index)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "vigiles-sym-file-"));
   try {
     mkdirSync(join(dir, "src"));
@@ -222,15 +237,15 @@ test("fileDefinesSymbol checks one named file (no project index)", () => {
       f,
       "export function parseConfig(){}\nexport const MAX = 1;\n",
     );
-    assert.equal(fileDefinesSymbol(f, "parseConfig"), true);
-    assert.equal(fileDefinesSymbol(f, "MAX"), true);
-    assert.equal(fileDefinesSymbol(f, "missingSymbol"), false);
+    assert.equal(await fileDefinesSymbol(f, "parseConfig"), true);
+    assert.equal(await fileDefinesSymbol(f, "MAX"), true);
+    assert.equal(await fileDefinesSymbol(f, "missingSymbol"), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("fileDefinesSymbol falls back to a co-located .d.ts / .rbi", () => {
+test("fileDefinesSymbol falls back to a co-located .d.ts / .rbi", async () => {
   const dir = mkdtempSync(join(tmpdir(), "vigiles-sym-decl-"));
   try {
     mkdirSync(join(dir, "lib"));
@@ -242,10 +257,13 @@ test("fileDefinesSymbol falls back to a co-located .d.ts / .rbi", () => {
       "export function dynamicFn(): void;\n",
     );
     assert.equal(
-      fileDefinesSymbol(join(dir, "lib", "dyn.js"), "dynamicFn"),
+      await fileDefinesSymbol(join(dir, "lib", "dyn.js"), "dynamicFn"),
       true,
     );
-    assert.equal(fileDefinesSymbol(join(dir, "lib", "dyn.js"), "nope"), false);
+    assert.equal(
+      await fileDefinesSymbol(join(dir, "lib", "dyn.js"), "nope"),
+      false,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -2,7 +2,7 @@
  * Integrity-header tests — the hand-edit check plus the `eject` transform that
  * hands a compiled file back as plain, hand-owned markdown.
  */
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import {
   checkIntegrity,
   parseIntegrityHeader,
@@ -233,14 +233,19 @@ describe("input() refuses a non-string call", () => {
  * frontmatter-bearing artifacts before it was reverted.
  */
 describe("a compiled artifact is prettier-clean by construction", () => {
-  const compiled = compileSkill(
-    experimental_skill({
-      name: "fixture",
-      description: "One line, no surprises",
-      body: "Body line.",
-    }),
-    { basePath: process.cwd(), specFile: "SKILL.md.spec.ts", dialect },
-  );
+  // Compiling is async (the symbol check awaits WASM grammars), and a describe body must stay
+  // synchronous, so the artifact is produced in beforeAll.
+  let compiled!: Awaited<ReturnType<typeof compileSkill>>;
+  beforeAll(async () => {
+    compiled = await compileSkill(
+      experimental_skill({
+        name: "fixture",
+        description: "One line, no surprises",
+        body: "Body line.",
+      }),
+      { basePath: process.cwd(), specFile: "SKILL.md.spec.ts", dialect },
+    );
+  });
 
   it("compiles", () => {
     expect(compiled.errors).toEqual([]);

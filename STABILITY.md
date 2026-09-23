@@ -17,8 +17,10 @@ their exit codes. Most of the churn is in the library API underneath it.
   (`0` clean / `1` warn / `2` error). This is the narrowest, steadiest contract
   and the surface almost everyone touches — including the GitHub Action, which wraps it.
 - **The authoring + testing library entry points:**
-  - `vigiles/linting` — the compiler + reference verification
-    (`compileClaude`, `compileSkill`, …).
+  - `vigiles/linting` — what a spec author imports: the builders, the
+    verified-reference constructors and their types. **Not the compiler**:
+    `compileClaude`/`compileSkill`/`compileAgent`/`compileRailway` left the public
+    surface in the major that ships #257 — compile with the CLI (`vigiles compile`).
   - `vigiles/spec` — the core builders (`enforce`, `guidance`, `instructionFile`,
     `file`, `cmd`, `ref`, `dir`, `glob`, `prose`, `result`,
     `delegate`, `railway`). Skill authoring is **not** on this list — see
@@ -35,12 +37,21 @@ their exit codes. Most of the churn is in the library API underneath it.
     `paid_measureTriggerRate`, `paid_judge`, `paid_judged`,
     `paid_claudeEvalDriver`). Types are not prefixed.
   - `vigiles/claude-code`, `vigiles/codex` — the per-harness surfaces.
-  - `vigiles/adapter` — the adapter-authoring kit.
+  - `vigiles/adapter` — the adapter-authoring kit. This is a **deliberate
+    extension point**: third-party harness adapters are an intended use, so the
+    kit is public before a named external adapter exists.
 - **Compiled output contracts** — the `vigiles:sha256` integrity header and the
   emitted markdown/settings shapes a hook or spec compiles to.
 
 A breaking change to any of the above is signalled with a Conventional-Commit
 `!` and reflected in the version.
+
+**What earns a public export.** A symbol is public only if (a) a named external
+consumer uses it, or (b) it is a deliberate extension point listed above (the
+adapter kit is the example). Everything else is internal by default; the
+compiler (`compileClaude` & co.) left `vigiles/linting` on that rule. The
+per-entry reports in `api-surface/` are the review point: `npm run api:check`
+fails when the public surface changes without its report.
 
 ## What's still evolving — pin if you rely on it
 

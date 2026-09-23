@@ -13,7 +13,7 @@ import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
 import type { SkillSpec, AgentSpec } from "./spec.js";
 
 describe("adoptSkill", () => {
-  it("round-trips a clean skill: standard frontmatter + verbatim body", () => {
+  it("round-trips a clean skill: standard frontmatter + verbatim body", async () => {
     const md = `---
 name: my-skill
 description: Do a useful thing on request
@@ -38,7 +38,7 @@ Use this when the user wants a useful thing.
     expect(spec.body).toContain("## Usage");
     expect(spec.body).toContain("/my-skill <arg>");
 
-    const { markdown, errors } = compileSkill(spec, {
+    const { markdown, errors } = await compileSkill(spec, {
       specFile: "skills/my-skill/SKILL.md.spec.ts",
       dialect: claudeCodeDialect,
     });
@@ -78,7 +78,7 @@ Body.
     expect(spec.tools).toEqual(["Read", "Grep", "Glob"]);
   });
 
-  it("round-trips EVERY standard skill frontmatter field through adopt → compile → re-adopt (issue #107 class)", () => {
+  it("round-trips EVERY standard skill frontmatter field through adopt → compile → re-adopt (issue #107 class)", async () => {
     // The prevention for the #107 class — a field that compile EMITS but adopt
     // never READS (or vice versa) silently drops on the round-trip. Populate every
     // standard CC skill key and assert each one survives adopt → compile →
@@ -94,7 +94,7 @@ argument-hint: <file> [flag]
 Do the work.
 `;
     const first = adoptSkill(md, "full-skill").spec as SkillSpec;
-    const { markdown, errors } = compileSkill(first, {
+    const { markdown, errors } = await compileSkill(first, {
       specFile: "skills/full-skill/SKILL.md.spec.ts",
       dialect: claudeCodeDialect,
     });
@@ -111,7 +111,7 @@ Do the work.
     expect(bodyText(back.body)).toBe(bodyText(first.body));
   });
 
-  it("round-trips allowed-tools + context: fork through adopt → compile (issue #107)", () => {
+  it("round-trips allowed-tools + context: fork through adopt → compile (issue #107)", async () => {
     const md = `---
 name: reviewer
 description: Review a changed file for defects
@@ -128,7 +128,7 @@ Review the file.
     // context: fork is a known key → it must NOT surface as an unmapped-key note.
     expect(r.unmappedKeys).not.toContain("context");
 
-    const { markdown, errors } = compileSkill(spec, {
+    const { markdown, errors } = await compileSkill(spec, {
       specFile: "skills/reviewer/SKILL.md.spec.ts",
       dialect: claudeCodeDialect,
     });
@@ -186,7 +186,7 @@ Body.
 });
 
 describe("adoptAgent", () => {
-  it("round-trips a clean subagent: splits ## headings into sections", () => {
+  it("round-trips a clean subagent: splits ## headings into sections", async () => {
     const md = `---
 name: reviewer
 description: Reviews code for correctness
@@ -211,7 +211,7 @@ Read the diff, then report findings by severity.
     expect(spec.body).toContain("meticulous code reviewer");
     expect(spec.sections?.Method).toContain("report findings by severity");
 
-    const { markdown, errors } = compileAgent(spec, {
+    const { markdown, errors } = await compileAgent(spec, {
       specFile: "agents/reviewer.md.spec.ts",
       dialect: claudeCodeDialect,
     });
@@ -239,7 +239,7 @@ You are the final quality gate.
     expect(spec.body).toContain("final quality gate");
   });
 
-  it("surfaces a never-available tool on compile (it doesn't hide the bug)", () => {
+  it("surfaces a never-available tool on compile (it doesn't hide the bug)", async () => {
     const md = `---
 name: tester
 description: tests things
@@ -249,7 +249,7 @@ tools: Read, AskUserQuestion
 You test things.
 `;
     const spec = adoptAgent(md, "tester").spec as AgentSpec;
-    const { errors } = compileAgent(spec, {
+    const { errors } = await compileAgent(spec, {
       specFile: "agents/tester.md.spec.ts",
       dialect: claudeCodeDialect,
     });
@@ -265,11 +265,11 @@ describe("dogfood: adopt real vendored surfaces", () => {
 
   it.skipIf(!existsSync(ask))(
     "adopts a real SKILL.md that compiles clean",
-    () => {
+    async () => {
       const spec = adoptSkill(readFileSync(ask, "utf8"), "ask")
         .spec as SkillSpec;
       expect(spec.name).toBe("ask");
-      const { errors } = compileSkill(spec, {
+      const { errors } = await compileSkill(spec, {
         specFile: "skills/ask/SKILL.md.spec.ts",
         dialect: claudeCodeDialect,
       });
@@ -279,13 +279,13 @@ describe("dogfood: adopt real vendored surfaces", () => {
 
   it.skipIf(!existsSync(critic))(
     "adopts a real subagent (custom `level:` reported, body preserved)",
-    () => {
+    async () => {
       const r = adoptAgent(readFileSync(critic, "utf8"), "critic");
       const spec = r.spec as AgentSpec;
       expect(spec.name).toBe("critic");
       expect(spec.disallowedTools).toEqual(["Write", "Edit"]);
       expect(r.unmappedKeys).toContain("level");
-      const { errors } = compileAgent(spec, {
+      const { errors } = await compileAgent(spec, {
         specFile: "agents/critic.md.spec.ts",
         dialect: claudeCodeDialect,
       });

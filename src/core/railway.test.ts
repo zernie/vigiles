@@ -14,8 +14,8 @@ import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
 
 // --- result() contract on an agent -----------------------------------------
 
-test("compileAgent renders the result contract as an Output contract section", () => {
-  const { markdown, errors } = compileAgent(
+test("compileAgent renders the result contract as an Output contract section", async () => {
+  const { markdown, errors } = await compileAgent(
     experimental_agent({
       name: "coder",
       description: "Write code.",
@@ -36,16 +36,16 @@ test("compileAgent renders the result contract as an Output contract section", (
   assert.match(markdown, /"reason": string, "retryable": boolean/);
 });
 
-test("an agent without a result contract has no Output contract section", () => {
-  const { markdown } = compileAgent(
+test("an agent without a result contract has no Output contract section", async () => {
+  const { markdown } = await compileAgent(
     experimental_agent({ name: "a", description: "d", body: "b" }),
     { specFile: "a.md.spec.ts", dialect: claudeCodeDialect },
   );
   assert.doesNotMatch(markdown, /## Output contract/);
 });
 
-test("an empty contract track renders as {}", () => {
-  const { markdown } = compileAgent(
+test("an empty contract track renders as {}", async () => {
+  const { markdown } = await compileAgent(
     experimental_agent({
       name: "a",
       description: "d",

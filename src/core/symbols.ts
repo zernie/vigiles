@@ -13,7 +13,8 @@
  * imports / Zeitwerk / tsconfig". Resolution is per-language and architectural —
  * delegated. Ambiguity (a name defined in several files) is reported, not guessed.
  */
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 
 import { parse, Lang } from "@ast-grep/napi";
@@ -92,14 +93,14 @@ export type LangSupport =
     }
   | { readonly kind: "unsupported" };
 
-export function langForFile(file: string): LangSupport {
+export async function langForFile(file: string): Promise<LangSupport> {
   const key = file.endsWith(".d.ts")
     ? Lang.TypeScript
     : EXT_LANG[extname(file).toLowerCase()];
   if (key === undefined) return { kind: "unsupported" };
   if (isWasmLang(key)) {
     // Lazy: the first .py/.rb/.rs reference starts the runtime; later ones hit the cache.
-    const error = loadWasmGrammar(key);
+    const error = await loadWasmGrammar(key);
     if (error !== null)
       return { kind: "grammar-load-failed", lang: key, error };
   }
@@ -150,8 +151,14 @@ function recordNode(node: RawNode, scope: string, out: SymbolDef[]): void {
   }
 }
 
-/** Extract the symbols defined in a single file's source. */
-export function definedSymbols(code: string, lang: LangKey): SymbolDef[] {
+/**
+ * Extract the symbols defined in a single file's source. Async because the Python / Ruby / Rust
+ * grammars are WebAssembly, whose instantiation is async; the napi languages resolve at once.
+ */
+export async function definedSymbols(
+  code: string,
+  lang: LangKey,
+): Promise<SymbolDef[]> {
   if (isWasmLang(lang)) return wasmDefinedSymbols(code, lang);
   const out: SymbolDef[] = [];
   const walk = (node: RawNode, scope: string): void => {
@@ -166,12 +173,12 @@ export function definedSymbols(code: string, lang: LangKey): SymbolDef[] {
 }
 
 /** Defined symbols for a file on disk, or [] if unreadable/unsupported. */
-export function definedSymbolsInFile(file: string): SymbolDef[] {
-  const support = langForFile(file);
+export async function definedSymbolsInFile(file: string): Promise<SymbolDef[]> {
+  const support = await langForFile(file);
   if (support.kind !== "ready") return [];
   let code: string;
   try {
-    code = readFileSync(file, "utf-8");
+    code = await readFile(file, "utf-8");
   } catch {
     return [];
   }
@@ -199,15 +206,19 @@ const DECL_SIBLING: Record<string, string> = {
  * fallback we also consult a co-located declaration file (`.rbi` / `.d.ts`), so
  * typed dynamic symbols resolve without running Sorbet / the TS compiler.
  */
-export function fileDefinesSymbol(file: string, name: string): boolean {
-  if (definedSymbolsInFile(file).some((d) => d.name === name)) return true;
+export async function fileDefinesSymbol(
+  file: string,
+  name: string,
+): Promise<boolean> {
+  if ((await definedSymbolsInFile(file)).some((d) => d.name === name))
+    return true;
   const ext = extname(file);
   const decl = DECL_SIBLING[ext];
   if (decl && !file.endsWith(decl)) {
     const sibling = file.slice(0, -ext.length) + decl;
     if (
       existsSync(sibling) &&
-      definedSymbolsInFile(sibling).some((d) => d.name === name)
+      (await definedSymbolsInFile(sibling)).some((d) => d.name === name)
     ) {
       return true;
     }

@@ -55,7 +55,7 @@ The docs are grouped by what you're trying to do:
 - [`adapter-api.md`](adapter-api.md) — the adapter API reference: every port field, the conformance functions, the registry API.
 - **Validation rules:** the [full matrix](verifying-instruction-files.md#the-validation-rules--the-full-matrix) lives in the linting guide; each rule has a doc under [`rules/`](rules/).
 - **Library entry points** (grouped by concern so a future harness can sit beside the current one):
-  - `vigiles/linting` — the compiler + reference verification (`compileClaude`, `compileSkill`, …).
+  - `vigiles/linting` — what a spec author imports: the builders, verified-reference constructors and their types. Compiling and verifying is the CLI's job (`vigiles compile`, `vigiles lint`).
   - `vigiles/spec` — the spec builders (`claude`, `enforce`, `guidance`, `file`, `cmd`, `symbol`, …) and the module-augmentation target for generated types.
   - `vigiles` (the package root) — the free testing surface: the harness/hook runners, the `check` vocabulary and the runner-agnostic assertions.
   - `vigiles/eval` — everything that can spend money, every symbol prefixed `paid_`: `paid_runEval`, `paid_measure`, `paid_measureArms`, `paid_measureTriggerRate`, `paid_judge`, `paid_judged`, `paid_claudeEvalDriver`.

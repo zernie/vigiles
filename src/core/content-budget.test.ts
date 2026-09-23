@@ -23,12 +23,12 @@ const spec = (
     ...extra,
   }) as Parameters<typeof compileClaude>[0];
 
-const compile = (s: Parameters<typeof compileClaude>[0]) =>
-  compileClaude(s, { specFile: "CLAUDE.md.spec.ts", catalogOnly: true });
+const compile = async (s: Parameters<typeof compileClaude>[0]) =>
+  await compileClaude(s, { specFile: "CLAUDE.md.spec.ts", catalogOnly: true });
 
 describe("per-entry budget", () => {
-  it("flags a keyFiles description that outgrew a pointer", () => {
-    const { warnings, errors } = compile(
+  it("flags a keyFiles description that outgrew a pointer", async () => {
+    const { warnings, errors } = await compile(
       spec({
         keyFiles: { "package.json": "x".repeat(DEFAULT_MAX_ENTRY_CHARS + 1) },
       }),
@@ -41,8 +41,8 @@ describe("per-entry budget", () => {
     expect(errors.filter((e) => e.type === "entry-too-long")).toHaveLength(0);
   });
 
-  it("stays silent on a corpus of ordinary pointers", () => {
-    const { warnings } = compile(
+  it("stays silent on a corpus of ordinary pointers", async () => {
+    const { warnings } = await compile(
       spec({
         keyFiles: {
           "package.json": "The manifest.",
@@ -53,15 +53,15 @@ describe("per-entry budget", () => {
     expect(warnings).toHaveLength(0);
   });
 
-  it("holds commands to the same budget", () => {
-    const { warnings } = compile(
+  it("holds commands to the same budget", async () => {
+    const { warnings } = await compile(
       spec({ commands: { build: "y".repeat(DEFAULT_MAX_ENTRY_CHARS + 1) } }),
     );
     expect(warnings.map((w) => w.type)).toEqual(["entry-too-long"]);
   });
 
-  it("can be disabled with 0", () => {
-    const { warnings } = compileClaude(
+  it("can be disabled with 0", async () => {
+    const { warnings } = await compileClaude(
       spec({ keyFiles: { "package.json": "z".repeat(5000) } }),
       { specFile: "CLAUDE.md.spec.ts", catalogOnly: true, maxEntryChars: 0 },
     );
@@ -70,8 +70,8 @@ describe("per-entry budget", () => {
 });
 
 describe("per-section character budget", () => {
-  it("flags a section the LINE guard cannot see — few lines, many characters", () => {
-    const { warnings, errors } = compileClaude(
+  it("flags a section the LINE guard cannot see — few lines, many characters", async () => {
+    const { warnings, errors } = await compileClaude(
       spec({ sections: { Positioning: "a".repeat(600) } }),
       {
         specFile: "CLAUDE.md.spec.ts",
@@ -84,8 +84,8 @@ describe("per-section character budget", () => {
     expect(errors.filter((e) => e.type === "section-too-long")).toHaveLength(0);
   });
 
-  it("stays silent on a section within budget", () => {
-    const { warnings } = compileClaude(
+  it("stays silent on a section within budget", async () => {
+    const { warnings } = await compileClaude(
       spec({ sections: { Positioning: "a".repeat(400) } }),
       {
         specFile: "CLAUDE.md.spec.ts",

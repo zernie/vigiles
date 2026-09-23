@@ -186,9 +186,9 @@ suite, gated/skipped loudly when the binary isn't on PATH.)
 
 ## Wire it up
 
-- **Library use:** import your adapter and pass its ports —
-  `compileAgent(spec, { dialect: myHarnessAdapter.dialect })`,
-  `loadPlugin(path, myHarnessAdapter.layout)`.
+- **Library use:** validate it with `assertAdapterConformance(myHarnessAdapter)`
+  and pass its layout to the loaders — `loadPlugin(path, myHarnessAdapter.layout)`.
+  Compiling specs goes through the CLI (`vigiles compile`), not a library call.
 - **CLI auto-detection:** add it to the registry (`src/adapter-registry.ts`
   `ADAPTERS`) so `vigiles compile|scan|lint` detect it from a repo's layout
   (highest `detect` specificity wins). Claude Code stays the default, so nothing

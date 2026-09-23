@@ -1,3 +1,8 @@
+// 🔴 PUBLIC ENTRY POINT `vigiles/jest` — every export here is a promise to users. The default for a
+// symbol is INTERNAL. It is exported only if (a) a NAMED external consumer uses it, or (b) it is
+// a deliberate extension point listed in STABILITY.md (the adapter kit is the example). "Might
+// be useful" is neither. Review point: the diff of `api-surface/vigiles-jest.api.md`, which
+// `npm run api:check` fails on.
 /* eslint-disable max-params, @typescript-eslint/no-explicit-any --
    The matcher signatures mirror the runtime vigilesMatchers (positional args);
    `Check<any>` matches the runtime generic for the type-only augmentation. */

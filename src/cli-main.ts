@@ -629,16 +629,15 @@ function compileGeneratorSkillToFile(
 }
 
 /** Compile a ClaudeSpec → its primary + any additional targets. */
-function compileClaudeToFile(
+async function compileClaudeToFile(
   spec: ClaudeSpec,
   specPath: string,
   config: VigilesConfig,
   dialect: HarnessDialect,
-): boolean {
+): Promise<boolean> {
   const basePath = process.cwd();
-  const { markdown, errors, warnings, linterResults, targets } = compileClaude(
-    spec,
-    {
+  const { markdown, errors, warnings, linterResults, targets } =
+    await compileClaude(spec, {
       basePath,
       specFile: specPath,
       dialect,
@@ -647,8 +646,7 @@ function compileClaudeToFile(
       maxSectionLines: config.maxSectionLines,
       catalogOnly: config.catalogOnly,
       linters: config.linters,
-    },
-  );
+    });
   const primaryOutput = specPath.replace(/\.spec\.ts$/, "");
   // Budget findings print BEFORE the pass/fail line and never change the exit
   // code. A number nobody prints cannot be acted on — the same reason the
@@ -782,13 +780,13 @@ function formatArtifactSize(markdown: string): string {
 }
 
 /** Compile a declarative SkillSpec → SKILL.md. */
-function compileSkillToFile(
+async function compileSkillToFile(
   spec: SkillSpec,
   specPath: string,
   dialect: HarnessDialect,
-): boolean {
+): Promise<boolean> {
   const outputPath = specPath.replace(/\.spec\.ts$/, "");
-  const { artifact, errors, warnings } = compileSkill(spec, {
+  const { artifact, errors, warnings } = await compileSkill(spec, {
     basePath: process.cwd(),
     specFile: specPath,
     // The SKILL.md frontmatter profile comes from the resolved harness — a Codex
@@ -812,13 +810,13 @@ function compileSkillToFile(
 }
 
 /** Compile a subagent spec → agents/<name>.md (with its result-contract section). */
-function compileAgentToFile(
+async function compileAgentToFile(
   spec: AgentSpec,
   specPath: string,
   dialect: HarnessDialect,
-): boolean {
+): Promise<boolean> {
   const outputPath = specPath.replace(/\.spec\.ts$/, "");
-  const { artifact, errors, warnings } = compileAgent(spec, {
+  const { artifact, errors, warnings } = await compileAgent(spec, {
     basePath: process.cwd(),
     specFile: specPath,
     dialect,
@@ -925,7 +923,7 @@ async function compile(
         opts.harnessFlag === undefined
           ? (adapterForInstructionFile(targetFile)?.dialect ?? dialect)
           : dialect;
-      if (compileClaudeToFile(spec, specPath, config, specDialect)) {
+      if (await compileClaudeToFile(spec, specPath, config, specDialect)) {
         writeInstructionMirrors(
           specPath.replace(/\.spec\.ts$/, ""),
           declaredHarnesses,
@@ -943,9 +941,11 @@ async function compile(
       for (const w of skillFrontmatterDropWarnings(spec, forHarnesses)) {
         console.log(`⚠ ${w}`);
       }
-      if (!compileSkillToFile(spec, specPath, dialect)) allValid = false;
+      if (!(await compileSkillToFile(spec, specPath, dialect)))
+        allValid = false;
     } else if (spec._specType === "agent") {
-      if (!compileAgentToFile(spec, specPath, dialect)) allValid = false;
+      if (!(await compileAgentToFile(spec, specPath, dialect)))
+        allValid = false;
     } else if (spec._specType === "railway") {
       knownAgents ??= await collectAgentNames(excludes);
       if (!compileRailwayToFile(spec, specPath, knownAgents)) allValid = false;
@@ -1285,7 +1285,10 @@ interface LintReport {
  * Each named file is parsed on demand; there is no project-wide index. Returns
  * the count of broken references.
  */
-function verifyMarkdownSymbols(files: string[], silent: boolean): number {
+async function verifyMarkdownSymbols(
+  files: string[],
+  silent: boolean,
+): Promise<number> {
   if (files.length === 0) return 0;
   const cwd = process.cwd();
   let printedHeader = false;
@@ -1297,7 +1300,7 @@ function verifyMarkdownSymbols(files: string[], silent: boolean): number {
     } catch {
       continue;
     }
-    const broken = verifySymbolRefs(markdown, dirname(resolve(cwd, f)));
+    const broken = await verifySymbolRefs(markdown, dirname(resolve(cwd, f)));
     if (broken.length === 0) continue;
     if (!silent) {
       if (!printedHeader) {
@@ -1931,7 +1934,7 @@ async function checkSpecRefs(
       // collected lazily so a repo with no railway spec never pays for the walk.
       if (spec._specType === "railway")
         knownAgents ??= await collectAgentNames(excludes);
-      const errors = specCompileErrors(
+      const errors = await specCompileErrors(
         spec,
         specPath,
         dialect,
@@ -1975,32 +1978,36 @@ async function checkSpecRefs(
  * only the options differ. Exhaustive over `_specType`, so a FIFTH spec type is
  * a tsc error here instead of a silent skip, which is the failure this closes.
  */
-function specCompileErrors(
+async function specCompileErrors(
   spec: AnySpec,
   specPath: string,
   dialect: HarnessDialect,
   config: VigilesConfig | undefined,
   knownAgents: readonly string[],
-): readonly CompileError[] {
+): Promise<readonly CompileError[]> {
   const basePath = process.cwd();
   switch (spec._specType) {
     case "claude":
-      return compileClaude(spec, {
-        basePath,
-        specFile: specPath,
-        dialect,
-        maxRules: config?.maxRules,
-        maxTokens: config?.maxTokens,
-        maxSectionLines: config?.maxSectionLines,
-        catalogOnly: config?.catalogOnly,
-        linters: config?.linters,
-      }).errors;
+      return (
+        await compileClaude(spec, {
+          basePath,
+          specFile: specPath,
+          dialect,
+          maxRules: config?.maxRules,
+          maxTokens: config?.maxTokens,
+          maxSectionLines: config?.maxSectionLines,
+          catalogOnly: config?.catalogOnly,
+          linters: config?.linters,
+        })
+      ).errors;
     case "skill":
-      return compileSkill(spec, { basePath, specFile: specPath, dialect })
-        .errors;
+      return (
+        await compileSkill(spec, { basePath, specFile: specPath, dialect })
+      ).errors;
     case "agent":
-      return compileAgent(spec, { basePath, specFile: specPath, dialect })
-        .errors;
+      return (
+        await compileAgent(spec, { basePath, specFile: specPath, dialect })
+      ).errors;
     case "railway":
       return compileRailway(spec, { specFile: specPath, knownAgents }).errors;
     default:
@@ -2502,7 +2509,7 @@ async function runLint(
   }
 
   // 9. Verify code-shaped symbol references live (see src/refs.ts).
-  const symbolRefErrors = verifyMarkdownSymbols(files, silent);
+  const symbolRefErrors = await verifyMarkdownSymbols(files, silent);
 
   // 10. Verify `vigiles:mcp server#tool` marks against live MCP servers
   // (only when a .mcp.json declares them). See src/mcp.ts.
@@ -7248,7 +7255,7 @@ export async function handleHookRuntime(
       actionHookCommand();
       return;
     case "refs":
-      refsHookCommand();
+      await refsHookCommand();
       return;
     case "eval-lock-nudge":
       evalLockNudgeHookCommand();
@@ -7404,7 +7411,7 @@ function evalLockNudgeHookCommand(): void {
  * agent mark its references, at write time, with full context. `vigiles:ignore`
  * opts a prose span out.
  */
-function refsHookCommand(): void {
+async function refsHookCommand(): Promise<void> {
   let raw = "";
   try {
     raw = readFileSync(0, "utf-8");
@@ -7434,7 +7441,7 @@ function refsHookCommand(): void {
   } catch {
     return;
   }
-  const issues = collectRefIssues(markdown, dirname(resolve(cwd, file)));
+  const issues = await collectRefIssues(markdown, dirname(resolve(cwd, file)));
   const action = refsHookAction(issues.length, severity);
   if (action === "ok") return;
 

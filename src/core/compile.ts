@@ -258,11 +258,11 @@ export function validateCommandRef(
   return null;
 }
 
-export function validateSymbolRef(
+export async function validateSymbolRef(
   file: string,
   name: string,
   basePath: string,
-): CompileError | null {
+): Promise<CompileError | null> {
   const full = resolve(basePath, file);
   if (!existsSync(full)) {
     return {
@@ -271,7 +271,7 @@ export function validateSymbolRef(
       path: file,
     };
   }
-  const support = langForFile(file);
+  const support = await langForFile(file);
   if (support.kind === "unsupported") {
     return {
       type: "stale-ref",
@@ -288,7 +288,7 @@ export function validateSymbolRef(
       path: file,
     };
   }
-  if (!fileDefinesSymbol(full, name)) {
+  if (!(await fileDefinesSymbol(full, name))) {
     return {
       type: "stale-ref",
       message: `"${name}" is not defined in ${file}`,
@@ -337,14 +337,14 @@ export function validateGlobRef(
   return null;
 }
 
-function validateRefs(
+async function validateRefs(
   fragments: InstructionFragment[],
   basePath: string,
-): CompileError[] {
+): Promise<CompileError[]> {
   const errors: CompileError[] = [];
   for (const fragment of fragments) {
     if (typeof fragment !== "string") {
-      errors.push(...validateOneRef(fragment, basePath));
+      errors.push(...(await validateOneRef(fragment, basePath)));
     }
   }
   return errors;
@@ -353,10 +353,10 @@ function validateRefs(
 const wrap = (e: CompileError | null): CompileError[] => (e ? [e] : []);
 
 /** Validate a single non-string fragment (a `Ref` or `EffectRegion`). */
-function validateOneRef(
+async function validateOneRef(
   r: Exclude<InstructionFragment, string>,
   basePath: string,
-): CompileError[] {
+): Promise<CompileError[]> {
   switch (r._ref) {
     case "file":
       return wrap(validateFileRef(r.path, basePath));
@@ -373,7 +373,7 @@ function validateOneRef(
           ]
         : [];
     case "symbol":
-      return wrap(validateSymbolRef(r.file, r.symbol, basePath));
+      return wrap(await validateSymbolRef(r.file, r.symbol, basePath));
     case "dir":
       return wrap(validateDirRef(r.path, basePath));
     case "glob":
@@ -639,11 +639,11 @@ const RESERVED_SECTION_KEYS = new Set([
   "rules",
 ]);
 
-function compileSectionsSection(
+async function compileSectionsSection(
   spec: ClaudeSpec,
   basePath: string,
   maxSectionLines?: number,
-): SectionResult {
+): Promise<SectionResult> {
   if (!spec.sections) return { lines: [], errors: [] };
   const lines: string[] = [];
   const errors: CompileError[] = [];
@@ -660,7 +660,7 @@ function compileSectionsSection(
       errors.push(...validateSectionContent(name, content, maxSectionLines));
       lines.push(`## ${heading}\n\n${content.trim()}`);
     } else {
-      errors.push(...validateRefs(content, basePath));
+      errors.push(...(await validateRefs(content, basePath)));
       const rendered = content.map(renderFragment).join("");
       errors.push(...validateSectionContent(name, rendered, maxSectionLines));
       lines.push(`## ${heading}\n\n${rendered.trim()}`);
@@ -792,10 +792,10 @@ function compileRulesSection(
 // (no frontmatter), so Codex/OpenCode reuse it unchanged — only the h1 target
 // differs, which already comes from the injected dialect. Nothing here is
 // CC-only, so there is no per-dialect branch to gate.
-export function compileClaude(
+export async function compileClaude(
   spec: ClaudeSpec,
   options: CompileClaudeOptions = {},
-): CompileClaudeResult {
+): Promise<CompileClaudeResult> {
   const targets =
     spec.target ?? options.dialect?.instructionTargets[0] ?? DEFAULT_TARGET;
   const target = Array.isArray(targets) ? targets[0] : targets;
@@ -831,7 +831,7 @@ export function compileClaude(
 
   // Per-spec maxSectionLines takes precedence, then compile options
   const maxSectionLines = spec.maxSectionLines ?? options.maxSectionLines;
-  const prose = compileSectionsSection(spec, basePath, maxSectionLines);
+  const prose = await compileSectionsSection(spec, basePath, maxSectionLines);
   const keyFiles = compileKeyFilesSection(spec, basePath);
   const commands = compileCommandsSection(spec, basePath);
   const rules = compileRulesSection(spec, basePath, options);
@@ -1163,7 +1163,7 @@ export interface CompileSkillResult {
 /**
  * Compile a SkillSpec into SKILL.md markdown with YAML frontmatter.
  */
-export function compileSkill(
+export async function compileSkill(
   spec: SkillSpec,
   options: {
     basePath?: string;
@@ -1172,7 +1172,7 @@ export function compileSkill(
      *  every key the compiler can render, so existing callers are unchanged. */
     dialect?: HarnessDialect;
   } = {},
-): CompileSkillResult {
+): Promise<CompileSkillResult> {
   // 🔴 NORMALISE FIRST, before anything reads the spec. `compileSkill` accepts a
   // `SkillSpec` STRUCTURALLY, so a caller can hand us `{ _specType: "skill", …,
   // result: cmd(…) }` without ever touching `experimental_skill()`. Both readers
@@ -1203,7 +1203,7 @@ export function compileSkill(
     }
   }
 
-  errors.push(...validateRefs(collectSkillRefs(spec), basePath));
+  errors.push(...(await validateRefs(collectSkillRefs(spec), basePath)));
 
   // A typed `output` Result contract is valid ONLY for a forked skill: an inline
   // skill has no call→return boundary, so a typed outcome there is a category
@@ -1366,10 +1366,10 @@ function purityMarker(purity: AuthoredPurity | undefined): string {
 }
 
 /** Render the subagent's named `##` system-prompt sections (verified like CLAUDE.md). */
-function renderAgentSections(
+async function renderAgentSections(
   sections: Record<string, string | InstructionFragment[]>,
   basePath: string,
-): SectionResult {
+): Promise<SectionResult> {
   const lines: string[] = [];
   const errors: CompileError[] = [];
   for (const [name, content] of Object.entries(sections)) {
@@ -1384,7 +1384,7 @@ function renderAgentSections(
       errors.push(...validateSectionContent(name, content));
       lines.push(`## ${heading}\n\n${content.trim()}`);
     } else {
-      errors.push(...validateRefs(content, basePath));
+      errors.push(...(await validateRefs(content, basePath)));
       const rendered = content.map(renderFragment).join("");
       errors.push(...validateSectionContent(name, rendered));
       lines.push(`## ${heading}\n\n${rendered.trim()}`);
@@ -1458,7 +1458,7 @@ export interface CompileAgentResult {
  * Verifies the tool contract and the body's references; the marks the body
  * carries (`vigiles:symbol`, file/cmd refs) are the same ones `lint` re-checks.
  */
-export function compileAgent(
+export async function compileAgent(
   spec: AgentSpec,
   options: {
     basePath?: string;
@@ -1467,7 +1467,7 @@ export function compileAgent(
      *  core defines no default dialect; the adapter/composition root injects it). */
     dialect: HarnessDialect;
   },
-): CompileAgentResult {
+): Promise<CompileAgentResult> {
   const basePath = options.basePath ?? process.cwd();
   const specFile = options.specFile ?? "agent.md.spec.ts";
   const dialect = options.dialect;
@@ -1506,13 +1506,13 @@ export function compileAgent(
     }
   }
   if (Array.isArray(spec.body)) {
-    errors.push(...validateRefs(spec.body, basePath));
+    errors.push(...(await validateRefs(spec.body, basePath)));
   }
 
   const sections: string[] = [];
   if (spec.body !== undefined) sections.push(renderBody(spec.body).trim());
   if (spec.sections) {
-    const result = renderAgentSections(spec.sections, basePath);
+    const result = await renderAgentSections(spec.sections, basePath);
     sections.push(...result.lines);
     errors.push(...result.errors);
   }
@@ -1697,12 +1697,12 @@ export interface AdoptResult {
  * Compare a generated file against what the spec would produce.
  * Returns the diff so users can see what was manually changed.
  */
-export function adoptDiff(
+export async function adoptDiff(
   filePath: string,
   spec: ClaudeSpec | SkillSpec | AgentSpec,
   basePath: string,
   dialect: HarnessDialect,
-): AdoptResult {
+): Promise<AdoptResult> {
   const fullPath = resolve(basePath, filePath);
   const currentContent = existsSync(fullPath)
     ? readFileSync(fullPath, "utf-8")
@@ -1713,17 +1713,20 @@ export function adoptDiff(
   // Compile the spec to get what it WOULD produce
   let compiledContent: string | null = null;
   if (spec._specType === "claude") {
-    const { markdown } = compileClaude(spec, {
+    const { markdown } = await compileClaude(spec, {
       basePath,
       specFile: filePath,
       dialect,
     });
     compiledContent = markdown;
   } else if (spec._specType === "skill") {
-    const { markdown } = compileSkill(spec, { basePath, specFile: filePath });
+    const { markdown } = await compileSkill(spec, {
+      basePath,
+      specFile: filePath,
+    });
     compiledContent = markdown;
   } else if (spec._specType === "agent") {
-    const { markdown } = compileAgent(spec, {
+    const { markdown } = await compileAgent(spec, {
       basePath,
       specFile: filePath,
       dialect,

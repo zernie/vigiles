@@ -44,8 +44,8 @@ import { join, resolve } from "node:path";
 // parseAgentTools — read the contract back out of compiled markdown
 // ---------------------------------------------------------------------------
 
-test("parseAgentTools reads the tools list from compiled frontmatter", () => {
-  const { markdown } = compileAgent(
+test("parseAgentTools reads the tools list from compiled frontmatter", async () => {
+  const { markdown } = await compileAgent(
     experimental_agent({
       name: "reviewer",
       description: "Review a diff.",
@@ -57,8 +57,8 @@ test("parseAgentTools reads the tools list from compiled frontmatter", () => {
   assert.deepEqual(parseAgentTools(markdown), ["Read", "Grep", "Bash"]);
 });
 
-test("parseAgentTools returns null when no tools: line (inherit-all)", () => {
-  const { markdown } = compileAgent(
+test("parseAgentTools returns null when no tools: line (inherit-all)", async () => {
+  const { markdown } = await compileAgent(
     experimental_agent({ name: "a", description: "d", body: "b" }),
     { specFile: "a.md.spec.ts", dialect: claudeCodeDialect },
   );
@@ -222,7 +222,7 @@ test("readActiveStack back-compat: a legacy { agent } marker reads as a one-fram
   }
 });
 
-test("NESTING CONTRACT-ESCAPE regression (AgentWindowStack.tla counterexample): Open;Open;Stop;Call(Bash) is DENIED", () => {
+test("NESTING CONTRACT-ESCAPE regression (AgentWindowStack.tla counterexample): Open;Open;Stop;Call(Bash) is DENIED", async () => {
   // The TLC-certified counterexample the FLAT single-slot model failed: a writer
   // agent (tools: Read/Write/Edit, no Bash) dispatches a nested writer; the inner
   // returns (Stop). With a flat slot, Stop cleared everything → the gate saw "no
@@ -232,7 +232,7 @@ test("NESTING CONTRACT-ESCAPE regression (AgentWindowStack.tla counterexample): 
   const dir = makeTmpDir("agent-nesting-escape");
   try {
     mkdirSync(join(dir, "agents"), { recursive: true });
-    const { markdown } = compileAgent(
+    const { markdown } = await compileAgent(
       experimental_agent({
         name: "writer",
         description: "writes files",
@@ -268,10 +268,10 @@ test("NESTING CONTRACT-ESCAPE regression (AgentWindowStack.tla counterexample): 
 // evaluatePreToolUse — the wired hook decision against the compiled .md
 // ---------------------------------------------------------------------------
 
-test("evaluatePreToolUse blocks an out-of-contract tool for the active agent", () => {
+test("evaluatePreToolUse blocks an out-of-contract tool for the active agent", async () => {
   const dir = makeTmpDir("agent-eval");
   try {
-    const { markdown } = compileAgent(
+    const { markdown } = await compileAgent(
       experimental_agent({
         name: "reviewer",
         description: "Review a diff.",
@@ -315,10 +315,10 @@ test("evaluatePreToolUse allows when the active agent's .md is missing", () => {
   }
 });
 
-test("evaluatePreToolUse allows everything for an inherit-all agent", () => {
+test("evaluatePreToolUse allows everything for an inherit-all agent", async () => {
   const dir = makeTmpDir("agent-eval-inherit");
   try {
-    const { markdown } = compileAgent(
+    const { markdown } = await compileAgent(
       experimental_agent({ name: "open", description: "d", body: "b" }), // no tools: line
       {
         basePath: dir,
@@ -338,8 +338,8 @@ test("evaluatePreToolUse allows everything for an inherit-all agent", () => {
 // parseAgentPurity + the runtime purity gate (command-refined Bash)
 // ---------------------------------------------------------------------------
 
-test("parseAgentPurity reads the vigiles:purity marker compile emits", () => {
-  const { markdown } = compileAgent(
+test("parseAgentPurity reads the vigiles:purity marker compile emits", async () => {
+  const { markdown } = await compileAgent(
     experimental_agent({
       name: "editor",
       description: "Edits within a boundary.",
@@ -352,8 +352,8 @@ test("parseAgentPurity reads the vigiles:purity marker compile emits", () => {
   assert.equal(parseAgentPurity(markdown), "bounded");
 });
 
-test("parseAgentPurity returns null when no marker is present", () => {
-  const { markdown } = compileAgent(
+test("parseAgentPurity returns null when no marker is present", async () => {
+  const { markdown } = await compileAgent(
     experimental_agent({
       name: "a",
       description: "d",
@@ -365,10 +365,10 @@ test("parseAgentPurity returns null when no marker is present", () => {
   assert.equal(parseAgentPurity(markdown), null);
 });
 
-test("evaluatePreToolUse applies the purity gate: a bounded agent's Bash is command-refined", () => {
+test("evaluatePreToolUse applies the purity gate: a bounded agent's Bash is command-refined", async () => {
   const dir = makeTmpDir("agent-purity");
   try {
-    const { markdown } = compileAgent(
+    const { markdown } = await compileAgent(
       experimental_agent({
         name: "editor",
         description: "Edits + observes via Bash.",
@@ -399,12 +399,12 @@ test("evaluatePreToolUse applies the purity gate: a bounded agent's Bash is comm
   }
 });
 
-test("evaluatePreToolUse: the tool-contract rail still fires before the purity gate", () => {
+test("evaluatePreToolUse: the tool-contract rail still fires before the purity gate", async () => {
   const dir = makeTmpDir("agent-purity-rail");
   try {
     // A pure agent: Read/Grep only. Write is out of contract → the RAIL denies
     // it (the purity gate never needs to), proving the two layers compose.
-    const { markdown } = compileAgent(
+    const { markdown } = await compileAgent(
       experimental_agent({
         name: "reviewer",
         description: "Reviews.",
@@ -432,14 +432,14 @@ test("evaluatePreToolUse: the tool-contract rail still fires before the purity g
 // The differentiator's invariant: hook ⇄ allowlist agree
 // ---------------------------------------------------------------------------
 
-test("the rail the hook enforces is exactly the declared contract (round-trip)", () => {
+test("the rail the hook enforces is exactly the declared contract (round-trip)", async () => {
   // The whole point of #4740/#21460, SDK #172: the `tools:` field documents intent but doesn't
   // enforce it. vigiles compiles ONE source (spec.tools) into BOTH the
   // frontmatter (intent) AND the list the PreToolUse hook reads (enforcement),
   // so the two cannot drift. Prove it: compile → parse the frontmatter the hook
   // will read → it equals the declared tools, and the hook allows exactly those.
   const declared = ["Read", "Grep", "Glob", "Bash"];
-  const { markdown } = compileAgent(
+  const { markdown } = await compileAgent(
     experimental_agent({
       name: "ui-visual-validator",
       description: "Validate UI visually.",
@@ -476,9 +476,9 @@ test("the rail the hook enforces is exactly the declared contract (round-trip)",
 const CLI = resolve(__dirname, "..", "..", "..", "dist", "cli.js");
 
 /** Set up a temp project with a compiled agent and mark it active. */
-function projectWithActiveAgent(tools: string[]): string {
+async function projectWithActiveAgent(tools: string[]): Promise<string> {
   const dir = makeTmpDir("agent-hook-cli");
-  const { markdown } = compileAgent(
+  const { markdown } = await compileAgent(
     experimental_agent({
       name: "reader",
       description: "read-only worker",
@@ -496,8 +496,8 @@ function projectWithActiveAgent(tools: string[]): string {
   return dir;
 }
 
-test("agent-hook CLI blocks (exit 2) an out-of-contract tool", () => {
-  const dir = projectWithActiveAgent(["Read", "Grep"]);
+test("agent-hook CLI blocks (exit 2) an out-of-contract tool", async () => {
+  const dir = await projectWithActiveAgent(["Read", "Grep"]);
   try {
     const r = runHook(
       `node ${CLI} hook-runtime agent`,
@@ -516,8 +516,8 @@ test("agent-hook CLI blocks (exit 2) an out-of-contract tool", () => {
   }
 });
 
-test("agent-hook CLI allows (exit 0) an in-contract tool", () => {
-  const dir = projectWithActiveAgent(["Read", "Grep"]);
+test("agent-hook CLI allows (exit 0) an in-contract tool", async () => {
+  const dir = await projectWithActiveAgent(["Read", "Grep"]);
   try {
     const r = runHook(
       `node ${CLI} hook-runtime agent`,
@@ -535,9 +535,9 @@ test("agent-hook CLI allows (exit 0) an in-contract tool", () => {
   }
 });
 
-test("agent-hook CLI command-gates Bash for a bounded agent (read-only allowed, mutating blocked)", () => {
+test("agent-hook CLI command-gates Bash for a bounded agent (read-only allowed, mutating blocked)", async () => {
   const dir = makeTmpDir("agent-hook-purity");
-  const { markdown } = compileAgent(
+  const { markdown } = await compileAgent(
     experimental_agent({
       name: "editor",
       description: "Edits + observes.",
@@ -601,8 +601,8 @@ test("agent-hook CLI allows when no agent is active", () => {
   }
 });
 
-test("agent-hook CLI allows on a malformed/empty event (no tool name)", () => {
-  const dir = projectWithActiveAgent(["Read"]);
+test("agent-hook CLI allows on a malformed/empty event (no tool name)", async () => {
+  const dir = await projectWithActiveAgent(["Read"]);
   try {
     const r = runHook(`node ${CLI} hook-runtime agent`, {}, { cwd: dir });
     assert.equal(r.blocked, false);
@@ -640,7 +640,7 @@ test("real vendored subagent ships no tools: line — the rail correctly reports
   assert.equal(decidePreToolUse(parseAgentTools(md), "Write").allow, true);
 });
 
-test("the spec form ADDS the rail the real subagent omits, and it parses + enforces", () => {
+test("the spec form ADDS the rail the real subagent omits, and it parses + enforces", async () => {
   // Reconstruct the real agent AS a spec with the least-privilege contract its
   // hand-written original lacks (read + run visual tests; never Edit/Write),
   // compile it, then prove the SAME PreToolUse rail the hook reads now blocks
@@ -651,7 +651,7 @@ test("the spec form ADDS the rail the real subagent omits, and it parses + enfor
   const descLine = /^description:\s*(.+)$/m.exec(md);
   assert.ok(nameLine && descLine); // sanity: we're reading the real frontmatter
 
-  const { markdown, errors } = compileAgent(
+  const { markdown, errors } = await compileAgent(
     experimental_agent({
       name: nameLine[1].trim(),
       description: descLine[1].trim(),
@@ -678,10 +678,10 @@ test("the spec form ADDS the rail the real subagent omits, and it parses + enfor
 // Effect boundary gate — evaluatePreToolUse + runHook
 // ---------------------------------------------------------------------------
 
-test("evaluatePreToolUse: effect boundary outside blocks side-effecting tools", () => {
+test("evaluatePreToolUse: effect boundary outside blocks side-effecting tools", async () => {
   const dir = makeTmpDir("agent-effect-boundary");
   try {
-    const { markdown } = compileAgent(
+    const { markdown } = await compileAgent(
       experimental_agent({
         name: "release",
         description: "Cut a release.",
@@ -719,10 +719,10 @@ test("evaluatePreToolUse: effect boundary outside blocks side-effecting tools", 
   }
 });
 
-test("evaluatePreToolUse: effect boundary inside allows side-effecting tools", () => {
+test("evaluatePreToolUse: effect boundary inside allows side-effecting tools", async () => {
   const dir = makeTmpDir("agent-effect-inside");
   try {
-    const { markdown } = compileAgent(
+    const { markdown } = await compileAgent(
       experimental_agent({
         name: "release",
         description: "Cut a release.",
@@ -751,9 +751,9 @@ test("evaluatePreToolUse: effect boundary inside allows side-effecting tools", (
   }
 });
 
-test("agent-hook CLI: effect-enter allows Write; effect-exit blocks Write again", () => {
+test("agent-hook CLI: effect-enter allows Write; effect-exit blocks Write again", async () => {
   const dir = makeTmpDir("agent-hook-effect");
-  const { markdown } = compileAgent(
+  const { markdown } = await compileAgent(
     experimental_agent({
       name: "release",
       description: "Cut a release.",

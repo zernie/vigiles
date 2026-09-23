@@ -512,7 +512,7 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 | Test your harness      | `vigiles`         | every check, assertion, matcher, hook/harness runner and tool stub — everything that costs nothing to run                                 |
 | Measure with a model   | `vigiles/eval`    | `paid_runEval` · `paid_measure` · `paid_measureArms` · `paid_measureTriggerRate` · `paid_judge` · `paid_judged` · `paid_claudeEvalDriver` |
 | Declare an eval file   | `vigiles`         | `defineEval` (free — a description cannot spend; see [eval files](harness-testing.md#eval-files-describe-their-eval))                     |
-| Lint instruction files | `vigiles/linting` | the spec builders + the compiler                                                                                                          |
+| Lint instruction files | `vigiles/linting` | the spec builders and their types (compiling is `vigiles compile` / `vigiles lint`)                                                       |
 
 **In a `*.eval.mjs` file the runners below are DECLARED, not called** —
 `export default defineEval({ measure: spec })` — because importing a file that

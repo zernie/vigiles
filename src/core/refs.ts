@@ -85,14 +85,14 @@ export function symbolRefs(markdown: string): SymbolRef[] {
  * file must exist and define the named symbol. `basePath` is the directory the
  * paths resolve against (the instruction file's own directory).
  */
-export function verifySymbolRefs(
+export async function verifySymbolRefs(
   markdown: string,
   basePath: string,
-): SymbolRefError[] {
+): Promise<SymbolRefError[]> {
   const errors: SymbolRefError[] = [];
   for (const ref of symbolRefs(markdown)) {
     const full = resolve(basePath, ref.file);
-    const support = langForFile(ref.file);
+    const support = await langForFile(ref.file);
     if (!existsSync(full)) {
       errors.push({ ...ref, reason: `File not found: "${ref.file}"` });
     } else if (support.kind === "unsupported") {
@@ -104,7 +104,7 @@ export function verifySymbolRefs(
       // NOT "unsupported" and NOT "not defined": the language is one this tool parses, its
       // grammar failed to load here. Either other wording would report an un-run check as a verdict.
       errors.push({ ...ref, reason: notCheckedReason(support) });
-    } else if (!fileDefinesSymbol(full, ref.symbol)) {
+    } else if (!(await fileDefinesSymbol(full, ref.symbol))) {
       errors.push({
         ...ref,
         reason: `"${ref.symbol}" is not defined in ${ref.file}`,
@@ -163,9 +163,12 @@ export function unmarkedCodeRefs(markdown: string): Span[] {
  * code-shaped span that ought to be a mark. The shared detector behind both the
  * `vigiles refs` CLI and the PostToolUse refs-hook.
  */
-export function collectRefIssues(markdown: string, basePath: string): string[] {
+export async function collectRefIssues(
+  markdown: string,
+  basePath: string,
+): Promise<string[]> {
   const out: string[] = [];
-  for (const b of verifySymbolRefs(markdown, basePath)) {
+  for (const b of await verifySymbolRefs(markdown, basePath)) {
     out.push(`line ${String(b.line)}: ${b.reason}`);
   }
   for (const u of unmarkedCodeRefs(markdown)) {
