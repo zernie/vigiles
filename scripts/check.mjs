@@ -66,6 +66,11 @@ export const CI_JOBS_NOT_COVERED = [
     why: "the e2e vitest project (real built CLI over fixture repos)",
   },
   {
+    job: "package-alpine",
+    cmd: "npm run build && npx vitest run --project e2e src/package-install-scripts.e2e.test.ts",
+    why: "the packaging e2e again inside node:22-alpine (musl) — needs that container",
+  },
+  {
     job: "harness",
     cmd: "npm run test:harness",
     why: "the deterministic harness tier — needs the claude binary",

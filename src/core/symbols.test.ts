@@ -5,17 +5,18 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Lang } from "@ast-grep/napi";
 
-import {
-  definedSymbols,
-  langForFile,
-  fileDefinesSymbol,
-  installedGrammars,
-} from "./symbols.js";
+import { definedSymbols, langForFile, fileDefinesSymbol } from "./symbols.js";
 
 test("extracts functions, constants, classes and methods (TypeScript)", () => {
   const defs = definedSymbols(
@@ -54,7 +55,7 @@ test("extracts Ruby class/method/constant", () => {
 });
 
 test("langForFile maps extensions and skips unsupported", () => {
-  // The optional grammars are installed in this repo's own tree, so they read as ready here.
+  // The WASM grammars ship as a regular dependency, so they load and read as ready.
   assert.deepEqual(langForFile("a.py"), { kind: "ready", lang: "python" });
   assert.deepEqual(langForFile("a.rs"), { kind: "ready", lang: "rust" });
   assert.deepEqual(langForFile("a.rb"), { kind: "ready", lang: "ruby" });
@@ -63,41 +64,77 @@ test("langForFile maps extensions and skips unsupported", () => {
   assert.equal(langForFile("a.d.ts").kind, "ready");
 });
 
-// 🔴 THE THIRD CASE IS THE WHOLE POINT OF THE UNION, so it gets its own test rather than
-// riding along above: a language this tool HANDLES whose optional package is absent must not
-// come back as "unsupported". Before the union both answers were `null`, and both call sites
-// printed "Unsupported language for symbol check" — an un-run check phrased as a verdict.
-test("an absent optional grammar is 'grammar-missing', never 'unsupported'", () => {
-  const seen = installedGrammars();
-  assert.ok(
-    seen.has("python"),
-    "fixture assumption: this repo installs the grammars",
-  );
+// 🔴 PARITY WITH THE NATIVE GRAMMARS (#257). Python/Ruby/Rust moved from `@ast-grep/lang-*`
+// (native, postinstall) to the WASM builds in `@vscode/tree-sitter-wasm`. `golden.json` is the
+// OLD implementation's output on the three fixtures, generated before `lang-*` was removed; each
+// fixture exercises every node kind of its grammar that carries a `name` field or a `left` field
+// (the two things the walk records). The same walk over the same grammar must give the same list.
+// Measured beyond the fixtures, same day: identical output on 574 CPython 3.12 stdlib files
+// (65 176 definitions) and 1 000 Ruby files (50 455).
+const FIXTURES = resolve("src/core/__fixtures__/symbols");
+const golden = JSON.parse(
+  readFileSync(join(FIXTURES, "golden.json"), "utf8"),
+) as Record<"python" | "ruby" | "rust", string[]>;
+const flat = (file: string, lang: "python" | "ruby" | "rust"): string[] =>
+  definedSymbols(readFileSync(join(FIXTURES, file), "utf8"), lang)
+    .map((d) => `${String(d.line)}:${d.kind}:${d.scope}:${d.name}`)
+    .sort();
 
-  // The built-ins must not be able to land in that branch, whatever the optional set holds.
-  for (const f of ["a.ts", "a.tsx", "a.js", "a.css"])
-    assert.equal(langForFile(f).kind, "ready", f);
-
-  // And the shape a consumer without the package would get, asserted on the type's own terms.
-  const missing = {
-    kind: "grammar-missing",
-    id: "ruby",
-    pkg: "@ast-grep/lang-ruby",
-  } as const;
-  assert.notEqual(missing.kind, "unsupported");
-  assert.match(
-    `Symbol not checked: the ${missing.id} grammar is not installed (npm i -D ${missing.pkg})`,
-    /not installed \(npm i -D @ast-grep\/lang-ruby\)/,
-  );
+test("Python definitions match the native grammar exactly", () => {
+  assert.deepEqual(flat("sample.py", "python"), [...golden.python].sort());
 });
 
-// 🔴 THE TEST ABOVE ASSERTS THE SHAPE, THIS ONE RUNS THE PATH. The grammars are optional peer
-// dependencies (#257): a default `npm i vigiles` / `pnpm add vigiles` installs none of them, so the
-// absent-module branch is what most consumers execute. This repo has them installed, so the only
-// way to reach that branch honestly is a child process in which requiring them FAILS, the same way
-// it fails in a consumer's tree (`MODULE_NOT_FOUND`). A stub inside this process would not do: the
-// registration result is cached per process, and the other tests here need the real grammars.
-test("with the grammar modules absent, .py/.rb/.rs say 'not installed' and never 'not defined'", () => {
+test("Ruby definitions match the native grammar exactly", () => {
+  assert.deepEqual(flat("sample.rb", "ruby"), [...golden.ruby].sort());
+});
+
+// Rust is NOT the same grammar: `lang-rust` was tree-sitter-rust 0.23.2, the WASM build is a 0.24
+// commit, and 0.24 rewrote generic parameters (`<T: Clone>` is a `type_parameter` with a `name`,
+// not a `constrained_type_parameter` with a `left`; lifetimes and range patterns gained fields).
+// So the delta is pinned HERE, entry by entry: anything else changing is a regression. Of the
+// four old-only entries, three reappear under the new kind with the same name; the fourth,
+// "T: Clone", was never a name (the old walk took the text of a whole bound). On 584 files of
+// serde/regex/anyhow/tokio the diff was confined to these kinds, and the only names the old
+// code found and the new does not were four such bound texts ("E: Error", "U: ?Sized").
+test("Rust definitions match the native grammar except the pinned 0.24 generic-parameter delta", () => {
+  const now = flat("sample.rs", "rust");
+  const before = new Set(golden.rust);
+  assert.deepEqual([...golden.rust].filter((x) => !now.includes(x)).sort(), [
+    "46:constrained_type_parameter::T",
+    "50:constrained_type_parameter::T",
+    "50:optional_type_parameter::T: Clone",
+    "66:constrained_type_parameter::I",
+  ]);
+  assert.deepEqual(now.filter((x) => !before.has(x)).sort(), [
+    "46:lifetime_parameter::'a",
+    "46:type_parameter::T",
+    "50:type_parameter::T",
+    "61:range_pattern::LOW",
+    "66:type_parameter::I",
+  ]);
+});
+
+test("fileDefinesSymbol resolves real .py/.rb/.rs hits and misses", () => {
+  for (const [file, hit] of [
+    ["sample.py", "parse_config"],
+    ["sample.rb", "full_name"],
+    ["sample.rs", "parse_config"],
+  ] as const) {
+    assert.equal(fileDefinesSymbol(join(FIXTURES, file), hit), true, file);
+    assert.equal(
+      fileDefinesSymbol(join(FIXTURES, file), "no_such_symbol"),
+      false,
+      file,
+    );
+  }
+});
+
+// 🔴 THE LOAD-FAILURE PATH, RUN FOR REAL. With the grammars as a plain dependency this branch
+// should be unreachable in practice — but if the runtime cannot load, the answer must be "not
+// checked" carrying the loader's own error, never "not defined" (a verdict about a check that
+// did not run) and never an install instruction. The only honest way to reach it here is a
+// child process in which resolving the package FAILS exactly as an absent one does.
+test("when the WASM runtime cannot load, .py/.rb/.rs say 'not checked: <error>' and never 'not defined'", () => {
   const dir = mkdtempSync(join(tmpdir(), "vigiles-sym-absent-"));
   try {
     mkdirSync(join(dir, "src"));
@@ -105,14 +142,13 @@ test("with the grammar modules absent, .py/.rb/.rs say 'not installed' and never
     writeFileSync(join(dir, "src", "app.rb"), "def handler\nend\n");
     writeFileSync(join(dir, "src", "app.rs"), "fn handler() {}\n");
     writeFileSync(join(dir, "src", "app.ts"), "export function handler() {}\n");
-    // Make every `@ast-grep/lang-*` resolution fail exactly as an uninstalled package does.
-    const block = join(dir, "block-grammars.cjs");
+    const block = join(dir, "block-wasm.cjs");
     writeFileSync(
       block,
       `const Module = require("node:module");\n` +
         `const orig = Module._resolveFilename;\n` +
         `Module._resolveFilename = function (req, ...rest) {\n` +
-        `  if (/^@ast-grep\\/lang-/.test(req)) {\n` +
+        `  if (req === "@vscode/tree-sitter-wasm") {\n` +
         `    const e = new Error("Cannot find module '" + req + "'");\n` +
         `    e.code = "MODULE_NOT_FOUND";\n` +
         `    throw e;\n` +
@@ -130,12 +166,8 @@ test("with the grammar modules absent, .py/.rb/.rs say 'not installed' and never
     writeFileSync(
       probe,
       `import { verifySymbolRefs } from ${JSON.stringify(resolve("src/core/refs.ts"))};\n` +
-        `import { installedGrammars } from ${JSON.stringify(resolve("src/core/symbols.ts"))};\n` +
-        `console.log(JSON.stringify({\n` +
-        `  installed: [...installedGrammars()],\n` +
-        `  errors: verifySymbolRefs(${JSON.stringify(md)}, ${JSON.stringify(dir)})\n` +
-        `    .map((e) => e.file + "#" + e.symbol + " :: " + e.reason),\n` +
-        `}));\n`,
+        `console.log(JSON.stringify(verifySymbolRefs(${JSON.stringify(md)}, ${JSON.stringify(dir)})\n` +
+        `  .map((e) => e.file + "#" + e.symbol + " :: " + e.reason)));\n`,
     );
     const r = spawnSync(
       process.execPath,
@@ -143,37 +175,36 @@ test("with the grammar modules absent, .py/.rb/.rs say 'not installed' and never
       { encoding: "utf8", cwd: resolve(".") },
     );
     assert.equal(r.status, 0, r.stdout + r.stderr);
-    const out = JSON.parse(r.stdout.trim().split("\n").pop() ?? "") as {
-      installed: string[];
-      errors: string[];
-    };
+    const errors = JSON.parse(
+      r.stdout.trim().split("\n").pop() ?? "",
+    ) as string[];
 
-    // The blocker actually blocked — otherwise every assertion below is vacuous.
-    assert.deepEqual(out.installed, []);
-
-    const pkgFor = { py: "python", rb: "ruby", rs: "rust" } as const;
-    for (const [ext, lang] of Object.entries(pkgFor)) {
+    for (const [ext, lang] of [
+      ["py", "python"],
+      ["rb", "ruby"],
+      ["rs", "rust"],
+    ] as const) {
       for (const sym of ["handler", "missing"]) {
-        const line = out.errors.find((e) =>
+        const line = errors.find((e) =>
           e.startsWith(`src/app.${ext}#${sym} ::`),
         );
         assert.ok(line, `${ext}#${sym} must be reported, not silently passed`);
-        assert.match(
+        assert.equal(
           line,
-          new RegExp(
-            `the ${lang} grammar is not installed \\(npm i -D @ast-grep/lang-${lang}\\)`,
-          ),
+          `src/app.${ext}#${sym} :: Symbol not checked: the ${lang} grammar failed to load: ` +
+            `Cannot find module '@vscode/tree-sitter-wasm'`,
         );
-        // The two answers must stay different: an un-run check is not a missing symbol.
+        // An un-run check is not a missing symbol, and the user has nothing to install.
         assert.doesNotMatch(line, /is not defined in/);
         assert.doesNotMatch(line, /Unsupported language/);
+        assert.doesNotMatch(line, /npm i|pnpm add|install/);
       }
     }
 
-    // The built-in grammars are untouched by the absence: a real hit passes, a real miss fails.
-    assert.ok(!out.errors.some((e) => e.startsWith("src/app.ts#handler ::")));
+    // The napi grammars are untouched by the failure: a real hit passes, a real miss fails.
+    assert.ok(!errors.some((e) => e.startsWith("src/app.ts#handler ::")));
     assert.ok(
-      out.errors.includes(
+      errors.includes(
         'src/app.ts#missing :: "missing" is not defined in src/app.ts',
       ),
     );

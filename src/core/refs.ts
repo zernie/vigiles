@@ -19,7 +19,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { langForFile, fileDefinesSymbol } from "./symbols.js";
+import { langForFile, fileDefinesSymbol, notCheckedReason } from "./symbols.js";
 import { fencedLineFlags } from "./markdown.js";
 import type { RuleSeverity } from "./types.js";
 
@@ -100,13 +100,10 @@ export function verifySymbolRefs(
         ...ref,
         reason: `Unsupported language for symbol check: "${ref.file}"`,
       });
-    } else if (support.kind === "grammar-missing") {
-      // NOT "unsupported": the language is one this tool parses, the optional grammar just is
-      // not installed here. Saying it the other way would report an un-run check as a verdict.
-      errors.push({
-        ...ref,
-        reason: `Symbol not checked: the ${support.id} grammar is not installed (npm i -D ${support.pkg})`,
-      });
+    } else if (support.kind === "grammar-load-failed") {
+      // NOT "unsupported" and NOT "not defined": the language is one this tool parses, its
+      // grammar failed to load here. Either other wording would report an un-run check as a verdict.
+      errors.push({ ...ref, reason: notCheckedReason(support) });
     } else if (!fileDefinesSymbol(full, ref.symbol)) {
       errors.push({
         ...ref,

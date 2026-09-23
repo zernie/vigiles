@@ -10,7 +10,7 @@ import { resolve, dirname, basename } from "node:path";
 import { sha256short, assertNever } from "./hash.js";
 import { findIntegrityHeader, placeIntegrityHeader } from "./integrity.js";
 import { fencedLineFlags } from "./markdown.js";
-import { fileDefinesSymbol, langForFile } from "./symbols.js";
+import { fileDefinesSymbol, langForFile, notCheckedReason } from "./symbols.js";
 import { foldLegacyPostcondition } from "./skill-normalize.js";
 
 import type {
@@ -279,12 +279,12 @@ export function validateSymbolRef(
       path: file,
     };
   }
-  if (support.kind === "grammar-missing") {
-    // The language is parseable by this tool; the optional grammar is absent in THIS install.
+  if (support.kind === "grammar-load-failed") {
+    // The language is parseable by this tool; its grammar failed to load in THIS process.
     // Distinct wording on purpose — see the union's docblock in core/symbols.ts.
     return {
       type: "stale-ref",
-      message: `Symbol not checked: the ${support.id} grammar is not installed (npm i -D ${support.pkg})`,
+      message: notCheckedReason(support),
       path: file,
     };
   }
