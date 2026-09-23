@@ -13,12 +13,19 @@ import {
 } from "node:fs";
 import { resolve, dirname } from "node:path";
 
-const EFFECT_ACTIVE_PATH = ".vigiles/effect-active.json";
+import {
+  EFFECT_ACTIVE_FILE,
+  VIGILES_DIR,
+  ensureLocalFilesIgnored,
+} from "../../local-files.js";
+
+const EFFECT_ACTIVE_PATH = `${VIGILES_DIR}/${EFFECT_ACTIVE_FILE}`;
 
 /** Record that the agent has entered an effect boundary. */
 export function setEffectActive(cwd: string): void {
   const p = resolve(cwd, EFFECT_ACTIVE_PATH);
   mkdirSync(dirname(p), { recursive: true });
+  ensureLocalFilesIgnored(dirname(p));
   writeFileSync(p, JSON.stringify({ active: true }) + "\n");
 }
 

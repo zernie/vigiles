@@ -74,9 +74,17 @@ Two things it will not do:
   deterministic tier only — "nothing has measured whether this fires" still
   stands until an eval runs.
 
-The file records one checkout at one moment, so **do not commit it**. A committed
-one would credit coverage on a machine where nothing ran, which is precisely the
-substitution this tier exists to remove.
+The file records one checkout at one moment, so **it is never committed** — and
+you do not have to remember that: when vigiles writes it, it also keeps
+`.vigiles/.gitignore` listing it (together with the other per-checkout files
+under `.vigiles/`), so git never offers it. A committed one would credit coverage
+on a machine where nothing ran, which is precisely the substitution this tier
+exists to remove.
+
+**Already committed one?** An ignore rule does not untrack a tracked file, so
+`vigiles test` prints a one-line warning naming it. Untrack it once with
+`git rm --cached .vigiles/coverage.json`; vigiles reports this but never touches
+your index itself.
 
 **No artifact = the rule below, unchanged.** A fresh clone, CI, and anybody
 else's repo see colocation exactly as they did before this tier existed — not one

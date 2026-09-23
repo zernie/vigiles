@@ -35,6 +35,11 @@ import { resolve, dirname, join } from "node:path";
 import { decidePurityGate } from "../../core/effects.js";
 import type { PurityLevel } from "../../core/effects.js";
 import { claudeCodeDialect } from "./dialect.js";
+import {
+  ACTIVE_AGENT_FILE,
+  VIGILES_DIR,
+  ensureLocalFilesIgnored,
+} from "../../local-files.js";
 import { hasEffectBoundary, readEffectActive } from "./effect-region.js";
 import { parseAgentTools, parseAgentToolList } from "./agent-tools.js";
 
@@ -110,7 +115,7 @@ export function decidePreToolUse(
 // stack TOP. Counterexample the flat model fails and the stack model passes:
 // Open(writer); Open(writer); Stop; Call(Bash).
 
-const ACTIVE_PATH = ".vigiles/active-agent.json";
+const ACTIVE_PATH = `${VIGILES_DIR}/${ACTIVE_AGENT_FILE}`;
 
 /**
  * Read the active-agent stack (oldest → newest; the dispatched subagent chain).
@@ -143,6 +148,7 @@ function writeActiveStack(cwd: string, stack: readonly string[]): void {
     return;
   }
   mkdirSync(dirname(p), { recursive: true });
+  ensureLocalFilesIgnored(dirname(p));
   writeFileSync(p, JSON.stringify({ stack }) + "\n");
 }
 

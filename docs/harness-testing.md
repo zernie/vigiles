@@ -631,14 +631,15 @@ prompted this table.
 
 | Artifact                     | What question does it answer?                                  | Where                                  | Who writes it                        | Committed?                            |
 | ---------------------------- | -------------------------------------------------------------- | -------------------------------------- | ------------------------------------ | ------------------------------------- |
-| **Ledger** (flight recorder) | "what did my harness actually do, locally, over time?"         | `.vigiles/runs.jsonl`                  | every run, automatically             | ❌ gitignored — local only            |
-| **Cache**                    | "can I re-score this eval without paying for the model again?" | `.vigiles/eval-cache/`                 | `cache: "readwrite"` on an eval spec | ❌ gitignored — local only            |
+| **Ledger** (flight recorder) | "what did my harness actually do, locally, over time?"         | `.vigiles/runs.jsonl`                  | every run, automatically             | ❌ local only — vigiles ignores it    |
+| **Cache**                    | "can I re-score this eval without paying for the model again?" | `.vigiles/eval-cache/`                 | `cache: "readwrite"` on an eval spec | ❌ local only — vigiles ignores it    |
 | **Lock**                     | "do my committed numbers still match my current inputs?"       | `.vigiles/eval-locks/<name>.lock.json` | `vigiles eval --update`              | ✅ **yes — this is the one CI reads** |
 
 **The lock is the only one that leaves your machine.** Run a hundred evals and
 commit no lock, and CI can verify nothing: the ledger and the cache are both
-gitignored by design. `vigiles audit` says so out loud when it finds eval runs in
-the ledger and no committed lock.
+gitignored by design — vigiles keeps them in `.vigiles/.gitignore` itself, so
+there is nothing to add to yours. `vigiles audit` says so out loud when it finds
+eval runs in the ledger and no committed lock.
 
 The one design difference worth knowing: **the cache keys on the harness binary
 version and the lock deliberately does not.** The cache's key is strict because
