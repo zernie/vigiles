@@ -94,6 +94,7 @@ import {
   hashDir,
   type CacheMode,
 } from "./eval-cache.js";
+import { EVAL_CACHE_DIR, VIGILES_DIR } from "./local-files.js";
 import {
   evalInputsHash,
   buildLock,
@@ -1959,7 +1960,8 @@ export async function runEvalWith<M extends Metrics>(
     tools: spec.allowedTools ?? ["Read", "Edit", "Write", "Bash"],
     timeoutMs: spec.timeoutMs ?? 240000,
     cache: spec.cache ?? "off",
-    cacheDir: spec.cacheDir ?? resolve(process.cwd(), ".vigiles", "eval-cache"),
+    cacheDir:
+      spec.cacheDir ?? resolve(process.cwd(), VIGILES_DIR, EVAL_CACHE_DIR),
   };
   if (cfg.cache !== "off" && !isDatedModel(cfg.model)) {
     warnFloatingModel(cfg.model);

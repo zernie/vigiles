@@ -23,9 +23,14 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { join, relative, resolve, dirname } from "node:path";
+import { basename, join, relative, resolve, dirname } from "node:path";
 
 import { sha256short, type SHA256Hash } from "./core/hash.js";
+import {
+  EVAL_CACHE_DIR,
+  VIGILES_DIR,
+  ensureLocalFilesIgnored,
+} from "./local-files.js";
 import type { RunOut } from "./eval.js";
 
 /** Cache behaviour: never touch the cache / read-only / read-and-write. */
@@ -171,13 +176,24 @@ export function readCache(dir: string, key: SHA256Hash): CacheRecord | null {
   }
 }
 
-/** Write a cached record by key (creating the cache dir as needed). */
+/**
+ * Write a cached record by key (creating the cache dir as needed). When `dir` is
+ * the default `.vigiles/eval-cache`, the recorded runs are per-checkout, so the
+ * `.vigiles/.gitignore` is kept current; a `cacheDir` the spec chose elsewhere is
+ * the author's to place and is left alone.
+ */
 export function writeCache(
   dir: string,
   key: SHA256Hash,
   record: CacheRecord,
 ): void {
   mkdirSync(dir, { recursive: true });
+  if (
+    basename(dir) === EVAL_CACHE_DIR &&
+    basename(dirname(dir)) === VIGILES_DIR
+  ) {
+    ensureLocalFilesIgnored(dirname(dir));
+  }
   writeFileSync(join(dir, `${key}.json`), JSON.stringify(record));
 }
 

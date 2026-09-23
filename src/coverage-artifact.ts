@@ -47,13 +47,18 @@ import { isAbsolute, posix, relative, resolve } from "node:path";
 
 import type { ProbeOrigin, SurfaceProbe } from "./check-count.js";
 import { isColocatedTest } from "./coverage-evidence.js";
+import {
+  COVERAGE_ARTIFACT_FILE,
+  VIGILES_DIR,
+  ensureLocalFilesIgnored,
+} from "./local-files.js";
 import type { Surface, SurfaceKind } from "./test-coverage.js";
 
 /** Bumped when the record shape changes in a non-additive way. */
 export const COVERAGE_ARTIFACT_VERSION = 1;
 
-/** The artifact filename under `.vigiles/`. */
-export const COVERAGE_ARTIFACT_FILE = "coverage.json";
+/** The artifact filename under `.vigiles/` — defined on the one local-files list. */
+export { COVERAGE_ARTIFACT_FILE };
 
 /**
  * Which runner produced a record. Mirrors the discovery split in
@@ -733,7 +738,7 @@ export function mergeRuns(
 export function readCoverageArtifact(
   root: string,
 ): CoverageArtifact | undefined {
-  const file = resolve(root, ".vigiles", COVERAGE_ARTIFACT_FILE);
+  const file = resolve(root, VIGILES_DIR, COVERAGE_ARTIFACT_FILE);
   if (!existsSync(file)) return undefined;
   let value: unknown;
   try {
@@ -776,8 +781,9 @@ export function writeCoverageArtifact(
   artifact: CoverageArtifact,
 ): void {
   try {
-    const dir = resolve(root, ".vigiles");
+    const dir = resolve(root, VIGILES_DIR);
     mkdirSync(dir, { recursive: true });
+    ensureLocalFilesIgnored(dir);
     writeFileSync(
       resolve(dir, COVERAGE_ARTIFACT_FILE),
       JSON.stringify(artifact, null, 2) + "\n",

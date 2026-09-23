@@ -69,6 +69,11 @@ import {
   type StateWrite,
 } from "./core/hook-state.js";
 import { normalizeHookRef } from "./hook-install.js";
+import {
+  HOOK_STATE_DIR,
+  VIGILES_DIR,
+  ensureLocalFilesIgnored,
+} from "./local-files.js";
 
 /**
  * The directory a hook's recorded facts live in — the SCOPE of `state()`/`record()`.
@@ -93,7 +98,8 @@ export function hookStateDir(file: string, cwd = process.cwd()): string {
   const inside = rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
   return resolve(
     cwd,
-    ".vigiles/state",
+    VIGILES_DIR,
+    HOOK_STATE_DIR,
     inside ? rel : `external-${sha256short(dir)}`,
   );
 }
@@ -157,6 +163,7 @@ export function writeHookState(
     by: normalizeHookRef(file, cwd),
   };
   mkdirSync(dir, { recursive: true });
+  ensureLocalFilesIgnored(resolve(cwd, VIGILES_DIR));
   const tmp = `${target}.${String(process.pid)}.tmp`;
   writeFileSync(tmp, JSON.stringify(entry, null, 2) + "\n");
   renameSync(tmp, target);

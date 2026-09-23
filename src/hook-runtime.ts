@@ -85,6 +85,11 @@ import type { SHA256Hash } from "./core/hash.js";
 import type { StateFact } from "./core/hook-state.js";
 import { readHookState, writeHookState } from "./hook-state-store.js";
 import { appendObservation } from "./observe.js";
+import {
+  HOOK_OBSERVATIONS_FILE,
+  VIGILES_DIR,
+  ensureLocalFilesIgnored,
+} from "./local-files.js";
 import { loadHook } from "./load-hook.js";
 import { injectableEventsOf } from "./core/event-capability.js";
 
@@ -245,8 +250,9 @@ function recordObservation(
   root: string,
 ): void {
   try {
-    const dir = resolve(root, ".vigiles");
+    const dir = resolve(root, VIGILES_DIR);
     mkdirSync(dir, { recursive: true });
+    ensureLocalFilesIgnored(dir);
     const line =
       JSON.stringify({
         ts: new Date().toISOString(),
@@ -255,7 +261,7 @@ function recordObservation(
         would,
         reason,
       }) + "\n";
-    appendFileSync(resolve(dir, "hook-observations.jsonl"), line);
+    appendFileSync(resolve(dir, HOOK_OBSERVATIONS_FILE), line);
   } catch {
     /* recording is best-effort — never let it break a live session */
   }

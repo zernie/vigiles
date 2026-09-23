@@ -255,7 +255,7 @@ export default experimental_defineHook({
 });
 ```
 
-In observe mode the runtime exits `0` (never blocks) and appends a record to **`.vigiles/hook-observations.jsonl`** (`{ ts, hook, event, would, reason }`) plus a one-line `⚠ [vigiles observe]` note. It's **harness-neutral** — exit 0 + a local record behaves identically on Claude Code and Codex, no harness-specific field names involved.
+In observe mode the runtime exits `0` (never blocks) and appends a record to **`.vigiles/hook-observations.jsonl`** (`{ ts, hook, event, would, reason }`; local to this checkout, and kept out of git by `.vigiles/.gitignore`) plus a one-line `⚠ [vigiles observe]` note. It's **harness-neutral** — exit 0 + a local record behaves identically on Claude Code and Codex, no harness-specific field names involved.
 
 ## Deciding on external state (context providers)
 

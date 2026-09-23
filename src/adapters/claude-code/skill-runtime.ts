@@ -34,6 +34,11 @@ import { resolve, dirname } from "node:path";
 import { decidePurityGate } from "../../core/effects.js";
 import type { PurityLevel } from "../../core/effects.js";
 import { claudeCodeDialect } from "./dialect.js";
+import {
+  ACTIVE_SKILL_FILE,
+  VIGILES_DIR,
+  ensureLocalFilesIgnored,
+} from "../../local-files.js";
 
 export type RuntimeGate =
   | { readonly kind: "cmd"; readonly command: string; readonly retry: number }
@@ -284,12 +289,13 @@ export function runSkillGates(gates: SkillGates, cwd: string): SkillRunReport {
 // `skill-start` to fire automatically is the integration step; the decision
 // logic below is harness-agnostic and fully testable.
 
-const ACTIVE_PATH = ".vigiles/active-skill.json";
+const ACTIVE_PATH = `${VIGILES_DIR}/${ACTIVE_SKILL_FILE}`;
 
 /** Record the skill the agent is currently executing. */
 export function setActiveSkill(cwd: string, skillPath: string): void {
   const p = resolve(cwd, ACTIVE_PATH);
   mkdirSync(dirname(p), { recursive: true });
+  ensureLocalFilesIgnored(dirname(p));
   writeFileSync(p, JSON.stringify({ skill: skillPath }) + "\n");
 }
 

@@ -106,6 +106,7 @@ import {
 import type { ModelAccess } from "./core/live-driver.js";
 import { buildInstallReader } from "./core/install-reader.js";
 import { addVigilesDeclaration } from "./plugin-declaration.js";
+import { warnTrackedLocalFiles } from "./local-files-tracked.js";
 import {
   probePluginTriggers,
   formatBehavioralReport,
@@ -6544,6 +6545,10 @@ async function handleRunScripts(
   // a flag: the run already happened, and this is the runner recording what it
   // saw — the same shape as the flight-recorder ledger it already appends to.
   recordRunCoverage(cwd, results, kind, harnessFlagFrom(args));
+  // The ignore file keeps NEW copies of `.vigiles/` local files out of git, but
+  // cannot untrack one a repo already committed. Said here, on the CLI, because
+  // it spawns `git` — never from a hook runtime.
+  warnTrackedLocalFiles(cwd);
   console.log("\n" + formatScriptSummary(results));
 
   if (anyFailed(results)) process.exit(1);

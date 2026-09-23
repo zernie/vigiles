@@ -30,6 +30,11 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 
 import { matchesArgs, describeArgs, type ArgMatcher } from "../arg-match.js";
+import {
+  GUARD_LEDGER_FILE,
+  VIGILES_DIR,
+  ensureLocalFilesIgnored,
+} from "../local-files.js";
 
 /** A tool-call shape: a tool name + an optional argument matcher (the `when`). */
 export interface ToolPattern {
@@ -323,7 +328,7 @@ export function parseGuards(json: string): Guard[] {
 // ---------------------------------------------------------------------------
 
 const GUARDS_FILE = ".vigiles/guards.json";
-const LEDGER_FILE = ".vigiles/guard-ledger.json";
+const LEDGER_FILE = `${VIGILES_DIR}/${GUARD_LEDGER_FILE}`;
 
 /** Load the declared guard set from `.vigiles/guards.json` (absent → none). */
 export function loadGuards(cwd: string): Guard[] {
@@ -361,6 +366,7 @@ export function recordGuardCall(cwd: string, event: ToolEvent): void {
   const calls = readGuardLedger(cwd);
   calls.push({ tool: event.tool, input: event.input });
   mkdirSync(dirname(p), { recursive: true });
+  ensureLocalFilesIgnored(dirname(p));
   writeFileSync(p, JSON.stringify({ calls }, null, 2));
 }
 

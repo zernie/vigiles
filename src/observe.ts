@@ -16,11 +16,17 @@
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import {
+  LEDGER_FILE,
+  VIGILES_DIR,
+  ensureLocalFilesIgnored,
+} from "./local-files.js";
+
 /** Bumped when the record shape changes in a non-additive way. */
 export const OBSERVE_VERSION = 1;
 
-/** The ledger filename under the `.vigiles/` directory. */
-export const LEDGER_FILE = "runs.jsonl";
+/** The ledger filename under the `.vigiles/` directory — defined on the one local-files list. */
+export { LEDGER_FILE };
 
 /** Fields every record carries; `v`/`ts` are stamped by the writer, not the caller. */
 export interface ObservationBase {
@@ -110,8 +116,9 @@ export function appendObservation(
   cwd: string = process.cwd(),
 ): void {
   try {
-    const dir = resolve(cwd, ".vigiles");
+    const dir = resolve(cwd, VIGILES_DIR);
     mkdirSync(dir, { recursive: true });
+    ensureLocalFilesIgnored(dir);
     const record = {
       v: OBSERVE_VERSION,
       ts: new Date().toISOString(),
@@ -132,7 +139,7 @@ export function readObservations(
 ): ObservationRecord[] {
   let raw: string;
   try {
-    raw = readFileSync(resolve(cwd, ".vigiles", LEDGER_FILE), "utf8");
+    raw = readFileSync(resolve(cwd, VIGILES_DIR, LEDGER_FILE), "utf8");
   } catch {
     return [];
   }

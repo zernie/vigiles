@@ -22,9 +22,9 @@ import {
   rmSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 
-import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import { initGitRepo, makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 // __dirname is src/ when vitest resolves the .ts source → ".." is the repo root.
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
@@ -450,4 +450,68 @@ test("…and an EMPTY colocated harness is not, though it also 'passes'", () => 
   assert.doesNotMatch(out, /MEASURED BY A RUN/);
   // …while colocation still credits it, exactly as before this tier existed.
   assert.match(out, /colocated/);
+});
+
+// ---------------------------------------------------------------------------
+// The artifact stays out of git — the writer keeps `.vigiles/.gitignore`, and
+// the CLI says so when a repo committed one before that existed.
+// ---------------------------------------------------------------------------
+
+/** `vigiles test`'s stderr (the tracked-file warning goes there). */
+function vigilesTestStderr(): string {
+  const r = spawnSync("node", [CLI, "test"], {
+    cwd: dir,
+    encoding: "utf-8",
+    timeout: 60000,
+  });
+  assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+  return r.stderr;
+}
+
+/** What git would offer to commit under `.vigiles/`. */
+function gitStatusUnderVigiles(): string[] {
+  return execFileSync(
+    "git",
+    ["status", "--porcelain", "--untracked-files=all"],
+    {
+      cwd: dir,
+      encoding: "utf-8",
+    },
+  )
+    .split("\n")
+    .filter((l) => l.includes(".vigiles/"));
+}
+
+test("the coverage artifact `vigiles test` writes is invisible to git", () => {
+  initGitRepo(dir);
+  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  const stderr = vigilesTestStderr();
+  assert.deepEqual(recorded(), ["hooks/a.sh"], "the artifact was written");
+  assert.deepEqual(gitStatusUnderVigiles(), []);
+  assert.doesNotMatch(
+    stderr,
+    /tracked by git/,
+    "nothing tracked, nothing said",
+  );
+});
+
+test("an ALREADY-tracked coverage.json gets one warning line on the next run", () => {
+  initGitRepo(dir);
+  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  vigilesTest();
+  // A consumer committed it before vigiles ignored it (or forced it past).
+  execFileSync("git", ["add", "-f", ".vigiles/coverage.json"], { cwd: dir });
+  const stderr = vigilesTestStderr();
+  const lines = stderr.split("\n").filter((l) => /tracked by git/.test(l));
+  assert.equal(lines.length, 1, stderr);
+  assert.match(lines[0], /\.vigiles\/coverage\.json is tracked by git/);
+  assert.match(lines[0], /git rm -r --cached \.vigiles\/coverage\.json/);
+  // Reported, never acted on: the index is the owner's.
+  assert.match(
+    execFileSync("git", ["ls-files", ".vigiles"], {
+      cwd: dir,
+      encoding: "utf-8",
+    }),
+    /coverage\.json/,
+  );
 });
