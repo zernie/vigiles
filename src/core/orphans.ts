@@ -14,8 +14,9 @@
 
 import { readFileSync } from "node:fs";
 import { resolve, posix } from "node:path";
-import { globSync } from "glob";
+import { globSync, type IgnoreLike } from "glob";
 
+import { withIgnored, type GlobIgnore } from "./glob-ignore.js";
 import type { PluginLayout } from "./layout.js";
 
 // ---------------------------------------------------------------------------
@@ -46,12 +47,13 @@ export interface FindOrphansOptions {
   /** Glob patterns to exclude within the include scope (orphan CANDIDACY only). */
   readonly exclude?: readonly string[];
   /**
-   * The repo-wide `.vigilesrc.json#exclude` (the ExcludeSet string face,
-   * src/exclude.ts). Applied to BOTH walks — candidates AND the reference scan —
+   * The repo-wide `.vigilesrc.json#exclude` (`ExcludeSet.globIgnore`,
+   * src/exclude.ts — correct from any glob cwd; a plain list is relative to
+   * `basePath`). Applied to BOTH walks — candidates AND the reference scan —
    * so an excluded corpus can neither be an orphan nor keep one alive (#192).
    * The CLI always passes it; a direct library caller may omit it.
    */
-  readonly repoExclude?: readonly string[];
+  readonly repoExclude?: GlobIgnore;
   /**
    * Harnesses whose surface files (instruction file, `SKILL.md`, subagents,
    * commands) are load-bearing by location and thus never orphan CANDIDATES
@@ -154,12 +156,12 @@ function isOrphanExempt(absPath: string): boolean {
 function collectDocs(
   basePath: string,
   include: readonly string[],
-  ignore: readonly string[],
+  ignore: string[] | IgnoreLike,
   layouts: readonly PluginLayout[],
 ): Set<string> {
   const docs = new Set<string>();
   for (const pattern of include) {
-    for (const p of globSync(pattern, { cwd: basePath, ignore: [...ignore] })) {
+    for (const p of globSync(pattern, { cwd: basePath, ignore })) {
       if (isHarnessLoadedFile(p, layouts)) continue; // harness files are never orphans
       if (isOrphanExempt(resolve(basePath, p))) continue;
       docs.add(normalizePath(p));
@@ -219,15 +221,15 @@ export function findOrphanDocs(options: FindOrphansOptions = {}): OrphanReport {
   // CANDIDATE nor a SOURCE of references (a link from inside it must not keep a
   // doc alive). The rule's own `exclude` only narrows candidacy: a doc kept out
   // of the orphan list can still reference others. Union, never override.
-  const repoExclude = options.repoExclude ?? [];
-  const ignore = [...DEFAULT_IGNORE, ...repoExclude, ...userExclude];
+  const repoExclude = options.repoExclude;
+  const ignore = withIgnored([...DEFAULT_IGNORE, ...userExclude], repoExclude);
   const layouts = options.layouts ?? [];
 
   const allDocs = collectDocs(basePath, include, ignore, layouts);
 
   const allMarkdown = globSync("**/*.md", {
     cwd: basePath,
-    ignore: [...DEFAULT_IGNORE, ...repoExclude],
+    ignore: withIgnored(DEFAULT_IGNORE, repoExclude),
   });
   const referencedBy = new Map<string, Set<string>>();
 

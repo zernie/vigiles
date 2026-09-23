@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 478 project files. */
+  /** 485 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -185,6 +185,7 @@ declare module "vigiles/generated" {
     | "src/adoptability.ts"
     | "src/agent-plugins-manifest.test.ts"
     | "src/arg-match.ts"
+    | "src/audit-bundle-frame.test.ts"
     | "src/audit-html.test.ts"
     | "src/audit-html.ts"
     | "src/audit-prompts.test.ts"
@@ -278,6 +279,8 @@ declare module "vigiles/generated" {
     | "src/core/evolve.ts"
     | "src/core/foreign-runner.test.ts"
     | "src/core/foreign-runner.ts"
+    | "src/core/frame.test.ts"
+    | "src/core/frame.ts"
     | "src/core/frontmatter-read.test.ts"
     | "src/core/frontmatter-read.ts"
     | "src/core/frontmatter.test.ts"
@@ -286,6 +289,8 @@ declare module "vigiles/generated" {
     | "src/core/generate-harness.ts"
     | "src/core/generate-schema.ts"
     | "src/core/generate-types.ts"
+    | "src/core/glob-ignore.test.ts"
+    | "src/core/glob-ignore.ts"
     | "src/core/guards.test.ts"
     | "src/core/guards.ts"
     | "src/core/harness-driver.ts"
@@ -472,6 +477,7 @@ declare module "vigiles/generated" {
     | "src/layout-registry.ts"
     | "src/leaderboard.test.ts"
     | "src/leaderboard.ts"
+    | "src/lint-bundle-frames.test.ts"
     | "src/lint-contract.test.ts"
     | "src/linting.ts"
     | "src/load-hook.test.ts"
@@ -578,6 +584,7 @@ declare module "vigiles/generated" {
     | "src/trigger-containment.test.ts"
     | "src/trigger-containment.ts"
     | "src/ts-runner-caps.ts"
+    | "src/untested-bundle-root.test.ts"
     | "src/verify-plugin-guards.test.ts"
     | "src/verify-plugin-guards.ts"
     | "src/vitest.mts";
@@ -735,6 +742,7 @@ declare module "vigiles/spec" {
       | "src/adoptability.ts"
       | "src/agent-plugins-manifest.test.ts"
       | "src/arg-match.ts"
+      | "src/audit-bundle-frame.test.ts"
       | "src/audit-html.test.ts"
       | "src/audit-html.ts"
       | "src/audit-prompts.test.ts"
@@ -828,6 +836,8 @@ declare module "vigiles/spec" {
       | "src/core/evolve.ts"
       | "src/core/foreign-runner.test.ts"
       | "src/core/foreign-runner.ts"
+      | "src/core/frame.test.ts"
+      | "src/core/frame.ts"
       | "src/core/frontmatter-read.test.ts"
       | "src/core/frontmatter-read.ts"
       | "src/core/frontmatter.test.ts"
@@ -836,6 +846,8 @@ declare module "vigiles/spec" {
       | "src/core/generate-harness.ts"
       | "src/core/generate-schema.ts"
       | "src/core/generate-types.ts"
+      | "src/core/glob-ignore.test.ts"
+      | "src/core/glob-ignore.ts"
       | "src/core/guards.test.ts"
       | "src/core/guards.ts"
       | "src/core/harness-driver.ts"
@@ -1022,6 +1034,7 @@ declare module "vigiles/spec" {
       | "src/layout-registry.ts"
       | "src/leaderboard.test.ts"
       | "src/leaderboard.ts"
+      | "src/lint-bundle-frames.test.ts"
       | "src/lint-contract.test.ts"
       | "src/linting.ts"
       | "src/load-hook.test.ts"
@@ -1128,6 +1141,7 @@ declare module "vigiles/spec" {
       | "src/trigger-containment.test.ts"
       | "src/trigger-containment.ts"
       | "src/ts-runner-caps.ts"
+      | "src/untested-bundle-root.test.ts"
       | "src/verify-plugin-guards.test.ts"
       | "src/verify-plugin-guards.ts"
       | "src/vitest.mts";

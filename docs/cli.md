@@ -525,7 +525,9 @@ The two you are most likely to want:
 Score them all in one pass — one exit code over the whole repo, which is what a
 CI gate needs — with `--bundles=all`, or `"bundles": "all"` in `.vigilesrc.json`.
 Root-only stays the default because descending unconditionally would also score
-vendored third-party plugins as if they were yours.
+vendored third-party plugins as if they were yours. Paths in the config and in the
+output stay relative to the repo root in every bundle — see
+[`bundles`](configuration.md#bundles).
 
 **Both artefacts, one scan.** `--json` replaces stdout; `--json-out=<file>`
 writes the JSON to disk and leaves stdout human-readable, so a CI job that wants

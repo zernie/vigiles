@@ -23,6 +23,8 @@ import ts from "typescript";
 import { resolve } from "node:path";
 import { globSync } from "glob";
 
+import { withIgnored, type GlobIgnore } from "./glob-ignore.js";
+
 import { checkLinterRule } from "./linters.js";
 import { readPackageScripts } from "./compile.js";
 
@@ -57,7 +59,8 @@ export interface DocRefReport {
 
 export interface FindDocRefsOptions {
   readonly basePath?: string;
-  readonly ignore?: readonly string[];
+  /** The repo exclude (`ExcludeSet.globIgnore`), or patterns relative to `basePath`. */
+  readonly ignore?: GlobIgnore;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +324,7 @@ function validateRefs(
  */
 export function findDocRefs(options: FindDocRefsOptions = {}): DocRefReport {
   const basePath = options.basePath ?? process.cwd();
-  const ignore = [...DEFAULT_IGNORE, ...(options.ignore ?? [])];
+  const ignore = withIgnored(DEFAULT_IGNORE, options.ignore);
   const files = globSync("**/*.md", { cwd: basePath, ignore });
 
   const allRefs: DocRef[] = [];

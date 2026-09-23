@@ -310,12 +310,15 @@ function argsOfCalls(name: string): string[] {
 
 describe("exclude — every options-object detector call in cli.ts carries the ExcludeSet", () => {
   const cases: [string, RegExp][] = [
-    ["findDocRefs", /ignore:\s*excludes\.ignore/],
-    ["findOrphanDocs", /repoExclude:\s*excludes\.ignore/],
-    ["findUntestedSurfaces", /exclude(s\b|:)[\s\S]*\.ignore/],
-    ["skillTestNudge", /excludeSet\([^)]*\)\.ignore/],
-    ["discoverScripts", /excludes\.ignore/],
-    ["computeScriptCoverage", /excludes\.ignore/],
+    // The function face, never a pattern list: a list is correct only for a
+    // glob rooted AT the repo root, and #281 was two walks that were not.
+    ["findDocRefs", /ignore:\s*excludes\.globIgnore/],
+    ["findOrphanDocs", /repoExclude:\s*excludes\.globIgnore/],
+    // The whole ExcludeSet: it carries its own root into a nested bundle.
+    ["findUntestedSurfaces", /\bexcludes\b/],
+    ["skillTestNudge", /\bexcludes\b/],
+    ["discoverScripts", /excludes\.globIgnore/],
+    ["computeScriptCoverage", /excludes\.globIgnore/],
   ];
   for (const [fn, re] of cases) {
     it(`${fn}(…) passes the repo exclude`, () => {

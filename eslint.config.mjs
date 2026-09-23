@@ -8,6 +8,7 @@ import globals from "globals";
 import { readdirSync } from "node:fs";
 
 import experimentalName from "./eslint-rules/experimental-name.mjs";
+import frameMint from "./eslint-rules/frame-mint.mjs";
 import noHarnessNames from "./eslint-rules/no-harness-names.mjs";
 
 /**
@@ -41,6 +42,7 @@ const HARNESS_NAMES = readdirSync("src/adapters", { withFileTypes: true })
 const local = {
   rules: {
     "experimental-name": experimentalName,
+    "frame-mint": frameMint,
     "no-harness-names": noHarnessNames,
   },
 };
@@ -170,8 +172,9 @@ const DISCOVERY_SELECTORS = [
       'CallExpression[callee.name="globSync"]:not(:has(Property[key.name="ignore"]))',
     message:
       "globSync without an `ignore` walks the user's repo with no exclusion at all. " +
-      "Pass the ExcludeSet from src/exclude.ts (`ignore: excludes.globIgnore` for a " +
-      "glob that may be rooted below the repo, `excludes.ignore` for one rooted at it).",
+      "Pass the ExcludeSet from src/exclude.ts (`ignore: excludes.globIgnore`, correct " +
+      "from any cwd; `withIgnored(floor, excludes.globIgnore)` from src/core/glob-ignore.ts " +
+      "when the walk also has its own floor).",
   },
   {
     selector:
@@ -293,6 +296,21 @@ export default [
       "sonarjs/no-identical-expressions": "error",
       "sonarjs/no-nested-conditional": "warn",
       "sonarjs/nested-control-flow": ["warn", { maximumNestingLevel: 3 }],
+    },
+  },
+  // A path-frame brand is minted in src/core/frame.ts and nowhere else (#281).
+  // `RepoPath` makes a bundle-relative or absolute path fail to compile where a
+  // repo-relative one is wanted; an `as RepoPath` would make it compile again with
+  // the wrong frame inside. A rule id of its own rather than one more
+  // `no-restricted-syntax` selector: flat config REPLACES that rule's options per
+  // file group, so a selector added here would silently drop the others.
+  // Measured 2026-09-23: zero findings on the tree as it stands.
+  {
+    files: ["src/**/*.ts"],
+    ignores: ["src/core/frame.ts"],
+    plugins: { local },
+    rules: {
+      "local/frame-mint": ["error", { types: ["RepoPath", "BundlePath"] }],
     },
   },
   // Architectural boundary: core ⊄ adapter (eslint-plugin-boundaries).

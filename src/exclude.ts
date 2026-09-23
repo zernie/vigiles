@@ -1,6 +1,7 @@
 /**
- * The ONE exclusion policy for every walk that polices the user's repository (#192) — the parsed `.vigilesrc.json#exclude` as an `ExcludeSet`, built ONCE where `loadConfig()` runs and taken as a REQUIRED parameter by every in-scope discovery (`findSpecs`, `findInstructionFiles`, `discoverNestedBundles`, `collectDocumentedRules`, `gatherInstructionFiles` in cli.ts; the string face handed to `findDocRefs`, `findOrphanDocs` (`repoExclude`), `findUntestedSurfaces`/`skillTestNudge`, `discoverScripts`, `computeScriptCoverage`).
- * Two faces: `globIgnore` (an `IgnoreLike` keyed on the path's position relative to the REPO root, so a glob rooted below it — `vigiles lint some/dir` — still applies a root-relative exclude) and `ignore` (the normalized string list for pure core detectors that glob from the root).
+ * The ONE exclusion policy for every walk that polices the user's repository (#192) — the parsed `.vigilesrc.json#exclude` as an `ExcludeSet`, built ONCE where `loadConfig()` runs and taken as a REQUIRED parameter by every in-scope discovery (`findSpecs`, `findInstructionFiles`, `discoverNestedBundles`, `collectDocumentedRules`, `gatherInstructionFiles` in cli.ts; the `globIgnore` face handed to `findDocRefs`, `findOrphanDocs` (`repoExclude`), `discoverScripts`, `computeScriptCoverage`; the whole set to `findUntestedSurfaces`/`skillTestNudge`/`scanPlugin`).
+ * Faces: `globIgnore` (an `IgnoreLike` keyed on the path's position relative to the REPO root, so a glob rooted anywhere — `vigiles lint some/dir`, a nested bundle — still applies a root-relative exclude), `matches`/`explain` (a root-relative path), and `excludedBy` below (an absolute path).
+ * 🔴 There is deliberately NO string-list face any more (#281). It was `ignore`, correct only for a glob rooted AT `root` — a precondition that lived in a comment, and two callers that globbed from a nested bundle broke it: the repo exclude never reached the bundle, and a root-relative pattern aliased into it. `core/glob-ignore.ts` unions a detector's own string floor with `globIgnore` instead.
  * A bare directory name excludes its subtree, as tsconfig/ESLint do — measured 2026-09-03: glob's own string `ignore` treated `bench` and `bench/` as matching NOTHING while the minimatch helper in `discoverNestedBundles` accepted them, so the two walks that honoured `exclude` disagreed.
  * The floor (node_modules/dist/.git/.vigiles) lives here, not per walk.
  * `exclude` filters DISCOVERY only: an explicitly named path is processed and ONE line names the pattern it matched (rg/tsc semantics with ESLint's loudness; never prettier's silent 'all clean').
@@ -27,12 +28,10 @@ export interface ExcludeSet {
   /** The user's patterns, as written (for messages). */
   readonly patterns: readonly string[];
   /**
-   * The string-list face for a glob rooted AT `root`: the floor, then each user
-   * pattern normalized so a bare directory name excludes its subtree (`bench` →
-   * `bench`, `bench/**`), which is what "tsconfig-style" promises.
+   * The function face for `globSync`, correct whatever the glob's `cwd` is. A
+   * bare directory name excludes its subtree (`bench` → `bench`, `bench/**`),
+   * which is what "tsconfig-style" promises.
    */
-  readonly ignore: readonly string[];
-  /** The function face for `globSync`, correct whatever the glob's `cwd` is. */
   readonly globIgnore: IgnoreLike;
   /** Is this root-relative path excluded (floor or user pattern)? */
   matches(rel: string): boolean;
@@ -77,7 +76,6 @@ export function excludeSet(
   return {
     root,
     patterns: user,
-    ignore: [...EXCLUDE_FLOOR, ...user.flatMap((p) => [p, `${p}/**`])],
     globIgnore: {
       ignored: (p) => matches(relOf(p)),
       childrenIgnored: (p) => matches(relOf(p)),

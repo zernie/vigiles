@@ -38,12 +38,10 @@ jobs:
           # at 15.4.1 while `main` carried breaking changes, which is the exact condition #152
           # existed to end.
           #
-          # ⚠️ THE REAL DEFECT IS NOT THIS NUMBER. `semantic-release` is not in package.json at
-          # all, so `npx semantic-release` resolves the newest published version on every run.
-          # The release pipeline therefore changes behaviour with no commit to this repository:
-          # run 132 passed at 19:30 and run 133 failed at 21:24 on the same config, because a
-          # release in between dropped Node 20. Bumping the runtime unblocks today and leaves
-          # that open — pinning the tool as a devDependency is the fix that closes it.
+          # The deeper defect was that `semantic-release` was not in package.json, so `npx`
+          # fetched the newest published version on every run and the pipeline changed with no
+          # commit here (run 132 passed at 19:30, run 133 failed at 21:24 on the same config).
+          # It is now a pinned devDependency and the step below runs it with `--no-install`.
           node-version: "22"
           cache: "npm"
 
@@ -56,7 +54,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npx semantic-release
+        # `--no-install`: run the version pinned in package.json, never fetch one. Its plugins'
+        # preset is pinned with it (conventional-changelog-conventionalcommits 9.x); preset 10
+        # needs conventional-changelog-writer 9, which @semantic-release/release-notes-generator
+        # 14 does not load, and every release from v16.0.0 to v31.0.0 shipped an empty body.
+        # scripts/release-config.test.ts renders the notes with the installed toolchain.
+        run: npx --no-install semantic-release
 
       - name: Update the Action's floating major-version tag
         # ── WHY THIS IS NOT DERIVED FROM THE PACKAGE VERSION ────────────────────

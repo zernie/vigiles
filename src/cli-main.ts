@@ -33,7 +33,7 @@ import {
 import { repoRelative, type RepoRelativePath } from "./core/repo-path.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { globSync } from "glob";
-import { excludeSet, type ExcludeSet } from "./exclude.js";
+import { excludeSet, excludedBy, type ExcludeSet } from "./exclude.js";
 import { generateTypes } from "./core/generate-types.js";
 import {
   loadHarnessModel,
@@ -97,6 +97,13 @@ import {
   preferCompiledHooksMessage,
 } from "./scan.js";
 import type { ScanReport, ScanHarness } from "./scan.js";
+import {
+  frameAt,
+  frameFor,
+  type Bundle,
+  type Frame,
+  type RepoPath,
+} from "./core/frame.js";
 import { unresolvedDeclaredRoots } from "./core/surface-discovery.js";
 import {
   decideExecute,
@@ -962,11 +969,18 @@ function isGitHubActions(): boolean {
 /**
  * Emit a GitHub Actions annotation for the inline PR experience.
  * No-op outside GitHub Actions.
+ *
+ * `file` is a {@link RepoPath}, not a `string`, and that is the #281 fix made
+ * structural: GitHub resolves `file=` against the checked-out repository, so a
+ * path relative to a nested bundle (`skills/x/SKILL.md` for
+ * `plugins/p/skills/x/SKILL.md`) or an absolute machine path lands on a missing
+ * file — or, worse, on the ROOT bundle's file of the same name. Such a path no
+ * longer compiles here; it has to go through `core/frame.ts` first.
  */
 function ghAnnotate(
   level: "error" | "warning",
   message: string,
-  file?: string,
+  file?: RepoPath,
   line?: number,
 ): void {
   if (!isGitHubActions()) return;
@@ -982,7 +996,11 @@ interface HashCheckResult {
   errorCount: number;
 }
 
-function verifyHashes(filePaths: string[], silent = false): HashCheckResult {
+function verifyHashes(
+  frame: Frame,
+  filePaths: string[],
+  silent = false,
+): HashCheckResult {
   let errorCount = 0;
   const log = (msg: string): void => {
     if (!silent) console.log(msg);
@@ -996,7 +1014,11 @@ function verifyHashes(filePaths: string[], silent = false): HashCheckResult {
     if (!existsSync(fullPath)) {
       log(`\n✗ ${filePath} — file not found`);
       if (!silent) {
-        ghAnnotate("error", `File not found: ${filePath}`, filePath);
+        ghAnnotate(
+          "error",
+          `File not found: ${filePath}`,
+          frame.repo(fullPath),
+        );
       }
       errorCount++;
       continue;
@@ -1022,7 +1044,7 @@ function verifyHashes(filePaths: string[], silent = false): HashCheckResult {
       ghAnnotate(
         "error",
         "Hash mismatch — file was manually edited after compilation",
-        filePath,
+        frame.repo(fullPath),
       );
     }
     errorCount++;
@@ -1085,8 +1107,12 @@ interface CombinedCheckResult {
   validationErrors: number;
 }
 
-function check(filePaths: string[], silent = false): CombinedCheckResult {
-  const hashes = verifyHashes(filePaths, silent);
+function check(
+  frame: Frame,
+  filePaths: string[],
+  silent = false,
+): CombinedCheckResult {
+  const hashes = verifyHashes(frame, filePaths, silent);
   const vConfig = loadConfig();
   const specsValid = validateSpecs(filePaths, vConfig.rules, silent);
   return {
@@ -1286,6 +1312,7 @@ interface LintReport {
  * the count of broken references.
  */
 async function verifyMarkdownSymbols(
+  frame: Frame,
   files: string[],
   silent: boolean,
 ): Promise<number> {
@@ -1309,7 +1336,7 @@ async function verifyMarkdownSymbols(
       }
       for (const b of broken) {
         console.log(`  ✗ ${f}:${String(b.line)} ${b.reason}`);
-        ghAnnotate("error", b.reason, f, b.line);
+        ghAnnotate("error", b.reason, frame.repo(resolve(cwd, f)), b.line);
       }
     }
     errors += broken.length;
@@ -1325,6 +1352,7 @@ async function verifyMarkdownSymbols(
  * references. Async because it speaks to real servers.
  */
 async function verifyMarkdownMcpRefs(
+  frame: Frame,
   files: string[],
   silent: boolean,
 ): Promise<number> {
@@ -1350,7 +1378,7 @@ async function verifyMarkdownMcpRefs(
       for (const b of broken) {
         const msg = mcpRefMessage(b);
         console.log(`  ✗ ${f}:${String(b.line)} ${msg}`);
-        ghAnnotate("error", msg, f, b.line);
+        ghAnnotate("error", msg, frame.repo(resolve(cwd, f)), b.line);
       }
     }
     errors += broken.length;
@@ -1490,6 +1518,7 @@ interface RuleVerifyResult {
  * and annotating on failure. Returns true when the rule is valid+enabled.
  */
 function verifyOneRule(
+  frame: Frame,
   rule: { linterRule: string; line: number },
   filePath: string,
   silent: boolean,
@@ -1502,13 +1531,25 @@ function verifyOneRule(
   if (!result.exists) {
     const message = result.error ?? `Rule "${rule.linterRule}" not found`;
     log(`  ✗ line ${String(rule.line)}: ${message}`);
-    if (!silent) ghAnnotate("error", message, filePath, rule.line);
+    if (!silent)
+      ghAnnotate(
+        "error",
+        message,
+        frame.repo(resolve(process.cwd(), filePath)),
+        rule.line,
+      );
     return false;
   }
   if (result.enabled === "disabled") {
     const message = `Rule "${rule.linterRule}" exists but is disabled in ${result.linter} config`;
     log(`  ✗ line ${String(rule.line)}: ${message}`);
-    if (!silent) ghAnnotate("error", message, filePath, rule.line);
+    if (!silent)
+      ghAnnotate(
+        "error",
+        message,
+        frame.repo(resolve(process.cwd(), filePath)),
+        rule.line,
+      );
     return false;
   }
   log(`  ✓ line ${String(rule.line)}: ${rule.linterRule}`);
@@ -1523,6 +1564,7 @@ function verifyOneRule(
  * file's own directory. Returns the number of stale references found.
  */
 function verifyMarkdownRefs(
+  frame: Frame,
   files: readonly { path: string; line: number }[],
   commands: readonly { command: string; line: number }[],
   filePath: string,
@@ -1533,7 +1575,12 @@ function verifyMarkdownRefs(
   const report = (err: CompileError, line: number): void => {
     if (!silent) {
       console.log(`  ✗ line ${String(line)}: ${err.message}`);
-      ghAnnotate("error", err.message, filePath, line);
+      ghAnnotate(
+        "error",
+        err.message,
+        frame.repo(resolve(process.cwd(), filePath)),
+        line,
+      );
     }
     errorCount++;
   };
@@ -1549,6 +1596,7 @@ function verifyMarkdownRefs(
 }
 
 function verifyInlineRules(
+  frame: Frame,
   filePath: string,
   silent: boolean,
   linterOptions?: LinterOptions,
@@ -1586,14 +1634,20 @@ function verifyInlineRules(
     log(`  ✗ line ${String(err.line)}: ${err.message}`);
     errorCount++;
     if (!silent) {
-      ghAnnotate("error", err.message, filePath, err.line);
+      ghAnnotate(
+        "error",
+        err.message,
+        frame.repo(resolve(process.cwd(), filePath)),
+        err.line,
+      );
     }
   }
 
   for (const rule of rules) {
-    if (!verifyOneRule(rule, filePath, silent, linterOptions)) errorCount++;
+    if (!verifyOneRule(frame, rule, filePath, silent, linterOptions))
+      errorCount++;
   }
-  errorCount += verifyMarkdownRefs(files, commands, filePath, silent);
+  errorCount += verifyMarkdownRefs(frame, files, commands, filePath, silent);
 
   return {
     ok: errorCount === 0,
@@ -1610,6 +1664,7 @@ function verifyInlineRules(
  * rule present in both sources is reported once, not twice.
  */
 function verifyFrontmatterRules(
+  frame: Frame,
   filePath: string,
   silent: boolean,
   exclude: ReadonlySet<string>,
@@ -1649,14 +1704,20 @@ function verifyFrontmatterRules(
     log(`  ✗ line ${String(err.line)}: ${err.message}`);
     errorCount++;
     if (!silent) {
-      ghAnnotate("error", err.message, filePath, err.line);
+      ghAnnotate(
+        "error",
+        err.message,
+        frame.repo(resolve(process.cwd(), filePath)),
+        err.line,
+      );
     }
   }
 
   for (const rule of rules) {
-    if (!verifyOneRule(rule, filePath, silent, linterOptions)) errorCount++;
+    if (!verifyOneRule(frame, rule, filePath, silent, linterOptions))
+      errorCount++;
   }
-  errorCount += verifyMarkdownRefs(files, commands, filePath, silent);
+  errorCount += verifyMarkdownRefs(frame, files, commands, filePath, silent);
 
   return {
     ok: errorCount === 0,
@@ -1705,6 +1766,7 @@ const FRONTMATTER_MODE_ENABLED: boolean = false;
  * the first source). See docs/markdown-mode.md.
  */
 function verifyMarkdownModeRules(
+  frame: Frame,
   files: string[],
   silent: boolean,
   config?: VigilesConfig,
@@ -1734,13 +1796,14 @@ function verifyMarkdownModeRules(
       continue;
     }
     if (compiledFromRe.test(content)) continue; // managed via hash header
-    const inline = verifyInlineRules(filePath, silent, linterOptions);
+    const inline = verifyInlineRules(frame, filePath, silent, linterOptions);
     totals.inlineErrors += inline.errorCount;
     totals.inlineRules += inline.ruleCount;
     // Frontmatter mode is DISABLED (kept in code, inert in lint) — a `vigiles:`
     // block is ignored, never verified. See FRONTMATTER_MODE_ENABLED.
     if (FRONTMATTER_MODE_ENABLED) {
       const fm = verifyFrontmatterRules(
+        frame,
         filePath,
         silent,
         new Set(inline.ruleNames),
@@ -1771,22 +1834,6 @@ function verifyMarkdownModeRules(
  *   --summary   Print a single-line summary (for SessionStart hooks)
  *   --json      Print structured JSON report (for CI integration)
  */
-/**
- * The repo root that `sharedDirs` resolve against. The caller's cwd (where
- * `.vigilesrc.json` lives) is used ONLY when the scan target is INSIDE it — e.g.
- * `lint packages/foo` from the repo root, where the shared tree is an ancestor of
- * the scoped subdir. When the target is NOT under cwd (`lint path/to/other-repo`),
- * we resolve against the TARGET itself, so a foreign-repo lint never lets the
- * caller's own files satisfy the target's bundled resources (scoped-lint integrity).
- */
-function sharedDirsRootFor(scanTarget: string): string {
-  const cwd = process.cwd();
-  const target = resolve(scanTarget);
-  const rel = relative(cwd, target);
-  const underCwd = rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-  return underCwd ? cwd : target;
-}
-
 /**
  * Nested plugin bundles under a lint root — a directory that is itself a harness
  * (its own `.claude-plugin/plugin.json`, or its own skills dir) and is NOT the
@@ -1862,32 +1909,90 @@ export function discoverNestedBundles(
 }
 
 /**
- * Run one per-surface check over EVERY root and sum its counters.
+ * What ONE per-bundle check is handed (#281): the bundle it scores, the frame
+ * every path it prints is expressed in, and the three things that used to be
+ * done by hand in each of twenty checks and so were done differently in each.
  *
- * The checks all share `(config, silent, adapter, root)` and return a small
- * record of numbers, so one wrapper covers all twenty rather than twenty edits —
- * and a check added later is swept in by using it, not by remembering to.
+ * 🔴 THERE IS NO BARE ROOT HERE ON PURPOSE. The previous signature was
+ * `(config, silent, adapter, root: string)`, and that one string had to be the
+ * discovery base, the base of the config's globs AND the frame of every printed
+ * path. For a nested bundle it could only be one of them, so it was wrong for
+ * the other two. Now the bundle's directory is `bundle.abs`, config globs
+ * resolve from `frame.root`, and a printed path is a `RepoPath` — three facts,
+ * three fields, and `annotate` refuses a path in any other frame.
+ */
+interface BundleCheck {
+  readonly config: VigilesConfig | undefined;
+  readonly silent: boolean;
+  readonly adapter: HarnessAdapter;
+  readonly excludes: ExcludeSet;
+  readonly frame: Frame;
+  readonly bundle: Bundle;
+  /**
+   * `text`, prefixed with this bundle's location when several bundles are
+   * scored and it is not the lint target itself — so two identical findings
+   * from two bundles can be told apart. For a finding that names no file.
+   */
+  label(text: string): string;
+  /** `ghAnnotate`, applying {@link label} when no file is named. */
+  annotate(level: "error" | "warning", message: string, file?: RepoPath): void;
+  /**
+   * `scanPlugin` over THIS bundle, with the repo's `exclude`. One door, so a
+   * check cannot scan a different directory or forget the exclude — every
+   * checker used to call `scanPlugin` without it (the gap `scan.ts` documented).
+   */
+  scan(extra?: {
+    readonly sharedDirs?: readonly string[];
+    readonly sharedDirsRoot?: string;
+  }): ScanReport;
+}
+
+/** The part of {@link BundleCheck} that is the same for every bundle of a run. */
+type BundleRun = Pick<
+  BundleCheck,
+  "config" | "silent" | "adapter" | "excludes" | "frame"
+>;
+
+/**
+ * Run one per-surface check over EVERY bundle and sum its counters.
+ *
+ * The checks all take a {@link BundleCheck} and return a small record of
+ * numbers, so one wrapper covers all of them rather than twenty edits — and a
+ * check added later is swept in by using it, not by remembering to. The first
+ * bundle is the lint target; the rest are nested bundles.
  */
 function overBundles<T extends Record<string, number>>(
-  fn: (
-    config: VigilesConfig | undefined,
-    silent: boolean,
-    adapter: HarnessAdapter,
-    root: string,
-  ) => T,
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  roots: readonly string[],
+  fn: (ctx: BundleCheck) => T,
+  run: BundleRun,
+  bundles: readonly string[],
 ): T {
-  const [first, ...rest] = roots;
-  const total = { ...fn(config, silent, adapter, first) };
-  for (const root of rest) {
-    const next = fn(config, silent, adapter, root);
+  const many = bundles.length > 1;
+  const ctxFor = (abs: string, i: number): BundleCheck => {
+    const bundle = run.frame.bundle(abs);
+    const label = (text: string): string =>
+      many && i > 0 ? `[${bundle.at}] ${text}` : text;
+    return {
+      ...run,
+      bundle,
+      label,
+      annotate: (level, message, file) => {
+        ghAnnotate(level, file === undefined ? label(message) : message, file);
+      },
+      scan: (extra = {}) =>
+        scanPlugin(bundle.abs, run.adapter.layout, run.adapter.dialect, {
+          ...extra,
+          excludes: run.excludes,
+        }),
+    };
+  };
+  const [first, ...rest] = bundles;
+  const total = { ...fn(ctxFor(first, 0)) };
+  rest.forEach((abs, i) => {
+    const next = fn(ctxFor(abs, i + 1));
     for (const key of Object.keys(next) as (keyof T)[])
       (total as Record<keyof T, number>)[key] =
         (total[key] ?? 0) + (next[key] ?? 0);
-  }
+  });
   return total;
 }
 
@@ -2087,6 +2192,11 @@ async function runLint(
   const nestedBundles = discoverNestedBundles(scanRoot, excludes);
   const scoreAll = flags.includes("--bundles=all") || config?.bundles === "all";
   const lintRoots = scoreAll ? [scanRoot, ...nestedBundles] : [scanRoot];
+  // ONE frame for the whole run (#281): every path a check prints or annotates is
+  // relative to it, and config globs resolve from it — whichever bundle is being
+  // scored. Built here, once, instead of each option re-deriving its own root.
+  const frame = frameFor(process.cwd(), scanRoot);
+  const run: BundleRun = { config, silent, adapter, excludes, frame };
   if (!silent && nestedBundles.length > 0) {
     const rel = nestedBundles.map((b) => relative(scanRoot, b) || b);
     console.log(
@@ -2120,12 +2230,12 @@ async function runLint(
   }
   const hashResult =
     files.length > 0
-      ? check(files, silent)
+      ? check(frame, files, silent)
       : { valid: true, hashErrors: 0, validationErrors: 0 };
 
   // 1b. Verify inline + frontmatter rules in instruction files not managed
   // by a spec. See verifyMarkdownModeRules / docs/markdown-mode.md.
-  const md = verifyMarkdownModeRules(files, silent, config);
+  const md = verifyMarkdownModeRules(frame, files, silent, config);
   const { inlineErrors, inlineRules, frontmatterErrors, frontmatterRules } = md;
 
   // 2. Coverage gaps (discover)
@@ -2193,7 +2303,7 @@ async function runLint(
       // The repo-wide `exclude` is the FLOOR under the rule's own `exclude`
       // (union, never override): an excluded corpus is neither an orphan
       // candidate nor a source of references that keep a doc alive (#192).
-      repoExclude: excludes.ignore,
+      repoExclude: excludes.globIgnore,
       // Exempt every registered harness's surface files (instruction file,
       // SKILL.md, subagents, commands) as orphan candidates — layout-driven so
       // core carries no harness literal (see src/core/orphans.ts).
@@ -2222,220 +2332,110 @@ async function runLint(
     adapter.dialect,
   );
 
-  const untested = overBundles(
-    (c, s, a, r) => checkUntestedSurfaces(excludes, c, s, a, r),
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const untested = overBundles(checkUntestedSurfaces, run, lintRoots);
 
   // 7c. Subagent tool-contract check — cross-reference each subagent's `tools:`
   // rail against the harness catalog (the moat). n/a on a harness with no
   // subagents. Off by default unless a severity is configured; warning surfaces
   // a typo/never-available tool, error gates CI.
-  const toolContract = overBundles(
-    checkSubagentToolContracts,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const toolContract = overBundles(checkSubagentToolContracts, run, lintRoots);
 
   // 7d. Hook-event check — a hook registered under an event the harness doesn't
   // define never fires. High-precision (close typos only). Off unless configured.
-  const hookEvents = overBundles(
-    checkHookEvents,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const hookEvents = overBundles(checkHookEvents, run, lintRoots);
 
   // 7e. Subagent-frontmatter check — a subagent missing required frontmatter
   // (name + description) won't register. n/a on a harness with no subagents.
-  const frontmatter = overBundles(
-    checkFrontmatterSchema,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const frontmatter = overBundles(checkFrontmatterSchema, run, lintRoots);
 
   // 7f. MCP-config check — a declared MCP server with no command/url can't start.
-  const mcpConfig = overBundles(
-    checkMcpConfig,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const mcpConfig = overBundles(checkMcpConfig, run, lintRoots);
 
   // 7g. Skill-frontmatter — RECOMMEND explicit name/description on skills (a
   // reliable trigger surface). Best-practice nudge; skills load without it.
-  const skillFm = overBundles(
-    checkSkillFrontmatter,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const skillFm = overBundles(checkSkillFrontmatter, run, lintRoots);
 
   // 7h. MCP tool-resolution — an `mcp__server__tool` in a contract whose server
   // the plugin doesn't declare can't resolve (the MCP half of the tool moat).
-  const mcpToolResolves = overBundles(
-    checkMcpToolResolves,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const mcpToolResolves = overBundles(checkMcpToolResolves, run, lintRoots);
 
   // 7i. Hook-script existence — a hook command referencing a missing script file
   // never runs. This comment used to add "matches Anthropic's own `claude plugin
   // validate`"; measured false on 2026-09-08 (Claude Code 2.1.263) — see
   // docs/rules/hook-script-exists.md and tools/measure-validate-overlap.mjs.
-  const hookScripts = overBundles(
-    checkHookScriptExists,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const hookScripts = overBundles(checkHookScriptExists, run, lintRoots);
 
   // 7j. Disallowed-tools — a `disallowedTools:` block-list typo blocks nothing
   // (the deny-side mirror of subagent-tool-contract; close-typo only).
-  const disallowedTools = overBundles(
-    checkDisallowedTools,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const disallowedTools = overBundles(checkDisallowedTools, run, lintRoots);
 
   // 7k. Description-overlap — two model-invocable skills with near-identical
   // descriptions collide in the selector (deterministic NCD precision proxy).
   const descriptionOverlap = overBundles(
     checkDescriptionOverlap,
-    config,
-    silent,
-    adapter,
+    run,
     lintRoots,
   );
 
   // 7k². Skill-description-budget — a model-invocable skill whose description is
   // so long the trigger signal is buried (heuristic proxy; degrades recall +
   // precision). Generous 500-char budget; warn-tier, never gates.
-  const descriptionBudget = overBundles(
-    checkDescriptionBudget,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const descriptionBudget = overBundles(checkDescriptionBudget, run, lintRoots);
 
   // 7l. Frontmatter-valid — a `---` block that isn't valid YAML (warn; js-yaml is
   // stricter than some loaders, so verify before enforcing).
-  const frontmatterValid = overBundles(
-    checkFrontmatterValid,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const frontmatterValid = overBundles(checkFrontmatterValid, run, lintRoots);
 
   // 7m. MCP hook-target — a `type: mcp_tool` hook action that's incomplete or
   // targets an undeclared server (the moat applied to the hook surface).
-  const mcpHookTargets = overBundles(
-    checkMcpHookTargets,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const mcpHookTargets = overBundles(checkMcpHookTargets, run, lintRoots);
 
   // 7n. Prefer-compiled-hooks — ONE discovery nudge (not per-hook) toward
   // compiled `vigiles/hook` artifacts when hand-written hooks ship. Recommendation.
   const preferCompiledHooks = overBundles(
     checkPreferCompiledHooks,
-    config,
-    silent,
-    adapter,
+    run,
     lintRoots,
   );
 
   // 7o. Lethal-trifecta — a unit (subagent / model-invocable skill) whose tools
   // hold all three legs (read-private + ingest-untrusted + exfiltrate) is a
   // prompt-injection exfil path (Rule of Two). Capability SET-intersection.
-  const lethalTrifecta = overBundles(
-    checkLethalTrifecta,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const lethalTrifecta = overBundles(checkLethalTrifecta, run, lintRoots);
 
   // 7p. Skill-resource — a SKILL.md body referencing a bundled file that doesn't
   // exist on disk under the skill dir (the agent gets nothing). FP-safe.
   const skillResources = overBundles(
     checkSkillResourceResolves,
-    config,
-    silent,
-    adapter,
+    run,
     lintRoots,
   );
 
   // 7q. Skill-missing-fence — a SKILL.md opening with `name:`/`description:` but no
   // `---` fence loads as plain body (invisible — no name/description/trigger).
-  const skillFence = overBundles(
-    checkSkillMissingFence,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const skillFence = overBundles(checkSkillMissingFence, run, lintRoots);
 
   // 7r. Plugin-dir-layout — functional surface dirs (skills/agents/commands) nested
   // inside the `.claude-plugin/` manifest dir where the harness can't see them.
-  const pluginLayout = overBundles(
-    checkPluginDirLayout,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const pluginLayout = overBundles(checkPluginDirLayout, run, lintRoots);
 
   // 7s. Delegation-trifecta — a lethal trifecta that emerges across a delegation
   // edge (a subagent's own ∪ delegated-to capability) though no single unit trips it.
   const delegationTrifecta = overBundles(
     checkDelegationTrifecta,
-    config,
-    silent,
-    adapter,
+    run,
     lintRoots,
   );
 
   // 7t. Hook-block-ineffective — a hook that looks like it blocks but silently
   // doesn't (block decision on a non-blocking event, or the legacy `decision`
   // field on a permission-gated event). The #1 verified hook pain (#19009).
-  const hookBlock = overBundles(
-    checkHookBlockIneffective,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const hookBlock = overBundles(checkHookBlockIneffective, run, lintRoots);
 
   // 7u. Hook-matcher — a hook `matcher` that doesn't fire as written (tool-name
   // typo, an uncompilable or unreachable MCP pattern, one too narrow for real
   // server naming, or an undeclared MCP server).
-  const hookMatcher = overBundles(
-    checkHookMatcher,
-    config,
-    silent,
-    adapter,
-    lintRoots,
-  );
+  const hookMatcher = overBundles(checkHookMatcher, run, lintRoots);
 
   // 8. Validate vigiles builder calls inside markdown code blocks — the
   // `doc-refs` rule, DEFAULT OFF. Illustrative blocks opt out via
@@ -2473,7 +2473,7 @@ async function runLint(
   // whose exit code is discarded gates nothing — after which hand-written CI steps
   // grew to do the gating instead. One unpassed argument, that whole chain.
   const docRefReport: DocRefReport = docRefSeverity
-    ? findDocRefs({ basePath: process.cwd(), ignore: excludes.ignore })
+    ? findDocRefs({ basePath: process.cwd(), ignore: excludes.globIgnore })
     : {
         filesScanned: 0,
         filesIgnored: 0,
@@ -2502,18 +2502,18 @@ async function runLint(
       ghAnnotate(
         docRefSeverity === "error" ? "error" : "warning",
         `${e.kind}("${e.value}") — ${e.message}`,
-        e.file,
+        frame.repo(resolve(process.cwd(), e.file)),
         e.line,
       );
     }
   }
 
   // 9. Verify code-shaped symbol references live (see src/refs.ts).
-  const symbolRefErrors = await verifyMarkdownSymbols(files, silent);
+  const symbolRefErrors = await verifyMarkdownSymbols(frame, files, silent);
 
   // 10. Verify `vigiles:mcp server#tool` marks against live MCP servers
   // (only when a .mcp.json declares them). See src/mcp.ts.
-  const mcpRefErrors = await verifyMarkdownMcpRefs(files, silent);
+  const mcpRefErrors = await verifyMarkdownMcpRefs(frame, files, silent);
 
   const report: LintReport = {
     hashErrors: hashResult.hashErrors,
@@ -4707,23 +4707,24 @@ function untestedRules(config: VigilesConfig | undefined): {
  * "warn" prints but never fails CI; "error" fails (exit 2). Returns the raw
  * untested count plus the severity-gated error count.
  */
-function checkUntestedSurfaces(
-  excludes: ExcludeSet,
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { untested: number; errors: number } {
+function checkUntestedSurfaces(ctx: BundleCheck): {
+  untested: number;
+  errors: number;
+} {
+  const { config, silent, adapter, frame, bundle } = ctx;
   const { severity: sevFor, anyEnabled, options } = untestedRules(config);
   if (!anyEnabled) return { untested: 0, errors: 0 };
   const report = findUntestedSurfaces({
     ...options,
-    basePath: scanRoot,
+    basePath: bundle.abs,
+    // #281: `include`/`exclude` and every reported path are relative to the
+    // frame root (where `.vigilesrc.json` lives), not to the bundle being scored.
+    root: frame.root,
     layout: adapter.layout,
     // The rule's own `exclude` NARROWS; the repo-wide one is the floor under
     // it. Union, never override — a rule option must not re-admit a vendored
-    // corpus the repo excluded (#192).
-    exclude: [...(options.exclude ?? []), ...excludes.ignore],
+    // corpus the repo excluded (#192). Passed WHOLE so it carries its own root.
+    excludes: ctx.excludes,
   });
 
   if (!silent) {
@@ -4732,10 +4733,10 @@ function checkUntestedSurfaces(
       console.log(`  ${line}`);
     }
     for (const s of report.untested) {
-      ghAnnotate(
+      ctx.annotate(
         sevFor(s.kind) === "error" ? "error" : "warning",
         `${s.kind} ${s.path} ships without a test or eval`,
-        s.path,
+        frame.repo(join(frame.root, s.path)),
       );
     }
   }
@@ -4772,12 +4773,11 @@ function reportNotApplicable(
  * (plugin/MCP-provided) is never a false alarm. Warning by default; set
  * `subagent-tool-contract: "error"` to gate CI. Returns the issue + error counts.
  */
-function checkSubagentToolContracts(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkSubagentToolContracts(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent, adapter } = ctx;
   const sev = ruleSeverity(config?.rules?.["subagent-tool-contract"]);
   if (!sev) return { issues: 0, errors: 0 };
   if (!adapter.subagents) {
@@ -4797,7 +4797,7 @@ function checkSubagentToolContracts(
     toolIssues: readonly { message: string }[];
   }[];
   try {
-    agents = scanPlugin(scanRoot, adapter.layout, adapter.dialect).agents;
+    agents = ctx.scan().agents;
   } catch {
     return { issues: 0, errors: 0 };
   }
@@ -4813,12 +4813,12 @@ function checkSubagentToolContracts(
       }
       for (const issue of agent.toolIssues) {
         console.log(
-          `  ${sev === "error" ? "✗" : "⚠"} ${agent.path}: ${issue.message}`,
+          `  ${sev === "error" ? "✗" : "⚠"} ${ctx.bundle.scanned(agent.path)}: ${issue.message}`,
         );
-        ghAnnotate(
+        ctx.annotate(
           sev === "error" ? "error" : "warning",
           issue.message,
-          agent.path,
+          ctx.bundle.scanned(agent.path),
         );
       }
     }
@@ -4832,12 +4832,8 @@ function checkSubagentToolContracts(
  * `hookEventIssues` (the shared detector, high-precision: close typos only, never
  * a framework/custom event). Warning by default; "error" gates CI.
  */
-function checkHookEvents(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkHookEvents(ctx: BundleCheck): { issues: number; errors: number } {
+  const { config, silent, adapter } = ctx;
   const sev = ruleSeverity(config?.rules?.["hook-events"]);
   if (!sev) return { issues: 0, errors: 0 };
   if (!adapter.shellHooks) {
@@ -4846,19 +4842,17 @@ function checkHookEvents(
   }
   let found: readonly { message: string }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).hookEventIssues;
+    found = ctx.scan().hookEventIssues;
   } catch {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
     console.log("\nHook-event check:\n");
     for (const issue of found) {
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${issue.message}`);
-      ghAnnotate(sev === "error" ? "error" : "warning", issue.message);
+      console.log(
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
+      );
+      ctx.annotate(sev === "error" ? "error" : "warning", issue.message);
     }
   }
   return { issues: found.length, errors: sev === "error" ? found.length : 0 };
@@ -4871,12 +4865,11 @@ function checkHookEvents(
  * of a real one) — it silently falls back / is ignored. Reuses `scanPlugin`'s
  * `frontmatterIssues` + `frontmatterValueIssues`. Warning by default; "error" gates CI.
  */
-function checkFrontmatterSchema(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkFrontmatterSchema(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent, adapter } = ctx;
   const sev = ruleSeverity(config?.rules?.["subagent-frontmatter"]);
   if (!sev) return { issues: 0, errors: 0 };
   if (!adapter.subagents) {
@@ -4890,7 +4883,7 @@ function checkFrontmatterSchema(
   }
   let found: readonly { message: string; path: string }[];
   try {
-    const r = scanPlugin(scanRoot, adapter.layout, adapter.dialect);
+    const r = ctx.scan();
     found = [...r.frontmatterIssues, ...r.frontmatterValueIssues];
   } catch {
     return { issues: 0, errors: 0 };
@@ -4898,11 +4891,13 @@ function checkFrontmatterSchema(
   if (found.length > 0 && !silent) {
     console.log("\nFrontmatter-schema check:\n");
     for (const issue of found) {
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${issue.message}`);
-      ghAnnotate(
+      console.log(
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
+      );
+      ctx.annotate(
         sev === "error" ? "error" : "warning",
         issue.message,
-        issue.path,
+        ctx.bundle.scanned(issue.path),
       );
     }
   }
@@ -4917,32 +4912,29 @@ function checkFrontmatterSchema(
  * default; set "error" to enforce it on your own skills. Reuses `scanPlugin`'s
  * `skillMetaIssues`.
  */
-function checkSkillFrontmatter(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkSkillFrontmatter(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent } = ctx;
   const sev = ruleSeverity(config?.rules?.["skill-frontmatter"]);
   if (!sev) return { issues: 0, errors: 0 };
   let found: readonly { message: string; path: string }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).skillMetaIssues;
+    found = ctx.scan().skillMetaIssues;
   } catch {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
     console.log("\nSkill-frontmatter check:\n");
     for (const issue of found) {
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${issue.message}`);
-      ghAnnotate(
+      console.log(
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
+      );
+      ctx.annotate(
         sev === "error" ? "error" : "warning",
         issue.message,
-        issue.path,
+        ctx.bundle.scanned(issue.path),
       );
     }
   }
@@ -4956,21 +4948,16 @@ function checkSkillFrontmatter(
  * lane stays first-class — so it fires once and the message links the guide.
  * Reuses `scanPlugin`'s `manualHookCount` (one-detector-no-drift).
  */
-function checkPreferCompiledHooks(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkPreferCompiledHooks(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent } = ctx;
   const sev = ruleSeverity(config?.rules?.["prefer-compiled-hooks"]);
   if (!sev) return { issues: 0, errors: 0 };
   let count: number;
   try {
-    count = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).manualHookCount;
+    count = ctx.scan().manualHookCount;
   } catch {
     return { issues: 0, errors: 0 };
   }
@@ -4978,8 +4965,8 @@ function checkPreferCompiledHooks(
   const message = preferCompiledHooksMessage(count);
   if (!silent) {
     console.log("\nCompiled-hooks check:\n");
-    console.log(`  ${sev === "error" ? "✗" : "ℹ"} ${message}`);
-    ghAnnotate(sev === "error" ? "error" : "warning", message);
+    console.log(`  ${sev === "error" ? "✗" : "ℹ"} ${ctx.label(message)}`);
+    ctx.annotate(sev === "error" ? "error" : "warning", message);
   }
   return { issues: 1, errors: sev === "error" ? 1 : 0 };
 }
@@ -4989,25 +4976,23 @@ function checkPreferCompiledHooks(
  * (stdio) nor a `url` (http/sse) can't start. Reuses `scanPlugin`'s `mcpIssues`.
  * Warning by default; "error" gates CI.
  */
-function checkMcpConfig(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkMcpConfig(ctx: BundleCheck): { issues: number; errors: number } {
+  const { config, silent } = ctx;
   const sev = ruleSeverity(config?.rules?.["mcp-config"]);
   if (!sev) return { issues: 0, errors: 0 };
   let found: readonly { message: string }[];
   try {
-    found = scanPlugin(scanRoot, adapter.layout, adapter.dialect).mcpIssues;
+    found = ctx.scan().mcpIssues;
   } catch {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
     console.log("\nMCP-config check:\n");
     for (const issue of found) {
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${issue.message}`);
-      ghAnnotate(sev === "error" ? "error" : "warning", issue.message);
+      console.log(
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
+      );
+      ctx.annotate(sev === "error" ? "error" : "warning", issue.message);
     }
   }
   return { issues: found.length, errors: sev === "error" ? found.length : 0 };
@@ -5020,12 +5005,11 @@ function checkMcpConfig(
  * `disallowedToolIssues` (close-typo only — high-precision). Warning by default;
  * "error" gates CI.
  */
-function checkDisallowedTools(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkDisallowedTools(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent, adapter } = ctx;
   const sev = ruleSeverity(config?.rules?.["disallowed-tools-contract"]);
   if (!sev) return { issues: 0, errors: 0 };
   if (!adapter.subagents) {
@@ -5034,12 +5018,11 @@ function checkDisallowedTools(
   }
   let found: { message: string; path: string }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).agents.flatMap((a) =>
-      a.disallowedToolIssues.map((i) => ({ message: i.message, path: a.path })),
+    found = ctx.scan().agents.flatMap((a) =>
+      a.disallowedToolIssues.map((i) => ({
+        message: i.message,
+        path: a.path,
+      })),
     );
   } catch {
     return { issues: 0, errors: 0 };
@@ -5048,12 +5031,12 @@ function checkDisallowedTools(
     console.log("\nDisallowed-tools check:\n");
     for (const issue of found) {
       console.log(
-        `  ${sev === "error" ? "✗" : "⚠"} ${issue.path}: ${issue.message}`,
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.bundle.scanned(issue.path)}: ${issue.message}`,
       );
-      ghAnnotate(
+      ctx.annotate(
         sev === "error" ? "error" : "warning",
         issue.message,
-        issue.path,
+        ctx.bundle.scanned(issue.path),
       );
     }
   }
@@ -5068,32 +5051,29 @@ function checkDisallowedTools(
  * colon / `<example>` is flagged though it may still load — hence WARN by default
  * (verify before setting "error").
  */
-function checkFrontmatterValid(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkFrontmatterValid(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent } = ctx;
   const sev = ruleSeverity(config?.rules?.["frontmatter-valid"]);
   if (!sev) return { issues: 0, errors: 0 };
   let found: readonly { message: string; path: string }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).malformedFrontmatter;
+    found = ctx.scan().malformedFrontmatter;
   } catch {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
     console.log("\nFrontmatter-validity check:\n");
     for (const issue of found) {
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${issue.message}`);
-      ghAnnotate(
+      console.log(
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
+      );
+      ctx.annotate(
         sev === "error" ? "error" : "warning",
         issue.message,
-        issue.path,
+        ctx.bundle.scanned(issue.path),
       );
     }
   }
@@ -5107,29 +5087,26 @@ function checkFrontmatterValid(
  * `scanPlugin`'s `descriptionOverlaps` (calibrated FP-safe: only basically
  * identical text). Warning by default; "error" gates CI.
  */
-function checkDescriptionOverlap(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkDescriptionOverlap(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent } = ctx;
   const sev = ruleSeverity(config?.rules?.["description-overlap"]);
   if (!sev) return { issues: 0, errors: 0 };
   let found: readonly { message: string }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).descriptionOverlaps;
+    found = ctx.scan().descriptionOverlaps;
   } catch {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
     console.log("\nDescription-overlap check:\n");
     for (const issue of found) {
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${issue.message}`);
-      ghAnnotate(sev === "error" ? "error" : "warning", issue.message);
+      console.log(
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
+      );
+      ctx.annotate(sev === "error" ? "error" : "warning", issue.message);
     }
   }
   return { issues: found.length, errors: sev === "error" ? found.length : 0 };
@@ -5142,29 +5119,26 @@ function checkDescriptionOverlap(
  * deterministic heuristic proxy (generous 500-char budget). Reuses `scanPlugin`'s
  * `descriptionBudgetIssues`. Warning by default; "error" gates CI.
  */
-function checkDescriptionBudget(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkDescriptionBudget(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent } = ctx;
   const sev = ruleSeverity(config?.rules?.["skill-description-budget"]);
   if (!sev) return { issues: 0, errors: 0 };
   let found: readonly { message: string }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).descriptionBudgetIssues;
+    found = ctx.scan().descriptionBudgetIssues;
   } catch {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
     console.log("\nSkill-description-budget check:\n");
     for (const issue of found) {
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${issue.message}`);
-      ghAnnotate(sev === "error" ? "error" : "warning", issue.message);
+      console.log(
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
+      );
+      ctx.annotate(sev === "error" ? "error" : "warning", issue.message);
     }
   }
   return { issues: found.length, errors: sev === "error" ? found.length : 0 };
@@ -5186,12 +5160,11 @@ function checkDescriptionBudget(
  * COUNT is unchanged (units, not lines), so exit codes and the CI gate are
  * unaffected by the collapse.
  */
-function checkLethalTrifecta(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkLethalTrifecta(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent } = ctx;
   const sev = ruleSeverity(config?.rules?.["lethal-trifecta"]);
   if (!sev) return { issues: 0, errors: 0 };
   let found: readonly {
@@ -5201,11 +5174,7 @@ function checkLethalTrifecta(
     finding: { message: string; fence?: string };
   }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).trifectaFindings;
+    found = ctx.scan().trifectaFindings;
   } catch {
     return { issues: 0, errors: 0 };
   }
@@ -5219,8 +5188,8 @@ function checkLethalTrifecta(
     for (const t of found) {
       if (unfenced.includes(t)) continue;
       const msg = `${t.kind} ${t.name}: ${t.finding.message}`;
-      console.log(`  ${mark} ${t.path}: ${msg}`);
-      ghAnnotate(level, msg, t.path);
+      console.log(`  ${mark} ${ctx.bundle.scanned(t.path)}: ${msg}`);
+      ctx.annotate(level, msg, ctx.bundle.scanned(t.path));
     }
     if (unfenced.length > 0) {
       console.log(
@@ -5242,12 +5211,11 @@ function checkLethalTrifecta(
  * nothing. Reuses `scanPlugin`'s `skillResourceIssues` (high-precision / FP-safe,
  * one detector, no drift). Warning by default; "error" gates CI.
  */
-function checkSkillResourceResolves(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkSkillResourceResolves(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent } = ctx;
   const sev = ruleSeverity(config?.rules?.["skill-resource-resolves"]);
   if (!sev) return { issues: 0, errors: 0 };
   let found: readonly {
@@ -5256,11 +5224,11 @@ function checkSkillResourceResolves(
     finding: { ref: string; line: number };
   }[];
   try {
-    found = scanPlugin(scanRoot, adapter.layout, adapter.dialect, {
+    found = ctx.scan({
       sharedDirs: config?.sharedDirs,
-      // sharedDirs live at the repo root that OWNS the scan target — cwd for a
-      // scoped subdir of this repo, the target itself for a foreign-repo lint.
-      sharedDirsRoot: sharedDirsRootFor(scanRoot),
+      // sharedDirs live at the frame root — the repo that OWNS the scan target:
+      // cwd for a scoped subdir or a nested bundle, the target for a foreign lint.
+      sharedDirsRoot: ctx.frame.root,
     }).skillResourceIssues;
   } catch {
     return { issues: 0, errors: 0 };
@@ -5275,8 +5243,14 @@ function checkSkillResourceResolves(
         // it was documented only in docs/skills-monorepo.md, so a CI log gave no
         // hint and the rule read as broken rather than misconfigured.
         ` If it resolves from the repo root instead, add its directory to \`sharedDirs\` in .vigilesrc.json.`;
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${s.path}: ${msg}`);
-      ghAnnotate(sev === "error" ? "error" : "warning", msg, s.path);
+      console.log(
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.bundle.scanned(s.path)}: ${msg}`,
+      );
+      ctx.annotate(
+        sev === "error" ? "error" : "warning",
+        msg,
+        ctx.bundle.scanned(s.path),
+      );
     }
   }
   return { issues: found.length, errors: sev === "error" ? found.length : 0 };
@@ -5289,12 +5263,11 @@ function checkSkillResourceResolves(
  * Reuses `scanPlugin`'s `skillFenceIssues` (one detector, no drift). Warning by
  * default; "error" gates CI.
  */
-function checkSkillMissingFence(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkSkillMissingFence(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent } = ctx;
   const sev = ruleSeverity(config?.rules?.["skill-missing-fence"]);
   if (!sev) return { issues: 0, errors: 0 };
   let found: readonly {
@@ -5303,11 +5276,7 @@ function checkSkillMissingFence(
     finding: { key: string; message: string };
   }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).skillFenceIssues;
+    found = ctx.scan().skillFenceIssues;
   } catch {
     return { issues: 0, errors: 0 };
   }
@@ -5315,8 +5284,14 @@ function checkSkillMissingFence(
     console.log("\nSkill-missing-fence check:\n");
     for (const s of found) {
       const msg = `${s.name}: ${s.finding.message}`;
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${s.path}: ${msg}`);
-      ghAnnotate(sev === "error" ? "error" : "warning", msg, s.path);
+      console.log(
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.bundle.scanned(s.path)}: ${msg}`,
+      );
+      ctx.annotate(
+        sev === "error" ? "error" : "warning",
+        msg,
+        ctx.bundle.scanned(s.path),
+      );
     }
   }
   return { issues: found.length, errors: sev === "error" ? found.length : 0 };
@@ -5329,29 +5304,24 @@ function checkSkillMissingFence(
  * `pluginLayoutIssues` (one detector, no drift). Warning by default; "error"
  * gates CI.
  */
-function checkPluginDirLayout(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkPluginDirLayout(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent } = ctx;
   const sev = ruleSeverity(config?.rules?.["plugin-dir-layout"]);
   if (!sev) return { issues: 0, errors: 0 };
   let found: readonly { dir: string; message: string }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).pluginLayoutIssues;
+    found = ctx.scan().pluginLayoutIssues;
   } catch {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
     console.log("\nPlugin-dir-layout check:\n");
     for (const p of found) {
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${p.message}`);
-      ghAnnotate(sev === "error" ? "error" : "warning", p.message);
+      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(p.message)}`);
+      ctx.annotate(sev === "error" ? "error" : "warning", p.message);
     }
   }
   return { issues: found.length, errors: sev === "error" ? found.length : 0 };
@@ -5365,12 +5335,11 @@ function checkPluginDirLayout(
  * gates CI. Surfaces across the subagent graph, so it is NOT gated on a
  * capability the way a surface-specific rule is.
  */
-function checkDelegationTrifecta(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkDelegationTrifecta(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent } = ctx;
   const sev = ruleSeverity(config?.rules?.["delegation-trifecta"]);
   if (!sev) return { issues: 0, errors: 0 };
   let found: readonly {
@@ -5378,11 +5347,7 @@ function checkDelegationTrifecta(
     finding: { name: string; message: string };
   }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).delegationTrifecta;
+    found = ctx.scan().delegationTrifecta;
   } catch {
     return { issues: 0, errors: 0 };
   }
@@ -5390,8 +5355,14 @@ function checkDelegationTrifecta(
     console.log("\nDelegation-trifecta check:\n");
     for (const d of found) {
       const msg = `${d.finding.name}: ${d.finding.message}`;
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${d.path}: ${msg}`);
-      ghAnnotate(sev === "error" ? "error" : "warning", msg, d.path);
+      console.log(
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.bundle.scanned(d.path)}: ${msg}`,
+      );
+      ctx.annotate(
+        sev === "error" ? "error" : "warning",
+        msg,
+        ctx.bundle.scanned(d.path),
+      );
     }
   }
   return { issues: found.length, errors: sev === "error" ? found.length : 0 };
@@ -5404,12 +5375,11 @@ function checkDelegationTrifecta(
  * permission-gated event (#19009, the #1 verified hook pain). Reuses `scanPlugin`'s
  * `hookBlockFindings` (one detector, no drift). Warning by default; "error" gates CI.
  */
-function checkHookBlockIneffective(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkHookBlockIneffective(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent, adapter } = ctx;
   const sev = ruleSeverity(config?.rules?.["hook-block-ineffective"]);
   if (!sev) return { issues: 0, errors: 0 };
   if (!adapter.shellHooks) {
@@ -5422,28 +5392,40 @@ function checkHookBlockIneffective(
     message: string;
   }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).hookBlockFindings;
+    found = ctx.scan().hookBlockFindings;
   } catch {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
+    const mark = sev === "error" ? "✗" : "⚠";
+    const level = sev === "error" ? "error" : "warning";
     console.log("\nHook-block check:\n");
     for (const h of found) {
-      const where = h.scriptPath ?? "(inline)";
-      const msg = `[${h.event}] ${where}: ${h.message}`;
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${msg}`);
-      ghAnnotate(
-        sev === "error" ? "error" : "warning",
-        msg,
-        h.scriptPath ?? undefined,
-      );
+      const { msg, file, shown } = hookBlockLine(ctx, h);
+      console.log(`  ${mark} ${shown}`);
+      ctx.annotate(level, msg, file);
     }
   }
   return { issues: found.length, errors: sev === "error" ? found.length : 0 };
+}
+
+/**
+ * One hook-block finding in the repo frame. scan-core reports the script
+ * ABSOLUTE (it resolves the command against the bundle), which used to print a
+ * machine path and annotate `file=/home/…` (#281); an inline hook names no file
+ * and so carries the bundle label instead.
+ */
+function hookBlockLine(
+  ctx: BundleCheck,
+  h: { event: string; scriptPath: string | null; message: string },
+): { msg: string; file?: RepoPath; shown: string } {
+  if (h.scriptPath === null) {
+    const msg = `[${h.event}] (inline): ${h.message}`;
+    return { msg, shown: ctx.label(msg) };
+  }
+  const file = ctx.bundle.scanned(h.scriptPath);
+  const msg = `[${h.event}] ${file}: ${h.message}`;
+  return { msg, file, shown: msg };
 }
 
 /**
@@ -5454,12 +5436,11 @@ function checkHookBlockIneffective(
  * Reuses `scanPlugin`'s `hookMatcherFindings` (one detector, no drift). Warning
  * by default; "error" gates CI.
  */
-function checkHookMatcher(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkHookMatcher(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent, adapter } = ctx;
   const sev = ruleSeverity(config?.rules?.["hook-matcher"]);
   if (!sev) return { issues: 0, errors: 0 };
   if (!adapter.shellHooks) {
@@ -5468,19 +5449,15 @@ function checkHookMatcher(
   }
   let found: readonly { message: string }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).hookMatcherFindings;
+    found = ctx.scan().hookMatcherFindings;
   } catch {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
     console.log("\nHook-matcher check:\n");
     for (const m of found) {
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${m.message}`);
-      ghAnnotate(sev === "error" ? "error" : "warning", m.message);
+      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(m.message)}`);
+      ctx.annotate(sev === "error" ? "error" : "warning", m.message);
     }
   }
   return { issues: found.length, errors: sev === "error" ? found.length : 0 };
@@ -5493,12 +5470,11 @@ function checkHookMatcher(
  * `mcpHookIssues` (high-precision: declared-set gated, built-ins allowlisted).
  * Warning by default; "error" gates CI.
  */
-function checkMcpHookTargets(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkMcpHookTargets(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent, adapter } = ctx;
   const sev = ruleSeverity(config?.rules?.["mcp-hook-target-resolves"]);
   if (!sev) return { issues: 0, errors: 0 };
   if (!adapter.shellHooks) {
@@ -5512,15 +5488,17 @@ function checkMcpHookTargets(
   }
   let found: readonly { message: string }[];
   try {
-    found = scanPlugin(scanRoot, adapter.layout, adapter.dialect).mcpHookIssues;
+    found = ctx.scan().mcpHookIssues;
   } catch {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
     console.log("\nMCP hook-target check:\n");
     for (const issue of found) {
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${issue.message}`);
-      ghAnnotate(sev === "error" ? "error" : "warning", issue.message);
+      console.log(
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
+      );
+      ctx.annotate(sev === "error" ? "error" : "warning", issue.message);
     }
   }
   return { issues: found.length, errors: sev === "error" ? found.length : 0 };
@@ -5534,12 +5512,11 @@ function checkMcpHookTargets(
  * existence-guarded one-liners, inline commands). Matches Anthropic's own
  * `claude plugin validate`. Warning by default; "error" gates CI.
  */
-function checkHookScriptExists(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkHookScriptExists(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent, adapter } = ctx;
   const sev = ruleSeverity(config?.rules?.["hook-script-exists"]);
   if (!sev) return { issues: 0, errors: 0 };
   if (!adapter.shellHooks) {
@@ -5553,20 +5530,19 @@ function checkHookScriptExists(
   }
   let missing: { script: string }[];
   try {
-    missing = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).hooks.filter((h) => h.status === "missing");
+    missing = ctx.scan().hooks.filter((h) => h.status === "missing");
   } catch {
     return { issues: 0, errors: 0 };
   }
   if (missing.length > 0 && !silent) {
     console.log("\nHook-script existence check:\n");
     for (const h of missing) {
-      const msg = `hook script "${h.script}" is referenced but missing — the hook never runs.`;
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${msg}`);
-      ghAnnotate(sev === "error" ? "error" : "warning", msg);
+      // `script` arrives with the plugin-root token EXPANDED, i.e. absolute —
+      // printed as-is it was a machine path (#281). A relative one is the
+      // bundle's own, which is what `scanned` assumes.
+      const msg = `hook script "${ctx.bundle.scanned(h.script)}" is referenced but missing — the hook never runs.`;
+      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(msg)}`);
+      ctx.annotate(sev === "error" ? "error" : "warning", msg);
     }
   }
   return {
@@ -5582,12 +5558,11 @@ function checkHookScriptExists(
  * — high-precision (gated on a declared set, built-ins allowlisted, the
  * plugin-namespaced form skipped). Warning by default; "error" gates CI.
  */
-function checkMcpToolResolves(
-  config: VigilesConfig | undefined,
-  silent: boolean,
-  adapter: HarnessAdapter,
-  scanRoot: string,
-): { issues: number; errors: number } {
+function checkMcpToolResolves(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  const { config, silent, adapter } = ctx;
   const sev = ruleSeverity(config?.rules?.["mcp-tool-resolves"]);
   if (!sev) return { issues: 0, errors: 0 };
   if (!adapter.subagents) {
@@ -5601,13 +5576,11 @@ function checkMcpToolResolves(
   }
   let found: { message: string; path: string }[];
   try {
-    found = scanPlugin(
-      scanRoot,
-      adapter.layout,
-      adapter.dialect,
-    ).agents.flatMap((a) =>
-      a.mcpToolIssues.map((i) => ({ message: i.message, path: a.path })),
-    );
+    found = ctx
+      .scan()
+      .agents.flatMap((a) =>
+        a.mcpToolIssues.map((i) => ({ message: i.message, path: a.path })),
+      );
   } catch {
     return { issues: 0, errors: 0 };
   }
@@ -5615,12 +5588,12 @@ function checkMcpToolResolves(
     console.log("\nMCP tool-resolution check:\n");
     for (const issue of found) {
       console.log(
-        `  ${sev === "error" ? "✗" : "⚠"} ${issue.path}: ${issue.message}`,
+        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.bundle.scanned(issue.path)}: ${issue.message}`,
       );
-      ghAnnotate(
+      ctx.annotate(
         sev === "error" ? "error" : "warning",
         issue.message,
-        issue.path,
+        ctx.bundle.scanned(issue.path),
       );
     }
   }
@@ -5677,7 +5650,7 @@ async function checkCoverageThresholds(
       process.cwd(),
       opts.scripts,
       claudeSpecs,
-      excludes.ignore,
+      excludes.globIgnore,
     );
     const ok = metric.passing;
     if (!ok) failing++;
@@ -6310,20 +6283,36 @@ function resolveRecords(
   }
 
   const recordsConfig = loadConfig();
-  const scan = findUntestedSurfaces({
-    basePath: cwd,
-    layout: harnessLayoutFor(cwd, recordsConfig, harnessFlag),
-    // The repo-wide `exclude` only — the per-rule severities/include stay out
-    // of record resolution on purpose (a run's probes must map to a surface
-    // whether or not the untested-* rule for its kind is on).
-    exclude: excludeSet(cwd, recordsConfig.exclude).ignore,
+  const layout = harnessLayoutFor(cwd, recordsConfig, harnessFlag);
+  // The repo-wide `exclude` only — the per-rule severities/include stay out
+  // of record resolution on purpose (a run's probes must map to a surface
+  // whether or not the untested-* rule for its kind is on).
+  const excludes = excludeSet(cwd, recordsConfig.exclude);
+  // 🔴 THE SAME BUNDLES `lint` SCORES (#281, D5). This discovered the root
+  // bundle only, so under `bundles: "all"` a run that exercised a nested skill
+  // recorded nothing, and `lint` then called that skill untested. Every bundle's
+  // surfaces are expressed from `cwd`, the one frame the artifact is keyed in; a
+  // name two bundles share identifies neither (`resolveProbe` takes only a
+  // unique match), which is the honest answer to an ambiguous probe.
+  const bundles =
+    recordsConfig.bundles === "all"
+      ? [cwd, ...discoverNestedBundles(cwd, excludes)]
+      : [cwd];
+  const surfaces = bundles.flatMap((basePath) => {
+    const scan = findUntestedSurfaces({
+      basePath,
+      root: cwd,
+      layout,
+      excludes,
+    });
+    return [...scan.covered, ...scan.untested];
   });
   return recordsFrom({
     runs,
-    surfaces: [...scan.covered, ...scan.untested],
+    surfaces,
     tier,
     at: new Date().toISOString(),
-    selfNamespaces: selfNamespaces(cwd),
+    selfNamespaces: [...new Set(bundles.flatMap(selfNamespaces))],
     // The root an ABSOLUTE command ref must lie beneath to be OURS. Without it a
     // harness that executed `/tmp/fixture/hooks/pre.sh` credited this repo's own
     // `hooks/pre.sh`, because the tail matched. See the ladder note on
@@ -6441,7 +6430,7 @@ async function handleRunScripts(
     restArgs.map((p) => noteExplicitOverride(excludes, p, "running")),
     defaultGlob,
     cwd,
-    excludes.ignore,
+    excludes.globIgnore,
   );
 
   // `--min=N`: a CI gate asserts at least N scripts actually LOADED — so a bad
@@ -7379,18 +7368,33 @@ function evalLockNudgeHookCommand(): void {
   // heard nothing at all, while a repo that already tests got reminded. That is
   // backwards, and `untested-skill` already stated the missing half correctly;
   // it just lived in `vigiles lint`, which someone has to run by hand.
+  // Same union `vigiles lint` applies: the rule's exclude narrows, the
+  // repo-wide exclude is the floor (#192) — the nudge must not report a
+  // vendored skill the linter would never list.
+  const excludes = excludeSet(cwd, config.exclude);
+  // 🔴 THE BUNDLE THAT HOLDS THE EDIT, found the way `lint` finds it (#281, D6).
+  // The nudge scanned the root bundle only and matched by SUFFIX, so an edit to
+  // `plugins/p/skills/x/SKILL.md` was answered with the coverage of the ROOT's
+  // `skills/x`. Now the edited path is a `RepoPath`, the scan runs over the
+  // bundle it lives in, and the two are compared for equality in one frame.
+  // A nested bundle `lint` would not score (no `bundles: "all"`) gets no nudge,
+  // for the same reason it gets no finding.
+  const frame = frameAt(cwd);
+  const edited = resolve(cwd, file);
+  const home =
+    (config.bundles === "all"
+      ? discoverNestedBundles(cwd, excludes).find((b) => {
+          const r = relative(b, edited);
+          return r !== "" && !r.startsWith("..") && !isAbsolute(r);
+        })
+      : undefined) ?? cwd;
   const msg =
-    skillTestNudge(target, {
+    skillTestNudge(frame.repo(edited), {
       ...options,
-      basePath: cwd,
+      basePath: home,
+      root: cwd,
       layout,
-      // Same union `vigiles lint` applies: the rule's exclude narrows, the
-      // repo-wide exclude is the floor (#192) — the nudge must not report a
-      // vendored skill the linter would never list.
-      exclude: [
-        ...(options.exclude ?? []),
-        ...excludeSet(cwd, config.exclude).ignore,
-      ],
+      excludes,
     }) ?? evalLockNudge(target, resolve(cwd, DEFAULT_LOCK_DIR));
   if (!msg) return;
   process.stdout.write(
@@ -8491,9 +8495,12 @@ export async function main(): Promise<void> {
           process.exitCode = 2;
           return;
         }
+        // The same single owner of "relative to which directory" `lint` uses
+        // (#281): cwd, unless the audited dir is somebody else's repository.
+        const frame = frameFor(process.cwd(), root);
         const report = scanPlugin(targets[0], adapter.layout, adapter.dialect, {
           sharedDirs: config.sharedDirs,
-          sharedDirsRoot: sharedDirsRootFor(targets[0]),
+          sharedDirsRoot: frame.root,
           // `.vigilesrc.json#exclude` reaches surface DISCOVERY, not just the
           // instruction file. Measured 2026-09-21 before this line existed: a repo
           // with `{"exclude": [".claude"]}` and one skill at `.claude/skills/demo`
@@ -8530,10 +8537,19 @@ export async function main(): Promise<void> {
         // `init` adopts (layout-driven instruction file + skill/subagent sweep).
         // Surfaced in the AuditReport (the report's "Create spec" command-emit
         // buttons read it) and the terminal nudge below.
-        const adoptableSurfaces = discoverAdoptableForAudit(
+        //
+        // 🔴 IN THE FRAME `init` RUNS IN, AND WITHOUT WHAT THE REPO EXCLUDES (#281,
+        // D7). The sweep reads the audited dir, so its paths are relative to it —
+        // and for `audit plugins/p` the printed `npx vigiles init
+        // --target=skills/x/SKILL.md` named a file that does not exist from where
+        // you run it, and offered to adopt a skill `exclude` had removed.
+        const auditedBundle = frame.bundle(root);
+        const adoptableSurfaces: RepoPath[] = discoverAdoptableForAudit(
           root,
           adapter.layout.instructionFile,
-        );
+        )
+          .filter((p) => !excludedBy(excludes)(resolve(root, p)))
+          .map((p) => auditedBundle.scanned(p));
         // Read the local flight recorder ONCE — feeds both the JSON report
         // (structured summary, the product boundary) and the terminal render.
         const ledgerRecords = readObservations(root);

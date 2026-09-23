@@ -543,3 +543,43 @@ test("an ALREADY-tracked coverage.json gets one warning line on the next run", (
     /coverage\.json/,
   );
 });
+
+// #281 (D5) — a NESTED bundle's surfaces are recorded, and read back, in the
+// repo frame. On 2c0ada7 both halves missed: `resolveRecords` discovered the
+// root bundle only, so a run that exercised `plugins/p/hooks/n.sh` recorded
+// nothing; and `lint` looked for the artifact in `plugins/p/.vigiles/`, which
+// nothing ever writes.
+test("under bundles: all, a run over a NESTED bundle's hook is recorded and credited", () => {
+  write(".vigilesrc.json", JSON.stringify({ bundles: "all" }));
+  write("plugins/p/hooks/n.sh", "#!/bin/sh\nexit 0\n");
+  write(
+    "plugins/p/.claude-plugin/plugin.json",
+    JSON.stringify({
+      name: "p",
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: "Bash",
+            hooks: [
+              {
+                type: "command",
+                command: "sh ${CLAUDE_PLUGIN_ROOT}/hooks/n.sh",
+              },
+            ],
+          },
+        ],
+      },
+    }),
+  );
+  // Precondition: before any run, lint names the nested hook, in the repo frame.
+  assert.match(vigilesLint(), /hook plugins\/p\/hooks\/n\.sh — add e\.g\./);
+
+  write("t.harness.mjs", harnessExercising("plugins/p/hooks/n.sh"));
+  vigilesTest();
+  assert.deepEqual(recorded(), ["plugins/p/hooks/n.sh"]);
+  assert.doesNotMatch(
+    vigilesLint(),
+    /hook plugins\/p\/hooks\/n\.sh — add e\.g\./,
+    "the record must be READ back for the nested bundle too",
+  );
+});

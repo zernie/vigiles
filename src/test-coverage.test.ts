@@ -36,6 +36,11 @@ import { codexLayout } from "./adapters/codex/layout.js";
 import { testFileExt } from "./core/test-file-ext.js";
 import { canRunTypeScript, detectNodeCaps } from "./ts-runner-caps.js";
 import { interpreterArgs } from "./adapters/claude-code/run-scripts.js";
+import { frameAt, type RepoPath } from "./core/frame.js";
+
+/** A repo-relative path, minted the one way the CLI mints them. */
+const at = (dir: string, rel: string): RepoPath =>
+  frameAt(dir).repo(join(dir, rel));
 
 function write(dir: string, rel: string, content: string): void {
   const abs = join(dir, rel);
@@ -894,7 +899,7 @@ test("an EMPTY colocated file still counts — the known, reported hole", () => 
 test("skillTestNudge: an untested skill gets a nudge that names the test-harness skill", () => {
   const dir = makeTmpDir("nudge-untested");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
-  const msg = skillTestNudge("skills/foo/SKILL.md", {
+  const msg = skillTestNudge(at(dir, "skills/foo/SKILL.md"), {
     layout: claudeCodeLayout,
     basePath: dir,
   });
@@ -916,7 +921,7 @@ test("skillTestNudge: a harness-covered skill is nudged about FIRING, not about 
   const dir = makeTmpDir("nudge-uneval");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "skills/foo/foo.harness.mjs", "// vigiles:covers skills/foo\n");
-  const msg = skillTestNudge("skills/foo/SKILL.md", {
+  const msg = skillTestNudge(at(dir, "skills/foo/SKILL.md"), {
     layout: claudeCodeLayout,
     basePath: dir,
   });
@@ -946,7 +951,7 @@ test("skillTestNudge: the firing remedy is runnable on a NON-default harness too
   const dir = makeTmpDir("nudge-uneval-codex");
   write(dir, ".agents/skills/foo/SKILL.md", skill("foo"));
   write(dir, ".agents/skills/foo/foo.harness.mjs", "// deterministic only\n");
-  const msg = skillTestNudge(".agents/skills/foo/SKILL.md", {
+  const msg = skillTestNudge(at(dir, ".agents/skills/foo/SKILL.md"), {
     basePath: dir,
     layout: codexLayout,
   });
@@ -965,7 +970,7 @@ test("skillTestNudge: silent when the surface is covered on both tiers", () => {
   write(dir, "skills/foo/foo.harness.mjs", "// vigiles:covers skills/foo\n");
   write(dir, "skills/foo/foo.eval.mjs", "// vigiles:covers skills/foo\n");
   assert.equal(
-    skillTestNudge("skills/foo/SKILL.md", {
+    skillTestNudge(at(dir, "skills/foo/SKILL.md"), {
       layout: claudeCodeLayout,
       basePath: dir,
     }),
@@ -979,16 +984,21 @@ test("skillTestNudge: silent for a file that is not a surface, and for another s
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "README.md", "# not a surface\n");
   assert.equal(
-    skillTestNudge("README.md", { layout: claudeCodeLayout, basePath: dir }),
-    null,
-  );
-  // An absolute-ish path ending in the surface path still matches (the hook
-  // passes a repo-relative path, but a caller may not).
-  assert.ok(
-    skillTestNudge("/abs/repo/skills/foo/SKILL.md", {
+    skillTestNudge(at(dir, "README.md"), {
       layout: claudeCodeLayout,
       basePath: dir,
     }),
+    null,
+  );
+  // 🔴 A path that merely ENDS in the surface path is another file (#281, D6).
+  // This used to assert the opposite: a suffix match let an edit to
+  // `plugins/p/skills/foo/SKILL.md` report the root `skills/foo`'s coverage.
+  assert.equal(
+    skillTestNudge(frameAt(dir).repo("/abs/repo/skills/foo/SKILL.md"), {
+      layout: claudeCodeLayout,
+      basePath: dir,
+    }),
+    null,
   );
   cleanupTmpDir(dir);
 });
@@ -1012,7 +1022,7 @@ test("skillTestNudge: a harness-covered AGENT is nudged about its CONTRACT, not 
   const dir = makeTmpDir("nudge-agent-uneval");
   write(dir, "agents/bar.md", skill("bar"));
   write(dir, "agents/bar.harness.mjs", "// deterministic only\n");
-  const msg = skillTestNudge("agents/bar.md", {
+  const msg = skillTestNudge(at(dir, "agents/bar.md"), {
     layout: claudeCodeLayout,
     basePath: dir,
   });
@@ -1045,7 +1055,7 @@ test("skillTestNudge: the SKILL sentence is untouched — the fix is a branch, n
   const dir = makeTmpDir("nudge-skill-uneval-still");
   write(dir, "skills/foo/SKILL.md", skill("foo"));
   write(dir, "skills/foo/foo.harness.mjs", "// deterministic only\n");
-  const msg = skillTestNudge("skills/foo/SKILL.md", {
+  const msg = skillTestNudge(at(dir, "skills/foo/SKILL.md"), {
     layout: claudeCodeLayout,
     basePath: dir,
   });
@@ -1075,7 +1085,7 @@ test("evalTierQuestion: total over SurfaceKind — a hook has no eval-tier quest
 test("skillTestNudge: an agent surface is covered too, and a broken scan is silent", () => {
   const dir = makeTmpDir("nudge-agent");
   write(dir, "agents/bar.md", skill("bar"));
-  const msg = skillTestNudge("agents/bar.md", {
+  const msg = skillTestNudge(at(dir, "agents/bar.md"), {
     layout: claudeCodeLayout,
     basePath: dir,
   });
@@ -1083,7 +1093,7 @@ test("skillTestNudge: an agent surface is covered too, and a broken scan is sile
   assert.match(msg, /bar\.harness\.mjs/); // agents suggest a harness, not an eval
   // A nonexistent base must not throw out of a PostToolUse hook.
   assert.equal(
-    skillTestNudge("skills/foo/SKILL.md", {
+    skillTestNudge(at(dir, "skills/foo/SKILL.md"), {
       layout: claudeCodeLayout,
       basePath: join(dir, "nope"),
     }),

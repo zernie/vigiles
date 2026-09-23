@@ -625,9 +625,9 @@ export function scanPlugin(
      * would be twenty-odd mechanical edits for one behavioural change.
      *
      * ⚠️ Omitting it is NOT "the repo excludes nothing" — it is "this caller has
-     * no ExcludeSet to give", and the walk then reads everything. Today only
-     * `audit` supplies one; the `lint` rule checkers below still do not (they
-     * share a `(config, silent, adapter, root)` signature through `overBundles`).
+     * no ExcludeSet to give", and the walk then reads everything. `audit` and
+     * every `lint` rule checker supply one (the checkers through the per-bundle
+     * context `overBundles` builds, so a new checker cannot forget it).
      */
     excludes?: ExcludeSet;
     /**
@@ -755,13 +755,14 @@ export function scanPlugin(
   const coverage = findUntestedSurfaces({
     basePath: dir,
     layout: lay,
-    // The SAME `.vigilesrc.json#exclude`, in this walk's string face. Untested-
-    // surface discovery is a second walk over the same trees, so leaving it out
-    // would have excluded a skill from the GRADE while still naming it in
-    // "Untested surfaces: 1" — a report contradicting itself about whether the
-    // file exists. `exclude` here NARROWS (it unions with DEFAULT_IGNORE), which
-    // is the documented relationship between the repo floor and a rule's own list.
-    exclude: opts.excludes ? [...opts.excludes.ignore] : undefined,
+    // The SAME `.vigilesrc.json#exclude`. Untested-surface discovery is a
+    // second walk over the same trees, so leaving it out would have excluded a
+    // skill from the GRADE while still naming it in "Untested surfaces: 1" — a
+    // report contradicting itself about whether the file exists. Passed WHOLE,
+    // not as a pattern list: `dir` is often not the repo root (`audit plugins/p`),
+    // and a root-relative list globbed from here matched nothing it named —
+    // `inventory.skills: 1` beside `untested: 2` (#281, D7).
+    excludes: opts.excludes,
   });
   const caveats = coverageCaveats(coverage);
   return {

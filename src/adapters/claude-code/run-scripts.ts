@@ -176,6 +176,7 @@ export {
 import { detectNodeCaps } from "../../ts-runner-caps.js";
 import type { NodeCaps } from "../../ts-runner-caps.js";
 import { makeTmpDir } from "../../core/tmp-root.js";
+import { withIgnored, type GlobIgnore } from "../../core/glob-ignore.js";
 
 /**
  * The `node` argv (after the binary) to run a single script. Plain JS runs
@@ -213,8 +214,9 @@ export function interpreterArgs(
  * Expand the given path/glob patterns into concrete script files. A pattern
  * that is an existing file passes through unchanged; anything else is treated
  * as a glob. Falls back to `defaultGlob` when no patterns are given. Results
- * are deduped and sorted. `ignore` is the repo's ExcludeSet string face
- * (src/exclude.ts — the floor plus `.vigilesrc.json#exclude`), REQUIRED so a
+ * are deduped and sorted. `ignore` is the repo's `ExcludeSet.globIgnore`
+ * (src/exclude.ts — the floor plus `.vigilesrc.json#exclude`, correct from any
+ * `cwd`; a plain list is relative to `cwd`), REQUIRED so a
  * vendored corpus's own `*.harness.mjs` cannot be discovered and run as ours
  * (#192). A path given explicitly in `patterns` is still run.
  */
@@ -222,7 +224,7 @@ export function discoverScripts(
   patterns: readonly string[],
   defaultGlob: string,
   cwd: string,
-  ignore: readonly string[],
+  ignore: GlobIgnore,
 ): string[] {
   const globs = patterns.length > 0 ? patterns : [defaultGlob];
   const found = new Set<string>();
@@ -255,7 +257,7 @@ export function discoverScripts(
     // Asked of the globber rather than filtered afterwards: it already knows.
     for (const m of globSync(p, {
       cwd,
-      ignore: [...ignore],
+      ignore: withIgnored([], ignore),
       dot: true,
       nodir: true,
     })) {
