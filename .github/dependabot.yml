@@ -1,0 +1,59 @@
+# Dependency updates by bot, not by hand — the same scheme as research-paper-pipeline.
+#
+# WHY A BOT and not a "newer version exists" line in the CLI: an update is an ACTION, and the bot
+# hands over a pull request to press. A terminal line is not an action. It also stays out of the
+# CLI's output, which agents read and CI logs keep.
+#
+# WHY IT IS AFFORDABLE HERE: this repository is public, so its Actions minutes are free. The bot
+# was turned off in a private neighbour because its runs ate the shared quota. If this repository
+# ever goes private, revisit this file.
+#
+# 🔴 WHAT THIS FILE DOES NOT GOVERN: it controls version updates only. Security updates are a
+# repository setting (Settings → Advanced Security), with their own cadence and no grouping from here.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Almaty"
+    # A version is not offered until 3 days after its release (protection against a pulled release).
+    cooldown:
+      default-days: 3
+    # Two groups, because they RELEASE differently. semantic-release reads the squash title:
+    #   production → `fix(deps): …`   → a patch release, so users get the updated runtime tree;
+    #   development → `chore(deps): …` → no release, since nothing users install changed.
+    groups:
+      production:
+        dependency-type: "production"
+      development:
+        dependency-type: "development"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "fix"
+      prefix-development: "chore"
+      include: "scope"
+    labels: ["dependencies"]
+    ignore:
+      # 🔴 Preset 10 renders only through conventional-changelog-writer 9, and
+      # @semantic-release/release-notes-generator 14.1.1 (the latest) still loads writer 8.
+      # With preset 10 every release from v16.0.0 to v31.0.0 shipped an empty body.
+      # scripts/release-config.test.ts would turn such a bump red; this keeps the bot from
+      # opening a PR that cannot pass. Lift it when release-notes-generator moves to writer 9.
+      - dependency-name: "conventional-changelog-conventionalcommits"
+        update-types: ["version-update:semver-major"]
+
+  # Action versions go stale silently and surface only as a runner warning about old Node.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "ci"
+    labels: ["dependencies"]

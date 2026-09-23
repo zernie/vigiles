@@ -104,6 +104,11 @@ export const CI_JOBS_NOT_COVERED = [
     why: "release.yml: semantic-release on main — publishes, checks nothing",
   },
   {
+    job: "merge",
+    cmd: "",
+    why: "dependabot-automerge.yml: merges a bot PR after its CI run is green — acts on GitHub, checks nothing itself",
+  },
+  {
     job: "build-and-deploy",
     cmd: "",
     why: "pages.yml: deploys the site on main — the site job in ci.yml is its check",

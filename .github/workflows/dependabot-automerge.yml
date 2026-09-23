@@ -1,0 +1,66 @@
+# MERGE THE UPDATE UPON A GREEN RUN.
+#
+# 🔴 WHY NOT `gh pr merge --auto` (copied from research-paper-pipeline, where it was measured).
+# Standard auto-merge waits for precisely the checks declared REQUIRED in the branch protection. That
+# is a setting in the interface, invisible from here, and it can drift from `ci.yml` on any job rename —
+# and it WILL drift silently, because the PR will simply merge faster.
+# Measured there 2026-09-16: before protection, `main` had `"protected": false`, and `--auto` would
+# have merged the PR IMMEDIATELY, looking like "merge on green" while doing the opposite.
+#
+# This workflow fires FROM THE COMPLETION EVENT of `CI` and reads its `conclusion`. The same reasoning
+# as all checks in this repository: we ask for the THING (run verdict), not its shadow (a setting
+# that promises the verdict will be considered).
+#
+# ⚠️ Branch protection is not redundant — it closes a DIFFERENT hole: a person or bot merging
+# a PR outside CI manually. Two mechanisms, two concerns.
+#
+# 🔴 WHY WE MERGE ANY BUMP, INCLUDING MAJOR, not just patch/minor.
+# Semver is a PUBLISHER'S CLAIM about their release; `CI` is a MEASUREMENT: the unit, harness,
+# e2e and site jobs, including the packaging e2e under npm, pnpm and yarn 4. A major bump that
+# breaks us reds the run and does not merge; a minor one that breaks us does the same.
+# A version-number filter adds a manual step where measurement already exists, and would miss
+# exactly the class for which version filters are typically used.
+#
+# ⚠️ WHAT THIS DOES NOT GIVE, stated plainly: green `CI` means "our tests detected no difference,"
+# not "no difference exists." Behaviour no test covers passes silently.
+name: dependabot auto-merge
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+# Merge and delete branch — nothing else this workflow needs.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    # Three conditions, each blocking a case: the run was for a PR (not a push to main) ·
+    # the run is GREEN · the author is a bot, not a person. Remove any one and meaning changes.
+    if: >
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: merge the PR that just turned green
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          # 🔴 The number comes FROM THE EVENT, not from a search by branch name. A search would find the PR
+          # but would not prove the green run belongs to it.
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          # An empty number is NOT "nothing to do": fork PRs come with an empty array, and
+          # silent exit would look like a successful merge. Fail with a reason.
+          if [ -z "${PR}" ]; then
+            echo "::error::CI run did not yield a PR number (fork?) — nothing merged, resolve manually"
+            exit 1
+          fi
+          gh pr merge "${PR}" --repo "${REPO}" --squash --delete-branch
+          echo "merged PR #${PR} on green CI run ${RUN_ID}"
