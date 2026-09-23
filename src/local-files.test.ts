@@ -49,7 +49,7 @@ import { pushActiveAgent } from "./adapters/claude-code/agent-runtime.js";
 import { setEffectActive } from "./adapters/claude-code/effect-region.js";
 import {
   formatTrackedLocalFiles,
-  ignoreFileEditedWhileTracked,
+  committedIgnoreFileLacksEntries,
   trackedLocalFiles,
 } from "./local-files-tracked.js";
 
@@ -251,57 +251,67 @@ describe("through git", () => {
     );
   });
 
-  test("a TRACKED ignore file is reported only while vigiles' edit is uncommitted", () => {
-    // Codex review on #274: appending to a tracked file dirties it, and the
-    // self-entry cannot hide that. Tracked alone is not worth a word — once the
-    // additions are committed the file stays clean.
+  test("a TRACKED ignore file is reported while its COMMITTED copy lacks vigiles' entries", () => {
+    // Asked of HEAD, not of the worktree (Codex review on #275, third pass):
+    // "modified" could not tell vigiles' additions from the owner's own edit.
+    const commit = (msg: string): void => {
+      git("add", "-f", `${VIGILES_DIR}/.gitignore`);
+      git(
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "-m",
+        msg,
+      );
+    };
     mkdirSync(vigilesDir(), { recursive: true });
     writeFileSync(gitignore(), "# our own rules\n");
-    git("add", "-f", `${VIGILES_DIR}/.gitignore`);
-    git(
-      "-c",
-      "user.email=t@t",
-      "-c",
-      "user.name=t",
-      "commit",
-      "-q",
-      "-m",
-      "own rules",
-    );
-    assert.equal(
-      ignoreFileEditedWhileTracked(dir),
-      false,
-      "clean before any write",
-    );
+    commit("own rules");
+    assert.equal(committedIgnoreFileLacksEntries(dir), true, "HEAD lacks them");
     ensureLocalFilesIgnored(vigilesDir());
-    assert.equal(ignoreFileEditedWhileTracked(dir), true, "the append shows");
+    git("add", "-f", `${VIGILES_DIR}/.gitignore`);
+    assert.equal(
+      committedIgnoreFileLacksEntries(dir),
+      true,
+      "staged is not committed",
+    );
     assert.match(
       formatTrackedLocalFiles([], true) ?? "",
-      /\.vigiles\/\.gitignore is tracked by git.*Commit that change once/,
+      /\.vigiles\/\.gitignore is tracked by git.*committed version lacks/,
     );
-    git("add", `${VIGILES_DIR}/.gitignore`);
-    // Staged is not committed (Codex review on #275): bare `git diff` read this
-    // state as clean.
+    commit("vigiles entries");
     assert.equal(
-      ignoreFileEditedWhileTracked(dir),
-      true,
-      "staged but uncommitted still shows",
-    );
-    git(
-      "-c",
-      "user.email=t@t",
-      "-c",
-      "user.name=t",
-      "commit",
-      "-q",
-      "-m",
-      "vigiles entries",
-    );
-    ensureLocalFilesIgnored(vigilesDir());
-    assert.equal(
-      ignoreFileEditedWhileTracked(dir),
+      committedIgnoreFileLacksEntries(dir),
       false,
       "committed once, silent after",
+    );
+    // The owner's own unrelated edit, staged or not, is not vigiles' to report.
+    writeFileSync(
+      gitignore(),
+      readFileSync(gitignore(), "utf-8") + "/scratch.txt\n",
+    );
+    assert.equal(
+      committedIgnoreFileLacksEntries(dir),
+      false,
+      "owner edit, unstaged",
+    );
+    git("add", "-f", `${VIGILES_DIR}/.gitignore`);
+    assert.equal(
+      committedIgnoreFileLacksEntries(dir),
+      false,
+      "owner edit, staged",
+    );
+  });
+
+  test("silent where it cannot tell: no HEAD, or the ignore file never committed", () => {
+    ensureLocalFilesIgnored(vigilesDir());
+    assert.equal(
+      committedIgnoreFileLacksEntries(dir),
+      false,
+      "fresh repo, no HEAD",
     );
   });
 

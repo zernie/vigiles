@@ -177,6 +177,16 @@ function inEffect(lines: readonly string[], entry: string): boolean {
  * Costs one read on the hot path. Best-effort: any fs error is swallowed —
  * keeping git tidy must never break a hook, a test run or an audit.
  */
+/**
+ * The entries a `.vigiles/.gitignore` with this content does NOT put in effect.
+ * One reader for both questions — "what to append" ({@link ensureLocalFilesIgnored})
+ * and "does the committed copy already carry them" (the CLI's tracked-file check).
+ */
+export function entriesNotInEffect(content: string): string[] {
+  const lines = content.split(/\r?\n/).map((l) => l.replace(/\s+$/, ""));
+  return localIgnoreEntries().filter((e) => !inEffect(lines, e));
+}
+
 export function ensureLocalFilesIgnored(vigilesDir: string): void {
   try {
     const file = resolve(vigilesDir, LOCAL_GITIGNORE_FILE);
@@ -195,10 +205,9 @@ export function ensureLocalFilesIgnored(vigilesDir: string): void {
       );
       return;
     }
-    const lines = current.split(/\r?\n/).map((l) => l.replace(/\s+$/, ""));
-    const missing = entries.filter((e) => !inEffect(lines, e));
+    const missing = entriesNotInEffect(current);
     if (missing.length === 0) return;
-    const header = lines.includes(LOCAL_GITIGNORE_HEADER[0])
+    const header = current.split(/\r?\n/).includes(LOCAL_GITIGNORE_HEADER[0])
       ? []
       : LOCAL_GITIGNORE_HEADER;
     const sep = current === "" || current.endsWith("\n") ? "" : "\n";

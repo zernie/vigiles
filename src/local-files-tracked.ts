@@ -19,6 +19,7 @@ import {
   LOCAL_FILES,
   LOCAL_GITIGNORE_FILE,
   VIGILES_DIR,
+  entriesNotInEffect,
 } from "./local-files.js";
 
 /** `.vigiles/.gitignore`, repo-relative. */
@@ -46,31 +47,27 @@ export function trackedLocalFiles(root: string): string[] {
 }
 
 /**
- * Is `.vigiles/.gitignore` tracked AND carrying uncommitted edits.
+ * Does the COMMITTED `.vigiles/.gitignore` (the one at `HEAD`) lack entries
+ * vigiles needs — i.e. will vigiles' additions show up as a change to a tracked
+ * file until someone commits them.
  *
- * A repo may track that file for its own rules. vigiles then appends its entries
- * to a TRACKED file, which the self-entry `/.gitignore` cannot hide — git ignores
- * only untracked files (Codex review on #274). Tracked alone is not worth a word:
- * once the additions are committed the file stays clean, because entries are
- * appended only when missing, and a warning that repeats on every run gets
- * switched off. So the question is "tracked and changed" — staged or not.
- * Silent on every "cannot tell", like {@link trackedLocalFiles}.
+ * The question is asked of `HEAD`, not of the worktree's dirtiness, and that
+ * is the point (Codex review on #275, third pass). "The file is modified" was
+ * the earlier predicate; it could not tell vigiles' additions from the owner's
+ * own unrelated edit, and then advised committing work in progress. Reading the
+ * committed copy answers only for vigiles' entries, staged or not, and says
+ * nothing once they are committed, whatever else the owner is editing.
+ * Silent on every "cannot tell": not in a repo, no `HEAD`, file not committed.
  */
-export function ignoreFileEditedWhileTracked(root: string): boolean {
+export function committedIgnoreFileLacksEntries(root: string): boolean {
   try {
-    // `status --porcelain`, not `diff`: bare `git diff` compares the worktree
-    // with the INDEX, so an edit that was `git add`ed but not committed read as
-    // clean (Codex review on #275). Porcelain lists staged and unstaged in one
-    // call; `??` is an UNTRACKED file, which this question is not about.
-    const r = spawnSync(
-      "git",
-      ["status", "--porcelain=v1", "--", IGNORE_FILE],
-      { cwd: root, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
-    );
+    const r = spawnSync("git", ["show", `HEAD:${IGNORE_FILE}`], {
+      cwd: root,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
     if (r.status !== 0 || typeof r.stdout !== "string") return false;
-    return r.stdout
-      .split("\n")
-      .some((l) => l.length > 0 && !l.startsWith("??") && !l.startsWith("!!"));
+    return entriesNotInEffect(r.stdout).length > 0;
   } catch {
     return false;
   }
@@ -84,7 +81,7 @@ export function ignoreFileEditedWhileTracked(root: string): boolean {
  */
 export function formatTrackedLocalFiles(
   tracked: readonly string[],
-  ignoreFileEdited = false,
+  committedLacksEntries = false,
 ): string | null {
   const lines: string[] = [];
   if (tracked.length > 0) {
@@ -102,10 +99,11 @@ export function formatTrackedLocalFiles(
   }
   // Not "untrack it": the repo may keep its own rules there, and untracking
   // would take them away from everyone else.
-  if (ignoreFileEdited)
+  if (committedLacksEntries)
     lines.push(
-      `⚠ ${IGNORE_FILE} is tracked by git and vigiles added its local-file ` +
-        `entries to it. Commit that change once; entries are appended only when missing.`,
+      `⚠ ${IGNORE_FILE} is tracked by git and its committed version lacks ` +
+        `vigiles' local-file entries, which vigiles adds to your copy. Commit ` +
+        `those lines once; entries are appended only when missing.`,
     );
   return lines.length > 0 ? lines.join("\n") : null;
 }
@@ -114,7 +112,7 @@ export function formatTrackedLocalFiles(
 export function warnTrackedLocalFiles(root: string): void {
   const line = formatTrackedLocalFiles(
     trackedLocalFiles(root),
-    ignoreFileEditedWhileTracked(root),
+    committedIgnoreFileLacksEntries(root),
   );
   if (line) process.stderr.write(line + "\n");
 }
