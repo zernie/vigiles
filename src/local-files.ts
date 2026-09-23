@@ -121,6 +121,9 @@ export const COMMITTED_PATHS: readonly string[] = [
 ];
 
 /** The header comment on a `.vigiles/.gitignore` vigiles creates. */
+/** The ignore file vigiles keeps inside `.vigiles/`. One spelling for every reader. */
+export const LOCAL_GITIGNORE_FILE = ".gitignore";
+
 export const LOCAL_GITIGNORE_HEADER: readonly string[] = [
   "# Written by vigiles. These files describe one checkout on one machine and are",
   "# never committed. Everything else in .vigiles/ is the project's: commit it.",
@@ -130,16 +133,25 @@ export const LOCAL_GITIGNORE_HEADER: readonly string[] = [
 export function localIgnoreEntries(): string[] {
   return [
     ...LOCAL_FILES.map((f) => `/${f.name}${f.dir ? "/" : ""}`),
-    "/.gitignore",
+    `/${LOCAL_GITIGNORE_FILE}`,
   ];
 }
 
-/** Is `entry` ignoring its path after git reads `lines` top to bottom. */
+/**
+ * Is `entry` ignoring its path after git reads `lines` top to bottom.
+ *
+ * Conservative on purpose: ANY negation after the entry's last occurrence counts
+ * as cancelling it. Git re-includes on `!/coverage.json`, but equally on
+ * `!coverage.json` or `!*.json` (last matching pattern wins), and matching
+ * gitignore globs here would be a second, partial implementation of git. The
+ * cost of being conservative is one extra append after an unrelated negation;
+ * the next call finds the entries last and leaves the file alone.
+ */
 function inEffect(lines: readonly string[], entry: string): boolean {
   let on = false;
   for (const line of lines) {
     if (line === entry) on = true;
-    else if (line === `!${entry}`) on = false;
+    else if (line.startsWith("!")) on = false;
   }
   return on;
 }
@@ -155,8 +167,9 @@ function inEffect(lines: readonly string[], entry: string): boolean {
  *   or reordered. Appending is enough because git's last matching rule wins.
  *
  * "In effect" is judged the way git reads the file, not by text membership:
- * lines in order, a later `!/entry` cancels an earlier `/entry`, and leading
- * whitespace is part of the pattern (only trailing whitespace is dropped).
+ * lines in order, a later negation cancels an earlier `/entry` (see
+ * {@link inEffect}), and leading whitespace is part of the pattern (only
+ * trailing whitespace is dropped).
  * Both cases were measured with `git check-ignore`: `/coverage.json` followed
  * by `!/coverage.json`, and ` /coverage.json`, each leave the file NOT
  * ignored while a trimmed set would call the entry present.
@@ -166,7 +179,7 @@ function inEffect(lines: readonly string[], entry: string): boolean {
  */
 export function ensureLocalFilesIgnored(vigilesDir: string): void {
   try {
-    const file = resolve(vigilesDir, ".gitignore");
+    const file = resolve(vigilesDir, LOCAL_GITIGNORE_FILE);
     const entries = localIgnoreEntries();
     let current: string | undefined;
     try {

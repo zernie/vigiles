@@ -49,6 +49,7 @@ import { pushActiveAgent } from "./adapters/claude-code/agent-runtime.js";
 import { setEffectActive } from "./adapters/claude-code/effect-region.js";
 import {
   formatTrackedLocalFiles,
+  ignoreFileEditedWhileTracked,
   trackedLocalFiles,
 } from "./local-files-tracked.js";
 
@@ -208,6 +209,9 @@ describe("through git", () => {
   for (const [label, content] of [
     ["a later !entry cancels the entry", "/coverage.json\n!/coverage.json\n"],
     ["a leading space makes a different pattern", " /coverage.json\n"],
+    // Second Codex pass: git re-includes on ANY matching negation, anchored or not.
+    ["an unanchored !entry cancels it", "/coverage.json\n!coverage.json\n"],
+    ["a wildcard negation cancels it", "/coverage.json\n!*.json\n"],
   ] as const) {
     test(`a hand-edited ignore file is repaired when ${label}`, () => {
       mkdirSync(vigilesDir(), { recursive: true });
@@ -222,6 +226,77 @@ describe("through git", () => {
       assert.ok(readFileSync(gitignore(), "utf-8").startsWith(content));
     });
   }
+
+  test("after an unrelated negation the repair happens once, then the file is left alone", () => {
+    // The price of treating ANY later negation as cancelling: one extra append.
+    // What must not happen is an append on every call.
+    mkdirSync(vigilesDir(), { recursive: true });
+    ensureLocalFilesIgnored(vigilesDir());
+    writeFileSync(
+      gitignore(),
+      readFileSync(gitignore(), "utf-8") + "!keep-me.json\n",
+    );
+    ensureLocalFilesIgnored(vigilesDir());
+    const once = readFileSync(gitignore(), "utf-8");
+    ensureLocalFilesIgnored(vigilesDir());
+    assert.equal(
+      readFileSync(gitignore(), "utf-8"),
+      once,
+      "second call changed the file",
+    );
+    writeFileSync(join(vigilesDir(), "coverage.json"), "{}\n");
+    assert.equal(
+      git("check-ignore", "-q", `${VIGILES_DIR}/coverage.json`).status,
+      0,
+    );
+  });
+
+  test("a TRACKED ignore file is reported only while vigiles' edit is uncommitted", () => {
+    // Codex review on #274: appending to a tracked file dirties it, and the
+    // self-entry cannot hide that. Tracked alone is not worth a word — once the
+    // additions are committed the file stays clean.
+    mkdirSync(vigilesDir(), { recursive: true });
+    writeFileSync(gitignore(), "# our own rules\n");
+    git("add", "-f", `${VIGILES_DIR}/.gitignore`);
+    git(
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "user.name=t",
+      "commit",
+      "-q",
+      "-m",
+      "own rules",
+    );
+    assert.equal(
+      ignoreFileEditedWhileTracked(dir),
+      false,
+      "clean before any write",
+    );
+    ensureLocalFilesIgnored(vigilesDir());
+    assert.equal(ignoreFileEditedWhileTracked(dir), true, "the append shows");
+    assert.match(
+      formatTrackedLocalFiles([], true) ?? "",
+      /\.vigiles\/\.gitignore is tracked by git.*Commit that change once/,
+    );
+    git("add", `${VIGILES_DIR}/.gitignore`);
+    git(
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "user.name=t",
+      "commit",
+      "-q",
+      "-m",
+      "vigiles entries",
+    );
+    ensureLocalFilesIgnored(vigilesDir());
+    assert.equal(
+      ignoreFileEditedWhileTracked(dir),
+      false,
+      "committed once, silent after",
+    );
+  });
 
   test("committed .vigiles/ paths stay committable", () => {
     writeEveryLocalFile();

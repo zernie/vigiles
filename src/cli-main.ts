@@ -6400,6 +6400,13 @@ async function handleRunScripts(
   excludes: ExcludeSet,
 ): Promise<void> {
   const cwd = process.cwd();
+  // The ignore file keeps NEW copies of `.vigiles/` local files out of git, but
+  // cannot untrack one a repo already committed. Said here, on the CLI, because
+  // it spawns `git` — never from a hook runtime — and said FIRST, before any
+  // early return: a repo whose harness was removed still carries the stale
+  // committed artifact, and "no files found" must not swallow the warning
+  // (Codex review on #274).
+  warnTrackedLocalFiles(cwd);
   // Harness/eval scripts may be authored in JS or TS (see run-scripts.ts).
   const defaultGlob = scriptGlob(kind === "test" ? "harness" : "eval");
 
@@ -6545,10 +6552,6 @@ async function handleRunScripts(
   // a flag: the run already happened, and this is the runner recording what it
   // saw — the same shape as the flight-recorder ledger it already appends to.
   recordRunCoverage(cwd, results, kind, harnessFlagFrom(args));
-  // The ignore file keeps NEW copies of `.vigiles/` local files out of git, but
-  // cannot untrack one a repo already committed. Said here, on the CLI, because
-  // it spawns `git` — never from a hook runtime.
-  warnTrackedLocalFiles(cwd);
   console.log("\n" + formatScriptSummary(results));
 
   if (anyFailed(results)) process.exit(1);

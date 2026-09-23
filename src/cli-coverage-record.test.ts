@@ -495,6 +495,18 @@ test("the coverage artifact `vigiles test` writes is invisible to git", () => {
   );
 });
 
+test("…and the warning survives a run that finds no harness at all", () => {
+  // Codex review on #274: the check sat after the zero-files early return, so a
+  // repo whose harness was deleted kept its stale committed artifact in silence.
+  initGitRepo(dir);
+  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  vigilesTest();
+  execFileSync("git", ["add", "-f", ".vigiles/coverage.json"], { cwd: dir });
+  rmSync(join(dir, "t.harness.mjs"));
+  const stderr = vigilesTestStderr();
+  assert.match(stderr, /\.vigiles\/coverage\.json is tracked by git/);
+});
+
 test("an ALREADY-tracked coverage.json gets one warning line on the next run", () => {
   initGitRepo(dir);
   write("t.harness.mjs", harnessExercising("hooks/a.sh"));
