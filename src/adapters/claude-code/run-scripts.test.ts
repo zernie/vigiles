@@ -98,13 +98,18 @@ test("discoverScripts: an excluded path is not discovered, but is still run when
     const excludes = excludeSet(dir, ["vendored"]);
     // Discovery: fires on the clean side (ours found) AND drops the excluded one.
     assert.deepEqual(
-      discoverScripts([], "**/*.harness.mjs", dir, excludes.ignore),
+      discoverScripts([], "**/*.harness.mjs", dir, excludes.globIgnore),
       ["ours.harness.mjs"],
     );
     // Control: the same tree with an empty exclude finds both, so the assertion
     // above cannot pass by finding nothing.
     assert.deepEqual(
-      discoverScripts([], "**/*.harness.mjs", dir, excludeSet(dir, []).ignore),
+      discoverScripts(
+        [],
+        "**/*.harness.mjs",
+        dir,
+        excludeSet(dir, []).globIgnore,
+      ),
       ["ours.harness.mjs", "vendored/corpus/theirs.harness.mjs"],
     );
     // An explicit path wins: exclude filters discovery, not an argument.
@@ -113,7 +118,7 @@ test("discoverScripts: an excluded path is not discovered, but is still run when
         ["vendored/corpus/theirs.harness.mjs"],
         "**/*.harness.mjs",
         dir,
-        excludes.ignore,
+        excludes.globIgnore,
       ),
       ["vendored/corpus/theirs.harness.mjs"],
     );

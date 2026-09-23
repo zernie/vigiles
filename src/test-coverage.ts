@@ -67,7 +67,10 @@ import { minimatch } from "minimatch";
 import { testFileExt } from "./core/test-file-ext.js";
 import { assertNever } from "./core/assert-never.js";
 import { canRunTypeScript, detectNodeCaps } from "./ts-runner-caps.js";
-import { globSync } from "glob";
+import { globSync, type IgnoreLike } from "glob";
+import { withIgnored } from "./core/glob-ignore.js";
+import { excludedBy, type ExcludeSet } from "./exclude.js";
+import type { RepoPath } from "./core/frame.js";
 import {
   AGENT_FILE_LEAF_RE,
   agentSurfaceName,
@@ -282,8 +285,17 @@ export interface TestCoverageOptions {
    * `mjs` was silently ignored on any TypeScript-shaped repo.
    */
   readonly testExtension?: string;
-  /** Extra ignore globs (added to node_modules/dist/.git/.vigiles). */
+  /**
+   * The rule's own `exclude` globs, relative to `root` (added to
+   * node_modules/dist/.git/.vigiles). NARROWS on top of {@link excludes}.
+   */
   readonly exclude?: readonly string[];
+  /**
+   * The repo-wide `.vigilesrc.json#exclude`. It carries its own root, so it is
+   * applied correctly whichever directory is being discovered — a string list
+   * here was correct only when that directory WAS the repo root (#281).
+   */
+  readonly excludes?: ExcludeSet;
   /**
    * Harness layout — where skills/agents live, the plugin-root token, the
    * manifest/settings paths. Defaults to Claude Code; a non-CC adapter passes its
@@ -518,7 +530,7 @@ function discoverHooks(basePath: string, layout: PluginLayout): Surface[] {
 function discoverTests(
   basePath: string,
   globs: readonly string[],
-  ignore: string[],
+  ignore: string[] | IgnoreLike,
 ): PreparedTest[] {
   // `dot: true` so a colocated test under a DOT directory is found — most
   // loose skills live in `.claude/skills/<name>/`, so the eval the warning
@@ -694,7 +706,8 @@ export function findUntestedSurfaces(
   const basePath = options.basePath ?? process.cwd();
   const root = options.root ?? basePath;
   const { layout } = options;
-  const ignore = [...DEFAULT_IGNORE, ...(options.exclude ?? [])];
+  const ruleIgnore = [...DEFAULT_IGNORE, ...(options.exclude ?? [])];
+  const ignore = withIgnored(ruleIgnore, options.excludes?.globIgnore);
   const globs = options.include ?? DEFAULT_TEST_GLOBS;
   // #281: surfaces are FOUND under the bundle and then re-expressed from `root`,
   // so every later comparison (colocation, `{surface}` globs, the run index,
@@ -702,11 +715,14 @@ export function findUntestedSurfaces(
   const prefix = relative(root, basePath).split(sep).join("/");
   const toRoot = (s: Surface): Surface =>
     prefix === "" ? s : { ...s, path: `${prefix}/${s.path}` };
+  const repoExcluded = excludedBy(options.excludes);
   const excluded = (p: string): boolean =>
-    ignore.some((g) => minimatch(p, g, { dot: true }));
+    ruleIgnore.some((g) => minimatch(p, g, { dot: true })) ||
+    repoExcluded(join(root, p));
 
   // Discovery globs from the BUNDLE, so it gets only the frame-free floor; the
-  // user's patterns are root-relative and are applied below, in root's frame.
+  // rule's patterns are root-relative and the repo's carry their own root, so
+  // both are applied below, to the root-relative path.
   const floor = [...DEFAULT_IGNORE];
   const found: Surface[] = [];
   if (options.skills !== false)
@@ -837,7 +853,7 @@ export function coverageEvidenceCounts(report: UntestedReport): EvidenceCounts {
  * covered on both tiers. Never throws — a nudge must not disrupt an edit.
  */
 export function skillTestNudge(
-  filePath: string,
+  filePath: RepoPath,
   options: TestCoverageOptions,
 ): string | null {
   let report: UntestedReport;
@@ -847,10 +863,12 @@ export function skillTestNudge(
     return null; // a broken scan must never surface as a broken edit
   }
 
-  const norm = (p: string): string => p.replaceAll("\\", "/");
-  const target = norm(filePath);
-  const isTarget = (s: Surface): boolean =>
-    norm(s.path) === target || target.endsWith(`/${norm(s.path)}`);
+  // 🔴 EQUALITY, IN ONE FRAME (#281, D6). This used to accept any path ENDING in
+  // a surface's path, so editing `plugins/p/skills/x/SKILL.md` matched the root
+  // bundle's `skills/x/SKILL.md` and reported THAT skill's coverage as the
+  // edited one's. The caller now hands a `RepoPath` and the report's paths are
+  // relative to the same `root`, so a suffix has nothing left to rescue.
+  const isTarget = (s: Surface): boolean => s.path === filePath;
 
   const untested = report.untested.find(isTarget);
   if (untested)

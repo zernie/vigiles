@@ -282,6 +282,12 @@ every bundle under it (`"all"`).
 { "bundles": "all" }
 ```
 
+Every path in this file — `include`, `exclude`, `sharedDirs` — is relative to the
+folder that holds `.vigilesrc.json`, for every bundle, the way ESLint and Ruff
+resolve theirs. A nested bundle's findings print that way too
+(`plugins/p/skills/x/SKILL.md`, not `skills/x/SKILL.md`), and a finding that names
+no file starts with its bundle, e.g. `[plugins/p] MCP server "db" …`.
+
 ### `audit`
 
 `{ "measure": false }` stops `audit` from offering to run the checks that call a

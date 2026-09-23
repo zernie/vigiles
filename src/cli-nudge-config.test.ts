@@ -219,3 +219,39 @@ test("…and the Claude Code repo it used to assume is completely unaffected", (
   );
   assert.notEqual(nudge(CODEX_SKILL), "");
 });
+
+// ---------------------------------------------------------------------------
+// #281 (D6) — the nudge must answer about the file that was EDITED.
+//
+// Measured on 2c0ada7: with a harness beside the ROOT `skills/x` and nothing
+// beside `plugins/p/skills/x`, editing the nested one returned
+//   "vigiles: you edited skills/x/SKILL.md. A deterministic test covers it…"
+// — the root skill's coverage, reported as the edited skill's. The match was a
+// suffix (`target.endsWith("/" + s.path)`), and only the root bundle was scanned.
+// ---------------------------------------------------------------------------
+const NESTED = "plugins/p/skills/x/SKILL.md";
+
+function twoBundles(config: object): void {
+  write(".vigilesrc.json", JSON.stringify(config));
+  write(
+    "skills/x/SKILL.md",
+    "---\nname: x\ndescription: root x\n---\n\nBody.\n",
+  );
+  write("skills/x/x.harness.mjs", "// deterministic only\n");
+  write("plugins/p/.claude-plugin/plugin.json", JSON.stringify({ name: "p" }));
+  write(NESTED, "---\nname: x\ndescription: nested x\n---\n\nBody.\n");
+}
+
+test("an edit to a NESTED skill is answered about that skill, not the root's namesake", () => {
+  twoBundles({ bundles: "all" });
+  const msg = nudge(NESTED);
+  assert.match(msg, /you edited plugins\/p\/skills\/x\/SKILL\.md/);
+  assert.match(msg, /no test or eval covers it/);
+  // The control: the root skill still gets ITS answer (harness, no eval).
+  assert.match(nudge("skills/x/SKILL.md"), /you edited skills\/x\/SKILL\.md\./);
+});
+
+test("…and a nested bundle lint does not score gets no nudge, as it gets no finding", () => {
+  twoBundles({});
+  assert.equal(nudge(NESTED), "");
+});

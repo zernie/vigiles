@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { globSync } from "glob";
 
 import { EXCLUDE_FLOOR, excludeSet } from "./exclude.js";
+import { withIgnored } from "./core/glob-ignore.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 describe("excludeSet — spellings", () => {
@@ -58,7 +59,9 @@ describe("excludeSet — spellings", () => {
       ".vigiles/state.json",
     ])
       assert.equal(ex.matches(p), true, p);
-    assert.deepEqual([...ex.ignore], [...EXCLUDE_FLOOR]);
+    for (const p of EXCLUDE_FLOOR)
+      assert.equal(ex.explain(p.replace("/**", "/x")), p, p);
+    assert.deepEqual([...ex.patterns], [], "the floor is not a user pattern");
   });
 
   it("the root itself, `.`, and a path outside the root are never excluded", () => {
@@ -80,12 +83,11 @@ describe("excludeSet — spellings", () => {
     assert.equal(ex.explain("src/x.md"), null);
   });
 
-  it("the string face carries each user pattern twice — itself and its subtree — after the floor", () => {
+  it("a user pattern excludes itself AND its subtree, with or without a trailing slash", () => {
     const ex = excludeSet(root, ["bench", "docs/gen/"]);
-    assert.deepEqual(
-      [...ex.ignore],
-      [...EXCLUDE_FLOOR, "bench", "bench/**", "docs/gen", "docs/gen/**"],
-    );
+    for (const p of ["bench", "bench/x/y.md", "docs/gen", "docs/gen/a.md"])
+      assert.equal(ex.matches(p), true, p);
+    assert.equal(ex.matches("benchmark/x.md"), false, "a name is not a prefix");
     assert.deepEqual([...ex.patterns], ["bench", "docs/gen"]);
     // An empty or whitespace-only entry is dropped rather than excluding everything.
     assert.deepEqual([...excludeSet(root, ["", "./"]).patterns], []);
@@ -140,10 +142,23 @@ describe("excludeSet — the glob function face", () => {
         globSync("**/CLAUDE.md", { cwd: sub, ignore: ex.globIgnore }).sort(),
         ["CLAUDE.md"],
       );
+      // Why the string face was RETIRED (#281): the same root-relative pattern,
+      // as a plain list, globbed from below the root, matches nothing.
       assert.deepEqual(
-        globSync("**/CLAUDE.md", { cwd: sub, ignore: [...ex.ignore] }).sort(),
+        globSync("**/CLAUDE.md", {
+          cwd: sub,
+          ignore: withIgnored([], ["some/dir/vendored/**"]),
+        }).sort(),
         ["CLAUDE.md", "vendored/CLAUDE.md"],
-        "the string face is documented NOT to work here — this is why the function face exists",
+      );
+      // …and the union keeps the function face's answer when a detector adds
+      // its own floor (`glob` takes a list OR one IgnoreLike, never both).
+      assert.deepEqual(
+        globSync("**/CLAUDE.md", {
+          cwd: sub,
+          ignore: withIgnored(["nothing-here/**"], ex.globIgnore),
+        }).sort(),
+        ["CLAUDE.md"],
       );
     } finally {
       cleanupTmpDir(dir);

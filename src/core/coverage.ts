@@ -14,6 +14,8 @@ import { findIntegrityHeader } from "./integrity.js";
 import { resolve } from "node:path";
 import { globSync } from "glob";
 
+import { withIgnored, type GlobIgnore } from "./glob-ignore.js";
+
 import { readPackageScripts } from "./compile.js";
 import type { CoverageThresholds } from "./types.js";
 import type { ClaudeSpec } from "./spec.js";
@@ -60,7 +62,7 @@ export function readNpmScripts(basePath: string): string[] {
 export function collectDocumentedCommands(
   basePath: string,
   specs: ClaudeSpec[] | undefined,
-  ignore: readonly string[],
+  ignore: GlobIgnore,
 ): Set<string> {
   const commands = new Set<string>();
 
@@ -76,12 +78,12 @@ export function collectDocumentedCommands(
   // Fallback: scan compiled markdown for spec file references, then
   // load the compiled JS spec from dist/. If that fails, try to
   // extract commands from the compiled output (last resort).
-  // `ignore` is the repo's ExcludeSet string face (src/exclude.ts): the floor
-  // plus `.vigilesrc.json#exclude`, required so this fallback cannot walk a
+  // `ignore` is the repo's `ExcludeSet.globIgnore` (src/exclude.ts, correct
+  // from any cwd) or patterns relative to `basePath`, required so this fallback cannot walk a
   // vendored corpus the repo excluded (#192). The CLI always passes `specs`,
   // so this branch is reached by the library path and tests only.
   const mdFiles = globSync("**/*.md", {
-    ignore: [...ignore],
+    ignore: withIgnored([], ignore),
     cwd: basePath,
   });
 
@@ -133,7 +135,7 @@ export function computeScriptCoverage(
   basePath: string,
   threshold: number | undefined,
   specs: ClaudeSpec[] | undefined,
-  ignore: readonly string[],
+  ignore: GlobIgnore,
 ): CoverageMetric {
   const allScripts = readNpmScripts(basePath);
   const documented = collectDocumentedCommands(basePath, specs, ignore);
@@ -204,7 +206,7 @@ export function checkCoverage(
   linterEnabled: number,
   linterDocumented: number,
   specs: ClaudeSpec[] | undefined,
-  ignore: readonly string[],
+  ignore: GlobIgnore,
 ): CoverageReport {
   const metrics: CoverageMetric[] = [];
 
