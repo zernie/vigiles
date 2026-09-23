@@ -57,11 +57,14 @@ export function trackedLocalFiles(root: string): string[] {
  * own unrelated edit, and then advised committing work in progress. Reading the
  * committed copy answers only for vigiles' entries, staged or not, and says
  * nothing once they are committed, whatever else the owner is editing.
+ * `HEAD:./path`, not `HEAD:path`: without `./` git resolves the path from the
+ * REPOSITORY root, so a package nested in a larger worktree read the wrong file
+ * — or none — and stayed silent (Codex review on #275, gitrevisions(7)).
  * Silent on every "cannot tell": not in a repo, no `HEAD`, file not committed.
  */
 export function committedIgnoreFileLacksEntries(root: string): boolean {
   try {
-    const r = spawnSync("git", ["show", `HEAD:${IGNORE_FILE}`], {
+    const r = spawnSync("git", ["show", `HEAD:./${IGNORE_FILE}`], {
       cwd: root,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],

@@ -306,6 +306,30 @@ describe("through git", () => {
     );
   });
 
+  test("a package nested in a larger worktree reads ITS OWN committed ignore file", () => {
+    // `HEAD:<path>` is root-relative; a package in a monorepo read the root's
+    // file, found none, and stayed silent (Codex review on #275).
+    const pkg = join(dir, "packages", "p");
+    mkdirSync(join(pkg, VIGILES_DIR), { recursive: true });
+    writeFileSync(join(pkg, VIGILES_DIR, ".gitignore"), "# our own rules\n");
+    git("add", "-f", `packages/p/${VIGILES_DIR}/.gitignore`);
+    git(
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "user.name=t",
+      "commit",
+      "-q",
+      "-m",
+      "pkg",
+    );
+    assert.equal(
+      committedIgnoreFileLacksEntries(pkg),
+      true,
+      "the package's own copy lacks them",
+    );
+  });
+
   test("silent where it cannot tell: no HEAD, or the ignore file never committed", () => {
     ensureLocalFilesIgnored(vigilesDir());
     assert.equal(
