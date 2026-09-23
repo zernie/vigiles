@@ -4719,6 +4719,9 @@ function checkUntestedSurfaces(
   const report = findUntestedSurfaces({
     ...options,
     basePath: scanRoot,
+    // #281: `include`/`exclude` and the printed path are relative to the config
+    // root, not to whichever bundle is being scored.
+    root: sharedDirsRootFor(scanRoot),
     layout: adapter.layout,
     // The rule's own `exclude` NARROWS; the repo-wide one is the floor under
     // it. Union, never override — a rule option must not re-admit a vendored
