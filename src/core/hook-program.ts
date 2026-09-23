@@ -859,6 +859,16 @@ export function commandView(raw: string, root?: string): CommandView {
             ? [tok, tok.slice(tok.indexOf("=") + 1)]
             : [tok],
         )
+        // curl's "read this file" syntax hides the path the same way: `@file`,
+        // `name=@file`, `name=<file` (`-d @f`, `-F f=@f`, `--data-binary=@f`).
+        // MEASURED: a DNA-upload guard denied `curl -T <file>` and allowed all of
+        // these. The marker must open the token or follow `=`, so `user@host` and
+        // `me@example.org` add nothing; `@scope/pkg` adds `scope/pkg`, which a
+        // denylist only matches if that is really under its prefix.
+        .flatMap((tok) => {
+          const ref = /(?:^|=)[@<](.+)$/.exec(tok);
+          return ref?.[1] === undefined ? [tok] : [tok, ref[1]];
+        })
         .some((tok) =>
           prefixes.some((p) =>
             matchesPrefix(prefixVerdict(tok, p, root), "match"),
