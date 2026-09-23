@@ -305,15 +305,39 @@ export function mergeHooksJson(
   const rewritten = Object.fromEntries(
     Object.entries(compiled).map(([event, entries]) => [
       event,
-      [
-        ...(before[event] ?? [])
-          .map((e) => withoutHookCommands(e, hookPath))
-          .filter((e): e is HookEntry => e !== null),
-        ...entries,
-      ],
+      replaceInPlace(
+        before[event] ?? [],
+        (e) => withoutHookCommands(e, hookPath),
+        entries,
+      ),
     ]),
   );
   return { ...existing, hooks: { ...before, ...rewritten } };
+}
+
+/**
+ * Put `fresh` where this hook's old entry stood, not at the end. Appending made
+ * a recompile whose wiring changed read as a reshuffle: measured on a real
+ * settings.json, one guard gained `|| exit 2` and the diff showed three entries
+ * swapping places. `strip` returns the entry unchanged when it is not ours, a
+ * narrowed entry when it shared a matcher with ours, or null when it was only
+ * ours. A hook wired for the first time is still appended.
+ */
+function replaceInPlace<E>(
+  list: readonly E[],
+  strip: (e: E) => E | null,
+  fresh: readonly E[],
+): E[] {
+  const at = list.findIndex((e) => strip(e) !== e);
+  const slot = at === -1 ? list.length : at;
+  return [
+    ...list.flatMap((e, i) => {
+      const kept = strip(e);
+      const here = kept === null ? [] : [kept];
+      return i === slot ? [...here, ...fresh] : here;
+    }),
+    ...(slot === list.length ? fresh : []),
+  ];
 }
 
 interface TomlHookEntry {
@@ -352,12 +376,11 @@ export function mergeHooksToml(
   const rewritten = Object.fromEntries(
     Object.entries(compiled).map(([event, entries]) => [
       event,
-      [
-        ...(before[event] ?? []).filter(
-          (e) => !managesHook({ hooks: [{ type: "command", command: e.command }] }, hookPath), // prettier-ignore
-        ),
-        ...toTomlEntries(entries),
-      ],
+      replaceInPlace(
+        before[event] ?? [],
+        (e) => managesHook({ hooks: [{ type: "command", command: e.command }] }, hookPath) ? null : e, // prettier-ignore
+        toTomlEntries(entries),
+      ),
     ]),
   );
   return { ...existing, hooks: { ...before, ...rewritten } };
