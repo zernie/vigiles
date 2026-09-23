@@ -46,7 +46,7 @@ jobs:
     container:
       image: node:22-alpine
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install pnpm 12.5.1 (corepack) and fetch yarn 4
         env:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"

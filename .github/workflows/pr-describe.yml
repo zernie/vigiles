@@ -40,7 +40,7 @@ jobs:
     # Fork PRs get a read-only GITHUB_TOKEN, so the write would fail — skip them.
     if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
