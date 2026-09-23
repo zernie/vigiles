@@ -203,6 +203,26 @@ describe("through git", () => {
     });
   }
 
+  // Codex review on #274: presence was judged by TEXT (a trimmed set), so two
+  // hand-edited files read as "entry present" while git still offered the file.
+  for (const [label, content] of [
+    ["a later !entry cancels the entry", "/coverage.json\n!/coverage.json\n"],
+    ["a leading space makes a different pattern", " /coverage.json\n"],
+  ] as const) {
+    test(`a hand-edited ignore file is repaired when ${label}`, () => {
+      mkdirSync(vigilesDir(), { recursive: true });
+      writeFileSync(gitignore(), content);
+      writeFileSync(join(vigilesDir(), "coverage.json"), "{}\n");
+      const rel = `${VIGILES_DIR}/coverage.json`;
+      // The premise: as written, git does NOT ignore it.
+      assert.equal(git("check-ignore", "-q", rel).status, 1, "premise");
+      ensureLocalFilesIgnored(vigilesDir());
+      assert.equal(git("check-ignore", "-q", rel).status, 0, `${rel} ignored`);
+      // And the owner's lines are still there, in their order.
+      assert.ok(readFileSync(gitignore(), "utf-8").startsWith(content));
+    });
+  }
+
   test("committed .vigiles/ paths stay committable", () => {
     writeEveryLocalFile();
     const committed = [

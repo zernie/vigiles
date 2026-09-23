@@ -134,15 +134,32 @@ export function localIgnoreEntries(): string[] {
   ];
 }
 
+/** Is `entry` ignoring its path after git reads `lines` top to bottom. */
+function inEffect(lines: readonly string[], entry: string): boolean {
+  let on = false;
+  for (const line of lines) {
+    if (line === entry) on = true;
+    else if (line === `!${entry}`) on = false;
+  }
+  return on;
+}
+
 /**
  * Keep `<vigilesDir>/.gitignore` listing every local path. Call it where a
  * local file is written — not from `vigiles init`, which a project may never
  * run, while the write always happens.
  *
  * - Absent → created with {@link LOCAL_GITIGNORE_HEADER} and every entry.
- * - Every entry present → not touched (no rewrite, no mtime change).
- * - Present with other lines (someone's own) → the MISSING entries are
- *   appended and nothing is removed or reordered.
+ * - Every entry IN EFFECT → not touched (no rewrite, no mtime change).
+ * - Otherwise the entries not in effect are appended and nothing is removed
+ *   or reordered. Appending is enough because git's last matching rule wins.
+ *
+ * "In effect" is judged the way git reads the file, not by text membership:
+ * lines in order, a later `!/entry` cancels an earlier `/entry`, and leading
+ * whitespace is part of the pattern (only trailing whitespace is dropped).
+ * Both cases were measured with `git check-ignore`: `/coverage.json` followed
+ * by `!/coverage.json`, and ` /coverage.json`, each leave the file NOT
+ * ignored while a trimmed set would call the entry present.
  *
  * Costs one read on the hot path. Best-effort: any fs error is swallowed —
  * keeping git tidy must never break a hook, a test run or an audit.
@@ -165,10 +182,10 @@ export function ensureLocalFilesIgnored(vigilesDir: string): void {
       );
       return;
     }
-    const present = new Set(current.split(/\r?\n/).map((l) => l.trim()));
-    const missing = entries.filter((e) => !present.has(e));
+    const lines = current.split(/\r?\n/).map((l) => l.replace(/\s+$/, ""));
+    const missing = entries.filter((e) => !inEffect(lines, e));
     if (missing.length === 0) return;
-    const header = present.has(LOCAL_GITIGNORE_HEADER[0])
+    const header = lines.includes(LOCAL_GITIGNORE_HEADER[0])
       ? []
       : LOCAL_GITIGNORE_HEADER;
     const sep = current === "" || current.endsWith("\n") ? "" : "\n";
