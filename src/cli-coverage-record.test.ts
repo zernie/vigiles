@@ -507,6 +507,22 @@ test("…and the warning survives a run that finds no harness at all", () => {
   assert.match(stderr, /\.vigiles\/coverage\.json is tracked by git/);
 });
 
+test("a tracked ignore file this very run edits is reported on that run", () => {
+  // Codex review on #275: the check ran before the writers, so the FIRST run —
+  // the one that dirties the tracked file — said nothing.
+  initGitRepo(dir);
+  write(".vigiles/.gitignore", "# our own rules\n");
+  execFileSync("git", ["add", "-f", ".vigiles/.gitignore"], { cwd: dir });
+  execFileSync(
+    "git",
+    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "own"],
+    { cwd: dir },
+  );
+  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  const stderr = vigilesTestStderr();
+  assert.match(stderr, /\.vigiles\/\.gitignore is tracked by git/);
+});
+
 test("an ALREADY-tracked coverage.json gets one warning line on the next run", () => {
   initGitRepo(dir);
   write("t.harness.mjs", harnessExercising("hooks/a.sh"));

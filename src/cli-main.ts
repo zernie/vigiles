@@ -107,6 +107,7 @@ import type { ModelAccess } from "./core/live-driver.js";
 import { buildInstallReader } from "./core/install-reader.js";
 import { addVigilesDeclaration } from "./plugin-declaration.js";
 import { warnTrackedLocalFiles } from "./local-files-tracked.js";
+import { VIGILES_DIR, ensureLocalFilesIgnored } from "./local-files.js";
 import {
   probePluginTriggers,
   formatBehavioralReport,
@@ -6406,6 +6407,13 @@ async function handleRunScripts(
   // early return: a repo whose harness was removed still carries the stale
   // committed artifact, and "no files found" must not swallow the warning
   // (Codex review on #274).
+  //
+  // The ignore file is brought up to date FIRST, and only where `.vigiles/`
+  // already exists: the writers below would otherwise make their edit after the
+  // check, so a tracked ignore file dirtied by this very run went unreported on
+  // the one run a user may ever do (Codex review on #275).
+  const vigilesDir = join(cwd, VIGILES_DIR);
+  if (existsSync(vigilesDir)) ensureLocalFilesIgnored(vigilesDir);
   warnTrackedLocalFiles(cwd);
   // Harness/eval scripts may be authored in JS or TS (see run-scripts.ts).
   const defaultGlob = scriptGlob(kind === "test" ? "harness" : "eval");

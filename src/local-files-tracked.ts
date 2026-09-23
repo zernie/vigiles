@@ -53,20 +53,24 @@ export function trackedLocalFiles(root: string): string[] {
  * only untracked files (Codex review on #274). Tracked alone is not worth a word:
  * once the additions are committed the file stays clean, because entries are
  * appended only when missing, and a warning that repeats on every run gets
- * switched off. So the question is "tracked and changed", and `git diff`
- * answers exactly that (it lists only tracked paths). Silent on every "cannot
- * tell", like {@link trackedLocalFiles}.
+ * switched off. So the question is "tracked and changed" — staged or not.
+ * Silent on every "cannot tell", like {@link trackedLocalFiles}.
  */
 export function ignoreFileEditedWhileTracked(root: string): boolean {
   try {
-    const r = spawnSync("git", ["diff", "--name-only", "--", IGNORE_FILE], {
-      cwd: root,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    return (
-      r.status === 0 && typeof r.stdout === "string" && r.stdout.trim() !== ""
+    // `status --porcelain`, not `diff`: bare `git diff` compares the worktree
+    // with the INDEX, so an edit that was `git add`ed but not committed read as
+    // clean (Codex review on #275). Porcelain lists staged and unstaged in one
+    // call; `??` is an UNTRACKED file, which this question is not about.
+    const r = spawnSync(
+      "git",
+      ["status", "--porcelain=v1", "--", IGNORE_FILE],
+      { cwd: root, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
     );
+    if (r.status !== 0 || typeof r.stdout !== "string") return false;
+    return r.stdout
+      .split("\n")
+      .some((l) => l.length > 0 && !l.startsWith("??") && !l.startsWith("!!"));
   } catch {
     return false;
   }

@@ -280,6 +280,13 @@ describe("through git", () => {
       /\.vigiles\/\.gitignore is tracked by git.*Commit that change once/,
     );
     git("add", `${VIGILES_DIR}/.gitignore`);
+    // Staged is not committed (Codex review on #275): bare `git diff` read this
+    // state as clean.
+    assert.equal(
+      ignoreFileEditedWhileTracked(dir),
+      true,
+      "staged but uncommitted still shows",
+    );
     git(
       "-c",
       "user.email=t@t",
