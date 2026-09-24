@@ -14,9 +14,11 @@ version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
+    # MONTHLY, not weekly: each run is one grouped PR that someone reads, and once a month is
+    # the pace a person keeps up with. Majors stay inside the group on purpose — a red group is
+    # a signal to look, not something to split up by hand.
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Asia/Almaty"
     # A version is not offered until 3 days after its release (protection against a pulled release).
