@@ -498,6 +498,10 @@ report now says so and lists the three causes, in the order they bite:
 3. **the `fixture`** — a run starts in an **empty** cwd, so a prompt about a file
    that does not exist is one the model is right to decline.
 
+`measure` / `measureArms` print the same note when every `skill()` check is at
+0%, and their `CheckReport.namespace` names the installed namespace the way
+`TriggerRateReport.namespace` does.
+
 All three were hit in one afternoon building a real suite, and two were briefly
 written up as findings about the skills before being caught. A _partial_ rate is
 left alone: it is a real measurement, and a tool that hedges on good data gets

@@ -218,7 +218,7 @@ assertChecks(runHook(cmd, event), [blocked()]);
 import { paid_measure } from "vigiles/eval"; // the `paid_` prefix = it calls a model
 import { assertRates, checkReportToJUnit } from "vigiles"; // reading the report is free
 const report = await paid_measure({
-  pluginDir: "./my-plugin",
+  pluginDir: "./my-plugin", // or skillsDir: ".claude/skills" (loose, auto-packaged)
   task: "…",
   checks: [skill("vigiles:test-harness")],
   stubSkillBodies: true, // firing check: stub bodies → a fraction of the tokens
@@ -404,7 +404,12 @@ assertNoCollision(report, { maxOffDiagonal: 0.2 }); // per-skill collision ceili
 numbers, **fraction-true** for booleans, with **std / se** and **pass^k** (did the
 metric succeed on _every_ trial? — the reliability question "worked every time" ≠
 "worked on average"). An arm is a fixture + settings, or a whole `plugin` /
-`pluginDir`.
+`pluginDir` / `skillsDir` (a loose `.claude/skills` dir, auto-packaged into a
+throwaway plugin under the namespace `vigiles-loose-skills` — the same field
+`measureTriggerRate` takes; `measure` and `measureArms` take it too, and
+`stubSkillBodies` applies to it). Every runner refuses a field its spec does not
+declare — a typo, or a sibling runner's option — before it spends a token, rather
+than dropping it and measuring a setup you did not ask for.
 
 The `measure` ctx is a full `Trace`, so a metric reads the agent's **actions**
 (`ctx.toolCalls`), its **final answer** (`ctx.output`), and the **filesystem**

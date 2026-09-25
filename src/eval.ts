@@ -121,6 +121,7 @@ import {
 } from "./tool-intercept.js";
 import { type ToolStub, stubBinDir } from "./tool-stub.js";
 import { makeTmpDir } from "./core/tmp-root.js";
+import { editDistance } from "./core/edit-distance.js";
 
 /** One arm of the comparison: fixture overrides + settings (hooks) for this arm. */
 export interface EvalArm {
@@ -139,9 +140,21 @@ export interface EvalArm {
    * arm, so its skills/commands/agents activate the real way — the real model
    * can trigger a skill by its description (vs. `plugin`, which materializes a
    * file subset that does not register skills). Point at a COMPLETE plugin. Lets
-   * an arm be "skill installed" vs "off" to measure real activation.
+   * an arm be "skill installed" vs "off" to measure real activation. Provide this
+   * OR {@link skillsDir}, not both.
    */
   readonly pluginDir?: string;
+  /**
+   * A directory of LOOSE skills (`<skillsDir>/<name>/SKILL.md`, e.g. a repo's
+   * `.claude/skills`) to install for this arm. vigiles packages them into a
+   * throwaway `--plugin-dir` (manifest + `skills/<name>/`, each skill dir copied
+   * whole) for the run and removes it afterward — the one-liner for repo-local
+   * skills that aren't a published plugin. The skills install under the
+   * namespace `vigiles-loose-skills`, so a `skill()` check / `skillResolved`
+   * matches `vigiles-loose-skills:<name>` (the report's `namespace` says so).
+   * Provide this OR {@link pluginDir}, not both.
+   */
+  readonly skillsDir?: string;
   /**
    * Tools to intercept for this arm (the tool-call spy). Each
    * {@link ToolIntercept} is denied its real execution by an auto-wired PreToolUse
@@ -200,6 +213,15 @@ export interface EvalSpec<M extends Metrics> {
   readonly fixture?: Record<string, string>;
   /** The arms to compare, by name. */
   readonly arms: Record<string, EvalArm>;
+  /**
+   * Stub each arm's skill BODIES (frontmatter kept) before the run — for firing
+   * comparisons (does the skill get SELECTED?), where a selected skill should
+   * stop at selection instead of running its (often expensive) procedure. Every
+   * arm with a `pluginDir` / `skillsDir` is repackaged with bodies stripped; arms
+   * without one are untouched. Don't combine with quality metrics: the body is
+   * gone, so there is nothing to grade. See {@link stubSkillBody}.
+   */
+  readonly stubSkillBodies?: boolean;
   /** The task prompt given to the agent. */
   readonly task: string;
   /** Compute this run's metrics from its outcome. */
@@ -602,15 +624,24 @@ export interface MeasureSpec {
   readonly settings?: unknown;
   /** A real plugin/repo to load (materialized) — see `EvalArm.plugin`. */
   readonly plugin?: string;
-  /** A complete plugin dir to install natively (`--plugin-dir`) so skills activate. */
+  /**
+   * A complete plugin dir to install natively (`--plugin-dir`) so skills activate
+   * — see {@link EvalArm.pluginDir}. Provide this OR `skillsDir`, not both.
+   */
   readonly pluginDir?: string;
   /**
-   * Stub each skill BODY in `pluginDir` (frontmatter/trigger surface kept) before
-   * the run — for checks about whether a skill FIRES (`skill()`), not what it
-   * produces. A selected skill stops at selection instead of running its (often
-   * expensive) procedure, so a description/firing run costs a fraction of the
-   * tokens. Do NOT combine with `judged`/quality checks: the body is gone, so
-   * there's nothing to grade. Requires `pluginDir`. See {@link stubSkillBody}.
+   * A loose `<skillsDir>/<name>/SKILL.md` directory (e.g. a repo's `.claude/skills`)
+   * to install, auto-packaged into a throwaway plugin — see {@link EvalArm.skillsDir}.
+   * Installs under `vigiles-loose-skills`, so `skill("vigiles-loose-skills:<name>")`.
+   */
+  readonly skillsDir?: string;
+  /**
+   * Stub each skill BODY (frontmatter/trigger surface kept) before the run — for
+   * checks about whether a skill FIRES (`skill()`), not what it produces. A
+   * selected skill stops at selection instead of running its (often expensive)
+   * procedure, so a description/firing run costs a fraction of the tokens. Do NOT
+   * combine with `judged`/quality checks: the body is gone, so there's nothing to
+   * grade. Requires `pluginDir` or `skillsDir`. See {@link stubSkillBody}.
    */
   readonly stubSkillBodies?: boolean;
   /** Tools to intercept (the tool-call spy) — see {@link EvalArm.interceptTools}. */
@@ -661,6 +692,15 @@ export interface CheckReport {
   readonly perCheck: readonly CheckRate[];
   /** Cost / latency / token totals for the run (the same source as `runEval`). */
   readonly usage: ArmUsage;
+  /**
+   * The plugin namespace the skills actually installed under — the `<plugin>`
+   * half of the `<plugin>:<skill>` id a `skill()` check matches. Undefined when
+   * the run installed nothing (no `pluginDir` / `skillsDir`). Reported because
+   * with `skillsDir` the name is chosen by the packager, not the caller, so the
+   * most common cause of a 0% `skill()` rate was a value the caller never saw.
+   * Mirrors {@link TriggerRateReport.namespace}.
+   */
+  readonly namespace?: string;
 }
 
 /**
@@ -674,8 +714,14 @@ export async function measureWith(
   spec: MeasureSpec,
   runner: AgentRunner,
 ): Promise<CheckReport> {
-  if (spec.stubSkillBodies && !spec.pluginDir)
-    throw new Error("measure: `stubSkillBodies` requires `pluginDir`.");
+  assertKnownKeys(spec, MEASURE_SPEC_KEYS, {
+    caller: "measure",
+    type: "MeasureSpec",
+  });
+  if (spec.stubSkillBodies && !spec.pluginDir && !spec.skillsDir)
+    throw new Error(
+      "measure: `stubSkillBodies` requires `pluginDir` or `skillsDir`.",
+    );
   // stubSkillBodies replaces each skill BODY with a no-op (the run stops at
   // selection), so there is no output to grade — a `judged` check would score an
   // empty body and mislead. The docs warn against this pairing; enforce it.
@@ -688,53 +734,58 @@ export async function measureWith(
         "the skill body, so there's no output for a `judged` check to grade. Drop " +
         "`stubSkillBodies`, or remove the `judged` check.",
     );
-  const stubbed = spec.stubSkillBodies
-    ? stubbedPluginDir(spec.pluginDir as string)
-    : undefined;
-  const pluginDir = stubbed ?? spec.pluginDir;
-  try {
-    const keyed = spec.checks.map((c, i) => [`c${String(i)}`, c] as const);
-    const report = await runEvalWith(
-      {
-        fixture: spec.fixture,
-        arms: {
-          run: {
-            settings: spec.settings,
-            plugin: spec.plugin,
-            pluginDir,
-            interceptTools: spec.interceptTools,
-          },
-        },
-        task: spec.task,
-        trials: spec.trials ?? 5,
-        model: spec.model ?? "sonnet",
-        effort: spec.effort,
-        allowedTools: spec.allowedTools,
-        timeoutMs: spec.timeoutMs,
-        spacingSec: spec.spacingSec,
-        measure: (ctx) =>
-          Object.fromEntries(keyed.map(([k, c]) => [k, c.eval(ctx).pass])),
-      },
-      runner,
-    );
-    const arm = report.arms.run;
-    return {
-      n: arm?.runs ?? 0,
-      perCheck: keyed.map(([k, c]) => {
-        const s = arm?.stats[k];
-        return {
-          check: c.toJSON(),
-          rate: s?.mean ?? 0,
-          se: s?.se ?? 0,
-          passK: s?.passK ?? 0,
-          n: s?.n ?? 0,
-        };
-      }),
-      usage: arm?.usage ?? aggregateUsage([]),
-    };
-  } finally {
-    if (stubbed) rmSync(stubbed, { recursive: true, force: true });
-  }
+  const keyed = spec.checks.map((c, i) => [`c${String(i)}`, c] as const);
+  // The install source (plugin / pluginDir / skillsDir, stubbed or not) is
+  // resolved by runEvalWith, once per arm — measure is one arm, so it just
+  // forwards the fields and reads the arm's report back.
+  const arm: EvalArm = {
+    settings: spec.settings,
+    plugin: spec.plugin,
+    pluginDir: spec.pluginDir,
+    skillsDir: spec.skillsDir,
+    interceptTools: spec.interceptTools,
+  };
+  const report = await runEvalWith(
+    {
+      fixture: spec.fixture,
+      arms: { run: arm },
+      stubSkillBodies: spec.stubSkillBodies,
+      task: spec.task,
+      trials: spec.trials ?? 5,
+      model: spec.model ?? "sonnet",
+      effort: spec.effort,
+      allowedTools: spec.allowedTools,
+      timeoutMs: spec.timeoutMs,
+      spacingSec: spec.spacingSec,
+      measure: (ctx) =>
+        Object.fromEntries(keyed.map(([k, c]) => [k, c.eval(ctx).pass])),
+    },
+    runner,
+  );
+  return checkReportOf(report.arms.run, keyed, installNamespace(arm));
+}
+
+/** Read one arm's {@link ArmReport} back into a {@link CheckReport}. */
+function checkReportOf(
+  arm: ArmReport | undefined,
+  keyed: readonly (readonly [string, Check<RunContext>])[],
+  namespace: string | undefined,
+): CheckReport {
+  return {
+    n: arm?.runs ?? 0,
+    perCheck: keyed.map(([k, c]) => {
+      const s = arm?.stats[k];
+      return {
+        check: c.toJSON(),
+        rate: s?.mean ?? 0,
+        se: s?.se ?? 0,
+        passK: s?.passK ?? 0,
+        n: s?.n ?? 0,
+      };
+    }),
+    usage: arm?.usage ?? aggregateUsage([]),
+    namespace,
+  };
 }
 
 /* v8 ignore start -- real claude subprocess; thin wrapper over measureWith */
@@ -764,8 +815,8 @@ export interface ArmsMeasureSpec {
    * Stub each arm's skill BODIES (frontmatter kept) before the run — the A/B
    * counterpart to {@link MeasureSpec.stubSkillBodies}. For firing comparisons
    * (does description variant A fire more than B?), every arm that sets
-   * `pluginDir` is repackaged with bodies stripped so each run stops at
-   * selection — a fraction of the tokens. Arms without a `pluginDir` are left
+   * `pluginDir` / `skillsDir` is repackaged with bodies stripped so each run
+   * stops at selection — a fraction of the tokens. Arms without one are left
    * untouched. Don't combine with `judged`/quality checks. See {@link stubSkillBody}.
    */
   readonly stubSkillBodies?: boolean;
@@ -793,72 +844,44 @@ export async function measureArmsWith(
   spec: ArmsMeasureSpec,
   runner: AgentRunner,
 ): Promise<ArmsCheckReport> {
+  assertKnownKeys(spec, ARMS_MEASURE_SPEC_KEYS, {
+    caller: "measureArms",
+    type: "ArmsMeasureSpec",
+  });
+  for (const [name, arm] of Object.entries(spec.arms))
+    assertKnownKeys(arm, EVAL_ARM_KEYS, {
+      caller: "measureArms",
+      type: "EvalArm",
+      arm: name,
+    });
   const keyed = spec.checks.map((c, i) => [`c${String(i)}`, c] as const);
-  const { arms: runArms, temps } = spec.stubSkillBodies
-    ? stubArmPluginDirs(spec.arms)
-    : { arms: spec.arms, temps: [] };
-  try {
-    const report = await runEvalWith(
-      {
-        fixture: spec.fixture,
-        arms: runArms,
-        task: spec.task,
-        trials: spec.trials ?? 5,
-        model: spec.model ?? "sonnet",
-        effort: spec.effort,
-        allowedTools: spec.allowedTools,
-        timeoutMs: spec.timeoutMs,
-        spacingSec: spec.spacingSec,
-        measure: (ctx) =>
-          Object.fromEntries(keyed.map(([k, c]) => [k, c.eval(ctx).pass])),
-      },
-      runner,
+  // Per-arm install sources (and the stub) are resolved by runEvalWith.
+  const report = await runEvalWith(
+    {
+      fixture: spec.fixture,
+      arms: spec.arms,
+      stubSkillBodies: spec.stubSkillBodies,
+      task: spec.task,
+      trials: spec.trials ?? 5,
+      model: spec.model ?? "sonnet",
+      effort: spec.effort,
+      allowedTools: spec.allowedTools,
+      timeoutMs: spec.timeoutMs,
+      spacingSec: spec.spacingSec,
+      measure: (ctx) =>
+        Object.fromEntries(keyed.map(([k, c]) => [k, c.eval(ctx).pass])),
+    },
+    runner,
+  );
+  const arms: Record<string, CheckReport> = {};
+  for (const [armName, arm] of Object.entries(report.arms)) {
+    arms[armName] = checkReportOf(
+      arm,
+      keyed,
+      installNamespace(spec.arms[armName] ?? {}),
     );
-    const arms: Record<string, CheckReport> = {};
-    for (const [armName, arm] of Object.entries(report.arms)) {
-      arms[armName] = {
-        n: arm.runs,
-        perCheck: keyed.map(([k, c]) => {
-          const s = arm.stats[k];
-          return {
-            check: c.toJSON(),
-            rate: s?.mean ?? 0,
-            se: s?.se ?? 0,
-            passK: s?.passK ?? 0,
-            n: s?.n ?? 0,
-          };
-        }),
-        usage: arm.usage,
-      };
-    }
-    return { arms };
-  } finally {
-    for (const t of temps) rmSync(t, { recursive: true, force: true });
   }
-}
-
-/**
- * Repackage every arm that sets a `pluginDir` with its skill bodies stubbed
- * (frontmatter kept), for an A/B firing comparison. Returns the rewritten arms
- * plus the throwaway dirs the caller must remove. Arms without a `pluginDir` pass
- * through unchanged. See {@link stubbedPluginDir}.
- */
-function stubArmPluginDirs(arms: Record<string, EvalArm>): {
-  arms: Record<string, EvalArm>;
-  temps: string[];
-} {
-  const out: Record<string, EvalArm> = {};
-  const temps: string[] = [];
-  for (const [name, arm] of Object.entries(arms)) {
-    if (arm.pluginDir) {
-      const stubbed = stubbedPluginDir(arm.pluginDir);
-      temps.push(stubbed);
-      out[name] = { ...arm, pluginDir: stubbed };
-    } else {
-      out[name] = arm;
-    }
-  }
-  return { arms: out, temps };
+  return { arms };
 }
 
 /* v8 ignore start -- real claude subprocess; thin wrapper over measureArmsWith */
@@ -922,6 +945,32 @@ export function formatCheckReport(report: CheckReport): string {
         `  (pass^k ${String(c.passK)})`,
     );
   }
+  // The `skill()` twin of the trigger-rate TOTAL-zero note (see
+  // formatTriggerRateReport): every skill() check at 0% over real runs is far
+  // more often a wiring mistake — a bare id where the namespaced one is matched,
+  // `pluginDir` handed a loose dir, an empty cwd — than a finding, and it reads
+  // exactly like a finding. Only when EVERY skill check is at zero: a partial rate
+  // is a real measurement, and a note that hedges on good data gets ignored.
+  const skillChecks = report.perCheck.filter((c) => c.check.kind === "skill");
+  if (
+    report.n > 0 &&
+    skillChecks.length > 0 &&
+    skillChecks.every((c) => c.rate === 0)
+  )
+    lines.push(
+      "⚠ nothing resolved for ANY skill() check. That is usually SETUP, not the skill — check, in order:\n" +
+        (report.namespace !== undefined
+          ? "  1. the id in `skill()` — your skills installed under " +
+            `\`${report.namespace}\`, so \`skill()\` matches ` +
+            `\`${report.namespace}:<skill>\`; a bare name silently never matches;\n`
+          : "  1. the id in `skill()` — it matches the NAMESPACED id " +
+            "(`<plugin>:<skill>`); a bare name silently never matches;\n") +
+        "  2. the install field — a loose `.claude/skills` dir needs `skillsDir`, " +
+        "not `pluginDir` (which wants a full plugin manifest);\n" +
+        "  3. the `fixture` — a run starts in an EMPTY cwd, so a prompt about a " +
+        "file that does not exist is one the model is right to decline.\n" +
+        "  Rule out all three before recording this as a fact about the skill.",
+    );
   return lines.join("\n");
 }
 
@@ -1942,13 +1991,198 @@ function evalArmsInputs<M extends Metrics>(
   };
 }
 
+// ---------------------------------------------------------------------------
+// The spec boundary — refuse a field the spec does not declare.
+//
+// A spec usually arrives from a plain-JS `*.eval.mjs` file, where nothing
+// type-checks the object literal, so a key that is misspelled (`skillDir`) or
+// belongs to a sibling runner (`prompts` on measure) used to be dropped without a
+// word — and the run then reported a confident number about a setup the author
+// never asked for (issue #307). The precedent is `driverMisplaced` in
+// eval-entry.ts: a field that would silently do nothing is REFUSED, not ignored.
+//
+// Each key table is `satisfies Record<keyof Spec, true>`, so the compiler fails
+// when a spec gains or loses a field the table does not: the list cannot drift.
+// ---------------------------------------------------------------------------
+
+const EVAL_ARM_KEYS = {
+  files: true,
+  settings: true,
+  plugin: true,
+  pluginDir: true,
+  skillsDir: true,
+  interceptTools: true,
+  model: true,
+  effort: true,
+} satisfies Record<keyof EvalArm, true>;
+
+const EVAL_SPEC_KEYS = {
+  name: true,
+  fixture: true,
+  arms: true,
+  stubSkillBodies: true,
+  task: true,
+  measure: true,
+  trials: true,
+  model: true,
+  effort: true,
+  allowedTools: true,
+  timeoutMs: true,
+  spacingSec: true,
+  cache: true,
+  cacheDir: true,
+  concurrency: true,
+  maxCostUsd: true,
+  rateLimitRetries: true,
+  retryBackoffMs: true,
+  ephemeralEnv: true,
+  stubs: true,
+  lock: true,
+} satisfies Record<keyof EvalSpec<Metrics>, true>;
+
+const MEASURE_SPEC_KEYS = {
+  fixture: true,
+  settings: true,
+  plugin: true,
+  pluginDir: true,
+  skillsDir: true,
+  stubSkillBodies: true,
+  interceptTools: true,
+  task: true,
+  checks: true,
+  trials: true,
+  model: true,
+  effort: true,
+  allowedTools: true,
+  timeoutMs: true,
+  spacingSec: true,
+} satisfies Record<keyof MeasureSpec, true>;
+
+const ARMS_MEASURE_SPEC_KEYS = {
+  fixture: true,
+  arms: true,
+  task: true,
+  checks: true,
+  stubSkillBodies: true,
+  trials: true,
+  model: true,
+  allowedTools: true,
+  timeoutMs: true,
+  effort: true,
+  spacingSec: true,
+} satisfies Record<keyof ArmsMeasureSpec, true>;
+
+const TRIGGER_RATE_SPEC_KEYS = {
+  name: true,
+  lock: true,
+  pluginDir: true,
+  skillsDir: true,
+  prompts: true,
+  irrelevantPrompts: true,
+  fired: true,
+  installSet: true,
+  stubSkillBodies: true,
+  minPrompts: true,
+  minDistance: true,
+  trials: true,
+  model: true,
+  effort: true,
+  minModel: true,
+  allowedTools: true,
+  timeoutMs: true,
+  spacingSec: true,
+  fixture: true,
+  concurrency: true,
+} satisfies Record<keyof TriggerRateSpec, true>;
+
+/**
+ * The closest declared field to an unknown one, or undefined when nothing is
+ * close — a wrong suggestion is worse than none (it invites "fixing" a field the
+ * author never meant). Same tight threshold as the CLI's unknown-flag hint.
+ */
+function nearestField(
+  unknown: string,
+  known: readonly string[],
+): string | undefined {
+  let best: { name: string; d: number } | undefined;
+  for (const name of known) {
+    const d = editDistance(unknown.toLowerCase(), name.toLowerCase());
+    if (!best || d < best.d) best = { name, d };
+  }
+  return best && best.d <= Math.max(2, Math.floor(unknown.length / 4))
+    ? best.name
+    : undefined;
+}
+
+/**
+ * Throw when `spec` carries a field outside `known` — every unknown one named,
+ * with a did-you-mean where a declared field is one typo away. `at` says which
+ * runner and spec type the message is about (`arm` labels a nested arm). Runs
+ * before anything is packaged or spent.
+ */
+function assertKnownKeys(
+  spec: object,
+  known: Record<string, true>,
+  at: { readonly caller: string; readonly type: string; readonly arm?: string },
+): void {
+  const declared = Object.keys(known);
+  const where = at.arm === undefined ? "" : ` on arm "${at.arm}"`;
+  const problems = Object.keys(spec)
+    .filter((key) => !Object.hasOwn(known, key))
+    .map((key) => {
+      const near = nearestField(key, declared);
+      const hint = near === undefined ? "" : ` — did you mean \`${near}\`?`;
+      return `${at.caller}: unknown ${at.type} field "${key}"${where}${hint}`;
+    });
+  if (problems.length === 0) return;
+  throw new Error(
+    `${problems.join("\n")}\n  ${at.type} fields: ${declared.join(", ")}.\n` +
+      "  An unknown field is refused rather than ignored: a dropped field would " +
+      "make the run measure a setup you did not ask for.",
+  );
+}
+
 export async function runEvalWith<M extends Metrics>(
-  spec: EvalSpec<M>,
+  input: EvalSpec<M>,
   runner: AgentRunner,
 ): Promise<EvalReport> {
+  // Refuse a stray field BEFORE spending a token: an eval file is plain JS, so a
+  // typo'd or misplaced key would otherwise vanish and the run would report a
+  // confident number about the wrong setup (issue #307).
+  assertKnownKeys(input, EVAL_SPEC_KEYS, {
+    caller: "runEval",
+    type: "EvalSpec",
+  });
+  for (const [name, arm] of Object.entries(input.arms))
+    assertKnownKeys(arm, EVAL_ARM_KEYS, {
+      caller: "runEval",
+      type: "EvalArm",
+      arm: name,
+    });
   // Tell the CLI runner this script exercised the harness, so a file that runs
   // NOTHING can be told apart from one that ran and passed. See check-count.ts.
   recordCheck();
+  // Every arm's install source (`pluginDir` as-is / stubbed, or a loose
+  // `skillsDir` packaged into a throwaway plugin) is resolved HERE, once — the
+  // one place that decides what `--plugin-dir` receives, so measure / measureArms
+  // / runEval cannot disagree about it. The throwaways are removed afterward.
+  const { arms: resolvedArms, packaged } = resolveArmInstalls(
+    input.arms,
+    input.stubSkillBodies ?? false,
+  );
+  const spec: EvalSpec<M> = { ...input, arms: resolvedArms };
+  try {
+    return await runResolvedEval(spec, runner);
+  } finally {
+    for (const dir of packaged) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** {@link runEvalWith} after its arms' install sources are concrete plugin dirs. */
+async function runResolvedEval<M extends Metrics>(
+  spec: EvalSpec<M>,
+  runner: AgentRunner,
+): Promise<EvalReport> {
   const trials = spec.trials ?? 5;
   const spacing = (spec.spacingSec ?? 4) * 1000;
   const concurrency = spec.concurrency ?? 1;
@@ -2358,7 +2592,7 @@ export function packageSkillsDir(
   writeFileSync(
     join(root, ".claude-plugin", "plugin.json"),
     JSON.stringify(
-      { name: opts.name ?? "vigiles-loose-skills", version: "0.0.0" },
+      { name: opts.name ?? LOOSE_SKILLS_NAMESPACE, version: "0.0.0" },
       null,
       2,
     ),
@@ -2619,16 +2853,117 @@ export function packageInstallSet(opts: {
   }
 }
 
-/** The under-test skills source + plugin name (the namespace `fired` matches). */
-function underTestSource(spec: TriggerRateSpec): { src: string; name: string } {
-  if (spec.skillsDir)
-    return { src: spec.skillsDir, name: "vigiles-loose-skills" };
-  if (spec.pluginDir)
-    return {
-      src: skillsDirOf(spec.pluginDir),
-      name: pluginName(spec.pluginDir) ?? "vigiles-loose-skills",
-    };
-  throw new Error("measureTriggerRate: provide `pluginDir` or `skillsDir`.");
+// ---------------------------------------------------------------------------
+// The install source — the ONE place that decides what `--plugin-dir` receives.
+//
+// Every runner that installs skills (runEval / measure / measureArms via an
+// EvalArm, measureTriggerRate via its spec) accepts the same two fields —
+// `pluginDir` (a complete plugin, used as-is or re-packaged with stubbed bodies)
+// and `skillsDir` (a loose `<name>/SKILL.md` dir, packaged into a throwaway
+// plugin) — and they all resolve through `resolveSkillInstall`. Before this
+// existed each runner re-derived the rule for itself, and the one written last
+// was the only one that knew about loose dirs (issue #307).
+// ---------------------------------------------------------------------------
+
+/** The plugin name a packaged loose skills dir installs under. */
+const LOOSE_SKILLS_NAMESPACE = "vigiles-loose-skills";
+
+/** Where the skills come from: a complete plugin, or a loose skills dir. */
+interface SkillSource {
+  readonly pluginDir?: string;
+  readonly skillsDir?: string;
+}
+
+/** A source resolved to something `--plugin-dir` accepts. */
+interface ResolvedInstall {
+  /** The dir to install; undefined when the source names nothing. */
+  readonly pluginDir?: string;
+  /** Set iff vigiles BUILT `pluginDir` and the caller must remove it. */
+  readonly packaged?: string;
+  /** The `<namespace>` in the `<namespace>:<skill>` ids the install reports. */
+  readonly namespace?: string;
+}
+
+/**
+ * The plugin namespace a source's skills install under — the `<plugin>` half of
+ * the `<plugin>:<skill>` id `skill()` / `skillResolved` match. A loose dir gets
+ * the packager's name; a plugin its declared name, falling back to the same
+ * synthetic one when its manifest has none. Pure (reads the manifest only).
+ */
+function installNamespace(src: SkillSource): string | undefined {
+  if (src.skillsDir) return LOOSE_SKILLS_NAMESPACE;
+  if (src.pluginDir) return pluginName(src.pluginDir) ?? LOOSE_SKILLS_NAMESPACE;
+  return undefined;
+}
+
+/**
+ * Resolve a {@link SkillSource} to a concrete plugin dir. `stub` strips skill
+ * bodies (frontmatter kept) into a throwaway; `installSet` merges competitor
+ * skills in (the whole-harness tier, `measureTriggerRate` only). Exactly one of
+ * `pluginDir` / `skillsDir` may be set; neither resolves to nothing installed —
+ * the caller decides whether that is legal (an arm: yes; a trigger run: no).
+ */
+function resolveSkillInstall(
+  src: SkillSource,
+  opts: { caller: string; stub: boolean; installSet?: readonly string[] },
+): ResolvedInstall {
+  if (src.pluginDir && src.skillsDir)
+    throw new Error(
+      `${opts.caller}: set \`pluginDir\` OR \`skillsDir\`, not both.`,
+    );
+  const namespace = installNamespace(src);
+  if (namespace === undefined) return {};
+  const installSet = opts.installSet ?? [];
+  if (installSet.length > 0) {
+    // Whole-harness tier: merge the under-test skills with the install set so
+    // selection is competitive (the realistic, differentiated measurement).
+    const { dir } = packageInstallSet({
+      underTestSrc: src.skillsDir ?? skillsDirOf(src.pluginDir as string),
+      name: namespace,
+      installSet,
+      stub: opts.stub,
+    });
+    return { pluginDir: dir, packaged: dir, namespace };
+  }
+  if (src.skillsDir) {
+    const dir = packageSkillsDir(src.skillsDir, { stub: opts.stub });
+    return { pluginDir: dir, packaged: dir, namespace };
+  }
+  // A real plugin: as-is, or re-packaged from its skills/ with bodies stripped —
+  // keeping the original plugin NAME so `<name>:<skill>` still matches.
+  const pluginDir = src.pluginDir as string;
+  if (!opts.stub) return { pluginDir, namespace };
+  const dir = stubbedPluginDir(pluginDir);
+  return { pluginDir: dir, packaged: dir, namespace };
+}
+
+/**
+ * Resolve every arm's install source (see {@link resolveSkillInstall}) so each
+ * arm carries only a concrete `pluginDir` — `skillsDir` is consumed here. Returns
+ * the rewritten arms plus the throwaway dirs the caller removes afterward. A
+ * failure part-way removes what was already built (no leaked temp dirs).
+ */
+function resolveArmInstalls(
+  arms: Record<string, EvalArm>,
+  stub: boolean,
+): { arms: Record<string, EvalArm>; packaged: string[] } {
+  const out: Record<string, EvalArm> = {};
+  const packaged: string[] = [];
+  try {
+    for (const [name, arm] of Object.entries(arms)) {
+      const { skillsDir: _consumed, ...rest } = arm;
+      const r = resolveSkillInstall(arm, {
+        caller: `eval arm "${name}"`,
+        stub,
+      });
+      if (r.packaged) packaged.push(r.packaged);
+      out[name] = { ...rest, pluginDir: r.pluginDir };
+    }
+  } catch (e) {
+    for (const dir of packaged) rmSync(dir, { recursive: true, force: true });
+    throw e;
+  }
+  return { arms: out, packaged };
 }
 
 /** Number of `<name>/SKILL.md` skills installed in a plugin — the selection pool. */
@@ -2648,45 +2983,22 @@ function resolveTriggerPluginDir(spec: TriggerRateSpec): {
   competitors: number;
   namespace: string;
 } {
-  if (spec.pluginDir && spec.skillsDir)
-    throw new Error(
-      "measureTriggerRate: set `pluginDir` OR `skillsDir`, not both.",
-    );
-  const stub = spec.stubSkillBodies ?? true; // trigger = frontmatter; body never needed
-  const installSet = spec.installSet ?? [];
-  let pluginDir: string;
-  let packaged: string | undefined;
-  if (installSet.length > 0) {
-    // Whole-harness tier: merge the under-test skills with the install set so
-    // selection is competitive (the realistic, differentiated measurement).
-    const { src, name } = underTestSource(spec);
-    ({ dir: pluginDir } = packageInstallSet({
-      underTestSrc: src,
-      name,
-      installSet,
-      stub,
-    }));
-    packaged = pluginDir;
-  } else if (spec.skillsDir) {
-    packaged = packageSkillsDir(spec.skillsDir, { stub });
-    pluginDir = packaged;
-  } else if (spec.pluginDir) {
-    // Stub a real plugin: build a minimal plugin from its skills/ with bodies
-    // stripped — keep the original plugin NAME so `<name>:<skill>` still matches.
-    packaged = stub ? stubbedPluginDir(spec.pluginDir) : undefined;
-    pluginDir = packaged ?? spec.pluginDir;
-  } else {
+  const r = resolveSkillInstall(spec, {
+    caller: "measureTriggerRate",
+    stub: spec.stubSkillBodies ?? true, // trigger = frontmatter; body never needed
+    installSet: spec.installSet,
+  });
+  if (r.pluginDir === undefined || r.namespace === undefined)
     throw new Error("measureTriggerRate: provide `pluginDir` or `skillsDir`.");
-  }
   // `competitors` is the REAL selection pressure: every OTHER skill installed in
   // the resolved plugin (siblings already in the source + any installSet), not
   // just the installSet delta — so a multi-skill plugin is never mislabeled
   // "isolated". `max(0, …)` guards a 0-skill pool.
   return {
-    pluginDir,
-    packaged,
-    competitors: Math.max(0, countSkills(pluginDir) - 1),
-    namespace: underTestSource(spec).name,
+    pluginDir: r.pluginDir,
+    packaged: r.packaged,
+    competitors: Math.max(0, countSkills(r.pluginDir) - 1),
+    namespace: r.namespace,
   };
 }
 
@@ -2828,6 +3140,10 @@ export async function measureTriggerRateWith(
   runError?: (out: RunOut) => string | null,
   harness = "claude-code",
 ): Promise<TriggerRateReport> {
+  assertKnownKeys(spec, TRIGGER_RATE_SPEC_KEYS, {
+    caller: "measureTriggerRate",
+    type: "TriggerRateSpec",
+  });
   // Tell the CLI runner this script exercised the harness (see check-count.ts).
   recordCheck();
   // Deterministic gate FIRST — before spending a token (or packaging a skillsDir).
