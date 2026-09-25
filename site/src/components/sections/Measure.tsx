@@ -135,7 +135,7 @@ export function MeasureTest() {
           <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
             We wrote one skill&rsquo;s first test.{" "}
             <span className="whitespace-nowrap">
-              It found this in a minute.
+              It found a bug in a minute.
             </span>
           </h2>
           <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
