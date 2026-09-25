@@ -124,6 +124,34 @@ import trailofbits from "./__fixtures__/trailofbits-skills.json";
  * (not compiled fresh) by the generator and asserted to still carry a
  * `vigiles:sha256:` marker, so a hand-edit that breaks one fails the build
  * instead of reaching the page quietly.
+ *
+ * 🔴 REBUILT 2026-09-26, an eighth pass — Ernie, on a screenshot of the
+ * result of the sixth pass: "ты обратно нахуярил какую-то стену текста...
+ * форматирование не помешает улучшить." The sixth pass shortened SENTENCES;
+ * it never counted PARAGRAPHS. Screenshotted at 1280px, this beat was seven
+ * same-weight gray paragraphs in a row — every fact printed at once, no
+ * paragraph more important-looking than the next. Splitting long sentences
+ * into short ones doesn't fix that; it just makes a taller wall out of
+ * shorter bricks. The fix is structural, borrowed from Measure.tsx's own
+ * `<details>` disclosure (already used there for "but my skill does things
+ * for real" — a reader who has never hit that question skips it for free):
+ *   - the allowed-tools-vs-disallowed-tools mechanism, plus the 28/4/32
+ *     stat, is now COLLAPSED by default behind "Isn't allowed-tools supposed
+ *     to stop that?" — the first-scroll reader sees one lead paragraph, not
+ *     two;
+ *   - the compile-vs-test paragraph and the tab intro (were two paragraphs)
+ *     are one;
+ *   - the Safety-score line and the exfil-box intro (were one paragraph
+ *     each) are one, and shortened;
+ *   - the "scripted model reads..." process paragraph moved INSIDE the exfil
+ *     box as a small `text-xs` caption instead of standing as its own
+ *     full-weight paragraph after it;
+ *   - the closing "gate, not a wall" paragraph shrank to one `text-xs` line,
+ *     visually a footnote, not a fourth idea competing for the same
+ *     attention as the headline.
+ * Net: seven full-weight paragraphs before this pass, two after (the
+ * disclosure content is invisible until clicked). Nothing measured was cut —
+ * every number and file reference above still appears somewhere on the page.
  */
 
 export function Guard() {
@@ -144,61 +172,70 @@ export function Guard() {
         <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
           Read a secret. Take instructions from something untrusted. Send the
           secret out. That&rsquo;s the &ldquo;lethal trifecta,&rdquo; and{" "}
-          <code className="font-mono">scv-scan</code> — a Solidity auditor in
-          the same marketplace — holds all three, despite declaring a narrow{" "}
+          <code className="font-mono">scv-scan</code> holds all three — despite
+          declaring a narrow{" "}
           <code className="font-mono">
             allowed-tools: [{scvScan.allowedTools.join(", ")}]
           </code>
           .
         </p>
-        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Narrow doesn&rsquo;t mean fenced.{" "}
-          <code className="font-mono">allowed-tools:</code> pre-approves those
-          three tools; it doesn&rsquo;t remove Bash, WebFetch or WebSearch from
-          the pool. Only <code className="font-mono">disallowed-tools:</code>{" "}
-          does that, and among the {trailofbits.trifectaApplicable} skills
-          holding all three legs, it&rsquo;s used zero times. (The other{" "}
-          {trailofbits.surfaces - trailofbits.trifectaApplicable} of the
-          marketplace&rsquo;s {trailofbits.surfaces} skills and agents
-          don&rsquo;t hold every leg, so there&rsquo;s nothing for a fence to
-          remove there.)
-        </p>
+
+        {/* Collapsed on purpose — same reasoning as Measure.tsx's own
+            <details> a few screens down. A reader who already knows
+            allowed-tools isn't a fence doesn't need three sentences telling
+            them so; a reader who's surprised gets the full mechanism on
+            click, not stacked into the first paragraph they scroll past. */}
+        <details className="group mt-5 rounded-xl border border-border/60 bg-card/30 px-5">
+          <summary className="cursor-pointer list-none py-4 text-base font-medium text-foreground">
+            Isn&rsquo;t <code className="font-mono">allowed-tools</code>{" "}
+            supposed to stop that?
+          </summary>
+          <div className="space-y-3 pb-5 text-sm leading-relaxed text-muted-foreground">
+            <p>
+              No — narrow doesn&rsquo;t mean fenced.{" "}
+              <code className="font-mono">allowed-tools:</code> pre-approves
+              those three tools; it doesn&rsquo;t remove Bash, WebFetch or
+              WebSearch from the session&rsquo;s pool.
+            </p>
+            <p>
+              Only <code className="font-mono">disallowed-tools:</code> does
+              that, and among the {trailofbits.trifectaApplicable} skills
+              holding all three legs, it&rsquo;s used zero times. (The other{" "}
+              {trailofbits.surfaces - trailofbits.trifectaApplicable} of the
+              marketplace&rsquo;s {trailofbits.surfaces} skills and agents
+              don&rsquo;t hold every leg, so there&rsquo;s nothing for a fence
+              to remove there.)
+            </p>
+          </div>
+        </details>
 
         <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          A test wouldn&rsquo;t catch this — a harness runs code and checks what
-          it did, and there&rsquo;s no code to run here, only a missing line.
-          What catches it is <code className="font-mono">compiling</code> from a
-          typed spec instead of hand-typing YAML. That buys a second guarantee
-          for free: the{" "}
+          A test can&rsquo;t catch this — there&rsquo;s no code to run, only a
+          missing line. <code className="font-mono">Compiling</code> from a
+          typed spec can: the same pass that fills in{" "}
+          <code className="font-mono">disallowed-tools</code> also stamps a{" "}
           <code className="font-mono text-xs">vigiles:sha256:…</code> marker
-          below. Hand-edit any of these files afterward, and the runtime refuses
-          it.
-        </p>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Same compiler, three targets. The first tab isn&rsquo;t scv-scan
-          itself — it&rsquo;s a small demo skill built the same shape, carrying
-          the fence scv-scan is missing. The other two are real files from this
-          project: a subagent, and a project&rsquo;s own CLAUDE.md.
+          below, so a hand-edit afterward gets refused. Same compiler, three
+          targets — a skill, an agent, and a project&rsquo;s own CLAUDE.md:
         </p>
         <CodeTabs
-          className="mt-6"
+          className="mt-4"
           tabs={[
             { label: "SKILL.md", code: demo.compiled },
             { label: "agent", code: demo.agentCompiled },
             { label: "CLAUDE.md", code: demo.claudeMdCompiled },
           ]}
         />
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          <code className="font-mono">vigiles audit</code> scores it{" "}
+
+        <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          <code className="font-mono">vigiles audit</code> calls the compiled
+          version{" "}
           <strong className="text-foreground">
             Safety {demo.safetyScore}/100
           </strong>
-          , against 90/100 for every one of the {trailofbits.plugins} plugins
-          that ships without it — a lint score, not a guarantee. Here&rsquo;s
-          the fence tried for real:
+          . Here&rsquo;s that fence tried for real, not just scored:
         </p>
-
-        <div className="mt-6 rounded-xl border border-border/60 bg-card/30 p-5">
+        <div className="mt-4 rounded-xl border border-border/60 bg-card/30 p-5">
           <p className="font-mono text-xs text-muted-foreground">
             $ {demo.exfil.command}
           </p>
@@ -218,25 +255,23 @@ export function Guard() {
                 : "went through"}
             </span>
           </div>
+          <p className="mt-3 border-t border-border/60 pt-3 text-xs leading-relaxed text-muted-foreground">
+            A scripted model reads that instruction and tries it — the real{" "}
+            <code className="font-mono">claude</code> CLI, spawned for real,
+            against a domain that never resolves either way.
+          </p>
         </div>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          A scripted model reads that instruction from a contract comment and
-          tries it — the real <code className="font-mono">claude</code> CLI,
-          spawned for real. No network reaches anywhere either way: the target
-          domain is reserved and never resolves.
-        </p>
 
-        <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          A gate is a strong default, not a wall: a fenced skill still runs
-          inside a session that grants those tools to everything else, and a
-          model can still route around a tool entirely.{" "}
+        <p className="mt-4 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+          A gate is a strong default, not a wall — a fenced skill still shares a
+          session with everything else.{" "}
           <a
             href="https://github.com/zernie/vigiles/blob/main/docs/compiled-hooks.md"
             target="_blank"
             rel="noopener noreferrer"
             className="text-accent no-underline transition-colors hover:text-accent/80"
           >
-            Compiled hooks work the same way, for the tool call itself
+            Compiled hooks close that gap, at the tool call itself
           </a>
           .
         </p>

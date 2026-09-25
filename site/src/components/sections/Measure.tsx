@@ -122,6 +122,18 @@ import lock from "./__fixtures__/tdd-trigger-rate.json";
  * stacked two em-dash clauses into one long sentence. Split into shorter
  * sentences carrying one idea each; same facts (the control proves the bug
  * is narrow, the greedy branch, "dead code, not a crash"), just not fused.
+ *
+ * 🔴 TIGHTENED 2026-09-26, an eighth pass (same wall-of-text complaint that
+ * rebuilt Guard.tsx: "форматирование не помешает улучшить"). Two problems
+ * here, smaller than Guard's but the same species: (1) the closing
+ * paragraph restated "zero of {surfaces} skills have a test" a second time
+ * — the lead paragraph already says "nobody had tested it — like the other
+ * 31," so the repeat was pure padding, cut; (2) the full
+ * `vigiles test "…glob…" --min=0` invocation sat INLINE in a prose
+ * sentence, so it line-wrapped mid-flag on a normal viewport and read as
+ * broken text, not code. Given its own `font-mono text-xs` line — same
+ * treatment every other command on this page already gets — instead of
+ * fighting the paragraph's line box.
  */
 
 /**
@@ -177,15 +189,14 @@ export function MeasureTest() {
             but a landmine nobody finds until it&rsquo;s wired up.
           </p>
           <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            <code className="font-mono">$ {trailofbits.testCommand}</code>{" "}
-            answers &ldquo;is this tested&rdquo; without running anything: zero
-            of the marketplace&rsquo;s {trailofbits.surfaces} skills and agents
-            have a colocated test, this one included — until we wrote it above.
-            Most carry no separate file to test at all — their only logic is the
-            instructions in the SKILL.md text, which pytest has nothing to run.{" "}
-            <code className="font-mono">vigiles test</code> doesn&rsquo;t care:
-            a script when there is one, the skill&rsquo;s own activation when
-            there isn&rsquo;t.
+            Most skills carry no separate file to test at all — their only logic
+            is the instructions in the SKILL.md text, which pytest has nothing
+            to run. <code className="font-mono">vigiles test</code>{" "}
+            doesn&rsquo;t care: a script when there is one, the skill&rsquo;s
+            own activation when there isn&rsquo;t. Same command either way:
+          </p>
+          <p className="mt-2 max-w-2xl font-mono text-xs text-muted-foreground">
+            $ {trailofbits.testCommand}
           </p>
 
           {/* Collapsed on purpose. A reader who has never had a test push to their
