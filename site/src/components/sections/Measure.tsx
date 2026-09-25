@@ -89,6 +89,15 @@ import lock from "./__fixtures__/tdd-trigger-rate.json";
  * supporting sentence with the command inline, not its own box — real,
  * still pinned to the fixture, just no longer the reader's first five
  * seconds.
+ *
+ * 🔴 FIXED 2026-09-26, a fourth pass (Ernie: "30 дней, чё, какие 30 дней?
+ * нихуя не понятно"). The reorder above put `last30days` — an opaque
+ * third-party package name — into the H2 itself. A first-time reader has
+ * never heard of it; the page's own copy standard says a reader must
+ * "instantly think 'wait, I have seen this'", and a bare identifier they
+ * cannot parse does the opposite. Moved the name out of the h2 into the
+ * lead paragraph, where the sentence around it ("the one skill... shipping
+ * real Python") carries the meaning the name alone did not.
  */
 
 /**
@@ -107,15 +116,15 @@ export function MeasureTest() {
             $ vigiles test · no model · free in CI
           </p>
           <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-            We wrote <code className="font-mono">{dateBug.plugin}</code>
-            &rsquo;s first test.{" "}
+            We wrote one skill&rsquo;s first test.{" "}
             <span className="whitespace-nowrap">
               It found this in a minute.
             </span>
           </h2>
           <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-            The one skill in Trail of Bits&rsquo; curated marketplace shipping
-            real Python, not just prose. Nobody had tested it — like the other{" "}
+            <code className="font-mono">{dateBug.plugin}</code>, the one skill
+            in Trail of Bits&rsquo; curated marketplace shipping real Python,
+            not just prose. Nobody had tested it — like the other{" "}
             {trailofbits.surfaces - 1}.
           </p>
 
