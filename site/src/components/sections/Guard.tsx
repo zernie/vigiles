@@ -51,6 +51,17 @@ import trailofbits from "./__fixtures__/trailofbits-skills.json";
  * (vulnerable goes through, fenced is denied) and fails the build if either
  * flips — this claim does not get to go stale silently.
  *
+ * 🔴 REFRAMED 2026-09-26 (Ernie): the beats were blurring together — this
+ * section used the word "tested" (line: "the same fence tested with an
+ * actual attempt to break it"), which is `test`'s vocabulary, not `compile`'s.
+ * Ernie: this section should sell the SPEC format, not read like a second
+ * kind of testing. Fix: dropped "tested" entirely from this file's copy, and
+ * added one explicit sentence distinguishing the two mechanisms (a spec is
+ * COMPILED into a guarantee; a harness is RUN to find out if one holds) —
+ * plus a second, independent spec feature (the SHA integrity marker already
+ * visible in the compiled YAML below) so "spec" reads as more than the one
+ * `disallowedTools` field.
+ *
  * 🔴 TODO(2026-09-25, unresolved): how do we sell compiled HOOKS once this
  * page no longer leads with them? The 2-of-7-vs-7-of-7 finding is still real
  * and still the strongest single number vigiles has measured on anyone's
@@ -133,13 +144,21 @@ export function Guard() {
           measured to actually take a tool away, and it appears zero times.
         </p>
 
+        <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          Not caught by writing a test — a harness runs code and asks what it
+          did. This is caught by <code className="font-mono">compiling</code>{" "}
+          the skill from a typed spec instead of hand-typing YAML: the field
+          exists in the schema whether or not an author remembers to reach for
+          it.
+        </p>
         <CodeBlock code={demo.source} language="tsx" className="mt-8" />
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono text-foreground">npx vigiles compile</code>{" "}
-          turns that into the frontmatter below — the same allow-list, plus a
-          fence the compiler can check but hand-typed YAML cannot: the field
-          exists in the schema whether or not an author remembers to reach for
-          it.
+          turns that into the frontmatter below. Two guarantees a hand-typed
+          file can&rsquo;t make: the tool fence, and the{" "}
+          <code className="font-mono text-xs">vigiles:sha256:…</code> comment —
+          hand-edit the markdown after this and the runtime refuses it, so the
+          frontmatter you audited is the frontmatter that ships.
         </p>
         <CodeBlock code={demo.compiled} language="yaml" className="mt-4" />
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
@@ -149,8 +168,8 @@ export function Guard() {
           </strong>
           , against 90/100 — advisory lethal-trifecta finding — for every one of
           the {trailofbits.plugins} real plugins that ships without it.
-          That&rsquo;s a lint score. Here&rsquo;s the same fence tested with an
-          actual attempt to break it.
+          That&rsquo;s a lint score, not a guarantee. Here&rsquo;s what the
+          compiled fence actually holds when something tries to break it.
         </p>
 
         <div className="mt-6 rounded-xl border border-border/60 bg-card/30 p-5">
