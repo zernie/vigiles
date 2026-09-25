@@ -78,6 +78,17 @@ import lock from "./__fixtures__/tdd-trigger-rate.json";
  * instead of two boxes with two paragraphs between them. Same two real
  * numbers, half the vertical space. The cut snippet still exists at
  * src/snippets/skill-test.ts if a future beat wants it.
+ *
+ * 🔴 REORDERED 2026-09-26 (Ernie, a third time, correctly): the "0 tests
+ * found" box led the beat — the FIRST thing a reader saw. Ernie: "понятно,
+ * что их не будет. Тестов ни у кого" (obviously there won't be any, nobody
+ * has tests) — leading on the unsurprising half of the claim is the same
+ * "well, duh" problem his FIRST note on this beat named, just moved from the
+ * headline into the first artifact instead of fixed. The bug (dateBug) is
+ * the surprising half; it now leads. "0 of 32 tested" survives as one
+ * supporting sentence with the command inline, not its own box — real,
+ * still pinned to the fixture, just no longer the reader's first five
+ * seconds.
  */
 
 /**
@@ -96,37 +107,19 @@ export function MeasureTest() {
             $ vigiles test · no model · free in CI
           </p>
           <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-            Nobody has tested this marketplace.{" "}
+            We wrote <code className="font-mono">{dateBug.plugin}</code>
+            &rsquo;s first test.{" "}
             <span className="whitespace-nowrap">
-              We wrote the first one and found a bug.
+              It found this in a minute.
             </span>
           </h2>
           <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-            Trail of Bits runs a curated Claude Code marketplace — a
-            contribution guide, a review command, {trailofbits.plugins} plugins.
-            Until now, nothing could check &ldquo;did anyone write a test&rdquo;
-            off a description.
+            The one skill in Trail of Bits&rsquo; curated marketplace shipping
+            real Python, not just prose. Nobody had tested it — like the other{" "}
+            {trailofbits.surfaces - 1}.
           </p>
 
           <div className="mt-8 rounded-xl border border-border/60 bg-card/30 p-5">
-            <p className="font-mono text-xs text-muted-foreground">
-              $ {trailofbits.testCommand}
-            </p>
-            <p className="mt-3 whitespace-pre-wrap break-words font-mono text-sm text-foreground">
-              {trailofbits.testOutput}
-            </p>
-          </div>
-
-          <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            <code className="font-mono">ls</code> answers &ldquo;is this
-            tested&rdquo; without running anything; here the answer is no, for
-            all {trailofbits.surfaces}. So we picked the one skill with real
-            logic — <code className="font-mono">{dateBug.plugin}</code>, the
-            only one shipping actual Python, not just prose — and wrote its
-            first test ourselves. In under a minute:
-          </p>
-
-          <div className="mt-6 rounded-xl border border-border/60 bg-card/30 p-5">
             <p className="font-mono text-xs text-muted-foreground">
               $ {dateBug.command}
             </p>
@@ -148,6 +141,12 @@ export function MeasureTest() {
             of its five ISO parsers. It&rsquo;s dead code today — that&rsquo;s
             what zero tests produces, not a crash, a landmine nobody finds until
             it&rsquo;s wired up.
+          </p>
+          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            <code className="font-mono">$ {trailofbits.testCommand}</code>{" "}
+            answers &ldquo;is this tested&rdquo; without running anything: zero
+            of the marketplace&rsquo;s {trailofbits.surfaces} skills and agents
+            have a colocated test, this one included — until we wrote it above.
           </p>
 
           {/* Collapsed on purpose. A reader who has never had a test push to their
