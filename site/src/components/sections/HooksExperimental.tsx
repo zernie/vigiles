@@ -18,6 +18,13 @@ import { Badge } from "@/components/ui/badge";
  * warning banner). One exception, stated once, does not reopen the rule for
  * the next section that wants a badge.
  *
+ * 🔴 TRIMMED 2026-09-26 (Ernie: "eyes wander, a first-time visitor gets
+ * tired reading"). Original body ran three clauses ("opaque shell... exit
+ * code... JSON field... wiring... bug class... nowhere left to live") for a
+ * section documented above as "the minimum viable pointer." Cut to the one
+ * number and the link — the mechanism is `docs/compiled-hooks.md`'s job to
+ * explain, not this section's.
+ *
  * 🔴 TODO(2026-09-25, unresolved) — see the longer TODO in Guard.tsx: how do
  * we eventually SELL compiled hooks once they no longer lead the page? Not
  * decided. This section is deliberately the minimum viable pointer, not an
@@ -34,11 +41,8 @@ export function HooksExperimental() {
           <Badge variant="accent">Experimental</Badge>
         </div>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          A hand-written hook is opaque shell — the exit code, the JSON field,
-          the wiring are all places to get it silently wrong. A widely-copied
-          safety hook we measured blocks 2 of 7 real disasters; compiled from a
-          typed function against a closed vocabulary, the same hook blocks 7 of
-          7, because the bug class it was missing has nowhere left to live.{" "}
+          A widely-copied safety hook blocks 2 of 7 real disasters. Compiled
+          from a typed function, the same hook blocks 7 of 7.{" "}
           <a
             href="https://github.com/zernie/vigiles/blob/main/docs/compiled-hooks.md"
             target="_blank"

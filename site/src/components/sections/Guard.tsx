@@ -74,17 +74,19 @@ import trailofbits from "./__fixtures__/trailofbits-skills.json";
  * hooks are a power-user feature discovered after the skill pitch lands, not
  * before. Do not resolve this inline — it needs its own decision, not a
  * drive-by pick made while rewriting something else.
+ *
+ * 🔴 TRIMMED 2026-09-26 (Ernie: "eyes wander, tiring for a first visit").
+ * This beat had grown to a 4-row legs table + two code blocks (the .spec.ts
+ * SOURCE and the compiled YAML) + six paragraphs — more artifacts than the
+ * page's own "ONE artifact, optional code" rule allows, and the exfil box
+ * already makes the legs table's point more viscerally (Bash reachable →
+ * Bash actually called). Cut: the legs table (its one fact folded into the
+ * lead paragraph) and the `demo.source` code block (a reader doesn't need
+ * the spec's INPUT, only its output — the compiled YAML — as proof). Kept,
+ * because Ernie asked for it explicitly: the exfil box and the spec/SHA
+ * point. `demo.source` still exists in the fixture if a future pass wants it
+ * back.
  */
-
-/** One row of the trifecta legs — same left column vigiles's own audit prints,
- *  retyped so the page doesn't need to render a CLI transcript. The three
- *  legs and their tool lists come straight off `scvScan.message` in the
- *  fixture; this is presentation, not a second measurement. */
-const LEGS: readonly { readonly label: string; readonly tools: string }[] = [
-  { label: "read private data", tools: "Read, Grep, Glob, Bash" },
-  { label: "ingest untrusted content", tools: "WebFetch, WebSearch, Bash" },
-  { label: "exfiltrate it", tools: "WebFetch, WebSearch, Bash" },
-];
 
 export function Guard() {
   const { scvScan, demo } = trailofbits;
@@ -107,87 +109,43 @@ export function Guard() {
           <code className="font-mono">
             allowed-tools: [{scvScan.allowedTools.join(", ")}]
           </code>
-          . That looks narrow. It still holds all three legs of the lethal
-          trifecta.
-        </p>
-
-        <div className="mt-8">
-          <div className="grid grid-cols-[minmax(0,1fr)_1fr] gap-x-3 pb-2 text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground">
-            <span>Leg</span>
-            <span>Tools that supply it — even here</span>
-          </div>
-          {LEGS.map((leg) => (
-            <div
-              key={leg.label}
-              className="grid grid-cols-[minmax(0,1fr)_1fr] items-baseline gap-x-3 border-t border-border/60 py-3"
-            >
-              <span className="text-sm text-foreground">{leg.label}</span>
-              <code className="font-mono text-xs text-signal">{leg.tools}</code>
-            </div>
-          ))}
-          <div className="grid grid-cols-[minmax(0,1fr)_1fr] items-baseline gap-x-3 border-t border-border py-3 text-sm">
-            <span className="text-muted-foreground">Fenced by</span>
-            <code className="font-mono font-semibold text-signal">
-              disallowed-tools: [] · 0 of {trailofbits.trifectaApplicable}{" "}
-              skills declare it
-            </code>
-          </div>
-        </div>
-
-        <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          <code className="font-mono">allowed-tools:</code> waives the
-          confirmation prompt for what it lists; it removes nothing from the
-          pool. Across the {trailofbits.plugins}-plugin marketplace,{" "}
-          {trailofbits.allowedToolsDeclarations} declarations of it exist —
-          authors write it in good faith, believing it fences the skill. It does
-          not. Only <code className="font-mono">disallowed-tools:</code> is
-          measured to actually take a tool away, and it appears zero times.
+          . That looks narrow. It still holds Bash, WebFetch and WebSearch —
+          every leg of the lethal trifecta — because{" "}
+          <code className="font-mono">allowed-tools:</code> pre-approves, it
+          doesn&rsquo;t fence. Only{" "}
+          <code className="font-mono">disallowed-tools:</code> removes a tool,
+          and it appears zero times across the marketplace.
         </p>
 
         <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
           Not caught by writing a test — a harness runs code and asks what it
-          did. This is caught by <code className="font-mono">compiling</code>{" "}
-          the skill from a typed spec instead of hand-typing YAML: the field
-          exists in the schema whether or not an author remembers to reach for
-          it.
+          did. Caught by <code className="font-mono">compiling</code> the skill
+          from a typed spec instead of hand-typing YAML, which adds a second
+          guarantee for free: the{" "}
+          <code className="font-mono text-xs">vigiles:sha256:…</code> marker
+          below — hand-edit this file and the runtime refuses it.
         </p>
-        <CodeBlock code={demo.source} language="tsx" className="mt-8" />
+        <CodeBlock code={demo.compiled} language="yaml" className="mt-6" />
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          <code className="font-mono text-foreground">npx vigiles compile</code>{" "}
-          turns that into the frontmatter below. Two guarantees a hand-typed
-          file can&rsquo;t make: the tool fence, and the{" "}
-          <code className="font-mono text-xs">vigiles:sha256:…</code> comment —
-          hand-edit the markdown after this and the runtime refuses it, so the
-          frontmatter you audited is the frontmatter that ships.
-        </p>
-        <CodeBlock code={demo.compiled} language="yaml" className="mt-4" />
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          <code className="font-mono">vigiles audit</code> scores that skill{" "}
+          <code className="font-mono">vigiles audit</code> scores it{" "}
           <strong className="text-foreground">
             Safety {demo.safetyScore}/100
           </strong>
-          , against 90/100 — advisory lethal-trifecta finding — for every one of
-          the {trailofbits.plugins} real plugins that ships without it.
-          That&rsquo;s a lint score, not a guarantee. Here&rsquo;s what the
-          compiled fence actually holds when something tries to break it.
+          , against 90/100 for every one of the {trailofbits.plugins} plugins
+          that ships without it — a lint score, not a guarantee. Here&rsquo;s
+          the fence tried for real:
         </p>
 
         <div className="mt-6 rounded-xl border border-border/60 bg-card/30 p-5">
           <p className="font-mono text-xs text-muted-foreground">
             $ {demo.exfil.command}
           </p>
-          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            A scripted model reads a contract carrying that instruction, hidden
-            in a comment, then tries to run it.
-          </p>
           <div className="mt-3 grid grid-cols-[minmax(0,1fr)_1fr] items-baseline gap-x-3 border-t border-border/60 pt-3 text-sm">
             <span className="text-muted-foreground">
               scv-scan&rsquo;s real config
             </span>
             <span className="font-mono font-semibold text-signal">
-              {demo.exfil.vulnerableWentThrough
-                ? "exfiltration attempt went through"
-                : "blocked"}
+              {demo.exfil.vulnerableWentThrough ? "went through" : "blocked"}
             </span>
           </div>
           <div className="mt-2 grid grid-cols-[minmax(0,1fr)_1fr] items-baseline gap-x-3 text-sm">
@@ -200,10 +158,10 @@ export function Guard() {
           </div>
         </div>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Not a static score — the real{" "}
-          <code className="font-mono">claude</code> CLI, spawned for real,
-          denying the call for real. No network reaches anywhere either way: the
-          target domain is reserved and never resolves.
+          A scripted model reads that instruction from a contract comment and
+          tries it — the real <code className="font-mono">claude</code> CLI,
+          spawned for real. No network reaches anywhere either way: the target
+          domain is reserved and never resolves.
         </p>
 
         <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">

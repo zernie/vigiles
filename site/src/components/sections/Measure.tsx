@@ -1,5 +1,3 @@
-import { CodeBlock } from "@/components/CodeBlock";
-import SKILL_TEST from "@/snippets/skill-test.ts?raw";
 import trailofbits from "./__fixtures__/trailofbits-skills.json";
 import lock from "./__fixtures__/tdd-trigger-rate.json";
 
@@ -71,19 +69,15 @@ import lock from "./__fixtures__/tdd-trigger-rate.json";
  * (a real timestamp parses correctly) proving it's a narrow bug, not "the
  * function is broken." Full writeup:
  * test/dogfood/trailofbits-skills-curated@6d05be4/SOURCE, "A behavioral bug".
- */
-
-/**
- * The snippet is a REAL FILE the type-checker compiles (`npm run check` runs
- * `tsc --noEmit -p site/tsconfig.json`), imported here as text. A hand-typed string
- * is not checked by anything: the eval snippet shipped naming two exports that do
- * not exist — `defineEval` and `skillResolved` from "vigiles/eval" — with build,
- * lint, prettier, browser and e2e all green. Now a renamed export fails the build
- * with "Did you mean 'runHook'?" instead of reaching a reader.
  *
- * MEASURED LIMIT, so nobody over-trusts this: tsc catches the wrong NAME, and
- * catches wrong types only where the API is precisely typed. `tool: 123` currently
- * passes, because runHook's options type is loose there.
+ * 🔴 TRIMMED 2026-09-26 (Ernie: "eyes wander, tiring for a first visit").
+ * Three artifact boxes (bug / control / a code snippet) for one beat was
+ * more than the page's own "ONE artifact, optional code" rule — the SKILL_TEST
+ * snippet (a separate story about testing skill ACTIVATION, not this bug)
+ * is cut entirely, and the bug/control pair is now ONE box with two rows
+ * instead of two boxes with two paragraphs between them. Same two real
+ * numbers, half the vertical space. The cut snippet still exists at
+ * src/snippets/skill-test.ts if a future beat wants it.
  */
 
 /**
@@ -109,10 +103,9 @@ export function MeasureTest() {
           </h2>
           <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
             Trail of Bits runs a curated Claude Code marketplace — a
-            contribution guide, a review command, {trailofbits.plugins} plugins,{" "}
-            {trailofbits.surfaces} skills and agents. Not because they were
-            careless: until now nothing could check &ldquo;did anyone write
-            one&rdquo; off a description.
+            contribution guide, a review command, {trailofbits.plugins} plugins.
+            Until now, nothing could check &ldquo;did anyone write a test&rdquo;
+            off a description.
           </p>
 
           <div className="mt-8 rounded-xl border border-border/60 bg-card/30 p-5">
@@ -128,54 +121,33 @@ export function MeasureTest() {
             <code className="font-mono">ls</code> answers &ldquo;is this
             tested&rdquo; without running anything; here the answer is no, for
             all {trailofbits.surfaces}. So we picked the one skill with real
-            logic to test — <code className="font-mono">{dateBug.plugin}</code>,
-            the only one in the marketplace shipping actual Python, not just
-            prose — and wrote its first test ourselves.
+            logic — <code className="font-mono">{dateBug.plugin}</code>, the
+            only one shipping actual Python, not just prose — and wrote its
+            first test ourselves. In under a minute:
           </p>
 
-          <div className="mt-8 rounded-xl border border-signal/40 bg-card/30 p-5">
+          <div className="mt-6 rounded-xl border border-border/60 bg-card/30 p-5">
             <p className="font-mono text-xs text-muted-foreground">
               $ {dateBug.command}
             </p>
             <p className="mt-3 whitespace-pre-wrap break-words font-mono text-sm text-signal">
               {dateBug.output}
             </p>
-          </div>
-          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            A plain year, silently 56 years wrong — no exception, nothing in the
-            logs. The control proves it&rsquo;s narrow, not &ldquo;the function
-            is broken&rdquo;: a real timestamp parses fine.
-          </p>
-          <div className="mt-4 rounded-xl border border-good/40 bg-card/30 p-5">
-            <p className="font-mono text-xs text-muted-foreground">
+            <p className="mt-3 font-mono text-xs text-muted-foreground">
               $ {dateBug.controlCommand}
             </p>
             <p className="mt-3 whitespace-pre-wrap break-words font-mono text-sm text-good">
               {dateBug.controlOutput}
             </p>
           </div>
-          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            The cause: <code className="font-mono">parse_date()</code> tries{" "}
-            <code className="font-mono">float(date_str)</code> before any of its
-            five ISO-format parsers, so any numeric-looking string that
-            isn&rsquo;t actually a Unix timestamp gets silently misread as one.
-            It&rsquo;s dead code today — nothing calls it yet — which is the
-            point: that&rsquo;s exactly what zero tests produces, not a crash, a
-            landmine nobody would find until they wire it up.
-          </p>
-
-          <CodeBlock code={SKILL_TEST} language="tsx" className="mt-8" />
-          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-            That repro is a plain <code className="font-mono">python3</code>{" "}
-            call — <code className="font-mono">runScript</code> just spawns a
-            process and reads stdout/stderr/exit code, so it doesn&rsquo;t care
-            what language a skill&rsquo;s bundled scripts are in. The test lives
-            next to the thing it tests —{" "}
-            <code className="font-mono text-xs">SKILL.md</code> gets{" "}
-            <code className="font-mono text-xs">&lt;name&gt;.harness.mjs</code>.
-            One property earns that:{" "}
-            <code className="font-mono text-xs">ls</code> answers &ldquo;is this
-            tested?&rdquo; without running anything.
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            A plain year, silently 56 years wrong — the control shows a real
+            timestamp still parses fine, so it&rsquo;s one greedy branch, not a
+            broken function. <code className="font-mono">parse_date()</code>{" "}
+            tries <code className="font-mono">float(date_str)</code> before any
+            of its five ISO parsers. It&rsquo;s dead code today — that&rsquo;s
+            what zero tests produces, not a crash, a landmine nobody finds until
+            it&rsquo;s wired up.
           </p>
 
           {/* Collapsed on purpose. A reader who has never had a test push to their
