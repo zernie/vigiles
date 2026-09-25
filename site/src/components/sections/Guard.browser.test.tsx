@@ -51,4 +51,18 @@ describe("the Guard section quotes the real trailofbits/skills-curated audit", (
     // to the same number.
     expect(trailofbits.demo.safetyScore).toBe(100);
   });
+
+  it("the live exfiltration attempt went through unfenced and was denied fenced", () => {
+    // Added 2026-09-26 (Ernie: "still weak, find a stronger case") — a REAL
+    // runHarnessTest attack, not a static score. Both directions asserted by
+    // the generator itself before it writes the fixture; this pins the
+    // rendered copy to the same two booleans, so a regression in either
+    // direction fails a browser test a human actually reads, not just a
+    // build-time throw three files away.
+    expect(trailofbits.demo.exfil.vulnerableWentThrough).toBe(true);
+    expect(trailofbits.demo.exfil.fencedDenied).toBe(true);
+    expect(trailofbits.demo.exfil.fencedDenialMessage).toBe(
+      "Permission to use Bash has been denied.",
+    );
+  });
 });

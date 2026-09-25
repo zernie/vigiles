@@ -27,4 +27,14 @@ describe("the test section quotes a real `vigiles test` run against the vendored
     expect(trailofbits.plugins).toBeGreaterThan(10);
     expect(trailofbits.surfaces).toBeGreaterThan(10);
   });
+
+  it("the live parse_date bug is real, not retyped — and the control proves it's narrow", () => {
+    // Added 2026-09-26 (Ernie asked for a behavioral finding, not just
+    // security). Both commands are REAL `runScript` runs against the
+    // vendored dates.py, asserted by the generator before it writes the
+    // fixture. This pins the rendered copy to the same two outputs.
+    expect(trailofbits.dateBug.output).toMatch(/^1970-/);
+    expect(trailofbits.dateBug.controlOutput).toMatch(/^2025-/);
+    expect(trailofbits.dateBug.plugin).toBe("last30days");
+  });
 });

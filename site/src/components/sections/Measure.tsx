@@ -51,6 +51,26 @@ import lock from "./__fixtures__/tdd-trigger-rate.json";
  * test` run against the vendored slice, not a retyped guess — and asserted by
  * Measure.browser.test.tsx: a retyped number is one that drifts, and this
  * section's whole claim is that it does not need a footnote.
+ *
+ * 🔴 REVISED 2026-09-26 (Ernie, twice). First: the original headline ("32
+ * skills, reviewed by a security company. Zero are tested.") read as a gotcha
+ * a skeptical reader could wave off in one sentence — "of course they don't,
+ * they don't use vigiles." True, and it undercut the claim: 0 tests isn't a
+ * failure on their part, it's a category nobody's had tooling for. Fixed by
+ * NOT leading on the count as an accusation — the count is scale evidence,
+ * not the headline's verb.
+ *
+ * Second: "all this beat has is security" — true at the time, and the SAME
+ * critique the `compile` beat got. Fixed the same way: stopped arguing the
+ * copy and went and found a second, independent, REAL finding. `last30days`
+ * is the one skill in the whole marketplace shipping actual Python logic
+ * (scripts/lib/); its `parse_date()` was ONE test away from a bug, and
+ * writing that one test (a real `runScript` call, not a hypothetical) found
+ * it in under a minute — a plain year silently mis-dates to 1970, no
+ * exception. dateBug in the fixture carries the exact repro + a control
+ * (a real timestamp parses correctly) proving it's a narrow bug, not "the
+ * function is broken." Full writeup:
+ * test/dogfood/trailofbits-skills-curated@6d05be4/SOURCE, "A behavioral bug".
  */
 
 /**
@@ -73,6 +93,7 @@ import lock from "./__fixtures__/tdd-trigger-rate.json";
  * the order the sections were written.
  */
 export function MeasureTest() {
+  const { dateBug } = trailofbits;
   return (
     <>
       <section id="test" className="scroll-mt-8 border-t border-border/60">
@@ -81,14 +102,17 @@ export function MeasureTest() {
             $ vigiles test · no model · free in CI
           </p>
           <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-            {trailofbits.surfaces} skills, reviewed by a security company.{" "}
-            <span className="whitespace-nowrap">Zero are tested.</span>
+            Nobody has tested this marketplace.{" "}
+            <span className="whitespace-nowrap">
+              We wrote the first one and found a bug.
+            </span>
           </h2>
           <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
             Trail of Bits runs a curated Claude Code marketplace — a
-            contribution guide, a review command, {trailofbits.plugins} plugins.
-            Nothing enforces a test, because nothing can read &ldquo;did anyone
-            write one&rdquo; off a description.
+            contribution guide, a review command, {trailofbits.plugins} plugins,{" "}
+            {trailofbits.surfaces} skills and agents. Not because they were
+            careless: until now nothing could check &ldquo;did anyone write
+            one&rdquo; off a description.
           </p>
 
           <div className="mt-8 rounded-xl border border-border/60 bg-card/30 p-5">
@@ -101,21 +125,52 @@ export function MeasureTest() {
           </div>
 
           <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Every one of the{" "}
-            <strong className="text-foreground">
-              {trailofbits.surfaces} skills and agents
-            </strong>{" "}
-            in the marketplace — including{" "}
-            <code className="font-mono">scv-scan</code>, a Solidity
-            vulnerability auditor — ships without a colocated harness or eval
-            file anywhere in the repo. <code className="font-mono">ls</code>{" "}
-            answers &ldquo;is this tested&rdquo; without running anything; here
-            the answer is no, for all {trailofbits.surfaces}.
+            <code className="font-mono">ls</code> answers &ldquo;is this
+            tested&rdquo; without running anything; here the answer is no, for
+            all {trailofbits.surfaces}. So we picked the one skill with real
+            logic to test — <code className="font-mono">{dateBug.plugin}</code>,
+            the only one in the marketplace shipping actual Python, not just
+            prose — and wrote its first test ourselves.
+          </p>
+
+          <div className="mt-8 rounded-xl border border-signal/40 bg-card/30 p-5">
+            <p className="font-mono text-xs text-muted-foreground">
+              $ {dateBug.command}
+            </p>
+            <p className="mt-3 whitespace-pre-wrap break-words font-mono text-sm text-signal">
+              {dateBug.output}
+            </p>
+          </div>
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            A plain year, silently 56 years wrong — no exception, nothing in the
+            logs. The control proves it&rsquo;s narrow, not &ldquo;the function
+            is broken&rdquo;: a real timestamp parses fine.
+          </p>
+          <div className="mt-4 rounded-xl border border-good/40 bg-card/30 p-5">
+            <p className="font-mono text-xs text-muted-foreground">
+              $ {dateBug.controlCommand}
+            </p>
+            <p className="mt-3 whitespace-pre-wrap break-words font-mono text-sm text-good">
+              {dateBug.controlOutput}
+            </p>
+          </div>
+          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            The cause: <code className="font-mono">parse_date()</code> tries{" "}
+            <code className="font-mono">float(date_str)</code> before any of its
+            five ISO-format parsers, so any numeric-looking string that
+            isn&rsquo;t actually a Unix timestamp gets silently misread as one.
+            It&rsquo;s dead code today — nothing calls it yet — which is the
+            point: that&rsquo;s exactly what zero tests produces, not a crash, a
+            landmine nobody would find until they wire it up.
           </p>
 
           <CodeBlock code={SKILL_TEST} language="tsx" className="mt-8" />
-          <p className="mt-3 text-sm text-muted-foreground">
-            The test lives next to the thing it tests —{" "}
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+            That repro is a plain <code className="font-mono">python3</code>{" "}
+            call — <code className="font-mono">runScript</code> just spawns a
+            process and reads stdout/stderr/exit code, so it doesn&rsquo;t care
+            what language a skill&rsquo;s bundled scripts are in. The test lives
+            next to the thing it tests —{" "}
             <code className="font-mono text-xs">SKILL.md</code> gets{" "}
             <code className="font-mono text-xs">&lt;name&gt;.harness.mjs</code>.
             One property earns that:{" "}

@@ -34,6 +34,23 @@ import trailofbits from "./__fixtures__/trailofbits-skills.json";
  * build before a reader ever sees a wrong number). Guard.browser.test.tsx pins
  * the rendered copy to the same fixture.
  *
+ * 🔴 STRENGTHENED 2026-09-26 (Ernie: "still weak, find a stronger case").
+ * The Safety-score claim alone is a lint number — true, but a skeptical
+ * reader can shrug at a static score. Added `demo.exfil`: a REAL scripted
+ * attack, not a theoretical one. `runHarnessTest` spawns the actual `claude`
+ * CLI against a scripted mock model that "reads" a contract carrying an
+ * injected instruction, then tries to exfiltrate a fake secret over Bash —
+ * the exact chain `lethal-trifecta` is named for. Against scv-scan's real
+ * config it goes through; against the compiled fix the CLI answers
+ * `"Permission to use Bash has been denied."` — captured verbatim from the
+ * run, not summarized. First attempt at this (without granting the `Skill`
+ * tool a permission in a non-interactive run) gave a FALSE negative — the
+ * skill never activated, so of course nothing was fenced. Fixed by granting
+ * `Skill` explicitly in `settings.permissions.allow`, same as a real
+ * project's own settings.json would. The generator asserts both directions
+ * (vulnerable goes through, fenced is denied) and fails the build if either
+ * flips — this claim does not get to go stale silently.
+ *
  * 🔴 TODO(2026-09-25, unresolved): how do we sell compiled HOOKS once this
  * page no longer leads with them? The 2-of-7-vs-7-of-7 finding is still real
  * and still the strongest single number vigiles has measured on anyone's
@@ -132,6 +149,42 @@ export function Guard() {
           </strong>
           , against 90/100 — advisory lethal-trifecta finding — for every one of
           the {trailofbits.plugins} real plugins that ships without it.
+          That&rsquo;s a lint score. Here&rsquo;s the same fence tested with an
+          actual attempt to break it.
+        </p>
+
+        <div className="mt-6 rounded-xl border border-border/60 bg-card/30 p-5">
+          <p className="font-mono text-xs text-muted-foreground">
+            $ {demo.exfil.command}
+          </p>
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            A scripted model reads a contract carrying that instruction, hidden
+            in a comment, then tries to run it.
+          </p>
+          <div className="mt-3 grid grid-cols-[minmax(0,1fr)_1fr] items-baseline gap-x-3 border-t border-border/60 pt-3 text-sm">
+            <span className="text-muted-foreground">
+              scv-scan&rsquo;s real config
+            </span>
+            <span className="font-mono font-semibold text-signal">
+              {demo.exfil.vulnerableWentThrough
+                ? "exfiltration attempt went through"
+                : "blocked"}
+            </span>
+          </div>
+          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_1fr] items-baseline gap-x-3 text-sm">
+            <span className="text-muted-foreground">Compiled + fenced</span>
+            <span className="font-mono font-semibold text-good">
+              {demo.exfil.fencedDenied
+                ? `"${demo.exfil.fencedDenialMessage}"`
+                : "went through"}
+            </span>
+          </div>
+        </div>
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          Not a static score — the real{" "}
+          <code className="font-mono">claude</code> CLI, spawned for real,
+          denying the call for real. No network reaches anywhere either way: the
+          target domain is reserved and never resolves.
         </p>
 
         <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">

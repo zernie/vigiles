@@ -17,6 +17,10 @@ and on a full clone of the same commit report IDENTICAL aggregate numbers
 (29 plugins, 31 skills, 1 agent, 29/29 flagged lethal-trifecta, 29/29 flagged
 untested, 28/28 applicable skills with `fence: "none"`).
 
+ONE exception to "structural files only": `plugins/last30days/scripts/lib/
+dates.py`, vendored in full (stdlib-only, no sibling imports — safe to load
+standalone) — see "A behavioral bug" below.
+
 Why this is here:
   Trail of Bits is a real security company. `skills-curated` is their own
   actively-reviewed marketplace — a contribution guide (this repo's own
@@ -43,6 +47,21 @@ Why this is here:
   occurrences of `allowed-tools:` across the repo (most authors declare it,
   in good faith, believing it fences the skill). `fence: "none"` on every
   one of them.
+
+  A behavioral bug, found by testing rather than reading — `last30days`
+  (the only skill in the marketplace to ship real, non-trivial Python logic
+  in `scripts/lib/`) has a `parse_date()` that tries `float(date_str)` FIRST,
+  before any of its five ISO-format parsers. Any numeric-looking string that
+  is not actually a Unix timestamp is silently mis-dated: `parse_date("2024")`
+  returns `1970-01-01 00:33:44` — 56 years off, no exception, no warning.
+  Confirmed live via `vigiles`'s own `runScript` against this exact vendored
+  file (`site/scripts/gen-trailofbits-expected.mjs`, the `test` beat's
+  second artifact). NOT currently reachable in `last30days`'s own pipeline
+  — `parse_date` is unused dead code; every live caller already gets
+  well-formed dates from `timestamp_to_date`, which is correct — so this is
+  a landmine, not an active outage: the day anyone wires a new date source
+  through it, this fires silently. That is exactly what "0 tests" produces:
+  not a crash, a bug nobody would notice.
 
   site/scripts/gen-trailofbits-expected.mjs runs the real `vigiles audit`
   CLI against this exact slice and writes the numbers to a fixture; the two

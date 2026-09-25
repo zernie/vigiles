@@ -5,6 +5,12 @@ coverage/
 logo-v*.png
 .idea
 
+# Python bytecode cache — produced by running a vendored *.py dogfood fixture
+# (e.g. gen-trailofbits-expected.mjs's runScript calls against
+# test/dogfood/trailofbits-skills-curated@*/plugins/last30days/scripts/lib/dates.py)
+__pycache__/
+*.pyc
+
 # oh-my-claudecode transient session state (never committed)
 .omc/
 
