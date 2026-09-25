@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import trailofbits from "./__fixtures__/trailofbits-skills.json";
 import lock from "./__fixtures__/tdd-trigger-rate.json";
 
@@ -134,6 +135,24 @@ import lock from "./__fixtures__/tdd-trigger-rate.json";
  * broken text, not code. Given its own `font-mono text-xs` line — same
  * treatment every other command on this page already gets — instead of
  * fighting the paragraph's line box.
+ *
+ * 🔴 FIXED 2026-09-26, a ninth pass — the same cold-read subagent that
+ * caught Guard.tsx's regressions (see that file's ninth-pass note) flagged
+ * two real problems here too: (1) "it's dead code" reads as "so the bug
+ * doesn't matter" right under an H2 that says "it found a bug" — cold read:
+ * "a skeptic reads it as 'so the bug doesn't matter.'" Reworded to keep the
+ * risk framing (nothing has hit that branch YET, not "this doesn't run");
+ * (2) "two paragraphs sit back to back" right after the demo box was named
+ * the single worst spot on the page — merged the bug-significance paragraph
+ * and the "most skills have no file to test" paragraph into one, since both
+ * are really the same point (what zero tests risks) at two different
+ * scales, not two separate ideas. Also added a `ChevronRight` to the
+ * `<details>` below — cold read: "neither box looks clickable" — same fix
+ * as Guard.tsx's disclosure in the same pass. Separately, cut MeasureEval's
+ * closing sentence ("Billed to the Claude subscription…") — cold read
+ * called `eval` the best section on the page and flagged that one clause as
+ * its only filler, restating what the kicker ("$ vigiles eval · real model
+ * · your Claude subscription") already says.
  */
 
 /**
@@ -179,21 +198,17 @@ export function MeasureTest() {
             </p>
           </div>
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            A plain year comes out 56 years wrong. The control proves it&rsquo;s
-            narrow, not broken: a real timestamp still parses fine, so this is
-            one greedy branch, not a bad function.{" "}
-            <code className="font-mono">parse_date()</code> tries{" "}
-            <code className="font-mono">float(date_str)</code> before any of its
-            five ISO parsers, so nothing crashes today &mdash; it&rsquo;s dead
-            code. That&rsquo;s exactly what zero tests produces: not a crash,
-            but a landmine nobody finds until it&rsquo;s wired up.
-          </p>
-          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Most skills carry no separate file to test at all — their only logic
-            is the instructions in the SKILL.md text, which pytest has nothing
-            to run. <code className="font-mono">vigiles test</code>{" "}
-            doesn&rsquo;t care: a script when there is one, the skill&rsquo;s
-            own activation when there isn&rsquo;t. Same command either way:
+            A plain year comes out 56 years wrong — silently, no exception. The
+            control proves it&rsquo;s narrow, not broken: a real timestamp still
+            parses fine, so this is one greedy branch, not a bad function.
+            Nothing has hit that branch yet — that&rsquo;s the risk zero tests
+            actually carries, not today&rsquo;s crash but tomorrow&rsquo;s
+            silent landmine. Most of this marketplace&rsquo;s skills do not even
+            have a file like this one to test: their only logic is SKILL.md
+            prose, which pytest has nothing to run.{" "}
+            <code className="font-mono">vigiles test</code> doesn&rsquo;t care —
+            a script when there is one, the skill&rsquo;s own activation when
+            there isn&rsquo;t. Same command either way:
           </p>
           <p className="mt-2 max-w-2xl font-mono text-xs text-muted-foreground">
             $ {trailofbits.testCommand}
@@ -202,11 +217,15 @@ export function MeasureTest() {
           {/* Collapsed on purpose. A reader who has never had a test push to their
               real remote does not need this; the one who has, opens it. */}
           <details className="group mt-6 rounded-xl border border-border/60 bg-card/30 px-5">
-            <summary className="cursor-pointer list-none py-4 text-base font-medium text-foreground">
+            <summary className="flex cursor-pointer list-none items-center gap-2 py-4 text-base font-medium text-foreground [&::-webkit-details-marker]:hidden">
+              <ChevronRight
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+              />
               But my skill actually does things — what stops the test doing them
               for real?
             </summary>
-            <div className="space-y-4 pb-5 text-sm leading-relaxed text-muted-foreground">
+            <div className="space-y-4 pb-5 pl-6 text-sm leading-relaxed text-muted-foreground">
               <p className="text-foreground">
                 You can throw away a temp directory. You cannot un-push a branch
                 or un-charge an API call.
@@ -362,8 +381,7 @@ export function MeasureEval() {
             {lock.report.perPrompt[0].trials} trials, {lock.model}, measured{" "}
             {lock.builtAt.slice(0, 10)}). Run it against your own skill and you
             get the same shape of answer: which phrasings reach it, and which
-            quietly do not. Billed to the Claude subscription you already pay
-            for, not a metered key.
+            quietly do not.
           </p>
         </div>
       </section>

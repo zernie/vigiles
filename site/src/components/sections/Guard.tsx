@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { CodeTabs } from "@/components/CodeTabs";
 import trailofbits from "./__fixtures__/trailofbits-skills.json";
 
@@ -152,6 +153,35 @@ import trailofbits from "./__fixtures__/trailofbits-skills.json";
  * Net: seven full-weight paragraphs before this pass, two after (the
  * disclosure content is invisible until clicked). Nothing measured was cut —
  * every number and file reference above still appears somewhere on the page.
+ *
+ * 🔴 FIXED 2026-09-26, a ninth pass — a fresh subagent's cold read of the
+ * eighth pass's screenshots (asked to be adversarial, not diplomatic) caught
+ * three real regressions the eighth pass introduced by cutting too hard, not
+ * stylistic nitpicks:
+ * (1) hiding the allowed-tools-vs-disallowed-tools answer ENTIRELY behind the
+ *     `<details>` broke the lead paragraph's own claim — "every reader's
+ *     next thought is 'how? Read/Grep/Glob can't send anything out'... the
+ *     headline claim isn't believable" without it. Added one clause to the
+ *     LEAD itself (narrow ≠ fenced, in six words) so the claim is credible
+ *     on first read; the details still holds the full mechanism + the 28/32
+ *     breakdown for whoever wants it;
+ * (2) merging the compile-vs-test paragraph with the tab intro silently cut
+ *     the one sentence saying the first tab is a DEMO skill, not scv-scan
+ *     itself — cold read: "the lead names scv-scan, but the code shows
+ *     solidity-audit... is that the fixed scv-scan? A different skill? It
+ *     isn't said." That sentence existed before the eighth pass and should
+ *     not have been dropped; restored as its own short line, right before
+ *     the tabs instead of fused into the paragraph above them;
+ * (3) neither `<details>` had any visual affordance — cold read: "neither
+ *     box looks clickable... they read as pull-quotes, so people will skip
+ *     them." Added a `ChevronRight` (lucide-react, already a dependency
+ *     elsewhere on this page) that rotates open via Tailwind's `group-open:`
+ *     variant — same fix applied to Measure.tsx's own `<details>` in the
+ *     same pass, since it had the identical problem.
+ * Also cut the `vigiles:sha256:…` marker mention from the dense paragraph —
+ * secondary detail, already visible verbatim in the compiled YAML two lines
+ * below it, didn't need a second callout competing with the credibility
+ * fix above.
  */
 
 export function Guard() {
@@ -177,30 +207,31 @@ export function Guard() {
           <code className="font-mono">
             allowed-tools: [{scvScan.allowedTools.join(", ")}]
           </code>
-          .
+          . Narrow doesn&rsquo;t mean fenced — that list only pre-approves
+          tools, it doesn&rsquo;t remove anything else.
         </p>
 
         {/* Collapsed on purpose — same reasoning as Measure.tsx's own
-            <details> a few screens down. A reader who already knows
-            allowed-tools isn't a fence doesn't need three sentences telling
-            them so; a reader who's surprised gets the full mechanism on
-            click, not stacked into the first paragraph they scroll past. */}
+            <details> a few screens down, and note that the CREDIBILITY-critical
+            half of the answer ("narrow ≠ fenced") is now in the lead paragraph
+            above, not hidden here — a cold read of the previous version caught
+            that hiding it entirely broke the lead's own claim. What's still
+            behind the click is the deeper mechanism (disallowed-tools) and the
+            supporting stat, which a convinced reader doesn't need and a
+            skeptical one can open. */}
         <details className="group mt-5 rounded-xl border border-border/60 bg-card/30 px-5">
-          <summary className="cursor-pointer list-none py-4 text-base font-medium text-foreground">
-            Isn&rsquo;t <code className="font-mono">allowed-tools</code>{" "}
-            supposed to stop that?
+          <summary className="flex cursor-pointer list-none items-center gap-2 py-4 text-base font-medium text-foreground [&::-webkit-details-marker]:hidden">
+            <ChevronRight
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+            />
+            So what would actually fence it?
           </summary>
-          <div className="space-y-3 pb-5 text-sm leading-relaxed text-muted-foreground">
+          <div className="space-y-3 pb-5 pl-6 text-sm leading-relaxed text-muted-foreground">
             <p>
-              No — narrow doesn&rsquo;t mean fenced.{" "}
-              <code className="font-mono">allowed-tools:</code> pre-approves
-              those three tools; it doesn&rsquo;t remove Bash, WebFetch or
-              WebSearch from the session&rsquo;s pool.
-            </p>
-            <p>
-              Only <code className="font-mono">disallowed-tools:</code> does
-              that, and among the {trailofbits.trifectaApplicable} skills
-              holding all three legs, it&rsquo;s used zero times. (The other{" "}
+              Only <code className="font-mono">disallowed-tools:</code> does —
+              and among the {trailofbits.trifectaApplicable} skills holding all
+              three legs, it&rsquo;s used zero times. (The other{" "}
               {trailofbits.surfaces - trailofbits.trifectaApplicable} of the
               marketplace&rsquo;s {trailofbits.surfaces} skills and agents
               don&rsquo;t hold every leg, so there&rsquo;s nothing for a fence
@@ -213,16 +244,21 @@ export function Guard() {
           A test can&rsquo;t catch this — there&rsquo;s no code to run, only a
           missing line. <code className="font-mono">Compiling</code> from a
           typed spec can: the same pass that fills in{" "}
-          <code className="font-mono">disallowed-tools</code> also stamps a{" "}
-          <code className="font-mono text-xs">vigiles:sha256:…</code> marker
-          below, so a hand-edit afterward gets refused. Same compiler, three
-          targets — a skill, an agent, and a project&rsquo;s own CLAUDE.md:
+          <code className="font-mono">disallowed-tools</code> also stamps an
+          integrity marker below, so a hand-edit afterward gets refused.
+        </p>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          The first tab below isn&rsquo;t{" "}
+          <code className="font-mono">scv-scan</code> itself — it&rsquo;s a demo
+          skill built the same shape, carrying the fence scv-scan is missing.
+          Same compiler, two more real targets from this project: an agent, and
+          a project&rsquo;s own CLAUDE.md.
         </p>
         <CodeTabs
           className="mt-4"
           tabs={[
             { label: "SKILL.md", code: demo.compiled },
-            { label: "agent", code: demo.agentCompiled },
+            { label: "Agent", code: demo.agentCompiled },
             { label: "CLAUDE.md", code: demo.claudeMdCompiled },
           ]}
         />
