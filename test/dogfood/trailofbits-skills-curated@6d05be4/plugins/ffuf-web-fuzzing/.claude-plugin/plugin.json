@@ -1,0 +1,9 @@
+{
+  "name": "ffuf-web-fuzzing",
+  "version": "1.0.0",
+  "description": "Expert guidance for ffuf web fuzzing during authorized penetration testing, including authenticated fuzzing, auto-calibration, and result analysis",
+  "author": {
+    "name": "jthack",
+    "url": "https://github.com/jthack"
+  }
+}

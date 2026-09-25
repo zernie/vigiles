@@ -8,8 +8,8 @@ const REPO = "https://github.com/zernie/vigiles";
  * The one-line chip under the headline — its OWN component so a test can render
  * it without mounting `Hero`, which pulls in `DemoAudit` (network on mount:
  * `fetchStars` per featured chip, plus an idb sweep). Same move, same reason as
- * `Guard.tsx` exporting `BATTERY_ROWS`: the consumer stays covered, the test
- * stays deterministic.
+ * `Guard.tsx` exporting fixture-pinned data for its own tests: the consumer
+ * stays covered, the test stays deterministic.
  *
  * What `Hero.browser.test.ts` asserts on it: every language the engine covers is
  * RENDERED here. That is the consumer half of the guarantee — `linters.browser

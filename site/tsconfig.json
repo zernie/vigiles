@@ -21,7 +21,8 @@
       ],
       "@engine/*": ["../dist/*.d.ts"],
       "vigiles": ["../dist/test.d.ts"],
-      "vigiles/eval": ["../dist/eval-surface.d.ts"]
+      "vigiles/eval": ["../dist/eval-surface.d.ts"],
+      "vigiles/claude-code": ["../dist/claude-code.d.ts"]
     }
   },
   "include": ["src", "vite.config.ts", "vite.aliases.ts"]

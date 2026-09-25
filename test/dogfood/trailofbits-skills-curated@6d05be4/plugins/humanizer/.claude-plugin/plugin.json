@@ -1,0 +1,9 @@
+{
+  "name": "humanizer",
+  "version": "2.2.0",
+  "description": "Remove signs of AI-generated writing from text to make it sound natural and human-written",
+  "author": {
+    "name": "blader",
+    "url": "https://github.com/blader/humanizer"
+  }
+}
