@@ -6260,7 +6260,7 @@ function resolveRecords(
    *   1. `.claude-plugin/plugin.json#name` — the repo's own declared name, used
    *      when the run installed the repo AS a plugin (`pluginDir`).
    *   2. `vigiles-loose-skills` — the synthetic name OUR OWN packaging gives a
-   *      loose `.claude/skills` dir (`packageSkillsDir`, and `underTestSource`'s
+   *      loose `.claude/skills` dir (`packageSkillsDir`, and `installNamespace`'s
    *      fallback when a plugin manifest has no name). A repo that is not a plugin
    *      still reports namespaced ids under it, so omitting it would drop every
    *      trigger-rate record for the documented one-liner.

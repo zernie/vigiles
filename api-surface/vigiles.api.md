@@ -291,6 +291,7 @@ export interface CheckRate {
 export interface CheckReport {
     // (undocumented)
     readonly n: number;
+    readonly namespace?: string;
     // (undocumented)
     readonly perCheck: readonly CheckRate[];
     readonly usage: ArmUsage;
@@ -497,6 +498,7 @@ export interface EvalArm {
     readonly plugin?: string;
     readonly pluginDir?: string;
     readonly settings?: unknown;
+    readonly skillsDir?: string;
 }
 
 // @public
@@ -587,6 +589,7 @@ export interface EvalSpec<M extends Metrics> {
     readonly retryBackoffMs?: number;
     readonly spacingSec?: number;
     readonly stubs?: readonly ToolStub[];
+    readonly stubSkillBodies?: boolean;
     readonly task: string;
     readonly timeoutMs?: number;
     readonly trials?: number;
@@ -857,6 +860,7 @@ export interface MeasureSpec {
     readonly plugin?: string;
     readonly pluginDir?: string;
     readonly settings?: unknown;
+    readonly skillsDir?: string;
     readonly spacingSec?: number;
     readonly stubSkillBodies?: boolean;
     readonly task: string;

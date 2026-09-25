@@ -14,6 +14,7 @@ import {
   mkdtempSync,
   existsSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   cpSync as cpSyncForTest,
@@ -58,6 +59,7 @@ import {
   resolveSpawnEnv,
   EPHEMERAL_HOME_KEEP,
   type AgentRunArgs,
+  type AgentRunner,
   type ParsedModelRun,
   type ModelOutputParser,
   unregisteredSkillFiles,
@@ -746,6 +748,322 @@ test("measureWith stubSkillBodies packages a stubbed plugin and cleans it up", a
   assert.ok(used && used !== dir, "a packaged plugin dir was used");
   assert.ok(!existsSync(used), "the throwaway plugin dir is removed afterward");
   cleanupTmpDir(dir);
+});
+
+// --- skillsDir on the ARM (issue #307): the loose-`.claude/skills` install source
+// is resolved ONCE, in runEvalWith, so measure / measureArms / runEval all get it.
+
+/** A loose `<dir>/.claude/skills/foo/SKILL.md` (no plugin manifest) + a runner
+ *  that records what pluginDir it was handed and the SKILL.md body found there. */
+function looseSkillsFixture(prefix: string): {
+  dir: string;
+  skills: string;
+  seen: AgentRunArgs[];
+  bodies: string[];
+  runner: AgentRunner;
+} {
+  const dir = makeTmpDir(prefix);
+  const skills = join(dir, ".claude", "skills");
+  mkdirSync(join(skills, "foo", "references"), { recursive: true });
+  writeFileSync(
+    join(skills, "foo", "SKILL.md"),
+    "---\nname: foo\ndescription: does foo\n---\n\n# Procedure\nrun the expensive thing\n",
+  );
+  writeFileSync(join(skills, "foo", "references", "r.md"), "ref");
+  const seen: AgentRunArgs[] = [];
+  const bodies: string[] = [];
+  const runner: AgentRunner = (a) => {
+    seen.push(a);
+    if (a.pluginDir)
+      bodies.push(
+        readFileSync(join(a.pluginDir, "skills", "foo", "SKILL.md"), "utf-8"),
+      );
+    return Promise.resolve({
+      code: 0,
+      stdout: JSON.stringify({ type: "result", num_turns: 1 }),
+    });
+  };
+  return { dir, skills, seen, bodies, runner };
+}
+
+test("measureWith skillsDir packages a loose .claude/skills dir (bodies intact) and cleans up", async () => {
+  const f = looseSkillsFixture("measure-skillsdir");
+  const report = await measureWith(
+    {
+      task: "do foo",
+      skillsDir: f.skills,
+      checks: [turns({ min: 1 })],
+      trials: 2,
+      spacingSec: 0,
+    },
+    f.runner,
+  );
+  assert.equal(report.n, 2);
+  // The run was handed a REAL plugin dir (manifest + skills/<name>/), not the
+  // loose dir, and the whole skill dir came along — a judged check needs the body.
+  const used = f.seen[0]?.pluginDir;
+  assert.ok(used && used !== f.skills, "a packaged plugin dir was used");
+  assert.ok(f.bodies[0]?.includes("run the expensive thing"), "body kept");
+  assert.ok(!existsSync(used), "the throwaway plugin dir is removed afterward");
+  // The namespace the skills installed under is REPORTED — it is the `<plugin>`
+  // half of the id `skill()` must match, and with skillsDir the caller never chose it.
+  assert.equal(report.namespace, "vigiles-loose-skills");
+  cleanupTmpDir(f.dir);
+});
+
+test("measureWith skillsDir + stubSkillBodies stubs the packaged bodies", async () => {
+  const f = looseSkillsFixture("measure-skillsdir-stub");
+  await measureWith(
+    {
+      task: "do foo",
+      skillsDir: f.skills,
+      stubSkillBodies: true,
+      checks: [turns({ min: 1 })],
+      trials: 1,
+      spacingSec: 0,
+    },
+    f.runner,
+  );
+  assert.ok(f.bodies[0]?.includes("description: does foo"), "frontmatter kept");
+  assert.ok(!f.bodies[0]?.includes("run the expensive thing"), "body stubbed");
+  cleanupTmpDir(f.dir);
+});
+
+test("measureWith rejects pluginDir together with skillsDir (before any run)", async () => {
+  const runner: AgentRunner = () => {
+    throw new Error("runner should not run");
+  };
+  await assert.rejects(
+    measureWith(
+      {
+        task: "x",
+        pluginDir: "/p",
+        skillsDir: "/s",
+        checks: [turns({ min: 1 })],
+      },
+      runner,
+    ),
+    /not both/,
+  );
+});
+
+test("runEvalWith / measureArmsWith: an ARM may name skillsDir (the resolver lives at the arm)", async () => {
+  const f = looseSkillsFixture("arm-skillsdir");
+  await runEvalWith(
+    {
+      arms: { on: { skillsDir: f.skills }, off: {} },
+      task: "do foo",
+      trials: 1,
+      spacingSec: 0,
+      measure: () => ({ ok: true }),
+    },
+    f.runner,
+  );
+  const installed = f.seen.filter((a) => a.pluginDir !== undefined);
+  assert.equal(installed.length, 1, "only the `on` arm installed anything");
+  assert.ok(f.bodies[0]?.includes("run the expensive thing"), "body kept");
+  assert.ok(!existsSync(installed[0]?.pluginDir ?? ""), "throwaway removed");
+
+  // And through measureArms, with per-arm namespace on each CheckReport.
+  const before = f.seen.length;
+  const report = await measureArmsWith(
+    {
+      arms: { on: { skillsDir: f.skills }, off: {} },
+      task: "do foo",
+      checks: [turns({ min: 1 })],
+      trials: 1,
+      spacingSec: 0,
+    },
+    f.runner,
+  );
+  assert.equal(f.seen.length - before, 2);
+  assert.equal(report.arms.on?.namespace, "vigiles-loose-skills");
+  assert.equal(report.arms.off?.namespace, undefined);
+  cleanupTmpDir(f.dir);
+});
+
+test("resolveArmInstalls cleans up an EARLIER arm's packaged dir when a LATER arm's resolve throws", async () => {
+  const f = looseSkillsFixture("arm-cleanup-on-failure");
+  // Object key order is insertion order for string keys, so "on" resolves and
+  // packages a throwaway plugin dir FIRST; "bad" (pluginDir + skillsDir both
+  // set) throws before any arm runs — resolveArmInstalls resolves every arm
+  // up front, so this exercises the catch's cleanup loop, not just the throw.
+  const before = readdirSync(tmpdir()).filter((n) =>
+    n.startsWith("vigiles-skills-"),
+  );
+  await assert.rejects(
+    runEvalWith(
+      {
+        arms: {
+          on: { skillsDir: f.skills },
+          bad: { pluginDir: "/p", skillsDir: "/s" },
+        },
+        task: "do foo",
+        trials: 1,
+        spacingSec: 0,
+        measure: () => ({ ok: true }),
+      },
+      f.runner,
+    ),
+    /not both/,
+  );
+  assert.equal(f.seen.length, 0, "resolution failed before any run started");
+  const after = readdirSync(tmpdir()).filter((n) =>
+    n.startsWith("vigiles-skills-"),
+  );
+  assert.deepEqual(
+    after,
+    before,
+    "the `on` arm's packaged dir was removed, not leaked",
+  );
+  cleanupTmpDir(f.dir);
+});
+
+test("CheckReport.namespace is the plugin's declared name for a pluginDir arm", async () => {
+  const dir = makeTmpDir("measure-ns");
+  mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+  mkdirSync(join(dir, "skills", "foo"), { recursive: true });
+  writeFileSync(
+    join(dir, ".claude-plugin", "plugin.json"),
+    JSON.stringify({ name: "myplug", version: "0.0.0" }),
+  );
+  writeFileSync(
+    join(dir, "skills", "foo", "SKILL.md"),
+    "---\nname: foo\ndescription: does foo\n---\nbody\n",
+  );
+  const runner: AgentRunner = () =>
+    Promise.resolve({
+      code: 0,
+      stdout: JSON.stringify({ type: "result", num_turns: 1 }),
+    });
+  const report = await measureWith(
+    {
+      task: "t",
+      pluginDir: dir,
+      checks: [turns({ min: 1 })],
+      trials: 1,
+      spacingSec: 0,
+    },
+    runner,
+  );
+  assert.equal(report.namespace, "myplug");
+  cleanupTmpDir(dir);
+});
+
+// --- unknown spec fields are REFUSED, not dropped (issue #307, second ask). A
+// `.eval.mjs` file is plain JS: nothing type-checks the object it hands over, so a
+// stray key used to vanish and the run reported a confident number about nothing.
+
+test("measureWith refuses an unknown MeasureSpec field, with a did-you-mean", async () => {
+  const runner: AgentRunner = () => {
+    throw new Error("runner should not run");
+  };
+  const bad = {
+    task: "x",
+    checks: [turns({ min: 1 })],
+    skillDir: "/s", // typo of skillsDir
+  } as unknown as Parameters<typeof measureWith>[0];
+  await assert.rejects(measureWith(bad, runner), (e: unknown) => {
+    const msg = (e as Error).message;
+    assert.match(msg, /measure: unknown MeasureSpec field "skillDir"/);
+    assert.match(msg, /did you mean `skillsDir`/);
+    return true;
+  });
+  // A trigger-rate-only field on measure is the case that bit: refused by name.
+  const foreign = {
+    task: "x",
+    checks: [turns({ min: 1 })],
+    prompts: ["a"],
+  } as unknown as Parameters<typeof measureWith>[0];
+  await assert.rejects(
+    measureWith(foreign, runner),
+    /unknown MeasureSpec field "prompts"/,
+  );
+});
+
+test("runEvalWith refuses an unknown field on the spec AND on an arm", async () => {
+  const runner: AgentRunner = () => {
+    throw new Error("runner should not run");
+  };
+  const badArm = {
+    arms: { on: { pluginDirs: "/p" } },
+    task: "x",
+    measure: () => ({}),
+  } as unknown as Parameters<typeof runEvalWith>[0];
+  await assert.rejects(
+    runEvalWith(badArm, runner),
+    /runEval: unknown EvalArm field "pluginDirs" on arm "on".*did you mean `pluginDir`/s,
+  );
+  const badSpec = {
+    arms: {},
+    task: "x",
+    measure: () => ({}),
+    checks: [],
+  } as unknown as Parameters<typeof runEvalWith>[0];
+  await assert.rejects(
+    runEvalWith(badSpec, runner),
+    /runEval: unknown EvalSpec field "checks"/,
+  );
+});
+
+test("measureTriggerRateWith refuses an unknown TriggerRateSpec field", async () => {
+  const runner: AgentRunner = () => {
+    throw new Error("runner should not run");
+  };
+  const bad = {
+    pluginDir: "/p",
+    prompts: ["x"],
+    fired: () => true,
+    minPrompts: 1,
+    checks: [],
+  } as unknown as Parameters<typeof measureTriggerRateWith>[0];
+  await assert.rejects(
+    measureTriggerRateWith(bad, runner),
+    /measureTriggerRate: unknown TriggerRateSpec field "checks"/,
+  );
+});
+
+test("formatCheckReport: every skill() check at 0% prints the namespace diagnostic", () => {
+  const zero = (id: string): CheckReport["perCheck"][number] => ({
+    check: { kind: "skill", id },
+    rate: 0,
+    se: 0,
+    passK: 0,
+    n: 3,
+  });
+  const out = formatCheckReport({
+    n: 3,
+    perCheck: [
+      zero("foo"),
+      { ...zero("x"), check: { kind: "turns" }, rate: 1 },
+    ],
+    usage: zeroUsage,
+    namespace: "vigiles-loose-skills",
+  });
+  assert.match(out, /nothing resolved for ANY skill\(\) check/);
+  assert.match(out, /installed under `vigiles-loose-skills`/);
+  assert.match(out, /`vigiles-loose-skills:<skill>`/);
+  // Without a namespace the advice still names the namespaced form.
+  const noNs = formatCheckReport({
+    n: 3,
+    perCheck: [zero("foo")],
+    usage: zeroUsage,
+  });
+  assert.match(noNs, /NAMESPACED id/);
+  // A PARTIAL rate is a real measurement and is left alone; so is a report with
+  // no skill() check at all.
+  const partial = formatCheckReport({
+    n: 3,
+    perCheck: [{ ...zero("foo"), rate: 0.33 }],
+    usage: zeroUsage,
+  });
+  assert.doesNotMatch(partial, /nothing resolved/);
+  const noSkill = formatCheckReport({
+    n: 3,
+    perCheck: [{ ...zero("x"), check: { kind: "tool", name: "Bash" } }],
+    usage: zeroUsage,
+  });
+  assert.doesNotMatch(noSkill, /nothing resolved/);
 });
 
 test("runEvalWith honors a per-arm model override (model = a harness arm)", async () => {
