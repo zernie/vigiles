@@ -1,0 +1,73 @@
+Vendored snapshot — DO NOT EDIT BY HAND.
+
+Upstream:  https://github.com/trailofbits/skills-curated
+Commit:    6d05be4
+Fetched:   2026-09-25
+License:   CC BY-SA 4.0 (see ./LICENSE) — Trail of Bits. Some individual plugins
+           carry their own MIT LICENSE (the ones imported from OpenAI's catalog);
+           those per-plugin LICENSE files are vendored alongside them unchanged.
+
+Included — the MINIMAL structural slice only: every plugin's `SKILL.md`,
+`agents/*.md`, `.claude-plugin/plugin.json`, `LICENSE`, the repo-root
+`.claude-plugin/marketplace.json`, and the repo-root `CLAUDE.md` (their own
+skill-authoring style guide, quoted on the landing page). Everything else —
+scripts, reference docs, the one 67 KB font-name list — is dropped; none of it
+changes what `vigiles audit` reports. Verified: `vigiles audit` on this slice
+and on a full clone of the same commit report IDENTICAL aggregate numbers
+(29 plugins, 31 skills, 1 agent, 29/29 flagged lethal-trifecta, 29/29 flagged
+untested, 28/28 applicable skills with `fence: "none"`).
+
+ONE exception to "structural files only": `plugins/last30days/scripts/lib/
+dates.py`, vendored in full (stdlib-only, no sibling imports — safe to load
+standalone) — see "A behavioral bug" below.
+
+Why this is here:
+  Trail of Bits is a real security company. `skills-curated` is their own
+  actively-reviewed marketplace — a contribution guide (this repo's own
+  CLAUDE.md) that tells authors to write `allowed-tools:`, and a
+  `/review-plugin` command that runs on every import. It is the least
+  hypothetical "widely-copied pattern" available for the two claims the
+  landing page's `test` and `compile` beats make about SKILLS, because if a
+  security-reviewed marketplace has the gap, "just write it more carefully"
+  is not the fix.
+
+  `vigiles test`: zero of the 32 skill/agent surfaces here have a colocated
+  harness or eval file anywhere in the upstream repo (confirmed by GitHub
+  code search for `harness.mjs`/`eval.mjs`/`SKILL.test` across the whole
+  repo — 0 results — and by `vigiles test "**/*.harness.{mjs,cjs,js,mts,cts,ts}"`
+  against this slice, which reports "NOTHING matched. Nothing ran.").
+
+  `vigiles compile`: 28 of the 31 skills hold all three lethal-trifecta legs
+  (read private data, ingest untrusted content, exfiltrate) — including
+  `scv-scan`, whose `allowed-tools: [Read, Grep, Glob]` looks narrow and
+  still holds Bash/WebFetch/WebSearch, because `allowed-tools:` is a
+  PRE-APPROVAL that waives a confirmation prompt and removes nothing from
+  the session's tool pool. None of the 28 declare `disallowed-tools:` — the
+  one key vigiles measures as actually removing a tool — despite 38 real
+  occurrences of `allowed-tools:` across the repo (most authors declare it,
+  in good faith, believing it fences the skill). `fence: "none"` on every
+  one of them.
+
+  A behavioral bug, found by testing rather than reading — `last30days`
+  (the only skill in the marketplace to ship real, non-trivial Python logic
+  in `scripts/lib/`) has a `parse_date()` that tries `float(date_str)` FIRST,
+  before any of its five ISO-format parsers. Any numeric-looking string that
+  is not actually a Unix timestamp is silently mis-dated: `parse_date("2024")`
+  returns `1970-01-01 00:33:44` — 56 years off, no exception, no warning.
+  Confirmed live via `vigiles`'s own `runScript` against this exact vendored
+  file (`site/scripts/gen-trailofbits-expected.mjs`, the `test` beat's
+  second artifact). NOT currently reachable in `last30days`'s own pipeline
+  — `parse_date` is unused dead code; every live caller already gets
+  well-formed dates from `timestamp_to_date`, which is correct — so this is
+  a landmine, not an active outage: the day anyone wires a new date source
+  through it, this fires silently. That is exactly what "0 tests" produces:
+  not a crash, a bug nobody would notice.
+
+  site/scripts/gen-trailofbits-expected.mjs runs the real `vigiles audit`
+  CLI against this exact slice and writes the numbers to a fixture; the two
+  browser tests assert the rendered page still matches it.
+
+Refresh: re-clone trailofbits/skills-curated at a newer commit, re-run the
+same `find` used to build this slice (SOURCE-documented, not scripted — the
+selection is four file globs, see the list above), and re-verify the
+full-clone-vs-slice parity before committing.

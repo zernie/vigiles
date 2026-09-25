@@ -1,0 +1,9 @@
+{
+  "name": "planning-with-files",
+  "version": "1.0.0",
+  "description": "File-based planning with persistent markdown files for complex multi-step tasks",
+  "author": {
+    "name": "OthmanAdi",
+    "url": "https://github.com/OthmanAdi"
+  }
+}

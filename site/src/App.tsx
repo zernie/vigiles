@@ -3,6 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Hero } from "@/components/sections/Hero";
 import { MeasureTest, MeasureEval } from "@/components/sections/Measure";
 import { Guard } from "@/components/sections/Guard";
+import { HooksExperimental } from "@/components/sections/HooksExperimental";
 import { Adoption } from "@/components/sections/Adoption";
 import { Compare } from "@/components/sections/Compare";
 import { FAQ } from "@/components/sections/FAQ";
@@ -18,19 +19,40 @@ import { Footer } from "@/components/Footer";
  * "it feels like few sites slapped together". Measured at the time: 12,211 CSS
  * px, roughly fourteen laptop screens, in four unrelated layout languages.
  *
- * The spine is now FAILURE → COMMAND. Every beat between the demo and the CTA
+ * The spine is FAILURE → COMMAND. Every beat between the demo and the CTA
  * names a bug a plugin author has already lived through, shows what we measured
  * on a real repo, and ends in the one command that catches it:
  *
  *   Hero        audit — the graded read, played live on a repo you recognise,
  *               closing on ONE line that names `lint` (the CI gate, the only
  *               verb with no beat) and hands off to the three below
- *   MeasureTest test    — your safety hook: what does it actually stop?
- *   Guard       compile — a widely-copied hook blocks 2 of 7
  *   MeasureEval eval    — your skill has a description; does it fire?
+ *   MeasureTest test    — 32 skills in a reviewed marketplace, zero tested
+ *   Guard       compile — allowed-tools pre-approves, it doesn't fence
+ *   HooksExperimental — small, quiet: what `compile` used to lead with
  *   Adoption    the agent does the work: one command, then a prompt
  *   Compare     the pointer to /comparison (which was linked from NOWHERE)
  *   FAQ · CTA   the two objections that stop a run, then the ask
+ *
+ * 2026-09-26 (Эрни): MeasureEval moved ahead of MeasureTest/Guard — skills
+ * (does it fire?) now lead, hooks (does it block?) follow. Until this date the
+ * order was Hero → MeasureTest → Guard → MeasureEval; the FAILURE → COMMAND
+ * shape within each beat is unchanged, only the hook-vs-skill order between
+ * beats moved. Reason: skill description/triggering is the surface most
+ * plugin authors touch first — hooks are the deeper, rarer claim (2/7 vs 7/7)
+ * and read better as the follow-up proof than the opener.
+ *
+ * 2026-09-25 (Эрни): `MeasureTest` and `Guard` REWRITTEN from hooks to
+ * skills — same beats, same order, same failure→command shape, new content.
+ * Reason, verbatim: hooks don't scare people much, partly because of Claude
+ * Code's auto-mode; skills are what most authors actually ship, and a visitor
+ * should recognise the bug in the first three seconds. The demoted hook
+ * material (2/7 vs 7/7) is not gone — it is commented out, not deleted, in
+ * both files' source, and now lives shrunk in the new `HooksExperimental`
+ * section right after `Guard`, carrying the one sanctioned exception to the
+ * no-`Badge`-kickers rule below (Ernie asked for it explicitly, to mark that
+ * material as experimental — see that file's own header for why one
+ * exception does not reopen the rule).
  *
  * WHAT LEFT, and why, so it is not restored by reflex:
  *
@@ -53,13 +75,22 @@ import { Footer } from "@/components/Footer";
  *
  * Banned on this page, because each was a fifth format: `Badge` kickers,
  * centered section headers, Card grids, three-column "why" grids, caveat boxes
- * (a caveat is one line plus the docs link). The hero is the single exception —
- * it stays centered, because it is the demo rather than a beat — as does the
- * closing CTA, so the page OPENS and CLOSES centered (the pitch, then the ask)
- * with left-rail evidence between them. That is a bookend, deliberately, and
- * the reason `Adoption` and `FAQ` moved INTO the rail on 2026-09-09: they are
- * content, and content that sits centered between left-aligned neighbours reads
- * as a seam. Two centered bands at the two ends read as a frame.
+ * (a caveat is one line plus the docs link). The hero is the single layout
+ * exception — it stays centered, because it is the demo rather than a beat —
+ * as does the closing CTA, so the page OPENS and CLOSES centered (the pitch,
+ * then the ask) with left-rail evidence between them. That is a bookend,
+ * deliberately, and the reason `Adoption` and `FAQ` moved INTO the rail on
+ * 2026-09-09: they are content, and content that sits centered between
+ * left-aligned neighbours reads as a seam. Two centered bands at the two ends
+ * read as a frame.
+ *
+ * `HooksExperimental` (added 2026-09-25) is a second, separate, SANCTIONED
+ * exception — to the `Badge` half of the rule above specifically, not the
+ * layout half: it stays LEFT-aligned in the rail like every other beat, it
+ * just carries one badge. One small section, one badge, because the badge
+ * itself is the information ("experimental" is literally in the API's own
+ * export names), not decoration. It does not reopen the rule for the next
+ * section that wants one.
  */
 export function App() {
   return (
@@ -67,9 +98,10 @@ export function App() {
       <StickyCTA />
       <main className="min-h-screen">
         <Hero />
+        <MeasureEval />
         <MeasureTest />
         <Guard />
-        <MeasureEval />
+        <HooksExperimental />
         <Adoption />
         <Compare />
         <FAQ />

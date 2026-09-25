@@ -1,0 +1,9 @@
+{
+  "name": "x-research",
+  "version": "1.0.0",
+  "description": "Searches X/Twitter for real-time perspectives, dev discussions, product feedback, breaking news, and expert opinions using the X API v2.",
+  "author": {
+    "name": "rohunvora",
+    "url": "https://github.com/rohunvora/x-research-skill"
+  }
+}
