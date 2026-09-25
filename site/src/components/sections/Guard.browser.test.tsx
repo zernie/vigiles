@@ -52,6 +52,20 @@ describe("the Guard section quotes the real trailofbits/skills-curated audit", (
     expect(trailofbits.demo.safetyScore).toBe(100);
   });
 
+  it("the agent and CLAUDE.md tabs carry real compiled integrity markers", () => {
+    // Added 2026-09-26 (Ernie: show skills, agents AND CLAUDE.md, not just
+    // skills). Both files are read from elsewhere in this repo, not compiled
+    // fresh here — this pins that they still carry the marker the generator
+    // asserted before writing the fixture, so a hand-edit to either source
+    // file fails a test a human reads, not just the generator's own throw.
+    expect(trailofbits.demo.agentCompiled).toContain("vigiles:sha256:");
+    expect(trailofbits.demo.agentCompiled).toContain("name: code-reviewer");
+    expect(trailofbits.demo.claudeMdCompiled).toContain("vigiles:sha256:");
+    expect(trailofbits.demo.claudeMdCompiled).toContain(
+      "vigiles compiles `.spec.ts` files",
+    );
+  });
+
   it("the live exfiltration attempt went through unfenced and was denied fenced", () => {
     // Added 2026-09-26 (Ernie: "still weak, find a stronger case") — a REAL
     // runHarnessTest attack, not a static score. Both directions asserted by

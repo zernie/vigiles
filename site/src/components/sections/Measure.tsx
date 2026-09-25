@@ -115,6 +115,13 @@ import lock from "./__fixtures__/tdd-trigger-rate.json";
  * (`scripts/last30days.py`) hits Reddit/X/web APIs, so a deterministic,
  * network-free harness for it is a separate, bigger piece of work, not a
  * copy fix.
+ *
+ * 🔴 REWORDED 2026-09-26, a sixth pass (Ernie, on Guard.tsx's compile
+ * paragraph, same instinct applied here: "все секции нужно заново тебе
+ * прочитать и переделать по-человечески"). The "dead code" paragraph
+ * stacked two em-dash clauses into one long sentence. Split into shorter
+ * sentences carrying one idea each; same facts (the control proves the bug
+ * is narrow, the greedy branch, "dead code, not a crash"), just not fused.
  */
 
 /**
@@ -160,13 +167,14 @@ export function MeasureTest() {
             </p>
           </div>
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            A plain year, silently 56 years wrong — the control shows a real
-            timestamp still parses fine, so it&rsquo;s one greedy branch, not a
-            broken function. <code className="font-mono">parse_date()</code>{" "}
-            tries <code className="font-mono">float(date_str)</code> before any
-            of its five ISO parsers. It&rsquo;s dead code today — that&rsquo;s
-            what zero tests produces, not a crash, a landmine nobody finds until
-            it&rsquo;s wired up.
+            A plain year comes out 56 years wrong. The control proves it&rsquo;s
+            narrow, not broken: a real timestamp still parses fine, so this is
+            one greedy branch, not a bad function.{" "}
+            <code className="font-mono">parse_date()</code> tries{" "}
+            <code className="font-mono">float(date_str)</code> before any of its
+            five ISO parsers, so nothing crashes today &mdash; it&rsquo;s dead
+            code. That&rsquo;s exactly what zero tests produces: not a crash,
+            but a landmine nobody finds until it&rsquo;s wired up.
           </p>
           <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             <code className="font-mono">$ {trailofbits.testCommand}</code>{" "}

@@ -1,4 +1,4 @@
-import { CodeBlock } from "@/components/CodeBlock";
+import { CodeTabs } from "@/components/CodeTabs";
 import trailofbits from "./__fixtures__/trailofbits-skills.json";
 
 /**
@@ -99,6 +99,31 @@ import trailofbits from "./__fixtures__/trailofbits-skills.json";
  * (3) "lethal trifecta" was used with zero definition, including in the
  *     Hero. Expanded it inline here to the three-step read-untrusted-send
  *     shape, once, where the term first does real work.
+ *
+ * 🔴 REWORDED 2026-09-26, a sixth pass (Ernie, screenshot of the lead
+ * paragraph on mobile: "какой-то пиздец, просто блок, какой-то поток
+ * сознания"). The FIFTH pass above added real information (the 32-vs-28
+ * clause, the trifecta definition) by stuffing it into the existing
+ * sentence with more em-dashes and a parenthetical inside a parenthetical —
+ * correct content, unreadable shape. Split into two short paragraphs: one
+ * states the trifecta as three short sentences and names scv-scan; the
+ * other explains allowed-tools vs disallowed-tools and gives the 28/32 stat
+ * as its own sentence, with ONE trailing parenthetical instead of a nested
+ * one. Also lightly re-cut the next paragraph (test-vs-compile) for the
+ * same reason — three em-dash clauses in three sentences in a row.
+ *
+ * 🔴 ADDED 2026-09-26, a seventh pass (Ernie: "нужно показать, как выглядят
+ * скиллы и агенты, которые компилируются... и Cloud MD тоже" — CLAUDE.md).
+ * One CodeBlock showed only the skill; a reader had no way to see that
+ * `vigiles compile` targets agents and CLAUDE.md/AGENTS.md the same way.
+ * Added `CodeTabs` (src/components/CodeTabs.tsx, hand-rolled — this repo has
+ * no Radix dependency and three static panels don't need one) with three
+ * REAL files: the existing demo skill, plus two files already spec-managed
+ * and committed elsewhere in THIS repo — examples/harness/dogfood/
+ * reviewer-ab's code-reviewer agent, and examples/CLAUDE.md. Both are read
+ * (not compiled fresh) by the generator and asserted to still carry a
+ * `vigiles:sha256:` marker, so a hand-edit that breaks one fails the build
+ * instead of reaching the page quietly.
  */
 
 export function Guard() {
@@ -117,34 +142,52 @@ export function Guard() {
           forgot to say what it isn&rsquo;t.
         </h2>
         <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-          <code className="font-mono">scv-scan</code>, a Solidity vulnerability
-          auditor in the same marketplace, declares{" "}
+          Read a secret. Take instructions from something untrusted. Send the
+          secret out. That&rsquo;s the &ldquo;lethal trifecta,&rdquo; and{" "}
+          <code className="font-mono">scv-scan</code> — a Solidity auditor in
+          the same marketplace — holds all three, despite declaring a narrow{" "}
           <code className="font-mono">
             allowed-tools: [{scvScan.allowedTools.join(", ")}]
           </code>
-          . That looks narrow. It still holds Bash, WebFetch and WebSearch —
-          read a secret, take instructions from something untrusted, send the
-          secret out: the &ldquo;lethal trifecta&rdquo; — because{" "}
-          <code className="font-mono">allowed-tools:</code> pre-approves, it
-          doesn&rsquo;t fence. Only{" "}
-          <code className="font-mono">disallowed-tools:</code> removes a tool,
-          and it appears zero times across the {trailofbits.trifectaApplicable}{" "}
-          skills exposed to all three (of {trailofbits.surfaces} skills and
-          agents total — the rest don&rsquo;t hold every leg, so a fence would
-          have nothing to remove either way).
+          .
+        </p>
+        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          Narrow doesn&rsquo;t mean fenced.{" "}
+          <code className="font-mono">allowed-tools:</code> pre-approves those
+          three tools; it doesn&rsquo;t remove Bash, WebFetch or WebSearch from
+          the pool. Only <code className="font-mono">disallowed-tools:</code>{" "}
+          does that, and among the {trailofbits.trifectaApplicable} skills
+          holding all three legs, it&rsquo;s used zero times. (The other{" "}
+          {trailofbits.surfaces - trailofbits.trifectaApplicable} of the
+          marketplace&rsquo;s {trailofbits.surfaces} skills and agents
+          don&rsquo;t hold every leg, so there&rsquo;s nothing for a fence to
+          remove there.)
         </p>
 
         <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Not caught by writing a test — a harness runs code and asks what it
-          did. Caught by <code className="font-mono">compiling</code> the skill
-          from a typed spec instead of hand-typing YAML, which adds a second
-          guarantee for free: the{" "}
+          A test wouldn&rsquo;t catch this — a harness runs code and checks what
+          it did, and there&rsquo;s no code to run here, only a missing line.
+          What catches it is <code className="font-mono">compiling</code> from a
+          typed spec instead of hand-typing YAML. That buys a second guarantee
+          for free: the{" "}
           <code className="font-mono text-xs">vigiles:sha256:…</code> marker
-          below — hand-edit this file and the runtime refuses it. Below is not
-          scv-scan itself — it&rsquo;s a small skill built the same shape, with
-          the fence scv-scan is missing:
+          below. Hand-edit any of these files afterward, and the runtime refuses
+          it.
         </p>
-        <CodeBlock code={demo.compiled} language="yaml" className="mt-6" />
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          Same compiler, three targets. The first tab isn&rsquo;t scv-scan
+          itself — it&rsquo;s a small demo skill built the same shape, carrying
+          the fence scv-scan is missing. The other two are real files from this
+          project: a subagent, and a project&rsquo;s own CLAUDE.md.
+        </p>
+        <CodeTabs
+          className="mt-6"
+          tabs={[
+            { label: "SKILL.md", code: demo.compiled },
+            { label: "agent", code: demo.agentCompiled },
+            { label: "CLAUDE.md", code: demo.claudeMdCompiled },
+          ]}
+        />
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">vigiles audit</code> scores it{" "}
           <strong className="text-foreground">
