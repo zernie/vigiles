@@ -1,4 +1,5 @@
-import { CodeBlock } from "@/components/CodeBlock";
+import { ChevronRight } from "lucide-react";
+import { CodeTabs } from "@/components/CodeTabs";
 import trailofbits from "./__fixtures__/trailofbits-skills.json";
 
 /**
@@ -99,6 +100,88 @@ import trailofbits from "./__fixtures__/trailofbits-skills.json";
  * (3) "lethal trifecta" was used with zero definition, including in the
  *     Hero. Expanded it inline here to the three-step read-untrusted-send
  *     shape, once, where the term first does real work.
+ *
+ * 🔴 REWORDED 2026-09-26, a sixth pass (Ernie, screenshot of the lead
+ * paragraph on mobile: "какой-то пиздец, просто блок, какой-то поток
+ * сознания"). The FIFTH pass above added real information (the 32-vs-28
+ * clause, the trifecta definition) by stuffing it into the existing
+ * sentence with more em-dashes and a parenthetical inside a parenthetical —
+ * correct content, unreadable shape. Split into two short paragraphs: one
+ * states the trifecta as three short sentences and names scv-scan; the
+ * other explains allowed-tools vs disallowed-tools and gives the 28/32 stat
+ * as its own sentence, with ONE trailing parenthetical instead of a nested
+ * one. Also lightly re-cut the next paragraph (test-vs-compile) for the
+ * same reason — three em-dash clauses in three sentences in a row.
+ *
+ * 🔴 ADDED 2026-09-26, a seventh pass (Ernie: "нужно показать, как выглядят
+ * скиллы и агенты, которые компилируются... и Cloud MD тоже" — CLAUDE.md).
+ * One CodeBlock showed only the skill; a reader had no way to see that
+ * `vigiles compile` targets agents and CLAUDE.md/AGENTS.md the same way.
+ * Added `CodeTabs` (src/components/CodeTabs.tsx, hand-rolled — this repo has
+ * no Radix dependency and three static panels don't need one) with three
+ * REAL files: the existing demo skill, plus two files already spec-managed
+ * and committed elsewhere in THIS repo — examples/harness/dogfood/
+ * reviewer-ab's code-reviewer agent, and examples/CLAUDE.md. Both are read
+ * (not compiled fresh) by the generator and asserted to still carry a
+ * `vigiles:sha256:` marker, so a hand-edit that breaks one fails the build
+ * instead of reaching the page quietly.
+ *
+ * 🔴 REBUILT 2026-09-26, an eighth pass — Ernie, on a screenshot of the
+ * result of the sixth pass: "ты обратно нахуярил какую-то стену текста...
+ * форматирование не помешает улучшить." The sixth pass shortened SENTENCES;
+ * it never counted PARAGRAPHS. Screenshotted at 1280px, this beat was seven
+ * same-weight gray paragraphs in a row — every fact printed at once, no
+ * paragraph more important-looking than the next. Splitting long sentences
+ * into short ones doesn't fix that; it just makes a taller wall out of
+ * shorter bricks. The fix is structural, borrowed from Measure.tsx's own
+ * `<details>` disclosure (already used there for "but my skill does things
+ * for real" — a reader who has never hit that question skips it for free):
+ *   - the allowed-tools-vs-disallowed-tools mechanism, plus the 28/4/32
+ *     stat, is now COLLAPSED by default behind "Isn't allowed-tools supposed
+ *     to stop that?" — the first-scroll reader sees one lead paragraph, not
+ *     two;
+ *   - the compile-vs-test paragraph and the tab intro (were two paragraphs)
+ *     are one;
+ *   - the Safety-score line and the exfil-box intro (were one paragraph
+ *     each) are one, and shortened;
+ *   - the "scripted model reads..." process paragraph moved INSIDE the exfil
+ *     box as a small `text-xs` caption instead of standing as its own
+ *     full-weight paragraph after it;
+ *   - the closing "gate, not a wall" paragraph shrank to one `text-xs` line,
+ *     visually a footnote, not a fourth idea competing for the same
+ *     attention as the headline.
+ * Net: seven full-weight paragraphs before this pass, two after (the
+ * disclosure content is invisible until clicked). Nothing measured was cut —
+ * every number and file reference above still appears somewhere on the page.
+ *
+ * 🔴 FIXED 2026-09-26, a ninth pass — a fresh subagent's cold read of the
+ * eighth pass's screenshots (asked to be adversarial, not diplomatic) caught
+ * three real regressions the eighth pass introduced by cutting too hard, not
+ * stylistic nitpicks:
+ * (1) hiding the allowed-tools-vs-disallowed-tools answer ENTIRELY behind the
+ *     `<details>` broke the lead paragraph's own claim — "every reader's
+ *     next thought is 'how? Read/Grep/Glob can't send anything out'... the
+ *     headline claim isn't believable" without it. Added one clause to the
+ *     LEAD itself (narrow ≠ fenced, in six words) so the claim is credible
+ *     on first read; the details still holds the full mechanism + the 28/32
+ *     breakdown for whoever wants it;
+ * (2) merging the compile-vs-test paragraph with the tab intro silently cut
+ *     the one sentence saying the first tab is a DEMO skill, not scv-scan
+ *     itself — cold read: "the lead names scv-scan, but the code shows
+ *     solidity-audit... is that the fixed scv-scan? A different skill? It
+ *     isn't said." That sentence existed before the eighth pass and should
+ *     not have been dropped; restored as its own short line, right before
+ *     the tabs instead of fused into the paragraph above them;
+ * (3) neither `<details>` had any visual affordance — cold read: "neither
+ *     box looks clickable... they read as pull-quotes, so people will skip
+ *     them." Added a `ChevronRight` (lucide-react, already a dependency
+ *     elsewhere on this page) that rotates open via Tailwind's `group-open:`
+ *     variant — same fix applied to Measure.tsx's own `<details>` in the
+ *     same pass, since it had the identical problem.
+ * Also cut the `vigiles:sha256:…` marker mention from the dense paragraph —
+ * secondary detail, already visible verbatim in the compiled YAML two lines
+ * below it, didn't need a second callout competing with the credibility
+ * fix above.
  */
 
 export function Guard() {
@@ -117,45 +200,78 @@ export function Guard() {
           forgot to say what it isn&rsquo;t.
         </h2>
         <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-          <code className="font-mono">scv-scan</code>, a Solidity vulnerability
-          auditor in the same marketplace, declares{" "}
+          Read a secret. Take instructions from something untrusted. Send the
+          secret out. That&rsquo;s the &ldquo;lethal trifecta,&rdquo; and{" "}
+          <code className="font-mono">scv-scan</code> holds all three — despite
+          declaring a narrow{" "}
           <code className="font-mono">
             allowed-tools: [{scvScan.allowedTools.join(", ")}]
           </code>
-          . That looks narrow. It still holds Bash, WebFetch and WebSearch —
-          read a secret, take instructions from something untrusted, send the
-          secret out: the &ldquo;lethal trifecta&rdquo; — because{" "}
-          <code className="font-mono">allowed-tools:</code> pre-approves, it
-          doesn&rsquo;t fence. Only{" "}
-          <code className="font-mono">disallowed-tools:</code> removes a tool,
-          and it appears zero times across the {trailofbits.trifectaApplicable}{" "}
-          skills exposed to all three (of {trailofbits.surfaces} skills and
-          agents total — the rest don&rsquo;t hold every leg, so a fence would
-          have nothing to remove either way).
+          . Narrow doesn&rsquo;t mean fenced — that list only pre-approves
+          tools, it doesn&rsquo;t remove anything else.
         </p>
 
+        {/* Collapsed on purpose — same reasoning as Measure.tsx's own
+            <details> a few screens down, and note that the CREDIBILITY-critical
+            half of the answer ("narrow ≠ fenced") is now in the lead paragraph
+            above, not hidden here — a cold read of the previous version caught
+            that hiding it entirely broke the lead's own claim. What's still
+            behind the click is the deeper mechanism (disallowed-tools) and the
+            supporting stat, which a convinced reader doesn't need and a
+            skeptical one can open. */}
+        <details className="group mt-5 rounded-xl border border-border/60 bg-card/30 px-5">
+          <summary className="flex cursor-pointer list-none items-center gap-2 py-4 text-base font-medium text-foreground [&::-webkit-details-marker]:hidden">
+            <ChevronRight
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+            />
+            So what would actually fence it?
+          </summary>
+          <div className="space-y-3 pb-5 pl-6 text-sm leading-relaxed text-muted-foreground">
+            <p>
+              Only <code className="font-mono">disallowed-tools:</code> does —
+              and among the {trailofbits.trifectaApplicable} skills holding all
+              three legs, it&rsquo;s used zero times. (The other{" "}
+              {trailofbits.surfaces - trailofbits.trifectaApplicable} of the
+              marketplace&rsquo;s {trailofbits.surfaces} skills and agents
+              don&rsquo;t hold every leg, so there&rsquo;s nothing for a fence
+              to remove there.)
+            </p>
+          </div>
+        </details>
+
         <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Not caught by writing a test — a harness runs code and asks what it
-          did. Caught by <code className="font-mono">compiling</code> the skill
-          from a typed spec instead of hand-typing YAML, which adds a second
-          guarantee for free: the{" "}
-          <code className="font-mono text-xs">vigiles:sha256:…</code> marker
-          below — hand-edit this file and the runtime refuses it. Below is not
-          scv-scan itself — it&rsquo;s a small skill built the same shape, with
-          the fence scv-scan is missing:
+          A test can&rsquo;t catch this — there&rsquo;s no code to run, only a
+          missing line. <code className="font-mono">Compiling</code> from a
+          typed spec can: the same pass that fills in{" "}
+          <code className="font-mono">disallowed-tools</code> also stamps an
+          integrity marker below, so a hand-edit afterward gets refused.
         </p>
-        <CodeBlock code={demo.compiled} language="yaml" className="mt-6" />
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          <code className="font-mono">vigiles audit</code> scores it{" "}
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          The first tab below isn&rsquo;t{" "}
+          <code className="font-mono">scv-scan</code> itself — it&rsquo;s a demo
+          skill built the same shape, carrying the fence scv-scan is missing.
+          Same compiler, two more real targets from this project: an agent, and
+          a project&rsquo;s own CLAUDE.md.
+        </p>
+        <CodeTabs
+          className="mt-4"
+          tabs={[
+            { label: "SKILL.md", code: demo.compiled },
+            { label: "Agent", code: demo.agentCompiled },
+            { label: "CLAUDE.md", code: demo.claudeMdCompiled },
+          ]}
+        />
+
+        <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          <code className="font-mono">vigiles audit</code> calls the compiled
+          version{" "}
           <strong className="text-foreground">
             Safety {demo.safetyScore}/100
           </strong>
-          , against 90/100 for every one of the {trailofbits.plugins} plugins
-          that ships without it — a lint score, not a guarantee. Here&rsquo;s
-          the fence tried for real:
+          . Here&rsquo;s that fence tried for real, not just scored:
         </p>
-
-        <div className="mt-6 rounded-xl border border-border/60 bg-card/30 p-5">
+        <div className="mt-4 rounded-xl border border-border/60 bg-card/30 p-5">
           <p className="font-mono text-xs text-muted-foreground">
             $ {demo.exfil.command}
           </p>
@@ -175,25 +291,23 @@ export function Guard() {
                 : "went through"}
             </span>
           </div>
+          <p className="mt-3 border-t border-border/60 pt-3 text-xs leading-relaxed text-muted-foreground">
+            A scripted model reads that instruction and tries it — the real{" "}
+            <code className="font-mono">claude</code> CLI, spawned for real,
+            against a domain that never resolves either way.
+          </p>
         </div>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          A scripted model reads that instruction from a contract comment and
-          tries it — the real <code className="font-mono">claude</code> CLI,
-          spawned for real. No network reaches anywhere either way: the target
-          domain is reserved and never resolves.
-        </p>
 
-        <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          A gate is a strong default, not a wall: a fenced skill still runs
-          inside a session that grants those tools to everything else, and a
-          model can still route around a tool entirely.{" "}
+        <p className="mt-4 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+          A gate is a strong default, not a wall — a fenced skill still shares a
+          session with everything else.{" "}
           <a
             href="https://github.com/zernie/vigiles/blob/main/docs/compiled-hooks.md"
             target="_blank"
             rel="noopener noreferrer"
             className="text-accent no-underline transition-colors hover:text-accent/80"
           >
-            Compiled hooks work the same way, for the tool call itself
+            Compiled hooks close that gap, at the tool call itself
           </a>
           .
         </p>
