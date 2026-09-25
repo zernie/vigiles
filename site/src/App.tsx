@@ -18,19 +18,27 @@ import { Footer } from "@/components/Footer";
  * "it feels like few sites slapped together". Measured at the time: 12,211 CSS
  * px, roughly fourteen laptop screens, in four unrelated layout languages.
  *
- * The spine is now FAILURE → COMMAND. Every beat between the demo and the CTA
+ * The spine is FAILURE → COMMAND. Every beat between the demo and the CTA
  * names a bug a plugin author has already lived through, shows what we measured
  * on a real repo, and ends in the one command that catches it:
  *
  *   Hero        audit — the graded read, played live on a repo you recognise,
  *               closing on ONE line that names `lint` (the CI gate, the only
  *               verb with no beat) and hands off to the three below
+ *   MeasureEval eval    — your skill has a description; does it fire?
  *   MeasureTest test    — your safety hook: what does it actually stop?
  *   Guard       compile — a widely-copied hook blocks 2 of 7
- *   MeasureEval eval    — your skill has a description; does it fire?
  *   Adoption    the agent does the work: one command, then a prompt
  *   Compare     the pointer to /comparison (which was linked from NOWHERE)
  *   FAQ · CTA   the two objections that stop a run, then the ask
+ *
+ * 2026-09-26 (Эрни): MeasureEval moved ahead of MeasureTest/Guard — skills
+ * (does it fire?) now lead, hooks (does it block?) follow. Until this date the
+ * order was Hero → MeasureTest → Guard → MeasureEval; the FAILURE → COMMAND
+ * shape within each beat is unchanged, only the hook-vs-skill order between
+ * beats moved. Reason: skill description/triggering is the surface most
+ * plugin authors touch first — hooks are the deeper, rarer claim (2/7 vs 7/7)
+ * and read better as the follow-up proof than the opener.
  *
  * WHAT LEFT, and why, so it is not restored by reflex:
  *
@@ -67,9 +75,9 @@ export function App() {
       <StickyCTA />
       <main className="min-h-screen">
         <Hero />
+        <MeasureEval />
         <MeasureTest />
         <Guard />
-        <MeasureEval />
         <Adoption />
         <Compare />
         <FAQ />
