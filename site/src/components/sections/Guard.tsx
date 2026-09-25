@@ -86,6 +86,19 @@ import trailofbits from "./__fixtures__/trailofbits-skills.json";
  * because Ernie asked for it explicitly: the exfil box and the spec/SHA
  * point. `demo.source` still exists in the fixture if a future pass wants it
  * back.
+ *
+ * 🔴 FIXED 2026-09-26, a fifth pass — a fresh subagent's cold read of
+ * screenshots (Ernie: "запусти слепого агента... фулстек программист")
+ * caught three real problems, all confirmed genuine, not stylistic:
+ * (1) the H2 said "28" while `test`'s H2 said "32" with no explanation —
+ *     added the "of 32 total, 28 exposed to all three legs" clause so the
+ *     two numbers read as a subset, not a contradiction;
+ * (2) prose names `scv-scan`, the code block shows `solidity-audit` (this
+ *     beat's own demo skill) — a reader can't tell that's intentional. Added
+ *     one clause before the block saying so explicitly;
+ * (3) "lethal trifecta" was used with zero definition, including in the
+ *     Hero. Expanded it inline here to the three-step read-untrusted-send
+ *     shape, once, where the term first does real work.
  */
 
 export function Guard() {
@@ -110,11 +123,15 @@ export function Guard() {
             allowed-tools: [{scvScan.allowedTools.join(", ")}]
           </code>
           . That looks narrow. It still holds Bash, WebFetch and WebSearch —
-          every leg of the lethal trifecta — because{" "}
+          read a secret, take instructions from something untrusted, send the
+          secret out: the &ldquo;lethal trifecta&rdquo; — because{" "}
           <code className="font-mono">allowed-tools:</code> pre-approves, it
           doesn&rsquo;t fence. Only{" "}
           <code className="font-mono">disallowed-tools:</code> removes a tool,
-          and it appears zero times across the marketplace.
+          and it appears zero times across the {trailofbits.trifectaApplicable}{" "}
+          skills exposed to all three (of {trailofbits.surfaces} skills and
+          agents total — the rest don&rsquo;t hold every leg, so a fence would
+          have nothing to remove either way).
         </p>
 
         <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
@@ -123,7 +140,9 @@ export function Guard() {
           from a typed spec instead of hand-typing YAML, which adds a second
           guarantee for free: the{" "}
           <code className="font-mono text-xs">vigiles:sha256:…</code> marker
-          below — hand-edit this file and the runtime refuses it.
+          below — hand-edit this file and the runtime refuses it. Below is not
+          scv-scan itself — it&rsquo;s a small skill built the same shape, with
+          the fence scv-scan is missing:
         </p>
         <CodeBlock code={demo.compiled} language="yaml" className="mt-6" />
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">

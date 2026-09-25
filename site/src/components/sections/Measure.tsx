@@ -98,6 +98,23 @@ import lock from "./__fixtures__/tdd-trigger-rate.json";
  * cannot parse does the opposite. Moved the name out of the h2 into the
  * lead paragraph, where the sentence around it ("the one skill... shipping
  * real Python") carries the meaning the name alone did not.
+ *
+ * 🔴 FIXED 2026-09-26, a fifth pass (Ernie, after reading a fresh subagent's
+ * cold read of screenshots: "как будто [мы тестируем] сами скрипты...
+ * тестировать нужно именно скилл, в котором могут быть скрипты, а могут и не
+ * быть, это может быть вложенный в текст скрипт — вот это реальная проблема").
+ * The artifact above runs `runScript` straight against the vendored
+ * `dates.py` — a real file, tested for real, but a FILE, not the skill. A
+ * reader can reasonably ask "why not just pytest this?" and nothing on the
+ * page answered. Fixed by naming the actual distinction instead of leaving it
+ * implicit: `dates.py` is a file only because this particular skill happens
+ * to ship one; most skills carry their only logic as SKILL.md prose, which no
+ * file-based runner has anything to point at, and `vigiles test` treats both
+ * the same way. Did NOT try to build a live, activation-based test of
+ * `last30days` itself for this pass — its real entry point
+ * (`scripts/last30days.py`) hits Reddit/X/web APIs, so a deterministic,
+ * network-free harness for it is a separate, bigger piece of work, not a
+ * copy fix.
  */
 
 /**
@@ -156,6 +173,11 @@ export function MeasureTest() {
             answers &ldquo;is this tested&rdquo; without running anything: zero
             of the marketplace&rsquo;s {trailofbits.surfaces} skills and agents
             have a colocated test, this one included — until we wrote it above.
+            Most carry no separate file to test at all — their only logic is the
+            instructions in the SKILL.md text, which pytest has nothing to run.{" "}
+            <code className="font-mono">vigiles test</code> doesn&rsquo;t care:
+            a script when there is one, the skill&rsquo;s own activation when
+            there isn&rsquo;t.
           </p>
 
           {/* Collapsed on purpose. A reader who has never had a test push to their
