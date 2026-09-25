@@ -5,7 +5,7 @@ allowed-tools: [Read, Grep, Glob]
 disallowed-tools: [Bash, WebFetch, WebSearch]
 ---
 
-<!-- vigiles:sha256:32683096ebc21141 compiled from scripts/dogfood/solidity-audit-demo/skills/solidity-audit/SKILL.md.spec.ts -->
+<!-- vigiles:sha256:32683096ebc21141 compiled from site/scripts/dogfood/solidity-audit-demo/skills/solidity-audit/SKILL.md.spec.ts -->
 
 # solidity-audit
 

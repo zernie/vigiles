@@ -558,6 +558,18 @@ jobs:
 
       - run: npm ci
 
+      # gen-trailofbits-expected.mjs (part of `pretest:browser`) spawns the real
+      # claude CLI via runHarnessTest for the compile beat's live exfiltration
+      # demo — measured 2026-09-25: without this step the job dies on
+      # `spawn claude ENOENT` before a single browser test runs. Same pinned
+      # install as the `harness` job above (no API key needed — the harness
+      # tier drives claude against a local scripted mock model).
+      - name: Install claude CLI (pinned to the dialect-validated version; no API key needed)
+        run: |
+          CC=$(grep -oP -m1 'VALIDATED_CC_VERSION = "\K[0-9.]+' src/adapters/claude-code/dialect-drift.ts)
+          [ -n "$CC" ] || { echo "could not read VALIDATED_CC_VERSION"; exit 1; }
+          npm i -g "@anthropic-ai/claude-code@$CC"
+
       # The site imports the built root dist/ via the @engine/* aliases (the
       # literally-same compiled engine), so it must exist before the browser tests.
       - name: Build engine (root dist/)

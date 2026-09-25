@@ -133,22 +133,30 @@ if (!scvSkill?.trifecta)
 const DEMO = "scripts/dogfood/solidity-audit-demo";
 const demoSpec = here(`../${DEMO}/skills/solidity-audit/SKILL.md.spec.ts`);
 const demoSkillMd = here(`../${DEMO}/skills/solidity-audit/SKILL.md`);
-const demoSpecRelative = `${DEMO}/skills/solidity-audit/SKILL.md.spec.ts`;
-// Compiled with a REPO-RELATIVE arg (cwd = repo root) on purpose: `vigiles
-// compile` embeds whatever path it was given in the artifact's integrity
-// marker, and an absolute arg would leak this machine's filesystem layout into
-// a file that gets committed and shown on the public page.
+// REPO-RELATIVE from the MONOREPO ROOT (not from site/) on purpose: `vigiles
+// compile` embeds whatever path it was given into the artifact's integrity
+// marker, and `vigiles lint`/`vigiles audit` in CI (the `check` job) run from
+// the monorepo root, resolving that marker against THAT cwd. Compiling with
+// `cwd: here("..")` (= site/) once embedded `scripts/dogfood/...` — missing
+// the `site/` prefix — and passed locally (this script's own reads use
+// `here()` directly) while failing `vigiles lint .` from the root with
+// "SKILL.md.spec.ts ... no longer exists" (caught by CI, not by this script).
+const demoSpecRelative = `site/${DEMO}/skills/solidity-audit/SKILL.md.spec.ts`;
 execFileSync("node", [cli, "compile", demoSpecRelative], {
-  cwd: here(".."),
+  cwd: here("../.."),
   encoding: "utf8",
 });
 const demoSource = readFileSync(demoSpec, "utf8");
 const demoCompiled = readFileSync(demoSkillMd, "utf8");
 
-const demoAuditRaw = execFileSync("node", [cli, "audit", `${DEMO}`, "--json"], {
-  cwd: here(".."),
-  encoding: "utf8",
-});
+const demoAuditRaw = execFileSync(
+  "node",
+  [cli, "audit", `site/${DEMO}`, "--json"],
+  {
+    cwd: here("../.."),
+    encoding: "utf8",
+  },
+);
 const demoAudit = JSON.parse(demoAuditRaw);
 const demoSafety = demoAudit.score.categories.find((c) => c.key === "Safety");
 if (demoSafety?.score !== 100)
