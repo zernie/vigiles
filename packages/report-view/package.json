@@ -9,13 +9,13 @@
     "./theme.css": "./src/theme.css"
   },
   "peerDependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^0.469.0",
-    "tailwind-merge": "^2.6.0"
+    "lucide-react": "^1.47.0",
+    "tailwind-merge": "^3.7.0"
   }
 }
