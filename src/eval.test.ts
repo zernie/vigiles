@@ -14,6 +14,7 @@ import {
   mkdtempSync,
   existsSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   cpSync as cpSyncForTest,
@@ -878,6 +879,43 @@ test("runEvalWith / measureArmsWith: an ARM may name skillsDir (the resolver liv
   assert.equal(f.seen.length - before, 2);
   assert.equal(report.arms.on?.namespace, "vigiles-loose-skills");
   assert.equal(report.arms.off?.namespace, undefined);
+  cleanupTmpDir(f.dir);
+});
+
+test("resolveArmInstalls cleans up an EARLIER arm's packaged dir when a LATER arm's resolve throws", async () => {
+  const f = looseSkillsFixture("arm-cleanup-on-failure");
+  // Object key order is insertion order for string keys, so "on" resolves and
+  // packages a throwaway plugin dir FIRST; "bad" (pluginDir + skillsDir both
+  // set) throws before any arm runs — resolveArmInstalls resolves every arm
+  // up front, so this exercises the catch's cleanup loop, not just the throw.
+  const before = readdirSync(tmpdir()).filter((n) =>
+    n.startsWith("vigiles-skills-"),
+  );
+  await assert.rejects(
+    runEvalWith(
+      {
+        arms: {
+          on: { skillsDir: f.skills },
+          bad: { pluginDir: "/p", skillsDir: "/s" },
+        },
+        task: "do foo",
+        trials: 1,
+        spacingSec: 0,
+        measure: () => ({ ok: true }),
+      },
+      f.runner,
+    ),
+    /not both/,
+  );
+  assert.equal(f.seen.length, 0, "resolution failed before any run started");
+  const after = readdirSync(tmpdir()).filter((n) =>
+    n.startsWith("vigiles-skills-"),
+  );
+  assert.deepEqual(
+    after,
+    before,
+    "the `on` arm's packaged dir was removed, not leaked",
+  );
   cleanupTmpDir(f.dir);
 });
 
