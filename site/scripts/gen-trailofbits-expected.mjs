@@ -17,6 +17,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { format } from "prettier";
+import yaml from "js-yaml";
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const { runHarnessTest } = await import(here("../../dist/test.js"));
@@ -118,12 +119,52 @@ for (const plugin of audit.plugins) {
   }
 }
 
-const scv = audit.plugins.find((p) => p.name === "scv-scan");
-if (!scv)
-  throw new Error('no "scv-scan" plugin in the audit — did the slice change?');
-const scvSkill = (scv.report.skills ?? []).find((s) => s.name === "scv-scan");
-if (!scvSkill?.trifecta)
-  throw new Error("scv-scan has no trifecta data — did the slice change?");
+/**
+ * The compile beat's real-world example: a skill whose author wrote a NARROW
+ * allow-list and still holds all three trifecta legs, because `allowed-tools:`
+ * pre-approves and never removes.
+ *
+ * 🔴 Was `scv-scan` until 2026-09-26, and the page said it declared
+ * `[Read, Grep, Glob]`. It does not: its real list is Read, Grep, Glob, Bash,
+ * Write, Task. That three-item list came from a hard-coded
+ * `["Read","Grep","Glob"].includes(t)` filter here whose comment claimed it
+ * was "the narrow allow-list the author actually wrote." So the list is now
+ * read from the vendored file itself, and the build fails if the example
+ * stops being narrow — a narrow list is the entire claim.
+ */
+const EXAMPLE = "openai-security-threat-model";
+const example = audit.plugins.find((p) => p.name === EXAMPLE);
+if (!example)
+  throw new Error(
+    `no "${EXAMPLE}" plugin in the audit — did the slice change?`,
+  );
+const exampleSkill = (example.report.skills ?? []).find(
+  (s) => s.name === EXAMPLE,
+);
+if (!exampleSkill?.trifecta)
+  throw new Error(`${EXAMPLE} has no trifecta data — did the slice change?`);
+if (exampleSkill.trifecta.fence !== "none")
+  throw new Error(
+    `${EXAMPLE} now declares a fence ("${exampleSkill.trifecta.fence}") — the compile beat's "nobody fences" example no longer holds`,
+  );
+const exampleSkillMd = readFileSync(
+  here(`../../${SLICE}/plugins/${EXAMPLE}/skills/${EXAMPLE}/SKILL.md`),
+  "utf8",
+);
+const exampleFrontmatter = exampleSkillMd.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+if (!exampleFrontmatter)
+  throw new Error(`${EXAMPLE}/SKILL.md has no frontmatter block`);
+const exampleDeclared = yaml.load(exampleFrontmatter[1])["allowed-tools"];
+if (!Array.isArray(exampleDeclared) || exampleDeclared.length === 0)
+  throw new Error(`${EXAMPLE} declares no allowed-tools list`);
+const WIDE = ["Bash", "WebFetch", "WebSearch"];
+const wideDeclared = exampleDeclared.filter((t) =>
+  WIDE.includes(String(t).split("(")[0]),
+);
+if (wideDeclared.length > 0)
+  throw new Error(
+    `${EXAMPLE} now explicitly allows ${wideDeclared.join(", ")} — its list is no longer narrow, so the page's "narrow list, still holds the trifecta" claim is false for it`,
+  );
 
 /**
  * The FIX half: the same allow-list, compiled with `disallowedTools`, actually
@@ -192,9 +233,11 @@ if (demoSafety?.score !== 100)
  * LIVE EXFILTRATION ATTEMPT — not a static score. A scripted mock model
  * "reads" a contract carrying an injected instruction, then tries to exfil a
  * fake secret over Bash — the exact attack `lethal-trifecta` (docs/rules/
- * lethal-trifecta.md) is named for. Run twice: once against scv-scan's real
- * config (allowed-tools only) and once against the compiled fix
- * (+ disallowed-tools). This is `runHarnessTest`, a real spawned `claude`
+ * lethal-trifecta.md) is named for. Run twice: once against a skill whose only
+ * declaration is a narrow `allowed-tools: [Read, Grep, Glob]` (VULNERABLE_SKILL_MD
+ * below — synthetic, not any marketplace skill's file; until 2026-09-26 the page
+ * mislabelled this row "scv-scan's real config") and once against the compiled
+ * fix (+ disallowed-tools). This is `runHarnessTest`, a real spawned `claude`
  * CLI process against a scripted, deterministic model — $0, no real network
  * egress reaches anywhere (the Bash command targets `attacker.example`, an
  * RFC 6761 reserved non-resolving domain, and it never runs at all in the
@@ -286,15 +329,11 @@ const fixture = {
     controlInput: REAL_TIMESTAMP,
     controlOutput: parseTimestampResult.stdout.trim(),
   },
-  scvScan: {
-    allowedTools: scvSkill.trifecta.legs.private.filter((t) =>
-      // the frontmatter's OWN declared list — private/untrusted/exfil legs all
-      // include Bash/WebFetch/WebSearch regardless of what's declared, which is
-      // the finding; this is the narrow allow-list the author actually wrote.
-      ["Read", "Grep", "Glob"].includes(t),
-    ),
-    fence: scvSkill.trifecta.fence,
-    message: scvSkill.trifecta.message,
+  narrowExample: {
+    name: EXAMPLE,
+    allowedTools: exampleDeclared.map(String),
+    fence: exampleSkill.trifecta.fence,
+    message: exampleSkill.trifecta.message,
   },
   demo: {
     source: demoSource,
