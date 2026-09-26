@@ -153,6 +153,22 @@ import lock from "./__fixtures__/tdd-trigger-rate.json";
  * called `eval` the best section on the page and flagged that one clause as
  * its only filler, restating what the kicker ("$ vigiles eval · real model
  * · your Claude subscription") already says.
+ *
+ * 🔴 SPLIT 2026-09-26, an eleventh pass — same fix as Guard.tsx's eleventh
+ * pass, same session (Ernie: the compile H2 "reads as if this IS what
+ * compiling reduces to... applies to test/eval's headlines too"). Both H2s
+ * here named their one measured case directly (the date-bug skill; "your
+ * skill... does it fire"); moved the specific case out of the H2 into the
+ * lead paragraph behind "For example:", and reworded the H2 itself to state
+ * the general capability (testing finds bugs nobody looked for; a
+ * description isn't a firing guarantee) with no plugin name or number in it.
+ *
+ * ═══ Before changing either H2 here: read the HEADLINE RULE block at the end
+ * of Guard.tsx's header comment — the method (look at how shipped tools sell
+ * it first), the pattern (name the quiet failure), and the headline shapes
+ * already rejected. Current H2s, accepted without objection: test "Untested
+ * skills hide real bugs. Testing finds them in minutes, not months." · eval
+ * "A skill's description isn't a promise it fires." ═══
  */
 
 /**
@@ -171,16 +187,15 @@ export function MeasureTest() {
             $ vigiles test · no model · free in CI
           </p>
           <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-            We wrote one skill&rsquo;s first test.{" "}
-            <span className="whitespace-nowrap">
-              It found a bug in a minute.
-            </span>
+            Untested skills hide real bugs. Testing finds them in minutes, not
+            months.
           </h2>
           <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-            <code className="font-mono">{dateBug.plugin}</code>, the one skill
-            in Trail of Bits&rsquo; curated marketplace shipping real Python,
-            not just prose. Nobody had tested it — like the other{" "}
-            {trailofbits.surfaces - 1}.
+            For example: <code className="font-mono">{dateBug.plugin}</code>,
+            the one skill in Trail of Bits&rsquo; curated marketplace shipping
+            real Python, not just prose. Nobody had tested it — like the other{" "}
+            {trailofbits.surfaces - 1}. We wrote its first test. It found a bug
+            in a minute.
           </p>
 
           <div className="mt-8 rounded-xl border border-border/60 bg-card/30 p-5">
@@ -345,11 +360,12 @@ export function MeasureEval() {
             $ vigiles eval · real model · your Claude subscription
           </p>
           <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-            Your skill has a description. Does it fire?
+            A skill&rsquo;s description isn&rsquo;t a promise it fires.
           </h2>
           <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-            We measured a popular open-source TDD skill against ten ways of
-            asking for test-first work. Eight reached it. These two did not:
+            For example: we measured a popular open-source TDD skill against ten
+            ways of asking for test-first work. Eight reached it. These two did
+            not:
           </p>
 
           <div className="mt-8 overflow-hidden rounded-xl border border-border/60">

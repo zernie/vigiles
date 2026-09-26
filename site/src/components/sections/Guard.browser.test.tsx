@@ -19,12 +19,30 @@ import { describe, it, expect } from "vitest";
 import trailofbits from "./__fixtures__/trailofbits-skills.json";
 
 describe("the Guard section quotes the real trailofbits/skills-curated audit", () => {
-  it("scv-scan's allowed-tools list matches the fixture, not a retyped guess", () => {
-    expect(trailofbits.scvScan.allowedTools).toEqual(["Read", "Grep", "Glob"]);
+  // Replaced 2026-09-26. The old assertion pinned scv-scan to
+  // ["Read","Grep","Glob"] — a list the generator had MADE UP with a hard-coded
+  // filter; scv-scan's real list includes Bash. A test that agrees with a
+  // fabricated fixture proves nothing, so this now pins the example's real
+  // list (read from its SKILL.md by the generator) and the property the copy
+  // relies on: nothing wide is declared.
+  it("the example's allowed-tools is its real declared list", () => {
+    expect(trailofbits.narrowExample.name).toBe("openai-security-threat-model");
+    expect(trailofbits.narrowExample.allowedTools).toEqual([
+      "Read",
+      "Grep",
+      "Glob",
+      "Write",
+      "Edit",
+    ]);
   });
 
-  it("scv-scan holds no fence — the whole headline claim", () => {
-    expect(trailofbits.scvScan.fence).toBe("none");
+  it("the example's list really is narrow — no Bash, WebFetch or WebSearch", () => {
+    for (const wide of ["Bash", "WebFetch", "WebSearch"])
+      expect(trailofbits.narrowExample.allowedTools).not.toContain(wide);
+  });
+
+  it("the example holds no fence — the whole headline claim", () => {
+    expect(trailofbits.narrowExample.fence).toBe("none");
   });
 
   it("the headline ratio (N of M unfenced) is internally consistent", () => {
