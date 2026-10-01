@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 485 project files. */
+  /** 489 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -314,6 +314,8 @@ declare module "vigiles/generated" {
     | "src/core/inline.test.ts"
     | "src/core/inline.ts"
     | "src/core/install-reader.ts"
+    | "src/core/instruction-baseline.test.ts"
+    | "src/core/instruction-baseline.ts"
     | "src/core/instruction-chain.test.ts"
     | "src/core/instruction-chain.ts"
     | "src/core/instruction-weight.test.ts"
@@ -470,6 +472,8 @@ declare module "vigiles/generated" {
     | "src/hook.ts"
     | "src/instruction-sources.test.ts"
     | "src/instruction-sources.ts"
+    | "src/instruction-weight-ratchet.test.ts"
+    | "src/instruction-weight-ratchet.ts"
     | "src/jest.ts"
     | "src/judge.test.ts"
     | "src/judge.ts"
@@ -871,6 +875,8 @@ declare module "vigiles/spec" {
       | "src/core/inline.test.ts"
       | "src/core/inline.ts"
       | "src/core/install-reader.ts"
+      | "src/core/instruction-baseline.test.ts"
+      | "src/core/instruction-baseline.ts"
       | "src/core/instruction-chain.test.ts"
       | "src/core/instruction-chain.ts"
       | "src/core/instruction-weight.test.ts"
@@ -1027,6 +1033,8 @@ declare module "vigiles/spec" {
       | "src/hook.ts"
       | "src/instruction-sources.test.ts"
       | "src/instruction-sources.ts"
+      | "src/instruction-weight-ratchet.test.ts"
+      | "src/instruction-weight-ratchet.ts"
       | "src/jest.ts"
       | "src/judge.test.ts"
       | "src/judge.ts"
