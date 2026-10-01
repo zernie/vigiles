@@ -121,7 +121,7 @@
     "semantic-release": "25.0.9",
     "tsx": "^4.21.0",
     "typedoc": "^0.28.19",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.8"
   },
   "peerDependencies": {
@@ -137,18 +137,18 @@
     }
   },
   "dependencies": {
-    "@ast-grep/napi": "^0.43.0",
+    "@ast-grep/napi": "^0.45.3",
     "@iarna/toml": "^2.2.5",
     "@vscode/tree-sitter-wasm": "0.3.1",
     "ci-info": "^4.4.0",
-    "cosmiconfig": "^9.0.1",
+    "cosmiconfig": "^10.0.1",
     "glob": "^13.0.6",
-    "js-yaml": "^4.1.0",
-    "markdown-it": "^14.3.0",
+    "js-yaml": "^5.4.2",
+    "markdown-it": "^15.0.2",
     "minimatch": "^10.0.1",
     "mvdan-sh": "^0.10.1",
     "ts-essentials": "^10.2.1",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "zod": "^4.6.5"
   }
 }
