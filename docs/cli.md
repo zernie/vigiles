@@ -537,6 +537,15 @@ the log for a human AND the JSON for a PR comment scans once:
 npx vigiles lint . --json-out=reports/lint.json
 ```
 
+**Instruction-weight baseline.** `--update-baseline` records what the harness
+loads without being asked into `.vigiles/instruction-weight.json`; commit it, and
+`lint` fails whenever that sum moves off it. `lint` without the flag never writes
+the file. See [`instruction-weight`](rules/instruction-weight.md).
+
+```bash
+npx vigiles lint --update-baseline
+```
+
 **One number to quote.** Every run ends with a total that matches `--json`:
 
 ```

@@ -192,3 +192,20 @@ test("compile's line reads the weight against the recorded baseline", () => {
   );
   expect(line).toBe("always-loaded: 28,210 chars (baseline 30,000, -1,790)");
 });
+
+test("once the repo has a baseline file, an UNRECORDED bundle is a finding", () => {
+  // Opting in is committing the file; weight that appeared after that — here a
+  // root nobody recorded — is weight nobody signed off on.
+  put(
+    BASELINE,
+    JSON.stringify({
+      version: 1,
+      bundles: {
+        "plugins/a": { unit: "chars", total: 1, files: { "CLAUDE.md": 1 } },
+      },
+    }),
+  );
+  const r = run(["lint"]);
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /no instruction-weight baseline recorded/);
+});

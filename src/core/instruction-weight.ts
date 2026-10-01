@@ -28,12 +28,13 @@
  * number carries a different severity per harness, so the harness must supply
  * it — hence a port field, not a constant.
  *
- * NOT A GATE, AND THAT IS MEASURED. Both corpora this was built against sit at
- * roughly four times the Claude Code threshold. A rule that fails every real
- * repo on day one is switched off on day one (`lint-rule-calibration`: severity
- * tracks confidence, and a check nobody leaves on catches nothing). So the
- * first consumer is `audit`, as a REPORT. It earns a severity when a corpus
- * exists that it would not immediately fail.
+ * THE BUDGET IS NOT A GATE, AND THAT IS MEASURED. Both corpora this was built
+ * against sit at roughly four times the Claude Code threshold. A rule that
+ * fails every real repo on day one is switched off on day one
+ * (`lint-rule-calibration`: severity tracks confidence, and a check nobody
+ * leaves on catches nothing). So `audit` reports the budget, and what `lint`
+ * gates is the repo's OWN recorded weight (`./instruction-baseline.ts`): green
+ * on day one at any size, red the day it grows.
  */
 
 import type {

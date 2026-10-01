@@ -155,6 +155,17 @@ describe("the SUM is compared, not a file", () => {
 });
 
 describe("the file format", () => {
+  it("records only committed files, so two clones of one commit write the same file", () => {
+    const e = entryFor(
+      weighCc({ "CLAUDE.md": BODY, "CLAUDE.local.md": "l".repeat(9_000) }),
+    );
+    expect(e).toEqual({
+      unit: "chars",
+      total: 30_000,
+      files: { "CLAUDE.md": 30_000 },
+    });
+  });
+
   it("round-trips, with sorted keys and no timestamp (a diff shows only real movement)", () => {
     const b = recordEntries(undefined, [
       [
