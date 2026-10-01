@@ -545,6 +545,8 @@ describe("loadConfig", () => {
       "hook-matcher": "warn",
       // Off by measurement: 0 true positives over 2 582 markdown files.
       "doc-refs": false,
+      // On, and silent until the repo commits a baseline file.
+      "instruction-weight": "error",
     });
   });
 
