@@ -28,12 +28,13 @@
  * number carries a different severity per harness, so the harness must supply
  * it — hence a port field, not a constant.
  *
- * NOT A GATE, AND THAT IS MEASURED. Both corpora this was built against sit at
- * roughly four times the Claude Code threshold. A rule that fails every real
- * repo on day one is switched off on day one (`lint-rule-calibration`: severity
- * tracks confidence, and a check nobody leaves on catches nothing). So the
- * first consumer is `audit`, as a REPORT. It earns a severity when a corpus
- * exists that it would not immediately fail.
+ * THE BUDGET IS NOT A GATE, AND THAT IS MEASURED. Both corpora this was built
+ * against sit at roughly four times the Claude Code threshold. A rule that
+ * fails every real repo on day one is switched off on day one
+ * (`lint-rule-calibration`: severity tracks confidence, and a check nobody
+ * leaves on catches nothing). So `audit` reports the budget, and what `lint`
+ * gates is the repo's OWN recorded weight (`./instruction-baseline.ts`): green
+ * on day one at any size, red the day it grows.
  */
 
 import type {
@@ -154,9 +155,19 @@ export interface InstructionWeight {
   }[];
 }
 
-/** Size in the harness's own unit. Bytes and chars differ on any non-ASCII text. */
+/**
+ * Size in the harness's own unit. Bytes and chars differ on any non-ASCII text.
+ *
+ * Line endings are counted as `\n`. A checkout with `core.autocrlf` holds the
+ * same commit with one more character per line, and a number that differs
+ * between two clones of one commit cannot be committed and compared — a
+ * 1 000-line file read +1 000 on Windows with no content change. The harness
+ * may count the CR itself; reproducibility is worth more here than that
+ * fidelity.
+ */
 export function sizeIn(text: string, unit: "chars" | "bytes"): number {
-  return unit === "chars" ? text.length : Buffer.byteLength(text, "utf8");
+  const lf = text.replaceAll("\r\n", "\n");
+  return unit === "chars" ? lf.length : Buffer.byteLength(lf, "utf8");
 }
 
 /**
@@ -259,11 +270,19 @@ export function weighInstructions(
     effectiveTotal: sum(weighed.filter((f) => f.notLoadedHere === undefined)),
     overBy:
       committedTotal > budget.limit ? committedTotal - budget.limit : null,
+    // NOT "absent from the map": a second-hop target can be in the map (the
+    // import pass read it because its importer was also a candidate) and still
+    // not be in the chain, because the second hop is named, never taken. What
+    // makes an import unread is that the chain did not classify its target.
     unreadImports: [
       ...new Set(
         chain.imports
           .map((i) => i.path)
-          .filter((path) => files[path] === undefined),
+          .filter(
+            (path) =>
+              !chain.loaded.some((e) => e.path === path) &&
+              !chain.unloaded.some((e) => e.path === path),
+          ),
       ),
     ].sort(),
     unweighedPatterns: [

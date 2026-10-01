@@ -306,6 +306,15 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
       "Two model-invocable skills aren't near-identical (wrong one fires).",
     detector: "findDescriptionOverlaps",
   },
+  "instruction-weight": {
+    id: "instruction-weight",
+    bucket: "external-decidable",
+    surface: ["instruction"],
+    defaultSeverity: "error",
+    summary:
+      "The always-loaded instruction weight did not move off its committed baseline.",
+    detector: "compareToBaseline",
+  },
   "skill-description-budget": {
     id: "skill-description-budget",
     bucket: "heuristic-behavioral",

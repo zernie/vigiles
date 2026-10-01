@@ -94,7 +94,7 @@ Two checks run beside the line guard and print as **warnings** — they never fa
 
 Both are tunable (`0` disables): pass `maxEntryChars` / `maxSectionChars` as compile options.
 
-Why these two shapes and not a total: an instruction file grows one unremarkable entry at a time, and nobody removes one. A total tells you "too big" long after you could act, and names no offender; a per-entry budget names the row at the moment it is added. For the whole-file number — everything the harness loads _without being asked_, which is the figure that actually bills you — run `vigiles audit` and read `Always-loaded instructions`.
+Why these two shapes and not a total: an instruction file grows one unremarkable entry at a time, and nobody removes one. A total tells you "too big" long after you could act, and names no offender; a per-entry budget names the row at the moment it is added. For the whole-file number — everything the harness loads _without being asked_, which is the figure that actually bills you — run `vigiles audit` and read `Always-loaded instructions`; to stop that number growing, commit a baseline with `vigiles lint --update-baseline` (rule [`instruction-weight`](rules/instruction-weight.md)).
 
 <!-- vigiles:ignore -->
 

@@ -609,6 +609,40 @@ export interface ScanHarness {
   readonly roots: readonly string[];
 }
 
+/**
+ * The always-loaded instruction weight of ONE directory under ONE harness —
+ * the bounded read, the harness's chain, and the sum, in one place.
+ *
+ * `scanPlugin` reports it, `lint`'s instruction-weight ratchet gates on it and
+ * `compile` prints it, so all three must arrive at the same number by the same
+ * route; this function is that route. `null` when the harness publishes no
+ * budget (there is no unit to count in).
+ */
+export function measureInstructionWeight(
+  dir: string,
+  harness: Pick<ScanHarness, "layout" | "dialect">,
+): InstructionWeight | null {
+  // No `exclude` parameter, on purpose — see the note in `scanPlugin`.
+  return weighBoundedInstructions(
+    harness,
+    boundedInstructionFiles(resolve(dir), harness.layout),
+  );
+}
+
+function weighBoundedInstructions(
+  harness: Pick<ScanHarness, "layout" | "dialect">,
+  instructionFiles: Readonly<Record<string, string>>,
+): InstructionWeight | null {
+  const budget = harness.dialect.instructionBudget;
+  return budget
+    ? weighInstructions(
+        harness.layout.instructionChain(instructionFiles),
+        instructionFiles,
+        budget,
+      )
+    : null;
+}
+
 /** Scan a plugin/repo directory and report its surfaces + structural issues. */
 export function scanPlugin(
   dir: string,
@@ -710,10 +744,17 @@ export function scanPlugin(
   // expanded an ADAPTER's globs by walking the whole tree; the bound and the
   // classification are now separate jobs held by separate modules, and only the
   // second is the adapter's. See `core/instruction-chain.ts`.
+  //
+  // 🔴 `exclude` DOES NOT REACH IT. `exclude` means "vigiles does not lint
+  // this"; the harness still loads the file, so hiding it from the weight
+  // under-reports — and since the weight is a committed baseline, one more
+  // `exclude` line would silently lower the ratchet. The harness's own
+  // `claudeMdExcludes` is the channel that removes a file, because it is also
+  // what stops the harness loading it. The browser twin never applied `exclude`
+  // here either, so this is also where the two engines agree.
   const instructionFiles = boundedInstructionFiles(
     resolve(dir),
     instructionHarness.layout,
-    opts.excludes,
   );
   const instructions: ScanInstructions | null =
     loaded.files[instructionFile] !== undefined
@@ -875,13 +916,10 @@ export function scanPlugin(
     // unit (Claude Code counts 40 000 chars, Codex 32 768 bytes), so there is no
     // meaningful sum across two; reporting the one that owns the file that
     // exists is the only reading that is true of something.
-    instructionWeight: instructionHarness.dialect.instructionBudget
-      ? weighInstructions(
-          instructionHarness.layout.instructionChain(instructionFiles),
-          instructionFiles,
-          instructionHarness.dialect.instructionBudget,
-        )
-      : null,
+    instructionWeight: weighBoundedInstructions(
+      instructionHarness,
+      instructionFiles,
+    ),
     untested: coverage.untested.length,
     untestedHarness: coverage.harness.untested.length,
     unevaluated: coverage.evals.untested.length,

@@ -165,6 +165,7 @@ const rulesSchema = z
     "hook-block-ineffective": severitySchema.default("warn"),
     "hook-matcher": severitySchema.default("warn"),
     "doc-refs": severitySchema.default(false),
+    "instruction-weight": severitySchema.default("error"),
   })
   .strict();
 

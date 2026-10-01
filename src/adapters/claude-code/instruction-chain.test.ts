@@ -79,6 +79,19 @@ describe("what does NOT load, and why", () => {
     });
   });
 
+  it("an EMPTY or non-list `paths:` does not scope the rule — it still loads", () => {
+    // A key alone is not a scope: `paths: []` names no file to load on, and a
+    // scalar is not the documented shape. Classifying either as on-demand would
+    // let one frontmatter line drop a rule's whole size from the always-loaded
+    // total, the direction that reads as "you are fine".
+    for (const fm of ["paths: []", "paths:", 'paths: "src/**"', "paths: [1]"]) {
+      expect(
+        paths({ ".claude/rules/x.md": `---\n${fm}\n---\nbody` }),
+        fm,
+      ).toEqual([".claude/rules/x.md"]);
+    }
+  });
+
   it("a rule with OTHER frontmatter still loads — only `paths:` scopes it", () => {
     expect(paths({ ".claude/rules/x.md": "---\ntitle: x\n---\nbody" })).toEqual(
       [".claude/rules/x.md"],
