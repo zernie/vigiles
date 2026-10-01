@@ -118,6 +118,7 @@ export const COMMITTED_PATHS: readonly string[] = [
   "schema.json", // YAML-LSP frontmatter schema (`vigiles init`)
   "guards.json", // the declared guard set (`core/guards.ts`)
   "action-gates.json", // declared action gates (`action-gate.ts`)
+  "instruction-weight.json", // the instruction-weight ratchet's baseline (`core/instruction-baseline.ts`)
 ];
 
 /** The header comment on a `.vigiles/.gitignore` vigiles creates. */
