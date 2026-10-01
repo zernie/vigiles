@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "bundles": {
+    ".": {
+      "unit": "chars",
+      "measure": 1,
+      "total": 154807,
+      "files": {
+        "CLAUDE.md": 154807
+      }
+    }
+  }
+}

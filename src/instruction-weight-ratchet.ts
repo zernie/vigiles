@@ -113,7 +113,14 @@ export function ratchetLines(
         : verdict.kind === "unrecorded" && onDisk.kind !== "ok"
           ? "note"
           : "finding";
-    return [{ at, status, text: formatVerdict(verdict, at) }];
+    // An import named and not read is weight this number lacks — a second
+    // hop, or a path that does not resolve. Said on the line itself, because
+    // the gate holding is only as true as the sum it holds.
+    const unfollowed =
+      weight.unreadImports.length > 0
+        ? ` (${String(weight.unreadImports.length)} import(s) not followed: ${weight.unreadImports.join(", ")} — their size is not in this number)`
+        : "";
+    return [{ at, status, text: `${formatVerdict(verdict, at)}${unfollowed}` }];
   });
 }
 

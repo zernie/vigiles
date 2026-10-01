@@ -201,11 +201,55 @@ test("once the repo has a baseline file, an UNRECORDED bundle is a finding", () 
     JSON.stringify({
       version: 1,
       bundles: {
-        "plugins/a": { unit: "chars", total: 1, files: { "CLAUDE.md": 1 } },
+        "plugins/a": {
+          unit: "chars",
+          measure: 1,
+          total: 1,
+          files: { "CLAUDE.md": 1 },
+        },
       },
     }),
   );
   const r = run(["lint"]);
   assert.equal(r.code, 2, r.out);
   assert.match(r.out, /no instruction-weight baseline recorded/);
+});
+
+test("an `exclude`d always-loaded file still counts — exclude is not claudeMdExcludes", () => {
+  // `exclude` means "vigiles does not lint this"; the harness still loads it.
+  // Letting it reach the measurement turned 35,000 into a recorded 30,000.
+  put(".claude/rules/r.md", "r".repeat(5_000));
+  run(["lint", "--update-baseline"]);
+  put(
+    ".vigilesrc.json",
+    JSON.stringify({
+      harnesses: { "claude-code": {} },
+      exclude: [".claude/rules/**"],
+    }),
+  );
+  const r = run(["lint"]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /held at 35,000 chars/);
+});
+
+test("a CRLF checkout of the same commit holds", () => {
+  const lf = Array.from({ length: 1_000 }, (_, i) => `line ${String(i)}`).join(
+    "\n",
+  );
+  put("CLAUDE.md", lf);
+  run(["lint", "--update-baseline"]);
+  put("CLAUDE.md", lf.replaceAll("\n", "\r\n"));
+  const r = run(["lint"]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /held at/);
+});
+
+test("an import the measurement did not follow is said out loud", () => {
+  // One hop is read; a second hop is real Claude Code behaviour, so its size
+  // is missing from the number, and the line must say so.
+  put("CLAUDE.md", `${BODY}\n@a.md\n`);
+  put("a.md", "@b.md\n");
+  put("b.md", "b".repeat(7_000));
+  const r = run(["lint"]);
+  assert.match(r.out, /1 import\(s\) not followed: b\.md/);
 });

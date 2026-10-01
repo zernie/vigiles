@@ -2458,7 +2458,7 @@ async function runLint(
         (abs) =>
           [
             frame.bundle(abs).at,
-            measureInstructionWeight(abs, adapter, excludes),
+            measureInstructionWeight(abs, adapter),
           ] as const,
       ),
     annotate: (level, message) => {
@@ -8319,7 +8319,6 @@ export async function main(): Promise<void> {
               flag: harnessFlag,
               configHarness: declaredHarnessNames(config.harnesses),
             }).adapter,
-            excludes,
           ),
         );
         if (weightLine !== null) console.log(`\n${weightLine}`);

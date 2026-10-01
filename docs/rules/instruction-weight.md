@@ -21,21 +21,31 @@ per-machine files (`CLAUDE.local.md`, a gitignored settings sibling). That last
 exclusion is what makes the number the same on every clone of a commit, and so
 comparable in CI.
 
+`.vigilesrc.json` `exclude` does **not** remove a file from this number:
+`exclude` means "vigiles does not lint this", and the harness still loads it.
+Use `claudeMdExcludes`, which is also what stops the harness loading it.
+Line endings count as `\n`, so a CRLF checkout of the same commit weighs the
+same. A rule's `paths:` scopes it only when it is a non-empty list of globs;
+`paths: []` or a scalar leaves the rule always-loaded. Imports are read one hop
+deep; any import the number does not include is listed on the line as
+`N import(s) not followed`.
+
 **Moving text does not help.** Cutting a section out of `CLAUDE.md` into an
 always-loaded rules file leaves the sum unchanged, and the rule says `held`.
 A per-file limit would have scored that move as a large improvement.
 
 ## What it reports
 
-| state                                  | result                                                             |
-| -------------------------------------- | ------------------------------------------------------------------ |
-| no baseline file                       | a one-line note naming the command to start; **never a finding**   |
-| weight equals the baseline             | `✓ … held at N chars`                                              |
-| weight **grew**                        | finding: the delta and every file that moved                       |
-| weight **shrank**                      | finding: lock the cut in, or the headroom can be regrown unnoticed |
-| baseline recorded in another unit      | finding: re-record (the repo changed harness)                      |
-| baseline file exists, bundle not in it | finding: weight nobody recorded                                    |
-| baseline file is not valid             | finding; never read as empty                                       |
+| state                                    | result                                                                       |
+| ---------------------------------------- | ---------------------------------------------------------------------------- |
+| no baseline file                         | a one-line note naming the command to start; **never a finding**             |
+| weight equals the baseline               | `✓ … held at N chars`                                                        |
+| weight **grew**                          | finding: the delta and every file that moved                                 |
+| weight **shrank**                        | finding: lock the cut in, or the headroom can be regrown unnoticed           |
+| baseline recorded by another measurement | finding: vigiles changed what counts — re-record, not a change in your files |
+| baseline recorded in another unit        | finding: re-record (the repo changed harness)                                |
+| baseline file exists, bundle not in it   | finding: weight nobody recorded                                              |
+| baseline file is not valid               | finding; never read as empty                                                 |
 
 ```
 ✗ always-loaded instructions grew 30,000 → 31,225 chars (+1,225) over the
@@ -77,6 +87,7 @@ always-loaded: 28,210 chars (baseline 30,000, -1,790)
   "bundles": {
     ".": {
       "unit": "chars",
+      "measure": 1,
       "total": 30000,
       "files": {
         "CLAUDE.md": 30000
@@ -88,7 +99,7 @@ always-loaded: 28,210 chars (baseline 30,000, -1,790)
 
 One entry per scored bundle (`.` is the root; `--bundles=all` adds nested
 ones). `files` names where the weight is, so a message can say which file grew;
-the verdict is decided on `total`, which must equal the sum of `files`. Keys are
+the verdict is decided on `total`, which must equal the sum of `files`. `measure` names the measurement that produced the number; a vigiles release that changes what counts bumps it, and the rule then asks for a re-record instead of reporting growth. Keys are
 sorted and there is no timestamp, so the diff shows only real movement.
 
 **Committed, unlike `.vigiles/coverage.json`.** Coverage records what ran on one

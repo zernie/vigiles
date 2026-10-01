@@ -11,6 +11,7 @@ import {
   compareToBaseline,
   entryFor,
   formatVerdict,
+  INSTRUCTION_WEIGHT_MEASURE,
   parseInstructionBaseline,
   recordEntries,
   serializeBaseline,
@@ -154,6 +155,43 @@ describe("the SUM is compared, not a file", () => {
   });
 });
 
+describe("line endings do not move the number", () => {
+  it("a CRLF checkout of the same text weighs what the LF one does", () => {
+    const lf = Array.from(
+      { length: 1_000 },
+      (_, i) => `line ${String(i)}`,
+    ).join("\n");
+    const crlf = lf.replaceAll("\n", "\r\n");
+    const v = compareToBaseline(
+      weighCc({ "CLAUDE.md": crlf }),
+      entryFor(weighCc({ "CLAUDE.md": lf })),
+    );
+    expect(v.kind).toBe("held");
+  });
+});
+
+describe("a baseline recorded by a different measurement", () => {
+  it("is its own verdict, never grew/shrank", () => {
+    const recorded = {
+      ...entryFor(weighCc({ "CLAUDE.md": BODY })),
+      measure: INSTRUCTION_WEIGHT_MEASURE - 1,
+    };
+    const v = compareToBaseline(weighCc({ "CLAUDE.md": `${BODY}y` }), recorded);
+    expect(v).toEqual({
+      kind: "measure-changed",
+      recorded: INSTRUCTION_WEIGHT_MEASURE - 1,
+      current: INSTRUCTION_WEIGHT_MEASURE,
+    });
+    expect(formatVerdict(v, ".")).toContain("vigiles lint --update-baseline");
+  });
+
+  it("a recorded entry carries the current measurement", () => {
+    expect(entryFor(weighCc({ "CLAUDE.md": BODY })).measure).toBe(
+      INSTRUCTION_WEIGHT_MEASURE,
+    );
+  });
+});
+
 describe("the file format", () => {
   it("records only committed files, so two clones of one commit write the same file", () => {
     const e = entryFor(
@@ -161,6 +199,7 @@ describe("the file format", () => {
     );
     expect(e).toEqual({
       unit: "chars",
+      measure: INSTRUCTION_WEIGHT_MEASURE,
       total: 30_000,
       files: { "CLAUDE.md": 30_000 },
     });
@@ -181,6 +220,7 @@ describe("the file format", () => {
           bundles: {
             ".": {
               unit: "chars",
+              measure: INSTRUCTION_WEIGHT_MEASURE,
               total: 30_002,
               files: { ".claude/rules/a.md": 2, "CLAUDE.md": 30_000 },
             },
@@ -198,11 +238,16 @@ describe("the file format", () => {
     const prev: InstructionBaseline = {
       version: 1,
       bundles: {
-        "plugins/a": { unit: "chars", total: 1, files: { "CLAUDE.md": 1 } },
+        "plugins/a": {
+          unit: "chars",
+          measure: 1,
+          total: 1,
+          files: { "CLAUDE.md": 1 },
+        },
       },
     };
     const next = recordEntries(prev, [
-      [".", { unit: "chars", total: 2, files: { "CLAUDE.md": 2 } }],
+      [".", { unit: "chars", measure: 1, total: 2, files: { "CLAUDE.md": 2 } }],
     ]);
     expect(Object.keys(next.bundles).sort()).toEqual([".", "plugins/a"]);
   });
@@ -210,7 +255,9 @@ describe("the file format", () => {
   it("recording `null` removes a bundle that no longer has instructions", () => {
     const prev: InstructionBaseline = {
       version: 1,
-      bundles: { ".": { unit: "chars", total: 1, files: { "CLAUDE.md": 1 } } },
+      bundles: {
+        ".": { unit: "chars", measure: 1, total: 1, files: { "CLAUDE.md": 1 } },
+      },
     };
     expect(recordEntries(prev, [[".", null]]).bundles).toEqual({});
   });
@@ -220,7 +267,12 @@ describe("the file format", () => {
       JSON.stringify({
         version: 1,
         bundles: {
-          ".": { unit: "chars", total: 5, files: { "CLAUDE.md": 4 } },
+          ".": {
+            unit: "chars",
+            measure: 1,
+            total: 5,
+            files: { "CLAUDE.md": 4 },
+          },
         },
       }),
     );

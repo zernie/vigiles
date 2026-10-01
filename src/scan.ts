@@ -621,11 +621,11 @@ export interface ScanHarness {
 export function measureInstructionWeight(
   dir: string,
   harness: Pick<ScanHarness, "layout" | "dialect">,
-  excludes?: ExcludeSet,
 ): InstructionWeight | null {
+  // No `exclude` parameter, on purpose — see the note in `scanPlugin`.
   return weighBoundedInstructions(
     harness,
-    boundedInstructionFiles(resolve(dir), harness.layout, excludes),
+    boundedInstructionFiles(resolve(dir), harness.layout),
   );
 }
 
@@ -744,10 +744,17 @@ export function scanPlugin(
   // expanded an ADAPTER's globs by walking the whole tree; the bound and the
   // classification are now separate jobs held by separate modules, and only the
   // second is the adapter's. See `core/instruction-chain.ts`.
+  //
+  // 🔴 `exclude` DOES NOT REACH IT. `exclude` means "vigiles does not lint
+  // this"; the harness still loads the file, so hiding it from the weight
+  // under-reports — and since the weight is a committed baseline, one more
+  // `exclude` line would silently lower the ratchet. The harness's own
+  // `claudeMdExcludes` is the channel that removes a file, because it is also
+  // what stops the harness loading it. The browser twin never applied `exclude`
+  // here either, so this is also where the two engines agree.
   const instructionFiles = boundedInstructionFiles(
     resolve(dir),
     instructionHarness.layout,
-    opts.excludes,
   );
   const instructions: ScanInstructions | null =
     loaded.files[instructionFile] !== undefined

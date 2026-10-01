@@ -399,7 +399,18 @@ function excludesIn(
 /** Does this rule file declare a `paths:` scope — i.e. load only on demand? */
 function isPathScoped(text: string): boolean {
   const { data } = readFrontmatter(text);
-  return data !== null && Object.hasOwn(data, PATH_SCOPE_KEY);
+  if (data === null || !Object.hasOwn(data, PATH_SCOPE_KEY)) return false;
+  // A SCOPE IS A NON-EMPTY LIST OF GLOBS, not the presence of the key.
+  // `paths: []` names no file to load on and a scalar is not the documented
+  // shape; reading either as on-demand would let one frontmatter line drop a
+  // rule's whole size from the always-loaded total — an under-report, the
+  // direction that reads as "you are fine". So both count as always-loaded.
+  const value: unknown = data[PATH_SCOPE_KEY];
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((g) => typeof g === "string")
+  );
 }
 
 /** Inputs the layout supplies so this module names no path of its own. */
@@ -664,6 +675,23 @@ function supersederOf(
   );
 }
 
+/** One loaded file's `@import` tokens, reported only — never taken. */
+function nameImportsOf(b: Building, entry: LoadedInstruction): void {
+  const text = b.files[entry.path];
+  if (text === undefined) return;
+  const named = importTokens(text)
+    .filter((token) => isRepoRootedImport(token.slice(1)))
+    .map((token) => ({
+      path: resolveImportPath(entry.path, token.slice(1)),
+      token,
+      from: entry.path,
+    }))
+    .filter(
+      (n) => !b.imports.some((m) => m.path === n.path && m.from === n.from),
+    );
+  b.imports.push(...named);
+}
+
 /** One loaded file's `@import` tokens: reported, and TAKEN when already present. */
 function takeImportsOf(b: Building, entry: LoadedInstruction): void {
   const text = b.files[entry.path];
@@ -785,7 +813,16 @@ export function claudeCodeInstructionChain(
   // assumed — `instruction-chain.test.ts` runs each against an `AGENTS.md` that
   // got in as a ROOT file, since a role-keyed version of either would pass every
   // `CLAUDE.md` case and fail exactly those two.
-  for (const entry of [...b.loaded]) takeImportsOf(b, entry);
+  const firstHop = [...b.loaded];
+  for (const entry of firstHop) takeImportsOf(b, entry);
+  // THE SECOND HOP IS NAMED, NEVER TAKEN. One level is what this reads (the
+  // corpus measurement is on `resolveImports`), but the vendor follows up to
+  // four, so an imported file's own tokens are real weight this number lacks.
+  // Recording them as imports — not loading them — lets the weight list them
+  // as unread instead of silently dropping them.
+  for (const entry of b.loaded.filter((e) => !firstHop.includes(e))) {
+    nameImportsOf(b, entry);
+  }
 
   // THE SUBDIRECTORY PASS, AFTER THE IMPORTS AND NOT BEFORE THEM. Order is the
   // whole of a fixed bug: this pass claims ANY slash path whose leaf is an

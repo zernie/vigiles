@@ -48,9 +48,23 @@ export const UPDATE_BASELINE_COMMAND = "vigiles lint --update-baseline";
 /** Bumped only on an incompatible change to the on-disk shape. */
 export const INSTRUCTION_BASELINE_VERSION = 1;
 
+/**
+ * Which MEASUREMENT produced a recorded number — bumped whenever a release
+ * changes what counts (chain membership in any adapter, how a file is sized),
+ * even when the file shape stays the same.
+ *
+ * Without it, a vigiles fix that moves a file into or out of the chain moves
+ * `committedTotal` on every consumer with a committed baseline, and they see
+ * `grew`/`shrank` attributed to their own content. With it, they see one
+ * "re-record" verdict that names the cause. `version` cannot do this job: it
+ * describes the file, not the number in it.
+ */
+export const INSTRUCTION_WEIGHT_MEASURE = 1;
+
 const entrySchema = z
   .object({
     unit: z.enum(["chars", "bytes"]),
+    measure: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
     files: z.record(z.string(), z.number().int().nonnegative()),
   })
@@ -106,6 +120,7 @@ export function entryFor(weight: InstructionWeight): BaselineEntry {
   const scored = weight.files.filter((f) => f.scope === "repo");
   return {
     unit: weight.unit,
+    measure: INSTRUCTION_WEIGHT_MEASURE,
     total: weight.committedTotal,
     files: Object.fromEntries(
       [...scored]
@@ -137,6 +152,11 @@ export type RatchetVerdict =
       readonly kind: "unit-changed";
       readonly recorded: BaselineEntry["unit"];
       readonly current: BaselineEntry["unit"];
+    }
+  | {
+      readonly kind: "measure-changed";
+      readonly recorded: number;
+      readonly current: number;
     }
   | {
       readonly kind: "held";
@@ -180,6 +200,13 @@ export function compareToBaseline(
       kind: "unit-changed",
       recorded: recorded.unit,
       current: current.unit,
+    };
+  }
+  if (recorded.measure !== current.measure) {
+    return {
+      kind: "measure-changed",
+      recorded: recorded.measure,
+      current: current.measure,
     };
   }
   if (current.total === recorded.total) {
@@ -246,6 +273,11 @@ export function formatVerdict(verdict: RatchetVerdict, at: string): string {
         `${where}the instruction-weight baseline is in ${verdict.recorded} but this harness counts ${verdict.current} — ` +
         `re-record it with \`${UPDATE_BASELINE_COMMAND}\``
       );
+    case "measure-changed":
+      return (
+        `${where}the instruction-weight baseline was recorded by measurement ${String(verdict.recorded)}, this vigiles uses ${String(verdict.current)} — ` +
+        `what counts changed in vigiles, not in your files. Re-record it with \`${UPDATE_BASELINE_COMMAND}\``
+      );
     case "held":
       return `${where}always-loaded instructions held at ${n(verdict.total)} ${verdict.unit} (baseline)`;
     case "grew":
@@ -271,6 +303,8 @@ export function formatWeightLine(verdict: RatchetVerdict): string {
       return `always-loaded: ${n(verdict.current.total)} ${verdict.current.unit} (no baseline — \`${UPDATE_BASELINE_COMMAND}\`)`;
     case "unit-changed":
       return `always-loaded: baseline is in ${verdict.recorded}, this harness counts ${verdict.current}`;
+    case "measure-changed":
+      return `always-loaded: baseline recorded by measurement ${String(verdict.recorded)}, this vigiles uses ${String(verdict.current)} — re-record`;
     case "held":
       return `always-loaded: ${n(verdict.total)} ${verdict.unit} (baseline ${n(verdict.total)}, ±0)`;
     case "grew":
