@@ -95,7 +95,12 @@ import {
   verifyLiveMcpTools,
   formatMcpContractReport,
   preferCompiledHooksMessage,
+  measureInstructionWeight,
 } from "./scan.js";
+import {
+  checkInstructionWeightRatchet,
+  compileWeightLine,
+} from "./instruction-weight-ratchet.js";
 import type { ScanReport, ScanHarness } from "./scan.js";
 import {
   frameAt,
@@ -1292,6 +1297,8 @@ interface LintReport {
   hookBlockErrors: number;
   hookMatcherIssues: number;
   hookMatcherErrors: number;
+  instructionWeightIssues: number;
+  instructionWeightErrors: number;
   docRefErrors: number;
   symbolRefErrors: number;
   mcpRefErrors: number;
@@ -1474,6 +1481,7 @@ function lintExitCode(report: LintReport): 0 | 1 | 2 {
     report.delegationTrifectaErrors > 0 ||
     report.hookBlockErrors > 0 ||
     report.hookMatcherErrors > 0 ||
+    report.instructionWeightErrors > 0 ||
     report.symbolRefErrors > 0 ||
     report.mcpRefErrors > 0 ||
     // `doc-refs` is opt-in and this counter is only non-zero when the user set
@@ -2437,6 +2445,27 @@ async function runLint(
   // server naming, or an undeclared MCP server).
   const hookMatcher = overBundles(checkHookMatcher, run, lintRoots);
 
+  // 7v. Instruction-weight ratchet — the always-loaded instruction weight may
+  // not move off the committed baseline. One file for the whole run (bundles
+  // are keys inside it), so it runs ONCE over `lintRoots`, not per bundle.
+  const instructionWeight = checkInstructionWeightRatchet({
+    root: frame.root,
+    severity: ruleSeverity(config?.rules?.["instruction-weight"]),
+    update: flags.includes("--update-baseline"),
+    silent,
+    measure: () =>
+      lintRoots.map(
+        (abs) =>
+          [
+            frame.bundle(abs).at,
+            measureInstructionWeight(abs, adapter, excludes),
+          ] as const,
+      ),
+    annotate: (level, message) => {
+      ghAnnotate(level, message);
+    },
+  });
+
   // 8. Validate vigiles builder calls inside markdown code blocks — the
   // `doc-refs` rule, DEFAULT OFF. Illustrative blocks opt out via
   // `<!-- vigiles:ignore -->` (single block) or `<!-- vigiles:ignore-file -->`
@@ -2576,6 +2605,8 @@ async function runLint(
     hookBlockErrors: hookBlock.errors,
     hookMatcherIssues: hookMatcher.issues,
     hookMatcherErrors: hookMatcher.errors,
+    instructionWeightIssues: instructionWeight.issues,
+    instructionWeightErrors: instructionWeight.errors,
     // Only the "error" tier gates. At "warn" the findings are printed and
     // annotated, and the exit code is untouched — same contract as every other
     // opt-in rule here.
@@ -8275,6 +8306,24 @@ export async function main(): Promise<void> {
       if (specs.length > 0)
         valid =
           (await compile(specs, config, excludes, { harnessFlag })) && valid;
+      // The always-loaded weight the author just produced, against the
+      // committed baseline — shown at the moment of change. Report-only:
+      // `lint` is the gate (rule `instruction-weight`).
+      if (specs.length > 0) {
+        const weightLine = compileWeightLine(
+          process.cwd(),
+          measureInstructionWeight(
+            process.cwd(),
+            resolveHarnessSelection({
+              root: process.cwd(),
+              flag: harnessFlag,
+              configHarness: declaredHarnessNames(config.harnesses),
+            }).adapter,
+            excludes,
+          ),
+        );
+        if (weightLine !== null) console.log(`\n${weightLine}`);
+      }
       valid =
         (await installHooks(
           hooks,

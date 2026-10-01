@@ -54,7 +54,9 @@ describe("compareToBaseline — the verdicts", () => {
     if (v.kind !== "grew") return;
     expect(v.from).toBe(30_000);
     expect(v.to).toBe(31_225);
-    expect(v.changes).toEqual([{ path: "CLAUDE.md", from: 30_000, to: 31_225 }]);
+    expect(v.changes).toEqual([
+      { path: "CLAUDE.md", from: 30_000, to: 31_225 },
+    ]);
   });
 
   it("shrink → shrank (stale baseline), naming the file", () => {
@@ -110,7 +112,9 @@ describe("the SUM is compared, not a file", () => {
     expect(v.changes).toEqual([
       { path: ".claude/rules/new.md", from: null, to: 500 },
     ]);
-    expect(formatVerdict(v, ".")).toMatch(/\.claude\/rules\/new\.md \+500 \(new\)/);
+    expect(formatVerdict(v, ".")).toMatch(
+      /\.claude\/rules\/new\.md \+500 \(new\)/,
+    );
   });
 
   it("a file excluded by committed `claudeMdExcludes` does not count", () => {
@@ -153,7 +157,10 @@ describe("the SUM is compared, not a file", () => {
 describe("the file format", () => {
   it("round-trips, with sorted keys and no timestamp (a diff shows only real movement)", () => {
     const b = recordEntries(undefined, [
-      [".", entryFor(weighCc({ "CLAUDE.md": BODY, ".claude/rules/a.md": "aa" }))],
+      [
+        ".",
+        entryFor(weighCc({ "CLAUDE.md": BODY, ".claude/rules/a.md": "aa" })),
+      ],
     ]);
     const text = serializeBaseline(b);
     expect(text).toBe(
@@ -201,7 +208,9 @@ describe("the file format", () => {
     const r = parseInstructionBaseline(
       JSON.stringify({
         version: 1,
-        bundles: { ".": { unit: "chars", total: 5, files: { "CLAUDE.md": 4 } } },
+        bundles: {
+          ".": { unit: "chars", total: 5, files: { "CLAUDE.md": 4 } },
+        },
       }),
     );
     expect(r.kind).toBe("invalid");
@@ -210,11 +219,13 @@ describe("the file format", () => {
   it("unknown keys, bad JSON and a future version are rejected, never read as empty", () => {
     expect(parseInstructionBaseline("{").kind).toBe("invalid");
     expect(
-      parseInstructionBaseline(JSON.stringify({ version: 1, bundles: {}, x: 1 }))
-        .kind,
+      parseInstructionBaseline(
+        JSON.stringify({ version: 1, bundles: {}, x: 1 }),
+      ).kind,
     ).toBe("invalid");
     expect(
-      parseInstructionBaseline(JSON.stringify({ version: 2, bundles: {} })).kind,
+      parseInstructionBaseline(JSON.stringify({ version: 2, bundles: {} }))
+        .kind,
     ).toBe("invalid");
   });
 });
@@ -244,10 +255,7 @@ describe("formatVerdict — what the reader sees", () => {
   });
 
   it("a nested bundle is named in the message", () => {
-    const v = compareToBaseline(
-      weighCc({ "CLAUDE.md": `${BODY}y` }),
-      recorded,
-    );
+    const v = compareToBaseline(weighCc({ "CLAUDE.md": `${BODY}y` }), recorded);
     expect(formatVerdict(v, "plugins/a")).toMatch(/^plugins\/a: /);
   });
 });

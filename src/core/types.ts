@@ -144,6 +144,14 @@ export interface RulesConfig {
    */
   "spec-refs"?: RuleSeverity;
   /**
+   * The always-loaded instruction weight may not move away from the committed
+   * baseline in `.vigiles/instruction-weight.json` — a ratchet against the
+   * repo's own past, not a fixed budget. No baseline file → a one-line note,
+   * never a finding, so turning this on fails no repository on day one.
+   * `vigiles lint --update-baseline` records it. Default: "error".
+   */
+  "instruction-weight"?: RuleSeverity;
+  /**
    * Near-duplicate rules WITHIN one spec, by NCD similarity — spec bloat, two
    * rules saying the same thing in different words.
    *
