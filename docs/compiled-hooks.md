@@ -31,6 +31,8 @@ vigiles lets you author a hook as a **pure typed function** `(event) => Decision
 - [Observe mode (shadow rollout)](#observe-mode-shadow-rollout)
 - [Deciding on external state (context providers)](#deciding-on-external-state-context-providers)
 - [Compile and wire](#compile-and-wire)
+  - [What counts as a hook: the `.hook.` name](#what-counts-as-a-hook-the-hook-name)
+  - [Upgrading from a vigiles that compiled every file](#upgrading-from-a-vigiles-that-compiled-every-file)
   - [Why the emitted block has a `matcher` and no `if:`](#why-the-emitted-block-has-a-matcher-and-no-if)
 - [Where things live](#where-things-live)
 - [Testing a compiled hook](#testing-a-compiled-hook)
@@ -68,7 +70,7 @@ Every **gate** (tool / prompt / stop) takes an optional `mode` — see [Observe 
 A role reads a specific field out of its event, and not every event carries it. `vigiles compile` checks that pair and **refuses** a hook that cannot work:
 
 ```
-✗ .vigiles/hooks/secret-filter.mjs — a prompt-gate on `PreToolUse` can never
+✗ .vigiles/hooks/secret-filter.hook.mjs — a prompt-gate on `PreToolUse` can never
   decide: the role reads the event's prompt, and PreToolUse carries tool. The
   field it reads is absent, so the hook runs and waves everything through.
 ```
@@ -316,11 +318,11 @@ export default defineProvider({
 
 ## Compile and wire
 
-**Put your hook source in `.vigiles/hooks/`.** The typed program is harness-neutral — it imports `vigiles/hook` and compiles to _whichever_ harness you target — so it lives in vigiles's own dir, not a harness's `.claude/`. Then:
+**Put your hook source in `.vigiles/hooks/`, and name it `<name>.hook.<ext>`** (`safe-bash-guard.hook.mjs`, `nudge.hook.ts`). The typed program is harness-neutral — it imports `vigiles/hook` and compiles to _whichever_ harness you target — so it lives in vigiles's own dir, not a harness's `.claude/`. Then:
 
 ```bash
-npx vigiles compile                                  # discovers .vigiles/hooks/* (and your specs)
-npx vigiles compile .vigiles/hooks/safe-bash-guard.mjs   # …or target one file
+npx vigiles compile                                       # discovers .vigiles/hooks/*.hook.* (and your specs)
+npx vigiles compile .vigiles/hooks/safe-bash-guard.hook.mjs   # …or target one file
 ```
 
 There is **no separate `compile-hook` verb** — compiling a typed authoring artifact into the harness's native format is _one_ verb, whatever the artifact (a `.spec.ts` → markdown, a hook → a wired config). `compile`:
@@ -342,7 +344,7 @@ The merged block routes the live event to **`vigiles hook-runtime run-program <f
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js\" hook-runtime run-program \"${CLAUDE_PROJECT_DIR}/.vigiles/hooks/safe-bash-guard.mjs\" || exit 2",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js\" hook-runtime run-program \"${CLAUDE_PROJECT_DIR}/.vigiles/hooks/safe-bash-guard.hook.mjs\" || exit 2",
           },
         ],
       },
@@ -350,6 +352,55 @@ The merged block routes the live event to **`vigiles hook-runtime run-program <f
   },
 }
 ```
+
+### What counts as a hook: the `.hook.` name
+
+`.vigiles/hooks/` holds more than hooks: the tests that exercise them (`guard.harness.mjs`), type declarations, and the `.json` stamp `compile` writes beside each hook. So the file name says which is which, and **a hook is exactly a file named `<name>.hook.<ext>`** — `.hook.` as the last dot-segment before the extension (`.mjs`, `.cjs`, `.js`, `.mts`, `.cts`, `.ts`). Nothing else is ever compiled as a hook.
+
+Every file in `.vigiles/hooks/` (and `.vigiles/providers/`) is exactly one of these, decided by one function (`classifySource`, `src/source-kinds.ts`), by the last segment before the extension:
+
+| Name                                    | What it is            | `compile` does                      |
+| --------------------------------------- | --------------------- | ----------------------------------- |
+| `guard.hook.mjs`                        | a hook                | compiles it                         |
+| `k8s.provider.mjs` (in `providers/`)    | a registered provider | validates it                        |
+| `guard.harness.mjs`, `guard.eval.mjs`   | a vigiles test        | leaves it alone                     |
+| `guard.d.ts`, `.d.mts`, `.d.cts`        | a type declaration    | leaves it alone                     |
+| `guard.hook.mjs.json`                   | a stamp               | rewrites it with the hook           |
+| `README.md`, `.gitkeep`                 | not a runnable source | leaves it alone                     |
+| `guard.mjs`, `util.ts`, `guard.test.ts` | **unclaimed**         | **refuses, exit 1, prints the fix** |
+
+**Why a marker, and not a list of names to skip.** The first fix for [#278](https://github.com/zernie/vigiles/issues/278) (a `guard.harness.mjs` beside its hook was compiled as a hook and failed the build) skipped `.harness.` and `.test.` names. A list of what a hook is _not_ is never finished: the next helper file somebody colocates is the next report. It also gets the facts wrong — `*.test.*` is deliberately not a vigiles test (a default vitest/jest run would collect it), and `*.eval.*` is one. Defining a hook by what it _is_ closes the class: there is no name a test, a helper or a declaration can have that makes it a hook. The patterns `vigiles test`, `vigiles eval` and the coverage defaults use to find tests are read off the same table, so hook discovery and test discovery cannot both claim a file; a test asserts that over generated names.
+
+**Why an unmarked file is an error and not skipped.** A runnable file that is none of the above is usually a hook that was never renamed (or lost its marker). Skipping it would drop that hook from `compile` without a word — the failure this tool exists to catch. So `compile` reports it, still compiles every hook that is fine, and exits `1`:
+
+```
+✗ .vigiles/hooks/guard.mjs — not compiled: a hook source must carry `.hook.` before its extension (guard.hook.mjs), and this name carries no marker vigiles knows.
+  If it is a hook, rename it. Copy first and delete last, so a failure leaves the old hook in place and wired:
+    cp .vigiles/hooks/guard.mjs .vigiles/hooks/guard.hook.mjs && npx vigiles compile .vigiles/hooks/guard.hook.mjs && rm -f .vigiles/hooks/guard.mjs .vigiles/hooks/guard.mjs.json
+  If it is not a hook, move it out of .vigiles/hooks/ — a test belongs in a `.harness.` or `.eval.` file.
+```
+
+`vigiles compile <file>` asks the same question as a bare `compile`: an explicit `guard.mjs` is refused the same way; an explicit test, declaration or stamp (what a shell glob hands over) is reported as skipped, not an error.
+
+A test may sit beside its hook in `.vigiles/hooks/` and `compile` will not touch it. Note that `vigiles test` does not _discover_ anything under `.vigiles/` (that directory is excluded from discovery); run such a test by naming it (`vigiles test .vigiles/hooks/guard.harness.mjs`), or keep it elsewhere.
+
+### Upgrading from a vigiles that compiled every file
+
+**Who is affected:** a repo with a hook in `.vigiles/hooks/` whose name has no `.hook.` (`guard.mjs`), or a provider in `.vigiles/providers/` with no `.provider.` (`k8s.mjs`). The repo's own examples used to name hooks that way. A repo that already names its hooks `*.hook.*` changes nothing.
+
+**What breaks, and what does not.** Hooks that are already wired **keep running**: the runtime loads whatever path `settings.json` names and never asks what a file is called, and a registered provider is still found at runtime. The break is the **next `vigiles compile`**, which refuses the unmarked file (exit `1`, the message above) and so also fails a CI step that runs it.
+
+**The fix, one command per hook.** Copy the hook to its marked name, compile _that_ path, then delete the old file:
+
+```bash
+cp .vigiles/hooks/guard.mjs .vigiles/hooks/guard.hook.mjs && npx vigiles compile .vigiles/hooks/guard.hook.mjs && rm -f .vigiles/hooks/guard.mjs .vigiles/hooks/guard.mjs.json
+```
+
+Providers are not wired by path, so a plain `mv .vigiles/providers/k8s.mjs .vigiles/providers/k8s.provider.mjs` is enough.
+
+**Why copy-then-delete rather than a rename.** The old file's path is what `settings.json` names. After a plain rename and before the recompile, that path does not exist; a hook that cannot load exits `2`, and for a gate (`|| exit 2`) that blocks every Bash call — including the `npx vigiles compile` you need next. The way out is then a file write ([details](#when-a-hook-cannot-load)). With copy-then-delete, the old hook stays on disk and wired until the new one has compiled, so nothing in between is broken.
+
+**What compile does for you.** Compiling `guard.hook.mjs` takes over the wiring `settings.json` (or `config.toml`) holds for `guard.mjs`: that entry is replaced in place by the new one, so no entry is left naming a file you are about to delete. Your own hooks sharing a matcher block are untouched. The old stamp (`guard.mjs.json`) is the `rm -f`'s job; it is the only file compile does not clean up.
 
 ### Why the emitted block has a `matcher` and no `if:`
 
@@ -408,13 +459,13 @@ Everything is committed, and the source is **adapter-agnostic** — one hook com
 
 | Artifact            | Location                                       | Why                                                                 |
 | ------------------- | ---------------------------------------------- | ------------------------------------------------------------------- |
-| **Hook source**     | `.vigiles/hooks/*.{mjs,ts}`                    | harness-neutral — one source, fans out to any harness               |
-| **Provider source** | `.vigiles/providers/*.{mjs,ts}`                | registered context providers (`defineProvider`), referenced by name |
-| **Tamper stamp**    | `.vigiles/hooks/<name>.json`                   | the runtime verifies it before running the hook                     |
+| **Hook source**     | `.vigiles/hooks/*.hook.{mjs,ts}`               | harness-neutral — one source, fans out to any harness               |
+| **Provider source** | `.vigiles/providers/*.provider.{mjs,ts}`       | registered context providers (`defineProvider`), referenced by name |
+| **Tamper stamp**    | `.vigiles/hooks/<name>.hook.<ext>.json`        | the runtime verifies it before running the hook                     |
 | **Wiring**          | `.claude/settings.json` / `.codex/config.toml` | `compile` merges it in per harness (a multi-harness repo gets both) |
 | **Load notice**     | `.vigiles/hook-check.sh`                       | generated by `compile`; the `SessionStart` notice for missing files |
 
-Hooks are **not** auto-discovered by sitting just anywhere — they must be under `.vigiles/hooks/` (or named explicitly to `compile`). Because they share one dir, basenames are unique, so the stamp keys safely on the basename.
+Hooks are **not** auto-discovered by sitting just anywhere — they must be `.hook.` files under `.vigiles/hooks/` (or named explicitly to `compile`; [what counts as a hook](#what-counts-as-a-hook-the-hook-name)). Because they share one dir, basenames are unique, so the stamp keys safely on the basename.
 
 ### Editing a compiled hook (the stamp, and the way out)
 
@@ -426,18 +477,18 @@ The stamp makes the runtime **refuse** a hook whose source no longer matches wha
 - **clear its stamp** — write `{}` into `.vigiles/hooks/<name>.json` (or delete it). The hook then loads and runs **unstamped**, and — this is the part that matters — it goes back to **enforcing**. You are not disarming the gate, you are un-sticking it. Then recompile through the normal gate:
 
 ```bash
-npx vigiles compile .vigiles/hooks/guard.mjs
+npx vigiles compile .vigiles/hooks/guard.hook.mjs
 ```
 
 The refusal prints the exact sidecar path, so you don't have to work it out:
 
 ```
-vigiles: hook guard.mjs does not match its compiled stamp (tampered).
+vigiles: hook guard.hook.mjs does not match its compiled stamp (tampered).
 vigiles: if YOU edited it, the way out is a FILE WRITE, not a command — this
-  refusal blocks the recompile too. Either edit guard.mjs back to what was
+  refusal blocks the recompile too. Either edit guard.hook.mjs back to what was
   compiled, or clear its stamp by writing `{}` into
-  /repo/.vigiles/hooks/guard.mjs.json. The hook then runs UNSTAMPED but still
-  ENFORCES, so `vigiles compile guard.mjs` goes through the normal gate.
+  /repo/.vigiles/hooks/guard.hook.mjs.json. The hook then runs UNSTAMPED but still
+  ENFORCES, so `vigiles compile guard.hook.mjs` goes through the normal gate.
 ```
 
 If a hook stops **loading** entirely (a conflicted `package.json` so Node can't resolve `vigiles/hook`, a typo mid-edit), the same fail-closed refusal applies — and the way out is again a **file write**. Writes to the hook's own source, its stamp sidecar, or `package.json` / `.vigilesrc.json` are allowed while every command is refused. That set is complete rather than a guess: a compiled hook may import nothing but `vigiles/hook`, so its load path is the hook file plus the config that resolves that specifier. Fix whichever is broken and the hook loads again; the gate then decides normally, and `git merge --abort` is an ordinary allowed command — through the gate rather than around it.
@@ -465,8 +516,8 @@ Two kinds of hook behave differently here. A **gate** can block a tool call. A *
 **Which of the two applies is written on the command, and only there.** `vigiles compile` ends the command it writes with `|| exit 2` for a gate or `|| exit 0` for a nudge:
 
 ```sh
-node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/guard.mjs"  || exit 2   # a gate
-node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/status.mjs" || exit 0   # a nudge
+node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/guard.hook.mjs"  || exit 2   # a gate
+node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/status.hook.mjs" || exit 0   # a nudge
 ```
 
 The shell reads that ending, so it works even when the runtime cannot start at all (no `node_modules`), and a different vigiles version cannot change it.
@@ -495,7 +546,7 @@ It **only prints and always exits `0`**. A check that could fail at session star
 import { it } from "vitest";
 import { loadHook, assertHookDenies, assertHookAllows } from "vigiles";
 
-const guard = await loadHook(".vigiles/hooks/guard.mjs");
+const guard = await loadHook(".vigiles/hooks/guard.hook.mjs");
 
 it("blocks a force-push, even hidden in a compound command", () => {
   assertHookDenies(guard, {
@@ -509,14 +560,14 @@ it("blocks a force-push, even hidden in a compound command", () => {
 });
 ```
 
-`loadHook` is the same loader the runtime uses (so a hook that loads in a test loads identically in production) and it is what makes this tier reachable from a `.harness.mjs` file, which has a hook's PATH and not its object. A TypeScript hook (`guard.hook.ts`) loads the same way under tsx / Node ≥ 23.6. If you already have the object — a static `import guard from "./guard.mjs"` — pass it directly.
+`loadHook` is the same loader the runtime uses (so a hook that loads in a test loads identically in production) and it is what makes this tier reachable from a `.harness.mjs` file, which has a hook's PATH and not its object. A TypeScript hook (`guard.hook.ts`) loads the same way under tsx / Node ≥ 23.6. If you already have the object — a static `import guard from "./guard.hook.mjs"` — pass it directly.
 
 **React hooks get their own pair.** A react can't block, so the gate assertions don't apply; use `assertHookNotices(hook, event, matcher?)` and `assertHookSilent(hook, event)`:
 
 ```ts
 import { assertHookNotices, assertHookSilent } from "vigiles";
 
-const warn = await loadHook(".vigiles/hooks/warn-on-failure.mjs");
+const warn = await loadHook(".vigiles/hooks/warn-on-failure.hook.mjs");
 const after = (isError) => ({
   tool_name: "Bash",
   tool_input: { command: "npm test" },
@@ -548,7 +599,7 @@ Runnable end to end: [`examples/harness/compiled-hook-inprocess.harness.mjs`](..
 
 `runHookProgram(hook, event)` is the underlying primitive — it returns a normalized outcome (`{ kind: "decision" | "injection" | "reaction", … }`) dispatched by role, so an inject or react hook is just as testable as a gate.
 
-**2. Through the real runtime.** `runHook("node … hook-runtime run-program guard.mjs", event)` drives the actual compiled CLI (stamp check + dispatch) — proves the wired artifact behaves, still no model. Pair it with the disaster battery: `assertBlocksDisasters("node … hook-runtime run-program guard.mjs")` proves the gate blocks every textbook disaster.
+**2. Through the real runtime.** `runHook("node … hook-runtime run-program guard.hook.mjs", event)` drives the actual compiled CLI (stamp check + dispatch) — proves the wired artifact behaves, still no model. Pair it with the disaster battery: `assertBlocksDisasters("node … hook-runtime run-program guard.mjs")` proves the gate blocks every textbook disaster.
 
 **3. Does it fire in the assembled harness?** `runHarnessTest` (a scripted mock model emits the tool call; assert the hook blocked) — the delivery question, key-free, and capped by [how the harness delivers events to hooks](#limitations--trade-offs-the-cons).
 
@@ -556,7 +607,7 @@ See [Testing your harness](harness-testing.md) for the tiers in full.
 
 ## Proof: the OSS dogfood
 
-We pointed the [`DISASTER_CATALOG`](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery) battery (force-push, compound force-push, `reset --hard`, `rm -rf`, `--no-verify`, private-SSH-key read, `curl | sh`) at the widely-copied `disler/claude-code-hooks-mastery` safety hook: it blocks **2 of 7**, silently missing the other five. The compiled equivalent ([`examples/harness/safe-bash-guard.mjs`](../examples/harness/safe-bash-guard.mjs)) blocks **7 of 7** — same intent, no blind spots, no protocol bug. The contrast is a runnable, model-free regression test ([`src/hook-dogfood.test.ts`](../src/hook-dogfood.test.ts)).
+We pointed the [`DISASTER_CATALOG`](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery) battery (force-push, compound force-push, `reset --hard`, `rm -rf`, `--no-verify`, private-SSH-key read, `curl | sh`) at the widely-copied `disler/claude-code-hooks-mastery` safety hook: it blocks **2 of 7**, silently missing the other five. The compiled equivalent ([`examples/harness/safe-bash-guard.hook.mjs`](../examples/harness/safe-bash-guard.hook.mjs)) blocks **7 of 7** — same intent, no blind spots, no protocol bug. The contrast is a runnable, model-free regression test ([`src/hook-dogfood.test.ts`](../src/hook-dogfood.test.ts)).
 
 ### One command, many spellings — `experimental_alternateSpellings()`
 
@@ -597,7 +648,7 @@ import {
   assertBlocksDisasters,
 } from "vigiles";
 
-const guard = "node … hook-runtime run-program guard.mjs";
+const guard = "node … hook-runtime run-program guard.hook.mjs";
 assertBlocksDisasters(guard, {
   events: [
     ...DISASTER_CATALOG,

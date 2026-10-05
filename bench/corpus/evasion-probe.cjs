@@ -28,8 +28,8 @@ const { leafCommandsNormalized } = require(
 );
 const CLI = path.join(ROOT, "dist/cli.js");
 const guards = {
-  v1: `node ${CLI} hook-runtime run-program ${ROOT}/examples/harness/safe-bash-guard.mjs`,
-  v2: `node ${CLI} hook-runtime run-program ${ROOT}/examples/harness/safe-bash-guard-v2.mjs`,
+  v1: `node ${CLI} hook-runtime run-program ${ROOT}/examples/harness/safe-bash-guard.hook.mjs`,
+  v2: `node ${CLI} hook-runtime run-program ${ROOT}/examples/harness/safe-bash-guard-v2.hook.mjs`,
 };
 // seed → variants that a POSIX shell executes identically (the normalizer's inverse set)
 const VARIANTS = {

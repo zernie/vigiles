@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:a354e99cc50b219b compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:1587bfe59c36b932 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -119,7 +119,7 @@ BUILD + TOOLING + GENERATED:
 - `src/test-tier-nudge.hook.test.ts` — The test for this repo own compiled hook. Named <surface>.hook.test.ts because a hook name carries .hook — that is what binds it to the surface under .vigilesrc.json.
 - `.vigiles/hooks/docs-drift-nudge.hook.mjs` — This repo own compiled hook #2 — a react nudging when src/ changed and no doc did. That is a property of a DIFF, which only a hook sees; two named facts keep the silences apart.
 - `src/docs-drift-nudge.hook.test.ts` — The test for the docs-drift hook (vitest, unit tier): both silences asserted apart, and mutation-proven — deleting the docs.followed branch fails exactly one test.
-- `examples/harness/safe-bash-guard.mjs` — The compiled-hook dogfood artifact — a real guard full intent (force-push/reset --hard/--no-verify/forced-rm/secret-read/curl|sh) as one pure typed function.
+- `examples/harness/safe-bash-guard.hook.mjs` — The compiled-hook dogfood artifact — a real guard full intent (force-push/reset --hard/--no-verify/forced-rm/secret-read/curl|sh) as one pure typed function.
 - `src/core/command-files.ts` — Which FILES a shell command reads or writes — the deterministic extractor behind the path-aware half of a Bash gate (#212).
 - `src/core/guards.ts` — EXPERIMENTAL prototype (the GATE axis of the reliability runtime) — typed safe-by-construction harness GUARDS: declare guard.block / requireBefore (the ORDER axis — destroy-after-plan, enforced live…
 - `src/hook-matcher-delivery.test.ts` — Which matcher strings Claude Code honours as match-all — MEASURED, after `**` sat in MATCH_ALL (core/hook-matcher.ts) on no evidence. A claim about somebody else's product that prose cannot keep true.

@@ -40,6 +40,13 @@ their exit codes. Most of the churn is in the library API underneath it.
   - `vigiles/adapter` — the adapter-authoring kit. This is a **deliberate
     extension point**: third-party harness adapters are an intended use, so the
     kit is public before a named external adapter exists.
+- **Hook and provider file names.** `vigiles compile` compiles a file in
+  `.vigiles/hooks/` only if its name carries `.hook.` before the extension
+  (`guard.hook.mjs`), and one in `.vigiles/providers/` only with `.provider.`. This
+  **changed in a major release**, and an unmarked file now makes `compile` exit `1`
+  and print the rename; see
+  [what counts as a hook](docs/compiled-hooks.md#what-counts-as-a-hook-the-hook-name)
+  and [upgrading](docs/compiled-hooks.md#upgrading-from-a-vigiles-that-compiled-every-file).
 - **Compiled output contracts** — the `vigiles:sha256` integrity header and the
   emitted markdown/settings shapes a hook or spec compiles to.
 

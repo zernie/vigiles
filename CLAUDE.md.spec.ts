@@ -135,7 +135,7 @@ BUILD + TOOLING + GENERATED:
       "This repo own compiled hook #2 — a react nudging when src/ changed and no doc did. That is a property of a DIFF, which only a hook sees; two named facts keep the silences apart.",
     "src/docs-drift-nudge.hook.test.ts":
       "The test for the docs-drift hook (vitest, unit tier): both silences asserted apart, and mutation-proven — deleting the docs.followed branch fails exactly one test.",
-    "examples/harness/safe-bash-guard.mjs":
+    "examples/harness/safe-bash-guard.hook.mjs":
       "The compiled-hook dogfood artifact — a real guard full intent (force-push/reset --hard/--no-verify/forced-rm/secret-read/curl|sh) as one pure typed function.",
     "src/core/command-files.ts":
       "Which FILES a shell command reads or writes — the deterministic extractor behind the path-aware half of a Bash gate (#212).",

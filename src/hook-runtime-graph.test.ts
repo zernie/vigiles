@@ -49,7 +49,10 @@ const CLI = resolve(REPO_ROOT, "dist", "cli.js");
 const HOOK_DIST = pathToFileURL(resolve(REPO_ROOT, "dist", "hook.js")).href;
 
 /** The shipped dogfood bash gate — a real hook, not a toy, for the parser arm. */
-const BASH_GATE = resolve(REPO_ROOT, "examples/harness/safe-bash-guard.mjs");
+const BASH_GATE = resolve(
+  REPO_ROOT,
+  "examples/harness/safe-bash-guard.hook.mjs",
+);
 
 const PROBE = `const fs = require("node:fs");
 process.on("exit", () => {

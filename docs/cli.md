@@ -8,7 +8,7 @@ For the pitch and quick start, see the [README](../README.md).
 
 ```bash
 npx vigiles init [--target=X.md]    # Scaffold a spec (runs full setup wizard by default)
-npx vigiles compile [files...]      # Compile .spec.ts → .md AND .vigiles/hooks/* → merged hooks config + stamp
+npx vigiles compile [files...]      # Compile .spec.ts → .md AND .vigiles/hooks/*.hook.* → merged hooks config + stamp
 npx vigiles eject [file]            # Un-manage a compiled file → plain hand-owned markdown (--keep-spec)
 npx vigiles lint [files...]         # Verify references + integrity + symbols + coverage (incl. instruction-file symbol marks)
 npx vigiles test [files...]         # Run *.harness.{mjs,ts} deterministic harness tests (no API key)
@@ -319,11 +319,17 @@ There is **no `compile-hook` verb** — hook compilation is folded into `compile
 typed authoring artifact). Put the hook source in **`.vigiles/hooks/`** (it's
 harness-neutral, so it lives in vigiles's own dir, not `.claude/`), then:
 
-- `vigiles compile` discovers `.vigiles/hooks/*` (or take one: `vigiles compile
-.vigiles/hooks/x.mjs`), runs the capability check (an import outside
+- `vigiles compile` discovers `.vigiles/hooks/*.hook.*` (or take one: `vigiles compile
+.vigiles/hooks/x.hook.mjs`), runs the capability check (an import outside
   `vigiles/hook` **fails the build**, exit 1), **merges** the block into the
   active harness's config (`.claude/settings.json` / `.codex/config.toml`)
   idempotently, and writes a tamper-evident stamp to `.vigiles/hooks/<file>.json`.
+- **A hook is a file named `<name>.hook.<ext>`, and only that.** A test beside it
+  (`x.harness.mjs`, `x.eval.mjs`), a declaration or a stamp is left alone. A runnable
+  file that carries no marker (`guard.mjs`) is **refused**: `compile` still compiles the
+  hooks that are fine, prints the exact rename command, and exits `1` — it is never
+  silently skipped. See [what counts as a hook](compiled-hooks.md#what-counts-as-a-hook-the-hook-name)
+  and [upgrading](compiled-hooks.md#upgrading-from-a-vigiles-that-compiled-every-file).
 - `--harness=codex` merges a Codex `config.toml` `[[hooks.<event>]]` block (an
   anchored-regex matcher) instead of the Claude Code JSON. The same typed program
   compiles to either; the gate runtime is shared (Codex vetoes via `exit 2`).
@@ -331,7 +337,7 @@ harness-neutral, so it lives in vigiles's own dir, not `.claude/`), then:
   `needs: ["git.branch"]` (built-ins: `git.branch`/`git.isDirty`/`git.root`/`cwd`/
   `os.platform`/`env.isCI`), or an inline `provide(name, cmd)` / `dangerously(name,
 cmd)`, or a **registered** provider. `compile` also discovers
-  **`.vigiles/providers/*`** (`export default defineProvider({ name, run })`),
+  **`.vigiles/providers/*.provider.*`** (`export default defineProvider({ name, run })`),
   validates each is read-only (unless `dangerous: true`), and checks every
   `provider()` ref resolves — a dangling ref or an unsafe provider **fails the
   build**. The trusted runtime gathers the declared facts; the hook does zero I/O.
