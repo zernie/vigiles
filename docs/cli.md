@@ -338,9 +338,9 @@ cmd)`, or a **registered** provider. `compile` also discovers
   See the [compiled-hooks guide](compiled-hooks.md#deciding-on-external-state-context-providers).
 
 The merged block points at the `hook-runtime run-program` entrypoint (below),
-ends in the hook's role as `|| exit 2` (gate) or `|| exit 0` (nudge), and is
-accompanied by one `SessionStart` notice, `.vigiles/hook-check.sh`, that names
-wired hook files which are not installed (it only prints; it never blocks).
+ends in `|| exit 2` (a hook that can block) or `|| exit 0` (a hook that only adds
+a reminder), and comes with one `SessionStart` notice, `.vigiles/hook-check.sh`,
+that names hook files which are not installed (it only prints; it never blocks).
 
 Honest scope: this fixes the hook's authoring + logic, not the harness's
 delivery. The delivery floor moved —
@@ -361,11 +361,11 @@ type one yourself; `compile` wires them for you.
   the live event on stdin, **verifies the stamp** (a hand-edited artifact is
   refused — exit 2, fail closed), and dispatches by role — a gate exits 2 +
   reason on `deny`, an inject prints `additionalContext`, a react runs its
-  classified command. Exit codes: `0` allow, `2` deny/refuse — including a hook
-  that cannot be loaded, whatever its name: the runtime does not know the role
-  of a hook that did not load. A nudge degrades through the `|| exit 0` suffix
-  `compile` writes on its wired command, not through the runtime
-  ([when a hook cannot load](compiled-hooks.md#when-a-hook-cannot-load)).
+  classified command. Exit codes: `0` allow, `2` deny/refuse. A hook that cannot
+  be loaded also exits `2`, whatever its file name, because the runtime cannot
+  tell what kind of hook it failed to load. A reminder-only hook still does not
+  block, because the `|| exit 0` that `compile` adds to its command turns the `2`
+  into a `0` ([when a hook cannot load](compiled-hooks.md#when-a-hook-cannot-load)).
 - Other kinds (`agent`, `skill`, `skill-tool`, `refs`, `guard`, `intercept-tool`,
   `effect-enter`/`effect-exit`, …) back the subagent/skill rails and other
   emitted gates. Renaming a `<kind>` breaks every already-emitted block, so it's
