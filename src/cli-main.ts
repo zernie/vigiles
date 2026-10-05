@@ -247,12 +247,7 @@ import {
   normalizeHookRef,
   serializeConfig,
 } from "./hook-install.js";
-import {
-  HOOK_CHECK_REF,
-  checkPaths,
-  commandsIn,
-  renderHookCheck,
-} from "./hook-check.js";
+import { installHookCheck } from "./hook-check-install.js";
 import { unsafeProvider } from "./core/hook-providers.js";
 import { parse as parseToml } from "@iarna/toml";
 // The named-state STORE. Lifted out of this file so a TEST can seed a fact
@@ -7577,10 +7572,9 @@ async function installHookFile(
     // cannot load must block — the repo seized, every command refused including the repair.
     //
     // 🔴 AND LAUNCHED LOCALLY, NOT THROUGH `npx` — 193 ms against 2545 ms on a warm
-    // cache, thirteen times, on every tool call. The trailing `|| exit N` is what the
-    // shell does when that binary cannot start at all, and N is decided by the hook's
-    // ROLE. It is NOT written here: `compileHookProgram` appends it, so this caller
-    // and every other one get the same answer — see `hookRuntimeMissingExit`.
+    // cache, thirteen times, on every tool call. The `|| exit N` ending is what
+    // the shell does when that file cannot start at all. `compileHookProgram`
+    // adds it (see `hookRuntimeMissingExit`), so it is not written here.
     gateCommand:
       `${hookRuntimeRef(adapter.layout.projectRootTokens)} hook-runtime run-program ` +
       hookGateRef(ref, adapter.layout.projectRootTokens),
@@ -7748,59 +7742,6 @@ async function installHooks(
   }
   installHookCheck(adapters);
   return ok;
-}
-
-/**
- * Wire the SessionStart hook-check (`src/hook-check.ts`) for every shell-hook
- * harness: ONE generated script, ONE `SessionStart` entry per config, `|| exit 0`.
- *
- * The file list is read from the settings AFTER the merge above, so it covers
- * every compiled-hook wiring in them, not just the hooks this run touched, and a
- * recompile is a fixed point: same settings in, same bytes out. The entry is
- * keyed by the script's own path, so `mergeRegistrations` replaces it in place
- * and leaves a user's own `SessionStart` hooks alone.
- */
-function installHookCheck(adapters: readonly HarnessAdapter[]): void {
-  const cwd = process.cwd();
-  const wired = adapters.flatMap((adapter) => {
-    if (!adapter.shellHooks) return [];
-    const settingsAbs = resolve(cwd, adapter.layout.settingsPath);
-    if (!existsSync(settingsAbs)) return [];
-    const parsed = adapter.layout.settings.parse(
-      readFileSync(settingsAbs, "utf-8"),
-    );
-    return [{ adapter, commands: commandsIn(parsed.hooks) }];
-  });
-  const { paths, unsafe } = checkPaths(wired.flatMap((w) => w.commands));
-  for (const path of unsafe) {
-    console.warn(
-      `⚠ hook-check: ${path} has characters the check cannot quote safely, so it is NOT covered.`,
-    );
-  }
-  if (paths.length === 0) return;
-
-  const scriptAbs = resolve(cwd, HOOK_CHECK_REF);
-  mkdirSync(dirname(scriptAbs), { recursive: true });
-  writeFileSync(scriptAbs, renderHookCheck(paths));
-
-  for (const { adapter } of wired) {
-    // `wired` only holds shell-hook adapters; the union cannot say so by itself.
-    if (!adapter.shellHooks) continue;
-    const settingsAbs = resolve(cwd, adapter.layout.settingsPath);
-    const existing = adapter.layout.settings.parse(
-      readFileSync(settingsAbs, "utf-8"),
-    );
-    const command = `sh ${hookGateRef(HOOK_CHECK_REF, adapter.layout.projectRootTokens)} || exit 0`;
-    const merged = adapter.hookProtocol.mergeRegistrations(
-      existing,
-      { SessionStart: [{ hooks: [{ type: "command", command }] }] },
-      HOOK_CHECK_REF,
-    );
-    writeFileSync(settingsAbs, adapter.layout.settings.render(merged));
-  }
-  console.log(
-    `✓ ${HOOK_CHECK_REF} → SessionStart notice for ${paths.length} wired hook file(s)`,
-  );
 }
 
 /**

@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 491 project files. */
+  /** 493 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -455,6 +455,8 @@ declare module "vigiles/generated" {
     | "src/harness-resolve.test.ts"
     | "src/harness-test.test.ts"
     | "src/harness-test.ts"
+    | "src/hook-check-install.test.ts"
+    | "src/hook-check-install.ts"
     | "src/hook-check.test.ts"
     | "src/hook-check.ts"
     | "src/hook-condition.test.ts"
@@ -1018,6 +1020,8 @@ declare module "vigiles/spec" {
       | "src/harness-resolve.test.ts"
       | "src/harness-test.test.ts"
       | "src/harness-test.ts"
+      | "src/hook-check-install.test.ts"
+      | "src/hook-check-install.ts"
       | "src/hook-check.test.ts"
       | "src/hook-check.ts"
       | "src/hook-condition.test.ts"
