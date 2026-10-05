@@ -193,21 +193,37 @@ test("a missing RUNTIME (fresh container, no node_modules): it says so, and stil
   }
 });
 
-test("the script needs NOTHING installed: it runs under an empty PATH, and without CLAUDE_PROJECT_DIR", () => {
+test("the script needs NOTHING installed: it runs under an empty PATH, healthy and not", () => {
   const dir = project({ "guard.hook.mjs": GATE });
   try {
     assert.equal(compile(dir).status, 0);
-    rmSync(join(dir, "node_modules"), { recursive: true });
     const script = join(dir, ".vigiles", "hook-check.sh");
-    // PATH="" leaves shell builtins only: no node, no grep, no sed, no vigiles.
-    const shell = spawnSync("/bin/sh", [script], {
-      cwd: dir,
-      encoding: "utf-8",
-      env: { PATH: "" },
-    });
-    assert.equal(shell.status, 0, shell.stderr);
-    assert.match(context(shell.stdout), /node_modules\/vigiles\/dist\/cli\.js/);
-    assert.equal(shell.stderr, "");
+    // PATH="" leaves shell builtins only: no node, no grep, no ls, no vigiles.
+    // Both halves matter: a script that leaned on an external binary would report
+    // EVERYTHING missing here, so the healthy half must stay silent.
+    const run = () =>
+      spawnSync("/bin/sh", [script], {
+        cwd: dir,
+        encoding: "utf-8",
+        env: { PATH: "" },
+      });
+    const healthy = run();
+    assert.equal(healthy.status, 0, healthy.stderr);
+    assert.equal(
+      healthy.stdout,
+      "",
+      "all present: silent, with no binary on PATH",
+    );
+    assert.equal(healthy.stderr, "");
+
+    rmSync(join(dir, "node_modules"), { recursive: true });
+    const broken = run();
+    assert.equal(broken.status, 0, broken.stderr);
+    assert.match(
+      context(broken.stdout),
+      /node_modules\/vigiles\/dist\/cli\.js/,
+    );
+    assert.equal(broken.stderr, "");
   } finally {
     cleanupTmpDir(dir);
   }
@@ -355,6 +371,48 @@ test("commands that are not vigiles runtime wirings are not the check's business
     // …and since nothing it names is missing, a healthy repo stays silent.
     const cmd = theCheck(dir);
     assert.equal(runCheck(dir, cmd).stdout, "");
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("a path the check cannot quote safely is REPORTED by compile, not silently dropped", () => {
+  const dir = project({ "guard.hook.mjs": GATE });
+  try {
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(
+      join(dir, ".claude", "settings.json"),
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command:
+                    'node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program "$CLAUDE_PROJECT_DIR/odd:dir/x.hook.mjs" || exit 0',
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    const r = compile(dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stderr, /odd:dir\/x\.hook\.mjs/);
+    assert.match(r.stderr, /NOT covered/);
+    // …and the script never carries it into a shell string or a JSON string.
+    const script = readFileSync(
+      join(dir, ".vigiles", "hook-check.sh"),
+      "utf-8",
+    );
+    assert.doesNotMatch(script, /odd:dir/);
+    assert.match(
+      script,
+      /\.vigiles\/hooks\/guard\.hook\.mjs/,
+      "the rest is still covered",
+    );
   } finally {
     cleanupTmpDir(dir);
   }

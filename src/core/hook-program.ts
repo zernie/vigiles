@@ -2813,6 +2813,26 @@ export function isStampRepairEvent(
  * loads, the gate decides normally and `git merge --abort` is an ordinary allowed
  * command — through the gate, not around it.
  *
+ * ## Why an INSTALL is not on the list either (#312, considered and rejected)
+ *
+ * The most common reason a hook cannot load is not a broken harness but one that
+ * is not installed yet (fresh container, a merge that brought wiring without its
+ * package), and the cure — `npm ci` — is exactly what the gate refuses. Letting a
+ * lockfile install through while the file under `node_modules/` is missing was
+ * proposed and is the same mistake a third time: a command admitted for what it
+ * MEANS rather than what it DOES. An install runs the lifecycle scripts of every
+ * package in the lockfile, a wider execution surface than the `.git/hooks/*` one
+ * that removed the git commands above, and "the gate is not running anyway" is the
+ * argument for allowing everything — it does not tell `npm ci` from `ls`. It also
+ * cannot cover the fresh-container case: there the runtime binary itself is
+ * absent, so none of this code runs and the wiring's `|| exit 2` decides. And
+ * `npm ci` fails when the lockfile is behind `package.json`, so the allowlist
+ * would have to admit bare `npm install`, which fetches what the repo does not
+ * pin. So the door stays a file write, and the honest remainder is documented
+ * rather than papered over: see `docs/compiled-hooks.md`, "When a hook cannot
+ * load". What actually removes the cause is a hook that travels in the same git
+ * object as its wiring, which is a separate decision (#312).
+ *
  * ## What is accepted
  *
  * A write to the hook's own source, its stamp sidecar, or one of

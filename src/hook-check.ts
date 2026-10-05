@@ -33,6 +33,13 @@
  * across `compile <one hook>` runs by construction: it is derived from the file,
  * not from the arguments. A hook wired after the last `compile` is not covered
  * until the next one.
+ *
+ * LIMITS, stated rather than discovered. It tests that a file EXISTS, not that it
+ * LOADS — a hook whose package is present but no longer exports what it imports
+ * (a major bump) passes this check and still wedges. And a path is recognised by
+ * the same script-shape test the coverage tier uses (`runProgramRef`), which has no
+ * place for a space or a quote: a hook under such a path is not covered, and the
+ * check cannot say so, because the parse that would name it never matches.
  */
 import { runProgramFiles } from "./coverage-probe.js";
 
