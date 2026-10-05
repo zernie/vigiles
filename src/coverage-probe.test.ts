@@ -841,7 +841,7 @@ test("a third-party runner SHIM is an accepted false negative, and our own runne
 });
 
 // ---------------------------------------------------------------------------
-// runProgramFiles — only what a COMPILED HOOK's wiring needs on disk.
+// runProgramFiles: only the files a compiled hook's command needs on disk.
 // ---------------------------------------------------------------------------
 
 test("runProgramFiles: the runtime entry (when launched by path) and the hook it runs", () => {
@@ -876,7 +876,7 @@ test("runProgramFiles: programs that are not a compiled-hook wiring name nothing
     "npx prettier --check .",
     "bash scripts/not-built-yet.sh",
     "bash ${CLAUDE_PLUGIN_ROOT}/hooks/post-edit.sh",
-    // The verb as an argument, not as the running program's own.
+    // The words appear only as arguments to `echo`, not as the program being run.
     "echo vigiles hook-runtime run-program hooks/x.hook.mjs",
     "exit 0",
   ]) {
@@ -891,9 +891,9 @@ test("runProgramFiles: every invocation that unconditionally runs, and none that
     ),
     ["a.hook.mjs", "b.hook.mjs"],
   );
-  // The right of `&&` is conditional (`leafArgvSource` abstains there, on
-  // purpose): the check stays silent about it rather than guess. A missed file is
-  // a missing notice; a guessed one is a false alarm in a healthy repo.
+  // The part after `&&` may never run, so it is skipped on purpose. Missing one
+  // file means one missing notice; guessing wrong would be a false alarm in a
+  // healthy repo.
   assert.deepEqual(
     runProgramFiles("cd x && npx vigiles hook-runtime run-program a.hook.mjs"),
     [],

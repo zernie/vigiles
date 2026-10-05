@@ -1285,8 +1285,8 @@ test("compile (hook): MERGE preserves a real plugin's existing hooks (superpower
     assert.equal(c.status, 0, c.stderr);
 
     const merged = readSettings(dir);
-    // The plugin's own SessionStart hook is preserved untouched (incl. async), and
-    // the vigiles hook-check is appended AFTER it — one entry, not a rewrite.
+    // The plugin's own SessionStart hook is kept as it was (including async), and
+    // the vigiles start-of-session check is added after it as one new entry.
     assert.equal(merged.hooks.SessionStart.length, 2);
     assert.match(
       merged.hooks.SessionStart[1].hooks[0].command,

@@ -657,8 +657,8 @@ describe("recompiling over the previous launcher", () => {
         .flat()
         .flatMap((g) => g.hooks)
         .map((h) => h.command)
-        // The SessionStart hook-check is a second, intended entry — not a duplicate
-        // wiring of this hook, which is what this test is counting.
+        // The start-of-session check is an extra entry on purpose. It is not a
+        // duplicate of this hook, which is what this test counts.
         .filter((c) => !c.includes("hook-check.sh"));
 
       // ONE, not two. A second entry here means every existing user grows a

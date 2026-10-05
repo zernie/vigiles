@@ -626,20 +626,18 @@ export function commandRefs(
 }
 
 /**
- * The files our OWN runtime invocations in a command line need on disk: the
- * hook each `hook-runtime run-program` is pointed at, and the runtime entry
- * script when it is launched by path (`node "$DIR/node_modules/vigiles/dist/cli.js"
- * hook-runtime run-program …`).
+ * The files that a `hook-runtime run-program` command needs to exist: the hook
+ * file it names, and the runtime script when the command starts it by path
+ * (`node "$DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program …`).
  *
- * Narrower than {@link commandRefs} on purpose — that one lists every program a
- * command executes, this one only what a COMPILED HOOK's wiring depends on, which
- * is what the SessionStart check names. `bash scripts/build.sh` is a program the
- * command runs and not a compiled hook; a check that reported it missing in a
- * fresh clone would be crying wolf about something `npm install` does not fix.
+ * Narrower than {@link commandRefs}, which lists every program a command runs.
+ * This lists only what a compiled hook depends on, because the start-of-session
+ * check (`hook-check.ts`) reports these files as missing. `bash scripts/build.sh`
+ * is not one of them; reporting it missing in a fresh clone would be a false
+ * alarm that `npm install` does not fix.
  *
- * Same shape test as `commandRefs`: the verb must sit in the position of the
- * program that is running, so `echo vigiles hook-runtime run-program x.mjs`
- * names nothing.
+ * Like `commandRefs`, it only counts a command that really starts vigiles, so
+ * `echo vigiles hook-runtime run-program x.mjs` names nothing.
  */
 export function runProgramFiles(command: string): string[] {
   const out = new Set<string>();

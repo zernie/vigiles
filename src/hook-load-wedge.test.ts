@@ -591,20 +591,19 @@ test("the ONE repair path outside the repo root is the one Node actually reads",
 });
 
 // ---------------------------------------------------------------------------
-// WHO DECIDES THE ROLE WHEN A HOOK CANNOT LOAD (#312).
+// WHAT HAPPENS WHEN A HOOK CANNOT BE LOADED (#312).
 //
-// Before: TWO deciders of one fact. The wiring suffix (`|| exit N`, written by
-// `compile`, read by `sh`) said "a nudge degrades, a gate blocks"; the runtime's
-// load-failure branch said it AGAIN by looking for the substring `inject` in the
-// hook's FILE NAME. They disagree whenever the name lies: a nudge called
-// `paper-status.hook.mjs` (no "inject") exits 2 from the runtime, and a GATE
-// called `ctx-inject.hook.mjs` exited 0 — a gate that silently passes traffic
-// because of what its file was called.
+// Two things used to decide whether such a hook blocks. One was the ending
+// `|| exit 2` or `|| exit 0` that `vigiles compile` writes on the command. The
+// other was the runtime, which checked whether the hook's file name contained
+// "inject". When the name was misleading they disagreed: a reminder-only hook
+// called `paper-status.hook.mjs` blocked the session, and a blocking hook called
+// `ctx-inject.hook.mjs` let every command through.
 //
-// Now: the runtime ALWAYS exits 2 on a load failure (it cannot know the role —
-// the hook did not load), and the suffix is the only owner. Both layers are
-// driven for real here: the runtime directly, and the exact string `compile`
-// wrote into settings, run with `sh -c` the way the harness runs it.
+// Now the runtime always exits 2 when a hook cannot be loaded, and only the
+// ending on the command can turn that into a 0. These tests run both parts for
+// real: the runtime directly, and the exact command `compile` wrote into the
+// settings, run with `sh -c` the way Claude Code runs it.
 // ---------------------------------------------------------------------------
 
 const GATE_SRC = `import { experimental_defineHook, deny, allow } from "vigiles/hook";
@@ -639,7 +638,7 @@ const WRITE_EVENT = {
 };
 const START_EVENT = { hook_event_name: "SessionStart", source: "startup" };
 
-/** A project with `vigiles` resolvable, and `name`d hooks compiled for real. */
+/** A project where `vigiles` can be found, with the given hooks really compiled. */
 function wiredProject(hooks: Record<string, string>): {
   dir: string;
   commandOf: (name: string) => string;
@@ -673,7 +672,7 @@ function wiredProject(hooks: Record<string, string>): {
   };
 }
 
-/** The exact string the harness runs, run the way it runs it. */
+/** Runs the command exactly as Claude Code would. */
 function runWired(
   dir: string,
   command: string,
@@ -688,7 +687,7 @@ function runWired(
   return { code: res.status ?? -1, stdout: res.stdout, stderr: res.stderr };
 }
 
-test("runtime: a hook that cannot load exits 2 whatever its file name says — the runtime does not guess the role", () => {
+test("runtime: a hook that cannot be loaded exits 2 whatever its file name says", () => {
   const { dir } = wiredProject({ "anchor.hook.mjs": GATE_SRC });
   try {
     for (const name of [
@@ -705,7 +704,7 @@ test("runtime: a hook that cannot load exits 2 whatever its file name says — t
       );
       assert.equal(res.status, 2, `${name}: ${res.stderr}`);
       assert.match(res.stderr, /cannot be loaded/, name);
-      // No branch left that claims to know the role of a hook that did not load.
+      // The runtime no longer claims to know what kind of hook failed to load.
       assert.doesNotMatch(res.stderr, /degrading gracefully/, name);
     }
   } finally {
@@ -713,7 +712,7 @@ test("runtime: a hook that cannot load exits 2 whatever its file name says — t
   }
 });
 
-test("runtime: the load-failure notice tells a hand-wirer where the role lives", () => {
+test("runtime: the message tells someone who wired a hook by hand how to fix it", () => {
   const { dir } = wiredProject({ "anchor.hook.mjs": GATE_SRC });
   try {
     const res = spawnSync(
@@ -722,8 +721,8 @@ test("runtime: the load-failure notice tells a hand-wirer where the role lives",
       { cwd: dir, encoding: "utf-8", input: JSON.stringify(BASH_EVENT) },
     );
     assert.equal(res.status, 2);
-    // A nudge wired by hand and left without a suffix is read as a gate. Say how
-    // to fix THAT, on the line that appears exactly when it matters.
+    // A reminder-only hook wired by hand with no ending is treated as a blocking
+    // one. The message must say how to fix that.
     assert.match(res.stderr, /\|\| exit 0/);
     assert.match(res.stderr, /vigiles compile/);
   } finally {
@@ -731,7 +730,7 @@ test("runtime: the load-failure notice tells a hand-wirer where the role lives",
   }
 });
 
-test("wired: a nudge that cannot load degrades to exit 0 end to end — a name without `inject` is not a gate", () => {
+test("a reminder-only hook that cannot be loaded exits 0 through its command, whatever its file name", () => {
   const { dir, commandOf } = wiredProject({
     "paper-status.hook.mjs": NUDGE_SRC,
     "briefing.hook.mjs": INJECT_SRC,
@@ -742,10 +741,10 @@ test("wired: a nudge that cannot load degrades to exit 0 end to end — a name w
     assert.match(nudge, /\|\| exit 0$/);
     assert.match(briefing, /\|\| exit 0$/);
 
-    // Healthy first: the suffix masks nothing.
+    // First check the healthy case: the ending hides nothing.
     assert.equal(runWired(dir, nudge, WRITE_EVENT).code, 0);
 
-    // The hook file is gone (a merge brought the wiring, not the package).
+    // The hook file is gone (a merge brought the wiring but not the package).
     rmSync(join(dir, ".vigiles", "hooks", "paper-status.hook.mjs"));
     rmSync(join(dir, ".vigiles", "hooks", "briefing.hook.mjs"));
     const a = runWired(dir, nudge, WRITE_EVENT);
@@ -753,7 +752,7 @@ test("wired: a nudge that cannot load degrades to exit 0 end to end — a name w
     assert.match(a.stderr, /cannot be loaded/, "the cause is still said");
     assert.equal(runWired(dir, briefing, START_EVENT).code, 0);
 
-    // …and with the runtime itself absent (fresh container, no node_modules).
+    // Same again with the runtime missing too (a fresh container with no node_modules).
     rmSync(join(dir, "node_modules"), { recursive: true });
     assert.equal(runWired(dir, nudge, WRITE_EVENT).code, 0);
     assert.equal(runWired(dir, briefing, START_EVENT).code, 0);
@@ -762,7 +761,7 @@ test("wired: a nudge that cannot load degrades to exit 0 end to end — a name w
   }
 });
 
-test("wired: a GATE that cannot load still blocks — even one whose file name contains `inject`", () => {
+test("a blocking hook that cannot be loaded still blocks, even if its file name contains `inject`", () => {
   const { dir, commandOf } = wiredProject({
     "ctx-inject.hook.mjs": GATE_SRC,
     "plain.hook.mjs": GATE_SRC,
@@ -776,7 +775,7 @@ test("wired: a GATE that cannot load still blocks — even one whose file name c
 
     rmSync(join(dir, ".vigiles", "hooks", "ctx-inject.hook.mjs"));
     rmSync(join(dir, ".vigiles", "hooks", "plain.hook.mjs"));
-    // The substring used to turn this into a silent pass.
+    // The "inject" in the file name used to make this pass silently.
     const a = runWired(dir, named, BASH_EVENT);
     assert.equal(a.code, 2, a.stderr);
     assert.equal(runWired(dir, plain, BASH_EVENT).code, 2);

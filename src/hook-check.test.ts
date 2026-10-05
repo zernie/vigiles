@@ -1,24 +1,25 @@
 /**
- * The SessionStart hook-check (#312) — driven against the REAL built CLI, and the
- * script it writes is run with a real `sh`.
+ * The start-of-session check (#312), run against the real built CLI. The script it
+ * writes is run with a real `sh`.
  *
- * What it is: when `vigiles compile` wires hooks it also wires ONE `SessionStart`
- * command that runs `.vigiles/hook-check.sh`. The script lists the files those
- * wirings need (the local runtime and each hook) and, if any is missing, prints
- * the cure into the first turn. That is the whole job.
+ * What it is: when `vigiles compile` wires hooks, it also adds one `SessionStart`
+ * command that runs `.vigiles/hook-check.sh`. The script lists the files the
+ * wired hooks need (each hook, and the local runtime). If any is missing it
+ * prints what to do, so the first turn of the session sees it.
  *
- * Three properties are load-bearing, and each has its own test:
+ * Three things must hold, and each has its own test:
  *
- *   1. It runs where nothing else does. The state it reports is "node_modules is
- *      not installed", so it is plain POSIX `sh` — asserted by running it with an
- *      EMPTY `PATH` (builtins only: no `node`, no `grep`, no vigiles).
- *   2. It only PRINTS. It always exits 0 — a check that could exit 2 at session
- *      start would be a new way to wedge the session it is trying to help.
- *   3. Compile is idempotent about it: one entry, byte-identical on recompile,
- *      the user's own SessionStart hooks untouched.
+ * 1. It works when nothing is installed. The script is plain `sh`, and one test
+ *    runs it with an empty `PATH`, so only shell built-ins are available (no
+ *    `node`, no `grep`, no vigiles).
+ * 2. It only prints and always exits 0. A check that could exit 2 at session
+ *    start would be one more way to break the session it should help.
+ * 3. Running `compile` again changes nothing: one entry, identical bytes, and
+ *    the user's own `SessionStart` hooks are left alone.
  *
- * What it is NOT: a fix. A gate whose files are missing still refuses every
- * command (the install included); this only says so before the first one is tried.
+ * What it does not do: fix anything. A blocking hook whose files are missing
+ * still refuses every command, the install included. The check only says so
+ * before the first command is tried.
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
@@ -198,9 +199,9 @@ test("the script needs NOTHING installed: it runs under an empty PATH, healthy a
   try {
     assert.equal(compile(dir).status, 0);
     const script = join(dir, ".vigiles", "hook-check.sh");
-    // PATH="" leaves shell builtins only: no node, no grep, no ls, no vigiles.
-    // Both halves matter: a script that leaned on an external binary would report
-    // EVERYTHING missing here, so the healthy half must stay silent.
+    // With PATH="" only shell built-ins work: no node, grep, ls or vigiles.
+    // Test both cases. A script that needed an external program would report
+    // everything as missing, so the healthy case must print nothing.
     const run = () =>
       spawnSync("/bin/sh", [script], {
         cwd: dir,
@@ -234,8 +235,8 @@ test("it exits 0 whatever the project directory is — and a missing script is i
   try {
     assert.equal(compile(dir).status, 0);
     const script = join(dir, ".vigiles", "hook-check.sh");
-    // The script, pointed at a directory that does not exist: everything is
-    // "missing", and it still only prints.
+    // Point the script at a directory that does not exist. Everything counts as
+    // missing, and it still only prints.
     const elsewhere = spawnSync("/bin/sh", [script], {
       cwd: dir,
       encoding: "utf-8",
@@ -244,9 +245,9 @@ test("it exits 0 whatever the project directory is — and a missing script is i
     assert.equal(elsewhere.status, 0, elsewhere.stderr);
     assert.match(context(elsewhere.stdout), /not installed/);
 
-    // The wired command when the script itself is gone (`.vigiles/` not
-    // committed, a partial checkout): `sh` fails, the `|| exit 0` absorbs it, and
-    // the session starts as if the check were not there.
+    // Now delete the script itself (say `.vigiles/` was not committed). `sh`
+    // fails, the `|| exit 0` hides that, and the session starts as if the check
+    // did not exist.
     rmSync(script);
     const r = runCheck(dir, theCheck(dir));
     assert.equal(r.code, 0);
@@ -259,7 +260,7 @@ test("it exits 0 whatever the project directory is — and a missing script is i
 test("recompile is idempotent about the check: same bytes, one entry, user hooks untouched", () => {
   const dir = project({ "guard.hook.mjs": GATE, "nudge.hook.mjs": NUDGE });
   try {
-    // A hook the user wrote by hand, sharing the event.
+    // A SessionStart hook the user wrote by hand.
     mkdirSync(join(dir, ".claude"), { recursive: true });
     writeFileSync(
       join(dir, ".claude", "settings.json"),
@@ -284,7 +285,7 @@ test("recompile is idempotent about the check: same bytes, one entry, user hooks
     assert.equal(readFileSync(settingsFile, "utf-8"), s1, "settings stable");
     assert.equal(readFileSync(scriptFile, "utf-8"), c1, "script stable");
 
-    // Compiling ONE hook must not forget the others the settings already name.
+    // Compiling one hook must not make the check forget the other hooks.
     assert.equal(compile(dir, ".vigiles/hooks/guard.hook.mjs").status, 0);
     assert.equal(
       readFileSync(scriptFile, "utf-8"),
@@ -303,10 +304,11 @@ test("recompile is idempotent about the check: same bytes, one entry, user hooks
   }
 });
 
-test("it covers a hook some OTHER writer wired, once compile has seen the settings", () => {
-  // The measured shape: a dependency's `init` wrote its own entries, pointing into
-  // node_modules, with no suffix. `compile` did not write them, but it reads the
-  // settings it merges into, so the check names their files too.
+test("it also covers a hook that another tool wrote into the settings", () => {
+  // This is the case seen in a real repo: a dependency's own setup command wrote
+  // hook entries that point into node_modules and have no `|| exit N` ending.
+  // `compile` did not write them, but it reads the settings, so the check
+  // names their files too.
   const dir = project({ "guard.hook.mjs": GATE });
   try {
     mkdirSync(join(dir, ".claude"), { recursive: true });
@@ -368,7 +370,7 @@ test("commands that are not vigiles runtime wirings are not the check's business
       "utf-8",
     );
     assert.doesNotMatch(script, /prettier|not-built-yet|post-edit/);
-    // …and since nothing it names is missing, a healthy repo stays silent.
+    // Nothing it names is missing, so a healthy repo prints nothing.
     const cmd = theCheck(dir);
     assert.equal(runCheck(dir, cmd).stdout, "");
   } finally {
@@ -402,7 +404,7 @@ test("a path the check cannot quote safely is REPORTED by compile, not silently 
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stderr, /odd:dir\/x\.hook\.mjs/);
     assert.match(r.stderr, /NOT covered/);
-    // …and the script never carries it into a shell string or a JSON string.
+    // The odd path must not end up in the script.
     const script = readFileSync(
       join(dir, ".vigiles", "hook-check.sh"),
       "utf-8",

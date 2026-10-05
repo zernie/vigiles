@@ -547,17 +547,16 @@ export async function runHookProgramCommand(
     // the author are different from a `deny`'s: name the real cause, and leave a
     // way back.
     //
-    // 🔴 THIS BRANCH ALWAYS EXITS 2, AND IT DOES NOT KNOW THE HOOK'S ROLE — that
-    // is the point. The hook did not load, so there is no program to ask whether it
-    // is a gate or a nudge. It used to answer anyway, from the hook's FILE NAME
-    // (`file.includes("inject")`): a second decider of a fact the wiring already
-    // records, and the two disagreed whenever the name lied — a nudge without
-    // "inject" in its name blocked the session, a gate WITH it silently passed
-    // traffic (#312). The role is owned by exactly one writer: the `|| exit N`
-    // suffix `compile` puts on the wired command (`compileHookProgram`, from the
-    // hook's role), which `sh` reads and no runtime version can skew. A nudge is
-    // wired `|| exit 0` and so degrades; a gate is wired `|| exit 2` and so blocks.
-    // An entry with NO suffix is read as a gate — the safe default.
+    // A hook that cannot be loaded always exits 2 here, whatever kind of hook it
+    // is. We cannot tell: the hook did not load, so there is nothing to ask
+    // whether it is a gate (can block) or a nudge (reminder only). This code used
+    // to guess from the file name (`file.includes("inject")`), and the guess
+    // disagreed with the `|| exit N` ending that `vigiles compile` writes on the
+    // command: a nudge without "inject" in its name blocked the session, and a
+    // gate with it let every command through (#312).
+    // Now only that ending decides. A nudge is wired `|| exit 0`, so the shell
+    // turns our 2 into a 0 and it degrades; a gate is wired `|| exit 2` and
+    // blocks. A command with no such ending is treated as a gate, the safe default.
     //
     // Escapes, both announced loudly on stderr:
     //   - the stale-stamp one (an edit to the hook itself / `vigiles compile`),
@@ -607,7 +606,7 @@ export async function runHookProgramCommand(
       `must not pass traffic).\n` +
       `vigiles: if this hook is a NUDGE (an inject or a react), it must not ` +
       `block: its wiring should end in \`|| exit 0\`, which \`vigiles compile\` ` +
-      `writes. A hook wired by hand, with no suffix, is treated as a gate.\n` +
+      `writes. A hook wired by hand with no such ending is treated as a gate.\n` +
       `vigiles: the way out is a FILE WRITE, not a command — under a tool that ` +
       `WRITES (Write/Edit/MultiEdit); a Read of the same path repairs nothing ` +
       `and is refused. Fix whichever of ` +

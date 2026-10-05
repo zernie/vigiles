@@ -2395,13 +2395,11 @@ test("hookRouting: a malformed `match` names the field, not an internal property
 });
 
 // ---------------------------------------------------------------------------
-// ROLE OWNERSHIP AT WIRING — the `|| exit N` suffix is the ONLY place a hook's
-// load-failure policy lives (#312). The compiler owns it, so EVERY caller that
-// builds a settings block through `compileHookProgram` gets it — the CLI's own
-// `compile` and any third party calling the exported function with a command of
-// its own. When the suffix was added by one caller (`compile`) and not by the
-// compiler, every other writer shipped unsuffixed wiring, and an unsuffixed
-// nudge that cannot load exits 2 and blocks the session.
+// `compileHookProgram` puts `|| exit 2` (for a hook that can block a tool call)
+// or `|| exit 0` (for a hook that only adds a reminder) at the end of the command
+// it writes. That ending decides what happens when the hook cannot be loaded.
+// These tests check that every kind of hook gets the right ending, whoever
+// supplied the command. See #312.
 // ---------------------------------------------------------------------------
 
 const ROLE_FIXTURES = [
@@ -2415,7 +2413,7 @@ const ROLE_FIXTURES = [
 
 const SRC = `import { allow } from "vigiles/hook";`;
 
-/** Every command string a compiled block carries, from the structured form. */
+/** Every command string in a compiled block. */
 function commandsOf(out: ReturnType<typeof compileHookProgram>): string[] {
   return Object.values(out.hooks).flatMap((entries) =>
     entries.flatMap((e) => e.hooks.map((h) => h.command)),
@@ -2430,7 +2428,7 @@ for (const { kind, hook, exit } of ROLE_FIXTURES) {
     assert.deepEqual(commandsOf(out), [
       `node cli.js hook-runtime run-program x.hook.mjs || exit ${exit}`,
     ]);
-    // The rendered block is a second writer of the same string — it must agree.
+    // The printed settings block must show the same command.
     assert.match(
       out.settingsBlock,
       new RegExp(`x\\.hook\\.mjs \\|\\| exit ${exit}"`),
@@ -2447,10 +2445,10 @@ test("wiring: the default command (no gateCommand) is suffixed too — no writer
   ]);
 });
 
-test("wiring: the role is decided HERE, so a suffix the caller already wrote is replaced, not doubled or trusted", () => {
-  // A caller that copied the pattern by hand and got it wrong for the role: the
-  // shell would take the FIRST `exit`, so appending a second would change nothing
-  // and a nudge would keep blocking. The compiler's answer wins.
+test("wiring: an ending the caller already wrote is replaced, not doubled or trusted", () => {
+  // A caller wrote the wrong ending by hand. The shell stops at the first `exit`,
+  // so adding a second one would change nothing and a reminder-only hook would
+  // keep blocking. The compiler's ending replaces the caller's.
   const wrongForNudge = compileHookProgram(SRC, formatOnWrite, {
     gateCommand: "node cli.js hook-runtime run-program x.hook.mjs || exit 2",
   });
@@ -2463,7 +2461,7 @@ test("wiring: the role is decided HERE, so a suffix the caller already wrote is 
   assert.deepEqual(commandsOf(wrongForGate), [
     "node cli.js hook-runtime run-program x.hook.mjs || exit 2",
   ]);
-  // Idempotent: feeding the output back in is a fixed point.
+  // Running it again on its own output changes nothing.
   const again = compileHookProgram(SRC, forcePushGuard, {
     gateCommand: commandsOf(wrongForGate)[0],
   });
@@ -2484,9 +2482,9 @@ test("wiring (Codex TOML): the flat entry carries the suffix as well", () => {
 });
 
 // ---------------------------------------------------------------------------
-// hookRuntimeMissingExit — what the SHELL does when the runtime cannot start.
-// No code of ours runs in that case, so this is the only place the policy can
-// live; the runtime's own load-failure branch no longer has an opinion.
+// hookRuntimeMissingExit: what the shell does when the runtime cannot start.
+// None of our code runs in that case, so the answer has to live in the command.
+// The runtime itself no longer decides anything when a hook cannot be loaded.
 // ---------------------------------------------------------------------------
 
 test("hookRuntimeMissingExit: BLOCKS for every gate — a gate that silently passes is worse than no gate", () => {
@@ -2496,10 +2494,10 @@ test("hookRuntimeMissingExit: BLOCKS for every gate — a gate that silently pas
   assert.equal(hookRuntimeMissingExit("stop-gate"), 2);
 });
 
-test("hookRuntimeMissingExit: PASSES for every nudge — a reminder is never worth a wedged repository", () => {
-  // Measured 2026-08-10: merge-conflict markers in package.json stopped every
-  // hook loading, and the Bash gate then refused `git merge --abort` — the one
-  // command that undoes the cause.
+test("hookRuntimeMissingExit: PASSES for every nudge — a reminder is never worth a stuck repository", () => {
+  // Seen on 2026-08-10: merge-conflict markers in package.json stopped every hook
+  // from loading, and the Bash gate then refused `git merge --abort`, the one
+  // command that undoes the damage.
   assert.equal(hookRuntimeMissingExit("inject"), 0);
   assert.equal(hookRuntimeMissingExit("react"), 0);
 });
