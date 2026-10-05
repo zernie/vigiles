@@ -71,7 +71,10 @@ import { globSync, type IgnoreLike } from "glob";
 import { withIgnored } from "./core/glob-ignore.js";
 import { excludedBy, type ExcludeSet } from "./exclude.js";
 import type { RepoPath } from "./core/frame.js";
-import { DEFAULT_TEST_GLOBS as TABLE_TEST_GLOBS } from "./source-kinds.js";
+import {
+  DEFAULT_TEST_GLOBS as TABLE_TEST_GLOBS,
+  RUNNABLE_EXTS,
+} from "./source-kinds.js";
 import {
   AGENT_FILE_LEAF_RE,
   agentSurfaceName,
@@ -1039,7 +1042,9 @@ function staleRunNote(report: UntestedReport): string[] {
 }
 
 /** Names a default vitest/jest run collects — the suffixes vigiles will not use. */
-const FOREIGN_RUNNER_SUFFIX = /\.(test|spec)\.(ts|mts|cts|js|mjs|cjs)$/;
+const FOREIGN_RUNNER_SUFFIX = new RegExp(
+  `\\.(test|spec)\\.(${RUNNABLE_EXTS.join("|")})$`,
+);
 
 /**
  * The would-be colocated tests that only their NAME disqualifies.
