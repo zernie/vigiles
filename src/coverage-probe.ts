@@ -626,6 +626,35 @@ export function commandRefs(
 }
 
 /**
+ * The files our OWN runtime invocations in a command line need on disk: the
+ * hook each `hook-runtime run-program` is pointed at, and the runtime entry
+ * script when it is launched by path (`node "$DIR/node_modules/vigiles/dist/cli.js"
+ * hook-runtime run-program …`).
+ *
+ * Narrower than {@link commandRefs} on purpose — that one lists every program a
+ * command executes, this one only what a COMPILED HOOK's wiring depends on, which
+ * is what the SessionStart check names. `bash scripts/build.sh` is a program the
+ * command runs and not a compiled hook; a check that reported it missing in a
+ * fresh clone would be crying wolf about something `npm install` does not fix.
+ *
+ * Same shape test as `commandRefs`: the verb must sit in the position of the
+ * program that is running, so `echo vigiles hook-runtime run-program x.mjs`
+ * names nothing.
+ */
+export function runProgramFiles(command: string): string[] {
+  const out = new Set<string>();
+  for (const argv of leafArgvSource(command)) {
+    const head = argv[0] ?? "";
+    const entry = SCRIPT_RE.test(head) ? head : interpretedScript(argv);
+    const hook = runProgramRef(argv, entry);
+    if (hook === undefined) continue;
+    if (entry !== undefined) out.add(entry);
+    out.add(hook);
+  }
+  return [...out];
+}
+
+/**
  * The tools that DISPATCH a subagent. Both spellings, because the live CLI names
  * it `Agent` and older docs name it `Task` — the same pair `parseSubagents`
  * documents from real `claude` output.

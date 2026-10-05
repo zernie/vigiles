@@ -1,0 +1,125 @@
+/**
+ * The SessionStart hook-check — a notice, written by `vigiles compile`, that says
+ * "run npm install" in the first turn when the files its hooks need are not there.
+ *
+ * WHY IT EXISTS (#312). A compiled hook's wiring (`.claude/settings.json`, in git)
+ * and the files that wiring runs (`node_modules`, in npm) are two stores. A fresh
+ * container, a merge that brings new wiring, or a dependency bump moves one and
+ * not the other, and the first thing to notice is the gate — on the first Bash
+ * call, by refusing it. This notices a turn earlier and names the cure.
+ *
+ * WHAT IT IS NOT. It does not unwedge anything. A gate whose files are missing
+ * still refuses every shell command, the install included; the check only says so
+ * before the first one is tried, so a human can run the install from a terminal.
+ * Only a self-contained committed artifact would remove the cause — a larger,
+ * separate decision (#312).
+ *
+ * THE THREE CONSTRAINTS THAT SHAPE EVERYTHING BELOW:
+ *
+ *  - IT RUNS WHERE NOTHING ELSE DOES. The state it reports is "node_modules is
+ *    absent", so the script is plain POSIX `sh` — builtins only — with no node, no
+ *    vigiles, no grep. It lives in a committed file so it travels with the wiring.
+ *  - IT ONLY PRINTS, AND ALWAYS EXITS 0. SessionStart's exit-2 semantics are not
+ *    verified here, and a check that could fail would be a new way to wedge the
+ *    very session it exists to help. It is wired `|| exit 0`, like any nudge.
+ *  - IT NAMES ONLY WHAT A COMPILED HOOK NEEDS. The list is the files named by
+ *    `hook-runtime run-program` commands in the settings (the hook, and the
+ *    runtime when launched by path) — not every script some hook might run. Naming
+ *    `bash scripts/build.sh` as "missing" in a fresh clone would be a false alarm
+ *    that `npm install` does not answer.
+ *
+ * The list is read from the settings AFTER `compile` has merged into them, so it
+ * covers hooks another writer wired too (a dependency's `init`), and is additive
+ * across `compile <one hook>` runs by construction: it is derived from the file,
+ * not from the arguments. A hook wired after the last `compile` is not covered
+ * until the next one.
+ */
+import { runProgramFiles } from "./coverage-probe.js";
+
+/** Where the generated script lives — committed, beside the hook sources it covers. */
+export const HOOK_CHECK_REF = ".vigiles/hook-check.sh";
+
+/**
+ * Every `command` string in a parsed hooks block. Walks by the KEY, not by an entry
+ * shape, because the shape is the harness's (Claude Code nests commands under a
+ * matcher block, Codex's TOML is flat) and this must not know either.
+ */
+export function commandsIn(node: unknown): string[] {
+  if (Array.isArray(node)) return node.flatMap(commandsIn);
+  if (typeof node !== "object" || node === null) return [];
+  return Object.entries(node).flatMap(([key, value]) =>
+    key === "command" && typeof value === "string"
+      ? [value]
+      : commandsIn(value),
+  );
+}
+
+/** The project-root spellings a wired command may use; stripped to a relative path. */
+const PROJECT_ROOT_PREFIX =
+  /^\$(?:\{CLAUDE_PROJECT_DIR\}|CLAUDE_PROJECT_DIR)\//;
+
+/** What a baked path may contain: it ends up inside a shell string AND a JSON string. */
+const SAFE_PATH = /^[A-Za-z0-9._@+/-]+$/;
+
+export interface CheckPaths {
+  /** Project-relative, sorted, de-duplicated — what the script will test. */
+  readonly paths: readonly string[];
+  /**
+   * Paths the check could name but not safely quote. Reported by `compile`, never
+   * dropped silently: a path left out is a hook the check does not cover.
+   */
+  readonly unsafe: readonly string[];
+}
+
+/**
+ * The files the compiled-hook wirings in `commands` need, as project-relative
+ * paths. Absolute paths are machine-specific (the checkout that wrote them is not
+ * the one that reads them) and a path through any variable but the project root
+ * (`$HOME`, a plugin root) cannot be resolved here — both are left out by design.
+ */
+export function checkPaths(commands: readonly string[]): CheckPaths {
+  const relative = commands
+    .flatMap(runProgramFiles)
+    .map((file) => file.replace(PROJECT_ROOT_PREFIX, ""))
+    .filter((file) => !file.startsWith("/") && !file.includes("$"));
+  const unique = [...new Set(relative)].sort();
+  return {
+    paths: unique.filter((p) => SAFE_PATH.test(p)),
+    unsafe: unique.filter((p) => !SAFE_PATH.test(p)),
+  };
+}
+
+/**
+ * The script. Deterministic in its input, so a recompile that finds the same hooks
+ * writes the same bytes.
+ *
+ * Output is the `additionalContext` JSON, not bare stdout: that shape is confirmed
+ * for `SessionStart` on both Claude Code and Codex (`injectableEvents`), whereas a
+ * bare-stdout prepend is only confirmed on Claude Code.
+ */
+export function renderHookCheck(paths: readonly string[]): string {
+  const list = paths.map((p) => `  '${p}'`).join(" \\\n");
+  return `#!/bin/sh
+# GENERATED by \`vigiles compile\` — do not edit; a recompile rewrites it.
+#
+# SessionStart notice (vigiles #312): says so, in the first turn, when a file a
+# compiled hook is wired to run is not installed. Plain sh and shell builtins only —
+# no node, no node_modules, no vigiles — because "not installed" is exactly the
+# state it reports. It only PRINTS and always exits 0: it is a notice, never a gate.
+#
+# It does not fix anything. A gate whose files are missing refuses every shell
+# command, the install included, so the cure has to be run from a terminal.
+root="\${CLAUDE_PROJECT_DIR:-.}"
+missing=""
+for p in \\
+${list}
+do
+  [ -e "$root/$p" ] || missing="$missing $p"
+done
+if [ -n "$missing" ]; then
+  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\\n' \\
+    "vigiles: hook files wired in this repo are not installed:$missing. Run npm ci (or npm install) from a terminal outside this session before anything else. A compiled gate whose files are missing refuses every shell command in a session, the install included; a nudge that cannot load is skipped. See docs/compiled-hooks.md, When a hook cannot load."
+fi
+exit 0
+`;
+}

@@ -20,6 +20,7 @@ import {
   decideProgram,
   decisionExitCode,
   compileHookProgram,
+  hookRuntimeMissingExit,
   checkHookImports,
   HookCompileError,
   hookRouting,
@@ -119,7 +120,7 @@ export default experimental_defineHook({ on: "PreToolUse",  decide: (e) => e.com
   assert.equal(out.hooks.PreToolUse[0].matcher, "Bash");
   assert.equal(
     out.hooks.PreToolUse[0].hooks[0].command,
-    "npx vigiles hook-runtime run-program",
+    "npx vigiles hook-runtime run-program || exit 2",
   );
   assert.ok(out.stamp.length > 0);
 });
@@ -689,7 +690,7 @@ test("compile (Codex): emits TOML `[[hooks.<event>]]` with a regex matcher", () 
   assert.match(out.settingsBlock, /matcher = "\^\(Bash\)\$"/);
   assert.match(
     out.settingsBlock,
-    /command = "npx vigiles hook-runtime run-program guard\.mjs"/,
+    /command = "npx vigiles hook-runtime run-program guard\.mjs \|\| exit 2"/,
   );
 });
 
@@ -2391,4 +2392,114 @@ test("hookRouting: a malformed `match` names the field, not an internal property
     } as unknown as Parameters<typeof hookRouting>[0]),
     { on: "PreToolUse", matcher: "Write|Edit" },
   );
+});
+
+// ---------------------------------------------------------------------------
+// ROLE OWNERSHIP AT WIRING — the `|| exit N` suffix is the ONLY place a hook's
+// load-failure policy lives (#312). The compiler owns it, so EVERY caller that
+// builds a settings block through `compileHookProgram` gets it — the CLI's own
+// `compile` and any third party calling the exported function with a command of
+// its own. When the suffix was added by one caller (`compile`) and not by the
+// compiler, every other writer shipped unsuffixed wiring, and an unsuffixed
+// nudge that cannot load exits 2 and blocks the session.
+// ---------------------------------------------------------------------------
+
+const ROLE_FIXTURES = [
+  { kind: "bash-gate", hook: forcePushGuard, exit: 2 },
+  { kind: "file-gate", hook: confineGuard, exit: 2 },
+  { kind: "prompt-gate", hook: promptFilter, exit: 2 },
+  { kind: "stop-gate", hook: testsGreenGate, exit: 2 },
+  { kind: "inject", hook: briefing, exit: 0 },
+  { kind: "react", hook: formatOnWrite, exit: 0 },
+] as const;
+
+const SRC = `import { allow } from "vigiles/hook";`;
+
+/** Every command string a compiled block carries, from the structured form. */
+function commandsOf(out: ReturnType<typeof compileHookProgram>): string[] {
+  return Object.values(out.hooks).flatMap((entries) =>
+    entries.flatMap((e) => e.hooks.map((h) => h.command)),
+  );
+}
+
+for (const { kind, hook, exit } of ROLE_FIXTURES) {
+  test(`wiring (${kind}): a caller-supplied command gets \`|| exit ${exit}\` from the hook's role`, () => {
+    const out = compileHookProgram(SRC, hook, {
+      gateCommand: "node cli.js hook-runtime run-program x.hook.mjs",
+    });
+    assert.deepEqual(commandsOf(out), [
+      `node cli.js hook-runtime run-program x.hook.mjs || exit ${exit}`,
+    ]);
+    // The rendered block is a second writer of the same string — it must agree.
+    assert.match(
+      out.settingsBlock,
+      new RegExp(`x\\.hook\\.mjs \\|\\| exit ${exit}"`),
+    );
+  });
+}
+
+test("wiring: the default command (no gateCommand) is suffixed too — no writer is exempt", () => {
+  assert.deepEqual(commandsOf(compileHookProgram(SRC, forcePushGuard)), [
+    "npx vigiles hook-runtime run-program || exit 2",
+  ]);
+  assert.deepEqual(commandsOf(compileHookProgram(SRC, briefing)), [
+    "npx vigiles hook-runtime run-program || exit 0",
+  ]);
+});
+
+test("wiring: the role is decided HERE, so a suffix the caller already wrote is replaced, not doubled or trusted", () => {
+  // A caller that copied the pattern by hand and got it wrong for the role: the
+  // shell would take the FIRST `exit`, so appending a second would change nothing
+  // and a nudge would keep blocking. The compiler's answer wins.
+  const wrongForNudge = compileHookProgram(SRC, formatOnWrite, {
+    gateCommand: "node cli.js hook-runtime run-program x.hook.mjs || exit 2",
+  });
+  assert.deepEqual(commandsOf(wrongForNudge), [
+    "node cli.js hook-runtime run-program x.hook.mjs || exit 0",
+  ]);
+  const wrongForGate = compileHookProgram(SRC, forcePushGuard, {
+    gateCommand: "node cli.js hook-runtime run-program x.hook.mjs || exit 0",
+  });
+  assert.deepEqual(commandsOf(wrongForGate), [
+    "node cli.js hook-runtime run-program x.hook.mjs || exit 2",
+  ]);
+  // Idempotent: feeding the output back in is a fixed point.
+  const again = compileHookProgram(SRC, forcePushGuard, {
+    gateCommand: commandsOf(wrongForGate)[0],
+  });
+  assert.deepEqual(commandsOf(again), commandsOf(wrongForGate));
+});
+
+test("wiring (Codex TOML): the flat entry carries the suffix as well", () => {
+  const out = compileHookProgram(SRC, briefing, {
+    dialect: codexDialect,
+    hookProtocol: codexHookProtocol,
+    settings: tomlSettingsCodec,
+    gateCommand: "npx vigiles hook-runtime run-program nudge.mjs",
+  });
+  assert.match(
+    out.settingsBlock,
+    /command = "npx vigiles hook-runtime run-program nudge\.mjs \|\| exit 0"/,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// hookRuntimeMissingExit — what the SHELL does when the runtime cannot start.
+// No code of ours runs in that case, so this is the only place the policy can
+// live; the runtime's own load-failure branch no longer has an opinion.
+// ---------------------------------------------------------------------------
+
+test("hookRuntimeMissingExit: BLOCKS for every gate — a gate that silently passes is worse than no gate", () => {
+  assert.equal(hookRuntimeMissingExit("bash-gate"), 2);
+  assert.equal(hookRuntimeMissingExit("file-gate"), 2);
+  assert.equal(hookRuntimeMissingExit("prompt-gate"), 2);
+  assert.equal(hookRuntimeMissingExit("stop-gate"), 2);
+});
+
+test("hookRuntimeMissingExit: PASSES for every nudge — a reminder is never worth a wedged repository", () => {
+  // Measured 2026-08-10: merge-conflict markers in package.json stopped every
+  // hook loading, and the Bash gate then refused `git merge --abort` — the one
+  // command that undoes the cause.
+  assert.equal(hookRuntimeMissingExit("inject"), 0);
+  assert.equal(hookRuntimeMissingExit("react"), 0);
 });

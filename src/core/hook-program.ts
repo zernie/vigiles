@@ -1043,7 +1043,11 @@ export interface CompiledHookProgram {
  * core depends only on these interfaces, never an adapter (core ⊄ adapter).
  */
 export interface CompileHookOptions {
-  /** The command the emitted block routes the event to. */
+  /**
+   * The command the emitted block routes the event to. The compiler appends the
+   * hook's role as `|| exit N` (a nudge `0`, a gate `2`); a suffix already on the
+   * command is replaced, not stacked.
+   */
   readonly gateCommand?: string;
   /** Validate `hook.on` against this harness's hook-event catalog (a typo won't compile). */
   readonly dialect?: HarnessDialect;
@@ -1111,6 +1115,67 @@ export type DispatchKind =
 export function dispatchKind(hook: AnyHook): DispatchKind {
   if ("role" in hook) return hook.role === "gate" ? "file-gate" : hook.role;
   return "bash-gate";
+}
+
+/**
+ * What the SHELL must do when a wired hook command cannot run to a verdict — the
+ * runtime binary is absent, or the runtime starts and cannot load the hook. No
+ * hook code ran, so the policy cannot be asked of the hook; it has to be written
+ * into the wired command, and this is the one place that decides it.
+ *
+ * 🔴 ONE OWNER. The role of a hook that could not load used to be decided twice —
+ * here, at wiring time (`|| exit N`), and again inside the runtime from the hook's
+ * FILE NAME (`file.includes("inject")`). The two disagreed whenever the name lied:
+ * a nudge without "inject" in its name blocked the whole session, and a gate WITH
+ * it silently passed traffic (#312). The runtime now always exits 2 on a load
+ * failure and this function, through {@link withRoleExit}, is the only thing that
+ * ever turns that 2 into a 0. The suffix is shell, read by `sh`, so a compiler
+ * and a runtime of different versions cannot disagree about it.
+ *
+ * WHY THE SPLIT, RATHER THAN ONE ANSWER FOR EVERYTHING — the two failures are not
+ * comparable:
+ *
+ *   A GATE THAT SILENTLY PASSES IS WORSE THAN NO GATE. Its whole value is the
+ *   refusal, and a harness that reports protection it is not providing is the
+ *   one state worse than admitting it has none. So a gate that cannot run exits 2:
+ *   loud, blocking, and the cause is on stderr.
+ *
+ *   A NUDGE THAT BLOCKS COSTS THE WHOLE REPOSITORY. Measured 2026-08-10:
+ *   merge-conflict markers in `package.json` stopped every hook loading, the Bash
+ *   gate then refused `git merge --abort` — the one command that undoes the
+ *   cause — and the session could not be repaired from inside. A reminder is
+ *   never worth that, so a nudge exits 0 and says nothing it cannot say.
+ *
+ * The role is not a flag someone can flip: `Reaction` has no `deny` and an inject
+ * returns context, so "nudge" is a fact about the TYPE the author chose.
+ *
+ * ⚠️ WHAT THIS IS NOT. It is not a way out of a wedged gate: a gate that cannot
+ * load still refuses every command, the install that would fix it included, and
+ * the way out is still a file write. It only stops a NUDGE from doing the same.
+ *
+ * (Industry does not agree on one answer either — husky and lefthook skip,
+ * pre-commit fails. Which is itself the argument for deciding by role instead of
+ * picking one and imposing it on both.)
+ */
+export function hookRuntimeMissingExit(kind: DispatchKind): 0 | 2 {
+  return kind === "inject" || kind === "react" ? 0 : 2;
+}
+
+/** A trailing `|| exit <n>` — the only shape this module ever writes. */
+const ROLE_EXIT_SUFFIX = /\s*\|\|\s*exit\s+\d+\s*$/;
+
+/**
+ * `command` with the role's `|| exit N` as its LAST words — replacing a suffix
+ * already there rather than stacking a second one. Idempotent: a fixed point of
+ * itself.
+ *
+ * Replaced, not trusted, because the shell takes the FIRST `exit` it reaches: a
+ * caller that wrote `|| exit 2` onto a nudge would otherwise keep blocking
+ * behind a second, ignored `|| exit 0`. The role has one owner, and it is not the
+ * caller.
+ */
+export function withRoleExit(command: string, kind: DispatchKind): string {
+  return `${command.replace(ROLE_EXIT_SUFFIX, "")} || exit ${hookRuntimeMissingExit(kind)}`;
 }
 
 /** A gate's {@link HookMode} (`enforce` default); non-gate roles report `enforce` too. */
@@ -1459,8 +1524,13 @@ export function compileHookProgram(
         )} — use dangerously(name, cmd) to acknowledge a side-effecting/undecidable command, or keep provide() only for a read-only one.`,
     );
   }
-  const gateCommand =
-    opts.gateCommand ?? "npx vigiles hook-runtime run-program";
+  // The role's `|| exit N` is appended HERE, not by the caller: every writer that
+  // builds a settings block through this function gets the same answer, and a
+  // caller that supplies its own command cannot forget it (#312).
+  const gateCommand = withRoleExit(
+    opts.gateCommand ?? "npx vigiles hook-runtime run-program",
+    dispatchKind(hook),
+  );
   const matcher = styleMatcher(rawMatcher, opts.hookProtocol);
   const entry =
     matcher === undefined

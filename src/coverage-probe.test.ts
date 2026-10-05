@@ -9,7 +9,12 @@
 import { test, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 
-import { commandRefs, probeCommand, traceRefs } from "./coverage-probe.js";
+import {
+  commandRefs,
+  probeCommand,
+  runProgramFiles,
+  traceRefs,
+} from "./coverage-probe.js";
 import { resetCheckCount, surfacesRecorded } from "./check-count.js";
 import { leafCommands } from "./core/bash-effects.js";
 
@@ -832,5 +837,65 @@ test("a third-party runner SHIM is an accepted false negative, and our own runne
   assert.deepEqual(
     commandRefs("node cli.js hook-runtime run-program .claude/hooks/x.hook.ts"),
     ["cli.js", ".claude/hooks/x.hook.ts"],
+  );
+});
+
+// ---------------------------------------------------------------------------
+// runProgramFiles — only what a COMPILED HOOK's wiring needs on disk.
+// ---------------------------------------------------------------------------
+
+test("runProgramFiles: the runtime entry (when launched by path) and the hook it runs", () => {
+  assert.deepEqual(
+    runProgramFiles(
+      'node "${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js" hook-runtime run-program "${CLAUDE_PROJECT_DIR}/.vigiles/hooks/x.hook.mjs" || exit 2',
+    ),
+    [
+      "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js",
+      "$CLAUDE_PROJECT_DIR/.vigiles/hooks/x.hook.mjs",
+    ],
+  );
+  assert.deepEqual(
+    runProgramFiles(
+      "node node_modules/vigiles/dist/cli.js hook-runtime run-program .vigiles/hooks/x.hook.mjs",
+    ),
+    ["node_modules/vigiles/dist/cli.js", ".vigiles/hooks/x.hook.mjs"],
+  );
+});
+
+test("runProgramFiles: the npx spelling names the hook only — there is no runtime file to check", () => {
+  assert.deepEqual(
+    runProgramFiles(
+      "npx vigiles hook-runtime run-program .vigiles/hooks/x.hook.mjs",
+    ),
+    [".vigiles/hooks/x.hook.mjs"],
+  );
+});
+
+test("runProgramFiles: programs that are not a compiled-hook wiring name nothing", () => {
+  for (const command of [
+    "npx prettier --check .",
+    "bash scripts/not-built-yet.sh",
+    "bash ${CLAUDE_PLUGIN_ROOT}/hooks/post-edit.sh",
+    // The verb as an argument, not as the running program's own.
+    "echo vigiles hook-runtime run-program hooks/x.hook.mjs",
+    "exit 0",
+  ]) {
+    assert.deepEqual(runProgramFiles(command), [], command);
+  }
+});
+
+test("runProgramFiles: every invocation that unconditionally runs, and none that may not", () => {
+  assert.deepEqual(
+    runProgramFiles(
+      "npx vigiles hook-runtime run-program a.hook.mjs; npx vigiles hook-runtime run-program b.hook.mjs",
+    ),
+    ["a.hook.mjs", "b.hook.mjs"],
+  );
+  // The right of `&&` is conditional (`leafArgvSource` abstains there, on
+  // purpose): the check stays silent about it rather than guess. A missed file is
+  // a missing notice; a guessed one is a false alarm in a healthy repo.
+  assert.deepEqual(
+    runProgramFiles("cd x && npx vigiles hook-runtime run-program a.hook.mjs"),
+    [],
   );
 });

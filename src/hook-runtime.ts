@@ -547,12 +547,17 @@ export async function runHookProgramCommand(
     // the author are different from a `deny`'s: name the real cause, and leave a
     // way back.
     //
-    // EXCEPTION: inject hooks. An inject's purpose is to ADD context, not to
-    // ENFORCE a decision. If it fails to load, the session should degrade
-    // gracefully (no context injected) rather than wedging the entire harness.
-    // This is a harness failure, not a gating decision — so we handle it by
-    // logging the error and exiting 0. Gates (file, bash, prompt, stop) remain
-    // conservative and fail closed.
+    // 🔴 THIS BRANCH ALWAYS EXITS 2, AND IT DOES NOT KNOW THE HOOK'S ROLE — that
+    // is the point. The hook did not load, so there is no program to ask whether it
+    // is a gate or a nudge. It used to answer anyway, from the hook's FILE NAME
+    // (`file.includes("inject")`): a second decider of a fact the wiring already
+    // records, and the two disagreed whenever the name lied — a nudge without
+    // "inject" in its name blocked the session, a gate WITH it silently passed
+    // traffic (#312). The role is owned by exactly one writer: the `|| exit N`
+    // suffix `compile` puts on the wired command (`compileHookProgram`, from the
+    // hook's role), which `sh` reads and no runtime version can skew. A nudge is
+    // wired `|| exit 0` and so degrades; a gate is wired `|| exit 2` and so blocks.
+    // An entry with NO suffix is read as a gate — the safe default.
     //
     // Escapes, both announced loudly on stderr:
     //   - the stale-stamp one (an edit to the hook itself / `vigiles compile`),
@@ -595,12 +600,14 @@ export async function runHookProgramCommand(
       return;
     }
 
-    // Log the error, but for inject hooks, degrade gracefully (exit 0).
     const errorMsg =
       `vigiles: hook ${file} ${cause}.\n` +
       `vigiles: this is the state of the HARNESS, not a decision about your ` +
       `command — the gate never ran. Blocking anyway (a gate that cannot run ` +
       `must not pass traffic).\n` +
+      `vigiles: if this hook is a NUDGE (an inject or a react), it must not ` +
+      `block: its wiring should end in \`|| exit 0\`, which \`vigiles compile\` ` +
+      `writes. A hook wired by hand, with no suffix, is treated as a gate.\n` +
       `vigiles: the way out is a FILE WRITE, not a command — under a tool that ` +
       `WRITES (Write/Edit/MultiEdit); a Read of the same path repairs nothing ` +
       `and is refused. Fix whichever of ` +
@@ -613,27 +620,12 @@ export async function runHookProgramCommand(
       `repair this failure.\n` +
       `vigiles: no command is allowed, deliberately. \`git merge --abort\` and ` +
       `\`git checkout\` RUN \`.git/hooks/*\` (measured: reference-transaction, ` +
-      `post-checkout), and \`vigiles compile\` loads the hook through the same ` +
-      `resolver that just failed.`;
+      `post-checkout), \`vigiles compile\` loads the hook through the same ` +
+      `resolver that just failed, and an install runs the lifecycle scripts of ` +
+      `every package in the lockfile.`;
 
     console.error(errorMsg);
-
-    // Exit code depends on hook kind. This heuristic is based on the filename —
-    // a more robust approach would parse the stamp or metadata, but that requires
-    // the hook to load. Inject hooks typically have "inject" in the name; fall
-    // back to blocking (exit 2) for safety on gates.
-    const isLikelyInject = file.includes("inject");
-    if (isLikelyInject) {
-      // Inject hook: degrade gracefully. Log the error but don't wedge the session.
-      console.error(
-        `vigiles: ${file} is an inject hook; degrading gracefully (no context injected).`,
-      );
-      process.exit(0);
-    } else {
-      // Gate hook: fail closed.
-      process.exit(2);
-    }
-    return;
+    process.exit(2);
   }
   verifyStampOrRefuse(file, event);
 
