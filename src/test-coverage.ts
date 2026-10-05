@@ -71,6 +71,7 @@ import { globSync, type IgnoreLike } from "glob";
 import { withIgnored } from "./core/glob-ignore.js";
 import { excludedBy, type ExcludeSet } from "./exclude.js";
 import type { RepoPath } from "./core/frame.js";
+import { DEFAULT_TEST_GLOBS as TABLE_TEST_GLOBS } from "./source-kinds.js";
 import {
   AGENT_FILE_LEAF_RE,
   agentSurfaceName,
@@ -314,10 +315,6 @@ export interface TestCoverageOptions {
 // Internals
 // ---------------------------------------------------------------------------
 
-/** Every extension Node executes directly. `.mts`/`.cts` are real (TS 4.7+) and
- * Node 22 strips their types with no toolchain — measured, not assumed. */
-const RUNNABLE_EXTS = "{ts,mts,cts,js,mjs,cjs}";
-
 /**
  * 🔴 `*.test.*` USED TO BE HERE, AND REMOVING IT IS THE POINT.
  *
@@ -345,10 +342,11 @@ const RUNNABLE_EXTS = "{ts,mts,cts,js,mjs,cjs}";
  * for hooks/agents and dropping them for skills — because a rule with a per-kind
  * exception is what this file just spent a day removing.
  */
-const DEFAULT_TEST_GLOBS = [
-  `**/*.harness.${RUNNABLE_EXTS}`,
-  `**/*.eval.${RUNNABLE_EXTS}`,
-] as const;
+// Read off the table in `source-kinds.ts` — the same one `vigiles test`,
+// `vigiles eval` and the hook/provider discovery classify by — so the patterns
+// that credit a test and the files a hook directory refuses to compile cannot
+// drift apart.
+const DEFAULT_TEST_GLOBS = TABLE_TEST_GLOBS;
 
 const DEFAULT_IGNORE = [
   "node_modules/**",

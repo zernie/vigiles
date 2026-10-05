@@ -47,6 +47,7 @@ import { join } from "node:path";
 
 import { sha256short, type SHA256Hash } from "./core/hash.js";
 import { canonical } from "./eval-cache.js";
+import { isEvalScript } from "./source-kinds.js";
 
 /** Lock mode: never touch the lock / verify-only (CI) / record-and-write (local). */
 export type LockMode = "off" | "check" | "update";
@@ -246,7 +247,7 @@ export function countLocks(dir: string): number {
 export function isEvalInputFile(path: string): boolean {
   const p = path.replace(/\\/g, "/");
   if (/(^|\/)SKILL\.md$/.test(p)) return true;
-  return /\.eval\.(mjs|cjs|js|mts|cts|ts)$/.test(p);
+  return isEvalScript(p.split("/").pop() ?? "");
 }
 
 /**

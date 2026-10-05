@@ -51,6 +51,7 @@
  * never executes, so it is untouched.
  */
 import { basename } from "node:path";
+import { isEvalScript } from "./source-kinds.js";
 
 import type {
   ArmsCheckReport,
@@ -237,9 +238,6 @@ export function moduleDefault(mod: unknown): unknown {
   return isEvalDefinition(inner) ? inner : outer;
 }
 
-/** Filenames vigiles runs as evals — the runner's own glob, as a pattern. */
-const EVAL_FILE = /\.eval\.(?:m|c)?[jt]s$/;
-
 /**
  * Was node pointed STRAIGHT at an eval file? `argv1` is `process.argv[1]`: the
  * path node was started with, which no stray configuration can forge.
@@ -252,7 +250,10 @@ const EVAL_FILE = /\.eval\.(?:m|c)?[jt]s$/;
  * Pure: a fact in, a boolean out.
  */
 export function ranAsEntry(argv1: string | undefined): boolean {
-  return argv1 !== undefined && EVAL_FILE.test(argv1.replaceAll("\\", "/"));
+  return (
+    argv1 !== undefined &&
+    isEvalScript(argv1.replaceAll("\\", "/").split("/").pop() ?? "")
+  );
 }
 
 /** The words shown when someone runs an eval file directly. Asserted by a test:

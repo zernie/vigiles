@@ -240,12 +240,14 @@ import {
   type DispatchKind,
 } from "./core/hook-program.js";
 import {
-  discoverHookFiles,
+  discoveredHookArgs,
   discoverProviderFiles,
   hookGateRef,
   hookRuntimeRef,
   normalizeHookRef,
+  partitionHookArgs,
   serializeConfig,
+  unclaimedMessage,
 } from "./hook-install.js";
 import { installHookCheck } from "./hook-check-install.js";
 import { unsafeProvider } from "./core/hook-providers.js";
@@ -7520,7 +7522,16 @@ async function refsHookCommand(): Promise<void> {
  */
 async function compileProviders(): Promise<string[]> {
   const names: string[] = [];
-  for (const file of discoverProviderFiles(process.cwd())) {
+  const { claimed, unclaimed } = discoverProviderFiles(process.cwd());
+  // A provider that lost (or never had) its marker is not silently skipped: a
+  // hook's `provider()` ref to it would then fail to resolve with a message
+  // about the REF, far from the cause.
+  if (unclaimed.length > 0) {
+    throw new HookCompileError(
+      unclaimed.map((f) => unclaimedMessage(f, "provider")).join("\n"),
+    );
+  }
+  for (const file of claimed) {
     const def = await loadProvider(file);
     if (unsafeProvider(def)) {
       throw new HookCompileError(
@@ -8293,16 +8304,38 @@ export async function main(): Promise<void> {
               .filter((f) => f.endsWith(".spec.ts"))
               .map((f) => noteExplicitOverride(excludes, f, "compiling"))
           : findSpecs(excludes);
-      const hooks =
+      // WHAT A HOOK IS is decided once, in `source-kinds.ts`: a bare `compile`
+      // and `compile <file>` ask the same classifier, so they cannot disagree.
+      // Only `.hook.` files are compiled; a runnable file that carries no marker
+      // is refused below, out loud, with the command that fixes it.
+      const found =
         restArgs.length > 0
-          ? restArgs.filter((f) => !f.endsWith(".spec.ts"))
-          : discoverHookFiles(process.cwd());
-      if (specs.length === 0 && hooks.length === 0) {
+          ? partitionHookArgs(restArgs.filter((f) => !f.endsWith(".spec.ts")))
+          : discoveredHookArgs(process.cwd());
+      const hooks = [...found.hooks];
+      const unclaimed = found.unclaimed;
+      if (
+        specs.length === 0 &&
+        hooks.length === 0 &&
+        unclaimed.length === 0 &&
+        found.skipped.length === 0
+      ) {
         console.log("No .spec.ts or .vigiles/hooks/ hook files found.");
         console.log("Run `vigiles init` to create one.");
         process.exit(0);
       }
       let valid = true;
+      // Refused files FIRST and on stderr: they are the news in this run, and a
+      // line that scrolled past under forty `✓` lines is a silent skip with
+      // extra steps. Compiling the rest still proceeds — one stray file must
+      // not stop the hooks that are fine.
+      for (const f of unclaimed) {
+        console.error(`✗ ${unclaimedMessage(f, "hook")}`);
+        valid = false;
+      }
+      for (const s of found.skipped) {
+        console.log(`- ${s.path} skipped: a ${s.kind}, not a hook.`);
+      }
       if (specs.length > 0)
         valid =
           (await compile(specs, config, excludes, { harnessFlag })) && valid;

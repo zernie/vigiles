@@ -53,23 +53,7 @@ import {
   matchesSurfaceGlob,
   strongerEvidence,
 } from "./coverage-evidence.js";
-
-// Mirrors src/test-coverage.ts constants. VALUES are re-declared, never imported
-// — test-coverage.ts pulls in node:fs/glob, and this twin must stay browser-safe.
-const DEFAULT_TEST_SUFFIXES = [
-  ".harness.ts",
-  ".harness.mts",
-  ".harness.cts",
-  ".harness.js",
-  ".harness.mjs",
-  ".harness.cjs",
-  ".eval.ts",
-  ".eval.mts",
-  ".eval.cts",
-  ".eval.js",
-  ".eval.mjs",
-  ".eval.cjs",
-] as const;
+import { isVigilesTest } from "./source-kinds.js";
 
 const IGNORE_MARKER = "vigiles:ignore-test";
 
@@ -233,7 +217,7 @@ function discoverTests(files: Record<string, string>): PreparedTest[] {
   const out: PreparedTest[] = [];
   for (const path of Object.keys(files)) {
     if (isIgnored(path)) continue;
-    if (DEFAULT_TEST_SUFFIXES.some((s) => path.endsWith(s))) {
+    if (isVigilesTest(basename(path))) {
       out.push(prepareTest(path));
     }
   }
