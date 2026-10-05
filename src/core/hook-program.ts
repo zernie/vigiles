@@ -1043,7 +1043,11 @@ export interface CompiledHookProgram {
  * core depends only on these interfaces, never an adapter (core ⊄ adapter).
  */
 export interface CompileHookOptions {
-  /** The command the emitted block routes the event to. */
+  /**
+   * The command the emitted block runs. The compiler adds `|| exit 2` (a hook
+   * that can block) or `|| exit 0` (a reminder-only hook) at the end; one that is
+   * already there is replaced.
+   */
   readonly gateCommand?: string;
   /** Validate `hook.on` against this harness's hook-event catalog (a typo won't compile). */
   readonly dialect?: HarnessDialect;
@@ -1111,6 +1115,54 @@ export type DispatchKind =
 export function dispatchKind(hook: AnyHook): DispatchKind {
   if ("role" in hook) return hook.role === "gate" ? "file-gate" : hook.role;
   return "bash-gate";
+}
+
+/**
+ * What the shell should do when a hook's command fails before the hook gives an
+ * answer: the runtime is not installed, or it starts but cannot load the hook.
+ * No hook code ran, so the hook cannot be asked. The answer has to be written
+ * into the command itself, and this function is the one place that decides it.
+ *
+ * There are two kinds of hook and they need different answers:
+ *
+ * - A gate (it can block a tool call) must exit 2. A gate that cannot run must
+ *   not let calls through: a protection that silently stops working is worse
+ *   than one that is known to be missing.
+ * - A nudge (it only adds a reminder: an inject or a react) must exit 0. If it
+ *   blocked, one missing file could stop the whole session. This happened on
+ *   2026-08-10: merge-conflict markers in `package.json` stopped every hook from
+ *   loading, the Bash gate then refused `git merge --abort` (the command that
+ *   undoes the damage), and the session could not be repaired from inside.
+ *
+ * The kind is fixed by the type the author picked: a react hook has no `deny`,
+ * and an inject hook only returns text.
+ *
+ * Only this function decides. The runtime used to guess a second time, from the
+ * hook's file name ("inject" in the name meant nudge), and the two guesses
+ * disagreed (#312). Now the runtime always exits 2 when a hook cannot load, and
+ * the `|| exit N` ending (see {@link withRoleExit}) is the only thing that turns
+ * that 2 into a 0. It is shell, so a different runtime version cannot change it.
+ *
+ * This does not rescue a gate that cannot load: it still refuses every command,
+ * including the install that would fix it. It only stops a nudge doing the same.
+ *
+ * (Other tools disagree on this too: husky and lefthook skip, pre-commit fails.)
+ */
+export function hookRuntimeMissingExit(kind: DispatchKind): 0 | 2 {
+  return kind === "inject" || kind === "react" ? 0 : 2;
+}
+
+/** A trailing `|| exit <number>`, the only ending this module writes. */
+const ROLE_EXIT_SUFFIX = /\s*\|\|\s*exit\s+\d+\s*$/;
+
+/**
+ * `command` with `|| exit 0` or `|| exit 2` (chosen by the kind of hook) as its
+ * last words. A `|| exit N` already there is replaced, not added to: the shell
+ * stops at the first `exit` it reaches, so a nudge wired `|| exit 2 || exit 0`
+ * would still block. Applying it twice gives the same result as applying it once.
+ */
+export function withRoleExit(command: string, kind: DispatchKind): string {
+  return `${command.replace(ROLE_EXIT_SUFFIX, "")} || exit ${hookRuntimeMissingExit(kind)}`;
 }
 
 /** A gate's {@link HookMode} (`enforce` default); non-gate roles report `enforce` too. */
@@ -1459,8 +1511,12 @@ export function compileHookProgram(
         )} — use dangerously(name, cmd) to acknowledge a side-effecting/undecidable command, or keep provide() only for a read-only one.`,
     );
   }
-  const gateCommand =
-    opts.gateCommand ?? "npx vigiles hook-runtime run-program";
+  // The `|| exit N` ending is added here, not by the caller, so every caller gets
+  // the right one and none can forget it (#312).
+  const gateCommand = withRoleExit(
+    opts.gateCommand ?? "npx vigiles hook-runtime run-program",
+    dispatchKind(hook),
+  );
   const matcher = styleMatcher(rawMatcher, opts.hookProtocol);
   const entry =
     matcher === undefined
@@ -2742,6 +2798,29 @@ export function isStampRepairEvent(
  * You do not need to finish recovering, only to stop being wedged. Once the hook
  * loads, the gate decides normally and `git merge --abort` is an ordinary allowed
  * command — through the gate, not around it.
+ *
+ * ## Why running an install is not allowed either (#312, considered and rejected)
+ *
+ * The usual reason a hook cannot load is that nothing is installed yet (a fresh
+ * container, or a merge that brought the wiring but not the package). The cure
+ * is `npm ci`, which is exactly what the gate refuses. Letting a lockfile
+ * install through was proposed and rejected, for four reasons:
+ *
+ * - Like `git merge --abort` and `vigiles compile` above, it would be allowed for
+ *   what it is meant to do, not for what it can do. An install runs the
+ *   lifecycle scripts of every package in the lockfile, which is more than the
+ *   `.git/hooks/*` scripts that got the git commands removed.
+ * - "The gate is not running anyway" would equally justify allowing `ls`. It
+ *   does not single out `npm ci`.
+ * - On a fresh container the runtime itself is missing, so none of this code
+ *   runs; the command's own `|| exit 2` decides.
+ * - `npm ci` fails when the lockfile is behind `package.json`. Fixing that needs
+ *   plain `npm install`, which fetches versions the repo has not pinned.
+ *
+ * So the way out stays a file write. What is left over is described in
+ * `docs/compiled-hooks.md` ("When a hook cannot load"). Removing the cause would
+ * need hook files that live in the same git commit as their wiring; that is a
+ * separate decision (#312).
  *
  * ## What is accepted
  *

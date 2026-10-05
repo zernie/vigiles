@@ -626,6 +626,33 @@ export function commandRefs(
 }
 
 /**
+ * The files that a `hook-runtime run-program` command needs to exist: the hook
+ * file it names, and the runtime script when the command starts it by path
+ * (`node "$DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program …`).
+ *
+ * Narrower than {@link commandRefs}, which lists every program a command runs.
+ * This lists only what a compiled hook depends on, because the start-of-session
+ * check (`hook-check.ts`) reports these files as missing. `bash scripts/build.sh`
+ * is not one of them; reporting it missing in a fresh clone would be a false
+ * alarm that `npm install` does not fix.
+ *
+ * Like `commandRefs`, it only counts a command that really starts vigiles, so
+ * `echo vigiles hook-runtime run-program x.mjs` names nothing.
+ */
+export function runProgramFiles(command: string): string[] {
+  const out = new Set<string>();
+  for (const argv of leafArgvSource(command)) {
+    const head = argv[0] ?? "";
+    const entry = SCRIPT_RE.test(head) ? head : interpretedScript(argv);
+    const hook = runProgramRef(argv, entry);
+    if (hook === undefined) continue;
+    if (entry !== undefined) out.add(entry);
+    out.add(hook);
+  }
+  return [...out];
+}
+
+/**
  * The tools that DISPATCH a subagent. Both spellings, because the live CLI names
  * it `Agent` and older docs name it `Task` — the same pair `parseSubagents`
  * documents from real `claude` output.

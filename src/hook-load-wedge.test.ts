@@ -589,3 +589,201 @@ test("the ONE repair path outside the repo root is the one Node actually reads",
     cleanupTmpDir(outer);
   }
 });
+
+// ---------------------------------------------------------------------------
+// WHAT HAPPENS WHEN A HOOK CANNOT BE LOADED (#312).
+//
+// Two things used to decide whether such a hook blocks. One was the ending
+// `|| exit 2` or `|| exit 0` that `vigiles compile` writes on the command. The
+// other was the runtime, which checked whether the hook's file name contained
+// "inject". When the name was misleading they disagreed: a reminder-only hook
+// called `paper-status.hook.mjs` blocked the session, and a blocking hook called
+// `ctx-inject.hook.mjs` let every command through.
+//
+// Now the runtime always exits 2 when a hook cannot be loaded, and only the
+// ending on the command can turn that into a 0. These tests run both parts for
+// real: the runtime directly, and the exact command `compile` wrote into the
+// settings, run with `sh -c` the way Claude Code runs it.
+// ---------------------------------------------------------------------------
+
+const GATE_SRC = `import { experimental_defineHook, deny, allow } from "vigiles/hook";
+export default experimental_defineHook({
+  on: "PreToolUse",
+  decide: (e) => (e.command.runs("git push", { force: true }) ? deny("no") : allow()),
+});
+`;
+const NUDGE_SRC = `import { experimental_defineReact, tools, notice } from "vigiles/hook";
+export default experimental_defineReact({
+  on: "PostToolUse",
+  match: tools("Write"),
+  react: () => notice("remember the checklist"),
+});
+`;
+const INJECT_SRC = `import { experimental_defineInject, inject } from "vigiles/hook";
+export default experimental_defineInject({
+  on: "SessionStart",
+  produce: () => inject("hello"),
+});
+`;
+
+const BASH_EVENT = {
+  hook_event_name: "PreToolUse",
+  tool_name: "Bash",
+  tool_input: { command: "ls" },
+};
+const WRITE_EVENT = {
+  hook_event_name: "PostToolUse",
+  tool_name: "Write",
+  tool_input: { file_path: "notes.txt" },
+};
+const START_EVENT = { hook_event_name: "SessionStart", source: "startup" };
+
+/** A project where `vigiles` can be found, with the given hooks really compiled. */
+function wiredProject(hooks: Record<string, string>): {
+  dir: string;
+  commandOf: (name: string) => string;
+} {
+  const dir = makeTmpDir("role-owner");
+  mkdirSync(join(dir, "node_modules"), { recursive: true });
+  symlinkSync(REPO_ROOT, join(dir, "node_modules", "vigiles"), "dir");
+  mkdirSync(join(dir, ".vigiles", "hooks"), { recursive: true });
+  writeFileSync(join(dir, "package.json"), HEALTHY_PACKAGE_JSON);
+  for (const [name, src] of Object.entries(hooks)) {
+    writeFileSync(join(dir, ".vigiles", "hooks", name), src);
+  }
+  const compiled = spawnSync(process.execPath, [CLI, "compile"], {
+    cwd: dir,
+    encoding: "utf-8",
+  });
+  assert.equal(compiled.status, 0, compiled.stderr);
+  const settings = JSON.parse(
+    readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
+  ) as { hooks: Record<string, { hooks: { command: string }[] }[]> };
+  const commands = Object.values(settings.hooks)
+    .flat()
+    .flatMap((e) => e.hooks.map((h) => h.command));
+  return {
+    dir,
+    commandOf: (name) => {
+      const found = commands.filter((c) => c.includes(`/${name}"`));
+      assert.equal(found.length, 1, `exactly one wiring for ${name}`);
+      return found[0];
+    },
+  };
+}
+
+/** Runs the command exactly as Claude Code would. */
+function runWired(
+  dir: string,
+  command: string,
+  event: object,
+): { code: number; stdout: string; stderr: string } {
+  const res = spawnSync("sh", ["-c", command], {
+    cwd: dir,
+    encoding: "utf-8",
+    input: JSON.stringify(event),
+    env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+  });
+  return { code: res.status ?? -1, stdout: res.stdout, stderr: res.stderr };
+}
+
+test("runtime: a hook that cannot be loaded exits 2 whatever its file name says", () => {
+  const { dir } = wiredProject({ "anchor.hook.mjs": GATE_SRC });
+  try {
+    for (const name of [
+      "gate.hook.mjs",
+      "paper-status.hook.mjs",
+      "ctx-inject.hook.mjs",
+      "inject.hook.mjs",
+      "INJECT.hook.mjs",
+    ]) {
+      const res = spawnSync(
+        process.execPath,
+        [CLI, "hook-runtime", "run-program", `.vigiles/hooks/${name}`],
+        { cwd: dir, encoding: "utf-8", input: JSON.stringify(BASH_EVENT) },
+      );
+      assert.equal(res.status, 2, `${name}: ${res.stderr}`);
+      assert.match(res.stderr, /cannot be loaded/, name);
+      // The runtime no longer claims to know what kind of hook failed to load.
+      assert.doesNotMatch(res.stderr, /degrading gracefully/, name);
+    }
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("runtime: the message tells someone who wired a hook by hand how to fix it", () => {
+  const { dir } = wiredProject({ "anchor.hook.mjs": GATE_SRC });
+  try {
+    const res = spawnSync(
+      process.execPath,
+      [CLI, "hook-runtime", "run-program", ".vigiles/hooks/missing.hook.mjs"],
+      { cwd: dir, encoding: "utf-8", input: JSON.stringify(BASH_EVENT) },
+    );
+    assert.equal(res.status, 2);
+    // A reminder-only hook wired by hand with no ending is treated as a blocking
+    // one. The message must say how to fix that.
+    assert.match(res.stderr, /\|\| exit 0/);
+    assert.match(res.stderr, /vigiles compile/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("a reminder-only hook that cannot be loaded exits 0 through its command, whatever its file name", () => {
+  const { dir, commandOf } = wiredProject({
+    "paper-status.hook.mjs": NUDGE_SRC,
+    "briefing.hook.mjs": INJECT_SRC,
+  });
+  try {
+    const nudge = commandOf("paper-status.hook.mjs");
+    const briefing = commandOf("briefing.hook.mjs");
+    assert.match(nudge, /\|\| exit 0$/);
+    assert.match(briefing, /\|\| exit 0$/);
+
+    // First check the healthy case: the ending hides nothing.
+    assert.equal(runWired(dir, nudge, WRITE_EVENT).code, 0);
+
+    // The hook file is gone (a merge brought the wiring but not the package).
+    rmSync(join(dir, ".vigiles", "hooks", "paper-status.hook.mjs"));
+    rmSync(join(dir, ".vigiles", "hooks", "briefing.hook.mjs"));
+    const a = runWired(dir, nudge, WRITE_EVENT);
+    assert.equal(a.code, 0, a.stderr);
+    assert.match(a.stderr, /cannot be loaded/, "the cause is still said");
+    assert.equal(runWired(dir, briefing, START_EVENT).code, 0);
+
+    // Same again with the runtime missing too (a fresh container with no node_modules).
+    rmSync(join(dir, "node_modules"), { recursive: true });
+    assert.equal(runWired(dir, nudge, WRITE_EVENT).code, 0);
+    assert.equal(runWired(dir, briefing, START_EVENT).code, 0);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("a blocking hook that cannot be loaded still blocks, even if its file name contains `inject`", () => {
+  const { dir, commandOf } = wiredProject({
+    "ctx-inject.hook.mjs": GATE_SRC,
+    "plain.hook.mjs": GATE_SRC,
+  });
+  try {
+    const named = commandOf("ctx-inject.hook.mjs");
+    const plain = commandOf("plain.hook.mjs");
+    assert.match(named, /\|\| exit 2$/);
+    assert.match(plain, /\|\| exit 2$/);
+    assert.equal(runWired(dir, named, BASH_EVENT).code, 0, "healthy: allowed");
+
+    rmSync(join(dir, ".vigiles", "hooks", "ctx-inject.hook.mjs"));
+    rmSync(join(dir, ".vigiles", "hooks", "plain.hook.mjs"));
+    // The "inject" in the file name used to make this pass silently.
+    const a = runWired(dir, named, BASH_EVENT);
+    assert.equal(a.code, 2, a.stderr);
+    assert.equal(runWired(dir, plain, BASH_EVENT).code, 2);
+
+    rmSync(join(dir, "node_modules"), { recursive: true });
+    assert.equal(runWired(dir, named, BASH_EVENT).code, 2);
+    assert.equal(runWired(dir, plain, BASH_EVENT).code, 2);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});

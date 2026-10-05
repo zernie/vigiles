@@ -244,10 +244,10 @@ import {
   discoverProviderFiles,
   hookGateRef,
   hookRuntimeRef,
-  hookRuntimeMissingExit,
   normalizeHookRef,
   serializeConfig,
 } from "./hook-install.js";
+import { installHookCheck } from "./hook-check-install.js";
 import { unsafeProvider } from "./core/hook-providers.js";
 import { parse as parseToml } from "@iarna/toml";
 // The named-state STORE. Lifted out of this file so a TEST can seed a fact
@@ -7572,13 +7572,12 @@ async function installHookFile(
     // cannot load must block — the repo seized, every command refused including the repair.
     //
     // 🔴 AND LAUNCHED LOCALLY, NOT THROUGH `npx` — 193 ms against 2545 ms on a warm
-    // cache, thirteen times, on every tool call. The trailing `|| exit N` is what the
-    // shell does when that binary cannot start at all, and N is decided by the hook's
-    // ROLE: see `hookRuntimeRef` and `hookRuntimeMissingExit` for both measurements
-    // and for why a gate and a nudge must answer differently.
+    // cache, thirteen times, on every tool call. The `|| exit N` ending is what
+    // the shell does when that file cannot start at all. `compileHookProgram`
+    // adds it (see `hookRuntimeMissingExit`), so it is not written here.
     gateCommand:
       `${hookRuntimeRef(adapter.layout.projectRootTokens)} hook-runtime run-program ` +
-      `${hookGateRef(ref, adapter.layout.projectRootTokens)} || exit ${hookRuntimeMissingExit(dispatchKind(program))}`,
+      hookGateRef(ref, adapter.layout.projectRootTokens),
     dialect: adapter.dialect,
     hookProtocol: adapter.hookProtocol,
     settings: adapter.layout.settings,
@@ -7741,6 +7740,7 @@ async function installHooks(
       }
     }
   }
+  installHookCheck(adapters);
   return ok;
 }
 

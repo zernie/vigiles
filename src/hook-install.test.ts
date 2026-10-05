@@ -5,7 +5,6 @@ import { describe, it, expect } from "vitest";
 import {
   hookGateRef,
   hookRuntimeRef,
-  hookRuntimeMissingExit,
   mergeHooksJson,
   mergeHooksToml,
   normalizeHookRef,
@@ -604,27 +603,6 @@ describe("hookRuntimeRef — how compile LAUNCHES the runtime", () => {
   });
 });
 
-describe("hookRuntimeMissingExit — what the SHELL does when the runtime cannot start", () => {
-  // No code of ours runs in that case, so this is the only place the policy can
-  // live. It is not a new policy: the runtime's own load-failure branch has said
-  // since 2026-08 that gates fail closed and injects degrade gracefully. This
-  // carries the same rule one layer out.
-  it("BLOCKS for every gate — a gate that silently passes is worse than no gate", () => {
-    expect(hookRuntimeMissingExit("bash-gate")).toBe(2);
-    expect(hookRuntimeMissingExit("file-gate")).toBe(2);
-    expect(hookRuntimeMissingExit("prompt-gate")).toBe(2);
-    expect(hookRuntimeMissingExit("stop-gate")).toBe(2);
-  });
-
-  it("PASSES for every nudge — a reminder is never worth a wedged repository", () => {
-    // Measured here 2026-08-10: merge-conflict markers in package.json stopped
-    // every hook loading, and the Bash gate then refused `git merge --abort` —
-    // the one command that undoes the cause.
-    expect(hookRuntimeMissingExit("inject")).toBe(0);
-    expect(hookRuntimeMissingExit("react")).toBe(0);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // The migration itself, end to end, because changing the emitted command is
 // only safe if a recompile RECOGNISES the old spelling as the same hook.
@@ -678,7 +656,10 @@ describe("recompiling over the previous launcher", () => {
       const commands = Object.values(after.hooks)
         .flat()
         .flatMap((g) => g.hooks)
-        .map((h) => h.command);
+        .map((h) => h.command)
+        // The start-of-session check is an extra entry on purpose. It is not a
+        // duplicate of this hook, which is what this test counts.
+        .filter((c) => !c.includes("hook-check.sh"));
 
       // ONE, not two. A second entry here means every existing user grows a
       // duplicate hook on their next compile.
