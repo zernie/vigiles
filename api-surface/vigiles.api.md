@@ -642,6 +642,11 @@ export function experimental_makeDockerRuntime(deps?: {
 }): ContainerRuntime;
 
 // @public
+export function experimental_outputStyleArms(path: string, opts?: {
+    readonly adapter?: HarnessAdapter;
+}): Promise<OutputStyleArms>;
+
+// @public
 export function experimental_parseEmitted(toolCalls: readonly ToolCall[], contract: OutputContract, options?: {
     readonly name?: string;
 }): ParsedAgentResult;
@@ -949,11 +954,6 @@ export interface OutputStyleArms {
     readonly with: EvalArm;
     readonly without: EvalArm;
 }
-
-// @public
-export function outputStyleArms(path: string, opts?: {
-    readonly adapter?: HarnessAdapter;
-}): Promise<OutputStyleArms>;
 
 // @public
 export function outputTokens(opts: {

@@ -104,12 +104,14 @@ A style is not chosen by the model, so there is no trigger rate to measure
 and check every reply of each run.
 
 ```ts
-import { output, outputStyleArms, replyCount } from "vigiles";
+import { output, experimental_outputStyleArms, replyCount } from "vigiles";
 import { paid_measureArms } from "vigiles/eval";
 
 // Free: one run with the scripted model proves the style reaches the model,
 // then the arms are built from the FILE — no name typed by hand.
-const arms = await outputStyleArms(".claude/output-styles/status-footer.md");
+const arms = await experimental_outputStyleArms(
+  ".claude/output-styles/status-footer.md",
+);
 
 // Paid: a real model, both arms.
 const report = await paid_measureArms({
@@ -123,7 +125,7 @@ const report = await paid_measureArms({
 });
 ```
 
-`outputStyleArms` throws before the first paid trial when the harness has no
+`experimental_outputStyleArms` throws before the first paid trial when the harness has no
 output styles, cannot tell the style's name, or the style does not reach the
 model. The paid run itself cannot check that: it drives the real API, so no
 request is captured (`modelRequests` is empty). The free run writes the same

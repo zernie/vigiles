@@ -29,8 +29,11 @@ export interface OutputStyleArms {
  * makes uses the scripted model. Throws, before any eval, when the harness has
  * no output styles, cannot tell the style's name, or the style does not reach
  * the model.
+ *
+ * @experimental One real-model run behind it; how arms are built may change
+ * once a style can be authored as a compiled spec with its checks attached.
  */
-export async function outputStyleArms(
+export async function experimental_outputStyleArms(
   path: string,
   opts: { readonly adapter?: HarnessAdapter } = {},
 ): Promise<OutputStyleArms> {

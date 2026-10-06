@@ -1,5 +1,5 @@
 /**
- * `outputStyleArms` against the REAL `claude` binary and the scripted mock
+ * `experimental_outputStyleArms` against the REAL `claude` binary and the scripted mock
  * model: the arms a paid style eval compares, built from the style FILE, with
  * delivery proven by one free run first. Skipped where the CLI is absent.
  */
@@ -9,7 +9,7 @@ import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { claudeAvailable } from "../../harness-test.js";
-import { outputStyleArms } from "../../output-style-arms.js";
+import { experimental_outputStyleArms } from "../../output-style-arms.js";
 import { claudeCodeAdapter } from "./adapter.js";
 import { claudeCodeLayout } from "./layout.js";
 import { claudeCodeOutputStyles as rules } from "./output-style.js";
@@ -17,11 +17,11 @@ import { claudeCodeOutputStyles as rules } from "./output-style.js";
 const STYLE = resolve("test/fixtures/output-styles/status-footer.md");
 const maybe = claudeAvailable() ? test : test.skip;
 
-describe("outputStyleArms on Claude Code (real binary, scripted model)", () => {
+describe("experimental_outputStyleArms on Claude Code (real binary, scripted model)", () => {
   maybe(
     "builds a with arm selected by the name in the file, and a bare without arm",
     async () => {
-      const arms = await outputStyleArms(STYLE);
+      const arms = await experimental_outputStyleArms(STYLE);
       expect(arms).toEqual({
         with: {
           files: {
@@ -48,18 +48,18 @@ describe("outputStyleArms on Claude Code (real binary, scripted model)", () => {
           outputStyles: { ...rules, reached: () => false },
         },
       };
-      await expect(outputStyleArms(STYLE, { adapter: blind })).rejects.toThrow(
-        /"Status Footer" never reached the model/,
-      );
+      await expect(
+        experimental_outputStyleArms(STYLE, { adapter: blind }),
+      ).rejects.toThrow(/"Status Footer" never reached the model/);
     },
     180_000,
   );
 });
 
-describe("outputStyleArms refuses before running", () => {
+describe("experimental_outputStyleArms refuses before running", () => {
   test("when the file does not exist", async () => {
-    await expect(outputStyleArms("nope/missing.md")).rejects.toThrow(
-      /outputStyle: no such file: nope\/missing\.md/,
-    );
+    await expect(
+      experimental_outputStyleArms("nope/missing.md"),
+    ).rejects.toThrow(/outputStyle: no such file: nope\/missing\.md/);
   });
 });
