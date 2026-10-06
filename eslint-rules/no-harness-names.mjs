@@ -1,33 +1,24 @@
 /**
- * `local/no-harness-names` — the harness-agnostic domain must not SPELL a
- * harness. Not in a value, not in a type, not in an identifier.
+ * `local/no-harness-names` — code may not spell a harness that is not its own.
+ * Not in a value, not in a type, not in an identifier.
  *
- * One sentence: inside `src/core/**` (and the three root modules that declare
- * themselves harness-agnostic), the tokens `claude-code`, `codex` and `opencode`
- * may not appear in any AST node — read the fact off the injected
- * `HarnessDialect` / `PluginLayout` instead.
+ * A harness is spelled by its name (`"claude-code"`) and, through the `literals`
+ * option, by its directory (`.claude/`) and its environment variables
+ * (`ANTHROPIC_`). eslint.config.mjs runs the rule over every file in src/:
+ * outside the adapters every harness is forbidden, inside `src/adapters/<h>/`
+ * every harness but h. Tests are included, because a test of generic code that
+ * names Claude Code is a test of Claude Code.
+ *
+ * It sits beside `boundaries/dependencies`, which stops the IMPORT of an
+ * adapter. Neither covers the other: the string "claude-code" imports nothing.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * WHY THIS EXISTS, AND WHY IT IS NOT A DUPLICATE OF THE THREE FENCES ALREADY UP
+ * WHY TYPE POSITIONS ARE COVERED
  *
- * The invariant "the core knows no harness" already had three mechanical arms
- * before this rule, and a fourth gap that all three left open:
- *
- *   1. `boundaries/dependencies` (eslint.config.mjs) — the core may not IMPORT an
- *      adapter. Closes the module graph.
- *   2. `no-restricted-syntax` with CC_LITERAL_RE — the core may not spell
- *      `CLAUDE_PLUGIN_ROOT`, `.claude` or `ANTHROPIC_`. Closes the CC *surface
- *      paths and env vars*.
- *   3. The adapter CONTRACT suite — every registered adapter is held to the ports.
- *
- * None of the three matches the string `"claude-code"`. `CC_LITERAL_RE` is
- * `CLAUDE_PLUGIN_ROOT|\.claude|ANTHROPIC_`: `.claude` needs the dot, so the
- * canonical ADAPTER NAME slips past it, and `"codex"` / `"opencode"` were never
- * in the pattern at all. Measured on this tree, `src/core/**` (non-test) held
- * eight such nodes while all three arms were green.
- *
- * FIVE OF THOSE EIGHT TRACE TO ONE TYPE ALIAS, and that is the argument for
- * covering type positions rather than only expressions:
+ * When this rule was written, src/core (non-test) held eight harness names
+ * while the import boundary was green. Five of the eight traced to one type
+ * alias, and that is the argument for covering type positions rather than only
+ * expressions:
  *
  *     src/core/dialect.ts:29
  *       export type SkillFrontmatterProfile = "claude-code" | "minimal";
@@ -67,37 +58,14 @@
  * people delete.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * WHY AN IDENTIFIER OPTION, RATHER THAN ALWAYS-ON OR NEVER
+ * WHY AN IDENTIFIER OPTION
  *
  * Banning the string `"codex"` while allowing `import { codexLayout }` in the
- * same file protects very little, so identifiers are covered — but only where
- * covering them turns the rule on SILENT. Measured, non-test, on this tree:
- *
- *   src/core/**           0 identifier hits  → `identifiers: true`, no new noise
- *   src/scan.ts           6 identifier hits  ┐ every one of them `claudeCodeLayout`
- *   src/test-coverage.ts  2 identifier hits  ┘ or `claudeCodeDialect`
- *
- * Of those eight, THREE are the import specifiers themselves — and the string
- * half already catches those, because the module path spells `/claude-code/`.
- * (That is a finding in its own right: two modules listed as harness-agnostic
- * detectors import the Claude Code adapter, invisible to the other two fences —
- * `boundaries/dependencies` deliberately leaves them unclassified, and
- * `CC_LITERAL_RE`'s `\.claude` needs the dot.) The remaining five are USES —
- * `scan.ts` 601/645/932/985 and `test-coverage.ts` 665 — where the adapter is
- * the DEFAULT value of a `layout` / `dialect` parameter.
- *
- * Those five are a product decision, not a leak: "Claude Code stays the default
- * everywhere" is a stated backwards-compatibility guarantee (CLAUDE.md). Turning
- * identifiers on for these two files would open with five findings against
- * sanctioned code on top of the three imports, and a rule that opens with
- * findings against sanctioned code is switched off the same day, not fixed.
- *
- * ⚠️ So this is a DECLARED HOLE, not an oversight: in `src/scan.ts` and
- * `src/test-coverage.ts` the rule sees the import PATH and not the five uses
- * downstream of it. That is a tolerable shape — the import is the root, and it
- * is flagged — but it is not full coverage, and saying so is the point. Closing
- * it means giving those modules the port injection the core already has, which
- * is a change to the code and not to this rule.
+ * same file protects very little, so eslint.config.mjs turns `identifiers` on
+ * everywhere. Old identifier hits, such as `claudeCodeLayout` as the default
+ * `layout` parameter in src/scan.ts, are listed in eslint-suppressions.json
+ * until those modules take the layout from their caller. The option stays so a
+ * codebase can adopt the string half first.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * WHERE THE NAMES COME FROM — not from here

@@ -19,8 +19,8 @@
 // `src/adapters/claude-code/model-access.ts` and are reached through
 // `HarnessLiveDriver.access`, which every harness answers in its own terms.
 //
-// This file is in `HARNESS_AGNOSTIC_DETECTORS` (`eslint.config.mjs`), so the
-// literal boundary now refuses `ANTHROPIC_` here: they cannot come back.
+// `local/no-harness-names` refuses `ANTHROPIC_` in any file outside the Claude
+// Code adapter, so they cannot come back.
 
 /** Why the executing checks were skipped (drives the "not run" nudge). */
 export type ExecuteSkipReason =
