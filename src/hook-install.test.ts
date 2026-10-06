@@ -1048,7 +1048,7 @@ describe("vigiles compile over a mixed .vigiles/hooks/ directory", () => {
 
   it("a harness test beside its hook is not compiled, not reported, and the build is green (#278)", () => {
     const dir = repo({
-      ".vigiles/hooks/task-list-nudge.hook.ts": HOOK,
+      ".vigiles/hooks/task-list-nudge.hook.mjs": HOOK,
       ".vigiles/hooks/task-list-nudge.harness.mjs": "export {};\n",
       ".vigiles/hooks/task-list-nudge.eval.mjs": "export {};\n",
     });
@@ -1058,7 +1058,7 @@ describe("vigiles compile over a mixed .vigiles/hooks/ directory", () => {
       expect(r.out).toContain("Compilation complete.");
       expect(r.out).not.toContain("harness.mjs");
       expect(r.out).not.toContain("eval.mjs");
-      expect(wiredPaths(dir)).toEqual(["task-list-nudge.hook.ts"]);
+      expect(wiredPaths(dir)).toEqual(["task-list-nudge.hook.mjs"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
