@@ -98,7 +98,7 @@ export const dangerously = <const Name extends string>(
 
 /**
  * A REGISTERED provider — a reusable, named fact authored once in
- * `.vigiles/providers/<name>.{mjs,ts}` (default-exported via {@link defineProvider})
+ * `.vigiles/providers/<name>.provider.{mjs,ts}` (default-exported via {@link defineProvider})
  * and referenced from many hooks by {@link provider} name. The reusable sibling of
  * the one-off inline {@link provide}; same read-only-by-default rule.
  */

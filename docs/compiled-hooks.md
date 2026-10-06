@@ -299,10 +299,10 @@ export default experimental_defineHook({
 
 The trusted runtime runs the command (so `decide` still does zero I/O) and hands its stdout in as `e.ctx[name]`. `provide(name, cmd)` requires a **provably read-only** command (compile rejects it otherwise). `dangerously(name, cmd)` is the **loud, greppable escape** for a command that isn't — the `dangerouslySetInnerHTML` / `unsafe` convention, so a security review can search for that one word.
 
-**Reusable registered providers.** For a fact several hooks share, register it once in `.vigiles/providers/<name>.{mjs,ts}` and reference it by name:
+**Reusable registered providers.** For a fact several hooks share, register it once in `.vigiles/providers/<name>.provider.{mjs,ts}` and reference it by name:
 
 ```ts
-// .vigiles/providers/k8sCtx.mjs
+// .vigiles/providers/k8sCtx.provider.mjs
 import { defineProvider } from "vigiles/hook";
 export default defineProvider({
   name: "k8sCtx",
@@ -376,27 +376,33 @@ Every file in `.vigiles/hooks/` (and `.vigiles/providers/`) is exactly one of th
 ```
 ✗ .vigiles/hooks/guard.mjs — not compiled: a hook source must carry `.hook.` before its extension (guard.hook.mjs), and this name carries no marker vigiles knows.
   If it is a hook, rename it. Copy first and delete last, so a failure leaves the old hook in place and wired:
-    cp .vigiles/hooks/guard.mjs .vigiles/hooks/guard.hook.mjs && npx vigiles compile .vigiles/hooks/guard.hook.mjs && rm -f .vigiles/hooks/guard.mjs .vigiles/hooks/guard.mjs.json
+    cp -n -- '.vigiles/hooks/guard.mjs' '.vigiles/hooks/guard.hook.mjs' && npx vigiles compile '.vigiles/hooks/guard.hook.mjs' && rm -f -- '.vigiles/hooks/guard.mjs' '.vigiles/hooks/guard.mjs.json'
   If it is not a hook, move it out of .vigiles/hooks/ — a test belongs in a `.harness.` or `.eval.` file.
 ```
 
-`vigiles compile <file>` asks the same question as a bare `compile`: an explicit `guard.mjs` is refused the same way; an explicit test, declaration or stamp (what a shell glob hands over) is reported as skipped, not an error.
+Every path in that command is single-quoted, because file names are not trusted input: a name with a space, a quote or `;` is one argument, never a command. If `guard.hook.mjs` **already exists** beside `guard.mjs`, no command is printed (a copy could overwrite the file you edited); the message names both files and asks you to merge them by hand. And `cp -n` refuses to overwrite one that appears in between.
+
+**`vigiles compile <file>` asks the same question as a bare `compile`, for a path ANYWHERE.** An explicit `guard.mjs` is refused the same way whether it sits in `.vigiles/hooks/`, in `.claude/hooks/`, or in a plugin under `node_modules/`: the rule is about the file's name, not its directory. The arguments are then held to what they are:
+
+- a missing path, a directory, an unexpanded glob or a file that is not a source (`/etc/passwd`) is an **error**, exit `1`, as it always was;
+- a test, a declaration or a stamp is **skipped, out loud** (`- x.harness.mjs skipped: a vigiles-test, not a hook.`), and so is a `README.md` or `.gitkeep` _inside_ `.vigiles/hooks/` or `.vigiles/providers/`, which is where a shell glob (`compile .vigiles/hooks/*`) sweeps one up;
+- a run in which every path was skipped ends `Nothing was compiled: every path given was skipped.` rather than `Compilation complete.`.
 
 A test may sit beside its hook in `.vigiles/hooks/` and `compile` will not touch it. Note that `vigiles test` does not _discover_ anything under `.vigiles/` (that directory is excluded from discovery); run such a test by naming it (`vigiles test .vigiles/hooks/guard.harness.mjs`), or keep it elsewhere.
 
 ### Upgrading from a vigiles that compiled every file
 
-**Who is affected:** a repo with a hook in `.vigiles/hooks/` whose name has no `.hook.` (`guard.mjs`), or a provider in `.vigiles/providers/` with no `.provider.` (`k8s.mjs`). The repo's own examples used to name hooks that way. A repo that already names its hooks `*.hook.*` changes nothing.
+**Who is affected:** a repo with a hook in `.vigiles/hooks/` whose name has no `.hook.` (`guard.mjs`), or a provider in `.vigiles/providers/` with no `.provider.` (`k8s.mjs`). The rule is on the file's name, wherever it is: anyone who runs `vigiles compile <path>` on a hook outside `.vigiles/hooks/` — `.claude/hooks/x.mjs`, a plugin's `hooks/guard.mjs` — is refused too (`compile node_modules/plug/hooks/guard.mjs` now exits `1`). The repo's own examples used to name hooks that way. A repo that already names its hooks `*.hook.*` changes nothing.
 
 **What breaks, and what does not.** Hooks that are already wired **keep running**: the runtime loads whatever path `settings.json` names and never asks what a file is called, and a registered provider is still found at runtime. The break is the **next `vigiles compile`**, which refuses the unmarked file (exit `1`, the message above) and so also fails a CI step that runs it.
 
 **The fix, one command per hook.** Copy the hook to its marked name, compile _that_ path, then delete the old file:
 
 ```bash
-cp .vigiles/hooks/guard.mjs .vigiles/hooks/guard.hook.mjs && npx vigiles compile .vigiles/hooks/guard.hook.mjs && rm -f .vigiles/hooks/guard.mjs .vigiles/hooks/guard.mjs.json
+cp -n -- '.vigiles/hooks/guard.mjs' '.vigiles/hooks/guard.hook.mjs' && npx vigiles compile '.vigiles/hooks/guard.hook.mjs' && rm -f -- '.vigiles/hooks/guard.mjs' '.vigiles/hooks/guard.mjs.json'
 ```
 
-Providers are not wired by path, so a plain `mv .vigiles/providers/k8s.mjs .vigiles/providers/k8s.provider.mjs` is enough.
+`compile` prints this for each file with the paths filled in (and quoted). Providers are not wired by path, so a plain `mv -n -- '.vigiles/providers/k8s.mjs' '.vigiles/providers/k8s.provider.mjs'` is enough. A hook compiled from outside `.vigiles/hooks/` is renamed the same way, in its own directory.
 
 **Why copy-then-delete rather than a rename.** The old file's path is what `settings.json` names. After a plain rename and before the recompile, that path does not exist; a hook that cannot load exits `2`, and for a gate (`|| exit 2`) that blocks every Bash call — including the `npx vigiles compile` you need next. The way out is then a file write ([details](#when-a-hook-cannot-load)). With copy-then-delete, the old hook stays on disk and wired until the new one has compiled, so nothing in between is broken.
 

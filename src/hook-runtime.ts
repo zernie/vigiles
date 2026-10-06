@@ -118,7 +118,7 @@ function injectableEventsFor(root: string): readonly string[] {
  */
 export const loadHookProgram = loadHook;
 
-/** Load a registered provider (`.vigiles/providers/<name>`) → its definition. */
+/** Load a registered provider (`.vigiles/providers/<name>.provider.<ext>`) → its definition. */
 export async function loadProvider(
   file: string,
   root: string = process.cwd(),

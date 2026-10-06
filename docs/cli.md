@@ -328,7 +328,10 @@ harness-neutral, so it lives in vigiles's own dir, not `.claude/`), then:
   (`x.harness.mjs`, `x.eval.mjs`), a declaration or a stamp is left alone. A runnable
   file that carries no marker (`guard.mjs`) is **refused**: `compile` still compiles the
   hooks that are fine, prints the exact rename command, and exits `1` — it is never
-  silently skipped. See [what counts as a hook](compiled-hooks.md#what-counts-as-a-hook-the-hook-name)
+  silently skipped. The same holds for a path you name, wherever it lives
+  (`compile .claude/hooks/x.mjs` is refused; a missing path or a directory is an error;
+  a test or stamp is skipped aloud, and a run that skipped everything says nothing was
+  compiled). See [what counts as a hook](compiled-hooks.md#what-counts-as-a-hook-the-hook-name)
   and [upgrading](compiled-hooks.md#upgrading-from-a-vigiles-that-compiled-every-file).
 - `--harness=codex` merges a Codex `config.toml` `[[hooks.<event>]]` block (an
   anchored-regex matcher) instead of the Claude Code JSON. The same typed program
