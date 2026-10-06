@@ -264,6 +264,10 @@ export function discoverScripts(
       ignore: withIgnored([], ignore),
       dot: true,
       nodir: true,
+      // `glob` defaults this to TRUE on macOS and Windows, which made
+      // `a.hook.HARNESS.mjs` a test there and nothing on Linux. The kind of a
+      // name is decided case-sensitively (`source-kinds.ts`); the glob agrees.
+      nocase: false,
     })) {
       found.add(m);
     }

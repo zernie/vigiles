@@ -547,6 +547,10 @@ function discoverTests(
     cwd: basePath,
     ignore,
     dot: true,
+    // `glob` defaults this to TRUE on macOS and Windows, so `a.hook.HARNESS.mjs`
+    // was a test there and unclaimed on Linux — and the classifier is
+    // case-sensitive. One answer on every OS.
+    nocase: false,
   });
   // Prepared ONCE per file (comment-strip + declaration parse), not once per
   // (surface × file) pair — the matching below is quadratic by nature.

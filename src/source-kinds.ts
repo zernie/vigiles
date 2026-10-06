@@ -92,9 +92,15 @@ const TEST_TIERS: readonly TestTier[] = MARKERS.flatMap((m) =>
 const EXT_ALT = RUNNABLE_EXTS.join("|");
 const DECLARATION = /\.d\.(?:ts|mts|cts)$/;
 const STAMP = new RegExp(`\\.(?:${EXT_ALT})\\.json$`);
-/** `<stem>.<infix>.<ext>`: the stem is non-empty, the infix is the LAST segment before the extension. */
-const MARKED = new RegExp(`^.+\\.([^.]+)\\.(?:${EXT_ALT})$`);
-const RUNNABLE = new RegExp(`^.+\\.(?:${EXT_ALT})$`);
+/**
+ * `<stem>.<infix>.<ext>`, the infix being the LAST segment before the extension.
+ * The stem may be empty (`.harness.mjs`): the runner's glob matches that, so the
+ * classifier must too; {@link classifySource} decides which kinds may go without
+ * one. `[\\s\\S]`, not `.`: `.` stops at a newline, and a name with one in it
+ * used to fall out of every kind and be dropped without a word.
+ */
+const MARKED = new RegExp(`^([\\s\\S]*)\\.([^.]+)\\.(?:${EXT_ALT})$`);
+const RUNNABLE = new RegExp(`^[\\s\\S]+\\.(?:${EXT_ALT})$`);
 
 const UNCLAIMED: SourceKind = { kind: "unclaimed" };
 
@@ -111,9 +117,14 @@ export function classifySource(filename: string): SourceKind {
   if (DECLARATION.test(filename)) return { kind: "declaration" };
   if (STAMP.test(filename)) return { kind: "stamp" };
   if (!RUNNABLE.test(filename)) return { kind: "non-source" };
-  const infix = MARKED.exec(filename)?.[1];
-  const row = MARKERS.find((m) => m.infix === infix);
-  return row === undefined ? UNCLAIMED : row.kind;
+  const parts = MARKED.exec(filename);
+  const row = MARKERS.find((m) => m.infix === parts?.[2]);
+  if (row === undefined) return UNCLAIMED;
+  // A test needs no name to be run (`vigiles test` finds `.harness.mjs`); a hook
+  // or a provider must be nameable, so a stemless one is nobody's.
+  return parts?.[1] === "" && row.kind.kind !== "vigiles-test"
+    ? UNCLAIMED
+    : row.kind;
 }
 
 /**
@@ -152,10 +163,17 @@ export function testGlob(tier: TestTier): string {
 /** The patterns coverage credits tests with by default — one per tier, from the table. */
 export const DEFAULT_TEST_GLOBS: readonly string[] = TEST_TIERS.map(testGlob);
 
+/** Split at the last directory separator — either one, so a Windows path works too. */
 const splitDir = (path: string): readonly [string, string] => {
-  const cut = path.lastIndexOf("/") + 1;
+  const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1;
   return [path.slice(0, cut), path.slice(cut)];
 };
+
+/** The last path segment, whichever separator precedes it. */
+export const baseName = (path: string): string => splitDir(path)[1];
+
+/** Everything up to and including the last separator, or "" when there is none. */
+export const dirName = (path: string): string => splitDir(path)[0];
 
 /**
  * `guard.mjs` → `guard.hook.mjs`: the name a file must carry to be claimed as
@@ -176,6 +194,6 @@ export function preMarkerName(
   marker: CompilableMarker,
 ): string | undefined {
   const [dir, base] = splitDir(path);
-  const m = new RegExp(`^(.+)\\.${marker}\\.(${EXT_ALT})$`).exec(base);
+  const m = new RegExp(`^([\\s\\S]+)\\.${marker}\\.(${EXT_ALT})$`).exec(base);
   return m === null ? undefined : `${dir}${m[1]}.${m[2]}`;
 }

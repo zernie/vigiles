@@ -96,6 +96,33 @@ describe("classifySource: one kind per name", () => {
     expect(kind(name)).toBe("unclaimed");
   });
 
+  it("a name with a newline in it is still classified by its extension and marker, never dropped as a non-source", () => {
+    // `.` does not match `\n`, so a pattern built on it let a hook whose name
+    // had a newline fall out of every kind and vanish from compile silently.
+    expect(kind("gu\nard.mjs")).toBe("unclaimed");
+    expect(kind("gu\nard.hook.mjs")).toBe("hook");
+    expect(kind("a\nb.harness.ts")).toBe("vigiles-test");
+    expect(kind("a\n.hook.ts")).toBe("hook");
+    expect(kind("a\nb.md")).toBe("non-source");
+  });
+
+  it("a stemless `.harness.mjs` / `.eval.ts` is a vigiles test, because the runner's glob matches it", () => {
+    for (const ext of RUNNABLE_EXTS) {
+      expect(classifySource(`.harness.${ext}`)).toEqual({
+        kind: "vigiles-test",
+        test: "harness",
+      });
+      expect(classifySource(`.eval.${ext}`)).toEqual({
+        kind: "vigiles-test",
+        test: "eval",
+      });
+    }
+    // …while a stemless hook or provider is still nobody's: there is nothing to
+    // name it by, and a hook must be nameable.
+    expect(kind(".hook.mjs")).toBe("unclaimed");
+    expect(kind(".provider.ts")).toBe("unclaimed");
+  });
+
   it("the LAST infix decides, so a name can only ever have one kind", () => {
     expect(kind("gate.hook.harness.mjs")).toBe("vigiles-test");
     expect(kind("gate.harness.hook.mjs")).toBe("hook");
@@ -116,6 +143,23 @@ describe("the marker, in both directions", () => {
     expect(markedName("guard.mjs", "hook")).toBe("guard.hook.mjs");
     expect(markedName("a.b.ts", "hook")).toBe("a.b.hook.ts");
     expect(markedName("k8s.mjs", "provider")).toBe("k8s.provider.mjs");
+  });
+
+  it("both separators are directory separators (a Windows path)", () => {
+    expect(markedName(".vigiles\\hooks\\guard.mjs", "hook")).toBe(
+      ".vigiles\\hooks\\guard.hook.mjs",
+    );
+    expect(markedName("C:\\repo\\a.b\\guard.ts", "hook")).toBe(
+      "C:\\repo\\a.b\\guard.hook.ts",
+    );
+    expect(preMarkerName(".vigiles\\hooks\\guard.hook.mjs", "hook")).toBe(
+      ".vigiles\\hooks\\guard.mjs",
+    );
+    // a stemless name has no earlier name, whichever separator precedes it
+    expect(preMarkerName("a\\.hook.mjs", "hook")).toBeUndefined();
+    expect(preMarkerName("a/.hook.mjs", "hook")).toBeUndefined();
+    // a dot in a DIRECTORY name must not be taken for the marker
+    expect(preMarkerName("a.hook\\x.mjs", "hook")).toBeUndefined();
   });
 
   it("markedName keeps the directory", () => {
@@ -174,7 +218,8 @@ describe("test discovery is DERIVED from the table, not copied", () => {
 // opinion about a name fails here.
 // ---------------------------------------------------------------------------
 
-const STEMS = ["guard", "a.b", "task-list-nudge"];
+// "" is a STEMLESS name (`.harness.mjs`), "a\nb" one with a newline in it.
+const STEMS = ["guard", "a.b", "task-list-nudge", "", "a\nb"];
 const INFIXES = [
   "",
   ".hook",
@@ -184,6 +229,8 @@ const INFIXES = [
   ".test",
   ".spec",
   ".helper",
+  ".HARNESS", // case: the classifier is case-sensitive, so the glob must be too
+  ".Hook",
   ".hook.test",
   ".hook.harness",
   ".harness.hook",
@@ -229,7 +276,7 @@ describe("hook discovery and test discovery never both claim a file", () => {
       // the glob the runner expands on disk (`vigiles test` / `vigiles eval`).
       const byPattern = names.filter((n) =>
         DEFAULT_TEST_GLOBS.some((g) =>
-          minimatch(`.vigiles/hooks/${n}`, g, { dot: true }),
+          minimatch(`.vigiles/hooks/${n}`, g, { dot: true, nocase: false }),
         ),
       );
       const onDisk = [
@@ -248,6 +295,11 @@ describe("hook discovery and test discovery never both claim a file", () => {
       ].sort();
 
       expect(byPattern.length).toBeGreaterThan(0);
+      // The classifier and the glob can never disagree about what a test is:
+      // stemless, uppercase and newline names included.
+      expect([...byPattern].sort()).toEqual(
+        names.filter((n) => kind(n) === "vigiles-test").sort(),
+      );
       // The two ways of discovering a test agree with each other…
       expect([...byPattern].sort()).toEqual(onDisk);
       // …and hook discovery refuses every one of them, in both directories.
