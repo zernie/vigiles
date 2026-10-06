@@ -62,8 +62,7 @@
     "max-lines-per-function": 225
   },
   "src/audit-report.ts": {
-    "max-lines-per-function": 53,
-    "complexity": 13
+    "max-lines-per-function": 37
   },
   "src/audit-score.test.ts": {
     "max-lines-per-function": 506

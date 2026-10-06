@@ -86,7 +86,7 @@ describe("injectReportData", () => {
       advisory: true,
       notMeasured: true,
       findings: [
-        "3 surfaces whose firing was never measured",
+        "3 surfaces never measured with a real model",
         "not measured —",
       ],
     });
@@ -95,7 +95,7 @@ describe("injectReportData", () => {
       score: 0,
       weight: 1,
       advisory: true,
-      findings: ["3 surfaces whose firing was never measured"],
+      findings: ["3 surfaces never measured with a real model"],
     });
     expect(unasked).toContain('"notMeasured":true');
     expect(unasked).toContain('"key":"Evaluated","score":null');

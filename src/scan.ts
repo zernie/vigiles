@@ -1481,7 +1481,7 @@ export function formatScanReport(r: ScanReport): string {
   // producer supplied the split (a hand-built report may not have).
   if (r.untestedHarness !== undefined && r.unevaluated !== undefined) {
     facts.push(
-      `  no harness: ${String(r.untestedHarness)} · firing never measured: ${String(r.unevaluated)}`,
+      `  no harness: ${String(r.untestedHarness)} · never measured with a real model: ${String(r.unevaluated)}`,
     );
   }
   // …and HOW the rest passed. Without this the count is unfalsifiable from the

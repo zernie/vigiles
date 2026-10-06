@@ -1244,8 +1244,8 @@ export function formatUntestedReport(report: UntestedReport): string {
   lines.push(
     `  Two gaps, two costs: ${String(report.harness.untested.length)} with no ` +
       `deterministic harness (free, every push) · ` +
-      `${String(report.evals.untested.length)} whose firing was never measured ` +
-      `(needs a real model, run on a schedule).`,
+      `${String(report.evals.untested.length)} never measured with a real model ` +
+      `(paid, run on a schedule).`,
   );
   // What the surfaces that DID pass are resting on.
   if (provenance) lines.push(`  ${provenance}`);

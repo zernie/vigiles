@@ -55,7 +55,7 @@
         "advisory": true,
         "notMeasured": true,
         "findings": [
-          "3 surfaces whose firing was never measured",
+          "3 surfaces never measured with a real model",
           "not measured — run `npx vigiles audit` interactively to measure, or add a `*.eval.mjs` (`export default defineEval({ measureTriggerRate: … })`, vigiles)"
         ]
       }

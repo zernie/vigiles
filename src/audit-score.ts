@@ -568,14 +568,14 @@ function evaluated(r: ScanReport, firingMeasured: boolean): CategoryScore {
       score: null,
       weight: 1,
       advisory: true,
-      findings: ["no surface whose firing could be measured"],
+      findings: ["no surface a real model could be measured on"],
     };
   }
   const unevaluated = r.unevaluated ?? evaluable;
   const evalCovered = evaluable - unevaluated;
   const gap = `${String(unevaluated)} ${pluralizeLabel(
     unevaluated,
-    "surface(s) whose firing was never measured",
+    "surface(s) never measured with a real model",
   )}`;
   // Nothing on disk measures firing AND nothing ran this session → the question
   // was never asked. Say that, and name the command — do NOT score it a 0.

@@ -397,7 +397,7 @@ Harness audit
   ● Safety         100  ██████████████████████
   ◑ Tested          88  ███████████████████░░░  · advisory (not graded)
   ? Evaluated  not measured                      · advisory (not graded)
-       └ 6 surfaces whose firing was never measured; not measured — run `npx vigiles audit` interactively to measure, or add a `*.eval.mjs` (`paid_measureTriggerRate`, vigiles/eval)
+       └ 6 surfaces never measured with a real model; not measured — run `npx vigiles audit` interactively to measure, or add a `*.eval.mjs` (`paid_measureTriggerRate`, vigiles/eval)
 
 Harness health: B (95/100)
 ```

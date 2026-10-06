@@ -737,7 +737,7 @@ test("formatUntestedReport names the two gaps SEPARATELY (no test/eval slash)", 
   // the cost of each named. One number could not have said that.
   assert.ok(
     text.includes(
-      "Two gaps, two costs: 1 with no deterministic harness (free, every push) · 2 whose firing was never measured",
+      "Two gaps, two costs: 1 with no deterministic harness (free, every push) · 2 never measured with a real model",
     ),
     text,
   );
