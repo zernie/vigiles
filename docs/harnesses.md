@@ -98,7 +98,7 @@ src/core/                     domain              → nothing outside itself
 - `boundaries/dependencies` (eslint-plugin-boundaries) allows imports only in the direction of the arrows. Every file must belong to one of these layers, so a new file cannot sit outside the rule.
 - `local/no-harness-names` forbids every file outside an adapter, tests included, to spell a harness: its name (`"claude-code"`), its directory (`.claude/`) or its environment variables (`ANTHROPIC_`). Inside `src/adapters/codex/`, only Claude Code and OpenCode are forbidden.
 
-Code written before these rules is listed in `eslint-suppressions.json` and may only shrink; new code must pass.
+Code written before these rules is listed in `eslint-suppressions.json` as a count per file and rule. A count may only go down, so a file cannot gain a violation without losing one of the same rule. (ESLint counts; it does not track lines, so a swap inside one file passes.)
 
 vigiles also **dogfoods** that rule: `CLAUDE.md.spec.ts` carries `enforce("boundaries/dependencies")`, so `vigiles compile` checks the boundary rule is present and enabled. The architecture invariant is a verified reference, not a comment.
 
