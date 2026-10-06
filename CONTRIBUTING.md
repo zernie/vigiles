@@ -190,6 +190,21 @@ step-by-step lives in the `add-a-linter` contributor skill
    in the CI `test` job so its gated tests run.
 4. Add tests covering both existing and nonexistent rules.
 
+## Before you open a pull request
+
+- **A bug fix, or a small docs or test change:** just open the PR.
+- **A change to what a rule, a file kind, a command or a config key _means_:**
+  comment on the issue (or open one) first, with a line on your approach. It
+  saves a rewrite if the maintainer wants it shaped differently.
+- **Fix the class, not only the instance.** When a defect could recur elsewhere,
+  say what allowed it to be written. A fix that adds one more case to a list will
+  usually be asked to be reshaped so the same mistake cannot be written again.
+- **Breaking changes are allowed.** They ship as a major version, so say who is
+  affected and what the upgrade path is, and mark the commit `feat!:` or with a
+  `BREAKING CHANGE:` footer.
+- **Credit.** Your commit keeps your authorship. Maintainers build on top of it
+  rather than rewrite it, and the PR description names you.
+
 ## Pull requests
 
 - Keep PRs focused — one feature or fix per PR.

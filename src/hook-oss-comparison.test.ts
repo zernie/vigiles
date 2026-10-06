@@ -32,7 +32,7 @@ const COMPILED = `node ${CLI} hook-runtime run-program ${resolve(
   REPO_ROOT,
   "examples",
   "harness",
-  "safe-bash-guard.mjs",
+  "safe-bash-guard.hook.mjs",
 )}`;
 
 /** Write an executable shell guard to a tmp dir; return `bash <path>`. */

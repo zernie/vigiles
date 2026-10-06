@@ -780,7 +780,7 @@ export function commandView(raw: string, root?: string): CommandView {
       // uses, and for the same reason. This matcher read only `leaves` (raw), so
       // three ordinary rewrites walked past a guard that blocks the plain form.
       // MEASURED 2026-09-02 on the shipped dogfood artifact behind the public
-      // 7/7 claim (`examples/harness/safe-bash-guard.mjs`):
+      // 7/7 claim (`examples/harness/safe-bash-guard.hook.mjs`):
       //   git push --force origin main            exit 2  blocked
       //   git push "--force" origin main          exit 0  ALLOWED
       //   sudo git push --force origin main       exit 0  ALLOWED

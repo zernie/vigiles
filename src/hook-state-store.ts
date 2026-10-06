@@ -277,7 +277,7 @@ export interface HookStateHandle {
    * OLD fact, and "old" is not something a test can produce by waiting.
    *
    * ```js
-   * const st = experimental_hookState(".vigiles/hooks/nag.mjs", { cwd });
+   * const st = experimental_hookState(".vigiles/hooks/nag.hook.mjs", { cwd });
    * st.seed("retro.nagged", { ago: "4d" });   // → the hook speaks
    * st.seed("retro.nagged", { ago: "10m" });  // → the hook stays quiet
    * ```

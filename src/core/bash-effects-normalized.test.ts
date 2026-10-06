@@ -6,7 +6,7 @@
  * exposes the underlying OPERATION (basename head, unwrapped args, canonical
  * flags, $HOME→~). This is the primitive the closed vocabulary's `runs()`,
  * `touches()` and `pipesToShell()` match over — which is why the shipped
- * guard (examples/harness/safe-bash-guard.mjs) is robust to these forms
+ * guard (examples/harness/safe-bash-guard.hook.mjs) is robust to these forms
  * without naming any of them.
  */
 import { test } from "vitest";

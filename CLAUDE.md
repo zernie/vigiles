@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:a354e99cc50b219b compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:ea82e1d7b488e596 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -119,7 +119,7 @@ BUILD + TOOLING + GENERATED:
 - `src/test-tier-nudge.hook.test.ts` — The test for this repo own compiled hook. Named <surface>.hook.test.ts because a hook name carries .hook — that is what binds it to the surface under .vigilesrc.json.
 - `.vigiles/hooks/docs-drift-nudge.hook.mjs` — This repo own compiled hook #2 — a react nudging when src/ changed and no doc did. That is a property of a DIFF, which only a hook sees; two named facts keep the silences apart.
 - `src/docs-drift-nudge.hook.test.ts` — The test for the docs-drift hook (vitest, unit tier): both silences asserted apart, and mutation-proven — deleting the docs.followed branch fails exactly one test.
-- `examples/harness/safe-bash-guard.mjs` — The compiled-hook dogfood artifact — a real guard full intent (force-push/reset --hard/--no-verify/forced-rm/secret-read/curl|sh) as one pure typed function.
+- `examples/harness/safe-bash-guard.hook.mjs` — The compiled-hook dogfood artifact — a real guard full intent (force-push/reset --hard/--no-verify/forced-rm/secret-read/curl|sh) as one pure typed function.
 - `src/core/command-files.ts` — Which FILES a shell command reads or writes — the deterministic extractor behind the path-aware half of a Bash gate (#212).
 - `src/core/guards.ts` — EXPERIMENTAL prototype (the GATE axis of the reliability runtime) — typed safe-by-construction harness GUARDS: declare guard.block / requireBefore (the ORDER axis — destroy-after-plan, enforced live…
 - `src/hook-matcher-delivery.test.ts` — Which matcher strings Claude Code honours as match-all — MEASURED, after `**` sat in MATCH_ALL (core/hook-matcher.ts) on no evidence. A claim about somebody else's product that prose cannot keep true.
@@ -472,6 +472,10 @@ The FULL tier map — where each lives, what it needs, and which CI job (if any)
 ### Conventional Commits
 
 **Guidance only** — Commit subjects AND PR titles are Conventional Commits — they drive the release version via `@semantic-release/commit-analyzer` off `main` (`feat` → minor, `fix` → patch, everything else no bump). Allowed types (enforced by the `validate` CI job, amannn/action-semantic-pull-request): feat, fix, docs, chore, refactor, test, perf, ci, build. OPERATIONAL GOTCHA — a PR opened from the Claude Code UI (or any non-CLI flow) gets a plain prose TITLE by default, which FAILS the `validate` job (it checks the PR TITLE, not the commits). Fix the PR title to a Conventional Commit (type + optional `!` + subject) as soon as the PR exists — edit it via the GitHub API/UI; `validate` re-runs on the title edit, no new push needed. The title must carry the SAME breaking-change signal as the commits: if the branch removes/renames a public API, the PR title needs the `!` too (the release version comes from the merged title/commits). CRITICAL — signal breaking changes explicitly: a `!` after the type (`feat!:`/`refactor!:`) or a `BREAKING CHANGE:` footer triggers the MAJOR bump. The CI lint only checks the type prefix; it CANNOT tell whether a change is semantically breaking, so the `!` is on you. A change is breaking when it removes/renames/moves a public API: a `package.json` `exports` subpath (e.g. `vigiles/claude-code`), an exported symbol, a CLI command/flag, a config-file key, or a compiled-output contract. When in doubt whether a change is breaking, mark it `!` — under-signalling ships a wrong (too-low) version, which is worse than an extra major. (Pre-1.0 the major stays 0, but the signal must still be correct so the changelog is right and the first 1.0 bump is clean.)
+
+### Before You Open A Pull Request
+
+**Guidance only** — Before changing what a rule, a file kind, a command or a config key means, or when opening a pull request, read the "Before you open a pull request" section of CONTRIBUTING.md. The full text lives there, not here.
 
 ### Lead With Easy Adoption
 

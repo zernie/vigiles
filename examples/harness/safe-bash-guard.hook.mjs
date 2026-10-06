@@ -15,10 +15,10 @@
  * FALSE-CONFIDENCE bug class (a guard that looks like it blocks but silently
  * doesn't) is unrepresentable.
  *
- * External users put the source in `.vigiles/hooks/` and compile it:
+ * External users put the source in `.vigiles/hooks/` (named `<name>.hook.mjs`) and compile it:
  *
  *   import { experimental_defineHook, deny, allow } from "vigiles/hook";
- *   npx vigiles compile   # discovers .vigiles/hooks/*, merges the block + a stamp
+ *   npx vigiles compile   # discovers .vigiles/hooks/*.hook.*, merges the block + a stamp
  *
  * `vigiles/hook` is the ONLY import a compiled hook may use (capability = API
  * surface). This in-repo copy imports the built `dist/` instead so it runs

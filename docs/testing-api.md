@@ -140,7 +140,7 @@ import { runHookProgram } from "vigiles/hook";
 // loadHook takes the hook's PATH — what a .harness.mjs file actually has. It is
 // the same loader the runtime uses, and it handles a .hook.ts under tsx / Node
 // >= 23.6. Already holding the object (a static import)? Pass it directly.
-const guard = await loadHook(".vigiles/hooks/guard.mjs");
+const guard = await loadHook(".vigiles/hooks/guard.hook.mjs");
 
 assertHookDenies(guard, {
   tool_name: "Bash",
@@ -154,7 +154,7 @@ assertHookAllows(guard, {
 // A REACT hook can't block, so it gets its own pair. NB `notice()` writes to
 // STDERR — a probe that reads stdout reports a healthy react hook as dead.
 // These read the reaction itself.
-const warn = await loadHook(".vigiles/hooks/warn-on-failure.mjs");
+const warn = await loadHook(".vigiles/hooks/warn-on-failure.hook.mjs");
 assertHookNotices(warn, failedBashEvent, /read the error/); // message matcher optional
 assertHookSilent(warn, successfulBashEvent);
 

@@ -9,7 +9,7 @@
  * it misses a force-push hidden in a compound command, `git reset --hard`,
  * `--no-verify`, a private-SSH-key read, and `curl | sh` (research/hook-pain-points.md).
  * Here we reproduce that bug CLASS with a faithful naive guard, then prove the
- * compiled hook (examples/harness/safe-bash-guard.mjs) blocks all 7 by
+ * compiled hook (examples/harness/safe-bash-guard.hook.mjs) blocks all 7 by
  * construction — the matching is AST-backed and the protocol is emitted, so the
  * blind spots and the false-confidence bug class simply can't occur.
  */
@@ -35,7 +35,7 @@ const COMPILED_GUARD = resolve(
   REPO_ROOT,
   "examples",
   "harness",
-  "safe-bash-guard.mjs",
+  "safe-bash-guard.hook.mjs",
 );
 
 // The hand-written shape: a literal-substring blocklist (what a copier writes,

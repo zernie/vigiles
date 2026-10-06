@@ -207,6 +207,12 @@ test("isEvalInputFile: SKILL.md + *.eval.* only", () => {
   assert.equal(isEvalInputFile("README.md"), false);
   assert.equal(isEvalInputFile("src/eval.ts"), false); // not an .eval.* file
   assert.equal(isEvalInputFile("notskill.md"), false);
+  // `.eval.` in the MIDDLE of a name is not an eval script (the runner cannot
+  // discover it), so editing it cannot make an eval lock stale.
+  assert.equal(isEvalInputFile("parser.eval.test.ts"), false);
+  assert.equal(isEvalInputFile("a/b.eval.mjs.json"), false);
+  assert.equal(isEvalInputFile("a/eval.mjs"), false);
+  assert.equal(isEvalInputFile("a\\b.eval.mjs"), true); // windows separators
 });
 
 test("evalLockNudge: self-gated on a committed lock + an eval-input edit", () => {

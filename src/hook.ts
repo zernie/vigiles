@@ -194,7 +194,7 @@ export type {
 // and `pipesToShell()` match over, so a guard written against the closed
 // vocabulary sees the OPERATION rather than the literal tokens.
 //
-// It is exported because `examples/harness/safe-bash-guard-v2.mjs` needs it —
+// It is exported because `examples/harness/safe-bash-guard-v2.hook.mjs` needs it —
 // and that need is the finding, not the feature. v2 is an UNRUN experiment (no
 // test executes it) covering three things the vocabulary cannot yet express: a
 // flag with a value (`--index-url`), an env-assignment prefix, and a

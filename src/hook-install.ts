@@ -6,7 +6,8 @@
  * The typed hook program is harness-NEUTRAL — it imports `vigiles/hook` and
  * compiles to whatever harness — so its SOURCE lives in the agnostic,
  * committed {@link HOOKS_DIR} (`.vigiles/hooks/`), never in a harness's own
- * `.claude/`. `compile` discovers each hook there, compiles it, and MERGES the
+ * `.claude/`. `compile` discovers each hook there — a hook is a `.hook.` file
+ * and nothing else, decided by `source-kinds.ts` — compiles it, and MERGES the
  * result into the active harness's native config (`.claude/settings.json` JSON
  * / `config.toml` TOML) — so the harness is actually wired, not handed a
  * paste-this block. The merge is idempotent: an entry is keyed by the runtime
@@ -16,8 +17,17 @@
  * untouched. One source dir also means basenames are unique, so the stamp can key
  * on the basename safely.
  */
-import { readdirSync, existsSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { readdirSync, existsSync, statSync } from "node:fs";
+import { basename, join, relative, resolve, sep } from "node:path";
+import {
+  baseName,
+  classifySource,
+  dirName,
+  markedName,
+  preMarkerName,
+  type CompilableMarker,
+  type SourceKind,
+} from "./source-kinds.js";
 
 /**
  * Lazy for the same reason as in `core/hook-program.ts` — and this module is
@@ -36,27 +46,290 @@ export const HOOKS_DIR = ".vigiles/hooks";
 /** The committed home for registered context-provider SOURCE (v2). */
 export const PROVIDERS_DIR = ".vigiles/providers";
 
-/** A JS/TS hook source file (the `.json` stamp sidecar is never matched). */
-const HOOK_SOURCE_RE = /\.(?:mjs|cjs|js|mts|cts|ts)$/;
+/** What discovery found in one source directory, split by what `compile` owes each part. */
+export interface Discovered {
+  /** Files this directory's role compiles: `.hook.` files in `.vigiles/hooks/`, `.provider.` files in `.vigiles/providers/`. */
+  readonly claimed: readonly string[];
+  /**
+   * Runnable files nothing claims here. `compile` REFUSES these out loud
+   * ({@link unclaimedMessage}); dropping them would make a hook that lost its
+   * marker vanish from the build without a word.
+   */
+  readonly unclaimed: readonly string[];
+}
 
-/** List JS/TS source files under `dir` (relative to cwd), stamps excluded. */
-function discoverSources(cwd: string, dir: string): string[] {
+/** What a directory does with one kind of file. */
+type Claim = "claim" | "refuse" | "leave";
+
+/**
+ * The ONE place a directory's role meets {@link SourceKind}. The `switch` is
+ * exhaustive, so a kind added to the table in `source-kinds.ts` is a compile
+ * error here until someone decides what hooks and providers do with it.
+ *
+ * `leave` is for files that are in these directories on purpose and are none of
+ * `compile`'s business: tests, declarations, stamps, a README.
+ */
+function claimOf(role: CompilableMarker, found: SourceKind): Claim {
+  switch (found.kind) {
+    case "hook":
+    case "provider":
+      // A provider in the hooks directory is as unclaimed as a stray helper:
+      // nothing here would ever load it, and saying so beats a silent miss.
+      return found.kind === role ? "claim" : "refuse";
+    case "unclaimed":
+      return "refuse";
+    case "vigiles-test":
+    case "declaration":
+    case "stamp":
+    case "non-source":
+      return "leave";
+  }
+}
+
+/** List the files under `dir` (relative to cwd), split by what `role` does with each. */
+function discoverSources(
+  cwd: string,
+  dir: string,
+  role: CompilableMarker,
+): Discovered {
   const abs = join(cwd, dir);
-  if (!existsSync(abs)) return [];
-  return readdirSync(abs)
-    .filter((f) => HOOK_SOURCE_RE.test(f) && !f.endsWith(".d.ts"))
+  if (!existsSync(abs)) return { claimed: [], unclaimed: [] };
+  const verdicts = readdirSync(abs)
     .sort()
-    .map((f) => join(dir, f));
+    .map((f) => ({
+      path: join(dir, f),
+      claim: claimOf(role, classifySource(f)),
+    }));
+  const pick = (want: Claim): string[] =>
+    verdicts.filter((v) => v.claim === want).map((v) => v.path);
+  return { claimed: pick("claim"), unclaimed: pick("refuse") };
 }
 
-/** Discover hook source files under {@link HOOKS_DIR} (stamps excluded). */
-export function discoverHookFiles(cwd: string): string[] {
-  return discoverSources(cwd, HOOKS_DIR);
+/** Discover hook sources under {@link HOOKS_DIR}: `.hook.` files, and the runnable files that are nobody's. */
+export function discoverHookFiles(cwd: string): Discovered {
+  return discoverSources(cwd, HOOKS_DIR, "hook");
 }
 
-/** Discover registered-provider source files under {@link PROVIDERS_DIR}. */
-export function discoverProviderFiles(cwd: string): string[] {
-  return discoverSources(cwd, PROVIDERS_DIR);
+/** Discover registered-provider sources under {@link PROVIDERS_DIR}. */
+export function discoverProviderFiles(cwd: string): Discovered {
+  return discoverSources(cwd, PROVIDERS_DIR, "provider");
+}
+
+/** Why an explicit `compile` argument is an error rather than a hook, a refusal or a skip. */
+export type InvalidArgReason = "missing" | "directory" | "not-a-source";
+
+/** What `vigiles compile <files…>` makes of the paths it was handed. */
+export interface HookArgs {
+  readonly hooks: readonly string[];
+  /** Runnable files nothing claims (or a marked file in the wrong directory): refused, with the fix. */
+  readonly unclaimed: readonly string[];
+  /** Named on purpose, not compilable (a test, a stamp…): said out loud, not an error. */
+  readonly skipped: readonly {
+    readonly path: string;
+    readonly kind: SourceKind["kind"];
+  }[];
+  /** Not a file at all, or not a source: an error, the way it always was. */
+  readonly invalid: readonly {
+    readonly path: string;
+    readonly reason: InvalidArgReason;
+  }[];
+}
+
+/** What the file system says a path is. Injected so the rules below stay pure. */
+export type PathProbe = (
+  path: string,
+) => "file" | "directory" | "missing" | "other";
+
+const realProbe: PathProbe = (path) => {
+  const st = statSync(resolve(process.cwd(), path), { throwIfNoEntry: false });
+  if (st === undefined) return "missing";
+  return st.isFile() ? "file" : st.isDirectory() ? "directory" : "other";
+};
+
+/** Is `path` directly inside `dir` (a repo-relative POSIX dir), either separator, any prefix? */
+function insideDir(path: string, dir: string): boolean {
+  const parent = dirName(path)
+    .replace(/\\/g, "/")
+    .replace(/\/$/, "")
+    .replace(/^\.\//, "");
+  return parent === dir || parent.endsWith(`/${dir}`);
+}
+
+/**
+ * Sort explicit `compile` arguments by the same classifier discovery uses, so
+ * `compile guard.mjs` and a bare `compile` give the same answer about it — for a
+ * path ANYWHERE, not just under `.vigiles/hooks/`: `compile .claude/hooks/x.mjs`
+ * or a plugin's `hooks/guard.mjs` is refused unless it carries `.hook.`.
+ *
+ * A path that is missing, a directory or not a regular file is an error (it used
+ * to fail, and the first version of the marker rule turned it into a green run).
+ * The one lenient case exists for a shell glob (`compile .vigiles/hooks/*`): a
+ * test, declaration or stamp is reported as skipped, and so is a README or
+ * `.gitkeep` — but only inside the two vigiles source directories, where a glob
+ * would sweep one up. A `/etc/passwd` is not a README.
+ */
+export function partitionHookArgs(
+  args: readonly string[],
+  probe: PathProbe = realProbe,
+): HookArgs {
+  const hooks: string[] = [];
+  const unclaimed: string[] = [];
+  const skipped: { path: string; kind: SourceKind["kind"] }[] = [];
+  const invalid: { path: string; reason: InvalidArgReason }[] = [];
+  for (const path of args) {
+    const what = probe(path);
+    if (what === "missing" || what === "directory") {
+      invalid.push({ path, reason: what });
+      continue;
+    }
+    if (what === "other") {
+      invalid.push({ path, reason: "not-a-source" });
+      continue;
+    }
+    const found = classifySource(baseName(path));
+    switch (found.kind) {
+      case "hook":
+        hooks.push(path);
+        break;
+      case "unclaimed":
+        unclaimed.push(path);
+        break;
+      case "provider":
+        // Valid, and compile validates providers whenever it compiles a hook —
+        // except in the hooks directory, where nothing would ever load it.
+        if (insideDir(path, HOOKS_DIR)) unclaimed.push(path);
+        else skipped.push({ path, kind: found.kind });
+        break;
+      case "vigiles-test":
+      case "declaration":
+      case "stamp":
+        skipped.push({ path, kind: found.kind });
+        break;
+      case "non-source":
+        if (insideDir(path, HOOKS_DIR) || insideDir(path, PROVIDERS_DIR))
+          skipped.push({ path, kind: found.kind });
+        else invalid.push({ path, reason: "not-a-source" });
+        break;
+    }
+  }
+  return { hooks, unclaimed, skipped, invalid };
+}
+
+/** The line `compile` prints for an argument it cannot treat as a hook source at all. */
+export function invalidArgMessage(
+  path: string,
+  reason: InvalidArgReason,
+): string {
+  switch (reason) {
+    case "missing":
+      return `${path} — no such file.`;
+    case "directory":
+      return `${path} — is a directory. Name hook files, or run \`vigiles compile\` with no arguments to discover them.`;
+    case "not-a-source":
+      return `${path} — not a hook source (a hook is a \`<name>.hook.<ext>\` file).`;
+  }
+}
+
+/**
+ * Discovery, shaped like {@link partitionHookArgs}'s answer, so `compile` handles
+ * "no arguments" and "these paths" through one code path afterwards.
+ */
+export function discoveredHookArgs(cwd: string): HookArgs {
+  const { claimed, unclaimed } = discoverHookFiles(cwd);
+  return { hooks: claimed, unclaimed, skipped: [], invalid: [] };
+}
+
+/** POSIX single-quote one word: safe for any file name, a newline and `$(…)` included. */
+const shq = (word: string): string => `'${word.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * The ONE shell command that renames an unclaimed file to its marked name and
+ * (for a hook) recompiles it. Every path is single-quoted: this is printed by a
+ * tool and pasted by a person, and a repository can plant a file name that is a
+ * command.
+ *
+ * 🔴 THE HOOK COMMAND COPIES FIRST AND DELETES LAST, and that order is the
+ * point. Already-wired hooks keep running after an upgrade: the runtime loads
+ * whatever path `settings.json` names, and never asks what a file is called. So
+ * the break is the NEXT compile, and a plain `mv` + `compile` has one bad
+ * moment — the old path is gone and the wiring still names it. For a gate
+ * wired `|| exit 2` that is a hook that cannot load, which blocks every Bash
+ * call (the repair is a file write, not a command). Compiling the renamed copy
+ * while the old file still exists, and deleting the old one only after that
+ * compile succeeded, has no such moment: if anything fails the old hook is
+ * still on disk and still wired. `compile` replaces the old wiring itself
+ * ({@link ownedRefs}), so nothing is left naming the deleted path.
+ *
+ * 🔴 `cp -n`, because the marked name may already exist: a plain `cp` replaced
+ * an edited `guard.hook.mjs` with the stale `guard.mjs`, and the weaker hook
+ * became the wired gate. {@link unclaimedMessage} checks first and prints no
+ * command at all in that case; `-n` is for the file that appears in between.
+ */
+export function renameCommand(path: string, role: CompilableMarker): string {
+  const target = markedName(path, role);
+  switch (role) {
+    case "hook":
+      return (
+        `cp -n -- ${shq(path)} ${shq(target)} && ` +
+        `npx vigiles compile ${shq(target)} && ` +
+        `rm -f -- ${shq(path)} ${shq(`${HOOKS_DIR}/${basename(path)}.json`)}`
+      );
+    case "provider":
+      return `mv -n -- ${shq(path)} ${shq(target)}`;
+  }
+}
+
+/**
+ * {@link unclaimedMessage} with the one fact it cannot know, read off the disk:
+ * whether the marked name is already there.
+ */
+export function unclaimedReport(
+  path: string,
+  role: CompilableMarker,
+  cwd: string = process.cwd(),
+): string {
+  return unclaimedMessage(
+    path,
+    role,
+    existsSync(resolve(cwd, markedName(path, role))),
+  );
+}
+
+/**
+ * The text `compile` prints for one file it will not compile, with the exact
+ * command to fix it. `targetExists` is whether the marked name is already on
+ * disk: then there is nothing safe to copy, and the message says to merge by
+ * hand instead.
+ */
+export function unclaimedMessage(
+  path: string,
+  role: CompilableMarker,
+  targetExists = false,
+): string {
+  const dir = dirName(path);
+  const target = markedName(path, role);
+  const found = classifySource(baseName(path)).kind;
+  const head = `${path} — not compiled: a ${role} source must carry \`.${role}.\` before its extension (${baseName(target)}), and this name carries no marker vigiles knows.`;
+  const misplaced =
+    found === "provider" || found === "hook"
+      ? `  It is marked as a ${found}, which belongs in ${found === "hook" ? HOOKS_DIR : PROVIDERS_DIR}/ — move it there.`
+      : undefined;
+  const notIt = `  If it is not a ${role}, move it out of ${dir || "this directory"} — a test belongs in a \`.harness.\` or \`.eval.\` file.`;
+  if (misplaced !== undefined) return [head, misplaced].join("\n");
+  if (targetExists)
+    return [
+      head,
+      `  ${target} already exists beside it, so nothing is printed that could overwrite it. If ${path} is the ${role}, compare the two by hand, keep the content you want in ${target}, delete ${path}${role === "hook" ? ` and its stamp, and run \`npx vigiles compile ${target}\`` : ""}.`,
+      notIt,
+    ].join("\n");
+  return [
+    head,
+    role === "hook"
+      ? `  If it is a hook, rename it. Copy first and delete last, so a failure leaves the old hook in place and wired:`
+      : `  If it is a provider, rename it (providers are found by directory, never wired by path):`,
+    `    ${renameCommand(path, role)}`,
+    notIt,
+  ].join("\n");
 }
 
 interface CommandHook {
@@ -152,7 +425,26 @@ export function hookGateRef(
 }
 
 /**
- * True when an entry's command routes through the runtime for `hookPath`.
+ * The wiring references a hook file owns: its own, and — for `x.hook.ts` — the
+ * one an older vigiles wrote when the file was still called `x.ts`.
+ *
+ * 🔴 WITHOUT THE SECOND, RENAMING A HOOK TO CARRY ITS MARKER LEAVES A DEAD ENTRY.
+ * Wiring is keyed by path, so compiling `guard.hook.mjs` appended a new entry and
+ * left the one for `guard.mjs` in `settings.json`, pointing at a file that is
+ * about to be deleted. That entry cannot load; wired as a gate it blocks every
+ * Bash call, the repair included (see {@link unclaimedMessage}). The marker rename
+ * is the one rename vigiles itself asks of every consumer, so it is the one the
+ * merge is told about: the renamed file takes over the old file's wiring.
+ */
+function ownedRefs(hookPath: string): readonly string[] {
+  const ref = normalizeHookRef(hookPath);
+  const before = preMarkerName(ref, "hook");
+  return before === undefined ? [ref] : [ref, before];
+}
+
+/**
+ * True when an entry's command routes through the runtime for `hookPath`
+ * (or for the name it had before it carried its marker, see {@link ownedRefs}).
  *
  * Compares CANONICALIZED path tokens rather than testing for a raw substring:
  * `./x.hook.ts` and `x.hook.ts` are the same file (so the entry is replaced,
@@ -160,11 +452,11 @@ export function hookGateRef(
  * `x.hook.ts` and `my-x.hook.ts` are not (a substring test said they were).
  */
 function managesHook(entry: HookEntry, hookPath: string): boolean {
-  const ref = normalizeHookRef(hookPath);
+  const refs = ownedRefs(hookPath);
   return entry.hooks.some((h) =>
     h.command.split(/\s+/).some((token) => {
       const bare = bareToken(token);
-      return bare !== "" && normalizeHookRef(bare) === ref;
+      return bare !== "" && refs.includes(normalizeHookRef(bare));
     }),
   );
 }

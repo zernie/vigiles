@@ -1833,6 +1833,23 @@ test("a `<surface>.test.*` beside an UNTESTED surface is named, with the reason"
   cleanupTmpDir(dir);
 });
 
+test("`.spec.*` is named too — the other suffix a default vitest/jest run collects", () => {
+  const dir = makeTmpDir("cov-retired-suffix-spec");
+  write(dir, ".claude/skills/foo/SKILL.md", skill("foo"));
+  write(dir, ".claude/skills/foo/foo.spec.mjs", "// a skill test, misnamed\n");
+  const report = findUntestedSurfaces({
+    layout: claudeCodeLayout,
+    basePath: dir,
+  });
+  assert.deepEqual(report.retiredTestNames, [
+    {
+      path: ".claude/skills/foo/foo.spec.mjs",
+      surface: ".claude/skills/foo/SKILL.md",
+    },
+  ]);
+  cleanupTmpDir(dir);
+});
+
 test("…and says nothing when the surface IS covered — a stray unit test is not our business", () => {
   const dir = makeTmpDir("cov-retired-suffix-covered");
   write(dir, ".claude/skills/foo/SKILL.md", skill("foo"));

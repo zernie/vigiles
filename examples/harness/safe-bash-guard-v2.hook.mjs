@@ -1,6 +1,6 @@
 /**
  * A HARDENED compiled Bash safety gate — the operation-normalized successor to
- * safe-bash-guard.mjs.
+ * safe-bash-guard.hook.mjs.
  *
  * Same intent (block destructive git, forced `rm`, verification bypass, secret
  * reads, `curl | sh`) plus three disasters the naive guard missed (raw-disk `dd`,

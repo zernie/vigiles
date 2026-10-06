@@ -31,7 +31,7 @@ import {
  * ```js
  * import { loadHook, assertHookDenies } from "vigiles";
  *
- * const guard = await loadHook(".vigiles/hooks/guard.mjs");
+ * const guard = await loadHook(".vigiles/hooks/guard.hook.mjs");
  * assertHookDenies(guard, {
  *   tool_name: "Bash",
  *   tool_input: { command: "git push --force" },

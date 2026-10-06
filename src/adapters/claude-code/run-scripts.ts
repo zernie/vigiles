@@ -10,6 +10,7 @@
  * stripping (Node >= 22.6). The scripts import from the built `dist/`, so they
  * also run standalone — the CLI just discovers, runs, and aggregates exit codes.
  */
+import { RUNNABLE_EXTS, testGlob, type TestTier } from "../../source-kinds.js";
 import { spawn } from "node:child_process";
 import { availableParallelism } from "node:os";
 import { resolve, join } from "node:path";
@@ -153,12 +154,15 @@ export function loadFailed(r: ScriptRunResult): boolean {
   return r.status === "skip" && r.code !== SKIP_EXIT_CODE;
 }
 
-/** Filename extensions accepted for harness/eval scripts (JS and TS). */
-export const SCRIPT_EXTS = ["mjs", "cjs", "js", "mts", "cts", "ts"] as const;
+/**
+ * Filename extensions accepted for harness/eval scripts (JS and TS). The table
+ * lives in `source-kinds.ts`; this re-export keeps the runner's name for it.
+ */
+export const SCRIPT_EXTS = RUNNABLE_EXTS;
 
-/** Glob suffix matching every accepted script extension, e.g. `harness`. */
-export function scriptGlob(kind: "harness" | "eval"): string {
-  return `**/*.${kind}.{${SCRIPT_EXTS.join(",")}}`;
+/** The glob that discovers one tier's scripts, derived from the same table as everything else that names a test. */
+export function scriptGlob(kind: TestTier): string {
+  return testGlob(kind);
 }
 
 const TS_EXT = /\.(?:m|c)?ts$/;
@@ -260,6 +264,10 @@ export function discoverScripts(
       ignore: withIgnored([], ignore),
       dot: true,
       nodir: true,
+      // `glob` defaults this to TRUE on macOS and Windows, which made
+      // `a.hook.HARNESS.mjs` a test there and nothing on Linux. The kind of a
+      // name is decided case-sensitively (`source-kinds.ts`); the glob agrees.
+      nocase: false,
     })) {
       found.add(m);
     }

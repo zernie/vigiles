@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 493 project files. */
+  /** 496 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -569,6 +569,8 @@ declare module "vigiles/generated" {
     | "src/skill-refs.ts"
     | "src/skill-test.test.ts"
     | "src/skill-test.ts"
+    | "src/source-kinds.test.ts"
+    | "src/source-kinds.ts"
     | "src/spec-hooks.mts"
     | "src/spec-host.mts"
     | "src/spec-loader.test.ts"
@@ -582,6 +584,7 @@ declare module "vigiles/generated" {
     | "src/test-coverage-files.ts"
     | "src/test-coverage.test.ts"
     | "src/test-coverage.ts"
+    | "src/test-glob-options.test.ts"
     | "src/test-tier-nudge.hook.test.ts"
     | "src/test.ts"
     | "src/tested-metric-docs.test.ts"
@@ -1134,6 +1137,8 @@ declare module "vigiles/spec" {
       | "src/skill-refs.ts"
       | "src/skill-test.test.ts"
       | "src/skill-test.ts"
+      | "src/source-kinds.test.ts"
+      | "src/source-kinds.ts"
       | "src/spec-hooks.mts"
       | "src/spec-host.mts"
       | "src/spec-loader.test.ts"
@@ -1147,6 +1152,7 @@ declare module "vigiles/spec" {
       | "src/test-coverage-files.ts"
       | "src/test-coverage.test.ts"
       | "src/test-coverage.ts"
+      | "src/test-glob-options.test.ts"
       | "src/test-tier-nudge.hook.test.ts"
       | "src/test.ts"
       | "src/tested-metric-docs.test.ts"

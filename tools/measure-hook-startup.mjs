@@ -55,7 +55,7 @@
  *   require mvdan-sh                            144 ms  (bash predicates only)
  *
  *   end-to-end run-program                    before → after
- *   bash gate (safe-bash-guard.mjs)             661 → 199 ms   (3.3x)
+ *   bash gate (safe-bash-guard.hook.mjs)             661 → 199 ms   (3.3x)
  *   file gate                                   628 →  80 ms   (7.9x)
  *   inject                                      610 →  83 ms   (7.3x)
  *
@@ -211,13 +211,13 @@ try {
   // The bash gate is the shipped dogfood artifact, so this row prices the guard
   // behind the public 7/7 claim rather than a toy.
   row(
-    "bash gate (examples/harness/safe-bash-guard.mjs)",
+    "bash gate (examples/harness/safe-bash-guard.hook.mjs)",
     timeSpawn(
       [
         "dist/cli.js",
         "hook-runtime",
         "run-program",
-        "examples/harness/safe-bash-guard.mjs",
+        "examples/harness/safe-bash-guard.hook.mjs",
       ],
       { stdin: EVENT.bash },
     ),

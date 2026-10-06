@@ -118,7 +118,7 @@ function injectableEventsFor(root: string): readonly string[] {
  */
 export const loadHookProgram = loadHook;
 
-/** Load a registered provider (`.vigiles/providers/<name>`) → its definition. */
+/** Load a registered provider (`.vigiles/providers/<name>.provider.<ext>`) → its definition. */
 export async function loadProvider(
   file: string,
   root: string = process.cwd(),
@@ -230,7 +230,13 @@ async function gatherHookContext(
  */
 async function loadProviderRegistry(root: string): Promise<ProviderRegistry> {
   const registry: ProviderRegistry = {};
-  for (const file of discoverProviderFiles(root)) {
+  // Tolerant on purpose, unlike `compile`: a provider file written before the
+  // `.provider.` marker existed is `unclaimed`, and a hook compiled yesterday
+  // still resolves `provider("x")` against it today. `compile` refuses such a
+  // file out loud; the runtime must not turn that into a silently empty value
+  // for a hook already wired. Tests and declarations are never loaded.
+  const { claimed, unclaimed } = discoverProviderFiles(root);
+  for (const file of [...claimed, ...unclaimed]) {
     try {
       const def = await loadProvider(file, root);
       registry[def.name] = def;
