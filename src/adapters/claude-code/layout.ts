@@ -13,6 +13,7 @@ import { settingsSources } from "../../core/instruction-chain.js";
 import type { InstructionChain } from "../../core/instruction-chain.js";
 import { jsonSettingsCodec } from "../../core/settings-codec.js";
 import { claudeCodeInstructionChain } from "./instruction-chain.js";
+import { claudeCodeOutputStyles } from "./output-style.js";
 
 export const claudeCodeLayout: PluginLayout = {
   name: "claude-code",
@@ -29,6 +30,8 @@ export const claudeCodeLayout: PluginLayout = {
   userSurfaceRoot: ".claude",
   // `.claude/rules/*.md` — path-scoped project instructions (see PluginLayout).
   rulesDir: "rules",
+  // `.claude/output-styles/**/*.md` — see output-style.ts for how a style is named and selected.
+  outputStyles: claudeCodeOutputStyles,
   // `.claude/settings.local.json` — the per-machine layer, gitignored by
   // `init`. Declared because only this adapter knows the word; Codex and
   // OpenCode name none, so none is synthesized for them.

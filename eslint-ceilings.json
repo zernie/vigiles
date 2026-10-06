@@ -6,7 +6,7 @@
     "max-lines-per-function": 75
   },
   "src/adapter-conformance.ts": {
-    "max-lines-per-function": 193,
+    "max-lines-per-function": 184,
     "sonarjs/cognitive-complexity": 30,
     "complexity": 24
   },

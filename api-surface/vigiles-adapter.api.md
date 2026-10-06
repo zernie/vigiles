@@ -215,6 +215,16 @@ export interface ModelMock {
 }
 
 // @public
+export interface ModelRequest {
+    readonly messages: readonly {
+        readonly role: string;
+        readonly text: string;
+    }[];
+    readonly sideChannel?: boolean;
+    readonly system: string;
+}
+
+// @public
 export interface NamedImport {
     readonly from: string;
     readonly path: string;
@@ -287,6 +297,22 @@ export type NotLoadedReason =
 };
 
 // @public
+export interface OutputStyle {
+    readonly body: string;
+    readonly name: string | null;
+    readonly path: string;
+}
+
+// @public
+export interface OutputStyleRules {
+    readonly dir: string;
+    readonly isStyleFile: (pathInDir: string) => boolean;
+    readonly reached: (style: OutputStyle, request: ModelRequest) => boolean;
+    readonly read: (path: string, text: string) => OutputStyle;
+    readonly select: (name: string) => Readonly<Record<string, unknown>>;
+}
+
+// @public
 export interface PatternFrom {
     // (undocumented)
     readonly from: string;
@@ -304,6 +330,7 @@ export interface PluginLayout {
     readonly mcpConfigFile: string;
     readonly mcpManifestKey: string;
     readonly name: string;
+    readonly outputStyles?: OutputStyleRules;
     readonly pluginRootToken: string;
     readonly projectRootTokens?: readonly string[];
     readonly rulesDir?: string;

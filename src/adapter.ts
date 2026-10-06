@@ -23,6 +23,10 @@
 export type { HarnessAdapter, AdapterCapabilities } from "./core/adapter.js";
 export type { HarnessDialect } from "./core/dialect.js";
 export type { PluginLayout, SurfaceDirs, SurfaceKind } from "./core/layout.js";
+// `PluginLayout.outputStyles` is on the port, so an adapter author must be able
+// to name its type and the request its `reached` reads.
+export type { OutputStyle, OutputStyleRules } from "./core/output-style.js";
+export type { ModelRequest } from "./core/harness-driver.js";
 // The three derived readers. They are part of the port's surface, not helpers:
 // an adapter author reads a layout through them, and they are what replaced the
 // `surfaceDirs` / `intraRefDirs` / `materializeRoot` FIELDS.

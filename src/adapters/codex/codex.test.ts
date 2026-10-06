@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { codexAdapter } from "./adapter.js";
 import { codexDialect } from "./dialect.js";
 import { codexLayout } from "./layout.js";
+import { findOutputStyles } from "../../core/output-style.js";
 import {
   assertAdapterConformance,
   assertAdapterLoadsHooks,
@@ -211,4 +212,17 @@ test("codexLayout does NOT read skills from the old `.codex/skills` path", () =>
   } finally {
     cleanupTmpDir(dir);
   }
+});
+
+test("codex has no output styles, so audit reports n/a rather than zero", () => {
+  // Codex changes its voice through config keys (`developer_instructions`,
+  // `model_instructions_file`), not through named files a setting selects.
+  assert.equal(codexLayout.outputStyles, undefined);
+  assert.deepEqual(
+    findOutputStyles(
+      codexLayout,
+      new Map([[".codex/output-styles/x.md", "x"]]),
+    ),
+    { kind: "not-supported" },
+  );
 });
