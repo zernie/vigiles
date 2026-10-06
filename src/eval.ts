@@ -506,9 +506,42 @@ export function buildAgentArgs(a: AgentRunArgs): string[] {
       ? ["--plugin-dir", resolve(a.pluginDir)]
       : []),
     ...(a.hasSettings ? ["--settings", "settings.json"] : []),
-    "--allowedTools",
-    ...a.tools,
+    // An empty list means "no tools". A bare `--allowedTools` is a usage error
+    // (the CLI exits 1 before any model turn); `--tools ""` is the documented
+    // way to disable them all.
+    ...(a.tools.length === 0
+      ? ["--tools", ""]
+      : ["--allowedTools", ...a.tools]),
   ];
+}
+
+/**
+ * Why a run never reached the model, or null when it did. A run that exited
+ * non-zero with no `result` event asked the model nothing — a usage error, a
+ * missing binary, a broken auth setup — and scored as a trial it reads as a
+ * miss on every check that needs output and a pass on every bound it cannot
+ * break. Rate-limited runs are left to the retry loop.
+ */
+export function startFailure(out: Readonly<RunOut>): string | null {
+  if (out.code === 0 || parseResultEvent(out.stdout) !== null) return null;
+  if (isRateLimited(out)) return null;
+  const said = (out.stderr ?? "").trim().split("\n").slice(-5).join("\n");
+  return `the harness exited ${String(out.code)} before any model turn: ${said || "(no stderr)"}`;
+}
+
+/**
+ * Wrap a runner so a run that never reached the model THROWS instead of being
+ * scored — the same choice, for the same reason, as {@link withEffortGuard}:
+ * the cause is usually deterministic, so every trial would fail it. Not `async`,
+ * for the reason that guard gives.
+ */
+export function withStartGuard(runner: AgentRunner): AgentRunner {
+  return (a) =>
+    runner(a).then((out) => {
+      const failure = startFailure(out);
+      if (failure !== null) throw new Error(failure);
+      return out;
+    });
 }
 
 /**
@@ -520,7 +553,9 @@ export function buildAgentArgs(a: AgentRunArgs): string[] {
  * not yet written, is covered by construction. Guarding each call site instead is
  * the shape that left four of five compilers unprotected in #173.
  */
-export const spawnAgent: AgentRunner = withEffortGuard(spawnAgentRaw);
+export const spawnAgent: AgentRunner = withEffortGuard(
+  withStartGuard(spawnAgentRaw),
+);
 
 /* v8 ignore start -- real claude subprocess; exercised by bench/, not the unit gate */
 /** The unguarded spawn itself; wrapped by {@link spawnAgent}, never bound raw. */

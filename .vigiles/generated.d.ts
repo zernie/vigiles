@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 509 project files. */
+  /** 510 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -129,6 +129,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/effect-region.test.ts"
     | "src/adapters/claude-code/effect-region.ts"
     | "src/adapters/claude-code/eval-replies.test.ts"
+    | "src/adapters/claude-code/eval-start-guard.test.ts"
     | "src/adapters/claude-code/event-capability.ts"
     | "src/adapters/claude-code/harness-output-style.test.ts"
     | "src/adapters/claude-code/hook-condition.ts"
@@ -710,6 +711,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/effect-region.test.ts"
       | "src/adapters/claude-code/effect-region.ts"
       | "src/adapters/claude-code/eval-replies.test.ts"
+      | "src/adapters/claude-code/eval-start-guard.test.ts"
       | "src/adapters/claude-code/event-capability.ts"
       | "src/adapters/claude-code/harness-output-style.test.ts"
       | "src/adapters/claude-code/hook-condition.ts"

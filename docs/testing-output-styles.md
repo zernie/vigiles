@@ -104,7 +104,7 @@ A style is not chosen by the model, so there is no trigger rate to measure
 and check every reply of each run.
 
 ```ts
-import { eachReply, outputStyleArms, replyCount } from "vigiles";
+import { output, outputStyleArms, replyCount } from "vigiles";
 import { paid_measureArms } from "vigiles/eval";
 
 // Free: one run with the scripted model proves the style reaches the model,
@@ -116,8 +116,8 @@ const report = await paid_measureArms({
   arms,
   task: "summarise README.md",
   checks: [
-    eachReply(/\n---\n\*\*Status\*\*/), // every reply ends with the block
     replyCount(/\*\*Status\*\*/, { max: 1 }), // one block per user message
+    output(/\*\*Status\*\*(?:\n- [^\n]*)+\s*$/), // …and the message ends with it
   ],
   trials: 10,
 });
@@ -137,14 +137,28 @@ For a rule with no checkable shape, use `paid_judged`. Gate the rates with
 `assertRates`. This tier calls a real model and costs money; run it on purpose,
 not on every push.
 
-What is still open:
+Pick the check by what the rule counts. `eachReply` is for a rule about every
+reply ("answer in English"); `replyCount` is for a rule about the user's message
+as a whole ("one status block per message"), because a Stop hook can make one
+message two replies.
 
-- **The paid comparison has not been run end to end on a style.** The arms, the
-  preflight and the reply checks are tested against the real binary with the
-  scripted model, and the checks against a recorded stream; no run with a real
-  model has been made.
-- **One prompt per comparison** (`task`), while a style rule usually needs a
-  varied set of prompts to say anything. Run the comparison once per prompt.
+**Run on Claude Code 2.1.291, `sonnet`, 3 trials per arm, 2026-10-06**, with
+the status-block style from the example:
+
+| arms                                                 | with the style | without |
+| ---------------------------------------------------- | -------------- | ------- |
+| plain prompt: every reply has a status block         | 3 of 3         | 0 of 3  |
+| a Stop hook forces a second reply: at most one block | 3 of 3         | 3 of 3  |
+| …and the message ends with the block                 | 0 of 3         | 0 of 3  |
+
+The second and third rows are why `replies` exists: the model put the block on
+its first reply, as the rule says, and the reply the hook forced came after it,
+so the reader sees the block in the middle of the message. `output` shows only
+the second reply and would have reported "no block".
+
+Still open: **one prompt per comparison** (`task`), while a style rule usually
+needs a varied set of prompts to say anything. Run the comparison once per
+prompt.
 
 ## Per harness
 
