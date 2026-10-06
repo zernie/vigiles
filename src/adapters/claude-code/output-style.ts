@@ -4,11 +4,12 @@
  */
 import { basename } from "node:path";
 
-import { CORE_SCHEMA, load, YAMLException } from "js-yaml";
-
+// `yaml` is the lazy loader: this module hangs off the layout, which is on the
+// hook path, so a top-level `js-yaml` import would load into every hook decision.
 import {
   frontmatterBody,
   readFrontmatter,
+  yaml,
 } from "../../core/frontmatter-read.js";
 import type { ModelRequest } from "../../core/harness-driver.js";
 import type { OutputStyle, OutputStyleRules } from "../../core/output-style.js";
@@ -22,11 +23,12 @@ const isRecord = (v: unknown): v is Readonly<Record<string, unknown>> =>
 /** YAML as Claude Code reads it: the core schema, and a repeated key keeps the last value. */
 const parse = (block: string): Readonly<Record<string, unknown>> | null => {
   try {
+    const { CORE_SCHEMA, load } = yaml();
     const value: unknown = load(block, { schema: CORE_SCHEMA, json: true });
     if (value === null || value === undefined) return {};
     return isRecord(value) ? value : null;
   } catch (e) {
-    if (e instanceof YAMLException) return null;
+    if (e instanceof yaml().YAMLException) return null;
     throw e;
   }
 };
