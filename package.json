@@ -75,7 +75,7 @@
     "build:core": "tsc",
     "test": "npm run build && vitest run",
     "coverage": "npm run build && vitest run --coverage",
-    "lint": "eslint src/",
+    "lint": "eslint src/ && node scripts/lint-ceilings.mjs",
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
     "test:unit": "npm run build && vitest run --project unit",

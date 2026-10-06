@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * The strict lint rules vigiles and paperlint share.
  *
@@ -17,6 +18,10 @@
 import boundaries from "eslint-plugin-boundaries";
 import functional from "eslint-plugin-functional";
 import sonarjs from "eslint-plugin-sonarjs";
+
+/** @typedef {import("eslint").Linter.Config} Config */
+/** @typedef {import("eslint").Linter.RuleEntry} RuleEntry */
+/** @typedef {{ files: string[], ignores?: string[] }} Scope */
 
 /** One collection library: remeda. These would be a second one for the same job. */
 export const ONE_COLLECTION_LIBRARY = ["lodash", "lodash-es", "ramda"].map(
@@ -48,12 +53,24 @@ export const SIZE_LIMITS = {
   "max-nested-callbacks": 3,
 };
 
+/** @typedef {keyof typeof SIZE_LIMITS} SizeRule */
+
+/**
+ * @param {string} rule
+ * @param {number} n
+ * @returns {RuleEntry}
+ */
 const sizeRule = (rule, n) =>
   rule === "max-lines-per-function"
     ? ["error", { ...MAX_LINES, max: n }]
     : ["error", n];
 
-/** The strict rules for TypeScript source. Needs the @typescript-eslint plugin registered. */
+/**
+ * The strict rules for TypeScript source. Needs the @typescript-eslint plugin registered.
+ *
+ * @param {string[]} files
+ * @returns {Config}
+ */
 export const strictTypeScript = (files) => ({
   files,
   plugins: { sonarjs },
@@ -78,7 +95,12 @@ export const strictTypeScript = (files) => ({
   },
 });
 
-/** A test's `describe` callback is a list of cases, not a function to split. */
+/**
+ * A test's `describe` callback is a list of cases, not a function to split.
+ *
+ * @param {string[]} files
+ * @returns {Config}
+ */
 export const testSizes = (files) => ({
   files,
   rules: { "max-lines-per-function": sizeRule("max-lines-per-function", 60) },
@@ -89,7 +111,8 @@ export const testSizes = (files) => ({
  * file's measured maximum, so its functions may shrink and may not grow. Lower a
  * number after a refactor; a file leaves the table once it is under the limits.
  *
- * @param table {Record<string, Partial<Record<keyof typeof SIZE_LIMITS, number>>>}
+ * @param {Record<string, Partial<Record<SizeRule, number>>>} table
+ * @returns {Config[]}
  */
 export const ceilings = (table) =>
   Object.entries(table).map(([file, max]) => ({
@@ -99,7 +122,12 @@ export const ceilings = (table) =>
     ),
   }));
 
-/** No `let`, no mutation, no loops, readonly parameters. Tests may mutate their fixtures. */
+/**
+ * No `let`, no mutation, no loops, readonly parameters. Tests may mutate their fixtures.
+ *
+ * @param {Scope} scope
+ * @returns {Config}
+ */
 export const functionalCode = ({ files, ignores }) => ({
   files,
   ignores,
@@ -151,12 +179,18 @@ export const APP_LIBRARIES = [
 ];
 
 const ORIGINS = ["external", "core"];
+/** @param {string[]} source */
 const libraries = (source) => ({ to: { module: { origin: ORIGINS, source } } });
+/** @param {...string} types */
 const elements = (...types) => ({ element: { types: { anyOf: types } } });
 const APP = { file: { categories: "app" } };
 const ROOT = { file: { categories: "root" } };
 
 /** Who may import whom: the domain knows only itself, an adapter never another adapter. */
+/**
+ * @param {string[]} domainLibraries
+ * @param {string[]} appLibraries
+ */
 const knowledgePolicies = (domainLibraries, appLibraries) => [
   { from: elements("domain"), allow: { to: elements("domain") } },
   { from: elements("port"), allow: { to: elements("domain", "port") } },
@@ -187,6 +221,7 @@ const knowledgePolicies = (domainLibraries, appLibraries) => [
  * three": a file with no category has `categories: null`, and a `noneOf` query
  * never matches null, so the negative form would exempt every plain file.
  */
+/** @param {string} ioPattern */
 const effectPolicies = (ioPattern) => [
   {
     disallow: { to: { module: { origin: "core", source: IO_MODULES } } },
@@ -198,10 +233,35 @@ const effectPolicies = (ioPattern) => [
   },
 ];
 
+/**
+ * @param {string} type
+ * @param {string | undefined} pattern
+ * @param {Record<string, unknown>} [extra]
+ */
 const element = (type, pattern, extra = {}) =>
   pattern === undefined
     ? []
     : [{ type, pattern, partialMatch: false, ...extra }];
+
+/**
+ * Where a repo keeps each layer. Patterns are relative to `root`.
+ *
+ * @typedef {object} Layout
+ * @property {string[]} files       the files the rules apply to
+ * @property {string} root          the repository directory
+ * @property {string} domain        folder of the domain, e.g. "src/core"
+ * @property {string} [ports]       folder of the ports, if the repo has one
+ * @property {string} adapters      adapter folders, one element each, e.g. "src/adapters/*"
+ * @property {string} cliRoot       the composition root: the only non-test file that may wire anything to anything
+ * @property {string} app           the flat application files, e.g. "src/*.ts"
+ * @property {string} tests         test files
+ * @property {string} io            files allowed to do I/O, e.g. "src/adapters/*\/*.io.ts"
+ * @property {string[]} [domainLibraries]  what the domain and ports may import (default PURE_LIBRARIES)
+ * @property {string[]} [appLibraries]     what app files may import (default APP_LIBRARIES)
+ * @property {object} [resolver]    import/resolver settings (default: the TypeScript resolver)
+ * @property {object[]} [extraElements]  more boundaries elements, e.g. a folder of plain-JS modules
+ * @property {object[]} [extraAllows]    more allow-policies, checked before the effects rule
+ */
 
 /**
  * The hexagonal layers, as one eslint-plugin-boundaries block. Every linted file
@@ -212,16 +272,14 @@ const element = (type, pattern, extra = {}) =>
  * plugin matches patterns against `process.cwd()`, and lint started from any
  * other directory classifies nothing and passes.
  *
- * @param o.domain  folder of the domain, e.g. "src/core"
- * @param o.ports   folder of the ports, if the repo has one
- * @param o.adapters  adapter folders, one element each, e.g. "src/adapters/*"
- * @param o.cliRoot the composition root: the only non-test file that may wire anything to anything
- * @param o.app     the flat application files, e.g. "src/*.ts"
- * @param o.tests   test files
- * @param o.io      files allowed to do I/O, e.g. "src/adapters/*\/*.io.ts"
+ * @param {Layout} o
+ * @returns {Config}
  */
 export const layers = (o) => ({
   files: o.files,
+  // @ts-expect-error The plugin's types describe an ES module whose `default` is
+  // the plugin; Node hands a default import of this CommonJS file the plugin
+  // itself (keys meta, rules, configs). Runtime is right, the declaration is not.
   plugins: { boundaries },
   settings: {
     "boundaries/root-path": o.root,
@@ -260,7 +318,12 @@ export const layers = (o) => ({
   },
 });
 
-/** `process` and `fetch` are not imports, so `layers` cannot see them. Same scope as its effects rule. */
+/**
+ * `process` and `fetch` are not imports, so `layers` cannot see them. Same scope as its effects rule.
+ *
+ * @param {Scope} scope
+ * @returns {Config}
+ */
 export const ioGlobals = ({ files, ignores }) => ({
   files,
   ignores,

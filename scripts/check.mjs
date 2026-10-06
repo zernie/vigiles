@@ -128,6 +128,7 @@ const PARALLEL = [
   { name: "types:root", cmd: "npx tsc --noEmit" },
   { name: "types:test", cmd: "npx tsc --noEmit -p test/types/tsconfig.json" },
   { name: "types:site", cmd: "npx tsc --noEmit -p site/tsconfig.json" },
+  { name: "types:lint-config", cmd: "npx tsc -p tsconfig.lint.json" },
   { name: "jest", cmd: "npx jest" },
   { name: "cli-lint", cmd: "node dist/cli.js lint" },
   { name: "lint", cmd: "npm run lint" },

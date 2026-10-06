@@ -32,7 +32,15 @@ const TEST = /\.test\.ts$/;
 /** @typedef {keyof typeof SIZE_LIMITS} SizeRule */
 /** @typedef {Record<string, Partial<Record<SizeRule, number>>>} Table */
 
-/** The measured value in each rule's report data. */
+/** @param {string} key @returns {key is SizeRule} */
+const isSizeRule = (key) => Object.hasOwn(SIZE_LIMITS, key);
+const SIZE_RULES = Object.keys(SIZE_LIMITS).filter(isSizeRule);
+
+/**
+ * The measured value in each rule's report data.
+ *
+ * @type {Record<SizeRule, string>}
+ */
 const MEASURED_BY = {
   complexity: "complexity",
   "sonarjs/cognitive-complexity": "complexityAmount",
@@ -64,9 +72,9 @@ export const limitFor = (file, rule) =>
 export const nextCeilings = (current, measured, { init }) => {
   const files = init ? Object.keys(measured) : Object.keys(current);
   const entries = files.map((file) => {
-    const rules = /** @type {SizeRule[]} */ (
-      Object.keys(init ? (measured[file] ?? {}) : (current[file] ?? {}))
-    );
+    const rules = Object.keys(
+      init ? (measured[file] ?? {}) : (current[file] ?? {}),
+    ).filter(isSizeRule);
     const kept = rules.flatMap((rule) => {
       const now = measured[file]?.[rule] ?? 0;
       const ceiling = Math.min(current[file]?.[rule] ?? now, now);
@@ -109,6 +117,29 @@ export const exempted = (directives, rule, line) => {
 };
 
 /**
+ * ESLint 10 has SourceCode#getDisableDirectives, but its type definitions do not
+ * declare it. Read through this one function, which fails loudly if it goes away:
+ * without it the ceilings would count functions an eslint-disable comment exempts.
+ *
+ * @param {import("eslint").SourceCode} sourceCode
+ * @returns {Directive[]}
+ */
+const directivesIn = (sourceCode) => {
+  const get = Reflect.get(sourceCode, "getDisableDirectives");
+  if (typeof get !== "function")
+    throw new Error(
+      "ESLint's SourceCode has no getDisableDirectives any more.",
+    );
+  /** @type {{ directives: { type: string, value: string, node: { loc?: { start: { line: number } } } }[] }} */
+  const found = get.call(sourceCode);
+  return found.directives.map((d) => ({
+    type: d.type,
+    value: d.value,
+    line: d.node.loc?.start.line ?? 0,
+  }));
+};
+
+/**
  * Wraps a rule so that, run with a limit of zero, it reports every function's
  * size to `record` instead of to ESLint, except where a disable comment exempts it.
  *
@@ -130,14 +161,7 @@ const measuring = (rule, name, key, record) => ({
             /** @type {{ data?: Record<string, unknown>, loc?: { start: { line: number } }, node?: { loc: { start: { line: number } } } }} */ d,
           ) => {
             const line = d.loc?.start.line ?? d.node?.loc.start.line ?? 0;
-            const directives = context.sourceCode
-              .getDisableDirectives()
-              .directives.map((x) => ({
-                type: x.type,
-                value: x.value,
-                line: x.node.loc?.start.line ?? 0,
-              }));
-            if (!exempted(directives, name, line))
+            if (!exempted(directivesIn(context.sourceCode), name, line))
               record(context.filename, Number(d.data?.[key]));
           },
         },
@@ -145,8 +169,13 @@ const measuring = (rule, name, key, record) => ({
     ),
 });
 
-/** Zero, so every function is reported; line counts skip what the lint limit skips. */
-const zero = (/** @type {string} */ rule) =>
+/**
+ * Zero, so every function is reported; line counts skip what the lint limit skips.
+ *
+ * @param {string} rule
+ * @returns {import("eslint").Linter.RuleEntry}
+ */
+const zero = (rule) =>
   rule === "max-lines-per-function"
     ? ["error", { max: 0, skipComments: true, skipBlankLines: true }]
     : ["error", 0];
@@ -155,17 +184,18 @@ const zero = (/** @type {string} */ rule) =>
 const measure = async () => {
   /** @type {Table} */
   const max = {};
+  /** @type {Record<string, import("eslint").Rule.RuleModule>} */
   const sources = {
     ...Object.fromEntries(builtinRules),
     "sonarjs/cognitive-complexity": sonarjs.rules["cognitive-complexity"],
   };
   const rules = Object.fromEntries(
-    Object.entries(MEASURED_BY).map(([rule, key]) => [
+    SIZE_RULES.map((rule) => [
       rule.replace("sonarjs/", ""),
-      measuring(sources[rule], rule, key, (file, value) => {
+      measuring(sources[rule], rule, MEASURED_BY[rule], (file, value) => {
         const at = file.slice(process.cwd().length + 1);
         const seen = (max[at] ??= {});
-        seen[/** @type {SizeRule} */ (rule)] = Math.max(seen[rule] ?? 0, value);
+        seen[rule] = Math.max(seen[rule] ?? 0, value);
       }),
     ]),
   );
@@ -186,9 +216,8 @@ const measure = async () => {
 
 const main = async () => {
   const mode = process.argv[2] ?? "--check";
-  const current = /** @type {Table} */ (
-    JSON.parse(readFileSync(TABLE, "utf8"))
-  );
+  /** @type {Table} */
+  const current = JSON.parse(readFileSync(TABLE, "utf8"));
   const next = nextCeilings(current, await measure(), {
     init: mode === "--init",
   });
