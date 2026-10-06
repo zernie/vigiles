@@ -13,6 +13,9 @@ test/dogfood/
 # API Extractor reports (tool-generated, exact format)
 api-surface/
 
+# ESLint bulk suppressions: ESLint writes this file itself on every --prune-suppressions.
+eslint-suppressions.json
+
 # Site Playwright / Vitest-browser run artifacts (machine-written, gitignored) —
 # a stray fmt:check failure otherwise appears after any e2e run.
 site/test-results/

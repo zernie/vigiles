@@ -278,3 +278,81 @@ tester.run("no-harness-names (configured names)", rule as never, {
     },
   ],
 });
+
+/**
+ * A harness is also spelled by its directory and its environment variables, not
+ * only by its name. The bad lines are real ones: the first is what slipped into
+ * a generic test in #319, because no rule looked at tests.
+ */
+const CLAUDE_CODE_LITERALS = ["CLAUDE_PLUGIN_ROOT", ".claude", "ANTHROPIC_"];
+const WITH_LITERALS = [
+  { names: NAMES, literals: { "claude-code": CLAUDE_CODE_LITERALS } },
+];
+/** What the Claude Code adapter's own files are held to: everyone else. */
+const INSIDE_CLAUDE_CODE = [{ names: ["codex", "opencode"], literals: {} }];
+
+tester.run("no-harness-names (literals)", rule as never, {
+  valid: [
+    {
+      name: "another harness's directory is not a Claude Code literal",
+      code: 'const dir = ".codex/skills";',
+      options: [
+        {
+          names: ["opencode"],
+          literals: { "claude-code": CLAUDE_CODE_LITERALS },
+        },
+      ],
+    },
+    {
+      name: "the Claude Code adapter may spell its own directory",
+      code: 'const STYLE = ".claude/output-styles/status-block.md";',
+      options: INSIDE_CLAUDE_CODE,
+    },
+    {
+      name: "a word that only starts like the directory is not it",
+      code: 'const who = "claudette";',
+      options: WITH_LITERALS,
+    },
+  ],
+  invalid: [
+    {
+      name: "a Claude Code path in a generic test",
+      code: 'const STYLE = ".claude/output-styles/status-block.md";',
+      options: WITH_LITERALS,
+      errors: [
+        {
+          messageId: "literal",
+          data: {
+            text: ".claude",
+            name: "claude-code",
+            where: "a string literal",
+          },
+        },
+      ],
+    },
+    {
+      name: "a Claude Code environment variable",
+      code: 'const key = process.env["ANTHROPIC_API_KEY"];',
+      options: WITH_LITERALS,
+      errors: 1,
+    },
+    {
+      name: "the plugin-root token inside a command string",
+      code: 'const cmd = "${CLAUDE_PLUGIN_ROOT}/hooks/check.sh";',
+      options: WITH_LITERALS,
+      errors: 1,
+    },
+    {
+      name: "a template literal type over the directory",
+      code: "type StylePath = `.claude/${string}`;",
+      options: WITH_LITERALS,
+      errors: 1,
+    },
+    {
+      name: "one report per node when it has a name and a literal",
+      code: 'const p = "claude-code/.claude";',
+      options: WITH_LITERALS,
+      errors: 1,
+    },
+  ],
+});

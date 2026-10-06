@@ -35,6 +35,8 @@ export default defineConfig({
             "scripts/**/*.test.ts",
             // The repo's own ESLint rules, tested beside the rule they check.
             "eslint-rules/**/*.test.ts",
+            // The lint config shared with paperlint, tested beside it.
+            "packages/eslint-config/**/*.test.ts",
           ],
           exclude: [
             ...configDefaults.exclude,

@@ -1,0 +1,687 @@
+{
+  "src/action-gate.ts": {
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/action-yml.test.ts": {
+    "max-lines-per-function": 75
+  },
+  "src/adapter-conformance.ts": {
+    "max-lines-per-function": 193,
+    "sonarjs/cognitive-complexity": 30,
+    "complexity": 24
+  },
+  "src/adapter-properties.test.ts": {
+    "max-lines-per-function": 217
+  },
+  "src/adapter-registry.ts": {
+    "max-lines-per-function": 31,
+    "max-depth": 4,
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/adapters/claude-code/agent-result.ts": {
+    "max-lines-per-function": 42,
+    "complexity": 11
+  },
+  "src/adapters/claude-code/agent-runtime.ts": {
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/adapters/claude-code/dialect-drift.test.ts": {
+    "max-lines-per-function": 62
+  },
+  "src/adapters/claude-code/instruction-chain.test.ts": {
+    "max-lines-per-function": 235
+  },
+  "src/adapters/claude-code/instruction-chain.ts": {
+    "max-lines-per-function": 83,
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/adapters/claude-code/run-scripts.ts": {
+    "max-lines-per-function": 95
+  },
+  "src/adapters/codex/eval.ts": {
+    "sonarjs/cognitive-complexity": 12
+  },
+  "src/adapters/codex/instruction-chain.ts": {
+    "max-lines-per-function": 44,
+    "sonarjs/cognitive-complexity": 13
+  },
+  "src/adapters/codex/mock-model.ts": {
+    "max-lines-per-function": 88
+  },
+  "src/adapters/opencode/instruction-chain.ts": {
+    "sonarjs/cognitive-complexity": 13
+  },
+  "src/adoptability.ts": {
+    "complexity": 11,
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/audit-html.test.ts": {
+    "max-lines-per-function": 64
+  },
+  "src/audit-report.test.ts": {
+    "max-lines-per-function": 225
+  },
+  "src/audit-report.ts": {
+    "max-lines-per-function": 53,
+    "complexity": 13
+  },
+  "src/audit-score.test.ts": {
+    "max-lines-per-function": 506
+  },
+  "src/audit-score.ts": {
+    "max-lines-per-function": 101,
+    "sonarjs/cognitive-complexity": 14,
+    "complexity": 11
+  },
+  "src/audit-serve.ts": {
+    "max-lines-per-function": 61,
+    "complexity": 13
+  },
+  "src/audit-verdict.test.ts": {
+    "max-lines-per-function": 149
+  },
+  "src/audit-verdict.ts": {
+    "max-lines-per-function": 74,
+    "sonarjs/cognitive-complexity": 13,
+    "complexity": 12
+  },
+  "src/check.ts": {
+    "max-lines-per-function": 32
+  },
+  "src/ci-path-filter.test.ts": {
+    "max-lines-per-function": 170,
+    "complexity": 15,
+    "sonarjs/cognitive-complexity": 13
+  },
+  "src/cli-harness-resolution.test.ts": {
+    "complexity": 11
+  },
+  "src/cli-main.ts": {
+    "max-params": 5,
+    "max-lines-per-function": 498,
+    "complexity": 122,
+    "max-depth": 4,
+    "sonarjs/cognitive-complexity": 240
+  },
+  "src/cli.test.ts": {
+    "max-lines-per-function": 528
+  },
+  "src/community-skills.ts": {
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/core/adopt-surface.test.ts": {
+    "max-lines-per-function": 137
+  },
+  "src/core/adopt.test.ts": {
+    "max-lines-per-function": 123
+  },
+  "src/core/adopt.ts": {
+    "max-lines-per-function": 43,
+    "sonarjs/cognitive-complexity": 12,
+    "complexity": 17
+  },
+  "src/core/bash-effects.ts": {
+    "max-lines-per-function": 49,
+    "complexity": 18,
+    "max-depth": 4,
+    "sonarjs/cognitive-complexity": 30
+  },
+  "src/core/bash-equivalents.ts": {
+    "sonarjs/cognitive-complexity": 12,
+    "complexity": 11
+  },
+  "src/core/capability-diff.ts": {
+    "max-lines-per-function": 40,
+    "complexity": 11
+  },
+  "src/core/cedar.test.ts": {
+    "max-lines-per-function": 97
+  },
+  "src/core/command-files.ts": {
+    "max-lines-per-function": 42,
+    "sonarjs/cognitive-complexity": 21,
+    "complexity": 22
+  },
+  "src/core/compile-generator.ts": {
+    "max-lines-per-function": 57,
+    "complexity": 15
+  },
+  "src/core/compile.ts": {
+    "max-lines-per-function": 86,
+    "complexity": 21,
+    "sonarjs/cognitive-complexity": 17
+  },
+  "src/core/compose.ts": {
+    "max-lines-per-function": 33
+  },
+  "src/core/config-schema.ts": {
+    "complexity": 12
+  },
+  "src/core/coverage.test.ts": {
+    "max-lines-per-function": 61
+  },
+  "src/core/coverage.ts": {
+    "max-params": 6,
+    "max-lines-per-function": 51,
+    "sonarjs/cognitive-complexity": 31,
+    "complexity": 15,
+    "max-depth": 6
+  },
+  "src/core/delegation-trifecta.ts": {
+    "max-lines-per-function": 54,
+    "sonarjs/cognitive-complexity": 28,
+    "complexity": 14
+  },
+  "src/core/doc-refs.test.ts": {
+    "max-lines-per-function": 119
+  },
+  "src/core/doc-refs.ts": {
+    "max-lines-per-function": 52,
+    "max-depth": 5,
+    "complexity": 17,
+    "sonarjs/cognitive-complexity": 22
+  },
+  "src/core/effects.ts": {
+    "max-lines-per-function": 53,
+    "complexity": 12,
+    "sonarjs/cognitive-complexity": 20
+  },
+  "src/core/evolve.ts": {
+    "max-lines-per-function": 183,
+    "complexity": 27,
+    "max-depth": 4,
+    "sonarjs/cognitive-complexity": 38
+  },
+  "src/core/frontmatter-read.ts": {
+    "max-lines-per-function": 37,
+    "complexity": 15,
+    "sonarjs/cognitive-complexity": 18
+  },
+  "src/core/frontmatter.test.ts": {
+    "max-lines-per-function": 190
+  },
+  "src/core/frontmatter.ts": {
+    "max-lines-per-function": 58,
+    "sonarjs/cognitive-complexity": 14,
+    "complexity": 13
+  },
+  "src/core/generate-harness.ts": {
+    "max-lines-per-function": 98
+  },
+  "src/core/generate-schema.ts": {
+    "max-lines-per-function": 75,
+    "sonarjs/cognitive-complexity": 14
+  },
+  "src/core/generate-types.ts": {
+    "max-lines-per-function": 88,
+    "complexity": 12
+  },
+  "src/core/guards.ts": {
+    "complexity": 14,
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/core/hook-block-ineffective.test.ts": {
+    "max-lines-per-function": 80
+  },
+  "src/core/hook-block-ineffective.ts": {
+    "max-lines-per-function": 51,
+    "sonarjs/cognitive-complexity": 13,
+    "complexity": 17
+  },
+  "src/core/hook-matcher.ts": {
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/core/hook-normalize.test.ts": {
+    "max-lines-per-function": 62
+  },
+  "src/core/hook-normalize.ts": {
+    "sonarjs/cognitive-complexity": 23,
+    "complexity": 12,
+    "max-depth": 4
+  },
+  "src/core/hook-program.ts": {
+    "max-params": 5,
+    "max-lines-per-function": 101,
+    "sonarjs/cognitive-complexity": 21,
+    "complexity": 21
+  },
+  "src/core/hook-providers.test.ts": {
+    "max-params": 6
+  },
+  "src/core/hook-providers.ts": {
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/core/inline.test.ts": {
+    "max-lines-per-function": 133
+  },
+  "src/core/inline.ts": {
+    "max-lines-per-function": 88,
+    "sonarjs/cognitive-complexity": 30,
+    "complexity": 17,
+    "max-depth": 4
+  },
+  "src/core/instruction-baseline.test.ts": {
+    "max-lines-per-function": 95
+  },
+  "src/core/instruction-baseline.ts": {
+    "max-lines-per-function": 35
+  },
+  "src/core/instruction-chain.test.ts": {
+    "max-lines-per-function": 63
+  },
+  "src/core/instruction-weight.ts": {
+    "max-lines-per-function": 80
+  },
+  "src/core/lethal-trifecta.test.ts": {
+    "complexity": 16
+  },
+  "src/core/lethal-trifecta.ts": {
+    "max-lines-per-function": 69,
+    "complexity": 15,
+    "sonarjs/cognitive-complexity": 25
+  },
+  "src/core/linters.test.ts": {
+    "max-lines-per-function": 116,
+    "max-nested-callbacks": 4
+  },
+  "src/core/linters.ts": {
+    "max-lines-per-function": 41,
+    "max-params": 6,
+    "sonarjs/cognitive-complexity": 19,
+    "complexity": 12,
+    "max-depth": 4
+  },
+  "src/core/markdown.ts": {
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/core/mcp-hook.ts": {
+    "max-lines-per-function": 32,
+    "max-depth": 5,
+    "sonarjs/cognitive-complexity": 23,
+    "complexity": 13
+  },
+  "src/core/mcp.ts": {
+    "max-lines-per-function": 73
+  },
+  "src/core/orphans.test.ts": {
+    "max-lines-per-function": 296
+  },
+  "src/core/orphans.ts": {
+    "max-lines-per-function": 46,
+    "max-depth": 4,
+    "complexity": 14,
+    "sonarjs/cognitive-complexity": 20
+  },
+  "src/core/proofs.test.ts": {
+    "max-lines-per-function": 278
+  },
+  "src/core/proofs.ts": {
+    "max-params": 5,
+    "max-lines-per-function": 56,
+    "max-depth": 4,
+    "sonarjs/cognitive-complexity": 14,
+    "complexity": 14
+  },
+  "src/core/rule-catalog.test.ts": {
+    "max-lines-per-function": 78
+  },
+  "src/core/rule-catalog.ts": {
+    "max-lines-per-function": 39
+  },
+  "src/core/session.test.ts": {
+    "max-lines-per-function": 99
+  },
+  "src/core/session.ts": {
+    "max-lines-per-function": 67,
+    "complexity": 16,
+    "max-depth": 4,
+    "sonarjs/cognitive-complexity": 22
+  },
+  "src/core/shell-vars.ts": {
+    "max-lines-per-function": 34,
+    "sonarjs/cognitive-complexity": 17,
+    "complexity": 17
+  },
+  "src/core/sidecar.test.ts": {
+    "max-lines-per-function": 69
+  },
+  "src/core/skill-missing-fence.test.ts": {
+    "max-lines-per-function": 169
+  },
+  "src/core/skill-resources.test.ts": {
+    "max-lines-per-function": 276
+  },
+  "src/core/skill-resources.ts": {
+    "max-lines-per-function": 37,
+    "sonarjs/cognitive-complexity": 11,
+    "complexity": 16
+  },
+  "src/core/spec.test.ts": {
+    "max-lines-per-function": 171
+  },
+  "src/core/surface-discovery.ts": {
+    "max-lines-per-function": 40,
+    "sonarjs/cognitive-complexity": 12
+  },
+  "src/core/surface-scopes.ts": {
+    "max-lines-per-function": 42,
+    "sonarjs/cognitive-complexity": 14,
+    "complexity": 14
+  },
+  "src/core/symbols.test.ts": {
+    "max-lines-per-function": 75
+  },
+  "src/core/validate.test.ts": {
+    "max-lines-per-function": 138
+  },
+  "src/core/validate.ts": {
+    "max-lines-per-function": 72,
+    "complexity": 17,
+    "max-depth": 4,
+    "sonarjs/cognitive-complexity": 23
+  },
+  "src/core/vocabulary-consistency.ts": {
+    "max-lines-per-function": 56,
+    "sonarjs/cognitive-complexity": 12,
+    "complexity": 13
+  },
+  "src/core/vocabulary.ts": {
+    "max-lines-per-function": 63,
+    "complexity": 12,
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/coverage-artifact.ts": {
+    "max-lines-per-function": 46,
+    "sonarjs/cognitive-complexity": 13,
+    "complexity": 13
+  },
+  "src/coverage-probe.ts": {
+    "sonarjs/cognitive-complexity": 13,
+    "complexity": 11
+  },
+  "src/doc-commands.ts": {
+    "max-lines-per-function": 43
+  },
+  "src/egress-entry.ts": {
+    "max-lines-per-function": 55,
+    "max-depth": 4,
+    "sonarjs/cognitive-complexity": 13
+  },
+  "src/egress.ts": {
+    "max-lines-per-function": 41
+  },
+  "src/eval-entry.ts": {
+    "max-lines-per-function": 51
+  },
+  "src/eval-file-shape.test.ts": {
+    "complexity": 14,
+    "sonarjs/cognitive-complexity": 15
+  },
+  "src/eval.test.ts": {
+    "max-lines-per-function": 72,
+    "complexity": 13
+  },
+  "src/eval.ts": {
+    "max-params": 5,
+    "max-lines-per-function": 96,
+    "sonarjs/cognitive-complexity": 18,
+    "complexity": 14
+  },
+  "src/example-imports.test.ts": {
+    "sonarjs/cognitive-complexity": 12
+  },
+  "src/exclude-cli.test.ts": {
+    "max-lines-per-function": 78,
+    "sonarjs/cognitive-complexity": 11,
+    "complexity": 12
+  },
+  "src/exclude.test.ts": {
+    "max-lines-per-function": 70
+  },
+  "src/exclude.ts": {
+    "max-lines-per-function": 33
+  },
+  "src/experimental-emit.ts": {
+    "max-lines-per-function": 61,
+    "sonarjs/cognitive-complexity": 14,
+    "complexity": 18
+  },
+  "src/guardrail-check.ts": {
+    "max-lines-per-function": 34
+  },
+  "src/harness-assert.test.ts": {
+    "max-lines-per-function": 75
+  },
+  "src/harness-assert.ts": {
+    "complexity": 11
+  },
+  "src/harness-test.ts": {
+    "max-params": 5,
+    "max-lines-per-function": 80,
+    "max-depth": 5,
+    "sonarjs/cognitive-complexity": 43,
+    "complexity": 23
+  },
+  "src/hook-condition.test.ts": {
+    "max-lines-per-function": 72
+  },
+  "src/hook-install.test.ts": {
+    "max-lines-per-function": 353
+  },
+  "src/hook-install.ts": {
+    "max-lines-per-function": 44,
+    "complexity": 16,
+    "sonarjs/cognitive-complexity": 15
+  },
+  "src/hook-load-wedge.test.ts": {
+    "max-lines-per-function": 69
+  },
+  "src/hook-runtime.ts": {
+    "max-params": 5,
+    "max-lines-per-function": 168,
+    "complexity": 19,
+    "sonarjs/cognitive-complexity": 18
+  },
+  "src/hook-state-store.test.ts": {
+    "max-lines-per-function": 139
+  },
+  "src/hook.test.ts": {
+    "max-lines-per-function": 82
+  },
+  "src/instruction-weight-ratchet.ts": {
+    "max-lines-per-function": 41,
+    "sonarjs/cognitive-complexity": 12,
+    "complexity": 12
+  },
+  "src/judge.ts": {
+    "max-lines-per-function": 34
+  },
+  "src/leaderboard.test.ts": {
+    "max-lines-per-function": 75
+  },
+  "src/lint-bundle-frames.test.ts": {
+    "max-lines-per-function": 64
+  },
+  "src/load-hook.ts": {
+    "max-lines-per-function": 31
+  },
+  "src/local-files.test.ts": {
+    "max-lines-per-function": 162
+  },
+  "src/mock-model.test.ts": {
+    "max-lines-per-function": 148
+  },
+  "src/mock-model.ts": {
+    "max-lines-per-function": 77,
+    "complexity": 19,
+    "sonarjs/cognitive-complexity": 12
+  },
+  "src/observe.test.ts": {
+    "max-lines-per-function": 180
+  },
+  "src/package-install-scripts.e2e.test.ts": {
+    "max-lines-per-function": 118,
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/plugin-loader.ts": {
+    "max-params": 6,
+    "max-lines-per-function": 117,
+    "sonarjs/cognitive-complexity": 15,
+    "complexity": 11
+  },
+  "src/posix-path.ts": {
+    "max-lines-per-function": 58
+  },
+  "src/rule-catalog-oss.test.ts": {
+    "max-nested-callbacks": 4
+  },
+  "src/rule-inventory.test.ts": {
+    "max-lines-per-function": 129
+  },
+  "src/rule-inventory.ts": {
+    "max-lines-per-function": 37,
+    "complexity": 14,
+    "sonarjs/cognitive-complexity": 21
+  },
+  "src/rule-routing-dogfood.test.ts": {
+    "max-lines-per-function": 64
+  },
+  "src/rule-routing-oss.test.ts": {
+    "max-nested-callbacks": 4
+  },
+  "src/rule-routing.test.ts": {
+    "max-lines-per-function": 489
+  },
+  "src/rule-routing.ts": {
+    "max-lines-per-function": 58,
+    "sonarjs/cognitive-complexity": 15,
+    "complexity": 11
+  },
+  "src/run-hook.ts": {
+    "max-lines-per-function": 50
+  },
+  "src/run-script.ts": {
+    "max-lines-per-function": 85
+  },
+  "src/sandbox.ts": {
+    "max-lines-per-function": 65
+  },
+  "src/scaffold-test.ts": {
+    "max-lines-per-function": 44
+  },
+  "src/scan-behavioral.ts": {
+    "max-lines-per-function": 67,
+    "sonarjs/cognitive-complexity": 14,
+    "complexity": 14
+  },
+  "src/scan-cli.test.ts": {
+    "max-lines-per-function": 241
+  },
+  "src/scan-core.ts": {
+    "max-params": 5,
+    "max-lines-per-function": 46,
+    "max-depth": 4,
+    "complexity": 13,
+    "sonarjs/cognitive-complexity": 25
+  },
+  "src/scan-files.test.ts": {
+    "max-lines-per-function": 96
+  },
+  "src/scan-files.ts": {
+    "max-params": 6,
+    "max-lines-per-function": 159,
+    "complexity": 11,
+    "sonarjs/cognitive-complexity": 14
+  },
+  "src/scan.test.ts": {
+    "max-lines-per-function": 65,
+    "complexity": 11
+  },
+  "src/scan.ts": {
+    "max-lines-per-function": 213,
+    "sonarjs/cognitive-complexity": 19,
+    "complexity": 20
+  },
+  "src/score-core.ts": {
+    "max-lines-per-function": 110
+  },
+  "src/segment.test.ts": {
+    "max-nested-callbacks": 4
+  },
+  "src/segment.ts": {
+    "max-lines-per-function": 52,
+    "sonarjs/cognitive-complexity": 12,
+    "complexity": 17
+  },
+  "src/self-command-refs.test.ts": {
+    "max-lines-per-function": 97
+  },
+  "src/self-command-refs.ts": {
+    "max-lines-per-function": 38,
+    "max-depth": 4,
+    "sonarjs/cognitive-complexity": 18,
+    "complexity": 17
+  },
+  "src/services-docker.ts": {
+    "max-lines-per-function": 74
+  },
+  "src/services.integration.test.ts": {
+    "max-nested-callbacks": 4
+  },
+  "src/services.test.ts": {
+    "max-lines-per-function": 216
+  },
+  "src/setup-plan.ts": {
+    "max-lines-per-function": 56,
+    "sonarjs/cognitive-complexity": 12
+  },
+  "src/skill-contract.ts": {
+    "max-lines-per-function": 48,
+    "sonarjs/cognitive-complexity": 11
+  },
+  "src/skill-harness.ts": {
+    "sonarjs/cognitive-complexity": 12
+  },
+  "src/skill-refs.ts": {
+    "max-depth": 4,
+    "complexity": 12,
+    "sonarjs/cognitive-complexity": 21
+  },
+  "src/source-kinds.test.ts": {
+    "max-lines-per-function": 92,
+    "max-nested-callbacks": 4,
+    "max-depth": 4
+  },
+  "src/spec-loader.test.ts": {
+    "max-lines-per-function": 138
+  },
+  "src/stats.ts": {
+    "max-params": 5
+  },
+  "src/subagent-delivery.test.ts": {
+    "max-lines-per-function": 78
+  },
+  "src/test-coverage-files.ts": {
+    "max-lines-per-function": 34
+  },
+  "src/test-coverage.test.ts": {
+    "max-lines-per-function": 65
+  },
+  "src/test-coverage.ts": {
+    "max-params": 5,
+    "max-lines-per-function": 62,
+    "sonarjs/cognitive-complexity": 14
+  },
+  "src/tool-intercept.ts": {
+    "sonarjs/cognitive-complexity": 12
+  },
+  "src/verify-plugin-guards.test.ts": {
+    "max-lines-per-function": 110
+  },
+  "src/verify-plugin-guards.ts": {
+    "max-params": 5,
+    "max-lines-per-function": 105,
+    "complexity": 17,
+    "sonarjs/cognitive-complexity": 15
+  }
+}

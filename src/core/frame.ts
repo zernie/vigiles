@@ -28,7 +28,7 @@
  * 🔴 THE ONE CONVERSION POINT. A `RepoPath` is minted here and nowhere else:
  * {@link Frame.repo} from an absolute path, {@link Bundle.path} from a
  * `BundlePath`. A cast to `RepoPath` outside this file is refused by ESLint
- * (`no-restricted-syntax` in `eslint.config.mjs`), so "where did this path get its
+ * (`local/frame-mint` in `eslint.config.mjs`), so "where did this path get its
  * frame" always has the answer "in frame.ts".
  *
  * WHAT IS UNREPRESENTABLE AND WHAT IS ONLY DETECTABLE. The CLI's output boundary

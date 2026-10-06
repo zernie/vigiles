@@ -86,7 +86,19 @@ Where the harnesses land (✅ shipped · 🧪 internal prototype · ⛔ **blocke
 
 ## How this is kept honest
 
-The core staying harness-agnostic isn't a convention you have to remember — it's enforced. `eslint-plugin-boundaries` classifies modules into `verify-core` (the domain) and `cc-harness` (the Claude Code adapter) and **forbids the core from importing the adapter** (`eslint.config.mjs`, rule `boundaries/dependencies`). The dependency only points one way: adapter → core, never core → adapter.
+The core staying harness-agnostic isn't a convention you have to remember — it's enforced, in `eslint.config.mjs`:
+
+```text
+src/cli.ts, src/cli-main.ts   composition root   may import anything, wires an adapter in
+src/*.ts                      app                 → core
+src/adapters/<harness>/       one adapter each    → core, never another adapter
+src/core/                     domain              → nothing outside itself
+```
+
+- `boundaries/dependencies` (eslint-plugin-boundaries) allows imports only in the direction of the arrows. Every file must belong to one of these layers, so a new file cannot sit outside the rule.
+- `local/no-harness-names` forbids every file outside an adapter, tests included, to spell a harness: its name (`"claude-code"`), its directory (`.claude/`) or its environment variables (`ANTHROPIC_`). Inside `src/adapters/codex/`, only Claude Code and OpenCode are forbidden.
+
+Code written before these rules is listed in `eslint-suppressions.json` and may only shrink; new code must pass.
 
 vigiles also **dogfoods** that rule: `CLAUDE.md.spec.ts` carries `enforce("boundaries/dependencies")`, so `vigiles compile` checks the boundary rule is present and enabled. The architecture invariant is a verified reference, not a comment.
 
