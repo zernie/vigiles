@@ -67,6 +67,8 @@
     "hooks",
     "skills",
     "!skills/**/*.spec.ts",
+    "packages/eslint-config/index.mjs",
+    "packages/eslint-config/README.md",
     "README.md",
     "LICENSE"
   ],

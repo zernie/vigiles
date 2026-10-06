@@ -1,6 +1,8 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import tsparser from "@typescript-eslint/parser";
 import { ESLint } from "eslint";
@@ -80,5 +82,31 @@ describe("layers()", () => {
     expect(await ruleIds(root, "src/lib/helper.ts", true)).toContain(
       "boundaries/no-unknown-files",
     );
+  });
+});
+
+describe("how paperlint reaches this file", () => {
+  const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+  it("ships in vigiles' npm package, beside a README that says it is private", () => {
+    const out = execFileSync(
+      "npm",
+      ["pack", "--dry-run", "--json", "--ignore-scripts"],
+      { cwd: repo, encoding: "utf8" },
+    );
+    const [packed]: [{ files: { path: string }[] }] = JSON.parse(out);
+    expect(packed.files.map((f) => f.path)).toEqual(
+      expect.arrayContaining([
+        "packages/eslint-config/index.mjs",
+        "packages/eslint-config/README.md",
+      ]),
+    );
+  });
+
+  it("is not part of vigiles' API: no entry in exports points at it", () => {
+    const pkg: { exports: Record<string, unknown> } = JSON.parse(
+      readFileSync(join(repo, "package.json"), "utf8"),
+    );
+    expect(JSON.stringify(pkg.exports)).not.toContain("eslint-config");
   });
 });
