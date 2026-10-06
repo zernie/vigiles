@@ -12,6 +12,8 @@ import {
   discoverHookFiles,
   discoverProviderFiles,
   partitionHookArgs,
+  renameCommand,
+  invalidArgMessage,
   unclaimedMessage,
 } from "./hook-install.js";
 import {
@@ -21,6 +23,8 @@ import {
   rmSync,
   readFileSync,
   symlinkSync,
+  readdirSync,
+  existsSync,
 } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { resolve } from "node:path";
@@ -609,15 +613,23 @@ describe("discoverHookFiles / discoverProviderFiles", () => {
 });
 
 describe("partitionHookArgs", () => {
+  // The probe is injected so the pure rules can be asserted without a disk; the
+  // CLI tests below run the real one.
+  const files = (p: string): "file" | "directory" =>
+    p.endsWith("/") ? "directory" : "file";
+
   it("sorts explicit paths with the same classifier discovery uses", () => {
     expect(
-      partitionHookArgs([
-        ".vigiles/hooks/a.hook.ts",
-        ".claude/hooks/elsewhere.hook.mjs", // a marked hook anywhere is a hook
-        ".vigiles/hooks/old.mjs",
-        ".vigiles/hooks/a.harness.mjs",
-        ".vigiles/hooks/a.hook.ts.json",
-      ]),
+      partitionHookArgs(
+        [
+          ".vigiles/hooks/a.hook.ts",
+          ".claude/hooks/elsewhere.hook.mjs", // a marked hook anywhere is a hook
+          ".vigiles/hooks/old.mjs",
+          ".vigiles/hooks/a.harness.mjs",
+          ".vigiles/hooks/a.hook.ts.json",
+        ],
+        files,
+      ),
     ).toEqual({
       hooks: [".vigiles/hooks/a.hook.ts", ".claude/hooks/elsewhere.hook.mjs"],
       unclaimed: [".vigiles/hooks/old.mjs"],
@@ -625,7 +637,105 @@ describe("partitionHookArgs", () => {
         { path: ".vigiles/hooks/a.harness.mjs", kind: "vigiles-test" },
         { path: ".vigiles/hooks/a.hook.ts.json", kind: "stamp" },
       ],
+      invalid: [],
     });
+  });
+
+  it("applies to explicit paths ANYWHERE: a plugin or .claude hook without the marker is refused too", () => {
+    const r = partitionHookArgs(
+      [".claude/hooks/x.mjs", "node_modules/plug/hooks/guard.mjs"],
+      files,
+    );
+    expect(r.hooks).toEqual([]);
+    expect(r.unclaimed).toEqual([
+      ".claude/hooks/x.mjs",
+      "node_modules/plug/hooks/guard.mjs",
+    ]);
+  });
+
+  it("a path that is missing, a directory, or not a source at all is an error, not a skip", () => {
+    const probe = (p: string) =>
+      p === "nope/typo.json"
+        ? ("missing" as const)
+        : p === ".vigiles/hooks"
+          ? ("directory" as const)
+          : ("file" as const);
+    expect(
+      partitionHookArgs(
+        [
+          "nope/typo.json",
+          ".vigiles/hooks",
+          "/etc/passwd",
+          "README.md",
+          "src/guard.d.ts",
+        ],
+        probe,
+      ),
+    ).toEqual({
+      hooks: [],
+      unclaimed: [],
+      skipped: [{ path: "src/guard.d.ts", kind: "declaration" }],
+      invalid: [
+        { path: "nope/typo.json", reason: "missing" },
+        { path: ".vigiles/hooks", reason: "directory" },
+        { path: "/etc/passwd", reason: "not-a-source" },
+        { path: "README.md", reason: "not-a-source" },
+      ],
+    });
+  });
+
+  it("a README the shell glob swept up inside the vigiles source directories is skipped, not an error", () => {
+    expect(
+      partitionHookArgs(
+        [".vigiles/hooks/README.md", ".vigiles/providers/.gitkeep"],
+        files,
+      ),
+    ).toMatchObject({
+      invalid: [],
+      skipped: [
+        { path: ".vigiles/hooks/README.md", kind: "non-source" },
+        { path: ".vigiles/providers/.gitkeep", kind: "non-source" },
+      ],
+    });
+  });
+
+  it("a provider named explicitly is skipped, except where it does not belong", () => {
+    const r = partitionHookArgs(
+      [".vigiles/providers/k.provider.mjs", ".vigiles/hooks/k.provider.mjs"],
+      files,
+    );
+    expect(r.skipped).toEqual([
+      { path: ".vigiles/providers/k.provider.mjs", kind: "provider" },
+    ]);
+    expect(r.unclaimed).toEqual([".vigiles/hooks/k.provider.mjs"]);
+  });
+
+  it("reads Windows paths: both separators are directory separators", () => {
+    const r = partitionHookArgs(
+      [
+        ".vigiles\\hooks\\a.hook.mjs",
+        ".vigiles\\hooks\\old.mjs",
+        ".vigiles\\hooks\\README.md",
+      ],
+      files,
+    );
+    expect(r.hooks).toEqual([".vigiles\\hooks\\a.hook.mjs"]);
+    expect(r.unclaimed).toEqual([".vigiles\\hooks\\old.mjs"]);
+    expect(r.skipped).toEqual([
+      { path: ".vigiles\\hooks\\README.md", kind: "non-source" },
+    ]);
+  });
+});
+
+describe("invalidArgMessage", () => {
+  it("says what is wrong with each kind of bad argument", () => {
+    expect(invalidArgMessage("a/b.json", "missing")).toMatch(/no such file/);
+    expect(invalidArgMessage(".vigiles/hooks", "directory")).toMatch(
+      /is a directory/,
+    );
+    expect(invalidArgMessage("/etc/passwd", "not-a-source")).toMatch(
+      /not a hook source/,
+    );
   });
 });
 
@@ -633,17 +743,33 @@ describe("unclaimedMessage", () => {
   it("names the rename for a hook, copy first and delete last, ending in a recompile of the NEW path", () => {
     const m = unclaimedMessage(".vigiles/hooks/guard.mjs", "hook");
     expect(m).toContain(
-      "cp .vigiles/hooks/guard.mjs .vigiles/hooks/guard.hook.mjs && " +
-        "npx vigiles compile .vigiles/hooks/guard.hook.mjs && " +
-        "rm -f .vigiles/hooks/guard.mjs .vigiles/hooks/guard.mjs.json",
+      "cp -n -- '.vigiles/hooks/guard.mjs' '.vigiles/hooks/guard.hook.mjs' && " +
+        "npx vigiles compile '.vigiles/hooks/guard.hook.mjs' && " +
+        "rm -f -- '.vigiles/hooks/guard.mjs' '.vigiles/hooks/guard.mjs.json'",
     );
     expect(m.startsWith(".vigiles/hooks/guard.mjs — not compiled")).toBe(true);
     expect(m).toContain("not a hook, move it out");
   });
 
+  it("reads Windows paths: the target and the directory are found with either separator", () => {
+    const m = unclaimedMessage("C:\\repo\\.vigiles\\hooks\\guard.mjs", "hook");
+    expect(m).toContain("guard.hook.mjs");
+    expect(m).toContain("move it out of C:\\repo\\.vigiles\\hooks\\");
+  });
+
+  it("when the marked name ALREADY EXISTS it names both files and prints no copy command", () => {
+    const m = unclaimedMessage(".vigiles/hooks/guard.mjs", "hook", true);
+    expect(m).toContain(".vigiles/hooks/guard.mjs");
+    expect(m).toContain(".vigiles/hooks/guard.hook.mjs");
+    expect(m).toMatch(/already exists/);
+    expect(m).toMatch(/by hand/);
+    expect(m).not.toContain("cp ");
+    expect(m).not.toContain("rm ");
+  });
+
   it("names a plain rename for a provider (providers are never wired by path)", () => {
     expect(unclaimedMessage(".vigiles/providers/k8s.ts", "provider")).toContain(
-      "mv .vigiles/providers/k8s.ts .vigiles/providers/k8s.provider.ts",
+      "mv -n -- '.vigiles/providers/k8s.ts' '.vigiles/providers/k8s.provider.ts'",
     );
   });
 
@@ -950,9 +1076,9 @@ describe("vigiles compile over a mixed .vigiles/hooks/ directory", () => {
         "✗ .vigiles/hooks/old.mjs — not compiled: a hook source must carry `.hook.`",
       );
       expect(r.out).toContain(
-        "cp .vigiles/hooks/old.mjs .vigiles/hooks/old.hook.mjs && " +
-          "npx vigiles compile .vigiles/hooks/old.hook.mjs && " +
-          "rm -f .vigiles/hooks/old.mjs .vigiles/hooks/old.mjs.json",
+        "cp -n -- '.vigiles/hooks/old.mjs' '.vigiles/hooks/old.hook.mjs' && " +
+          "npx vigiles compile '.vigiles/hooks/old.hook.mjs' && " +
+          "rm -f -- '.vigiles/hooks/old.mjs' '.vigiles/hooks/old.mjs.json'",
       );
       expect(r.out).toContain("Compilation complete with errors.");
       expect(wiredPaths(dir)).toEqual(["fine.hook.mjs"]);
@@ -1036,9 +1162,105 @@ describe("vigiles compile over a mixed .vigiles/hooks/ directory", () => {
       const r = compile(dir);
       expect(r.code).toBe(1);
       expect(r.out).toContain(
-        "mv .vigiles/providers/who.mjs .vigiles/providers/who.provider.mjs",
+        "mv -n -- '.vigiles/providers/who.mjs' '.vigiles/providers/who.provider.mjs'",
       );
       expect(r.out).not.toContain("who.harness.mjs");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("explicit paths that are not files are errors: a directory, an unexpanded glob, a typo, /etc/passwd", () => {
+    const dir = repo({ ".vigiles/hooks/h.hook.mjs": HOOK });
+    try {
+      for (const bad of [
+        ".vigiles/hooks",
+        ".vigiles/hooks/*",
+        "nonexistent/typo.json",
+        "/etc/passwd",
+      ]) {
+        const r = compile(dir, bad);
+        expect(r.code, `${bad}: ${r.out}`).toBe(1);
+        expect(r.out).toContain(`✗ ${bad} — `);
+        expect(r.out).not.toContain("Compilation complete.");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("a run in which every path was skipped says NOTHING was compiled, not 'Compilation complete.'", () => {
+    const dir = repo({
+      ".vigiles/hooks/a.harness.mjs": "export {};\n",
+      ".vigiles/hooks/README.md": "# notes\n",
+    });
+    try {
+      const r = compile(
+        dir,
+        ".vigiles/hooks/a.harness.mjs",
+        ".vigiles/hooks/README.md",
+      );
+      expect(r.code).toBe(0);
+      expect(r.out).toContain("Nothing was compiled");
+      expect(r.out).not.toContain("Compilation complete.");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("with BOTH guard.mjs and guard.hook.mjs present the message names both and prints no command that could overwrite", () => {
+    const dir = repo({
+      ".vigiles/hooks/guard.mjs": HOOK + "// OLD, WEAKER\n",
+      ".vigiles/hooks/guard.hook.mjs": HOOK + "// EDITED, STRONGER\n",
+    });
+    try {
+      const r = compile(dir);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain("guard.mjs");
+      expect(r.out).toContain("already exists");
+      expect(r.out).not.toContain("cp ");
+      expect(
+        readFileSync(join(dir, ".vigiles/hooks/guard.hook.mjs"), "utf-8"),
+      ).toContain("EDITED, STRONGER");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("every unmarked provider gets its own ✗, and with ALL hooks unmarked one compile shows the provider problem too", () => {
+    const dir = repo({
+      ".vigiles/hooks/old.mjs": HOOK,
+      ".vigiles/providers/a.mjs": PROVIDER,
+      ".vigiles/providers/b.mjs": PROVIDER.replace('"who"', '"who2"'),
+    });
+    try {
+      const r = compile(dir);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain("✗ .vigiles/hooks/old.mjs — not compiled");
+      expect(r.out).toContain("✗ .vigiles/providers/a.mjs — not compiled");
+      expect(r.out).toContain("✗ .vigiles/providers/b.mjs — not compiled");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("compile never imports a colocated test or helper: their side effects leave no marker", () => {
+    const touch = (name: string) =>
+      `import { writeFileSync } from "node:fs";\nwriteFileSync(new URL("../../${name}", import.meta.url), "ran");\n`;
+    const dir = repo({
+      ".vigiles/hooks/fine.hook.mjs": HOOK,
+      ".vigiles/hooks/fine.harness.mjs": touch("RAN-harness"),
+      ".vigiles/hooks/fine.eval.mjs": touch("RAN-eval"),
+      ".vigiles/hooks/fine.test.mjs": touch("RAN-test"),
+      ".vigiles/hooks/helper.mjs": touch("RAN-helper"),
+      ".vigiles/providers/p.harness.mjs": touch("RAN-pharness"),
+    });
+    try {
+      const r = compile(dir);
+      // helper.mjs and fine.test.mjs are unclaimed, so the run is red — and
+      // still imported nothing.
+      expect(r.code).toBe(1);
+      expect(readdirSync(dir).filter((f) => f.startsWith("RAN-"))).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1059,3 +1281,131 @@ describe("vigiles compile over a mixed .vigiles/hooks/ directory", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// The printed command is a copy-paste payload, so it is EXECUTED here, in a temp
+// directory, against hostile and awkward file names. `npx` is a shim that records
+// its argv, so what is asserted is what a shell really did with the text.
+// ---------------------------------------------------------------------------
+describe("renameCommand, executed", () => {
+  const NAMES = [
+    "plain.mjs",
+    "my guard.mjs",
+    "it's.mjs",
+    "x;touch PWNED;.mjs",
+    "$(touch PWNED).mjs",
+    "`touch PWNED`.mjs",
+    "a\nb.mjs",
+    'dq"uote.mjs',
+    "back\\slash.mjs",
+    "star*.mjs",
+  ];
+
+  function sandbox(): { dir: string; bin: string } {
+    const dir = mkdtempSync(join(tmpdir(), "vig-rename-"));
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "npx"),
+      '#!/bin/sh\nprintf \'%s\\0\' "$@" > "$SHIM_OUT"\n',
+      { mode: 0o755 },
+    );
+    mkdirSync(join(dir, "w", ".vigiles", "hooks"), { recursive: true });
+    return { dir, bin };
+  }
+
+  const run = (command: string, cwd: string, bin: string, out: string) =>
+    spawnSync("sh", ["-c", command], {
+      cwd,
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        SHIM_OUT: out,
+      },
+    });
+
+  it.each(NAMES)(
+    "%j: the target is created, the old file and stamp go, nothing else runs",
+    (name) => {
+      const { dir, bin } = sandbox();
+      try {
+        const cwd = join(dir, "w");
+        const src = `.vigiles/hooks/${name}`;
+        const target = markedNameFor(src);
+        writeFileSync(join(cwd, src), "OLD");
+        writeFileSync(join(cwd, `${src}.json`), "{}");
+        const out = join(dir, "argv");
+        const r = run(renameCommand(src, "hook"), cwd, bin, out);
+        expect(r.status, r.stderr).toBe(0);
+        expect(readFileSync(join(cwd, target), "utf-8")).toBe("OLD");
+        expect(existsSync(join(cwd, src))).toBe(false);
+        expect(existsSync(join(cwd, `${src}.json`))).toBe(false);
+        // The shell treated the name as ONE argument: this is what `npx` received.
+        expect(readFileSync(out, "utf-8").split("\0").slice(0, -1)).toEqual([
+          "vigiles",
+          "compile",
+          target,
+        ]);
+        // …and nothing in the name was executed as a command.
+        expect(existsSync(join(cwd, "PWNED"))).toBe(false);
+        expect(readdirSync(cwd).sort()).toEqual([".vigiles"]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("never overwrites a marked file that is already there (cp -n), and stops the chain", () => {
+    const { dir, bin } = sandbox();
+    try {
+      const cwd = join(dir, "w");
+      writeFileSync(join(cwd, ".vigiles/hooks/guard.mjs"), "OLD, WEAKER");
+      writeFileSync(
+        join(cwd, ".vigiles/hooks/guard.hook.mjs"),
+        "EDITED, STRONGER",
+      );
+      const out = join(dir, "argv");
+      run(renameCommand(".vigiles/hooks/guard.mjs", "hook"), cwd, bin, out);
+      expect(
+        readFileSync(join(cwd, ".vigiles/hooks/guard.hook.mjs"), "utf-8"),
+      ).toBe("EDITED, STRONGER");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("the provider form is a single quoted mv", () => {
+    const { dir, bin } = sandbox();
+    try {
+      const cwd = join(dir, "w");
+      mkdirSync(join(cwd, ".vigiles/providers"), { recursive: true });
+      writeFileSync(join(cwd, ".vigiles/providers/it's a.mjs"), "P");
+      const r = run(
+        renameCommand(".vigiles/providers/it's a.mjs", "provider"),
+        cwd,
+        bin,
+        join(dir, "argv"),
+      );
+      expect(r.status, r.stderr).toBe(0);
+      expect(
+        readFileSync(
+          join(cwd, ".vigiles/providers/it's a.provider.mjs"),
+          "utf-8",
+        ),
+      ).toBe("P");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("is what the message prints", () => {
+    const p = ".vigiles/hooks/my guard.mjs";
+    expect(unclaimedMessage(p, "hook")).toContain(renameCommand(p, "hook"));
+  });
+});
+
+const markedNameFor = (p: string): string => {
+  const i = p.lastIndexOf(".");
+  return `${p.slice(0, i)}.hook${p.slice(i)}`;
+};

@@ -247,7 +247,8 @@ import {
   normalizeHookRef,
   partitionHookArgs,
   serializeConfig,
-  unclaimedMessage,
+  invalidArgMessage,
+  unclaimedReport,
 } from "./hook-install.js";
 import { installHookCheck } from "./hook-check-install.js";
 import { unsafeProvider } from "./core/hook-providers.js";
@@ -7527,8 +7528,10 @@ async function compileProviders(): Promise<string[]> {
   // hook's `provider()` ref to it would then fail to resolve with a message
   // about the REF, far from the cause.
   if (unclaimed.length > 0) {
+    // Every one gets the ✗ (the catch adds the first): the others used to read
+    // as a continuation of the first message.
     throw new HookCompileError(
-      unclaimed.map((f) => unclaimedMessage(f, "provider")).join("\n"),
+      unclaimed.map((f) => unclaimedReport(f, "provider")).join("\n✗ "),
     );
   }
   for (const file of claimed) {
@@ -7699,8 +7702,9 @@ async function installHooks(
   hookFiles: string[],
   harnessFlag: string | undefined,
   configHarness: string | readonly string[] | undefined,
+  validateProvidersAnyway = false,
 ): Promise<boolean> {
-  if (hookFiles.length === 0) return true;
+  if (hookFiles.length === 0 && !validateProvidersAnyway) return true;
   const adapters = resolveHarnessAdapters({
     root: process.cwd(),
     flag: harnessFlag,
@@ -7718,6 +7722,7 @@ async function installHooks(
     }
     throw e;
   }
+  if (hookFiles.length === 0) return true; // providers validated; nothing to wire
   let ok = true;
   for (const file of hookFiles) {
     try {
@@ -8318,7 +8323,8 @@ export async function main(): Promise<void> {
         specs.length === 0 &&
         hooks.length === 0 &&
         unclaimed.length === 0 &&
-        found.skipped.length === 0
+        found.skipped.length === 0 &&
+        found.invalid.length === 0
       ) {
         console.log("No .spec.ts or .vigiles/hooks/ hook files found.");
         console.log("Run `vigiles init` to create one.");
@@ -8330,7 +8336,11 @@ export async function main(): Promise<void> {
       // extra steps. Compiling the rest still proceeds — one stray file must
       // not stop the hooks that are fine.
       for (const f of unclaimed) {
-        console.error(`✗ ${unclaimedMessage(f, "hook")}`);
+        console.error(`✗ ${unclaimedReport(f, "hook")}`);
+        valid = false;
+      }
+      for (const bad of found.invalid) {
+        console.error(`✗ ${invalidArgMessage(bad.path, bad.reason)}`);
         valid = false;
       }
       for (const s of found.skipped) {
@@ -8361,13 +8371,20 @@ export async function main(): Promise<void> {
           hooks,
           harnessFlag,
           declaredHarnessNames(config.harnesses),
+          // A hook-side compile is under way even when every hook was refused:
+          // validate the providers too, so ONE run shows every problem.
+          unclaimed.length > 0,
         )) && valid;
       // Keep an existing whole-harness registry in sync (cheap, opt-in) so the
       // user never hand-runs `generate-harness`. Skipped when no harness.gen.ts.
       if (specs.length > 0)
         valid = (await refreshHarnessGenIfPresent(harnessFlag)) && valid;
       console.log("");
-      if (valid) {
+      if (valid && specs.length === 0 && hooks.length === 0) {
+        // Skipped paths are not errors, but a run that compiled nothing must not
+        // read like one that did.
+        console.log("Nothing was compiled: every path given was skipped.");
+      } else if (valid) {
         console.log("Compilation complete.");
       } else {
         console.log("Compilation complete with errors.");
