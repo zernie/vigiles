@@ -47,6 +47,7 @@ export type RuleSurface =
   | "skill"
   | "subagent"
   | "hook"
+  | "output-style"
   | "mcp"
   | "plugin"
   | "docs";
@@ -150,6 +151,14 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     surface: ["hook"],
     defaultSeverity: "warn",
     summary: "A file-backed hook script ships with a test or eval.",
+    detector: "findUntestedSurfaces",
+  },
+  "untested-output-style": {
+    id: "untested-output-style",
+    bucket: "external-decidable",
+    surface: ["output-style"],
+    defaultSeverity: "warn",
+    summary: "An output style ships with a test or eval.",
     detector: "findUntestedSurfaces",
   },
 

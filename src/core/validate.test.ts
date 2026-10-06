@@ -488,6 +488,51 @@ describe("require-instructions-spec", () => {
 // loadConfig
 // ---------------------------------------------------------------------------
 
+/** Every rule and the severity a repo with no config gets. */
+const SHIPPED_RULE_DEFAULTS = {
+  // Both were untierable until 2026-09 — they fed the exit code with no rule
+  // id to address them (#181). Registered as real rules, they land at "warn"
+  // like every other heuristic proxy.
+  "spec-refs": "error",
+  "orphan-docs": "warn",
+  "duplicate-rules": "warn",
+  "require-instructions-spec": "warn",
+  // the consistent require-<surface>-spec parallel → default off
+  "require-skill-spec": false,
+  integrity: "warn",
+  coverage: false,
+  "untested-skill": "warn",
+  "untested-subagent": "warn",
+  "untested-hook": "warn",
+  "untested-output-style": "warn",
+  "unmarked-refs": "warn",
+  "subagent-tool-contract": "warn",
+  "hook-events": "warn",
+  "subagent-frontmatter": "warn",
+  "mcp-config": "warn",
+  "skill-frontmatter": "warn",
+  "mcp-tool-resolves": "warn",
+  "hook-script-exists": "warn",
+  // nudge-group recommendation → default off (opt in to surface it)
+  "prefer-compiled-hooks": false,
+  "disallowed-tools-contract": "warn",
+  "description-overlap": "warn",
+  "skill-description-budget": "warn",
+  "frontmatter-valid": "warn",
+  "mcp-hook-target-resolves": "warn",
+  "lethal-trifecta": "warn",
+  "skill-resource-resolves": "warn",
+  "skill-missing-fence": "warn",
+  "plugin-dir-layout": "warn",
+  "delegation-trifecta": "warn",
+  "hook-block-ineffective": "warn",
+  "hook-matcher": "warn",
+  // Off by measurement: 0 true positives over 2 582 markdown files.
+  "doc-refs": false,
+  // On, and silent until the repo commits a baseline file.
+  "instruction-weight": "error",
+};
+
 describe("loadConfig", () => {
   let tmpDir: string;
   let originalCwd: string;
@@ -506,48 +551,7 @@ describe("loadConfig", () => {
     process.chdir(tmpDir);
     const config = loadConfig();
     assert.deepEqual(config.ruleMarkers, ["headings", "checkboxes"]);
-    assert.deepEqual(config.rules, {
-      // Both were untierable until 2026-09 — they fed the exit code with no rule
-      // id to address them (#181). Registered as real rules, they land at "warn"
-      // like every other heuristic proxy.
-      "spec-refs": "error",
-      "orphan-docs": "warn",
-      "duplicate-rules": "warn",
-      "require-instructions-spec": "warn",
-      // the consistent require-<surface>-spec parallel → default off
-      "require-skill-spec": false,
-      integrity: "warn",
-      coverage: false,
-      "untested-skill": "warn",
-      "untested-subagent": "warn",
-      "untested-hook": "warn",
-      "unmarked-refs": "warn",
-      "subagent-tool-contract": "warn",
-      "hook-events": "warn",
-      "subagent-frontmatter": "warn",
-      "mcp-config": "warn",
-      "skill-frontmatter": "warn",
-      "mcp-tool-resolves": "warn",
-      "hook-script-exists": "warn",
-      // nudge-group recommendation → default off (opt in to surface it)
-      "prefer-compiled-hooks": false,
-      "disallowed-tools-contract": "warn",
-      "description-overlap": "warn",
-      "skill-description-budget": "warn",
-      "frontmatter-valid": "warn",
-      "mcp-hook-target-resolves": "warn",
-      "lethal-trifecta": "warn",
-      "skill-resource-resolves": "warn",
-      "skill-missing-fence": "warn",
-      "plugin-dir-layout": "warn",
-      "delegation-trifecta": "warn",
-      "hook-block-ineffective": "warn",
-      "hook-matcher": "warn",
-      // Off by measurement: 0 true positives over 2 582 markdown files.
-      "doc-refs": false,
-      // On, and silent until the repo commits a baseline file.
-      "instruction-weight": "error",
-    });
+    assert.deepEqual(config.rules, SHIPPED_RULE_DEFAULTS);
   });
 
   it("should read .vigilesrc.json", () => {

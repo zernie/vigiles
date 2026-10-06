@@ -12,7 +12,7 @@ import type { PluginLayout } from "./layout.js";
 
 /** One style, read by its harness's rules. */
 export interface OutputStyle {
-  /** Path from the repository root. */
+  /** The key the caller's file map used for this file, unchanged. */
   readonly path: string;
   /** The name a setting must spell, or null when the harness cannot tell. */
   readonly name: string | null;

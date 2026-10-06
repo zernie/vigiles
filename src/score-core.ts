@@ -397,6 +397,9 @@ export function reportDeductions(r: ScanReport): Deduction[] {
  * surface of any kind", because it reads as "this plugin is broken" — a
  * different statement from "this plugin has no skills or subagents".
  *
+ * An output style counts too: a repo can ship only a style, and "nothing to
+ * audit" for it would hide the untested-output-style finding.
+ *
  * Hooks count in BOTH forms: `hooks[]` is the script-backed ones, `inlineHooks`
  * the shell one-liners that carry no script file to path-check. The second is
  * still a gate that runs.
@@ -407,7 +410,8 @@ export function isEmptyMachine(r: ScanReport): boolean {
     r.agents.length +
     r.hooks.length +
     r.inlineHooks +
-    r.commands;
+    r.commands +
+    (typeof r.outputStyles === "number" ? r.outputStyles : 0);
   return surfaces === 0 && !r.mcp;
 }
 

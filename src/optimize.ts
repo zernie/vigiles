@@ -26,7 +26,12 @@
  * the ranked fix list + the hand-off to the measured layer. Same findings, the
  * optimization framing. See research/measurement-authority.md (A2) + roadmap §P1.
  */
-import { scoreReport, gradeFor, type PluginScore } from "./score-core.js";
+import {
+  gradeFor,
+  isEmptyMachine,
+  scoreReport,
+  type PluginScore,
+} from "./score-core.js";
 import {
   explainScore,
   type ScoreExplanation,
@@ -73,12 +78,6 @@ export interface OptimizeReport {
 
 function actionFor(e: ScoreExplanation): OptimizeAction {
   return e.symptom === "wrong-skill-fires" ? "differentiate" : "fix";
-}
-
-function isEmptyMachine(r: ScanReport): boolean {
-  const surfaces =
-    r.skills.length + r.agents.length + r.hooks.length + r.commands;
-  return surfaces === 0 && !r.mcp;
 }
 
 /**

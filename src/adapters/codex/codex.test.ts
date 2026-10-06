@@ -24,7 +24,7 @@ import { experimental_agent } from "../../core/spec.js";
 // The generic, layout-driven loader lives at the composition root; the Codex
 // adapter reuses it with codexLayout (no cross-adapter import).
 import { loadPlugin } from "../../plugin-loader.js";
-import { scanPlugin } from "../../scan.js";
+import { formatScanReport, scanPlugin } from "../../scan.js";
 import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
 
 test("codexAdapter passes the conformance kit (ports + cross-port invariants)", () => {
@@ -225,4 +225,19 @@ test("codex has no output styles, so audit reports n/a rather than zero", () => 
     ),
     { kind: "not-supported" },
   );
+});
+
+test("a codex scan says n/a for output styles instead of staying silent", () => {
+  const dir = makeTmpDir("codex-no-styles");
+  try {
+    writeFileSync(join(dir, "AGENTS.md"), "# Agents\n");
+    const r = scanPlugin(dir, codexLayout, codexDialect);
+    assert.equal(r.outputStyles, "not-supported");
+    assert.match(
+      formatScanReport(r),
+      /Output styles: n\/a \(this harness has none\)/,
+    );
+  } finally {
+    cleanupTmpDir(dir);
+  }
 });

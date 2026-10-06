@@ -79,6 +79,7 @@ import type {
   CoverageThresholds,
   TestCoverageConfig,
   RuleSeverity,
+  RulesConfig,
 } from "./core/types.js";
 import { ruleSeverity, ruleOptions } from "./core/types.js";
 import type { SurfaceKind, TestCoverageOptions } from "./test-coverage.js";
@@ -4681,6 +4682,19 @@ function harnessLayoutFor(
 }
 
 /**
+ * The rule that gates each surface kind, one row per kind. `satisfies` makes a
+ * missing row a compile error: the nested ternary this replaced ended in the
+ * hook rule, so a kind it did not name was gated by `untested-hook` and still
+ * compiled.
+ */
+const UNTESTED_RULE = {
+  skill: "untested-skill",
+  agent: "untested-subagent",
+  hook: "untested-hook",
+  "output-style": "untested-output-style",
+} as const satisfies Record<SurfaceKind, keyof RulesConfig>;
+
+/**
  * The `untested-*` rules AS THE DETECTOR TAKES THEM: which kinds this repo
  * enabled, and the discovery options merged from whichever of the three rules
  * carries them (`include` / `exclude` / `testExtension` are shared).
@@ -4697,7 +4711,7 @@ function harnessLayoutFor(
 function untestedRules(config: VigilesConfig | undefined): {
   /** Per-kind severities — `false` means the kind is not scanned at all. */
   readonly severity: (kind: SurfaceKind) => RuleSeverity;
-  /** True when at least one of the three rules is on. */
+  /** True when at least one `untested-*` rule is on. */
   readonly anyEnabled: boolean;
   /**
    * The detector options the config asks for. `basePath` and `layout` are the
@@ -4708,22 +4722,25 @@ function untestedRules(config: VigilesConfig | undefined): {
   readonly options: Omit<TestCoverageOptions, "basePath" | "layout">;
 } {
   const rules = config?.rules;
-  const skillSev = ruleSeverity(rules?.["untested-skill"]);
-  const agentSev = ruleSeverity(rules?.["untested-subagent"]);
-  const hookSev = ruleSeverity(rules?.["untested-hook"]);
-  const opts: TestCoverageConfig = {
-    ...ruleOptions<TestCoverageConfig>(rules?.["untested-skill"]),
-    ...ruleOptions<TestCoverageConfig>(rules?.["untested-subagent"]),
-    ...ruleOptions<TestCoverageConfig>(rules?.["untested-hook"]),
-  };
+  const severity = (kind: SurfaceKind): RuleSeverity =>
+    ruleSeverity(rules?.[UNTESTED_RULE[kind]]);
+  const names = Object.values(UNTESTED_RULE);
+  const opts = names.reduce<TestCoverageConfig>(
+    (acc, rule) => ({
+      ...acc,
+      ...ruleOptions<TestCoverageConfig>(rules?.[rule]),
+    }),
+    {},
+  );
+  const on = (kind: SurfaceKind): boolean => severity(kind) !== false;
   return {
-    severity: (kind) =>
-      kind === "skill" ? skillSev : kind === "agent" ? agentSev : hookSev,
-    anyEnabled: skillSev !== false || agentSev !== false || hookSev !== false,
+    severity,
+    anyEnabled: names.some((rule) => ruleSeverity(rules?.[rule]) !== false),
     options: {
-      skills: skillSev !== false,
-      agents: agentSev !== false,
-      hooks: hookSev !== false,
+      skills: on("skill"),
+      agents: on("agent"),
+      hooks: on("hook"),
+      outputStyles: on("output-style"),
       include: opts.include,
       exclude: opts.exclude,
       // Without this the `testExtension` documented on TestCoverageOptions was a

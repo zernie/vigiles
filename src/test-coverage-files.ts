@@ -51,8 +51,10 @@ import {
   prepareTest,
   type PreparedTest,
   matchesSurfaceGlob,
+  outputStyleSurface,
   strongerEvidence,
 } from "./coverage-evidence.js";
+import { findOutputStyles } from "./core/output-style.js";
 import { isVigilesTest } from "./source-kinds.js";
 
 const IGNORE_MARKER = "vigiles:ignore-test";
@@ -166,6 +168,22 @@ function discoverAgents(
     });
   }
   return out;
+}
+
+/** Twin of test-coverage.ts `discoverOutputStyles`: the harness decides, over the map. */
+function discoverOutputStyles(
+  files: Readonly<Record<string, string>>,
+  layout: PluginLayout,
+): readonly Surface[] {
+  const scan = findOutputStyles(
+    layout,
+    new Map(Object.entries(files).filter(([path]) => !isIgnored(path))),
+  );
+  return scan.kind === "not-supported"
+    ? []
+    : scan.styles.map((style) =>
+        outputStyleSurface(style.path, files[style.path] ?? ""),
+      );
 }
 
 /**
@@ -282,8 +300,22 @@ function tierOf(
   return { covered, untested, decisions };
 }
 
+/** Every surface kind in the map — twin of test-coverage.ts `discoverSurfaces`. */
+function discoverSurfaces(
+  files: Record<string, string>,
+  layout: PluginLayout,
+  repoName: string,
+): readonly Surface[] {
+  return [
+    ...discoverSkills(files, layout, repoName),
+    ...discoverAgents(files, layout),
+    ...discoverHooks(files, layout),
+    ...discoverOutputStyles(files, layout),
+  ];
+}
+
 /**
- * The untested harness surfaces (skills / agents / hooks) in a file map — the
+ * The untested harness surfaces (skills / agents / hooks / output styles) in a file map — the
  * browser-safe twin of `findUntestedSurfaces`, returning the union `untested` list
  * plus the same per-tier split (`scanFiles` needs the counts). Same coverage rules
  * as the disk detector; the tier split is by suffix, exactly as on disk.
@@ -303,11 +335,7 @@ export function findUntestedSurfacesInFiles(
   harness: CoverageTier;
   evals: CoverageTier;
 } {
-  const surfaces: Surface[] = [
-    ...discoverSkills(files, layout, repoName),
-    ...discoverAgents(files, layout),
-    ...discoverHooks(files, layout),
-  ];
+  const surfaces = discoverSurfaces(files, layout, repoName);
   const considered = surfaces.filter((s) => !s.ignored);
   const tests = discoverTests(files);
   // NO configured `{surface}` globs here, and that is a property of this twin

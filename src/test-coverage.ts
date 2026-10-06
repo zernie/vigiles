@@ -70,6 +70,7 @@ import { canRunTypeScript, detectNodeCaps } from "./ts-runner-caps.js";
 import { globSync, type IgnoreLike } from "glob";
 import { withIgnored } from "./core/glob-ignore.js";
 import { excludedBy, type ExcludeSet } from "./exclude.js";
+import { findOutputStyles, outputStyleHomes } from "./core/output-style.js";
 import type { RepoPath } from "./core/frame.js";
 import {
   DEFAULT_TEST_GLOBS as TABLE_TEST_GLOBS,
@@ -96,6 +97,7 @@ import {
   discoveryGlob,
   matchesSurfaceGlob,
   strongerEvidence,
+  outputStyleSurface,
 } from "./coverage-evidence.js";
 import {
   canonicalScript,
@@ -128,7 +130,7 @@ function surfaceGlobs(
 // Types
 // ---------------------------------------------------------------------------
 
-export type SurfaceKind = "skill" | "agent" | "hook";
+export type SurfaceKind = "skill" | "agent" | "hook" | "output-style";
 
 export interface Surface {
   readonly kind: SurfaceKind;
@@ -272,6 +274,11 @@ export interface TestCoverageOptions {
   readonly agents?: boolean;
   /** Scan hook scripts referenced from plugin.json / settings.json. Default true. */
   readonly hooks?: boolean;
+  /**
+   * Scan output styles, in every folder the layout's `outputStyles` names.
+   * Default true; a layout with no output styles finds none either way.
+   */
+  readonly outputStyles?: boolean;
   /** Globs of test files that count as coverage. */
   readonly include?: readonly string[];
   /**
@@ -487,6 +494,60 @@ function discoverAgents(
     });
   }
   return out;
+}
+
+/**
+ * Output styles, by the layout's own rules: every file in a style home that
+ * the harness would load. {@link findOutputStyles} decides; this only reads the
+ * candidates off the disk, so it and the browser twin cannot disagree on which
+ * files are styles.
+ */
+function discoverOutputStyles(
+  basePath: string,
+  ignore: readonly string[],
+  layout: PluginLayout,
+): readonly Surface[] {
+  const candidates: ReadonlyMap<string, string> = new Map(
+    outputStyleHomes(layout).flatMap((home) =>
+      globSync(`${home}/**/*`, {
+        cwd: basePath,
+        ignore: [...ignore],
+        dot: true,
+        nodir: true,
+      }).map((path) => [path.split(sep).join("/"), ""] as const),
+    ),
+  );
+  const scan = findOutputStyles(layout, candidates);
+  return scan.kind === "not-supported"
+    ? []
+    : scan.styles.map((style) =>
+        outputStyleSurface(style.path, read(join(basePath, style.path))),
+      );
+}
+
+/**
+ * Every kind the options switch on, found under the bundle. Discovery gets only
+ * the frame-free ignore floor; the rule's and the repo's excludes are applied
+ * later, from `root`, by the caller.
+ */
+function discoverSurfaces(
+  basePath: string,
+  layout: PluginLayout,
+  options: TestCoverageOptions,
+): readonly Surface[] {
+  const on = (flag: boolean | undefined): boolean => flag !== false;
+  return [
+    ...(on(options.skills)
+      ? discoverSkills(basePath, [...DEFAULT_IGNORE], layout)
+      : []),
+    ...(on(options.agents)
+      ? discoverAgents(basePath, [...DEFAULT_IGNORE], layout)
+      : []),
+    ...(on(options.hooks) ? discoverHooks(basePath, layout) : []),
+    ...(on(options.outputStyles)
+      ? discoverOutputStyles(basePath, DEFAULT_IGNORE, layout)
+      : []),
+  ];
 }
 
 /**
@@ -728,13 +789,7 @@ export function findUntestedSurfaces(
   // Discovery globs from the BUNDLE, so it gets only the frame-free floor; the
   // rule's patterns are root-relative and the repo's carry their own root, so
   // both are applied below, to the root-relative path.
-  const floor = [...DEFAULT_IGNORE];
-  const found: Surface[] = [];
-  if (options.skills !== false)
-    found.push(...discoverSkills(basePath, floor, layout));
-  if (options.agents !== false)
-    found.push(...discoverAgents(basePath, floor, layout));
-  if (options.hooks !== false) found.push(...discoverHooks(basePath, layout));
+  const found = discoverSurfaces(basePath, layout, options);
   // Hooks were never subject to `ignore` (a compiled hook lives under the
   // default-ignored `.vigiles/`); keep that, and re-apply exclude to the kinds
   // whose discovery glob used it — now from `root`, where the patterns live.
@@ -987,6 +1042,21 @@ export function evalTierQuestion(kind: SurfaceKind): string | null {
         `the tool contract, \`assertAgentOk\` for the typed result. Those two ` +
         `calls drive Claude Code and take no \`evalDriver\`, so on another ` +
         `harness this tier has no public dispatch yet.`
+      );
+    case "output-style":
+      // A style is not selected by the model, so there is no firing to
+      // measure; the real-model question is whether a model handed the style
+      // FOLLOWS it. The deterministic test that covers it drove a scripted
+      // model, which proves delivery and nothing about following.
+      return (
+        `A deterministic test covers it, but that test drove a SCRIPTED model: ` +
+        `it can show the style reached the model, never that a real model ` +
+        `follows it.\n` +
+        `See the \`test-harness\` skill: compare runs with and without the style ` +
+        `(\`measureArms\`), check each reply with deterministic checks where the ` +
+        `rule has a checkable shape and \`judged\` where it does not, and gate ` +
+        `with \`assertRates\`. NOT \`measureTriggerRate\`: a style is not ` +
+        `selected by the model, so there is no trigger to measure.`
       );
     case "hook":
       // Nothing. A hook is deterministic by construction: `runHook` answers

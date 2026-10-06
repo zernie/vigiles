@@ -372,7 +372,7 @@
     "max-lines-per-function": 75
   },
   "src/core/validate.test.ts": {
-    "max-lines-per-function": 138
+    "max-lines-per-function": 128
   },
   "src/core/validate.ts": {
     "max-lines-per-function": 72,
@@ -599,8 +599,8 @@
   },
   "src/scan.ts": {
     "max-lines-per-function": 213,
-    "sonarjs/cognitive-complexity": 19,
-    "complexity": 20
+    "sonarjs/cognitive-complexity": 18,
+    "complexity": 19
   },
   "src/score-core.ts": {
     "max-lines-per-function": 110
@@ -662,14 +662,14 @@
     "max-lines-per-function": 78
   },
   "src/test-coverage-files.ts": {
-    "max-lines-per-function": 34
+    "max-lines-per-function": 33
   },
   "src/test-coverage.test.ts": {
     "max-lines-per-function": 65
   },
   "src/test-coverage.ts": {
     "max-params": 5,
-    "max-lines-per-function": 62,
+    "max-lines-per-function": 56,
     "sonarjs/cognitive-complexity": 14
   },
   "src/tool-intercept.ts": {

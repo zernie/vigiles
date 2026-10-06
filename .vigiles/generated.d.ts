@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 500 project files. */
+  /** 502 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -157,6 +157,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/skill-runtime.ts"
     | "src/adapters/claude-code/skills-dogfood.test.ts"
     | "src/adapters/claude-code/typed-spec.ts"
+    | "src/adapters/claude-code/untested-output-style.test.ts"
     | "src/adapters/claude-code/vendor-coverage.test.ts"
     | "src/adapters/claude-code/vendor.test.ts"
     | "src/adapters/claude-code/vocabulary.ts"
@@ -586,6 +587,7 @@ declare module "vigiles/generated" {
     | "src/surface-discovery-fs.test.ts"
     | "src/surface-discovery-fs.ts"
     | "src/test-coverage-files.ts"
+    | "src/test-coverage-output-style.test.ts"
     | "src/test-coverage.test.ts"
     | "src/test-coverage.ts"
     | "src/test-glob-options.test.ts"
@@ -729,6 +731,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/skill-runtime.ts"
       | "src/adapters/claude-code/skills-dogfood.test.ts"
       | "src/adapters/claude-code/typed-spec.ts"
+      | "src/adapters/claude-code/untested-output-style.test.ts"
       | "src/adapters/claude-code/vendor-coverage.test.ts"
       | "src/adapters/claude-code/vendor.test.ts"
       | "src/adapters/claude-code/vocabulary.ts"
@@ -1158,6 +1161,7 @@ declare module "vigiles/spec" {
       | "src/surface-discovery-fs.test.ts"
       | "src/surface-discovery-fs.ts"
       | "src/test-coverage-files.ts"
+      | "src/test-coverage-output-style.test.ts"
       | "src/test-coverage.test.ts"
       | "src/test-coverage.ts"
       | "src/test-glob-options.test.ts"
