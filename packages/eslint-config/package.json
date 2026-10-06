@@ -1,0 +1,14 @@
+{
+  "name": "@vigiles/eslint-config",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The strict lint rules vigiles and paperlint share. Not published and not part of vigiles' API: paperlint imports index.mjs by path from node_modules/vigiles.",
+  "main": "./index.mjs",
+  "peerDependencies": {
+    "eslint": "^10.0.0",
+    "eslint-plugin-boundaries": "^7.0.0",
+    "eslint-plugin-functional": "^10.0.0",
+    "eslint-plugin-sonarjs": "^4.0.0"
+  }
+}
