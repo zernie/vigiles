@@ -5,7 +5,10 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { eachReply, replyCount } from "../../check.js";
+import {
+  experimental_eachReply,
+  experimental_replyCount,
+} from "../../check.js";
 import { measureWith, parseClaudeRun } from "../../eval.js";
 
 const line = (o: unknown): string => JSON.stringify(o);
@@ -43,8 +46,8 @@ describe("replies in the eval tier", () => {
       {
         task: "hi",
         checks: [
-          eachReply(/\*\*Status\*\*/),
-          replyCount(/\*\*Status\*\*/, { max: 1 }),
+          experimental_eachReply(/\*\*Status\*\*/),
+          experimental_replyCount(/\*\*Status\*\*/, { max: 1 }),
         ],
         trials: 2,
         spacingSec: 0,

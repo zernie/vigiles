@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { eachReply, replyCount } from "./check.js";
+import { experimental_eachReply, experimental_replyCount } from "./check.js";
 import type { Trace } from "./harness-test.js";
 
 const trace = (replies: readonly string[] | undefined): Trace => ({
@@ -21,54 +21,63 @@ const trace = (replies: readonly string[] | undefined): Trace => ({
 
 const FOOTER = /\*\*Status\*\*/;
 
-describe("eachReply", () => {
+describe("experimental_eachReply", () => {
   it("passes when every reply matches", () => {
-    const r = eachReply(FOOTER).eval(
+    const r = experimental_eachReply(FOOTER).eval(
       trace(["a **Status** x", "b **Status** y"]),
     );
     expect(r.pass).toBe(true);
   });
 
   it("fails on the first reply that does not match, and says which", () => {
-    const r = eachReply(FOOTER).eval(trace(["no footer", "b **Status** y"]));
+    const r = experimental_eachReply(FOOTER).eval(
+      trace(["no footer", "b **Status** y"]),
+    );
     expect(r).toMatchObject({ pass: false });
     expect(r.message).toMatch(/reply 1 of 2/);
   });
 
   it("fails, not passes, when the run has no replies to check", () => {
-    expect(eachReply(FOOTER).eval(trace([])).pass).toBe(false);
+    expect(experimental_eachReply(FOOTER).eval(trace([])).pass).toBe(false);
   });
 
   it("fails with a reason when the harness does not tell replies apart", () => {
-    const r = eachReply(FOOTER).eval(trace(undefined));
+    const r = experimental_eachReply(FOOTER).eval(trace(undefined));
     expect(r).toMatchObject({ pass: false });
     expect(r.message).toMatch(/no `replies`/);
   });
 });
 
-describe("replyCount", () => {
+describe("experimental_replyCount", () => {
   it("counts the replies that match, against a bound", () => {
     const two = trace(["first **Status** A", "second **Status** B"]);
-    expect(replyCount(FOOTER, { max: 1 }).eval(two)).toMatchObject({
-      pass: false,
-    });
-    expect(replyCount(FOOTER, { min: 2, max: 2 }).eval(two).pass).toBe(true);
+    expect(experimental_replyCount(FOOTER, { max: 1 }).eval(two)).toMatchObject(
+      {
+        pass: false,
+      },
+    );
+    expect(
+      experimental_replyCount(FOOTER, { min: 2, max: 2 }).eval(two).pass,
+    ).toBe(true);
   });
 
   it("takes a substring as well as a RegExp", () => {
-    expect(replyCount("Status", { min: 1 }).eval(trace(["Status"])).pass).toBe(
-      true,
-    );
+    expect(
+      experimental_replyCount("Status", { min: 1 }).eval(trace(["Status"]))
+        .pass,
+    ).toBe(true);
   });
 
   it("fails with a reason when the harness does not tell replies apart", () => {
-    const r = replyCount(FOOTER, { max: 1 }).eval(trace(undefined));
+    const r = experimental_replyCount(FOOTER, { max: 1 }).eval(
+      trace(undefined),
+    );
     expect(r.pass).toBe(false);
     expect(r.message).toMatch(/no `replies`/);
   });
 
   it("serialises its matcher and bounds for the report", () => {
-    expect(replyCount(FOOTER, { max: 1 }).toJSON()).toEqual({
+    expect(experimental_replyCount(FOOTER, { max: 1 }).toJSON()).toEqual({
       kind: "replyCount",
       matcher: String(FOOTER),
       regex: true,

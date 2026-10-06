@@ -434,9 +434,6 @@ export type DockerExec = (args: readonly string[]) => {
 export type Duration = `${number}${"s" | "m" | "h" | "d"}`;
 
 // @public
-export function eachReply(matcher: string | Readonly<RegExp>): Readonly<Check<Trace>>;
-
-// @public
 export function egressHosts(r: HasEgress): string[];
 
 // @public (undocumented)
@@ -621,6 +618,9 @@ export function experimental_assertEmittedOk(toolCalls: readonly ToolCall[], con
 export const experimental_dockerRuntime: ContainerRuntime;
 
 // @public
+export function experimental_eachReply(matcher: string | Readonly<RegExp>): Readonly<Check<Trace>>;
+
+// @public
 export function experimental_emitTool(contract: OutputContract, options?: {
     readonly name?: string;
 }): ExperimentalEmitTool;
@@ -650,6 +650,12 @@ export function experimental_outputStyleArms(path: string, opts?: {
 export function experimental_parseEmitted(toolCalls: readonly ToolCall[], contract: OutputContract, options?: {
     readonly name?: string;
 }): ParsedAgentResult;
+
+// @public
+export function experimental_replyCount(matcher: string | Readonly<RegExp>, opts: {
+    readonly min?: number;
+    readonly max?: number;
+}): Readonly<Check<Trace>>;
 
 // @public
 export function experimental_startServices(services: Readonly<Record<string, ServiceSpec>>, runtime: ContainerRuntime): Promise<ServiceSession>;
@@ -1054,12 +1060,6 @@ export function reliable(report: EvalReport, arm: string, metric: string): boole
 
 // @public
 export function renderToolStub(stub: ToolStub): string;
-
-// @public
-export function replyCount(matcher: string | Readonly<RegExp>, opts: {
-    readonly min?: number;
-    readonly max?: number;
-}): Readonly<Check<Trace>>;
 
 // @public
 export function requestContains(trace: Trace, needle: string | RegExp): boolean;

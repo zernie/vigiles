@@ -349,8 +349,11 @@ const NO_REPLIES =
  * EVERY reply of the run contains a substring / matches a RegExp — for a rule
  * about each reply ("end with a status block"), where `output` sees only the
  * last one. A run with no replies fails: there is nothing the rule held for.
+ *
+ * @experimental The matcher may grow a function form, and a check may come to
+ * be attached to a spec rule (vigiles#323).
  */
-export function eachReply(
+export function experimental_eachReply(
   matcher: string | Readonly<RegExp>,
 ): Readonly<Check<Trace>> {
   return {
@@ -377,8 +380,10 @@ export function eachReply(
  * How many replies of the run match, within bounds — `{ max: 1 }` is "at most
  * one status block for one user message", which a Stop hook that makes the
  * agent reply again can break while `output` still shows one.
+ *
+ * @experimental See {@link experimental_eachReply}.
  */
-export function replyCount(
+export function experimental_replyCount(
   matcher: string | Readonly<RegExp>,
   opts: { readonly min?: number; readonly max?: number },
 ): Readonly<Check<Trace>> {
