@@ -167,6 +167,8 @@ export interface ParsedModelRun {
   readonly toolCalls: ToolCall[];
   readonly hooks: HookFire[];
   readonly subagents: SubagentTrace[];
+  /** Every reply, in order; absent when the harness cannot tell them apart. */
+  readonly replies?: readonly string[];
   readonly usage: EvalUsage;
 }
 export type ModelOutputParser = (out: RunOut) => ParsedModelRun;

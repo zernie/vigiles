@@ -334,6 +334,76 @@ export function output(matcher: string | RegExp): Check<Trace> {
   };
 }
 
+/** A matcher as the report prints it: the string, or the RegExp literal. */
+const show = (matcher: string | Readonly<RegExp>): string =>
+  typeof matcher === "string" ? matcher : `/${matcher.source}/${matcher.flags}`;
+
+const matches = (matcher: string | Readonly<RegExp>, text: string): boolean =>
+  typeof matcher === "string" ? text.includes(matcher) : matcher.test(text);
+
+/** Why a reply check cannot run: the trace carries no replies to read. */
+const NO_REPLIES =
+  "the run has no `replies` (the harness does not tell replies apart, or the run was not streamed — pass `transcript: true`)";
+
+/**
+ * EVERY reply of the run contains a substring / matches a RegExp — for a rule
+ * about each reply ("end with a status block"), where `output` sees only the
+ * last one. A run with no replies fails: there is nothing the rule held for.
+ */
+export function eachReply(
+  matcher: string | Readonly<RegExp>,
+): Readonly<Check<Trace>> {
+  return {
+    kind: "eachReply",
+    eval: (t) => {
+      if (t.replies === undefined) return no(NO_REPLIES);
+      if (t.replies.length === 0) return no("the run wrote no replies");
+      const miss = t.replies.findIndex((r) => !matches(matcher, r));
+      return miss === -1
+        ? ok(`all ${String(t.replies.length)} replies matched ${show(matcher)}`)
+        : no(
+            `reply ${String(miss + 1)} of ${String(t.replies.length)} did not match ${show(matcher)}: "${truncate(t.replies[miss] ?? "") || "(empty)"}"`,
+          );
+    },
+    toJSON: () => ({
+      kind: "eachReply",
+      matcher: show(matcher),
+      regex: typeof matcher !== "string",
+    }),
+  };
+}
+
+/**
+ * How many replies of the run match, within bounds — `{ max: 1 }` is "at most
+ * one status block for one user message", which a Stop hook that makes the
+ * agent reply again can break while `output` still shows one.
+ */
+export function replyCount(
+  matcher: string | Readonly<RegExp>,
+  opts: { readonly min?: number; readonly max?: number },
+): Readonly<Check<Trace>> {
+  return {
+    kind: "replyCount",
+    eval: (t) => {
+      if (t.replies === undefined) return no(NO_REPLIES);
+      const n = t.replies.filter((r) => matches(matcher, r)).length;
+      const pass =
+        (opts.min === undefined || n >= opts.min) &&
+        (opts.max === undefined || n <= opts.max);
+      const bound = `min ${String(opts.min ?? "-")}, max ${String(opts.max ?? "-")}`;
+      const says = `${String(n)} of ${String(t.replies.length)} replies matched ${show(matcher)} (${bound})`;
+      return pass ? ok(says) : no(`expected ${bound}; ${says}`);
+    },
+    toJSON: () => ({
+      kind: "replyCount",
+      matcher: show(matcher),
+      regex: typeof matcher !== "string",
+      min: opts.min,
+      max: opts.max,
+    }),
+  };
+}
+
 /** A hook fired for this event (e.g. `"PreToolUse"`, `"Stop"`). */
 export function hookFired(event: string): Check<Trace> {
   return {

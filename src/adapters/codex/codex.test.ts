@@ -26,6 +26,7 @@ import { experimental_agent } from "../../core/spec.js";
 import { loadPlugin } from "../../plugin-loader.js";
 import { formatScanReport, scanPlugin } from "../../scan.js";
 import { runHarnessTest } from "../../harness-test.js";
+import { outputStyleArms } from "../../output-style-arms.js";
 import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
 
 test("codexAdapter passes the conformance kit (ports + cross-port invariants)", () => {
@@ -249,6 +250,13 @@ test("a codex harness test refuses an output style before running anything", asy
       { sandbox: false, outputStyle: "any/style.md", model: [] },
       { adapter: codexAdapter },
     ),
+    /outputStyle: this harness has no output styles/,
+  );
+});
+
+test("style arms for an eval refuse on codex before running anything", async () => {
+  await assert.rejects(
+    outputStyleArms("any/style.md", { adapter: codexAdapter }),
     /outputStyle: this harness has no output styles/,
   );
 });

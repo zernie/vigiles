@@ -170,6 +170,8 @@ export {
   onlyTools,
   skill,
   output,
+  eachReply,
+  replyCount,
   hookFired,
   received,
   turns,
@@ -254,6 +256,10 @@ export {
   specTrusted,
   sandboxAvailable,
 } from "./harness-test.js";
+// The two arms of an output-style eval, after one free run proves the style
+// reaches the model. Free: the run uses the scripted model.
+export { outputStyleArms } from "./output-style-arms.js";
+export type { OutputStyleArms } from "./output-style-arms.js";
 export type {
   HarnessTestSpec,
   Trace,

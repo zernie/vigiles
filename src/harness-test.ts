@@ -66,6 +66,9 @@ import {
   splitRequestCounts,
 } from "./mock-model.js";
 import { parseReplies } from "./adapters/claude-code/replies.js";
+
+/** Re-exported for the eval tier's parser, which reads the same stream. */
+export { parseReplies };
 import { defaultAdapter } from "./adapter-registry.js";
 import { planStyleRun, styleReached } from "./core/output-style.js";
 import {
@@ -770,6 +773,23 @@ function fixtureFor(
       );
     },
   };
+}
+
+/**
+ * The files and settings a run with `outputStyle` writes — the style at its
+ * place, selected by the name the harness reads from it. The same fixture
+ * `runHarnessTest({ outputStyle })` runs, so an eval arm built from it gets
+ * exactly what that run proved reaches the model.
+ */
+export function outputStyleFixture(
+  outputStyle: string,
+  adapter?: HarnessAdapter,
+): {
+  readonly files: Readonly<Record<string, string>>;
+  readonly settings: unknown;
+} {
+  const { files, settings } = fixtureFor({ outputStyle, model: [] }, adapter);
+  return { files, settings };
 }
 
 /** The style file's text, or a clear error naming the path. */

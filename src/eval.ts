@@ -81,6 +81,7 @@ import {
   parseToolCalls,
   parseResultEvent,
   parseHooks,
+  parseReplies,
   parseSubagents,
   type ToolCall,
   type Trace,
@@ -1102,6 +1103,7 @@ export function parseClaudeRun(out: RunOut): ParsedModelRun {
     toolCalls: parseToolCalls(out.stdout),
     hooks: parseHooks(out.stdout),
     subagents: parseSubagents(out.stdout),
+    replies: parseReplies(out.stdout),
     usage: usageFrom(result),
   };
 }
@@ -1127,6 +1129,7 @@ function makeContext(
     hooks: p.hooks,
     output: p.output,
     subagents: p.subagents,
+    ...(p.replies === undefined ? {} : { replies: p.replies }),
     usage: p.usage,
     // The eval tier drives the real API (no mock between the agent and the model),
     // so the requests can't be captured here — modelRequests is harness-tier only.

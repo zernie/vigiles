@@ -268,6 +268,7 @@ export interface ParsedModelRun {
     readonly hooks: HookFire[];
     // (undocumented)
     readonly output: string;
+    readonly replies?: readonly string[];
     // (undocumented)
     readonly subagents: SubagentTrace[];
     // (undocumented)

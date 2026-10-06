@@ -100,28 +100,51 @@ const footers = (r.replies ?? []).filter((t) => t.includes("**Status**"));
 ## Eval tier: does a real model follow it?
 
 A style is not chosen by the model, so there is no trigger rate to measure
-(`measureTriggerRate` does not apply). The approach is to compare runs with and
-without the style (`paid_measureArms` from `vigiles/eval`, one arm with the
-style file and its `outputStyle` setting, one without), check the output — a
-deterministic check where the rule has a checkable shape ("ends with a status
-block"), `paid_judged` where it does not — and gate the rates with
+(`measureTriggerRate` does not apply). Compare runs with and without the style,
+and check every reply of each run.
+
+```ts
+import { eachReply, outputStyleArms, replyCount } from "vigiles";
+import { paid_measureArms } from "vigiles/eval";
+
+// Free: one run with the scripted model proves the style reaches the model,
+// then the arms are built from the FILE — no name typed by hand.
+const arms = await outputStyleArms(".claude/output-styles/status-footer.md");
+
+// Paid: a real model, both arms.
+const report = await paid_measureArms({
+  arms,
+  task: "summarise README.md",
+  checks: [
+    eachReply(/\n---\n\*\*Status\*\*/), // every reply ends with the block
+    replyCount(/\*\*Status\*\*/, { max: 1 }), // one block per user message
+  ],
+  trials: 10,
+});
+```
+
+`outputStyleArms` throws before the first paid trial when the harness has no
+output styles, cannot tell the style's name, or the style does not reach the
+model. The paid run itself cannot check that: it drives the real API, so no
+request is captured (`modelRequests` is empty). The free run writes the same
+files and settings the "with" arm gets, through the same binary.
+
+Do not use the `output_style` field of Claude Code's `init` stream event as
+proof that a style loaded: measured on 2.1.291, it repeats the setting even
+when no style by that name exists.
+
+For a rule with no checkable shape, use `paid_judged`. Gate the rates with
 `assertRates`. This tier calls a real model and costs money; run it on purpose,
 not on every push.
 
-Known gaps in this tier today — none of the steps above has been run end to end
-on a style yet:
+What is still open:
 
-- **Nothing confirms the style loaded.** The eval drives the real API, so no
-  request is captured (`modelRequests` is empty). Do not use the `output_style`
-  field of Claude Code's `init` stream event as proof: measured on 2.1.291, it
-  repeats the setting even when no style by that name exists. Run the same
-  style through `runHarnessTest({ outputStyle })` first; it is free and does
-  check delivery.
-- **The arm's name is typed by hand**, so a mismatch makes the "with" arm the
-  same as the "without" arm, without an error.
-- **Checks see the last reply only**: `replies` is a harness-tier field.
+- **The paid comparison has not been run end to end on a style.** The arms, the
+  preflight and the reply checks are tested against the real binary with the
+  scripted model, and the checks against a recorded stream; no run with a real
+  model has been made.
 - **One prompt per comparison** (`task`), while a style rule usually needs a
-  varied set of prompts to say anything.
+  varied set of prompts to say anything. Run the comparison once per prompt.
 
 ## Per harness
 

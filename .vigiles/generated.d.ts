@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 505 project files. */
+  /** 509 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -128,6 +128,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/dialect.ts"
     | "src/adapters/claude-code/effect-region.test.ts"
     | "src/adapters/claude-code/effect-region.ts"
+    | "src/adapters/claude-code/eval-replies.test.ts"
     | "src/adapters/claude-code/event-capability.ts"
     | "src/adapters/claude-code/harness-output-style.test.ts"
     | "src/adapters/claude-code/hook-condition.ts"
@@ -139,6 +140,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/model-access.test.ts"
     | "src/adapters/claude-code/model-access.ts"
     | "src/adapters/claude-code/model-mock.ts"
+    | "src/adapters/claude-code/output-style-arms.test.ts"
     | "src/adapters/claude-code/output-style.test.ts"
     | "src/adapters/claude-code/output-style.ts"
     | "src/adapters/claude-code/plugin-loader.test.ts"
@@ -206,6 +208,7 @@ declare module "vigiles/generated" {
     | "src/audit-verdict.ts"
     | "src/check-count.test.ts"
     | "src/check-count.ts"
+    | "src/check-replies.test.ts"
     | "src/check.test.ts"
     | "src/check.ts"
     | "src/ci-path-filter.test.ts"
@@ -510,6 +513,7 @@ declare module "vigiles/generated" {
     | "src/observe.ts"
     | "src/optimize.test.ts"
     | "src/optimize.ts"
+    | "src/output-style-arms.ts"
     | "src/package-install-scripts.e2e.test.ts"
     | "src/plugin-declaration.test.ts"
     | "src/plugin-declaration.ts"
@@ -705,6 +709,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/dialect.ts"
       | "src/adapters/claude-code/effect-region.test.ts"
       | "src/adapters/claude-code/effect-region.ts"
+      | "src/adapters/claude-code/eval-replies.test.ts"
       | "src/adapters/claude-code/event-capability.ts"
       | "src/adapters/claude-code/harness-output-style.test.ts"
       | "src/adapters/claude-code/hook-condition.ts"
@@ -716,6 +721,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/model-access.test.ts"
       | "src/adapters/claude-code/model-access.ts"
       | "src/adapters/claude-code/model-mock.ts"
+      | "src/adapters/claude-code/output-style-arms.test.ts"
       | "src/adapters/claude-code/output-style.test.ts"
       | "src/adapters/claude-code/output-style.ts"
       | "src/adapters/claude-code/plugin-loader.test.ts"
@@ -783,6 +789,7 @@ declare module "vigiles/spec" {
       | "src/audit-verdict.ts"
       | "src/check-count.test.ts"
       | "src/check-count.ts"
+      | "src/check-replies.test.ts"
       | "src/check.test.ts"
       | "src/check.ts"
       | "src/ci-path-filter.test.ts"
@@ -1087,6 +1094,7 @@ declare module "vigiles/spec" {
       | "src/observe.ts"
       | "src/optimize.test.ts"
       | "src/optimize.ts"
+      | "src/output-style-arms.ts"
       | "src/package-install-scripts.e2e.test.ts"
       | "src/plugin-declaration.test.ts"
       | "src/plugin-declaration.ts"

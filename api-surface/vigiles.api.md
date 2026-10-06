@@ -434,6 +434,9 @@ export type DockerExec = (args: readonly string[]) => {
 export type Duration = `${number}${"s" | "m" | "h" | "d"}`;
 
 // @public
+export function eachReply(matcher: string | Readonly<RegExp>): Readonly<Check<Trace>>;
+
+// @public
 export function egressHosts(r: HasEgress): string[];
 
 // @public (undocumented)
@@ -942,6 +945,17 @@ export function output(matcher: string | RegExp): Check<Trace>;
 export function outputContains(trace: Trace, needle: string | RegExp): boolean;
 
 // @public
+export interface OutputStyleArms {
+    readonly with: EvalArm;
+    readonly without: EvalArm;
+}
+
+// @public
+export function outputStyleArms(path: string, opts?: {
+    readonly adapter?: HarnessAdapter;
+}): Promise<OutputStyleArms>;
+
+// @public
 export function outputTokens(opts: {
     max: number;
 }): Check<UsageTrace>;
@@ -958,6 +972,7 @@ export interface ParsedModelRun {
     readonly hooks: HookFire[];
     // (undocumented)
     readonly output: string;
+    readonly replies?: readonly string[];
     // (undocumented)
     readonly subagents: SubagentTrace[];
     // (undocumented)
@@ -1039,6 +1054,12 @@ export function reliable(report: EvalReport, arm: string, metric: string): boole
 
 // @public
 export function renderToolStub(stub: ToolStub): string;
+
+// @public
+export function replyCount(matcher: string | Readonly<RegExp>, opts: {
+    readonly min?: number;
+    readonly max?: number;
+}): Readonly<Check<Trace>>;
 
 // @public
 export function requestContains(trace: Trace, needle: string | RegExp): boolean;
