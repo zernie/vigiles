@@ -100,11 +100,28 @@ const footers = (r.replies ?? []).filter((t) => t.includes("**Status**"));
 ## Eval tier: does a real model follow it?
 
 A style is not chosen by the model, so there is no trigger rate to measure
-(`measureTriggerRate` does not apply). Compare runs with and without the style
-(`paid_measureArms` from `vigiles/eval`), check each reply — a deterministic
-check where the rule has a checkable shape ("ends with a status block"),
-`paid_judged` where it does not — and gate the rates with `assertRates`. This
-tier calls a real model and costs money; run it on purpose, not on every push.
+(`measureTriggerRate` does not apply). The approach is to compare runs with and
+without the style (`paid_measureArms` from `vigiles/eval`, one arm with the
+style file and its `outputStyle` setting, one without), check the output — a
+deterministic check where the rule has a checkable shape ("ends with a status
+block"), `paid_judged` where it does not — and gate the rates with
+`assertRates`. This tier calls a real model and costs money; run it on purpose,
+not on every push.
+
+Known gaps in this tier today — none of the steps above has been run end to end
+on a style yet:
+
+- **Nothing confirms the style loaded.** The eval drives the real API, so no
+  request is captured (`modelRequests` is empty). Do not use the `output_style`
+  field of Claude Code's `init` stream event as proof: measured on 2.1.291, it
+  repeats the setting even when no style by that name exists. Run the same
+  style through `runHarnessTest({ outputStyle })` first; it is free and does
+  check delivery.
+- **The arm's name is typed by hand**, so a mismatch makes the "with" arm the
+  same as the "without" arm, without an error.
+- **Checks see the last reply only**: `replies` is a harness-tier field.
+- **One prompt per comparison** (`task`), while a style rule usually needs a
+  varied set of prompts to say anything.
 
 ## Per harness
 

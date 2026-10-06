@@ -1053,7 +1053,7 @@ export function evalTierQuestion(kind: SurfaceKind): string | null {
         `it can show the style reached the model, never that a real model ` +
         `follows it.\n` +
         `See the \`test-harness\` skill: compare runs with and without the style ` +
-        `(\`measureArms\`), check each reply with deterministic checks where the ` +
+        `(\`measureArms\`), check the output with deterministic checks where the ` +
         `rule has a checkable shape and \`judged\` where it does not, and gate ` +
         `with \`assertRates\`. NOT \`measureTriggerRate\`: a style is not ` +
         `selected by the model, so there is no trigger to measure.`
