@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { findOutputStyles, outputStyleHomes } from "./output-style.js";
+import {
+  findOutputStyles,
+  outputStyleHomes,
+  planStyleRun,
+  styleReached,
+} from "./output-style.js";
 import type { OutputStyle, OutputStyleRules } from "./output-style.js";
 
 /**
@@ -77,5 +82,106 @@ describe("findOutputStyles", () => {
       }),
     );
     expect(found).toEqual({ kind: "found", styles: [] });
+  });
+});
+
+describe("planStyleRun", () => {
+  const source = { path: "styles/terse.txt", text: "Terse\nShort answers." };
+  const empty = { files: {}, settings: undefined };
+
+  it("writes the style into the user home and selects it by its read name", () => {
+    expect(planStyleRun(withStyles, source, empty)).toEqual({
+      kind: "planned",
+      style: {
+        path: ".acme/voices/terse.txt",
+        name: "Terse",
+        body: "Short answers.",
+      },
+      files: { ".acme/voices/terse.txt": "Terse\nShort answers." },
+      settings: { voice: "Terse" },
+    });
+  });
+
+  it("keeps the fixture's other files and settings", () => {
+    const plan = planStyleRun(withStyles, source, {
+      files: { "a.md": "a" },
+      settings: { model: "m" },
+    });
+    expect(plan.kind === "planned" && plan.settings).toEqual({
+      model: "m",
+      voice: "Terse",
+    });
+    expect(plan.kind === "planned" && plan.files["a.md"]).toBe("a");
+  });
+});
+
+describe("planStyleRun refuses rather than guess", () => {
+  const source = { path: "styles/terse.txt", text: "Terse\nShort answers." };
+  const empty = { files: {}, settings: undefined };
+  const CASES = [
+    {
+      why: "a harness without styles",
+      layout: withoutStyles,
+      src: source,
+      fixture: empty,
+      reason: /no output styles/,
+    },
+    {
+      why: "a file the harness would not load",
+      layout: withStyles,
+      src: { ...source, path: "x.md" },
+      fixture: empty,
+      reason: /would not load "x.md"/,
+    },
+    {
+      why: "a style with no readable name",
+      layout: withStyles,
+      src: { ...source, text: "\nbody" },
+      fixture: empty,
+      reason: /cannot tell which name/,
+    },
+    {
+      why: "a fixture file in the way",
+      layout: withStyles,
+      src: source,
+      fixture: {
+        files: { ".acme/voices/terse.txt": "x" },
+        settings: undefined,
+      },
+      reason: /already has a file/,
+    },
+    {
+      why: "settings that already pick a style",
+      layout: withStyles,
+      src: source,
+      fixture: { files: {}, settings: { voice: "Other" } },
+      reason: /already set "voice"/,
+    },
+    {
+      why: "settings that are not an object",
+      layout: withStyles,
+      src: source,
+      fixture: { files: {}, settings: [1] },
+      reason: /not an object/,
+    },
+  ] as const;
+  it.each(CASES)("on $why", (c) => {
+    const plan = planStyleRun(c.layout, c.src, c.fixture);
+    expect(plan.kind === "refused" && plan.reason).toMatch(c.reason);
+  });
+});
+
+describe("styleReached", () => {
+  const style = { path: "v/t.txt", name: "Terse", body: "Short answers." };
+  const req = (system: string) => ({ system, messages: [] });
+
+  it("is true when any request carries the style", () => {
+    expect(styleReached(acme, style, [req("x"), req("Short answers.")])).toBe(
+      true,
+    );
+  });
+
+  it("is false when none does", () => {
+    expect(styleReached(acme, style, [req("x"), req("y")])).toBe(false);
   });
 });

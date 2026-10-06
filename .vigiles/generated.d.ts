@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 502 project files. */
+  /** 505 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -129,6 +129,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/effect-region.test.ts"
     | "src/adapters/claude-code/effect-region.ts"
     | "src/adapters/claude-code/event-capability.ts"
+    | "src/adapters/claude-code/harness-output-style.test.ts"
     | "src/adapters/claude-code/hook-condition.ts"
     | "src/adapters/claude-code/hook-protocol.ts"
     | "src/adapters/claude-code/instruction-chain.test.ts"
@@ -144,6 +145,8 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/plugin-loader.ts"
     | "src/adapters/claude-code/refs-hook.test.ts"
     | "src/adapters/claude-code/refs-nudge-hook.test.ts"
+    | "src/adapters/claude-code/replies.test.ts"
+    | "src/adapters/claude-code/replies.ts"
     | "src/adapters/claude-code/run-scripts.test.ts"
     | "src/adapters/claude-code/run-scripts.ts"
     | "src/adapters/claude-code/runtime.test.ts"
@@ -703,6 +706,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/effect-region.test.ts"
       | "src/adapters/claude-code/effect-region.ts"
       | "src/adapters/claude-code/event-capability.ts"
+      | "src/adapters/claude-code/harness-output-style.test.ts"
       | "src/adapters/claude-code/hook-condition.ts"
       | "src/adapters/claude-code/hook-protocol.ts"
       | "src/adapters/claude-code/instruction-chain.test.ts"
@@ -718,6 +722,8 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/plugin-loader.ts"
       | "src/adapters/claude-code/refs-hook.test.ts"
       | "src/adapters/claude-code/refs-nudge-hook.test.ts"
+      | "src/adapters/claude-code/replies.test.ts"
+      | "src/adapters/claude-code/replies.ts"
       | "src/adapters/claude-code/run-scripts.test.ts"
       | "src/adapters/claude-code/run-scripts.ts"
       | "src/adapters/claude-code/runtime.test.ts"

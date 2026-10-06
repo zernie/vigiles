@@ -137,6 +137,8 @@ export interface ParsedRun {
   readonly hooks: readonly HookFire[];
   /** The agent's final answer text, or "". */
   readonly output: string;
+  /** Every reply, in order; absent when the output does not tell them apart. */
+  readonly replies?: readonly string[];
 }
 
 /**

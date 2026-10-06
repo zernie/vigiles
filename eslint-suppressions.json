@@ -2810,7 +2810,7 @@
       "count": 8
     },
     "functional/prefer-immutable-types": {
-      "count": 17
+      "count": 16
     },
     "local/no-harness-names": {
       "count": 11

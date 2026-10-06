@@ -75,6 +75,13 @@ export interface Trace {
   /** The agent's final answer text (the terminal `result` event), or "". */
   readonly output: string;
   /**
+   * Every reply the agent wrote, in order — the `output` is only the last. A
+   * run a Stop hook continued has two, and anything the first one printed (a
+   * status footer) shows only here. Absent when the harness's run output does
+   * not tell replies apart; empty without the stream (`transcript: true`).
+   */
+  readonly replies?: readonly string[];
+  /**
    * The requests the model received, captured by the scripted mock — each with
    * its `system` prompt and `messages`, flattened to text. Lets a test assert
    * what actually reached the model (a SessionStart hook's injected context, a

@@ -724,6 +724,7 @@ export interface HarnessTestSpec {
     readonly allowedTools?: readonly string[];
     readonly files?: Record<string, string>;
     readonly model: readonly ModelTurn[];
+    readonly outputStyle?: string;
     readonly plugin?: string;
     readonly pluginDir?: string;
     readonly prompt?: string;
@@ -1333,6 +1334,7 @@ export interface Trace {
     readonly hooks: readonly HookFire[];
     readonly modelRequests: readonly ModelRequest[];
     readonly output: string;
+    readonly replies?: readonly string[];
     readonly subagents?: readonly SubagentTrace[];
     readonly toolCalls: readonly ToolCall[];
     readonly turns: number;
