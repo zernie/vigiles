@@ -125,6 +125,12 @@ test("ranAsEntry: node pointed at an eval file, and the three ways it is not", (
     false,
   );
   assert.equal(ranAsEntry("/repo/x.harness.mjs"), false); // a free harness script
+  // `.eval.` has to be the LAST segment before the extension — a loose pattern
+  // would send a deterministic test to the paid runner's refusal.
+  assert.equal(ranAsEntry("/repo/x.eval.test.ts"), false);
+  assert.equal(ranAsEntry("/repo/x.eval.d.ts"), false);
+  assert.equal(ranAsEntry("/repo/eval.mjs"), false);
+  assert.equal(ranAsEntry("/repo/x.eval.mjs.json"), false);
 });
 
 test("the refusal names the file, the command to run and the free syntax check", () => {

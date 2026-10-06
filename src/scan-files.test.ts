@@ -205,6 +205,38 @@ describe("scanFiles parity for a SINGLE-SKILL-AT-ROOT repo (the shape no vendore
   });
 });
 
+describe("scanFiles: only a vigiles test grants coverage (the browser twin asks the classifier)", () => {
+  const skillMd =
+    "---\nname: deployer\ndescription: Deploys the application to production safely\n---\n# deployer\n";
+
+  it("a file named after the skill that is NOT a vigiles test credits nothing, in either engine", () => {
+    // Without this the twin's test filter could answer `true` for everything
+    // and every parity case above would still pass: they only ever contain
+    // real tests.
+    const files = {
+      "SKILL.md": skillMd,
+      "deployer.test.ts": "// a default vitest/jest name: not ours\n",
+      "deployer.spec.mjs": "// same\n",
+      "deployer.mjs": "// not a test at all\n",
+    };
+    const tmp = makeTmpDir("twin-not-a-test");
+    const abs = join(tmp, "single-skill-repo");
+    mkdirSync(abs, { recursive: true });
+    for (const [rel, body] of Object.entries(files))
+      writeFileSync(join(abs, rel), body);
+    const disk = buildAuditReport(
+      scanPlugin(abs, claudeCodeLayout, claudeCodeDialect),
+      OPTS,
+    ).inventory.untested;
+    const twin = buildAuditReport(
+      scanFiles(files, undefined, undefined, "single-skill-repo"),
+      OPTS,
+    ).inventory.untested;
+    expect([disk, twin]).toEqual([1, 1]);
+    cleanupTmpDir(tmp);
+  });
+});
+
 /**
  * 🔴 THE SAME BLIND SPOT AS THE SINGLE-SKILL BRANCH ABOVE, one surface over.
  *
