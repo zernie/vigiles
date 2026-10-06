@@ -212,6 +212,12 @@ export default {
         properties: {
           names: { type: "array", items: { type: "string" }, minItems: 1 },
           identifiers: { type: "boolean" },
+          // Harness name → the other strings that spell it: its config directory, its
+          // environment variables. Matched anywhere in the string, not as a token.
+          literals: {
+            type: "object",
+            additionalProperties: { type: "array", items: { type: "string" } },
+          },
         },
         // 🔴 REQUIRED, and it used to have a DEFAULT_NAMES fallback baked into
         // this file. A hand-written list of the adapters that exist is the same
@@ -232,6 +238,9 @@ export default {
         "module into the application layer. A harness name in a TYPE is worse than one in " +
         "an expression: it propagates into every signature that references the type. " +
         "See research/code-adapter-architecture.md.",
+      literal:
+        '"{{text}}" belongs to the {{name}} adapter ({{where}}). Outside that adapter, ' +
+        "read it from the adapter's PluginLayout / HarnessDialect instead of spelling it.",
     },
   },
 
@@ -239,6 +248,9 @@ export default {
     const opts = context.options[0] ?? {};
     const names = opts.names;
     const checkIdentifiers = opts.identifiers === true;
+    const literals = Object.entries(opts.literals ?? {}).flatMap(
+      ([name, texts]) => texts.map((text) => ({ name, text })),
+    );
 
     /** squashed spelling → the canonical name, for identifier matching. */
     const squashed = new Map(names.map((n) => [squash(n), n]));
@@ -247,20 +259,21 @@ export default {
     // Identifier nodes on the same range (imported + local), and two errors for
     // one mistake reads as two mistakes.
     const reported = new Set();
-    const report = (node, name, where) => {
+    const report = (node, messageId, data) => {
       const at = node.range[0];
       if (reported.has(at)) return;
       reported.add(at);
-      context.report({ node, messageId: "hardcoded", data: { name, where } });
+      context.report({ node, messageId, data });
     };
 
     const scanText = (node, text, where) => {
-      for (const name of names) {
-        if (containsToken(text, name)) {
-          report(node, name, where);
-          return;
-        }
+      const name = names.find((n) => containsToken(text, n));
+      if (name !== undefined) {
+        report(node, "hardcoded", { name, where });
+        return;
       }
+      const hit = literals.find((l) => text.includes(l.text));
+      if (hit !== undefined) report(node, "literal", { ...hit, where });
     };
 
     return {
@@ -288,7 +301,8 @@ export default {
       Identifier(node) {
         if (!checkIdentifiers) return;
         const hit = identifierSpells(node.name, squashed);
-        if (hit !== null) report(node, hit, "an identifier");
+        if (hit !== null)
+          report(node, "hardcoded", { name: hit, where: "an identifier" });
       },
     };
   },
