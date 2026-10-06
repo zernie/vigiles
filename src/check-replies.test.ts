@@ -5,7 +5,12 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { experimental_eachReply, experimental_replyCount } from "./check.js";
+import {
+  experimental_eachReply,
+  experimental_replyCount,
+  output,
+  received,
+} from "./check.js";
 import type { Trace } from "./harness-test.js";
 
 const trace = (replies: readonly string[] | undefined): Trace => ({
@@ -84,5 +89,42 @@ describe("experimental_replyCount", () => {
       min: undefined,
       max: 1,
     });
+  });
+});
+
+describe("a stateful RegExp gives the same answer every time", () => {
+  // `g` / `y` make `RegExp.test` advance `lastIndex`, so the second reply, or
+  // the second trial of the same check object, starts mid-string and misses.
+  it("eachReply matches every reply with a /g pattern", () => {
+    const check = experimental_eachReply(/Status/g);
+    expect(check.eval(trace(["xx Status", "Status"])).pass).toBe(true);
+    expect(check.eval(trace(["xx Status", "Status"])).pass).toBe(true);
+  });
+
+  it("replyCount counts every match with a /y pattern", () => {
+    const check = experimental_replyCount(/S/y, { min: 2 });
+    expect(check.eval(trace(["S", "S"])).pass).toBe(true);
+    expect(check.eval(trace(["S", "S"])).pass).toBe(true);
+  });
+
+  it("output and received, the older checks, answer the same on every trial", () => {
+    const out = output(/done/g);
+    const got = received(/hello/g);
+    const t: Trace = {
+      ...trace(["done"]),
+      modelRequests: [{ system: "hello", messages: [] }],
+    };
+    expect([out.eval(t).pass, out.eval(t).pass]).toEqual([true, true]);
+    expect([got.eval(t).pass, got.eval(t).pass]).toEqual([true, true]);
+  });
+});
+
+describe("replyCount refuses bounds that cannot mean anything", () => {
+  it.each([
+    { name: "no bound", opts: {} },
+    { name: "min above max", opts: { min: 3, max: 1 } },
+    { name: "a negative bound", opts: { min: -1 } },
+  ])("$name", ({ opts }) => {
+    expect(() => experimental_replyCount("X", opts)).toThrow(/replyCount/);
   });
 });

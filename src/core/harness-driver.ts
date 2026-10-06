@@ -137,7 +137,7 @@ export interface ParsedRun {
   readonly hooks: readonly HookFire[];
   /** The agent's final answer text, or "". */
   readonly output: string;
-  /** Every reply, in order; absent when the output does not tell them apart. */
+  /** Every reply the agent ended a turn with; absent when the output is not a stream. */
   readonly replies?: readonly string[];
 }
 

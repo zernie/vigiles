@@ -38,15 +38,8 @@ export async function experimental_outputStyleArms(
   opts: { readonly adapter?: HarnessAdapter } = {},
 ): Promise<OutputStyleArms> {
   const adapter = opts.adapter ?? defaultAdapter;
-  // The fixture is the style file alone: no hook or script runs, so there is
-  // nothing to confine.
   const preflight = await runHarnessTest(
-    {
-      outputStyle: path,
-      prompt: "hi",
-      model: [{ text: "ok" }],
-      sandbox: false,
-    },
+    { outputStyle: path, prompt: "hi", model: [{ text: "ok" }] },
     { adapter },
   );
   preflight.cleanup();

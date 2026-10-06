@@ -33,7 +33,6 @@ describe("parseReplies", () => {
   it("joins one message streamed as several events", () => {
     const stream = [
       assistant("m1", [text("Hello ")]),
-      assistant("m1", [{ type: "tool_use", id: "t", name: "Read", input: {} }]),
       assistant("m1", [text("world")]),
     ].join("\n");
     expect(parseReplies(stream)).toEqual(["Hello world"]);
@@ -50,13 +49,40 @@ describe("parseReplies", () => {
     expect(parseReplies(stream)).toEqual(["done"]);
   });
 
-  it("is empty for the plain json output, which has no assistant events", () => {
-    expect(parseReplies(result("only the last"))).toEqual([]);
+  it("is undefined for the plain json output, which is not a stream", () => {
+    expect(parseReplies(result("only the last"))).toBeUndefined();
   });
 
   it("skips lines that are not JSON", () => {
     expect(parseReplies(`noise\n${assistant("m1", [text("ok")])}`)).toEqual([
       "ok",
     ]);
+  });
+});
+
+describe("what counts as a reply", () => {
+  it("text the agent writes before a tool call is narration, not a reply", () => {
+    // Measured on Claude Code 2.1.292: the narration and the tool call share one
+    // message id, so the message is mid-turn, not where the agent stopped.
+    const stream = [
+      assistant("m1", [text("I will read the file now.")]),
+      assistant("m1", [
+        { type: "tool_use", id: "t1", name: "Read", input: {} },
+      ]),
+      JSON.stringify({
+        type: "user",
+        message: {
+          content: [{ type: "tool_result", tool_use_id: "t1", content: "x" }],
+        },
+      }),
+      assistant("m2", [text("done STATUS")]),
+      result("done STATUS"),
+    ].join("\n");
+    expect(parseReplies(stream)).toEqual(["done STATUS"]);
+  });
+
+  it("is not answered at all when the output is not a stream", () => {
+    expect(parseReplies(result("STATUS one"))).toBeUndefined();
+    expect(parseReplies("")).toBeUndefined();
   });
 });

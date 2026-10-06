@@ -65,10 +65,10 @@ import {
   scriptUnconsumedWarning,
   splitRequestCounts,
 } from "./mock-model.js";
-import { parseReplies } from "./adapters/claude-code/replies.js";
+import { parseReplies, reachedModel } from "./adapters/claude-code/replies.js";
 
 /** Re-exported for the eval tier's parser, which reads the same stream. */
-export { parseReplies };
+export { parseReplies, reachedModel };
 import { defaultAdapter } from "./adapter-registry.js";
 import { planStyleRun, styleReached } from "./core/output-style.js";
 import {
@@ -421,8 +421,9 @@ export function buildClaudeArgs(
       ? ["--plugin-dir", resolve(spec.pluginDir)]
       : []),
     ...(hasSettings ? ["--settings", "settings.json"] : []),
-    "--allowedTools",
-    ...tools,
+    // A permission allowlist: an empty one approves nothing, so the flag is
+    // left out (a bare `--allowedTools` exits before any model turn).
+    ...(tools.length === 0 ? [] : ["--allowedTools", ...tools]),
   ];
 }
 

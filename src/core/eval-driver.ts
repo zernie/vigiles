@@ -75,10 +75,11 @@ export interface Trace {
   /** The agent's final answer text (the terminal `result` event), or "". */
   readonly output: string;
   /**
-   * Every reply the agent wrote, in order — the `output` is only the last. A
-   * run a Stop hook continued has two, and anything the first one printed (a
-   * status footer) shows only here. Absent when the harness's run output does
-   * not tell replies apart; empty without the stream (`transcript: true`).
+   * Every reply the agent ended a turn with, in order — the `output` is only
+   * the last. A run a Stop hook continued has two, and anything the first one
+   * printed (a status footer) shows only here. Text the agent writes before a
+   * tool call is narration, not a reply. Absent when the harness's run output
+   * does not tell replies apart, or the run was not streamed (`transcript: true`).
    */
   readonly replies?: readonly string[];
   /**

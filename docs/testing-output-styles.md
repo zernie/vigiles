@@ -70,8 +70,10 @@ It refuses before running when:
 
 ### Every reply: `replies`
 
-`output` is the run's last reply. `replies` is every reply, in order — the one
-a Stop hook made the agent follow up on included. Needs `transcript: true`.
+`output` is the run's last reply. `replies` is every reply the agent ended a turn
+with, in order — the one a Stop hook made the agent follow up on included. Text
+the agent writes on its way to a tool call is narration, not a reply, and is left
+out. Needs `transcript: true`.
 
 ```ts
 const r = await runHarnessTest({
@@ -95,7 +97,9 @@ const footers = (r.replies ?? []).filter((t) => t.includes("**Status**"));
 // footers.length === 2: one user message, two status blocks
 ```
 
-`replies` is absent on a harness whose run output does not tell replies apart.
+`replies` is absent when the run was not streamed, or on a harness whose run
+output does not tell replies apart. The reply checks then fail and say so, rather
+than pass on nothing.
 
 ## Eval tier: does a real model follow it?
 

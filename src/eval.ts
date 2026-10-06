@@ -83,6 +83,7 @@ import {
   parseHooks,
   parseReplies,
   parseSubagents,
+  reachedModel,
   type ToolCall,
   type Trace,
 } from "./harness-test.js";
@@ -238,7 +239,11 @@ export interface EvalSpec<M extends Metrics> {
    * the cache, and never read from an env var. Omit for the harness default.
    */
   readonly effort?: string | number;
-  /** Tools the agent may use. Default: Read Edit Write Bash. */
+  /**
+   * Tools pre-approved for the run (`--allowedTools`, a permission allowlist);
+   * the default tools stay available either way. `[]` approves none.
+   * Default: Read Edit Write Bash.
+   */
   readonly allowedTools?: readonly string[];
   /** Per-run timeout ms. Default 240000. */
   readonly timeoutMs?: number;
@@ -506,27 +511,25 @@ export function buildAgentArgs(a: AgentRunArgs): string[] {
       ? ["--plugin-dir", resolve(a.pluginDir)]
       : []),
     ...(a.hasSettings ? ["--settings", "settings.json"] : []),
-    // An empty list means "no tools". A bare `--allowedTools` is a usage error
-    // (the CLI exits 1 before any model turn); `--tools ""` is the documented
-    // way to disable them all.
-    ...(a.tools.length === 0
-      ? ["--tools", ""]
-      : ["--allowedTools", ...a.tools]),
+    // A permission allowlist: an empty one approves nothing, so the flag is
+    // left out (a bare `--allowedTools` exits before any model turn).
+    ...(a.tools.length === 0 ? [] : ["--allowedTools", ...a.tools]),
   ];
 }
 
 /**
  * Why a run never reached the model, or null when it did. A run that exited
- * non-zero with no `result` event asked the model nothing — a usage error, a
- * missing binary, a broken auth setup — and scored as a trial it reads as a
- * miss on every check that needs output and a pass on every bound it cannot
- * break. Rate-limited runs are left to the retry loop.
+ * non-zero with no `assistant` event and no `result` event asked the model
+ * nothing — a usage error in the command line, a missing binary — and scored as
+ * a trial it reads as a miss on every check that needs output and a pass on
+ * every bound it cannot break. A run that reached the model and then broke is a
+ * scored outcome, not this. Rate-limited runs are left to the retry loop.
  */
 export function startFailure(out: Readonly<RunOut>): string | null {
   if (out.code === 0 || parseResultEvent(out.stdout) !== null) return null;
-  if (isRateLimited(out)) return null;
+  if (reachedModel(out.stdout) || isRateLimited(out)) return null;
   const said = (out.stderr ?? "").trim().split("\n").slice(-5).join("\n");
-  return `the harness exited ${String(out.code)} before any model turn: ${said || "(no stderr)"}`;
+  return `the harness exited ${String(out.code)} before calling the model: ${said || "(no stderr)"}`;
 }
 
 /**
@@ -702,7 +705,7 @@ export interface MeasureSpec {
    * the cache, and never read from an env var. Omit for the harness default.
    */
   readonly effort?: string | number;
-  /** Tools the agent may use. */
+  /** Tools pre-approved for the run (`--allowedTools`); `[]` approves none. */
   readonly allowedTools?: readonly string[];
   /** Per-run timeout ms. */
   readonly timeoutMs?: number;
@@ -1362,7 +1365,10 @@ async function runWithCache(
     trialIndex: keyParts.trialIndex,
   });
   const hit = readCache(cfg.cacheDir, key);
-  if (hit) {
+  // A run that never reached the model is not replayed: the real runner now
+  // throws on one, and an entry cached before that guard existed would
+  // otherwise be scored as a trial on every later run.
+  if (hit && startFailure(hit.out) === null) {
     restoreDir(runArgs.cwd, hit.files);
     return hit.out;
   }
@@ -1776,13 +1782,22 @@ export async function runPool<T, R>(
   worker: (item: T) => Promise<R>,
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
+  // A worker that throws rejects the whole pool; the others must stop taking
+  // items then, or they keep starting (and paying for) work nobody will read.
+  const stop = new AbortController();
   let next = 0;
   const drain = async (): Promise<void> => {
     for (;;) {
+      if (stop.signal.aborted) return;
       const i = next++;
       const item = items[i];
       if (i >= items.length || item === undefined) return;
-      results[i] = await worker(item);
+      try {
+        results[i] = await worker(item);
+      } catch (e) {
+        stop.abort();
+        throw e;
+      }
     }
   };
   const workers = Math.max(1, Math.min(concurrency, items.length || 1));
@@ -2433,7 +2448,10 @@ export interface TriggerRateSpec {
    * false-negative recall. Default `"sonnet"`. Lower it deliberately for a cheap run.
    */
   readonly minModel?: string;
-  /** Tools the agent may use. Default: Read Edit Write Bash Skill. */
+  /**
+   * Tools pre-approved for the run (`--allowedTools`); `[]` approves none.
+   * Default: Read Edit Write Bash Skill.
+   */
   readonly allowedTools?: readonly string[];
   /** Per-run timeout ms. Default 240000. */
   readonly timeoutMs?: number;

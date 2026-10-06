@@ -125,6 +125,38 @@ function truncate(s: string, n = 120): string {
   return flat.length > n ? `${flat.slice(0, n)}…` : flat;
 }
 
+/**
+ * Does `text` match? A RegExp is copied first: with `g` / `y`, `test` advances
+ * `lastIndex` on the object it is called on, so reusing the caller's object
+ * would miss on its second reply or its second trial.
+ */
+const matches = (matcher: string | Readonly<RegExp>, text: string): boolean =>
+  typeof matcher === "string"
+    ? text.includes(matcher)
+    : new RegExp(matcher).test(text);
+
+/** A matcher as the report prints it: the string, or the RegExp literal. */
+const show = (matcher: string | Readonly<RegExp>): string =>
+  typeof matcher === "string" ? matcher : `/${matcher.source}/${matcher.flags}`;
+
+/** Why a reply check cannot run: the trace carries no replies to read. */
+const NO_REPLIES =
+  "the run has no `replies` (the harness does not tell replies apart, or the run was not streamed — pass `transcript: true`)";
+
+/** Why a `{ min, max }` bound cannot mean anything, or null when it can. */
+function boundsProblem(opts: {
+  readonly min?: number;
+  readonly max?: number;
+}): string | null {
+  const given = [opts.min, opts.max].filter((n) => n !== undefined);
+  if (given.length === 0) return "give `min`, `max` or both";
+  if (given.some((n) => !Number.isInteger(n) || n < 0))
+    return "bounds are whole numbers, 0 or more";
+  if (opts.min !== undefined && opts.max !== undefined && opts.min > opts.max)
+    return `min ${String(opts.min)} is above max ${String(opts.max)}`;
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Trace checks (an agent run — runHarness / runEval)
 // ---------------------------------------------------------------------------
@@ -323,7 +355,7 @@ export function output(matcher: string | RegExp): Check<Trace> {
   return {
     kind: "output",
     eval: (t) => {
-      const pass = isRe ? matcher.test(t.output) : t.output.includes(matcher);
+      const pass = matches(matcher, t.output);
       return pass
         ? ok(`output matched ${String(matcher)}`)
         : no(
@@ -333,17 +365,6 @@ export function output(matcher: string | RegExp): Check<Trace> {
     toJSON: () => ({ kind: "output", matcher: String(matcher), regex: isRe }),
   };
 }
-
-/** A matcher as the report prints it: the string, or the RegExp literal. */
-const show = (matcher: string | Readonly<RegExp>): string =>
-  typeof matcher === "string" ? matcher : `/${matcher.source}/${matcher.flags}`;
-
-const matches = (matcher: string | Readonly<RegExp>, text: string): boolean =>
-  typeof matcher === "string" ? text.includes(matcher) : matcher.test(text);
-
-/** Why a reply check cannot run: the trace carries no replies to read. */
-const NO_REPLIES =
-  "the run has no `replies` (the harness does not tell replies apart, or the run was not streamed — pass `transcript: true`)";
 
 /**
  * EVERY reply of the run contains a substring / matches a RegExp — for a rule
@@ -387,6 +408,8 @@ export function experimental_replyCount(
   matcher: string | Readonly<RegExp>,
   opts: { readonly min?: number; readonly max?: number },
 ): Readonly<Check<Trace>> {
+  const problem = boundsProblem(opts);
+  if (problem !== null) throw new Error(`replyCount: ${problem}`);
   return {
     kind: "replyCount",
     eval: (t) => {
@@ -440,7 +463,7 @@ export function received(matcher: string | RegExp): Check<Trace> {
       const text = t.modelRequests
         .map((r) => `${r.system} ${r.messages.map((m) => m.text).join(" ")}`)
         .join(" ");
-      const pass = isRe ? matcher.test(text) : text.includes(matcher);
+      const pass = matches(matcher, text);
       return pass
         ? ok(`the model received ${String(matcher)}`)
         : no(
