@@ -313,6 +313,11 @@ tester.run("no-harness-names (literals)", rule as never, {
       code: 'const who = "claudette";',
       options: WITH_LITERALS,
     },
+    {
+      name: "a different directory that starts with the same letters is not it",
+      code: 'const cache = "~/.claudette/cache";',
+      options: WITH_LITERALS,
+    },
   ],
   invalid: [
     {
@@ -339,6 +344,18 @@ tester.run("no-harness-names (literals)", rule as never, {
     {
       name: "the plugin-root token inside a command string",
       code: 'const cmd = "${CLAUDE_PLUGIN_ROOT}/hooks/check.sh";',
+      options: WITH_LITERALS,
+      errors: 1,
+    },
+    {
+      name: "the directory at the end of a string",
+      code: 'const home = join(os.homedir(), ".claude");',
+      options: WITH_LITERALS,
+      errors: 1,
+    },
+    {
+      name: "the plugin manifest folder, which is Claude Code's too",
+      code: 'const manifest = ".claude-plugin/plugin.json";',
       options: WITH_LITERALS,
       errors: 1,
     },

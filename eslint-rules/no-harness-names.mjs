@@ -122,6 +122,18 @@
  * unused-disable-directive warning rather than a failure.
  */
 
+/**
+ * Whether `text` spells a harness literal. A literal ending in a letter or a
+ * digit (`.claude`) must not run on into another word character, so
+ * `.claudette/cache` is not Claude Code while `.claude/x` and `.claude-plugin`
+ * are. A literal ending in `_` (`ANTHROPIC_`) is a prefix by design.
+ */
+function containsLiteral(text, literal) {
+  const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const end = /[A-Za-z0-9]$/.test(literal) ? "(?![A-Za-z0-9_])" : "";
+  return new RegExp(escaped + end).test(text);
+}
+
 /** `claude-code` → `claudecode`, so identifier segments can be matched to it. */
 const squash = (name) => name.replace(/[^a-z0-9]+/gi, "").toLowerCase();
 
@@ -181,7 +193,7 @@ export default {
           names: { type: "array", items: { type: "string" }, minItems: 1 },
           identifiers: { type: "boolean" },
           // Harness name → the other strings that spell it: its config directory, its
-          // environment variables. Matched anywhere in the string, not as a token.
+          // environment variables. See `containsLiteral` for how they match.
           literals: {
             type: "object",
             additionalProperties: { type: "array", items: { type: "string" } },
@@ -240,7 +252,7 @@ export default {
         report(node, "hardcoded", { name, where });
         return;
       }
-      const hit = literals.find((l) => text.includes(l.text));
+      const hit = literals.find((l) => containsLiteral(text, l.text));
       if (hit !== undefined) report(node, "literal", { ...hit, where });
     };
 

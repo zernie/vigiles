@@ -2128,7 +2128,7 @@
   },
   "src/core/surface-discovery.test.ts": {
     "local/no-harness-names": {
-      "count": 42
+      "count": 41
     }
   },
   "src/core/surface-discovery.ts": {
