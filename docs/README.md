@@ -23,6 +23,7 @@ The docs are grouped by what you're trying to do:
 ### Test & measure your harness (the Test + Eval layers)
 
 - [`harness-testing.md`](harness-testing.md) — task-first how-to: pick what you want to test (hook / safety-hook battery / wiring / skill firing / behaviour) and the tier that answers it, with a copy-paste first test and CI.
+- [`testing-output-styles.md`](testing-output-styles.md) — testing an output style: the three tiers, `runHarnessTest({ outputStyle })`, `replies`, and which harnesses have styles.
   - [`harness-testing-claude-code.md`](harness-testing-claude-code.md) — Claude Code specifics: `scriptModel`, `${CLAUDE_PLUGIN_ROOT}` / `pluginDir` / the `Skill` tool, the bubblewrap sandbox.
   - [`harness-testing-codex.md`](harness-testing-codex.md) — Codex specifics: `runHarnessTest({ adapter: codexAdapter })` against real `codex exec`, the Responses mock, what maps and what doesn't.
 - [`measuring-skills.md`](measuring-skills.md) — A/B a skill, plugin, model, or rule change on real coding tasks: the metric triple (bill / target / blast-radius), the worked example, and why it's affordable on your subscription.

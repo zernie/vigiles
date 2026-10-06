@@ -51,7 +51,8 @@ the name the setting selects, so a style called `Status Block` is covered by
 count. See [`untested-skill`](untested-skill.md#what-counts-as-tested) for the
 shared mechanics.
 
-A harness test can show that the style reached the model. Whether a real model
+A harness test can show that the style reached the model — see
+[Testing output styles](../testing-output-styles.md). Whether a real model
 follows it is an eval-tier question: a style is not selected by the model, so
 there is no trigger rate to measure — compare runs with and without the style.
 
