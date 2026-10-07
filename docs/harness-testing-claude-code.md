@@ -223,6 +223,16 @@ assertSkillResolved(r, "demo:greet"); // a non-error Skill tool_use by that name
 assertToolNotUsed(r, /^mcp__/); // the safety negative: no MCP tool was used
 ```
 
+`allowedTools` is the **complete** tool set the agent has (default: `Read`,
+`Edit`, `Write`, `Bash`). A tool left out is not offered at all (`claude --tools`,
+Claude Code 2.0.31 or newer): a scripted call to it comes back as "No such tool
+available" and its side effect never happens. Each listed tool is also
+pre-approved (`--allowedTools`), so it does not stop on a permission prompt. A
+permission rule such as `Bash(git *)` keeps its specifier for the approval and is
+offered as plain `Bash`. `allowedTools: []` is refused: an agent with no tools is
+never served a scripted turn. (Before this, the list only pre-approved, so a tool
+you left out still ran.)
+
 **Assert on the agent's _actions_, not stdout.** With `transcript: true`,
 `r.toolCalls` is the parsed list of tools the agent invoked (each paired with its
 result). The helpers `assertToolUsed(r, name|/regex/)`, `assertToolNotUsed(...)`
@@ -320,8 +330,8 @@ populated by `runHarnessTest`; the eval tier drives the real API, so its
 
 The deterministic mock drives **SessionStart, Stop, UserPromptSubmit, and Bash
 **and Edit/Write** PreToolUse/PostToolUse** — the governance/policy shapes most
-real plugins use (`--allowedTools` allowlists the edit tools past the permission
-prompt; verified on claude 2.1.169). The events the mock can't trigger —
+real plugins use (`allowedTools` offers the edit tools and pre-approves them past
+the permission prompt; verified on claude 2.1.169). The events the mock can't trigger —
 **PreCompact, Notification, SessionEnd, SubagentStop** — belong to the `runHook`
 unit tier, where you hand the hook the event JSON yourself so all of them are
 testable.

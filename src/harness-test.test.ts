@@ -3,8 +3,8 @@
  * real hooks/settings against a scripted mock model, so the outcome is
  * reproducible. Skipped cleanly when `claude` is not on PATH.
  *
- * Edit/Write tool-event hooks DO fire in this tier (`--allowedTools` allowlists
- * the edit tools past the permission prompt) — see the Edit/Write regression
+ * Edit/Write tool-event hooks DO fire in this tier (`allowedTools` offers and
+ * pre-approves the edit tools past the permission prompt) — see the Edit/Write regression
  * tests below. An earlier claude version gated them headlessly; the tests lock in
  * that they work on current CLIs (verified on 2.1.169) and catch a re-gate.
  */
@@ -127,6 +127,8 @@ import {
   parseHooks,
   parseSubagents,
   buildClaudeArgs,
+  toolAvailabilityList,
+  unsupportedToolsFlag,
 } from "./harness-test.js";
 import {
   assertToolUsed,
@@ -171,6 +173,125 @@ test("buildClaudeArgs: transcript, pluginDir, settings, and tool defaults", () =
   assert.ok(full.includes("--plugin-dir") && full.includes("--settings"));
   assert.deepEqual(full.slice(-2), ["--allowedTools", "Bash"]);
 });
+
+// #252: `--allowedTools` PRE-APPROVES, it does not restrict, so a tool left out
+// of `allowedTools` must be withheld with `--tools` (the availability list).
+test("buildClaudeArgs: allowedTools both pre-approves and withholds (--tools)", () => {
+  const argsOf = (allowedTools?: readonly string[]) =>
+    buildClaudeArgs({ model: scriptModel([]), allowedTools }, false);
+  const flagValues = (args: readonly string[], flag: string): string[] => {
+    const at = args.indexOf(flag);
+    if (at < 0) return [];
+    const rest = args.slice(at + 1);
+    const next = rest.findIndex((a) => a.startsWith("--"));
+    return next < 0 ? rest : rest.slice(0, next);
+  };
+
+  const narrowed = argsOf(["Read", "Write"]);
+  assert.deepEqual(flagValues(narrowed, "--tools"), ["Read,Write"]);
+  assert.deepEqual(flagValues(narrowed, "--allowedTools"), ["Read", "Write"]);
+
+  // The default set is withheld to the same four tools, not "everything".
+  assert.deepEqual(flagValues(argsOf(), "--tools"), ["Read,Edit,Write,Bash"]);
+
+  // The builder alone: an empty list is NO tools, not "all of them" (`--tools ""`).
+  // runHarnessTest refuses it — see the test below.
+  const none = argsOf([]);
+  assert.deepEqual(flagValues(none, "--tools"), [""]);
+  assert.ok(!none.includes("--allowedTools"), "nothing to pre-approve");
+});
+
+test("toolAvailabilityList: a permission rule is offered by its tool name", () => {
+  // `--tools "Bash(git *)"` makes the CLI offer nothing (measured on 2.1.292), so
+  // the specifier stays on the `--allowedTools` side only.
+  assert.deepEqual(toolAvailabilityList(["Bash(git *)", "Read"]), [
+    "Bash",
+    "Read",
+  ]);
+  assert.deepEqual(toolAvailabilityList(["Bash(git *)", "Bash(ls)", "Bash"]), [
+    "Bash",
+  ]);
+  assert.deepEqual(toolAvailabilityList([]), []);
+  const args = buildClaudeArgs(
+    { model: scriptModel([]), allowedTools: ["Bash(git *)"] },
+    false,
+  );
+  assert.deepEqual(args.slice(-4), [
+    "--tools",
+    "Bash",
+    "--allowedTools",
+    "Bash(git *)",
+  ]);
+});
+
+test("unsupportedToolsFlag: names the cause when claude predates --tools", () => {
+  assert.match(
+    unsupportedToolsFlag("error: unknown option '--tools'\n") ?? "",
+    /2\.0\.31 or newer/,
+  );
+  assert.equal(unsupportedToolsFlag("some other failure"), undefined);
+  assert.equal(unsupportedToolsFlag(""), undefined);
+});
+
+test("allowedTools: [] is refused — a tool-less agent is never served a script turn", async () => {
+  await assert.rejects(
+    runHarnessTest({
+      sandbox: false,
+      allowedTools: [],
+      model: [{ text: "done" }],
+    }),
+    /allowedTools: \[\] leaves the agent with no tools/,
+  );
+});
+
+maybe("allowedTools keeps a permission rule's tool available", async () => {
+  const r = await runHarnessTest({
+    sandbox: false,
+    transcript: true,
+    allowedTools: ["Bash(touch *)"],
+    model: [{ tool: "Bash", input: { command: "touch OK" } }, { text: "done" }],
+    timeoutMs: 120000,
+  });
+  try {
+    assert.ok(r.toolCalls.some((c) => c.name === "Bash"));
+    assert.notEqual(r.file("OK"), null, "the approved Bash call ran");
+  } finally {
+    r.cleanup();
+  }
+});
+
+// #252 repro, verbatim from the issue: a tool left out of `allowedTools` must
+// NOT run. Asserts the refusal text AND the absence of the side effect — `isError`
+// alone was true in the broken state too (the CLI's working-directory guard).
+maybe(
+  "a tool left out of allowedTools is withheld, not just unmentioned",
+  async () => {
+    const r = await runHarnessTest({
+      sandbox: false,
+      transcript: true,
+      prompt: "probe",
+      allowedTools: ["Read", "Write"], // Bash deliberately absent
+      model: [
+        { tool: "Bash", input: { command: "touch DENIED-PROBE" } },
+        { text: "done" },
+      ],
+      timeoutMs: 120000,
+    });
+    try {
+      const bash = r.toolCalls.find((c) => c.name === "Bash");
+      assert.ok(bash, "the scripted Bash call reached the CLI");
+      assert.equal(bash.isError, true);
+      assert.match(
+        bash.resultText,
+        /no such tool|not available|unknown tool/i,
+        "refused because the tool is not offered, not by a permission guard",
+      );
+      assert.equal(r.file("DENIED-PROBE"), null, "Bash must not have run");
+    } finally {
+      r.cleanup();
+    }
+  },
+);
 
 // Regression: a PostToolUse hook fires on an Edit/Write tool use. This is the
 // deterministic-tier capability a stale comment once said was impossible; the

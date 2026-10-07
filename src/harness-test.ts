@@ -150,7 +150,14 @@ export interface HarnessTestSpec {
   readonly model: readonly ModelTurn[];
   /** The user prompt. Default: "go". */
   readonly prompt?: string;
-  /** Tools the agent may use. Default: Read Edit Write Bash. */
+  /**
+   * The ONLY tools the agent has. Default: Read Edit Write Bash. A tool left out
+   * is not offered (`claude --tools`, Claude Code 2.0.31+): a scripted call to it
+   * comes back as "No such tool available", and `[]` means no tools at all. Each
+   * listed tool is also pre-approved (`--allowedTools`), so it does not stop on a
+   * permission prompt; a permission rule such as `Bash(git *)` keeps its
+   * specifier for the approval and is reduced to `Bash` for availability.
+   */
   readonly allowedTools?: readonly string[];
   /**
    * Capture the full event transcript (`--output-format stream-json`) into
@@ -403,6 +410,38 @@ export function parseHooks(stdout: string): HookFire[] {
 }
 
 /**
+ * The first `claude` that has `--tools` (print mode). Found by diffing the
+ * published `@anthropic-ai/claude-code` tarballs: 2.0.30 has no such option,
+ * 2.0.31 does (the changelog does not list it; its 2.1.0 entry only extends the
+ * flag to interactive mode).
+ */
+const TOOLS_FLAG_MIN_CLAUDE = "2.0.31";
+
+/**
+ * The names `--tools` should offer for an `allowedTools` list. `--allowedTools`
+ * takes permission rules (`Bash(git *)`); `--tools` takes tool NAMES, and a rule
+ * with a specifier there makes the CLI offer no tools at all. So the specifier is
+ * dropped (`Bash(git *)` → `Bash`) and repeats collapse. Pure.
+ */
+export function toolAvailabilityList(
+  allowed: readonly string[],
+): readonly string[] {
+  const names = allowed.map((rule) => rule.replace(/\(.*$/, "").trim());
+  return [...new Set(names.filter((n) => n !== ""))];
+}
+
+/**
+ * A run on a `claude` that predates `--tools` exits at argument parsing, and
+ * commander's "unknown option" says nothing about WHY vigiles passed it. Returns
+ * the message to throw, or undefined when the run did not die that way. Pure.
+ */
+export function unsupportedToolsFlag(stderr: string): string | undefined {
+  return /unknown option '--tools'/.test(stderr)
+    ? `this \`claude\` does not know \`--tools\`, which runHarnessTest uses to withhold every tool not in \`allowedTools\` (#252). Update Claude Code to ${TOOLS_FLAG_MIN_CLAUDE} or newer. Running without it would hand the agent every tool while the test reads as if it were fenced.`
+    : undefined;
+}
+
+/**
  * The `claude` CLI argv for a harness run (shared by the direct and sandboxed
  * paths). `ANTHROPIC_BASE_URL` is set by the caller's environment / wrapper, not
  * here. Pure, so the arg shape is unit-tested.
@@ -424,8 +463,15 @@ export function buildClaudeArgs(
       ? ["--plugin-dir", resolve(spec.pluginDir)]
       : []),
     ...(hasSettings ? ["--settings", "settings.json"] : []),
-    // A permission allowlist: an empty one approves nothing, so the flag is
-    // left out (a bare `--allowedTools` exits before any model turn).
+    // `--tools` is the AVAILABILITY list: a tool left out is not offered to the
+    // agent at all. `--allowedTools` only PRE-APPROVES (it never restricts), so
+    // on its own it left every unnamed tool runnable (#252). An empty list is
+    // `--tools ""` = no tools at all, never "all of them".
+    "--tools",
+    toolAvailabilityList(tools).join(","),
+    // Pre-approval for the offered tools, so none stops on a permission prompt
+    // (headless). An empty one approves nothing, so the flag is left out (a bare
+    // `--allowedTools` exits before any model turn).
     ...(tools.length === 0 ? [] : ["--allowedTools", ...tools]),
   ];
 }
@@ -624,6 +670,11 @@ function makeResult(
   // WHAT this run exercised, read off the transcript rather than the fixture: a
   // harness test installs a whole plugin, and what was INSTALLED is a set while
   // what RAN is one thing. See coverage-probe.ts.
+  const unsupported = unsupportedToolsFlag(out.stderr ?? "");
+  if (unsupported !== undefined) {
+    rmSync(cwd, { recursive: true, force: true });
+    throw new Error(unsupported);
+  }
   probeTrace({ toolCalls: parsed.toolCalls, hooks: parsed.hooks });
   return {
     exitCode: out.code,
@@ -699,6 +750,15 @@ export async function runHarnessTestIn(
   if (decision.action === "sandbox" && !isClaudeCode) {
     throw new Error(
       `sandbox not supported for ${driver.runtime.name}: confined execution is Claude Code only. Pass sandbox: false to run ${driver.runtime.name} unconfined (you audited the code, or trust the outer container).`,
+    );
+  }
+
+  // The scripted model tells an agent turn from the CLI's own bookkeeping calls
+  // by the tools the request declares (`isMainLoopRequest`). An agent with none
+  // is never served a script turn, and the run would decide on nothing.
+  if (isClaudeCode && spec.allowedTools?.length === 0) {
+    throw new Error(
+      "allowedTools: [] leaves the agent with no tools, and the scripted model only serves a turn to a request that declares tools — no script turn would be consumed. Name the tools the agent has.",
     );
   }
 
