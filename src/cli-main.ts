@@ -135,6 +135,7 @@ import {
   linkPrecondition,
   locatePackage,
   planSkillLinks,
+  portableTarget,
   skillLinksUsable,
   writeSkillLink,
   type LinkIo,
@@ -4241,7 +4242,7 @@ function changedLinks(outcome: SkillLinkOutcome): readonly string[] {
   return outcome.kind === "linked"
     ? outcome.results
         .filter((r) => r.status === "created" || r.status === "relinked")
-        .map((r) => `${outcome.home}/${r.name}`)
+        .map((r) => `${outcome.physicalHome}/${r.name}`)
     : [];
 }
 
@@ -4418,16 +4419,18 @@ function linkVigilesSkills(home: string, cwd: string): SkillLinkOutcome {
   } catch (e) {
     return notLinked(`cannot create ${home}: ${errorText(e)}`);
   }
+  const physicalHome = realpathSync(absHome);
   const plan = planSkillLinks({
     names,
     site,
-    physicalHome: realpathSync(absHome),
+    physicalHome,
     entries: (n) => observeSkillEntry(join(absHome, n)),
     realOf: (n) => realOrNull(join(site.dir, "skills", n)),
   });
   return {
     kind: "linked",
     home,
+    physicalHome: portableTarget(relative(project, physicalHome)),
     pending: plan.pending,
     results: plan.decisions.map((d) => applySkillLink(d, absHome)),
   };

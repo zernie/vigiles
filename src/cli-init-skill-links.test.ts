@@ -352,6 +352,11 @@ test("a skills home that is a link to somewhere inside the repository is still l
       out,
     );
     assert.ok(out.includes("6 linked now"), out);
+    // Guards: git refuses a pathspec through a symlink ("beyond a symbolic
+    // link"), so the commit hint must name the physical path inside the repo.
+    const hint = out.split("\n").find((l) => l.includes("git add")) ?? "";
+    assert.ok(hint.includes("tooling/claude/skills/test-harness"), hint);
+    assert.ok(!hint.includes(`${homeOf(CC)}/test-harness`), hint);
   });
 });
 

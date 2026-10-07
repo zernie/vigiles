@@ -247,13 +247,27 @@ export interface SkillLinkPlan {
   readonly decisions: readonly SkillLinkDecision[];
 }
 
+/**
+ * A link target as it is committed: `/` separators on every OS. `relative()` on
+ * Windows yields `..\\..\\node_modules\\…`, and a clone on Linux or macOS
+ * reads those backslashes as ordinary filename characters, so the link dangles.
+ */
+export function portableTarget(
+  target: string,
+  separator: string = sep,
+): string {
+  return target.split(separator).join("/");
+}
+
 export function planSkillLinks(input: SkillLinkInput): SkillLinkPlan {
   const skillsDir = join(input.site.dir, "skills");
   return {
     pending: input.site.kind === "expected",
     decisions: input.names.map((name) =>
       decideSkillLink(name, input.entries(name), {
-        target: relative(input.physicalHome, join(skillsDir, name)),
+        target: portableTarget(
+          relative(input.physicalHome, join(skillsDir, name)),
+        ),
         real: input.realOf(name),
       }),
     ),
@@ -335,6 +349,12 @@ export type SkillLinkOutcome =
       readonly kind: "linked";
       /** Repo-relative skills home, e.g. `.claude/skills`. */
       readonly home: string;
+      /**
+       * The same home with every symlink resolved, repo-relative with `/`.
+       * Git refuses a pathspec that runs through a symlink, so the commit hint
+       * names this one.
+       */
+      readonly physicalHome: string;
       readonly pending: boolean;
       readonly results: readonly SkillLinkResult[];
     }

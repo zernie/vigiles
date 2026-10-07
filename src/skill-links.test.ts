@@ -20,6 +20,7 @@ import {
   linkPrecondition,
   locatePackage,
   planSkillLinks,
+  portableTarget,
   relinkTempPath,
   skillLinksUsable,
   writeSkillLink,
@@ -173,6 +174,7 @@ test("the report counts what happened, names every skipped skill and says how to
   const lines = formatSkillLinks({
     kind: "linked",
     home: ".h/skills",
+    physicalHome: ".h/skills",
     pending: false,
     results: [
       { name: "edit-spec", status: "created" },
@@ -191,6 +193,7 @@ test("a pending report says the links resolve after npm install", () => {
   const text = formatSkillLinks({
     kind: "linked",
     home: ".agents/skills",
+    physicalHome: ".agents/skills",
     pending: true,
     results: [{ name: "edit-spec", status: "created" }],
   }).join("\n");
@@ -212,6 +215,7 @@ test("skillLinksUsable: true only when at least one shipped skill is linked", ()
     skillLinksUsable({
       kind: "linked",
       home: ".h/skills",
+      physicalHome: ".h/skills",
       pending: false,
       results: [{ name: "a", status: "skipped", reason: "a directory" }],
     }),
@@ -221,6 +225,7 @@ test("skillLinksUsable: true only when at least one shipped skill is linked", ()
     skillLinksUsable({
       kind: "linked",
       home: ".h/skills",
+      physicalHome: ".h/skills",
       pending: true,
       results: [{ name: "a", status: "present" }],
     }),
@@ -454,4 +459,16 @@ test("create: one symlink call, nothing else touched", () => {
   const fs = fakeLinks({});
   writeSkillLink(fs.io, ENTRY, "new/target", "create");
   assert.deepEqual(fs.calls, [`symlink ${ENTRY}`]);
+});
+
+test("portableTarget: a Windows relative target is committed with forward slashes", () => {
+  // Guards: a backslash target committed from Windows dangles on Linux and macOS.
+  assert.equal(
+    portableTarget("..\\..\\node_modules\\vigiles\\skills\\test-harness", "\\"),
+    "../../node_modules/vigiles/skills/test-harness",
+  );
+  assert.equal(
+    portableTarget("../../node_modules/vigiles/skills/x", "/"),
+    "../../node_modules/vigiles/skills/x",
+  );
 });
