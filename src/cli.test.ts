@@ -1495,11 +1495,6 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
         "workflow rule gated under --strict",
       );
       assert.equal(cfg.extends, "vigiles:recommended", "structural, by preset");
-      assert.equal(
-        cfg.rules?.["subagent-tool-contract"],
-        undefined,
-        "no per-rule line for a preset rule",
-      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -3562,6 +3562,9 @@ function vigilesWorkflow(
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      # No \`version:\` on purpose: the Action runs the vigiles your
+      # package.json declares, so CI and a local \`npx vigiles\` cannot
+      # drift onto two different pins.
       - uses: zernie/vigiles@v1
 `
     : "";

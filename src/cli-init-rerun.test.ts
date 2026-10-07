@@ -208,7 +208,12 @@ test("brand-new repo: a bare init is still the full setup, extending the preset"
       JSON.stringify({ name: "fresh" }),
     );
     init(s, ["--no-plugin"]);
-    assert.ok(existsSync(join(s.root, ".github", "workflows", "vigiles.yml")));
+    // The generated workflow carries no version pin: the Action runs the
+    // vigiles package.json declares, so there is one pin, not two.
+    assert.doesNotMatch(
+      read(s.root, ".github/workflows/vigiles.yml"),
+      /^\s*version:/m,
+    );
     assert.equal(
       jsonField(s.root, ".vigilesrc.json", "extends"),
       "vigiles:recommended",
