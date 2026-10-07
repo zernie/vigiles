@@ -671,6 +671,11 @@ function MoreFold({ n, children }: { n: number; children: ReactNode }) {
 const SECTION_H =
   "mb-4 mt-12 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70";
 
+/** Styles to list; `"not-supported"` and an absent field both list none. */
+function styleCount(n: AuditReport["inventory"]["outputStyles"]): number {
+  return typeof n === "number" ? n : 0;
+}
+
 export function Report({
   data,
   showFooter = true,
@@ -737,6 +742,7 @@ export function Report({
       count(inventory.agents, "agent"),
       count(inventory.hooks, "hook"),
       count(inventory.commands, "command"),
+      count(styleCount(inventory.outputStyles), "output style"),
     ].filter(Boolean) as string[];
     const top = rankedFixes.slice(0, 3);
     const rest = rankedFixes.slice(3);
@@ -936,6 +942,9 @@ export function Report({
         <span>{inventory.agents} agents</span>
         <span>{inventory.hooks} hooks</span>
         <span>{inventory.commands} commands</span>
+        {styleCount(inventory.outputStyles) > 0 && (
+          <span>{styleCount(inventory.outputStyles)} output styles</span>
+        )}
         <span>MCP {inventory.mcp ? "yes" : "no"}</span>
         {inventory.untested > 0 && (
           <span className={TEXT.warn}>{inventory.untested} untested</span>
