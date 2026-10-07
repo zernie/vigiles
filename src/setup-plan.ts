@@ -81,6 +81,11 @@ export interface ParsedSetupArgs {
    * DISCOVERY row of `cohesive-feature-delivery`.
    */
   ciOnly: boolean;
+  /**
+   * `--full` — run the whole setup even on a repo that already uses vigiles.
+   * Without it, a re-run there is the minimal one (see {@link rerunScope}).
+   */
+  full: boolean;
 }
 
 function flagValue(
@@ -112,6 +117,7 @@ export function parseSetupArgs(args: readonly string[]): ParsedSetupArgs {
     gha: args.includes("--no-gha") ? false : undefined,
     plugin: args.includes("--no-plugin") ? false : undefined,
     ciOnly: args.includes("--ci-only"),
+    full: args.includes("--full"),
   };
 }
 
@@ -383,7 +389,7 @@ function applyAnswers(plan: SetupPlan, answers: SetupAnswers): void {
 export function gateOnlyInvitation(plan: SetupPlan): string | null {
   const gateOnly = !plan.plugin && !plan.scaffoldSpecs;
   if (!gateOnly) return null;
-  return "→ Want your agent to maintain this + measure whether your skills fire? Run `npx vigiles init` and choose 'full' (installs the skills). Optional — the gate above already works.";
+  return "→ Want your agent to maintain this + measure whether your skills fire? Run `npx vigiles init --full` and choose 'full' (installs the skills). Optional — the gate above already works.";
 }
 
 /**
@@ -640,6 +646,135 @@ export function applyCodexPluginHooks(
     hooks[h.event] = [...kept, { matcher: h.matcher, command: h.command }];
   }
   return { ...existing, hooks };
+}
+
+/**
+ * Whether this repo already uses vigiles, decided from what is ON DISK.
+ *
+ * 🔴 THE SIGNAL IS `.vigilesrc.json` OR A SPEC NEXT TO AN INSTRUCTION FILE, and
+ * deliberately NOT a `vigiles` devDependency: the documented first step on a new
+ * repo can be `npm i -D vigiles` followed by `npx vigiles init`, and that run
+ * must still be the full setup. Every `init` writes `.vigilesrc.json` (it records
+ * the harnesses even on a test-only run), and a hand-written one means the owner
+ * has already configured vigiles. A spec beside `CLAUDE.md`/`AGENTS.md` covers a
+ * repo adopted before the config file existed.
+ */
+export type AdoptionState =
+  | { readonly kind: "fresh" }
+  | { readonly kind: "adopted"; readonly evidence: string };
+
+/** {@link AdoptionState} from the two disk facts that decide it. */
+export function adoptionState(
+  facts: Readonly<{ hasConfig: boolean; specs: readonly string[] }>,
+): AdoptionState {
+  if (facts.hasConfig) return { kind: "adopted", evidence: ".vigilesrc.json" };
+  const [spec] = facts.specs;
+  return spec === undefined
+    ? { kind: "fresh" }
+    : { kind: "adopted", evidence: spec };
+}
+
+/**
+ * Which setup a run performs: the full one, or the minimal re-run (#338).
+ *
+ * MINIMAL only when the repo is adopted AND the run named nothing that asks for
+ * more. A flag that selects or widens the setup (`--full`, `--strict`,
+ * `--ci-only`, `--report-only`, `--force`, `--target=`, a positive `--lint` /
+ * `--test`) is an explicit request and keeps today's behaviour; the narrowing
+ * flags (`--no-*`, `--harness=`, `--yes`) do not, because they can only make a
+ * run do less.
+ */
+export function rerunScope(
+  parsed: Readonly<ParsedSetupArgs>,
+  state: AdoptionState,
+): "full" | "minimal" {
+  if (state.kind === "fresh") return "full";
+  const asksForMore =
+    parsed.full ||
+    parsed.strict ||
+    parsed.ciOnly ||
+    parsed.reportOnly ||
+    parsed.force ||
+    parsed.target !== undefined ||
+    parsed.lint === true ||
+    parsed.test === true;
+  return asksForMore ? "full" : "minimal";
+}
+
+/**
+ * The `devDependencies` a minimal re-run writes, or null to leave package.json
+ * alone. It ADDS vigiles when no dependency field declares it and never edits an
+ * existing declaration: rewriting `^33.3.0` to `^33` loosens a pin the owner
+ * chose, and moving it between fields is a decision, not a missing piece.
+ */
+export function missingVigilesDevDep(
+  pkg: Readonly<{
+    dependencies?: Readonly<Record<string, string>>;
+    devDependencies?: Readonly<Record<string, string>>;
+  }>,
+  spec: string,
+): Readonly<Record<string, string>> | null {
+  const declared =
+    pkg.dependencies?.vigiles !== undefined ||
+    pkg.devDependencies?.vigiles !== undefined;
+  return declared ? null : { ...pkg.devDependencies, vigiles: spec };
+}
+
+/** What a full setup would add on an adopted repo — the facts that decide it. */
+export interface FullSetupGap {
+  /** `.github/workflows/vigiles.yml` is absent (and CI wiring is not opted out). */
+  readonly workflow: boolean;
+  /** `.vigilesrc.json`: absent, present without the preset, or already extending it. */
+  readonly config: "missing" | "no-preset" | "has-preset";
+  /** `vigiles.harness.mjs` is absent (and the test layer is not opted out). */
+  readonly harnessTest: boolean;
+  /** Instruction files and surfaces a full setup would adopt into a spec. */
+  readonly unspecced: readonly string[];
+  /** `.vigiles/generated.d.ts` / `.vigiles/schema.json` would be created. */
+  readonly generated: boolean;
+  /** The global plugin install / hook wiring a full setup would run, one line each. */
+  readonly installs: readonly string[];
+  /** The devDependency rewrite a full setup would make, if any. */
+  readonly devDep: Readonly<{ from: string; to: string }> | null;
+}
+
+/**
+ * The lines a minimal re-run prints about what it did NOT do: each thing a full
+ * setup would add here, then the flag that does it. Empty when nothing is
+ * missing, so a fully set-up repo is not told to run anything.
+ */
+export function fullSetupFollowUps(gap: FullSetupGap): readonly string[] {
+  const configLine: Readonly<Record<FullSetupGap["config"], string | null>> = {
+    missing: `write .vigilesrc.json with your harnesses and "extends": "${RECOMMENDED_PRESET}" (structural rules fail CI)`,
+    "no-preset": `add "extends": "${RECOMMENDED_PRESET}" to .vigilesrc.json (structural rules fail CI)`,
+    "has-preset": null,
+  };
+  const items = [
+    gap.workflow
+      ? "create .github/workflows/vigiles.yml (a CI workflow — new CI minutes)"
+      : null,
+    configLine[gap.config],
+    gap.harnessTest
+      ? "scaffold vigiles.harness.mjs (a starter harness test)"
+      : null,
+    gap.unspecced.length > 0
+      ? `write specs for ${String(gap.unspecced.length)} hand-written file(s): ${gap.unspecced.join(", ")}`
+      : null,
+    gap.generated
+      ? "generate .vigiles/generated.d.ts and .vigiles/schema.json"
+      : null,
+    ...gap.installs,
+    gap.devDep === null
+      ? null
+      : `set the vigiles devDependency to ${gap.devDep.to} (yours: ${gap.devDep.from})`,
+  ].filter((l): l is string => l !== null);
+  return items.length === 0
+    ? []
+    : [
+        "A full setup would also:",
+        ...items.map((l) => `  - ${l}`),
+        "Run `npx vigiles init --full` for that (flags such as --no-gha still apply).",
+      ];
 }
 
 /**

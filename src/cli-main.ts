@@ -57,6 +57,7 @@ import {
   DEFAULT_LOCK_DIR,
   countLocks,
 } from "./eval-lock.js";
+import { z } from "zod";
 import { applyConfigFlags } from "./cli-flags.js";
 import { VERBS, type Verb } from "./cli-commands.js";
 import {
@@ -75,6 +76,12 @@ import {
   mergeProjectConfig,
   collectSetupAnswers,
   gateOnlyInvitation,
+  adoptionState,
+  rerunScope,
+  missingVigilesDevDep,
+  fullSetupFollowUps,
+  type AdoptionState,
+  type FullSetupGap,
   type SetupPlan,
   type SetupAnswers,
   type AskFn,
@@ -4023,6 +4030,10 @@ function redirectSyncToolTargets(cwd: string, targets: string[]): string[] {
   return out;
 }
 
+/** The two files `init`'s lint layer generates under `.vigiles/`. */
+const GENERATED_TYPES = ".vigiles/generated.d.ts";
+const GENERATED_SCHEMA = ".vigiles/schema.json";
+
 /** Pillar 1 — specs + types + schema + compile. Scaffolds a spec for every
  * instruction file (so `--lint` always delivers a spec), but never compiles
  * OVER a hand-written file — that is left to the adopt-spec skill. */
@@ -4078,7 +4089,7 @@ async function setupPillar1(
   const typesResult = generateTypes({ basePath: cwd });
   const outDir = resolve(cwd, ".vigiles");
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
-  writeFileSync(resolve(cwd, ".vigiles/generated.d.ts"), typesResult.dts);
+  writeFileSync(resolve(cwd, GENERATED_TYPES), typesResult.dts);
   for (const l of typesResult.linters) {
     console.log(`  ${l.linter}: ${String(l.rules.length)} rules`);
   }
@@ -4086,15 +4097,15 @@ async function setupPillar1(
     console.log(`  npm scripts: ${String(typesResult.scripts.length)}`);
   }
   console.log("✓ Generated .vigiles/generated.d.ts");
-  written.push(".vigiles/generated.d.ts");
+  written.push(GENERATED_TYPES);
 
   const schemaResult = generateSchema({
     basePath: cwd,
     linters: loadConfig().linters,
   });
-  writeFileSync(resolve(cwd, ".vigiles/schema.json"), schemaResult.json);
+  writeFileSync(resolve(cwd, GENERATED_SCHEMA), schemaResult.json);
   console.log("✓ Generated .vigiles/schema.json (YAML-LSP frontmatter schema)");
-  written.push(".vigiles/schema.json");
+  written.push(GENERATED_SCHEMA);
 
   // Compile — but NEVER overwrite an existing hand-written file during `init`:
   // we compile only GREENFIELD targets (the file doesn't exist yet) and targets
@@ -4697,8 +4708,26 @@ function printSetupSummary(opts: {
   }
 }
 
+/** The project config file `init` reads and writes. */
+const VIGILESRC = ".vigilesrc.json";
+
 async function setup(args: string[]): Promise<void> {
   const parsed = parseSetupArgs(args);
+
+  // An already-adopted repo gets the MINIMAL re-run unless a flag asks for more
+  // (#338): re-running `init` to pick up one new piece must not also wire CI,
+  // widen the rules, scaffold files or rewrite a pin. Decided from disk, before
+  // any prompt — the minimal run asks nothing.
+  const state = adoptionState({
+    hasConfig: existsSync(resolve(process.cwd(), VIGILESRC)),
+    specs: detectProject()
+      .instructionFiles.filter((f) => f.hasSpec)
+      .map((f) => `${f.path}.spec.ts`),
+  });
+  if (rerunScope(parsed, state) === "minimal" && state.kind === "adopted") {
+    minimalRerun(parsed, state);
+    return;
+  }
 
   // Plan: defaults → flags → interactive prompts (only a human at a TTY).
   let plan = resolvePlan(parsed);
@@ -4820,6 +4849,182 @@ async function setup(args: string[]): Promise<void> {
       "\nℹ Ran the standard setup. Already have a harness, or not a JS/Python repo, and want only the CI integrity gate (nothing installed)? Re-run `npx vigiles init --ci-only`.",
     );
   }
+}
+
+/**
+ * The minimal re-run on an adopted repo (#338): add what is missing AND safe and
+ * local — the skill links and a missing devDependency — then say what a full
+ * setup would add and the flag that does it. It writes NOTHING else: no CI
+ * workflow, no `.vigilesrc.json` edit, no harness/schema scaffold, no spec for a
+ * hand-written file, no edit to an existing version pin, no global install.
+ * The decisions are pure (`setup-plan.ts`); this is the IO.
+ */
+function minimalRerun(
+  parsed: Readonly<ParsedSetupArgs>,
+  state: Extract<AdoptionState, { kind: "adopted" }>,
+): void {
+  const plan = resolvePlan(parsed);
+  const detected = detectProject();
+  const harnesses = resolveHarnesses(
+    parsed,
+    detected,
+    declaredHarnessNames(loadConfig().harnesses),
+  );
+  console.log(
+    `vigiles is already set up here (found ${state.evidence}) — adding only what is missing.\n`,
+  );
+  printDetection(detected, harnesses);
+  const links = plan.plugin ? linkSkillsOnly(harnesses) : [];
+  const devDep = plan.lint || plan.test ? addMissingVigilesDevDep() : [];
+  const written = [...links, ...devDep];
+  if (written.length === 0) console.log("\nNothing was missing.");
+  const followUps = fullSetupFollowUps(fullSetupGap(plan, detected, harnesses));
+  if (followUps.length > 0) console.log(`\n${followUps.join("\n")}`);
+  if (written.length > 0)
+    console.log(
+      `\n  Commit:\n    git add ${written.join(" ")} && git commit -m "Update vigiles"`,
+    );
+}
+
+/**
+ * Link the shipped skills for each harness that links them — the safe, local
+ * half of `installPlugins`, without the global install or config wiring.
+ * Returns the links created or rewritten.
+ */
+function linkSkillsOnly(harnesses: readonly string[]): readonly string[] {
+  return planPluginInstall(harnesses, { hasClaude: false }).flatMap((plan) => {
+    const home = plan.linkSkills ? harnessSkillsHome(plan.harness) : null;
+    if (home === null) return [];
+    const outcome = linkVigilesSkills(home, process.cwd());
+    console.log("");
+    formatSkillLinks(outcome).forEach((l) => {
+      console.log(l);
+    });
+    return changedLinks(outcome);
+  });
+}
+
+/** Add vigiles to `devDependencies` only when nothing declares it. */
+function addMissingVigilesDevDep(): readonly string[] {
+  const pkgPath = resolve(process.cwd(), PACKAGE_JSON);
+  if (!existsSync(pkgPath)) return [];
+  const pkg = readPackageJson(pkgPath);
+  if (pkg === null || pkg.name === "vigiles") return [];
+  const spec = vigilesDepSpec();
+  const devDependencies = missingVigilesDevDep(pkg, spec);
+  if (devDependencies === null) return [];
+  writeFileSync(
+    pkgPath,
+    JSON.stringify({ ...pkg, devDependencies }, null, 2) + "\n",
+  );
+  console.log(
+    `\n✓ Added vigiles@${spec} to devDependencies — run \`npm install\` to fetch it`,
+  );
+  return [PACKAGE_JSON];
+}
+
+/**
+ * The fields of package.json the dependency decisions read. LOOSE on purpose:
+ * every other key is carried through untouched, because the result is written
+ * back and a re-run must not drop a field it never looked at.
+ */
+const packageDepsSchema = z.looseObject({
+  name: z.string().optional(),
+  dependencies: z.record(z.string(), z.string()).optional(),
+  devDependencies: z.record(z.string(), z.string()).optional(),
+});
+
+/** package.json parsed for its dependency fields; null when unreadable. */
+function readPackageJson(
+  path: string,
+): Readonly<z.infer<typeof packageDepsSchema>> | null {
+  try {
+    const parsed = packageDepsSchema.safeParse(
+      JSON.parse(readFileSync(path, "utf-8")),
+    );
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What a full setup would add here, read from disk — the input to the
+ * follow-up lines. It mirrors the full path's own conditions (the plan's
+ * layers, the existence checks those steps make), so the list names what
+ * `--full` would actually do rather than everything it could.
+ */
+function fullSetupGap(
+  plan: Readonly<SetupPlan>,
+  detected: Readonly<DetectedProject>,
+  harnesses: readonly string[],
+): FullSetupGap {
+  const cwd = process.cwd();
+  const has = (rel: string): boolean => existsSync(resolve(cwd, rel));
+  const config = readProjectConfig(resolve(cwd, VIGILESRC));
+  const pillar1 = plan.lint && plan.scaffoldSpecs;
+  const unspecced = pillar1
+    ? [
+        ...determineTargets(detected, undefined, [...harnesses]),
+        ...discoverAdoptableSurfaces(cwd),
+      ].filter((t, i, all) => all.indexOf(t) === i && !has(`${t}.spec.ts`))
+    : [];
+  const pkg = has(PACKAGE_JSON)
+    ? readPackageJson(resolve(cwd, PACKAGE_JSON))
+    : null;
+  const declared =
+    pkg?.devDependencies?.vigiles ?? pkg?.dependencies?.vigiles ?? null;
+  const spec = vigilesDepSpec();
+  return {
+    workflow: plan.gha && !has(".github/workflows/vigiles.yml"),
+    config: configGap(config, plan.lint),
+    harnessTest: plan.test && !has("vigiles.harness.mjs"),
+    unspecced,
+    generated: pillar1 && !(has(GENERATED_TYPES) && has(GENERATED_SCHEMA)),
+    installs: plan.plugin ? fullInstallLines(harnesses) : [],
+    devDep:
+      declared !== null && declared !== spec && pkg?.name !== "vigiles"
+        ? { from: declared, to: spec }
+        : null,
+  };
+}
+
+/** Where `.vigilesrc.json` stands against the preset a full setup writes. */
+function configGap(
+  config: Readonly<Record<string, unknown>> | null,
+  lint: boolean,
+): FullSetupGap["config"] {
+  if (config === null) return "missing";
+  return config.extends === undefined && lint ? "no-preset" : "has-preset";
+}
+
+/** `.vigilesrc.json` as a plain object, or null when absent or unreadable. */
+function readProjectConfig(
+  path: string,
+): Readonly<Record<string, unknown>> | null {
+  if (!existsSync(path)) return null;
+  try {
+    const raw: unknown = JSON.parse(readFileSync(path, "utf-8"));
+    return typeof raw === "object" && raw !== null && !Array.isArray(raw)
+      ? { ...raw }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The per-machine installs and config wiring the full plugin step would run. */
+function fullInstallLines(harnesses: readonly string[]): readonly string[] {
+  return planPluginInstall(harnesses, { hasClaude: true }).flatMap((plan) => [
+    ...(plan.globalInstallCarriesHooks && plan.commands.length > 0
+      ? [
+          `install the ${plan.harness} plugin for this machine (${plan.commands.join(" && ")}) and declare it in the project settings`,
+        ]
+      : []),
+    ...(plan.vendors
+      ? [`wire vigiles's nudge hooks into the ${plan.harness} config`]
+      : []),
+  ]);
 }
 
 /** Canonical, de-duplicated harness names — the keys `harnesses` gets. */
@@ -6973,6 +7178,10 @@ const COMMAND_HELP: Record<Verb, CommandHelp> = {
   init: {
     usage:
       "  vigiles init [flags]       Set up this repo — specs, plugin, and CI.",
+    detail: [
+      "  Already set up? A re-run only adds what is missing (skill links, the devDependency);",
+      "  --full                     run the whole setup again",
+    ],
   },
   compile: { usage: "  vigiles compile [files...] Compile .spec.ts → .md" },
   eject: {

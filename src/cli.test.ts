@@ -82,8 +82,9 @@ describe("CLI: vigiles init", () => {
   });
 
   it("should not overwrite existing spec", () => {
-    // Already created in previous test
-    const { stdout } = run("init --no-plugin", tmpDir);
+    // Already created in previous test. `--full`: a bare re-run on an adopted
+    // repo is the minimal one and never reaches the spec step (#338).
+    const { stdout } = run("init --full --no-plugin", tmpDir);
     assert.ok(stdout.includes("already exists"));
   });
 
@@ -1487,16 +1488,17 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
       run("init --lint --strict --no-plugin --no-gha", dir);
       const cfg = JSON.parse(
         readFileSync(join(dir, ".vigilesrc.json"), "utf-8"),
-      ) as { rules?: Record<string, string> };
+      ) as { extends?: string; rules?: Record<string, string> };
       assert.equal(
         cfg.rules?.["require-instructions-spec"],
         "error",
         "workflow rule gated under --strict",
       );
+      assert.equal(cfg.extends, "vigiles:recommended", "structural, by preset");
       assert.equal(
         cfg.rules?.["subagent-tool-contract"],
-        "error",
-        "structural",
+        undefined,
+        "no per-rule line for a preset rule",
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });

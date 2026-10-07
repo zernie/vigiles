@@ -16,6 +16,10 @@ import {
   gateOnlyInvitation,
   WORKFLOW_RULES,
   SHIPPED_SKILLS,
+  adoptionState,
+  rerunScope,
+  missingVigilesDevDep,
+  fullSetupFollowUps,
   type AskFn,
 } from "./setup-plan.js";
 import { RECOMMENDED_RULES } from "./core/presets.js";
@@ -564,4 +568,96 @@ test("collectSetupAnswers: declining CI / plugin / strict is honored", async () 
   assert.equal(a.plugin, false);
   assert.equal(a.strict, false, "opts OUT of the workflow tier");
   assert.equal(a.lint, true, "structural gating still set up");
+});
+
+// --- re-running init on an adopted repo (#338) ---
+
+test("adoptionState: .vigilesrc.json or a spec beside an instruction file means adopted", () => {
+  assert.deepEqual(adoptionState({ hasConfig: false, specs: [] }), {
+    kind: "fresh",
+  });
+  assert.deepEqual(adoptionState({ hasConfig: true, specs: [] }), {
+    kind: "adopted",
+    evidence: ".vigilesrc.json",
+  });
+  assert.deepEqual(
+    adoptionState({ hasConfig: false, specs: ["CLAUDE.md.spec.ts"] }),
+    { kind: "adopted", evidence: "CLAUDE.md.spec.ts" },
+  );
+});
+
+test("rerunScope: a fresh repo is always the full setup", () => {
+  assert.equal(rerunScope(parseSetupArgs([]), { kind: "fresh" }), "full");
+});
+
+test("rerunScope: an adopted repo is minimal unless a flag asks for more", () => {
+  const adopted = { kind: "adopted", evidence: ".vigilesrc.json" } as const;
+  for (const narrowing of [[], ["--yes"], ["--no-gha"], ["--harness=other"]]) {
+    assert.equal(
+      rerunScope(parseSetupArgs(narrowing), adopted),
+      "minimal",
+      narrowing.join(" "),
+    );
+  }
+  for (const widening of [
+    ["--full"],
+    ["--strict"],
+    ["--ci-only"],
+    ["--report-only"],
+    ["--force"],
+    ["--target=AGENTS.md"],
+    ["--lint"],
+    ["--test"],
+  ]) {
+    assert.equal(
+      rerunScope(parseSetupArgs(widening), adopted),
+      "full",
+      widening.join(" "),
+    );
+  }
+});
+
+test("missingVigilesDevDep: adds only when no field declares vigiles, never edits a pin", () => {
+  assert.deepEqual(
+    missingVigilesDevDep({ devDependencies: { eslint: "^9" } }, "^34"),
+    { eslint: "^9", vigiles: "^34" },
+  );
+  assert.equal(
+    missingVigilesDevDep({ devDependencies: { vigiles: "^33.3.0" } }, "^34"),
+    null,
+  );
+  assert.equal(
+    missingVigilesDevDep({ dependencies: { vigiles: "github:x/y" } }, "^34"),
+    null,
+  );
+});
+
+const NO_GAP = {
+  workflow: false,
+  config: "has-preset",
+  harnessTest: false,
+  unspecced: [],
+  generated: false,
+  installs: [],
+  devDep: null,
+} as const;
+
+test("fullSetupFollowUps: nothing missing prints nothing", () => {
+  assert.deepEqual(fullSetupFollowUps(NO_GAP), []);
+});
+
+test("fullSetupFollowUps: names each missing piece, then the flag", () => {
+  const lines = fullSetupFollowUps({
+    ...NO_GAP,
+    workflow: true,
+    config: "no-preset",
+    unspecced: ["CLAUDE.md"],
+    devDep: { from: "^33.3.0", to: "^33" },
+  });
+  assert.equal(lines[0], "A full setup would also:");
+  assert.ok(lines.some((l) => l.includes(".github/workflows/vigiles.yml")));
+  assert.ok(lines.some((l) => l.includes('"extends": "vigiles:recommended"')));
+  assert.ok(lines.some((l) => l.includes("1 hand-written file(s): CLAUDE.md")));
+  assert.ok(lines.some((l) => l.includes("(yours: ^33.3.0)")));
+  assert.match(lines.at(-1) ?? "", /npx vigiles init --full/);
 });
