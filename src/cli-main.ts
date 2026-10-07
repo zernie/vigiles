@@ -4188,7 +4188,7 @@ function reportInstall(
  * cannot (`shouldRunGlobalInstall` — Claude Code's plugin carries the hooks).
  * The decisions are pure and unit-tested; this is the thin IO.
  *
- * Returns the links it created, for the commit hint.
+ * Returns the links it created or relinked, for the commit hint.
  */
 function installPlugins(harnesses: readonly string[]): readonly string[] {
   const { execSync: exec } =
@@ -4213,7 +4213,7 @@ function installPlugins(harnesses: readonly string[]): readonly string[] {
       console.log(
         `  No global ${plan.harness} skills install — the linked skills replace it, in every clone.`,
       );
-    return outcome === null ? [] : createdLinks(outcome);
+    return outcome === null ? [] : changedLinks(outcome);
   });
   // Claude Code gets its hooks from the global marketplace plugin; Codex has no
   // global store, so wire vigiles's proactive nudge hooks into the repo's
@@ -4232,11 +4232,11 @@ function harnessSkillsHome(name: string): string | null {
   return adapter === undefined ? null : skillsHome(adapter.layout);
 }
 
-/** The repo-relative paths of the links this run created. */
-function createdLinks(outcome: SkillLinkOutcome): readonly string[] {
+/** The repo-relative paths of the links this run created or rewrote — the ones git sees change. */
+function changedLinks(outcome: SkillLinkOutcome): readonly string[] {
   return outcome.kind === "linked"
     ? outcome.results
-        .filter((r) => r.status === "created")
+        .filter((r) => r.status === "created" || r.status === "relinked")
         .map((r) => `${outcome.home}/${r.name}`)
     : [];
 }

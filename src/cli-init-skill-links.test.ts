@@ -274,3 +274,25 @@ test("re-running init replaces a link vigiles made earlier that now points at th
     assert.ok(existsSync(join(app, homeOf(CC), "test-harness", "SKILL.md")));
   });
 });
+
+test("the commit hint lists the links init relinked, not only the ones it created", () => {
+  withScratch((s) => {
+    const app = workspace(s.root);
+    mkdirSync(join(app, homeOf(CC)), { recursive: true });
+    SHIPPED_SKILLS.forEach((name) => {
+      symlinkSync(
+        `../../node_modules/vigiles/skills/${name}`,
+        join(app, homeOf(CC), name),
+        "dir",
+      );
+    });
+    hoistInstall(s.root);
+    const out = init({ ...s, root: app }, CC);
+    // Guards: a relinked link is a changed file in git — a hint without it
+    // leaves the repo with a dirty tree and a commit that looks complete.
+    const hint = out.split("\n").find((l) => l.includes("git add")) ?? "";
+    SHIPPED_SKILLS.forEach((name) => {
+      assert.ok(hint.includes(`${homeOf(CC)}/${name}`), `${name}: ${hint}`);
+    });
+  });
+});
