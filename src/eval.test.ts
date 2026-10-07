@@ -17,6 +17,7 @@ import {
   readdirSync,
   rmSync,
   symlinkSync,
+  lstatSync,
   cpSync as cpSyncForTest,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -2894,6 +2895,35 @@ test("seedEphemeralHome COPIES the auth credential file into the fresh HOME", ()
   } finally {
     cleanupTmpDir(realHome);
     cleanupTmpDir(fakeHome);
+  }
+});
+
+test("seedEphemeralHome copies the DATA of a symlinked credential, never the link", () => {
+  // Guards: a credential kept as a symlink (dotfiles, a secret manager) must not
+  // be recreated as a link in the throwaway HOME, or the run writes through it
+  // into the real file.
+  const realHome = makeTmpDir();
+  const fakeHome = makeTmpDir();
+  const vault = makeTmpDir();
+  try {
+    writeFileSync(join(vault, "creds.json"), "{tok:1}");
+    mkdirSync(join(realHome, ".agent"), { recursive: true });
+    symlinkSync(
+      join(vault, "creds.json"),
+      join(realHome, ".agent", "creds.json"),
+    );
+
+    seedEphemeralHome(fakeHome, realHome, [".agent/creds.json"]);
+
+    const dest = join(fakeHome, ".agent", "creds.json");
+    assert.equal(lstatSync(dest).isSymbolicLink(), false);
+    assert.equal(readFileSync(dest, "utf-8"), "{tok:1}");
+    writeFileSync(dest, "overwritten by the run");
+    assert.equal(readFileSync(join(vault, "creds.json"), "utf-8"), "{tok:1}");
+  } finally {
+    cleanupTmpDir(realHome);
+    cleanupTmpDir(fakeHome);
+    cleanupTmpDir(vault);
   }
 });
 

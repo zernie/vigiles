@@ -32,6 +32,7 @@ import {
   readdirSync,
   existsSync,
   statSync,
+  copyFileSync,
   cpSync,
   rmSync,
 } from "node:fs";
@@ -1581,7 +1582,10 @@ export function seedEphemeralHome(
     if (!existsSync(src)) continue; // env-var / host-brokered auth covers this.
     const dest = join(throwawayHome, rel);
     mkdirSync(dirname(dest), { recursive: true });
-    cpSync(src, dest); // copy, not symlink — keep the real credential read-only.
+    // The DATA, never a link: `cpSync` recreates a symlinked credential
+    // (dotfiles, a secret manager) as a link, and the run would write through
+    // it into the real file. `copyFileSync` always copies the contents.
+    copyFileSync(src, dest);
   }
 }
 
