@@ -20,7 +20,10 @@ import {
   linkPrecondition,
   locatePackage,
   planSkillLinks,
+  relinkTempPath,
   skillLinksUsable,
+  writeSkillLink,
+  type LinkIo,
   type SkillEntry,
 } from "./skill-links.js";
 import { isVigilesSkillTarget } from "./core/skill-link-target.js";
@@ -367,12 +370,88 @@ test("isVigilesSkillTarget: only a link into node_modules/vigiles/skills/<same n
 
 test("isWithinProject: the project and its descendants are inside, even a child named like `..x`; siblings and parents are not", () => {
   assert.equal(isWithinProject("/work/app", "/work/app"), true);
-  assert.equal(isWithinProject("/work/app", "/work/app/.claude/skills"), true);
+  assert.equal(isWithinProject("/work/app", "/work/app/.agent/skills"), true);
   assert.equal(
-    isWithinProject("/work/app", "/work/app-dotfiles/.claude"),
+    isWithinProject("/work/app", "/work/app-dotfiles/.agent"),
     false,
   );
   assert.equal(isWithinProject("/work/app", "/work/app/..cache/skills"), true);
   assert.equal(isWithinProject("/work/app", "/work"), false);
-  assert.equal(isWithinProject("/work/app", "/home/me/.claude"), false);
+  assert.equal(isWithinProject("/work/app", "/home/me/.agent"), false);
+});
+
+/** A recording filesystem over a map of `path -> link target`; `failOn` makes one call throw. */
+function fakeLinks(
+  initial: Record<string, string>,
+  failOn?: "symlink" | "rename",
+): { io: LinkIo; links: Map<string, string>; calls: string[] } {
+  const links = new Map(Object.entries(initial));
+  const calls: string[] = [];
+  const io: LinkIo = {
+    symlink: (target, path) => {
+      calls.push(`symlink ${path}`);
+      if (failOn === "symlink")
+        throw new Error("EPERM: operation not permitted");
+      if (links.has(path)) throw new Error("EEXIST: file already exists");
+      links.set(path, target);
+    },
+    rename: (from, to) => {
+      calls.push(`rename ${to}`);
+      if (failOn === "rename") throw new Error("EXDEV: cannot move");
+      const target = links.get(from);
+      if (target === undefined) throw new Error("ENOENT");
+      links.delete(from);
+      links.set(to, target);
+    },
+    unlink: (path) => {
+      calls.push(`unlink ${path}`);
+      if (!links.delete(path)) throw new Error("ENOENT");
+    },
+  };
+  return { io, links, calls };
+}
+
+const ENTRY = "/repo/.agent/skills/test-harness";
+
+test("replace: leaves exactly the new link, and no temporary one", () => {
+  const fs = fakeLinks({ [ENTRY]: "old/target" });
+  writeSkillLink(fs.io, ENTRY, "new/target", "replace");
+  assert.equal(fs.links.get(ENTRY), "new/target");
+  assert.deepEqual(
+    [...fs.links.keys()],
+    [ENTRY],
+    "no temporary link left behind",
+  );
+});
+
+test("replace: when the new link cannot be created, the old link is still there", () => {
+  const fs = fakeLinks({ [ENTRY]: "old/target" }, "symlink");
+  assert.throws(() => {
+    writeSkillLink(fs.io, ENTRY, "new/target", "replace");
+  }, /EPERM/);
+  // Guards: unlinking first loses a working skill whenever symlink() is refused.
+  assert.equal(fs.links.get(ENTRY), "old/target");
+});
+
+test("replace: when the rename fails, the old link is still there and the temporary link is removed", () => {
+  const fs = fakeLinks({ [ENTRY]: "old/target" }, "rename");
+  assert.throws(() => {
+    writeSkillLink(fs.io, ENTRY, "new/target", "replace");
+  }, /EXDEV/);
+  assert.deepEqual([...fs.links.entries()], [[ENTRY, "old/target"]]);
+});
+
+test("replace: a temporary link left by an interrupted run does not block the next one", () => {
+  const fs = fakeLinks({
+    [ENTRY]: "old/target",
+    [relinkTempPath(ENTRY)]: "stale",
+  });
+  writeSkillLink(fs.io, ENTRY, "new/target", "replace");
+  assert.deepEqual([...fs.links.entries()], [[ENTRY, "new/target"]]);
+});
+
+test("create: one symlink call, nothing else touched", () => {
+  const fs = fakeLinks({});
+  writeSkillLink(fs.io, ENTRY, "new/target", "create");
+  assert.deepEqual(fs.calls, [`symlink ${ENTRY}`]);
 });

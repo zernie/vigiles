@@ -21,6 +21,7 @@ import {
   readlinkSync,
   symlinkSync,
   unlinkSync,
+  renameSync,
   type Dirent,
 } from "node:fs";
 import { injectableEventsOf } from "./core/event-capability.js";
@@ -135,6 +136,8 @@ import {
   locatePackage,
   planSkillLinks,
   skillLinksUsable,
+  writeSkillLink,
+  type LinkIo,
   type PackageSite,
   type SkillEntry,
   type SkillLinkDecision,
@@ -4292,6 +4295,15 @@ function observeSkillEntry(path: string): SkillEntry {
   return st.isDirectory() ? { kind: "directory" } : { kind: "file" };
 }
 
+const LINK_IO: LinkIo = {
+  // "dir" matters only on Windows, where a directory link must say so.
+  symlink: (target, path) => {
+    symlinkSync(target, path, "dir");
+  },
+  rename: renameSync,
+  unlink: unlinkSync,
+};
+
 /** Carry out one decision. A failed `symlink` is reported, never thrown. */
 function applySkillLink(
   decision: SkillLinkDecision,
@@ -4309,11 +4321,13 @@ function applySkillLink(
     case "create":
     case "replace":
       try {
-        const entry = join(absHome, decision.name);
-        // Only a link `decideSkillLink` proved ours is ever removed.
-        if (decision.action === "replace") unlinkSync(entry);
-        // "dir" matters only on Windows, where a directory link must say so.
-        symlinkSync(decision.target, entry, "dir");
+        // Only a link `decideSkillLink` proved ours is ever replaced.
+        writeSkillLink(
+          LINK_IO,
+          join(absHome, decision.name),
+          decision.target,
+          decision.action,
+        );
         return {
           name: decision.name,
           status: decision.action === "replace" ? "relinked" : "created",

@@ -32,13 +32,14 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
 import { SHIPPED_SKILLS } from "./setup-plan.js";
 import { getAdapter } from "./adapter-registry.js";
 import { skillsHome } from "./core/layout.js";
+import { relinkTempPath } from "./skill-links.js";
 
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
 
@@ -313,7 +314,7 @@ test("a skills home reached through a link that leaves the repository gets nothi
     withOutside((outside) => {
       consumer(s.root, true);
       // `.claude` is a link to a shared dotfiles directory outside the repo.
-      symlinkSync(outside, join(s.root, ".claude"), "dir");
+      symlinkSync(outside, join(s.root, dirname(homeOf(CC))), "dir");
       const out = init(s, CC);
       // Guards: following the link would write skill links into someone
       // else's directory, and commit a link that only this machine resolves.
@@ -341,12 +342,67 @@ test("a skills home that is a link to somewhere inside the repository is still l
   withScratch((s) => {
     consumer(s.root, true);
     mkdirSync(join(s.root, "tooling", "claude"), { recursive: true });
-    symlinkSync(join(s.root, "tooling", "claude"), join(s.root, ".claude"));
+    symlinkSync(
+      join(s.root, "tooling", "claude"),
+      join(s.root, dirname(homeOf(CC))),
+    );
     const out = init(s, CC);
     assert.ok(
       existsSync(join(s.root, "tooling", "claude", "skills", "test-harness")),
       out,
     );
     assert.ok(out.includes("6 linked now"), out);
+  });
+});
+
+/** The state an older `init` left in a workspace member: links into the member's own node_modules. */
+function staleLinks(app: string): void {
+  mkdirSync(join(app, homeOf(CC)), { recursive: true });
+  SHIPPED_SKILLS.forEach((name) => {
+    symlinkSync(
+      `../../node_modules/vigiles/skills/${name}`,
+      join(app, homeOf(CC), name),
+      "dir",
+    );
+  });
+}
+
+test("relinking leaves only the skill links in the home — no temporary entry survives", () => {
+  withScratch((s) => {
+    const app = workspace(s.root);
+    staleLinks(app);
+    hoistInstall(s.root);
+    init({ ...s, root: app }, CC);
+    assert.deepEqual(
+      readdirSync(join(app, homeOf(CC))).sort(),
+      [...SHIPPED_SKILLS].sort(),
+    );
+  });
+});
+
+test("a link that cannot be rewritten keeps its old target, and the others are still relinked", () => {
+  withScratch((s) => {
+    const app = workspace(s.root);
+    staleLinks(app);
+    hoistInstall(s.root);
+    const [stuck, ...rest] = SHIPPED_SKILLS;
+    // A directory squatting on the name the replacement is built under makes
+    // creating that one link fail, the way a refused symlink() does.
+    mkdirSync(relinkTempPath(join(app, homeOf(CC), stuck)));
+    const out = init({ ...s, root: app }, CC);
+    // Guards: removing the old link before creating the new one loses the
+    // skill whenever the second step fails.
+    assert.equal(
+      readlinkSync(join(app, homeOf(CC), stuck)),
+      `../../node_modules/vigiles/skills/${stuck}`,
+    );
+    rest.forEach((name) => {
+      assert.equal(
+        readlinkSync(join(app, homeOf(CC), name)),
+        `../../../../node_modules/vigiles/skills/${name}`,
+      );
+    });
+    assert.ok(out.includes(`${homeOf(CC)}/${stuck} left alone`), out);
+    assert.ok(out.includes("1 skipped"), out);
   });
 });

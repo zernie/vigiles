@@ -50,7 +50,7 @@
  * wins by construction (we never replace it) and the report names the skill
  * they did not get.
  */
-import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { isVigilesSkillTarget } from "./core/skill-link-target.js";
 
 /** The package whose skills are linked. */
@@ -258,6 +258,55 @@ export function planSkillLinks(input: SkillLinkInput): SkillLinkPlan {
       }),
     ),
   };
+}
+
+/** The three filesystem calls that write a link; the IO edge passes the real ones. */
+export interface LinkIo {
+  readonly symlink: (target: string, path: string) => void;
+  readonly rename: (from: string, to: string) => void;
+  readonly unlink: (path: string) => void;
+}
+
+/** Where a replacement link is built before it takes the old one's place. */
+export function relinkTempPath(entry: string): string {
+  return join(dirname(entry), `.${basename(entry)}.vigiles-new`);
+}
+
+/**
+ * Write the link `decision` asks for. A `replace` never leaves a gap: the new
+ * link is built under a temporary name beside the old one and renamed over it,
+ * which is atomic. Removing the old link first would lose it for good when the
+ * new one cannot be created (a Windows account without the symlink privilege,
+ * a full disk) — a skill that worked yesterday gone, and only a warning to show
+ * for it. Any failure leaves the old link in place and throws.
+ */
+export function writeSkillLink(
+  io: LinkIo,
+  entry: string,
+  target: string,
+  action: "create" | "replace",
+): void {
+  if (action === "create") {
+    io.symlink(target, entry);
+    return;
+  }
+  const temp = relinkTempPath(entry);
+  const dropTemp = (): void => {
+    try {
+      io.unlink(temp);
+    } catch {
+      // Nothing there, or not ours to remove: the caller's error is the news.
+    }
+  };
+  // A leftover from an interrupted run would make the `symlink` below fail forever.
+  dropTemp();
+  io.symlink(target, temp);
+  try {
+    io.rename(temp, entry);
+  } catch (e) {
+    dropTemp();
+    throw e;
+  }
 }
 
 /** Why a `symlink` call failed, with the fix when there is a known one. */
