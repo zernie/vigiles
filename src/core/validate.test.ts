@@ -580,6 +580,24 @@ describe("loadConfig", () => {
     rmSync(configDir, { recursive: true, force: true });
   });
 
+  it("applies the recommended preset from .vigilesrc.json, explicit rules winning", () => {
+    const configDir = mkdtempSync(join(tmpdir(), "vigiles-config-"));
+    writeFileSync(
+      join(configDir, ".vigilesrc.json"),
+      JSON.stringify({
+        extends: "vigiles:recommended",
+        rules: { "mcp-config": "warn" },
+      }),
+    );
+    process.chdir(configDir);
+    const config = loadConfig();
+    process.chdir(originalCwd);
+    rmSync(configDir, { recursive: true, force: true });
+    assert.equal(config.rules["hook-events"], "error", "from the preset");
+    assert.equal(config.rules["mcp-config"], "warn", "the explicit entry wins");
+    assert.equal(config.rules["unmarked-refs"], "warn", "outside the preset");
+  });
+
   /**
    * 🔴 A DELIBERATE BEHAVIOUR CHANGE, and the direction is the point.
    *

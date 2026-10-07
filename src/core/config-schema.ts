@@ -43,6 +43,7 @@
  */
 import { z } from "zod";
 import { editDistance } from "./edit-distance.js";
+import { PRESET_NAMES, isPresetName, presetRules } from "./presets.js";
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -246,6 +247,14 @@ export const vigilesConfigSchema = z
     eval: z.object({ apiVersion: z.number().optional() }).strict().optional(),
     nudge: z.literal("dismissed").optional(),
     /**
+     * A named preset whose rule severities apply UNDER `rules` — ESLint's
+     * `extends`. `"vigiles:recommended"` gates the structural group (see
+     * `./presets.ts`); an explicit `rules` entry overrides it. Applied by
+     * {@link parseVigilesConfig}, which is why this key is only VALIDATED here.
+     * Placed after the keys people misspell most: the "Known:" list is capped.
+     */
+    extends: z.enum(PRESET_NAMES).optional(),
+    /**
      * The editor's pointer at the published JSON Schema. Accepted, never read.
      *
      * 🔴 IT IS DECLARED HERE RATHER THAN EXCUSED IN THE UNKNOWN-KEY WALKER, and
@@ -275,6 +284,39 @@ export const vigilesConfigSchema = z
     $schema: z.string().optional(),
   })
   .strict();
+
+/**
+ * Parse a raw `.vigilesrc.json` value — THE one entry point every reader uses.
+ *
+ * 🔴 THE PRESET IS MERGED INTO THE RAW INPUT, BEFORE THE SCHEMA, for one reason:
+ * after parsing, every rule carries a value (the schema fills each default), so
+ * "the user wrote `hook-events: warn`" and "nobody wrote it" are the same
+ * output, and an explicit downgrade could not win over the preset. Before
+ * parsing, the user's own `rules` keys are exactly what they wrote. So the
+ * preset's severities go UNDER them, and the schema then normalizes and
+ * validates the result as if the user had typed both.
+ *
+ * Only a recognized preset with an object (or absent) `rules` is expanded;
+ * anything else is passed through untouched for the schema to refuse with its
+ * own message, so a typo in `extends` is reported, never silently ignored.
+ */
+export function parseVigilesConfig(
+  raw: unknown,
+): Readonly<ReturnType<typeof vigilesConfigSchema.safeParse>> {
+  return vigilesConfigSchema.safeParse(withPresetRules(raw));
+}
+
+/** `raw` with its `extends` preset's rules placed under its own `rules`. */
+function withPresetRules(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const preset = "extends" in raw ? raw.extends : undefined;
+  const rules = "rules" in raw ? raw.rules : undefined;
+  if (!isPresetName(preset)) return raw;
+  if (rules === undefined) return { ...raw, rules: { ...presetRules(preset) } };
+  if (typeof rules !== "object" || rules === null || Array.isArray(rules))
+    return raw;
+  return { ...raw, rules: { ...presetRules(preset), ...rules } };
+}
 
 /**
  * A `.vigilesrc.json` that cannot be honoured as written.

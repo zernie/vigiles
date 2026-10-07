@@ -9,6 +9,8 @@
  * on a prompt. See docs/agent-setup.md.
  */
 
+import { RECOMMENDED_PRESET, RECOMMENDED_RULES } from "./core/presets.js";
+
 /** What `vigiles init` will set up. */
 export interface SetupPlan {
   /** Lint pillar — verify instruction-file references (specs, types, compile, lint, hooks). */
@@ -131,40 +133,6 @@ export function defaultPlan(strict = false): SetupPlan {
 }
 
 /**
- * Pure config-merge for what `vigiles init` writes to `.vigilesrc.json`: record
- * the `harness` if absent, add strict rule severities if `--strict`, NEVER
- * clobber an existing key. Returns the merged config, or `null` when nothing
- * changed (so the IO layer skips the write). The IO (read/parse/write + the
- * malformed-file guard) stays in cli.ts.
- */
-/**
- * The structural rules `init` gates BY DEFAULT (severity `error`, so a broken
- * surface fails `vigiles lint`). Every one is HIGH-PRECISION / FP-safe — it fires
- * only on a genuine defect (a never-available/typo'd tool, a subagent missing
- * `name`/`description`, a typo'd hook event, a dead hook script, a broken MCP
- * ref, two skills that collide in the selector) — so a well-formed plugin stays
- * green and catching real breakage out of the box never cries wolf.
- *
- * Deliberately EXCLUDES `require-instructions-spec` and the workflow-forcing rules:
- * those make a CLEAN repo fail (you simply haven't written the spec/test yet), so
- * they stay opt-in under `--strict` (progressive adoption — see
- * `STRICT_EXTRA_RULES`).
- *
- * This is the **`structural`** rule group (see research/install-enforcement-dx.md).
- */
-export const STRUCTURAL_RULES = [
-  "subagent-tool-contract",
-  "subagent-frontmatter",
-  "hook-events",
-  "hook-script-exists",
-  "mcp-config",
-  "mcp-tool-resolves",
-  "mcp-hook-target-resolves",
-  "disallowed-tools-contract",
-  "description-overlap",
-] as const;
-
-/**
  * The **`workflow`** group — the WORKFLOW-FORCING / opinionated tier `--strict`
  * gates, which a clean repo can still fail because you haven't done the work yet:
  * a spec per instruction file (`require-instructions-spec`), a test/eval per
@@ -214,9 +182,26 @@ export const NUDGE_RULES = [
   "doc-refs",
 ] as const;
 
+/**
+ * Pure config-merge for what `vigiles init` writes to `.vigilesrc.json`: record
+ * the harnesses if absent, gate the structural rules by EXTENDING the
+ * `vigiles:recommended` preset (never by writing each rule), add the workflow
+ * rules on `--strict`, and NEVER clobber an existing key or severity. Returns
+ * the merged config, or `null` when nothing changed (so the IO layer skips the
+ * write). The IO (read/parse/write + the malformed-file guard) stays in cli.ts.
+ *
+ * 🔴 THE PRESET, NOT NINE LINES (#338). Written lines are a snapshot of the
+ * structural group on the day `init` ran, so a repo adopted earlier never got a
+ * rule added to the group later; the preset is resolved by the loader on every
+ * run (`src/core/presets.ts`).
+ *
+ * `--report-only` is the exception and stays EXPLICIT: it promises that nothing
+ * fails CI, and extending a preset that later gains a rule at `error` would
+ * break that promise on an upgrade. So it writes the same rules at `warn`.
+ */
 export function mergeProjectConfig(
-  existing: Record<string, unknown>,
-  opts: {
+  existing: Readonly<Record<string, unknown>>,
+  opts: Readonly<{
     /** Canonical harness names this repo targets, in the order to declare them. */
     harnesses: readonly string[];
     strict: boolean;
@@ -225,44 +210,46 @@ export function mergeProjectConfig(
      * concern, so a test-only setup (`init --test` / `--no-lint`) records the
      * harness but writes NO lint rules. */
     lint?: boolean;
-  },
+  }>,
 ): Record<string, unknown> | null {
-  const config = { ...existing };
-  let changed = false;
   // The NESTED key (#240). `init` writes the declaration with no roots — a repo
   // whose surfaces sit where its harness reads them needs none, and a root is a
-  // fact only the owner knows. Writing the flat `harness`/`surfaceRoots` pair
-  // here would emit a config the loader now REFUSES, which is why this one line
-  // moved with the shape even though the rest of `init` did not.
-  if (config.harnesses === undefined) {
-    config.harnesses = Object.fromEntries(
-      opts.harnesses.map((h) => [h, {}]),
-    ) as Record<string, Record<string, never>>;
-    changed = true;
-  }
-  // The rule gate belongs to the LINT layer — a test-only setup records the
-  // harness but writes no rules (honoring the positive-flag contract that
-  // `--test` selects only the test pillar).
-  if (opts.lint !== false) {
-    // Gate the FP-safe `structural` group by default; `--strict` adds the
-    // `workflow` group on top. `--report-only` is the orthogonal severity dial —
-    // it writes the SAME rule set at "warn" (nothing fails CI; the
-    // migration/observe mode). Never clobber a severity the user already set —
-    // only fill the undefined ones.
-    const severity = opts.reportOnly ? "warn" : "error";
-    const gate = opts.strict
-      ? [...STRUCTURAL_RULES, ...WORKFLOW_RULES]
-      : [...STRUCTURAL_RULES];
-    const rules = { ...(config.rules as Record<string, unknown> | undefined) };
-    for (const r of gate) {
-      if (rules[r] === undefined) {
-        rules[r] = severity;
-        changed = true;
-      }
-    }
-    config.rules = rules;
-  }
-  return changed ? config : null;
+  // fact only the owner knows.
+  const harnesses =
+    existing.harnesses === undefined
+      ? { harnesses: Object.fromEntries(opts.harnesses.map((h) => [h, {}])) }
+      : {};
+  const gate = opts.lint === false ? {} : lintGate(existing, opts);
+  const added = { ...harnesses, ...gate };
+  return Object.keys(added).length === 0 ? null : { ...existing, ...added };
+}
+
+/**
+ * The lint-layer keys `init` adds: `extends` and/or the `rules` it fills.
+ * Only the keys that CHANGE are returned, so an already-satisfied config
+ * yields `{}` and is not rewritten.
+ */
+function lintGate(
+  existing: Readonly<Record<string, unknown>>,
+  opts: Readonly<{ strict: boolean; reportOnly?: boolean }>,
+): Readonly<Record<string, unknown>> {
+  const workflow = opts.strict ? WORKFLOW_RULES : [];
+  const explicit: readonly string[] = opts.reportOnly
+    ? [...RECOMMENDED_RULES, ...workflow]
+    : workflow;
+  const severity = opts.reportOnly ? "warn" : "error";
+  const before = (existing.rules ?? {}) as Readonly<Record<string, unknown>>;
+  // Never clobber a severity the user already set — only fill the undefined ones.
+  const filled = Object.fromEntries(
+    explicit.filter((r) => before[r] === undefined).map((r) => [r, severity]),
+  );
+  const rules =
+    Object.keys(filled).length === 0 ? {} : { rules: { ...before, ...filled } };
+  const preset =
+    opts.reportOnly || existing.extends !== undefined
+      ? {}
+      : { extends: RECOMMENDED_PRESET };
+  return { ...preset, ...rules };
 }
 
 /**
