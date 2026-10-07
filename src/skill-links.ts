@@ -175,11 +175,19 @@ export function locatePackage(
   project: string,
   probe: PackageProbe,
 ): PackageSite {
+  // The walk stops at the repository root; with no repository yet (before
+  // `git init`) the project itself is the boundary, or an unrelated ancestor's
+  // node_modules would be linked into it.
+  const repoRoot = (dir: string): string | null => {
+    if (probe.isRepoRoot(dir)) return dir;
+    return dirname(dir) === dir ? null : repoRoot(dirname(dir));
+  };
+  const boundary = repoRoot(project) ?? project;
   const walk = (dir: string): PackageSite | null => {
     const candidate = join(dir, "node_modules", VIGILES_PACKAGE);
     if (probe.isPackage(candidate))
       return { kind: "installed", dir: candidate };
-    if (probe.isRepoRoot(dir) || dirname(dir) === dir) return null;
+    if (dir === boundary || dirname(dir) === dir) return null;
     return walk(dirname(dir));
   };
   const installed = walk(project);
@@ -305,20 +313,18 @@ export function writeSkillLink(
     return;
   }
   const temp = relinkTempPath(entry);
-  const dropTemp = (): void => {
-    try {
-      io.unlink(temp);
-    } catch {
-      // Nothing there, or not ours to remove: the caller's error is the news.
-    }
-  };
-  // A leftover from an interrupted run would make the `symlink` below fail forever.
-  dropTemp();
+  // Whatever already sits at the temporary name is not ours to delete: the
+  // `symlink` then fails (EEXIST) and is reported, and both entries stay.
   io.symlink(target, temp);
   try {
     io.rename(temp, entry);
   } catch (e) {
-    dropTemp();
+    try {
+      // Only the link this call just created is removed.
+      io.unlink(temp);
+    } catch {
+      // Already gone: the rename error is the news.
+    }
     throw e;
   }
 }

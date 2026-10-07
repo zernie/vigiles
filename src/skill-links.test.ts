@@ -115,13 +115,27 @@ test("locatePackage never walks past the repo root — a link out of the repo br
   });
 });
 
-test("locatePackage stops at the filesystem root when there is no repo marker", () => {
-  const found = locatePackage("/a/b", {
-    isPackage: () => false,
+test("locatePackage: with no repo marker the project is the boundary — an ancestor's node_modules is not used", () => {
+  // Guards: before `git init`, /work/node_modules/vigiles must not be taken for
+  // /work/new-project's own: the committed links would leave the project.
+  const found = locatePackage("/work/new-project", {
+    isPackage: (dir) => dir === "/work/node_modules/vigiles",
     isRepoRoot: () => false,
     isWorkspaceRoot: () => false,
   });
   assert.equal(found.kind, "expected");
+});
+
+test("locatePackage: with no repo marker a package inside the project is still found", () => {
+  const found = locatePackage("/work/new-project", {
+    isPackage: (dir) => dir === "/work/new-project/node_modules/vigiles",
+    isRepoRoot: () => false,
+    isWorkspaceRoot: () => false,
+  });
+  assert.deepEqual(found, {
+    kind: "installed",
+    dir: "/work/new-project/node_modules/vigiles",
+  });
 });
 
 test("planSkillLinks links every shipped skill relative to the PHYSICAL skills home", () => {
@@ -446,13 +460,24 @@ test("replace: when the rename fails, the old link is still there and the tempor
   assert.deepEqual([...fs.links.entries()], [[ENTRY, "old/target"]]);
 });
 
-test("replace: a temporary link left by an interrupted run does not block the next one", () => {
+test("replace: an entry already at the temporary name is never deleted — the relink fails and both stay", () => {
   const fs = fakeLinks({
     [ENTRY]: "old/target",
-    [relinkTempPath(ENTRY)]: "stale",
+    [relinkTempPath(ENTRY)]: "someone else's",
   });
-  writeSkillLink(fs.io, ENTRY, "new/target", "replace");
-  assert.deepEqual([...fs.links.entries()], [[ENTRY, "new/target"]]);
+  assert.throws(() => {
+    writeSkillLink(fs.io, ENTRY, "new/target", "replace");
+  }, /EEXIST/);
+  // Guards: init deletes only what this call created; a file of the user's at
+  // the temporary name is not ours to remove.
+  assert.deepEqual(
+    [...fs.links.entries()],
+    [
+      [ENTRY, "old/target"],
+      [relinkTempPath(ENTRY), "someone else's"],
+    ],
+  );
+  assert.ok(!fs.calls.some((c) => c.startsWith("unlink")), fs.calls.join(", "));
 });
 
 test("create: one symlink call, nothing else touched", () => {
