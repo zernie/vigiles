@@ -192,6 +192,11 @@ export interface UntestedReport {
   /** Surfaces explicitly opted out via `vigiles:ignore-test`. */
   readonly exempt: number;
   /**
+   * The exempt surfaces themselves. The marker waives a surface's test, not its
+   * existence, so an inventory counts them (an exempt style still ships).
+   */
+  readonly exemptSurfaces: readonly Surface[];
+  /**
    * Test files still carrying the RETIRED `vigiles:covers` marker.
    *
    * 🔴 A MIGRATION THAT WOULD OTHERWISE BE SILENT. Up to 15.0.2 this tool's own
@@ -754,6 +759,15 @@ function tierOf(
 // Public API
 // ---------------------------------------------------------------------------
 
+/** The exempt surfaces and their count: waived from testing, still in the inventory. */
+function exemptOf(surfaces: readonly Surface[]): {
+  readonly exempt: number;
+  readonly exemptSurfaces: readonly Surface[];
+} {
+  const exemptSurfaces = surfaces.filter((s) => s.ignored);
+  return { exempt: exemptSurfaces.length, exemptSurfaces };
+}
+
 /**
  * Find harness surfaces (skills / agents / hooks) that no test or eval covers.
  * A surface is covered by a colocated `*.{harness,eval}.mjs` OR any discovered
@@ -797,10 +811,8 @@ export function findUntestedSurfaces(
     .map(toRoot)
     .filter((s) => s.kind === "hook" || !excluded(s.path));
 
-  // Every skill/agent/hook is held to the requirement — only an explicit
-  // `vigiles:ignore-test` marker exempts a surface (a visible, deliberate skip).
+  // Only an explicit `vigiles:ignore-test` marker exempts a surface.
   const considered = surfaces.filter((s) => !s.ignored);
-  const exempt = surfaces.length - considered.length;
 
   const tests = discoverTests(root, globs, ignore);
   const split = partitionTests(tests);
@@ -826,7 +838,7 @@ export function findUntestedSurfaces(
     total: considered.length,
     covered: union.covered,
     untested: union.untested,
-    exempt,
+    ...exemptOf(surfaces),
     staleRuns: staleRunsFor(considered, runIndex),
     testExt: testFileExt({
       configured: options.testExtension,

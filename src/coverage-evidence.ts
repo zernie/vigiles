@@ -489,7 +489,9 @@ export function outputStyleSurface(
 /**
  * How many output styles a scan found, or that the harness has none. Shared by
  * the disk and browser scan engines, so the inventory reads the one discovery
- * pass both already ran. Exempt styles (`vigiles:ignore-test`) are not counted.
+ * pass both already ran. Exempt styles (`vigiles:ignore-test`) are counted: the
+ * marker waives the test, not the style, and a style-only repository with an
+ * exempt style is not an empty machine.
  */
 export function outputStyleCount(
   layout: { readonly outputStyles?: unknown },
@@ -497,9 +499,10 @@ export function outputStyleCount(
     readonly covered: readonly { readonly kind: string }[];
     readonly untested: readonly { readonly kind: string }[];
   },
+  exempt: readonly { readonly kind: string }[],
 ): number | "not-supported" {
   if (layout.outputStyles === undefined) return "not-supported";
-  return [...tier.covered, ...tier.untested].filter(
+  return [...tier.covered, ...tier.untested, ...exempt].filter(
     (s) => s.kind === "output-style",
   ).length;
 }
@@ -509,13 +512,20 @@ export function inventoryCounts(
   files: Readonly<Record<string, string>>,
   isCommand: (path: string) => boolean,
   layout: { readonly outputStyles?: unknown },
-  tier: Parameters<typeof outputStyleCount>[1],
+  coverage: {
+    readonly harness: Parameters<typeof outputStyleCount>[1];
+    readonly exemptSurfaces: Parameters<typeof outputStyleCount>[2];
+  },
 ): {
   readonly commands: number;
   readonly outputStyles: number | "not-supported";
 } {
   return {
     commands: Object.keys(files).filter(isCommand).length,
-    outputStyles: outputStyleCount(layout, tier),
+    outputStyles: outputStyleCount(
+      layout,
+      coverage.harness,
+      coverage.exemptSurfaces,
+    ),
   };
 }

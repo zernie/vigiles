@@ -334,6 +334,8 @@ export function findUntestedSurfacesInFiles(
   decisions: readonly CoverageDecision[];
   harness: CoverageTier;
   evals: CoverageTier;
+  /** Surfaces opted out via `vigiles:ignore-test`; still part of the inventory. */
+  exemptSurfaces: readonly Surface[];
 } {
   const surfaces = discoverSurfaces(files, layout, repoName);
   const considered = surfaces.filter((s) => !s.ignored);
@@ -349,6 +351,7 @@ export function findUntestedSurfacesInFiles(
   return {
     untested: [...union.untested],
     decisions: union.decisions,
+    exemptSurfaces: surfaces.filter((s) => s.ignored),
     harness: tierOf(
       considered,
       tests.filter((t) => !isEvalScript(basename(t.path))),

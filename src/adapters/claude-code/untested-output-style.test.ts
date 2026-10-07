@@ -97,3 +97,19 @@ test("the audit inventory counts the style", () => {
   });
   assert.match(`${r.stdout}${r.stderr}`, /Output styles: 1/);
 });
+
+test("an exempt style is still counted: the marker waives the test, not the style", () => {
+  write(
+    STYLE,
+    "---\nname: Status Block\n---\nEnd with a block.\n<!-- vigiles:ignore-test -->\n",
+  );
+  const r = spawnSync("node", [CLI, "audit", "."], {
+    cwd: dir,
+    encoding: "utf-8",
+    timeout: 60000,
+  });
+  const out = `${r.stdout}${r.stderr}`;
+  assert.match(out, /Output styles: 1/);
+  // Counted as a machine, not scored as an empty one (an empty machine is 0).
+  assert.match(out, /Harness health: A \(100\/100\)/);
+});

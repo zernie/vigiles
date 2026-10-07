@@ -668,7 +668,7 @@
   },
   "src/test-coverage.ts": {
     "max-params": 5,
-    "max-lines-per-function": 56,
+    "max-lines-per-function": 55,
     "sonarjs/cognitive-complexity": 14
   },
   "src/tool-intercept.ts": {

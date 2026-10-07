@@ -752,7 +752,7 @@ export function scanFiles(
     hooks,
     inlineHooks: inline,
     manualHookCount: manual,
-    ...inventoryCounts(loaded.files, cls.isCommand, lay, coverage.harness),
+    ...inventoryCounts(loaded.files, cls.isCommand, lay, coverage),
     // A declared server set counts even when the loader emitted no warning —
     // otherwise a plugin whose servers come from the Agent Plugins `mcp.json`
     // reports "MCP servers: no" while the report lists an MCP finding.
