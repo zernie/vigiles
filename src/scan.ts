@@ -806,6 +806,7 @@ export function scanPlugin(
   const coverage = findUntestedSurfaces({
     basePath: dir,
     layout: lay,
+    harnessLayouts: declared.map((h) => h.layout),
     // The SAME `.vigilesrc.json#exclude`. Untested-surface discovery is a
     // second walk over the same trees, so leaving it out would have excluded a
     // skill from the GRADE while still naming it in "Untested surfaces: 1" — a
@@ -824,7 +825,12 @@ export function scanPlugin(
     hooks,
     inlineHooks: inline,
     manualHookCount: manual,
-    ...inventoryCounts(loaded.files, cls.isCommand, lay, coverage),
+    ...inventoryCounts(
+      loaded.files,
+      cls.isCommand,
+      declared.map((h) => h.layout),
+      coverage,
+    ),
     // A declared server set counts even when the loader emitted no warning —
     // otherwise a plugin whose servers come from the Agent Plugins `mcp.json`
     // reports "MCP servers: no" while the report lists an MCP finding.

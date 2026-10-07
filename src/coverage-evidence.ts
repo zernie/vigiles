@@ -494,14 +494,15 @@ export function outputStyleSurface(
  * exempt style is not an empty machine.
  */
 export function outputStyleCount(
-  layout: { readonly outputStyles?: unknown },
+  layouts: readonly { readonly outputStyles?: unknown }[],
   tier: {
     readonly covered: readonly { readonly kind: string }[];
     readonly untested: readonly { readonly kind: string }[];
   },
   exempt: readonly { readonly kind: string }[],
 ): number | "not-supported" {
-  if (layout.outputStyles === undefined) return "not-supported";
+  if (layouts.every((l) => l.outputStyles === undefined))
+    return "not-supported";
   return [...tier.covered, ...tier.untested, ...exempt].filter(
     (s) => s.kind === "output-style",
   ).length;
@@ -511,7 +512,7 @@ export function outputStyleCount(
 export function inventoryCounts(
   files: Readonly<Record<string, string>>,
   isCommand: (path: string) => boolean,
-  layout: { readonly outputStyles?: unknown },
+  layouts: Parameters<typeof outputStyleCount>[0],
   coverage: {
     readonly harness: Parameters<typeof outputStyleCount>[1];
     readonly exemptSurfaces: Parameters<typeof outputStyleCount>[2];
@@ -523,7 +524,7 @@ export function inventoryCounts(
   return {
     commands: Object.keys(files).filter(isCommand).length,
     outputStyles: outputStyleCount(
-      layout,
+      layouts,
       coverage.harness,
       coverage.exemptSurfaces,
     ),

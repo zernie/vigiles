@@ -284,6 +284,13 @@ export interface TestCoverageOptions {
    * Default true; a layout with no output styles finds none either way.
    */
   readonly outputStyles?: boolean;
+  /**
+   * Every harness the repository declares, when it declares more than one.
+   * Surfaces are found in each of them, one per file: a repository can list a
+   * harness first and keep its skills, agents or styles in another's folder.
+   * Defaults to `[layout]`.
+   */
+  readonly harnessLayouts?: readonly PluginLayout[];
   /** Globs of test files that count as coverage. */
   readonly include?: readonly string[];
   /**
@@ -541,18 +548,20 @@ function discoverSurfaces(
   options: TestCoverageOptions,
 ): readonly Surface[] {
   const on = (flag: boolean | undefined): boolean => flag !== false;
-  return [
+  const found = (options.harnessLayouts ?? [layout]).flatMap((each) => [
     ...(on(options.skills)
-      ? discoverSkills(basePath, [...DEFAULT_IGNORE], layout)
+      ? discoverSkills(basePath, [...DEFAULT_IGNORE], each)
       : []),
     ...(on(options.agents)
-      ? discoverAgents(basePath, [...DEFAULT_IGNORE], layout)
+      ? discoverAgents(basePath, [...DEFAULT_IGNORE], each)
       : []),
-    ...(on(options.hooks) ? discoverHooks(basePath, layout) : []),
+    ...(on(options.hooks) ? discoverHooks(basePath, each) : []),
     ...(on(options.outputStyles)
-      ? discoverOutputStyles(basePath, DEFAULT_IGNORE, layout)
+      ? discoverOutputStyles(basePath, DEFAULT_IGNORE, each)
       : []),
-  ];
+  ]);
+  // Two declared harnesses can read the same file: one surface per file.
+  return [...new Map(found.map((s) => [`${s.kind}\0${s.path}`, s])).values()];
 }
 
 /**
