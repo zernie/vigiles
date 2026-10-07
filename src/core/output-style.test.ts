@@ -115,6 +115,25 @@ describe("planStyleRun", () => {
   });
 });
 
+describe("planStyleRun takes only the file name from the source path", () => {
+  // A Windows path (`path.resolve` there) uses backslashes; taking everything
+  // after the last "/" kept the whole path and wrote ".acme/voices/C:\\...".
+  it.each([
+    "C:\\repo\\styles\\terse.txt",
+    "styles\\terse.txt",
+    "/repo/styles/terse.txt",
+  ])("%s", (path) => {
+    const plan = planStyleRun(
+      withStyles,
+      { path, text: "Terse\nShort answers." },
+      { files: {}, settings: undefined },
+    );
+    expect(plan.kind === "planned" && Object.keys(plan.files)).toEqual([
+      ".acme/voices/terse.txt",
+    ]);
+  });
+});
+
 describe("planStyleRun refuses rather than guess", () => {
   const source = { path: "styles/terse.txt", text: "Terse\nShort answers." };
   const empty = { files: {}, settings: undefined };

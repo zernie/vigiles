@@ -745,14 +745,15 @@ function fixtureFor(
   readonly settings: unknown;
   readonly check: (result: HarnessTestResult) => HarnessTestResult;
 } {
-  const resolved = resolveHarness({
-    plugin: spec.plugin,
-    settings: spec.settings,
-    files: spec.files,
-  });
+  // One layout for both phases: the plugin is loaded the way the selected
+  // harness lays it out, the same layout the style is then planned against.
+  const { layout } = adapter ?? defaultAdapter;
+  const resolved = resolveHarness(
+    { plugin: spec.plugin, settings: spec.settings, files: spec.files },
+    layout,
+  );
   if (spec.outputStyle === undefined)
     return { ...resolved, check: (result) => result };
-  const { layout } = adapter ?? defaultAdapter;
   const rules = layout.outputStyles;
   if (rules === undefined)
     throw new Error("outputStyle: this harness has no output styles");

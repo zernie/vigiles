@@ -103,7 +103,8 @@ function placeStyle(
   const home = outputStyleHomes(layout).at(-1);
   if (rules === undefined || home === undefined)
     return "this harness has no output styles";
-  const file = source.path.slice(source.path.lastIndexOf("/") + 1);
+  // Either separator: a Windows path from `path.resolve` uses backslashes.
+  const file = source.path.split(/[\\/]/).at(-1) ?? source.path;
   if (!rules.isStyleFile(file))
     return `this harness would not load "${file}" as an output style`;
   const style = rules.read(`${home}/${file}`, source.text);
