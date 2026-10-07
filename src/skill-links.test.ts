@@ -14,6 +14,7 @@ import { join } from "node:path";
 
 import {
   decideSkillLink,
+  isWithinProject,
   formatSkillLinks,
   linkFailureReason,
   linkPrecondition,
@@ -362,4 +363,16 @@ test("isVigilesSkillTarget: only a link into node_modules/vigiles/skills/<same n
     isVigilesSkillTarget("../../mine/edit-spec", "edit-spec"),
     false,
   );
+});
+
+test("isWithinProject: the project and its descendants are inside, even a child named like `..x`; siblings and parents are not", () => {
+  assert.equal(isWithinProject("/work/app", "/work/app"), true);
+  assert.equal(isWithinProject("/work/app", "/work/app/.claude/skills"), true);
+  assert.equal(
+    isWithinProject("/work/app", "/work/app-dotfiles/.claude"),
+    false,
+  );
+  assert.equal(isWithinProject("/work/app", "/work/app/..cache/skills"), true);
+  assert.equal(isWithinProject("/work/app", "/work"), false);
+  assert.equal(isWithinProject("/work/app", "/home/me/.claude"), false);
 });

@@ -25,6 +25,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   rmSync,
@@ -294,5 +295,58 @@ test("the commit hint lists the links init relinked, not only the ones it create
     SHIPPED_SKILLS.forEach((name) => {
       assert.ok(hint.includes(`${homeOf(CC)}/${name}`), `${name}: ${hint}`);
     });
+  });
+});
+
+/** An empty directory outside every scratch repo, removed afterwards. */
+function withOutside(fn: (outside: string) => void): void {
+  const outside = mkdtempSync(join(tmpdir(), "vigiles-init-outside-"));
+  try {
+    fn(outside);
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+  }
+}
+
+test("a skills home reached through a link that leaves the repository gets nothing written to it", () => {
+  withScratch((s) => {
+    withOutside((outside) => {
+      consumer(s.root, true);
+      // `.claude` is a link to a shared dotfiles directory outside the repo.
+      symlinkSync(outside, join(s.root, ".claude"), "dir");
+      const out = init(s, CC);
+      // Guards: following the link would write skill links into someone
+      // else's directory, and commit a link that only this machine resolves.
+      assert.equal(existsSync(join(outside, "skills")), false, out);
+      assert.ok(out.includes("skills were NOT linked"), out);
+      assert.ok(out.includes("outside the repository"), out);
+    });
+  });
+});
+
+test("a skills directory that is itself a link out of the repository is left alone", () => {
+  withScratch((s) => {
+    withOutside((outside) => {
+      consumer(s.root, true);
+      mkdirSync(join(s.root, ".agents"));
+      symlinkSync(outside, join(s.root, homeOf(CX)), "dir");
+      const out = init(s, CX);
+      assert.deepEqual(readdirSync(outside), [], out);
+      assert.ok(out.includes("outside the repository"), out);
+    });
+  });
+});
+
+test("a skills home that is a link to somewhere inside the repository is still linked", () => {
+  withScratch((s) => {
+    consumer(s.root, true);
+    mkdirSync(join(s.root, "tooling", "claude"), { recursive: true });
+    symlinkSync(join(s.root, "tooling", "claude"), join(s.root, ".claude"));
+    const out = init(s, CC);
+    assert.ok(
+      existsSync(join(s.root, "tooling", "claude", "skills", "test-harness")),
+      out,
+    );
+    assert.ok(out.includes("6 linked now"), out);
   });
 });

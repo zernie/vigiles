@@ -128,6 +128,7 @@ import {
 } from "./core/install-reader.js";
 import {
   VIGILES_PACKAGE,
+  isWithinProject,
   formatSkillLinks,
   linkFailureReason,
   linkPrecondition,
@@ -4331,6 +4332,31 @@ function applySkillLink(
   }
 }
 
+/**
+ * Why `init` must not write under `absHome`, or null when it may. `.claude` or
+ * its `skills` can be a link to a dotfiles directory outside the repo; creating
+ * the home would follow it and put links where no commit of this repo reaches.
+ * What `mkdir -p` would write through is the nearest part of the path that
+ * already exists, so that is the part judged.
+ */
+function homeEscape(
+  project: string,
+  home: string,
+  absHome: string,
+): string | null {
+  const nearest = (p: string): string =>
+    lstatSync(p, { throwIfNoEntry: false }) === undefined
+      ? nearest(dirname(p))
+      : p;
+  const anchor = nearest(absHome);
+  const real = realOrNull(anchor);
+  if (real === null)
+    return `${relative(project, anchor)} is a link that does not resolve, so ${home} cannot be created`;
+  return isWithinProject(project, real)
+    ? null
+    : `${home} leads to ${real}, outside the repository, and a link written there would not travel with a clone`;
+}
+
 /** The outcome when `init` makes no links, with the reason it prints. */
 function notLinked(reason: string): SkillLinkOutcome {
   return { kind: "not-linked", reason };
@@ -4371,6 +4397,8 @@ function linkVigilesSkills(home: string, cwd: string): SkillLinkOutcome {
   if (names.length === 0)
     return notLinked(`no shipped skills found under ${join(source, "skills")}`);
   const absHome = resolve(project, home);
+  const escape = homeEscape(project, home, absHome);
+  if (escape !== null) return notLinked(escape);
   try {
     mkdirSync(absHome, { recursive: true });
   } catch (e) {

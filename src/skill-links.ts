@@ -50,7 +50,7 @@
  * wins by construction (we never replace it) and the report names the skill
  * they did not get.
  */
-import { dirname, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { isVigilesSkillTarget } from "./core/skill-link-target.js";
 
 /** The package whose skills are linked. */
@@ -191,6 +191,16 @@ export function locatePackage(
           "vigiles isn't installed yet and this package is in a workspace, where the install decides whether it lands in this package's node_modules or the workspace root's — run npm install, then npx vigiles init",
       }
     : { kind: "expected", dir: join(project, "node_modules", VIGILES_PACKAGE) };
+}
+
+/**
+ * Is the real path `path` the project's own real path or somewhere under it?
+ * Both must be physical (symlink-free), or a link could pass for a child.
+ */
+export function isWithinProject(project: string, path: string): boolean {
+  const rel = relative(project, path);
+  // A child can be NAMED `..cache`; only a whole `..` segment leaves the project.
+  return rel.split(sep)[0] !== ".." && !isAbsolute(rel);
 }
 
 /** The facts that decide whether linking makes sense at all here. */
