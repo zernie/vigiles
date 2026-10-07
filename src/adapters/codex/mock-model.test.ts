@@ -162,6 +162,37 @@ test("startCodexMock: serves the rendered SSE and records the request", async ()
   }
 });
 
+// #340: past the end of the script is an error, not a copy of the last turn.
+test("startCodexMock: a request past the end of the script is an error, never a repeated turn", async () => {
+  const mock = await startCodexMock([{ text: "only" }]);
+  const ask = (text: string): Promise<Response> =>
+    fetch(`${mock.url}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5-codex",
+        input: [
+          {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text }],
+          },
+        ],
+      }),
+    });
+  try {
+    expect(await (await ask("go")).text()).toContain("only");
+    const second = await ask("again");
+    expect(second.status).toBe(400);
+    const message = await second.text();
+    expect(message).toMatch(/1 turn\(s\) scripted/);
+    expect(message).toMatch(/request #2/);
+    expect(mock.requests).toHaveLength(2);
+  } finally {
+    await mock.close();
+  }
+});
+
 const codexAvailable = (): boolean => {
   try {
     execFileSync("codex", ["--version"], { stdio: "ignore" });

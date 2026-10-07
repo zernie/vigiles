@@ -108,12 +108,18 @@ const markerFor = (event) => `VIGILES_INJECT_${event.toUpperCase()}`;
 /**
  * One script serves every event — two copies could differ, and then a difference
  * in delivery would not be attributable to the event. It records that it RAN
- * (ground truth on disk) and then emits the injection payload.
+ * (ground truth on disk) and then emits the injection payload — ONCE per event.
+ * A Stop hook that injects every time is itself a reason to take another turn, so
+ * the agent kept going until Claude Code's own cap (9 extra turns, measured on
+ * 2.1.292) and the mock fed it a copy of its last turn for each. Injecting once
+ * ends the run after one extra turn, which the script below covers.
  */
 const HOOK_SCRIPT = `
 const fs = require("node:fs");
 const [, , ledger, event, marker] = process.argv;
+const seen = fs.existsSync(ledger) ? fs.readFileSync(ledger, "utf8").split("\\n") : [];
 fs.appendFileSync(ledger, event + "\\n");
+if (seen.includes(event)) process.exit(0); // inject ONCE per event, see below
 process.stdout.write(
   JSON.stringify({
     hookSpecificOutput: { hookEventName: event, additionalContext: marker + " delivered" },
@@ -144,6 +150,11 @@ const r = await runHarnessTest({
     // A neutral file on purpose: Claude Code has its own PostToolUse handling for
     // memory files (CLAUDE.md), and this measures OUR hook, not that path.
     { tool: "Write", input: { file_path: "notes.md", content: "hello\n" } },
+    { text: "done" },
+    // The Stop hook's `additionalContext` is itself a reason to take one more
+    // turn, and that third request is the one the Stop marker arrives in. The
+    // mock used to answer it with a copy of "done"; past the end of the script it
+    // is now an error, so the turn is scripted (#340).
     { text: "done" },
   ]),
   prompt: "Write one short note.",

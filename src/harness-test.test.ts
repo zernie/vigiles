@@ -174,6 +174,70 @@ test("buildClaudeArgs: transcript, pluginDir, settings, and tool defaults", () =
   assert.deepEqual(full.slice(-2), ["--allowedTools", "Bash"]);
 });
 
+// #340: an agent that asks for more turns than the script has must fail the
+// test, not be fed a copy of the last turn. A Stop hook that blocks once makes
+// a one-turn script a two-turn run: before, the mock repeated "I'm done" and the
+// run came back green with `turns: 2` against a one-turn script.
+maybe(
+  "a run that outlasts its script fails the test and says how",
+  async () => {
+    await assert.rejects(
+      runHarnessTest({
+        sandbox: false,
+        settings: {
+          hooks: {
+            Stop: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command:
+                      "test -f {cwd}/seen || { touch {cwd}/seen; echo 'not yet' >&2; exit 2; }",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        model: [{ text: "I'm done" }],
+        timeoutMs: 120000,
+      }),
+      /1 turn\(s\) scripted, and agent request #2 had none left/,
+    );
+  },
+);
+
+maybe(
+  "a script that covers every turn the agent takes still passes",
+  async () => {
+    const r = await runHarnessTest({
+      sandbox: false,
+      settings: {
+        hooks: {
+          Stop: [
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command:
+                    "test -f {cwd}/seen || { touch {cwd}/seen; echo 'not yet' >&2; exit 2; }",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      model: [{ text: "I'm done" }, { text: "now really done" }],
+      timeoutMs: 120000,
+    });
+    try {
+      assert.equal(r.turns, 2);
+    } finally {
+      r.cleanup();
+    }
+  },
+);
+
 // #252: `--allowedTools` PRE-APPROVES, it does not restrict, so a tool left out
 // of `allowedTools` must be withheld with `--tools` (the availability list).
 test("buildClaudeArgs: allowedTools both pre-approves and withholds (--tools)", () => {

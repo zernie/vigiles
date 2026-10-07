@@ -86,7 +86,8 @@ async function startCodexMockHandle(
       }));
     },
     get count() {
-      return mock.requests.length;
+      // Turns SERVED: a request past the end of the script gets a 400.
+      return Math.min(mock.requests.length, script.length);
     },
     close: () => mock.close(),
   };

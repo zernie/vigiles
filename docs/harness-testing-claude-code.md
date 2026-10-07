@@ -229,7 +229,10 @@ Claude Code 2.0.31 or newer): a scripted call to it comes back as "No such tool
 available" and its side effect never happens. Each listed tool is also
 pre-approved (`--allowedTools`), so it does not stop on a permission prompt. A
 permission rule such as `Bash(git *)` keeps its specifier for the approval and is
-offered as plain `Bash`. `allowedTools: []` is refused: an agent with no tools is
+offered as plain `Bash`. An MCP tool is not a built-in, so `--tools` does not
+withhold it: left out of the list it is still offered but not pre-approved, and the
+call is refused for permission ("you haven't granted it yet") rather than as "No
+such tool". `allowedTools: []` is refused: an agent with no tools is
 never served a scripted turn. (Before this, the list only pre-approved, so a tool
 you left out still ran.)
 
@@ -261,6 +264,14 @@ reproducible. No key, no cost. `claude` is pointed at the in-process mock via
 `scriptModel([...])` builds the turn script: each entry is either a text turn
 (`{ text }`) or a scripted tool call (`{ tool, input }`). The mock serves them in
 order and renders the Anthropic Messages SSE shape `claude` expects.
+
+**Script every turn the agent takes.** An agent that asks for a turn past the end
+of the script **fails the test**: the mock answers that request with an API error
+instead of inventing a turn, and `runHarnessTest` throws "N turn(s) scripted, and
+agent request #N+1 had none left", quoting the last message the agent was reacting
+to. (The mock used to repeat the last turn, so a Stop hook that kept blocking, or a
+retry, ran on turns nobody scripted and the test still passed.) The Codex mock
+behaves the same way.
 
 ```ts
 import { test } from "node:test";

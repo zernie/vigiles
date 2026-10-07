@@ -2,7 +2,7 @@
  * Tests for the scripted Anthropic mock (src/mock-model.ts). The mock is an
  * in-process HTTP server, so its full behaviour — SSE vs JSON turns, tool vs
  * text turns, count_tokens / HEAD / health tolerance, the onTurn probe, and the
- * last-turn-repeat / empty-script defaults — is testable directly, no claude.
+ * past-the-end / empty-script errors — is testable directly, no claude.
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
@@ -16,6 +16,10 @@ import {
   splitRequestCounts,
   type TurnInfo,
 } from "./mock-model.js";
+import {
+  findScriptOverrun,
+  scriptOverrunMessage,
+} from "./core/script-overrun.js";
 
 /**
  * POST an AGENT-LOOP request — one that declares tools, which is how the mock
@@ -367,27 +371,77 @@ test("startMock: captures each request via handle.requests", async () => {
   }
 });
 
-test("startMock: repeats the last turn and defaults an empty script", async () => {
-  const repeat = await startMock(scriptModel([{ text: "only" }]));
+// #340: a request past the end of the script used to be answered with a copy of
+// the last turn, so an agent that looped longer than the test expected passed on
+// turns nobody scripted.
+test("startMock: a request past the end of the script is an error, never a repeated turn", async () => {
+  const mock = await startMock(scriptModel([{ text: "only" }]));
   try {
-    for (let i = 0; i < 2; i++) {
-      const j = await readMsg(
-        await post(repeat.url, { messages: [{ content: "x" }] }),
-      );
-      assert.equal(j.content?.[0]?.text, "only"); // 2nd call repeats the last turn
-    }
-  } finally {
-    repeat.close();
-  }
+    const first = await post(mock.url, { messages: [{ content: "go" }] });
+    assert.equal((await readMsg(first)).content?.[0]?.text, "only");
 
-  const empty = await startMock(scriptModel([]));
-  try {
-    // empty script + no messages field → default { text: "" }
-    const j = await readMsg(await post(empty.url, {}));
-    assert.equal(j.content?.[0]?.text, "");
+    const second = await post(mock.url, {
+      messages: [{ role: "user", content: "again" }],
+    });
+    assert.equal(second.status, 400, "a non-retryable API error, not a turn");
+    const body = await second.text();
+    assert.match(body, /1 turn\(s\) scripted/);
+    assert.match(body, /request #2/);
+    assert.match(body, /again/); // what it was reacting to
+
+    assert.equal(mock.count, 1, "no turn was served for the overrun");
+    assert.deepEqual(findScriptOverrun(1, mock.requests), {
+      scripted: 1,
+      request: 2,
+      lastMessage: "again",
+    });
   } finally {
-    empty.close();
+    mock.close();
   }
+});
+
+test("startMock: an empty script serves nothing — every agent request is past its end", async () => {
+  const mock = await startMock(scriptModel([]));
+  try {
+    const r = await post(mock.url, {});
+    assert.equal(r.status, 400);
+    assert.match(await r.text(), /0 turn\(s\) scripted/);
+    assert.equal(findScriptOverrun(0, mock.requests)?.request, 1);
+  } finally {
+    mock.close();
+  }
+});
+
+test("findScriptOverrun: side-channel calls never count, and staying inside the script is not an overrun", () => {
+  const agent = (text: string) => ({
+    system: "",
+    messages: [{ role: "user", text }],
+  });
+  const side = { ...agent("classify"), sideChannel: true };
+  assert.equal(
+    findScriptOverrun(2, [side, agent("a"), side, agent("b"), side]),
+    undefined,
+  );
+  assert.deepEqual(
+    findScriptOverrun(2, [agent("a"), side, agent("b"), agent("c")]),
+    {
+      scripted: 2,
+      request: 3,
+      lastMessage: "c",
+    },
+  );
+});
+
+test("scriptOverrunMessage: says how many turns were scripted and which request exceeded them", () => {
+  const msg = scriptOverrunMessage({
+    scripted: 3,
+    request: 4,
+    lastMessage: "x".repeat(500),
+  });
+  assert.match(msg, /3 turn\(s\) scripted/);
+  assert.match(msg, /request #4/);
+  assert.ok(msg.length < 700, "a long last message is cut, not dumped");
+  assert.match(msg, /Script every turn/);
 });
 
 // ---------------------------------------------------------------------------

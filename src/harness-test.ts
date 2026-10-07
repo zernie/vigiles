@@ -57,6 +57,10 @@ import type { Trace, SubagentTrace } from "./core/eval-driver.js";
 export type { Trace, SubagentTrace } from "./core/eval-driver.js";
 import { assertHarnessTestable } from "./adapter-conformance.js";
 import { recordCheck } from "./check-count.js";
+import {
+  findScriptOverrun,
+  scriptOverrunMessage,
+} from "./core/script-overrun.js";
 import { probeTrace } from "./coverage-probe.js";
 
 import { claudeCodeRuntime } from "./adapters/claude-code/runtime.js";
@@ -156,7 +160,9 @@ export interface HarnessTestSpec {
    * comes back as "No such tool available", and `[]` means no tools at all. Each
    * listed tool is also pre-approved (`--allowedTools`), so it does not stop on a
    * permission prompt; a permission rule such as `Bash(git *)` keeps its
-   * specifier for the approval and is reduced to `Bash` for availability.
+   * specifier for the approval and is reduced to `Bash` for availability. An MCP
+   * tool is not a built-in: left out, it is still offered but not approved, so a
+   * call to it is refused for permission rather than as "No such tool".
    */
   readonly allowedTools?: readonly string[];
   /**
@@ -657,6 +663,34 @@ export interface RunHarnessTestOptions {
   readonly adapter?: HarnessAdapter;
 }
 
+/** Say so on stderr when side-channel calls arrived and no script turn was served. */
+function warnUnconsumed(count: number, sideChannelCount: number): void {
+  const unconsumed = scriptUnconsumedWarning(count, sideChannelCount);
+  if (unconsumed !== undefined) console.error(unconsumed);
+}
+
+/**
+ * A run that proves nothing about the script fails the test instead of coming
+ * back as a result: the `claude` on PATH predates `--tools` (#252), or the agent
+ * asked for a model turn the script did not have and the mock answered with an
+ * error rather than an invented turn (#340). Removes the run's directory, since
+ * no result is handed back to clean it up.
+ */
+function assertRunSound(
+  cwd: string,
+  stderr: string,
+  scripted: number,
+  modelRequests: readonly ModelRequest[],
+): void {
+  const unsupported = unsupportedToolsFlag(stderr);
+  const overrun = findScriptOverrun(scripted, modelRequests);
+  if (unsupported === undefined && overrun === undefined) return;
+  rmSync(cwd, { recursive: true, force: true });
+  throw new Error(
+    unsupported ?? (overrun === undefined ? "" : scriptOverrunMessage(overrun)),
+  );
+}
+
 /* v8 ignore start -- spawns the real agent CLI + filesystem; exercised by the
    claude-backed + gated codex suites, excluded from the deterministic coverage
    gate (the parse helpers above carry the testable logic). */
@@ -670,11 +704,6 @@ function makeResult(
   // WHAT this run exercised, read off the transcript rather than the fixture: a
   // harness test installs a whole plugin, and what was INSTALLED is a set while
   // what RAN is one thing. See coverage-probe.ts.
-  const unsupported = unsupportedToolsFlag(out.stderr ?? "");
-  if (unsupported !== undefined) {
-    rmSync(cwd, { recursive: true, force: true });
-    throw new Error(unsupported);
-  }
   probeTrace({ toolCalls: parsed.toolCalls, hooks: parsed.hooks });
   return {
     exitCode: out.code,
@@ -714,7 +743,20 @@ export async function runHarnessTest(
   spec: HarnessTestSpec,
   opts: RunHarnessTestOptions = {},
 ): Promise<HarnessTestResult> {
+  refuseToollessAgent(spec);
   return runHarnessTestIn(spec, opts, "inherit");
+}
+
+/**
+ * The scripted model tells an agent turn from the CLI's own bookkeeping calls by
+ * the tools the request declares (`isMainLoopRequest`). An agent with none is
+ * never served a script turn, and the run would decide on nothing.
+ */
+function refuseToollessAgent(spec: HarnessTestSpec): void {
+  if (spec.allowedTools?.length !== 0) return;
+  throw new Error(
+    "allowedTools: [] leaves the agent with no tools, and the scripted model only serves a turn to a request that declares tools — no script turn would be consumed. Name the tools the agent has.",
+  );
 }
 
 /**
@@ -753,15 +795,6 @@ export async function runHarnessTestIn(
     );
   }
 
-  // The scripted model tells an agent turn from the CLI's own bookkeeping calls
-  // by the tools the request declares (`isMainLoopRequest`). An agent with none
-  // is never served a script turn, and the run would decide on nothing.
-  if (isClaudeCode && spec.allowedTools?.length === 0) {
-    throw new Error(
-      "allowedTools: [] leaves the agent with no tools, and the scripted model only serves a turn to a request that declares tools — no script turn would be consumed. Name the tools the agent has.",
-    );
-  }
-
   const { files, settings, check } = fixtureFor(spec, opts.adapter);
   const cwd = makeTmpDir("harness");
   writeFixture(cwd, files, settings);
@@ -795,8 +828,8 @@ export async function runHarnessTestIn(
     // the direct one stays right. Same recovery feeds the unconsumed-script
     // warning, which the sandbox path could not emit at all before.
     const { count, sideChannelCount } = splitRequestCounts(out.requests);
-    const unconsumed = scriptUnconsumedWarning(count, sideChannelCount);
-    if (unconsumed !== undefined) console.error(unconsumed);
+    warnUnconsumed(count, sideChannelCount);
+    assertRunSound(cwd, "", spec.model.length, out.requests);
     return check(
       makeResult(cwd, out, parseClaudeRun(out.stdout), count, out.requests),
     );
@@ -817,11 +850,8 @@ export async function runHarnessTestIn(
     // looks empty. `scriptUnconsumedWarning` names the one shape that produces
     // it (every request arriving without tool declarations, so nothing looked
     // like an agent turn) instead of leaving it to be rediscovered.
-    const unconsumed = scriptUnconsumedWarning(
-      mock.count,
-      mock.sideChannelCount ?? 0,
-    );
-    if (unconsumed !== undefined) console.error(unconsumed);
+    warnUnconsumed(mock.count, mock.sideChannelCount ?? 0);
+    assertRunSound(cwd, out.stderr, spec.model.length, mock.requests);
     return check(
       makeResult(cwd, out, driver.parseRun(out.stdout), mock.count, [
         ...mock.requests,
