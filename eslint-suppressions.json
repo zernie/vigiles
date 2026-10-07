@@ -3703,7 +3703,7 @@
   },
   "src/setup-plan.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 11
+      "count": 10
     },
     "local/no-harness-names": {
       "count": 49
@@ -3711,19 +3711,16 @@
   },
   "src/setup-plan.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 3
-    },
-    "functional/immutable-data": {
-      "count": 24
-    },
-    "functional/no-let": {
-      "count": 1
-    },
-    "functional/no-loop-statements": {
       "count": 2
     },
+    "functional/immutable-data": {
+      "count": 21
+    },
+    "functional/no-loop-statements": {
+      "count": 1
+    },
     "functional/prefer-immutable-types": {
-      "count": 20
+      "count": 18
     },
     "local/no-harness-names": {
       "count": 15

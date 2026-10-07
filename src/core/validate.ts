@@ -23,6 +23,7 @@ import { cosmiconfigSync } from "cosmiconfig";
 import { DEFAULT_INSTRUCTION_TARGETS } from "./dialect.js";
 import {
   vigilesConfigSchema,
+  parseVigilesConfig,
   formatConfigIssues,
   REPLACED_KEYS,
   replacedKeyMessage,
@@ -197,7 +198,7 @@ export function loadConfig(
     }
   }
   if (problems.length === 0) {
-    const parsed = vigilesConfigSchema.safeParse(raw);
+    const parsed = parseVigilesConfig(raw);
     if (parsed.success) return parsed.data;
     problems.push(...formatConfigIssues(parsed.error.issues));
   }

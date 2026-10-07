@@ -103,7 +103,7 @@
     "sonarjs/cognitive-complexity": 240
   },
   "src/cli.test.ts": {
-    "max-lines-per-function": 528
+    "max-lines-per-function": 524
   },
   "src/community-skills.ts": {
     "sonarjs/cognitive-complexity": 11
@@ -631,8 +631,7 @@
     "max-lines-per-function": 216
   },
   "src/setup-plan.ts": {
-    "max-lines-per-function": 54,
-    "sonarjs/cognitive-complexity": 12
+    "max-lines-per-function": 54
   },
   "src/skill-contract.ts": {
     "max-lines-per-function": 48,

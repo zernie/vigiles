@@ -14,11 +14,15 @@ import {
   mergeProjectConfig,
   collectSetupAnswers,
   gateOnlyInvitation,
-  STRUCTURAL_RULES,
   WORKFLOW_RULES,
   SHIPPED_SKILLS,
+  adoptionState,
+  rerunScope,
+  missingVigilesDevDep,
+  fullSetupFollowUps,
   type AskFn,
 } from "./setup-plan.js";
+import { RECOMMENDED_RULES } from "./core/presets.js";
 
 test("defaults: both pillars, CI, plugin, non-strict", () => {
   assert.deepEqual(defaultPlan(), {
@@ -328,41 +332,33 @@ test("shouldPrompt: only a TTY human with unpinned choices", () => {
 
 // --- mergeProjectConfig: what `vigiles init` writes to .vigilesrc.json ---
 
-test("mergeProjectConfig: default init gates the FP-safe structural rules + harness", () => {
+const RECOMMENDED = { extends: "vigiles:recommended" } as const;
+
+test("mergeProjectConfig: default init extends the recommended preset instead of writing rules", () => {
   const out = mergeProjectConfig(
     {},
     { harnesses: ["claude-code"], strict: false },
   );
-  const expected = Object.fromEntries(
-    STRUCTURAL_RULES.map((r) => [r, "error"]),
-  );
-  assert.deepEqual(out, { harnesses: { "claude-code": {} }, rules: expected });
+  // No per-rule lines: the preset is read at load time, so a rule vigiles adds
+  // to it later reaches this repo on upgrade (#338).
+  assert.deepEqual(out, { harnesses: { "claude-code": {} }, ...RECOMMENDED });
 });
 
 test("mergeProjectConfig: default does NOT gate require-instructions-spec (stays opt-in)", () => {
-  const out = mergeProjectConfig(
-    {},
-    { harnesses: ["claude-code"], strict: false },
-  );
-  const rules = (out as { rules: Record<string, string> }).rules;
-  assert.equal(
-    rules["require-instructions-spec"],
-    undefined,
-    "require-instructions-spec is --strict-only",
-  );
-  assert.equal(
-    rules["untested-skill"],
-    undefined,
-    "untested-* is --strict-only",
-  );
+  const out = mergeProjectConfig({}, { harnesses: [], strict: false });
+  assert.equal((out as { rules?: unknown }).rules, undefined);
 });
 
-test("mergeProjectConfig: --report-only writes the structural gate at warn, not error", () => {
+test("mergeProjectConfig: --report-only writes the structural rules at warn and no preset", () => {
+  // Report-only promises nothing fails CI. Extending the preset would break that
+  // promise the day a rule joins it, so the observe mode stays explicit.
   const out = mergeProjectConfig(
     {},
     { harnesses: ["claude-code"], strict: false, reportOnly: true },
   );
-  const expected = Object.fromEntries(STRUCTURAL_RULES.map((r) => [r, "warn"]));
+  const expected = Object.fromEntries(
+    RECOMMENDED_RULES.map((r) => [r, "warn"]),
+  );
   assert.deepEqual(out, { harnesses: { "claude-code": {} }, rules: expected });
 });
 
@@ -372,7 +368,7 @@ test("mergeProjectConfig: --report-only composes with --strict (workflow tier at
     { harnesses: ["claude-code"], strict: true, reportOnly: true },
   );
   const expected = Object.fromEntries(
-    [...STRUCTURAL_RULES, ...WORKFLOW_RULES].map((r) => [r, "warn"]),
+    [...RECOMMENDED_RULES, ...WORKFLOW_RULES].map((r) => [r, "warn"]),
   );
   assert.deepEqual(out, { harnesses: { "claude-code": {} }, rules: expected });
 });
@@ -383,7 +379,7 @@ test("mergeProjectConfig: test-only (lint:false) records harness but writes NO l
     { harnesses: ["claude-code"], strict: false, lint: false },
   );
   // Honors the positive-flag contract: `init --test` selects only the test
-  // pillar, so the lint rule gate is not written.
+  // pillar, so neither the preset nor a rule is written.
   assert.deepEqual(out, { harnesses: { "claude-code": {} } });
 });
 
@@ -395,7 +391,7 @@ test("mergeProjectConfig: lint:false with --strict still writes no rules", () =>
   assert.deepEqual(out, { harnesses: { codex: {} } });
 });
 
-test("mergeProjectConfig: array harness is recorded as-is (with default gates)", () => {
+test("mergeProjectConfig: array harness is recorded as-is", () => {
   const out = mergeProjectConfig(
     {},
     { harnesses: ["claude-code", "codex"], strict: false },
@@ -407,7 +403,7 @@ test("mergeProjectConfig: array harness is recorded as-is (with default gates)",
 });
 
 test("mergeProjectConfig: never clobbers an existing harness key", () => {
-  // harness already set, but the default gate rules are still added → writes.
+  // harness already set, but the preset is still added → writes.
   const out = mergeProjectConfig(
     { harnesses: { codex: {} } },
     { harnesses: ["claude-code"], strict: false },
@@ -430,15 +426,17 @@ test("mergeProjectConfig: preserves other existing keys", () => {
   ]);
 });
 
-test("mergeProjectConfig: --strict adds the workflow-forcing tier on top of the gates", () => {
+test("mergeProjectConfig: --strict adds the workflow-forcing tier on top of the preset", () => {
   const out = mergeProjectConfig(
     {},
     { harnesses: ["claude-code"], strict: true },
   );
-  const expected = Object.fromEntries(
-    [...STRUCTURAL_RULES, ...WORKFLOW_RULES].map((r) => [r, "error"]),
-  );
-  assert.deepEqual(out, { harnesses: { "claude-code": {} }, rules: expected });
+  const expected = Object.fromEntries(WORKFLOW_RULES.map((r) => [r, "error"]));
+  assert.deepEqual(out, {
+    harnesses: { "claude-code": {} },
+    ...RECOMMENDED,
+    rules: expected,
+  });
 });
 
 test("WORKFLOW_RULES is require-instructions-spec + untested-*; nudge rules are NOT gated", () => {
@@ -453,23 +451,26 @@ test("WORKFLOW_RULES is require-instructions-spec + untested-*; nudge rules are 
   );
 });
 
-test("mergeProjectConfig: never clobbers a user-set severity, fills the rest", () => {
+test("mergeProjectConfig: never clobbers a user-set severity or an existing extends", () => {
   const out = mergeProjectConfig(
-    { harness: "codex", rules: { "subagent-tool-contract": "warn" } },
+    {
+      harnesses: { codex: {} },
+      rules: { "subagent-tool-contract": "warn" },
+    },
     { harnesses: ["codex"], strict: false },
   );
-  const rules = (out as { rules: Record<string, string> }).rules;
-  assert.equal(rules["subagent-tool-contract"], "warn", "user severity kept");
-  assert.equal(rules["description-overlap"], "error", "others gated");
+  assert.deepEqual(out, {
+    harnesses: { codex: {} },
+    rules: { "subagent-tool-contract": "warn" },
+    ...RECOMMENDED,
+  });
 });
 
 test("mergeProjectConfig: fully-satisfied config returns null (no write)", () => {
-  const rules = Object.fromEntries(
-    [...STRUCTURAL_RULES, ...WORKFLOW_RULES].map((r) => [r, "error"]),
-  );
+  const rules = Object.fromEntries(WORKFLOW_RULES.map((r) => [r, "error"]));
   assert.equal(
     mergeProjectConfig(
-      { harnesses: { codex: {} }, rules },
+      { harnesses: { codex: {} }, ...RECOMMENDED, rules },
       { harnesses: ["codex"], strict: true },
     ),
     null,
@@ -567,4 +568,96 @@ test("collectSetupAnswers: declining CI / plugin / strict is honored", async () 
   assert.equal(a.plugin, false);
   assert.equal(a.strict, false, "opts OUT of the workflow tier");
   assert.equal(a.lint, true, "structural gating still set up");
+});
+
+// --- re-running init on an adopted repo (#338) ---
+
+test("adoptionState: .vigilesrc.json or a spec beside an instruction file means adopted", () => {
+  assert.deepEqual(adoptionState({ hasConfig: false, specs: [] }), {
+    kind: "fresh",
+  });
+  assert.deepEqual(adoptionState({ hasConfig: true, specs: [] }), {
+    kind: "adopted",
+    evidence: ".vigilesrc.json",
+  });
+  assert.deepEqual(
+    adoptionState({ hasConfig: false, specs: ["CLAUDE.md.spec.ts"] }),
+    { kind: "adopted", evidence: "CLAUDE.md.spec.ts" },
+  );
+});
+
+test("rerunScope: a fresh repo is always the full setup", () => {
+  assert.equal(rerunScope(parseSetupArgs([]), { kind: "fresh" }), "full");
+});
+
+test("rerunScope: an adopted repo is minimal unless a flag asks for more", () => {
+  const adopted = { kind: "adopted", evidence: ".vigilesrc.json" } as const;
+  for (const narrowing of [[], ["--yes"], ["--no-gha"], ["--harness=other"]]) {
+    assert.equal(
+      rerunScope(parseSetupArgs(narrowing), adopted),
+      "minimal",
+      narrowing.join(" "),
+    );
+  }
+  for (const widening of [
+    ["--full"],
+    ["--strict"],
+    ["--ci-only"],
+    ["--report-only"],
+    ["--force"],
+    ["--target=AGENTS.md"],
+    ["--lint"],
+    ["--test"],
+  ]) {
+    assert.equal(
+      rerunScope(parseSetupArgs(widening), adopted),
+      "full",
+      widening.join(" "),
+    );
+  }
+});
+
+test("missingVigilesDevDep: adds only when no field declares vigiles, never edits a pin", () => {
+  assert.deepEqual(
+    missingVigilesDevDep({ devDependencies: { eslint: "^9" } }, "^34"),
+    { eslint: "^9", vigiles: "^34" },
+  );
+  assert.equal(
+    missingVigilesDevDep({ devDependencies: { vigiles: "^33.3.0" } }, "^34"),
+    null,
+  );
+  assert.equal(
+    missingVigilesDevDep({ dependencies: { vigiles: "github:x/y" } }, "^34"),
+    null,
+  );
+});
+
+const NO_GAP = {
+  workflow: false,
+  config: "has-preset",
+  harnessTest: false,
+  unspecced: [],
+  generated: false,
+  installs: [],
+  devDep: null,
+} as const;
+
+test("fullSetupFollowUps: nothing missing prints nothing", () => {
+  assert.deepEqual(fullSetupFollowUps(NO_GAP), []);
+});
+
+test("fullSetupFollowUps: names each missing piece, then the flag", () => {
+  const lines = fullSetupFollowUps({
+    ...NO_GAP,
+    workflow: true,
+    config: "no-preset",
+    unspecced: ["CLAUDE.md"],
+    devDep: { from: "^33.3.0", to: "^33" },
+  });
+  assert.equal(lines[0], "A full setup would also:");
+  assert.ok(lines.some((l) => l.includes(".github/workflows/vigiles.yml")));
+  assert.ok(lines.some((l) => l.includes('"extends": "vigiles:recommended"')));
+  assert.ok(lines.some((l) => l.includes("1 hand-written file(s): CLAUDE.md")));
+  assert.ok(lines.some((l) => l.includes("(yours: ^33.3.0)")));
+  assert.match(lines.at(-1) ?? "", /npx vigiles init --full/);
 });

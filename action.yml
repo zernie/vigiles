@@ -19,9 +19,15 @@ inputs:
     required: false
     default: ""
   version:
-    description: "Version of the vigiles npm package to run (e.g. '1', '1.2.3', 'latest'). Use 'local' to run the action's own checkout — for dogfooding via `uses: ./` in this repo's CI."
+    description: >
+      Version of the vigiles npm package to run (e.g. '34', '34.1.2', 'latest').
+      Empty (the default) runs the vigiles THIS repo declares in package.json:
+      the installed copy when node_modules has it, else the version in
+      package-lock.json, else the declared range — and 'latest' only when the
+      repo does not declare vigiles. Use 'local' to run the action's own
+      checkout — for dogfooding via `uses: ./` in this repo's CI.
     required: false
-    default: "latest"
+    default: ""
   max-rules:
     description: "Maximum number of rules per spec file (maps to the CLI's --max-rules)."
     required: false
@@ -109,17 +115,48 @@ runs:
         fi
 
         # Resolve the runner. 'local' runs the action's own build (CI
-        # dogfood via `uses: ./`); any other value runs the published npm
-        # package at that version, so the Action reuses the same tested
-        # artifact users get from `npx vigiles`.
-        version="${VIGILES_VERSION:-latest}"
+        # dogfood via `uses: ./`); an explicit version runs the published npm
+        # package at that version. EMPTY (the default) runs the vigiles this
+        # repo declares, so CI and a local `npx vigiles` are the same version
+        # rather than two pins that drift: the installed copy, else the
+        # lockfile's version, else the declared range; `latest` only when the
+        # repo does not declare vigiles at all.
+        version="${VIGILES_VERSION:-}"
         if [[ "$version" == "local" ]]; then
           runner=(node "${VIGILES_ACTION_PATH}/dist/cli.js")
-        else
+          from="the action's own checkout"
+        elif [[ -n "$version" ]]; then
           runner=(npx --yes "vigiles@${version}")
+          from="the version input"
+        else
+          declared="$(node -e '
+            const fs = require("fs");
+            const read = (f) => { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return null; } };
+            const pkg = read("package.json") ?? {};
+            const spec = pkg.devDependencies?.vigiles ?? pkg.dependencies?.vigiles;
+            if (typeof spec !== "string") { console.log("none"); process.exit(0); }
+            if (fs.existsSync("node_modules/.bin/vigiles")) { console.log("installed"); process.exit(0); }
+            const lock = read("package-lock.json") ?? {};
+            const locked = lock.packages?.["node_modules/vigiles"]?.version ?? lock.dependencies?.vigiles?.version;
+            console.log(typeof locked === "string" ? "lock " + locked : "range " + spec);
+          ' 2>/dev/null || echo none)"
+          case "$declared" in
+            installed)
+              runner=(npx --no-install vigiles)
+              from="this repo's installed vigiles" ;;
+            "lock "*)
+              runner=(npx --yes "vigiles@${declared#lock }")
+              from="package-lock.json" ;;
+            "range "*)
+              runner=(npx --yes "vigiles@${declared#range }")
+              from="the range package.json declares" ;;
+            *)
+              runner=(npx --yes "vigiles@latest")
+              from="latest (this repo does not declare vigiles)" ;;
+          esac
         fi
 
-        echo "vigiles: ${runner[*]} ${args[*]}"
+        echo "vigiles: ${runner[*]} ${args[*]}  (version from ${from})"
 
         # Run, streaming to the log AND capturing for the summary/comment.
         out="$(mktemp)"

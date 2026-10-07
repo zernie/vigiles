@@ -79,6 +79,7 @@ export const COMMAND_FLAGS: Record<Verb, readonly FlagSpec[]> = {
     "--no-gha",
     "--no-plugin",
     "--ci-only",
+    "--full",
   ],
   compile: [],
   eject: ["--keep-spec"],

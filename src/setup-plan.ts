@@ -9,6 +9,8 @@
  * on a prompt. See docs/agent-setup.md.
  */
 
+import { RECOMMENDED_PRESET, RECOMMENDED_RULES } from "./core/presets.js";
+
 /** What `vigiles init` will set up. */
 export interface SetupPlan {
   /** Lint pillar — verify instruction-file references (specs, types, compile, lint, hooks). */
@@ -79,6 +81,11 @@ export interface ParsedSetupArgs {
    * DISCOVERY row of `cohesive-feature-delivery`.
    */
   ciOnly: boolean;
+  /**
+   * `--full` — run the whole setup even on a repo that already uses vigiles.
+   * Without it, a re-run there is the minimal one (see {@link rerunScope}).
+   */
+  full: boolean;
 }
 
 function flagValue(
@@ -110,6 +117,7 @@ export function parseSetupArgs(args: readonly string[]): ParsedSetupArgs {
     gha: args.includes("--no-gha") ? false : undefined,
     plugin: args.includes("--no-plugin") ? false : undefined,
     ciOnly: args.includes("--ci-only"),
+    full: args.includes("--full"),
   };
 }
 
@@ -129,40 +137,6 @@ export function defaultPlan(strict = false): SetupPlan {
     force: false,
   };
 }
-
-/**
- * Pure config-merge for what `vigiles init` writes to `.vigilesrc.json`: record
- * the `harness` if absent, add strict rule severities if `--strict`, NEVER
- * clobber an existing key. Returns the merged config, or `null` when nothing
- * changed (so the IO layer skips the write). The IO (read/parse/write + the
- * malformed-file guard) stays in cli.ts.
- */
-/**
- * The structural rules `init` gates BY DEFAULT (severity `error`, so a broken
- * surface fails `vigiles lint`). Every one is HIGH-PRECISION / FP-safe — it fires
- * only on a genuine defect (a never-available/typo'd tool, a subagent missing
- * `name`/`description`, a typo'd hook event, a dead hook script, a broken MCP
- * ref, two skills that collide in the selector) — so a well-formed plugin stays
- * green and catching real breakage out of the box never cries wolf.
- *
- * Deliberately EXCLUDES `require-instructions-spec` and the workflow-forcing rules:
- * those make a CLEAN repo fail (you simply haven't written the spec/test yet), so
- * they stay opt-in under `--strict` (progressive adoption — see
- * `STRICT_EXTRA_RULES`).
- *
- * This is the **`structural`** rule group (see research/install-enforcement-dx.md).
- */
-export const STRUCTURAL_RULES = [
-  "subagent-tool-contract",
-  "subagent-frontmatter",
-  "hook-events",
-  "hook-script-exists",
-  "mcp-config",
-  "mcp-tool-resolves",
-  "mcp-hook-target-resolves",
-  "disallowed-tools-contract",
-  "description-overlap",
-] as const;
 
 /**
  * The **`workflow`** group — the WORKFLOW-FORCING / opinionated tier `--strict`
@@ -214,9 +188,26 @@ export const NUDGE_RULES = [
   "doc-refs",
 ] as const;
 
+/**
+ * Pure config-merge for what `vigiles init` writes to `.vigilesrc.json`: record
+ * the harnesses if absent, gate the structural rules by EXTENDING the
+ * `vigiles:recommended` preset (never by writing each rule), add the workflow
+ * rules on `--strict`, and NEVER clobber an existing key or severity. Returns
+ * the merged config, or `null` when nothing changed (so the IO layer skips the
+ * write). The IO (read/parse/write + the malformed-file guard) stays in cli.ts.
+ *
+ * 🔴 THE PRESET, NOT NINE LINES (#338). Written lines are a snapshot of the
+ * structural group on the day `init` ran, so a repo adopted earlier never got a
+ * rule added to the group later; the preset is resolved by the loader on every
+ * run (`src/core/presets.ts`).
+ *
+ * `--report-only` is the exception and stays EXPLICIT: it promises that nothing
+ * fails CI, and extending a preset that later gains a rule at `error` would
+ * break that promise on an upgrade. So it writes the same rules at `warn`.
+ */
 export function mergeProjectConfig(
-  existing: Record<string, unknown>,
-  opts: {
+  existing: Readonly<Record<string, unknown>>,
+  opts: Readonly<{
     /** Canonical harness names this repo targets, in the order to declare them. */
     harnesses: readonly string[];
     strict: boolean;
@@ -225,44 +216,46 @@ export function mergeProjectConfig(
      * concern, so a test-only setup (`init --test` / `--no-lint`) records the
      * harness but writes NO lint rules. */
     lint?: boolean;
-  },
+  }>,
 ): Record<string, unknown> | null {
-  const config = { ...existing };
-  let changed = false;
   // The NESTED key (#240). `init` writes the declaration with no roots — a repo
   // whose surfaces sit where its harness reads them needs none, and a root is a
-  // fact only the owner knows. Writing the flat `harness`/`surfaceRoots` pair
-  // here would emit a config the loader now REFUSES, which is why this one line
-  // moved with the shape even though the rest of `init` did not.
-  if (config.harnesses === undefined) {
-    config.harnesses = Object.fromEntries(
-      opts.harnesses.map((h) => [h, {}]),
-    ) as Record<string, Record<string, never>>;
-    changed = true;
-  }
-  // The rule gate belongs to the LINT layer — a test-only setup records the
-  // harness but writes no rules (honoring the positive-flag contract that
-  // `--test` selects only the test pillar).
-  if (opts.lint !== false) {
-    // Gate the FP-safe `structural` group by default; `--strict` adds the
-    // `workflow` group on top. `--report-only` is the orthogonal severity dial —
-    // it writes the SAME rule set at "warn" (nothing fails CI; the
-    // migration/observe mode). Never clobber a severity the user already set —
-    // only fill the undefined ones.
-    const severity = opts.reportOnly ? "warn" : "error";
-    const gate = opts.strict
-      ? [...STRUCTURAL_RULES, ...WORKFLOW_RULES]
-      : [...STRUCTURAL_RULES];
-    const rules = { ...(config.rules as Record<string, unknown> | undefined) };
-    for (const r of gate) {
-      if (rules[r] === undefined) {
-        rules[r] = severity;
-        changed = true;
-      }
-    }
-    config.rules = rules;
-  }
-  return changed ? config : null;
+  // fact only the owner knows.
+  const harnesses =
+    existing.harnesses === undefined
+      ? { harnesses: Object.fromEntries(opts.harnesses.map((h) => [h, {}])) }
+      : {};
+  const gate = opts.lint === false ? {} : lintGate(existing, opts);
+  const added = { ...harnesses, ...gate };
+  return Object.keys(added).length === 0 ? null : { ...existing, ...added };
+}
+
+/**
+ * The lint-layer keys `init` adds: `extends` and/or the `rules` it fills.
+ * Only the keys that CHANGE are returned, so an already-satisfied config
+ * yields `{}` and is not rewritten.
+ */
+function lintGate(
+  existing: Readonly<Record<string, unknown>>,
+  opts: Readonly<{ strict: boolean; reportOnly?: boolean }>,
+): Readonly<Record<string, unknown>> {
+  const workflow = opts.strict ? WORKFLOW_RULES : [];
+  const explicit: readonly string[] = opts.reportOnly
+    ? [...RECOMMENDED_RULES, ...workflow]
+    : workflow;
+  const severity = opts.reportOnly ? "warn" : "error";
+  const before = (existing.rules ?? {}) as Readonly<Record<string, unknown>>;
+  // Never clobber a severity the user already set — only fill the undefined ones.
+  const filled = Object.fromEntries(
+    explicit.filter((r) => before[r] === undefined).map((r) => [r, severity]),
+  );
+  const rules =
+    Object.keys(filled).length === 0 ? {} : { rules: { ...before, ...filled } };
+  const preset =
+    opts.reportOnly || existing.extends !== undefined
+      ? {}
+      : { extends: RECOMMENDED_PRESET };
+  return { ...preset, ...rules };
 }
 
 /**
@@ -396,7 +389,7 @@ function applyAnswers(plan: SetupPlan, answers: SetupAnswers): void {
 export function gateOnlyInvitation(plan: SetupPlan): string | null {
   const gateOnly = !plan.plugin && !plan.scaffoldSpecs;
   if (!gateOnly) return null;
-  return "→ Want your agent to maintain this + measure whether your skills fire? Run `npx vigiles init` and choose 'full' (installs the skills). Optional — the gate above already works.";
+  return "→ Want your agent to maintain this + measure whether your skills fire? Run `npx vigiles init --full` and choose 'full' (installs the skills). Optional — the gate above already works.";
 }
 
 /**
@@ -653,6 +646,135 @@ export function applyCodexPluginHooks(
     hooks[h.event] = [...kept, { matcher: h.matcher, command: h.command }];
   }
   return { ...existing, hooks };
+}
+
+/**
+ * Whether this repo already uses vigiles, decided from what is ON DISK.
+ *
+ * 🔴 THE SIGNAL IS `.vigilesrc.json` OR A SPEC NEXT TO AN INSTRUCTION FILE, and
+ * deliberately NOT a `vigiles` devDependency: the documented first step on a new
+ * repo can be `npm i -D vigiles` followed by `npx vigiles init`, and that run
+ * must still be the full setup. Every `init` writes `.vigilesrc.json` (it records
+ * the harnesses even on a test-only run), and a hand-written one means the owner
+ * has already configured vigiles. A spec beside `CLAUDE.md`/`AGENTS.md` covers a
+ * repo adopted before the config file existed.
+ */
+export type AdoptionState =
+  | { readonly kind: "fresh" }
+  | { readonly kind: "adopted"; readonly evidence: string };
+
+/** {@link AdoptionState} from the two disk facts that decide it. */
+export function adoptionState(
+  facts: Readonly<{ hasConfig: boolean; specs: readonly string[] }>,
+): AdoptionState {
+  if (facts.hasConfig) return { kind: "adopted", evidence: ".vigilesrc.json" };
+  const [spec] = facts.specs;
+  return spec === undefined
+    ? { kind: "fresh" }
+    : { kind: "adopted", evidence: spec };
+}
+
+/**
+ * Which setup a run performs: the full one, or the minimal re-run (#338).
+ *
+ * MINIMAL only when the repo is adopted AND the run named nothing that asks for
+ * more. A flag that selects or widens the setup (`--full`, `--strict`,
+ * `--ci-only`, `--report-only`, `--force`, `--target=`, a positive `--lint` /
+ * `--test`) is an explicit request and keeps today's behaviour; the narrowing
+ * flags (`--no-*`, `--harness=`, `--yes`) do not, because they can only make a
+ * run do less.
+ */
+export function rerunScope(
+  parsed: Readonly<ParsedSetupArgs>,
+  state: AdoptionState,
+): "full" | "minimal" {
+  if (state.kind === "fresh") return "full";
+  const asksForMore =
+    parsed.full ||
+    parsed.strict ||
+    parsed.ciOnly ||
+    parsed.reportOnly ||
+    parsed.force ||
+    parsed.target !== undefined ||
+    parsed.lint === true ||
+    parsed.test === true;
+  return asksForMore ? "full" : "minimal";
+}
+
+/**
+ * The `devDependencies` a minimal re-run writes, or null to leave package.json
+ * alone. It ADDS vigiles when no dependency field declares it and never edits an
+ * existing declaration: rewriting `^33.3.0` to `^33` loosens a pin the owner
+ * chose, and moving it between fields is a decision, not a missing piece.
+ */
+export function missingVigilesDevDep(
+  pkg: Readonly<{
+    dependencies?: Readonly<Record<string, string>>;
+    devDependencies?: Readonly<Record<string, string>>;
+  }>,
+  spec: string,
+): Readonly<Record<string, string>> | null {
+  const declared =
+    pkg.dependencies?.vigiles !== undefined ||
+    pkg.devDependencies?.vigiles !== undefined;
+  return declared ? null : { ...pkg.devDependencies, vigiles: spec };
+}
+
+/** What a full setup would add on an adopted repo — the facts that decide it. */
+export interface FullSetupGap {
+  /** `.github/workflows/vigiles.yml` is absent (and CI wiring is not opted out). */
+  readonly workflow: boolean;
+  /** `.vigilesrc.json`: absent, present without the preset, or already extending it. */
+  readonly config: "missing" | "no-preset" | "has-preset";
+  /** `vigiles.harness.mjs` is absent (and the test layer is not opted out). */
+  readonly harnessTest: boolean;
+  /** Instruction files and surfaces a full setup would adopt into a spec. */
+  readonly unspecced: readonly string[];
+  /** `.vigiles/generated.d.ts` / `.vigiles/schema.json` would be created. */
+  readonly generated: boolean;
+  /** The global plugin install / hook wiring a full setup would run, one line each. */
+  readonly installs: readonly string[];
+  /** The devDependency rewrite a full setup would make, if any. */
+  readonly devDep: Readonly<{ from: string; to: string }> | null;
+}
+
+/**
+ * The lines a minimal re-run prints about what it did NOT do: each thing a full
+ * setup would add here, then the flag that does it. Empty when nothing is
+ * missing, so a fully set-up repo is not told to run anything.
+ */
+export function fullSetupFollowUps(gap: FullSetupGap): readonly string[] {
+  const configLine: Readonly<Record<FullSetupGap["config"], string | null>> = {
+    missing: `write .vigilesrc.json with your harnesses and "extends": "${RECOMMENDED_PRESET}" (structural rules fail CI)`,
+    "no-preset": `add "extends": "${RECOMMENDED_PRESET}" to .vigilesrc.json (structural rules fail CI)`,
+    "has-preset": null,
+  };
+  const items = [
+    gap.workflow
+      ? "create .github/workflows/vigiles.yml (a CI workflow — new CI minutes)"
+      : null,
+    configLine[gap.config],
+    gap.harnessTest
+      ? "scaffold vigiles.harness.mjs (a starter harness test)"
+      : null,
+    gap.unspecced.length > 0
+      ? `write specs for ${String(gap.unspecced.length)} hand-written file(s): ${gap.unspecced.join(", ")}`
+      : null,
+    gap.generated
+      ? "generate .vigiles/generated.d.ts and .vigiles/schema.json"
+      : null,
+    ...gap.installs,
+    gap.devDep === null
+      ? null
+      : `set the vigiles devDependency to ${gap.devDep.to} (yours: ${gap.devDep.from})`,
+  ].filter((l): l is string => l !== null);
+  return items.length === 0
+    ? []
+    : [
+        "A full setup would also:",
+        ...items.map((l) => `  - ${l}`),
+        "Run `npx vigiles init --full` for that (flags such as --no-gha still apply).",
+      ];
 }
 
 /**

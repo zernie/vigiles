@@ -17,7 +17,12 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import { vigilesConfigSchema, formatConfigIssues } from "./config-schema.js";
+import {
+  vigilesConfigSchema,
+  formatConfigIssues,
+  parseVigilesConfig,
+} from "./config-schema.js";
+import { RECOMMENDED_RULES } from "./presets.js";
 
 /** The formatted problems for a config, or `[]` when it parses. */
 function problems(config: unknown): string[] {
@@ -205,4 +210,67 @@ test("an empty config parses to the shipped defaults", () => {
   assert.equal(d.rules.integrity, "warn");
   assert.equal(Object.keys(d.rules).length, 34);
   assert.equal(d.harnesses, undefined, "no declaration means auto-detect");
+});
+
+// ---------------------------------------------------------------------------
+// Presets — `"extends": "vigiles:recommended"` (the ESLint model)
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY A PRESET AND NOT NINE WRITTEN LINES. `init` used to make the structural
+ * rules gate by WRITING each one at `error` into a new repo's config, because
+ * every rule's built-in default is `warn`. A repo set up before a rule joined
+ * that group therefore never got it from an upgrade: the nine lines were a
+ * snapshot of the group on the day `init` ran (#338). A preset is read at load
+ * time, so a repo that extends it follows the group as vigiles ships it.
+ */
+test("extends vigiles:recommended raises exactly the preset's rules to error", () => {
+  const r = parseVigilesConfig({ extends: "vigiles:recommended" });
+  assert.ok(r.success, "the preset name parses");
+  for (const name of RECOMMENDED_RULES) {
+    assert.equal(r.data.rules[name], "error", `${name} is gated by the preset`);
+  }
+  // A rule outside the preset keeps its built-in default.
+  assert.equal(r.data.rules["unmarked-refs"], "warn");
+  assert.equal(r.data.rules["doc-refs"], false);
+  assert.equal(r.data.extends, "vigiles:recommended");
+});
+
+test("an explicit rules entry overrides the preset, in both directions", () => {
+  const r = parseVigilesConfig({
+    extends: "vigiles:recommended",
+    rules: { "hook-events": "warn", "description-overlap": "off" },
+  });
+  assert.ok(r.success);
+  assert.equal(r.data.rules["hook-events"], "warn", "downgraded by the user");
+  assert.equal(r.data.rules["description-overlap"], false, "turned off");
+  assert.equal(r.data.rules["hook-script-exists"], "error", "rest stays gated");
+});
+
+test("without extends, no rule moves off its built-in default", () => {
+  const r = parseVigilesConfig({});
+  assert.ok(r.success);
+  for (const name of RECOMMENDED_RULES) {
+    assert.equal(r.data.rules[name], "warn", `${name} default is unchanged`);
+  }
+});
+
+test("an unknown preset name is refused, naming the one that exists", () => {
+  const r = parseVigilesConfig({ extends: "vigiles:recomended" });
+  assert.ok(!r.success);
+  assert.deepEqual(formatConfigIssues(r.error.issues), [
+    '.vigilesrc.json: extends — Invalid input: expected "vigiles:recommended".',
+  ]);
+});
+
+test("a bad rule value under a preset is still the rule's own error", () => {
+  const r = parseVigilesConfig({
+    extends: "vigiles:recommended",
+    rules: { "hook-events": "errr" },
+  });
+  assert.ok(!r.success);
+  assert.match(
+    formatConfigIssues(r.error.issues)[0] ?? "",
+    /rules\.hook-events/,
+  );
 });

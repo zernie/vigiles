@@ -14,6 +14,7 @@ names the key when a key would help:
 | It found skills in a folder no tool reads                                | `harnesses.roots` |
 | It guessed the wrong tool, or your repo targets two                      | `harnesses`       |
 | Your instructions are not in `CLAUDE.md`                                 | `files`           |
+| You want the structural rules to fail CI, and to follow new ones         | `extends`         |
 | A rule is noise for this repo, or should be an error                     | `rules`           |
 | Your linter keeps its rule docs somewhere unusual                        | `linters`         |
 
@@ -56,8 +57,9 @@ place and copy the two lines you want:
   "sharedDirs": ["packages/shared-skills"],
   "bundles": "all",
 
+  "extends": "vigiles:recommended",
   "rules": {
-    "hook-events": "error",
+    "hook-events": "warn",
     "integrity": "warn",
     "untested-skill": ["warn", { "include": ["tests/{surface}/*.eval.ts"] }]
   },
@@ -185,6 +187,52 @@ note: bench/old/SKILL.md.spec.ts matches exclude "bench" — compiling because y
 
 `exclude` beats everything: a folder both excluded and named in `roots` stays
 excluded, with no finding either.
+
+### `extends`
+
+Start from a named set of rule severities, then adjust it with `rules`. The one
+preset is `vigiles:recommended`. `npx vigiles init` writes it for you.
+
+> Default: none — every rule at its built-in severity
+
+```json
+{ "extends": "vigiles:recommended" }
+```
+
+`vigiles:recommended` raises the **structural** rules to `error`. These rules
+fire only on a real defect, so a well-formed harness stays green:
+`subagent-tool-contract`, `subagent-frontmatter`, `hook-events`,
+`hook-script-exists`, `mcp-config`, `mcp-tool-resolves`,
+`mcp-hook-target-resolves`, `disallowed-tools-contract` and
+`description-overlap`. Every other rule keeps its built-in severity.
+
+**Your `rules` win.** An entry in `rules` overrides the preset, in either
+direction:
+
+```json
+{
+  "extends": "vigiles:recommended",
+  "rules": { "description-overlap": "warn" }
+}
+```
+
+**Why a preset and not the rule list.** The preset is read every time vigiles
+runs. When a newer vigiles adds a rule to it, your repo gets that rule on
+upgrade — no edit, no re-run of `init`. A list of rules copied into your config
+would stay the list from the day you copied it.
+
+⚠️ **Adding a rule to `vigiles:recommended` is a breaking change**, released as
+a new major version, because it can turn your CI red with no change on your
+side. ESLint treats `eslint:recommended` the same way. Removing a rule from the
+preset is not breaking. To control exactly when new rules start failing CI, pin
+the vigiles version in `package.json` (the GitHub Action runs that version) or
+list the rules yourself in `rules` instead of extending the preset.
+
+An unknown preset name is refused:
+
+```
+✗ .vigilesrc.json: extends — Invalid input: expected "vigiles:recommended".
+```
 
 ### `rules`
 

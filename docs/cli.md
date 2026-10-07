@@ -139,6 +139,7 @@ which layers, CI, and the plugin. Run by an agent, in CI, or with piped input
 | Flag                     | Effect                                                                                                                                                       |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `--yes`, `-y`            | Skip prompts; use defaults (both layers, CI, the plugin)                                                                                                     |
+| `--full`                 | Run the whole setup even on a repo that already uses vigiles (a bare re-run there is minimal — see below)                                                    |
 | `--ci-only`              | The CI check only: the lint gate + CI workflow + devDep, **nothing installed** — no plugin/spec/test (see below)                                             |
 | `--lint` / `--no-lint`   | Lint layer — verify instruction-file references (default on)                                                                                                 |
 | `--test` / `--no-test`   | Test layer — scaffold a harness test (default on)                                                                                                            |
@@ -164,12 +165,24 @@ isn't JS/Python). **Full stays the default** — bare `init` is unchanged, so
 one-line invitation to run the full setup later, and the report keeps showing what
 a spec or eval would catch.
 
+**Re-running `init` on a repo that already uses vigiles is minimal.** When the
+repo has a `.vigilesrc.json` (or a spec beside `CLAUDE.md` / `AGENTS.md`), a bare
+`init` only links skills that are not linked yet and adds `vigiles` to
+`devDependencies` if nothing declares it. It does not add a CI workflow, edit
+`.vigilesrc.json`, scaffold files, write specs for hand-written files, change a
+version pin or run the global plugin install. It prints what a full setup would
+add, and `--full` does it. Any flag that asks for more (`--strict`, `--ci-only`,
+`--report-only`, `--force`, `--target=`, `--lint`, `--test`) also runs the full
+setup.
+
 #### What `init` gates by default (vs `--strict`)
 
 There's no confusing "strict mode" to remember: **a plain `init` already makes
-CI catch broken surfaces.** It writes the **high-precision, FP-safe** structural
-rules to `error` in `.vigilesrc.json`, so a broken surface **fails `vigiles
-lint`** (exit 2) — but a well-formed plugin stays green, so it never cries wolf:
+CI catch broken surfaces.** It writes `"extends": "vigiles:recommended"` into
+`.vigilesrc.json`. That [preset](configuration.md#extends) raises the
+**high-precision, FP-safe** structural rules to `error`, so a broken surface
+**fails `vigiles lint`** (exit 2) — but a well-formed plugin stays green, so it
+never cries wolf:
 
 - `subagent-tool-contract` (a typo'd / never-available tool),
   `subagent-frontmatter` (a subagent missing `name`/`description`),
@@ -186,7 +199,9 @@ spec per instruction file) and `untested-skill` / `untested-subagent` /
 red just for not having written a spec yet. (`frontmatter-valid` and
 `skill-frontmatter` are **`nudge`**-group — they stay `warn` and never gate, even
 under `--strict`.) `--report-only` is the orthogonal dial: it writes the whole
-gate at `warn` so nothing fails CI — the migration / observe on-ramp.
+gate at `warn` so nothing fails CI — the migration / observe on-ramp. It writes
+those rules one by one instead of the preset, so a rule added to the preset
+later cannot turn its CI red.
 
 Because `init` **auto-adopts** every existing instruction file into a spec (see
 [`compile`](#compile-files--harness-selection) / the adopt note below),

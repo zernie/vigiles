@@ -63,7 +63,7 @@ re-eval. It's a green no-op until you commit your first lock.
 | ------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `command`           | `lint`    | `lint` (verify references + integrity + coverage), `compile` (specs → markdown), or `eval-check` (verify committed eval locks vs current inputs — the staleness gate, no model).                                          |
 | `paths`             | _(auto)_  | Comma/space-separated paths — `.md` for `lint`, `.spec.ts` for `compile`. Auto-discovers.                                                                                                                                 |
-| `version`           | `latest`  | npm version of `vigiles` to run (`1`, `1.2.3`, `latest`). `local` runs a checked-out build.                                                                                                                               |
+| `version`           | _(repo)_  | npm version of `vigiles` to run (`34`, `34.1.2`, `latest`). Empty (the default) runs the version **your `package.json` declares** — see [Versioning](#versioning). `local` runs a checked-out build.                      |
 | `max-rules`         | _(unset)_ | Cap rules per spec (maps to `--max-rules`).                                                                                                                                                                               |
 | `catalog-only`      | `false`   | Only check that linter rules exist; skip config-enabled checks (maps to `--catalog-only`).                                                                                                                                |
 | `working-directory` | `.`       | Directory to run vigiles in.                                                                                                                                                                                              |
@@ -154,20 +154,31 @@ is a thin composite that runs the published `npx vigiles@<version>` CLI, so:
   `@main` tracks unreleased `HEAD`. Do **not** pin one of the bare `v2`…`v26`
   tags: a bug in the release pipeline (fixed 2026-09-07) derived those from the
   package version, and they are now frozen where they stopped.
-- **CLI version** (`version:` input, default `latest`) — selects which published
-  `vigiles` npm release the Action runs. Leave it `latest`, or pin a major
-  (`version: '26'`) or an exact release (`version: '26.0.1'`) to lock the CLI
-  independently of the Action tag.
+- **CLI version** (`version:` input) — selects which published `vigiles` npm
+  release the Action runs. **Leave it out** and the Action runs the vigiles your
+  repo already declares, so CI and a local `npx vigiles` run the same version:
 
-So `uses: zernie/vigiles@v1` with the default `version: latest` runs the newest
-published `vigiles` CLI through the v1 Action wrapper. The `@v1` does **not**
-mean "vigiles 1.x". To lock both: `uses: zernie/vigiles@v1` + `with: { version: '26' }`.
+  | your repo                                           | the Action runs                     |
+  | --------------------------------------------------- | ----------------------------------- |
+  | has vigiles installed (`node_modules/.bin/vigiles`) | that copy (`npx --no-install`)      |
+  | declares it, and `package-lock.json` records it     | the locked version                  |
+  | declares it, no npm lockfile entry                  | the declared range (e.g. `^34.1.0`) |
+  | does not declare vigiles                            | `latest`                            |
+
+  The log line says which of these it used. Set `version:` to override it: a
+  major (`'34'`), an exact release (`'34.1.2'`) or `latest`.
+
+So `uses: zernie/vigiles@v1` with no `version:` runs **your** vigiles through the
+v1 Action wrapper — the one pin is your `package.json`. The `@v1` does **not**
+mean "vigiles 1.x". To run a different CLI than your repo declares:
 
 ```yaml
 - uses: zernie/vigiles@v1
   with:
-    version: "26" # pin the CLI major; @v1 pins the Action wrapper
+    version: "latest" # ignore package.json; @v1 pins the Action wrapper
 ```
+
+The workflow `npx vigiles init` generates sets no `version:` for this reason.
 
 To verify generated types are fresh in CI:
 
