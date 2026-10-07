@@ -44,6 +44,24 @@ and sets both layers up. No `--target` flag needed unless you want to override.
 Scope with flags: `--lint` / `--test` (one layer or both), `--harness=claude,codex`,
 `--no-gha`, `--no-plugin`, `--strict`.
 
+### Re-running `init` on a repo that already uses vigiles
+
+Run `npx vigiles init` again to pick up something a newer vigiles ships, such as
+a new skill. On a repo that **already uses vigiles** (it has a `.vigilesrc.json`,
+or a spec next to `CLAUDE.md` / `AGENTS.md`) the re-run is **minimal**:
+
+- ✅ it links any shipped skill that is not linked yet;
+- ✅ it adds `vigiles` to `devDependencies` only if nothing declares it;
+- ❌ it does **not** add a CI workflow, change `.vigilesrc.json`, scaffold a
+  harness test or schema, write specs for your hand-written files, change an
+  existing version pin, or run the global plugin install.
+
+It then lists what a full setup would add in this repo, and the flag that does
+it: **`npx vigiles init --full`**. A flag that asks for more (`--full`,
+`--strict`, `--ci-only`, `--report-only`, `--force`, `--target=`, `--lint`,
+`--test`) runs the full setup as before. A brand-new repo always gets the full
+setup.
+
 ## Per-agent
 
 ### Claude Code
@@ -61,6 +79,7 @@ prompt. A session that started before the install may need `/reload-skills` or a
 restart.
 
 - **Idempotent.** Re-running `init` keeps every link and adds only missing ones
+  ([a re-run is minimal](#re-running-init-on-a-repo-that-already-uses-vigiles))
   (for example a skill a newer vigiles ships). A link an earlier `init` made
   that now points elsewhere (the shape `node_modules/vigiles/skills/<same name>`)
   is rewritten to where the package is now.
@@ -218,7 +237,9 @@ npx vigiles init        # full: specs + skills/hooks + CI + devDep (the default)
 npx vigiles init --ci-only # gate only: the CI integrity gate + devDep, nothing installed
 ```
 
-**Which one?** Bare `init` sets up the **full** layers (the default). Use
+**Which one?** Bare `init` on a new repo sets up the **full** layers (the
+default; on a repo that already uses vigiles a bare re-run is
+[minimal](#re-running-init-on-a-repo-that-already-uses-vigiles)). Use
 **`--ci-only`** when the repo **already has its own harness** (its own hooks/skills, or
 its own eval loop) or **isn't JS/Python** — you get the deterministic lint gate in CI
 with **zero conflict**: no plugin, no scaffolded spec, no test. It's the same choice

@@ -49,6 +49,11 @@ their exit codes. Most of the churn is in the library API underneath it.
   and [upgrading](docs/compiled-hooks.md#upgrading-from-a-vigiles-that-compiled-every-file).
 - **Compiled output contracts** — the `vigiles:sha256` integrity header and the
   emitted markdown/settings shapes a hook or spec compiles to.
+- **The `vigiles:recommended` preset** — the rules a `.vigilesrc.json` with
+  `"extends": "vigiles:recommended"` gates at `error`. **Adding a rule to it is a
+  breaking change** (a new major), because it can turn your CI red with no change
+  on your side; removing one is not. See
+  [`extends`](docs/configuration.md#extends).
 
 A breaking change to any of the above is signalled with a Conventional-Commit
 `!` and reflected in the version.

@@ -270,7 +270,7 @@ Disable a rule for one file with `<!-- vigiles-disable require-instructions-spec
 
 `vigiles init` groups rules by confidence:
 
-- **`structural`** — FP-safe correctness rules (broken tools / dead hooks / broken MCP / collisions). Gates at `error` by default.
+- **`structural`** — FP-safe correctness rules (broken tools / dead hooks / broken MCP / collisions). `init` gates them at `error` by writing `"extends": "vigiles:recommended"` ([the preset](configuration.md#extends)); each rule's own default stays `warn`.
 - **`workflow`** — opinionated rules a clean repo can still fail because the work isn't done yet (`require-instructions-spec`, `untested-*`). Off by default; added by `--strict`.
 - **`nudge`** — recommendations / acknowledged-noisy (`frontmatter-valid`, `skill-frontmatter`, `prefer-compiled-hooks`, `unmarked-refs`). Stays `warn` and never gates.
 
