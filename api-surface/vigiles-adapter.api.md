@@ -310,6 +310,7 @@ export interface OutputStyleRules {
     readonly reached: (style: OutputStyle, request: ModelRequest) => boolean;
     readonly read: (path: string, text: string) => OutputStyle;
     readonly select: (name: string) => Readonly<Record<string, unknown>>;
+    readonly selectNone: Readonly<Record<string, unknown>>;
 }
 
 // @public

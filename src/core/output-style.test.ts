@@ -20,6 +20,7 @@ const acme: OutputStyleRules = {
     return { path, name: first === "" ? null : first, body: rest.join("\n") };
   },
   select: (name) => ({ voice: name }),
+  selectNone: { voice: "none" },
   reached: (style, request) => request.system.includes(style.body),
 };
 

@@ -36,6 +36,11 @@ export interface OutputStyleRules {
   readonly read: (path: string, text: string) => OutputStyle;
   /** The settings that switch the named style on. */
   readonly select: (name: string) => Readonly<Record<string, unknown>>;
+  /**
+   * The settings that switch every style off, so a run without the style does
+   * not pick up one the user turned on for all their projects.
+   */
+  readonly selectNone: Readonly<Record<string, unknown>>;
   /** Whether one model request carries the style. */
   readonly reached: (style: OutputStyle, request: ModelRequest) => boolean;
 }

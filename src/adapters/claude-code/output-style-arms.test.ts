@@ -9,7 +9,10 @@ import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { claudeAvailable } from "../../harness-test.js";
-import { experimental_outputStyleArms } from "../../output-style-arms.js";
+import {
+  experimental_outputStyleArms,
+  outputStyleArmsWith,
+} from "../../output-style-arms.js";
 import { claudeCodeAdapter } from "./adapter.js";
 import { claudeCodeLayout } from "./layout.js";
 import { claudeCodeOutputStyles as rules } from "./output-style.js";
@@ -19,7 +22,7 @@ const maybe = claudeAvailable() ? test : test.skip;
 
 describe("experimental_outputStyleArms on Claude Code (real binary, scripted model)", () => {
   maybe(
-    "builds a with arm selected by the name in the file, and a bare without arm",
+    "builds a with arm selected by the name in the file, and a without arm on the default style",
     async () => {
       const arms = await experimental_outputStyleArms(STYLE);
       expect(arms).toEqual({
@@ -32,7 +35,8 @@ describe("experimental_outputStyleArms on Claude Code (real binary, scripted mod
           },
           settings: { outputStyle: "Status Footer" },
         },
-        without: {},
+        // Not `{}`: a bare arm would load a style the user set for every project.
+        without: { settings: { outputStyle: "default" } },
       });
     },
     180_000,
@@ -48,9 +52,9 @@ describe("experimental_outputStyleArms on Claude Code (real binary, scripted mod
           outputStyles: { ...rules, reached: () => false },
         },
       };
-      await expect(
-        experimental_outputStyleArms(STYLE, { adapter: blind }),
-      ).rejects.toThrow(/"Status Footer" never reached the model/);
+      await expect(outputStyleArmsWith(STYLE, blind)).rejects.toThrow(
+        /"Status Footer" never reached the model/,
+      );
     },
     180_000,
   );

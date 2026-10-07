@@ -642,9 +642,7 @@ export function experimental_makeDockerRuntime(deps?: {
 }): ContainerRuntime;
 
 // @public
-export function experimental_outputStyleArms(path: string, opts?: {
-    readonly adapter?: HarnessAdapter;
-}): Promise<OutputStyleArms>;
+export function experimental_outputStyleArms(path: string): Promise<OutputStyleArms>;
 
 // @public
 export function experimental_parseEmitted(toolCalls: readonly ToolCall[], contract: OutputContract, options?: {

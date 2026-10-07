@@ -84,5 +84,8 @@ export const claudeCodeOutputStyles: OutputStyleRules = {
   isStyleFile: (pathInDir) => pathInDir.endsWith(".md"),
   read,
   select: (name) => ({ outputStyle: name }),
+  // A user-wide `outputStyle` in `~/.claude/settings.json` loads in every
+  // project; the project's own `default` wins over it (measured on 2.1.292).
+  selectNone: { outputStyle: "default" },
   reached,
 };
