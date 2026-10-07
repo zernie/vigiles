@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 519 project files. */
+  /** 521 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -226,6 +226,7 @@ declare module "vigiles/generated" {
     | "src/cli-flags.ts"
     | "src/cli-harness-resolution.test.ts"
     | "src/cli-help.test.ts"
+    | "src/cli-init-rerun.test.ts"
     | "src/cli-init-skill-links.test.ts"
     | "src/cli-install.e2e.test.ts"
     | "src/cli-main-roots.test.ts"
@@ -365,6 +366,7 @@ declare module "vigiles/generated" {
     | "src/core/output-style.ts"
     | "src/core/plugin-dir-layout.test.ts"
     | "src/core/plugin-dir-layout.ts"
+    | "src/core/presets.ts"
     | "src/core/proofs.test.ts"
     | "src/core/proofs.ts"
     | "src/core/railway.test.ts"
@@ -817,6 +819,7 @@ declare module "vigiles/spec" {
       | "src/cli-flags.ts"
       | "src/cli-harness-resolution.test.ts"
       | "src/cli-help.test.ts"
+      | "src/cli-init-rerun.test.ts"
       | "src/cli-init-skill-links.test.ts"
       | "src/cli-install.e2e.test.ts"
       | "src/cli-main-roots.test.ts"
@@ -956,6 +959,7 @@ declare module "vigiles/spec" {
       | "src/core/output-style.ts"
       | "src/core/plugin-dir-layout.test.ts"
       | "src/core/plugin-dir-layout.ts"
+      | "src/core/presets.ts"
       | "src/core/proofs.test.ts"
       | "src/core/proofs.ts"
       | "src/core/railway.test.ts"
