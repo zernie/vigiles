@@ -756,7 +756,7 @@
       "count": 115
     },
     "functional/prefer-immutable-types": {
-      "count": 197
+      "count": 196
     },
     "no-restricted-syntax": {
       "count": 1
@@ -771,7 +771,7 @@
       "count": 1
     },
     "sonarjs/no-nested-conditional": {
-      "count": 8
+      "count": 7
     }
   },
   "src/cli-nudge-config.test.ts": {
@@ -2128,7 +2128,7 @@
   },
   "src/core/surface-discovery.test.ts": {
     "local/no-harness-names": {
-      "count": 42
+      "count": 41
     }
   },
   "src/core/surface-discovery.ts": {
@@ -2810,7 +2810,7 @@
       "count": 8
     },
     "functional/prefer-immutable-types": {
-      "count": 17
+      "count": 16
     },
     "local/no-harness-names": {
       "count": 11
@@ -3926,7 +3926,7 @@
       "count": 3
     },
     "functional/immutable-data": {
-      "count": 21
+      "count": 18
     },
     "functional/no-let": {
       "count": 3
@@ -3935,7 +3935,7 @@
       "count": 12
     },
     "functional/prefer-immutable-types": {
-      "count": 26
+      "count": 25
     },
     "no-restricted-globals": {
       "count": 1

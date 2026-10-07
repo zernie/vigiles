@@ -268,6 +268,7 @@ export interface ParsedModelRun {
     readonly hooks: HookFire[];
     // (undocumented)
     readonly output: string;
+    readonly replies?: readonly string[];
     // (undocumented)
     readonly subagents: SubagentTrace[];
     // (undocumented)
@@ -334,6 +335,7 @@ export interface Trace {
     readonly hooks: readonly HookFire[];
     readonly modelRequests: readonly ModelRequest[];
     readonly output: string;
+    readonly replies?: readonly string[];
     readonly subagents?: readonly SubagentTrace[];
     readonly toolCalls: readonly ToolCall[];
     readonly turns: number;

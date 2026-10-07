@@ -171,6 +171,12 @@ export const ROWS: readonly ComparisonRow[] = [
   },
   {
     zone: "behaviour",
+    what: "Does your output style actually load?",
+    gloss:
+      "A style picked by a name that does not match loads nothing and says nothing. vigiles switches it on by the name in the file, and the test fails if the style never reaches the model.",
+  },
+  {
+    zone: "behaviour",
     what: "Does the lint rule your CLAUDE.md claims to enforce exist — and is it still on?",
     gloss:
       "Your instructions say you enforce a rule. vigiles resolves it against your real linter config and fails CI when someone switches it off.",

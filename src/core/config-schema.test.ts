@@ -139,7 +139,7 @@ test("a bare string is a one-element list, not a string spread char-by-char", ()
  * one — and the list is printed only when there is not, which is the case where
  * the list IS the answer.
  */
-test("an unknown key suggests the near-miss instead of listing 33 candidates", () => {
+test("an unknown key suggests the near-miss instead of listing 34 candidates", () => {
   assert.deepEqual(problems({ rules: { "spec-ref": "error" } }), [
     '.vigilesrc.json: unknown key "spec-ref" in rules. Did you mean "spec-refs"?',
   ]);
@@ -149,7 +149,7 @@ test("an unknown key suggests the near-miss instead of listing 33 candidates", (
   assert.match(far[0], /Known: spec-refs, orphan-docs/);
   // Capped, with the remainder COUNTED rather than dropped — a silently short
   // list would read as "these are all of them".
-  assert.match(far[0], /… and 21 more\.$/);
+  assert.match(far[0], /… and 22 more\.$/);
 });
 
 test("an unknown top-level key names the near-miss", () => {
@@ -203,6 +203,6 @@ test("an empty config parses to the shipped defaults", () => {
   assert.equal(d.rules["doc-refs"], false);
   assert.equal(d.rules["prefer-compiled-hooks"], false);
   assert.equal(d.rules.integrity, "warn");
-  assert.equal(Object.keys(d.rules).length, 33);
+  assert.equal(Object.keys(d.rules).length, 34);
   assert.equal(d.harnesses, undefined, "no declaration means auto-detect");
 });

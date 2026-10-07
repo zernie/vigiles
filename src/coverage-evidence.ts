@@ -458,3 +458,75 @@ export function declaredSurfaceName(content: string): string | null {
   const name = frontmatterScalar(readFrontmatter(content), "name");
   return name !== undefined && name.trim() ? name.trim() : null;
 }
+
+/**
+ * One output style as a coverage surface — shared by the disk detector and the
+ * browser twin, so the two name and exempt a style the same way.
+ *
+ * Named by FILE (`status-block.md` → `status-block`), not by the name a
+ * harness selects it by: the surface name is what a colocated test is spelled
+ * after, and a declared name may hold spaces or colons no file name should.
+ */
+export function outputStyleSurface(
+  path: string,
+  content: string,
+): {
+  readonly kind: "output-style";
+  readonly path: string;
+  readonly name: string;
+  readonly tokens: readonly string[];
+  readonly ignored: boolean;
+} {
+  return {
+    kind: "output-style",
+    path,
+    name: basename(path).replace(/\.[^.]+$/, ""),
+    tokens: [path],
+    ignored: content.includes("vigiles:ignore-test"),
+  };
+}
+
+/**
+ * How many output styles a scan found, or that the harness has none. Shared by
+ * the disk and browser scan engines, so the inventory reads the one discovery
+ * pass both already ran. Exempt styles (`vigiles:ignore-test`) are counted: the
+ * marker waives the test, not the style, and a style-only repository with an
+ * exempt style is not an empty machine.
+ */
+export function outputStyleCount(
+  layouts: readonly { readonly outputStyles?: unknown }[],
+  tier: {
+    readonly covered: readonly { readonly kind: string }[];
+    readonly untested: readonly { readonly kind: string }[];
+  },
+  exempt: readonly { readonly kind: string }[],
+): number | "not-supported" {
+  if (layouts.every((l) => l.outputStyles === undefined))
+    return "not-supported";
+  return [...tier.covered, ...tier.untested, ...exempt].filter(
+    (s) => s.kind === "output-style",
+  ).length;
+}
+
+/** The inventory counts both scan engines report the same way. */
+export function inventoryCounts(
+  files: Readonly<Record<string, string>>,
+  isCommand: (path: string) => boolean,
+  layouts: Parameters<typeof outputStyleCount>[0],
+  coverage: {
+    readonly harness: Parameters<typeof outputStyleCount>[1];
+    readonly exemptSurfaces: Parameters<typeof outputStyleCount>[2];
+  },
+): {
+  readonly commands: number;
+  readonly outputStyles: number | "not-supported";
+} {
+  return {
+    commands: Object.keys(files).filter(isCommand).length,
+    outputStyles: outputStyleCount(
+      layouts,
+      coverage.harness,
+      coverage.exemptSurfaces,
+    ),
+  };
+}

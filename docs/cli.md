@@ -180,7 +180,7 @@ lint`** (exit 2) — but a well-formed plugin stays green, so it never cries wol
 `--strict` adds the **`workflow`** group on top — the rules a clean repo can
 still fail because you haven't done the work yet: `require-instructions-spec` (a
 spec per instruction file) and `untested-skill` / `untested-subagent` /
-`untested-hook` (a test per surface). These stay opt-in so your first CI run isn't
+`untested-hook` / `untested-output-style` (a test per surface). These stay opt-in so your first CI run isn't
 red just for not having written a spec yet. (`frontmatter-valid` and
 `skill-frontmatter` are **`nudge`**-group — they stay `warn` and never gate, even
 under `--strict`.) `--report-only` is the orthogonal dial: it writes the whole
@@ -397,7 +397,7 @@ Harness audit
   ● Safety         100  ██████████████████████
   ◑ Tested          88  ███████████████████░░░  · advisory (not graded)
   ? Evaluated  not measured                      · advisory (not graded)
-       └ 6 surfaces whose firing was never measured; not measured — run `npx vigiles audit` interactively to measure, or add a `*.eval.mjs` (`paid_measureTriggerRate`, vigiles/eval)
+       └ 6 surfaces never measured with a real model; not measured — run `npx vigiles audit` interactively to measure, or add a `*.eval.mjs` (`paid_measureTriggerRate`, vigiles/eval)
 
 Harness health: B (95/100)
 ```

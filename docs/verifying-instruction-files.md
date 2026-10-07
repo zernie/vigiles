@@ -163,6 +163,7 @@ Beyond the references above, `vigiles lint` runs a set of **deterministic valida
 | MCP                         | `mcp-config`                                                                                                                                                    | all with MCP                              |
 | Shell hooks                 | `untested-hook`, `hook-script-exists`, `hook-events`, `hook-matcher`, `hook-block-ineffective`, `prefer-compiled-hooks`                                         | Claude Code, Codex                        |
 | Subagents                   | `subagent-tool-contract`, `subagent-frontmatter`, `untested-subagent`, `mcp-tool-resolves`                                                                      | Claude Code (n/a on Codex — no subagents) |
+| Output styles               | `untested-output-style`                                                                                                                                         | Claude Code (n/a on Codex — no styles)    |
 | Safety (skills + subagents) | `lethal-trifecta`, `delegation-trifecta`                                                                                                                        | all (subagent half n/a on Codex)          |
 
 The per-family tables below give each rule's default severity and what it checks.
@@ -180,11 +181,12 @@ The per-family tables below give each rule's default severity and what it checks
 
 ### Test coverage
 
-| Rule                                              | Default  | What it checks                                   |
-| ------------------------------------------------- | -------- | ------------------------------------------------ |
-| [`untested-skill`](rules/untested-skill.md)       | `"warn"` | Every skill (`SKILL.md`) ships with a test/eval  |
-| [`untested-subagent`](rules/untested-subagent.md) | `"warn"` | Every subagent (`agents/*.md`) ships a test/eval |
-| [`untested-hook`](rules/untested-hook.md)         | `"warn"` | Every file-backed hook script ships a test/eval  |
+| Rule                                                      | Default  | What it checks                                   |
+| --------------------------------------------------------- | -------- | ------------------------------------------------ |
+| [`untested-skill`](rules/untested-skill.md)               | `"warn"` | Every skill (`SKILL.md`) ships with a test/eval  |
+| [`untested-subagent`](rules/untested-subagent.md)         | `"warn"` | Every subagent (`agents/*.md`) ships a test/eval |
+| [`untested-hook`](rules/untested-hook.md)                 | `"warn"` | Every file-backed hook script ships a test/eval  |
+| [`untested-output-style`](rules/untested-output-style.md) | `"warn"` | Every output style ships a test/eval             |
 
 ### Reference marking
 

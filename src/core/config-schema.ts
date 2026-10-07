@@ -143,6 +143,7 @@ const rulesSchema = z
     "untested-skill": withOptions(testCoverageConfig).default("warn"),
     "untested-subagent": withOptions(testCoverageConfig).default("warn"),
     "untested-hook": withOptions(testCoverageConfig).default("warn"),
+    "untested-output-style": withOptions(testCoverageConfig).default("warn"),
     "unmarked-refs": severitySchema.default("warn"),
     "subagent-tool-contract": severitySchema.default("warn"),
     "hook-events": severitySchema.default("warn"),

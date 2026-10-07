@@ -10,6 +10,7 @@
  * Paths are repo-relative (POSIX-style, `join`-friendly). The Claude Code
  * implementation is `claudeCodeLayout` in `src/adapters/claude-code/layout.ts`.
  */
+import type { OutputStyleRules } from "./output-style.js";
 import type { InstructionChain } from "./instruction-chain.js";
 import type { SettingsCodec } from "./settings-codec.js";
 
@@ -130,6 +131,12 @@ export interface PluginLayout {
    * docblock there for the count behind that.
    */
   readonly rulesDir?: string;
+  /**
+   * Where this harness keeps output styles and how it switches one on (absent =
+   * this harness has none). Not a {@link SurfaceKind}: like a rules file, a
+   * style is read into the session, not invoked. See `output-style.ts`.
+   */
+  readonly outputStyles?: OutputStyleRules;
   /**
    * The WORD a per-machine settings sibling inserts before the extension, e.g.
    * `local` → `.claude/settings.local.json` (absent = this harness has no

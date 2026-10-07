@@ -26,6 +26,22 @@ export interface ConformanceResult {
   readonly failures: readonly string[];
 }
 
+/** Every optional path a layout names, with the field it sits in. */
+function optionalPaths(
+  layout: HarnessAdapter["layout"],
+): readonly (readonly [string, string | undefined])[] {
+  return [
+    ["rulesDir", layout.rulesDir],
+    ["outputStyles.dir", layout.outputStyles?.dir],
+    ["hookScriptsDir", layout.hookScriptsDir],
+    ["hooksConventionPath", layout.hooksConventionPath],
+    ["userSurfaceRoot", layout.userSurfaceRoot],
+    ["surfaces.skill", layout.surfaces.skill],
+    ["surfaces.agent", layout.surfaces.agent],
+    ["surfaces.command", layout.surfaces.command],
+  ];
+}
+
 /** Check an adapter against the port contracts; returns the (possibly empty) failure list. */
 export function checkAdapterConformance(
   adapter: HarnessAdapter,
@@ -110,16 +126,7 @@ export function checkAdapterConformance(
   // second spelling of absent" rule is a test for every optional path. An
   // absent key already means "this harness has no such thing"; `""` would be a
   // second one, and every reader would have to remember to test for both.
-  const optionalPaths: readonly (readonly [string, string | undefined])[] = [
-    ["rulesDir", adapter.layout.rulesDir],
-    ["hookScriptsDir", adapter.layout.hookScriptsDir],
-    ["hooksConventionPath", adapter.layout.hooksConventionPath],
-    ["userSurfaceRoot", adapter.layout.userSurfaceRoot],
-    ["surfaces.skill", adapter.layout.surfaces.skill],
-    ["surfaces.agent", adapter.layout.surfaces.agent],
-    ["surfaces.command", adapter.layout.surfaces.command],
-  ];
-  for (const [field, value] of optionalPaths)
+  for (const [field, value] of optionalPaths(adapter.layout))
     need(
       value === undefined || value.length > 0,
       `layout.${field} is "" — absence is spelled by omitting the key, never by an empty string`,

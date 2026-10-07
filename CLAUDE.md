@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:57ec4265c774abd8 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:2b1be5bf6bedbb21 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -191,7 +191,7 @@ BUILD + TOOLING + GENERATED:
 - `src/audit-html.ts` — The shareable HTML audit report — ONE renderer (pure shadcn/Tailwind, no custom-CSS fallback). renderAuditHtml(report) injects the AuditReport JSON into the prebuilt React/shadcn template…
 - `packages/report-view/` — @vigiles/report-view — the SHARED audit report view (source-only, private, never published): the presentational React components (Report, Ring, RuleInventory, Adopt, Adoptability, Observations…
 - `packages/eslint-config/` — Strict lint rules shared with paperlint, which imports index.mjs by path from node_modules (private; not in `exports`).
-- `eslint-suppressions.json` — Old findings of the counting rules, written by ESLint; may only shrink (`--prune-suppressions`).
+- `eslint-suppressions.json` — Old findings as a count per file and rule, written by ESLint. A count only goes down (`--prune-suppressions`); a swap inside one file passes.
 - `eslint-ceilings.json` — Per-file ceilings for old functions over the size limits; `scripts/lint-ceilings.mjs` fails when one can come down.
 - `report/` — The audit report UI (@vigiles/report): a Vite + Tailwind v4 app whose src is now just main.tsx + index.css — it CONSUMES @vigiles/report-view (the shared components + schema + theme) and builds it…
 - `src/scaffold-test.ts` — The deterministic test-gen ENGINE (B1: free-form in, a RUNNABLE starter test out) — SKILL-INTERNAL, no CLI verb (the test-harness skill drives it; the standalone verb was demoted to trim the launch…

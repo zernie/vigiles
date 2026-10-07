@@ -81,7 +81,9 @@ import {
   parseToolCalls,
   parseResultEvent,
   parseHooks,
+  parseReplies,
   parseSubagents,
+  reachedModel,
   type ToolCall,
   type Trace,
 } from "./harness-test.js";
@@ -237,7 +239,11 @@ export interface EvalSpec<M extends Metrics> {
    * the cache, and never read from an env var. Omit for the harness default.
    */
   readonly effort?: string | number;
-  /** Tools the agent may use. Default: Read Edit Write Bash. */
+  /**
+   * Tools pre-approved for the run (`--allowedTools`, a permission allowlist);
+   * the default tools stay available either way. `[]` approves none.
+   * Default: Read Edit Write Bash.
+   */
   readonly allowedTools?: readonly string[];
   /** Per-run timeout ms. Default 240000. */
   readonly timeoutMs?: number;
@@ -505,9 +511,40 @@ export function buildAgentArgs(a: AgentRunArgs): string[] {
       ? ["--plugin-dir", resolve(a.pluginDir)]
       : []),
     ...(a.hasSettings ? ["--settings", "settings.json"] : []),
-    "--allowedTools",
-    ...a.tools,
+    // A permission allowlist: an empty one approves nothing, so the flag is
+    // left out (a bare `--allowedTools` exits before any model turn).
+    ...(a.tools.length === 0 ? [] : ["--allowedTools", ...a.tools]),
   ];
+}
+
+/**
+ * Why a run never reached the model, or null when it did. A run that exited
+ * non-zero with no `assistant` event and no `result` event asked the model
+ * nothing — a usage error in the command line, a missing binary — and scored as
+ * a trial it reads as a miss on every check that needs output and a pass on
+ * every bound it cannot break. A run that reached the model and then broke is a
+ * scored outcome, not this. Rate-limited runs are left to the retry loop.
+ */
+export function startFailure(out: Readonly<RunOut>): string | null {
+  if (out.code === 0 || parseResultEvent(out.stdout) !== null) return null;
+  if (reachedModel(out.stdout) || isRateLimited(out)) return null;
+  const said = (out.stderr ?? "").trim().split("\n").slice(-5).join("\n");
+  return `the harness exited ${String(out.code)} before calling the model: ${said || "(no stderr)"}`;
+}
+
+/**
+ * Wrap a runner so a run that never reached the model THROWS instead of being
+ * scored — the same choice, for the same reason, as {@link withEffortGuard}:
+ * the cause is usually deterministic, so every trial would fail it. Not `async`,
+ * for the reason that guard gives.
+ */
+export function withStartGuard(runner: AgentRunner): AgentRunner {
+  return (a) =>
+    runner(a).then((out) => {
+      const failure = startFailure(out);
+      if (failure !== null) throw new Error(failure);
+      return out;
+    });
 }
 
 /**
@@ -519,7 +556,9 @@ export function buildAgentArgs(a: AgentRunArgs): string[] {
  * not yet written, is covered by construction. Guarding each call site instead is
  * the shape that left four of five compilers unprotected in #173.
  */
-export const spawnAgent: AgentRunner = withEffortGuard(spawnAgentRaw);
+export const spawnAgent: AgentRunner = withEffortGuard(
+  withStartGuard(spawnAgentRaw),
+);
 
 /* v8 ignore start -- real claude subprocess; exercised by bench/, not the unit gate */
 /** The unguarded spawn itself; wrapped by {@link spawnAgent}, never bound raw. */
@@ -666,7 +705,7 @@ export interface MeasureSpec {
    * the cache, and never read from an env var. Omit for the harness default.
    */
   readonly effort?: string | number;
-  /** Tools the agent may use. */
+  /** Tools pre-approved for the run (`--allowedTools`); `[]` approves none. */
   readonly allowedTools?: readonly string[];
   /** Per-run timeout ms. */
   readonly timeoutMs?: number;
@@ -1102,6 +1141,7 @@ export function parseClaudeRun(out: RunOut): ParsedModelRun {
     toolCalls: parseToolCalls(out.stdout),
     hooks: parseHooks(out.stdout),
     subagents: parseSubagents(out.stdout),
+    replies: parseReplies(out.stdout),
     usage: usageFrom(result),
   };
 }
@@ -1127,6 +1167,7 @@ function makeContext(
     hooks: p.hooks,
     output: p.output,
     subagents: p.subagents,
+    ...(p.replies === undefined ? {} : { replies: p.replies }),
     usage: p.usage,
     // The eval tier drives the real API (no mock between the agent and the model),
     // so the requests can't be captured here — modelRequests is harness-tier only.
@@ -1324,7 +1365,10 @@ async function runWithCache(
     trialIndex: keyParts.trialIndex,
   });
   const hit = readCache(cfg.cacheDir, key);
-  if (hit) {
+  // A run that never reached the model is not replayed: the real runner now
+  // throws on one, and an entry cached before that guard existed would
+  // otherwise be scored as a trial on every later run.
+  if (hit && startFailure(hit.out) === null) {
     restoreDir(runArgs.cwd, hit.files);
     return hit.out;
   }
@@ -1738,13 +1782,22 @@ export async function runPool<T, R>(
   worker: (item: T) => Promise<R>,
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
+  // A worker that throws rejects the whole pool; the others must stop taking
+  // items then, or they keep starting (and paying for) work nobody will read.
+  const stop = new AbortController();
   let next = 0;
   const drain = async (): Promise<void> => {
     for (;;) {
+      if (stop.signal.aborted) return;
       const i = next++;
       const item = items[i];
       if (i >= items.length || item === undefined) return;
-      results[i] = await worker(item);
+      try {
+        results[i] = await worker(item);
+      } catch (e) {
+        stop.abort();
+        throw e;
+      }
     }
   };
   const workers = Math.max(1, Math.min(concurrency, items.length || 1));
@@ -2395,7 +2448,10 @@ export interface TriggerRateSpec {
    * false-negative recall. Default `"sonnet"`. Lower it deliberately for a cheap run.
    */
   readonly minModel?: string;
-  /** Tools the agent may use. Default: Read Edit Write Bash Skill. */
+  /**
+   * Tools pre-approved for the run (`--allowedTools`); `[]` approves none.
+   * Default: Read Edit Write Bash Skill.
+   */
   readonly allowedTools?: readonly string[];
   /** Per-run timeout ms. Default 240000. */
   readonly timeoutMs?: number;

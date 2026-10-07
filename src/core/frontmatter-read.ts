@@ -28,7 +28,7 @@
  * frontmatter block is actually parsed, and {@link frontmatterBody}, which needs
  * no YAML at all, never triggers it.
  */
-const yaml = (): typeof import("js-yaml") =>
+export const yaml = (): typeof import("js-yaml") =>
   require("js-yaml") as typeof import("js-yaml");
 
 export interface FrontmatterRead {

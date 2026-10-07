@@ -346,3 +346,23 @@ describe("buildLeaderboardReport / buildMarketplaceReport", () => {
     expect(r.marketplace.onDisk).toEqual([]);
   });
 });
+
+describe("the inventory's output styles", () => {
+  const inventory = (outputStyles: ScanReport["outputStyles"]) =>
+    buildAuditReport(makeReport({ outputStyles }), {
+      harness: "acme",
+      vigilesVersion: "9.9.9",
+    }).inventory;
+
+  it("carries the count", () => {
+    expect(inventory(2).outputStyles).toBe(2);
+  });
+
+  it("says when the harness has none", () => {
+    expect(inventory("not-supported").outputStyles).toBe("not-supported");
+  });
+
+  it("leaves the field out for zero, so a report without styles is unchanged", () => {
+    expect("outputStyles" in inventory(0)).toBe(false);
+  });
+});

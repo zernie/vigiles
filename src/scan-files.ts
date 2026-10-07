@@ -85,7 +85,7 @@ interface MaterializedSurfaces {
 import { hookBlockIssues } from "./core/hook-block-ineffective.js";
 import { hookMatcherIssues } from "./core/hook-matcher.js";
 import { findUntestedSurfacesInFiles } from "./test-coverage-files.js";
-import { countEvidence } from "./coverage-evidence.js";
+import { countEvidence, inventoryCounts } from "./coverage-evidence.js";
 import {
   intraRefPattern,
   startsAtSeparator,
@@ -752,7 +752,7 @@ export function scanFiles(
     hooks,
     inlineHooks: inline,
     manualHookCount: manual,
-    commands: Object.keys(loaded.files).filter(cls.isCommand).length,
+    ...inventoryCounts(loaded.files, cls.isCommand, [lay], coverage),
     // A declared server set counts even when the loader emitted no warning —
     // otherwise a plugin whose servers come from the Agent Plugins `mcp.json`
     // reports "MCP servers: no" while the report lists an MCP finding.

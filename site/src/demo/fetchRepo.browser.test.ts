@@ -11,6 +11,19 @@ import {
 // (These run under the browser-mode project like the rest of site/, but they touch
 // no DOM — just the exported pure functions.)
 
+describe("plugin-root output styles", () => {
+  it("fetches a root output-styles/ file and counts it as a harness marker", () => {
+    // A plugin keeps its styles in `output-styles/` at its root. Without this
+    // the demo never downloaded them, so a style-only plugin graded as empty.
+    expect(isHarnessPath("output-styles/terse.md")).toBe(true);
+    expect(isHarnessMarker("output-styles/terse.md")).toBe(true);
+  });
+
+  it("…but only a file the harness loads as a style", () => {
+    expect(isHarnessMarker("output-styles/notes.txt")).toBe(false);
+  });
+});
+
 describe("isHarnessPath — top-level surfaces only", () => {
   it("matches a top-level harness dir + root file", () => {
     expect(isHarnessPath("skills/x/SKILL.md")).toBe(true);

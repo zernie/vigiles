@@ -62,6 +62,11 @@ export interface AuditInventory {
   readonly agents: number;
   readonly hooks: number;
   readonly commands: number;
+  /**
+   * Output styles found, or `"not-supported"` when the harness has none.
+   * Omitted when there are zero, so a report without styles is unchanged.
+   */
+  readonly outputStyles?: number | "not-supported";
   readonly mcp: boolean;
   /** Surfaces covered by NEITHER tier — the union count (unchanged). */
   readonly untested: number;
@@ -225,6 +230,38 @@ function buildAdoptable(
   };
 }
 
+/** What the scanned harness ships, as the report's `inventory`. */
+function inventoryOf(report: ScanReport): AuditInventory {
+  return {
+    skills: report.skills.length,
+    agents: report.agents.length,
+    // All hooks, file-backed + inline — matches formatScanReport and the
+    // emptiness/scoring count, so a JSON/HTML "What it ships" never reports 0
+    // hooks for an inline-hook-only harness.
+    hooks: report.hooks.length + report.inlineHooks,
+    commands: report.commands,
+    ...outputStylesField(report.outputStyles),
+    mcp: report.mcp,
+    untested: report.untested,
+    ...(report.untestedHarness !== undefined
+      ? { untestedHarness: report.untestedHarness }
+      : {}),
+    ...(report.unevaluated !== undefined
+      ? { unevaluated: report.unevaluated }
+      : {}),
+    ...(report.coverageEvidence
+      ? { coverageEvidence: report.coverageEvidence }
+      : {}),
+  };
+}
+
+/** The inventory's `outputStyles` entry: present unless there are none to report. */
+function outputStylesField(n: number | "not-supported" | undefined): {
+  readonly outputStyles?: number | "not-supported";
+} {
+  return n === undefined || n === 0 ? {} : { outputStyles: n };
+}
+
 /**
  * Assemble the versioned {@link AuditReport} from a scan report — pure, no clock.
  * The CLI attaches `meta.generatedAt` when it writes the JSON artifact; the
@@ -250,26 +287,7 @@ export function buildAuditReport(
     score,
     verdict,
     recommendations,
-    inventory: {
-      skills: report.skills.length,
-      agents: report.agents.length,
-      // All hooks, file-backed + inline — matches formatScanReport and the
-      // emptiness/scoring count, so a JSON/HTML "What it ships" never reports 0
-      // hooks for an inline-hook-only harness.
-      hooks: report.hooks.length + report.inlineHooks,
-      commands: report.commands,
-      mcp: report.mcp,
-      untested: report.untested,
-      ...(report.untestedHarness !== undefined
-        ? { untestedHarness: report.untestedHarness }
-        : {}),
-      ...(report.unevaluated !== undefined
-        ? { unevaluated: report.unevaluated }
-        : {}),
-      ...(report.coverageEvidence
-        ? { coverageEvidence: report.coverageEvidence }
-        : {}),
-    },
+    inventory: inventoryOf(report),
     ...(report.danglingRefs.length
       ? { brokenReferences: report.danglingRefs }
       : {}),

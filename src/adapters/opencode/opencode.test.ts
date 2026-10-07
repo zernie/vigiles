@@ -16,6 +16,7 @@ import type { HarnessAdapter } from "../../core/adapter.js";
 import { opencodeAdapter } from "./adapter.js";
 import { opencodeDialect } from "./dialect.js";
 import { opencodeLayout } from "./layout.js";
+import { findOutputStyles } from "../../core/output-style.js";
 import {
   assertAdapterConformance,
   assertHarnessTestable,
@@ -141,4 +142,14 @@ test("the OpenCode prototype is internal-only — not in the public registry", (
   // registry the CLI walks has not gained an entry behind the type's back.
   const names: readonly string[] = ADAPTERS.map((a) => a.name);
   assert.ok(!names.includes(opencodeAdapter.name));
+});
+
+test("opencode output styles are not supported yet, and audit says so", () => {
+  // OpenCode's nearest analogue is a primary agent (`.opencode/agents/<name>.md`,
+  // chosen with --agent), which replaces the system prompt. This adapter does
+  // not model it, so it must report "not supported", not "none found".
+  assert.equal(opencodeLayout.outputStyles, undefined);
+  assert.deepEqual(findOutputStyles(opencodeLayout, new Map()), {
+    kind: "not-supported",
+  });
 });

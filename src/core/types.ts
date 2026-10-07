@@ -188,6 +188,8 @@ export interface RulesConfig {
   "untested-subagent"?: RuleWithOptions<TestCoverageConfig>;
   /** Flag a hook script that ships with no test or eval. Default: "warn". */
   "untested-hook"?: RuleWithOptions<TestCoverageConfig>;
+  /** Flag an output style that ships with no test or eval. Default: "warn". */
+  "untested-output-style"?: RuleWithOptions<TestCoverageConfig>;
   /**
    * Nudge (or block) when an instruction file has code-shaped references that
    * aren't expressed as vigiles marks (so the lint can't verify them), or a

@@ -177,6 +177,7 @@ export const WORKFLOW_RULES = [
   "untested-skill",
   "untested-subagent",
   "untested-hook",
+  "untested-output-style",
 ] as const;
 
 /**

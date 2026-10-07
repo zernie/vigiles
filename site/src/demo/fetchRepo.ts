@@ -151,6 +151,9 @@ const HARNESS_DIRS = new Set(
     ...executableSourceDirs(claudeCodeLayout),
     claudeCodeLayout.userSurfaceRoot,
     claudeCodeLayout.manifestPath,
+    // A plugin's own styles live at its root (`output-styles/`); the user-level
+    // ones are under `userSurfaceRoot`, already above.
+    claudeCodeLayout.outputStyles?.dir,
   ]
     .filter((d): d is string => d !== undefined)
     // First segment only: `isHarnessPath` compares the first segment of a path,
@@ -183,6 +186,13 @@ export function isTestPath(path: string): boolean {
   return TEST_PATH.test(path);
 }
 
+/** A plugin-root style file, by the layout's own rule for what loads as a style. */
+function isRootOutputStyle(path: string): boolean {
+  const styles = claudeCodeLayout.outputStyles;
+  if (styles === undefined || !path.startsWith(`${styles.dir}/`)) return false;
+  return styles.isStyleFile(path.slice(styles.dir.length + 1));
+}
+
 /**
  * A path that PROVES the repo is a Claude Code harness — not merely a repo that
  * happens to contain a dir named `hooks`/`skills`/… (a git-hooks `hooks/`, a React
@@ -190,7 +200,8 @@ export function isTestPath(path: string): boolean {
  * lands in the no-harness state instead of a bogus grade. Markers: `CLAUDE.md`, an
  * `.mcp.json`, anything under `.claude/`/`.claude-plugin/`, the hook convention file
  * `hooks/hooks.json`, or a REAL top-level surface FILE (`skills/<x>/SKILL.md`,
- * `agents/<x>.md`, `commands/<x>.md`). A bare top-level `hooks/` of scripts with no
+ * `agents/<x>.md`, `commands/<x>.md`, a plugin-root style such as
+ * `output-styles/<x>.md`). A bare top-level `hooks/` of scripts with no
  * declaration is NOT a harness — the loader only treats hooks as loadable when
  * declared via a manifest / settings / `hooks/hooks.json`.
  */
@@ -200,6 +211,7 @@ export function isHarnessMarker(path: string): boolean {
   if (path.startsWith(".claude/") || path.startsWith(".claude-plugin/"))
     return true;
   if (path === "hooks/hooks.json") return true;
+  if (isRootOutputStyle(path)) return true;
   return (
     /^skills\/[^/]+\/SKILL\.md$/.test(path) ||
     /^agents\/[^/]+\.md$/.test(path) ||

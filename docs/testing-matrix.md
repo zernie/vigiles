@@ -33,7 +33,7 @@ the file that proves it. Two kinds of coverage:
 | Plugin loader — in-repo dogfood                                                                                                                                                                                | unit                     | `src/adapters/claude-code/plugin-loader.test.ts`                            |
 | Vendored **real-plugin** conformance (`loadPlugin` invariants, pinned + offline)                                                                                                                               | unit                     | `src/adapters/claude-code/vendor.test.ts`                                   |
 | Dogfood conformance over vigiles's **own** skills (every `SKILL.md` loads + has `name` + non-empty `description`; hook scripts resolve at the plugin root)                                                     | unit                     | `src/adapters/claude-code/skills-dogfood.test.ts`                           |
-| Untested-surface detector (`untested-skill`/`untested-subagent`/`untested-hook` rules: colocation + content-reference coverage, `vigiles:ignore-test` opt-out, hook-script discovery)                          | unit                     | `src/test-coverage.test.ts`                                                 |
+| Untested-surface detector (`untested-skill`/`untested-subagent`/`untested-hook`/`untested-output-style` rules: colocation + content-reference coverage, `vigiles:ignore-test` opt-out, hook-script discovery)  | unit                     | `src/test-coverage.test.ts`                                                 |
 | `resolveHarness` — merge / passthrough / undefined                                                                                                                                                             | unit                     | `src/adapters/claude-code/plugin-loader.test.ts`                            |
 | Eval aggregation (mean / std / se / n / pass^k) + report formatting                                                                                                                                            | unit                     | `src/eval.test.ts`                                                          |
 | Eval usage capture + aggregation (`parseUsage` / `aggregateUsage`, cost/latency/tokens)                                                                                                                        | unit                     | `src/eval.test.ts`                                                          |
@@ -79,7 +79,7 @@ and **no** hooks).
 Below the three runtime tiers sits a **static, model-free floor** the table
 doesn't have a column for: skills load and resolve with a usable `description`
 (`src/adapters/claude-code/skills-dogfood.test.ts`), and `vigiles lint`'s
-per-kind [`untested-skill`](rules/untested-skill.md) / [`untested-subagent`](rules/untested-subagent.md) / [`untested-hook`](rules/untested-hook.md) rules flag any skill/hook/subagent
+per-kind [`untested-skill`](rules/untested-skill.md) / [`untested-subagent`](rules/untested-subagent.md) / [`untested-hook`](rules/untested-hook.md) / [`untested-output-style`](rules/untested-output-style.md) rules flag any skill/hook/subagent/output style
 that ships with no test or eval at all — the "is there even a test?" check that
 precedes "does the test pass?".
 

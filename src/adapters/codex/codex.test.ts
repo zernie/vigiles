@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { codexAdapter } from "./adapter.js";
 import { codexDialect } from "./dialect.js";
 import { codexLayout } from "./layout.js";
+import { findOutputStyles } from "../../core/output-style.js";
 import {
   assertAdapterConformance,
   assertAdapterLoadsHooks,
@@ -23,7 +24,8 @@ import { experimental_agent } from "../../core/spec.js";
 // The generic, layout-driven loader lives at the composition root; the Codex
 // adapter reuses it with codexLayout (no cross-adapter import).
 import { loadPlugin } from "../../plugin-loader.js";
-import { scanPlugin } from "../../scan.js";
+import { formatScanReport, scanPlugin } from "../../scan.js";
+import { runHarnessTest } from "../../harness-test.js";
 import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
 
 test("codexAdapter passes the conformance kit (ports + cross-port invariants)", () => {
@@ -211,4 +213,42 @@ test("codexLayout does NOT read skills from the old `.codex/skills` path", () =>
   } finally {
     cleanupTmpDir(dir);
   }
+});
+
+test("codex has no output styles, so audit reports n/a rather than zero", () => {
+  // Codex changes its voice through config keys (`developer_instructions`,
+  // `model_instructions_file`), not through named files a setting selects.
+  assert.equal(codexLayout.outputStyles, undefined);
+  assert.deepEqual(
+    findOutputStyles(
+      codexLayout,
+      new Map([[".codex/output-styles/x.md", "x"]]),
+    ),
+    { kind: "not-supported" },
+  );
+});
+
+test("a codex scan says n/a for output styles instead of staying silent", () => {
+  const dir = makeTmpDir("codex-no-styles");
+  try {
+    writeFileSync(join(dir, "AGENTS.md"), "# Agents\n");
+    const r = scanPlugin(dir, codexLayout, codexDialect);
+    assert.equal(r.outputStyles, "not-supported");
+    assert.match(
+      formatScanReport(r),
+      /Output styles: n\/a \(this harness has none\)/,
+    );
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("a codex harness test refuses an output style before running anything", async () => {
+  await assert.rejects(
+    runHarnessTest(
+      { sandbox: false, outputStyle: "any/style.md", model: [] },
+      { adapter: codexAdapter },
+    ),
+    /outputStyle: this harness has no output styles/,
+  );
 });

@@ -18,6 +18,7 @@
  * `.mjs`, not `.ts`: CI runs Node 20, which cannot run TypeScript.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { ESLint } from "eslint";
 import { builtinRules } from "eslint/use-at-your-own-risk";
 import tsparser from "@typescript-eslint/parser";
@@ -234,4 +235,6 @@ const main = async () => {
   process.exitCode = 1;
 };
 
-if (import.meta.url === `file://${process.argv[1]}`) await main();
+// Compare URLs, not a URL with a path: on Windows argv[1] is a native path with backslashes.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  await main();

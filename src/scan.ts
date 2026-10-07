@@ -92,7 +92,11 @@ import {
   coverageEvidenceCounts,
   findUntestedSurfaces,
 } from "./test-coverage.js";
-import { formatEvidence, type EvidenceCounts } from "./coverage-evidence.js";
+import {
+  formatEvidence,
+  inventoryCounts,
+  type EvidenceCounts,
+} from "./coverage-evidence.js";
 import type { PurityLevel, EffectSurface } from "./core/effects.js";
 import {
   makeUnionClassifier,
@@ -329,6 +333,12 @@ export interface ScanReport {
    */
   readonly manualHookCount: number;
   readonly commands: number;
+  /**
+   * Output styles found, exempt ones aside, or `"not-supported"` when the
+   * harness has none — the inventory side of `untested-output-style`. Optional
+   * so a hand-built report predating the field still type-checks.
+   */
+  readonly outputStyles?: number | "not-supported";
   readonly mcp: boolean;
   /**
    * Intra-plugin file references (hook scripts, skill bodies) pointing at files
@@ -796,6 +806,7 @@ export function scanPlugin(
   const coverage = findUntestedSurfaces({
     basePath: dir,
     layout: lay,
+    harnessLayouts: declared.map((h) => h.layout),
     // The SAME `.vigilesrc.json#exclude`. Untested-surface discovery is a
     // second walk over the same trees, so leaving it out would have excluded a
     // skill from the GRADE while still naming it in "Untested surfaces: 1" — a
@@ -814,7 +825,12 @@ export function scanPlugin(
     hooks,
     inlineHooks: inline,
     manualHookCount: manual,
-    commands: Object.keys(loaded.files).filter(cls.isCommand).length,
+    ...inventoryCounts(
+      loaded.files,
+      cls.isCommand,
+      declared.map((h) => h.layout),
+      coverage,
+    ),
     // A declared server set counts even when the loader emitted no warning —
     // otherwise a plugin whose servers come from the Agent Plugins `mcp.json`
     // reports "MCP servers: no" while the report lists an MCP finding.
@@ -1280,6 +1296,17 @@ function instructionWeightLines(w: InstructionWeight): string[] {
   ];
 }
 
+/** The commands and output-style lines of a scan's facts; a harness without styles says so. */
+function inventoryFacts(r: ScanReport): readonly string[] {
+  const commands = r.commands > 0 ? [`Commands: ${String(r.commands)}`] : [];
+  if (r.outputStyles === "not-supported")
+    return [...commands, "Output styles: n/a (this harness has none)"];
+  const styles = r.outputStyles ?? 0;
+  return styles > 0
+    ? [...commands, `Output styles: ${String(styles)}`]
+    : commands;
+}
+
 export function formatScanReport(r: ScanReport): string {
   const out: string[] = [`Scan: ${r.dir}`, ""];
 
@@ -1452,7 +1479,7 @@ export function formatScanReport(r: ScanReport): string {
   );
 
   const facts: string[] = [];
-  if (r.commands > 0) facts.push(`Commands: ${String(r.commands)}`);
+  facts.push(...inventoryFacts(r));
   facts.push(`MCP servers: ${r.mcp ? "yes" : "no"}`);
   facts.push(`Untested surfaces: ${String(r.untested)}`);
   // The two tiers, named separately — a surface with a deterministic harness and
@@ -1460,7 +1487,7 @@ export function formatScanReport(r: ScanReport): string {
   // producer supplied the split (a hand-built report may not have).
   if (r.untestedHarness !== undefined && r.unevaluated !== undefined) {
     facts.push(
-      `  no harness: ${String(r.untestedHarness)} · firing never measured: ${String(r.unevaluated)}`,
+      `  no harness: ${String(r.untestedHarness)} · never measured with a real model: ${String(r.unevaluated)}`,
     );
   }
   // …and HOW the rest passed. Without this the count is unfalsifiable from the

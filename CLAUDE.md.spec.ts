@@ -280,7 +280,7 @@ BUILD + TOOLING + GENERATED:
     "packages/eslint-config/":
       "Strict lint rules shared with paperlint, which imports index.mjs by path from node_modules (private; not in `exports`).",
     "eslint-suppressions.json":
-      "Old findings of the counting rules, written by ESLint; may only shrink (`--prune-suppressions`).",
+      "Old findings as a count per file and rule, written by ESLint. A count only goes down (`--prune-suppressions`); a swap inside one file passes.",
     "eslint-ceilings.json":
       "Per-file ceilings for old functions over the size limits; `scripts/lint-ceilings.mjs` fails when one can come down.",
     "report/":

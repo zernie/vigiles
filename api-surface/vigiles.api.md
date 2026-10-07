@@ -618,6 +618,9 @@ export function experimental_assertEmittedOk(toolCalls: readonly ToolCall[], con
 export const experimental_dockerRuntime: ContainerRuntime;
 
 // @public
+export function experimental_eachReply(matcher: string | Readonly<RegExp>): Readonly<Check<Trace>>;
+
+// @public
 export function experimental_emitTool(contract: OutputContract, options?: {
     readonly name?: string;
 }): ExperimentalEmitTool;
@@ -639,9 +642,18 @@ export function experimental_makeDockerRuntime(deps?: {
 }): ContainerRuntime;
 
 // @public
+export function experimental_outputStyleArms(path: string): Promise<OutputStyleArms>;
+
+// @public
 export function experimental_parseEmitted(toolCalls: readonly ToolCall[], contract: OutputContract, options?: {
     readonly name?: string;
 }): ParsedAgentResult;
+
+// @public
+export function experimental_replyCount(matcher: string | Readonly<RegExp>, opts: {
+    readonly min?: number;
+    readonly max?: number;
+}): Readonly<Check<Trace>>;
 
 // @public
 export function experimental_startServices(services: Readonly<Record<string, ServiceSpec>>, runtime: ContainerRuntime): Promise<ServiceSession>;
@@ -724,6 +736,7 @@ export interface HarnessTestSpec {
     readonly allowedTools?: readonly string[];
     readonly files?: Record<string, string>;
     readonly model: readonly ModelTurn[];
+    readonly outputStyle?: string;
     readonly plugin?: string;
     readonly pluginDir?: string;
     readonly prompt?: string;
@@ -941,6 +954,12 @@ export function output(matcher: string | RegExp): Check<Trace>;
 export function outputContains(trace: Trace, needle: string | RegExp): boolean;
 
 // @public
+export interface OutputStyleArms {
+    readonly with: EvalArm;
+    readonly without: EvalArm;
+}
+
+// @public
 export function outputTokens(opts: {
     max: number;
 }): Check<UsageTrace>;
@@ -957,6 +976,7 @@ export interface ParsedModelRun {
     readonly hooks: HookFire[];
     // (undocumented)
     readonly output: string;
+    readonly replies?: readonly string[];
     // (undocumented)
     readonly subagents: SubagentTrace[];
     // (undocumented)
@@ -1333,6 +1353,7 @@ export interface Trace {
     readonly hooks: readonly HookFire[];
     readonly modelRequests: readonly ModelRequest[];
     readonly output: string;
+    readonly replies?: readonly string[];
     readonly subagents?: readonly SubagentTrace[];
     readonly toolCalls: readonly ToolCall[];
     readonly turns: number;

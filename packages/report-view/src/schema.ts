@@ -103,6 +103,12 @@ export interface AuditInventory {
   agents: number;
   hooks: number;
   commands: number;
+  /**
+   * Output styles shipped, or `"not-supported"` when the harness has none.
+   * Absent when there are none to report, and in a report from before styles
+   * were counted.
+   */
+  outputStyles?: number | "not-supported";
   mcp: boolean;
   untested: number;
   /**

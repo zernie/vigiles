@@ -65,7 +65,12 @@ import {
   scriptUnconsumedWarning,
   splitRequestCounts,
 } from "./mock-model.js";
-import { resolveHarness } from "./adapters/claude-code/plugin-loader.js";
+import { parseReplies, reachedModel } from "./adapters/claude-code/replies.js";
+
+/** Re-exported for the eval tier's parser, which reads the same stream. */
+export { parseReplies, reachedModel };
+import { defaultAdapter } from "./adapter-registry.js";
+import { planStyleRun, styleReached } from "./core/output-style.js";
 import {
   decideSandbox,
   specTrusted,
@@ -82,10 +87,11 @@ export type {
   HookFire,
   HarnessTestDriver,
 } from "./core/harness-driver.js";
-export {
+import {
   loadPlugin,
   resolveHarness,
 } from "./adapters/claude-code/plugin-loader.js";
+export { loadPlugin, resolveHarness };
 export {
   decideSandbox,
   specTrusted,
@@ -115,6 +121,21 @@ export interface HarnessTestSpec {
    * `plugin` still layer on top. Resolved to an absolute path.
    */
   readonly pluginDir?: string;
+  /**
+   * Path to an OUTPUT STYLE file to switch on for this run. The style is
+   * written where the harness keeps styles, and selected by the name the
+   * harness reads from the file — never by a name you type, because a setting
+   * that misses the name loads no style and raises no error.
+   *
+   * The run is then checked: if no model request carried the style,
+   * `runHarnessTest` THROWS instead of returning a trace, so a style that never
+   * loaded cannot pass a test. Refused up front on a harness without output
+   * styles, or when the fixture's files or settings already decide.
+   *
+   * What it proves is delivery. A scripted model does not read the style, so
+   * nothing in this tier shows that a model FOLLOWS it.
+   */
+  readonly outputStyle?: string;
   // TODO(R2): wire `stubs?: readonly ToolStub[]` here too — write the fake
   // binaries into a bin dir under the temp cwd and PREPEND it to the spawned
   // agent's PATH. Deferred from the eval tier because the harness-test spawn goes
@@ -400,8 +421,9 @@ export function buildClaudeArgs(
       ? ["--plugin-dir", resolve(spec.pluginDir)]
       : []),
     ...(hasSettings ? ["--settings", "settings.json"] : []),
-    "--allowedTools",
-    ...tools,
+    // A permission allowlist: an empty one approves nothing, so the flag is
+    // left out (a bare `--allowedTools` exits before any model turn).
+    ...(tools.length === 0 ? [] : ["--allowedTools", ...tools]),
   ];
 }
 
@@ -425,6 +447,7 @@ export function parseClaudeRun(stdout: string): ParsedRun {
     toolCalls: parseToolCalls(stdout),
     hooks: parseHooks(stdout),
     output: parseOutput(stdout),
+    replies: parseReplies(stdout),
   };
 }
 
@@ -448,7 +471,7 @@ export function claudeAvailable(): boolean {
 
 function writeFixture(
   cwd: string,
-  files: Record<string, string>,
+  files: Readonly<Record<string, string>>,
   settings: unknown,
 ): void {
   for (const [p, content] of Object.entries(files)) {
@@ -558,6 +581,7 @@ function makeResult(
     toolCalls: parsed.toolCalls,
     hooks: parsed.hooks,
     output: parsed.output,
+    ...(parsed.replies === undefined ? {} : { replies: parsed.replies }),
     modelRequests,
     subagents: parseSubagents(out.stdout),
     file: (p: string): string | null => {
@@ -609,12 +633,8 @@ export async function runHarnessTest(
     );
   }
 
+  const { files, settings, check } = fixtureFor(spec, opts.adapter);
   const cwd = makeTmpDir("harness");
-  const { files, settings } = resolveHarness({
-    plugin: spec.plugin,
-    settings: spec.settings,
-    files: spec.files,
-  });
   writeFixture(cwd, files, settings);
   const tools = spec.allowedTools ?? ["Read", "Edit", "Write", "Bash"];
   const timeoutMs = spec.timeoutMs ?? 60000;
@@ -648,12 +668,8 @@ export async function runHarnessTest(
     const { count, sideChannelCount } = splitRequestCounts(out.requests);
     const unconsumed = scriptUnconsumedWarning(count, sideChannelCount);
     if (unconsumed !== undefined) console.error(unconsumed);
-    return makeResult(
-      cwd,
-      out,
-      parseClaudeRun(out.stdout),
-      count,
-      out.requests,
+    return check(
+      makeResult(cwd, out, parseClaudeRun(out.stdout), count, out.requests),
     );
   }
 
@@ -678,9 +694,11 @@ export async function runHarnessTest(
       mock.sideChannelCount ?? 0,
     );
     if (unconsumed !== undefined) console.error(unconsumed);
-    return makeResult(cwd, out, driver.parseRun(out.stdout), mock.count, [
-      ...mock.requests,
-    ]);
+    return check(
+      makeResult(cwd, out, driver.parseRun(out.stdout), mock.count, [
+        ...mock.requests,
+      ]),
+    );
   } finally {
     await mock.close();
   }
@@ -713,6 +731,74 @@ export async function runHarness(
     );
   }
   return runHarnessTest(spec, opts);
+}
+
+/**
+ * The fixture to write, and the check its result must pass. Without
+ * `outputStyle` the check returns the result as it is.
+ */
+function fixtureFor(
+  spec: HarnessTestSpec,
+  adapter: HarnessAdapter | undefined,
+): {
+  readonly files: Readonly<Record<string, string>>;
+  readonly settings: unknown;
+  readonly check: (result: HarnessTestResult) => HarnessTestResult;
+} {
+  // One layout for both phases: the plugin is loaded the way the selected
+  // harness lays it out, the same layout the style is then planned against.
+  const { layout } = adapter ?? defaultAdapter;
+  const resolved = resolveHarness(
+    { plugin: spec.plugin, settings: spec.settings, files: spec.files },
+    layout,
+  );
+  if (spec.outputStyle === undefined)
+    return { ...resolved, check: (result) => result };
+  const rules = layout.outputStyles;
+  if (rules === undefined)
+    throw new Error("outputStyle: this harness has no output styles");
+  const plan = planStyleRun(
+    layout,
+    { path: spec.outputStyle, text: readStyleFile(spec.outputStyle) },
+    resolved,
+  );
+  if (plan.kind === "refused") throw new Error(`outputStyle: ${plan.reason}`);
+  return {
+    files: plan.files,
+    settings: plan.settings,
+    check: (result) => {
+      if (styleReached(rules, plan.style, result.modelRequests)) return result;
+      throw new Error(
+        `outputStyle: "${plan.style.name ?? ""}" never reached the model — ` +
+          `no request carried it, so the harness did not load it. ` +
+          `Work dir kept for inspection: ${result.cwd}`,
+      );
+    },
+  };
+}
+
+/**
+ * The files and settings a run with `outputStyle` writes — the style at its
+ * place, selected by the name the harness reads from it. The same fixture
+ * `runHarnessTest({ outputStyle })` runs, so an eval arm built from it gets
+ * exactly what that run proved reaches the model.
+ */
+export function outputStyleFixture(
+  outputStyle: string,
+  adapter?: HarnessAdapter,
+): {
+  readonly files: Readonly<Record<string, string>>;
+  readonly settings: unknown;
+} {
+  const { files, settings } = fixtureFor({ outputStyle, model: [] }, adapter);
+  return { files, settings };
+}
+
+/** The style file's text, or a clear error naming the path. */
+function readStyleFile(path: string): string {
+  const abs = resolve(path);
+  if (!existsSync(abs)) throw new Error(`outputStyle: no such file: ${path}`);
+  return readFileSync(abs, "utf-8");
 }
 
 /** Pull the pillar-2 driver off an adapter, asserting it supports testing. */

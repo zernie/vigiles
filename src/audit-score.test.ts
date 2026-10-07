@@ -274,7 +274,7 @@ describe("auditScore", () => {
     // Two different sentences, two different prescriptions.
     expect(cat(s, "Tested")?.findings[0]).toMatch(/no vigiles harness/);
     expect(cat(s, "Evaluated")?.findings[0]).toMatch(
-      /firing was never measured/,
+      /never measured with a real model/,
     );
     // Neither sentence carries the old "test/eval" slash.
     for (const c of s.categories)
@@ -286,7 +286,7 @@ describe("auditScore", () => {
     expect(cat(s, "Tested")?.score).toBe(91);
   });
 
-  it("Evaluated is plain n/a when there is no surface whose firing could be measured", () => {
+  it("Evaluated is plain n/a when there is no surface a real model could be measured on", () => {
     const e = ring(auditScore(makeReport({ evaluable: 0 })), "Evaluated");
     expect(e.score).toBeNull();
     // n/a is NOT the "nobody asked" state — nothing was there to ask about.
@@ -331,7 +331,7 @@ describe("auditScore", () => {
       true,
     );
     // And it still NAMES the gap in skills-whose-firing terms.
-    expect(e?.findings[0]).toBe("2 surfaces whose firing was never measured");
+    expect(e?.findings[0]).toBe("2 surfaces never measured with a real model");
   });
 
   it("Evaluated is a real number as soon as ANY eval exists — the read doesn't have to run", () => {
@@ -343,7 +343,7 @@ describe("auditScore", () => {
     );
     expect(e?.score).toBe(25);
     expect(e?.notMeasured).toBeUndefined();
-    expect(e?.findings[0]).toBe("3 surfaces whose firing was never measured");
+    expect(e?.findings[0]).toBe("3 surfaces never measured with a real model");
   });
 
   it("Evaluated is a clean 100 with no findings when every surface has an eval", () => {

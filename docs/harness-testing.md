@@ -67,6 +67,7 @@ Start here. Pick the row that matches your question — each links to its sectio
 | my **hook** blocks/allows an event                                  | [`runHook`](#test-a-hook-in-isolation-runhook)                                 | nothing             |
 | my **safety hook** really blocks `rm -rf`, force-push, `curl \| sh` | [`assertBlocksDisasters`](#prove-a-guard-actually-blocks-the-disaster-battery) | nothing             |
 | my hook/skill is **wired in** and actually fires                    | [`runHarnessTest`](#test-the-assembled-machine-runharnesstest)                 | harness CLI, no key |
+| my **output style** loads, and what each reply printed              | [`runHarnessTest({ outputStyle })`](testing-output-styles.md)                  | harness CLI, no key |
 | my **skill fires** on the right prompts (recall + precision)        | [`measureTriggerRate`](#test-a-skill-fires-measuretriggerrate)                 | a real model        |
 | a change **moves the agent's behaviour** (A/B, with stats)          | [`runEval`](#test-a-change-moves-behaviour-runeval)                            | a real model        |
 | the **references** my CLAUDE.md cites are real                      | [`vigiles lint`](verifying-instruction-files.md)                               | nothing             |
@@ -843,6 +844,7 @@ sandbox) is per-harness. Pick yours:
 ## See also
 
 - [Testing API reference](testing-api.md) — every predicate, check, matcher, and option (hand-written).
+- [Testing output styles](testing-output-styles.md) — the three tiers for a style, `replies`, and the per-harness table.
 - [API reference (generated)](https://zernie.github.io/vigiles/api/) — the exhaustive symbol-level reference for every entry point, incl. the `vigiles` root and `vigiles/eval`.
 - [Compiled hooks](compiled-hooks.md) — author a hook that can't be wrong (a pure typed function vigiles compiles); the gate instrument beside these test tiers.
 - [Verifying your instruction files](verifying-instruction-files.md) — the linting layer.
