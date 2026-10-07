@@ -261,6 +261,24 @@ export function materializePrefix(layout: PluginLayout): string {
 }
 
 /**
+ * Where a REPOSITORY keeps its skills for this harness, repo-relative — the
+ * skill surface under {@link materializePrefix}: `.claude/skills` on Claude
+ * Code, `.agents/skills` on Codex. `null` when the layout has no skill surface.
+ *
+ * `vigiles init` links the package's shipped skills here, so it must be the
+ * directory the harness actually scans for a project; deriving it from the two
+ * fields that already say so keeps a third spelling from appearing.
+ */
+export function skillsHome(
+  layout: Pick<PluginLayout, "surfaces" | "userSurfaceRoot">,
+): string | null {
+  const skill = layout.surfaces.skill;
+  if (skill === undefined || skill === "") return null;
+  const root = layout.userSurfaceRoot;
+  return root === undefined || root === "" ? skill : `${root}/${skill}`;
+}
+
+/**
  * How DEEP a harness reads its {@link PluginLayout.agentDir} — the one statement
  * of that rule, as a RegExp source fragment matching the part of a path AFTER
  * `<agentDir>/`. Anchor-free on purpose, so each caller can bound it its own way

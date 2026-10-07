@@ -631,7 +631,7 @@
     "max-lines-per-function": 216
   },
   "src/setup-plan.ts": {
-    "max-lines-per-function": 56,
+    "max-lines-per-function": 54,
     "sonarjs/cognitive-complexity": 12
   },
   "src/skill-contract.ts": {

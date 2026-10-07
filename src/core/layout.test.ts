@@ -7,7 +7,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import { AGENT_FILE_LEAF_RE, agentSurfaceName } from "./layout.js";
+import { AGENT_FILE_LEAF_RE, agentSurfaceName, skillsHome } from "./layout.js";
 
 /** The fragment as the scan classifier bounds it: `(?:^|/)agents/` … `$`. */
 const scanRe = new RegExp(`(?:^|/)agents/${AGENT_FILE_LEAF_RE}$`);
@@ -98,4 +98,23 @@ test("agentSurfaceName returns null when there is nothing to name", () => {
   assert.equal(agentSurfaceName("agents/x.md", ""), null, "no agent dir");
   assert.equal(agentSurfaceName("agents/", "agents"), null, "bare dir");
   assert.equal(agentSurfaceName("agents/x.txt", "agents"), null, "not .md");
+});
+
+test("skillsHome is where a REPO keeps its skills: the skill surface under the user root", () => {
+  // `init` links the shipped skills here, so it must be the directory the
+  // harness scans for a project — derived from the two fields that say so.
+  assert.equal(
+    skillsHome({ surfaces: { skill: "skills" }, userSurfaceRoot: ".h" }),
+    ".h/skills",
+  );
+  // A layout whose surface carries its own prefix has no user root.
+  assert.equal(skillsHome({ surfaces: { skill: ".x/skills" } }), ".x/skills");
+});
+
+test("skillsHome is null for a layout with no skill surface", () => {
+  assert.equal(skillsHome({ surfaces: { agent: "agents" } }), null);
+  assert.equal(
+    skillsHome({ surfaces: { agent: "agents" }, userSurfaceRoot: ".x" }),
+    null,
+  );
 });

@@ -14,7 +14,13 @@
  * own package inside `node_modules`. Reading those is the domain's business, so
  * the domain reads them once and passes the answer instead of widening the port.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { HarnessAdapter, InstallReader } from "./adapter.js";
@@ -23,6 +29,18 @@ import type { HarnessAdapter, InstallReader } from "./adapter.js";
 function readOrNull(absolute: string): string | null {
   try {
     return existsSync(absolute) ? readFileSync(absolute, "utf-8") : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A symlink's stored target, or null when it is not a link. Never throws. */
+function linkOrNull(absolute: string): string | null {
+  try {
+    return lstatSync(absolute, { throwIfNoEntry: false })?.isSymbolicLink() ===
+      true
+      ? readlinkSync(absolute)
+      : null;
   } catch {
     return null;
   }
@@ -81,6 +99,10 @@ export function buildInstallReader(
     repo: (repoRelative) =>
       adapter.claims(repoRelative)
         ? readOrNull(resolve(root, repoRelative))
+        : null,
+    repoLink: (repoRelative) =>
+      adapter.claims(repoRelative)
+        ? linkOrNull(resolve(root, repoRelative))
         : null,
     home: (homeRelative) => readOrNull(join(home, homeRelative)),
     repoDependsOnVigiles:

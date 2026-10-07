@@ -356,6 +356,7 @@ test("advisories() actually CONSULTS the reader — the bound property is not va
       askedRepo.push(p);
       return null;
     },
+    repoLink: () => null,
     home: (p) => {
       askedHome.push(p);
       return null;
@@ -380,6 +381,7 @@ test("advisories() says nothing about a repo that does not depend on vigiles", (
   // reachability line is absent.
   const lines = claudeCodeAdapter.advisories({
     repo: () => null,
+    repoLink: () => null,
     home: () => null,
     repoDependsOnVigiles: false,
     vendoredSkillNames: [],

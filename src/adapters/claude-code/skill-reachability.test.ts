@@ -3,10 +3,11 @@
  *
  * The defect it exists for, observed in a real consumer repo: `npm install
  * vigiles` puts six user-facing skills on disk at `node_modules/vigiles/skills/`,
- * which Claude Code never scans. The skills are wired by the GLOBAL plugin
- * install (`vigiles init` → `claude plugin install vigiles@vigiles`), and until
- * that has run the skills are silently unreachable — a user can spend a day doing
- * exactly what `test-harness` teaches with the skill three directories away.
+ * which Claude Code never scans. They reach the agent through the links `vigiles
+ * init` commits into `.claude/skills/`, or through the per-machine plugin
+ * install; until one of those exists the skills are silently unreachable — a
+ * user can spend a day doing exactly what `test-harness` teaches with the skill
+ * three directories away.
  *
  * The subtle part these tests pin down: the authoritative record of a user-scope
  * plugin install is `~/.claude/plugins/installed_plugins.json`, NOT the repo's
@@ -16,7 +17,7 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -29,6 +30,26 @@ import type { InstallReader } from "../../core/adapter.js";
 import { claudeCodeAdapter } from "./adapter.js";
 import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
 
+/** A minimal `<root>/<name>/SKILL.md` per name. */
+function writeSkills(root: string, names: readonly string[]): void {
+  names.forEach((s) => {
+    mkdirSync(join(root, s), { recursive: true });
+    writeFileSync(join(root, s, "SKILL.md"), `---\nname: ${s}\n---\n`);
+  });
+}
+
+/** Link each skill the way `vigiles init` does: a relative link into node_modules. */
+function linkSkills(dir: string, names: readonly string[]): void {
+  names.forEach((s) => {
+    mkdirSync(join(dir, ".claude", "skills"), { recursive: true });
+    symlinkSync(
+      `../../node_modules/vigiles/skills/${s}`,
+      join(dir, ".claude", "skills", s),
+      "dir",
+    );
+  });
+}
+
 /** A repo that depends on vigiles, plus a fake $HOME to point the check at. */
 function scaffold(opts: {
   readonly dependsOnVigiles?: boolean;
@@ -40,6 +61,8 @@ function scaffold(opts: {
   readonly repoSkills?: readonly string[];
   /** Vendor the shipped skills into `node_modules/vigiles/skills/`. */
   readonly nodeModulesSkills?: boolean;
+  /** Skill names to LINK as `init` does: `.claude/skills/<s>` → node_modules. */
+  readonly linkedSkills?: readonly string[];
   /** Make the audited dir vigiles itself. */
   readonly self?: boolean;
 }): {
@@ -72,18 +95,12 @@ function scaffold(opts: {
     mkdirSync(join(dir, ".claude"), { recursive: true });
     writeFileSync(join(dir, ".claude", "settings.json"), opts.settings);
   }
-  for (const s of opts.repoSkills ?? []) {
-    const d = join(dir, ".claude", "skills", s);
-    mkdirSync(d, { recursive: true });
-    writeFileSync(join(d, "SKILL.md"), `---\nname: ${s}\n---\n`);
-  }
-  if (opts.nodeModulesSkills) {
-    for (const s of SHIPPED_SKILLS) {
-      const d = join(dir, "node_modules", "vigiles", "skills", s);
-      mkdirSync(d, { recursive: true });
-      writeFileSync(join(d, "SKILL.md"), `---\nname: ${s}\n---\n`);
-    }
-  }
+  writeSkills(join(dir, ".claude", "skills"), opts.repoSkills ?? []);
+  writeSkills(
+    join(dir, "node_modules", "vigiles", "skills"),
+    opts.nodeModulesSkills ? SHIPPED_SKILLS : [],
+  );
+  linkSkills(dir, opts.linkedSkills ?? []);
   return {
     dir,
     home,
@@ -145,8 +162,13 @@ test("a user-scope install in the GLOBAL registry counts as reachable, even when
     assert.ok(r);
     assert.equal(r.reachable, true);
     assert.deepEqual([...r.sources], ["global-plugin"]);
-    // Reachable → the audit says nothing at all.
-    assert.equal(formatSkillReachability(r), null);
+    // Reachable HERE — but only because of this machine. The audit says so
+    // (not as a failure), because a fresh clone or container has no plugin.
+    const msg = formatSkillReachability(r);
+    assert.ok(msg);
+    assert.doesNotMatch(msg, /NOT reachable/);
+    assert.match(msg, /fresh clone/);
+    assert.match(msg, /npx vigiles init/);
   } finally {
     s.cleanup();
   }
@@ -200,7 +222,7 @@ test("a global install PLUS a project declaration is reachable — the declarati
     assert.ok(r);
     assert.equal(r.reachable, true);
     assert.deepEqual([...r.sources], ["global-plugin"]);
-    assert.equal(formatSkillReachability(r), null);
+    assert.doesNotMatch(formatSkillReachability(r) ?? "", /NOT reachable/);
   } finally {
     s.cleanup();
   }
@@ -264,6 +286,8 @@ test("un-wired + skills stranded in node_modules is LOUD, names the stranded ski
     // stranded, and give a command that fixes it.
     assert.match(msg, /test-harness/);
     assert.match(msg, /node_modules/);
+    // The per-REPO fix first (it reaches every clone), the per-machine one second.
+    assert.match(msg, /npx vigiles init/);
     assert.match(msg, /claude plugin install vigiles@vigiles/);
   } finally {
     s.cleanup();
@@ -279,7 +303,9 @@ test("un-wired with NOTHING in node_modules still warns, without claiming strand
     assert.deepEqual([...r.strandedSkills], []);
     const msg = formatSkillReachability(r);
     assert.ok(msg);
-    assert.doesNotMatch(msg, /node_modules/);
+    // The fix line names node_modules (where the links point); the claim that
+    // copies are STRANDED there must not appear when there are none.
+    assert.doesNotMatch(msg, /sitting in node_modules/);
   } finally {
     s.cleanup();
   }
@@ -353,4 +379,56 @@ test("an empty install record for vigiles is not an install", () => {
 
 test("formatSkillReachability(null) is null — nothing to say", () => {
   assert.equal(formatSkillReachability(null), null);
+});
+
+test("skills LINKED into .claude/skills from node_modules are reachable with no plugin at all", () => {
+  // The state `vigiles init` leaves behind, in a clone that ran `npm install`.
+  const s = scaffold({
+    linkedSkills: SHIPPED_SKILLS,
+    nodeModulesSkills: true,
+  });
+  try {
+    const r = checkSkillReachability(s.read);
+    assert.ok(r);
+    assert.equal(r.reachable, true);
+    assert.deepEqual([...r.sources], ["repo-skills"]);
+    assert.equal(formatSkillReachability(r), null);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test("committed links in a clone that has not run npm install: names the dangling links and says npm install", () => {
+  // The fresh-container case: the links came with git, node_modules did not.
+  const s = scaffold({ linkedSkills: SHIPPED_SKILLS });
+  try {
+    const r = checkSkillReachability(s.read);
+    assert.ok(r);
+    assert.equal(r.reachable, false);
+    assert.deepEqual([...r.danglingLinks], [...SHIPPED_SKILLS]);
+    const msg = formatSkillReachability(r);
+    assert.ok(msg);
+    assert.match(msg, /npm install/);
+    // Guards: the fix is the install, not re-linking or a plugin.
+    assert.doesNotMatch(msg, /claude plugin install/);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test("a skill the installed package ships but the repo has not linked is named — the upgrade case", () => {
+  const [missing, ...linked] = SHIPPED_SKILLS;
+  const s = scaffold({ linkedSkills: linked, nodeModulesSkills: true });
+  try {
+    const r = checkSkillReachability(s.read);
+    assert.ok(r);
+    assert.equal(r.reachable, true);
+    assert.deepEqual([...r.unlinkedSkills], [missing]);
+    const msg = formatSkillReachability(r);
+    assert.ok(msg);
+    assert.match(msg, new RegExp(missing));
+    assert.match(msg, /npx vigiles init/);
+  } finally {
+    s.cleanup();
+  }
 });

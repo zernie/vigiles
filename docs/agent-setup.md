@@ -38,7 +38,8 @@ and sets both layers up. No `--target` flag needed unless you want to override.
 - **Test layer** — a starter `vigiles.harness.mjs`
 - **CI** — a `zernie/vigiles@v1` workflow at `.github/workflows/vigiles.yml`
 - **Dependency** — `vigiles` added to `devDependencies`
-- **Plugin** — the Claude Code plugin, installed **globally** via the marketplace (into `~/.claude/plugins/`, never vendored into your repo)
+- **Skills** — linked into the repo: one relative symlink per shipped skill, `.claude/skills/<name>` → `node_modules/vigiles/skills/<name>` (`.agents/skills/` for Codex), to commit
+- **Plugin** — the Claude Code plugin, installed **globally** via the marketplace (into `~/.claude/plugins/`, never vendored into your repo); it carries the hooks
 
 Scope with flags: `--lint` / `--test` (one layer or both), `--harness=claude,codex`,
 `--no-gha`, `--no-plugin`, `--strict`.
@@ -47,7 +48,37 @@ Scope with flags: `--lint` / `--test` (one layer or both), `--harness=claude,cod
 
 ### Claude Code
 
-Instruction file: `CLAUDE.md`. Once the plugin is installed, the agent no longer
+Instruction file: `CLAUDE.md`.
+
+**Skills come with the repo.** npm puts vigiles's skills at
+`node_modules/vigiles/skills/`, a directory Claude Code never scans. So `init`
+links each one into `.claude/skills/` — a relative link,
+`.claude/skills/test-harness -> ../../node_modules/vigiles/skills/test-harness`,
+the layout Claude Code [documents for a symlinked skill folder](https://code.claude.com/docs/en/skills)
+("Claude Code reads `SKILL.md` from the target"). Commit the links: a fresh clone
+or container has them as soon as `npm install` has run, with no plugin and no
+prompt. A session that started before the install may need `/reload-skills` or a
+restart.
+
+- **Idempotent.** Re-running `init` keeps every link and adds only missing ones
+  (for example a skill a newer vigiles ships).
+- **Your skills win.** An existing `.claude/skills/<name>` that is not vigiles's
+  link — your own directory, a file, a link elsewhere — is never replaced; `init`
+  names the skill you did not get.
+- **Not graded as yours.** A skill linked in from `node_modules` is a
+  dependency's, so `lint` never reports it as an untested surface.
+- **No `package.json`?** Then no install will create `node_modules/vigiles`, and
+  `init` makes no links (they could only dangle) — the plugin carries the skills.
+- **Windows:** creating a symlink needs Developer Mode (or an elevated shell), and
+  checking one out needs `git config core.symlinks true`. `init` says which link
+  it could not create.
+
+`vigiles audit` says out loud when the skills do not reach the agent: links that
+dangle (`npm install`), neither links nor plugin, only this machine's plugin (a
+fresh clone won't have them), or a skill an upgrade added that is not linked yet —
+each with the command that fixes it.
+
+**Hooks come with the plugin.** Once the plugin is installed, the agent no longer
 has to remember to compile:
 
 | Hook        | Trigger                                         | Action                                   |
@@ -65,11 +96,10 @@ has to remember to compile:
 
 ⚠️ **Without the plugin**, run `vigiles compile` manually after editing specs. CI still catches stale files.
 
-⚠️ **`npm install vigiles` does NOT wire the skills.** The npm tarball ships them
-(it doubles as the plugin payload), so they land in `node_modules/vigiles/skills/`
-— a directory Claude Code never scans. Until the plugin install above has run, all
-six shipped skills, `test-harness` included, are present on disk and unselectable.
-`vigiles audit` says so out loud when it sees a repo in that state.
+With both the links and the plugin on one machine, Claude Code lists each skill
+twice — `test-harness` from the link and `vigiles:test-harness` from the plugin —
+because [plugin skills are namespaced, so both load](https://code.claude.com/docs/en/skills).
+They are the same files; either works.
 
 Checking by hand? Look in **`~/.claude/plugins/installed_plugins.json`** for a
 `vigiles@vigiles` entry — that is what `claude plugin install` writes for a
@@ -108,18 +138,17 @@ vigiles ships from a GitHub marketplace, so that is exactly our case, and the
 boundary is deliberate — plugins execute arbitrary code with your privileges, so
 a repo is not permitted to install one on your behalf.
 
-So the declaration buys **one** thing, and it is worth having: a collaborator who
-clones and never runs `init` currently gets **silence** — the npm package is
-there, its six skills are unreachable, and nothing says so. With the declaration,
-Claude Code tells them the project wants this plugin and prints the install
-command. **Silent absence becomes a prompt.** A fresh clone and a CI job still
-have no plugin until someone installs it.
+So the declaration buys **one** thing: Claude Code tells a collaborator the
+project wants this plugin and prints the install command. **Silent absence
+becomes a prompt** — for the hooks. A fresh clone and a CI job still have no
+plugin until someone installs it; they do have the skills, through the links.
 
 Nothing is vendored: two small JSON keys are a _reference_; the plugin content
 stays in the global cache, one copy shared across your repos.
 
-That is also why the reachability warning above is **advisory and never scored**:
-it reports machine state that no repo-committed file can determine.
+The reachability warning above stays **advisory and never scored**: whether the
+plugin is installed and whether `npm install` has run are machine state, and a
+score must not move between a laptop and CI for the same source.
 
 **Removing it** is a two-key edit — delete `extraKnownMarketplaces.vigiles` and
 `enabledPlugins["vigiles@vigiles"]`. `eject` does **not** do this: `eject` is the
@@ -143,10 +172,14 @@ npx vigiles init --harness=codex   # full setup: scaffolds AGENTS.md.spec.ts + t
 
 Use the full `init --harness=codex` (not `init --target=AGENTS.md`, which only
 scaffolds the spec) — it's what generates `.vigiles/generated.d.ts` and the CI
-config that step 3's `generate types --check` depends on. Authoring skills install
-**globally** via the cross-agent `skills` CLI (no repo vendoring):
-`npx skills add zernie/vigiles -a codex -g -y` → `~/.agents/skills/`, which that
-same command handles. Codex hooks (`.codex/config.toml [hooks]`) aren't auto-wired yet.
+config that step 3's `generate types --check` depends on. The authoring skills are
+**linked** into `.agents/skills/` exactly as for Claude Code (Codex
+["follows the symlink target"](https://learn.chatgpt.com/docs/build-skills)), so
+they travel with the repo. Only when there is no `package.json` to link from does
+`init` fall back to the global cross-agent `skills` CLI
+(`npx skills add zernie/vigiles -a codex -s <skills> -g -y` → `~/.agents/skills/`) —
+never both, because Codex lists two skills of the same name side by side. The
+eval-lock and refs nudge hooks are wired into `.codex/config.toml`.
 
 ### Multi-agent (Claude + Codex)
 

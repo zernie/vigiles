@@ -1,0 +1,207 @@
+/**
+ * `vigiles init` links vigiles's skills into the repo — through the REAL built
+ * CLI, in a scratch repo, so the IO half (`linkVigilesSkills` in cli-main.ts) is
+ * exercised as a user runs it. The pure half is `src/skill-links.test.ts`.
+ *
+ * The defect: the Claude Code plugin install lands in the home directory, one
+ * machine's state. A fresh container's home is empty and a repo-declared plugin
+ * only PROMPTS, so headless sessions had the skills in
+ * `node_modules/vigiles/skills/` and none of them visible. A committed link
+ * travels with the clone.
+ *
+ * Both harnesses are driven, because the linking is harness-neutral (the skills
+ * home is the layout's) while what happens to the GLOBAL install is not: the
+ * Claude Code plugin still runs (it carries the hooks), the Codex `skills` CLI
+ * install is skipped (it carried only skills).
+ *
+ * No network and no global install here, on purpose: Codex's global install is
+ * skipped when the links are made, and every run puts a PATH holding only
+ * `node` in front, so the Claude Code plugin step reports "not installed"
+ * instead of reaching the marketplace. HOME is a scratch dir in every run.
+ */
+import { test } from "vitest";
+import assert from "node:assert/strict";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+
+import { SHIPPED_SKILLS } from "./setup-plan.js";
+import { getAdapter } from "./adapter-registry.js";
+import { skillsHome } from "./core/layout.js";
+
+const CLI = resolve(__dirname, "..", "dist", "cli.js");
+
+// eslint-disable-next-line local/no-harness-names -- `init --harness=<name>` takes these names; the test types them as a user does
+const [CC, CX] = ["claude", "codex"] as const;
+
+/** The layout's skills home for an `init` harness name. */
+function homeOf(harness: string): string {
+  const adapter = getAdapter(harness);
+  const home = adapter === undefined ? null : skillsHome(adapter.layout);
+  assert.ok(home !== null, `no skills home for ${harness}`);
+  return home;
+}
+
+interface Scratch {
+  readonly root: string;
+  readonly home: string;
+  readonly bin: string;
+}
+
+/** A scratch repo + HOME + a PATH that holds only `node`; removed afterwards. */
+function withScratch(fn: (s: Scratch) => void): void {
+  const s: Scratch = {
+    root: mkdtempSync(join(tmpdir(), "vigiles-init-links-")),
+    home: mkdtempSync(join(tmpdir(), "vigiles-init-home-")),
+    bin: mkdtempSync(join(tmpdir(), "vigiles-init-bin-")),
+  };
+  symlinkSync(process.execPath, join(s.bin, "node"));
+  try {
+    fn(s);
+  } finally {
+    [s.root, s.home, s.bin].forEach((d) => {
+      rmSync(d, { recursive: true, force: true });
+    });
+  }
+}
+
+/** Run the built `init` (no lint/test/CI layers — only the install step matters). */
+function init(s: Scratch, harness: string): string {
+  try {
+    return execFileSync(
+      process.execPath,
+      [
+        CLI,
+        "init",
+        "--no-lint",
+        "--no-test",
+        "--no-gha",
+        `--harness=${harness}`,
+      ],
+      {
+        cwd: s.root,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 60000,
+        env: { ...process.env, HOME: s.home, PATH: s.bin, CI: "1" },
+      },
+    );
+  } catch (e) {
+    throw new Error(`init failed: ${String(e)}`, { cause: e });
+  }
+}
+
+/** A consumer repo: `.git`, a package.json that depends on vigiles, optionally installed. */
+function consumer(root: string, installed: boolean): void {
+  mkdirSync(join(root, ".git"));
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify({ name: "consumer", devDependencies: { vigiles: "^4" } }),
+  );
+  if (!installed) return;
+  const pkg = join(root, "node_modules", "vigiles");
+  mkdirSync(pkg, { recursive: true });
+  writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "vigiles" }));
+  SHIPPED_SKILLS.forEach((s) => {
+    mkdirSync(join(pkg, "skills", s), { recursive: true });
+    writeFileSync(join(pkg, "skills", s, "SKILL.md"), `---\nname: ${s}\n---\n`);
+  });
+}
+
+test("Claude Code: one relative link per skill, each resolving to the package's SKILL.md; the plugin step still runs", () => {
+  withScratch((s) => {
+    consumer(s.root, true);
+    const out = init(s, CC);
+    SHIPPED_SKILLS.forEach((name) => {
+      const entry = join(s.root, homeOf(CC), name);
+      assert.equal(
+        readlinkSync(entry),
+        `../../node_modules/vigiles/skills/${name}`,
+      );
+      assert.ok(readFileSync(join(entry, "SKILL.md"), "utf-8").includes(name));
+    });
+    assert.ok(out.includes("6 linked now, 0 already linked, 0 skipped"), out);
+    // Guards: the plugin is the only carrier of the hooks — still attempted.
+    assert.ok(out.includes(`plugin for ${CC} was NOT installed`), out);
+  });
+});
+
+test("a harness whose global install carries only skills: links into its skills home and skips that install", () => {
+  withScratch((s) => {
+    consumer(s.root, true);
+    const out = init(s, CX);
+    SHIPPED_SKILLS.forEach((name) => {
+      assert.equal(
+        readlinkSync(join(s.root, homeOf(CX), name)),
+        `../../node_modules/vigiles/skills/${name}`,
+      );
+    });
+    assert.ok(out.includes(`No global ${CX} skills install`), out);
+    assert.ok(!out.includes("skills add zernie/vigiles"), out);
+  });
+});
+
+test("re-running init keeps every link and creates none", () => {
+  withScratch((s) => {
+    consumer(s.root, true);
+    init(s, CC);
+    const out = init(s, CC);
+    assert.ok(out.includes("0 linked now, 6 already linked, 0 skipped"), out);
+  });
+});
+
+test("the user's own skill of the same name is never replaced, and the report names it", () => {
+  withScratch((s) => {
+    consumer(s.root, true);
+    const mine = join(s.root, homeOf(CC), "test-harness");
+    mkdirSync(mine, { recursive: true });
+    writeFileSync(
+      join(mine, "SKILL.md"),
+      "---\nname: test-harness\n---\nmine\n",
+    );
+    const out = init(s, CC);
+    assert.ok(readFileSync(join(mine, "SKILL.md"), "utf-8").endsWith("mine\n"));
+    assert.ok(out.includes("5 linked now, 0 already linked, 1 skipped"), out);
+    assert.ok(
+      out.includes(`${homeOf(CC)}/test-harness left alone — it is a directory`),
+      out,
+    );
+  });
+});
+
+test("before npm install: the links go where npm will put the package, and the report says to install", () => {
+  withScratch((s) => {
+    consumer(s.root, false);
+    const out = init(s, CC);
+    assert.equal(
+      readlinkSync(join(s.root, homeOf(CC), "test-harness")),
+      "../../node_modules/vigiles/skills/test-harness",
+    );
+    assert.ok(out.includes("run npm install"), out);
+  });
+});
+
+test("no package.json: no links (they could only dangle), and the global install is still attempted", () => {
+  withScratch((s) => {
+    mkdirSync(join(s.root, ".git"));
+    const out = init(s, CX);
+    assert.equal(existsSync(join(s.root, homeOf(CX))), false);
+    assert.ok(
+      out.includes(
+        "skills were NOT linked — this repo has no package.json dependency",
+      ),
+      out,
+    );
+    assert.ok(!out.includes(`No global ${CX} skills install`), out);
+  });
+});

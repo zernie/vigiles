@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 512 project files. */
+  /** 515 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -225,6 +225,7 @@ declare module "vigiles/generated" {
     | "src/cli-flags.ts"
     | "src/cli-harness-resolution.test.ts"
     | "src/cli-help.test.ts"
+    | "src/cli-init-skill-links.test.ts"
     | "src/cli-install.e2e.test.ts"
     | "src/cli-main-roots.test.ts"
     | "src/cli-main.ts"
@@ -579,6 +580,8 @@ declare module "vigiles/generated" {
     | "src/skill-contract.ts"
     | "src/skill-harness.test.ts"
     | "src/skill-harness.ts"
+    | "src/skill-links.test.ts"
+    | "src/skill-links.ts"
     | "src/skill-refs.test.ts"
     | "src/skill-refs.ts"
     | "src/skill-test.test.ts"
@@ -809,6 +812,7 @@ declare module "vigiles/spec" {
       | "src/cli-flags.ts"
       | "src/cli-harness-resolution.test.ts"
       | "src/cli-help.test.ts"
+      | "src/cli-init-skill-links.test.ts"
       | "src/cli-install.e2e.test.ts"
       | "src/cli-main-roots.test.ts"
       | "src/cli-main.ts"
@@ -1163,6 +1167,8 @@ declare module "vigiles/spec" {
       | "src/skill-contract.ts"
       | "src/skill-harness.test.ts"
       | "src/skill-harness.ts"
+      | "src/skill-links.test.ts"
+      | "src/skill-links.ts"
       | "src/skill-refs.test.ts"
       | "src/skill-refs.ts"
       | "src/skill-test.test.ts"

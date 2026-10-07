@@ -187,6 +187,13 @@ export interface InstallReader {
    */
   readonly repo: (repoRelative: string) => string | null;
   /**
+   * The stored target of a repo SYMLINK (what `readlink` returns), or null when
+   * the path is not a link, is missing, or is NOT a path this adapter claims.
+   * It answers the one question `repo` cannot: a committed link whose target is
+   * not installed yet reads as null through `repo`, exactly like no link at all.
+   */
+  readonly repoLink: (repoRelative: string) => string | null;
+  /**
    * A file under the user's HOME, or null. This is a read of the MACHINE, never
    * of the repository — the plugin-install record lives there — and everything
    * it feeds is advisory-only.
