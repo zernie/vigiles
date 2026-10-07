@@ -10,12 +10,13 @@
  * all: it drives the real API, so no request is captured. The free run here
  * uses the scripted model, where requests ARE captured, with the same fixture
  * the paid arm gets — so a style that would not load stops the eval before the
- * first billed trial.
+ * first billed trial. That free run uses a throwaway HOME and none of the
+ * caller's environment beyond the OS essentials.
  */
 import { defaultAdapter } from "./adapter-registry.js";
 import type { HarnessAdapter } from "./core/adapter.js";
 import type { EvalArm } from "./eval.js";
-import { outputStyleFixture, runHarnessTest } from "./harness-test.js";
+import { outputStyleFixture, runHarnessTestIn } from "./harness-test.js";
 
 /** The style on and the style off, ready for `paid_measureArms({ arms })`. */
 export interface OutputStyleArms {
@@ -50,9 +51,14 @@ export async function outputStyleArmsWith(
   path: string,
   adapter: HarnessAdapter,
 ): Promise<OutputStyleArms> {
-  const preflight = await runHarnessTest(
+  // A throwaway HOME: this run happens on every import of an eval file (even
+  // `vigiles eval --check`), so it must not read the machine's user config or
+  // run as the session that imported it. What it proves — the style reaches the
+  // model — is a fact about the fixture, not about this machine.
+  const preflight = await runHarnessTestIn(
     { outputStyle: path, prompt: "hi", model: [{ text: "ok" }] },
     { adapter },
+    "throwaway",
   );
   preflight.cleanup();
   const { files, settings } = outputStyleFixture(path, adapter);

@@ -90,6 +90,13 @@ const runtime: HarnessRuntime = {
   modelBaseUrlEnv: "MYAGENT_BASE_URL",
   modelApiKeyEnv: "MYAGENT_API_KEY",
   mockApiKey: "sk-mock",
+  // Optional. What a child run may inherit: the auth a scrubbed run keeps, and
+  // the variables that mark YOUR harness's live session (never passed to a child).
+  runEnv: {
+    keep: ["MYAGENT_API_KEY"],
+    keepHomeFiles: [".myagent/auth.json"],
+    sessionIdentity: ["MYAGENT_SESSION_ID"],
+  },
 };
 
 const hookProtocol: HookProtocol = {

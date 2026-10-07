@@ -54,4 +54,49 @@ export interface HarnessRuntime {
    * caller resolves the raw string via `agentBinary --version`); unit-testable.
    */
   versionKey(raw: string): string;
+  /**
+   * Which of the caller's environment a child run may inherit — see
+   * {@link RunEnvPolicy}. Absent: a scrubbed run inherits no harness variable,
+   * and nothing is removed from an inherited env.
+   */
+  readonly runEnv?: RunEnvPolicy;
+}
+
+/**
+ * Which of the caller's environment a CHILD run of this harness may inherit.
+ *
+ * A run spawned from inside a live session of the same harness (an eval started
+ * by an agent, a harness test run from a hook) inherits that session's process
+ * environment, and a harness marks its own session there. Measured on Claude
+ * Code 2.1.292 (2026-10-07): a child `claude -p` started with the parent's
+ * session variables ran AS the parent session — a task it created landed in the
+ * parent's live task list. Which variables are identity and which are auth is a
+ * fact about one harness, so the adapter declares it and the runners apply it
+ * (`src/core/run-env.ts`) without spelling a single name.
+ *
+ * Optional, so an adapter written before this field still type-checks. An
+ * adapter without one gets the strict reading: a scrubbed run inherits no
+ * harness variable at all, and an inherited one has nothing removed.
+ */
+export interface RunEnvPolicy {
+  /**
+   * Exact names a SCRUBBED run (fresh HOME, cleared env) inherits: the
+   * harness's auth and backend selection, nothing else. An allowlist on purpose —
+   * a harness's session variables are open-ended (the Claude Code 2.1.292
+   * binary references several dozen `*SESSION*` / `*SOCKET*` / `*TOKEN*` names),
+   * so a prefix with a few exceptions would keep passing whichever ones nobody
+   * listed.
+   */
+  readonly keep: readonly string[];
+  /**
+   * Auth FILES under HOME (relative paths) that a scrubbed run's throwaway HOME
+   * is seeded with, by copy. The file half of `keep`.
+   */
+  readonly keepHomeFiles: readonly string[];
+  /**
+   * The PARENT session's identity: names no child run ever inherits — not a
+   * scrubbed run, and not a run that otherwise inherits the whole caller env.
+   * Wins over `keep` and over any name a caller allows.
+   */
+  readonly sessionIdentity: readonly string[];
 }
