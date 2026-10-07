@@ -20,6 +20,7 @@ import {
   realpathSync,
   readlinkSync,
   symlinkSync,
+  unlinkSync,
   type Dirent,
 } from "node:fs";
 import { injectableEventsOf } from "./core/event-capability.js";
@@ -4240,21 +4241,27 @@ function createdLinks(outcome: SkillLinkOutcome): readonly string[] {
     : [];
 }
 
-/** `package.json`'s `name`, or null. Never throws. */
-function packageNameAt(dir: string): string | null {
+/** The manifest file name the skill-linking code reads. */
+const PACKAGE_JSON = "package.json";
+
+/** One top-level field of `<dir>/package.json`, or undefined. Never throws. */
+function packageField(dir: string, field: string): unknown {
   try {
     const pkg: unknown = JSON.parse(
-      readFileSync(join(dir, "package.json"), "utf-8"),
+      readFileSync(join(dir, PACKAGE_JSON), "utf-8"),
     );
-    return typeof pkg === "object" &&
-      pkg !== null &&
-      "name" in pkg &&
-      typeof pkg.name === "string"
-      ? pkg.name
-      : null;
+    return typeof pkg === "object" && pkg !== null
+      ? Object.entries(pkg).find(([k]) => k === field)?.[1]
+      : undefined;
   } catch {
-    return null;
+    return undefined;
   }
+}
+
+/** `package.json`'s `name`, or null. Never throws. */
+function packageNameAt(dir: string): string | null {
+  const name = packageField(dir, "name");
+  return typeof name === "string" ? name : null;
 }
 
 /** A thrown value's message. */
@@ -4299,10 +4306,17 @@ function applySkillLink(
         reason: decision.reason,
       };
     case "create":
+    case "replace":
       try {
+        const entry = join(absHome, decision.name);
+        // Only a link `decideSkillLink` proved ours is ever removed.
+        if (decision.action === "replace") unlinkSync(entry);
         // "dir" matters only on Windows, where a directory link must say so.
-        symlinkSync(decision.target, join(absHome, decision.name), "dir");
-        return { name: decision.name, status: "created" };
+        symlinkSync(decision.target, entry, "dir");
+        return {
+          name: decision.name,
+          status: decision.action === "replace" ? "relinked" : "created",
+        };
       } catch (e) {
         const code =
           e instanceof Error && "code" in e && typeof e.code === "string"
@@ -4317,6 +4331,11 @@ function applySkillLink(
   }
 }
 
+/** The outcome when `init` makes no links, with the reason it prints. */
+function notLinked(reason: string): SkillLinkOutcome {
+  return { kind: "not-linked", reason };
+}
+
 /**
  * Link vigiles's shipped skills into `home` (repo-relative) — the IO half of
  * `src/skill-links.ts`, which decides everything: where the package is, what
@@ -4329,16 +4348,20 @@ function linkVigilesSkills(home: string, cwd: string): SkillLinkOutcome {
   const site: PackageSite = locatePackage(project, {
     isPackage: (dir) => packageNameAt(dir) === VIGILES_PACKAGE,
     isRepoRoot: (dir) => existsSync(join(dir, ".git")),
+    isWorkspaceRoot: (dir) =>
+      existsSync(join(dir, "pnpm-workspace.yaml")) ||
+      packageField(dir, "workspaces") !== undefined,
   });
-  const pkgText = existsSync(join(project, "package.json"))
-    ? readFileSync(join(project, "package.json"), "utf-8")
+  const pkgText = existsSync(join(project, PACKAGE_JSON))
+    ? readFileSync(join(project, PACKAGE_JSON), "utf-8")
     : null;
   const blocked = linkPrecondition({
     isVigilesItself: packageNameAt(project) === VIGILES_PACKAGE,
     dependsOnVigiles: pkgText !== null && declaresVigilesDependency(pkgText),
     installed: site.kind === "installed",
   });
-  if (blocked !== null) return { kind: "not-linked", reason: blocked };
+  if (blocked !== null) return notLinked(blocked);
+  if (site.kind === "unsure") return notLinked(site.reason);
   // Names from the installed package when there is one, else from this CLI's
   // own — the version `init` just declared as the devDependency.
   const source = site.kind === "installed" ? site.dir : selfRoot();
@@ -4346,18 +4369,12 @@ function linkVigilesSkills(home: string, cwd: string): SkillLinkOutcome {
     existsSync(join(source, "skills", n, "SKILL.md")),
   );
   if (names.length === 0)
-    return {
-      kind: "not-linked",
-      reason: `no shipped skills found under ${join(source, "skills")}`,
-    };
+    return notLinked(`no shipped skills found under ${join(source, "skills")}`);
   const absHome = resolve(project, home);
   try {
     mkdirSync(absHome, { recursive: true });
   } catch (e) {
-    return {
-      kind: "not-linked",
-      reason: `cannot create ${home}: ${errorText(e)}`,
-    };
+    return notLinked(`cannot create ${home}: ${errorText(e)}`);
   }
   const plan = planSkillLinks({
     names,

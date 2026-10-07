@@ -51,6 +51,7 @@
  * they did not get.
  */
 import { dirname, join, relative } from "node:path";
+import { isVigilesSkillTarget } from "./core/skill-link-target.js";
 
 /** The package whose skills are linked. */
 export const VIGILES_PACKAGE = "vigiles";
@@ -72,7 +73,8 @@ export type SkillEntry =
 export type SkillLinkDecision =
   | {
       readonly name: string;
-      readonly action: "create";
+      /** `replace`: an earlier `init`'s link that now points at the wrong place. */
+      readonly action: "create" | "replace";
       readonly target: string;
     }
   | { readonly name: string; readonly action: "keep" }
@@ -110,6 +112,10 @@ export function decideSkillLink(
         (entry.resolvesTo !== null && entry.resolvesTo === want.real)
       )
         return { name, action: "keep" };
+      // Provably ours (the shape `init` writes, same skill) but aimed elsewhere —
+      // e.g. linked before a workspace install hoisted the package. Rewrite it.
+      if (isVigilesSkillTarget(entry.target, name))
+        return { name, action: "replace", target: want.target };
       return {
         name,
         action: "refuse",
@@ -130,7 +136,15 @@ export type PackageSite =
   /** Installed: `<ancestor>/node_modules/vigiles`, inside the repository. */
   | { readonly kind: "installed"; readonly dir: string }
   /** Not installed yet: where npm puts the devDependency `init` declares. */
-  | { readonly kind: "expected"; readonly dir: string };
+  | { readonly kind: "expected"; readonly dir: string }
+  /**
+   * Not installed, and the project is a member of a workspace: npm and yarn
+   * hoist its dependencies to the workspace ROOT's `node_modules`, pnpm keeps
+   * them in the member's own, and a hoist can be refused by a version
+   * conflict. Which one happens is decided by the install, so no link is made
+   * before it — a guessed link can dangle for good.
+   */
+  | { readonly kind: "unsure"; readonly reason: string };
 
 /** What the walk may ask of the filesystem. */
 export interface PackageProbe {
@@ -138,6 +152,18 @@ export interface PackageProbe {
   readonly isPackage: (dir: string) => boolean;
   /** Is `dir` the repository root (it holds `.git`)? The walk stops there. */
   readonly isRepoRoot: (dir: string) => boolean;
+  /** Is `dir` a workspace root (`workspaces` in package.json, or pnpm-workspace.yaml)? */
+  readonly isWorkspaceRoot: (dir: string) => boolean;
+}
+
+/** Is there a workspace root strictly above `project`, up to the repo root? */
+function insideWorkspace(project: string, probe: PackageProbe): boolean {
+  const walk = (dir: string): boolean => {
+    if (dir !== project && probe.isWorkspaceRoot(dir)) return true;
+    if (probe.isRepoRoot(dir) || dirname(dir) === dir) return false;
+    return walk(dirname(dir));
+  };
+  return walk(project);
 }
 
 /**
@@ -156,12 +182,15 @@ export function locatePackage(
     if (probe.isRepoRoot(dir) || dirname(dir) === dir) return null;
     return walk(dirname(dir));
   };
-  return (
-    walk(project) ?? {
-      kind: "expected",
-      dir: join(project, "node_modules", VIGILES_PACKAGE),
-    }
-  );
+  const installed = walk(project);
+  if (installed !== null) return installed;
+  return insideWorkspace(project, probe)
+    ? {
+        kind: "unsure",
+        reason:
+          "vigiles isn't installed yet and this package is in a workspace, where the install decides whether it lands in this package's node_modules or the workspace root's — run npm install, then npx vigiles init",
+      }
+    : { kind: "expected", dir: join(project, "node_modules", VIGILES_PACKAGE) };
 }
 
 /** The facts that decide whether linking makes sense at all here. */
@@ -191,7 +220,7 @@ export function linkPrecondition(facts: LinkFacts): string | null {
 export interface SkillLinkInput {
   /** The skills the package ships. */
   readonly names: readonly string[];
-  readonly site: PackageSite;
+  readonly site: Exclude<PackageSite, { kind: "unsure" }>;
   /**
    * The skills home as it PHYSICALLY exists (`.claude` may itself be a link).
    * A relative link target resolves against the directory that holds the link.
@@ -231,7 +260,10 @@ export function linkFailureReason(code: string, message: string): string {
 
 /** One skill's result after the IO ran. */
 export type SkillLinkResult =
-  | { readonly name: string; readonly status: "created" | "present" }
+  | {
+      readonly name: string;
+      readonly status: "created" | "relinked" | "present";
+    }
   | {
       readonly name: string;
       readonly status: "skipped";
@@ -273,7 +305,9 @@ export function formatSkillLinks(outcome: SkillLinkOutcome): readonly string[] {
   const mark = skipped.length > 0 ? "⚠" : "✓";
   return [
     `${mark} vigiles's ${String(outcome.results.length)} skills → ${outcome.home}/ (relative links into node_modules; commit them): ` +
-      `${String(count("created"))} linked now, ${String(count("present"))} already linked, ${String(skipped.length)} skipped`,
+      `${String(count("created"))} linked now, ${String(count("present"))} already linked, ` +
+      (count("relinked") > 0 ? `${String(count("relinked"))} relinked, ` : "") +
+      `${String(skipped.length)} skipped`,
     ...skipped.map(
       (r) =>
         `  ${outcome.home}/${r.name} left alone — it is ${r.reason}. Rename it to get vigiles's ${r.name}.`,

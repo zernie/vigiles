@@ -59,6 +59,7 @@
 import type { InstallReader } from "../../core/adapter.js";
 import { SHIPPED_SKILLS } from "../../setup-plan.js";
 import { skillsHome } from "../../core/layout.js";
+import { isVigilesSkillTarget } from "../../core/skill-link-target.js";
 import { claudeCodeLayout } from "./layout.js";
 
 /** The plugin id `claude plugin install` records — `<plugin>@<marketplace>`. */
@@ -211,9 +212,18 @@ function repoSkillState(
   return {
     inRepo: shipped.filter(resolves),
     dangling: shipped.filter(
-      (s) => !resolves(s) && read.repoLink(`${SKILLS_HOME}/${s}`) !== null,
+      (s) => !resolves(s) && isOurLink(read.repoLink(`${SKILLS_HOME}/${s}`), s),
     ),
   };
+}
+
+/**
+ * A link `vigiles init` wrote (into `node_modules/vigiles/skills/<name>`). A
+ * dangling link that only shares a shipped skill's NAME is the user's own, and
+ * "run npm install" would be advice about the wrong thing.
+ */
+function isOurLink(target: string | null, name: string): boolean {
+  return target !== null && isVigilesSkillTarget(target, name);
 }
 
 /** The sources that resolved, in check order. */

@@ -432,3 +432,23 @@ test("a skill the installed package ships but the repo has not linked is named â
     s.cleanup();
   }
 });
+
+test("a dangling link that only shares a shipped skill's NAME is the user's, not a vigiles link", () => {
+  // The user's own `test-harness` links into a folder of theirs that is gone.
+  // Saying "run npm install" about it would send them to fix the wrong thing.
+  const s = scaffold({ nodeModulesSkills: true });
+  try {
+    mkdirSync(join(s.dir, ".claude", "skills"), { recursive: true });
+    symlinkSync(
+      "../../my-skills/test-harness",
+      join(s.dir, ".claude", "skills", "test-harness"),
+      "dir",
+    );
+    const r = checkSkillReachability(s.read);
+    assert.ok(r);
+    assert.deepEqual([...r.danglingLinks], []);
+    assert.doesNotMatch(formatSkillReachability(r) ?? "", /npm install/);
+  } finally {
+    s.cleanup();
+  }
+});

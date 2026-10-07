@@ -22,6 +22,7 @@ import {
   skillLinksUsable,
   type SkillEntry,
 } from "./skill-links.js";
+import { isVigilesSkillTarget } from "./core/skill-link-target.js";
 
 const WANT = {
   target: "../../node_modules/vigiles/skills/test-harness",
@@ -87,6 +88,7 @@ test("locatePackage finds an installed package walking up to the repo root", () 
   const found = locatePackage("/repo/packages/app", {
     isPackage: (dir) => dir === "/repo/node_modules/vigiles",
     isRepoRoot: (dir) => dir === "/repo",
+    isWorkspaceRoot: () => false,
   });
   assert.deepEqual(found, {
     kind: "installed",
@@ -98,6 +100,7 @@ test("locatePackage never walks past the repo root — a link out of the repo br
   const found = locatePackage("/home/me/repo", {
     isPackage: (dir) => dir === "/home/me/node_modules/vigiles",
     isRepoRoot: (dir) => dir === "/home/me/repo",
+    isWorkspaceRoot: () => false,
   });
   // Not installed INSIDE the repo → the link goes where npm will put the
   // devDependency `init` just declared.
@@ -111,6 +114,7 @@ test("locatePackage stops at the filesystem root when there is no repo marker", 
   const found = locatePackage("/a/b", {
     isPackage: () => false,
     isRepoRoot: () => false,
+    isWorkspaceRoot: () => false,
   });
   assert.equal(found.kind, "expected");
 });
@@ -258,5 +262,104 @@ test("linkPrecondition: declared but not installed yet → link (npm install wil
       installed: true,
     }),
     null,
+  );
+});
+
+test("locatePackage: not installed inside a workspace → unsure, because the install may hoist vigiles to the workspace root", () => {
+  // npm and yarn hoist a workspace member's dependency to the ROOT's
+  // node_modules; pnpm keeps it in the member's own. Before the install there
+  // is no way to know which, so a link would be a guess that can dangle forever.
+  const found = locatePackage("/repo/packages/app", {
+    isPackage: () => false,
+    isRepoRoot: (dir) => dir === "/repo",
+    isWorkspaceRoot: (dir) => dir === "/repo",
+  });
+  assert.equal(found.kind, "unsure");
+});
+
+test("locatePackage: the workspace root itself is not unsure — its own dependency lands in its own node_modules", () => {
+  const found = locatePackage("/repo", {
+    isPackage: () => false,
+    isRepoRoot: (dir) => dir === "/repo",
+    isWorkspaceRoot: (dir) => dir === "/repo",
+  });
+  assert.equal(found.kind, "expected");
+});
+
+test("locatePackage: installed in a workspace → the hoisted copy is found and used", () => {
+  const found = locatePackage("/repo/packages/app", {
+    isPackage: (dir) => dir === "/repo/node_modules/vigiles",
+    isRepoRoot: (dir) => dir === "/repo",
+    isWorkspaceRoot: (dir) => dir === "/repo",
+  });
+  assert.deepEqual(found, {
+    kind: "installed",
+    dir: "/repo/node_modules/vigiles",
+  });
+});
+
+test("a link vigiles made earlier to a now-wrong place is replaced — it is provably ours", () => {
+  // `init` before the install linked into the member's node_modules; npm then
+  // hoisted to the root. The old link dangles; re-running init must fix it.
+  const d = decideSkillLink(
+    "test-harness",
+    {
+      kind: "link",
+      target: "../../node_modules/vigiles/skills/test-harness",
+      resolvesTo: null,
+    },
+    {
+      target: "../../../../node_modules/vigiles/skills/test-harness",
+      real: "/repo/node_modules/vigiles/skills/test-harness",
+    },
+  );
+  assert.deepEqual(d, {
+    name: "test-harness",
+    action: "replace",
+    target: "../../../../node_modules/vigiles/skills/test-harness",
+  });
+});
+
+test("a dangling link elsewhere that merely shares the name is still refused", () => {
+  const d = decideSkillLink(
+    "test-harness",
+    { kind: "link", target: "../../mine/test-harness", resolvesTo: null },
+    WANT,
+  );
+  assert.equal(d.action, "refuse");
+});
+
+test("isVigilesSkillTarget: only a link into node_modules/vigiles/skills/<same name> is ours", () => {
+  assert.equal(
+    isVigilesSkillTarget(
+      "../../node_modules/vigiles/skills/edit-spec",
+      "edit-spec",
+    ),
+    true,
+  );
+  assert.equal(
+    isVigilesSkillTarget(
+      "..\\..\\node_modules\\vigiles\\skills\\edit-spec",
+      "edit-spec",
+    ),
+    true,
+  );
+  assert.equal(
+    isVigilesSkillTarget(
+      "../../node_modules/vigiles/skills/strengthen",
+      "edit-spec",
+    ),
+    false,
+  );
+  assert.equal(
+    isVigilesSkillTarget(
+      "../../node_modules/other/skills/edit-spec",
+      "edit-spec",
+    ),
+    false,
+  );
+  assert.equal(
+    isVigilesSkillTarget("../../mine/edit-spec", "edit-spec"),
+    false,
   );
 });

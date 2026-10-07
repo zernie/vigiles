@@ -205,3 +205,72 @@ test("no package.json: no links (they could only dangle), and the global install
     assert.ok(!out.includes(`No global ${CX} skills install`), out);
   });
 });
+
+/** An npm workspace: the root declares `packages/*`; `packages/app` depends on vigiles. */
+function workspace(root: string): string {
+  mkdirSync(join(root, ".git"));
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify({ name: "mono", private: true, workspaces: ["packages/*"] }),
+  );
+  const app = join(root, "packages", "app");
+  mkdirSync(app, { recursive: true });
+  writeFileSync(
+    join(app, "package.json"),
+    JSON.stringify({ name: "app", devDependencies: { vigiles: "^4" } }),
+  );
+  return app;
+}
+
+/** What `npm install` does in a workspace: hoist vigiles to the ROOT's node_modules. */
+function hoistInstall(root: string): void {
+  const pkg = join(root, "node_modules", "vigiles");
+  mkdirSync(pkg, { recursive: true });
+  writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "vigiles" }));
+  SHIPPED_SKILLS.forEach((s) => {
+    mkdirSync(join(pkg, "skills", s), { recursive: true });
+    writeFileSync(join(pkg, "skills", s, "SKILL.md"), `---\nname: ${s}\n---\n`);
+  });
+}
+
+test("a workspace member before npm install: no guessed links, and the report says install first, then init", () => {
+  withScratch((s) => {
+    const app = workspace(s.root);
+    const out = init({ ...s, root: app }, CC);
+    assert.equal(existsSync(join(app, homeOf(CC))), false);
+    assert.ok(out.includes("run npm install, then npx vigiles init"), out);
+  });
+});
+
+test("a workspace member after npm install: the links point at the hoisted package and resolve", () => {
+  withScratch((s) => {
+    const app = workspace(s.root);
+    hoistInstall(s.root);
+    init({ ...s, root: app }, CC);
+    const entry = join(app, homeOf(CC), "test-harness");
+    assert.equal(
+      readlinkSync(entry),
+      "../../../../node_modules/vigiles/skills/test-harness",
+    );
+    assert.ok(existsSync(join(entry, "SKILL.md")));
+  });
+});
+
+test("re-running init replaces a link vigiles made earlier that now points at the wrong place", () => {
+  withScratch((s) => {
+    const app = workspace(s.root);
+    // The state an older `init` left: links into the member's own node_modules.
+    mkdirSync(join(app, homeOf(CC)), { recursive: true });
+    SHIPPED_SKILLS.forEach((name) => {
+      symlinkSync(
+        `../../node_modules/vigiles/skills/${name}`,
+        join(app, homeOf(CC), name),
+        "dir",
+      );
+    });
+    hoistInstall(s.root);
+    const out = init({ ...s, root: app }, CC);
+    assert.ok(out.includes("6 relinked"), out);
+    assert.ok(existsSync(join(app, homeOf(CC), "test-harness", "SKILL.md")));
+  });
+});

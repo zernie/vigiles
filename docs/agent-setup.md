@@ -61,7 +61,13 @@ prompt. A session that started before the install may need `/reload-skills` or a
 restart.
 
 - **Idempotent.** Re-running `init` keeps every link and adds only missing ones
-  (for example a skill a newer vigiles ships).
+  (for example a skill a newer vigiles ships). A link an earlier `init` made
+  that now points elsewhere (the shape `node_modules/vigiles/skills/<same name>`)
+  is rewritten to where the package is now.
+- **Workspaces.** In a workspace member, `init` links to wherever the install
+  actually put vigiles (the member's `node_modules` or the hoisted root). Before
+  the install that place is not known yet, so `init` makes no links and says:
+  run `npm install`, then `npx vigiles init`.
 - **Your skills win.** An existing `.claude/skills/<name>` that is not vigiles's
   link — your own directory, a file, a link elsewhere — is never replaced; `init`
   names the skill you did not get.
