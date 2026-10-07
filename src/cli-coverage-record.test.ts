@@ -458,13 +458,13 @@ test("…and an EMPTY colocated harness is not, though it also 'passes'", () => 
 // ---------------------------------------------------------------------------
 
 /** `vigiles test`'s stderr (the tracked-file warning goes there). */
-function vigilesTestStderr(): string {
+function vigilesTestStderr(expectedStatus = 0): string {
   const r = spawnSync("node", [CLI, "test"], {
     cwd: dir,
     encoding: "utf-8",
     timeout: 60000,
   });
-  assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+  assert.equal(r.status, expectedStatus, `${r.stdout}${r.stderr}`);
   return r.stderr;
 }
 
@@ -503,8 +503,10 @@ test("…and the warning survives a run that finds no harness at all", () => {
   vigilesTest();
   execFileSync("git", ["add", "-f", ".vigiles/coverage.json"], { cwd: dir });
   rmSync(join(dir, "t.harness.mjs"));
-  const stderr = vigilesTestStderr();
+  // A run that matches no file fails (#197); the warning is said first anyway.
+  const stderr = vigilesTestStderr(1);
   assert.match(stderr, /\.vigiles\/coverage\.json is tracked by git/);
+  assert.match(stderr, /NOTHING matched/);
 });
 
 test("a tracked ignore file this very run edits is reported on that run", () => {

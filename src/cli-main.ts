@@ -6908,6 +6908,44 @@ function gitHead(cwd: string): string {
   }
 }
 
+/**
+ * Why a `vigiles test` / `vigiles eval` run matched no file — the message names
+ * what was looked for, so a stale path, a wrong glob and an empty default
+ * discovery each say so. A DIRECTORY is the one stale-looking target whose cause
+ * we actually know, so it is said instead of the three guesses: `vigiles test .`
+ * used to reach `spawn("node", ["."])` and surface Node's module-resolution stack.
+ */
+function emptyMatchMessage(
+  kind: "test" | "eval",
+  targets: readonly string[],
+  defaultGlob: string,
+): string {
+  const dirs = targets.filter(
+    (a) => lstatSync(a, { throwIfNoEntry: false })?.isDirectory() === true,
+  );
+  if (dirs.length > 0) {
+    return (
+      `✗ vigiles ${kind}: ${dirs.join(", ")} ${dirs.length === 1 ? "is a directory" : "are directories"} — ` +
+      `pass a file, or a glob like "${defaultGlob}".\n` +
+      `  A directory is not a script; nothing ran.`
+    );
+  }
+  const expected = `  If an empty match is expected here, say so with --min=0.`;
+  if (targets.length === 0) {
+    return (
+      `✗ vigiles ${kind}: NOTHING matched the default glob ${defaultGlob}\n` +
+      `  Nothing ran. An empty run is not a pass: a renamed or moved file looks like this.\n` +
+      expected
+    );
+  }
+  return (
+    `✗ vigiles ${kind}: ${String(targets.length)} target(s) given and NOTHING matched — ` +
+    `${targets.join(", ")}\n` +
+    `  Nothing ran. A stale path, a wrong glob, or a moved file all look like this.\n` +
+    expected
+  );
+}
+
 async function handleRunScripts(
   kind: "test" | "eval",
   args: string[],
@@ -6971,43 +7009,26 @@ async function handleRunScripts(
   }
 
   if (files.length === 0) {
-    // 🔴 ASKING FOR SOMETHING AND GETTING NOTHING IS A FAILURE; FINDING NOTHING IS NOT.
-    // The two cases were collapsed into one silent exit 0, and the collapse cost a real
-    // repository three days of green CI verifying zero files: a named step ran
+    // 🔴 A RUN THAT MATCHES NO FILE IS A FAILURE, NAMED OR NOT.
+    // An empty match used to be one silent exit 0, and it cost a real repository three
+    // days of green CI verifying zero files: a named step ran
     // `vigiles test .claude/pipeline/skills.harness.mjs` after that file had been split
     // into one-per-skill, printed "No **/*.harness.* files found" and passed, right next
-    // to a step that was red for the same root cause.
+    // to a step that was red for the same root cause. The first repair failed only the
+    // NAMED case and kept bare discovery quiet ("an empty repository is a legitimate
+    // place to stand") — and bare `vigiles test` is the line `init` writes into CI, so
+    // the same green no-op was one rename away from the default setup (#197).
     //
-    // They are different states. A POSITIONAL argument is a claim that something is there —
-    // when nothing matches it, the path is stale, the glob is wrong, or the run never
-    // reached its target, and every one of those is a defect. Bare discovery finding
-    // nothing is just an empty repository, which is a legitimate place to stand and must
-    // stay quiet.
-    //
-    // This is the default the field settled on: Jest and Vitest FAIL on no tests found and
-    // make you opt in with `--passWithNoTests`; pytest exits 5. `--min=0` remains the
-    // explicit opt-out here, so no new flag is introduced by this change.
-    // `minFlag`, not `minRequired`: 0 is both the DEFAULT and the explicit opt-out, so the
-    // VALUE cannot tell them apart — only the flag's presence can. (Caught by a control:
-    // the first version read `minRequired === 0` and made `--min=0` do nothing.)
-    if (restArgs.length > 0 && minFlag === undefined) {
-      // A DIRECTORY is the one stale-looking target whose cause we actually know,
-      // so say it instead of listing the three guesses. `vigiles test .` used to
-      // reach `spawn("node", ["."])` and surface Node's module-resolution stack;
-      // the generic message above would now be true but unhelpful.
-      const dirs = restArgs.filter(
-        (a) => lstatSync(a, { throwIfNoEntry: false })?.isDirectory() === true,
-      );
-      console.error(
-        dirs.length > 0
-          ? `✗ vigiles ${kind}: ${dirs.join(", ")} ${dirs.length === 1 ? "is a directory" : "are directories"} — ` +
-              `pass a file, or a glob like "${defaultGlob}".\n` +
-              `  A directory is not a script; nothing ran.`
-          : `✗ vigiles ${kind}: ${String(restArgs.length)} target(s) given and NOTHING matched — ` +
-              `${restArgs.join(", ")}\n` +
-              `  Nothing ran. A stale path, a wrong glob, or a moved file all look like this.\n` +
-              `  If an empty match is expected here, say so with --min=0.`,
-      );
+    // This is the default the field settled on: Jest and Vitest FAIL on no tests found
+    // and make you opt in with `--passWithNoTests`; pytest exits 5. Here there is no
+    // such flag (a person who wants an empty run does not call the command), and
+    // `--min=0` — the existing floor, spelled as zero — is the only way to say an empty
+    // match is expected. `minFlag`, not `minRequired`: 0 is both the DEFAULT and that
+    // explicit opt-out, so the VALUE cannot tell them apart — only the flag's presence
+    // can. (Caught by a control: the first version read `minRequired === 0` and made
+    // `--min=0` do nothing.)
+    if (minFlag === undefined) {
+      console.error(emptyMatchMessage(kind, restArgs, defaultGlob));
       process.exit(1);
     }
     console.log(`No ${defaultGlob} files found.`);

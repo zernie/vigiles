@@ -2225,6 +2225,49 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
     }
   });
 
+  // #197: an empty match is a failure, as in Jest/Vitest (`--passWithNoTests`) and
+  // pytest (exit 5). There is no flag to pass an empty run: a person who wants
+  // one does not call `vigiles test`. `--min=0` stays what it already was — the
+  // floor spelled out as zero.
+  for (const kind of ["test", "eval"] as const) {
+    const ext = kind === "test" ? "harness" : "eval";
+    it(`${kind}: a run that matches no file fails and names what it looked for (#197)`, () => {
+      const dir = mkdtempSync(join(tmpdir(), `vigiles-empty-${kind}-`));
+      try {
+        // Nothing named: bare discovery found nothing. This used to print
+        // "No ... files found." and exit 0 — a green check that ran nothing.
+        const bare = run(kind, dir);
+        assert.equal(bare.exitCode, 1, bare.stdout + bare.stderr);
+        assert.match(bare.stderr, new RegExp(`\\*\\*/\\*\\.${ext}\\.`));
+        assert.match(bare.stderr, /Nothing ran/);
+
+        // A path or glob that matches nothing names itself.
+        const glob = run(`${kind} no-such-*.${ext}.mjs`, dir);
+        assert.equal(glob.exitCode, 1, glob.stdout + glob.stderr);
+        assert.match(glob.stderr, new RegExp(`no-such-\\*\\.${ext}\\.mjs`));
+        assert.match(glob.stderr, /Nothing ran/);
+
+        // `--min=0` is the existing, explicit floor of zero — not a new flag.
+        const zero = run(`${kind} --min=0 no-such-*.${ext}.mjs`, dir);
+        assert.equal(zero.exitCode, 0, zero.stdout + zero.stderr);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("test: bare discovery that finds a harness still runs it (the empty-match failure is only for nothing)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-nonempty-"));
+    try {
+      writeFileSync(join(dir, "a.harness.mjs"), "process.exit(0);\n");
+      const r = run("test", dir);
+      assert.equal(r.exitCode, 0, r.stdout + r.stderr);
+      assert.match(r.stdout, /1 passed/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("eval lock flags: mutual-exclusion + cold-start no-op", () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-lock-"));
     try {
