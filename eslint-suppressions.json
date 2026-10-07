@@ -296,12 +296,6 @@
     },
     "boundaries/dependencies": {
       "count": 1
-    },
-    "functional/immutable-data": {
-      "count": 2
-    },
-    "functional/prefer-immutable-types": {
-      "count": 1
     }
   },
   "src/adapters/claude-code/skill-runtime.ts": {
@@ -753,10 +747,10 @@
       "count": 100
     },
     "functional/no-loop-statements": {
-      "count": 115
+      "count": 114
     },
     "functional/prefer-immutable-types": {
-      "count": 196
+      "count": 195
     },
     "no-restricted-syntax": {
       "count": 1
@@ -2650,7 +2644,7 @@
       "count": 19
     },
     "local/no-harness-names": {
-      "count": 47
+      "count": 45
     },
     "no-restricted-syntax": {
       "count": 6
@@ -2664,19 +2658,19 @@
       "count": 7
     },
     "functional/immutable-data": {
-      "count": 33
+      "count": 30
     },
     "functional/no-let": {
       "count": 19
     },
     "functional/no-loop-statements": {
-      "count": 34
+      "count": 33
     },
     "functional/prefer-immutable-types": {
-      "count": 54
+      "count": 53
     },
     "local/no-harness-names": {
-      "count": 29
+      "count": 20
     },
     "no-restricted-globals": {
       "count": 11

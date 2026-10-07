@@ -13,8 +13,14 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
 
 import {
   coverageEvidenceCounts,
@@ -30,7 +36,8 @@ import { isEvalScript } from "./coverage-evidence.js";
 import { SCRIPT_EXTS } from "./adapters/claude-code/run-scripts.js";
 import { surfaceSha } from "./coverage-artifact.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
-import type { PluginLayout } from "./core/layout.js";
+import { skillsHome, type PluginLayout } from "./core/layout.js";
+import { defaultAdapter } from "./adapter-registry.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { codexLayout } from "./adapters/codex/layout.js";
 import { testFileExt } from "./core/test-file-ext.js";
@@ -178,6 +185,55 @@ test("skill with no test is flagged", () => {
   assert.equal(r.untested.length, 1);
   assert.equal(r.untested[0].name, "foo");
   cleanupTmpDir(dir);
+});
+
+/** Link `<skills home>/<name>` at `target` (repo-relative), as `init` does. */
+function linkSkill(dir: string, name: string, target: string): void {
+  const home = join(dir, skillsHome(defaultAdapter.layout) ?? "skills");
+  mkdirSync(home, { recursive: true });
+  symlinkSync(relative(home, join(dir, target)), join(home, name), "dir");
+}
+
+test("a skill LINKED in from node_modules is a dependency's, not the repo's — never reported untested", () => {
+  // `vigiles init` (and paperlint's) commits `<skills home>/<name>` links into
+  // `node_modules/<pkg>/skills/<name>`, so the agent sees a package's skills in
+  // every clone. Grading them as the repo's own untested work would turn a
+  // fresh `init --strict` red on skills the repo did not write — the
+  // node_modules floor applies to where a skill REALLY lives.
+  const dir = makeTmpDir("tc-dep-link");
+  write(dir, "node_modules/pkg/skills/dep/SKILL.md", skill("dep"));
+  write(dir, "shared/own/SKILL.md", skill("own"));
+  linkSkill(dir, "dep", "node_modules/pkg/skills/dep");
+  // A link OUTSIDE node_modules is still the repo's own skill (a shared
+  // library linked per skill) and is still held to the test bar.
+  linkSkill(dir, "own", "shared/own");
+  const r = findUntestedSurfaces({
+    layout: defaultAdapter.layout,
+    basePath: dir,
+  });
+  assert.deepEqual(
+    r.untested.map((s) => s.name),
+    ["own"],
+  );
+  cleanupTmpDir(dir);
+});
+
+test("a skill linked into node_modules stays a dependency's when the package itself is linked (npm link, file:, workspaces)", () => {
+  // `node_modules/pkg` → a source checkout elsewhere: the REAL path of the
+  // skill names no node_modules, the link as written does.
+  const dir = makeTmpDir("tc-dep-linked-pkg");
+  const src = makeTmpDir("tc-dep-src");
+  write(src, "skills/dep/SKILL.md", skill("dep"));
+  mkdirSync(join(dir, "node_modules"), { recursive: true });
+  symlinkSync(src, join(dir, "node_modules", "pkg"), "dir");
+  linkSkill(dir, "dep", "node_modules/pkg/skills/dep");
+  const r = findUntestedSurfaces({
+    layout: defaultAdapter.layout,
+    basePath: dir,
+  });
+  assert.deepEqual(r.untested, []);
+  cleanupTmpDir(dir);
+  cleanupTmpDir(src);
 });
 
 test("a command-only (disable-model-invocation) skill is NOT exempt — it still needs a test", () => {

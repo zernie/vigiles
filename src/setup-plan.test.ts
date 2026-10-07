@@ -8,6 +8,7 @@ import {
   shouldPrompt,
   resolvePlan,
   planPluginInstall,
+  shouldRunGlobalInstall,
   codexPluginHooks,
   applyCodexPluginHooks,
   mergeProjectConfig,
@@ -231,6 +232,36 @@ test("planPluginInstall: both harnesses → one plan each; only codex touches th
   const byName = Object.fromEntries(plans.map((p) => [p.harness, p.vendors]));
   assert.equal(byName.claude, false);
   assert.equal(byName.codex, true);
+});
+
+// eslint-disable-next-line local/no-harness-names -- planPluginInstall is keyed by init's harness names; these tests name the two it links for
+const [LINK_CC, LINK_CX] = ["claude", "codex"] as const;
+
+test("planPluginInstall: both shipped harnesses link the skills into the repo; a harness with no documented symlink support does not", () => {
+  const plans = planPluginInstall([LINK_CC, LINK_CX, "some-other-harness"], {
+    hasClaude: false,
+  });
+  // Both vendors document that a symlinked skill folder is followed; a fresh
+  // clone then has the skills as soon as `npm install` has run.
+  assert.deepEqual(
+    plans.map((p) => p.linkSkills),
+    [true, true, false],
+  );
+});
+
+test("shouldRunGlobalInstall: the Claude Code plugin still installs when the skills are linked — it is the only carrier of the hooks", () => {
+  const [plan] = planPluginInstall([LINK_CC], { hasClaude: true });
+  // Guards: dropping the plugin here would drop pre-edit/post-edit/refs/eval-lock/session-start silently.
+  assert.equal(shouldRunGlobalInstall(plan, true), true);
+  assert.equal(shouldRunGlobalInstall(plan, false), true);
+});
+
+test("shouldRunGlobalInstall: a global install that carries only skills is replaced by linked skills", () => {
+  const [plan] = planPluginInstall([LINK_CX], { hasClaude: false });
+  // Guards: the same skill twice (repo link + global copy) — Codex lists both.
+  assert.equal(shouldRunGlobalInstall(plan, true), false);
+  // Not linked (no package.json to install into) → the global store is the only way.
+  assert.equal(shouldRunGlobalInstall(plan, false), true);
 });
 
 test("codexPluginHooks: the two PostToolUse nudges run as direct npx hook-runtime commands", () => {
@@ -528,7 +559,7 @@ test("collectSetupAnswers: 'test' pillar → lint off", async () => {
 test("collectSetupAnswers: declining CI / plugin / strict is honored", async () => {
   const { ask } = fakeAsk({
     "Wire CI": "n",
-    "Install the Claude Code plugin": "n",
+    "skills + hooks": "n",
     "enforce specs": "n",
   });
   const a = await collectSetupAnswers(ask);

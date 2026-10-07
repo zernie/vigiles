@@ -17,7 +17,10 @@ export interface SetupPlan {
   test: boolean;
   /** Wire CI (the `zernie/vigiles@v1` Action; creates a workflow if none). */
   gha: boolean;
-  /** Install the Claude Code plugin (hooks + skills). */
+  /**
+   * Install vigiles's skills + hooks for the agent: the skills LINKED into the
+   * repo (every clone), the Claude Code hooks via the per-machine plugin.
+   */
   plugin: boolean;
   /**
    * Adopt/scaffold the instruction file(s) into typed `.spec.ts` (the compiled
@@ -327,7 +330,10 @@ export async function collectSetupAnswers(ask: AskFn): Promise<SetupAnswers> {
   ).toLowerCase();
   const gha = isYesAnswer(await ask("Wire CI (GitHub Action)? [Y/n]: ", "y"));
   const plugin = isYesAnswer(
-    await ask("Install the Claude Code plugin (hooks + skills)? [Y/n]: ", "y"),
+    await ask(
+      "Install vigiles's skills + hooks for your agent (skills linked into the repo, hooks via the Claude Code plugin)? [Y/n]: ",
+      "y",
+    ),
   );
   // Structural gating (broken tools/hooks/MCP/collisions) is always on. This asks
   // about the WORKFLOW tier — a spec per file + a test per surface — which a clean
@@ -415,16 +421,19 @@ export interface InstallPlan {
   notes: string[];
   /** Whether this method writes files into the consumer's repo (vendoring). */
   vendors: boolean;
+  /**
+   * Link the package's shipped skills into the repo's skills home
+   * (`src/skill-links.ts`). True only where the vendor documents following a
+   * symlinked skill folder — a link the harness skips is a silent absence.
+   */
+  linkSkills: boolean;
+  /**
+   * The global install carries HOOKS as well as skills, so linked skills do not
+   * replace it (see {@link shouldRunGlobalInstall}).
+   */
+  globalInstallCarriesHooks: boolean;
 }
 
-/** Per-harness install plan. `hasClaude` gates the auto-run `claude plugin` CLI
- * (else the same two steps are printed as `/plugin` slash commands).
- *
- * Both methods install GLOBALLY, never into the repo: Claude through its plugin
- * marketplace (~/.claude/plugins/), Codex through the cross-agent `skills` CLI
- * with `-g -y` (the global store ~/.agents/skills/, which Codex reads). Codex
- * gets the skills but NOT hooks — Codex hook wiring (.codex/config.toml [hooks])
- * is not automated yet. */
 /**
  * The SHIPPED consumer skills (the `skills/` dir, published via `plugin.json`) —
  * the ONLY ones a user's install should get. The cross-agent `skills` CLI would
@@ -443,75 +452,127 @@ export const SHIPPED_SKILLS = [
   "test-harness",
 ] as const;
 
+/**
+ * Per-harness install plan. `hasClaude` gates the auto-run `claude plugin` CLI
+ * (else the same two steps are printed as `/plugin` slash commands).
+ *
+ * TWO CARRIERS, by what each one reaches. The SKILLS are linked into the repo
+ * (`linkSkills`), so every clone and container has them after `npm install`. The
+ * GLOBAL installs reach one machine: Claude Code's plugin (~/.claude/plugins/)
+ * is still the only carrier of vigiles's Claude Code HOOKS, so it always runs;
+ * Codex's `skills` CLI install (~/.agents/skills/) carries skills only, so it
+ * runs only when the links could not be made (no `package.json` to install
+ * into). Codex's nudge hooks are written into `.codex/config.toml` directly.
+ *
+ * THE CODEX GLOBAL COMMAND. The cross-agent `skills` CLI with `-g -y` installs
+ * to the global store ~/.agents/skills/ (NOT the repo, and NOT ~/.codex/ —
+ * verified against the real CLI). It is scoped to the SHIPPED skills with `-s`
+ * — without it the `skills` CLI installs EVERY SKILL.md in the repo, leaking
+ * the contributor-only .claude/skills/ into the user's global store
+ * (#dogfood-I2; confirmed — the CLI's `-l` list shows 17 skills for this repo,
+ * incl. .claude/skills). The `-s` parser is SPACE-separated (it consumes
+ * consecutive non-dash args), NOT comma-separated — a comma list is read as one
+ * literal skill name, matches nothing, and the install exits 1 (verified against
+ * the real `skills@1.5.20` arg parser).
+ */
 export function planPluginInstall(
   harnesses: readonly string[],
   opts: { hasClaude: boolean },
 ): InstallPlan[] {
-  return harnesses.map((harness) => {
-    if (harness === "claude") {
-      return {
-        harness,
-        commands: opts.hasClaude
-          ? [
-              "claude plugin marketplace add zernie/vigiles",
-              "claude plugin install vigiles@vigiles",
-            ]
-          : [],
-        successMessage:
-          "✓ Installed the vigiles plugin (hooks + skills) into ~/.claude/plugins/",
-        manualSteps: [
-          "/plugin marketplace add zernie/vigiles",
-          "/plugin install vigiles@vigiles",
-        ],
-        notes: [
-          "Installs globally to ~/.claude/plugins/ — nothing is added to your repo.",
-        ],
-        vendors: false,
-      };
-    }
-    if (harness === "codex") {
-      // The cross-agent `skills` CLI with `-g -y` installs to the global store
-      // ~/.agents/skills/ (NOT the repo, and NOT ~/.codex/ — verified against
-      // the real CLI). Skills install globally; the proactive NUDGE hooks
-      // (eval-lock + refs) are wired into the repo's .codex/config.toml by
-      // `init` (see codexPluginHooks / wireCodexHooks) — Codex config is
-      // repo-committed, so that's the idiomatic place.
-      // Scope to the SHIPPED skills with `-s` — without it the `skills` CLI
-      // installs EVERY SKILL.md in the repo, leaking the contributor-only
-      // .claude/skills/ into the user's global store (#dogfood-I2; confirmed —
-      // the CLI's `-l` list shows 17 skills for this repo, incl. .claude/skills).
-      // The `-s` parser is SPACE-separated (it consumes consecutive non-dash
-      // args), NOT comma-separated — a comma list is read as one literal skill
-      // name, matches nothing, and the install exits 1 (verified against the
-      // real `skills@1.5.20` arg parser).
-      const skillScope = `-s ${SHIPPED_SKILLS.join(" ")}`;
-      return {
-        harness,
-        commands: [
-          `npx --yes skills add zernie/vigiles -a codex ${skillScope} -g -y`,
-        ],
-        successMessage:
-          "✓ Installed the vigiles skills into ~/.agents/skills/ (global, not vendored)",
-        manualSteps: [
-          `npx skills add zernie/vigiles -a codex ${skillScope} -g -y`,
-        ],
-        notes: [
-          "Codex reads AGENTS.md directly; the skills install globally to ~/.agents/skills/ (not the repo).",
-          "The eval-lock + refs NUDGE hooks are wired into .codex/config.toml (repo-committed, the Codex norm).",
-          "Still manual on Codex: the SessionStart lint summary + compile-on-edit/pre-edit guards (no harness-neutral entrypoint yet).",
-        ],
-        vendors: true,
-      };
-    }
+  return harnesses.map((harness) => ({
+    ...globalInstallFor(harness, opts),
+    ...skillCarriers(harness),
+  }));
+}
+
+/**
+ * How the skills and the hooks travel for one harness. Linking is on only where
+ * the vendor documents following a symlinked skill folder (quoted in
+ * `./skill-links.ts`); the global install "carries hooks" only for Claude Code,
+ * whose plugin is where its hooks live.
+ */
+function skillCarriers(
+  harness: string,
+): Readonly<Pick<InstallPlan, "linkSkills" | "globalInstallCarriesHooks">> {
+  if (harness === "claude")
+    return { linkSkills: true, globalInstallCarriesHooks: true };
+  // eslint-disable-next-line local/no-harness-names -- init's per-harness install plan is keyed by harness name, like the global install beside it
+  if (harness === "codex")
+    return { linkSkills: true, globalInstallCarriesHooks: false };
+  return { linkSkills: false, globalInstallCarriesHooks: false };
+}
+
+/** The global install half of {@link planPluginInstall}, per harness. */
+function globalInstallFor(
+  harness: string,
+  opts: Readonly<{ hasClaude: boolean }>,
+): Readonly<Omit<InstallPlan, "linkSkills" | "globalInstallCarriesHooks">> {
+  if (harness === "claude") {
     return {
       harness,
-      commands: [],
-      successMessage: "",
-      manualSteps: [],
-      notes: [`No plugin install path for harness '${harness}'.`],
+      commands: opts.hasClaude
+        ? [
+            "claude plugin marketplace add zernie/vigiles",
+            "claude plugin install vigiles@vigiles",
+          ]
+        : [],
+      successMessage:
+        "✓ Installed the vigiles plugin (hooks + skills) into ~/.claude/plugins/",
+      manualSteps: [
+        "/plugin marketplace add zernie/vigiles",
+        "/plugin install vigiles@vigiles",
+      ],
+      notes: [
+        "The plugin installs globally to ~/.claude/plugins/ and carries the hooks (and a namespaced copy of the skills, listed as vigiles:<name>) on this machine only.",
+      ],
       vendors: false,
     };
-  });
+  }
+  if (harness === "codex") {
+    const skillScope = `-s ${SHIPPED_SKILLS.join(" ")}`;
+    return {
+      harness,
+      commands: [
+        `npx --yes skills add zernie/vigiles -a codex ${skillScope} -g -y`,
+      ],
+      successMessage:
+        "✓ Installed the vigiles skills into ~/.agents/skills/ (global, not vendored)",
+      manualSteps: [
+        `npx skills add zernie/vigiles -a codex ${skillScope} -g -y`,
+      ],
+      notes: [
+        "Codex reads AGENTS.md directly; the skills install globally to ~/.agents/skills/ (not the repo).",
+        "The eval-lock + refs NUDGE hooks are wired into .codex/config.toml (repo-committed, the Codex norm).",
+        "Still manual on Codex: the SessionStart lint summary + compile-on-edit/pre-edit guards (no harness-neutral entrypoint yet).",
+      ],
+      vendors: true,
+    };
+  }
+  return {
+    harness,
+    commands: [],
+    successMessage: "",
+    manualSteps: [],
+    notes: [`No plugin install path for harness '${harness}'.`],
+    vendors: false,
+  };
+}
+
+/**
+ * Run a plan's GLOBAL install, given whether the skills were linked into the
+ * repo? Skip it only when linked skills make it redundant — when it carries
+ * nothing but skills. Running it anyway would list every skill twice (Codex:
+ * "If two skills share the same `name`, Codex doesn't merge them; both can
+ * appear in skill selectors"). Claude Code's plugin carries the hooks, so it
+ * always runs; its skills are namespaced `vigiles:<name>` and load beside the
+ * linked `<name>` (a known, documented duplicate until the hooks move into the
+ * repo too).
+ */
+export function shouldRunGlobalInstall(
+  plan: Readonly<Pick<InstallPlan, "globalInstallCarriesHooks">>,
+  skillsLinked: boolean,
+): boolean {
+  return plan.globalInstallCarriesHooks || !skillsLinked;
 }
 
 /** One vigiles-managed Codex hook: a `[[hooks.<event>]]` entry. */

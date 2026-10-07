@@ -61,8 +61,15 @@
  * a per-tier {@link CoverageTier} alongside the (unchanged) union fields.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, dirname, join, relative, sep } from "node:path";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+} from "node:fs";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { minimatch } from "minimatch";
 import { testFileExt } from "./core/test-file-ext.js";
 import { assertNever } from "./core/assert-never.js";
@@ -387,6 +394,43 @@ function read(path: string): string {
   }
 }
 
+/**
+ * Is this skill directory a DEPENDENCY's — does it really live under a
+ * `node_modules` that is not the scanned base's own ancestor?
+ *
+ * The `node_modules/**` floor (`EXCLUDE_FLOOR`) is applied to the path as
+ * SPELLED, and `.claude/skills/<name>` spells no `node_modules` even when it is
+ * a link into one — which is exactly what `vigiles init` (and paperlint's)
+ * commits so the agent sees a package's skills in every clone. Those skills are
+ * the package's work, tested by the package; counting them here would report
+ * the repo's own `init` as six untested skills, and fail `--strict`.
+ *
+ * Both the link as written and its real target are asked (see the body).
+ * Measured on the path RELATIVE to the base's real path, so auditing a package
+ * that itself sits in `node_modules` still sees its own skills, and a pnpm
+ * store target (`node_modules/.pnpm/…`) or a hoisted workspace root
+ * (`../../node_modules/…`) both count as dependencies. A link elsewhere (one
+ * shared skills folder linked per skill) is the repo's own and stays graded.
+ * Unresolvable → not a dependency (the skill stays visible: silence is the
+ * worse error here).
+ */
+function isDependencySkill(basePath: string, skillDir: string): boolean {
+  try {
+    const base = realpathSync(basePath);
+    const inNodeModules = (p: string): boolean =>
+      relative(base, p).split(sep).includes("node_modules");
+    // Both the link as WRITTEN and where it finally lands: under `npm link`, a
+    // `file:` dependency or a workspace, `node_modules/<pkg>` is itself a link
+    // to a source checkout, so the real path alone names no `node_modules`.
+    const spelled = lstatSync(skillDir).isSymbolicLink()
+      ? resolve(realpathSync(dirname(skillDir)), readlinkSync(skillDir))
+      : skillDir;
+    return inNodeModules(spelled) || inNodeModules(realpathSync(skillDir));
+  } catch {
+    return false;
+  }
+}
+
 function discoverSkills(
   basePath: string,
   ignore: string[],
@@ -405,6 +449,8 @@ function discoverSkills(
   const found = globSync(
     surfaceGlobs(skillDir, "*/SKILL.md", materializePrefix(layout)),
     { cwd: basePath, ignore },
+  ).filter(
+    (path) => !isDependencySkill(basePath, join(basePath, dirname(path))),
   );
   for (const path of found.sort()) {
     const name = basename(dirname(path));

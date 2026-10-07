@@ -18,6 +18,10 @@ import {
   rmSync,
   lstatSync,
   realpathSync,
+  readlinkSync,
+  symlinkSync,
+  unlinkSync,
+  renameSync,
   type Dirent,
 } from "node:fs";
 import { injectableEventsOf } from "./core/event-capability.js";
@@ -65,6 +69,8 @@ import {
   shouldPrompt,
   resolvePlan,
   planPluginInstall,
+  shouldRunGlobalInstall,
+  SHIPPED_SKILLS,
   applyCodexPluginHooks,
   mergeProjectConfig,
   collectSetupAnswers,
@@ -117,7 +123,28 @@ import {
   type ExecuteDecision,
 } from "./scan-trigger-suggest.js";
 import type { ModelAccess } from "./core/live-driver.js";
-import { buildInstallReader } from "./core/install-reader.js";
+import {
+  buildInstallReader,
+  declaresVigilesDependency,
+} from "./core/install-reader.js";
+import {
+  VIGILES_PACKAGE,
+  isWithinProject,
+  formatSkillLinks,
+  linkFailureReason,
+  linkPrecondition,
+  locatePackage,
+  planSkillLinks,
+  portableTarget,
+  skillLinksUsable,
+  writeSkillLink,
+  type LinkIo,
+  type PackageSite,
+  type SkillEntry,
+  type SkillLinkDecision,
+  type SkillLinkOutcome,
+  type SkillLinkResult,
+} from "./skill-links.js";
 import { addVigilesDeclaration } from "./plugin-declaration.js";
 import { warnTrackedLocalFiles } from "./local-files-tracked.js";
 import { VIGILES_DIR, ensureLocalFilesIgnored } from "./local-files.js";
@@ -143,7 +170,7 @@ import {
   getAdapter,
   adapterForInstructionFile,
 } from "./adapter-registry.js";
-import type { PluginLayout } from "./core/layout.js";
+import { skillsHome, type PluginLayout } from "./core/layout.js";
 import type { HarnessSelection } from "./adapter-registry.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import type { HarnessAdapter } from "./core/adapter.js";
@@ -4160,29 +4187,253 @@ function reportInstall(
 
 /**
  * Install vigiles's skills/hooks for the chosen harness(es) via the per-harness
- * `planPluginInstall` decision — Claude Code through the GLOBAL plugin
- * marketplace (nothing vendored into the repo), Codex via AGENTS.md-direct (no
- * global store). The decision is pure and unit-tested; this is the thin IO.
+ * `planPluginInstall` decision. Two carriers: the SKILLS are linked into the
+ * repo (`linkVigilesSkills`), so every clone and container has them after
+ * `npm install`; the GLOBAL install runs where it carries something the links
+ * cannot (`shouldRunGlobalInstall` — Claude Code's plugin carries the hooks).
+ * The decisions are pure and unit-tested; this is the thin IO.
+ *
+ * Returns the links it created or relinked, for the commit hint.
  */
-function installPlugins(harnesses: string[]): void {
+function installPlugins(harnesses: readonly string[]): readonly string[] {
   const { execSync: exec } =
     require("node:child_process") as typeof import("node:child_process");
   const plans = planPluginInstall(harnesses, {
     hasClaude: harnesses.includes("claude") && harnessBinaryPresent("claude"),
   });
 
-  for (const plan of plans) {
+  const written = plans.flatMap((plan) => {
     console.log("");
-    reportInstall(plan, runInstall(plan, exec));
-  }
+    const home = plan.linkSkills ? harnessSkillsHome(plan.harness) : null;
+    const outcome =
+      home === null ? null : linkVigilesSkills(home, process.cwd());
+    if (outcome !== null)
+      formatSkillLinks(outcome).forEach((l) => {
+        console.log(l);
+      });
+    const linked = outcome !== null && skillLinksUsable(outcome);
+    if (shouldRunGlobalInstall(plan, linked))
+      reportInstall(plan, runInstall(plan, exec));
+    else
+      console.log(
+        `  No global ${plan.harness} skills install — the linked skills replace it, in every clone.`,
+      );
+    return outcome === null ? [] : changedLinks(outcome);
+  });
   // Claude Code gets its hooks from the global marketplace plugin; Codex has no
   // global store, so wire vigiles's proactive nudge hooks into the repo's
   // .codex/config.toml directly (the idiomatic, repo-committed place).
   if (harnesses.includes("codex")) wireCodexHooks();
   // Claude Code additionally gets a committed DECLARATION, so a collaborator who
-  // clones and never runs `init` is told the project wants this plugin instead
-  // of hitting the silence that costs a day. It does not install anything.
+  // clones and never runs `init` is told the project wants this plugin (its
+  // hooks) instead of silence. It does not install anything.
   if (harnesses.includes("claude")) declareVigilesPlugin();
+  return written;
+}
+
+/** The repo-relative skills home of the harness `init` calls `name`, or null. */
+function harnessSkillsHome(name: string): string | null {
+  const adapter = getAdapter(name);
+  return adapter === undefined ? null : skillsHome(adapter.layout);
+}
+
+/** The repo-relative paths of the links this run created or rewrote — the ones git sees change. */
+function changedLinks(outcome: SkillLinkOutcome): readonly string[] {
+  return outcome.kind === "linked"
+    ? outcome.results
+        .filter((r) => r.status === "created" || r.status === "relinked")
+        .map((r) => `${outcome.physicalHome}/${r.name}`)
+    : [];
+}
+
+/** The manifest file name the skill-linking code reads. */
+const PACKAGE_JSON = "package.json";
+
+/** One top-level field of `<dir>/package.json`, or undefined. Never throws. */
+function packageField(dir: string, field: string): unknown {
+  try {
+    const pkg: unknown = JSON.parse(
+      readFileSync(join(dir, PACKAGE_JSON), "utf-8"),
+    );
+    return typeof pkg === "object" && pkg !== null
+      ? Object.entries(pkg).find(([k]) => k === field)?.[1]
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `package.json`'s `name`, or null. Never throws. */
+function packageNameAt(dir: string): string | null {
+  const name = packageField(dir, "name");
+  return typeof name === "string" ? name : null;
+}
+
+/** A thrown value's message. */
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** A path's real location, or null when it does not resolve. Never throws. */
+function realOrNull(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/** What occupies `path`, for `planSkillLinks`. */
+function observeSkillEntry(path: string): SkillEntry {
+  const st = lstatSync(path, { throwIfNoEntry: false });
+  if (st === undefined) return { kind: "missing" };
+  if (st.isSymbolicLink())
+    return {
+      kind: "link",
+      target: readlinkSync(path),
+      resolvesTo: realOrNull(path),
+    };
+  return st.isDirectory() ? { kind: "directory" } : { kind: "file" };
+}
+
+const LINK_IO: LinkIo = {
+  // "dir" matters only on Windows, where a directory link must say so.
+  symlink: (target, path) => {
+    symlinkSync(target, path, "dir");
+  },
+  rename: renameSync,
+  unlink: unlinkSync,
+};
+
+/** Carry out one decision. A failed `symlink` is reported, never thrown. */
+function applySkillLink(
+  decision: SkillLinkDecision,
+  absHome: string,
+): SkillLinkResult {
+  switch (decision.action) {
+    case "keep":
+      return { name: decision.name, status: "present" };
+    case "refuse":
+      return {
+        name: decision.name,
+        status: "skipped",
+        reason: decision.reason,
+      };
+    case "create":
+    case "replace":
+      try {
+        // Only a link `decideSkillLink` proved ours is ever replaced.
+        writeSkillLink(
+          LINK_IO,
+          join(absHome, decision.name),
+          decision.target,
+          decision.action,
+        );
+        return {
+          name: decision.name,
+          status: decision.action === "replace" ? "relinked" : "created",
+        };
+      } catch (e) {
+        const code =
+          e instanceof Error && "code" in e && typeof e.code === "string"
+            ? e.code
+            : "";
+        return {
+          name: decision.name,
+          status: "skipped",
+          reason: linkFailureReason(code, errorText(e)),
+        };
+      }
+  }
+}
+
+/**
+ * Why `init` must not write under `absHome`, or null when it may. `.claude` or
+ * its `skills` can be a link to a dotfiles directory outside the repo; creating
+ * the home would follow it and put links where no commit of this repo reaches.
+ * What `mkdir -p` would write through is the nearest part of the path that
+ * already exists, so that is the part judged.
+ */
+function homeEscape(
+  project: string,
+  home: string,
+  absHome: string,
+): string | null {
+  const nearest = (p: string): string =>
+    lstatSync(p, { throwIfNoEntry: false }) === undefined
+      ? nearest(dirname(p))
+      : p;
+  const anchor = nearest(absHome);
+  const real = realOrNull(anchor);
+  if (real === null)
+    return `${relative(project, anchor)} is a link that does not resolve, so ${home} cannot be created`;
+  return isWithinProject(project, real)
+    ? null
+    : `${home} leads to ${real}, outside the repository, and a link written there would not travel with a clone`;
+}
+
+/** The outcome when `init` makes no links, with the reason it prints. */
+function notLinked(reason: string): SkillLinkOutcome {
+  return { kind: "not-linked", reason };
+}
+
+/**
+ * Link vigiles's shipped skills into `home` (repo-relative) — the IO half of
+ * `src/skill-links.ts`, which decides everything: where the package is, what
+ * each entry becomes, and what the report says.
+ */
+function linkVigilesSkills(home: string, cwd: string): SkillLinkOutcome {
+  // Physical, so the relative target computed against the (physical) skills
+  // home is right even when the checkout sits under a symlink (macOS /tmp).
+  const project = realpathSync(cwd);
+  const site: PackageSite = locatePackage(project, {
+    isPackage: (dir) => packageNameAt(dir) === VIGILES_PACKAGE,
+    isRepoRoot: (dir) => existsSync(join(dir, ".git")),
+    isWorkspaceRoot: (dir) =>
+      existsSync(join(dir, "pnpm-workspace.yaml")) ||
+      packageField(dir, "workspaces") !== undefined,
+  });
+  const pkgText = existsSync(join(project, PACKAGE_JSON))
+    ? readFileSync(join(project, PACKAGE_JSON), "utf-8")
+    : null;
+  const blocked = linkPrecondition({
+    isVigilesItself: packageNameAt(project) === VIGILES_PACKAGE,
+    dependsOnVigiles: pkgText !== null && declaresVigilesDependency(pkgText),
+    installed: site.kind === "installed",
+  });
+  if (blocked !== null) return notLinked(blocked);
+  if (site.kind === "unsure") return notLinked(site.reason);
+  // Names from the installed package when there is one, else from this CLI's
+  // own — the version `init` just declared as the devDependency.
+  const source = site.kind === "installed" ? site.dir : selfRoot();
+  const names = SHIPPED_SKILLS.filter((n) =>
+    existsSync(join(source, "skills", n, "SKILL.md")),
+  );
+  if (names.length === 0)
+    return notLinked(`no shipped skills found under ${join(source, "skills")}`);
+  const absHome = resolve(project, home);
+  const escape = homeEscape(project, home, absHome);
+  if (escape !== null) return notLinked(escape);
+  try {
+    mkdirSync(absHome, { recursive: true });
+  } catch (e) {
+    return notLinked(`cannot create ${home}: ${errorText(e)}`);
+  }
+  const physicalHome = realpathSync(absHome);
+  const plan = planSkillLinks({
+    names,
+    site,
+    physicalHome,
+    entries: (n) => observeSkillEntry(join(absHome, n)),
+    realOf: (n) => realOrNull(join(site.dir, "skills", n)),
+  });
+  return {
+    kind: "linked",
+    home,
+    physicalHome: portableTarget(relative(project, physicalHome)),
+    pending: plan.pending,
+    results: plan.decisions.map((d) => applySkillLink(d, absHome)),
+  };
 }
 
 /**
@@ -4192,8 +4443,9 @@ function installPlugins(harnesses: string[]): void {
  * collaborator: an external-source plugin declared project-level does not load
  * until each person installs it on their own machine (the boundary is
  * deliberate — plugins run arbitrary code with the user's privileges). What it
- * buys is that Claude Code then PROMPTS them with the install command, instead
- * of the silence a fresh clone gets today. Silent absence → a prompt.
+ * buys is that Claude Code then PROMPTS them with the install command — for the
+ * HOOKS, which only the plugin carries. The skills reach them through the
+ * committed links (`linkVigilesSkills`), with or without the plugin.
  *
  * MERGES, never clobbers: this file holds the user's hooks, permissions and
  * other plugins. The merge rules are the pure, unit-tested
@@ -4242,8 +4494,9 @@ function declareVigilesPlugin(): void {
   console.log(
     "✓ Declared the vigiles plugin in .claude/settings.json (commit it)\n" +
       "  This does NOT install it for anyone else — Claude Code will PROMPT a\n" +
-      "  collaborator to run `claude plugin install vigiles@vigiles`, instead of\n" +
-      "  the silence a fresh clone gets today.\n" +
+      "  collaborator to run `claude plugin install vigiles@vigiles`, which is how\n" +
+      "  they get the hooks. The skills don't wait for it: they come with the\n" +
+      "  linked .claude/skills/ entries.\n" +
       "  Nothing is vendored: the entry is a reference; the plugin still lives in\n" +
       "  the global cache, one copy shared across your repos.",
   );
@@ -4511,10 +4764,9 @@ async function setup(args: string[]): Promise<void> {
     written.push(...wireGha(plan, harnesses));
   }
 
-  // Plugin/skill install — per-harness (Claude marketplace / Codex direct).
-  if (plan.plugin) {
-    installPlugins(harnesses);
-  }
+  // Skills linked into the repo + the per-harness global install (Claude
+  // marketplace for the hooks / Codex only when nothing could be linked).
+  const linkedSkills = plan.plugin ? installPlugins(harnesses) : [];
 
   // Agent-specific guidance.
   if (targets.includes("AGENTS.md")) {
@@ -4543,7 +4795,14 @@ async function setup(args: string[]): Promise<void> {
     written,
   });
 
-  printSetupSummary({ plan, strict, targets, adopted, written });
+  printSetupSummary({
+    plan,
+    strict,
+    targets,
+    adopted,
+    // The skill links the plugin step created, so the commit hint names them.
+    written: [...written, ...linkedSkills],
+  });
 
   // Surface the OTHER mode so both directions are discoverable — the two branches
   // are mutually exclusive (a run is either gate-only or full):

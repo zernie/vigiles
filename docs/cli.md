@@ -125,7 +125,9 @@ By default `init` sets up **both layers** — **Lint** (verify instruction-file
 references) and **Test** (test the harness): it scaffolds a typed spec + types
 (Lint), a starter `vigiles.harness.mjs` (Test), wires CI as a
 `zernie/vigiles@v1` workflow (creating `.github/workflows/vigiles.yml` when none
-exists), and installs the Claude Code plugin.
+exists), links vigiles's skills into the repo (`.claude/skills/<name>` →
+`node_modules/vigiles/skills/<name>`, to commit), and installs the Claude Code
+plugin, which carries the hooks.
 
 **Interactive vs non-interactive:** run in a terminal (a TTY), `init` prompts for
 which layers, CI, and the plugin. Run by an agent, in CI, or with piped input
@@ -134,18 +136,18 @@ which layers, CI, and the plugin. Run by an agent, in CI, or with piped input
 
 ### `init` flags
 
-| Flag                     | Effect                                                                                                                                                   |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--yes`, `-y`            | Skip prompts; use defaults (both layers, CI, the plugin)                                                                                                 |
-| `--ci-only`              | The CI check only: the lint gate + CI workflow + devDep, **nothing installed** — no plugin/spec/test (see below)                                         |
-| `--lint` / `--no-lint`   | Lint layer — verify instruction-file references (default on)                                                                                             |
-| `--test` / `--no-test`   | Test layer — scaffold a harness test (default on)                                                                                                        |
-| `--harness=claude,codex` | Which harness(es) to set up (default: auto-detect from the repo)                                                                                         |
-| `--no-gha`               | Skip wiring CI                                                                                                                                           |
-| `--no-plugin`            | Skip installing the vigiles **Claude Code plugin** (its skills + hooks, into `~/.claude/`) — not a vigiles-CLI plugin, and never vendored into your repo |
-| `--strict`               | Also enforce the workflow tier (specs + tests; see below)                                                                                                |
-| `--report-only`          | Write the whole gate at `warn` — nothing fails CI (migration mode)                                                                                       |
-| `--target=AGENTS.md`     | Adopt / create a spec for one file (Lint layer only)                                                                                                     |
+| Flag                     | Effect                                                                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--yes`, `-y`            | Skip prompts; use defaults (both layers, CI, the plugin)                                                                                                     |
+| `--ci-only`              | The CI check only: the lint gate + CI workflow + devDep, **nothing installed** — no plugin/spec/test (see below)                                             |
+| `--lint` / `--no-lint`   | Lint layer — verify instruction-file references (default on)                                                                                                 |
+| `--test` / `--no-test`   | Test layer — scaffold a harness test (default on)                                                                                                            |
+| `--harness=claude,codex` | Which harness(es) to set up (default: auto-detect from the repo)                                                                                             |
+| `--no-gha`               | Skip wiring CI                                                                                                                                               |
+| `--no-plugin`            | Skip installing vigiles's skills + hooks for the agent: no skill links in the repo, no **Claude Code plugin** (into `~/.claude/`) — not a vigiles-CLI plugin |
+| `--strict`               | Also enforce the workflow tier (specs + tests; see below)                                                                                                    |
+| `--report-only`          | Write the whole gate at `warn` — nothing fails CI (migration mode)                                                                                           |
+| `--target=AGENTS.md`     | Adopt / create a spec for one file (Lint layer only)                                                                                                         |
 
 Passing a single positive layer flag selects only it (`--lint` = the Lint
 layer only); pass both, or neither, for both. `init` also adds `vigiles` to your

@@ -599,3 +599,65 @@ test("parseHooks: defensive field coercion + the block decision branches", () =>
   assert.equal(hooks[1]?.output, ""); // missing → ""
   assert.equal(hooks[1]?.blocked, false); // not error, no numeric exit
 });
+
+// --- the spawn env of a harness-tier run ------------------------------------
+// A made-up harness on purpose: the runner applies whatever identity and auth
+// the runtime declares, and knows no harness by name.
+
+import { harnessSpawnEnv } from "./harness-test.js";
+import type { HarnessRuntime } from "./core/runtime.js";
+
+const acmeRuntime: HarnessRuntime = {
+  name: "acme",
+  agentBinary: "acme",
+  modelBaseUrlEnv: "ACME_BASE_URL",
+  modelApiKeyEnv: "ACME_KEY",
+  mockApiKey: "dummy",
+  wireMock: (url) => ({
+    args: [],
+    env: { ACME_BASE_URL: url, ACME_KEY: "dummy" },
+  }),
+  versionKey: () => "",
+  runEnv: {
+    keep: ["ACME_TOKEN"],
+    keepHomeFiles: [],
+    sessionIdentity: ["ACME_SESSION_ID"],
+  },
+};
+const callerEnv = {
+  HOME: "/home/real",
+  PATH: "/bin",
+  GH_TOKEN: "ghp_x",
+  ACME_TOKEN: "real-auth",
+  ACME_SESSION_ID: "parent-session",
+};
+const wired = acmeRuntime.wireMock("http://127.0.0.1:1");
+
+test("harnessSpawnEnv (inherited): the caller's env minus the runtime's session identity, plus the mock wiring", () => {
+  const env = harnessSpawnEnv(
+    acmeRuntime,
+    wired.env,
+    { home: "inherit" },
+    callerEnv,
+  );
+  assert.equal(env.ACME_SESSION_ID, undefined);
+  assert.equal(env.HOME, "/home/real");
+  assert.equal(env.GH_TOKEN, "ghp_x");
+  assert.equal(env.ACME_BASE_URL, "http://127.0.0.1:1");
+});
+
+test("harnessSpawnEnv (throwaway HOME): OS essentials + mock wiring only — no harness auth, no identity, no secrets", () => {
+  const env = harnessSpawnEnv(
+    acmeRuntime,
+    wired.env,
+    { home: "throwaway", dir: "/tmp/fresh" },
+    callerEnv,
+  );
+  assert.deepEqual(env, {
+    PATH: "/bin",
+    HOME: "/tmp/fresh",
+    TMPDIR: "/tmp/fresh",
+    ACME_BASE_URL: "http://127.0.0.1:1",
+    ACME_KEY: "dummy",
+  });
+});

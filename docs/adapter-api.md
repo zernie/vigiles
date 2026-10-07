@@ -164,6 +164,19 @@ How the test tiers drive the agent against a no-key mock.
 | `modelApiKeyEnv`  | `string` | env var carrying the (dummy) key | `"ANTHROPIC_API_KEY"`  |
 | `mockApiKey`      | `string` | a dummy key the mock ignores     | `"sk-vigiles-mock"`    |
 
+`runEnv` (optional, `RunEnvPolicy`) — what a CHILD run of this harness may
+inherit from its caller, so a run started inside a live session of the same
+harness does not run as that session:
+
+| Field             | Type                | Meaning                                                                                     |
+| ----------------- | ------------------- | ------------------------------------------------------------------------------------------- |
+| `keep`            | `readonly string[]` | exact names a scrubbed run (throwaway HOME) inherits: the harness's auth and backend switch |
+| `keepHomeFiles`   | `readonly string[]` | auth files under HOME copied into the throwaway HOME                                        |
+| `sessionIdentity` | `readonly string[]` | the parent session's variables: never inherited by any child run, scrubbed or not           |
+
+Without it, a scrubbed run inherits no harness variable and an inherited env has
+nothing removed. Claude Code's lists are in `src/adapters/claude-code/runtime.ts`.
+
 ### `HookProtocol` (transport)
 
 How a hook signals a block/deny, and which events can inject developer context.

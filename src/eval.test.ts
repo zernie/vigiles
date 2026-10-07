@@ -17,6 +17,7 @@ import {
   readdirSync,
   rmSync,
   symlinkSync,
+  lstatSync,
   cpSync as cpSyncForTest,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -57,7 +58,6 @@ import {
   ephemeralRunEnv,
   seedEphemeralHome,
   resolveSpawnEnv,
-  EPHEMERAL_HOME_KEEP,
   type AgentRunArgs,
   type AgentRunner,
   type ParsedModelRun,
@@ -2813,7 +2813,9 @@ test("ephemeralRunEnv sets a fresh HOME/TMPDIR and passes the auth allowlist", (
   assert.equal(env.ANTHROPIC_API_KEY, "sk-real");
   assert.equal(env.ANTHROPIC_BASE_URL, "https://api.anthropic.com");
   assert.equal(env.ANTHROPIC_AUTH_TOKEN, "oauth-tok");
-  assert.equal(env.CLAUDE_CONFIG_DIR, "/Users/real/.claude"); // CLAUDE_* prefix
+  // Not auth: it points the child at the REAL config dir, which the throwaway
+  // HOME exists to hide. The harness declares its auth by name, not by prefix.
+  assert.equal(env.CLAUDE_CONFIG_DIR, undefined);
 });
 
 test("ephemeralRunEnv DROPS git/ssh/aws-secret and other non-allowlisted vars", () => {
@@ -2896,6 +2898,35 @@ test("seedEphemeralHome COPIES the auth credential file into the fresh HOME", ()
   }
 });
 
+test("seedEphemeralHome copies the DATA of a symlinked credential, never the link", () => {
+  // Guards: a credential kept as a symlink (dotfiles, a secret manager) must not
+  // be recreated as a link in the throwaway HOME, or the run writes through it
+  // into the real file.
+  const realHome = makeTmpDir();
+  const fakeHome = makeTmpDir();
+  const vault = makeTmpDir();
+  try {
+    writeFileSync(join(vault, "creds.json"), "{tok:1}");
+    mkdirSync(join(realHome, ".agent"), { recursive: true });
+    symlinkSync(
+      join(vault, "creds.json"),
+      join(realHome, ".agent", "creds.json"),
+    );
+
+    seedEphemeralHome(fakeHome, realHome, [".agent/creds.json"]);
+
+    const dest = join(fakeHome, ".agent", "creds.json");
+    assert.equal(lstatSync(dest).isSymbolicLink(), false);
+    assert.equal(readFileSync(dest, "utf-8"), "{tok:1}");
+    writeFileSync(dest, "overwritten by the run");
+    assert.equal(readFileSync(join(vault, "creds.json"), "utf-8"), "{tok:1}");
+  } finally {
+    cleanupTmpDir(realHome);
+    cleanupTmpDir(fakeHome);
+    cleanupTmpDir(vault);
+  }
+});
+
 test("seedEphemeralHome skips silently when the credential file is absent", () => {
   const realHome = makeTmpDir(); // no .claude/.credentials.json
   const fakeHome = makeTmpDir();
@@ -2930,8 +2961,6 @@ test("seedEphemeralHome does NOT carry .gitconfig/.ssh even when present", () =>
     );
     assert.equal(existsSync(join(fakeHome, ".gitconfig")), false);
     assert.equal(existsSync(join(fakeHome, ".ssh", "id_rsa")), false);
-    // The keep-list is exactly the auth allowlist, nothing more.
-    assert.deepEqual(EPHEMERAL_HOME_KEEP, [".claude/.credentials.json"]);
   } finally {
     cleanupTmpDir(realHome);
     cleanupTmpDir(fakeHome);

@@ -135,7 +135,10 @@ const report = await paid_measureArms({
 
 `experimental_outputStyleArms` throws before the first paid trial when the harness has no
 output styles, cannot tell the style's name, or the style does not reach the
-model. The paid run itself cannot check that: it drives the real API, so no
+model. Its free run uses a throwaway HOME and none of your environment beyond
+`PATH`, `LANG`, `TERM` and `LC_*`, so it neither reads your user config nor runs
+as the session that imported the eval file (it runs on every import, including
+`vigiles eval --check`). The paid run itself cannot check that: it drives the real API, so no
 request is captured (`modelRequests` is empty). The free run writes the same
 files and settings the "with" arm gets, through the same binary.
 

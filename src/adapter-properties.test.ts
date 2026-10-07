@@ -121,6 +121,11 @@ describe.each(IMPLEMENTATIONS.map((a) => [a.name, a] as const))(
           askedRepo.push(p);
           return null;
         },
+        // A link probe is a repo read too, and is bounded the same way.
+        repoLink: (p) => {
+          askedRepo.push(p);
+          return null;
+        },
         home: (p) => {
           askedHome.push(p);
           return null;
@@ -145,6 +150,7 @@ describe.each(IMPLEMENTATIONS.map((a) => [a.name, a] as const))(
       // what stops an adapter printing machine-state chatter into every audit.
       const silent = {
         repo: () => null,
+        repoLink: () => null,
         home: () => null,
         repoDependsOnVigiles: false,
         vendoredSkillNames: [] as readonly string[],

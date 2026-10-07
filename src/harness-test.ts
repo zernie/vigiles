@@ -31,6 +31,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
   mkdirSync,
+  mkdtempSync,
   writeFileSync,
   readFileSync,
   existsSync,
@@ -71,6 +72,8 @@ import { parseReplies, reachedModel } from "./adapters/claude-code/replies.js";
 export { parseReplies, reachedModel };
 import { defaultAdapter } from "./adapter-registry.js";
 import { planStyleRun, styleReached } from "./core/output-style.js";
+import type { HarnessRuntime } from "./core/runtime.js";
+import { scrubbedRunEnv, withoutSessionIdentity } from "./core/run-env.js";
 import {
   decideSandbox,
   specTrusted,
@@ -451,6 +454,42 @@ export function parseClaudeRun(stdout: string): ParsedRun {
   };
 }
 
+/**
+ * Where a harness-tier run's agent gets HOME and the rest of its environment.
+ *
+ * - `inherit` — the caller's env (real HOME), minus the harness's declared
+ *   session identity. The default of `runHarnessTest`: a test that reads the
+ *   machine's config keeps doing so, but no run executes AS the caller's live
+ *   session.
+ * - `throwaway` — a fresh HOME/TMPDIR at `dir`, the OS essentials, and nothing
+ *   else from the caller: no harness auth (the scripted mock needs none, and a
+ *   config-dir variable would point the run back at the real config), no
+ *   identity, no secrets. The same scrubbed shape as the eval tier's
+ *   `ephemeralEnv` (`scrubbedRunEnv`), without the auth.
+ */
+export type HarnessRunHome =
+  | { readonly home: "inherit" }
+  | { readonly home: "throwaway"; readonly dir: string };
+
+/**
+ * The spawn env of one harness-tier run: {@link HarnessRunHome} applied to
+ * `base`, with the runtime's mock wiring on top. Pure — the testable seam of
+ * the un-coverable spawn.
+ */
+export function harnessSpawnEnv(
+  runtime: HarnessRuntime,
+  wiredEnv: Readonly<Record<string, string>>,
+  home: HarnessRunHome,
+  base: NodeJS.ProcessEnv = process.env,
+): Readonly<Record<string, string>> {
+  switch (home.home) {
+    case "inherit":
+      return { ...withoutSessionIdentity(base, runtime.runEnv), ...wiredEnv };
+    case "throwaway":
+      return { ...scrubbedRunEnv(base, { home: home.dir }), ...wiredEnv };
+  }
+}
+
 /* v8 ignore start -- spawns the real claude CLI + filesystem; exercised by the
    claude-backed suite, excluded from the deterministic coverage gate (the parse
    helpers above carry the testable logic). */
@@ -488,6 +527,17 @@ function writeFixture(
   }
 }
 
+/**
+ * The {@link HarnessRunHome} for a run in `cwd`. A throwaway HOME lives under
+ * the run's own temp dir, as the eval tier's does, so `cleanup()` removes it
+ * with everything else.
+ */
+function runHomeIn(cwd: string, home: HarnessRunHome["home"]): HarnessRunHome {
+  return home === "throwaway"
+    ? { home, dir: mkdtempSync(join(cwd, "home-")) }
+    : { home };
+}
+
 interface RunOut {
   code: number;
   stdout: string;
@@ -497,16 +547,20 @@ interface RunOut {
 /**
  * Spawn the agent binary against the mock. The mock-wiring *args* are already in
  * `args` (the driver placed `wireMock(url).args` at the correct argv position
- * via `ctx.mockArgs`); here we only layer `wireMock(url).env` over the caller's
- * env. Driver-agnostic at the transport seam.
+ * via `ctx.mockArgs`); here the env is {@link harnessSpawnEnv} of the caller's,
+ * with `wireMock(url).env` on top. Driver-agnostic at the transport seam.
  */
 function spawnAgent(
   runtime: HarnessTestDriver["runtime"],
   args: readonly string[],
-  cwd: string,
-  baseUrl: string,
-  timeoutMs: number,
+  run: {
+    readonly cwd: string;
+    readonly baseUrl: string;
+    readonly timeoutMs: number;
+    readonly home: HarnessRunHome;
+  },
 ): Promise<RunOut> {
+  const { cwd, baseUrl, timeoutMs, home } = run;
   const wired = runtime.wireMock(baseUrl);
   return new Promise((resolvePromise) => {
     // vigiles:free-tier — the deterministic harness tier. `runtime.wireMock`
@@ -516,9 +570,8 @@ function spawnAgent(
     const child = spawn(runtime.agentBinary, [...args], {
       cwd,
       // Any key works — the mock ignores auth. wireMock supplies the overlay
-      // env (base-URL var + dummy key for CC; the dummy key for Codex); layer it
-      // over the caller's env.
-      env: { ...process.env, ...wired.env },
+      // env (base-URL var + dummy key for CC; the dummy key for Codex).
+      env: harnessSpawnEnv(runtime, wired.env, home),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -610,6 +663,22 @@ export async function runHarnessTest(
   spec: HarnessTestSpec,
   opts: RunHarnessTestOptions = {},
 ): Promise<HarnessTestResult> {
+  return runHarnessTestIn(spec, opts, "inherit");
+}
+
+/**
+ * {@link runHarnessTest} with the run's HOME chosen by the caller — see
+ * {@link HarnessRunHome}. Not on a public entry point: the one caller that needs
+ * a throwaway HOME is vigiles's own preflight (`output-style-arms.ts`), whose
+ * run must not depend on, or act as, the machine it happens to run on. The
+ * confined (bubblewrap) path ignores `home`: it already runs with its own HOME
+ * and a cleared env.
+ */
+export async function runHarnessTestIn(
+  spec: HarnessTestSpec,
+  opts: RunHarnessTestOptions,
+  home: HarnessRunHome["home"],
+): Promise<HarnessTestResult> {
   // Tell the CLI runner this script exercised the harness, so a file that runs
   // NOTHING can be told apart from one that ran and passed. See check-count.ts.
   recordCheck();
@@ -678,13 +747,12 @@ export async function runHarnessTest(
   const mock = await driver.startMock(spec.model);
   try {
     const args = buildArgs(driver.runtime.wireMock(mock.url).args);
-    const out = await spawnAgent(
-      driver.runtime,
-      args,
+    const out = await spawnAgent(driver.runtime, args, {
       cwd,
-      mock.url,
+      baseUrl: mock.url,
       timeoutMs,
-    );
+      home: runHomeIn(cwd, home),
+    });
     // A script that was never consumed is otherwise invisible — the run just
     // looks empty. `scriptUnconsumedWarning` names the one shape that produces
     // it (every request arriving without tool declarations, so nothing looked

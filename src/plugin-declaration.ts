@@ -17,12 +17,12 @@
  * boundary is deliberate: plugins "can execute arbitrary code on your machine
  * with your user privileges", so a repo is not allowed to install one for you.
  *
- * The declaration buys exactly one thing, and it is worth having: a collaborator
- * who clones the repo and never runs `vigiles init` currently gets **silence** —
- * the package is in `node_modules`, its six skills are unreachable, and nothing
- * says so. With the declaration, Claude Code tells them the project wants this
- * plugin and prints the command that installs it. **Silent absence becomes a
- * prompt.** It does not become a working install.
+ * The declaration buys exactly one thing: a collaborator who clones the repo is
+ * told the project wants this plugin, with the command that installs it.
+ * **Silent absence becomes a prompt.** It does not become a working install. What
+ * the plugin adds on their machine is the HOOKS; the SKILLS do not depend on it
+ * any more — `init` links them into `.claude/skills/` (`./skill-links.ts`), and
+ * the links travel with the clone.
  *
  * Nothing is vendored: what lands in the repo is a *reference* (a marketplace
  * source plus an enabled flag). The plugin content still lives in the global
