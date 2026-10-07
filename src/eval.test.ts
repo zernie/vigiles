@@ -57,7 +57,6 @@ import {
   ephemeralRunEnv,
   seedEphemeralHome,
   resolveSpawnEnv,
-  EPHEMERAL_HOME_KEEP,
   type AgentRunArgs,
   type AgentRunner,
   type ParsedModelRun,
@@ -2813,7 +2812,9 @@ test("ephemeralRunEnv sets a fresh HOME/TMPDIR and passes the auth allowlist", (
   assert.equal(env.ANTHROPIC_API_KEY, "sk-real");
   assert.equal(env.ANTHROPIC_BASE_URL, "https://api.anthropic.com");
   assert.equal(env.ANTHROPIC_AUTH_TOKEN, "oauth-tok");
-  assert.equal(env.CLAUDE_CONFIG_DIR, "/Users/real/.claude"); // CLAUDE_* prefix
+  // Not auth: it points the child at the REAL config dir, which the throwaway
+  // HOME exists to hide. The harness declares its auth by name, not by prefix.
+  assert.equal(env.CLAUDE_CONFIG_DIR, undefined);
 });
 
 test("ephemeralRunEnv DROPS git/ssh/aws-secret and other non-allowlisted vars", () => {
@@ -2930,8 +2931,6 @@ test("seedEphemeralHome does NOT carry .gitconfig/.ssh even when present", () =>
     );
     assert.equal(existsSync(join(fakeHome, ".gitconfig")), false);
     assert.equal(existsSync(join(fakeHome, ".ssh", "id_rsa")), false);
-    // The keep-list is exactly the auth allowlist, nothing more.
-    assert.deepEqual(EPHEMERAL_HOME_KEEP, [".claude/.credentials.json"]);
   } finally {
     cleanupTmpDir(realHome);
     cleanupTmpDir(fakeHome);

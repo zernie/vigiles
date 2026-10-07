@@ -4,7 +4,77 @@
  * (`harness-test.ts`, `eval.ts`) read the binary + env from here instead of
  * hard-coding them; a Codex adapter defines `codexRuntime` and its runner uses it.
  */
-import type { HarnessRuntime } from "../../core/runtime.js";
+import type { HarnessRuntime, RunEnvPolicy } from "../../core/runtime.js";
+
+/**
+ * What a child `claude` run may inherit from its caller. The runners apply it
+ * through `src/core/run-env.ts`; this object is the only place the names live.
+ *
+ * `keep` — auth and backend selection only, as an allowlist. It replaced a
+ * `CLAUDE_*` prefix pass-through, which carried the parent session's identity
+ * into every scrubbed run. Measured 2026-10-07 on 2.1.292: a child started with
+ * the parent's session variables ran as the parent session, and a host-brokered
+ * child (`ANTHROPIC_BASE_URL`) authenticated with NO `CLAUDE_*` variable at all.
+ * Every `CLAUDE_*` name below is one the prefix used to carry and that selects
+ * or supplies credentials (each is referenced by the 2.1.292 binary).
+ * `CLAUDE_CONFIG_DIR` is left out on purpose: it points the child at the real
+ * config directory (settings, hooks, sessions, tasks) that the throwaway HOME
+ * exists to hide.
+ *
+ * `sessionIdentity` — the parent session. The first six were observed in a live
+ * session's env on 2026-10-07; the rest are session-identifying names present
+ * in the 2.1.292 binary, removed by name rather than by a measured effect.
+ */
+const claudeCodeRunEnv: RunEnvPolicy = {
+  keep: [
+    // Anthropic API auth + endpoint.
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_MODEL",
+    // Carried over from the earlier list; not referenced by the 2.1.292 binary.
+    "ANTHROPIC_API_URL",
+    "ANTHROPIC_DEFAULT_HEADERS",
+    // Subscription token (`claude setup-token`) and client certificates.
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CODE_API_KEY_HELPER_TTL_MS",
+    "CLAUDE_CODE_CLIENT_CERT",
+    "CLAUDE_CODE_CLIENT_KEY",
+    "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE",
+    // Cloud backends: the switch, the auth skip, and region/profile — never
+    // the secret-shaped AWS_* access keys.
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+    "CLAUDE_CODE_SKIP_BEDROCK_AUTH",
+    "CLAUDE_CODE_SKIP_VERTEX_AUTH",
+    "CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+    "AWS_PROFILE",
+    "CLOUD_ML_REGION",
+    "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+  ],
+  keepHomeFiles: [".claude/.credentials.json"],
+  sessionIdentity: [
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_REMOTE_SESSION_ID",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_SESSION_INGRESS_TOKEN_FILE",
+    "CLAUDE_SESSION_ID",
+    "CLAUDE_CODE_SESSION_ACCESS_TOKEN",
+    "CLAUDE_CODE_REMOTE_SESSION_UUID",
+    "CLAUDE_CODE_HOST_SESSION_ID",
+    "CLAUDE_CODE_CLOUD_SESSION_ID",
+    "CLAUDE_CODE_BRIDGE_SESSION_ID",
+    "CLAUDE_RUNNER_SESSION_ID",
+    "CLAUDE_RUNNER_SESSION_UUID",
+    "CLAUDE_PID",
+  ],
+};
 
 export const claudeCodeRuntime: HarnessRuntime = {
   name: "claude-code",
@@ -41,6 +111,7 @@ export const claudeCodeRuntime: HarnessRuntime = {
     const m = /(\d+)\.(\d+)\.\d+/.exec(raw);
     return m ? `${m[1]}.${m[2]}` : raw.trim();
   },
+  runEnv: claudeCodeRunEnv,
 };
 
 /**

@@ -128,6 +128,7 @@ export interface HarnessRuntime {
     readonly modelApiKeyEnv: string;
     readonly modelBaseUrlEnv: string;
     readonly name: string;
+    readonly runEnv?: RunEnvPolicy;
     versionKey(raw: string): string;
     wireMock(baseUrl: string): {
         readonly args: readonly string[];
@@ -344,6 +345,13 @@ export interface PluginLayout {
 
 // @public
 export function resolveAdapter(root: string, harness?: string): HarnessAdapter;
+
+// @public
+export interface RunEnvPolicy {
+    readonly keep: readonly string[];
+    readonly keepHomeFiles: readonly string[];
+    readonly sessionIdentity: readonly string[];
+}
 
 // @public (undocumented)
 export interface SettingsCodec {

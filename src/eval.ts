@@ -42,6 +42,8 @@ import { resolve, join, dirname, delimiter } from "node:path";
 import { appendObservation } from "./observe.js";
 import { resolveHarness } from "./adapters/claude-code/plugin-loader.js";
 import { claudeCodeRuntime } from "./adapters/claude-code/runtime.js";
+import type { HarnessRuntime } from "./core/runtime.js";
+import { scrubbedRunEnv, withoutSessionIdentity } from "./core/run-env.js";
 import {
   emitCostSummary,
   costFromEvalReport,
@@ -124,6 +126,15 @@ import {
 import { type ToolStub, stubBinDir } from "./tool-stub.js";
 import { makeTmpDir } from "./core/tmp-root.js";
 import { editDistance } from "./core/edit-distance.js";
+
+/**
+ * The harness the eval tier spawns. ONE binding on purpose: the paid tier is
+ * still wired to the Claude Code runner rather than chosen through the adapter's
+ * eval driver (#325), and every fact this file needs about that harness — its
+ * binary, its version key, which env a child may inherit — is read off this
+ * runtime's port fields, never spelled here.
+ */
+const EVAL_RUNTIME: HarnessRuntime = claudeCodeRuntime;
 
 /** One arm of the comparison: fixture overrides + settings (hooks) for this arm. */
 export interface EvalArm {
@@ -288,8 +299,9 @@ export interface EvalSpec<M extends Metrics> {
    * **Ships default-OFF** because a too-narrow auth allowlist would silently break
    * the real `claude` CLI's authentication; leaving it off keeps every existing
    * eval (including one running right now) authenticating exactly as before. When
-   * absent / `false`, the per-trial env is byte-identical to today
-   * (`{ ...process.env, ...arm.env }`). See `docs/safety.md` (ephemerality) and
+   * absent / `false`, the per-trial env is the caller's (`{ ...process.env,
+   * ...arm.env }`) minus the harness's declared session identity, which no child
+   * run inherits in either mode. See `docs/safety.md` (ephemerality) and
    * `research/cross-platform-sandboxing.md`.
    */
   readonly ephemeralEnv?: boolean;
@@ -382,18 +394,23 @@ function writeFiles(cwd: string, files: Record<string, string>): void {
  * Resolve the environment a trial's subprocess actually runs with — the
  * SECURITY-CRITICAL decision behind `ephemeralEnv`. When `replaceEnv` is set, the
  * scrubbed `env` is the COMPLETE environment, so the real `$HOME` and inherited
- * secrets are DROPPED; otherwise `env` is an overlay on `base` (byte-identical to
- * the pre-ephemeral behaviour). Extracted from the `v8 ignore`d `spawnAgent` so
- * the one line that enforces the scrub is both unit- and behaviourally-tested — a
- * regression to an always-merge would otherwise silently defeat ephemerality and
- * leak the host environment into an untrusted, model-driven run.
+ * secrets are DROPPED; otherwise `env` is an overlay on `base`. In BOTH, the
+ * harness's declared session identity (`runEnv.sessionIdentity`) is removed: a
+ * run started from inside a live session must not run as that session, scrubbed
+ * or not. Extracted from the `v8 ignore`d `spawnAgent` so the one line that
+ * enforces the scrub is both unit- and behaviourally-tested — a regression to an
+ * always-merge would otherwise silently defeat ephemerality and leak the host
+ * environment into an untrusted, model-driven run.
  */
 export function resolveSpawnEnv(
   a: Pick<AgentRunArgs, "env" | "replaceEnv" | "effort">,
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
   const resolved = a.replaceEnv ? (a.env ?? {}) : { ...base, ...a.env };
-  return pinEffortEnv(resolved, a.effort);
+  return pinEffortEnv(
+    withoutSessionIdentity(resolved, EVAL_RUNTIME.runEnv),
+    a.effort,
+  );
 }
 
 /**
@@ -409,10 +426,10 @@ export const EFFORT_ENV_VAR = "CLAUDE_CODE_EFFORT_LEVEL";
  *
  * WHY THIS EXISTS AND WHY IT IS NOT OPTIONAL. Effort has THREE inputs — the
  * `--effort` flag, the `effortLevel` settings key, and `CLAUDE_CODE_EFFORT_LEVEL`
- * — and the env var wins over the flag. `EPHEMERAL_ALLOW_PREFIXES` passes
- * `CLAUDE_*` through by design (the CLI reads several such knobs and dropping one
- * is the failure mode), so an ambient `CLAUDE_CODE_EFFORT_LEVEL=max` in the
- * author's shell survives even the SCRUBBED ephemeral env. Without this pin,
+ * — and the env var wins over the flag. The default (inherited) spawn env
+ * carries the caller's whole environment, so an ambient
+ * `CLAUDE_CODE_EFFORT_LEVEL=max` in the author's shell reaches the run unless
+ * something removes it. Without this pin,
  * hashing effort into the lock would make the lock CONFIDENTLY WRONG: it would
  * record `low` over a run that executed at `max` — the exact defect the feature
  * exists to prevent, reintroduced by the fix for it.
@@ -567,7 +584,7 @@ function spawnAgentRaw(a: AgentRunArgs): Promise<RunOut> {
   refuseUnderForeignRunner("spawning `claude`");
   return new Promise((resolvePromise) => {
     const args = buildAgentArgs(a);
-    const child = spawn(claudeCodeRuntime.agentBinary, args, {
+    const child = spawn(EVAL_RUNTIME.agentBinary, args, {
       cwd: a.cwd,
       // The security-critical env resolution (overlay vs. scrubbed replacement)
       // lives in the tested `resolveSpawnEnv` seam above, not inline here.
@@ -1447,8 +1464,8 @@ let cachedHarnessVersion: string | undefined;
 function harnessVersion(): string {
   if (cachedHarnessVersion === undefined) {
     try {
-      cachedHarnessVersion = claudeCodeRuntime.versionKey(
-        execSync(`${claudeCodeRuntime.agentBinary} --version`, {
+      cachedHarnessVersion = EVAL_RUNTIME.versionKey(
+        execSync(`${EVAL_RUNTIME.agentBinary} --version`, {
           encoding: "utf-8",
           stdio: ["ignore", "pipe", "ignore"],
         }),
@@ -1500,133 +1517,64 @@ function withInterceptToolHook(
 }
 
 /**
- * The default allowlist `ephemeralRunEnv` passes through from the real
- * environment. Two groups, both load-bearing for a real-model `claude` run:
- *
- * - **Auth** — the harness's OWN credentials. The eval drives the real `claude`
- *   CLI, which authenticates via the user's subscription (`~/.claude`, reached
- *   through the fresh HOME's allowed config — see below) OR via these env vars.
- *   We mirror the auth surface the runtime port already names
- *   (`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`, see
- *   `adapters/claude-code/runtime.ts`) plus the OAuth/token + region variants the
- *   CLI accepts, so a token-authed user is not broken by a too-narrow list.
- * - **Runtime** — what any spawned process needs to *function*: `PATH` (resolve
- *   `node` / `claude`), the locale/terminal vars (`LANG` / `LC_*` / `TERM`), and
- *   `TMPDIR` (which we override to the fresh HOME). Mirrors what `bwrapArgs` /
- *   `setenvArgs` in `src/sandbox.ts` set back after `--clearenv`.
- *
- * Notably it does NOT pass through `GIT_*`, `GH_TOKEN`, `SSH_*`, `AWS_*`, or any
- * other non-allowlisted secret-shaped var — those are exactly what an ephemeral
- * run must not see. `CLAUDE_*` is allowlisted by prefix because the CLI reads
- * several `CLAUDE_*` knobs (config dir, etc.) and omitting one is the failure
- * mode this whole guard is conservative against.
- *
- * Conservative by design: a too-broad allowlist is safe (it just leaks a benign
- * var); a too-narrow one silently breaks auth — which is why the feature ships
- * default-OFF until validated against a real run.
- */
-const EPHEMERAL_ALLOW: readonly string[] = [
-  // Runtime essentials (mirror sandbox.ts setenv-after-clearenv).
-  "PATH",
-  "LANG",
-  "TERM",
-  // Anthropic / Claude Code auth + endpoint (mirror runtime.ts + CLI auth vars).
-  claudeCodeRuntime.modelApiKeyEnv, // ANTHROPIC_API_KEY
-  claudeCodeRuntime.modelBaseUrlEnv, // ANTHROPIC_BASE_URL
-  "ANTHROPIC_AUTH_TOKEN",
-  "ANTHROPIC_API_URL",
-  "ANTHROPIC_MODEL",
-  "ANTHROPIC_DEFAULT_HEADERS",
-  "CLAUDE_CODE_USE_BEDROCK",
-  "CLAUDE_CODE_USE_VERTEX",
-  // Cloud-provider auth the CLI uses for Bedrock/Vertex backends (region/profile
-  // only — NOT the secret-shaped AWS_* access keys, which stay dropped).
-  "AWS_REGION",
-  "AWS_DEFAULT_REGION",
-  "AWS_PROFILE",
-  "CLOUD_ML_REGION",
-  "GOOGLE_CLOUD_PROJECT",
-  "GOOGLE_APPLICATION_CREDENTIALS",
-];
-
-/** Prefixes passed through wholesale — the CLI reads several `CLAUDE_*` knobs and
- *  a `LC_*` locale family; allowlist by prefix so omitting one isn't the silent
- *  auth/locale break this guard exists to avoid. */
-const EPHEMERAL_ALLOW_PREFIXES: readonly string[] = ["CLAUDE_", "LC_"];
-
-/**
  * Build an **ephemeral run environment** for a model-driven run: a NEW env object
- * with a *fresh* `HOME` (and `TMPDIR`) pointed at the throwaway `opts.home`, only
- * an allowlist of auth + runtime vars passed through from `base`, and everything
- * else DROPPED. Pure — no fs, no spawn.
+ * with a *fresh* `HOME` (and `TMPDIR`) pointed at the throwaway `opts.home`, the
+ * OS essentials (`PATH`, `LANG`, `LC_*`, `TERM`), the harness's OWN auth, and
+ * nothing else. Pure — no fs, no spawn.
  *
  * The rationale is "fresh HOME + only the harness credential injected, **not** a
  * blanket wipe": running a model-driven skill/agent is itself a side effect (the
  * *model*, not the author, chose the actions), so it should not be able to read
  * the real `~/.gitconfig` / `~/.ssh` / `~/.aws` or write to the real `~`. But the
- * real `claude` CLI must still AUTHENTICATE, so the harness's own credentials
- * ({@link EPHEMERAL_ALLOW} — `ANTHROPIC_*`, `CLAUDE_*`, locale/PATH) are
- * re-injected; a blanket `--clearenv`-style wipe would break every eval. Because
- * this needs no kernel features, it is the cross-platform STATE-protection floor
- * (lands on macOS immediately), orthogonal to the Linux bubblewrap HOST
- * confinement in `src/sandbox.ts`.
+ * real CLI must still AUTHENTICATE, so the auth names the harness declares
+ * (`runtime.runEnv.keep`) are re-injected, and the parent session's identity
+ * (`runtime.runEnv.sessionIdentity`) never is. Which names those are is the
+ * adapter's fact, not this file's: see `RunEnvPolicy` in `core/runtime.ts`.
+ * Because this needs no kernel features, it is the cross-platform
+ * STATE-protection floor (lands on macOS immediately), orthogonal to the Linux
+ * bubblewrap HOST confinement in `src/sandbox.ts`.
+ *
+ * Notably it does NOT pass through `GIT_*`, `GH_TOKEN`, `SSH_*`, `AWS_*` access
+ * keys, a config-dir override, or any other undeclared variable — those are
+ * exactly what an ephemeral run must not see. A too-narrow `keep` breaks auth
+ * loudly (the run fails to start); a too-broad one leaks silently, which is why
+ * it is an allowlist and not a prefix.
  *
  * @param base  the source environment to filter (usually `process.env`).
  * @param opts.home  the throwaway dir to set as `HOME`/`TMPDIR`.
  * @param opts.allow  extra var NAMES to pass through (e.g. the `VIGILES_*` keys
- *   the eval already injects). Layered ON TOP of the default allowlist.
+ *   the eval already injects). Layered ON TOP of the harness's `keep`; a
+ *   session-identity name is dropped even when listed here.
  */
 export function ephemeralRunEnv(
   base: NodeJS.ProcessEnv | Record<string, string | undefined>,
   opts: { home: string; allow?: readonly string[] },
 ): Record<string, string> {
-  const out: Record<string, string> = {};
-  const allowExact = new Set<string>([
-    ...EPHEMERAL_ALLOW,
-    ...(opts.allow ?? []),
-  ]);
-  for (const [k, v] of Object.entries(base)) {
-    if (v === undefined) continue;
-    const allowed =
-      allowExact.has(k) ||
-      EPHEMERAL_ALLOW_PREFIXES.some((p) => k.startsWith(p));
-    if (allowed) out[k] = v;
-  }
-  // Fresh HOME + TMPDIR last so they always win over anything passed through.
-  out.HOME = opts.home;
-  out.TMPDIR = opts.home;
-  return out;
+  // A fresh object: the trial layers its overlay and stub PATH onto it.
+  return {
+    ...scrubbedRunEnv(base, {
+      home: opts.home,
+      policy: EVAL_RUNTIME.runEnv,
+      allow: opts.allow,
+    }),
+  };
 }
 
 /**
- * Home-relative AUTH files to carry from the real HOME into the throwaway one.
- *
- * A local subscription credential (OAuth token) often lives in a FILE under HOME,
- * not an env var — so scrubbing HOME would lose it and break a local-authed run.
- * This is the file half of the auth allowlist; {@link EPHEMERAL_ALLOW} covers the
- * env-var / host-brokered half. Kept a named constant so it's easy to extend, and
- * deliberately NARROW — only the explicit auth files, never `.gitconfig` / `.ssh`
- * / `.aws`, which are exactly what an ephemeral run must not see.
- */
-export const EPHEMERAL_HOME_KEEP: readonly string[] = [
-  ".claude/.credentials.json", // the Claude Code OAuth token
-];
-
-/**
  * Seed the throwaway HOME with the harness's own auth FILE(s) — best-effort;
- * covers local file-based OAuth; the env-var/host-brokered path is covered by the
- * allowlist in `ephemeralRunEnv`.
+ * covers local file-based OAuth; the env-var/host-brokered path is covered by
+ * `ephemeralRunEnv`. The files are the runtime's declared `keepHomeFiles`.
  *
- * COPIES (never symlinks) each {@link EPHEMERAL_HOME_KEEP} path from `realHome`
- * into `throwawayHome`, creating parent dirs as needed; a symlink would let the
- * model-driven run write back to the real credential file, defeating ephemerality.
- * A path that doesn't exist in the real HOME is skipped silently (that user auths
- * via env-var / host broker instead). Pure fs — no env, no spawn.
+ * COPIES (never symlinks) each path from `realHome` into `throwawayHome`,
+ * creating parent dirs as needed; a symlink would let the model-driven run write
+ * back to the real credential file, defeating ephemerality. A path that doesn't
+ * exist in the real HOME is skipped silently (that user auths via env-var / host
+ * broker instead). Pure fs — no env, no spawn.
  */
 export function seedEphemeralHome(
   throwawayHome: string,
   realHome: string,
-  keep: readonly string[] = EPHEMERAL_HOME_KEEP,
+  keep: readonly string[] = EVAL_RUNTIME.runEnv?.keepHomeFiles ?? [],
 ): void {
   for (const rel of keep) {
     const src = join(realHome, rel);

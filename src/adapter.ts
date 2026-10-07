@@ -64,7 +64,7 @@ export { EMPTY_CHAIN } from "./core/instruction-chain.js";
  */
 export type { SettingsCodec } from "./core/settings-codec.js";
 export { jsonSettingsCodec, tomlSettingsCodec } from "./core/settings-codec.js";
-export type { HarnessRuntime } from "./core/runtime.js";
+export type { HarnessRuntime, RunEnvPolicy } from "./core/runtime.js";
 export type { HookProtocol } from "./core/hook-protocol.js";
 export type { ModelMock } from "./core/model-mock.js";
 

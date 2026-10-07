@@ -101,7 +101,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 516 project files. */
+  /** 519 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -151,6 +151,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/refs-nudge-hook.test.ts"
     | "src/adapters/claude-code/replies.test.ts"
     | "src/adapters/claude-code/replies.ts"
+    | "src/adapters/claude-code/run-env.test.ts"
     | "src/adapters/claude-code/run-scripts.test.ts"
     | "src/adapters/claude-code/run-scripts.ts"
     | "src/adapters/claude-code/runtime.test.ts"
@@ -376,6 +377,8 @@ declare module "vigiles/generated" {
     | "src/core/rule-catalog.ts"
     | "src/core/rule-meta.test.ts"
     | "src/core/rule-meta.ts"
+    | "src/core/run-env.test.ts"
+    | "src/core/run-env.ts"
     | "src/core/runtime.ts"
     | "src/core/session.test.ts"
     | "src/core/session.ts"
@@ -739,6 +742,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/refs-nudge-hook.test.ts"
       | "src/adapters/claude-code/replies.test.ts"
       | "src/adapters/claude-code/replies.ts"
+      | "src/adapters/claude-code/run-env.test.ts"
       | "src/adapters/claude-code/run-scripts.test.ts"
       | "src/adapters/claude-code/run-scripts.ts"
       | "src/adapters/claude-code/runtime.test.ts"
@@ -964,6 +968,8 @@ declare module "vigiles/spec" {
       | "src/core/rule-catalog.ts"
       | "src/core/rule-meta.test.ts"
       | "src/core/rule-meta.ts"
+      | "src/core/run-env.test.ts"
+      | "src/core/run-env.ts"
       | "src/core/runtime.ts"
       | "src/core/session.test.ts"
       | "src/core/session.ts"
