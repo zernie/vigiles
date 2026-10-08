@@ -541,7 +541,10 @@ maybe(
       assert.ok(bash, "the Bash call reached the CLI");
       assert.equal(bash.isError, true, bash.resultText);
       assert.doesNotMatch(bash.resultText, /no such tool/i);
-      assert.match(bash.resultText, /needs approval|permission/i);
+      // The refusal's wording differs by CLI version: 2.1.294 says "needs
+      // approval", 2.1.187 (the CI pin) says "was blocked. For security …".
+      // Either is a refusal; the structure above and below is what is asserted.
+      assert.match(bash.resultText, /needs approval|permission|was blocked/i);
       assert.equal(
         r.file("DENIED-PROBE"),
         null,
