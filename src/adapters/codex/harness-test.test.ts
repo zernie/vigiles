@@ -66,7 +66,7 @@ test("buildCodexArgs refuses tools", () => {
   ).toThrow(/tools is not supported for codex/);
 });
 
-test("runHarnessTest refuses tools on Codex before it makes a temp dir", async () => {
+test("runHarnessTest refuses tools on Codex and leaves no temp dir behind", async () => {
   const before = process.env.TMPDIR;
   const tmp = mkdtempSync(join(tmpdir(), "codex-tools-refusal-"));
   process.env.TMPDIR = tmp;

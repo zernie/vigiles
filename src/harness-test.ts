@@ -920,18 +920,23 @@ export async function runHarnessTestIn(
     );
   }
 
-  // The driver refuses a spec it cannot run (Codex and `tools`) inside
-  // buildArgs. Ask it once before any temp dir or mock exists, so a refusal
-  // leaves nothing behind; buildArgs is pure.
-  driver.buildArgs(driverContext(spec, "", false, []));
   const { files, settings, check } = fixtureFor(spec, opts.adapter);
   const cwd = makeTmpDir("harness");
   writeFixture(cwd, files, settings);
   const timeoutMs = spec.timeoutMs ?? 60000;
-  const buildArgs = (mockArgs: readonly string[]): readonly string[] =>
-    driver.buildArgs(
-      driverContext(spec, cwd, settings !== undefined, mockArgs),
-    );
+  // A driver refuses a spec it cannot run (Codex and `tools`) inside buildArgs.
+  // That refusal must not leave the run's temp dir behind; the mock, if started,
+  // is closed by the caller's finally.
+  const buildArgs = (mockArgs: readonly string[]): readonly string[] => {
+    try {
+      return driver.buildArgs(
+        driverContext(spec, cwd, settings !== undefined, mockArgs),
+      );
+    } catch (error) {
+      rmSync(cwd, { recursive: true, force: true });
+      throw error;
+    }
+  };
 
   // Confined path (Claude Code only): the mock is co-launched in the netns, so
   // the agent reaches it over the loopback URL the sandbox sets — Claude Code is
