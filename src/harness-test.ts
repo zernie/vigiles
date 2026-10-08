@@ -755,15 +755,33 @@ export function warnUnconsumed(count: number, sideChannelCount: number): void {
 }
 
 /**
+ * `tools` made only of names the CLI does not know leaves the agent with none:
+ * every request then declares no tools, the mock files it as side-channel
+ * traffic, and the script is never served, so the run decides nothing. Requests
+ * that all came in that way, under an explicit `tools`, mean exactly that. No
+ * request at all (a hook stopped the prompt) is a different run. Pure.
+ */
+function toolsResolvedToNothing(
+  tools: readonly string[] | undefined,
+  requests: readonly ModelRequest[],
+): string | undefined {
+  if (tools === undefined || requests.length === 0) return undefined;
+  if (!requests.every((r) => r.sideChannel === true)) return undefined;
+  return `tools ${JSON.stringify(tools)} gave the agent no tools: no name in it is a tool this CLI knows, so no request offered a tool and the script was never served. Check the names for typos.`;
+}
+
+/**
  * What makes a finished run unsound, most specific first, or undefined. Pure.
  */
 export function runProblem(
   stderr: string,
   model: readonly ModelTurn[],
   modelRequests: readonly ModelRequest[],
+  tools?: readonly string[],
 ): string | undefined {
   return (
     unsupportedToolsFlag(stderr) ??
+    toolsResolvedToNothing(tools, modelRequests) ??
     // A typo'd last turn makes the CLI ask once more, so the overrun follows
     // from it: report the cause, not its effect.
     noSuchToolMessage(model, modelRequests) ??
@@ -784,8 +802,9 @@ function assertRunSound(
   stderr: string,
   model: readonly ModelTurn[],
   modelRequests: readonly ModelRequest[],
+  tools?: readonly string[],
 ): void {
-  const problem = runProblem(stderr, model, modelRequests);
+  const problem = runProblem(stderr, model, modelRequests, tools);
   if (problem === undefined) return;
   rmSync(cwd, { recursive: true, force: true });
   throw new Error(problem);
@@ -956,7 +975,7 @@ export async function runHarnessTestIn(
     // warning, which the sandbox path could not emit at all before.
     const { count, sideChannelCount } = splitRequestCounts(out.requests);
     warnUnconsumed(count, sideChannelCount);
-    assertRunSound(cwd, "", spec.model, out.requests);
+    assertRunSound(cwd, "", spec.model, out.requests, spec.tools);
     return check(
       makeResult(cwd, out, parseClaudeRun(out.stdout), count, out.requests),
     );
@@ -978,7 +997,7 @@ export async function runHarnessTestIn(
     // it (every request arriving without tool declarations, so nothing looked
     // like an agent turn) instead of leaving it to be rediscovered.
     warnUnconsumed(mock.count, mock.sideChannelCount ?? 0);
-    assertRunSound(cwd, out.stderr, spec.model, mock.requests);
+    assertRunSound(cwd, out.stderr, spec.model, mock.requests, spec.tools);
     return check(
       makeResult(cwd, out, driver.parseRun(out.stdout), mock.count, [
         ...mock.requests,

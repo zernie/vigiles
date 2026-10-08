@@ -392,6 +392,29 @@ test("runProblem: an unknown scripted tool is reported before the overrun it cau
   assert.equal(runProblem("", model, [req("go")]), undefined);
 });
 
+// `tools` of names the CLI does not know leaves the agent with none: every
+// request then arrives without tool declarations, the mock files them all as
+// side-channel traffic, and the script is never served. Failing names the list.
+test("runProblem: a tools list the CLI resolved to no tools fails the run", () => {
+  const model = [{ tool: "Bash", input: {} }, { text: "done" }];
+  const sideChannel = {
+    system: "",
+    messages: [{ role: "user", text: "go" }],
+    sideChannel: true,
+  };
+  const agentTurn = { system: "", messages: [{ role: "user", text: "go" }] };
+  assert.match(
+    runProblem("", model, [sideChannel, sideChannel], ["Bsh"]) ?? "",
+    /tools \["Bsh"\] gave the agent no tools/,
+  );
+  // An agent turn was served: the list resolved to something.
+  assert.equal(runProblem("", model, [agentTurn], ["Bsh", "Bash"]), undefined);
+  // No request at all (a hook stopped the prompt) is not this failure.
+  assert.equal(runProblem("", model, [], ["Bsh"]), undefined);
+  // Without `tools` the same traffic is not blamed on a list nobody gave.
+  assert.equal(runProblem("", model, [sideChannel]), undefined);
+});
+
 test("tools of blank names is refused like tools: []", async () => {
   await assert.rejects(
     runHarnessTest({
