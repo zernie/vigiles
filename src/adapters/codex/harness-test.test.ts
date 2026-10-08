@@ -35,6 +35,19 @@ test("buildCodexArgs: exec flags, mock flags after exec, prompt last", () => {
   expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
 });
 
+test("buildCodexArgs: tools and allowedTools do not change the argv (Codex has no equivalent)", () => {
+  const ctx = {
+    prompt: "do it",
+    cwd: "/tmp/x",
+    hasSettings: false,
+    transcript: false,
+    mockArgs: ["-c", "model_provider=mock"],
+  };
+  expect(
+    buildCodexArgs({ ...ctx, tools: ["Read"], allowedTools: ["Bash"] }),
+  ).toEqual(buildCodexArgs(ctx));
+});
+
 test("parseCodexRun: returns trimmed stdout as the output, empty tools/hooks", () => {
   const r = parseCodexRun("  HELLO_CODEX\n");
   expect(r.output).toBe("HELLO_CODEX");

@@ -3,8 +3,8 @@
  * real hooks/settings against a scripted mock model, so the outcome is
  * reproducible. Skipped cleanly when `claude` is not on PATH.
  *
- * Edit/Write tool-event hooks DO fire in this tier (`allowedTools` offers and
- * pre-approves the edit tools past the permission prompt) — see the Edit/Write regression
+ * Edit/Write tool-event hooks DO fire in this tier (`allowedTools` pre-approves
+ * the edit tools past the permission prompt) — see the Edit/Write regression
  * tests below. An earlier claude version gated them headlessly; the tests lock in
  * that they work on current CLIs (verified on 2.1.169) and catch a re-gate.
  */
@@ -240,26 +240,36 @@ maybe(
   },
 );
 
-// #252: `--allowedTools` PRE-APPROVES, it does not restrict, so a tool left out
-// of `allowedTools` must be withheld with `--tools` (the availability list).
-test("buildClaudeArgs: allowedTools both pre-approves and withholds (--tools)", () => {
+// `tools` (which tools EXIST, `--tools`) and `allowedTools` (which are
+// PRE-APPROVED, `--allowedTools`) are two fields because they are two Claude Code
+// flags. #341 folded them into one and broke "a tool that exists but is not
+// approved is refused", the permission-containment case.
+const flagValues = (args: readonly string[], flag: string): string[] => {
+  const at = args.indexOf(flag);
+  if (at < 0) return [];
+  const rest = args.slice(at + 1);
+  const next = rest.findIndex((a) => a.startsWith("--"));
+  return next < 0 ? rest : rest.slice(0, next);
+};
+
+test("buildClaudeArgs: allowedTools alone pre-approves and never restricts", () => {
   const argsOf = (allowedTools?: readonly string[]) =>
     buildClaudeArgs({ model: scriptModel([]), allowedTools }, false);
-  const flagValues = (args: readonly string[], flag: string): string[] => {
-    const at = args.indexOf(flag);
-    if (at < 0) return [];
-    const rest = args.slice(at + 1);
-    const next = rest.findIndex((a) => a.startsWith("--"));
-    return next < 0 ? rest : rest.slice(0, next);
-  };
 
   const narrowed = argsOf(["Read", "Write"]);
-  assert.deepEqual(flagValues(narrowed, "--tools"), ["Read,Write"]);
+  assert.ok(
+    !narrowed.includes("--tools"),
+    "allowedTools must not emit --tools",
+  );
   assert.deepEqual(flagValues(narrowed, "--allowedTools"), ["Read", "Write"]);
 
-  // No list given: nothing is withheld (no `--tools`), the default four are only
-  // pre-approved. Only an EXPLICIT list restricts.
-  assert.deepEqual(flagValues(argsOf(), "--tools"), []);
+  // A permission rule keeps its specifier: it is an approval, not a name.
+  assert.deepEqual(flagValues(argsOf(["Bash(git *)"]), "--allowedTools"), [
+    "Bash(git *)",
+  ]);
+
+  // Nothing listed: the default four are pre-approved, nothing is withheld.
+  assert.ok(!argsOf().includes("--tools"));
   assert.deepEqual(flagValues(argsOf(), "--allowedTools"), [
     "Read",
     "Edit",
@@ -267,16 +277,51 @@ test("buildClaudeArgs: allowedTools both pre-approves and withholds (--tools)", 
     "Bash",
   ]);
 
-  // The builder alone: an empty list is NO tools, not "all of them" (`--tools ""`).
-  // runHarnessTest refuses it — see the test below.
+  // `[]` = nothing pre-approved: the flag is left out (a bare `--allowedTools`
+  // exits before any model turn) and nothing is withheld either.
   const none = argsOf([]);
-  assert.deepEqual(flagValues(none, "--tools"), [""]);
-  assert.ok(!none.includes("--allowedTools"), "nothing to pre-approve");
+  assert.ok(!none.includes("--allowedTools"));
+  assert.ok(!none.includes("--tools"));
+});
+
+test("buildClaudeArgs: tools alone says which tools exist and approves no more than the default four", () => {
+  const args = buildClaudeArgs(
+    { model: scriptModel([]), tools: ["Read", "Write"] },
+    false,
+  );
+  assert.deepEqual(flagValues(args, "--tools"), ["Read,Write"]);
+  assert.deepEqual(flagValues(args, "--allowedTools"), [
+    "Read",
+    "Edit",
+    "Write",
+    "Bash",
+  ]);
+
+  // Both fields: independent flags, each its own list.
+  const both = buildClaudeArgs(
+    {
+      model: scriptModel([]),
+      tools: ["Read", "Bash"],
+      allowedTools: ["Read"],
+    },
+    false,
+  );
+  assert.deepEqual(flagValues(both, "--tools"), ["Read,Bash"]);
+  assert.deepEqual(flagValues(both, "--allowedTools"), ["Read"]);
+
+  // The builder alone: `[]` is `--tools ""` = no tools. runHarnessTest refuses it.
+  assert.deepEqual(
+    flagValues(
+      buildClaudeArgs({ model: scriptModel([]), tools: [] }, false),
+      "--tools",
+    ),
+    [""],
+  );
 });
 
 test("toolAvailabilityList: a permission rule is offered by its tool name", () => {
   // `--tools "Bash(git *)"` makes the CLI offer nothing (measured on 2.1.292), so
-  // the specifier stays on the `--allowedTools` side only.
+  // availability takes bare names.
   assert.deepEqual(toolAvailabilityList(["Bash(git *)", "Read"]), [
     "Bash",
     "Read",
@@ -286,15 +331,10 @@ test("toolAvailabilityList: a permission rule is offered by its tool name", () =
   ]);
   assert.deepEqual(toolAvailabilityList([]), []);
   const args = buildClaudeArgs(
-    { model: scriptModel([]), allowedTools: ["Bash(git *)"] },
+    { model: scriptModel([]), tools: ["Bash(git *)"] },
     false,
   );
-  assert.deepEqual(args.slice(-4), [
-    "--tools",
-    "Bash",
-    "--allowedTools",
-    "Bash(git *)",
-  ]);
+  assert.deepEqual(flagValues(args, "--tools"), ["Bash"]);
 });
 
 test("warnUnconsumed: says so on stderr when the classifier swallowed the run, and only then", () => {
@@ -314,26 +354,126 @@ test("warnUnconsumed: says so on stderr when the classifier swallowed the run, a
 });
 
 test("unsupportedToolsFlag: names the cause when claude predates --tools", () => {
-  assert.match(
-    unsupportedToolsFlag("error: unknown option '--tools'\n") ?? "",
-    /2\.0\.31 or newer/,
-  );
+  const message = unsupportedToolsFlag("error: unknown option '--tools'\n");
+  assert.match(message ?? "", /2\.0\.31 or newer/);
+  assert.match(message ?? "", /`tools`/);
   assert.equal(unsupportedToolsFlag("some other failure"), undefined);
   assert.equal(unsupportedToolsFlag(""), undefined);
 });
 
-test("allowedTools: [] is refused — a tool-less agent is never served a script turn", async () => {
+test("tools: [] is refused — a tool-less agent is never served a script turn", async () => {
   await assert.rejects(
     runHarnessTest({
       sandbox: false,
-      allowedTools: [],
+      tools: [],
       model: [{ text: "done" }],
     }),
-    /allowedTools: \[\] leaves the agent with no tools/,
+    /tools: \[\] leaves the agent with no tools/,
   );
 });
 
-maybe("allowedTools keeps a permission rule's tool available", async () => {
+// A scripted call to a tool that does not EXIST in the run cannot pass silently:
+// the CLI answers it "No such tool available" and the test would go on over a
+// step that never happened.
+test("unofferedScriptedTool: names the tool, the turn and what exists", () => {
+  const model = [
+    { tool: "Read", input: {} },
+    { tool: "Skill", input: {} },
+  ];
+  assert.equal(
+    unofferedScriptedTool(model, ["Read", "Bash"]),
+    'scripted call to "Skill" on turn 2, but this run\'s tools are only: Read, Bash — add it to tools',
+  );
+  // A permission rule names its bare tool; MCP tools are not withheld by --tools.
+  assert.equal(
+    unofferedScriptedTool(model, ["Read", "Skill(demo)"]),
+    undefined,
+  );
+  assert.equal(
+    unofferedScriptedTool([{ tool: "mcp__srv__t" }, { text: "x" }], ["Read"]),
+    undefined,
+  );
+  // No `tools`: every tool exists, so nothing can be unoffered.
+  assert.equal(unofferedScriptedTool(model, undefined), undefined);
+});
+
+test("runHarnessTest refuses a script that calls a tool the explicit `tools` leaves out", async () => {
+  await assert.rejects(
+    runHarnessTest({
+      sandbox: false,
+      tools: ["Read", "Bash"],
+      model: [{ tool: "Skill", input: { skill: "demo" } }, { text: "done" }],
+    }),
+    /scripted call to "Skill" on turn 1, but this run's tools are only: Read, Bash — add it to tools/,
+  );
+});
+
+// (a) The consumer's permission-containment case. `allowedTools` lists what is
+// pre-approved; Bash EXISTS but is not approved, so the CLI refuses the call for
+// permission. Asserted on the structure of the run: the call was dispatched
+// (Bash is in the session's tool list and in the transcript), came back as an
+// error that is not "No such tool", and its side effect never happened.
+maybe(
+  "allowedTools: a tool that exists but is not approved is refused for permission",
+  async () => {
+    const r = await runHarnessTest({
+      sandbox: false,
+      transcript: true,
+      allowedTools: ["Read", "Write"], // Bash exists, but is not approved
+      model: [
+        { tool: "Bash", input: { command: "touch DENIED-PROBE" } },
+        { text: "done" },
+      ],
+      timeoutMs: 120000,
+    });
+    try {
+      const session = /"subtype":"init".*?"tools":\[([^\]]*)\]/.exec(
+        r.stdout,
+      )?.[1];
+      assert.match(session ?? "", /"Bash"/, "Bash exists in the session");
+      const bash = r.toolCalls.find((c) => c.name === "Bash");
+      assert.ok(bash, "the Bash call reached the CLI");
+      assert.equal(bash.isError, true, bash.resultText);
+      assert.doesNotMatch(bash.resultText, /no such tool/i);
+      assert.match(bash.resultText, /needs approval|permission/i);
+      assert.equal(
+        r.file("DENIED-PROBE"),
+        null,
+        "the refused call left no file",
+      );
+    } finally {
+      r.cleanup();
+    }
+  },
+);
+
+// `allowedTools: []` = nothing pre-approved (not "no tools"): every tool exists
+// and any call that needs approval is refused. Legitimate, and 34.x allowed it.
+maybe(
+  "allowedTools: [] pre-approves nothing and the run still proceeds",
+  async () => {
+    const r = await runHarnessTest({
+      sandbox: false,
+      transcript: true,
+      allowedTools: [],
+      model: [
+        { tool: "Bash", input: { command: "touch DENIED-PROBE" } },
+        { text: "done" },
+      ],
+      timeoutMs: 120000,
+    });
+    try {
+      const bash = r.toolCalls.find((c) => c.name === "Bash");
+      assert.ok(bash, "the Bash call reached the CLI");
+      assert.equal(bash.isError, true, bash.resultText);
+      assert.equal(r.file("DENIED-PROBE"), null);
+    } finally {
+      r.cleanup();
+    }
+  },
+);
+
+maybe("allowedTools keeps a permission rule's tool usable", async () => {
   const r = await runHarnessTest({
     sandbox: false,
     transcript: true,
@@ -349,14 +489,13 @@ maybe("allowedTools keeps a permission rule's tool available", async () => {
   }
 });
 
-// #252: a tool left out of an EXPLICIT `allowedTools` is not offered at all. A
-// scripted call to it is refused up front (below), so the proof that the CLI
-// withholds it is the tool list the real session reports.
-maybe("an explicit allowedTools offers exactly those tools", async () => {
+// (c) `tools` is the availability list: a tool left out does not exist, and the
+// real session's own tool list is the proof.
+maybe("tools: the session offers exactly those tools", async () => {
   const r = await runHarnessTest({
     sandbox: false,
     transcript: true,
-    allowedTools: ["Read", "Write"], // Bash deliberately absent
+    tools: ["Read", "Write"], // Bash deliberately absent
     model: [{ text: "done" }],
     timeoutMs: 120000,
   });
@@ -368,65 +507,28 @@ maybe("an explicit allowedTools offers exactly those tools", async () => {
   }
 });
 
-// No list: every tool is offered, exactly as before #252 — a scripted Skill call
-// launches the skill instead of coming back as "No such tool available".
-maybe(
-  "with no allowedTools a scripted Skill call launches the skill",
-  async () => {
-    const r = await runHarnessTest({
-      sandbox: false,
-      transcript: true,
-      pluginDir: join(__dirname, "../examples/harness/fixture-skill-plugin"),
-      settings: { permissions: { allow: ["Skill"] } },
-      model: [
-        { tool: "Skill", input: { skill: "demo:greet" } },
-        { text: "done" },
-      ],
-      timeoutMs: 120000,
-    });
-    try {
-      const skill = r.toolCalls.find((c) => c.name === "Skill");
-      assert.ok(skill, "the Skill call reached the CLI");
-      assert.doesNotMatch(skill.resultText, /no such tool/i);
-      assert.equal(skill.isError, false, skill.resultText);
-    } finally {
-      r.cleanup();
-    }
-  },
-);
-
-// A scripted call to a tool the run does not offer cannot pass silently.
-test("unofferedScriptedTool: names the tool, the turn and what is offered", () => {
-  const model = [
-    { tool: "Read", input: {} },
-    { tool: "Skill", input: {} },
-  ];
-  assert.equal(
-    unofferedScriptedTool(model, ["Read", "Bash"]),
-    'scripted call to "Skill" on turn 2, but this run offers only: Read, Bash — add it to allowedTools',
-  );
-  // A permission rule offers its bare tool; MCP tools are not withheld by --tools.
-  assert.equal(
-    unofferedScriptedTool(model, ["Read", "Skill(demo)"]),
-    undefined,
-  );
-  assert.equal(
-    unofferedScriptedTool([{ tool: "mcp__srv__t" }, { text: "x" }], ["Read"]),
-    undefined,
-  );
-  // No explicit list: nothing is withheld, so nothing can be unoffered.
-  assert.equal(unofferedScriptedTool(model, undefined), undefined);
-});
-
-test("runHarnessTest refuses a script that calls a tool the explicit allowedTools leaves out", async () => {
-  await assert.rejects(
-    runHarnessTest({
-      sandbox: false,
-      allowedTools: ["Read", "Bash"],
-      model: [{ tool: "Skill", input: { skill: "demo" } }, { text: "done" }],
-    }),
-    /scripted call to "Skill" on turn 1, but this run offers only: Read, Bash — add it to allowedTools/,
-  );
+// With neither field every tool exists: a scripted Skill call launches the skill
+// instead of coming back as "No such tool available".
+maybe("with no tools a scripted Skill call launches the skill", async () => {
+  const r = await runHarnessTest({
+    sandbox: false,
+    transcript: true,
+    pluginDir: join(__dirname, "../examples/harness/fixture-skill-plugin"),
+    settings: { permissions: { allow: ["Skill"] } },
+    model: [
+      { tool: "Skill", input: { skill: "demo:greet" } },
+      { text: "done" },
+    ],
+    timeoutMs: 120000,
+  });
+  try {
+    const skill = r.toolCalls.find((c) => c.name === "Skill");
+    assert.ok(skill, "the Skill call reached the CLI");
+    assert.doesNotMatch(skill.resultText, /no such tool/i);
+    assert.equal(skill.isError, false, skill.resultText);
+  } finally {
+    r.cleanup();
+  }
 });
 
 // Regression: a PostToolUse hook fires on an Edit/Write tool use. This is the

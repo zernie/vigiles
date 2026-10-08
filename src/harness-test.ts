@@ -152,16 +152,29 @@ export interface HarnessTestSpec {
   /** The user prompt. Default: "go". */
   readonly prompt?: string;
   /**
-   * The ONLY tools the agent has, when you list them: a tool left out is not
-   * offered (`claude --tools`, Claude Code 2.0.31+), `[]` is refused, and a
-   * scripted call to a tool the list leaves out throws before the run starts.
-   * Omitted, nothing is withheld: every tool is offered and Read, Edit, Write and
-   * Bash are pre-approved. Each listed tool is also pre-approved
-   * (`--allowedTools`), so it does not stop on a permission prompt; a permission
-   * rule such as `Bash(git *)` keeps its specifier for the approval and is
-   * offered as plain `Bash`. An MCP tool is not a built-in: left out, it is still
-   * offered but not approved, so a call to it is refused for permission rather
-   * than as "No such tool".
+   * Which tools EXIST in the session (`claude --tools`, Claude Code 2.0.31+). A
+   * tool left out is not offered at all, so a call to it is "No such tool
+   * available". Omitted, every tool exists. Names only: a permission rule such as
+   * `Bash(git *)` is reduced to `Bash`. `[]` is refused (an agent with no tools
+   * is never served a scripted turn), and a scripted call to a tool the list
+   * leaves out throws before the run starts. An MCP tool is not a built-in, so
+   * `--tools` does not withhold it. This does not approve anything: pair it with
+   * `allowedTools` for tools that need approval. Codex has no equivalent and
+   * ignores it.
+   *
+   * | field          | Claude Code flag  | meaning                      |
+   * | -------------- | ----------------- | ---------------------------- |
+   * | `tools`        | `--tools`         | which tools exist            |
+   * | `allowedTools` | `--allowedTools`  | which are pre-approved       |
+   */
+  readonly tools?: readonly string[];
+  /**
+   * Which tools are PRE-APPROVED (`claude --allowedTools`), so they do not stop
+   * on a permission prompt. It never removes a tool: one that exists but is not
+   * approved is refused for permission in headless mode, which is how a
+   * permission-containment test gets its positive control. Takes permission
+   * rules (`Bash(git *)`). Omitted: Read, Edit, Write and Bash are approved.
+   * `[]`: nothing is approved. See `tools` for which tools exist.
    */
   readonly allowedTools?: readonly string[];
   /**
@@ -423,40 +436,42 @@ export function parseHooks(stdout: string): HookFire[] {
 const TOOLS_FLAG_MIN_CLAUDE = "2.0.31";
 
 /**
- * The names `--tools` should offer for an `allowedTools` list. `--allowedTools`
- * takes permission rules (`Bash(git *)`); `--tools` takes tool NAMES, and a rule
- * with a specifier there makes the CLI offer no tools at all. So the specifier is
- * dropped (`Bash(git *)` → `Bash`) and repeats collapse. Pure.
+ * The names `--tools` takes for a `tools` list. `--allowedTools` takes permission
+ * rules (`Bash(git *)`); `--tools` takes tool NAMES, and a rule with a specifier
+ * there makes the CLI offer no tools at all. So the specifier is dropped
+ * (`Bash(git *)` → `Bash`) and repeats collapse. Pure.
  */
 export function toolAvailabilityList(
-  allowed: readonly string[],
+  tools: readonly string[],
 ): readonly string[] {
-  const names = allowed.map((rule) => rule.replace(/\(.*$/, "").trim());
+  const names = tools.map((rule) => rule.replace(/\(.*$/, "").trim());
   return [...new Set(names.filter((n) => n !== ""))];
 }
 
 /**
- * A scripted call to a tool an EXPLICIT `allowedTools` does not offer. The CLI
- * answers it with "No such tool available" and the run goes on, so a test that
- * scripts the call and then asserts on something else passes over a step that
- * never happened. Returns the message to throw, or undefined. MCP tools are not
- * built-ins, so `--tools` does not withhold them and they are skipped. Pure.
+ * A scripted call to a tool an EXPLICIT `tools` list leaves out. The CLI answers
+ * it with "No such tool available" and the run goes on, so a test that scripts
+ * the call and then asserts on something else passes over a step that never
+ * happened. A tool that exists but is not in `allowedTools` is NOT this: the CLI
+ * refuses it for permission, which is a result a test can assert on. Returns the
+ * message to throw, or undefined. MCP tools are not built-ins, so `--tools` does
+ * not withhold them and they are skipped. Pure.
  */
 export function unofferedScriptedTool(
   model: readonly ModelTurn[],
-  allowed: readonly string[] | undefined,
+  tools: readonly string[] | undefined,
 ): string | undefined {
-  if (allowed === undefined) return undefined;
-  const offered = toolAvailabilityList(allowed);
+  if (tools === undefined) return undefined;
+  const exist = toolAvailabilityList(tools);
   const at = model.findIndex(
     (t) =>
       t.tool !== undefined &&
       !t.tool.startsWith("mcp__") &&
-      !offered.includes(t.tool),
+      !exist.includes(t.tool),
   );
   return at < 0
     ? undefined
-    : `scripted call to "${model[at]?.tool ?? ""}" on turn ${String(at + 1)}, but this run offers only: ${offered.join(", ")} — add it to allowedTools`;
+    : `scripted call to "${model[at]?.tool ?? ""}" on turn ${String(at + 1)}, but this run's tools are only: ${exist.join(", ")} — add it to tools`;
 }
 
 /**
@@ -466,7 +481,7 @@ export function unofferedScriptedTool(
  */
 export function unsupportedToolsFlag(stderr: string): string | undefined {
   return /unknown option '--tools'/.test(stderr)
-    ? `this \`claude\` does not know \`--tools\`, which runHarnessTest uses to withhold every tool not in \`allowedTools\` (#252). Update Claude Code to ${TOOLS_FLAG_MIN_CLAUDE} or newer. Running without it would hand the agent every tool while the test reads as if it were fenced.`
+    ? `this \`claude\` does not know \`--tools\`, which runHarnessTest passes for the \`tools\` field (which tools exist). Update Claude Code to ${TOOLS_FLAG_MIN_CLAUDE} or newer. Running without it would hand the agent every tool while the test reads as if it were restricted.`
     : undefined;
 }
 
@@ -479,7 +494,7 @@ export function buildClaudeArgs(
   spec: HarnessTestSpec,
   hasSettings: boolean,
 ): string[] {
-  const tools = spec.allowedTools ?? ["Read", "Edit", "Write", "Bash"];
+  const approved = spec.allowedTools ?? ["Read", "Edit", "Write", "Bash"];
   return [
     "-p",
     spec.prompt ?? "go",
@@ -492,18 +507,15 @@ export function buildClaudeArgs(
       ? ["--plugin-dir", resolve(spec.pluginDir)]
       : []),
     ...(hasSettings ? ["--settings", "settings.json"] : []),
-    // An EXPLICIT list restricts: `--tools` is the AVAILABILITY list, a tool left
-    // out is not offered at all. `--allowedTools` only PRE-APPROVES (it never
-    // restricts), so on its own it left every unnamed tool runnable (#252). An
-    // empty list is `--tools ""` = no tools. With no list, nothing is withheld:
-    // the default four are pre-approved and every other tool stays available.
-    ...(spec.allowedTools === undefined
+    // `tools` = which tools EXIST (`--tools`, the availability list). Omitted:
+    // nothing is withheld.
+    ...(spec.tools === undefined
       ? []
-      : ["--tools", toolAvailabilityList(spec.allowedTools).join(",")]),
-    // Pre-approval for the offered tools, so none stops on a permission prompt
-    // (headless). An empty one approves nothing, so the flag is left out (a bare
+      : ["--tools", toolAvailabilityList(spec.tools).join(",")]),
+    // `allowedTools` = which are PRE-APPROVED (`--allowedTools`); it never
+    // restricts. An empty list approves nothing, so the flag is left out (a bare
     // `--allowedTools` exits before any model turn).
-    ...(tools.length === 0 ? [] : ["--allowedTools", ...tools]),
+    ...(approved.length === 0 ? [] : ["--allowedTools", ...approved]),
   ];
 }
 
@@ -515,7 +527,8 @@ function buildClaudeArgsFromCtx(ctx: HarnessDriverContext): string[] {
       prompt: ctx.prompt,
       transcript: ctx.transcript,
       pluginDir: ctx.pluginDir,
-      allowedTools: ctx.tools,
+      tools: ctx.tools,
+      allowedTools: ctx.allowedTools,
     },
     ctx.hasSettings,
   );
@@ -696,7 +709,7 @@ export function warnUnconsumed(count: number, sideChannelCount: number): void {
 
 /**
  * A run that proves nothing about the script fails the test instead of coming
- * back as a result: the `claude` on PATH predates `--tools` (#252), or the agent
+ * back as a result: the `claude` on PATH predates `--tools` (needed for `tools`), or the agent
  * asked for a model turn the script did not have and the mock answered with an
  * error rather than an invented turn (#340). Removes the run's directory, since
  * no result is handed back to clean it up.
@@ -776,12 +789,12 @@ export async function runHarnessTest(
  * never served a script turn, and the run would decide on nothing.
  */
 function refuseUnrunnableSpec(spec: HarnessTestSpec): void {
-  if (spec.allowedTools?.length === 0) {
+  if (spec.tools?.length === 0) {
     throw new Error(
-      "allowedTools: [] leaves the agent with no tools, and the scripted model only serves a turn to a request that declares tools — no script turn would be consumed. Name the tools the agent has.",
+      "tools: [] leaves the agent with no tools, and the scripted model only serves a turn to a request that declares tools — no script turn would be consumed. Name the tools the agent has.",
     );
   }
-  const unoffered = unofferedScriptedTool(spec.model, spec.allowedTools);
+  const unoffered = unofferedScriptedTool(spec.model, spec.tools);
   if (unoffered !== undefined) throw new Error(unoffered);
 }
 
@@ -830,7 +843,8 @@ export async function runHarnessTestIn(
       prompt: spec.prompt ?? "go",
       cwd,
       hasSettings: settings !== undefined,
-      tools: spec.allowedTools,
+      tools: spec.tools,
+      allowedTools: spec.allowedTools,
       transcript: spec.transcript ?? false,
       pluginDir: spec.pluginDir,
       mockArgs,

@@ -30,6 +30,9 @@ import { startCodexMock } from "./mock-model.js";
  * `--dangerously-bypass-approvals-and-sandbox` make it run unattended;
  * `--skip-git-repo-check` lets it run in a bare temp dir; `--ignore-user-config`
  * keeps the host's `~/.codex` out. The prompt is the trailing positional.
+ * `ctx.tools` and `ctx.allowedTools` are ignored: `codex exec` runs with approvals
+ * and the sandbox bypassed and has no per-run tool availability or pre-approval
+ * flag, so the spec's `tools` / `allowedTools` fields do nothing on Codex.
  * Pure, so the arg shape is unit-tested.
  */
 export function buildCodexArgs(ctx: HarnessDriverContext): string[] {

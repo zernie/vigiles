@@ -114,10 +114,17 @@ export interface HarnessDriverContext {
   /** Whether a settings file was written (CC: pass `--settings`). */
   readonly hasSettings: boolean;
   /**
-   * The ONLY tools the agent has, when the spec lists them; undefined = no
-   * restriction (every tool is offered, the default four are pre-approved).
+   * Which tools EXIST in the session, when the spec lists them (CC: `--tools`);
+   * undefined = every tool exists. A driver whose harness has no such concept
+   * (Codex) ignores it.
    */
   readonly tools?: readonly string[];
+  /**
+   * Which tools are PRE-APPROVED (CC: `--allowedTools`); undefined = the
+   * default four. It never removes a tool. A driver with no such concept
+   * ignores it.
+   */
+  readonly allowedTools?: readonly string[];
   /** Capture the full event transcript instead of just the final result. */
   readonly transcript: boolean;
   /** Path to a plugin dir to install natively, if any. */
