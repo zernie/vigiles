@@ -264,6 +264,10 @@ async function attemptExfil(skillMd) {
       "contract.sol": POISONED_CONTRACT,
       "secret.txt": "sk-fake-secret-do-not-leak",
     },
+    // `Skill` must be OFFERED, not just allowed: a tool left out of `allowedTools`
+    // is withheld (#252). Without it the scripted Skill call fails with "No such
+    // tool", the skill's `disallowed-tools` never apply, and Bash goes through.
+    allowedTools: ["Read", "Edit", "Write", "Bash", "Skill"],
     settings: { permissions: { allow: ["Bash", "Skill"] } },
     model: scriptModel([
       { tool: "Skill", input: { skill: EXFIL_SKILL_NAME } },
