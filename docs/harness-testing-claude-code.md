@@ -223,22 +223,41 @@ assertSkillResolved(r, "demo:greet"); // a non-error Skill tool_use by that name
 assertToolNotUsed(r, /^mcp__/); // the safety negative: no MCP tool was used
 ```
 
-`allowedTools` is optional. Omit it and nothing is withheld: every tool is offered
-(a scripted `Skill` or `Agent` call works) and Read, Edit, Write and Bash are
-pre-approved so they do not stop on a permission prompt. List it and it becomes the
-**complete** tool set: a tool left out is not offered at all (`claude --tools`,
-Claude Code 2.0.31 or newer) and its side effect cannot happen. Each listed tool is
-also pre-approved (`--allowedTools`). A scripted call to a tool the list leaves out
-**throws before the run starts** (`scripted call to "Skill" on turn 2, but this run
-offers only: Read, Bash — add it to allowedTools`), because the CLI would answer it
-with "No such tool available" and the test would carry on over a step that never
-happened. A permission rule such as `Bash(git *)` keeps its specifier for the
-approval and is offered as plain `Bash`. An MCP tool is not a built-in, so
-`--tools` does not withhold it: left out of the list it is still offered but not
-pre-approved, and the call is refused for permission ("you haven't granted it yet"),
-not as "No such tool". `allowedTools: []` is refused: an agent with no tools is
-never served a scripted turn. (Before #252 the list only pre-approved, so a tool you
-left out still ran.)
+Two optional fields, two Claude Code flags:
+
+| field          | Claude Code flag | meaning                                               | omitted                                     |
+| -------------- | ---------------- | ----------------------------------------------------- | ------------------------------------------- |
+| `tools`        | `--tools`        | which tools **exist** in the session                  | every tool exists                           |
+| `allowedTools` | `--allowedTools` | which tools are **pre-approved** (no permission stop) | Read, Edit, Write and Bash are pre-approved |
+
+`allowedTools` never removes a tool, and leaving a tool out of it is **not a
+fence**. In headless mode Claude Code refuses only the calls it would have asked
+about. For Bash that is a command that creates, changes or removes a file
+(`touch`, `>`), inside or outside the working directory: with
+`allowedTools: ["Read", "Write"]` a scripted `touch DENIED-PROBE` comes back as an
+error (`touch in '…' needs approval`) and leaves no file. A command with no file
+effect (`printf PROBE_RAN; id -u`, `ls`) runs unapproved. So that refused `touch`
+proves the file-change guard is live, not that Bash is withheld. To withhold a tool
+use `tools`; to forbid its use put a deny rule in the fixture's
+`settings.permissions.deny`. (Measured on Claude Code 2.1.294; the wording of the
+refusal can change, so assert that the call errored and left no file, not the
+text.) `allowedTools: []` approves nothing. A permission rule such as `Bash(git *)`
+is a valid `allowedTools` entry and keeps its specifier. An explicit list
+**replaces** the default four: `tools: ["Read", "Write"]` with
+`allowedTools: ["Skill"]` leaves Write unapproved.
+
+`tools` makes a tool not exist: a call to one left out comes back as "No such tool
+available" (`claude --tools`, Claude Code 2.0.31 or newer). Because the test would
+carry on over a step that never happened, a scripted call to a tool outside an
+explicit `tools` list **throws before the run starts** (`scripted call to "Skill"
+on turn 2, but this run's tools are only: Read, Bash — add it to tools`). It takes
+bare names: `Bash(git *)` is refused, since the rule belongs in `allowedTools`.
+`tools: []` is refused: an agent with no tools is never served a scripted turn. An
+MCP tool is not a built-in, so `--tools` does not withhold it. A scripted call to
+any tool the CLI does not know (a typo such as `Bsh`, an `mcp__` server that is not
+configured) fails the run with the tool's name, whether or not `tools` is set. The
+Codex driver ignores `allowedTools` (`codex exec` runs with approvals bypassed) and
+a run there refuses `tools`, which has no equivalent.
 
 **Assert on the agent's _actions_, not stdout.** With `transcript: true`,
 `r.toolCalls` is the parsed list of tools the agent invoked (each paired with its
@@ -345,8 +364,8 @@ populated by `runHarnessTest`; the eval tier drives the real API, so its
 
 The deterministic mock drives **SessionStart, Stop, UserPromptSubmit, and Bash
 **and Edit/Write** PreToolUse/PostToolUse** — the governance/policy shapes most
-real plugins use (`allowedTools` offers the edit tools and pre-approves them past
-the permission prompt; verified on claude 2.1.169). The events the mock can't trigger —
+real plugins use (`allowedTools` pre-approves the edit tools past the
+permission prompt; verified on claude 2.1.169). The events the mock can't trigger —
 **PreCompact, Notification, SessionEnd, SubagentStop** — belong to the `runHook`
 unit tier, where you hand the hook the event JSON yourself so all of them are
 testable.

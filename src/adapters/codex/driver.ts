@@ -30,9 +30,17 @@ import { startCodexMock } from "./mock-model.js";
  * `--dangerously-bypass-approvals-and-sandbox` make it run unattended;
  * `--skip-git-repo-check` lets it run in a bare temp dir; `--ignore-user-config`
  * keeps the host's `~/.codex` out. The prompt is the trailing positional.
+ * `ctx.allowedTools` is ignored: `codex exec` runs with approvals bypassed, so
+ * everything is already approved. `ctx.tools` is refused (throws): Codex has no
+ * per-run tool availability.
  * Pure, so the arg shape is unit-tested.
  */
 export function buildCodexArgs(ctx: HarnessDriverContext): string[] {
+  if (ctx.tools !== undefined) {
+    throw new Error(
+      "tools is not supported for codex: it has no per-run tool availability, and a list that withheld nothing would let a test pass over a run where nothing was withheld. Drop tools, or assert on what the agent did.",
+    );
+  }
   return [
     "exec",
     "--ignore-user-config",

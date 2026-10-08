@@ -743,6 +743,7 @@ export interface HarnessTestSpec {
     readonly sandbox?: SandboxMode;
     readonly settings?: unknown;
     readonly timeoutMs?: number;
+    readonly tools?: readonly string[];
     readonly transcript?: boolean;
 }
 

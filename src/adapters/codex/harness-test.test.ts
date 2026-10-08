@@ -11,6 +11,9 @@
  */
 import { test, expect } from "vitest";
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { runHarnessTest } from "../../harness-test.js";
 import { codexAdapter } from "./adapter.js";
@@ -21,7 +24,6 @@ test("buildCodexArgs: exec flags, mock flags after exec, prompt last", () => {
     prompt: "do it",
     cwd: "/tmp/x",
     hasSettings: false,
-    tools: [],
     transcript: false,
     mockArgs: ["-c", "model_provider=mock"],
   });
@@ -33,6 +35,55 @@ test("buildCodexArgs: exec flags, mock flags after exec, prompt last", () => {
   // The prompt is the trailing positional.
   expect(args[args.length - 1]).toBe("do it");
   expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
+});
+
+test("buildCodexArgs: allowedTools does not change the argv (approvals are bypassed)", () => {
+  const ctx = {
+    prompt: "do it",
+    cwd: "/tmp/x",
+    hasSettings: false,
+    transcript: false,
+    mockArgs: ["-c", "model_provider=mock"],
+  };
+  expect(buildCodexArgs({ ...ctx, allowedTools: ["Bash"] })).toEqual(
+    buildCodexArgs(ctx),
+  );
+});
+
+// Codex has no per-run tool availability. A `tools` list that did nothing would
+// make a "this tool is withheld" test pass over a run where nothing was
+// withheld, so the driver refuses it.
+test("buildCodexArgs refuses tools", () => {
+  expect(() =>
+    buildCodexArgs({
+      prompt: "do it",
+      cwd: "/tmp/x",
+      hasSettings: false,
+      transcript: false,
+      mockArgs: [],
+      tools: ["Read"],
+    }),
+  ).toThrow(/tools is not supported for codex/);
+});
+
+test("runHarnessTest refuses tools on Codex and leaves no temp dir behind", async () => {
+  const before = process.env.TMPDIR;
+  const tmp = mkdtempSync(join(tmpdir(), "codex-tools-refusal-"));
+  process.env.TMPDIR = tmp;
+  try {
+    await expect(
+      runHarnessTest(
+        { sandbox: false, tools: ["Read"], model: [{ text: "done" }] },
+        { adapter: codexAdapter },
+      ),
+    ).rejects.toThrow(/tools is not supported for codex/);
+    // Guards: a refused spec leaves nothing behind in the temp root.
+    expect(readdirSync(tmp)).toEqual([]);
+  } finally {
+    if (before === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = before;
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test("parseCodexRun: returns trimmed stdout as the output, empty tools/hooks", () => {
