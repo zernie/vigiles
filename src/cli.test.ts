@@ -2268,7 +2268,28 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
     }
   });
 
-  it("eval lock flags: mutual-exclusion + cold-start no-op", () => {
+  it("init writes the eval gate as `eval --check --min=0`, green on a repo with no eval yet (#197)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-init-noeval-"));
+    try {
+      writeFileSync(join(dir, "package.json"), '{"name":"x"}');
+      writeFileSync(join(dir, "CLAUDE.md"), "# proj\n");
+      run("init --no-plugin", dir);
+      const yaml = readFileSync(
+        join(dir, ".github/workflows/vigiles.yml"),
+        "utf-8",
+      );
+      assert.match(yaml, /^ {2}eval-check:/m, "the eval job is scaffolded");
+      assert.match(yaml, /- run: npx vigiles eval --check --min=0\n/);
+      assert.match(yaml, /--min=0` is deliberate/, "the file says why");
+      // Without --min=0 the same step is red on this repo, and with it, green.
+      assert.equal(run("eval --check", dir).exitCode, 1);
+      assert.equal(run("eval --check --min=0", dir).exitCode, 0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("eval lock flags: mutual-exclusion, and --check with no committed lock fails (#197)", () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-lock-"));
     try {
       // --check + --update is a usage error (exit 2).
@@ -2276,11 +2297,30 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       assert.equal(both.exitCode, 2);
       assert.match(both.stderr, /mutually exclusive/);
 
-      // --check with no committed locks is a GREEN no-op (smooth adoption): the
-      // staleness gate activates only once the first lock is committed.
-      const cold = run("eval --check", dir);
-      assert.equal(cold.exitCode, 0);
-      assert.match(cold.stdout, /no committed eval locks found/);
+      // --check with NO eval file at all is the #197 case: an empty match fails,
+      // it used to return green before discovery ever ran.
+      const empty = run("eval --check", dir);
+      assert.equal(empty.exitCode, 1, empty.stdout + empty.stderr);
+      assert.match(empty.stderr, /NOTHING matched the default glob/);
+      // …and `--min=0`, the explicit floor of zero, is the one way to allow it.
+      assert.equal(run("eval --check --min=0", dir).exitCode, 0);
+
+      // Eval files exist and none has a recorded result: that is not "nothing to
+      // verify", it is a gate that has verified nothing.
+      const distTest = JSON.stringify(
+        resolve(__dirname, "..", "dist", "test.js"),
+      );
+      for (const name of ["a", "b"]) {
+        writeFileSync(
+          join(dir, `${name}.eval.mjs`),
+          `import { defineEval } from ${distTest};\n` +
+            `export default defineEval({ measure: { task: "t", checks: [] }, skipIf: () => "no model here" });\n`,
+        );
+      }
+      const unlocked = run("eval --check", dir);
+      assert.equal(unlocked.exitCode, 1, unlocked.stdout + unlocked.stderr);
+      assert.match(unlocked.stderr, /2 eval file\(s\) have no recorded result/);
+      assert.match(unlocked.stderr, /vigiles eval --update.*commit/s);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

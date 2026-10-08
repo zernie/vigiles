@@ -3597,17 +3597,21 @@ function vigilesWorkflow(
   eval-check:
     # Eval staleness gate — real-model evals run LOCALLY on your subscription
     # (\`npx vigiles eval --update\`, which commits a lock); this job VERIFIES those
-    # committed results against the current inputs with NO model call. It stays a
-    # green no-op until you commit your first lock. See docs/harness-testing.md.
+    # committed results against the current inputs with NO model call.
+    # \`--min=0\` is deliberate: a repo with no eval file yet matches nothing, and
+    # \`vigiles eval --check\` fails on an empty match by default (a gate that
+    # verified nothing must not read as a pass). With \`--min=0\` this job is green
+    # until the first \`*.eval.*\` file exists; from then on it is red until that
+    # eval's lock is committed. Raise the floor (\`--min=N\`) once you want
+    # a vanished eval file to fail it. See docs/harness-testing.md.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - uses: zernie/vigiles@v1
-        with:
-          command: eval-check
+      - run: npm install
+      - run: npx vigiles eval --check --min=0
 `
       : "";
   // No selectable jobs (e.g. `--no-lint --no-test`, or `--test` on a repo with no
@@ -6683,12 +6687,13 @@ async function promptYesNo(question: string): Promise<boolean> {
  * Resolve the eval LOCK env from the `eval` flags. `--update` records each named
  * eval's report to a committed `.vigiles/eval-locks/<name>.lock.json` (run locally
  * on your subscription); `--check` (CI) verifies the committed result against the
- * current inputs WITHOUT a model call. `--check` is a green NO-OP until the first
- * lock is committed (smooth adoption). Returns the env to thread, or `"skip"` to
- * exit green now. `--check`+`--update` together is a usage error (exit 2). The
- * behavior epoch comes from `.vigilesrc.json` `eval.apiVersion` (committed).
+ * current inputs WITHOUT a model call. `--check` with no lock committed at all is
+ * a FAILURE, not a green no-op ({@link refuseEvalCheckWithoutLocks}, #197): a gate
+ * that has verified nothing must not read as one that passed.
+ * `--check`+`--update` together is a usage error (exit 2). The behavior epoch
+ * comes from `.vigilesrc.json` `eval.apiVersion` (committed).
  */
-function resolveEvalLockEnv(args: string[]): Record<string, string> | "skip" {
+function resolveEvalLockEnv(args: string[]): Record<string, string> {
   const wantCheck = args.includes("--check");
   const wantUpdate = args.includes("--update");
   if (wantCheck && wantUpdate) {
@@ -6696,17 +6701,6 @@ function resolveEvalLockEnv(args: string[]): Record<string, string> | "skip" {
       "vigiles eval: --check and --update are mutually exclusive (one verifies, one records).",
     );
     process.exit(2);
-  }
-  if (
-    wantCheck &&
-    !anyLocksCommitted(resolve(process.cwd(), DEFAULT_LOCK_DIR))
-  ) {
-    console.log(
-      "ℹ vigiles eval --check: no committed eval locks found — nothing to verify.\n" +
-        "  Run `vigiles eval --update` locally (on your subscription) and commit the\n" +
-        "  lock to enable the CI staleness gate.",
-    );
-    return "skip";
   }
   const env: Record<string, string> = {};
   if (wantCheck) env.VIGILES_EVAL_LOCK = "check";
@@ -6717,6 +6711,26 @@ function resolveEvalLockEnv(args: string[]): Record<string, string> | "skip" {
       env.VIGILES_EVAL_API_VERSION = String(apiVersion);
   }
   return env;
+}
+
+/**
+ * `eval --check` over eval files when no lock is committed anywhere: every one of
+ * them has no recorded result to compare the current inputs against, so the gate
+ * would verify nothing and pass. It used to return green BEFORE discovery, which
+ * also bypassed the empty-match failure. Once any lock exists, a file without one
+ * already fails as "lock missing" in the eval itself. Exits 1; returns otherwise.
+ */
+function refuseEvalCheckWithoutLocks(
+  args: readonly string[],
+  evalCount: number,
+): void {
+  if (!args.includes("--check")) return;
+  if (anyLocksCommitted(resolve(process.cwd(), DEFAULT_LOCK_DIR))) return;
+  console.error(
+    `✗ vigiles eval --check: ${String(evalCount)} eval file(s) have no recorded result — no eval lock is committed, so there is nothing to verify the current inputs against.\n` +
+      "  Run `vigiles eval --update` locally (on your subscription) and commit the lock(s).",
+  );
+  process.exit(1);
 }
 
 /**
@@ -6971,13 +6985,10 @@ async function handleRunScripts(
   const defaultGlob = scriptGlob(kind === "test" ? "harness" : "eval");
 
   // The eval LOCK flags (`--check`/`--update`) are resolved BEFORE file discovery
-  // so mutual-exclusion + the cold-start no-op are honored regardless of file
-  // count. Returns the env to thread to scripts, or `"skip"` to exit green now.
+  // so mutual-exclusion (exit 2) is honored regardless of file count.
   let lockEnv: Record<string, string> = {};
   if (kind === "eval") {
-    const r = resolveEvalLockEnv(args);
-    if (r === "skip") return;
-    lockEnv = r;
+    lockEnv = resolveEvalLockEnv(args);
   }
 
   // A script under an excluded path is not DISCOVERED (a vendored corpus's own
@@ -7034,6 +7045,7 @@ async function handleRunScripts(
     console.log(`No ${defaultGlob} files found.`);
     return;
   }
+  if (kind === "eval") refuseEvalCheckWithoutLocks(args, files.length);
 
   // Consent gate for a bare `vigiles eval`: it runs the REAL model on your
   // subscription, and a no-target run discovered the whole tree — so never fan out
