@@ -20,7 +20,7 @@
  * anywhere in the prose counts, because a name like `test:harness` cannot
  * collide with an English word the way `test` and `audit` do. The only thing the
  * lookarounds buy is that a LONGER script name is never read as a shorter one
- * (`test:cli-e2e` does not document `test:e2e`).
+ * (`test:unit-extra` does not document `test:unit`).
  *
  * Scope is the `test:` PREFIX, deliberately. Bare `npm test` is the vitest
  * suite, named in the map as prose; every other script (`build`, `lint`,

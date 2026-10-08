@@ -765,7 +765,7 @@
       "count": 1
     },
     "sonarjs/no-nested-conditional": {
-      "count": 7
+      "count": 6
     }
   },
   "src/cli-nudge-config.test.ts": {
@@ -3171,13 +3171,13 @@
       "count": 1
     },
     "functional/no-let": {
-      "count": 5
+      "count": 4
     },
     "functional/no-loop-statements": {
       "count": 1
     },
     "functional/prefer-immutable-types": {
-      "count": 10
+      "count": 9
     }
   },
   "src/model-spawn-guard.test.ts": {

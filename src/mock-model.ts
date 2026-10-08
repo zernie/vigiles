@@ -29,6 +29,7 @@ import type { AddressInfo } from "node:net";
 // cross-adapter import. Re-exported here so `vigiles/claude-code` and the
 // granular `vigiles/mock-model` path keep exporting `ModelTurn`/`ModelRequest`.
 import type { ModelTurn, ModelRequest } from "./core/harness-driver.js";
+import { scriptOverrunMessage } from "./core/script-overrun.js";
 export type { ModelTurn, ModelRequest } from "./core/harness-driver.js";
 
 /** Build a scripted model from an ordered list of turns. */
@@ -443,8 +444,42 @@ export function extractRequest(body: {
 }
 
 /**
+ * The 400 body for an agent request past the end of the script: an API error,
+ * because the CLI retries 429/5xx and an invented turn would let the agent act on
+ * a step nobody scripted (#340). Pure.
+ */
+function pastScriptBody(scripted: number, request: ModelRequest): string {
+  const message = scriptOverrunMessage({
+    scripted,
+    request: scripted + 1,
+    lastMessage: request.messages.at(-1)?.text ?? "",
+  });
+  return JSON.stringify({
+    type: "error",
+    error: { type: "invalid_request_error", message },
+  });
+}
+
+/** Does a message's content carry a tool result (the agent reacting to a tool)? */
+function endsWithToolResult(content: unknown): boolean {
+  return JSON.stringify(content ?? "").includes('"tool_result"');
+}
+
+/** The JSON body of a request, `{}` for the HEAD / health checks that have none. */
+function parseReqBody(body: string): Readonly<ReqBody> {
+  try {
+    return JSON.parse(body) as ReqBody;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Start the scripted mock on a free port. Each MAIN-LOOP `/v1/messages` POST
- * consumes the next turn (the last turn repeats if the client asks for more);
+ * consumes the next turn; one past the end of the script is answered with a
+ * non-retryable API error, never a copy of the last turn (#340 — a looping
+ * agent would pass on turns nobody scripted), and `runHarnessTest` then fails
+ * the test from the recorded requests ({@link findScriptOverrun});
  * a SIDE-CHANNEL POST — the CLI's own bookkeeping calls, see
  * {@link isMainLoopRequest} — is answered from outside the script and consumes
  * nothing. Resolves to a handle with the base `url` and a `close()`.
@@ -468,12 +503,7 @@ export function startMock(
       const url = req.url ?? "";
       const isCount = url.includes("count_tokens");
       const isMessages = url.includes("/v1/messages") && !isCount;
-      let reqBody: ReqBody = {};
-      try {
-        reqBody = JSON.parse(body) as ReqBody;
-      } catch {
-        /* HEAD / health checks have no JSON body */
-      }
+      const reqBody = parseReqBody(body);
       if (req.method === "HEAD" || (!isMessages && !isCount)) {
         res.writeHead(200, { "content-type": "application/json" });
         res.end("{}");
@@ -504,13 +534,17 @@ export function startMock(
         else jsonTurn(res, reply, model);
         return;
       }
-      const last = JSON.stringify(reqBody.messages?.at(-1)?.content ?? "");
+      const turn = script[i];
+      if (turn === undefined) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(pastScriptBody(script.length, request));
+        return;
+      }
       opts.onTurn?.({
         n: i,
         stream: reqBody.stream === true,
-        hasToolResult: last.includes('"tool_result"'),
+        hasToolResult: endsWithToolResult(reqBody.messages?.at(-1)?.content),
       });
-      const turn = script[Math.min(i, script.length - 1)] ?? { text: "" };
       i++;
       if (reqBody.stream === true) streamTurn(res, turn, model);
       else jsonTurn(res, turn, model);

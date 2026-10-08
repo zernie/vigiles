@@ -625,8 +625,10 @@ Two things keep it low-noise:
 
 ℹ️ **Honest scope:** the lock proves "your saved numbers match your current
 inputs," not "they reflect today's model." Re-run `--update` when you want fresh
-numbers. In CI it's `command: eval-check` — a green no-op until you commit your
-first lock, and `vigiles init` scaffolds the job.
+numbers. In CI it's `command: eval-check`. It fails until you commit your first lock
+(there is nothing to verify before that). `vigiles init` scaffolds the job as
+`npx vigiles eval --check --min=0`, so a repo with no eval file yet stays green and
+the first eval file turns it red until its lock is committed.
 
 ### Three files, three different jobs
 

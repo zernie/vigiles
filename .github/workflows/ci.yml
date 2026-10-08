@@ -527,12 +527,11 @@ jobs:
         run: npm run build
 
       - name: Run deterministic harness tests
-        # --min is a FLOOR, and it is the whole point of this line: without it a
-        # broken glob (a rename, a moved directory, a changed extension) makes this
-        # job print "No **/*.harness.* files found." and exit 0 — green, having run
-        # nothing. Measured 2026-09-07: `vigiles test` on zero files exits 0.
-        # Adding harness files keeps passing; dropping below the floor fails.
-        run: node dist/cli.js test --min=14
+        # --min is a FLOOR: a run that matches nothing already fails, but a glob
+        # that loses SOME of the harnesses (a rename, a moved directory, a changed
+        # extension) still matches the rest and stays green. Adding harness files
+        # keeps passing; dropping below the floor fails.
+        run: node dist/cli.js test --min=15
 
   # The in-browser "grade a repo" demo (site/) runs the SAME compiled engine the
   # CLI runs (`@engine/*` → the built dist/), so its browser-mode vitest suite is a

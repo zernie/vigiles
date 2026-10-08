@@ -3597,17 +3597,21 @@ function vigilesWorkflow(
   eval-check:
     # Eval staleness gate — real-model evals run LOCALLY on your subscription
     # (\`npx vigiles eval --update\`, which commits a lock); this job VERIFIES those
-    # committed results against the current inputs with NO model call. It stays a
-    # green no-op until you commit your first lock. See docs/harness-testing.md.
+    # committed results against the current inputs with NO model call.
+    # \`--min=0\` is deliberate: a repo with no eval file yet matches nothing, and
+    # \`vigiles eval --check\` fails on an empty match by default (a gate that
+    # verified nothing must not read as a pass). With \`--min=0\` this job is green
+    # until the first \`*.eval.*\` file exists; from then on it is red until that
+    # eval's lock is committed. Raise the floor (\`--min=N\`) once you want
+    # a vanished eval file to fail it. See docs/harness-testing.md.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - uses: zernie/vigiles@v1
-        with:
-          command: eval-check
+      - run: npm install
+      - run: npx vigiles eval --check --min=0
 `
       : "";
   // No selectable jobs (e.g. `--no-lint --no-test`, or `--test` on a repo with no
@@ -6683,12 +6687,13 @@ async function promptYesNo(question: string): Promise<boolean> {
  * Resolve the eval LOCK env from the `eval` flags. `--update` records each named
  * eval's report to a committed `.vigiles/eval-locks/<name>.lock.json` (run locally
  * on your subscription); `--check` (CI) verifies the committed result against the
- * current inputs WITHOUT a model call. `--check` is a green NO-OP until the first
- * lock is committed (smooth adoption). Returns the env to thread, or `"skip"` to
- * exit green now. `--check`+`--update` together is a usage error (exit 2). The
- * behavior epoch comes from `.vigilesrc.json` `eval.apiVersion` (committed).
+ * current inputs WITHOUT a model call. `--check` with no lock committed at all is
+ * a FAILURE, not a green no-op ({@link refuseEvalCheckWithoutLocks}, #197): a gate
+ * that has verified nothing must not read as one that passed.
+ * `--check`+`--update` together is a usage error (exit 2). The behavior epoch
+ * comes from `.vigilesrc.json` `eval.apiVersion` (committed).
  */
-function resolveEvalLockEnv(args: string[]): Record<string, string> | "skip" {
+function resolveEvalLockEnv(args: string[]): Record<string, string> {
   const wantCheck = args.includes("--check");
   const wantUpdate = args.includes("--update");
   if (wantCheck && wantUpdate) {
@@ -6696,17 +6701,6 @@ function resolveEvalLockEnv(args: string[]): Record<string, string> | "skip" {
       "vigiles eval: --check and --update are mutually exclusive (one verifies, one records).",
     );
     process.exit(2);
-  }
-  if (
-    wantCheck &&
-    !anyLocksCommitted(resolve(process.cwd(), DEFAULT_LOCK_DIR))
-  ) {
-    console.log(
-      "ℹ vigiles eval --check: no committed eval locks found — nothing to verify.\n" +
-        "  Run `vigiles eval --update` locally (on your subscription) and commit the\n" +
-        "  lock to enable the CI staleness gate.",
-    );
-    return "skip";
   }
   const env: Record<string, string> = {};
   if (wantCheck) env.VIGILES_EVAL_LOCK = "check";
@@ -6717,6 +6711,26 @@ function resolveEvalLockEnv(args: string[]): Record<string, string> | "skip" {
       env.VIGILES_EVAL_API_VERSION = String(apiVersion);
   }
   return env;
+}
+
+/**
+ * `eval --check` over eval files when no lock is committed anywhere: every one of
+ * them has no recorded result to compare the current inputs against, so the gate
+ * would verify nothing and pass. It used to return green BEFORE discovery, which
+ * also bypassed the empty-match failure. Once any lock exists, a file without one
+ * already fails as "lock missing" in the eval itself. Exits 1; returns otherwise.
+ */
+function refuseEvalCheckWithoutLocks(
+  args: readonly string[],
+  evalCount: number,
+): void {
+  if (!args.includes("--check")) return;
+  if (anyLocksCommitted(resolve(process.cwd(), DEFAULT_LOCK_DIR))) return;
+  console.error(
+    `✗ vigiles eval --check: ${String(evalCount)} eval file(s) have no recorded result — no eval lock is committed, so there is nothing to verify the current inputs against.\n` +
+      "  Run `vigiles eval --update` locally (on your subscription) and commit the lock(s).",
+  );
+  process.exit(1);
 }
 
 /**
@@ -6908,6 +6922,44 @@ function gitHead(cwd: string): string {
   }
 }
 
+/**
+ * Why a `vigiles test` / `vigiles eval` run matched no file — the message names
+ * what was looked for, so a stale path, a wrong glob and an empty default
+ * discovery each say so. A DIRECTORY is the one stale-looking target whose cause
+ * we actually know, so it is said instead of the three guesses: `vigiles test .`
+ * used to reach `spawn("node", ["."])` and surface Node's module-resolution stack.
+ */
+function emptyMatchMessage(
+  kind: "test" | "eval",
+  targets: readonly string[],
+  defaultGlob: string,
+): string {
+  const dirs = targets.filter(
+    (a) => lstatSync(a, { throwIfNoEntry: false })?.isDirectory() === true,
+  );
+  if (dirs.length > 0) {
+    return (
+      `✗ vigiles ${kind}: ${dirs.join(", ")} ${dirs.length === 1 ? "is a directory" : "are directories"} — ` +
+      `pass a file, or a glob like "${defaultGlob}".\n` +
+      `  A directory is not a script; nothing ran.`
+    );
+  }
+  const expected = `  If an empty match is expected here, say so with --min=0.`;
+  if (targets.length === 0) {
+    return (
+      `✗ vigiles ${kind}: NOTHING matched the default glob ${defaultGlob}\n` +
+      `  Nothing ran. An empty run is not a pass: a renamed or moved file looks like this.\n` +
+      expected
+    );
+  }
+  return (
+    `✗ vigiles ${kind}: ${String(targets.length)} target(s) given and NOTHING matched — ` +
+    `${targets.join(", ")}\n` +
+    `  Nothing ran. A stale path, a wrong glob, or a moved file all look like this.\n` +
+    expected
+  );
+}
+
 async function handleRunScripts(
   kind: "test" | "eval",
   args: string[],
@@ -6933,13 +6985,10 @@ async function handleRunScripts(
   const defaultGlob = scriptGlob(kind === "test" ? "harness" : "eval");
 
   // The eval LOCK flags (`--check`/`--update`) are resolved BEFORE file discovery
-  // so mutual-exclusion + the cold-start no-op are honored regardless of file
-  // count. Returns the env to thread to scripts, or `"skip"` to exit green now.
+  // so mutual-exclusion (exit 2) is honored regardless of file count.
   let lockEnv: Record<string, string> = {};
   if (kind === "eval") {
-    const r = resolveEvalLockEnv(args);
-    if (r === "skip") return;
-    lockEnv = r;
+    lockEnv = resolveEvalLockEnv(args);
   }
 
   // A script under an excluded path is not DISCOVERED (a vendored corpus's own
@@ -6971,48 +7020,32 @@ async function handleRunScripts(
   }
 
   if (files.length === 0) {
-    // 🔴 ASKING FOR SOMETHING AND GETTING NOTHING IS A FAILURE; FINDING NOTHING IS NOT.
-    // The two cases were collapsed into one silent exit 0, and the collapse cost a real
-    // repository three days of green CI verifying zero files: a named step ran
+    // 🔴 A RUN THAT MATCHES NO FILE IS A FAILURE, NAMED OR NOT.
+    // An empty match used to be one silent exit 0, and it cost a real repository three
+    // days of green CI verifying zero files: a named step ran
     // `vigiles test .claude/pipeline/skills.harness.mjs` after that file had been split
     // into one-per-skill, printed "No **/*.harness.* files found" and passed, right next
-    // to a step that was red for the same root cause.
+    // to a step that was red for the same root cause. The first repair failed only the
+    // NAMED case and kept bare discovery quiet ("an empty repository is a legitimate
+    // place to stand") — and bare `vigiles test` is the line `init` writes into CI, so
+    // the same green no-op was one rename away from the default setup (#197).
     //
-    // They are different states. A POSITIONAL argument is a claim that something is there —
-    // when nothing matches it, the path is stale, the glob is wrong, or the run never
-    // reached its target, and every one of those is a defect. Bare discovery finding
-    // nothing is just an empty repository, which is a legitimate place to stand and must
-    // stay quiet.
-    //
-    // This is the default the field settled on: Jest and Vitest FAIL on no tests found and
-    // make you opt in with `--passWithNoTests`; pytest exits 5. `--min=0` remains the
-    // explicit opt-out here, so no new flag is introduced by this change.
-    // `minFlag`, not `minRequired`: 0 is both the DEFAULT and the explicit opt-out, so the
-    // VALUE cannot tell them apart — only the flag's presence can. (Caught by a control:
-    // the first version read `minRequired === 0` and made `--min=0` do nothing.)
-    if (restArgs.length > 0 && minFlag === undefined) {
-      // A DIRECTORY is the one stale-looking target whose cause we actually know,
-      // so say it instead of listing the three guesses. `vigiles test .` used to
-      // reach `spawn("node", ["."])` and surface Node's module-resolution stack;
-      // the generic message above would now be true but unhelpful.
-      const dirs = restArgs.filter(
-        (a) => lstatSync(a, { throwIfNoEntry: false })?.isDirectory() === true,
-      );
-      console.error(
-        dirs.length > 0
-          ? `✗ vigiles ${kind}: ${dirs.join(", ")} ${dirs.length === 1 ? "is a directory" : "are directories"} — ` +
-              `pass a file, or a glob like "${defaultGlob}".\n` +
-              `  A directory is not a script; nothing ran.`
-          : `✗ vigiles ${kind}: ${String(restArgs.length)} target(s) given and NOTHING matched — ` +
-              `${restArgs.join(", ")}\n` +
-              `  Nothing ran. A stale path, a wrong glob, or a moved file all look like this.\n` +
-              `  If an empty match is expected here, say so with --min=0.`,
-      );
+    // This is the default the field settled on: Jest and Vitest FAIL on no tests found
+    // and make you opt in with `--passWithNoTests`; pytest exits 5. Here there is no
+    // such flag (a person who wants an empty run does not call the command), and
+    // `--min=0` — the existing floor, spelled as zero — is the only way to say an empty
+    // match is expected. `minFlag`, not `minRequired`: 0 is both the DEFAULT and that
+    // explicit opt-out, so the VALUE cannot tell them apart — only the flag's presence
+    // can. (Caught by a control: the first version read `minRequired === 0` and made
+    // `--min=0` do nothing.)
+    if (minFlag === undefined) {
+      console.error(emptyMatchMessage(kind, restArgs, defaultGlob));
       process.exit(1);
     }
     console.log(`No ${defaultGlob} files found.`);
     return;
   }
+  if (kind === "eval") refuseEvalCheckWithoutLocks(args, files.length);
 
   // Consent gate for a bare `vigiles eval`: it runs the REAL model on your
   // subscription, and a no-target run discovered the whole tree — so never fan out

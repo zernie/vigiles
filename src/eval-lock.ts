@@ -214,12 +214,11 @@ export function readLock(dir: string, name: string): EvalLock | null {
 }
 
 /**
- * Whether ANY lock has been committed under `dir`. The CI staleness gate
- * (`eval --check`) uses this to stay a NO-OP until the feature is in use: a repo
- * that has never run `eval --update` has no locks, so there is nothing to verify
- * and CI passes green. Once the first lock is committed, every named eval is held
- * to having a fresh one (a new unlocked eval then reads as stale). The graduated,
- * opt-in-by-committing behavior that keeps a fresh `init` from going red.
+ * Whether ANY lock has been committed under `dir`. `eval --check` fails when none
+ * is (#197): with no lock there is no recorded result to verify the current inputs
+ * against, so a pass would mean nothing was checked. Once the first lock is
+ * committed, every named eval is held to having a fresh one (a new unlocked eval
+ * then reads as stale). The edit-time nudge also stays silent until then.
  */
 export function anyLocksCommitted(dir: string): boolean {
   return countLocks(dir) > 0;

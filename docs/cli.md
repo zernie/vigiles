@@ -68,6 +68,19 @@ Unit-tier `runHook` tests need no `claude` and always run. A skip passes by
 default; in a CI job that **asserts** the capability is present, add `--no-skip`
 so a skipped tier **fails** (a green-with-skips is untested surface).
 
+**A run that matches no file fails.** `vigiles test` / `vigiles eval` exit `1` with
+a message naming the path, glob or default pattern that matched nothing, the same
+default Jest and Vitest have (`--passWithNoTests`) and pytest has (exit 5). A
+renamed file, a moved directory or a typo'd glob would otherwise leave a CI check
+green with nothing run. There is no flag to pass an empty run; `--min=0`, the
+floor spelled as zero, is the only way to say an empty match is expected. The same holds for
+`vigiles eval --check`: with no eval file it is an empty match, and with eval files but
+no committed lock it exits `1` ("N eval file(s) have no recorded result"; run
+`vigiles eval --update` locally and commit the lock). It used to return green before
+discovery. (This
+changed: a bare `vigiles test` or `vigiles eval` that found nothing used to print
+"No … files found." and exit `0`.)
+
 **A script that never loaded is not a skip you declared.** If a script's imports
 cannot be found or linked (a missing package, a missing named export, a syntax
 error), the run **fails** with "never ran — the runtime could not load them", but

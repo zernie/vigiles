@@ -49,7 +49,10 @@ annotations and fail the job.
 Real-model evals run locally on your subscription (`vigiles eval --update`, which
 commits a lock). This job verifies those committed results against the current
 inputs **without** a model call — failing if you changed a skill but forgot to
-re-eval. It's a green no-op until you commit your first lock.
+re-eval. It **fails** until you commit your first lock (`vigiles eval --update`):
+with no recorded result there is nothing to verify, and a pass would mean nothing
+was checked. The Action has no `--min` input; the job `vigiles init` scaffolds is a plain
+`npx vigiles eval --check --min=0` step, which stays green until the first eval file exists.
 
 ```yaml
 - uses: zernie/vigiles@v1

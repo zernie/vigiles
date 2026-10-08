@@ -16,6 +16,8 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 
+import { scriptOverrunMessage } from "../../core/script-overrun.js";
+
 /** One scripted assistant turn: the final text answer codex should emit. */
 export interface CodexTurn {
   /** Final text answer for this turn. */
@@ -232,8 +234,9 @@ export function parseResponsesRequest(body: string): {
 
 /**
  * Start the scripted Codex Responses mock on a free port. Each
- * `POST /v1/responses` consumes the next scripted turn (the last turn repeats if
- * codex asks for more); HEAD and any other path get `{}`. Resolves to a handle
+ * `POST /v1/responses` consumes the next scripted turn; one past the end of the
+ * script is a 400, never a copy of the last turn (#340); HEAD and any other path
+ * get `{}`. Resolves to a handle
  * with the base `url`, the `port`, the recorded `requests`, and `close()`.
  */
 export function startCodexMock(
@@ -257,7 +260,19 @@ export function startCodexMock(
       const parsed = parseResponsesRequest(body);
       requests.push(parsed);
       opts.onRequest?.(parsed);
-      const turn = script[Math.min(i, script.length - 1)] ?? { text: "" };
+      const turn = script[i];
+      if (turn === undefined) {
+        const message = scriptOverrunMessage({
+          scripted: script.length,
+          request: script.length + 1,
+          lastMessage: parsed.prompt,
+        });
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({ error: { type: "invalid_request_error", message } }),
+        );
+        return;
+      }
       i++;
       const model = parsed.model || "gpt-5-codex";
       res.writeHead(200, {

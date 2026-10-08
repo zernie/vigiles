@@ -57,6 +57,7 @@ import type { Trace, SubagentTrace } from "./core/eval-driver.js";
 export type { Trace, SubagentTrace } from "./core/eval-driver.js";
 import { assertHarnessTestable } from "./adapter-conformance.js";
 import { recordCheck } from "./check-count.js";
+import { overrunMessageFor } from "./core/script-overrun.js";
 import { probeTrace } from "./coverage-probe.js";
 
 import { claudeCodeRuntime } from "./adapters/claude-code/runtime.js";
@@ -150,7 +151,18 @@ export interface HarnessTestSpec {
   readonly model: readonly ModelTurn[];
   /** The user prompt. Default: "go". */
   readonly prompt?: string;
-  /** Tools the agent may use. Default: Read Edit Write Bash. */
+  /**
+   * The ONLY tools the agent has, when you list them: a tool left out is not
+   * offered (`claude --tools`, Claude Code 2.0.31+), `[]` is refused, and a
+   * scripted call to a tool the list leaves out throws before the run starts.
+   * Omitted, nothing is withheld: every tool is offered and Read, Edit, Write and
+   * Bash are pre-approved. Each listed tool is also pre-approved
+   * (`--allowedTools`), so it does not stop on a permission prompt; a permission
+   * rule such as `Bash(git *)` keeps its specifier for the approval and is
+   * offered as plain `Bash`. An MCP tool is not a built-in: left out, it is still
+   * offered but not approved, so a call to it is refused for permission rather
+   * than as "No such tool".
+   */
   readonly allowedTools?: readonly string[];
   /**
    * Capture the full event transcript (`--output-format stream-json`) into
@@ -403,6 +415,62 @@ export function parseHooks(stdout: string): HookFire[] {
 }
 
 /**
+ * The first `claude` that has `--tools` (print mode). Found by diffing the
+ * published `@anthropic-ai/claude-code` tarballs: 2.0.30 has no such option,
+ * 2.0.31 does (the changelog does not list it; its 2.1.0 entry only extends the
+ * flag to interactive mode).
+ */
+const TOOLS_FLAG_MIN_CLAUDE = "2.0.31";
+
+/**
+ * The names `--tools` should offer for an `allowedTools` list. `--allowedTools`
+ * takes permission rules (`Bash(git *)`); `--tools` takes tool NAMES, and a rule
+ * with a specifier there makes the CLI offer no tools at all. So the specifier is
+ * dropped (`Bash(git *)` → `Bash`) and repeats collapse. Pure.
+ */
+export function toolAvailabilityList(
+  allowed: readonly string[],
+): readonly string[] {
+  const names = allowed.map((rule) => rule.replace(/\(.*$/, "").trim());
+  return [...new Set(names.filter((n) => n !== ""))];
+}
+
+/**
+ * A scripted call to a tool an EXPLICIT `allowedTools` does not offer. The CLI
+ * answers it with "No such tool available" and the run goes on, so a test that
+ * scripts the call and then asserts on something else passes over a step that
+ * never happened. Returns the message to throw, or undefined. MCP tools are not
+ * built-ins, so `--tools` does not withhold them and they are skipped. Pure.
+ */
+export function unofferedScriptedTool(
+  model: readonly ModelTurn[],
+  allowed: readonly string[] | undefined,
+): string | undefined {
+  if (allowed === undefined) return undefined;
+  const offered = toolAvailabilityList(allowed);
+  const at = model.findIndex(
+    (t) =>
+      t.tool !== undefined &&
+      !t.tool.startsWith("mcp__") &&
+      !offered.includes(t.tool),
+  );
+  return at < 0
+    ? undefined
+    : `scripted call to "${model[at]?.tool ?? ""}" on turn ${String(at + 1)}, but this run offers only: ${offered.join(", ")} — add it to allowedTools`;
+}
+
+/**
+ * A run on a `claude` that predates `--tools` exits at argument parsing, and
+ * commander's "unknown option" says nothing about WHY vigiles passed it. Returns
+ * the message to throw, or undefined when the run did not die that way. Pure.
+ */
+export function unsupportedToolsFlag(stderr: string): string | undefined {
+  return /unknown option '--tools'/.test(stderr)
+    ? `this \`claude\` does not know \`--tools\`, which runHarnessTest uses to withhold every tool not in \`allowedTools\` (#252). Update Claude Code to ${TOOLS_FLAG_MIN_CLAUDE} or newer. Running without it would hand the agent every tool while the test reads as if it were fenced.`
+    : undefined;
+}
+
+/**
  * The `claude` CLI argv for a harness run (shared by the direct and sandboxed
  * paths). `ANTHROPIC_BASE_URL` is set by the caller's environment / wrapper, not
  * here. Pure, so the arg shape is unit-tested.
@@ -424,8 +492,17 @@ export function buildClaudeArgs(
       ? ["--plugin-dir", resolve(spec.pluginDir)]
       : []),
     ...(hasSettings ? ["--settings", "settings.json"] : []),
-    // A permission allowlist: an empty one approves nothing, so the flag is
-    // left out (a bare `--allowedTools` exits before any model turn).
+    // An EXPLICIT list restricts: `--tools` is the AVAILABILITY list, a tool left
+    // out is not offered at all. `--allowedTools` only PRE-APPROVES (it never
+    // restricts), so on its own it left every unnamed tool runnable (#252). An
+    // empty list is `--tools ""` = no tools. With no list, nothing is withheld:
+    // the default four are pre-approved and every other tool stays available.
+    ...(spec.allowedTools === undefined
+      ? []
+      : ["--tools", toolAvailabilityList(spec.allowedTools).join(",")]),
+    // Pre-approval for the offered tools, so none stops on a permission prompt
+    // (headless). An empty one approves nothing, so the flag is left out (a bare
+    // `--allowedTools` exits before any model turn).
     ...(tools.length === 0 ? [] : ["--allowedTools", ...tools]),
   ];
 }
@@ -611,6 +688,32 @@ export interface RunHarnessTestOptions {
   readonly adapter?: HarnessAdapter;
 }
 
+/** Say so on stderr when side-channel calls arrived and no script turn was served. */
+export function warnUnconsumed(count: number, sideChannelCount: number): void {
+  const unconsumed = scriptUnconsumedWarning(count, sideChannelCount);
+  if (unconsumed !== undefined) console.error(unconsumed);
+}
+
+/**
+ * A run that proves nothing about the script fails the test instead of coming
+ * back as a result: the `claude` on PATH predates `--tools` (#252), or the agent
+ * asked for a model turn the script did not have and the mock answered with an
+ * error rather than an invented turn (#340). Removes the run's directory, since
+ * no result is handed back to clean it up.
+ */
+function assertRunSound(
+  cwd: string,
+  stderr: string,
+  scripted: number,
+  modelRequests: readonly ModelRequest[],
+): void {
+  const problem =
+    unsupportedToolsFlag(stderr) ?? overrunMessageFor(scripted, modelRequests);
+  if (problem === undefined) return;
+  rmSync(cwd, { recursive: true, force: true });
+  throw new Error(problem);
+}
+
 /* v8 ignore start -- spawns the real agent CLI + filesystem; exercised by the
    claude-backed + gated codex suites, excluded from the deterministic coverage
    gate (the parse helpers above carry the testable logic). */
@@ -663,7 +766,23 @@ export async function runHarnessTest(
   spec: HarnessTestSpec,
   opts: RunHarnessTestOptions = {},
 ): Promise<HarnessTestResult> {
+  refuseUnrunnableSpec(spec);
   return runHarnessTestIn(spec, opts, "inherit");
+}
+
+/**
+ * The scripted model tells an agent turn from the CLI's own bookkeeping calls by
+ * the tools the request declares (`isMainLoopRequest`). An agent with none is
+ * never served a script turn, and the run would decide on nothing.
+ */
+function refuseUnrunnableSpec(spec: HarnessTestSpec): void {
+  if (spec.allowedTools?.length === 0) {
+    throw new Error(
+      "allowedTools: [] leaves the agent with no tools, and the scripted model only serves a turn to a request that declares tools — no script turn would be consumed. Name the tools the agent has.",
+    );
+  }
+  const unoffered = unofferedScriptedTool(spec.model, spec.allowedTools);
+  if (unoffered !== undefined) throw new Error(unoffered);
 }
 
 /**
@@ -705,14 +824,13 @@ export async function runHarnessTestIn(
   const { files, settings, check } = fixtureFor(spec, opts.adapter);
   const cwd = makeTmpDir("harness");
   writeFixture(cwd, files, settings);
-  const tools = spec.allowedTools ?? ["Read", "Edit", "Write", "Bash"];
   const timeoutMs = spec.timeoutMs ?? 60000;
   const buildArgs = (mockArgs: readonly string[]): readonly string[] =>
     driver.buildArgs({
       prompt: spec.prompt ?? "go",
       cwd,
       hasSettings: settings !== undefined,
-      tools,
+      tools: spec.allowedTools,
       transcript: spec.transcript ?? false,
       pluginDir: spec.pluginDir,
       mockArgs,
@@ -735,8 +853,8 @@ export async function runHarnessTestIn(
     // the direct one stays right. Same recovery feeds the unconsumed-script
     // warning, which the sandbox path could not emit at all before.
     const { count, sideChannelCount } = splitRequestCounts(out.requests);
-    const unconsumed = scriptUnconsumedWarning(count, sideChannelCount);
-    if (unconsumed !== undefined) console.error(unconsumed);
+    warnUnconsumed(count, sideChannelCount);
+    assertRunSound(cwd, "", spec.model.length, out.requests);
     return check(
       makeResult(cwd, out, parseClaudeRun(out.stdout), count, out.requests),
     );
@@ -757,11 +875,8 @@ export async function runHarnessTestIn(
     // looks empty. `scriptUnconsumedWarning` names the one shape that produces
     // it (every request arriving without tool declarations, so nothing looked
     // like an agent turn) instead of leaving it to be rediscovered.
-    const unconsumed = scriptUnconsumedWarning(
-      mock.count,
-      mock.sideChannelCount ?? 0,
-    );
-    if (unconsumed !== undefined) console.error(unconsumed);
+    warnUnconsumed(mock.count, mock.sideChannelCount ?? 0);
+    assertRunSound(cwd, out.stderr, spec.model.length, mock.requests);
     return check(
       makeResult(cwd, out, driver.parseRun(out.stdout), mock.count, [
         ...mock.requests,

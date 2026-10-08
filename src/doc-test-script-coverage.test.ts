@@ -36,7 +36,7 @@ describe("scriptMentioned", () => {
   });
 
   it("does not let a LONGER script name document a shorter one", () => {
-    expect(scriptMentioned("test:e2e", "`npm run test:cli-e2e`")).toBe(false);
+    expect(scriptMentioned("test:e2e", "`npm run test:e2e-live`")).toBe(false);
     expect(scriptMentioned("test:unit", "npm run test:unit-extra")).toBe(false);
   });
 

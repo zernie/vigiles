@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 
 import { claudeAvailable } from "../../harness-test.js";
 import type { ModelRequest } from "../../core/harness-driver.js";
@@ -43,20 +43,30 @@ function homeWithUserStyle(): string {
   return home;
 }
 
-let requests: ModelRequest[] = [];
-let mock: Awaited<ReturnType<typeof startMock>> | undefined;
-beforeAll(async () => {
-  mock = await startMock(scriptModel([{ text: "ok" }]), {
-    onRequest: (req) => requests.push(req),
-  });
-});
-afterAll(() => mock?.close());
-
-/** One `claude -p` run in a work dir with these project settings; its requests. */
+/**
+ * One `claude -p` run in a work dir with these project settings; its requests.
+ * Each run gets its OWN one-turn mock: a second run against a shared one asks
+ * for turn 2 of a one-turn script, which is an error now (#340), not a repeat.
+ */
 async function run(
   projectSettings: Readonly<Record<string, unknown>> | null,
 ): Promise<readonly ModelRequest[]> {
-  requests = [];
+  const requests: ModelRequest[] = [];
+  const mock = await startMock(scriptModel([{ text: "ok" }]), {
+    onRequest: (req) => requests.push(req),
+  });
+  try {
+    return await runAgainst(mock.url, requests, projectSettings);
+  } finally {
+    mock.close();
+  }
+}
+
+async function runAgainst(
+  mockUrl: string,
+  requests: readonly ModelRequest[],
+  projectSettings: Readonly<Record<string, unknown>> | null,
+): Promise<readonly ModelRequest[]> {
   const work = scratch("vigiles-user-style-work-");
   if (projectSettings !== null) {
     mkdirSync(join(work, ".claude"), { recursive: true });
@@ -72,7 +82,7 @@ async function run(
       env: {
         PATH: process.env["PATH"] ?? "",
         HOME: homeWithUserStyle(),
-        ANTHROPIC_BASE_URL: mock?.url ?? "",
+        ANTHROPIC_BASE_URL: mockUrl,
         ANTHROPIC_API_KEY: "sk-test",
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
       },

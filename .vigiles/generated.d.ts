@@ -75,7 +75,7 @@ declare module "vigiles/generated" {
   /** All enabled linter rules across all detected linters. */
   export type LinterRule = EslintRule;
 
-  /** 23 npm scripts from package.json. */
+  /** 22 npm scripts from package.json. */
   export type NpmScript = 
     | "build"
     | "build:core"
@@ -87,7 +87,6 @@ declare module "vigiles/generated" {
     | "test:unit"
     | "test:integration"
     | "test:e2e"
-    | "test:cli-e2e"
     | "test:harness"
     | "test:eval"
     | "test:vitest"
@@ -101,7 +100,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 521 project files. */
+  /** 522 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -382,6 +381,7 @@ declare module "vigiles/generated" {
     | "src/core/run-env.test.ts"
     | "src/core/run-env.ts"
     | "src/core/runtime.ts"
+    | "src/core/script-overrun.ts"
     | "src/core/session.test.ts"
     | "src/core/session.ts"
     | "src/core/settings-codec.ts"
@@ -975,6 +975,7 @@ declare module "vigiles/spec" {
       | "src/core/run-env.test.ts"
       | "src/core/run-env.ts"
       | "src/core/runtime.ts"
+      | "src/core/script-overrun.ts"
       | "src/core/session.test.ts"
       | "src/core/session.ts"
       | "src/core/settings-codec.ts"
@@ -1230,7 +1231,6 @@ declare module "vigiles/spec" {
       | "test:unit"
       | "test:integration"
       | "test:e2e"
-      | "test:cli-e2e"
       | "test:harness"
       | "test:eval"
       | "test:vitest"
