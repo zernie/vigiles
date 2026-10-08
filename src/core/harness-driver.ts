@@ -113,8 +113,11 @@ export interface HarnessDriverContext {
   readonly cwd: string;
   /** Whether a settings file was written (CC: pass `--settings`). */
   readonly hasSettings: boolean;
-  /** Tools the agent may use. */
-  readonly tools: readonly string[];
+  /**
+   * The ONLY tools the agent has, when the spec lists them; undefined = no
+   * restriction (every tool is offered, the default four are pre-approved).
+   */
+  readonly tools?: readonly string[];
   /** Capture the full event transcript instead of just the final result. */
   readonly transcript: boolean;
   /** Path to a plugin dir to install natively, if any. */

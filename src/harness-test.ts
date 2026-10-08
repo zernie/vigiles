@@ -152,14 +152,16 @@ export interface HarnessTestSpec {
   /** The user prompt. Default: "go". */
   readonly prompt?: string;
   /**
-   * The ONLY tools the agent has. Default: Read Edit Write Bash. A tool left out
-   * is not offered (`claude --tools`, Claude Code 2.0.31+): a scripted call to it
-   * comes back as "No such tool available", and `[]` means no tools at all. Each
-   * listed tool is also pre-approved (`--allowedTools`), so it does not stop on a
-   * permission prompt; a permission rule such as `Bash(git *)` keeps its
-   * specifier for the approval and is reduced to `Bash` for availability. An MCP
-   * tool is not a built-in: left out, it is still offered but not approved, so a
-   * call to it is refused for permission rather than as "No such tool".
+   * The ONLY tools the agent has, when you list them: a tool left out is not
+   * offered (`claude --tools`, Claude Code 2.0.31+), `[]` is refused, and a
+   * scripted call to a tool the list leaves out throws before the run starts.
+   * Omitted, nothing is withheld: every tool is offered and Read, Edit, Write and
+   * Bash are pre-approved. Each listed tool is also pre-approved
+   * (`--allowedTools`), so it does not stop on a permission prompt; a permission
+   * rule such as `Bash(git *)` keeps its specifier for the approval and is
+   * offered as plain `Bash`. An MCP tool is not a built-in: left out, it is still
+   * offered but not approved, so a call to it is refused for permission rather
+   * than as "No such tool".
    */
   readonly allowedTools?: readonly string[];
   /**
@@ -434,6 +436,30 @@ export function toolAvailabilityList(
 }
 
 /**
+ * A scripted call to a tool an EXPLICIT `allowedTools` does not offer. The CLI
+ * answers it with "No such tool available" and the run goes on, so a test that
+ * scripts the call and then asserts on something else passes over a step that
+ * never happened. Returns the message to throw, or undefined. MCP tools are not
+ * built-ins, so `--tools` does not withhold them and they are skipped. Pure.
+ */
+export function unofferedScriptedTool(
+  model: readonly ModelTurn[],
+  allowed: readonly string[] | undefined,
+): string | undefined {
+  if (allowed === undefined) return undefined;
+  const offered = toolAvailabilityList(allowed);
+  const at = model.findIndex(
+    (t) =>
+      t.tool !== undefined &&
+      !t.tool.startsWith("mcp__") &&
+      !offered.includes(t.tool),
+  );
+  return at < 0
+    ? undefined
+    : `scripted call to "${model[at]?.tool ?? ""}" on turn ${String(at + 1)}, but this run offers only: ${offered.join(", ")} — add it to allowedTools`;
+}
+
+/**
  * A run on a `claude` that predates `--tools` exits at argument parsing, and
  * commander's "unknown option" says nothing about WHY vigiles passed it. Returns
  * the message to throw, or undefined when the run did not die that way. Pure.
@@ -466,12 +492,14 @@ export function buildClaudeArgs(
       ? ["--plugin-dir", resolve(spec.pluginDir)]
       : []),
     ...(hasSettings ? ["--settings", "settings.json"] : []),
-    // `--tools` is the AVAILABILITY list: a tool left out is not offered to the
-    // agent at all. `--allowedTools` only PRE-APPROVES (it never restricts), so
-    // on its own it left every unnamed tool runnable (#252). An empty list is
-    // `--tools ""` = no tools at all, never "all of them".
-    "--tools",
-    toolAvailabilityList(tools).join(","),
+    // An EXPLICIT list restricts: `--tools` is the AVAILABILITY list, a tool left
+    // out is not offered at all. `--allowedTools` only PRE-APPROVES (it never
+    // restricts), so on its own it left every unnamed tool runnable (#252). An
+    // empty list is `--tools ""` = no tools. With no list, nothing is withheld:
+    // the default four are pre-approved and every other tool stays available.
+    ...(spec.allowedTools === undefined
+      ? []
+      : ["--tools", toolAvailabilityList(spec.allowedTools).join(",")]),
     // Pre-approval for the offered tools, so none stops on a permission prompt
     // (headless). An empty one approves nothing, so the flag is left out (a bare
     // `--allowedTools` exits before any model turn).
@@ -738,7 +766,7 @@ export async function runHarnessTest(
   spec: HarnessTestSpec,
   opts: RunHarnessTestOptions = {},
 ): Promise<HarnessTestResult> {
-  refuseToollessAgent(spec);
+  refuseUnrunnableSpec(spec);
   return runHarnessTestIn(spec, opts, "inherit");
 }
 
@@ -747,11 +775,14 @@ export async function runHarnessTest(
  * the tools the request declares (`isMainLoopRequest`). An agent with none is
  * never served a script turn, and the run would decide on nothing.
  */
-function refuseToollessAgent(spec: HarnessTestSpec): void {
-  if (spec.allowedTools?.length !== 0) return;
-  throw new Error(
-    "allowedTools: [] leaves the agent with no tools, and the scripted model only serves a turn to a request that declares tools — no script turn would be consumed. Name the tools the agent has.",
-  );
+function refuseUnrunnableSpec(spec: HarnessTestSpec): void {
+  if (spec.allowedTools?.length === 0) {
+    throw new Error(
+      "allowedTools: [] leaves the agent with no tools, and the scripted model only serves a turn to a request that declares tools — no script turn would be consumed. Name the tools the agent has.",
+    );
+  }
+  const unoffered = unofferedScriptedTool(spec.model, spec.allowedTools);
+  if (unoffered !== undefined) throw new Error(unoffered);
 }
 
 /**
@@ -793,14 +824,13 @@ export async function runHarnessTestIn(
   const { files, settings, check } = fixtureFor(spec, opts.adapter);
   const cwd = makeTmpDir("harness");
   writeFixture(cwd, files, settings);
-  const tools = spec.allowedTools ?? ["Read", "Edit", "Write", "Bash"];
   const timeoutMs = spec.timeoutMs ?? 60000;
   const buildArgs = (mockArgs: readonly string[]): readonly string[] =>
     driver.buildArgs({
       prompt: spec.prompt ?? "go",
       cwd,
       hasSettings: settings !== undefined,
-      tools,
+      tools: spec.allowedTools,
       transcript: spec.transcript ?? false,
       pluginDir: spec.pluginDir,
       mockArgs,
