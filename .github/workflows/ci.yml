@@ -531,7 +531,7 @@ jobs:
         # that loses SOME of the harnesses (a rename, a moved directory, a changed
         # extension) still matches the rest and stays green. Adding harness files
         # keeps passing; dropping below the floor fails.
-        run: node dist/cli.js test --min=14
+        run: node dist/cli.js test --min=15
 
   # The in-browser "grade a repo" demo (site/) runs the SAME compiled engine the
   # CLI runs (`@engine/*` → the built dist/), so its browser-mode vitest suite is a

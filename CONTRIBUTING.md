@@ -45,7 +45,7 @@ npm run build        # Compile TypeScript → dist/
 
 ### Test
 
-This repo has **twelve** test tiers, not one. `npm test` (build + `vitest run`)
+This repo has **eleven** test tiers, not one. `npm test` (build + `vitest run`)
 is the vitest suite — the first three rows below — and the rest need a binary, a
 container, or money. Which tier a NEW check belongs in is decided by the
 `pick-the-test-tier` rule in `CLAUDE.md`; this table is where each one LIVES and
@@ -58,9 +58,8 @@ who runs it.
 | **e2e (vitest)**       | `src/**/*.e2e.test.ts`                          | `npm run test:e2e`                              | real network; the egress half also wants bwrap + slirp4netns + nftables and a privileged container                              | yes, job `e2e` — where it actually routes      |
 | **cross-runner**       | `test/runners/*.vitest.mjs`, `*.jest.cjs`       | `npm run test:vitest` / `npm run test:jest`     | a built `dist/` (they load the published matcher entries)                                                                       | yes, but reached as `vitest run` + `npx jest`  |
 | **type-level**         | `test/types/`                                   | `npm run test:types`                            | `tsc` only                                                                                                                      | yes, inside `npm run check`                    |
-| **harness**            | `examples/harness/**/*.harness.mjs` (14)        | `npm run test:harness`                          | the real `claude` binary — **no API key, no model, no cost**                                                                    | yes, job `harness`, with `--min=14` as a floor |
+| **harness**            | `examples/harness/**/*.harness.mjs` (15)        | `npm run test:harness`                          | the real `claude` binary — **no API key, no model, no cost**                                                                    | yes, job `harness`, with `--min=15` as a floor |
 | **eval**               | `**/*.eval.mjs` (20)                            | `npm run test:eval`                             | a real model — real money                                                                                                       | **no, deliberately**                           |
-| **live CLI e2e**       | `test/e2e/run.sh`                               | `npm run test:cli-e2e`                          | the real `claude` binary + the bundled mock Anthropic endpoint                                                                  | 🔴 **nowhere** — see below                     |
 | **rule-enforcer gate** | `rule-enforcer/gate.js`                         | `npm run check`                                 | its own `node_modules` (`npm ci --prefix rule-enforcer`, which `check` does)                                                    | yes, inside `npm run check`                    |
 | **bench self-checks**  | `bench/corpus/verify*.mjs`                      | `npm run check`                                 | nothing                                                                                                                         | yes, inside `npm run check`                    |
 | **bench (paid)**       | `bench/**`                                      | by hand (`bench/run.sh` and friends)            | a real model — real money                                                                                                       | no                                             |
@@ -91,16 +90,6 @@ command is `vigiles hook-runtime run-program .vigiles/hooks/test-tier-nudge.hook
 puts it back, in place, without touching any other hook. It only speaks in a
 session where Claude Code loads this repo's settings; it is not part of CI, and it
 is not shipped to users of the plugin.
-
-#### `npm run test:cli-e2e` is run by nothing
-
-It appears in `package.json` and in `docs/skills.md`, and nowhere else: not in
-`.github/workflows/ci.yml`, not in `scripts/check.mjs`, and not in that file's
-`CI_JOBS_NOT_COVERED` list — so nothing tells you it exists and nothing notices
-when it rots. `docs/skills.md` says the skill Stop-hook is "proven end-to-end
-against real Claude Code in `test/e2e`"; that proof is currently a claim no gate
-re-checks. Run it by hand when you touch the skill runtime or the Stop-hook
-path, and read the claim as manual until the script has a home.
 
 ### Format
 

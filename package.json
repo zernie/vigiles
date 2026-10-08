@@ -83,7 +83,6 @@
     "test:unit": "npm run build && vitest run --project unit",
     "test:integration": "npm run build && vitest run --project integration",
     "test:e2e": "npm run build && vitest run --project e2e",
-    "test:cli-e2e": "bash test/e2e/run.sh",
     "test:harness": "npm run build && node dist/cli.js test",
     "test:eval": "npm run build && node dist/cli.js eval --all",
     "test:vitest": "npm run build && vitest run --project runners",

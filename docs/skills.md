@@ -91,7 +91,7 @@ A gate is one of:
 ## Running and enforcing a skill
 
 - **`vigiles hook-runtime run-skill <SKILL.md>`** parses the `vigiles:gate`/`vigiles:result` markers and **runs the gate ladder**: each gate in order, short-circuiting on the first failure (Railway), then the result gate. Exit 0 = all passed, exit 2 = blocked. (`src/adapters/claude-code/skill-runtime.ts`)
-- **Stop-hook enforcement** makes the result gate enforce in a live session: `vigiles hook-runtime skill-start <SKILL.md>` marks a skill active; the `Stop` hook (`vigiles hook-runtime skill`) runs its result gate and **blocks completion until it passes** (exit 2 feeds the reason back to the model); `vigiles hook-runtime skill-done` clears it. Proven end-to-end against real Claude Code in `test/e2e`.
+- **Stop-hook enforcement** makes the result gate enforce in a live session: `vigiles hook-runtime skill-start <SKILL.md>` marks a skill active; the `Stop` hook (`vigiles hook-runtime skill`) runs its result gate and **blocks completion until it passes** (exit 2 feeds the reason back to the model); `vigiles hook-runtime skill-done` clears it. Proven end-to-end against real Claude Code in `examples/harness/agent-loop.harness.mjs`.
 - **Edit protection**: the Claude Code plugin (installed via the marketplace — `/plugin marketplace add zernie/vigiles` then `/plugin install vigiles@vigiles`, or via `vigiles init`) ships a `PreToolUse` hook that blocks edits to any vigiles-compiled file (one carrying a `vigiles:sha256:` header — including a compiled `SKILL.md`) and redirects to its spec, and a `PostToolUse` hook that recompiles on `*.spec.ts` edits. Hand-written markdown is untouched.
 
 ## Testing a skill
@@ -100,7 +100,7 @@ A skill's **firing** and its **gates** are testable without a spec, from the pub
 
 - **Does the description actually fire?** `paid_measureTriggerRate` (`vigiles/eval`) reports recall and precision against prompts that should and should not reach the skill.
 - **Does the gate ladder behave?** `vigiles hook-runtime run-skill <SKILL.md>` runs the markers directly, so a test can assert the exit code.
-- **Live E2E** (`test/e2e`, `npm run test:cli-e2e`): drives the _real_ `claude` CLI against a scripted mock Anthropic endpoint (`ANTHROPIC_BASE_URL`), asserting the tool-use loop and Stop-hook enforcement with no real model.
+- **Live loop** (`examples/harness/agent-loop.harness.mjs`, `npm run test:harness`): drives the _real_ `claude` CLI against the scripted mock model, asserting the tool-use loop and Stop-hook enforcement with no real model.
 
 ## Companion files — `references/`, `scripts/`, `assets/`
 
