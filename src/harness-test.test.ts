@@ -131,6 +131,7 @@ import {
   unsupportedToolsFlag,
   unofferedScriptedTool,
   noSuchToolMessage,
+  runProblem,
   warnUnconsumed,
 } from "./harness-test.js";
 import {
@@ -369,6 +370,26 @@ test("unsupportedToolsFlag: names the cause when claude predates --tools", () =>
   assert.match(message ?? "", /`tools`/);
   assert.equal(unsupportedToolsFlag("some other failure"), undefined);
   assert.equal(unsupportedToolsFlag(""), undefined);
+});
+
+// A typo'd LAST turn makes the CLI ask the model once more after the error, so the
+// run also overruns the script. The typo explains the overrun, so it is the one
+// reported; the generic "script every turn" would hide it until the next run.
+test("runProblem: an unknown scripted tool is reported before the overrun it causes", () => {
+  const model = [{ tool: "Bsh", input: {} }];
+  const req = (text: string) => ({
+    system: "",
+    messages: [{ role: "user", text }],
+    tools: ["Bash"],
+  });
+  const requests = [
+    req("go"),
+    req("<tool_use_error>Error: No such tool available: Bsh</tool_use_error>"),
+  ];
+  assert.match(runProblem("", model, requests) ?? "", /scripted call to "Bsh"/);
+  // Without the typo, the same overrun is still reported.
+  assert.ok(runProblem("", model, [req("go"), req("ok")]) !== undefined);
+  assert.equal(runProblem("", model, [req("go")]), undefined);
 });
 
 test("tools of blank names is refused like tools: []", async () => {

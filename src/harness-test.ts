@@ -755,6 +755,23 @@ export function warnUnconsumed(count: number, sideChannelCount: number): void {
 }
 
 /**
+ * What makes a finished run unsound, most specific first, or undefined. Pure.
+ */
+export function runProblem(
+  stderr: string,
+  model: readonly ModelTurn[],
+  modelRequests: readonly ModelRequest[],
+): string | undefined {
+  return (
+    unsupportedToolsFlag(stderr) ??
+    // A typo'd last turn makes the CLI ask once more, so the overrun follows
+    // from it: report the cause, not its effect.
+    noSuchToolMessage(model, modelRequests) ??
+    overrunMessageFor(model.length, modelRequests)
+  );
+}
+
+/**
  * A run that proves nothing about the script fails the test instead of coming
  * back as a result: the `claude` on PATH predates `--tools` (needed for `tools`), or the agent
  * asked for a model turn the script did not have and the mock answered with an
@@ -768,10 +785,7 @@ function assertRunSound(
   model: readonly ModelTurn[],
   modelRequests: readonly ModelRequest[],
 ): void {
-  const problem =
-    unsupportedToolsFlag(stderr) ??
-    overrunMessageFor(model.length, modelRequests) ??
-    noSuchToolMessage(model, modelRequests);
+  const problem = runProblem(stderr, model, modelRequests);
   if (problem === undefined) return;
   rmSync(cwd, { recursive: true, force: true });
   throw new Error(problem);
