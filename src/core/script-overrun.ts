@@ -60,3 +60,12 @@ export function findScriptOverrun(
     lastMessage: first.messages.at(-1)?.text ?? "",
   };
 }
+
+/** {@link findScriptOverrun} and {@link scriptOverrunMessage} in one: the message, or undefined. */
+export function overrunMessageFor(
+  scripted: number,
+  requests: readonly ModelRequest[],
+): string | undefined {
+  const overrun = findScriptOverrun(scripted, requests);
+  return overrun === undefined ? undefined : scriptOverrunMessage(overrun);
+}

@@ -57,10 +57,7 @@ import type { Trace, SubagentTrace } from "./core/eval-driver.js";
 export type { Trace, SubagentTrace } from "./core/eval-driver.js";
 import { assertHarnessTestable } from "./adapter-conformance.js";
 import { recordCheck } from "./check-count.js";
-import {
-  findScriptOverrun,
-  scriptOverrunMessage,
-} from "./core/script-overrun.js";
+import { overrunMessageFor } from "./core/script-overrun.js";
 import { probeTrace } from "./coverage-probe.js";
 
 import { claudeCodeRuntime } from "./adapters/claude-code/runtime.js";
@@ -664,7 +661,7 @@ export interface RunHarnessTestOptions {
 }
 
 /** Say so on stderr when side-channel calls arrived and no script turn was served. */
-function warnUnconsumed(count: number, sideChannelCount: number): void {
+export function warnUnconsumed(count: number, sideChannelCount: number): void {
   const unconsumed = scriptUnconsumedWarning(count, sideChannelCount);
   if (unconsumed !== undefined) console.error(unconsumed);
 }
@@ -682,13 +679,11 @@ function assertRunSound(
   scripted: number,
   modelRequests: readonly ModelRequest[],
 ): void {
-  const unsupported = unsupportedToolsFlag(stderr);
-  const overrun = findScriptOverrun(scripted, modelRequests);
-  if (unsupported === undefined && overrun === undefined) return;
+  const problem =
+    unsupportedToolsFlag(stderr) ?? overrunMessageFor(scripted, modelRequests);
+  if (problem === undefined) return;
   rmSync(cwd, { recursive: true, force: true });
-  throw new Error(
-    unsupported ?? (overrun === undefined ? "" : scriptOverrunMessage(overrun)),
-  );
+  throw new Error(problem);
 }
 
 /* v8 ignore start -- spawns the real agent CLI + filesystem; exercised by the

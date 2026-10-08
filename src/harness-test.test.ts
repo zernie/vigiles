@@ -8,7 +8,7 @@
  * tests below. An earlier claude version gated them headlessly; the tests lock in
  * that they work on current CLIs (verified on 2.1.169) and catch a re-gate.
  */
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
@@ -129,6 +129,7 @@ import {
   buildClaudeArgs,
   toolAvailabilityList,
   unsupportedToolsFlag,
+  warnUnconsumed,
 } from "./harness-test.js";
 import {
   assertToolUsed,
@@ -286,6 +287,22 @@ test("toolAvailabilityList: a permission rule is offered by its tool name", () =
     "--allowedTools",
     "Bash(git *)",
   ]);
+});
+
+test("warnUnconsumed: says so on stderr when the classifier swallowed the run, and only then", () => {
+  const lines: unknown[] = [];
+  const spy = vi.spyOn(console, "error").mockImplementation((m) => {
+    lines.push(m);
+  });
+  try {
+    warnUnconsumed(3, 2); // the normal case: turns were served
+    assert.deepEqual(lines, []);
+    warnUnconsumed(0, 4); // side-channel calls only: the script was never consumed
+    assert.equal(lines.length, 1);
+    assert.match(String(lines[0]), /side-channel/);
+  } finally {
+    spy.mockRestore();
+  }
 });
 
 test("unsupportedToolsFlag: names the cause when claude predates --tools", () => {

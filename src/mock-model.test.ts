@@ -18,6 +18,7 @@ import {
 } from "./mock-model.js";
 import {
   findScriptOverrun,
+  overrunMessageFor,
   scriptOverrunMessage,
 } from "./core/script-overrun.js";
 
@@ -429,6 +430,18 @@ test("findScriptOverrun: side-channel calls never count, and staying inside the 
       request: 3,
       lastMessage: "c",
     },
+  );
+});
+
+test("overrunMessageFor: the message when the agent outran the script, nothing when it did not", () => {
+  const agent = (text: string) => ({
+    system: "",
+    messages: [{ role: "user", text }],
+  });
+  assert.equal(overrunMessageFor(1, [agent("a")]), undefined);
+  assert.match(
+    overrunMessageFor(1, [agent("a"), agent("b")]) ?? "",
+    /1 turn\(s\) scripted, and agent request #2/,
   );
 });
 
