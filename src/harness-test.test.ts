@@ -371,6 +371,17 @@ test("unsupportedToolsFlag: names the cause when claude predates --tools", () =>
   assert.equal(unsupportedToolsFlag(""), undefined);
 });
 
+test("tools of blank names is refused like tools: []", async () => {
+  await assert.rejects(
+    runHarnessTest({
+      sandbox: false,
+      tools: ["", "  "],
+      model: [{ text: "done" }],
+    }),
+    /leaves the agent with no tools/,
+  );
+});
+
 test("tools: [] is refused — a tool-less agent is never served a script turn", async () => {
   await assert.rejects(
     runHarnessTest({
@@ -450,10 +461,15 @@ test("noSuchToolMessage: names the tool and the turn, suggests a typo, and only 
     ) ?? "",
     /scripted call to "mcp__nosuch__t" on turn 1/,
   );
-  // A name the script does not hold still gets named, without a turn.
-  assert.match(
-    noSuchToolMessage([], [answered(typo)]) ?? "",
-    /^scripted call to "Bsh": /,
+  // Only the CLI's own error for a name the script calls counts: the agent here
+  // calls tools only from the script, so the same words anywhere else (the prompt,
+  // a hook's injected text, an unscripted name) are not a result of this run.
+  assert.equal(noSuchToolMessage([], [answered(typo)]), undefined);
+  assert.equal(
+    noSuchToolMessage(model, [
+      answered("why does it say No such tool available: Bsh"),
+    ]),
+    undefined,
   );
   // Nothing wrong: no message. A bookkeeping (side-channel) request that merely
   // quotes the text is not the agent's own result.

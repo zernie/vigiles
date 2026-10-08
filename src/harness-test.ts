@@ -502,12 +502,19 @@ export function noSuchToolMessage(
   model: readonly ModelTurn[],
   requests: readonly ModelRequest[],
 ): string | undefined {
-  const pattern = /No such tool available: ([^\s<]+)/;
+  // The CLI's own wording, inside its error wrapper, for a name the script
+  // calls: the agent calls tools only from the script, so the same words in the
+  // prompt or in a hook's injected text are not a result of this run.
+  const pattern =
+    /<tool_use_error>Error: No such tool available: ([^\s<]+)<\/tool_use_error>/g;
+  const scripted = new Set(
+    model.flatMap((t) => (t.tool === undefined ? [] : [t.tool])),
+  );
   const hit = requests
     .filter((r) => r.sideChannel !== true)
     .flatMap((r) => r.messages)
-    .map((m) => pattern.exec(m.text)?.[1])
-    .find((name) => name !== undefined);
+    .flatMap((m) => [...m.text.matchAll(pattern)].map((x) => x[1]))
+    .find((name) => name !== undefined && scripted.has(name));
   if (hit === undefined) return undefined;
   const at = model.findIndex((t) => t.tool === hit);
   const turn = at < 0 ? "" : ` on turn ${String(at + 1)}`;
@@ -826,15 +833,37 @@ export async function runHarnessTest(
   return runHarnessTestIn(spec, opts, "inherit");
 }
 
+/** The driver's view of one run of `spec`. Pure. */
+function driverContext(
+  spec: HarnessTestSpec,
+  cwd: string,
+  hasSettings: boolean,
+  mockArgs: readonly string[],
+): HarnessDriverContext {
+  return {
+    prompt: spec.prompt ?? "go",
+    cwd,
+    hasSettings,
+    tools: spec.tools,
+    allowedTools: spec.allowedTools,
+    transcript: spec.transcript ?? false,
+    pluginDir: spec.pluginDir,
+    mockArgs,
+  };
+}
+
 /**
  * The scripted model tells an agent turn from the CLI's own bookkeeping calls by
  * the tools the request declares (`isMainLoopRequest`). An agent with none is
  * never served a script turn, and the run would decide on nothing.
  */
 function refuseUnrunnableSpec(spec: HarnessTestSpec): void {
-  if (spec.tools?.length === 0) {
+  if (
+    spec.tools !== undefined &&
+    toolAvailabilityList(spec.tools).length === 0
+  ) {
     throw new Error(
-      "tools: [] leaves the agent with no tools, and the scripted model only serves a turn to a request that declares tools — no script turn would be consumed. Name the tools the agent has.",
+      "tools: [] leaves the agent with no tools (a list of blank names counts as empty), and the scripted model only serves a turn to a request that declares tools — no script turn would be consumed. Name the tools the agent has.",
     );
   }
   const unoffered = unofferedScriptedTool(spec.model, spec.tools);
@@ -877,21 +906,18 @@ export async function runHarnessTestIn(
     );
   }
 
+  // The driver refuses a spec it cannot run (Codex and `tools`) inside
+  // buildArgs. Ask it once before any temp dir or mock exists, so a refusal
+  // leaves nothing behind; buildArgs is pure.
+  driver.buildArgs(driverContext(spec, "", false, []));
   const { files, settings, check } = fixtureFor(spec, opts.adapter);
   const cwd = makeTmpDir("harness");
   writeFixture(cwd, files, settings);
   const timeoutMs = spec.timeoutMs ?? 60000;
   const buildArgs = (mockArgs: readonly string[]): readonly string[] =>
-    driver.buildArgs({
-      prompt: spec.prompt ?? "go",
-      cwd,
-      hasSettings: settings !== undefined,
-      tools: spec.tools,
-      allowedTools: spec.allowedTools,
-      transcript: spec.transcript ?? false,
-      pluginDir: spec.pluginDir,
-      mockArgs,
-    });
+    driver.buildArgs(
+      driverContext(spec, cwd, settings !== undefined, mockArgs),
+    );
 
   // Confined path (Claude Code only): the mock is co-launched in the netns, so
   // the agent reaches it over the loopback URL the sandbox sets — Claude Code is

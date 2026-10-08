@@ -11,6 +11,9 @@
  */
 import { test, expect } from "vitest";
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { runHarnessTest } from "../../harness-test.js";
 import { codexAdapter } from "./adapter.js";
@@ -63,13 +66,24 @@ test("buildCodexArgs refuses tools", () => {
   ).toThrow(/tools is not supported for codex/);
 });
 
-test("runHarnessTest refuses tools on Codex", async () => {
-  await expect(
-    runHarnessTest(
-      { sandbox: false, tools: ["Read"], model: [{ text: "done" }] },
-      { adapter: codexAdapter },
-    ),
-  ).rejects.toThrow(/tools is not supported for codex/);
+test("runHarnessTest refuses tools on Codex before it makes a temp dir", async () => {
+  const before = process.env.TMPDIR;
+  const tmp = mkdtempSync(join(tmpdir(), "codex-tools-refusal-"));
+  process.env.TMPDIR = tmp;
+  try {
+    await expect(
+      runHarnessTest(
+        { sandbox: false, tools: ["Read"], model: [{ text: "done" }] },
+        { adapter: codexAdapter },
+      ),
+    ).rejects.toThrow(/tools is not supported for codex/);
+    // Guards: a refused spec leaves nothing behind in the temp root.
+    expect(readdirSync(tmp)).toEqual([]);
+  } finally {
+    if (before === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = before;
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test("parseCodexRun: returns trimmed stdout as the output, empty tools/hooks", () => {
