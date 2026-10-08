@@ -21,7 +21,6 @@ test("buildCodexArgs: exec flags, mock flags after exec, prompt last", () => {
     prompt: "do it",
     cwd: "/tmp/x",
     hasSettings: false,
-    tools: [],
     transcript: false,
     mockArgs: ["-c", "model_provider=mock"],
   });
@@ -35,7 +34,7 @@ test("buildCodexArgs: exec flags, mock flags after exec, prompt last", () => {
   expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
 });
 
-test("buildCodexArgs: tools and allowedTools do not change the argv (Codex has no equivalent)", () => {
+test("buildCodexArgs: allowedTools does not change the argv (approvals are bypassed)", () => {
   const ctx = {
     prompt: "do it",
     cwd: "/tmp/x",
@@ -43,9 +42,34 @@ test("buildCodexArgs: tools and allowedTools do not change the argv (Codex has n
     transcript: false,
     mockArgs: ["-c", "model_provider=mock"],
   };
-  expect(
-    buildCodexArgs({ ...ctx, tools: ["Read"], allowedTools: ["Bash"] }),
-  ).toEqual(buildCodexArgs(ctx));
+  expect(buildCodexArgs({ ...ctx, allowedTools: ["Bash"] })).toEqual(
+    buildCodexArgs(ctx),
+  );
+});
+
+// Codex has no per-run tool availability. A `tools` list that did nothing would
+// make a "this tool is withheld" test pass over a run where nothing was
+// withheld, so the driver refuses it.
+test("buildCodexArgs refuses tools", () => {
+  expect(() =>
+    buildCodexArgs({
+      prompt: "do it",
+      cwd: "/tmp/x",
+      hasSettings: false,
+      transcript: false,
+      mockArgs: [],
+      tools: ["Read"],
+    }),
+  ).toThrow(/tools is not supported for codex/);
+});
+
+test("runHarnessTest refuses tools on Codex", async () => {
+  await expect(
+    runHarnessTest(
+      { sandbox: false, tools: ["Read"], model: [{ text: "done" }] },
+      { adapter: codexAdapter },
+    ),
+  ).rejects.toThrow(/tools is not supported for codex/);
 });
 
 test("parseCodexRun: returns trimmed stdout as the output, empty tools/hooks", () => {

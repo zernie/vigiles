@@ -116,7 +116,7 @@ export interface HarnessDriverContext {
   /**
    * Which tools EXIST in the session, when the spec lists them (CC: `--tools`);
    * undefined = every tool exists. A driver whose harness has no such concept
-   * (Codex) ignores it.
+   * (Codex) throws on one rather than ignore it.
    */
   readonly tools?: readonly string[];
   /**

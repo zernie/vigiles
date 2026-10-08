@@ -230,26 +230,34 @@ Two optional fields, two Claude Code flags:
 | `tools`        | `--tools`        | which tools **exist** in the session                  | every tool exists                           |
 | `allowedTools` | `--allowedTools` | which tools are **pre-approved** (no permission stop) | Read, Edit, Write and Bash are pre-approved |
 
-`allowedTools` never removes a tool. A tool that exists but is not approved is
-**refused for permission** in headless mode (`touch in '…' needs approval`), so a
-permission-containment test scripts the call and asserts that it errored and left
-no side effect: pre-approve `["Read", "Write"]`, script a `Bash` call that changes
-a file, and the file stays absent. Use a command that changes state for that
-positive control: Claude Code runs read-only commands such as `ls` without
-approval. `allowedTools: []` approves nothing. A permission rule such as
-`Bash(git *)` is a valid `allowedTools` entry and keeps its specifier.
+`allowedTools` never removes a tool, and leaving a tool out of it is **not a
+fence**. In headless mode Claude Code refuses only the calls it would have asked
+about. For Bash that is a command that creates, changes or removes a file
+(`touch`, `>`), inside or outside the working directory: with
+`allowedTools: ["Read", "Write"]` a scripted `touch DENIED-PROBE` comes back as an
+error (`touch in '…' needs approval`) and leaves no file. A command with no file
+effect (`printf PROBE_RAN; id -u`, `ls`) runs unapproved. So that refused `touch`
+proves the file-change guard is live, not that Bash is withheld. To withhold a tool
+use `tools`; to forbid its use put a deny rule in the fixture's
+`settings.permissions.deny`. (Measured on Claude Code 2.1.294; the wording of the
+refusal can change, so assert that the call errored and left no file, not the
+text.) `allowedTools: []` approves nothing. A permission rule such as `Bash(git *)`
+is a valid `allowedTools` entry and keeps its specifier. An explicit list
+**replaces** the default four: `tools: ["Read", "Write"]` with
+`allowedTools: ["Skill"]` leaves Write unapproved.
 
 `tools` makes a tool not exist: a call to one left out comes back as "No such tool
 available" (`claude --tools`, Claude Code 2.0.31 or newer). Because the test would
 carry on over a step that never happened, a scripted call to a tool outside an
 explicit `tools` list **throws before the run starts** (`scripted call to "Skill"
 on turn 2, but this run's tools are only: Read, Bash — add it to tools`). It takes
-names, so `Bash(git *)` is offered as plain `Bash`. `tools: []` is refused: an
-agent with no tools is never served a scripted turn. An MCP tool is not a
-built-in, so `--tools` does not withhold it. `tools` approves nothing: a listed
-tool that needs approval (`Skill`, say) also goes in `allowedTools` or in a
-permission rule in the fixture's settings. The Codex driver ignores both fields
-(`codex exec` runs with approvals bypassed and has no per-run equivalent).
+bare names: `Bash(git *)` is refused, since the rule belongs in `allowedTools`.
+`tools: []` is refused: an agent with no tools is never served a scripted turn. An
+MCP tool is not a built-in, so `--tools` does not withhold it. A scripted call to
+any tool the CLI does not know (a typo such as `Bsh`, an `mcp__` server that is not
+configured) fails the run with the tool's name, whether or not `tools` is set. The
+Codex driver ignores `allowedTools` (`codex exec` runs with approvals bypassed) and
+a run there refuses `tools`, which has no equivalent.
 
 **Assert on the agent's _actions_, not stdout.** With `transcript: true`,
 `r.toolCalls` is the parsed list of tools the agent invoked (each paired with its

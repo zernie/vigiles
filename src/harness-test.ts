@@ -154,13 +154,12 @@ export interface HarnessTestSpec {
   /**
    * Which tools EXIST in the session (`claude --tools`, Claude Code 2.0.31+). A
    * tool left out is not offered at all, so a call to it is "No such tool
-   * available". Omitted, every tool exists. Names only: a permission rule such as
-   * `Bash(git *)` is reduced to `Bash`. `[]` is refused (an agent with no tools
-   * is never served a scripted turn), and a scripted call to a tool the list
-   * leaves out throws before the run starts. An MCP tool is not a built-in, so
-   * `--tools` does not withhold it. This does not approve anything: pair it with
-   * `allowedTools` for tools that need approval. Codex has no equivalent and
-   * ignores it.
+   * available". Omitted, every tool exists. This is the field that withholds a
+   * tool. Names only: a permission rule such as `Bash(git *)` is refused (put the
+   * rule in `allowedTools`). `[]` is refused (an agent with no tools is never
+   * served a scripted turn), and a scripted call to a tool the list leaves out
+   * throws before the run starts. An MCP tool is not a built-in, so `--tools`
+   * does not withhold it. Codex has no equivalent, so a run there refuses it.
    *
    * | field          | Claude Code flag  | meaning                      |
    * | -------------- | ----------------- | ---------------------------- |
@@ -170,11 +169,19 @@ export interface HarnessTestSpec {
   readonly tools?: readonly string[];
   /**
    * Which tools are PRE-APPROVED (`claude --allowedTools`), so they do not stop
-   * on a permission prompt. It never removes a tool: one that exists but is not
-   * approved is refused for permission in headless mode, which is how a
-   * permission-containment test gets its positive control. Takes permission
-   * rules (`Bash(git *)`). Omitted: Read, Edit, Write and Bash are approved.
-   * `[]`: nothing is approved. See `tools` for which tools exist.
+   * on a permission prompt. Takes permission rules (`Bash(git *)`). Omitted:
+   * Read, Edit, Write and Bash are approved. An explicit list REPLACES that
+   * default, so `tools: ["Read", "Write"]` with `allowedTools: ["Skill"]` leaves
+   * Write unapproved. `[]`: nothing is approved.
+   *
+   * It never removes a tool, and leaving a tool out is not a fence: in headless
+   * mode Claude Code refuses only the calls it would have asked about. For Bash
+   * that is a command that creates, changes or removes a file (`touch`, `>`),
+   * inside or outside the working directory; a command with no file effect
+   * (`ls`, `printf`, `id`) runs unapproved. So a refused `touch` proves the
+   * file-change guard is live, not that Bash is withheld. To withhold a tool use
+   * `tools`; to forbid its use put a deny rule in the fixture's
+   * `settings.permissions.deny`.
    */
   readonly allowedTools?: readonly string[];
   /**
@@ -436,16 +443,23 @@ export function parseHooks(stdout: string): HookFire[] {
 const TOOLS_FLAG_MIN_CLAUDE = "2.0.31";
 
 /**
- * The names `--tools` takes for a `tools` list. `--allowedTools` takes permission
- * rules (`Bash(git *)`); `--tools` takes tool NAMES, and a rule with a specifier
- * there makes the CLI offer no tools at all. So the specifier is dropped
- * (`Bash(git *)` → `Bash`) and repeats collapse. Pure.
+ * The names `--tools` takes for a `tools` list: trimmed and deduplicated.
+ * `--allowedTools` takes permission rules (`Bash(git *)`); `--tools` takes tool
+ * NAMES, and a rule there makes the CLI offer no tools at all. Reducing it to
+ * `Bash` would offer more than the author wrote, so a rule is refused: it
+ * belongs in `allowedTools`. Pure.
  */
 export function toolAvailabilityList(
   tools: readonly string[],
 ): readonly string[] {
-  const names = tools.map((rule) => rule.replace(/\(.*$/, "").trim());
-  return [...new Set(names.filter((n) => n !== ""))];
+  const names = tools.map((entry) => entry.trim()).filter((n) => n !== "");
+  const rule = names.find((name) => name.includes("("));
+  if (rule !== undefined) {
+    throw new Error(
+      `tools takes bare tool names, and "${rule}" is a permission rule — put the rule in allowedTools and the name ("${rule.replace(/\(.*$/, "")}") in tools`,
+    );
+  }
+  return [...new Set(names)];
 }
 
 /**
@@ -472,6 +486,32 @@ export function unofferedScriptedTool(
   return at < 0
     ? undefined
     : `scripted call to "${model[at]?.tool ?? ""}" on turn ${String(at + 1)}, but this run's tools are only: ${exist.join(", ")} — add it to tools`;
+}
+
+/**
+ * The agent's own tool results, read off the requests it sent back to the model,
+ * that say a scripted tool does not exist. The CLI answers an unknown name
+ * (`Bsh` for `Bash`, an `mcp__` server that is not configured) with an error
+ * RESULT and carries on, exit 0, so a test that asserts "the call errored and
+ * left no side effect" passes on a typo. `tools` cannot catch it: the pre-flight
+ * skips `mcp__` names and only runs when `tools` is given. Side-channel requests
+ * are the CLI's own bookkeeping and are not read. Returns the message to throw,
+ * or undefined. Pure.
+ */
+export function noSuchToolMessage(
+  model: readonly ModelTurn[],
+  requests: readonly ModelRequest[],
+): string | undefined {
+  const pattern = /No such tool available: ([^\s<]+)/;
+  const hit = requests
+    .filter((r) => r.sideChannel !== true)
+    .flatMap((r) => r.messages)
+    .map((m) => pattern.exec(m.text)?.[1])
+    .find((name) => name !== undefined);
+  if (hit === undefined) return undefined;
+  const at = model.findIndex((t) => t.tool === hit);
+  const turn = at < 0 ? "" : ` on turn ${String(at + 1)}`;
+  return `scripted call to "${hit}"${turn}: the CLI answered "No such tool available: ${hit}", so the call never ran and the test would carry on over a step that did not happen. Check the name for a typo; an mcp__ tool also needs its server configured in the fixture.`;
 }
 
 /**
@@ -711,17 +751,20 @@ export function warnUnconsumed(count: number, sideChannelCount: number): void {
  * A run that proves nothing about the script fails the test instead of coming
  * back as a result: the `claude` on PATH predates `--tools` (needed for `tools`), or the agent
  * asked for a model turn the script did not have and the mock answered with an
- * error rather than an invented turn (#340). Removes the run's directory, since
+ * error rather than an invented turn (#340), or a scripted call named a tool the
+ * CLI does not have. Removes the run's directory, since
  * no result is handed back to clean it up.
  */
 function assertRunSound(
   cwd: string,
   stderr: string,
-  scripted: number,
+  model: readonly ModelTurn[],
   modelRequests: readonly ModelRequest[],
 ): void {
   const problem =
-    unsupportedToolsFlag(stderr) ?? overrunMessageFor(scripted, modelRequests);
+    unsupportedToolsFlag(stderr) ??
+    overrunMessageFor(model.length, modelRequests) ??
+    noSuchToolMessage(model, modelRequests);
   if (problem === undefined) return;
   rmSync(cwd, { recursive: true, force: true });
   throw new Error(problem);
@@ -868,7 +911,7 @@ export async function runHarnessTestIn(
     // warning, which the sandbox path could not emit at all before.
     const { count, sideChannelCount } = splitRequestCounts(out.requests);
     warnUnconsumed(count, sideChannelCount);
-    assertRunSound(cwd, "", spec.model.length, out.requests);
+    assertRunSound(cwd, "", spec.model, out.requests);
     return check(
       makeResult(cwd, out, parseClaudeRun(out.stdout), count, out.requests),
     );
@@ -890,7 +933,7 @@ export async function runHarnessTestIn(
     // it (every request arriving without tool declarations, so nothing looked
     // like an agent turn) instead of leaving it to be rediscovered.
     warnUnconsumed(mock.count, mock.sideChannelCount ?? 0);
-    assertRunSound(cwd, out.stderr, spec.model.length, mock.requests);
+    assertRunSound(cwd, out.stderr, spec.model, mock.requests);
     return check(
       makeResult(cwd, out, driver.parseRun(out.stdout), mock.count, [
         ...mock.requests,

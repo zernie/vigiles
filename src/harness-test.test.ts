@@ -130,6 +130,7 @@ import {
   toolAvailabilityList,
   unsupportedToolsFlag,
   unofferedScriptedTool,
+  noSuchToolMessage,
   warnUnconsumed,
 } from "./harness-test.js";
 import {
@@ -319,22 +320,31 @@ test("buildClaudeArgs: tools alone says which tools exist and approves no more t
   );
 });
 
-test("toolAvailabilityList: a permission rule is offered by its tool name", () => {
-  // `--tools "Bash(git *)"` makes the CLI offer nothing (measured on 2.1.292), so
-  // availability takes bare names.
-  assert.deepEqual(toolAvailabilityList(["Bash(git *)", "Read"]), [
-    "Bash",
+test("toolAvailabilityList: bare names are deduped, a permission rule is refused", () => {
+  assert.deepEqual(toolAvailabilityList(["Read", "Bash", "Read", " Write "]), [
     "Read",
-  ]);
-  assert.deepEqual(toolAvailabilityList(["Bash(git *)", "Bash(ls)", "Bash"]), [
     "Bash",
+    "Write",
   ]);
   assert.deepEqual(toolAvailabilityList([]), []);
-  const args = buildClaudeArgs(
-    { model: scriptModel([]), tools: ["Bash(git *)"] },
-    false,
+  // `--tools "Bash(git *)"` makes the CLI offer nothing (measured on 2.1.292), and
+  // quietly reducing it to `Bash` would offer more than the author wrote. The
+  // rule belongs in allowedTools; tools takes names.
+  assert.throws(
+    () => toolAvailabilityList(["Read", "Bash(git *)"]),
+    /tools takes bare tool names, and "Bash\(git \*\)" is a permission rule — put the rule in allowedTools and the name \("Bash"\) in tools/,
   );
-  assert.deepEqual(flagValues(args, "--tools"), ["Bash"]);
+});
+
+test("runHarnessTest refuses a permission rule in tools", async () => {
+  await assert.rejects(
+    runHarnessTest({
+      sandbox: false,
+      tools: ["Bash(git *)"],
+      model: [{ text: "done" }],
+    }),
+    /tools takes bare tool names/,
+  );
 });
 
 test("warnUnconsumed: says so on stderr when the classifier swallowed the run, and only then", () => {
@@ -384,11 +394,7 @@ test("unofferedScriptedTool: names the tool, the turn and what exists", () => {
     unofferedScriptedTool(model, ["Read", "Bash"]),
     'scripted call to "Skill" on turn 2, but this run\'s tools are only: Read, Bash — add it to tools',
   );
-  // A permission rule names its bare tool; MCP tools are not withheld by --tools.
-  assert.equal(
-    unofferedScriptedTool(model, ["Read", "Skill(demo)"]),
-    undefined,
-  );
+  // MCP tools are not withheld by --tools, so the pre-flight skips them.
   assert.equal(
     unofferedScriptedTool([{ tool: "mcp__srv__t" }, { text: "x" }], ["Read"]),
     undefined,
@@ -407,6 +413,90 @@ test("runHarnessTest refuses a script that calls a tool the explicit `tools` lea
     /scripted call to "Skill" on turn 1, but this run's tools are only: Read, Bash — add it to tools/,
   );
 });
+
+// A scripted call to a tool the CLI does not know comes back as an error result
+// and the run exits 0, so a test that asserts "it errored and left no side effect"
+// passes on a typo. The runner reads the answer off the requests the agent sent
+// back to the model.
+test("noSuchToolMessage: names the tool and the turn, suggests a typo, and only then", () => {
+  const model = [
+    { tool: "Read", input: {} },
+    { tool: "Bsh", input: {} },
+  ];
+  const answered = (text: string, sideChannel?: boolean) => ({
+    system: "",
+    messages: [{ role: "user", text }],
+    ...(sideChannel === true ? { sideChannel } : {}),
+  });
+  const typo =
+    "<tool_use_error>Error: No such tool available: Bsh</tool_use_error>";
+  const message = noSuchToolMessage(model, [
+    answered("go"),
+    answered("fine"),
+    answered(typo),
+  ]);
+  assert.match(message ?? "", /scripted call to "Bsh" on turn 2/);
+  assert.match(message ?? "", /No such tool available: Bsh/);
+  assert.match(message ?? "", /typo/);
+  // The mcp__ name is reported the same way, whatever `tools` says.
+  assert.match(
+    noSuchToolMessage(
+      [{ tool: "mcp__nosuch__t" }],
+      [
+        answered(
+          "<tool_use_error>Error: No such tool available: mcp__nosuch__t</tool_use_error>",
+        ),
+      ],
+    ) ?? "",
+    /scripted call to "mcp__nosuch__t" on turn 1/,
+  );
+  // A name the script does not hold still gets named, without a turn.
+  assert.match(
+    noSuchToolMessage([], [answered(typo)]) ?? "",
+    /^scripted call to "Bsh": /,
+  );
+  // Nothing wrong: no message. A bookkeeping (side-channel) request that merely
+  // quotes the text is not the agent's own result.
+  assert.equal(
+    noSuchToolMessage(model, [answered("ok"), answered("ok")]),
+    undefined,
+  );
+  assert.equal(noSuchToolMessage(model, [answered(typo, true)]), undefined);
+  assert.equal(noSuchToolMessage(model, []), undefined);
+});
+
+maybe(
+  "a scripted call to a tool the CLI does not know fails the run, not just the call",
+  async () => {
+    await assert.rejects(
+      runHarnessTest({
+        sandbox: false,
+        allowedTools: ["Read", "Write"],
+        model: [
+          { tool: "Bsh", input: { command: "touch DENIED-PROBE" } },
+          { text: "done" },
+        ],
+        timeoutMs: 120000,
+      }),
+      /scripted call to "Bsh" on turn 1: .*No such tool available: Bsh.*typo/,
+    );
+  },
+);
+
+maybe(
+  "an mcp__ tool that does not exist fails the run even with an explicit tools list",
+  async () => {
+    await assert.rejects(
+      runHarnessTest({
+        sandbox: false,
+        tools: ["Read"],
+        model: [{ tool: "mcp__nosuch__t", input: {} }, { text: "done" }],
+        timeoutMs: 120000,
+      }),
+      /scripted call to "mcp__nosuch__t" on turn 1/,
+    );
+  },
+);
 
 // (a) The consumer's permission-containment case. `allowedTools` lists what is
 // pre-approved; Bash EXISTS but is not approved, so the CLI refuses the call for
