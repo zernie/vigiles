@@ -65,6 +65,46 @@ function die(e: unknown): never {
   process.exit(2);
 }
 
+/** What the stub process prints and how it exits (see `core/stub-rules.ts`). */
+interface StubAnswer {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number;
+}
+
+/**
+ * Any failure on the stub path — a log the agent's shell cannot append to, a
+ * rules file that does not parse — is a MISS to the caller: the same neutral
+ * line and code as a call no rule answers. A vigiles error line or stack would
+ * tell the model it is in a test, and a call that could not be logged must never
+ * read as answered. `VIGILES_DEBUG=1` shows the cause.
+ */
+async function stubAnswer(
+  root: string,
+  name: string,
+  argv: readonly string[],
+): Promise<StubAnswer> {
+  const { runStub, unsupportedLine, UNANSWERED_EXIT_CODE } =
+    await import("./core/stub-rules.js");
+  const { readFileSync, appendFileSync, existsSync } = await import("node:fs");
+  try {
+    return runStub(root, name, argv, {
+      readFile: (p) => (existsSync(p) ? readFileSync(p, "utf8") : null),
+      appendFile: (p, text) => {
+        appendFileSync(p, text);
+      },
+    });
+  } catch (e) {
+    if (process.env.VIGILES_DEBUG)
+      console.error(e instanceof Error && e.stack ? e.stack : String(e));
+    return {
+      stdout: "",
+      stderr: unsupportedLine(name),
+      exitCode: UNANSWERED_EXIT_CODE,
+    };
+  }
+}
+
 /**
  * A TOOL STUB's invocation — the eval tier writes a `gh`/`git` shim onto PATH
  * that execs `hook-runtime stub <root> <name> <argv…>`, once per call the agent
@@ -82,14 +122,7 @@ async function runStubCommand(raw: readonly string[]): Promise<void> {
     );
     process.exit(2);
   }
-  const { readFileSync, appendFileSync, existsSync } = await import("node:fs");
-  const { runStub } = await import("./core/stub-rules.js");
-  const r = runStub(root, name, argv, {
-    readFile: (p) => (existsSync(p) ? readFileSync(p, "utf8") : null),
-    appendFile: (p, text) => {
-      appendFileSync(p, text);
-    },
-  });
+  const r = await stubAnswer(root, name, argv);
   // Exit only once both streams have flushed: a pipe write is async on macOS.
   process.stdout.write(r.stdout, () =>
     process.stderr.write(r.stderr, () => process.exit(r.exitCode)),

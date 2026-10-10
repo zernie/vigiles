@@ -691,12 +691,7 @@ function warnUnregisteredSkillArms(arms: Record<string, EvalArm>): void {
 export async function runEval<M extends Metrics>(
   spec: EvalSpec<M>,
 ): Promise<EvalReport> {
-  warnUnregisteredSkillArms(spec.arms);
-  const report = await runEvalWith(spec, spawnAgent);
-  // Surface what the run spent — tokens + API-equivalent $, and a LOUD warning if
-  // it was billed to a metered API key instead of the subscription. See eval-cost.ts.
-  emitCostSummary(costFromEvalReport(report));
-  return report;
+  return runEvalReporting(spec, spawnAgent);
 }
 /* v8 ignore stop */
 
@@ -2338,6 +2333,32 @@ export function unansweredInReport(
   return message === undefined
     ? undefined
     : `${message}\n  The report is not a measurement: no lock is written, and \`vigiles eval\` exits 2.`;
+}
+
+/**
+ * `runEval` with its author-facing output, over any runner — so the real one and
+ * a test's fake share one path. Besides the run it prints, to stderr, what the
+ * caller must not miss: a skill arm that never activates, a stub call no rule
+ * answered (the same text `vigiles eval` fails with — a script that calls
+ * `runEval` itself, as the `withServices` examples do, gets the report back and
+ * nothing else, so the library is not silent about it either), and what the
+ * run spent.
+ */
+export async function runEvalReporting<M extends Metrics>(
+  spec: EvalSpec<M>,
+  runner: AgentRunner,
+): Promise<EvalReport> {
+  warnUnregisteredSkillArms(spec.arms);
+  const report = await runEvalWith(spec, runner);
+  const unanswered = unansweredInReport(
+    report,
+    parseToolStubs(spec.stubs, "runEval"),
+  );
+  if (unanswered !== undefined) console.error(`⚠ runEval: ${unanswered}`);
+  // Surface what the run spent — tokens + API-equivalent $, and a LOUD warning if
+  // it was billed to a metered API key instead of the subscription. See eval-cost.ts.
+  emitCostSummary(costFromEvalReport(report));
+  return report;
 }
 
 export async function runEvalWith<M extends Metrics>(

@@ -8,15 +8,16 @@
  * for the write, `gh api repos/o/r/issues?…` for a status script's read, and
  * `gh auth status` for the probe nobody scripted.
  */
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import {
   formatEvalReport,
   resolveSpawnEnv,
+  runEvalReporting,
   runEvalWith,
   unansweredInReport,
   type AgentRunArgs,
@@ -129,6 +130,44 @@ test("an unanswered call is reported, stops NEW trials, and is printed to the au
     formatEvalReport(report),
     /⚠ a: 1 stub call\(s\) went unanswered/,
   );
+});
+
+test("a stub that cannot log is never scored as answered: the model sees a miss and the run cannot pass", async () => {
+  const outputs: string[] = [];
+  const run = (a: AgentRunArgs) => {
+    // break the log the way a confined shell would: nothing can be appended to it
+    const bin = (resolveSpawnEnv(a).PATH ?? "").split(":")[0] ?? "";
+    mkdirSync(join(dirname(bin), "calls.jsonl"));
+    const r = spawnSync("gh", [...CREATE], {
+      cwd: a.cwd,
+      env: resolveSpawnEnv(a),
+      encoding: "utf8",
+    });
+    outputs.push(`${String(r.status)}:${r.stdout}${r.stderr}`);
+    return Promise.resolve({ code: 0, stdout: RESULT });
+  };
+  // the call was answerable, and still the trial must not score it as answered
+  await assert.rejects(() => runEvalWith(base(), run));
+  assert.deepEqual(outputs, ["97:gh: unsupported invocation (vigiles stub)\n"]);
+});
+
+test("calling runEval directly is not silent about an unanswered stub call", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    const report = await runEvalReporting(base(), ghRunner(PROBE).run);
+    assert.equal(report.arms.a?.unansweredStubCalls.length, 1);
+    const printed = err.mock.calls.map((c) => String(c[0])).join("\n");
+    assert.match(printed, /gh \["auth","status"\] — no rule matches/);
+    assert.match(printed, /the report is not a measurement/i);
+
+    // the control: every call answered, nothing about stubs is printed
+    err.mockClear();
+    await runEvalReporting(base(), ghRunner(CREATE).run);
+    const quiet = err.mock.calls.map((c) => String(c[0])).join("\n");
+    assert.doesNotMatch(quiet, /unanswered|no rule matches/);
+  } finally {
+    err.mockRestore();
+  }
 });
 
 test("--update refuses to record a lock for a report with an unanswered call", async () => {

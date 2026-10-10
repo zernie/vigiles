@@ -11,7 +11,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { execFile, spawnSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import {
@@ -111,6 +111,36 @@ test("the stub lives BESIDE the work dir: its own temp root, and removal leaves 
   assert.doesNotMatch(root, /\.vigiles-stubs/);
   removeStubDir(dir);
   assert.equal(existsSync(root), false);
+});
+
+test("a log append that fails is a miss to the model: the neutral line and 97, never a vigiles error", () => {
+  const dir = writeStubDir([GH]);
+  try {
+    // the log path is a directory: the append (and the read before it) throws
+    mkdirSync(join(dir.root, "calls.jsonl"));
+    const r = run(dir.binDir, READ);
+    assert.equal(r.status, UNANSWERED_EXIT_CODE);
+    assert.equal(r.stdout, "");
+    assert.equal(r.stderr, unsupportedLine("gh"));
+    assert.doesNotMatch(r.stderr, /EISDIR|✗|\n\s+at /);
+  } finally {
+    removeStubDir(dir);
+  }
+});
+
+test("VIGILES_DEBUG shows the author why the stub could not answer", () => {
+  const dir = writeStubDir([GH]);
+  try {
+    mkdirSync(join(dir.root, "calls.jsonl"));
+    const r = spawnSync(join(dir.binDir, "gh"), READ, {
+      encoding: "utf-8",
+      env: { ...process.env, VIGILES_DEBUG: "1" },
+    });
+    assert.equal(r.status, UNANSWERED_EXIT_CODE);
+    assert.match(r.stderr, /EISDIR/);
+  } finally {
+    removeStubDir(dir);
+  }
 });
 
 test("inOrder holds across processes: answer 1, answer 2, then unanswered", () => {
