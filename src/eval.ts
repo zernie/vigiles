@@ -45,10 +45,9 @@ import { resolveHarness } from "./adapters/claude-code/plugin-loader.js";
 import { claudeCodeRuntime } from "./adapters/claude-code/runtime.js";
 import type { HarnessRuntime } from "./core/runtime.js";
 import {
-  planHome,
   scrubbedRunEnv,
   withoutSessionIdentity,
-  type HomeFile,
+  type HomeFiles,
   type RunEnv,
 } from "./core/run-env.js";
 import {
@@ -1683,14 +1682,11 @@ function runEnvReportView(env: RunEnv): EvalReport["env"] {
 }
 
 /** Write a seed's files under a throwaway HOME, parents created. Effects only. */
-export function materializeHome(
-  home: string,
-  files: readonly HomeFile[],
-): void {
-  files.forEach((f) => {
-    const dest = join(home, f.path);
+function materializeHome(home: string, files: HomeFiles): void {
+  Object.entries(files).forEach(([path, contents]) => {
+    const dest = join(home, path);
     mkdirSync(dirname(dest), { recursive: true });
-    writeFileSync(dest, f.contents);
+    writeFileSync(dest, contents);
   });
 }
 
@@ -1724,13 +1720,9 @@ function trialEnv(
   switch (runEnv.kind) {
     case "ephemeral": {
       const home = mkdtempSync(join(cwd, "home-"));
-      const plan = planHome(
-        runEnv.home,
-        EVAL_RUNTIME.runEnv?.keepHomeFiles ?? [],
-      );
-      // The spec boundary already refused a bad seed; this is the same check.
-      if (plan.kind === "refused") throw new Error(plan.reason);
-      materializeHome(home, plan.files);
+      // The seed was validated at the spec boundary (`parseRunEnv`): every
+      // path HOME-relative, inside HOME, and not the harness's auth file.
+      materializeHome(home, runEnv.home?.files ?? {});
       // Carry the harness's own auth FILE (local OAuth) into the fresh HOME —
       // env-var/host-brokered auth is covered by ephemeralRunEnv's allowlist.
       seedEphemeralHome(home, process.env.HOME ?? homedir());
