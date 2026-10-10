@@ -36,6 +36,7 @@ export const HOOK_RUNTIME_KINDS = [
   "skill-done",
   "run-skill",
   "intercept-tool",
+  "stub",
   "guard",
   "action",
   "refs",

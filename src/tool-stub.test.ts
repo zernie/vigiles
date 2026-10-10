@@ -1,122 +1,280 @@
 /**
- * Tests for the R2 tool-stub helper (`src/tool-stub.ts`): the fake binaries it
- * writes are actually executable, print the exact canned stdout/stderr, and exit
- * the canned code — including content full of shell metacharacters, proving the
- * base64 escaping round-trips faithfully.
+ * The stub binaries as processes: what a caller of `gh` actually gets back, what
+ * the log records, and — the measured hazard — that a stub never blocks on an
+ * open stdin.
+ *
+ * The argv shapes are the ones a real model and a real status script used (see
+ * `core/stub-rules.test.ts` for the matching itself). These tests spawn the
+ * BUILT CLI (`dist/cli.js hook-runtime stub`), because the shim a run puts on
+ * PATH execs it; `npm run coverage` builds first.
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
-import { writeToolStubs, stubBinDir, renderToolStub } from "./tool-stub.js";
-import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import {
+  ARGV_REST,
+  UNANSWERED_EXIT_CODE,
+  encodeStub,
+  runStub,
+  unsupportedLine,
+  type StubIo,
+  type ToolStub,
+} from "./core/stub-rules.js";
+import {
+  readStubCalls,
+  removeStubDir,
+  stubShim,
+  writeStubDir as writeStubDirWith,
+} from "./tool-stub.js";
 
-test("writeToolStubs writes an executable that prints canned stdout and exits 0", () => {
-  const dir = makeTmpDir();
+const LAUNCHER = { node: process.execPath, cli: resolve("dist", "cli.js") };
+const writeStubDir = (stubs: readonly ToolStub[]) =>
+  writeStubDirWith(stubs, LAUNCHER);
+
+const ISSUE_URL = "https://github.com/o/r/issues/9001\n";
+const GH: ToolStub = {
+  name: "gh",
+  rules: [
+    {
+      argv: ["issue", "create", ARGV_REST],
+      contains: ["o/r"],
+      reply: { kind: "always", stdout: ISSUE_URL },
+    },
+    {
+      argv: ["api", /^repos\/o\/r\/(?:issues|pulls)\?/],
+      reply: { kind: "always", stdout: "[]" },
+    },
+  ],
+};
+const CREATE = [
+  "issue",
+  "create",
+  "--repo",
+  "o/r",
+  "--title",
+  "init in a Yarn PnP repo links into node_modules that never exists",
+  "--body",
+  "`vigiles init` creates links into `node_modules`; \"$HOME\" 'quoted'.\n\nNoted for later.",
+];
+const READ = ["api", "repos/o/r/issues?state=open&per_page=100"];
+
+const run = (bin: string, argv: readonly string[]) =>
+  spawnSync(join(bin, "gh"), [...argv], { encoding: "utf-8" });
+
+test("the stub answers per invocation: an issue URL for the create, [] for the read, a neutral miss for a probe", () => {
+  const dir = writeStubDir([GH]);
   try {
-    writeToolStubs(dir, [{ name: "gh", stdout: "PR #42 merged\n" }]);
-    const file = join(dir, "gh");
-    assert.ok(existsSync(file));
-    // 0o111 = any execute bit set.
+    const file = join(dir.binDir, "gh");
     assert.ok((statSync(file).mode & 0o111) !== 0, "stub is executable");
-    const r = spawnSync(file, [], { encoding: "utf-8" });
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, "PR #42 merged\n");
-    assert.equal(r.stderr, "");
-  } finally {
-    cleanupTmpDir(dir);
-  }
-});
 
-test("writeToolStubs honors stderr and a non-zero exit code", () => {
-  const dir = makeTmpDir();
-  try {
-    writeToolStubs(dir, [
-      { name: "psql", stderr: "FATAL: role does not exist\n", exitCode: 2 },
+    const created = run(dir.binDir, CREATE);
+    assert.equal(created.status, 0, created.stderr);
+    assert.equal(created.stdout, ISSUE_URL);
+
+    const read = run(dir.binDir, READ);
+    assert.equal(read.status, 0, read.stderr);
+    assert.equal(read.stdout, "[]");
+    assert.doesNotThrow(() => JSON.parse(read.stdout) as unknown);
+
+    const probe = run(dir.binDir, ["auth", "status"]);
+    assert.equal(probe.status, UNANSWERED_EXIT_CODE);
+    assert.equal(probe.stdout, "");
+    // What the MODEL reads: one fixed line, no instruction, no argv echo.
+    assert.equal(probe.stderr, unsupportedLine("gh"));
+    assert.doesNotMatch(probe.stderr, /rule|test|add|auth/);
+
+    assert.deepEqual(readStubCalls(dir), [
+      {
+        tool: "gh",
+        argv: CREATE,
+        outcome: { kind: "answered", rule: 0, answer: 0 },
+      },
+      {
+        tool: "gh",
+        argv: READ,
+        outcome: { kind: "answered", rule: 1, answer: 0 },
+      },
+      { tool: "gh", argv: ["auth", "status"], outcome: { kind: "no-rule" } },
     ]);
-    const r = spawnSync(join(dir, "psql"), [], { encoding: "utf-8" });
-    assert.equal(r.status, 2);
-    assert.equal(r.stdout, "");
-    assert.equal(r.stderr, "FATAL: role does not exist\n");
   } finally {
-    cleanupTmpDir(dir);
+    removeStubDir(dir);
   }
 });
 
-test("shell-special content round-trips faithfully (proves the escaping)", () => {
-  const dir = makeTmpDir();
-  try {
-    // Quotes, $, backticks, semicolons, newlines, and a base64-ish payload — all
-    // shell metacharacters that naive interpolation would mangle or inject.
-    const nasty =
-      `'single' "double" $HOME \`whoami\`; rm -rf /\n` +
-      `line2 with $(echo pwned) & | > < * ? {a,b} [c-d]\n`;
-    writeToolStubs(dir, [{ name: "git", stdout: nasty }]);
-    const r = spawnSync(join(dir, "git"), ["status"], { encoding: "utf-8" });
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, nasty, "stdout round-trips byte-for-byte");
-    // No injection happened — the dangerous substrings are inert data.
-    assert.ok(!existsSync("/PWNED"));
-  } finally {
-    cleanupTmpDir(dir);
-  }
+test("the stub lives BESIDE the work dir: its own temp root, and removal leaves nothing", () => {
+  const dir = writeStubDir([GH]);
+  const root = dir.root;
+  assert.equal(dirname(dir.binDir), root);
+  assert.doesNotMatch(root, /\.vigiles-stubs/);
+  removeStubDir(dir);
+  assert.equal(existsSync(root), false);
 });
 
-test("empty stdout stub prints nothing and exits 0", () => {
-  const dir = makeTmpDir();
-  try {
-    writeToolStubs(dir, [{ name: "noop" }]);
-    const r = spawnSync(join(dir, "noop"), [], { encoding: "utf-8" });
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, "");
-    assert.equal(r.stderr, "");
-  } finally {
-    cleanupTmpDir(dir);
-  }
-});
-
-test("argv is ignored in the MVP — every invocation returns the same result", () => {
-  const dir = makeTmpDir();
-  try {
-    writeToolStubs(dir, [{ name: "redis-cli", stdout: "PONG" }]);
-    const a = spawnSync(join(dir, "redis-cli"), ["PING"], {
-      encoding: "utf-8",
-    });
-    const b = spawnSync(join(dir, "redis-cli"), ["GET", "x"], {
-      encoding: "utf-8",
-    });
-    assert.equal(a.stdout, "PONG");
-    assert.equal(b.stdout, "PONG");
-  } finally {
-    cleanupTmpDir(dir);
-  }
-});
-
-test("stubBinDir returns a fresh dir containing every stub", () => {
-  const parent = makeTmpDir();
-  try {
-    const bin = stubBinDir(
-      [
-        { name: "gh", stdout: "x" },
-        { name: "z3", stdout: "sat" },
+test("inOrder holds across processes: answer 1, answer 2, then unanswered", () => {
+  const dir = writeStubDir([
+    {
+      name: "git",
+      rules: [
+        {
+          argv: ["push", ARGV_REST],
+          reply: {
+            kind: "inOrder",
+            answers: [
+              {
+                stderr: "! [rejected] main -> main (fetch first)\n",
+                exitCode: 1,
+              },
+              { stdout: "To o/r.git\n" },
+            ],
+          },
+        },
       ],
-      parent,
+    },
+  ]);
+  try {
+    const git = (argv: string[]) =>
+      spawnSync(join(dir.binDir, "git"), argv, { encoding: "utf-8" });
+    const first = git(["push", "origin", "main"]);
+    assert.equal(first.status, 1);
+    assert.equal(first.stderr, "! [rejected] main -> main (fetch first)\n");
+    const second = git(["push"]);
+    assert.equal(second.status, 0);
+    assert.equal(second.stdout, "To o/r.git\n");
+    const third = git(["push"]);
+    assert.equal(third.status, UNANSWERED_EXIT_CODE);
+    assert.deepEqual(
+      readStubCalls(dir).map((c) => c.outcome.kind),
+      ["answered", "answered", "exhausted"],
     );
-    assert.ok(bin.startsWith(parent), "bin dir lives under parentDir");
-    assert.ok(existsSync(join(bin, "gh")));
-    assert.ok(existsSync(join(bin, "z3")));
-    // Two calls give distinct dirs (mkdtemp), so concurrent trials don't collide.
-    const bin2 = stubBinDir([{ name: "gh" }], parent);
-    assert.notEqual(bin, bin2);
   } finally {
-    cleanupTmpDir(parent);
+    removeStubDir(dir);
   }
 });
 
-test("renderToolStub starts with a POSIX shebang and ends with exit", () => {
-  const script = renderToolStub({ name: "gh", stdout: "hi", exitCode: 3 });
-  assert.ok(script.startsWith("#!/bin/sh\n"));
-  assert.ok(script.trimEnd().endsWith("exit 3"));
+test("a caller that leaves stdin OPEN (Node execFile) gets its answer at once — the stub never reads stdin", async () => {
+  // Measured: `execFile("cat", [], { timeout: 3000 })` is killed after 3 s, because
+  // execFile gives the child a pipe and never closes it. A status script calls
+  // `gh api <endpoint>` exactly that way; a stub that drained stdin would hang every
+  // such call until the caller's timeout and report it as a failure.
+  const dir = writeStubDir([GH]);
+  try {
+    const started = Date.now();
+    const result = await new Promise<{
+      killed: boolean;
+      stdout: string;
+      failed: boolean;
+    }>((done) => {
+      const child = execFile(
+        join(dir.binDir, "gh"),
+        READ,
+        { timeout: 4000, encoding: "utf8" },
+        (error, stdout) => {
+          done({ killed: child.killed, stdout, failed: error !== null });
+        },
+      );
+    });
+    assert.equal(
+      result.killed,
+      false,
+      "the stub blocked on stdin and was killed",
+    );
+    assert.equal(result.failed, false);
+    assert.equal(result.stdout, "[]");
+    assert.ok(Date.now() - started < 3000, "answered well before the timeout");
+  } finally {
+    removeStubDir(dir);
+  }
+});
+
+test("two stubs side by side keep their own rules and share one call log", () => {
+  const dir = writeStubDir([
+    GH,
+    {
+      name: "curl",
+      rules: [
+        {
+          argv: ["-s", ARGV_REST],
+          reply: { kind: "always", stdout: "{}" },
+        },
+      ],
+    },
+  ]);
+  try {
+    assert.equal(run(dir.binDir, READ).stdout, "[]");
+    const curl = spawnSync(join(dir.binDir, "curl"), ["-s", "https://x"], {
+      encoding: "utf-8",
+    });
+    assert.equal(curl.stdout, "{}");
+    assert.deepEqual(
+      readStubCalls(dir).map((c) => c.tool),
+      ["gh", "curl"],
+    );
+  } finally {
+    removeStubDir(dir);
+  }
+});
+
+test("readStubCalls on a stub nobody called is empty, not an error", () => {
+  const dir = writeStubDir([GH]);
+  try {
+    assert.deepEqual(readStubCalls(dir), []);
+  } finally {
+    removeStubDir(dir);
+  }
+});
+
+test("the shim quotes every path so a quote or space cannot break out of it", () => {
+  const shim = stubShim(
+    { node: "/opt/my node/bin/node", cli: "/x/it's/cli.js" },
+    "/tmp/r",
+    "gh",
+  );
+  assert.equal(
+    shim,
+    `#!/bin/sh\nexec '/opt/my node/bin/node' '/x/it'\\''s/cli.js' 'hook-runtime' 'stub' '/tmp/r' 'gh' "$@"\n`,
+  );
+});
+
+// --- the runtime's decision, in-process (what the spawned process runs) -------
+
+/** An in-memory filesystem for the runtime: rules files plus the log. */
+function memIo(files: Record<string, string>): StubIo & {
+  readonly files: Record<string, string>;
+} {
+  return {
+    files,
+    readFile: (p) => files[p] ?? null,
+    appendFile: (p, s) => {
+      files[p] = (files[p] ?? "") + s;
+    },
+  };
+}
+
+test("runStub: decides from the rules file and the log so far, appends one line per call", () => {
+  const io = memIo({ "/s/rules/gh.json": encodeStub(GH) });
+  assert.deepEqual(runStub("/s", "gh", READ, io), {
+    stdout: "[]",
+    stderr: "",
+    exitCode: 0,
+  });
+  assert.deepEqual(runStub("/s", "gh", ["--version"], io), {
+    stdout: "",
+    stderr: unsupportedLine("gh"),
+    exitCode: UNANSWERED_EXIT_CODE,
+  });
+  assert.equal(
+    io.files["/s/calls.jsonl"]?.trimEnd().split("\n").length,
+    2,
+  );
+});
+
+test("runStub: a missing rules file is an internal error said to the author, never a silent answer", () => {
+  const io = memIo({});
+  const r = runStub("/s", "gh", READ, io);
+  assert.equal(r.exitCode, UNANSWERED_EXIT_CODE);
+  assert.match(r.stderr, /vigiles stub: no rules file for gh/);
+  assert.equal(io.files["/s/calls.jsonl"], undefined);
 });
