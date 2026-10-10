@@ -18,18 +18,28 @@
  */
 import { z } from "zod";
 
-import { ARGV_REST, type ArgvRest, type ToolStub } from "./stub-rules.js";
+import {
+  ARGV_REST,
+  toToolStub,
+  type ArgvRest,
+  type ToolStub,
+} from "./stub-rules.js";
 import { planHome, type RunEnv } from "./run-env.js";
 
 /** `stubs[0].rules[1].argv` from a zod issue path. */
 function pathText(root: string, path: readonly PropertyKey[]): string {
-  return path.reduce<string>(
-    (acc, k) => (typeof k === "number" ? `${acc}[${String(k)}]` : `${acc}.${String(k)}`),
+  return path.reduce(
+    (acc: string, k) =>
+      typeof k === "number" ? `${acc}[${String(k)}]` : `${acc}.${String(k)}`,
     root,
   );
 }
 
-function refuse(caller: string, root: string, error: z.ZodError): never {
+function refuse(
+  caller: string,
+  root: string,
+  error: Readonly<z.ZodError>,
+): never {
   const lines = error.issues.map(
     (i) => `${caller}: ${pathText(root, i.path)}: ${i.message}`,
   );
@@ -38,21 +48,21 @@ function refuse(caller: string, root: string, error: z.ZodError): never {
 
 // --- stubs ---------------------------------------------------------------------
 
-const regexToken = z
-  .instanceof(RegExp)
-  .refine((r) => !r.global && !r.sticky, {
-    message:
-      "a RegExp token may not carry the flags g and y — test() would carry lastIndex from one call to the next",
-  });
+const regexToken = z.instanceof(RegExp).refine((r) => !r.global && !r.sticky, {
+  message:
+    "a RegExp token may not carry the flags g and y — test() would carry lastIndex from one call to the next",
+});
 const token = z.union([z.string(), regexToken]);
 const restToken = z
   .strictObject({ kind: z.literal("rest") })
   .transform((): ArgvRest => ARGV_REST);
-const isRestToken = (t: unknown): boolean =>
-  typeof t === "object" &&
-  t !== null &&
-  !(t instanceof RegExp) &&
-  (t as { kind?: unknown }).kind === "rest";
+/** A plain object (not an array, not a RegExp), readable by key. */
+const isObj = (v: unknown): v is Readonly<Record<string, unknown>> =>
+  typeof v === "object" &&
+  v !== null &&
+  !Array.isArray(v) &&
+  !(v instanceof RegExp);
+const isRestToken = (t: unknown): boolean => isObj(t) && t.kind === "rest";
 
 const argvPattern = z
   .array(z.union([token, restToken]))
@@ -81,21 +91,19 @@ const rule = z
     contains: z.array(token).optional(),
     reply,
   })
-  .refine(
-    (r) => r.contains === undefined || isRestToken(r.argv.at(-1)),
-    {
-      message:
-        "`contains` matches tokens after the positional prefix, so it needs a trailing experimental_stub.rest in `argv`",
-      path: ["contains"],
-    },
-  );
+  .refine((r) => r.contains === undefined || isRestToken(r.argv.at(-1)), {
+    message:
+      "`contains` matches tokens after the positional prefix, so it needs a trailing experimental_stub.rest in `argv`",
+    path: ["contains"],
+  });
 
 const stub = z.strictObject({
   name: z
     .string()
     .min(1)
     .refine((n) => !/[/\\]/.test(n) && n !== "." && n !== "..", {
-      message: "a bare binary name, as it is looked up on PATH (no path separator)",
+      message:
+        "a bare binary name, as it is looked up on PATH (no path separator)",
     }),
   rules: z.array(rule).min(1, {
     message: "a stub needs at least one rule — one per command the agent runs",
@@ -103,15 +111,19 @@ const stub = z.strictObject({
 });
 
 /** Is this the removed `{ name, stdout?, stderr?, exitCode? }` shape? */
-const isOldShape = (s: unknown): s is { name?: unknown; stdout?: unknown } =>
-  typeof s === "object" &&
-  s !== null &&
+const isOldShape = (s: unknown): s is Readonly<Record<string, unknown>> =>
+  isObj(s) &&
   !("rules" in s) &&
   ["stdout", "stderr", "exitCode"].some((k) => k in s);
 
-function oldShapeMessage(caller: string, i: number, s: { name?: unknown; stdout?: unknown }): string {
+function oldShapeMessage(
+  caller: string,
+  i: number,
+  s: Readonly<Record<string, unknown>>,
+): string {
   const name = typeof s.name === "string" ? s.name : "<tool>";
-  const stdout = typeof s.stdout === "string" ? JSON.stringify(s.stdout) : '"…"';
+  const stdout =
+    typeof s.stdout === "string" ? JSON.stringify(s.stdout) : '"…"';
   return (
     `${caller}: stubs[${String(i)}] (${JSON.stringify(name)}) is the old shape \`{ name, stdout }\`, which printed one answer for EVERY invocation — ` +
     `a command nobody scripted got that answer as if the tool had said it. A stub is now a list of rules, one per command the agent runs:\n` +
@@ -132,10 +144,11 @@ export function parseToolStubs(
   caller: string,
 ): readonly ToolStub[] {
   if (raw === undefined) return [];
-  if (Array.isArray(raw)) {
-    const old = raw.findIndex(isOldShape);
-    if (old >= 0) throw new Error(oldShapeMessage(caller, old, raw[old] as object));
-  }
+  const items: readonly unknown[] = Array.isArray(raw) ? raw : [];
+  const old = items.findIndex(isOldShape);
+  const oldItem = items[old];
+  if (isOldShape(oldItem))
+    throw new Error(oldShapeMessage(caller, old, oldItem));
   const parsed = z.array(stub).safeParse(raw);
   if (!parsed.success) refuse(caller, "stubs", parsed.error);
   const names = parsed.data.map((s) => s.name);
@@ -144,7 +157,8 @@ export function parseToolStubs(
     throw new Error(
       `${caller}: two stubs named ${JSON.stringify(dup)} — one binary has one stub; put both rule lists in it.`,
     );
-  return parsed.data as unknown as readonly ToolStub[];
+  // The zod output has the shape; `toToolStub` gives it the type, without a cast.
+  return parsed.data.map(toToolStub);
 }
 
 // --- env -----------------------------------------------------------------------
@@ -157,11 +171,9 @@ const runEnv = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("ephemeral"), home: homeSeed.optional() }),
   z.strictObject({
     kind: z.literal("inherit"),
-    reason: z
-      .string()
-      .refine((r) => r.trim() !== "", {
-        message: "say why this run must see your real HOME and environment",
-      }),
+    reason: z.string().refine((r) => r.trim() !== "", {
+      message: "say why this run must see your real HOME and environment",
+    }),
   }),
 ]);
 
@@ -186,12 +198,7 @@ export function parseRunEnv(
   keepHomeFiles: readonly string[],
 ): RunEnv {
   if (raw === undefined) throw new Error(envRequiredMessage(caller));
-  if (
-    typeof raw === "object" &&
-    raw !== null &&
-    (raw as { kind?: unknown }).kind === "inherit" &&
-    "home" in raw
-  )
+  if (isObj(raw) && raw.kind === "inherit" && "home" in raw)
     throw new Error(
       `${caller}: env.home: \`home\` exists only on an ephemeral env: seeding would write into your real HOME. ` +
         `Use env: { kind: "ephemeral", home: … }.`,

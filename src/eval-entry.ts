@@ -115,6 +115,11 @@ export function runsIn(report: AnyReport): number | undefined {
  */
 export const UNANSWERED_STUB_EXIT_CODE = 2;
 
+/** A `runEval` report: every arm carries its unanswered stub calls. */
+const isEvalReport = (r: AnyReport): r is EvalReport =>
+  "arms" in r &&
+  Object.values(r.arms).every((a: object) => "unansweredStubCalls" in a);
+
 /**
  * The author-facing failure when a `runEval` report carries a stub call no rule
  * answered, or undefined. Only `runEval` has `stubs`. Pure — the rule itself is
@@ -125,12 +130,34 @@ export function unansweredFailure(
   report: AnyReport,
   spec: unknown,
 ): string | undefined {
-  if (kind !== "runEval") return undefined;
-  const stubs = parseToolStubs(
-    (spec as { readonly stubs?: unknown }).stubs,
-    "runEval",
-  );
-  return unansweredInReport(report as EvalReport, stubs);
+  if (kind !== "runEval" || !isEvalReport(report)) return undefined;
+  const raw =
+    typeof spec === "object" && spec !== null && "stubs" in spec
+      ? spec.stubs
+      : undefined;
+  return unansweredInReport(report, parseToolStubs(raw, "runEval"));
+}
+
+/**
+ * Why a finished run fails before its `assert` runs — with the exit code — or
+ * undefined. Two reasons: it ran ZERO trials (exit 1; the check every file used
+ * to hand-write), or a stub call went unanswered (exit 2). Pure.
+ */
+export function runFailure(
+  file: string,
+  kind: EvalKind,
+  report: AnyReport,
+  spec: unknown,
+): { readonly code: number; readonly message: string } | undefined {
+  if (runsIn(report) === 0)
+    return {
+      code: 1,
+      message: `✗ ${file}: no runs executed (0 trials completed).`,
+    };
+  const unanswered = unansweredFailure(kind, report, spec);
+  return unanswered === undefined
+    ? undefined
+    : { code: UNANSWERED_STUB_EXIT_CODE, message: `✗ ${file}: ${unanswered}` };
 }
 
 /**
@@ -246,12 +273,10 @@ async function main(): Promise<void> {
     );
     process.exit(2);
   }
-  const url = pathToFileURL(resolve(file)).href;
-
   let mod: unknown;
   beginEvalLoad();
   try {
-    mod = await import(url);
+    mod = await import(pathToFileURL(resolve(file)).href);
   } finally {
     endEvalLoad();
   }
@@ -291,15 +316,10 @@ async function main(): Promise<void> {
   );
   printReport(declared.kind, report);
 
-  if (runsIn(report) === 0) {
-    console.error(`✗ ${file}: no runs executed (0 trials completed).`);
-    process.exit(1);
-  }
-
-  const unanswered = unansweredFailure(declared.kind, report, declared.spec);
-  if (unanswered !== undefined) {
-    console.error(`✗ ${file}: ${unanswered}`);
-    process.exit(UNANSWERED_STUB_EXIT_CODE);
+  const failure = runFailure(file, declared.kind, report, declared.spec);
+  if (failure !== undefined) {
+    console.error(failure.message);
+    process.exit(failure.code);
   }
 
   await (def.assert as ((r: AnyReport) => void | Promise<void>) | undefined)?.(

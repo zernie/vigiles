@@ -37,7 +37,7 @@ export interface ArgvRest {
 export const ARGV_REST: ArgvRest = Object.freeze({ kind: "rest" as const });
 
 /** One positional token: exact string, or a RegExp tested against that one token. */
-export type ArgvToken = string | RegExp;
+export type ArgvToken = string | Readonly<RegExp>;
 
 /**
  * A positional pattern: token i matches argv token i. Without a trailing
@@ -113,20 +113,23 @@ export interface StubCall {
 
 const isRest = (t: ArgvToken | ArgvRest): t is ArgvRest =>
   typeof t === "object" && !(t instanceof RegExp);
+const isPlainToken = (t: ArgvToken | ArgvRest): t is ArgvToken => !isRest(t);
 
 /** Does one pattern token match one argv token? A RegExp is stateless here: `g`/`y` are refused at parse. */
 const tokenMatches = (pattern: ArgvToken, token: string): boolean =>
   typeof pattern === "string" ? pattern === token : pattern.test(token);
 
-/** The positional tokens of a pattern, and whether it ends in `rest`. */
+/**
+ * The positional tokens of a pattern, and whether it ends in `rest`. `rest` can
+ * only be last (the type says so; the parse refuses it elsewhere).
+ */
 function splitPattern(p: ArgvPattern): {
   readonly fixed: readonly ArgvToken[];
   readonly open: boolean;
 } {
-  const last = p.at(-1);
-  return last !== undefined && isRest(last)
-    ? { fixed: p.slice(0, -1) as readonly ArgvToken[], open: true }
-    : { fixed: p as readonly ArgvToken[], open: false };
+  const tokens: readonly (ArgvToken | ArgvRest)[] = p;
+  const fixed = tokens.filter(isPlainToken);
+  return { fixed, open: fixed.length !== tokens.length };
 }
 
 /** Does `rule` match `argv`? Positional prefix, then `contains` over the tail. Pure, total. */
@@ -154,9 +157,9 @@ export function priorAnswers(
   const rules = calls.flatMap((c) =>
     c.tool === tool && c.outcome.kind === "answered" ? [c.outcome.rule] : [],
   );
-  return rules.reduce(
+  return rules.reduce<ReadonlyMap<number, number>>(
     (m, r) => new Map([...m, [r, (m.get(r) ?? 0) + 1]]),
-    new Map<number, number>(),
+    new Map(),
   );
 }
 
@@ -200,19 +203,12 @@ type EncodedToken =
   | { readonly kind: "re"; readonly source: string; readonly flags: string }
   | ArgvRest;
 
-const encodeToken = (t: ArgvToken | ArgvRest): EncodedToken =>
-  typeof t === "string"
-    ? t
-    : t instanceof RegExp
-      ? { kind: "re", source: t.source, flags: t.flags }
-      : { kind: "rest" };
-
-const decodeToken = (t: EncodedToken): ArgvToken | ArgvRest =>
-  typeof t === "string"
-    ? t
-    : t.kind === "re"
-      ? new RegExp(t.source, t.flags)
-      : ARGV_REST;
+function encodeToken(t: ArgvToken | ArgvRest): EncodedToken {
+  if (typeof t === "string") return t;
+  if (t instanceof RegExp)
+    return { kind: "re", source: t.source, flags: t.flags };
+  return { kind: "rest" };
+}
 
 /**
  * Serialise a stub to JSON. A RegExp becomes `{kind:"re",source,flags}` —
@@ -232,30 +228,102 @@ export function encodeStub(stub: ToolStub): string {
   });
 }
 
+// --- reading data back: narrowing, never a cast ----------------------------------
+//
+// Two readers: the stub process (the rules file and the log — vigiles' own
+// output, so a bad shape is an internal error) and the spec boundary (after its
+// zod parse, to get the typed value without a cast). Neither pays for zod.
+
+function internal(what: string): never {
+  throw new Error(
+    `vigiles stub: ${what} — an internal error, please report it.`,
+  );
+}
+
+const isObj = (v: unknown): v is Readonly<Record<string, unknown>> =>
+  typeof v === "object" &&
+  v !== null &&
+  !Array.isArray(v) &&
+  !(v instanceof RegExp);
+
+const listOf = (v: unknown, what: string): readonly unknown[] =>
+  Array.isArray(v) ? v : internal(`${what} is not a list`);
+
+function nonEmpty<T>(xs: readonly T[], what: string): readonly [T, ...T[]] {
+  const [first, ...more] = xs;
+  return first === undefined ? internal(`${what} is empty`) : [first, ...more];
+}
+
+function toToken(v: unknown): ArgvToken | ArgvRest {
+  if (typeof v === "string" || v instanceof RegExp) return v;
+  if (isObj(v) && v.kind === "rest") return ARGV_REST;
+  if (isObj(v) && typeof v.source === "string" && typeof v.flags === "string")
+    return new RegExp(v.source, v.flags);
+  return internal("a rule token is not a string, a RegExp or rest");
+}
+
+function toPattern(v: unknown): ArgvPattern {
+  const tokens = listOf(v, "argv").map(toToken);
+  const fixed = tokens.filter(isPlainToken);
+  const last = tokens.at(-1);
+  const open = last !== undefined && isRest(last);
+  if (fixed.length !== tokens.length - (open ? 1 : 0))
+    return internal("rest is not the last token");
+  return open ? [...fixed, ARGV_REST] : fixed;
+}
+
+function toAnswer(v: unknown): StubAnswer {
+  if (!isObj(v)) return internal("an answer is not an object");
+  const { stdout, stderr, exitCode } = v;
+  return {
+    ...(typeof stdout === "string" ? { stdout } : {}),
+    ...(typeof stderr === "string" ? { stderr } : {}),
+    ...(typeof exitCode === "number" ? { exitCode } : {}),
+  };
+}
+
+function toReply(v: unknown): StubReply {
+  if (!isObj(v)) return internal("a reply is not an object");
+  if (v.kind === "always") return { kind: "always", ...toAnswer(v) };
+  if (v.kind === "inOrder")
+    return {
+      kind: "inOrder",
+      answers: nonEmpty(listOf(v.answers, "answers").map(toAnswer), "answers"),
+    };
+  return internal("a reply has an unknown kind");
+}
+
+function toRule(v: unknown): StubRule {
+  if (!isObj(v)) return internal("a rule is not an object");
+  return {
+    argv: toPattern(v.argv),
+    ...(v.contains === undefined
+      ? {}
+      : {
+          contains: listOf(v.contains, "contains")
+            .map(toToken)
+            .filter(isPlainToken),
+        }),
+    reply: toReply(v.reply),
+  };
+}
+
+/** A typed {@link ToolStub} from a value already known to have its shape. */
+export function toToolStub(v: unknown): ToolStub {
+  if (!isObj(v) || typeof v.name !== "string")
+    return internal("a stub has no name");
+  return {
+    name: v.name,
+    rules: nonEmpty(listOf(v.rules, "rules").map(toRule), "rules"),
+  };
+}
+
 /**
  * Read back what {@link encodeStub} wrote. The input is vigiles' own output,
- * written after the spec was parsed, so it is trusted: a malformed file is an
- * internal error, not user input, and is not re-validated here.
+ * written after the spec was parsed, so a bad shape is an internal error.
  */
 export function decodeStub(json: string): ToolStub {
-  const raw = JSON.parse(json) as {
-    readonly name: string;
-    readonly rules: readonly {
-      readonly argv: readonly EncodedToken[];
-      readonly contains?: readonly EncodedToken[];
-      readonly reply: StubReply;
-    }[];
-  };
-  return {
-    name: raw.name,
-    rules: raw.rules.map((r) => ({
-      argv: r.argv.map(decodeToken) as ArgvPattern,
-      ...(r.contains === undefined
-        ? {}
-        : { contains: r.contains.map(decodeToken) as readonly ArgvToken[] }),
-      reply: r.reply,
-    })) as unknown as ToolStub["rules"],
-  };
+  return toToolStub(JSON.parse(json));
 }
 
 // --- the invocation log --------------------------------------------------------
@@ -265,15 +333,42 @@ export function stubLogLine(call: StubCall): string {
   return JSON.stringify(call);
 }
 
+function toOutcome(v: unknown): StubOutcome {
+  if (!isObj(v)) return internal("a log outcome is not an object");
+  const { kind, rule, answer } = v;
+  if (kind === "no-rule") return { kind };
+  if (kind === "exhausted" && typeof rule === "number") return { kind, rule };
+  if (
+    kind === "answered" &&
+    typeof rule === "number" &&
+    typeof answer === "number"
+  )
+    return { kind, rule, answer };
+  return internal("a log outcome has an unknown kind");
+}
+
+function toStubCall(v: unknown): StubCall {
+  if (!isObj(v) || typeof v.tool !== "string")
+    return internal("a log line has no tool");
+  return {
+    tool: v.tool,
+    argv: listOf(v.argv, "argv").map((t) =>
+      typeof t === "string" ? t : internal("an argv token is not a string"),
+    ),
+    outcome: toOutcome(v.outcome),
+  };
+}
+
 /** Read the JSONL log the stub processes appended. Blank lines are skipped. */
 export function parseStubLog(jsonl: string): readonly StubCall[] {
   return jsonl.split("\n").flatMap((line, i) => {
     if (line.trim() === "") return [];
     try {
-      return [JSON.parse(line) as StubCall];
+      return [toStubCall(JSON.parse(line))];
     } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
       throw new Error(
-        `vigiles: stub log line ${String(i + 1)} is not JSON (${(e as Error).message}) — an internal error, please report it.`,
+        `vigiles: stub log line ${String(i + 1)} is unreadable (${why}) — an internal error, please report it.`,
         { cause: e },
       );
     }
@@ -282,12 +377,11 @@ export function parseStubLog(jsonl: string): readonly StubCall[] {
 
 // --- the author-facing diagnostic ---------------------------------------------
 
-const showToken = (t: ArgvToken | ArgvRest): string =>
-  typeof t === "string"
-    ? JSON.stringify(t)
-    : t instanceof RegExp
-      ? `/${t.source}/${t.flags}`
-      : "experimental_stub.rest";
+function showToken(t: ArgvToken | ArgvRest): string {
+  if (typeof t === "string") return JSON.stringify(t);
+  if (t instanceof RegExp) return `/${t.source}/${t.flags}`;
+  return "experimental_stub.rest";
+}
 
 /** A pattern the way a rule is written: `["issue", "create", experimental_stub.rest]`. */
 export function describePattern(p: readonly (ArgvToken | ArgvRest)[]): string {
@@ -298,6 +392,24 @@ const whyUnanswered = (o: StubOutcome): string =>
   o.kind === "exhausted"
     ? `rule #${String(o.rule + 1)} has no answer left (its inOrder answers ran out)`
     : "no rule matches";
+
+/** One unanswered argv, `n` times: why, the rules it was tried against, the rule to add. */
+function describeMiss(
+  c: StubCall,
+  n: number,
+  stubs: readonly ToolStub[],
+): string {
+  const times = n > 1 ? ` ×${String(n)}` : "";
+  const rules = (stubs.find((s) => s.name === c.tool)?.rules ?? []).map(
+    (r, i) => `\n      #${String(i + 1)} ${describePattern(r.argv)}`,
+  );
+  const tried =
+    rules.length === 0 ? "" : `; the rules for ${c.tool} are:${rules.join("")}`;
+  return (
+    `  ${c.tool} ${JSON.stringify(c.argv)}${times} — ${whyUnanswered(c.outcome)}${tried}\n` +
+    `    add: { argv: ${describePattern(c.argv)}, reply: { kind: "always", stdout: "…" } }`
+  );
+}
 
 /**
  * The failure message for a run with unanswered calls, addressed to the AUTHOR
@@ -315,19 +427,9 @@ export function unansweredMessage(
   const keyOf = (c: StubCall): string =>
     `${c.tool}\u0000${JSON.stringify(c.argv)}\u0000${c.outcome.kind}`;
   const distinct = [...new Map(missed.map((c) => [keyOf(c), c])).values()];
-  const lines = distinct.map((c) => {
-    const n = missed.filter((m) => keyOf(m) === keyOf(c)).length;
-    const times = n > 1 ? ` ×${String(n)}` : "";
-    const rules = (stubs.find((s) => s.name === c.tool)?.rules ?? []).map(
-      (r, i) => `\n      #${String(i + 1)} ${describePattern(r.argv)}`,
-    );
-    const tried =
-      rules.length === 0 ? "" : `; the rules for ${c.tool} are:${rules.join("")}`;
-    return (
-      `  ${c.tool} ${JSON.stringify(c.argv)}${times} — ${whyUnanswered(c.outcome)}${tried}\n` +
-      `    add: { argv: ${describePattern(c.argv)}, reply: { kind: "always", stdout: "…" } }`
-    );
-  });
+  const lines = distinct.map((c) =>
+    describeMiss(c, missed.filter((m) => keyOf(m) === keyOf(c)).length, stubs),
+  );
   return (
     `${String(missed.length)} stub call(s) went unanswered — the agent ran a command no rule scripts, ` +
     `so the trial measured an answer nobody wrote:\n${lines.join("\n")}\n` +
@@ -417,12 +519,23 @@ export function runStub(
   const prior = priorAnswers(parseStubLog(io.readFile(paths.log) ?? ""), name);
   const outcome = decideInvocation(stub, prior, argv);
   io.appendFile(paths.log, stubLogLine({ tool: name, argv, outcome }) + "\n");
-  const answer = answerFor(stub, outcome);
-  return answer === undefined
-    ? { stdout: "", stderr: unsupportedLine(name), exitCode: UNANSWERED_EXIT_CODE }
-    : {
-        stdout: answer.stdout ?? "",
-        stderr: answer.stderr ?? "",
-        exitCode: answer.exitCode ?? 0,
-      };
+  return printed(name, answerFor(stub, outcome));
+}
+
+/** What the process prints for an answer — or the neutral miss line for none. */
+function printed(
+  name: string,
+  answer: StubAnswer | undefined,
+): StubProcessResult {
+  if (answer === undefined)
+    return {
+      stdout: "",
+      stderr: unsupportedLine(name),
+      exitCode: UNANSWERED_EXIT_CODE,
+    };
+  return {
+    stdout: answer.stdout ?? "",
+    stderr: answer.stderr ?? "",
+    exitCode: answer.exitCode ?? 0,
+  };
 }

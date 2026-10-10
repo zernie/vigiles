@@ -9,7 +9,8 @@ import assert from "node:assert/strict";
 import { parseRunEnv, parseToolStubs } from "./eval-spec-parse.js";
 import { ARGV_REST } from "./stub-rules.js";
 
-const KEEP = [".claude/.credentials.json"];
+/** A made-up harness auth file: the core names no real harness. */
+const KEEP = [".acme/token"];
 
 // --- stubs ------------------------------------------------------------------
 
@@ -78,8 +79,9 @@ test("the old argv-blind shape is refused, and the rewrite is per-command rules 
 });
 
 test("structural mistakes are refused with the path of the bad field", () => {
-  const bad = (rules: unknown, re: RegExp) =>
+  const bad = (rules: unknown, re: RegExp) => {
     assert.throws(() => parseToolStubs([{ name: "gh", rules }], "runEval"), re);
+  };
   bad([], /stubs\[0\]\.rules: .*at least one rule/);
   bad(
     [{ argv: [ARGV_REST, "x"], reply: { kind: "always" } }],
@@ -177,7 +179,11 @@ test("ephemeral, with or without a seeded HOME; inherit with a reason", () => {
     },
   );
   assert.deepEqual(
-    parseRunEnv({ kind: "inherit", reason: "needs my gh auth" }, "runEval", KEEP),
+    parseRunEnv(
+      { kind: "inherit", reason: "needs my gh auth" },
+      "runEval",
+      KEEP,
+    ),
     { kind: "inherit", reason: "needs my gh auth" },
   );
 });
@@ -216,8 +222,8 @@ test("a seed path outside HOME, or over the harness's own auth file, is refused 
   for (const p of ["../escape", "/etc/x", "a/../../b", "", "a//b", "./a"])
     assert.throws(() => seed(p), /env\.home\.files: /);
   assert.throws(
-    () => seed(".claude/.credentials.json"),
-    /env\.home\.files: ".claude\/.credentials.json" is the harness's own auth file/,
+    () => seed(".acme/token"),
+    /env\.home\.files: ".acme\/token" is the harness's own auth file/,
   );
   assert.throws(
     () =>

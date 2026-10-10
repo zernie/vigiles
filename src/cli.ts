@@ -65,6 +65,37 @@ function die(e: unknown): never {
   process.exit(2);
 }
 
+/**
+ * A TOOL STUB's invocation — the eval tier writes a `gh`/`git` shim onto PATH
+ * that execs `hook-runtime stub <root> <name> <argv…>`, once per call the agent
+ * (or a script it runs) makes. Same cost argument as `run-program`, so the same
+ * kind of fast path: the pure decision (`core/stub-rules.js`) and `node:fs`,
+ * nothing else — no barrel, no zod. The argv is taken RAW: the stubbed tool's
+ * own `--flags` are its argv. It never reads stdin: a caller that leaves the
+ * pipe open (Node's `execFile` does) would hang until its own timeout.
+ */
+async function runStubCommand(raw: readonly string[]): Promise<void> {
+  const [root, name, ...argv] = raw;
+  if (root === undefined || name === undefined) {
+    console.error(
+      "vigiles hook-runtime stub: emitted into a tool-stub shim by the eval tier, never typed by hand.",
+    );
+    process.exit(2);
+  }
+  const { readFileSync, appendFileSync, existsSync } = await import("node:fs");
+  const { runStub } = await import("./core/stub-rules.js");
+  const r = runStub(root, name, argv, {
+    readFile: (p) => (existsSync(p) ? readFileSync(p, "utf8") : null),
+    appendFile: (p, text) => {
+      appendFileSync(p, text);
+    },
+  });
+  // Exit only once both streams have flushed: a pipe write is async on macOS.
+  process.stdout.write(r.stdout, () =>
+    process.stderr.write(r.stderr, () => process.exit(r.exitCode)),
+  );
+}
+
 async function dispatch(): Promise<void> {
   // Parsed EXACTLY as `main()` parses it — `args.slice(1)` with `--flags`
   // dropped — so the fast path and the barrel agree on which argument is the
@@ -89,33 +120,8 @@ async function dispatch(): Promise<void> {
     return;
   }
 
-  // A TOOL STUB's invocation — the eval tier writes a `gh`/`git` shim onto PATH
-  // that execs this, once per call the agent (or a script it runs) makes. Same
-  // cost argument as `run-program`, so the same kind of fast path: the pure
-  // decision (`core/stub-rules.js`) and `node:fs`, nothing else — no barrel, no
-  // zod. The argv is taken RAW: the stubbed tool's own `--flags` are its argv.
-  // It never reads stdin (a caller that leaves the pipe open would hang).
   if (command === "hook-runtime" && kind === "stub") {
-    const [root, name, ...argv] = args.slice(2);
-    if (root === undefined || name === undefined) {
-      console.error(
-        "vigiles hook-runtime stub: emitted into a tool-stub shim by the eval tier, never typed by hand.",
-      );
-      process.exit(2);
-    }
-    const { readFileSync, appendFileSync, existsSync } =
-      require("node:fs") as typeof import("node:fs");
-    const { runStub } =
-      require("./core/stub-rules.js") as typeof import("./core/stub-rules.js");
-    const r = runStub(root, name, argv, {
-      readFile: (p) => (existsSync(p) ? readFileSync(p, "utf8") : null),
-      appendFile: (p, text) => {
-        appendFileSync(p, text);
-      },
-    });
-    process.stdout.write(r.stdout);
-    process.stderr.write(r.stderr);
-    process.exitCode = r.exitCode;
+    await runStubCommand(args.slice(2));
     return;
   }
 

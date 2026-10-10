@@ -174,10 +174,22 @@ test("an always reply answers every matching call with the same answer", () => {
 
 test("priorAnswers counts answered calls per rule of ONE tool, from the log", () => {
   const calls: StubCall[] = [
-    { tool: "gh", argv: FOOTER_READ, outcome: { kind: "answered", rule: 1, answer: 0 } },
-    { tool: "gh", argv: FOOTER_READ, outcome: { kind: "answered", rule: 1, answer: 0 } },
+    {
+      tool: "gh",
+      argv: FOOTER_READ,
+      outcome: { kind: "answered", rule: 1, answer: 0 },
+    },
+    {
+      tool: "gh",
+      argv: FOOTER_READ,
+      outcome: { kind: "answered", rule: 1, answer: 0 },
+    },
     { tool: "gh", argv: ["x"], outcome: { kind: "no-rule" } },
-    { tool: "git", argv: ["push"], outcome: { kind: "answered", rule: 1, answer: 0 } },
+    {
+      tool: "git",
+      argv: ["push"],
+      outcome: { kind: "answered", rule: 1, answer: 0 },
+    },
   ];
   assert.deepEqual([...priorAnswers(calls, "gh")], [[1, 2]]);
 });
@@ -216,7 +228,10 @@ test("parseStubLog reads the JSONL the stub processes append, ignoring blank lin
     argv: MEASURED_CREATE,
     outcome: { kind: "answered", rule: 0, answer: 0 },
   };
-  assert.deepEqual(parseStubLog(stubLogLine(a) + "\n" + stubLogLine(b)), [a, b]);
+  assert.deepEqual(parseStubLog(stubLogLine(a) + "\n" + stubLogLine(b)), [
+    a,
+    b,
+  ]);
   assert.deepEqual(parseStubLog(""), []);
   assert.throws(() => parseStubLog("{not json\n"), /stub log line 1/);
 });
@@ -238,7 +253,11 @@ test("unansweredMessage names each argv, the rules tried, and a per-command rule
   const calls: StubCall[] = [
     { tool: "gh", argv: ["auth", "status"], outcome: { kind: "no-rule" } },
     { tool: "gh", argv: ["auth", "status"], outcome: { kind: "no-rule" } },
-    { tool: "gh", argv: FOOTER_READ, outcome: { kind: "answered", rule: 1, answer: 0 } },
+    {
+      tool: "gh",
+      argv: FOOTER_READ,
+      outcome: { kind: "answered", rule: 1, answer: 0 },
+    },
     { tool: "git", argv: ["push"], outcome: { kind: "exhausted", rule: 0 } },
   ];
   const msg = unansweredMessage(calls, [GH]) ?? "";
@@ -246,7 +265,10 @@ test("unansweredMessage names each argv, the rules tried, and a per-command rule
   assert.match(msg, /gh \["auth","status"\] ×2 — no rule matches/);
   assert.match(msg, /#1 \["issue", "create", experimental_stub\.rest\]/);
   assert.match(msg, /git \["push"\] — rule #1 has no answer left/);
-  assert.match(msg, /\{ argv: \["auth", "status"\], reply: \{ kind: "always", stdout: "…" \} \}/);
+  assert.match(
+    msg,
+    /\{ argv: \["auth", "status"\], reply: \{ kind: "always", stdout: "…" \} \}/,
+  );
   assert.doesNotMatch(msg, /argv: \[experimental_stub\.rest\]/);
   assert.equal(unansweredMessage(calls.slice(2, 3), [GH]), undefined);
 });

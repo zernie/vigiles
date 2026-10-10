@@ -77,7 +77,10 @@ import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 import { ARGV_REST } from "./core/stub-rules.js";
 
 /** These specs drive a fake runner, so nothing is inherited by a real child. */
-const INHERIT = { kind: "inherit", reason: "unit test: a fake runner" } as const;
+const INHERIT = {
+  kind: "inherit",
+  reason: "unit test: a fake runner",
+} as const;
 
 /** A zero ArmUsage for TriggerRateReport fixtures (cost isn't what these assert). */
 const zeroUsage = {
@@ -133,30 +136,31 @@ test("aggregate tolerates missing keys across rows", () => {
   assert.equal(agg.b, 1);
 });
 
+/** The `on` arm's canned stream: a Skill tool_use, a hook firing, a result with turns + answer. */
+const ON_STREAM = [
+  JSON.stringify({
+    type: "assistant",
+    message: {
+      content: [{ type: "tool_use", id: "t1", name: "Skill", input: {} }],
+    },
+  }),
+  JSON.stringify({
+    type: "system",
+    subtype: "hook_response",
+    hook_name: "Stop",
+    hook_event: "Stop",
+    exit_code: 0,
+    outcome: "success",
+    output: "",
+  }),
+  JSON.stringify({ type: "result", result: "answer is on", num_turns: 2 }),
+].join("\n");
+
 test("runEvalWith drives arms × trials via an injected runner (no model)", async () => {
   // Canned stream-json: the `on` arm reports a Skill tool_use, a hook firing,
   // and a result with num_turns + answer; the `off` arm reports a bare result
   // (no tool / hook / num_turns / answer) — exercising both makeContext branches.
-  const onStream = [
-    JSON.stringify({
-      type: "assistant",
-      message: {
-        content: [{ type: "tool_use", id: "t1", name: "Skill", input: {} }],
-      },
-    }),
-    JSON.stringify({
-      type: "system",
-      subtype: "hook_response",
-      hook_name: "Stop",
-      hook_event: "Stop",
-      exit_code: 0,
-      outcome: "success",
-      output: "",
-    }),
-    JSON.stringify({ type: "result", result: "answer is on", num_turns: 2 }),
-  ].join("\n");
   const offStream = JSON.stringify({ type: "result" }); // no num_turns/result
-
   const seen: AgentRunArgs[] = [];
   const fakeRunner = (
     a: AgentRunArgs,
@@ -164,7 +168,7 @@ test("runEvalWith drives arms × trials via an injected runner (no model)", asyn
     seen.push(a);
     return Promise.resolve({
       code: 0,
-      stdout: a.hasSettings ? onStream : offStream,
+      stdout: a.hasSettings ? ON_STREAM : offStream,
     });
   };
 
@@ -2744,8 +2748,20 @@ test("formatEvalReport renders one line per arm", () => {
     totalCostUsd: 0,
     aborted: false,
     arms: {
-      vanilla: { unansweredStubCalls: [], runs: 6, metrics: { caught: 0 }, stats: {}, usage: NO_USAGE },
-      gated: { unansweredStubCalls: [], runs: 6, metrics: { caught: 0.5 }, stats: {}, usage: NO_USAGE },
+      vanilla: {
+        unansweredStubCalls: [],
+        runs: 6,
+        metrics: { caught: 0 },
+        stats: {},
+        usage: NO_USAGE,
+      },
+      gated: {
+        unansweredStubCalls: [],
+        runs: 6,
+        metrics: { caught: 0.5 },
+        stats: {},
+        usage: NO_USAGE,
+      },
     },
   });
   assert.match(out, /demo \(6 trials\/arm\)/);
@@ -3057,7 +3073,10 @@ test("stubs (inherit env): prepends the stub bin dir to the run's PATH", async (
   // overlay PATH starts with the stub dir, then the real PATH.
   assert.ok(a.env, "env overlay set");
   const first = a.env.PATH?.split(delimiter)[0] ?? "";
-  assert.ok(first.endsWith("/bin"), `PATH starts with the stub bin dir: ${first}`);
+  assert.ok(
+    first.endsWith("/bin"),
+    `PATH starts with the stub bin dir: ${first}`,
+  );
   assert.ok(
     !first.startsWith(a.cwd),
     "the stub dir is BESIDE the work dir, not inside it (models listed it)",
@@ -3090,7 +3109,12 @@ test("stubs (ephemeral env): prepends the stub bin dir to the scrubbed PATH", as
       stubs: [
         {
           name: "psql",
-          rules: [{ argv: ["-c", ARGV_REST], reply: { kind: "always", stdout: "row" } }],
+          rules: [
+            {
+              argv: ["-c", ARGV_REST],
+              reply: { kind: "always", stdout: "row" },
+            },
+          ],
         },
       ],
       measure: () => ({ ok: true }),

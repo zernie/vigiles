@@ -68,7 +68,10 @@ function countingRunner(): {
 }
 
 /** These specs drive a fake runner, so nothing is inherited by a real child. */
-const INHERIT = { kind: "inherit", reason: "unit test: a fake runner" } as const;
+const INHERIT = {
+  kind: "inherit",
+  reason: "unit test: a fake runner",
+} as const;
 function spec(dir: string, mode: "off" | "check" | "update", task = "do it") {
   return {
     name: "wiring eval",
@@ -319,28 +322,23 @@ test("lock messages WITHOUT GITHUB_ACTIONS take the plain stderr/stdout path", a
   }
 });
 
-/** Record a lock with `recorded`, then `--check` with `checked`: stale or replayed? */
+/**
+ * Would a lock recorded with `recorded` be STALE under `checked`? `--check`
+ * compares exactly this hash (`decideLock`), so equal hashes replay and
+ * different ones are stale.
+ */
 async function staleAfter(
   recorded: (s: ReturnType<typeof spec>) => Record<string, unknown>,
   checked: (s: ReturnType<typeof spec>) => Record<string, unknown>,
 ): Promise<"stale" | "replayed"> {
-  const dir = tmp();
+  const root = tmp();
   try {
-    await runEvalWith(
-      recorded(spec(dir, "update")) as never,
-      countingRunner().run,
-    );
-    const chk = countingRunner();
-    try {
-      await runEvalWith(checked(spec(dir, "check")) as never, chk.run);
-      return "replayed";
-    } catch (e) {
-      assert.match((e as Error).message, /STALE|changed/);
-      assert.equal(chk.calls(), 0, "a stale check never reaches the model");
-      return "stale";
-    }
+    const a = await evalHash(root, recorded);
+    const b = await evalHash(root, checked);
+    assert.notEqual(a, "", "the recording run wrote a lock");
+    return a === b ? "replayed" : "stale";
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   }
 }
 
@@ -427,9 +425,21 @@ test("lock check after an env change: stale for the kind and the seed, replayed 
       home: { kind: "files", files: { ".config/x/y.txt": contents } },
     },
   });
-  assert.equal(await staleAfter((s) => s, ephemeral), "stale", "inherit → ephemeral");
-  assert.equal(await staleAfter(ephemeral, seeded("z")), "stale", "a seed added");
-  assert.equal(await staleAfter(seeded("z"), seeded("w")), "stale", "a seed's contents");
+  assert.equal(
+    await staleAfter((s) => s, ephemeral),
+    "stale",
+    "inherit → ephemeral",
+  );
+  assert.equal(
+    await staleAfter(ephemeral, seeded("z")),
+    "stale",
+    "a seed added",
+  );
+  assert.equal(
+    await staleAfter(seeded("z"), seeded("w")),
+    "stale",
+    "a seed's contents",
+  );
   assert.equal(
     await staleAfter(
       (s) => s,

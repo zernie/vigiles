@@ -30,7 +30,10 @@ import { makeTmpDir } from "./core/test-utils.js";
 const { rest } = experimental_stub;
 const ISSUE_URL = "https://github.com/o/r/issues/9001\n";
 const GH = experimental_stub("gh", [
-  { argv: ["issue", "create", rest], reply: { kind: "always", stdout: ISSUE_URL } },
+  {
+    argv: ["issue", "create", rest],
+    reply: { kind: "always", stdout: ISSUE_URL },
+  },
   {
     argv: ["api", /^repos\/o\/r\/(?:issues|pulls)\?/],
     reply: { kind: "always", stdout: "[]" },
@@ -48,7 +51,11 @@ const CREATE = [
 ];
 const READ = ["api", "repos/o/r/issues?state=open&per_page=100"];
 const PROBE = ["auth", "status"];
-const RESULT = JSON.stringify({ type: "result", result: "filed", num_turns: 1 });
+const RESULT = JSON.stringify({
+  type: "result",
+  result: "filed",
+  num_turns: 1,
+});
 
 /** A runner that runs each argv as `gh …` with the trial's own env, like a model's Bash call. */
 function ghRunner(...calls: readonly (readonly string[])[]) {
@@ -68,6 +75,11 @@ function ghRunner(...calls: readonly (readonly string[])[]) {
   };
   return { run, seen, outputs };
 }
+
+/** A spec the type forbids, as a plain-JS eval file can still write it. */
+const looseSpec = (spec: unknown): EvalSpec<Metrics> =>
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the shapes under test are exactly the ones the type rules out
+  spec as EvalSpec<Metrics>;
 
 const base = (extra: Partial<EvalSpec<Metrics>> = {}): EvalSpec<Metrics> => ({
   arms: { a: {} },
@@ -113,7 +125,10 @@ test("an unanswered call is reported, stops NEW trials, and is printed to the au
   assert.match(failure, /gh \["auth","status"\] — no rule matches/);
   assert.match(failure, /#1 \["issue", "create", experimental_stub\.rest\]/);
   assert.match(failure, /`vigiles eval` exits 2/);
-  assert.match(formatEvalReport(report), /⚠ a: 1 stub call\(s\) went unanswered/);
+  assert.match(
+    formatEvalReport(report),
+    /⚠ a: 1 stub call\(s\) went unanswered/,
+  );
 });
 
 test("--update refuses to record a lock for a report with an unanswered call", async () => {
@@ -148,7 +163,8 @@ test("a cache replay reports the same stub calls, unanswered ones included", asy
       cacheDir: dir,
     });
     const first = await runEvalWith(spec, ghRunner(CREATE, PROBE).run);
-    const boom = () => Promise.reject(new Error("replay must not call the model"));
+    const boom = () =>
+      Promise.reject(new Error("replay must not call the model"));
     const second = await runEvalWith({ ...spec, cache: "read" }, boom);
     assert.equal(second.arms.a?.metrics.calls, 2);
     assert.deepEqual(
@@ -166,9 +182,11 @@ test("a run without stubs has no stub log: `.called` fails rather than counting 
     base({
       stubs: undefined,
       measure: (ctx) => ({
-        never: experimental_stub.called("gh", ["issue", "create", rest], {
-          max: 0,
-        }).eval(ctx).pass,
+        never: experimental_stub
+          .called("gh", ["issue", "create", rest], {
+            max: 0,
+          })
+          .eval(ctx).pass,
         hasLog: ctx.stubCalls !== undefined,
       }),
     }),
@@ -185,18 +203,17 @@ test("the old argv-blind stub and a missing env are refused before the runner is
   await assert.rejects(
     () =>
       runEvalWith(
-        base({ stubs: [{ name: "gh", stdout: ISSUE_URL }] as never }),
+        looseSpec({ ...base(), stubs: [{ name: "gh", stdout: ISSUE_URL }] }),
         r.run,
       ),
     /stubs\[0\] \("gh"\) is the old shape/,
   );
   await assert.rejects(
-    () => runEvalWith(base({ env: undefined as never }), r.run),
+    () => runEvalWith(looseSpec({ ...base(), env: undefined }), r.run),
     /runEval: `env` is required/,
   );
   await assert.rejects(
-    () =>
-      runEvalWith({ ...base(), ephemeralEnv: true } as never, r.run),
+    () => runEvalWith(looseSpec({ ...base(), ephemeralEnv: true }), r.run),
     /`ephemeralEnv` was replaced by `env`[\s\S]*ephemeralEnv: true\s+→ env: \{ kind: "ephemeral" \}/,
   );
   await assert.rejects(
@@ -237,10 +254,16 @@ test("env ephemeral with a seed: the trial's HOME holds the seeded files", async
 
 test("env inherit: the reason travels with the report and is printed", async () => {
   const report = await runEvalWith(
-    base({ stubs: undefined, env: { kind: "inherit", reason: "needs my real gh auth" } }),
+    base({
+      stubs: undefined,
+      env: { kind: "inherit", reason: "needs my real gh auth" },
+    }),
     ghRunner().run,
   );
-  assert.deepEqual(report.env, { kind: "inherit", reason: "needs my real gh auth" });
+  assert.deepEqual(report.env, {
+    kind: "inherit",
+    reason: "needs my real gh auth",
+  });
   assert.match(
     formatEvalReport(report),
     /env: inherited your HOME and environment — needs my real gh auth/,

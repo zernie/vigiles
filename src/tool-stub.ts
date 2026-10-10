@@ -58,7 +58,14 @@ export function stubShim(
   root: string,
   name: string,
 ): string {
-  const words = [launcher.node, launcher.cli, "hook-runtime", "stub", root, name];
+  const words = [
+    launcher.node,
+    launcher.cli,
+    "hook-runtime",
+    "stub",
+    root,
+    name,
+  ];
   return `#!/bin/sh\nexec ${words.map(shQuote).join(" ")} "$@"\n`;
 }
 

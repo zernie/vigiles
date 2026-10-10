@@ -1683,7 +1683,10 @@ function runEnvReportView(env: RunEnv): EvalReport["env"] {
 }
 
 /** Write a seed's files under a throwaway HOME, parents created. Effects only. */
-export function materializeHome(home: string, files: readonly HomeFile[]): void {
+export function materializeHome(
+  home: string,
+  files: readonly HomeFile[],
+): void {
   files.forEach((f) => {
     const dest = join(home, f.path);
     mkdirSync(dirname(dest), { recursive: true });
@@ -1721,7 +1724,10 @@ function trialEnv(
   switch (runEnv.kind) {
     case "ephemeral": {
       const home = mkdtempSync(join(cwd, "home-"));
-      const plan = planHome(runEnv.home, EVAL_RUNTIME.runEnv?.keepHomeFiles ?? []);
+      const plan = planHome(
+        runEnv.home,
+        EVAL_RUNTIME.runEnv?.keepHomeFiles ?? [],
+      );
       // The spec boundary already refused a bad seed; this is the same check.
       if (plan.kind === "refused") throw new Error(plan.reason);
       materializeHome(home, plan.files);
@@ -1737,7 +1743,9 @@ function trialEnv(
       };
       return {
         env:
-          stubBin === undefined ? base : { ...base, PATH: withStubs(base.PATH) },
+          stubBin === undefined
+            ? base
+            : { ...base, PATH: withStubs(base.PATH) },
         replaceEnv: true,
         keyEnv: base,
       };

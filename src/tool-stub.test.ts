@@ -77,7 +77,7 @@ test("the stub answers per invocation: an issue URL for the create, [] for the r
     const read = run(dir.binDir, READ);
     assert.equal(read.status, 0, read.stderr);
     assert.equal(read.stdout, "[]");
-    assert.doesNotThrow(() => JSON.parse(read.stdout) as unknown);
+    assert.deepEqual(JSON.parse(read.stdout), []);
 
     const probe = run(dir.binDir, ["auth", "status"]);
     assert.equal(probe.status, UNANSWERED_EXIT_CODE);
@@ -241,9 +241,10 @@ test("the shim quotes every path so a quote or space cannot break out of it", ()
 // --- the runtime's decision, in-process (what the spawned process runs) -------
 
 /** An in-memory filesystem for the runtime: rules files plus the log. */
-function memIo(files: Record<string, string>): StubIo & {
+function memIo(init: Readonly<Record<string, string>>): StubIo & {
   readonly files: Record<string, string>;
 } {
+  const files: Record<string, string> = { ...init };
   return {
     files,
     readFile: (p) => files[p] ?? null,
@@ -265,10 +266,7 @@ test("runStub: decides from the rules file and the log so far, appends one line 
     stderr: unsupportedLine("gh"),
     exitCode: UNANSWERED_EXIT_CODE,
   });
-  assert.equal(
-    io.files["/s/calls.jsonl"]?.trimEnd().split("\n").length,
-    2,
-  );
+  assert.equal(io.files["/s/calls.jsonl"]?.trimEnd().split("\n").length, 2);
 });
 
 test("runStub: a missing rules file is an internal error said to the author, never a silent answer", () => {

@@ -39,10 +39,13 @@ test("experimental_stub parses and returns plain data — the same thing a .mjs 
   ]);
   assert.equal(gh.name, "gh");
   assert.equal(gh.rules[0].argv[2], rest);
+  // `rest` before a token is unrepresentable in TypeScript; a .mjs file can
+  // still write it, so the parse refuses it at run time.
   assert.throws(
     () =>
-      experimental_stub("gh", [
-        { argv: [rest, "x"] as never, reply: { kind: "always" } },
+      Reflect.apply(experimental_stub, undefined, [
+        "gh",
+        [{ argv: [rest, "x"], reply: { kind: "always" } }],
       ]),
     /experimental_stub: stubs\[0\]\.rules\[0\]\.argv/,
   );
@@ -75,7 +78,9 @@ test(".called on a trace with NO stub log fails — 'max: 0' must not pass becau
 
 test(".called serialises for reports", () => {
   assert.deepEqual(
-    experimental_stub.called("gh", ["api", /^repos\//], { min: 2, max: 4 }).toJSON(),
+    experimental_stub
+      .called("gh", ["api", /^repos\//], { min: 2, max: 4 })
+      .toJSON(),
     {
       kind: "stubCalled",
       tool: "gh",
@@ -84,8 +89,5 @@ test(".called serialises for reports", () => {
       max: 4,
     },
   );
-  assert.equal(
-    experimental_stub.called("gh", ["x"]).toJSON().max,
-    null,
-  );
+  assert.equal(experimental_stub.called("gh", ["x"]).toJSON().max, null);
 });

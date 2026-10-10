@@ -15,17 +15,13 @@ import {
   ARGV_REST,
   describePattern,
   matchArgv,
+  toToolStub,
   type ArgvPattern,
   type ArgvToken,
+  type StubCall,
   type StubRule,
   type ToolStub,
 } from "./core/stub-rules.js";
-
-const result = (pass: boolean, message: string): CheckResult => ({
-  pass,
-  score: pass ? 1 : 0,
-  message,
-});
 
 /** Bounds for {@link experimental_stub.called}. */
 export interface StubCalledBounds {
@@ -35,6 +31,45 @@ export interface StubCalledBounds {
   readonly max?: number;
   /** Order-free tokens after the positional prefix (needs a trailing `rest`). */
   readonly contains?: readonly ArgvToken[];
+}
+
+const result = (pass: boolean, message: string): CheckResult => ({
+  pass,
+  score: pass ? 1 : 0,
+  message,
+});
+
+/** The failure for a trace that carries no stub log at all. */
+const noLog = (shown: string): CheckResult =>
+  result(
+    false,
+    `stub ${shown}: this trace has no stub log — the run declared no stubs, or its tier does not record them`,
+  );
+
+/** How many of a run's stub calls are `name` with an argv matching `argv` (+ `contains`). */
+function countCalls(
+  calls: readonly StubCall[],
+  name: string,
+  argv: ArgvPattern,
+  contains: readonly ArgvToken[] | undefined,
+): number {
+  return calls.filter(
+    (c) => c.tool === name && matchArgv({ argv, contains }, c.argv),
+  ).length;
+}
+
+/** The [min, max] a `called` check accepts, and how a report prints it. */
+function rangeOf(bounds: StubCalledBounds): {
+  readonly min: number;
+  readonly max: number;
+  readonly text: string;
+} {
+  const min = bounds.min ?? (bounds.max === undefined ? 1 : 0);
+  const max = bounds.max ?? Number.POSITIVE_INFINITY;
+  const text = Number.isFinite(max)
+    ? `${String(min)}..${String(max)}`
+    : `at least ${String(min)}`;
+  return { min, max, text };
 }
 
 /**
@@ -47,53 +82,36 @@ function called(
   argv: ArgvPattern,
   bounds: StubCalledBounds = {},
 ): Check<Trace> {
-  // Parse the pattern the way a rule is parsed (rest position, RegExp flags).
-  parseToolStubs(
-    [{ name, rules: [{ argv, contains: bounds.contains, reply: { kind: "always" } }] }],
-    "experimental_stub.called",
-  );
-  const min = bounds.min ?? (bounds.max === undefined ? 1 : 0);
-  const max = bounds.max ?? Number.POSITIVE_INFINITY;
+  // The pattern is parsed the way a rule is (rest position, RegExp flags).
+  const rule = { argv, contains: bounds.contains, reply: { kind: "always" } };
+  parseToolStubs([{ name, rules: [rule] }], "experimental_stub.called");
+  const { min, max, text } = rangeOf(bounds);
   const shown = `${name} ${describePattern(argv)}`;
-  const range = max === Number.POSITIVE_INFINITY
-    ? `at least ${String(min)}`
-    : `${String(min)}..${String(max)}`;
   return {
     kind: "stubCalled",
     eval(t: Trace): CheckResult {
-      if (t.stubCalls === undefined)
-        return result(
-          false,
-          `stub ${shown}: this trace has no stub log — the run declared no stubs, or its tier does not record them`,
-        );
-      const n = t.stubCalls.filter(
-        (c) =>
-          c.tool === name &&
-          matchArgv({ argv, contains: bounds.contains }, c.argv),
-      ).length;
-      const pass = n >= min && n <= max;
-      return result(
-        pass,
-        `stub ${shown} called ${String(n)} time(s) (expected ${range})`,
-      );
+      if (t.stubCalls === undefined) return noLog(shown);
+      const n = countCalls(t.stubCalls, name, argv, bounds.contains);
+      const msg = `stub ${shown} called ${String(n)} time(s) (expected ${text})`;
+      return result(n >= min && n <= max, msg);
     },
     toJSON: () => ({
       kind: "stubCalled",
       tool: name,
       argv: describePattern(argv),
       min,
-      max: max === Number.POSITIVE_INFINITY ? null : max,
+      max: Number.isFinite(max) ? max : null,
     }),
   };
 }
 
+/** Parse one stub: a throw names the bad field; the value is plain data. */
 function stubOf(
   name: string,
   rules: readonly [StubRule, ...StubRule[]],
 ): ToolStub {
-  const [parsed] = parseToolStubs([{ name, rules }], "experimental_stub");
-  // parseToolStubs returns exactly one stub for one input, or throws.
-  return parsed as ToolStub;
+  parseToolStubs([{ name, rules }], "experimental_stub");
+  return toToolStub({ name, rules });
 }
 
 /**
@@ -115,6 +133,7 @@ function stubOf(
  *
  * @experimental
  */
+// eslint-disable-next-line functional/immutable-data -- the one experimental root: a callable with members, built the way experimental_agent is
 export const experimental_stub = Object.assign(stubOf, {
   rest: ARGV_REST,
   called,

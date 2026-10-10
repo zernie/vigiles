@@ -16,10 +16,13 @@ import {
   declarationProblem,
   driverMisplaced,
   notADescriptionMessage,
+  runFailure,
   runsIn,
   trialsOverride,
   unansweredFailure,
 } from "./eval-entry.js";
+import { aggregateUsage, type EvalReport } from "./eval.js";
+import { ARGV_REST, type StubCall } from "./core/stub-rules.js";
 
 const DIST = resolve("dist");
 const ENTRY = join(DIST, "eval-entry.js");
@@ -228,15 +231,28 @@ test("unansweredFailure: only a runEval report with an unanswered call is a fail
       name: "gh",
       rules: [
         {
-          argv: ["issue", "create", { kind: "rest" }],
+          argv: ["issue", "create", ARGV_REST],
           reply: { kind: "always", stdout: "u" },
         },
       ],
     },
   ];
-  const report = (unansweredStubCalls: unknown[]) =>
-    ({ arms: { with: { runs: 1, unansweredStubCalls } } }) as never;
-  const miss = {
+  const report = (unansweredStubCalls: readonly StubCall[]): EvalReport => ({
+    name: "e",
+    trials: 1,
+    totalCostUsd: 0,
+    aborted: false,
+    arms: {
+      with: {
+        runs: 1,
+        metrics: {},
+        stats: {},
+        usage: aggregateUsage([]),
+        unansweredStubCalls,
+      },
+    },
+  });
+  const miss: StubCall = {
     tool: "gh",
     argv: ["auth", "status"],
     outcome: { kind: "no-rule" },
@@ -250,6 +266,14 @@ test("unansweredFailure: only a runEval report with an unanswered call is a fail
     unansweredFailure("measure", report([miss]), { stubs }),
     undefined,
   );
+  // zero runs is checked first, and keeps its own exit code
+  assert.equal(
+    runFailure("f", "runEval", { ...report([miss]), arms: {} }, { stubs })
+      ?.code,
+    1,
+  );
+  assert.equal(runFailure("f", "runEval", report([miss]), { stubs })?.code, 2);
+  assert.equal(runFailure("f", "runEval", report([]), { stubs }), undefined);
 });
 
 /**
@@ -307,7 +331,10 @@ test("`vigiles eval` exits 2 on an unanswered stub call even when `assert` looks
   ]);
   assert.equal(missed.status, 2, missed.stdout + missed.stderr);
   // the file's diagnostic is relayed by the runner; the verb adds its own line
-  assert.match(missed.stdout + missed.stderr, /gh \["auth","status"\] — no rule matches/);
+  assert.match(
+    missed.stdout + missed.stderr,
+    /gh \["auth","status"\] — no rule matches/,
+  );
   assert.match(missed.stderr, /vigiles eval: a run called a stubbed tool/);
   // the control: every call answered → the same file passes
   const answered = run([
