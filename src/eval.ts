@@ -44,7 +44,12 @@ import { appendObservation } from "./observe.js";
 import { resolveHarness } from "./adapters/claude-code/plugin-loader.js";
 import { claudeCodeRuntime } from "./adapters/claude-code/runtime.js";
 import type { HarnessRuntime } from "./core/runtime.js";
-import { scrubbedRunEnv, withoutSessionIdentity } from "./core/run-env.js";
+import {
+  scrubbedRunEnv,
+  withoutSessionIdentity,
+  type HomeFiles,
+  type RunEnv,
+} from "./core/run-env.js";
 import {
   emitCostSummary,
   costFromEvalReport,
@@ -124,7 +129,15 @@ import {
   serializeIntercepts,
   INTERCEPT_TOOLS_ENV,
 } from "./tool-intercept.js";
-import { type ToolStub, stubBinDir } from "./tool-stub.js";
+import { readStubCalls, removeStubDir, writeStubDir } from "./tool-stub.js";
+import {
+  isUnanswered,
+  unansweredMessage,
+  encodeStub,
+  type StubCall,
+  type ToolStub,
+} from "./core/stub-rules.js";
+import { parseRunEnv, parseToolStubs } from "./core/eval-spec-parse.js";
 import { makeTmpDir } from "./core/tmp-root.js";
 import { editDistance } from "./core/edit-distance.js";
 
@@ -288,37 +301,41 @@ export interface EvalSpec<M extends Metrics> {
   /** Base backoff ms (doubled each retry). Default 1000. */
   readonly retryBackoffMs?: number;
   /**
-   * **Opt-in, default OFF.** Run each trial in an *ephemeral run environment* — a
-   * throwaway `$HOME` + scrubbed env, re-injecting only the harness's own auth (see
-   * `ephemeralRunEnv`). Running a model-driven skill/agent is itself a side
-   * effect (the *model*, not the author, chose the actions), so a `git push` /
-   * write to `~` should land in a disposable HOME, not the real `~/.gitconfig` /
-   * `~/.ssh` / `~/.aws`. This is the cross-platform STATE-protection floor (no
-   * kernel features), orthogonal to the bubblewrap host-confinement in
-   * `src/sandbox.ts`.
+   * **Where each trial runs — required, no default.**
    *
-   * **Ships default-OFF** because a too-narrow auth allowlist would silently break
-   * the real `claude` CLI's authentication; leaving it off keeps every existing
-   * eval (including one running right now) authenticating exactly as before. When
-   * absent / `false`, the per-trial env is the caller's (`{ ...process.env,
-   * ...arm.env }`) minus the harness's declared session identity, which no child
-   * run inherits in either mode. See `docs/safety.md` (ephemerality) and
-   * `research/cross-platform-sandboxing.md`.
+   * - `{ kind: "ephemeral" }` — a throwaway HOME (under the trial's temp dir) and
+   *   a scrubbed environment: the OS essentials, the harness's own auth
+   *   (`runEnv.keep`, plus its auth file copied in), the eval's own `VIGILES_*`
+   *   variables, and nothing else. `home: { kind: "files", files }` seeds that
+   *   HOME first (HOME-relative paths; the harness's auth file cannot be
+   *   overwritten). Running a model-driven skill is itself a side effect, so a
+   *   `git push` or a write to `~` lands in a disposable HOME.
+   * - `{ kind: "inherit", reason }` — your real HOME and environment, minus the
+   *   parent session's identity. `reason` is printed with the report.
+   *
+   * There is no default because both are wrong silently in one case: inheriting
+   * measures the author's machine (their config, their tokens), and an
+   * ephemeral run fails if a user's credential is not where the harness says it
+   * is — loudly, on trial 1, which is why it is the one to try first. See
+   * `docs/safety.md` (what a child run inherits).
    */
-  readonly ephemeralEnv?: boolean;
+  readonly env: RunEnv;
   /**
-   * **Tool stubs on PATH (rung R2).** A list of fake binaries to shadow on PATH
-   * for every trial, so a skill/hook/agent that calls a CLI tool (`gh`, `psql`,
-   * `redis-cli`, `z3`, …) and works with its RESULT can be tested against a
-   * **recorded / author-provided canned output** — no live service. vigiles writes
-   * one executable stub per {@link ToolStub} into a bin dir under the trial cwd and
-   * PREPENDS that dir to the run's PATH (both the default and the ephemeral env
-   * path), so the fake wins over the real binary.
+   * **Tool stubs on PATH (rung R2)** — fake binaries that answer PER INVOCATION.
+   * Build each with {@link experimental_stub}: a list of rules over the argv
+   * tokens, first match wins. vigiles writes a shim per stub into a temp dir
+   * BESIDE the trial's working dir and puts it first on the run's PATH, so a
+   * skill/hook/agent — or a script it runs — that calls `gh`/`psql`/`git` gets
+   * the recorded answer instead of the real service.
    *
-   * The stubs are author/recorded fixtures, **never** model-synthesized — a
-   * synthesized tool output looks plausible but diverges from the real
-   * tool/version (false confidence). Absent → no change (the PATH is byte-identical
-   * to today). See {@link ToolStub} and `research/eval-coverage-and-isolation.md`.
+   * An invocation no rule answers is UNANSWERED: the model sees one neutral
+   * stderr line and a non-zero exit, no new trials start, the report lists the
+   * call (`ArmReport.unansweredStubCalls`), `vigiles eval` exits 2 and
+   * `--update` writes no lock. Every call is recorded in `RunContext.stubCalls`,
+   * so `experimental_stub.called(...)` can assert one happened.
+   *
+   * The answers are author/recorded fixtures, **never** model-synthesized — a
+   * synthesized tool output looks plausible but diverges from the real tool.
    */
   readonly stubs?: readonly ToolStub[];
   /**
@@ -371,6 +388,12 @@ export interface ArmReport {
   readonly stats: Record<string, MetricStat>;
   /** Cost / latency / token totals + means for this arm. */
   readonly usage: ArmUsage;
+  /**
+   * Stub invocations no rule answered, across this arm's trials. Non-empty means
+   * the arm measured at least one answer nobody wrote: `vigiles eval` exits 2 on
+   * it and `--update` refuses to record the lock. Empty when the eval has no stubs.
+   */
+  readonly unansweredStubCalls: readonly StubCall[];
 }
 
 export interface EvalReport {
@@ -381,6 +404,14 @@ export interface EvalReport {
   readonly totalCostUsd: number;
   /** True if a `maxCostUsd` budget cap stopped the run before all trials ran. */
   readonly aborted: boolean;
+  /**
+   * The run environment the trials used, without seeded file contents — so an
+   * `inherit` run's reason travels with the report and is printed with it.
+   * Absent on a report built before `env` existed.
+   */
+  readonly env?:
+    | { readonly kind: "ephemeral" }
+    | { readonly kind: "inherit"; readonly reason: string };
 }
 
 function writeFiles(cwd: string, files: Record<string, string>): void {
@@ -393,7 +424,7 @@ function writeFiles(cwd: string, files: Record<string, string>): void {
 
 /**
  * Resolve the environment a trial's subprocess actually runs with — the
- * SECURITY-CRITICAL decision behind `ephemeralEnv`. When `replaceEnv` is set, the
+ * SECURITY-CRITICAL decision behind `env: { kind: "ephemeral" }`. When `replaceEnv` is set, the
  * scrubbed `env` is the COMPLETE environment, so the real `$HOME` and inherited
  * secrets are DROPPED; otherwise `env` is an overlay on `base`. In BOTH, the
  * harness's declared session identity (`runEnv.sessionIdentity`) is removed: a
@@ -660,12 +691,7 @@ function warnUnregisteredSkillArms(arms: Record<string, EvalArm>): void {
 export async function runEval<M extends Metrics>(
   spec: EvalSpec<M>,
 ): Promise<EvalReport> {
-  warnUnregisteredSkillArms(spec.arms);
-  const report = await runEvalWith(spec, spawnAgent);
-  // Surface what the run spent — tokens + API-equivalent $, and a LOUD warning if
-  // it was billed to a metered API key instead of the subscription. See eval-cost.ts.
-  emitCostSummary(costFromEvalReport(report));
-  return report;
+  return runEvalReporting(spec, spawnAgent);
 }
 /* v8 ignore stop */
 
@@ -730,6 +756,13 @@ export interface MeasureSpec {
   /** Seconds between runs. */
   readonly spacingSec?: number;
 }
+
+/** The env `measure` / `measureArms` pass on: they have no `env` field yet. */
+const INHERITED_BY_MEASURE: RunEnv = {
+  kind: "inherit",
+  reason:
+    "measure and measureArms have no `env` field; they run with your HOME and environment (docs/safety.md)",
+};
 
 /** One check's measured rate across the trials. */
 export interface CheckRate {
@@ -814,6 +847,9 @@ export async function measureWith(
       allowedTools: spec.allowedTools,
       timeoutMs: spec.timeoutMs,
       spacingSec: spec.spacingSec,
+      // measure / measureArms have no `env` field (yet): they run with your
+      // HOME and environment, as before — said here, not defaulted silently.
+      env: INHERITED_BY_MEASURE,
       measure: (ctx) =>
         Object.fromEntries(keyed.map(([k, c]) => [k, c.eval(ctx).pass])),
     },
@@ -925,6 +961,9 @@ export async function measureArmsWith(
       allowedTools: spec.allowedTools,
       timeoutMs: spec.timeoutMs,
       spacingSec: spec.spacingSec,
+      // measure / measureArms have no `env` field (yet): they run with your
+      // HOME and environment, as before — said here, not defaulted silently.
+      env: INHERITED_BY_MEASURE,
       measure: (ctx) =>
         Object.fromEntries(keyed.map(([k, c]) => [k, c.eval(ctx).pass])),
     },
@@ -1361,11 +1400,24 @@ async function runWithCache(
     files: Record<string, string>;
     settings: unknown;
     trialIndex: number;
+    /** The run's env WITHOUT the stub PATH entry (a fresh temp dir per trial). */
+    env: Record<string, string> | undefined;
+    /** Encoded stubs — a changed answer is a changed input. */
+    stubs: readonly string[];
+    /** Where the run executes (kind + seed), never the per-trial HOME path. */
+    runEnv: unknown;
   },
   runner: AgentRunner,
   cfg: RunConfig,
-): Promise<RunOut> {
-  if (cfg.cache === "off") return runner(runArgs);
+  collectStubCalls: () => readonly StubCall[] | undefined,
+): Promise<{
+  readonly out: RunOut;
+  readonly stubCalls: readonly StubCall[] | undefined;
+}> {
+  if (cfg.cache === "off") {
+    const out = await runner(runArgs);
+    return { out, stubCalls: collectStubCalls() };
+  }
   const key = cacheKey({
     task: runArgs.task,
     model: runArgs.model,
@@ -1373,7 +1425,9 @@ async function runWithCache(
     tools: runArgs.tools,
     files: keyParts.files,
     settings: keyParts.settings,
-    env: runArgs.env,
+    env: keyParts.env,
+    stubs: keyParts.stubs.length > 0 ? keyParts.stubs : undefined,
+    runEnv: keyParts.runEnv,
     // A native --plugin-dir install isn't in `files`, so hash its CONTENTS into
     // the key — otherwise editing a skill in it would false-replay.
     pluginDirHash: runArgs.pluginDir ? hashDir(runArgs.pluginDir) : undefined,
@@ -1388,13 +1442,20 @@ async function runWithCache(
   // otherwise be scored as a trial on every later run.
   if (hit && startFailure(hit.out) === null) {
     restoreDir(runArgs.cwd, hit.files);
-    return hit.out;
+    // The stub log lives beside the work dir, so the record carries it: a
+    // replayed trial reports the same calls, unanswered ones included.
+    return { out: hit.out, stubCalls: hit.stubCalls };
   }
   const out = await runner(runArgs);
+  const stubCalls = collectStubCalls();
   if (cfg.cache === "readwrite") {
-    writeCache(cfg.cacheDir, key, { out, files: snapshotDir(runArgs.cwd) });
+    writeCache(cfg.cacheDir, key, {
+      out,
+      files: snapshotDir(runArgs.cwd),
+      ...(stubCalls === undefined ? {} : { stubCalls }),
+    });
   }
-  return out;
+  return { out, stubCalls };
 }
 
 /**
@@ -1408,7 +1469,15 @@ const INTERCEPT_TOOL_HOOK_CLI =
   [join(__dirname, "cli.js"), join(__dirname, "..", "dist", "cli.js")].find(
     (p) => existsSync(p),
   ) ?? join(__dirname, "cli.js");
-const INTERCEPT_TOOL_HOOK_CMD = `"${process.execPath}" "${INTERCEPT_TOOL_HOOK_CLI}" hook-runtime intercept-tool`;
+/** This node binary — what every command the eval writes for a child calls back into. */
+const NODE_BIN = process.execPath;
+const INTERCEPT_TOOL_HOOK_CMD = `"${NODE_BIN}" "${INTERCEPT_TOOL_HOOK_CLI}" hook-runtime intercept-tool`;
+/**
+ * How a stub shim reaches the stub runtime: the same node and `cli.js` as the
+ * intercept hook, for the same reason (`npx vigiles` does not resolve from a
+ * throwaway dir). The shim runs `cli.js hook-runtime stub`.
+ */
+const STUB_LAUNCHER = { node: NODE_BIN, cli: INTERCEPT_TOOL_HOOK_CLI };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object";
@@ -1589,15 +1658,120 @@ export function seedEphemeralHome(
   }
 }
 
+/**
+ * The parts of a {@link RunEnv} that move behaviour — the kind and the seed —
+ * for the cache key and the lock. Never the per-trial HOME path, and never an
+ * `inherit` reason (prose, not an input).
+ */
+function runEnvKeyView(env: RunEnv): unknown {
+  return env.kind === "ephemeral"
+    ? { kind: env.kind, home: env.home }
+    : { kind: env.kind };
+}
+
+/** The run environment as a report carries it: the kind, and an inherit's reason. */
+function runEnvReportView(env: RunEnv): EvalReport["env"] {
+  return env.kind === "ephemeral"
+    ? { kind: "ephemeral" }
+    : { kind: "inherit", reason: env.reason };
+}
+
+/** Write a seed's files under a throwaway HOME, parents created. Effects only. */
+function materializeHome(home: string, files: HomeFiles): void {
+  Object.entries(files).forEach(([path, contents]) => {
+    const dest = join(home, path);
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, contents);
+  });
+}
+
+/** What a trial's subprocess runs with, and the stub-free view of it for the cache key. */
+interface TrialEnv {
+  readonly env: Record<string, string> | undefined;
+  readonly replaceEnv: boolean;
+  readonly keyEnv: Record<string, string> | undefined;
+}
+
+/**
+ * Build a trial's environment from the spec's {@link RunEnv}. `ephemeral`: a
+ * throwaway HOME under the trial cwd, seeded (the seed first, then the
+ * harness's own auth file), and a scrubbed allowlist env — the eval's injected
+ * keys (`VIGILES_INTERCEPT_TOOLS`) allowlisted through so interception works.
+ * `inherit`: an overlay on the caller's env. Either way the stub bin dir, when
+ * there is one, goes first on PATH.
+ */
+function trialEnv(
+  runEnv: RunEnv,
+  cwd: string,
+  overlay: Record<string, string> | undefined,
+  stubBin: string | undefined,
+): TrialEnv {
+  const withStubs = (path: string | undefined): string =>
+    stubBin === undefined
+      ? (path ?? "")
+      : path === undefined || path === ""
+        ? stubBin
+        : `${stubBin}${delimiter}${path}`;
+  switch (runEnv.kind) {
+    case "ephemeral": {
+      const home = mkdtempSync(join(cwd, "home-"));
+      // The seed was validated at the spec boundary (`parseRunEnv`): every
+      // path HOME-relative, inside HOME, and not the harness's auth file.
+      materializeHome(home, runEnv.home?.files ?? {});
+      // Carry the harness's own auth FILE (local OAuth) into the fresh HOME —
+      // env-var/host-brokered auth is covered by ephemeralRunEnv's allowlist.
+      seedEphemeralHome(home, process.env.HOME ?? homedir());
+      const base = {
+        ...ephemeralRunEnv(process.env, {
+          home,
+          allow: overlay ? Object.keys(overlay) : [],
+        }),
+        ...overlay,
+      };
+      return {
+        env:
+          stubBin === undefined
+            ? base
+            : { ...base, PATH: withStubs(base.PATH) },
+        replaceEnv: true,
+        keyEnv: base,
+      };
+    }
+    case "inherit":
+      // `spawnAgent` spreads `{ ...process.env, ...env }`, so a stub PATH is
+      // set in the overlay as the stub dir prepended over process.env.PATH.
+      return {
+        env:
+          stubBin === undefined
+            ? overlay
+            : { ...overlay, PATH: withStubs(process.env.PATH) },
+        replaceEnv: false,
+        keyEnv: overlay,
+      };
+  }
+}
+
+/** A finished trial: its metric row, usage, and the stub calls nobody answered. */
+interface TrialOutcome<M extends Metrics> {
+  readonly row: M;
+  readonly usage: EvalUsage;
+  readonly unanswered: readonly StubCall[];
+}
+
 /** Execute one trial in a fresh sandbox; returns its metric row + usage. */
 async function executeTrial<M extends Metrics>(
-  spec: EvalSpec<M>,
+  spec: ParsedEvalSpec<M>,
   arm: EvalArm,
   trialIndex: number,
   runner: AgentRunner,
   cfg: RunConfig,
-): Promise<{ row: M; usage: EvalUsage }> {
+): Promise<TrialOutcome<M>> {
   const cwd = makeTmpDir("eval");
+  // Tool stubs (rung R2): a shim per stub in a temp dir BESIDE the work dir —
+  // not in it, so the agent does not find vigiles plumbing in its project.
+  const stubs = spec.stubs;
+  const stubDir =
+    stubs.length > 0 ? writeStubDir(stubs, STUB_LAUNCHER) : undefined;
   try {
     const resolved = resolveHarness({
       plugin: arm.plugin,
@@ -1612,48 +1786,7 @@ async function executeTrial<M extends Metrics>(
       intercepts.length > 0
         ? { [INTERCEPT_TOOLS_ENV]: serializeIntercepts(intercepts) }
         : undefined;
-    // Opt-in (default OFF): an ephemeral run env — a throwaway HOME under the
-    // trial's own temp cwd + a scrubbed, auth-only allowlist. The eval's injected
-    // keys (e.g. VIGILES_INTERCEPT_TOOLS) are allowlisted through so interception
-    // still works. When OFF, `env`/`replaceEnv` are exactly as before.
-    // Tool stubs on PATH (rung R2): write the fake binaries into a bin dir under
-    // this trial's cwd; it is PREPENDED to whatever PATH the run uses below, so
-    // the fakes win over the real binaries. Absent → no PATH change.
-    const stubs = spec.stubs ?? [];
-    const stubDir =
-      stubs.length > 0
-        ? stubBinDir(stubs, join(cwd, ".vigiles-stubs"))
-        : undefined;
-    const prependPath = (path: string | undefined): string =>
-      stubDir === undefined
-        ? (path ?? "")
-        : path === undefined || path === ""
-          ? stubDir
-          : `${stubDir}${delimiter}${path}`;
-    const ephemeral = spec.ephemeralEnv === true;
-    let env: Record<string, string> | undefined;
-    let replaceEnv = false;
-    if (ephemeral) {
-      const home = mkdtempSync(join(cwd, "home-"));
-      // Carry the harness's own auth FILE (local OAuth) into the fresh HOME —
-      // env-var/host-brokered auth is covered by ephemeralRunEnv's allowlist.
-      seedEphemeralHome(home, process.env.HOME ?? homedir());
-      env = ephemeralRunEnv(process.env, {
-        home,
-        allow: overlay ? Object.keys(overlay) : [],
-      });
-      if (overlay) Object.assign(env, overlay);
-      // ephemeralRunEnv passes PATH through; prepend the stub dir over it.
-      if (stubDir !== undefined) env.PATH = prependPath(env.PATH);
-      replaceEnv = true;
-    } else {
-      // Legacy overlay path: `spawnAgent` spreads `{ ...process.env, ...env }`, so
-      // set PATH in the overlay to the stub dir prepended over process.env.PATH.
-      env =
-        stubDir !== undefined
-          ? { ...overlay, PATH: prependPath(process.env.PATH) }
-          : overlay;
-    }
+    const run = trialEnv(spec.env, cwd, overlay, stubDir?.binDir);
     writeFiles(cwd, files);
     const hasSettings = settings !== undefined;
     if (hasSettings) {
@@ -1662,7 +1795,7 @@ async function executeTrial<M extends Metrics>(
         JSON.stringify(settings, null, 2).replaceAll("{cwd}", cwd),
       );
     }
-    const out = await runWithCache(
+    const { out, stubCalls } = await runWithCache(
       {
         task: spec.task,
         cwd,
@@ -1673,17 +1806,32 @@ async function executeTrial<M extends Metrics>(
         hasSettings,
         pluginDir: arm.pluginDir,
         timeoutMs: cfg.timeoutMs,
-        env,
-        replaceEnv,
+        env: run.env,
+        replaceEnv: run.replaceEnv,
       },
-      { files, settings, trialIndex },
+      {
+        files,
+        settings,
+        trialIndex,
+        env: run.keyEnv,
+        stubs: stubs.map(encodeStub),
+        runEnv: runEnvKeyView(spec.env),
+      },
       runner,
       cfg,
+      () => (stubDir === undefined ? undefined : readStubCalls(stubDir)),
     );
-    const ctx = makeContext(cwd, out);
-    return { row: spec.measure(ctx), usage: ctx.usage };
+    const base = makeContext(cwd, out);
+    const ctx: RunContext =
+      stubCalls === undefined ? base : { ...base, stubCalls };
+    return {
+      row: spec.measure(ctx),
+      usage: ctx.usage,
+      unanswered: (stubCalls ?? []).filter((c) => isUnanswered(c.outcome)),
+    };
   } finally {
     rmSync(cwd, { recursive: true, force: true });
+    if (stubDir !== undefined) removeStubDir(stubDir);
   }
 }
 
@@ -1779,6 +1927,7 @@ type DoneResult<M extends Metrics> = {
   readonly skipped: false;
   readonly row: M;
   readonly usage: EvalUsage;
+  readonly unanswered: readonly StubCall[];
 };
 type UnitResult<M extends Metrics> =
   | DoneResult<M>
@@ -1803,6 +1952,7 @@ function aggregateArms<M extends Metrics>(
       metrics: aggregate(rows),
       stats: aggregateStats(rows),
       usage,
+      unansweredStubCalls: done.flatMap((d) => d.unanswered),
     };
   }
   return { arms, totalCostUsd };
@@ -1859,6 +2009,12 @@ async function withEvalLock<R>(
     readonly model: string;
     readonly effort?: string | number;
     readonly lock: ResolvedLock;
+    /**
+     * A reason this report must NOT be recorded, or undefined. A lock is a
+     * claim that the committed numbers are a measurement; a report built on a
+     * stub call nobody scripted is not one, so `--update` writes nothing.
+     */
+    readonly refuse?: (report: R) => string | undefined;
   },
   produce: () => Promise<R>,
 ): Promise<R> {
@@ -1902,6 +2058,14 @@ async function withEvalLock<R>(
   if (decision.kind === "stale") throw new Error(decision.reason);
   if (decision.kind === "replay") return decision.report as R;
   const report = await produce();
+  const refusal = args.refuse?.(report);
+  if (refusal !== undefined) {
+    emitLockMessage(
+      `vigiles eval --${lock.mode}: the lock for "${args.name}" was NOT written — ${refusal}`,
+      true,
+    );
+    return report;
+  }
   const builtLock = buildLock({
     name: args.name,
     inputsHash,
@@ -1946,7 +2110,7 @@ function stripPluginRoot(value: unknown, absRoot: string): unknown {
  * excluded by design (the script re-asserts against the replayed report).
  */
 function evalArmsInputs<M extends Metrics>(
-  spec: EvalSpec<M>,
+  spec: ParsedEvalSpec<M>,
   cfg: RunConfig,
 ): unknown {
   const arms: Record<string, unknown> = {};
@@ -1976,23 +2140,22 @@ function evalArmsInputs<M extends Metrics>(
         : undefined,
     };
   }
-  // Tool stubs (`spec.stubs`) are written onto PATH before each trial, so a
-  // change to a canned CLI output IS a model-facing input change — fold a
-  // canonical (name-sorted) view into the hash so `--check` catches it. Sorted
-  // for a stable key regardless of declaration order; an empty list is the
-  // byte-identical-to-before default. Each ToolStub is plain serializable data.
-  const stubs = [...(spec.stubs ?? [])].sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
-  // `ephemeralEnv` swaps the trial's environment (scrubbed env + throwaway HOME
-  // vs the inherited process env), which can move tool/hook/agent behavior — a
-  // model-facing input, so it belongs in the hash. Normalize to a bool so a
-  // record under one mode can't be replayed under the other with the same hash.
+  // Tool stubs are a model-facing input: a changed answer changes what the agent
+  // sees. Folded in ENCODED (`encodeStub`), never as the raw rules —
+  // `JSON.stringify(/^repos/)` is `{}`, so two specs differing only in a RegExp
+  // token would hash the same and `--check` would pass a stale lock. Sorted by
+  // name for a key that ignores declaration order.
+  const stubs = [...spec.stubs]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(encodeStub);
+  // Where the trials run (ephemeral + its seed, or inherit) moves behaviour, so
+  // it is an input. The seed's CONTENTS are hashed — the author's input — never
+  // the per-trial HOME path, which differs every run.
   return {
     task: spec.task,
     arms,
     stubs,
-    ephemeralEnv: spec.ephemeralEnv === true,
+    env: runEnvKeyView(spec.env),
   };
 }
 
@@ -2040,7 +2203,7 @@ const EVAL_SPEC_KEYS = {
   maxCostUsd: true,
   rateLimitRetries: true,
   retryBackoffMs: true,
-  ephemeralEnv: true,
+  env: true,
   stubs: true,
   lock: true,
 } satisfies Record<keyof EvalSpec<Metrics>, true>;
@@ -2147,10 +2310,68 @@ function assertKnownKeys(
   );
 }
 
+/** An {@link EvalSpec} after the boundary: stubs and env parsed, arms resolved. */
+type ParsedEvalSpec<M extends Metrics> = EvalSpec<M> & {
+  readonly stubs: readonly ToolStub[];
+  readonly env: RunEnv;
+};
+
+/**
+ * The author-facing failure for a report whose stubs left a call unanswered, or
+ * undefined. One owner for the rule — `vigiles eval`'s exit 2 and the lock's
+ * refusal both read it — so a consumer whose `assert` calls no helper still
+ * fails. Pure.
+ */
+export function unansweredInReport(
+  report: Pick<EvalReport, "arms">,
+  stubs: readonly ToolStub[],
+): string | undefined {
+  const calls = Object.values(report.arms).flatMap(
+    (a) => a.unansweredStubCalls,
+  );
+  const message = unansweredMessage(calls, stubs);
+  return message === undefined
+    ? undefined
+    : `${message}\n  The report is not a measurement: no lock is written, and \`vigiles eval\` exits 2.`;
+}
+
+/**
+ * `runEval` with its author-facing output, over any runner — so the real one and
+ * a test's fake share one path. Besides the run it prints, to stderr, what the
+ * caller must not miss: a skill arm that never activates, a stub call no rule
+ * answered (the same text `vigiles eval` fails with — a script that calls
+ * `runEval` itself, as the `withServices` examples do, gets the report back and
+ * nothing else, so the library is not silent about it either), and what the
+ * run spent.
+ */
+export async function runEvalReporting<M extends Metrics>(
+  spec: EvalSpec<M>,
+  runner: AgentRunner,
+): Promise<EvalReport> {
+  warnUnregisteredSkillArms(spec.arms);
+  const report = await runEvalWith(spec, runner);
+  const unanswered = unansweredInReport(
+    report,
+    parseToolStubs(spec.stubs, "runEval"),
+  );
+  if (unanswered !== undefined) console.error(`⚠ runEval: ${unanswered}`);
+  // Surface what the run spent — tokens + API-equivalent $, and a LOUD warning if
+  // it was billed to a metered API key instead of the subscription. See eval-cost.ts.
+  emitCostSummary(costFromEvalReport(report));
+  return report;
+}
+
 export async function runEvalWith<M extends Metrics>(
   input: EvalSpec<M>,
   runner: AgentRunner,
 ): Promise<EvalReport> {
+  // A REMOVED field gets its rewrite, not "unknown field … did you mean".
+  if (Object.hasOwn(input, "ephemeralEnv"))
+    throw new Error(
+      "runEval: `ephemeralEnv` was replaced by `env`, which is required:\n" +
+        '    ephemeralEnv: true            → env: { kind: "ephemeral" }\n' +
+        '    ephemeralEnv: false / absent  → env: { kind: "inherit", reason: "…" }  (your real HOME; the reason is printed with the report)',
+    );
   // Refuse a stray field BEFORE spending a token: an eval file is plain JS, so a
   // typo'd or misplaced key would otherwise vanish and the run would report a
   // confident number about the wrong setup (issue #307).
@@ -2171,11 +2392,25 @@ export async function runEvalWith<M extends Metrics>(
   // `skillsDir` packaged into a throwaway plugin) is resolved HERE, once — the
   // one place that decides what `--plugin-dir` receives, so measure / measureArms
   // / runEval cannot disagree about it. The throwaways are removed afterward.
+  // `stubs` and `env` are parsed HERE, once: the old argv-blind stub shape, a
+  // stateful RegExp, a missing `env`, a seed path outside HOME — each refused
+  // with its rewrite before a token is spent. The runner trusts the result.
+  const stubs = parseToolStubs(input.stubs, "runEval");
+  const env = parseRunEnv(
+    input.env,
+    "runEval",
+    EVAL_RUNTIME.runEnv?.keepHomeFiles ?? [],
+  );
   const { arms: resolvedArms, packaged } = resolveArmInstalls(
     input.arms,
     input.stubSkillBodies ?? false,
   );
-  const spec: EvalSpec<M> = { ...input, arms: resolvedArms };
+  const spec: ParsedEvalSpec<M> = {
+    ...input,
+    arms: resolvedArms,
+    stubs,
+    env,
+  };
   try {
     return await runResolvedEval(spec, runner);
   } finally {
@@ -2185,7 +2420,7 @@ export async function runEvalWith<M extends Metrics>(
 
 /** {@link runEvalWith} after its arms' install sources are concrete plugin dirs. */
 async function runResolvedEval<M extends Metrics>(
-  spec: EvalSpec<M>,
+  spec: ParsedEvalSpec<M>,
   runner: AgentRunner,
 ): Promise<EvalReport> {
   const trials = spec.trials ?? 5;
@@ -2210,10 +2445,13 @@ async function runResolvedEval<M extends Metrics>(
 
   const units = buildUnits(spec.arms, trials);
   let spent = 0;
-  let aborted = false;
+  // Why no NEW trial starts: the budget cap, or a stub call nobody scripted —
+  // the report will be refused, so later trials would only spend. In-flight
+  // trials finish either way.
+  let stopped: "budget" | "unanswered" | undefined;
   const worker = async (unit: Unit): Promise<UnitResult<M>> => {
-    if (aborted) return { armName: unit.armName, skipped: true };
-    const { row, usage } = await executeTrial(
+    if (stopped !== undefined) return { armName: unit.armName, skipped: true };
+    const { row, usage, unanswered } = await executeTrial(
       spec,
       unit.arm,
       unit.trialIndex,
@@ -2221,11 +2459,11 @@ async function runResolvedEval<M extends Metrics>(
       cfg,
     );
     spent += usage.costUsd;
-    if (spec.maxCostUsd !== undefined && spent >= spec.maxCostUsd) {
-      aborted = true;
-    }
+    if (spec.maxCostUsd !== undefined && spent >= spec.maxCostUsd)
+      stopped = "budget";
+    else if (unanswered.length > 0) stopped = stopped ?? "unanswered";
     if (spacing > 0) await sleep(spacing);
-    return { armName: unit.armName, skipped: false, row, usage };
+    return { armName: unit.armName, skipped: false, row, usage, unanswered };
   };
 
   const lock = resolveLock(spec.lock);
@@ -2234,14 +2472,28 @@ async function runResolvedEval<M extends Metrics>(
   // without ever entering the run pool — so no model is driven in CI.
   const inputs = lock.mode === "off" ? undefined : evalArmsInputs(spec, cfg);
   return withEvalLock(
-    { name: spec.name, inputs, model: cfg.model, effort: cfg.effort, lock },
-    async () => {
+    {
+      name: spec.name,
+      inputs,
+      model: cfg.model,
+      effort: cfg.effort,
+      lock,
+      refuse: (report: EvalReport) => unansweredInReport(report, spec.stubs),
+    },
+    async (): Promise<EvalReport> => {
       const results = await runPool(units, concurrency, worker);
       const { arms, totalCostUsd } = aggregateArms<M>(
         Object.keys(spec.arms),
         results,
       );
-      return { name: spec.name ?? "eval", trials, arms, totalCostUsd, aborted };
+      return {
+        name: spec.name ?? "eval",
+        trials,
+        arms,
+        totalCostUsd,
+        aborted: stopped === "budget",
+        env: runEnvReportView(spec.env),
+      };
     },
   );
 }
@@ -2285,7 +2537,14 @@ export function formatEvalReport(report: EvalReport): string {
       .map(([k, v]) => formatMetric(k, v, r.stats[k]))
       .join("  ");
     lines.push(`  ${arm.padEnd(10)} ${parts}${formatUsage(r.usage)}`);
+    const missed = unansweredMessage(r.unansweredStubCalls, []);
+    if (missed !== undefined)
+      lines.push(`  ⚠ ${arm}: ${missed.split("\n").join("\n    ")}`);
   }
+  if (report.env?.kind === "inherit")
+    lines.push(
+      `  env: inherited your HOME and environment — ${report.env.reason}`,
+    );
   return lines.join("\n");
 }
 

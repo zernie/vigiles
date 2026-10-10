@@ -18,6 +18,7 @@
  * runners re-export these names, so every existing import keeps resolving.
  */
 import type { ToolCall, HookFire, ModelRequest } from "./harness-driver.js";
+import type { StubCall } from "./stub-rules.js";
 
 /** Per-run resource use, parsed from the terminal `result` event (0 when absent). */
 export interface EvalUsage {
@@ -102,6 +103,13 @@ export interface Trace {
    * Empty unless the stream was captured / the harness emits subagent events.
    */
   readonly subagents?: readonly SubagentTrace[];
+  /**
+   * Every invocation of a tool stub during the run, in order — including calls a
+   * script the agent ran made itself (`execFile(gh, …)`), which never appear as
+   * a tool call. Each says which rule answered it, or that none did. Absent when
+   * the run had no stubs (eval tier: `stubs` on the spec).
+   */
+  readonly stubCalls?: readonly StubCall[];
   /** Final contents of a file under the working dir, or null if absent. */
   file(path: string): string | null;
 }
@@ -142,7 +150,7 @@ export interface AgentRunArgs {
    * When true, `env` is the COMPLETE spawn environment (an ephemeral run env from
    * `ephemeralRunEnv`) — the runner does NOT prepend `process.env`, so the
    * real `$HOME` / secrets are scrubbed. Default false: `env` is an overlay over
-   * `process.env` (the byte-identical-to-today path). Set only by `ephemeralEnv`.
+   * `process.env` (the byte-identical-to-today path). Set only by an ephemeral `env`.
    */
   readonly replaceEnv?: boolean;
 }

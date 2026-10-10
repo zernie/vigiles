@@ -13,7 +13,7 @@
  *         agent tool-contracts incl. the inherits-all footgun, hook resolution).
  *         These RUN here, for free, in CI.
  *   R2  — a skill that shells out to a real CLI, tested by SHADOWING that CLI on
- *         PATH with a recorded canned result (`stubBinDir`/`writeToolStubs`) so the
+ *         PATH with a recorded canned result (`writeStubDir`) so the
  *         downstream script logic runs with no live service. Demonstrated on
  *         superpowers' find-polluter.sh (shells out to `npm`).
  *
@@ -25,7 +25,7 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
   mkdtempSync,
@@ -37,7 +37,7 @@ import {
 } from "node:fs";
 
 import { runHook } from "../../run-hook.js";
-import { stubBinDir } from "../../tool-stub.js";
+import { readStubCalls, removeStubDir, writeStubDir } from "../../tool-stub.js";
 import { scanPlugin } from "../../scan.js";
 import { claudeCodeLayout } from "./layout.js";
 import { claudeCodeDialect } from "./dialect.js";
@@ -177,7 +177,7 @@ test("superpowers find-polluter.sh (R2): a recorded `npm` stub on PATH drives th
   // THE canonical R2 demonstration of the new helper on a real shell-out skill
   // script. find-polluter.sh bisects a test suite by shelling out to `npm test`
   // per file and checking for a pollution artifact. We SHADOW `npm` on PATH with a
-  // recorded canned result (stubBinDir → writeToolStubs) — exit 0, no side effect,
+  // recorded canned result (writeStubDir, one rule: `npm test <file>`) — exit 0, no side effect,
   // exactly as a clean run records — so the script's real bisection logic runs to
   // its "no polluter found" terminus with NO live npm and NO model.
   const sp = join(spRoot, "skills/systematic-debugging/find-polluter.sh");
@@ -189,7 +189,21 @@ test("superpowers find-polluter.sh (R2): a recorded `npm` stub on PATH drives th
   writeFileSync(join(src, "b.test.ts"), "");
 
   // Recorded fixture: a clean `npm test` exits 0 and creates nothing.
-  const bin = stubBinDir([{ name: "npm", stdout: "ok\n", exitCode: 0 }], root);
+  const stubs = writeStubDir(
+    [
+      {
+        name: "npm",
+        rules: [
+          {
+            argv: ["test", /\.test\.ts$/],
+            reply: { kind: "always", stdout: "ok\n", exitCode: 0 },
+          },
+        ],
+      },
+    ],
+    { node: process.execPath, cli: resolve("dist", "cli.js") },
+  );
+  const bin = stubs.binDir;
 
   const r = runHook(
     `bash "${sp}" .vigiles-pollution-never './src/*.test.ts'`,
@@ -206,6 +220,17 @@ test("superpowers find-polluter.sh (R2): a recorded `npm` stub on PATH drives th
   assert.match(r.stdout, /Testing: \.\/src\/a\.test\.ts/);
   assert.match(r.stdout, /Testing: \.\/src\/b\.test\.ts/);
   assert.match(r.stdout, /No polluter found/);
+  // Every `npm` call was one the rule answers — the bisection ran on recorded
+  // answers, not on a default printed to an argv nobody scripted.
+  const calls = readStubCalls(stubs);
+  assert.deepEqual(
+    calls.map((c) => [c.argv, c.outcome.kind]),
+    [
+      [["test", "./src/a.test.ts"], "answered"],
+      [["test", "./src/b.test.ts"], "answered"],
+    ],
+  );
+  removeStubDir(stubs);
 });
 
 // ===========================================================================

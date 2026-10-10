@@ -417,7 +417,6 @@
     "sonarjs/cognitive-complexity": 15
   },
   "src/eval.test.ts": {
-    "max-lines-per-function": 72,
     "complexity": 13
   },
   "src/eval.ts": {

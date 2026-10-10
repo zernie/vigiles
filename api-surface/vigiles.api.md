@@ -34,12 +34,25 @@ export function allowed(): Check<HookRunResult>;
 // @public
 export type ArgMatcher = Record<string, string | number | boolean | RegExp>;
 
+// @public
+export type ArgvPattern = readonly ArgvToken[] | readonly [...ArgvToken[], ArgvRest];
+
+// @public
+export interface ArgvRest {
+    // (undocumented)
+    readonly kind: "rest";
+}
+
+// @public
+export type ArgvToken = string | Readonly<RegExp>;
+
 // @public (undocumented)
 export interface ArmReport {
     readonly metrics: Record<string, number>;
     // (undocumented)
     readonly runs: number;
     readonly stats: Record<string, MetricStat>;
+    readonly unansweredStubCalls: readonly StubCall[];
     readonly usage: ArmUsage;
 }
 
@@ -548,6 +561,12 @@ export interface EvalReport {
     readonly aborted: boolean;
     // (undocumented)
     readonly arms: Record<string, ArmReport>;
+    readonly env?: {
+        readonly kind: "ephemeral";
+    } | {
+        readonly kind: "inherit";
+        readonly reason: string;
+    };
     // (undocumented)
     readonly name: string;
     readonly totalCostUsd: number;
@@ -577,7 +596,7 @@ export interface EvalSpec<M extends Metrics> {
     readonly cacheDir?: string;
     readonly concurrency?: number;
     readonly effort?: string | number;
-    readonly ephemeralEnv?: boolean;
+    readonly env: RunEnv;
     readonly fixture?: Record<string, string>;
     readonly lock?: EvalLockOptions;
     readonly maxCostUsd?: number;
@@ -657,6 +676,12 @@ export function experimental_replyCount(matcher: string | Readonly<RegExp>, opts
 
 // @public
 export function experimental_startServices(services: Readonly<Record<string, ServiceSpec>>, runtime: ContainerRuntime): Promise<ServiceSession>;
+
+// @public
+export const experimental_stub: typeof stubOf & {
+    rest: ArgvRest;
+    called: typeof called;
+};
 
 // @public
 export function experimental_verifyPluginGuards(dir: string, opts?: VerifyPluginGuardsOptions): PluginGuardReport;
@@ -745,6 +770,17 @@ export interface HarnessTestSpec {
     readonly timeoutMs?: number;
     readonly tools?: readonly string[];
     readonly transcript?: boolean;
+}
+
+// @public
+export type HomeFiles = Readonly<Record<string, string>>;
+
+// @public
+export interface HomeSeed {
+    // (undocumented)
+    readonly files: HomeFiles;
+    // (undocumented)
+    readonly kind: "files";
 }
 
 // @public
@@ -1058,9 +1094,6 @@ export function recordCheck(n?: number): void;
 export function reliable(report: EvalReport, arm: string, metric: string): boolean;
 
 // @public
-export function renderToolStub(stub: ToolStub): string;
-
-// @public
 export function requestContains(trace: Trace, needle: string | RegExp): boolean;
 
 // @public
@@ -1076,6 +1109,15 @@ export interface RunContext extends Trace {
     readonly turns: number;
     readonly usage: EvalUsage;
 }
+
+// @public
+export type RunEnv = {
+    readonly kind: "ephemeral";
+    readonly home?: HomeSeed;
+} | {
+    readonly kind: "inherit";
+    readonly reason: string;
+};
 
 // @public
 export function runHarness(spec: HarnessTestSpec, opts?: RunHarnessTestOptions & {
@@ -1268,7 +1310,57 @@ export interface StateFact {
 }
 
 // @public
-export function stubBinDir(stubs: readonly ToolStub[], parentDir: string): string;
+export interface StubAnswer {
+    readonly exitCode?: number;
+    readonly stderr?: string;
+    readonly stdout?: string;
+}
+
+// @public
+export interface StubCall {
+    // (undocumented)
+    readonly argv: readonly string[];
+    // (undocumented)
+    readonly outcome: StubOutcome;
+    // (undocumented)
+    readonly tool: string;
+}
+
+// @public
+export interface StubCalledBounds {
+    readonly contains?: readonly ArgvToken[];
+    readonly max?: number;
+    readonly min?: number;
+}
+
+// @public
+export type StubOutcome = {
+    readonly kind: "answered";
+    readonly rule: number;
+    readonly answer: number;
+} | {
+    readonly kind: "no-rule";
+} | {
+    readonly kind: "exhausted";
+    readonly rule: number;
+};
+
+// @public
+export type StubReply = ({
+    readonly kind: "always";
+} & StubAnswer) | {
+    readonly kind: "inOrder";
+    readonly answers: readonly [StubAnswer, ...StubAnswer[]];
+};
+
+// @public
+export interface StubRule {
+    // (undocumented)
+    readonly argv: ArgvPattern;
+    readonly contains?: readonly ArgvToken[];
+    // (undocumented)
+    readonly reply: StubReply;
+}
 
 // @public
 export function stubSkillBody(skillMd: string): string;
@@ -1336,10 +1428,10 @@ export function toolCount(trace: Trace, name: string | RegExp): number;
 
 // @public
 export interface ToolStub {
-    readonly exitCode?: number;
+    // (undocumented)
     readonly name: string;
-    readonly stderr?: string;
-    readonly stdout?: string;
+    // (undocumented)
+    readonly rules: readonly [StubRule, ...StubRule[]];
 }
 
 // @public
@@ -1355,6 +1447,7 @@ export interface Trace {
     readonly modelRequests: readonly ModelRequest[];
     readonly output: string;
     readonly replies?: readonly string[];
+    readonly stubCalls?: readonly StubCall[];
     readonly subagents?: readonly SubagentTrace[];
     readonly toolCalls: readonly ToolCall[];
     readonly turns: number;
@@ -1444,9 +1537,6 @@ export function withHarness<T>(spec: HarnessTestSpec, fn: (r: HarnessTestResult)
 
 // @public
 export function writeBaseline(path: string, reports: readonly EvalReport[]): void;
-
-// @public
-export function writeToolStubs(binDir: string, stubs: readonly ToolStub[]): void;
 
 // @public
 export function wrote(path: string): Check<Trace>;

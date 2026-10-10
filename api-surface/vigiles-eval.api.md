@@ -34,6 +34,7 @@ export interface ArmReport {
     // (undocumented)
     readonly runs: number;
     readonly stats: Record<string, MetricStat>;
+    readonly unansweredStubCalls: readonly StubCall[];
     readonly usage: ArmUsage;
 }
 
@@ -147,6 +148,12 @@ export interface EvalReport {
     readonly aborted: boolean;
     // (undocumented)
     readonly arms: Record<string, ArmReport>;
+    readonly env?: {
+        readonly kind: "ephemeral";
+    } | {
+        readonly kind: "inherit";
+        readonly reason: string;
+    };
     // (undocumented)
     readonly name: string;
     readonly totalCostUsd: number;
@@ -162,7 +169,7 @@ export interface EvalSpec<M extends Metrics> {
     readonly cacheDir?: string;
     readonly concurrency?: number;
     readonly effort?: string | number;
-    readonly ephemeralEnv?: boolean;
+    readonly env: RunEnv;
     readonly fixture?: Record<string, string>;
     readonly lock?: EvalLockOptions;
     readonly maxCostUsd?: number;
@@ -189,6 +196,17 @@ export interface EvalUsage {
     readonly inputTokens: number;
     // (undocumented)
     readonly outputTokens: number;
+}
+
+// @public
+export type HomeFiles = Readonly<Record<string, string>>;
+
+// @public
+export interface HomeSeed {
+    // (undocumented)
+    readonly files: HomeFiles;
+    // (undocumented)
+    readonly kind: "files";
 }
 
 // @public
@@ -313,6 +331,15 @@ export interface RunContext extends Trace {
 }
 
 // @public
+export type RunEnv = {
+    readonly kind: "ephemeral";
+    readonly home?: HomeSeed;
+} | {
+    readonly kind: "inherit";
+    readonly reason: string;
+};
+
+// @public
 export interface RunOut {
     // (undocumented)
     code: number;
@@ -330,12 +357,43 @@ export interface SelectionTrialResult {
 }
 
 // @public
+export interface StubCall {
+    // (undocumented)
+    readonly argv: readonly string[];
+    // (undocumented)
+    readonly outcome: StubOutcome;
+    // (undocumented)
+    readonly tool: string;
+}
+
+// @public
+export type StubOutcome = {
+    readonly kind: "answered";
+    readonly rule: number;
+    readonly answer: number;
+} | {
+    readonly kind: "no-rule";
+} | {
+    readonly kind: "exhausted";
+    readonly rule: number;
+};
+
+// @public
+export interface ToolStub {
+    // (undocumented)
+    readonly name: string;
+    // (undocumented)
+    readonly rules: readonly [StubRule, ...StubRule[]];
+}
+
+// @public
 export interface Trace {
     file(path: string): string | null;
     readonly hooks: readonly HookFire[];
     readonly modelRequests: readonly ModelRequest[];
     readonly output: string;
     readonly replies?: readonly string[];
+    readonly stubCalls?: readonly StubCall[];
     readonly subagents?: readonly SubagentTrace[];
     readonly toolCalls: readonly ToolCall[];
     readonly turns: number;

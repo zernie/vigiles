@@ -34,6 +34,7 @@ function mkReport(
     const metrics: Record<string, number> = {};
     for (const [m, s] of Object.entries(stats)) metrics[m] = s.mean;
     armReports[armName] = {
+      unansweredStubCalls: [],
       runs: 10,
       metrics,
       stats,

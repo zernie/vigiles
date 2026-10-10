@@ -32,6 +32,7 @@ import {
   ensureLocalFilesIgnored,
 } from "./local-files.js";
 import type { RunOut } from "./eval.js";
+import type { StubCall } from "./core/stub-rules.js";
 
 /** Cache behaviour: never touch the cache / read-only / read-and-write. */
 export type CacheMode = "off" | "read" | "readwrite";
@@ -68,6 +69,17 @@ export interface CacheKeyInput {
    */
   readonly pluginDirHash?: string;
   /**
+   * The run's tool stubs, each ENCODED (`encodeStub` — a RegExp token as its
+   * source and flags, since `JSON.stringify(/x/)` is `{}`). A changed answer is
+   * a changed input. Omit when there are none.
+   */
+  readonly stubs?: readonly string[];
+  /**
+   * Where the run executes: the env kind and an ephemeral run's seed — never the
+   * per-trial HOME path. A seed file is part of what the agent sees.
+   */
+  readonly runEnv?: unknown;
+  /**
    * The harness BINARY version (e.g. `claude --version`). The harness evolves
    * fast — a CLI upgrade changes the system prompt + tool definitions, which steer
    * behaviour as much as the model does — so a cached result must invalidate when
@@ -84,6 +96,12 @@ export interface CacheRecord {
   readonly out: RunOut;
   /** Text files present in the cwd after the run (relative path → contents). */
   readonly files: Record<string, string>;
+  /**
+   * The run's stub calls. The stub log lives beside the work dir, not in it, so
+   * the cwd snapshot does not hold it; a replay must report the same calls —
+   * unanswered ones included. Absent when the run had no stubs.
+   */
+  readonly stubCalls?: readonly StubCall[];
 }
 
 const MAX_SNAPSHOT_FILE_BYTES = 1024 * 1024;
@@ -113,7 +131,7 @@ export function canonical(value: unknown): unknown {
  * brittle read-time version gate needed). A major bump means orphaned files on
  * disk; reclaim them by deleting the cache dir.
  */
-export const CACHE_FORMAT_VERSION = 2;
+export const CACHE_FORMAT_VERSION = 3;
 
 /**
  * Per-run env keys that are PURE NOISE for the cache key — a fresh random path

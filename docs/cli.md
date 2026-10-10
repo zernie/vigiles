@@ -81,6 +81,13 @@ discovery. (This
 changed: a bare `vigiles test` or `vigiles eval` that found nothing used to print
 "No … files found." and exit `0`.)
 
+**A stubbed tool that got a call no rule answered exits `2`.** When a `runEval`
+whose `stubs` ([`experimental_stub`](measuring-skills.md#stubbing-a-cli-the-agent-calls--experimental_stub))
+sees the agent run a stubbed tool with an argv no rule answers, `vigiles eval`
+prints the call and the rules for that tool and exits `2`: no further trials
+start, no lock is written (`--update` included), and the file's `assert` does not
+decide the outcome. The report measured an answer nobody wrote.
+
 **A script that never loaded is not a skip you declared.** If a script's imports
 cannot be found or linked (a missing package, a missing named export, a syntax
 error), the run **fails** with "never ran — the runtime could not load them", but

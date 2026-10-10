@@ -23,7 +23,7 @@ import {
 import { tmpdir } from "node:os";
 import { claudeCodeLiveDriver } from "./eval.js";
 import type { Trace } from "./core/eval-driver.js";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 
 import {
   aggregate,
@@ -74,6 +74,13 @@ import {
 import { tool, output, turns, judged } from "./check.js";
 import { parseIntercepts } from "./tool-intercept.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import { ARGV_REST } from "./core/stub-rules.js";
+
+/** These specs drive a fake runner, so nothing is inherited by a real child. */
+const INHERIT = {
+  kind: "inherit",
+  reason: "unit test: a fake runner",
+} as const;
 
 /** A zero ArmUsage for TriggerRateReport fixtures (cost isn't what these assert). */
 const zeroUsage = {
@@ -129,30 +136,31 @@ test("aggregate tolerates missing keys across rows", () => {
   assert.equal(agg.b, 1);
 });
 
+/** The `on` arm's canned stream: a Skill tool_use, a hook firing, a result with turns + answer. */
+const ON_STREAM = [
+  JSON.stringify({
+    type: "assistant",
+    message: {
+      content: [{ type: "tool_use", id: "t1", name: "Skill", input: {} }],
+    },
+  }),
+  JSON.stringify({
+    type: "system",
+    subtype: "hook_response",
+    hook_name: "Stop",
+    hook_event: "Stop",
+    exit_code: 0,
+    outcome: "success",
+    output: "",
+  }),
+  JSON.stringify({ type: "result", result: "answer is on", num_turns: 2 }),
+].join("\n");
+
 test("runEvalWith drives arms × trials via an injected runner (no model)", async () => {
   // Canned stream-json: the `on` arm reports a Skill tool_use, a hook firing,
   // and a result with num_turns + answer; the `off` arm reports a bare result
   // (no tool / hook / num_turns / answer) — exercising both makeContext branches.
-  const onStream = [
-    JSON.stringify({
-      type: "assistant",
-      message: {
-        content: [{ type: "tool_use", id: "t1", name: "Skill", input: {} }],
-      },
-    }),
-    JSON.stringify({
-      type: "system",
-      subtype: "hook_response",
-      hook_name: "Stop",
-      hook_event: "Stop",
-      exit_code: 0,
-      outcome: "success",
-      output: "",
-    }),
-    JSON.stringify({ type: "result", result: "answer is on", num_turns: 2 }),
-  ].join("\n");
   const offStream = JSON.stringify({ type: "result" }); // no num_turns/result
-
   const seen: AgentRunArgs[] = [];
   const fakeRunner = (
     a: AgentRunArgs,
@@ -160,12 +168,13 @@ test("runEvalWith drives arms × trials via an injected runner (no model)", asyn
     seen.push(a);
     return Promise.resolve({
       code: 0,
-      stdout: a.hasSettings ? onStream : offStream,
+      stdout: a.hasSettings ? ON_STREAM : offStream,
     });
   };
 
   const report = await runEvalWith(
     {
+      env: INHERIT,
       fixture: { "a.txt": "hi" },
       arms: {
         off: {},
@@ -221,6 +230,7 @@ test("runEvalWith honors provided optionals (name/model/tools/timeout, arm.files
     });
   const report = await runEvalWith(
     {
+      env: INHERIT,
       name: "custom",
       fixture: { "base.txt": "b" },
       arms: { a: { files: { "extra.txt": "e" } } }, // arm.files spread branch
@@ -851,6 +861,7 @@ test("runEvalWith / measureArmsWith: an ARM may name skillsDir (the resolver liv
   const f = looseSkillsFixture("arm-skillsdir");
   await runEvalWith(
     {
+      env: INHERIT,
       arms: { on: { skillsDir: f.skills }, off: {} },
       task: "do foo",
       trials: 1,
@@ -894,6 +905,7 @@ test("resolveArmInstalls cleans up an EARLIER arm's packaged dir when a LATER ar
   await assert.rejects(
     runEvalWith(
       {
+        env: INHERIT,
         arms: {
           on: { skillsDir: f.skills },
           bad: { pluginDir: "/p", skillsDir: "/s" },
@@ -1079,6 +1091,7 @@ test("runEvalWith honors a per-arm model override (model = a harness arm)", asyn
   };
   await runEvalWith(
     {
+      env: INHERIT,
       arms: {
         cheap: { model: "claude-haiku-4-5-20251001" }, // arm overrides
         prod: {}, // falls back to the eval-level model
@@ -1196,6 +1209,7 @@ test("runEvalWith warns when an eval cache rides a floating model alias", async 
       stdout: JSON.stringify({ type: "result", num_turns: 1 }),
     });
   const base = {
+    env: INHERIT,
     arms: { a: {} },
     task: "t",
     trials: 1,
@@ -1255,6 +1269,7 @@ test("runEvalWith cache invalidates when a native pluginDir's contents change", 
     });
   };
   const spec = (cache: "readwrite" | "read") => ({
+    env: INHERIT,
     arms: { a: { pluginDir: plugin } },
     task: "t",
     trials: 1,
@@ -2478,6 +2493,7 @@ test("runEvalWith record/replay cache: replays without re-calling the model", as
     return Promise.resolve({ code: 0, stdout: resultStream });
   };
   const spec = {
+    env: INHERIT,
     fixture: { "in.txt": "x" },
     arms: { only: {} },
     task: "do it",
@@ -2567,6 +2583,7 @@ test("runEvalWith retries a rate-limited run, then succeeds", async () => {
   };
   const report = await runEvalWith(
     {
+      env: INHERIT,
       arms: { only: {} },
       task: "t",
       trials: 1,
@@ -2588,6 +2605,7 @@ test("runEvalWith gives up after rateLimitRetries=0 (no retry)", async () => {
   };
   await runEvalWith(
     {
+      env: INHERIT,
       arms: { only: {} },
       task: "t",
       trials: 1,
@@ -2614,6 +2632,7 @@ test("runEvalWith honors concurrency and inter-run spacing", async () => {
   };
   await runEvalWith(
     {
+      env: INHERIT,
       arms: { a: {}, b: {} },
       task: "t",
       trials: 3,
@@ -2640,6 +2659,7 @@ test("runEvalWith aborts when maxCostUsd is exceeded", async () => {
   };
   const report = await runEvalWith(
     {
+      env: INHERIT,
       arms: { only: {} },
       task: "t",
       trials: 5,
@@ -2728,8 +2748,20 @@ test("formatEvalReport renders one line per arm", () => {
     totalCostUsd: 0,
     aborted: false,
     arms: {
-      vanilla: { runs: 6, metrics: { caught: 0 }, stats: {}, usage: NO_USAGE },
-      gated: { runs: 6, metrics: { caught: 0.5 }, stats: {}, usage: NO_USAGE },
+      vanilla: {
+        unansweredStubCalls: [],
+        runs: 6,
+        metrics: { caught: 0 },
+        stats: {},
+        usage: NO_USAGE,
+      },
+      gated: {
+        unansweredStubCalls: [],
+        runs: 6,
+        metrics: { caught: 0.5 },
+        stats: {},
+        usage: NO_USAGE,
+      },
     },
   });
   assert.match(out, /demo \(6 trials\/arm\)/);
@@ -2745,6 +2777,7 @@ test("formatEvalReport shows ± se and pass^k when stats are present", () => {
     aborted: false,
     arms: {
       gated: {
+        unansweredStubCalls: [],
         runs: 3,
         metrics: { caught: 0.5 },
         stats: { caught: { mean: 0.5, std: 0.5, se: 0.25, n: 3, passK: 0 } },
@@ -2764,6 +2797,7 @@ test("formatEvalReport surfaces cost/latency/tokens when usage is present", () =
     aborted: false,
     arms: {
       gated: {
+        unansweredStubCalls: [],
         runs: 2,
         metrics: { caught: 1 },
         stats: {},
@@ -2967,7 +3001,7 @@ test("seedEphemeralHome does NOT carry .gitconfig/.ssh even when present", () =>
   }
 });
 
-test("ephemeralEnv DEFAULT (off): env is the byte-identical overlay, not scrubbed", async () => {
+test("env inherit: env is the byte-identical overlay, not scrubbed", async () => {
   // With the flag OFF (default), the runner is handed the legacy overlay env:
   // no `replaceEnv`, and only the intercept overlay (or undefined) — proving the
   // default path is unchanged and DOES NOT scrub the inherited environment.
@@ -2983,7 +3017,8 @@ test("ephemeralEnv DEFAULT (off): env is the byte-identical overlay, not scrubbe
   };
   await runEvalWith(
     {
-      arms: { a: {} }, // no interceptTools, no ephemeralEnv
+      env: INHERIT,
+      arms: { a: {} }, // no interceptTools; env inherit
       task: "t",
       trials: 1,
       spacingSec: 0,
@@ -2999,7 +3034,17 @@ test("ephemeralEnv DEFAULT (off): env is the byte-identical overlay, not scrubbe
   assert.notEqual(a.replaceEnv, true);
 });
 
-test("stubs (default env path): prepends the stub bin dir to the run's PATH", async () => {
+const GH_PR_STUB = {
+  name: "gh",
+  rules: [
+    {
+      argv: ["pr", "view", ARGV_REST],
+      reply: { kind: "always", stdout: "PR merged" },
+    },
+  ],
+} as const;
+
+test("stubs (inherit env): prepends the stub bin dir to the run's PATH", async () => {
   const seen: AgentRunArgs[] = [];
   const runner = (
     a: AgentRunArgs,
@@ -3016,19 +3061,25 @@ test("stubs (default env path): prepends the stub bin dir to the run's PATH", as
       task: "t",
       trials: 1,
       spacingSec: 0,
-      stubs: [{ name: "gh", stdout: "PR merged" }],
+      env: INHERIT,
+      stubs: [GH_PR_STUB],
       measure: () => ({ ok: true }),
     },
     runner,
   );
   const a = seen[0];
   assert.ok(a);
-  // Legacy overlay path: `spawnAgent` spreads `{ ...process.env, ...a.env }`, so
-  // the overlay PATH starts with the stub dir, then the real PATH.
+  // Inherit path: `spawnAgent` spreads `{ ...process.env, ...a.env }`, so the
+  // overlay PATH starts with the stub dir, then the real PATH.
   assert.ok(a.env, "env overlay set");
+  const first = a.env.PATH?.split(delimiter)[0] ?? "";
   assert.ok(
-    a.env.PATH?.startsWith(a.cwd),
-    `PATH "${a.env.PATH ?? "<unset>"}" starts with the trial cwd (the stub bin dir is under it)`,
+    first.endsWith("/bin"),
+    `PATH starts with the stub bin dir: ${first}`,
+  );
+  assert.ok(
+    !first.startsWith(a.cwd),
+    "the stub dir is BESIDE the work dir, not inside it (models listed it)",
   );
   assert.ok(
     process.env.PATH === undefined || a.env.PATH?.endsWith(process.env.PATH),
@@ -3037,7 +3088,7 @@ test("stubs (default env path): prepends the stub bin dir to the run's PATH", as
   assert.notEqual(a.replaceEnv, true);
 });
 
-test("stubs (ephemeral env path): prepends the stub bin dir to the scrubbed PATH", async () => {
+test("stubs (ephemeral env): prepends the stub bin dir to the scrubbed PATH", async () => {
   const seen: AgentRunArgs[] = [];
   const runner = (
     a: AgentRunArgs,
@@ -3054,8 +3105,18 @@ test("stubs (ephemeral env path): prepends the stub bin dir to the scrubbed PATH
       task: "t",
       trials: 1,
       spacingSec: 0,
-      ephemeralEnv: true,
-      stubs: [{ name: "psql", stdout: "row" }],
+      env: { kind: "ephemeral" },
+      stubs: [
+        {
+          name: "psql",
+          rules: [
+            {
+              argv: ["-c", ARGV_REST],
+              reply: { kind: "always", stdout: "row" },
+            },
+          ],
+        },
+      ],
       measure: () => ({ ok: true }),
     },
     runner,
@@ -3064,19 +3125,20 @@ test("stubs (ephemeral env path): prepends the stub bin dir to the scrubbed PATH
   assert.ok(a);
   assert.equal(a.replaceEnv, true);
   assert.ok(a.env);
-  // The stub dir (under the trial cwd) is prepended ahead of the passed-through
-  // real PATH in the ephemeral env.
-  assert.ok(
-    a.env.PATH?.startsWith(a.cwd),
-    `scrubbed PATH "${a.env.PATH ?? "<unset>"}" starts with the trial cwd`,
+  // The stub dir is prepended ahead of the passed-through real PATH in the
+  // ephemeral env.
+  assert.equal(
+    a.env.PATH,
+    `${a.env.PATH?.split(delimiter)[0] ?? ""}${delimiter}${process.env.PATH ?? ""}`,
   );
+  assert.ok(a.env.PATH?.split(delimiter)[0]?.endsWith("/bin"));
 });
 
 test("ephemeral env + interceptTools: the intercept overlay survives the scrub", async () => {
   // The one path where both features compose: a scrubbed ephemeral run env must
   // STILL carry the eval-injected VIGILES_INTERCEPT_TOOLS overlay, otherwise
-  // tool interception silently breaks under `ephemeralEnv`. Proves the overlay
-  // is merged onto the fresh env (eval.ts — `if (overlay) Object.assign(...)`).
+  // tool interception silently breaks under an ephemeral env. Proves the
+  // overlay is merged onto the fresh env (eval.ts `trialEnv`).
   const seen: AgentRunArgs[] = [];
   const runner = (
     a: AgentRunArgs,
@@ -3093,7 +3155,7 @@ test("ephemeral env + interceptTools: the intercept overlay survives the scrub",
       task: "t",
       trials: 1,
       spacingSec: 0,
-      ephemeralEnv: true,
+      env: { kind: "ephemeral" },
       measure: () => ({ ok: true }),
     },
     runner,
@@ -3121,6 +3183,7 @@ test("stubs absent: PATH is unchanged (env overlay undefined)", async () => {
   };
   await runEvalWith(
     {
+      env: INHERIT,
       arms: { a: {} },
       task: "t",
       trials: 1,
@@ -3135,7 +3198,7 @@ test("stubs absent: PATH is unchanged (env overlay undefined)", async () => {
   assert.equal(a.env, undefined);
 });
 
-test("ephemeralEnv on: runner gets a replaceEnv scrubbed env with auth + allowed extras", async () => {
+test("env ephemeral: runner gets a replaceEnv scrubbed env with auth + allowed extras", async () => {
   process.env.VIGILES_EPHEMERAL_PROBE_SECRET = "leak-me";
   try {
     const seen: AgentRunArgs[] = [];
@@ -3154,7 +3217,7 @@ test("ephemeralEnv on: runner gets a replaceEnv scrubbed env with auth + allowed
         task: "t",
         trials: 1,
         spacingSec: 0,
-        ephemeralEnv: true,
+        env: { kind: "ephemeral" },
         measure: () => ({ ok: true }),
       },
       runner,
@@ -3176,7 +3239,7 @@ test("ephemeralEnv on: runner gets a replaceEnv scrubbed env with auth + allowed
   }
 });
 
-// The security-critical env resolution behind `ephemeralEnv` — the one line that
+// The security-critical env resolution behind an ephemeral env — the one line that
 // actually drops the host environment — lives in `resolveSpawnEnv` (extracted
 // from the v8-ignored real-spawn path so it's testable). These two tests pin the
 // DECISION (pure) and the BEHAVIOUR (a real child honours the scrub).
