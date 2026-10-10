@@ -142,7 +142,7 @@ How a rule matches:
 - **`contains`** lists tokens that must appear after the prefix, in any order — for flags a model writes either way (`--repo o/r` or `-R o/r`).
 - **First match wins.** `always` gives every matching call the same answer; `inOrder` gives call _k_ the _k_-th answer.
 
-**An invocation no rule answers fails the eval.** The agent sees one neutral line on stderr and a non-zero exit. No new trials start, the report lists the call (`unansweredStubCalls`), `vigiles eval` exits 2 even if your `assert` checks nothing, and `--update` writes no lock. The message names the argv and the rule to add:
+**An invocation no rule answers fails the eval.** The agent sees one neutral line on stderr and a non-zero exit (97). No new trials start, the report lists the call (`unansweredStubCalls`), `vigiles eval` exits 2 even if your `assert` checks nothing, and `--update` writes no lock. `runEval` called directly, without `vigiles eval`, returns the report and prints the same message to stderr when it returns — read `unansweredStubCalls` yourself if you need the calls in code. The message names the argv and the rule to add:
 
 ```text
 1 stub call(s) went unanswered — the agent ran a command no rule scripts, so the trial measured an answer nobody wrote:
@@ -154,7 +154,7 @@ How a rule matches:
 
 Why a miss fails instead of printing a default: a stub that printed one issue URL for every argv also answered a status script's `gh api …` read with that URL, the script failed to parse it, and a model that read the stub stopped trusting it. A default answer is an observation nobody made.
 
-Every call is recorded in `ctx.stubCalls` — including calls a script makes itself, which never appear as a tool call. Write the answers from the real tool (run it once and copy the output); an invented output looks plausible and is not what the tool says. A stub shadows `PATH` only: a tool called by absolute path, or a library call instead of a binary, is not stubbed.
+Every call is recorded in `ctx.stubCalls` — including calls a script makes itself, which never appear as a tool call. The record is a file in the stub directory (under the system temp dir, beside the run's working dir), appended to by the stub process, so **that directory must be writable from the agent's shell**. When the append fails the stub does not answer: the agent gets the same neutral line and exit 97 as for a miss, never a vigiles error, and nothing is recorded. A run whose shell can write nowhere outside its working dir (a sandboxed arm) leaves the call unrecorded, so the report cannot list it — keep the stub directory writable, or check the agent's trace for the call. Write the answers from the real tool (run it once and copy the output); an invented output looks plausible and is not what the tool says. A stub shadows `PATH` only: a tool called by absolute path, or a library call instead of a binary, is not stubbed.
 
 ## The ecosystem benchmark — what works vs hype
 
