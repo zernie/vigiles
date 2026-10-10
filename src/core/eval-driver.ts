@@ -150,7 +150,7 @@ export interface AgentRunArgs {
    * When true, `env` is the COMPLETE spawn environment (an ephemeral run env from
    * `ephemeralRunEnv`) — the runner does NOT prepend `process.env`, so the
    * real `$HOME` / secrets are scrubbed. Default false: `env` is an overlay over
-   * `process.env` (the byte-identical-to-today path). Set only by `ephemeralEnv`.
+   * `process.env` (the byte-identical-to-today path). Set only by an ephemeral `env`.
    */
   readonly replaceEnv?: boolean;
 }

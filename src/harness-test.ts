@@ -140,13 +140,13 @@ export interface HarnessTestSpec {
    * nothing in this tier shows that a model FOLLOWS it.
    */
   readonly outputStyle?: string;
-  // TODO(R2): wire `stubs?: readonly ToolStub[]` here too — write the fake
-  // binaries into a bin dir under the temp cwd and PREPEND it to the spawned
-  // agent's PATH. Deferred from the eval tier because the harness-test spawn goes
-  // through the per-harness `HarnessTestDriver` seam (buildArgs/startMock/wireMock,
-  // env built per-driver as `{ ...process.env, ...wired.env }`), so threading a
-  // PATH overlay cleanly means touching that port — out of scope for the MVP,
-  // which lands the helper on the eval tier. See `src/tool-stub.ts`.
+  // TODO(R2): wire `stubs?: readonly ToolStub[]` here too — write the stub dir
+  // (`writeStubDir`) and PREPEND its bin dir to the spawned agent's PATH, and
+  // fail the run on an unanswered call the way a script overrun fails it. The
+  // eval tier has it; here the spawn goes through the per-harness
+  // `HarnessTestDriver` seam (env built per-driver as `{ ...process.env,
+  // ...wired.env }`), so the PATH overlay means touching that port. See
+  // `src/tool-stub.ts`.
   /** The scripted model turns the agent will take. */
   readonly model: readonly ModelTurn[];
   /** The user prompt. Default: "go". */
@@ -602,7 +602,7 @@ export function parseClaudeRun(stdout: string): ParsedRun {
  *   else from the caller: no harness auth (the scripted mock needs none, and a
  *   config-dir variable would point the run back at the real config), no
  *   identity, no secrets. The same scrubbed shape as the eval tier's
- *   `ephemeralEnv` (`scrubbedRunEnv`), without the auth.
+ *   `env: { kind: "ephemeral" }` (`scrubbedRunEnv`), without the auth.
  */
 export type HarnessRunHome =
   | { readonly home: "inherit" }

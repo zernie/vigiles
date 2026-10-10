@@ -425,7 +425,7 @@ function writeFiles(cwd: string, files: Record<string, string>): void {
 
 /**
  * Resolve the environment a trial's subprocess actually runs with — the
- * SECURITY-CRITICAL decision behind `ephemeralEnv`. When `replaceEnv` is set, the
+ * SECURITY-CRITICAL decision behind `env: { kind: "ephemeral" }`. When `replaceEnv` is set, the
  * scrubbed `env` is the COMPLETE environment, so the real `$HOME` and inherited
  * secrets are DROPPED; otherwise `env` is an overlay on `base`. In BOTH, the
  * harness's declared session identity (`runEnv.sessionIdentity`) is removed: a

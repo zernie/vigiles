@@ -3239,7 +3239,7 @@ test("env ephemeral: runner gets a replaceEnv scrubbed env with auth + allowed e
   }
 });
 
-// The security-critical env resolution behind `ephemeralEnv` — the one line that
+// The security-critical env resolution behind an ephemeral env — the one line that
 // actually drops the host environment — lives in `resolveSpawnEnv` (extracted
 // from the v8-ignored real-spawn path so it's testable). These two tests pin the
 // DECISION (pure) and the BEHAVIOUR (a real child honours the scrub).

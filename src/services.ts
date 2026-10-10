@@ -29,7 +29,7 @@
  *     a dev box with NO production access;
  *   - point the task at the disposable service's connection string ONLY;
  *   - keep real credentials OUT of the run (prod `DATABASE_URL`, cloud keys,
- *     `~/.ssh`) — pair it with the eval tier's `ephemeralEnv` (throwaway HOME +
+ *     `~/.ssh`) — pair it with the eval tier's `env: { kind: "ephemeral" }` (throwaway HOME +
  *     cleared env) to scrub them so the model has no real keys to misuse.
  * Treat it like running an untrusted script. A future increment adds an egress
  * wall (the skill reaches only the model + the service); until then that job is

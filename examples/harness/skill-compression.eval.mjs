@@ -66,6 +66,7 @@ const TASK =
 export default defineEval({
   runEval: {
     name: "skill-compression: does telegraphic style cut tokens without dropping the fact?",
+    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
     arms: {
       verbose: {},
       caveman: { files: { "SKILL.md": CAVEMAN } },

@@ -6,7 +6,7 @@
  *
  * - SCRUBBED (`scrubbedRunEnv`): a throwaway HOME/TMPDIR, the OS essentials, the
  *   harness's declared auth, and the caller's own named extras. Everything else
- *   is dropped. The eval tier's `ephemeralEnv` and the harness-tier preflight of
+ *   is dropped. The eval tier's `env: { kind: "ephemeral" }` and the harness-tier preflight of
  *   `experimental_outputStyleArms` use it.
  * - INHERITED (`withoutSessionIdentity`): the caller's env as-is, minus the
  *   harness's declared session identity. The default spawn of both tiers.

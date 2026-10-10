@@ -90,6 +90,7 @@ import { defineEval, assertSignificant } from "vigiles";
 
 export default defineEval({
   runEval: {
+    env: { kind: "ephemeral" }, // required: a throwaway HOME, or { kind: "inherit", reason }
     arms: { off: {}, on: { pluginDir: "./" } },
     task: "…a task the harness change should affect…",
     measure: (ctx) => ({ ok: /* a bare predicate over the trace */ true }),
