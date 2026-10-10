@@ -318,12 +318,13 @@ export function unansweredMessage(
   const lines = distinct.map((c) => {
     const n = missed.filter((m) => keyOf(m) === keyOf(c)).length;
     const times = n > 1 ? ` ×${String(n)}` : "";
-    const rules = (stubs.find((s) => s.name === c.tool)?.rules ?? [])
-      .map((r, i) => `      #${String(i + 1)} ${describePattern(r.argv)}`)
-      .join("\n");
+    const rules = (stubs.find((s) => s.name === c.tool)?.rules ?? []).map(
+      (r, i) => `\n      #${String(i + 1)} ${describePattern(r.argv)}`,
+    );
+    const tried =
+      rules.length === 0 ? "" : `; the rules for ${c.tool} are:${rules.join("")}`;
     return (
-      `  ${c.tool} ${JSON.stringify(c.argv)}${times} — ${whyUnanswered(c.outcome)}; the rules for ${c.tool} are:\n` +
-      `${rules}\n` +
+      `  ${c.tool} ${JSON.stringify(c.argv)}${times} — ${whyUnanswered(c.outcome)}${tried}\n` +
       `    add: { argv: ${describePattern(c.argv)}, reply: { kind: "always", stdout: "…" } }`
     );
   });

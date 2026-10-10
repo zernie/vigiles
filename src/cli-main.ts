@@ -57,6 +57,7 @@ import {
   DEFAULT_LOCK_DIR,
   countLocks,
 } from "./eval-lock.js";
+import { UNANSWERED_STUB_EXIT_CODE } from "./eval-entry.js";
 import { z } from "zod";
 import { applyConfigFlags } from "./cli-flags.js";
 import { VERBS, type Verb } from "./cli-commands.js";
@@ -7122,6 +7123,19 @@ async function handleRunScripts(
     );
   }
 
+  // An eval whose stubs left a call unanswered measured an answer nobody wrote.
+  // That is not a failed assertion but a non-measurement, and it must fail the
+  // command even when the file's own `assert` never looks (eval-entry.ts).
+  if (
+    kind === "eval" &&
+    results.some((r) => r.code === UNANSWERED_STUB_EXIT_CODE)
+  ) {
+    console.error(
+      `\n✗ vigiles eval: a run called a stubbed tool with an argv no rule answers (printed above). ` +
+        "Add a rule for that command; no lock was written.",
+    );
+    process.exit(UNANSWERED_STUB_EXIT_CODE);
+  }
   if (anyFailed(results)) process.exit(1);
 
   // 🔴 A SKIP THE AUTHOR NEVER DECLARED IS NOT A SKIP — and the discriminator was

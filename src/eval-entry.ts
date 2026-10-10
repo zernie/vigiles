@@ -20,7 +20,10 @@
  *   5. prints the report with the formatter that matches the measurement;
  *   6. fails on a run that executed ZERO trials — the check every file used to
  *      hand-write as `if (report.n === 0) throw`;
- *   7. calls `assert(report)`.
+ *   7. fails — exit 2, before `assert` — on a `runEval` report with a stub call
+ *      no rule answered: such a trial measured an answer nobody wrote, and the
+ *      file's own `assert` may not look (most call only `compareArms`);
+ *   8. calls `assert(report)`.
  *
  * ## Not a CLI verb
  *
@@ -56,7 +59,9 @@ import {
   type TriggerRateReport,
   type EvalDriver,
   type TriggerRateSpec,
+  unansweredInReport,
 } from "./eval.js";
+import { parseToolStubs } from "./core/eval-spec-parse.js";
 import {
   measureSelectionMatrix,
   formatSelectionReport,
@@ -101,6 +106,31 @@ export function runsIn(report: AnyReport): number | undefined {
     return arms.reduce((t, a) => t + (a.n ?? a.runs ?? 0), 0);
   }
   return "n" in report ? report.n : undefined;
+}
+
+/**
+ * The exit code of an eval file whose report has an unanswered stub call.
+ * `vigiles eval` exits with it too. 2, the CLI's "error": the run did not fail
+ * an assertion, it produced something that is not a measurement.
+ */
+export const UNANSWERED_STUB_EXIT_CODE = 2;
+
+/**
+ * The author-facing failure when a `runEval` report carries a stub call no rule
+ * answered, or undefined. Only `runEval` has `stubs`. Pure — the rule itself is
+ * `unansweredInReport`, which the lock's refusal reads too.
+ */
+export function unansweredFailure(
+  kind: EvalKind,
+  report: AnyReport,
+  spec: unknown,
+): string | undefined {
+  if (kind !== "runEval") return undefined;
+  const stubs = parseToolStubs(
+    (spec as { readonly stubs?: unknown }).stubs,
+    "runEval",
+  );
+  return unansweredInReport(report as EvalReport, stubs);
 }
 
 /**
@@ -264,6 +294,12 @@ async function main(): Promise<void> {
   if (runsIn(report) === 0) {
     console.error(`✗ ${file}: no runs executed (0 trials completed).`);
     process.exit(1);
+  }
+
+  const unanswered = unansweredFailure(declared.kind, report, declared.spec);
+  if (unanswered !== undefined) {
+    console.error(`✗ ${file}: ${unanswered}`);
+    process.exit(UNANSWERED_STUB_EXIT_CODE);
   }
 
   await (def.assert as ((r: AnyReport) => void | Promise<void>) | undefined)?.(

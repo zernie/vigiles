@@ -103,8 +103,8 @@ const report: EvalReport = {
   totalCostUsd: 0,
   aborted: false,
   arms: {
-    vanilla: { runs: 6, metrics: { caught: 0 }, stats: {}, usage: NO_USAGE },
-    gated: { runs: 6, metrics: { caught: 0.5 }, stats: {}, usage: NO_USAGE },
+    vanilla: { unansweredStubCalls: [], runs: 6, metrics: { caught: 0 }, stats: {}, usage: NO_USAGE },
+    gated: { unansweredStubCalls: [], runs: 6, metrics: { caught: 0.5 }, stats: {}, usage: NO_USAGE },
   },
 };
 
@@ -171,6 +171,7 @@ test("significantlyBeats / assertSignificant use a computed noise floor", () => 
     aborted: false,
     arms: {
       base: {
+        unansweredStubCalls: [],
         runs: 20,
         metrics: { caught: 0.1 },
         stats: { caught: stat(0.1, 0.05, 20) },
@@ -178,6 +179,7 @@ test("significantlyBeats / assertSignificant use a computed noise floor", () => 
       },
       // a real, tight separation → significant
       good: {
+        unansweredStubCalls: [],
         runs: 20,
         metrics: { caught: 0.6 },
         stats: { caught: stat(0.6, 0.05, 20) },
@@ -185,6 +187,7 @@ test("significantlyBeats / assertSignificant use a computed noise floor", () => 
       },
       // a small gap drowned in wide se → not significant
       noisy: {
+        unansweredStubCalls: [],
         runs: 5,
         metrics: { caught: 0.2 },
         stats: { caught: stat(0.2, 0.2, 5) },
@@ -247,12 +250,14 @@ test("reliable / assertReliable gate on pass^k (succeeded every trial)", () => {
     aborted: false,
     arms: {
       flaky: {
+        unansweredStubCalls: [],
         runs: 4,
         metrics: { safe: 0.75 },
         stats: { safe: { mean: 0.75, std: 0.5, se: 0.25, n: 4, passK: 0 } },
         usage: NO_USAGE,
       },
       solid: {
+        unansweredStubCalls: [],
         runs: 4,
         metrics: { safe: 1 },
         stats: { safe: { mean: 1, std: 0, se: 0, n: 4, passK: 1 } },
@@ -724,6 +729,7 @@ test("assertNoRegression gates on a significant drop vs baseline", () => {
     aborted: false,
     arms: {
       gated: {
+        unansweredStubCalls: [],
         runs: 20,
         metrics: { caught },
         stats: { caught: stat(caught, 0.03, 20) },

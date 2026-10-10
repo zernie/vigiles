@@ -139,6 +139,10 @@ export { claudeEvalDriver as paid_claudeEvalDriver } from "./eval.js";
 // --- types: deliberately NOT prefixed (a type cannot be called, so it cannot bill) ---
 export type { Check, CheckResult, JudgeFn } from "./check.js";
 export type { Trace } from "./harness-test.js";
+// The field types of `EvalSpec.env` / `EvalSpec.stubs` / `ArmReport.unansweredStubCalls`,
+// so a spec typed against this door needs no second import for them.
+export type { HomeFiles, HomeSeed, RunEnv } from "./core/run-env.js";
+export type { StubCall, StubOutcome, ToolStub } from "./core/stub-rules.js";
 
 // Report shapes, deliberately re-exported from BOTH barrels (see the module doc):
 // the free analysis helpers on `vigiles` are typed over these, and a caller of

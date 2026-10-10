@@ -19,6 +19,7 @@ import {
   type AgentRunArgs,
 } from "./eval.js";
 import { readLock, lockPath } from "./eval-lock.js";
+import { ARGV_REST } from "./core/stub-rules.js";
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), "vig-lockwire-"));
@@ -66,9 +67,12 @@ function countingRunner(): {
   };
 }
 
+/** These specs drive a fake runner, so nothing is inherited by a real child. */
+const INHERIT = { kind: "inherit", reason: "unit test: a fake runner" } as const;
 function spec(dir: string, mode: "off" | "check" | "update", task = "do it") {
   return {
     name: "wiring eval",
+    env: INHERIT,
     arms: { run: {} },
     task,
     trials: 1,
@@ -315,36 +319,86 @@ test("lock messages WITHOUT GITHUB_ACTIONS take the plain stderr/stdout path", a
   }
 });
 
-test("lock check after a TOOL-STUB change: fails 'stale' (stubs are model-facing input)", async () => {
+/** Record a lock with `recorded`, then `--check` with `checked`: stale or replayed? */
+async function staleAfter(
+  recorded: (s: ReturnType<typeof spec>) => Record<string, unknown>,
+  checked: (s: ReturnType<typeof spec>) => Record<string, unknown>,
+): Promise<"stale" | "replayed"> {
   const dir = tmp();
-  // Two stubs (unsorted) so the name-sort comparator actually runs.
-  const withStub = (stdout: string) => ({
-    ...spec(dir, "update"),
-    stubs: [
-      { name: "psql", stdout: "row" },
-      { name: "gh", stdout },
-    ],
-  });
   try {
-    // Record with one canned `gh` output…
-    await runEvalWith(withStub("PR #1"), countingRunner().run);
-    // …then check with a DIFFERENT canned output → the inputs changed → stale.
-    const chk = countingRunner();
-    await assert.rejects(
-      () =>
-        runEvalWith(
-          {
-            ...withStub("PR #2"),
-            lock: { mode: "check", dir, evalApiVersion: 1 },
-          },
-          chk.run,
-        ),
-      /STALE|changed/,
+    await runEvalWith(
+      recorded(spec(dir, "update")) as never,
+      countingRunner().run,
     );
-    assert.equal(chk.calls(), 0, "a stale check never reaches the model");
+    const chk = countingRunner();
+    try {
+      await runEvalWith(checked(spec(dir, "check")) as never, chk.run);
+      return "replayed";
+    } catch (e) {
+      assert.match((e as Error).message, /STALE|changed/);
+      assert.equal(chk.calls(), 0, "a stale check never reaches the model");
+      return "stale";
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+const ghStub = (re: RegExp, stdout = "[]") => ({
+  name: "gh",
+  rules: [
+    {
+      argv: ["issue", "create", ARGV_REST],
+      reply: { kind: "always", stdout: "https://github.com/o/r/issues/1\n" },
+    },
+    { argv: ["api", re], reply: { kind: "always", stdout } },
+  ],
+});
+const withStubs =
+  (...stubs: readonly unknown[]) =>
+  (s: ReturnType<typeof spec>) => ({ ...s, stubs });
+
+test("lock check after a stub REPLY change: stale (an answer is a model-facing input)", async () => {
+  assert.equal(
+    await staleAfter(
+      withStubs(ghStub(/^repos\//, "[]")),
+      withStubs(ghStub(/^repos\//, '[{"number":1}]')),
+    ),
+    "stale",
+  );
+});
+
+test("lock check after a RegExp TOKEN change: stale — the key uses the encoding, not JSON.stringify (which gives {})", async () => {
+  assert.equal(
+    await staleAfter(
+      withStubs(ghStub(/^repos\//)),
+      withStubs(ghStub(/^search\//)),
+    ),
+    "stale",
+    "a different RegExp source",
+  );
+  assert.equal(
+    await staleAfter(
+      withStubs(ghStub(/^repos\//)),
+      withStubs(ghStub(/^repos\//i)),
+    ),
+    "stale",
+    "the same source with different flags",
+  );
+});
+
+test("lock check with the stubs declared in another order: replayed (the key ignores declaration order)", async () => {
+  const psql = {
+    name: "psql",
+    rules: [{ argv: ["-c", ARGV_REST], reply: { kind: "always" } }],
+  };
+  assert.equal(
+    await staleAfter(
+      withStubs(ghStub(/^repos\//), psql),
+      withStubs(psql, ghStub(/^repos\//)),
+    ),
+    "replayed",
+  );
 });
 
 test("lock CHECK on an unnamed eval: throws (never calls the model in CI)", async () => {
@@ -361,29 +415,29 @@ test("lock CHECK on an unnamed eval: throws (never calls the model in CI)", asyn
   }
 });
 
-test("lock check after an ephemeralEnv toggle: fails 'stale' (it changes the run env)", async () => {
-  const dir = tmp();
-  try {
-    // Record with the default (inherited) env…
-    await runEvalWith(spec(dir, "update"), countingRunner().run);
-    // …then check with ephemeralEnv ON → a different run environment → stale.
-    const chk = countingRunner();
-    await assert.rejects(
-      () =>
-        runEvalWith(
-          {
-            ...spec(dir, "check"),
-            ephemeralEnv: true,
-            lock: { mode: "check", dir, evalApiVersion: 1 },
-          },
-          chk.run,
-        ),
-      /STALE|changed/,
-    );
-    assert.equal(chk.calls(), 0, "a stale check never reaches the model");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+test("lock check after an env change: stale for the kind and the seed, replayed for an inherit reason", async () => {
+  const ephemeral = (s: ReturnType<typeof spec>) => ({
+    ...s,
+    env: { kind: "ephemeral" },
+  });
+  const seeded = (contents: string) => (s: ReturnType<typeof spec>) => ({
+    ...s,
+    env: {
+      kind: "ephemeral",
+      home: { kind: "files", files: { ".config/x/y.txt": contents } },
+    },
+  });
+  assert.equal(await staleAfter((s) => s, ephemeral), "stale", "inherit → ephemeral");
+  assert.equal(await staleAfter(ephemeral, seeded("z")), "stale", "a seed added");
+  assert.equal(await staleAfter(seeded("z"), seeded("w")), "stale", "a seed's contents");
+  assert.equal(
+    await staleAfter(
+      (s) => s,
+      (s) => ({ ...s, env: { kind: "inherit", reason: "reworded" } }),
+    ),
+    "replayed",
+    "the reason is prose, not an input",
+  );
 });
 
 test("trigger-rate lock check after a HARNESS switch: fails 'stale' (driver is an input)", async () => {
@@ -461,6 +515,7 @@ test("eval-arm lock with a plugin: ${PLUGIN_ROOT} path is normalized (location-i
   const spc = (plugin: string, mode: "update" | "check") =>
     ({
       name: "plugin eval",
+      env: INHERIT,
       arms: { run: { plugin } },
       task: "do it",
       trials: 1,
@@ -495,6 +550,7 @@ test("eval-arm lock with a HOOKLESS plugin: settings:undefined doesn't throw", a
   const spc = (mode: "update" | "check") =>
     ({
       name: "hookless plugin eval",
+      env: INHERIT,
       arms: { run: { plugin: pluginDir } },
       task: "do it",
       trials: 1,
@@ -578,8 +634,12 @@ test("COMPLETENESS: every model-facing runEval input changes the lock hash", asy
         ...s,
         arms: { run: { interceptTools: [{ tool: "Bash" }] } },
       }),
-      stubs: (s) => ({ ...s, stubs: [{ name: "gh", stdout: "PR #1" }] }),
-      ephemeralEnv: (s) => ({ ...s, ephemeralEnv: true }),
+      stubs: withStubs(ghStub(/^repos\//)),
+      "env.kind": (s) => ({ ...s, env: { kind: "ephemeral" } }),
+      "env.home": (s) => ({
+        ...s,
+        env: { kind: "ephemeral", home: { kind: "files", files: { a: "b" } } },
+      }),
     };
     for (const [field, mut] of Object.entries(variants)) {
       const h = await evalHash(root, mut);

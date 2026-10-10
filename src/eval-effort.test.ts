@@ -241,9 +241,12 @@ function recordingRunner(): {
   };
 }
 
+/** These specs drive a fake runner, so nothing is inherited by a real child. */
+const INHERIT = { kind: "inherit", reason: "unit test: a fake runner" } as const;
 function evalSpec(dir: string, extra: Record<string, unknown> = {}) {
   return {
     name: "effort wiring",
+    env: INHERIT,
     arms: { run: {} },
     task: "do it",
     trials: 1,

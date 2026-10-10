@@ -87,3 +87,85 @@ function defined(
     ),
   );
 }
+
+// --- the run environment a spec declares ----------------------------------------
+
+/** Files to write under a throwaway HOME: HOME-relative POSIX path → contents. */
+export type HomeFiles = Readonly<Record<string, string>>;
+
+/**
+ * Where a throwaway HOME's starting contents come from. A FILE map, so an empty
+ * directory cannot be expressed — Claude Code's startup housekeeping removes
+ * empty task directories, and a seed that could hold one would lose it.
+ */
+export interface HomeSeed {
+  readonly kind: "files";
+  readonly files: HomeFiles;
+}
+
+/**
+ * Where a run executes. Two cases, and `home` exists only on `ephemeral`: there
+ * is no way to write "seed my real HOME".
+ *
+ * - `ephemeral` — a throwaway HOME (seeded from `home`, then given the
+ *   harness's own auth files) and a scrubbed environment.
+ * - `inherit` — your real HOME and environment, minus the parent session's
+ *   identity. `reason` says why, and is printed with the report.
+ */
+export type RunEnv =
+  | { readonly kind: "ephemeral"; readonly home?: HomeSeed }
+  | { readonly kind: "inherit"; readonly reason: string };
+
+/** One file a seed writes, HOME-relative. */
+export interface HomeFile {
+  readonly path: string;
+  readonly contents: string;
+}
+
+/** The files a seed writes, sorted by path — or why the seed is refused. */
+export type HomePlan =
+  | { readonly kind: "ok"; readonly files: readonly HomeFile[] }
+  | { readonly kind: "refused"; readonly reason: string };
+
+/** Why `path` cannot be a HOME-relative seed path, or undefined when it can. */
+function seedPathProblem(
+  path: string,
+  keepHomeFiles: readonly string[],
+): string | undefined {
+  if (path === "") return "an empty path";
+  if (path.startsWith("/") || path.includes("\\"))
+    return `${JSON.stringify(path)} is not a HOME-relative POSIX path`;
+  const parts = path.split("/");
+  if (parts.some((p) => p === "" || p === "." || p === ".."))
+    return `${JSON.stringify(path)} must stay inside HOME and be spelled plainly (no "", ".", or ".." segments)`;
+  if (keepHomeFiles.includes(path))
+    return `${JSON.stringify(path)} is the harness's own auth file, which the run copies in itself; a seed may not replace it`;
+  return undefined;
+}
+
+/**
+ * Validate a seed and list the files it writes. Pure. `keepHomeFiles` are the
+ * harness's auth files (`RunEnvPolicy.keepHomeFiles`), copied in after the seed.
+ */
+export function planHome(
+  seed: HomeSeed | undefined,
+  keepHomeFiles: readonly string[],
+): HomePlan {
+  if (seed === undefined) return { kind: "ok", files: [] };
+  const paths = Object.keys(seed.files).sort();
+  if (paths.length === 0)
+    return {
+      kind: "refused",
+      reason: "a files seed with no files — omit `home` for an empty HOME",
+    };
+  const problems = paths.flatMap((p) => {
+    const why = seedPathProblem(p, keepHomeFiles);
+    return why === undefined ? [] : [why];
+  });
+  if (problems.length > 0)
+    return { kind: "refused", reason: problems.join("; ") };
+  return {
+    kind: "ok",
+    files: paths.map((path) => ({ path, contents: seed.files[path] ?? "" })),
+  };
+}
