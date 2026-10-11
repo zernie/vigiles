@@ -38,6 +38,7 @@ import {
 import { purityViolations } from "./effects.js";
 import type { LinterCheckResult } from "./linters.js";
 import type { HarnessDialect } from "./dialect.js";
+import { MOVE_OUT_OF_ALWAYS_LOADED } from "./instruction-remedies.js";
 import {
   DEFAULT_INSTRUCTION_TARGETS,
   RENDERABLE_SKILL_FRONTMATTER_KEYS,
@@ -583,7 +584,8 @@ function checkContentBudgets(
         message:
           `section ${JSON.stringify(name)} is ${String(body.length)} characters ` +
           `(budget ${String(maxSectionChars)}). The line guard cannot see this — long lines are ` +
-          `the normal shape of compiled prose — and every character is loaded on every request.`,
+          `the normal shape of compiled prose — and every character is loaded on every request. ` +
+          MOVE_OUT_OF_ALWAYS_LOADED,
       });
     }
   }

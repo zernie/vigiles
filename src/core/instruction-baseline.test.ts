@@ -393,9 +393,9 @@ describe("formatCeiling / formatRefusal — what the reader sees", () => {
     expect(msg).toContain("max 20,000");
     expect(msg).toContain("18,000 over");
     expect(msg).toContain("CLAUDE.md 30,000, a.md 8,000");
-    expect(msg).toContain("Cut content");
+    expect(msg).toContain("Move what does not apply to every request");
     expect(msg).toContain(
-      "moving text to another always-loaded file does not help",
+      "Moving text to another always-loaded file does not help",
     );
   });
 
@@ -411,6 +411,6 @@ describe("formatCeiling / formatRefusal — what the reader sees", () => {
     );
     expect(msg).toContain("38,000 chars is over the configured max 20,000");
     expect(msg).toContain("bypass");
-    expect(msg).toContain("cut content first");
+    expect(msg).toContain("get under it first");
   });
 });

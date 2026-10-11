@@ -38,6 +38,7 @@
 import { z } from "zod";
 
 import type { InstructionWeight } from "./instruction-weight.js";
+import { MOVE_OUT_OF_ALWAYS_LOADED } from "./instruction-remedies.js";
 
 /** Where the baseline lives, relative to the directory `.vigilesrc.json` is read from. */
 export const INSTRUCTION_BASELINE_FILE = ".vigiles/instruction-weight.json";
@@ -333,7 +334,8 @@ export function formatVerdict(verdict: RatchetVerdict, at: string): string {
           : "";
       return verdict.kind === "grew"
         ? `${where}always-loaded instructions grew ${head} over the recorded baseline.${moved} ` +
-            `If the growth is intended, record it with \`${UPDATE_BASELINE_COMMAND}\` — the diff of ${INSTRUCTION_BASELINE_FILE} is the review.`
+            `If the growth is intended, record it with \`${UPDATE_BASELINE_COMMAND}\` — the diff of ${INSTRUCTION_BASELINE_FILE} is the review. ` +
+            `If not: ${MOVE_OUT_OF_ALWAYS_LOADED}`
         : `${where}always-loaded instructions shrank ${head}; the baseline still allows the old weight.${moved} ` +
             `Lock the cut in with \`${UPDATE_BASELINE_COMMAND}\`, or the headroom can be regrown without a finding.`;
     }
@@ -350,7 +352,8 @@ export function formatCeiling(verdict: CeilingVerdict, at: string): string {
     `${where}always-loaded instructions are ${n(verdict.total)} ${verdict.unit}, ` +
     `max ${n(verdict.max)} — ${n(verdict.total - verdict.max)} over. ` +
     `Largest: ${biggest}. ` +
-    `Cut content; moving text to another always-loaded file does not help, ` +
+    `${MOVE_OUT_OF_ALWAYS_LOADED} ` +
+    `Moving text to another always-loaded file does not help, ` +
     `and re-recording the baseline does not lift the ceiling.`
   );
 }
@@ -362,7 +365,7 @@ export function formatRefusal(verdict: CeilingVerdict, at: string): string {
     `${where}refusing to record ${INSTRUCTION_BASELINE_FILE}: ` +
     `${n(verdict.total)} ${verdict.unit} is over the configured max ${n(verdict.max)} ` +
     `(${n(verdict.total - verdict.max)} over). A baseline above the ceiling would bypass it — ` +
-    `cut content first, then run \`${UPDATE_BASELINE_COMMAND}\` again.`
+    `get under it first, then run \`${UPDATE_BASELINE_COMMAND}\` again. ${MOVE_OUT_OF_ALWAYS_LOADED}`
   );
 }
 
