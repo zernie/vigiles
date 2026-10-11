@@ -100,7 +100,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 529 project files. */
+  /** 531 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -265,6 +265,7 @@ declare module "vigiles/generated" {
     | "src/core/command-files.ts"
     | "src/core/compile-generator.test.ts"
     | "src/core/compile-generator.ts"
+    | "src/core/compile.test.ts"
     | "src/core/compile.ts"
     | "src/core/compose.test.ts"
     | "src/core/compose.ts"
@@ -284,6 +285,7 @@ declare module "vigiles/generated" {
     | "src/core/edit-distance.ts"
     | "src/core/effects.test.ts"
     | "src/core/effects.ts"
+    | "src/core/enforce-marker.ts"
     | "src/core/eval-driver.ts"
     | "src/core/eval-load-phase.test.ts"
     | "src/core/eval-load-phase.ts"
@@ -866,6 +868,7 @@ declare module "vigiles/spec" {
       | "src/core/command-files.ts"
       | "src/core/compile-generator.test.ts"
       | "src/core/compile-generator.ts"
+      | "src/core/compile.test.ts"
       | "src/core/compile.ts"
       | "src/core/compose.test.ts"
       | "src/core/compose.ts"
@@ -885,6 +888,7 @@ declare module "vigiles/spec" {
       | "src/core/edit-distance.ts"
       | "src/core/effects.test.ts"
       | "src/core/effects.ts"
+      | "src/core/enforce-marker.ts"
       | "src/core/eval-driver.ts"
       | "src/core/eval-load-phase.test.ts"
       | "src/core/eval-load-phase.ts"

@@ -744,13 +744,13 @@
       "count": 105
     },
     "functional/no-let": {
-      "count": 100
+      "count": 99
     },
     "functional/no-loop-statements": {
       "count": 114
     },
     "functional/prefer-immutable-types": {
-      "count": 195
+      "count": 194
     },
     "no-restricted-syntax": {
       "count": 1
@@ -999,16 +999,16 @@
       "count": 2
     },
     "functional/immutable-data": {
-      "count": 87
+      "count": 82
     },
     "functional/no-let": {
       "count": 7
     },
     "functional/no-loop-statements": {
-      "count": 18
+      "count": 17
     },
     "functional/prefer-immutable-types": {
-      "count": 51
+      "count": 48
     },
     "no-param-reassign": {
       "count": 1
@@ -2203,9 +2203,6 @@
     },
     "boundaries/dependencies": {
       "count": 2
-    },
-    "functional/prefer-immutable-types": {
-      "count": 1
     }
   },
   "src/core/tmp-root.ts": {

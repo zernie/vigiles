@@ -470,7 +470,10 @@ function verdictFromResult(
  * The sentence the compile prints for an unverified reference: what happened
  * and the one thing that turns it into "Enforced by".
  */
-export function unverifiedAdvice(ref: string, reason: UnverifiedReason): string {
+export function unverifiedAdvice(
+  ref: string,
+  reason: UnverifiedReason,
+): string {
   const linter = extractLinterName(ref);
   switch (reason) {
     case "verify-false":

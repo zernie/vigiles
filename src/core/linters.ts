@@ -1277,31 +1277,26 @@ function isEslintPluginRule(ruleName: string, basePath: string): boolean {
     getLinterAdapter(ctx.linterName) === undefined
       ? eslintConfigPluginHasRule(fullId, ctx.basePath)
       : null;
-  if (inConfig !== null) {
-    if (!inConfig) {
-      return makeResult(
-        ctx,
-        false,
-        "unknown",
-        `Rule "${ctx.ruleName}" not found in ${ctx.linterName} (the plugin your ESLint config registers under that name)`,
-      );
-    }
-    const enabled = checkConfigEnabled("eslint", fullId, ctx.basePath, ctx.catalogOnly);
-    return makeResult(ctx, true, enabled);
-  }
-  const pluginRules = resolveEslintPluginRules(ctx.linterName, ctx.basePath);
-  if (!pluginRules) return null;
-  if (!pluginRules.has(ctx.ruleName)) {
+  // The plugin the config REGISTERS wins over an npm package-name guess (#351).
+  const exists =
+    inConfig ??
+    resolveEslintPluginRules(ctx.linterName, ctx.basePath)?.has(ctx.ruleName);
+  if (exists === undefined) return null;
+  if (!exists) {
+    const where =
+      inConfig === null
+        ? ""
+        : " (the plugin your ESLint config registers under that name)";
     return makeResult(
       ctx,
       false,
       "unknown",
-      `Rule "${ctx.ruleName}" not found in ${ctx.linterName}`,
+      `Rule "${ctx.ruleName}" not found in ${ctx.linterName}${where}`,
     );
   }
   const enabled = checkConfigEnabled(
     "eslint",
-    `${ctx.linterName}/${ctx.ruleName}`,
+    fullId,
     ctx.basePath,
     ctx.catalogOnly,
   );

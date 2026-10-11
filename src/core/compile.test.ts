@@ -101,7 +101,6 @@ describe("compileClaude: the issue's two reproduced cases (#351)", () => {
       reason: "not-configured",
     });
   });
-
 });
 
 describe("compileClaude: siblings of the unverified reference (#351)", () => {

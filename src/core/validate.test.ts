@@ -100,6 +100,25 @@ describe("parseRules", () => {
     assert.equal(rules[0].enforcedBy, "eslint/no-restricted-imports");
   });
 
+  it("parses a Claimed (unverified) reference apart from an enforced one (#351)", () => {
+    const md =
+      "### A\n**Enforced by:** `eslint/no-console`\n### B\n**Claimed (unverified):** `eslint/no-restricted-imports`\n";
+    const rules = parseRules(md);
+    assert.deepEqual(
+      rules.map((r) => [r.enforcement, r.enforcedBy]),
+      [
+        ["enforced", "eslint/no-console"],
+        ["claimed", "eslint/no-restricted-imports"],
+      ],
+    );
+    const result = validate(md, {
+      rules: { "require-instructions-spec": false },
+    });
+    assert.equal(result.enforced, 1);
+    assert.equal(result.claimed, 1);
+    assert.equal(result.missing, 0);
+  });
+
   it("should parse guidance-only rules", () => {
     const rules = parseRules(
       "### Use Tailwind spacing scale\n**Guidance only** — cannot be mechanically enforced\n",

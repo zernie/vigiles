@@ -831,6 +831,9 @@ export default [
 
   it("still reads a rule set to off as disabled", () => {
     const dir = eslintRepo(CONFIG);
-    assert.equal(checkLinterRule("eslint/no-debugger", dir).enabled, "disabled");
+    assert.equal(
+      checkLinterRule("eslint/no-debugger", dir).enabled,
+      "disabled",
+    );
   });
 });

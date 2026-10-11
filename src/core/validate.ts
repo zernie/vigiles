@@ -223,7 +223,7 @@ const RULE_MARKER_RE = new RegExp(RULE_MARKER_SOURCE);
  */
 function parseRuleMarker(
   line: string,
-): Pick<ParsedRule, "enforcement" | "enforcedBy"> | null {
+): Readonly<Pick<ParsedRule, "enforcement" | "enforcedBy">> | null {
   const m = RULE_MARKER_RE.exec(line);
   if (!m) return null;
   return {

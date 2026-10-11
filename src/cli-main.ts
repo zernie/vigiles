@@ -2776,9 +2776,7 @@ function collectDocumentedRules(excludes: ExcludeSet): Set<string> {
   for (const mdFile of mdFiles) {
     const content = readFileSync(resolve(process.cwd(), mdFile), "utf-8");
     // Both compiled spellings (#351): an unverified claim is still documented.
-    const enforcedRe = new RegExp(RULE_MARKER_SOURCE, "g");
-    let m: RegExpExecArray | null;
-    while ((m = enforcedRe.exec(content)) !== null) {
+    for (const m of content.matchAll(new RegExp(RULE_MARKER_SOURCE, "g"))) {
       documented.add(m[2]);
     }
   }

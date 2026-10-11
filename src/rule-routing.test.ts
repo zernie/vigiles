@@ -361,6 +361,20 @@ describe("routeRules", () => {
     expect(r.rules[0].source).toBe("marker");
   });
 
+  it("S0/S1: a compiled **Claimed (unverified):** reference routes like Enforced by (#351)", () => {
+    const md = [
+      "### No Restricted Imports",
+      "",
+      "**Claimed (unverified):** `eslint/no-restricted-imports`",
+      "**Why:** Barrel imports only.",
+    ].join("\n");
+    const r = routeRules(md, "CLAUDE.md");
+    expect(r.rules).toHaveLength(1);
+    expect(r.rules[0].category).toBe("reuse");
+    expect(r.rules[0].source).toBe("marker");
+    expect(r.rules[0].rule).toBe("eslint/no-restricted-imports");
+  });
+
   it("S0/S1: a hand-written **Enforced by:** that is NOT a rule id is not claimed", () => {
     const md = ["### Tested In CI", "", "**Enforced by:** CI pipeline"].join(
       "\n",
