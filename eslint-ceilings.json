@@ -487,9 +487,7 @@
     "max-lines-per-function": 82
   },
   "src/instruction-weight-ratchet.ts": {
-    "max-lines-per-function": 41,
-    "sonarjs/cognitive-complexity": 12,
-    "complexity": 12
+    "max-lines-per-function": 35
   },
   "src/judge.ts": {
     "max-lines-per-function": 34
