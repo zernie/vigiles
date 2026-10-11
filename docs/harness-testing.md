@@ -133,6 +133,62 @@ const r = runHook(hookCmd, {
 assertHookAllowed(r);
 ```
 
+### Assert a nudge reaches the model (`assertDelivered`)
+
+A hook that _prints_ a warning has not _delivered_ it. Which stream the model
+reads depends on the event and the exit code, and the commonest mistake is
+invisible to a test that reads `r.stderr`: a `PostToolUse` hook that writes to
+stderr and exits 0 reaches nobody. Claude Code's hooks docs, verbatim:
+
+> Claude never sees stderr from a hook that exits 0. [...] To surface a warning to
+> Claude from a `PostToolUse` or `PostToolUseFailure` hook, exit 2 instead so
+> Claude sees the stderr even though the tool already ran.
+> — [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks#exit-code-0)
+
+`runHook` judges this for you: every result carries `delivery`, and
+`assertDelivered` fails unless some of the hook's text reached the model.
+
+```ts
+import { runHook, assertDelivered } from "vigiles";
+
+const r = runHook(lintHookCmd, {
+  hook_event_name: "PostToolUse",
+  tool_name: "Edit",
+  tool_input: { file_path: "notes/a.md" },
+});
+assertDelivered(r);
+// ✗ expected the hook's output to reach the model, but none did (exit 0):
+//   - 37 bytes on stderr: stderr from a hook that exits 0 reaches no channel the
+//     model reads. Emit JSON `hookSpecificOutput.additionalContext` on stdout, or
+//     exit 2 (`PostToolUse` feeds that stderr back to the model).
+```
+
+`r.delivery.kind` is one of five, and each failure names its own cause:
+
+| `kind`        | meaning                                                                                                    |
+| ------------- | ---------------------------------------------------------------------------------------------------------- |
+| `delivered`   | text reached the model — `via` lists how (`additional-context`, `plain-stdout`, `exit-code-feedback`, …)   |
+| `undelivered` | text was printed, none reached the model — `stranded` names each stream, its bytes, and the cure           |
+| `blocked`     | the hook vetoed the action; a block is not a nudge — use `assertHookBlocked`                               |
+| `silent`      | nothing addressed to the model (or the hook never ran — see `r.ran`)                                       |
+| `unknown`     | the harness's capability table has no row for this event, so delivery is not judged — and the assert fails |
+
+The verdict reads the harness's **event capability table** (what each event
+honours), so it is only as good as that table: Claude Code's records nine events,
+and an event outside it is `unknown`, never guessed. On another harness pass its
+table as `capabilities` (`runHook(cmd, event, { protocol, capabilities })`); a
+harness with no table (Codex today) is judged only where its protocol proves
+delivery (`additionalContext` on its injectable events) and is `unknown` elsewhere.
+
+**Why this is a test-time check and not a lint rule for shell hooks.** Whether a
+shell script writes to stderr and which code it exits with is a property of its
+_run_, not its text — `echo "$msg" >&2` may sit behind any branch, wrapper or
+`exec`. A static guess would be wrong in both directions, so `vigiles` does not
+make one; run the hook and assert. [Compiled hooks](compiled-hooks.md) are
+different: there the compiler knows the event and the emit path, so a `notice()`
+is emitted as `additionalContext` on an event that injects, and `vigiles compile`
+warns when a react sits on an event that does not.
+
 **Testing a hook you don't trust?** Mark it `trusted: false` and it runs confined
 under bubblewrap by default (no egress, scrubbed env — it can't read your API key),
 refusing rather than running unconfined where no sandbox exists:

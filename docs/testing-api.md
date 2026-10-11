@@ -112,6 +112,7 @@ assertToolUsedWith(r, "Edit", (i) => i.file_path === "src/billing.ts"); // argum
 assertToolCalls(r, (calls) => /* any custom rule over the list */ true);
 
 assertHookBlocked(r); // exit 2 / decision:"block" / permissionDecision:"deny"
+assertDelivered(r); // a runHook result's text REACHED the model (not just stderr) — see harness-testing.md
 assertBlocksDisasters("bash hooks/guard.sh"); // the hook denies every disaster (force-push, rm -rf, curl|sh …)
 assertHookFired(r, "UserPromptSubmit");
 assertOutputContains(r, /on it/);
@@ -151,9 +152,9 @@ assertHookAllows(guard, {
   tool_input: { command: "git status" },
 });
 
-// A REACT hook can't block, so it gets its own pair. NB `notice()` writes to
-// STDERR — a probe that reads stdout reports a healthy react hook as dead.
-// These read the reaction itself.
+// A REACT hook can't block, so it gets its own pair. Which STREAM carries a
+// `notice()` depends on the event (additionalContext on stdout where the event
+// injects, stderr only where it cannot), so these read the reaction itself.
 const warn = await loadHook(".vigiles/hooks/warn-on-failure.hook.mjs");
 assertHookNotices(warn, failedBashEvent, /read the error/); // message matcher optional
 assertHookSilent(warn, successfulBashEvent);
