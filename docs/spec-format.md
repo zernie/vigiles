@@ -341,7 +341,9 @@ Declares a rule delegated to an external linter or to a vigiles-internal check. 
 - `@${scope}/${rule}` for scoped ESLint plugins (e.g., `@typescript-eslint/no-explicit-any`)
 - `vigiles/${string}` for vigiles-internal assertions (e.g., `vigiles/orphan-docs`)
 
-At compile time, vigiles verifies the rule exists and — for external linters — is enabled in the project's config. For Cedar, presence in a `.cedar` file counts as enabled. For `vigiles/<id>`, existence is checked against a built-in catalog and the actual check runs at lint time. Compiles to `**Enforced by:** ` followed by the rule reference in backticks.
+At compile time, vigiles verifies the rule exists and — for external linters — is enabled in the project's config. For Cedar, presence in a `.cedar` file counts as enabled. For `vigiles/<id>`, existence is checked against a built-in catalog and the actual check runs at lint time. For ESLint, plugins are read from the config ESLint resolves (so a plugin declared inline in a flat config is found), and the enabled state is read across every `files` block, not one file.
+
+A rule compile **verified** renders as `**Enforced by:** ` followed by the rule reference in backticks. Every other `enforce()` renders as `**Claimed (unverified):** ` with the same reference, is left out of the "linter-verified" count, and gets one warning line saying why. That covers `{ verify: false }`, `verifyLinters: false`, a per-linter `false`, catalog-only mode, a rule that exists but that no config block sets, and a linter whose config state vigiles cannot read. A rule that does not exist, or that the config turns off, is still a compile error.
 
 ```ts
 rules: {

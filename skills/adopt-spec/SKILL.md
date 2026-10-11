@@ -36,12 +36,13 @@ Identify these sections in the markdown:
 
 - **Commands** — lines like `` `npm run build` — description `` or ``- `command` — description``
 - **Key files** — lines like `` `src/foo.ts` — description `` listing important files
-- **Rules** — `###` headings with `**Enforced by:**` or `**Guidance only**` annotations
+- **Rules** — `###` headings with `**Enforced by:**`, `**Claimed (unverified):**` or `**Guidance only**` annotations
 - **Prose sections** — everything else (positioning, architecture, principles, etc.)
 
 For each rule, classify it:
 
 - Has `**Enforced by:** \`linter/rule\``→`enforce("linter/rule", "why")`
+- Has `**Claimed (unverified):** \`linter/rule\``→`enforce("linter/rule", "why")` too — the last compile could not verify it; the next one will say why
 - Has `**Enforced by:** \`code-review\``or similar non-linter →`guidance("...")`
 - Has `**Guidance only**` → `guidance("...")`
 - Has no annotation → mark as TODO for the user to classify
