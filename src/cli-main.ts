@@ -113,6 +113,7 @@ import {
   verifyLiveMcpTools,
   formatMcpContractReport,
   preferCompiledHooksMessage,
+  hookScriptMissingMessage,
   measureInstructionWeight,
 } from "./scan.js";
 import {
@@ -6068,7 +6069,7 @@ function checkHookScriptExists(ctx: BundleCheck): {
       // `script` arrives with the plugin-root token EXPANDED, i.e. absolute —
       // printed as-is it was a machine path (#281). A relative one is the
       // bundle's own, which is what `scanned` assumes.
-      const msg = `hook script "${ctx.bundle.scanned(h.script)}" is referenced but missing — the hook never runs.`;
+      const msg = hookScriptMissingMessage(ctx.bundle.scanned(h.script));
       console.log(`  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(msg)}`);
       ctx.annotate(sev === "error" ? "error" : "warning", msg);
     }

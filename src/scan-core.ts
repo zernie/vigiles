@@ -825,6 +825,22 @@ export function isManagedHookCommand(command: string): boolean {
   return /\bhook-runtime\b/.test(command);
 }
 
+/**
+ * The `hook-script-exists` finding text. It names WHY nobody noticed, because
+ * that is the part the author cannot see: a hook wired fail-open (`|| exit 0`,
+ * `|| true` — the deliberate ending of every compiled reminder) turns "cannot
+ * load" into the same silence as "nothing to say". A missing file under
+ * `node_modules/` is a dependency that is not installed, so the cure differs.
+ */
+export function hookScriptMissingMessage(script: string): string {
+  const silent =
+    "a fail-open ending (`|| exit 0`, `|| true`) makes a hook that cannot load " +
+    "look like one with nothing to say";
+  return isDependencyPath(script)
+    ? `hook runner "${script}" is referenced but not installed — every hook it starts fails to load, and ${silent}. Install dependencies (npm ci), or point the hook at a runner that exists.`
+    : `hook script "${script}" is referenced but missing — the hook never runs, and ${silent}.`;
+}
+
 /** The `prefer-compiled-hooks` recommendation message (shared by `lint` + `scan`). */
 export function preferCompiledHooksMessage(count: number): string {
   return (
@@ -902,6 +918,73 @@ export function scanHooks(
     a.script.localeCompare(b.script),
   );
   return { hooks, inline, manual };
+}
+
+/** What {@link scanHookScripts} needs to know about the engine it runs in. */
+export interface HookScriptScan {
+  /** The directory every root token and relative path resolves against. */
+  readonly root: string;
+  readonly layout: Pick<PluginLayout, "pluginRootToken" | "projectRootTokens">;
+  readonly exists: (path: string) => boolean;
+  /**
+   * Whether this engine can see the file at all. The disk scan sees
+   * everything; the file map is a GitHub fetch and never holds `node_modules`,
+   * so there a dependency path absent from the map proves nothing.
+   */
+  readonly observable: (absPath: string) => boolean;
+}
+
+/**
+ * {@link scanHooks} over everything a repo WIRES, for the existence check:
+ * the hooks the loader chose (`regs`), plus the project settings a plugin
+ * manifest shadowed (`shadowed`, see `LoadedPlugin.shadowedSettingsHooks`).
+ *
+ * 🔴 WHY THE RUNNER IS ON THE LIST. A compiled hook is
+ * `node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" … || exit 0`, and
+ * the `|| exit 0` is deliberate: a reminder fails open. So when the runner is
+ * missing, the shell turns MODULE_NOT_FOUND into "nothing to say", and only a
+ * path check can tell the two apart. Measured 2026-10-11 on the vigiles
+ * repository itself: both of its nudges dead since #260, three weeks, every gate
+ * green — the runner was never checked (a `$CLAUDE_PROJECT_DIR` path read as
+ * unresolved) and the file it was wired in was never read (the repo is a plugin,
+ * and the loader reads the manifest's hooks instead).
+ *
+ * The shadowed registrations feed ONLY the existence list: the inline and
+ * hand-written counts, and every other hook detector, still see what the
+ * loader chose — widening those is a separate decision.
+ */
+export function scanHookScripts(
+  regs: readonly HookRegistration[],
+  shadowed: readonly HookRegistration[],
+  scan: HookScriptScan,
+): { hooks: ScanHook[]; inline: number; manual: number } {
+  const run = (r: readonly HookRegistration[]) =>
+    scanHooks(
+      r,
+      scan.root,
+      scan.layout.pluginRootToken,
+      scan.exists,
+      scan.layout.projectRootTokens,
+    );
+  const primary = run(regs);
+  const byScript = new Map<string, ScanHook>();
+  for (const h of [...primary.hooks, ...run(shadowed).hooks])
+    if (!byScript.has(h.script)) byScript.set(h.script, h);
+  const hooks = [...byScript.values()]
+    .map((h): ScanHook => {
+      if (h.status !== "missing") return h;
+      const abs = isAbsolute(h.script)
+        ? h.script
+        : resolve(scan.root, h.script);
+      return scan.observable(abs) ? h : { ...h, status: "unresolved" };
+    })
+    .sort((a, b) => a.script.localeCompare(b.script));
+  return { hooks, inline: primary.inline, manual: primary.manual };
+}
+
+/** True when `absPath` lies inside a `node_modules` directory. */
+export function isDependencyPath(absPath: string): boolean {
+  return absPath.split(/[\\/]/).includes("node_modules");
 }
 
 // ---------------------------------------------------------------------------

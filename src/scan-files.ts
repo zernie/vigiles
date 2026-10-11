@@ -96,7 +96,8 @@ import {
   scanAgents,
   scanSkills,
   skillRefSources,
-  scanHooks,
+  scanHookScripts,
+  isDependencyPath,
   frontmatterIssuesFor,
   frontmatterValueIssuesFor,
   skillMetaIssuesFor,
@@ -272,13 +273,30 @@ function readSettingsHooks(text: string, codec: SettingsCodec): unknown {
 function readHooks(
   files: Record<string, string>,
   layout: PluginLayout,
-): unknown {
+): { readonly hooks: unknown; readonly shadowed: unknown } {
+  const text = files[layout.settingsPath];
+  const settings = (): unknown =>
+    text === undefined ? undefined : readSettingsHooks(text, layout.settings);
+  const plugin = readPluginHooks(files, layout);
+  return plugin.declared
+    ? { hooks: plugin.hooks, shadowed: settings() }
+    : { hooks: settings(), shadowed: undefined };
+}
+
+/** Mirror of plugin-loader.ts `readPluginHooks`, over the file map. */
+function readPluginHooks(
+  files: Record<string, string>,
+  layout: PluginLayout,
+): { readonly declared: boolean; readonly hooks: unknown } {
   const m = readManifest(files, layout);
   if (m) {
     if (typeof m.hooks === "string") {
-      return readHooksJsonFile(files, m.hooks.replace(/^\.\//, ""));
+      return {
+        declared: true,
+        hooks: readHooksJsonFile(files, m.hooks.replace(/^\.\//, "")),
+      };
     }
-    if (m.hooks !== undefined) return m.hooks;
+    if (m.hooks !== undefined) return { declared: true, hooks: m.hooks };
   }
   // Optional: a harness whose hooks are in-process code modules has no
   // standalone hooks FILE. Mirrors the disk loader.
@@ -286,13 +304,12 @@ function readHooks(
     layout.hooksConventionPath !== undefined &&
     hasFile(files, layout.hooksConventionPath)
   ) {
-    return readHooksJsonFile(files, layout.hooksConventionPath);
+    return {
+      declared: true,
+      hooks: readHooksJsonFile(files, layout.hooksConventionPath),
+    };
   }
-  const settings = files[layout.settingsPath];
-  if (settings !== undefined) {
-    return readSettingsHooks(settings, layout.settings);
-  }
-  return undefined;
+  return { declared: false, hooks: undefined };
 }
 
 /** Whether the plugin declares any MCP servers (standalone file or manifest key). */
@@ -580,7 +597,7 @@ export function loadPluginFromFiles(
   layout: PluginLayout,
   repoName?: string,
 ): LoadedPlugin {
-  const hooks = readHooks(files, layout);
+  const { hooks, shadowed } = readHooks(files, layout);
   const resolvedHooks = hooks
     ? (JSON.parse(
         JSON.stringify(hooks).replaceAll(layout.pluginRootToken, BROWSER_ROOT),
@@ -616,6 +633,7 @@ export function loadPluginFromFiles(
       out,
       repoName ?? basename(BROWSER_ROOT),
     ),
+    ...(shadowed === undefined ? {} : { shadowedSettingsHooks: shadowed }),
   };
 }
 
@@ -677,12 +695,16 @@ export function scanFiles(
   const loaded = loadPluginFromFiles(files, lay, repoName);
   const exists = mapExists(files);
   const hookRegs = normalizeHooks(loaded.settings.hooks);
-  const { hooks, inline, manual } = scanHooks(
+  const { hooks, inline, manual } = scanHookScripts(
     hookRegs,
-    BROWSER_ROOT,
-    lay.pluginRootToken,
-    exists,
-    lay.projectRootTokens,
+    normalizeHooks(loaded.shadowedSettingsHooks),
+    {
+      root: BROWSER_ROOT,
+      layout: lay,
+      exists,
+      // A fetched file map never holds node_modules: absence there proves nothing.
+      observable: (abs) => !isDependencyPath(abs),
+    },
   );
   const eventNames = hookEventNames(loaded.settings.hooks);
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
