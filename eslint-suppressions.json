@@ -2203,6 +2203,9 @@
     },
     "boundaries/dependencies": {
       "count": 2
+    },
+    "functional/prefer-immutable-types": {
+      "count": 1
     }
   },
   "src/core/tmp-root.ts": {

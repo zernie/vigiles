@@ -374,8 +374,8 @@
     "max-lines-per-function": 128
   },
   "src/core/validate.ts": {
-    "max-lines-per-function": 72,
-    "complexity": 17,
+    "max-lines-per-function": 66,
+    "complexity": 16,
     "max-depth": 4,
     "sonarjs/cognitive-complexity": 23
   },
