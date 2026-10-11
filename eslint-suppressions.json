@@ -747,7 +747,7 @@
       "count": 100
     },
     "functional/no-loop-statements": {
-      "count": 114
+      "count": 113
     },
     "functional/prefer-immutable-types": {
       "count": 195
@@ -999,16 +999,16 @@
       "count": 2
     },
     "functional/immutable-data": {
-      "count": 87
+      "count": 85
     },
     "functional/no-let": {
       "count": 7
     },
     "functional/no-loop-statements": {
-      "count": 18
+      "count": 15
     },
     "functional/prefer-immutable-types": {
-      "count": 51
+      "count": 48
     },
     "no-param-reassign": {
       "count": 1

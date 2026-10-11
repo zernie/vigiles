@@ -11,7 +11,7 @@ import { instructionFile, guidance } from "./core/spec.js";
 
 export default instructionFile({
   sections: {
-    scope: `Working in \`src/\`? The root \`CLAUDE.md\` holds the full positioning, architecture, and rule set — read it first. This file adds the discipline specific to the CLI surface (\`src/cli.ts\`, \`src/cli-main.ts\`, \`src/cli-commands.ts\`): keep the command set small and cohesive.`,
+    scope: `Working in \`src/\`? The root \`CLAUDE.md\` holds the full positioning, architecture, and rule set — read it first. This file adds the discipline specific to the CLI surface (\`src/cli.ts\`, \`src/cli-main.ts\`, \`src/cli-commands.ts\`): keep the command set small and cohesive. A new walk over the user's repository goes through \`src/exclude.ts\`, so \`.vigilesrc.json#exclude\` applies to it; a walk that does not import it ignores what the user excluded.`,
   },
 
   keyFiles: {

@@ -307,3 +307,71 @@ function refsInInline(
       out.push({ kind: "code", value: child.content, line });
   }
 }
+
+/**
+ * The fragment ids a markdown file defines — what `file.md#<id>` can land on.
+ *
+ * Two sources, because both are how real files are linked into:
+ *
+ * - every HEADING, slugged the way GitHub slugs it (lowercase; drop everything
+ *   that is not a letter, number, space, `-` or `_`; spaces to `-`; a repeated
+ *   slug gets `-1`, `-2`, …), with the heading's text taken from the parser's
+ *   inline token, so emphasis and code spans do not leak their markers in;
+ * - every explicit `id="…"` / `name="…"` on raw HTML (`<a id="why"></a>`), which
+ *   is how a file in a non-Latin language gives its sections stable ASCII ids.
+ *
+ * Other renderers slug differently (GitLab, mkdocs). A link that resolves on
+ * GitHub and nowhere else is still a link this accepts; one that resolves
+ * NOWHERE — a renamed heading — is what it exists to catch.
+ */
+export function markdownAnchors(src: string): ReadonlySet<string> {
+  // The html-enabled parser: with the shared one, `<a id="x">` is paragraph
+  // text and its id would be invisible.
+  const tokens: readonly MdNode[] = mdProse().parse(src, {});
+  const headings = tokens.flatMap((t, i) =>
+    t.type === "heading_open" ? [headingSlug(tokens[i + 1])] : [],
+  );
+  const explicit = tokens
+    .flatMap(htmlOf)
+    .flatMap((h) => [...h.matchAll(HTML_ID)].map((m) => m[1]));
+  return new Set([...numberRepeats(headings), ...explicit]);
+}
+
+/** The part of a markdown-it token the anchor scan reads. */
+interface MdNode {
+  readonly type: string;
+  readonly content: string;
+  readonly children?: readonly MdNode[] | null;
+}
+
+/** An explicit `id="…"` / `name="…"` on raw HTML. */
+const HTML_ID = /\b(?:id|name)\s*=\s*["']([^"']+)["']/g;
+
+/** A heading's GitHub slug before repeats are numbered, from its inline token. */
+function headingSlug(inline: MdNode | undefined): string {
+  return (inline?.children ?? [])
+    .filter((c) => c.type === "text" || c.type === "code_inline")
+    .map((c) => c.content)
+    .join("")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+    .trim()
+    .replace(/\s/g, "-");
+}
+
+/** GitHub's numbering of a repeated slug: `x`, `x-1`, `x-2`, … */
+function numberRepeats(bases: readonly string[]): readonly string[] {
+  return bases.map((base, i) => {
+    const k = bases.slice(0, i).filter((b) => b === base).length;
+    return k === 0 ? base : `${base}-${String(k)}`;
+  });
+}
+
+/** The raw HTML a token carries: a block, an inline, or an inline run's HTML. */
+function htmlOf(t: MdNode): readonly string[] {
+  if (t.type === "html_block" || t.type === "html_inline") return [t.content];
+  if (t.type !== "inline") return [];
+  return (t.children ?? [])
+    .filter((c) => c.type === "html_inline")
+    .map((c) => c.content);
+}

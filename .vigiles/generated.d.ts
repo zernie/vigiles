@@ -100,7 +100,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 529 project files. */
+  /** 530 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -380,6 +380,7 @@ declare module "vigiles/generated" {
     | "src/core/rule-catalog.ts"
     | "src/core/rule-meta.test.ts"
     | "src/core/rule-meta.ts"
+    | "src/core/rule-render.test.ts"
     | "src/core/run-env.test.ts"
     | "src/core/run-env.ts"
     | "src/core/runtime.ts"
@@ -981,6 +982,7 @@ declare module "vigiles/spec" {
       | "src/core/rule-catalog.ts"
       | "src/core/rule-meta.test.ts"
       | "src/core/rule-meta.ts"
+      | "src/core/rule-render.test.ts"
       | "src/core/run-env.test.ts"
       | "src/core/run-env.ts"
       | "src/core/runtime.ts"

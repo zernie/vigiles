@@ -101,17 +101,20 @@ export interface EffectRegion {
 // @public
 export function enforce(ref: NoInfer<StrictLinterRule> | VigilesRef, why: string, options?: {
     verify?: boolean;
-}): EnforceRule;
+    render?: RuleRender;
+} & RuleDetailsOptions): EnforceRule;
 
 // @public
 export type EnforcementRef = LinterRule | VigilesRef;
 
 // @public
 export interface EnforceRule {
+    readonly details?: RuleDetails;
     // (undocumented)
     readonly _kind: "enforce";
     // (undocumented)
     readonly linterRule: LinterRule | VigilesRef;
+    readonly render?: RuleRender;
     readonly verify: boolean;
     // (undocumented)
     readonly why: string;
@@ -182,10 +185,11 @@ export interface GuardRule {
 }
 
 // @public
-export function guidance(text: string): GuidanceRule;
+export function guidance(text: string, options?: RuleDetailsOptions): GuidanceRule;
 
 // @public
 export interface GuidanceRule {
+    readonly details?: RuleDetails;
     // (undocumented)
     readonly _kind: "guidance";
     // (undocumented)

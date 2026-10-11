@@ -124,6 +124,21 @@ const testCoverageConfig = z
   .strict();
 
 /**
+ * Thresholds for `compile-budget`, in characters. Each one left out keeps its
+ * built-in default; `0` turns that one budget off.
+ */
+const compileBudgetThresholds = z
+  .object({
+    /** One `commands` description. */
+    maxEntryChars: z.number().optional(),
+    /** One named prose section. */
+    maxSectionChars: z.number().optional(),
+    /** The whole rendered Rules section. */
+    maxRulesChars: z.number().optional(),
+  })
+  .strict();
+
+/**
  * Every validation rule, with its shipped default severity.
  *
  * 🔴 THIS OBJECT IS THE RULE SET. `rules-docs-in-sync` already treats the
@@ -157,6 +172,7 @@ const rulesSchema = z
     "disallowed-tools-contract": severitySchema.default("warn"),
     "description-overlap": severitySchema.default("warn"),
     "skill-description-budget": severitySchema.default("warn"),
+    "compile-budget": withOptions(compileBudgetThresholds).default("warn"),
     "frontmatter-valid": severitySchema.default("warn"),
     "mcp-hook-target-resolves": severitySchema.default("warn"),
     "lethal-trifecta": severitySchema.default("warn"),

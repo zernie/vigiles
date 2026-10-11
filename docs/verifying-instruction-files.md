@@ -157,7 +157,7 @@ Beyond the references above, `vigiles lint` runs a set of **deterministic valida
 
 | Surface (the gate)          | Rules                                                                                                                                                           | Applies to                                |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Instruction file &amp; docs | `require-instructions-spec`, `integrity`, `coverage`, `unmarked-refs`, `orphan-docs`, `instruction-weight`                                                      | all harnesses                             |
+| Instruction file &amp; docs | `require-instructions-spec`, `integrity`, `coverage`, `unmarked-refs`, `orphan-docs`, `instruction-weight`, `compile-budget`                                    | all harnesses                             |
 | Skills                      | `untested-skill`, `skill-frontmatter`, `description-overlap`, `skill-description-budget`, `frontmatter-valid`, `skill-resource-resolves`, `skill-missing-fence` | all with skills                           |
 | Plugin layout               | `plugin-dir-layout`                                                                                                                                             | all with a plugin manifest                |
 | MCP                         | `mcp-config`                                                                                                                                                    | all with MCP                              |
@@ -178,6 +178,7 @@ The per-family tables below give each rule's default severity and what it checks
 | [`spec-refs`](rules/spec-refs.md)                                 | `"error"` | A compiled instruction file whose spec references a file, script or symbol that no longer exists |
 | [`duplicate-rules`](rules/duplicate-rules.md)                     | `"warn"`  | Two rules **within one spec** saying the same thing (deterministic NCD similarity, no model)     |
 | [`require-skill-spec`](rules/require-skill-spec.md)               | `false`   | Every SKILL.md has a `.spec.ts` (the consistent parallel; off by default)                        |
+| [`compile-budget`](rules/compile-budget.md)                       | `"warn"`  | A compiled instruction file stays within its size budgets; `error` under `vigiles:recommended`   |
 
 ### Test coverage
 
