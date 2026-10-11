@@ -35,7 +35,7 @@
  *   assertion is `assertHookBlocked`;
  * - `systemMessage` is not judged: it is addressed to the user by design.
  */
-import type { EventCapabilityTable } from "./event-capability.js";
+import type { EventCapabilityTable, HookChannel } from "./event-capability.js";
 import { capabilityOf } from "./event-capability.js";
 
 /** A route by which hook text reached the model. */
@@ -114,21 +114,148 @@ const byteLength = (s: string): number => new TextEncoder().encode(s).length;
 const nonEmpty = (v: unknown): v is string =>
   typeof v === "string" && v.trim().length > 0;
 
-function hookSpecific(json: HookEmission["json"]): Record<string, unknown> {
-  const h = json?.hookSpecificOutput;
-  return typeof h === "object" && h !== null
-    ? (h as Record<string, unknown>)
-    : {};
+const isRecord = (v: unknown): v is Readonly<Record<string, unknown>> =>
+  typeof v === "object" && v !== null;
+
+function hookSpecific(
+  json: HookEmission["json"],
+): Readonly<Record<string, unknown>> {
+  const h: unknown = json?.hookSpecificOutput;
+  return isRecord(h) ? h : {};
 }
+
+/** One stream's contribution: channels it reached, text it stranded. */
+interface Part {
+  readonly via: readonly DeliveryChannel[];
+  readonly stranded: readonly StrandedOutput[];
+}
+
+const NONE: Part = { via: [], stranded: [] };
+const reached = (channel: DeliveryChannel): Part => ({
+  via: [channel],
+  stranded: [],
+});
+const strand = (
+  stream: StrandedOutput["stream"],
+  text: string,
+  why: string,
+): Part => ({ via: [], stranded: [{ stream, bytes: byteLength(text), why }] });
 
 /** True iff the JSON or the exit code expresses a veto under this protocol. */
 function vetoExpressed(e: HookEmission, f: DeliveryFacts): boolean {
-  if (e.exitCode === f.blockExitCode) return true;
   const permission = hookSpecific(e.json).permissionDecision;
   const decision = permission ?? e.json?.decision;
-  if (typeof decision === "string" && f.denyDecisionValues.includes(decision))
-    return true;
-  return f.haltsTurnField !== undefined && e.json?.[f.haltsTurnField] === false;
+  const denied =
+    typeof decision === "string" && f.denyDecisionValues.includes(decision);
+  const halted =
+    f.haltsTurnField !== undefined && e.json?.[f.haltsTurnField] === false;
+  return e.exitCode === f.blockExitCode || denied || halted;
+}
+
+/** Where a non-empty `additionalContext` goes on this event. */
+function contextDelivery(
+  e: HookEmission,
+  honours: readonly HookChannel[],
+): Part {
+  return honours.includes("inject")
+    ? reached("additional-context")
+    : strand(
+        "stdout",
+        e.stdout,
+        `\`${e.event}\` does not honour additionalContext — the text is ` +
+          `dropped. Move the hook to an event that injects context.`,
+      );
+}
+
+/** `additionalContext` and a feedback-event `decision` reason, from JSON stdout. */
+function jsonParts(
+  e: HookEmission,
+  f: DeliveryFacts,
+  honours: readonly HookChannel[],
+): readonly Part[] {
+  if (e.json === null) return [];
+  const context = hookSpecific(e.json).additionalContext;
+  const contextPart = nonEmpty(context) ? contextDelivery(e, honours) : NONE;
+  const decision = e.json.decision;
+  const reasonDelivered =
+    typeof decision === "string" &&
+    f.denyDecisionValues.includes(decision) &&
+    nonEmpty(e.json.reason) &&
+    honours.includes("feedback");
+  return [contextPart, reasonDelivered ? reached("decision-reason") : NONE];
+}
+
+/** Plain (non-JSON) stdout: context only at exit 0 on a `stdout-context` event. */
+function plainStdoutPart(
+  e: HookEmission,
+  honours: readonly HookChannel[],
+): Part {
+  if (e.json !== null || e.stdout.trim().length === 0) return NONE;
+  if (e.exitCode !== 0) {
+    return strand(
+      "stdout",
+      e.stdout,
+      `plain stdout is only ever context at exit 0; this hook exited ` +
+        `${String(e.exitCode)}.`,
+    );
+  }
+  return honours.includes("stdout-context")
+    ? reached("plain-stdout")
+    : strand(
+        "stdout",
+        e.stdout,
+        `plain stdout on \`${e.event}\` is not added to the model's context ` +
+          `(it goes to the debug log). Emit JSON ` +
+          `\`hookSpecificOutput.additionalContext\` instead.`,
+      );
+}
+
+/** Why stderr reached no channel — an instruction, not a verdict. */
+function stderrWhy(
+  e: HookEmission,
+  f: DeliveryFacts,
+  honours: readonly HookChannel[],
+): string {
+  const block = String(f.blockExitCode);
+  if (e.exitCode === f.blockExitCode) {
+    return `exit ${block} on \`${e.event}\` neither stops anything nor feeds stderr to the model.`;
+  }
+  if (e.exitCode !== 0) {
+    return `exit ${String(e.exitCode)} is a non-blocking error: at most the first line of stderr is shown to the USER, never to the model.`;
+  }
+  const orExit = honours.includes("feedback")
+    ? `, or exit ${block} (\`${e.event}\` feeds that stderr back to the model)`
+    : "";
+  return `stderr from a hook that exits 0 reaches no channel the model reads. Emit JSON \`hookSpecificOutput.additionalContext\` on stdout${orExit}.`;
+}
+
+/** stderr: delivered only at the block exit code on a `feedback` event. */
+function stderrPart(
+  e: HookEmission,
+  f: DeliveryFacts,
+  honours: readonly HookChannel[],
+): Part {
+  if (e.stderr.trim().length === 0) return NONE;
+  return e.exitCode === f.blockExitCode && honours.includes("feedback")
+    ? reached("exit-code-feedback")
+    : strand("stderr", e.stderr, stderrWhy(e, f, honours));
+}
+
+/** The verdict for an event the table has no row for. */
+function unrecordedEvent(e: HookEmission, f: DeliveryFacts): HookDelivery {
+  const legacy = f.table === undefined ? (f.injectableEvents ?? []) : [];
+  if (
+    nonEmpty(hookSpecific(e.json).additionalContext) &&
+    legacy.includes(e.event)
+  ) {
+    return { kind: "delivered", via: ["additional-context"], stranded: [] };
+  }
+  const why =
+    e.event === ""
+      ? "the event carries no hook_event_name, so there is no event to judge against"
+      : `the harness's capability table has no row for \`${e.event}\`, so where ` +
+        `its output goes is not recorded — add the row (with its basis) to judge it`;
+  return { kind: "unknown", event: e.event, why };
 }
 
 /**
@@ -140,110 +267,36 @@ function vetoExpressed(e: HookEmission, f: DeliveryFacts): boolean {
  *    else `unknown`;
  * 3. a veto on an event that honours one → `blocked`;
  * 4. otherwise collect every channel that carried text, and every stream that
- *    carried text to no channel; at least one channel → `delivered`.
+ *    carried text to no channel; at least one channel → `delivered`. A JSON
+ *    object on stdout is applied on any exit code (the host's exit-code table:
+ *    valid JSON is "Success" at exit 0 and at any other code, and its fields
+ *    are still read at exit 2); plain text is context only at exit 0.
  */
 export function hookOutputDelivery(
   e: HookEmission,
   f: DeliveryFacts,
 ): HookDelivery {
-  const hasStdout = e.stdout.trim().length > 0;
-  const hasStderr = e.stderr.trim().length > 0;
-  if (!hasStdout && !hasStderr) return { kind: "silent" };
-
-  const context = hookSpecific(e.json).additionalContext;
-  const verdict = capabilityOf(f.table, e.event);
-  if (verdict.kind === "unknown") {
-    const legacy = f.table === undefined ? (f.injectableEvents ?? []) : [];
-    if (nonEmpty(context) && legacy.includes(e.event)) {
-      return { kind: "delivered", via: ["additional-context"], stranded: [] };
-    }
-    return {
-      kind: "unknown",
-      event: e.event,
-      why:
-        e.event === ""
-          ? "the event carries no hook_event_name, so there is no event to judge against"
-          : `the harness's capability table has no row for \`${e.event}\`, so ` +
-            `where its output goes is not recorded — add the row (with its basis) ` +
-            `to judge it`,
-    };
+  if (e.stdout.trim().length === 0 && e.stderr.trim().length === 0) {
+    return { kind: "silent" };
   }
+  const verdict = capabilityOf(f.table, e.event);
+  if (verdict.kind === "unknown") return unrecordedEvent(e, f);
   const honours = verdict.capability.honours;
-
   if (honours.includes("veto") && vetoExpressed(e, f)) {
     return { kind: "blocked", stranded: [] };
   }
-
-  const via: DeliveryChannel[] = [];
-  const stranded: StrandedOutput[] = [];
-  const atBlock = e.exitCode === f.blockExitCode;
-  // A JSON object on stdout is applied on any exit code (the host's own
-  // exit-code table: valid JSON is "Success" at exit 0 and at any other code,
-  // and its fields are still read at exit 2). Plain text is context only at 0.
-  if (e.json !== null) {
-    if (nonEmpty(context)) {
-      if (honours.includes("inject")) via.push("additional-context");
-      else
-        stranded.push({
-          stream: "stdout",
-          bytes: byteLength(e.stdout),
-          why:
-            `\`${e.event}\` does not honour additionalContext — the text is ` +
-            `dropped. Move the hook to an event that injects context.`,
-        });
-    }
-    const decision = e.json.decision;
-    if (
-      typeof decision === "string" &&
-      f.denyDecisionValues.includes(decision) &&
-      nonEmpty(e.json.reason) &&
-      honours.includes("feedback")
-    ) {
-      via.push("decision-reason");
-    }
-  } else if (hasStdout) {
-    if (e.exitCode === 0 && honours.includes("stdout-context")) {
-      via.push("plain-stdout");
-    } else {
-      stranded.push({
-        stream: "stdout",
-        bytes: byteLength(e.stdout),
-        why:
-          e.exitCode === 0
-            ? `plain stdout on \`${e.event}\` is not added to the model's ` +
-              `context (it goes to the debug log). Emit JSON ` +
-              `\`hookSpecificOutput.additionalContext\` instead.`
-            : `plain stdout is only ever context at exit 0; this hook exited ` +
-              `${String(e.exitCode)}.`,
-      });
-    }
-  }
-
-  if (hasStderr) {
-    if (atBlock && honours.includes("feedback")) {
-      via.push("exit-code-feedback");
-    } else {
-      stranded.push({
-        stream: "stderr",
-        bytes: byteLength(e.stderr),
-        why:
-          e.exitCode === 0
-            ? `stderr from a hook that exits 0 reaches no channel the model ` +
-              `reads. Emit JSON \`hookSpecificOutput.additionalContext\` on ` +
-              `stdout${honours.includes("feedback") ? `, or exit ${String(f.blockExitCode)} (\`${e.event}\` feeds that stderr back to the model)` : ""}.`
-            : atBlock
-              ? `exit ${String(f.blockExitCode)} on \`${e.event}\` neither ` +
-                `stops anything nor feeds stderr to the model.`
-              : `exit ${String(e.exitCode)} is a non-blocking error: at most ` +
-                `the first line of stderr is shown to the USER, never to the model.`,
-      });
-    }
-  }
-
+  const parts = [
+    ...jsonParts(e, f, honours),
+    plainStdoutPart(e, honours),
+    stderrPart(e, f, honours),
+  ];
+  const via = parts.flatMap((p) => p.via);
+  const stranded = parts.flatMap((p) => p.stranded);
   if (via.length > 0) return { kind: "delivered", via, stranded };
   // Control-only JSON (`permissionDecision: "allow"`, a bare `systemMessage`)
   // printed something, but nothing addressed to the model — that is silence,
   // not a stranded nudge.
-  if (stranded.length === 0) return { kind: "silent" };
-  return { kind: "undelivered", stranded };
+  return stranded.length === 0
+    ? { kind: "silent" }
+    : { kind: "undelivered", stranded };
 }

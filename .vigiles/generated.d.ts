@@ -100,7 +100,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 529 project files. */
+  /** 533 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -132,6 +132,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/event-capability.ts"
     | "src/adapters/claude-code/harness-output-style.test.ts"
     | "src/adapters/claude-code/hook-condition.ts"
+    | "src/adapters/claude-code/hook-delivery.test.ts"
     | "src/adapters/claude-code/hook-protocol.ts"
     | "src/adapters/claude-code/instruction-chain.test.ts"
     | "src/adapters/claude-code/instruction-chain.ts"
@@ -175,6 +176,7 @@ declare module "vigiles/generated" {
     | "src/adapters/codex/eval.test.ts"
     | "src/adapters/codex/eval.ts"
     | "src/adapters/codex/harness-test.test.ts"
+    | "src/adapters/codex/hook-delivery.test.ts"
     | "src/adapters/codex/hook-protocol.ts"
     | "src/adapters/codex/instruction-chain.test.ts"
     | "src/adapters/codex/instruction-chain.ts"
@@ -313,6 +315,8 @@ declare module "vigiles/generated" {
     | "src/core/hook-block-ineffective.test.ts"
     | "src/core/hook-block-ineffective.ts"
     | "src/core/hook-condition.ts"
+    | "src/core/hook-delivery.test.ts"
+    | "src/core/hook-delivery.ts"
     | "src/core/hook-events.test.ts"
     | "src/core/hook-events.ts"
     | "src/core/hook-matcher.test.ts"
@@ -733,6 +737,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/event-capability.ts"
       | "src/adapters/claude-code/harness-output-style.test.ts"
       | "src/adapters/claude-code/hook-condition.ts"
+      | "src/adapters/claude-code/hook-delivery.test.ts"
       | "src/adapters/claude-code/hook-protocol.ts"
       | "src/adapters/claude-code/instruction-chain.test.ts"
       | "src/adapters/claude-code/instruction-chain.ts"
@@ -776,6 +781,7 @@ declare module "vigiles/spec" {
       | "src/adapters/codex/eval.test.ts"
       | "src/adapters/codex/eval.ts"
       | "src/adapters/codex/harness-test.test.ts"
+      | "src/adapters/codex/hook-delivery.test.ts"
       | "src/adapters/codex/hook-protocol.ts"
       | "src/adapters/codex/instruction-chain.test.ts"
       | "src/adapters/codex/instruction-chain.ts"
@@ -914,6 +920,8 @@ declare module "vigiles/spec" {
       | "src/core/hook-block-ineffective.test.ts"
       | "src/core/hook-block-ineffective.ts"
       | "src/core/hook-condition.ts"
+      | "src/core/hook-delivery.test.ts"
+      | "src/core/hook-delivery.ts"
       | "src/core/hook-events.test.ts"
       | "src/core/hook-events.ts"
       | "src/core/hook-matcher.test.ts"

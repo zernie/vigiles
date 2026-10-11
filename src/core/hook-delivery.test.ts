@@ -1,15 +1,14 @@
 /**
  * hookOutputDelivery — did a hook's text reach the model? (unit tier, pure.)
  *
- * The first case is the measured defect, byte-for-byte in shape: a PostToolUse
- * hook writes its finding to stderr and exits 0. Every other case pins one row
- * of the host's documented routing (code.claude.com/docs/en/hooks, § Exit code
- * output / § Exit code 0 / § Exit code 2 behavior per event), so a change to the
- * capability table that silently flips a verdict shows up here.
+ * The first case is the measured defect, in shape: a PostToolUse hook writes its
+ * finding to stderr and exits 0. The rest pin each branch of the verdict.
  *
- * Run against the Claude Code table AND against a table-less (Codex-shaped)
- * fact set, because the fallback is a different code path with a different,
- * weaker claim (`test-both-harnesses`).
+ * Harness-NEUTRAL on purpose (`test-both-harnesses` rule 3: agnostic core is
+ * tested once): the facts below are a FIXTURE table, not an adapter's. That the
+ * real tables give the documented verdicts is pinned beside each adapter —
+ * `src/adapters/claude-code/hook-delivery.test.ts` and
+ * `src/adapters/codex/hook-delivery.test.ts`.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -17,43 +16,68 @@ import {
   type DeliveryFacts,
   type HookEmission,
 } from "./hook-delivery.js";
-import { claudeCodeEventCapabilities } from "../adapters/claude-code/event-capability.js";
-import { claudeCodeHookProtocol } from "../adapters/claude-code/hook-protocol.js";
-import { codexHookProtocol } from "../adapters/codex/hook-protocol.js";
+import type { EventCapability } from "./event-capability.js";
 
-const cc: DeliveryFacts = {
-  table: claudeCodeEventCapabilities,
-  blockExitCode: claudeCodeHookProtocol.blockExitCode,
-  denyDecisionValues: claudeCodeHookProtocol.denyDecisionValues,
-  haltsTurnField: claudeCodeHookProtocol.haltsTurnField,
+const row = (
+  carries: EventCapability["carries"],
+  honours: EventCapability["honours"],
+): EventCapability => ({
+  carries,
+  honours,
+  matcher: carries === "tool",
+  denyShape: "exit-code",
+});
+
+const facts: DeliveryFacts = {
+  table: {
+    capturedFrom: "fixture",
+    events: {
+      SessionStart: row("session", ["inject", "stdout-context"]),
+      UserPromptSubmit: row("prompt", ["veto", "inject", "stdout-context"]),
+      PreToolUse: row("tool", ["veto", "ask", "inject"]),
+      PostToolUse: row("tool", ["feedback", "inject"]),
+      Stop: row("stop", ["veto", "inject"]),
+      SubagentStop: row("stop", ["veto"]),
+    },
+  },
+  blockExitCode: 2,
+  denyDecisionValues: ["block", "deny"],
+  haltsTurnField: "continue",
 };
 
-// Codex has no capability table: only the legacy injectable list is a fact.
-const codex: DeliveryFacts = {
+// A harness with no table: only its legacy injectable list is a fact.
+const tableless: DeliveryFacts = {
   table: undefined,
-  blockExitCode: codexHookProtocol.blockExitCode,
-  denyDecisionValues: codexHookProtocol.denyDecisionValues,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the table-less fallback IS the subject here
-  injectableEvents: codexHookProtocol.injectableEvents,
+  blockExitCode: 2,
+  denyDecisionValues: ["block", "deny"],
+  injectableEvents: ["PostToolUse"],
 };
+
+const isRecord = (v: unknown): v is Readonly<Record<string, unknown>> =>
+  typeof v === "object" && v !== null;
+
+function parseJson(stdout: string): HookEmission["json"] {
+  const trimmed = stdout.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 const emit = (
   event: string,
   exitCode: number,
-  streams: { stdout?: string; stderr?: string },
-): HookEmission => {
-  const stdout = streams.stdout ?? "";
-  const trimmed = stdout.trim();
-  let json: HookEmission["json"] = null;
-  if (trimmed.startsWith("{")) {
-    try {
-      json = JSON.parse(trimmed) as Record<string, unknown>;
-    } catch {
-      json = null;
-    }
-  }
-  return { event, exitCode, stdout, stderr: streams.stderr ?? "", json };
-};
+  streams: { readonly stdout?: string; readonly stderr?: string },
+): HookEmission => ({
+  event,
+  exitCode,
+  stdout: streams.stdout ?? "",
+  stderr: streams.stderr ?? "",
+  json: parseJson(streams.stdout ?? ""),
+});
 
 const ctx = (event: string, text: string): string =>
   JSON.stringify({
@@ -64,7 +88,7 @@ describe("the measured defect: stderr + exit 0 on PostToolUse", () => {
   it("is UNDELIVERED, and says which stream and what to do instead", () => {
     const d = hookOutputDelivery(
       emit("PostToolUse", 0, { stderr: "x".repeat(237) }),
-      cc,
+      facts,
     );
     expect(d.kind).toBe("undelivered");
     if (d.kind !== "undelivered") return;
@@ -79,7 +103,7 @@ describe("the measured defect: stderr + exit 0 on PostToolUse", () => {
   it("the same text via exit 2 IS delivered (PostToolUse feedback)", () => {
     const d = hookOutputDelivery(
       emit("PostToolUse", 2, { stderr: "fix X" }),
-      cc,
+      facts,
     );
     expect(d).toEqual({
       kind: "delivered",
@@ -87,11 +111,13 @@ describe("the measured defect: stderr + exit 0 on PostToolUse", () => {
       stranded: [],
     });
   });
+});
 
+describe("the cures deliver", () => {
   it("the same text via additionalContext IS delivered", () => {
     const d = hookOutputDelivery(
       emit("PostToolUse", 0, { stdout: ctx("PostToolUse", "fix X") }),
-      cc,
+      facts,
     );
     expect(d.kind).toBe("delivered");
     expect(d.kind === "delivered" && d.via).toEqual(["additional-context"]);
@@ -104,20 +130,22 @@ describe("the measured defect: stderr + exit 0 on PostToolUse", () => {
         stdout: ctx("PostToolUse", "fix X"),
         stderr: "fix X",
       }),
-      cc,
+      facts,
     );
     expect(d.kind).toBe("delivered");
     expect(d.kind === "delivered" && d.stranded.map((s) => s.stream)).toEqual([
       "stderr",
     ]);
   });
+});
 
+describe("a feedback-event decision reason", () => {
   it("JSON decision:block + reason on PostToolUse reaches the model", () => {
     const d = hookOutputDelivery(
       emit("PostToolUse", 0, {
         stdout: JSON.stringify({ decision: "block", reason: "fix X" }),
       }),
-      cc,
+      facts,
     );
     expect(d.kind === "delivered" && d.via).toEqual(["decision-reason"]);
   });
@@ -126,14 +154,14 @@ describe("the measured defect: stderr + exit 0 on PostToolUse", () => {
 describe("plain stdout is context only where the event says so", () => {
   it("SessionStart / UserPromptSubmit at exit 0: delivered", () => {
     for (const ev of ["SessionStart", "UserPromptSubmit"]) {
-      const d = hookOutputDelivery(emit(ev, 0, { stdout: "hello" }), cc);
+      const d = hookOutputDelivery(emit(ev, 0, { stdout: "hello" }), facts);
       expect(d.kind === "delivered" && d.via, ev).toEqual(["plain-stdout"]);
     }
   });
 
   it("PostToolUse / Stop at exit 0: stranded on stdout", () => {
     for (const ev of ["PostToolUse", "Stop"]) {
-      const d = hookOutputDelivery(emit(ev, 0, { stdout: "hello" }), cc);
+      const d = hookOutputDelivery(emit(ev, 0, { stdout: "hello" }), facts);
       expect(d.kind, ev).toBe("undelivered");
       expect(d.kind === "undelivered" && d.stranded[0].stream, ev).toBe(
         "stdout",
@@ -146,29 +174,34 @@ describe("other exits and events", () => {
   it("a non-blocking error exit (1) never reaches the model", () => {
     const d = hookOutputDelivery(
       emit("PostToolUse", 1, { stderr: "boom" }),
-      cc,
+      facts,
     );
     expect(d.kind).toBe("undelivered");
     expect(d.kind === "undelivered" && d.stranded[0].why).toMatch(/USER/);
   });
 
   it("exit 2 on SessionStart reaches neither the action nor the model", () => {
-    const d = hookOutputDelivery(emit("SessionStart", 2, { stderr: "no" }), cc);
+    const d = hookOutputDelivery(
+      emit("SessionStart", 2, { stderr: "no" }),
+      facts,
+    );
     expect(d.kind).toBe("undelivered");
   });
+});
 
+describe("events that do not carry the text", () => {
   it("additionalContext on an event that does not inject is stranded", () => {
     // SubagentStop: inject was never measured, so the table does not claim it.
     const d = hookOutputDelivery(
       emit("SubagentStop", 0, { stdout: ctx("SubagentStop", "x") }),
-      cc,
+      facts,
     );
     expect(d.kind).toBe("undelivered");
   });
 
   it("a veto is BLOCKED, not delivered — a block is not a nudge", () => {
     expect(
-      hookOutputDelivery(emit("PreToolUse", 2, { stderr: "no" }), cc).kind,
+      hookOutputDelivery(emit("PreToolUse", 2, { stderr: "no" }), facts).kind,
     ).toBe("blocked");
     expect(
       hookOutputDelivery(
@@ -181,13 +214,18 @@ describe("other exits and events", () => {
             },
           }),
         }),
-        cc,
+        facts,
       ).kind,
     ).toBe("blocked");
   });
+});
 
+describe("exit codes", () => {
   it("plain stdout at a non-zero exit is never context, even where exit 0 would be", () => {
-    const d = hookOutputDelivery(emit("SessionStart", 1, { stdout: "hi" }), cc);
+    const d = hookOutputDelivery(
+      emit("SessionStart", 1, { stdout: "hi" }),
+      facts,
+    );
     expect(d.kind).toBe("undelivered");
     expect(d.kind === "undelivered" && d.stranded[0].why).toMatch(/exit 0/);
   });
@@ -196,17 +234,19 @@ describe("other exits and events", () => {
     const halt = emit("Stop", 0, {
       stdout: JSON.stringify({ continue: false, stopReason: "run the tests" }),
     });
-    expect(hookOutputDelivery(halt, cc).kind).toBe("blocked");
+    expect(hookOutputDelivery(halt, facts).kind).toBe("blocked");
     // A protocol with no halt field: `continue:false` is just control JSON.
-    const noHalt: DeliveryFacts = { ...cc, haltsTurnField: undefined };
+    const noHalt: DeliveryFacts = { ...facts, haltsTurnField: undefined };
     expect(hookOutputDelivery(halt, noHalt).kind).toBe("silent");
   });
+});
 
+describe("silence", () => {
   it("nothing printed is SILENT, on a known event and an unknown one", () => {
-    expect(hookOutputDelivery(emit("PostToolUse", 0, {}), cc).kind).toBe(
+    expect(hookOutputDelivery(emit("PostToolUse", 0, {}), facts).kind).toBe(
       "silent",
     );
-    expect(hookOutputDelivery(emit("TaskCompleted", 0, {}), cc).kind).toBe(
+    expect(hookOutputDelivery(emit("TaskCompleted", 0, {}), facts).kind).toBe(
       "silent",
     );
   });
@@ -221,39 +261,43 @@ describe("other exits and events", () => {
           },
         }),
       }),
-      cc,
+      facts,
     );
     expect(d.kind).toBe("silent");
   });
+});
 
+describe("unknown events", () => {
   it("an event with no table row is UNKNOWN, never a guessed undelivered", () => {
-    const d = hookOutputDelivery(emit("TaskCompleted", 0, { stderr: "x" }), cc);
+    const d = hookOutputDelivery(
+      emit("TaskCompleted", 0, { stderr: "x" }),
+      facts,
+    );
     expect(d.kind).toBe("unknown");
     expect(d.kind === "unknown" && d.why).toMatch(/no row/);
   });
 
   it("an input with no event name is UNKNOWN and says so", () => {
-    const d = hookOutputDelivery(emit("", 0, { stderr: "x" }), cc);
+    const d = hookOutputDelivery(emit("", 0, { stderr: "x" }), facts);
     expect(d.kind === "unknown" && d.why).toMatch(/hook_event_name/);
   });
 });
 
-describe("a harness with no capability table (Codex)", () => {
+describe("a harness with no capability table", () => {
   it("additionalContext on a legacy-injectable event is delivered", () => {
     const d = hookOutputDelivery(
       emit("PostToolUse", 0, { stdout: ctx("PostToolUse", "x") }),
-      codex,
+      tableless,
     );
     expect(d.kind === "delivered" && d.via).toEqual(["additional-context"]);
   });
 
   it("stderr + exit 0 is UNKNOWN there — the claim is not made for it", () => {
-    // The host doc quoted in hook-delivery.ts is Claude Code's. Codex's docs do
-    // not state the exit-0 stderr routing, and it has no table to say it, so
-    // the verdict refuses to guess (fail-open, like `capabilityOf`).
+    // No table states the exit-0 stderr routing for it, so the verdict refuses
+    // to guess (fail-open, like `capabilityOf`).
     const d = hookOutputDelivery(
       emit("PostToolUse", 0, { stderr: "x" }),
-      codex,
+      tableless,
     );
     expect(d.kind).toBe("unknown");
   });

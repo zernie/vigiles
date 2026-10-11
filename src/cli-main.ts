@@ -8284,7 +8284,9 @@ async function installHooks(
         console.log(
           `✓ ${file} → ${r.settingsPath} (role: ${r.role}, harness: ${adapter.name})`,
         );
-        for (const w of r.warnings) console.warn(`⚠ ${w}`);
+        r.warnings.forEach((w) => {
+          console.warn(`⚠ ${w}`);
+        });
       }
     } catch (e) {
       if (e instanceof HookCompileError) {

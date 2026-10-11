@@ -122,6 +122,9 @@ export function assertChecks<T>(target: T, checks: readonly Check<T>[]): void;
 export function assertCreated(r: HarnessTestResult, path: string): void;
 
 // @public
+export function assertDelivered(r: HookRunResult): void;
+
+// @public
 export function assertEgressOnly(r: HasEgress, allowed: ReadonlyArray<string | RegExp>): void;
 
 // @public
@@ -396,6 +399,17 @@ export function decideSandbox(opts: {
 
 // @public
 export function defineEval<K extends EvalKind>(def: EvalDefinitionInput<K>): EvalDefinition<K>;
+
+// @public
+export type DeliveryChannel =
+/** `hookSpecificOutput.additionalContext` on an event honouring `inject`. */
+"additional-context"
+/** Plain (non-JSON) stdout at exit 0, on an event honouring `stdout-context`. */
+| "plain-stdout"
+/** stderr at the block exit code, on an event honouring `feedback`. */
+| "exit-code-feedback"
+/** JSON `decision: "block"` + `reason`, on an event honouring `feedback`. */
+| "decision-reason";
 
 // @public
 export function didNotWrite(path: string): Check<Trace>;
@@ -787,6 +801,36 @@ export interface HomeSeed {
 export function hookBlocked(trace: Trace, name: string | RegExp): boolean;
 
 // @public
+export type HookDelivery = {
+    readonly kind: "delivered";
+    readonly via: readonly DeliveryChannel[];
+    readonly stranded: readonly StrandedOutput[];
+}
+/** The hook vetoed the action. Not a nudge; see the module header. */
+| {
+    readonly kind: "blocked";
+    readonly stranded: readonly StrandedOutput[];
+}
+/** The hook printed text and none of it reached the model. Never empty. */
+| {
+    readonly kind: "undelivered";
+    readonly stranded: readonly StrandedOutput[];
+}
+/**
+* Nothing addressed to the model: empty streams, or control-only JSON
+* (`permissionDecision: "allow"`, a user-facing `systemMessage`).
+*/
+| {
+    readonly kind: "silent";
+}
+/** The table has no row for this event, so delivery cannot be judged. */
+| {
+    readonly kind: "unknown";
+    readonly event: string;
+    readonly why: string;
+};
+
+// @public
 export interface HookFire {
     readonly blocked: boolean;
     readonly event: string;
@@ -853,6 +897,7 @@ export interface HookRunResult extends ScriptRunResult {
     readonly blockedBy: readonly BlockMechanism[];
     readonly conditionReason: string;
     readonly decision: HookOutput["decision"] | "allow" | "deny" | "ask" | undefined;
+    readonly delivery: HookDelivery;
     readonly haltsTurn: boolean;
     readonly json: HookOutput | null;
     readonly ran: boolean;
@@ -1139,6 +1184,7 @@ export function runHook(command: string, input: HookInput, opts?: RunHookOptions
 export type RunHookOptions = Omit<RunScriptOptions, "stdin"> & {
     readonly condition?: string;
     readonly protocol?: HookProtocol;
+    readonly capabilities?: EventCapabilityTable;
 };
 
 // @public
@@ -1307,6 +1353,15 @@ export interface StateFact {
     olderThan(within: Duration): boolean;
     readonly recorded: boolean;
     readonly value: string;
+}
+
+// @public
+export interface StrandedOutput {
+    // (undocumented)
+    readonly bytes: number;
+    // (undocumented)
+    readonly stream: "stdout" | "stderr";
+    readonly why: string;
 }
 
 // @public

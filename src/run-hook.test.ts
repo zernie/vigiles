@@ -15,7 +15,7 @@ import {
   assertNoWrite,
 } from "./harness-assert.js";
 import { claudeCodeHookProtocol } from "./adapters/claude-code/hook-protocol.js";
-import { codexHookProtocol } from "./adapters/codex/hook-protocol.js";
+import type { EventCapabilityTable } from "./core/event-capability.js";
 import type { HookProtocol } from "./core/hook-protocol.js";
 import {
   runHook,
@@ -1071,43 +1071,30 @@ test("runHook: the same nudge as additionalContext, or via exit 2, is DELIVERED"
   assertDelivered(fed);
 });
 
-test("runHook: delivery on a harness with no capability table is judged only where its port proves it", () => {
-  // Codex: additionalContext on a legacy-injectable event is a documented fact;
-  // the exit-0 stderr routing is not recorded for it, so it is UNKNOWN — and
-  // assertDelivered fails on unknown, loudly, rather than passing it.
-  const opts = { protocol: codexHookProtocol };
-  assert.equal(
-    runHook(NUDGE_AS_CONTEXT, postEdit, opts).delivery.kind,
-    "delivered",
-  );
-  const r = runHook(NUDGE_TO_STDERR, postEdit, opts);
-  assert.equal(r.delivery.kind, "unknown");
-  assert.throws(() => {
-    assertDelivered(r);
-  }, /cannot be judged/);
-});
-
 test("runHook: an explicit capability table is the one delivery is judged against", () => {
-  // Passing a table makes a table-less protocol judgeable: here a one-row table
-  // that says PostToolUse feeds exit-2 stderr back — and nothing else.
-  const capabilities = {
+  // Override the default table with one whose PostToolUse honours ONLY inject:
+  // exit-2 stderr, delivered under the default, must now be undelivered. A
+  // table-less harness passing its own table is the same code path; its
+  // fallback without one is pinned in src/adapters/codex/hook-delivery.test.ts.
+  const capabilities: EventCapabilityTable = {
     capturedFrom: "test fixture",
     events: {
       PostToolUse: {
-        carries: "tool" as const,
-        honours: ["feedback" as const],
+        carries: "tool",
+        honours: ["inject"],
         matcher: true,
-        denyShape: "exit-code" as const,
+        denyShape: "exit-code",
       },
     },
   };
-  const opts = { protocol: codexHookProtocol, capabilities };
+  const fed = `printf x >&2; exit 2`;
+  assert.equal(runHook(fed, postEdit).delivery.kind, "delivered");
   assert.equal(
-    runHook(NUDGE_TO_STDERR, postEdit, opts).delivery.kind,
+    runHook(fed, postEdit, { capabilities }).delivery.kind,
     "undelivered",
   );
   assert.equal(
-    runHook(`printf x >&2; exit 2`, postEdit, opts).delivery.kind,
+    runHook(NUDGE_AS_CONTEXT, postEdit, { capabilities }).delivery.kind,
     "delivered",
   );
 });

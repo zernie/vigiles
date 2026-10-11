@@ -163,24 +163,24 @@ export function assertDelivered(r: HookRunResult): void {
     case "delivered":
       return;
     case "undelivered":
-      fail(
+      return fail(
         `expected the hook's output to reach the model, but none did (exit ${String(r.exitCode)}):\n` +
           d.stranded
             .map((s) => `  - ${String(s.bytes)} bytes on ${s.stream}: ${s.why}`)
             .join("\n"),
       );
     case "silent":
-      fail(
+      return fail(
         r.ran
           ? `expected the hook's output to reach the model, but it printed nothing addressed to the model (exit ${String(r.exitCode)})`
           : `expected the hook's output to reach the model, but the hook never ran: ${r.conditionReason}`,
       );
     case "blocked":
-      fail(
+      return fail(
         `expected a delivered nudge, but the hook BLOCKED the action (exit ${String(r.exitCode)}) — a block is not a nudge; assert it with assertHookBlocked`,
       );
     case "unknown":
-      fail(
+      return fail(
         `delivery cannot be judged: ${d.why}. Pass the adapter's capability table as runHook's \`capabilities\` option.`,
       );
   }

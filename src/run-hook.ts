@@ -39,7 +39,7 @@
 import type { HookProtocol } from "./core/hook-protocol.js";
 import { decideHookCondition } from "./core/hook-condition.js";
 import { claudeCodeHookProtocol } from "./adapters/claude-code/hook-protocol.js";
-import { claudeCodeEventCapabilities } from "./adapters/claude-code/event-capability.js";
+import { ADAPTERS } from "./adapter-registry.js";
 import type { EventCapabilityTable } from "./core/event-capability.js";
 import { hookOutputDelivery, type HookDelivery } from "./core/hook-delivery.js";
 import { propertyTest } from "./core/proofs.js";
@@ -88,11 +88,11 @@ export type RunHookOptions = Omit<RunScriptOptions, "stdin"> & {
   readonly protocol?: HookProtocol;
   /**
    * The harness's event capability table — what each event HONOURS — used to
-   * compute {@link HookRunResult.delivery}. Defaults to Claude Code's table when
-   * `protocol` is Claude Code's (or omitted). For any other protocol pass the
-   * adapter's `dialect.eventCapabilities`; without one, delivery is judged only
-   * where the protocol's own `injectableEvents` proves it, and is `unknown`
-   * elsewhere.
+   * compute {@link HookRunResult.delivery}. Defaults to the table of the
+   * registered adapter whose `hookProtocol` IS `protocol` (so the default
+   * protocol gets its own harness's table, and no other). A harness with no
+   * table is judged only where the protocol's own `injectableEvents` proves
+   * delivery, and is `unknown` elsewhere.
    */
   readonly capabilities?: EventCapabilityTable;
 };
@@ -493,19 +493,7 @@ export function runHookWith(
     },
     protocol.condition,
   );
-  if (!verdict.runs)
-    return {
-      ...skippedScriptResult(),
-      json: null,
-      blocked: false,
-      decision: undefined,
-      haltsTurn: false,
-      blockedBy: [],
-      ran: false,
-      conditionReason: verdict.why,
-      // Nothing ran, so nothing was printed — `ran: false` says why.
-      delivery: { kind: "silent" },
-    };
+  if (!verdict.runs) return notRunResult(verdict.why);
 
   // 🔴 A SPAWN DIRECTORY WITH NO DECLARED ROOT MEANS "THIS DIRECTORY IS THE
   // PROJECT". Without this, a test that says `{ cwd: dir }` and nothing else
@@ -541,29 +529,61 @@ export function runHookWith(
     blockedBy,
     ran: true,
     conditionReason: verdict.why,
-    delivery: hookOutputDelivery(
-      {
-        event: input.hook_event_name ?? "",
-        exitCode: res.exitCode,
-        stdout: res.stdout,
-        stderr: res.stderr,
-        json,
-      },
-      {
-        // The CC table goes with the CC protocol only — never as a default for
-        // another harness, whose events it would describe wrongly.
-        table:
-          opts.capabilities ??
-          (protocol === claudeCodeHookProtocol
-            ? claudeCodeEventCapabilities
-            : undefined),
-        blockExitCode: protocol.blockExitCode,
-        denyDecisionValues: protocol.denyDecisionValues,
-        haltsTurnField: protocol.haltsTurnField,
-        // eslint-disable-next-line @typescript-eslint/no-deprecated -- the table-less fallback: a protocol with no table still proves its own injectable events
-        injectableEvents: protocol.injectableEvents,
-      },
-    ),
+    delivery: deliveryOf(input, res, json, opts.capabilities, protocol),
+  };
+}
+
+/**
+ * The capability table that belongs to `protocol` — found by IDENTITY among the
+ * registered adapters, never by name, so one harness's table is never applied
+ * to another's protocol. Undefined for an unregistered protocol or an adapter
+ * without a table.
+ */
+function tableFor(protocol: HookProtocol): EventCapabilityTable | undefined {
+  return ADAPTERS.find((a) => a.hookProtocol === protocol)?.dialect
+    .eventCapabilities;
+}
+
+/** {@link HookRunResult.delivery} for a hook that ran. */
+// eslint-disable-next-line max-params -- the five facts the verdict reads; an options bag would only rename them
+function deliveryOf(
+  input: HookInput,
+  res: ScriptRunResult,
+  json: HookOutput | null,
+  capabilities: EventCapabilityTable | undefined,
+  protocol: HookProtocol,
+): HookDelivery {
+  return hookOutputDelivery(
+    {
+      event: input.hook_event_name ?? "",
+      exitCode: res.exitCode,
+      stdout: res.stdout,
+      stderr: res.stderr,
+      json,
+    },
+    {
+      table: capabilities ?? tableFor(protocol),
+      blockExitCode: protocol.blockExitCode,
+      denyDecisionValues: protocol.denyDecisionValues,
+      haltsTurnField: protocol.haltsTurnField,
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- the table-less fallback: a protocol with no table still proves its own injectable events
+      injectableEvents: protocol.injectableEvents,
+    },
+  );
+}
+
+/** The whole result for a hook whose condition kept it from being spawned. */
+function notRunResult(conditionReason: string): HookRunResult {
+  return {
+    ...skippedScriptResult(),
+    json: null,
+    blocked: false,
+    decision: undefined,
+    haltsTurn: false,
+    blockedBy: [],
+    ran: false,
+    conditionReason,
+    delivery: { kind: "silent" }, // nothing ran; `ran: false` says why
   };
 }
 
