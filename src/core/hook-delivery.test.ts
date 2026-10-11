@@ -186,6 +186,22 @@ describe("other exits and events", () => {
     ).toBe("blocked");
   });
 
+  it("plain stdout at a non-zero exit is never context, even where exit 0 would be", () => {
+    const d = hookOutputDelivery(emit("SessionStart", 1, { stdout: "hi" }), cc);
+    expect(d.kind).toBe("undelivered");
+    expect(d.kind === "undelivered" && d.stranded[0].why).toMatch(/exit 0/);
+  });
+
+  it("halting the turn on a veto event is BLOCKED; without a halt field it is not a veto", () => {
+    const halt = emit("Stop", 0, {
+      stdout: JSON.stringify({ continue: false, stopReason: "run the tests" }),
+    });
+    expect(hookOutputDelivery(halt, cc).kind).toBe("blocked");
+    // A protocol with no halt field: `continue:false` is just control JSON.
+    const noHalt: DeliveryFacts = { ...cc, haltsTurnField: undefined };
+    expect(hookOutputDelivery(halt, noHalt).kind).toBe("silent");
+  });
+
   it("nothing printed is SILENT, on a known event and an unknown one", () => {
     expect(hookOutputDelivery(emit("PostToolUse", 0, {}), cc).kind).toBe(
       "silent",

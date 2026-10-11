@@ -1087,6 +1087,31 @@ test("runHook: delivery on a harness with no capability table is judged only whe
   }, /cannot be judged/);
 });
 
+test("runHook: an explicit capability table is the one delivery is judged against", () => {
+  // Passing a table makes a table-less protocol judgeable: here a one-row table
+  // that says PostToolUse feeds exit-2 stderr back — and nothing else.
+  const capabilities = {
+    capturedFrom: "test fixture",
+    events: {
+      PostToolUse: {
+        carries: "tool" as const,
+        honours: ["feedback" as const],
+        matcher: true,
+        denyShape: "exit-code" as const,
+      },
+    },
+  };
+  const opts = { protocol: codexHookProtocol, capabilities };
+  assert.equal(
+    runHook(NUDGE_TO_STDERR, postEdit, opts).delivery.kind,
+    "undelivered",
+  );
+  assert.equal(
+    runHook(`printf x >&2; exit 2`, postEdit, opts).delivery.kind,
+    "delivered",
+  );
+});
+
 test("runHook: a hook whose condition did not match was never run — delivery is silent", () => {
   const r = runHook(NUDGE_AS_CONTEXT, postEdit, { condition: "Bash(git *)" });
   assert.equal(r.ran, false);

@@ -23,7 +23,6 @@ import {
 import type { EvalReport, TriggerRateReport } from "./eval.js";
 import type { HookRunResult, EgressAttempt } from "./run-hook.js";
 import { hookSource, runHookProgram } from "./core/hook-program.js";
-import { assertNever } from "./core/assert-never.js";
 import type {
   AnyHook,
   RawHookEvent,
@@ -184,8 +183,6 @@ export function assertDelivered(r: HookRunResult): void {
       fail(
         `delivery cannot be judged: ${d.why}. Pass the adapter's capability table as runHook's \`capabilities\` option.`,
       );
-    default:
-      return assertNever(d);
   }
 }
 

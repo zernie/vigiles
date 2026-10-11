@@ -824,7 +824,9 @@ export function preferCompiledHooksMessage(count: number): string {
     `${String(count)} hand-written hook command(s) — if any gate the agent ` +
     `(a block/deny decision), compiled hooks (\`vigiles/hook\`) make whole hook ` +
     `bug classes unrepresentable at authoring time, and \`guardrail-check\` proves ` +
-    `an existing one blocks. See docs/compiled-hooks.md.`
+    `an existing one blocks. If any NUDGE the agent, \`assertDelivered\` over a ` +
+    `\`runHook\` result proves the text reaches the model (on Claude Code, stderr from a hook ` +
+    `that exits 0 does not). See docs/compiled-hooks.md and docs/harness-testing.md.`
   );
 }
 
