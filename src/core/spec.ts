@@ -264,12 +264,12 @@ export type RuleDetailsOptions =
 
 const detailsOf = (
   o: RuleDetailsOptions | undefined,
-): RuleDetails | undefined =>
-  o?.details
-    ? o.anchor === undefined
-      ? { file: o.details }
-      : { file: o.details, anchor: o.anchor }
-    : undefined;
+): RuleDetails | undefined => {
+  if (!o?.details) return undefined;
+  return o.anchor === undefined
+    ? { file: o.details }
+    : { file: o.details, anchor: o.anchor };
+};
 
 /** A reactive rule: runs a command when watched files change. */
 export interface GuardRule {

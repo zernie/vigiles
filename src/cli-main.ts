@@ -2087,8 +2087,11 @@ async function checkSpecRefs(
   const budgetGate =
     ruleSeverity(config?.rules?.["compile-budget"]) === "error";
   if (!sev && !budgetGate) return { issues: 0, errors: 0, budgetErrors: 0 };
-  const found: string[] = [];
-  const overBudget: string[] = [];
+  const derived: {
+    readonly target: string;
+    readonly specPath: string;
+    readonly findings: SpecCompileFindings;
+  }[] = [];
   let knownAgents: readonly string[] | undefined;
   for (const specPath of findSpecs(excludes)) {
     const target = specPath.replace(/\.spec\.ts$/, "");
@@ -2100,24 +2103,33 @@ async function checkSpecRefs(
       // collected lazily so a repo with no railway spec never pays for the walk.
       if (spec._specType === "railway")
         knownAgents ??= await collectAgentNames(excludes);
-      const { errors, budget } = await specCompileErrors(
-        spec,
+      derived.push({
+        target,
         specPath,
-        dialect,
-        config,
-        knownAgents ?? [],
-      );
-      if (sev)
-        for (const e of errors)
-          found.push(`${target}: ${e.message} (from ${specPath})`);
-      for (const e of budget)
-        overBudget.push(`${target}: ${e.message} (from ${specPath})`);
+        findings: await specCompileErrors(
+          spec,
+          specPath,
+          dialect,
+          config,
+          knownAgents ?? [],
+        ),
+      });
     } catch {
       // A spec that will not load is `compile`'s finding, not this one's —
       // reporting it here would double-report and blame the wrong command.
       continue;
     }
   }
+  const messages = (
+    pick: (f: SpecCompileFindings) => readonly CompileError[],
+  ) =>
+    derived.flatMap((d) =>
+      pick(d.findings).map(
+        (e) => `${d.target}: ${e.message} (from ${d.specPath})`,
+      ),
+    );
+  const found = sev ? messages((f) => f.errors) : [];
+  const overBudget = messages((f) => f.budget);
   if (found.length > 0 && !silent) {
     console.log("\nSpec reference check:\n");
     for (const msg of found) {
@@ -2127,10 +2139,10 @@ async function checkSpecRefs(
   }
   if (overBudget.length > 0 && !silent) {
     console.log("\nCompile budget check (compile-budget):\n");
-    for (const msg of overBudget) {
+    overBudget.forEach((msg) => {
       console.log(`  ✗ ${msg}`);
       ghAnnotate("error", `compile-budget: ${msg}`);
-    }
+    });
   }
   return {
     issues: found.length,
@@ -2229,7 +2241,7 @@ interface SpecCompileFindings {
  * and `lint` (which re-derives) can never measure against different numbers.
  */
 function compileBudgetOptions(
-  config: VigilesConfig | undefined,
+  config: Readonly<VigilesConfig> | undefined,
 ): Pick<
   CompileClaudeOptions,
   | "budgetSeverity"

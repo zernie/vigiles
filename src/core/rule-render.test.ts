@@ -33,6 +33,10 @@ const compileIn = async (
     verifyLinters: false,
   });
 
+/** The finding types, outside the test's own callbacks. */
+const types = (errors: readonly { type: string }[]) =>
+  errors.map((e) => e.type);
+
 const withDocs = async <T>(fn: (dir: string) => Promise<T>): Promise<T> => {
   const dir = makeTmpDir();
   try {
@@ -127,7 +131,9 @@ describe("guidance() details", () => {
       expect(errors).toHaveLength(0);
     });
   });
+});
 
+describe("details links are verified like any file() reference", () => {
   it("a details file that does not exist is a compile error", async () => {
     await withDocs(async (dir) => {
       const { errors } = await compileIn(dir, {
@@ -135,7 +141,7 @@ describe("guidance() details", () => {
           details: file("docs/rules/never-written.md"),
         }),
       });
-      expect(errors.map((e) => e.type)).toEqual(["stale-file"]);
+      expect(types(errors)).toEqual(["stale-file"]);
       expect(errors[0].message).toContain("never-written.md");
     });
   });
@@ -148,7 +154,7 @@ describe("guidance() details", () => {
           anchor: "no-such-section",
         }),
       });
-      expect(errors.map((e) => e.type)).toEqual(["stale-ref"]);
+      expect(types(errors)).toEqual(["stale-ref"]);
       expect(errors[0].message).toContain("no-such-section");
     });
   });

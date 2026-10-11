@@ -434,7 +434,7 @@ function firstSentence(text: string): string {
 }
 
 /** The `**Why:**` line(s) of an enforce rule under its render policy. */
-function enforceWhy(rule: EnforceRule): string[] {
+function enforceWhy(rule: EnforceRule): readonly string[] {
   const link = rule.details ? ` ${detailsLink(rule.details)}` : "";
   const render = rule.render ?? "full";
   switch (render) {
@@ -664,7 +664,7 @@ interface BudgetLimits {
  * sum across files is `instruction-weight`'s job, not this rule's.
  */
 function resolveBudgetLimits(
-  options: CompileClaudeOptions,
+  options: Readonly<CompileClaudeOptions>,
   severity: "warn" | "error",
 ): BudgetLimits {
   const strict = severity === "error";
@@ -684,7 +684,7 @@ function resolveBudgetLimits(
  * `maxOutput` with no dialect gets characters, the unit `compile` prints.
  */
 function harnessCeiling(
-  options: CompileClaudeOptions,
+  options: Readonly<CompileClaudeOptions>,
   strict: boolean,
 ): BudgetLimits["harness"] {
   const budget = options.dialect?.instructionBudget;
@@ -724,83 +724,125 @@ function checkContentBudgets(
   input: BudgetInput,
   specFile: string,
   limits: BudgetLimits,
-): CompileError[] {
-  const { spec } = input;
-  const found: CompileError[] = [];
-  const entries: [string, Record<string, string> | undefined][] = [
-    ["keyFiles", spec.keyFiles],
-    ["commands", spec.commands],
+): readonly CompileError[] {
+  return [
+    ...entryBudget("keyFiles", input.spec.keyFiles, specFile, limits),
+    ...entryBudget("commands", input.spec.commands, specFile, limits),
+    ...sectionBudget(input.spec.sections, specFile, limits),
+    ...sumBudgets(input, specFile, limits),
+    ...outputBudget(input.output, specFile, limits),
   ];
-  for (const [field, map] of entries) {
-    if (!map || limits.entryChars <= 0) continue;
-    for (const [key, description] of Object.entries(map)) {
-      if (description.length <= limits.entryChars) continue;
-      found.push({
-        type: "entry-too-long",
-        path: specFile,
-        message:
-          `${field}[${JSON.stringify(key)}] description is ${String(description.length)} ` +
-          `characters (budget ${String(limits.entryChars)}). An entry is a pointer — say what the ` +
-          `file is for in one line and move the explanation into its own header, which is read ` +
-          `when someone opens it rather than on every request.`,
-      });
-    }
-  }
-  if (spec.sections && limits.sectionChars > 0) {
-    for (const [name, body] of Object.entries(spec.sections)) {
-      // Fragment-valued sections are assembled later; only plain prose is
-      // measurable here, and it is the shape that grows.
-      if (typeof body !== "string" || body.length <= limits.sectionChars)
-        continue;
-      found.push({
-        type: "section-too-large",
-        path: specFile,
-        message:
-          `section ${JSON.stringify(name)} is ${String(body.length)} characters ` +
-          `(budget ${String(limits.sectionChars)}). The line guard cannot see this — long lines are ` +
-          `the normal shape of compiled prose — and every character is loaded on every request.`,
-      });
-    }
-  }
+}
+
+/** One finding per `keyFiles` / `commands` description over the entry budget. */
+function entryBudget(
+  field: "keyFiles" | "commands",
+  map: Readonly<Record<string, string>> | undefined,
+  specFile: string,
+  limits: BudgetLimits,
+): readonly CompileError[] {
+  if (!map || limits.entryChars <= 0) return [];
+  return Object.entries(map)
+    .filter(([, description]) => description.length > limits.entryChars)
+    .map(([key, description]) => ({
+      type: "entry-too-long" as const,
+      path: specFile,
+      message:
+        `${field}[${JSON.stringify(key)}] description is ${String(description.length)} ` +
+        `characters (budget ${String(limits.entryChars)}). An entry is a pointer — say what the ` +
+        `file is for in one line and move the explanation into its own header, which is read ` +
+        `when someone opens it rather than on every request.`,
+    }));
+}
+
+/** One finding per plain-prose section over the section budget. */
+function sectionBudget(
+  sections: Readonly<Record<string, unknown>> | undefined,
+  specFile: string,
+  limits: BudgetLimits,
+): readonly CompileError[] {
+  if (!sections || limits.sectionChars <= 0) return [];
+  // Fragment-valued sections are assembled later; only plain prose is
+  // measurable here, and it is the shape that grows.
+  return Object.entries(sections)
+    .filter(
+      (pair): pair is [string, string] =>
+        typeof pair[1] === "string" && pair[1].length > limits.sectionChars,
+    )
+    .map(([name, body]) => ({
+      type: "section-too-large" as const,
+      path: specFile,
+      message:
+        `section ${JSON.stringify(name)} is ${String(body.length)} characters ` +
+        `(budget ${String(limits.sectionChars)}). The line guard cannot see this — long lines are ` +
+        `the normal shape of compiled prose — and every character is loaded on every request.`,
+    }));
+}
+
+/** The two sums: the whole Rules section and the whole Key Files section. */
+function sumBudgets(
+  input: BudgetInput,
+  specFile: string,
+  limits: BudgetLimits,
+): readonly CompileError[] {
   const rulesChars = input.renderedRules.length;
-  if (limits.rulesChars > 0 && rulesChars > limits.rulesChars) {
-    const count = Object.keys(spec.rules).length;
-    found.push({
-      type: "rules-too-large",
-      path: specFile,
-      message:
-        `the Rules section is ${n(rulesChars)} characters for ${String(count)} rules ` +
-        `(budget ${n(limits.rulesChars)}). Render a rule shorter instead of deleting it: ` +
-        `enforce(rule, why, { render: "id" }) when a linter already holds it, or ` +
-        `guidance(statement, { details: file(...) }) with the long text in that file — ` +
-        `the rule stays in the spec, where lint and audit read it.`,
-    });
-  }
   const keyFilesChars = input.renderedKeyFiles.length;
-  if (limits.keyFilesChars > 0 && keyFilesChars > limits.keyFilesChars) {
-    found.push({
-      type: "key-files-too-large",
+  const rules: readonly CompileError[] =
+    limits.rulesChars > 0 && rulesChars > limits.rulesChars
+      ? [
+          {
+            type: "rules-too-large",
+            path: specFile,
+            message:
+              `the Rules section is ${n(rulesChars)} characters for ` +
+              `${String(Object.keys(input.spec.rules).length)} rules ` +
+              `(budget ${n(limits.rulesChars)}). Render a rule shorter instead of deleting it: ` +
+              `enforce(rule, why, { render: "id" }) when a linter already holds it, or ` +
+              `guidance(statement, { details: file(...) }) with the long text in that file — ` +
+              `the rule stays in the spec, where lint and audit read it.`,
+          },
+        ]
+      : [];
+  const keyFiles: readonly CompileError[] =
+    limits.keyFilesChars > 0 && keyFilesChars > limits.keyFilesChars
+      ? [
+          {
+            type: "key-files-too-large",
+            path: specFile,
+            message:
+              `the Key Files section is ${n(keyFilesChars)} characters (budget ` +
+              `${n(limits.keyFilesChars)}), loaded on every request. Keep the files an ` +
+              `agent must find without looking; point to an index file for the rest.`,
+          },
+        ]
+      : [];
+  return [...rules, ...keyFiles];
+}
+
+/** The whole compiled file against the harness ceiling, in the harness's unit. */
+function outputBudget(
+  output: string,
+  specFile: string,
+  limits: BudgetLimits,
+): readonly CompileError[] {
+  if (!limits.harness) return [];
+  const { unit, limit, onExceed } = limits.harness;
+  const size = sizeIn(output, unit);
+  if (size <= limit) return [];
+  const past =
+    onExceed === "truncates"
+      ? "silently TRUNCATES — the rules after the cut do not exist for the model"
+      : "warns and still loads every byte, on every request";
+  return [
+    {
+      type: "output-too-large",
       path: specFile,
       message:
-        `the Key Files section is ${n(keyFilesChars)} characters (budget ` +
-        `${n(limits.keyFilesChars)}), loaded on every request.`,
-    });
-  }
-  if (limits.harness) {
-    const { unit, limit, onExceed } = limits.harness;
-    const size = sizeIn(input.output, unit);
-    if (size > limit) {
-      found.push({
-        type: "output-too-large",
-        path: specFile,
-        message:
-          `the compiled output is ${n(size)} ${unit}, over the harness's instruction budget ` +
-          `of ${n(limit)} ${unit} (past it the harness ${onExceed === "truncates" ? "silently TRUNCATES — the rules after the cut do not exist for the model" : "warns and still loads every byte, on every request"}). ` +
-          `Move detail into files the agent opens when it needs them, or render rules shorter.`,
-      });
-    }
-  }
-  return found;
+        `the compiled output is ${n(size)} ${unit}, over the harness's instruction budget ` +
+        `of ${n(limit)} ${unit} (past it the harness ${past}). ` +
+        `Move detail into files the agent opens when it needs them, or render rules shorter.`,
+    },
+  ];
 }
 
 // A key-files entry is a POINTER, not an essay: the prose about why a file is
@@ -945,7 +987,7 @@ function shouldVerifyRule(
 function validateRuleDetails(
   details: RuleDetails,
   basePath: string,
-): CompileError[] {
+): readonly CompileError[] {
   const missing = validateFileRef(details.file.path, basePath);
   if (missing) return [missing];
   if (details.anchor === undefined) return [];
@@ -980,9 +1022,6 @@ function compileRulesSection(
   for (const [id, rule] of ruleEntries) {
     ruleLines.push("");
     ruleLines.push(compileRule(id, rule));
-    if (rule._kind !== "guard" && rule.details) {
-      errors.push(...validateRuleDetails(rule.details, basePath));
-    }
     if (rule._kind === "enforce") {
       const shouldVerify = shouldVerifyRule(rule, options);
       if (!shouldVerify) continue;
@@ -1013,7 +1052,16 @@ function compileRulesSection(
       }
     }
   }
-  return { lines: [ruleLines.join("\n")], errors, linterResults };
+  const detailsErrors = ruleEntries.flatMap(([, rule]) =>
+    rule._kind !== "guard" && rule.details
+      ? validateRuleDetails(rule.details, basePath)
+      : [],
+  );
+  return {
+    lines: [ruleLines.join("\n")],
+    errors: [...errors, ...detailsErrors],
+    linterResults,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1109,20 +1157,23 @@ export async function compileClaude(
   const budgetFindings =
     severity === false
       ? []
-      : checkContentBudgets(
-          {
-            spec,
-            renderedRules: rules.lines.join("\n\n"),
-            renderedKeyFiles: keyFiles.lines.join("\n\n"),
-            output: markdown,
-          },
-          specFile,
-          resolveBudgetLimits(options, severity),
-        );
-  if (severity === "error") errors.push(...budgetFindings);
+      : [
+          ...checkContentBudgets(
+            {
+              spec,
+              renderedRules: rules.lines.join("\n\n"),
+              renderedKeyFiles: keyFiles.lines.join("\n\n"),
+              output: markdown,
+            },
+            specFile,
+            resolveBudgetLimits(options, severity),
+          ),
+        ];
   return {
     markdown,
-    errors,
+    // The SAME objects as `budgetFindings`, so `lint` can tell them apart by
+    // identity.
+    errors: severity === "error" ? [...errors, ...budgetFindings] : errors,
     warnings: severity === "warn" ? budgetFindings : [],
     budgetFindings,
     linterResults: rules.linterResults,
