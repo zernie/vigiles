@@ -737,6 +737,7 @@ export function scanPlugin(
     resolve(dir),
     lay.pluginRootToken,
     existsSync,
+    lay.projectRootTokens,
   );
   // Hook-event keys are a CLOSED platform set — an unrecognized one is a dead
   // registration (the hook never fires), so flag every unknown (not just typos).
@@ -898,6 +899,7 @@ export function scanPlugin(
               resolve(dir),
               lay.pluginRootToken,
               existsSync,
+              lay.projectRootTokens,
             ),
             {
               noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),

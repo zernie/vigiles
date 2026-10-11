@@ -764,8 +764,10 @@ export function scanAgents(
  * braced plugin-root token (`${CLAUDE_PLUGIN_ROOT}`, Codex `${PLUGIN_ROOT}`, …);
  * the unbraced shell form survives, so resolve BOTH forms of the HARNESS's token
  * (from the layout, not hard-coded) against the plugin root and strip shell
- * quotes. A token that still carries any `$VAR` after that is genuinely
- * uncheckable.
+ * quotes. The harness's PROJECT-root variables (`$CLAUDE_PROJECT_DIR`, the
+ * documented spelling of a project hook, set by Claude Code to the project
+ * directory) resolve against the scanned root the same way. A token that still
+ * carries any other `$VAR` after that is genuinely uncheckable.
  */
 function resolveScript(
   token: string,
@@ -773,13 +775,20 @@ function resolveScript(
   pluginRootToken: string,
   fullCommand: string,
   exists: (p: string) => boolean,
+  projectRootTokens: readonly string[] = [],
 ): ScanHook {
-  // "${CLAUDE_PLUGIN_ROOT}" → unbraced "$CLAUDE_PLUGIN_ROOT".
-  const unbraced = pluginRootToken.replace(/^\$\{(.+)\}$/, "$$$1");
-  const cleaned = token
-    .replace(/["']/g, "")
-    .replaceAll(pluginRootToken, root)
-    .replaceAll(unbraced, root);
+  // Every root variable the harness sets, in BOTH spellings (`${NAME}` and
+  // `$NAME`). They name different directories at run time (the plugin vs the
+  // host project) but a static scan has one directory to resolve them against:
+  // the scanned root — the same simplification `verify-plugin-guards` makes when
+  // it has no explicit `cwd`.
+  const tokens = [pluginRootToken, ...projectRootTokens].flatMap((t) => [
+    t,
+    t.replace(/^\$\{(.+)\}$/, "$$$1"),
+  ]);
+  const expand = (text: string): string =>
+    tokens.reduce((acc, t) => acc.replaceAll(t, root), text);
+  const cleaned = expand(token.replace(/["']/g, ""));
   if (cleaned.includes("$"))
     return { command: fullCommand, script: token, status: "unresolved" };
   // A relative hook path (`./hooks/x.sh`, `scripts/x.py`) is the plugin's own —
@@ -790,9 +799,7 @@ function resolveScript(
   const abs = isAbsolute(cleaned) ? cleaned : resolve(root, cleaned);
   // Resolve the full command the same way we resolve the script token (expand
   // plugin-root, strip outer quotes) so the CLI can pass it to verifyGuardrail.
-  const resolvedCommand = fullCommand
-    .replaceAll(pluginRootToken, root)
-    .replaceAll(unbraced, root);
+  const resolvedCommand = expand(fullCommand);
   return {
     command: resolvedCommand,
     script: cleaned,
@@ -854,6 +861,7 @@ export function scanHooks(
   root: string,
   pluginRootToken: string,
   exists: (p: string) => boolean,
+  projectRootTokens: readonly string[] = [],
 ): { hooks: ScanHook[]; inline: number; manual: number } {
   const commands = regs.map((r) => r.command);
   const evMap = eventsByScript(regs);
@@ -878,7 +886,14 @@ export function scanHooks(
       continue;
     }
     for (const tok of found) {
-      const hook = resolveScript(tok, root, pluginRootToken, cmd, exists);
+      const hook = resolveScript(
+        tok,
+        root,
+        pluginRootToken,
+        cmd,
+        exists,
+        projectRootTokens,
+      );
       const event = evMap.get(tok);
       byScript.set(hook.script, event ? { ...hook, event } : hook);
     }
@@ -1181,6 +1196,7 @@ export function collectHookBlockEntries(
   root: string,
   pluginRootToken: string,
   exists: (p: string) => boolean,
+  projectRootTokens: readonly string[] = [],
 ): HookScriptEntry[] {
   const out: HookScriptEntry[] = [];
   for (const { event, command: cmd } of regs) {
@@ -1200,7 +1216,14 @@ export function collectHookBlockEntries(
     }
     const resolvedPaths: string[] = [];
     for (const tok of candidates) {
-      const r = resolveScript(tok, root, pluginRootToken, cmd, exists);
+      const r = resolveScript(
+        tok,
+        root,
+        pluginRootToken,
+        cmd,
+        exists,
+        projectRootTokens,
+      );
       if (r.status === "ok") {
         const abs = isAbsolute(r.script) ? r.script : resolve(root, r.script);
         if (!resolvedPaths.includes(abs)) resolvedPaths.push(abs);
