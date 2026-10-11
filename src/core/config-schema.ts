@@ -124,6 +124,18 @@ const testCoverageConfig = z
   .strict();
 
 /**
+ * Options for `instruction-weight`. `max` is an opt-in ABSOLUTE ceiling on the
+ * always-loaded total, in the harness's own unit — independent of the ratchet's
+ * baseline. A positive integer: `0` would fail every repo that has an
+ * instruction file, and `"40000"` is a string the author meant as a number.
+ */
+const instructionWeightConfig = z
+  .object({
+    max: z.number().int().positive().optional(),
+  })
+  .strict();
+
+/**
  * Every validation rule, with its shipped default severity.
  *
  * 🔴 THIS OBJECT IS THE RULE SET. `rules-docs-in-sync` already treats the
@@ -167,7 +179,7 @@ const rulesSchema = z
     "hook-block-ineffective": severitySchema.default("warn"),
     "hook-matcher": severitySchema.default("warn"),
     "doc-refs": severitySchema.default(false),
-    "instruction-weight": severitySchema.default("error"),
+    "instruction-weight": withOptions(instructionWeightConfig).default("error"),
   })
   .strict();
 
@@ -513,7 +525,7 @@ function pathLabel(path: readonly PropertyKey[]): string {
 export function formatConfigIssues(issues: readonly ConfigIssue[]): string[] {
   return issues.flatMap((issue) => {
     if (issue.code === "unrecognized_keys") return unknownKeyLines(issue);
-    if (issue.code === "invalid_union") return [badValueLine(issue)];
+    if (issue.code === "invalid_union") return unionLines(issue);
     return [
       `.vigilesrc.json: ${pathLabel(issue.path ?? [])} — ${issue.message ?? "invalid"}.`,
     ];
@@ -537,6 +549,28 @@ function unknownKeyLines(issue: ConfigIssue): string[] {
       return `.vigilesrc.json: unknown key "${key}" in ${where}.`;
     return `.vigilesrc.json: unknown key "${key}" in ${where}. Known: ${listCandidates(known)}.`;
   });
+}
+
+/**
+ * A failed union: the one line listing what the key accepts — UNLESS a branch
+ * got past the union's own position and failed deeper (`["error", {"max": 1.5}]`
+ * matches the tuple branch and fails INSIDE it). That deeper issue is the
+ * problem the author has; "not one of the accepted values" would send them to
+ * re-read a list that was never wrong. Zod already collapses a deeper failure of
+ * a non-type kind (`max: 0` → "Too small"); a type failure (`1.5`, `"4"`) is
+ * the case it leaves as a bare union.
+ */
+function unionLines(issue: ConfigIssue): string[] {
+  const here = issue.path ?? [];
+  const deeper = (issue.errors ?? [])
+    .flat()
+    .filter((e) => (e.path ?? []).length > 0 && e.code !== "invalid_union");
+  return deeper.length === 0
+    ? [badValueLine(issue)]
+    : deeper.map(
+        (e) =>
+          `.vigilesrc.json: ${pathLabel([...here, ...(e.path ?? [])])} — ${e.message ?? "invalid"}.`,
+      );
 }
 
 /** ONE line for a failed union — never one per branch. */

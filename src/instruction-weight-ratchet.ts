@@ -21,8 +21,11 @@ import { dirname, join } from "node:path";
 import {
   INSTRUCTION_BASELINE_FILE,
   UPDATE_BASELINE_COMMAND,
+  checkCeiling,
   compareToBaseline,
   entryFor,
+  formatCeiling,
+  formatRefusal,
   formatVerdict,
   formatWeightLine,
   parseInstructionBaseline,
@@ -79,6 +82,9 @@ export interface RatchetLine {
 
 /**
  * Pure: the lines a run prints, given what was measured and what is on disk.
+ * `max` is the opt-in absolute ceiling; a bundle over it adds a finding of its
+ * own, whatever the baseline says (including when there is none, or it is
+ * unreadable).
  *
  * A bundle with no entry is a nudge while the repo has NO baseline file (it has
  * not opted in, and a fresh repo must not fail on day one) — but a FINDING once
@@ -86,6 +92,22 @@ export interface RatchetLine {
  * weight nobody signed off on.
  */
 export function ratchetLines(
+  onDisk: BaselineOnDisk,
+  measured: readonly MeasuredBundle[],
+  max?: number,
+): readonly RatchetLine[] {
+  return [
+    ...baselineLines(onDisk, measured),
+    ...measured.flatMap(([at, weight]): RatchetLine[] => {
+      const over = weight === null ? undefined : checkCeiling(weight, max);
+      return over === undefined
+        ? []
+        : [{ at, status: "finding", text: formatCeiling(over, at) }];
+    }),
+  ];
+}
+
+function baselineLines(
   onDisk: BaselineOnDisk,
   measured: readonly MeasuredBundle[],
 ): readonly RatchetLine[] {
@@ -124,10 +146,26 @@ export function ratchetLines(
   });
 }
 
+/**
+ * The bundles `--update-baseline` must not record: each one over the ceiling,
+ * as the refusal text. Empty when there is no ceiling or nothing exceeds it.
+ */
+export function updateRefusals(
+  measured: readonly MeasuredBundle[],
+  max: number | undefined,
+): readonly string[] {
+  return measured.flatMap(([at, weight]) => {
+    const over = weight === null ? undefined : checkCeiling(weight, max);
+    return over === undefined ? [] : [formatRefusal(over, at)];
+  });
+}
+
 /** Run the ratchet for `lint`: print, annotate, count. */
 export function checkInstructionWeightRatchet(opts: {
   readonly root: string;
   readonly severity: RuleSeverity;
+  /** The opt-in absolute ceiling (`["error", { max }]`); `undefined` = ratchet only. */
+  readonly max?: number;
   readonly update: boolean;
   readonly silent: boolean;
   /** Called only when the rule is on or an update was asked for. */
@@ -138,17 +176,28 @@ export function checkInstructionWeightRatchet(opts: {
   if (!severity && !update) return { issues: 0, errors: 0 };
   const measured = opts.measure();
   const before = readInstructionBaseline(opts.root);
-  const onDisk: BaselineOnDisk = update
-    ? {
-        kind: "ok",
-        baseline: writeInstructionBaseline(opts.root, before, measured),
-      }
-    : before;
-  const lines = severity ? ratchetLines(onDisk, measured) : [];
+  // A baseline above the ceiling would bypass it: re-recording is how a ratchet
+  // gets loosened, so the refusal is a failure of its own at ANY severity.
+  const refusals = update ? updateRefusals(measured, opts.max) : [];
+  const refused = refusals.length > 0;
+  const onDisk: BaselineOnDisk =
+    update && !refused
+      ? {
+          kind: "ok",
+          baseline: writeInstructionBaseline(opts.root, before, measured),
+        }
+      : before;
+  refusals.forEach((message) => {
+    console.error(`✗ ${message}`);
+    opts.annotate("error", message);
+  });
+  const lines = severity ? ratchetLines(onDisk, measured, opts.max) : [];
   const findings = lines.filter((l) => l.status === "finding");
   if (!silent && (update || lines.length > 0)) {
     console.log("\nInstruction-weight ratchet:\n");
-    if (update) console.log(`  ✓ recorded ${INSTRUCTION_BASELINE_FILE}`);
+    if (update && !refused) {
+      console.log(`  ✓ recorded ${INSTRUCTION_BASELINE_FILE}`);
+    }
     const marks = {
       finding: severity === "error" ? "✗" : "⚠",
       ok: "✓",
@@ -163,8 +212,8 @@ export function checkInstructionWeightRatchet(opts: {
     opts.annotate(level, l.text);
   });
   return {
-    issues: findings.length,
-    errors: severity === "error" ? findings.length : 0,
+    issues: findings.length + refusals.length,
+    errors: (severity === "error" ? findings.length : 0) + refusals.length,
   };
 }
 

@@ -281,7 +281,7 @@ test("max: a total over the ceiling is a finding that names total, max, excess a
   assert.match(r.out, /10,000 over/);
   assert.match(r.out, /CLAUDE\.md 30,000/);
   // The fix is named, and moving text is named as NOT a fix.
-  assert.match(r.out, /cut content/);
+  assert.match(r.out, /Cut content/);
   assert.match(
     r.out,
     /moving text to another always-loaded file does not help/,
@@ -322,7 +322,7 @@ test("max: at the ceiling, and under it, are silent", () => {
   withMax("error", 30_000);
   const at = run(["lint"]);
   assert.equal(at.code, 0, at.out);
-  assert.doesNotMatch(at.out, /over/);
+  assert.doesNotMatch(at.out, /\d over/);
   withMax("error", 50_000);
   const under = run(["lint"]);
   assert.equal(under.code, 0, under.out);

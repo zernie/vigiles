@@ -95,6 +95,7 @@ import type {
   VigilesConfig,
   CoverageThresholds,
   TestCoverageConfig,
+  InstructionWeightConfig,
   RuleSeverity,
   RulesConfig,
 } from "./core/types.js";
@@ -2493,6 +2494,9 @@ async function runLint(
   const instructionWeight = checkInstructionWeightRatchet({
     root: frame.root,
     severity: ruleSeverity(config?.rules?.["instruction-weight"]),
+    max: ruleOptions<InstructionWeightConfig>(
+      config?.rules?.["instruction-weight"],
+    )?.max,
     update: flags.includes("--update-baseline"),
     silent,
     measure: () =>
