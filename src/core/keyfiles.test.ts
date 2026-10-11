@@ -11,6 +11,7 @@ import { describe, it, expect } from "vitest";
 
 import {
   KEYFILES_DOCS_URL,
+  instructionFileOfSpec,
   keyFilesDeprecationMessage,
   measureKeyFiles,
   renderKeyFiles,
@@ -31,32 +32,54 @@ describe("measureKeyFiles", () => {
     );
   });
 
-  it("formats the message in two sentences: the cost, then the replacement and the link", () => {
-    const msg = keyFilesDeprecationMessage({
-      entries: 230,
-      chars: 47728,
-      measured: true,
-    });
+  it("formats the message in two sentences: the cost, then the four places an entry can go and the link", () => {
+    const msg = keyFilesDeprecationMessage(
+      { entries: 230, chars: 47728, measured: true },
+      "CLAUDE.md",
+    );
     expect(msg).toContain("230 entries");
     expect(msg).toContain("47,728 characters");
-    expect(msg).toContain("file()");
     expect(msg).toContain(KEYFILES_DOCS_URL);
     // Two sentences: the URL holds dots, so count sentence ends before it.
     expect(msg.split(KEYFILES_DOCS_URL)[0].match(/\. /g)).toHaveLength(1);
+    // Not one instruction but the four choices, in the order to try them: a
+    // reader who sees only "remove it" deletes facts that had no other home.
+    const options = [
+      /delete it if the file or the docs already say it/,
+      /move a fact about one file into that file's header comment/,
+      /move a rule for one folder into <folder>\/CLAUDE\.md/,
+      /keep a one-line file\(\) pointer only if nothing else leads there/,
+    ];
+    options.forEach((o) => expect(msg).toMatch(o));
+    const at = options.map((o) => msg.search(o));
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+  });
+
+  it("names the nested file after the instruction file the spec compiles", () => {
+    expect(
+      keyFilesDeprecationMessage(
+        { entries: 1, chars: 10, measured: true },
+        "AGENTS.md",
+      ),
+    ).toContain("<folder>/AGENTS.md");
+    expect(instructionFileOfSpec("pkg/AGENTS.md.spec.ts")).toBe("AGENTS.md");
+    expect(instructionFileOfSpec("CLAUDE.md.spec.ts")).toBe("CLAUDE.md");
   });
 
   it("says 1 entry, not 1 entries", () => {
     expect(
-      keyFilesDeprecationMessage({ entries: 1, chars: 10, measured: true }),
+      keyFilesDeprecationMessage(
+        { entries: 1, chars: 10, measured: true },
+        "CLAUDE.md",
+      ),
     ).toContain("1 entry,");
   });
 
   it("does not invent a size for a map it could not read", () => {
-    const msg = keyFilesDeprecationMessage({
-      entries: 0,
-      chars: 0,
-      measured: false,
-    });
+    const msg = keyFilesDeprecationMessage(
+      { entries: 0, chars: 0, measured: false },
+      "CLAUDE.md",
+    );
     expect(msg).not.toMatch(/\d+ characters/);
     expect(msg).toContain("not a literal map");
   });
