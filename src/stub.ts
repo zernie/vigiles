@@ -81,6 +81,31 @@ function rangeOf(bounds: StubCalledBounds): {
   return { min, max, text };
 }
 
+/** The verdict of a `called` check over a run's recorded calls. */
+function calledVerdict(
+  calls: readonly StubCall[],
+  shown: string,
+  expect: {
+    readonly name: string;
+    readonly argv: ArgvPattern;
+  } & StubCalledBounds,
+): CheckResult {
+  const { name, argv, ...bounds } = expect;
+  const { min, max, text } = rangeOf(bounds);
+  const { answered: n, unanswered } = countCalls(
+    calls,
+    name,
+    argv,
+    bounds.contains,
+  );
+  const missed =
+    unanswered === 0
+      ? ""
+      : `; ${String(unanswered)} matching call(s) went unanswered and are not counted`;
+  const msg = `stub ${shown} called ${String(n)} time(s) (expected ${text})${missed}`;
+  return result(n >= min && n <= max, msg);
+}
+
 /**
  * A check over a run's stub log: the ANSWERED invocations of `name` that match
  * `argv` (and `bounds.contains`) number within `[min, max]`. A call no rule
@@ -96,24 +121,13 @@ function called(
   // The pattern is parsed the way a rule is (rest position, RegExp flags).
   const rule = { argv, contains: bounds.contains, reply: { kind: "always" } };
   parseToolStubs([{ name, rules: [rule] }], "experimental_stub.called");
-  const { min, max, text } = rangeOf(bounds);
+  const { min, max } = rangeOf(bounds);
   const shown = `${name} ${describePattern(argv)}`;
   return {
     kind: "stubCalled",
     eval(t: Trace): CheckResult {
       if (t.stubCalls === undefined) return noLog(shown);
-      const { answered: n, unanswered } = countCalls(
-        t.stubCalls,
-        name,
-        argv,
-        bounds.contains,
-      );
-      const missed =
-        unanswered === 0
-          ? ""
-          : `; ${String(unanswered)} matching call(s) went unanswered and are not counted`;
-      const msg = `stub ${shown} called ${String(n)} time(s) (expected ${text})${missed}`;
-      return result(n >= min && n <= max, msg);
+      return calledVerdict(t.stubCalls, shown, { name, argv, ...bounds });
     },
     toJSON: () => ({
       kind: "stubCalled",

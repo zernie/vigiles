@@ -2577,9 +2577,6 @@
     "functional/no-let": {
       "count": 1
     },
-    "functional/no-loop-statements": {
-      "count": 1
-    },
     "functional/prefer-immutable-types": {
       "count": 1
     },

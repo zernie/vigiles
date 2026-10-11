@@ -31,11 +31,17 @@ import {
   type EvalSpec,
   type Metrics,
 } from "./eval.js";
+// eslint-disable-next-line local/no-harness-names -- the test reads the auth file the real adapter declares, rather than spelling its path
+import { claudeCodeRuntime } from "./adapters/claude-code/runtime.js";
 import { experimental_stub } from "./stub.js";
 import { lockPath } from "./eval-lock.js";
 import { makeTmpDir } from "./core/test-utils.js";
 
 const { rest } = experimental_stub;
+// The harness's own auth file, HOME-relative, as its adapter declares it.
+// eslint-disable-next-line local/no-harness-names -- same: the adapter's declared auth file
+const [AUTH_FILE = ""] = claudeCodeRuntime.runEnv?.keepHomeFiles ?? [];
+const AUTH_DIR = dirname(AUTH_FILE);
 const ISSUE_URL = "https://github.com/o/r/issues/9001\n";
 const GH = experimental_stub("gh", [
   {
@@ -368,13 +374,13 @@ test("the old argv-blind stub and a missing env are refused before the runner is
             kind: "ephemeral",
             home: {
               kind: "files",
-              files: { ".claude": "x", ".claude/x": "y" },
+              files: { [AUTH_DIR]: "x", [`${AUTH_DIR}/x`]: "y" },
             },
           },
         }),
         r.run,
       ),
-    /env\.home\.files: "\.claude" is written as a file but "\.claude\/x" needs it to be a directory/,
+    /env\.home\.files: ".* is written as a file but ".*\/x" needs it to be a directory/,
   );
   assert.equal(r.seen.length, 0, "nothing was spent");
 });
@@ -416,8 +422,8 @@ test("a cache snapshot never holds the throwaway HOME: no credentials, no seed",
   const cacheDir = makeTmpDir();
   vi.stubEnv("HOME", realHome);
   try {
-    mkdirSync(join(realHome, ".claude"), { recursive: true });
-    writeFileSync(join(realHome, ".claude/.credentials.json"), "SECRET-TOKEN");
+    mkdirSync(join(realHome, AUTH_DIR), { recursive: true });
+    writeFileSync(join(realHome, AUTH_FILE), "SECRET-TOKEN");
     const spec = base({
       stubs: undefined,
       env: {
@@ -433,7 +439,7 @@ test("a cache snapshot never holds the throwaway HOME: no credentials, no seed",
       // the trial really has the credentials and the seed in its HOME …
       const home = a.env?.HOME ?? "";
       homes.push(
-        readFileSync(join(home, ".claude/.credentials.json"), "utf8"),
+        readFileSync(join(home, AUTH_FILE), "utf8"),
         readFileSync(join(home, ".config/x/seed.txt"), "utf8"),
       );
       // … and leaves a file of its own in the work dir, which IS snapshotted

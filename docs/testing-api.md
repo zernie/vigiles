@@ -417,7 +417,7 @@ kind: "inherit", reason }` (your real HOME; the reason is printed with the
 report) — [what each passes into the run](measuring-skills.md#where-a-trial-runs--env).
 **`stubs`** takes per-invocation rules for CLIs the agent calls, built with
 `experimental_stub`; a call no rule answers is printed to stderr when `runEval`
-returns, makes `vigiles eval` exit `2` and refuses to write a lock — see
+returns, makes `vigiles eval` exit `2` (the file itself exits `78`) and refuses to write a lock — see
 [Stubbing a CLI](measuring-skills.md#stubbing-a-cli-the-agent-calls--experimental_stub).
 
 The `measure` ctx is a full `Trace`, so a metric reads the agent's **actions**

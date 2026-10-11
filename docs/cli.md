@@ -86,7 +86,9 @@ whose `stubs` ([`experimental_stub`](measuring-skills.md#stubbing-a-cli-the-agen
 sees the agent run a stubbed tool with an argv no rule answers, `vigiles eval`
 prints the call and the rules for that tool and exits `2`: no further trials
 start, no lock is written (`--update` included), and the file's `assert` does not
-decide the outcome. The report measured an answer nobody wrote.
+decide the outcome. The report measured an answer nobody wrote. The eval file
+exits `78` for it (its own code, so the runner's message names the cause and does
+not confuse it with a usage error); the verb maps that to its documented `2`.
 
 **A script that never loaded is not a skip you declared.** If a script's imports
 cannot be found or linked (a missing package, a missing named export, a syntax

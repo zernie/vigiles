@@ -106,7 +106,7 @@ export type StubOutcome =
   /**
    * The stub printed its neutral miss line but left no log line (its directory
    * was not writable from the agent's shell). Never read from a log: the eval
-   * derives it from the agent's tool results (see {@link unloggedMisses}).
+   * derives it from the agent's tool results.
    */
   | { readonly kind: "unlogged" };
 
