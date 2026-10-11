@@ -132,6 +132,7 @@ import {
 import { readStubCalls, removeStubDir, writeStubDir } from "./tool-stub.js";
 import {
   isUnanswered,
+  unloggedMisses,
   unansweredMessage,
   encodeStub,
   type StubCall,
@@ -1827,7 +1828,17 @@ async function executeTrial<M extends Metrics>(
     return {
       row: spec.measure(ctx),
       usage: ctx.usage,
-      unanswered: (stubCalls ?? []).filter((c) => isUnanswered(c.outcome)),
+      unanswered: [
+        ...(stubCalls ?? []),
+        // A stub that could not write its log still printed its neutral line
+        // into the agent's tool results: count those too, or a confined shell
+        // would leave the report clean.
+        ...unloggedMisses(
+          ctx.toolCalls.map((c) => c.resultText),
+          stubCalls ?? [],
+          stubs.map((s) => s.name),
+        ),
+      ].filter((c) => isUnanswered(c.outcome)),
     };
   } finally {
     rmSync(cwd, { recursive: true, force: true });

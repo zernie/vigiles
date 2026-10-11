@@ -102,7 +102,13 @@ export type StubOutcome =
       readonly answer: number;
     }
   | { readonly kind: "no-rule" }
-  | { readonly kind: "exhausted"; readonly rule: number };
+  | { readonly kind: "exhausted"; readonly rule: number }
+  /**
+   * The stub printed its neutral miss line but left no log line (its directory
+   * was not writable from the agent's shell). Never read from a log: the eval
+   * derives it from the agent's tool results (see {@link unloggedMisses}).
+   */
+  | { readonly kind: "unlogged" };
 
 /** One recorded invocation of a stub. */
 export interface StubCall {
@@ -393,12 +399,23 @@ const whyUnanswered = (o: StubOutcome): string =>
     ? `rule #${String(o.rule + 1)} has no answer left (its inOrder answers ran out)`
     : "no rule matches";
 
+/** The miss whose argv nobody recorded: what happened, and why it cannot name the command. */
+function describeUnlogged(c: StubCall, n: number): string {
+  const times = n > 1 ? ` ×${String(n)}` : "";
+  return (
+    `  ${c.tool}${times}: the stub printed its unsupported-invocation line but could not log the call — ` +
+    `is the stub directory writable from the agent's shell? The argv is unknown, so no rule is suggested; ` +
+    `run once outside the confinement to see which command it was.`
+  );
+}
+
 /** One unanswered argv, `n` times: why, the rules it was tried against, the rule to add. */
 function describeMiss(
   c: StubCall,
   n: number,
   stubs: readonly ToolStub[],
 ): string {
+  if (c.outcome.kind === "unlogged") return describeUnlogged(c, n);
   const times = n > 1 ? ` ×${String(n)}` : "";
   const rules = (stubs.find((s) => s.name === c.tool)?.rules ?? []).map(
     (r, i) => `\n      #${String(i + 1)} ${describePattern(r.argv)}`,
@@ -455,6 +472,34 @@ export const UNANSWERED_EXIT_CODE = 97;
  */
 export function unsupportedLine(name: string): string {
   return `${name}: unsupported invocation (vigiles stub)\n`;
+}
+
+/**
+ * The misses a stub could not log, found from the agent's side: every
+ * occurrence of a stubbed tool's neutral miss line ({@link unsupportedLine}) in
+ * `texts` (the agent's tool results) beyond the unanswered calls the log already
+ * holds for that tool. The line is vigiles' own marker, not a guess about what
+ * the agent ran, so this is a count of a thing we printed. A miss the log has
+ * is counted once — by the log. Pure.
+ */
+export function unloggedMisses(
+  texts: readonly string[],
+  logged: readonly StubCall[],
+  names: readonly string[],
+): readonly StubCall[] {
+  return names.flatMap((name) => {
+    const line = unsupportedLine(name).trimEnd();
+    const seen = texts.reduce((n, t) => n + (t.split(line).length - 1), 0);
+    const known = logged.filter(
+      (c) => c.tool === name && isUnanswered(c.outcome),
+    ).length;
+    const unlogged: StubCall = {
+      tool: name,
+      argv: [],
+      outcome: { kind: "unlogged" },
+    };
+    return Array.from({ length: Math.max(0, seen - known) }, () => unlogged);
+  });
 }
 
 /** Where a stub root keeps its files (`name` picks the per-stub ones). Pure path arithmetic. */

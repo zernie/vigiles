@@ -151,6 +151,91 @@ test("a stub that cannot log is never scored as answered: the model sees a miss 
   assert.deepEqual(outputs, ["97:gh: unsupported invocation (vigiles stub)\n"]);
 });
 
+/** A stream-json run whose Bash call came back with `text`, as the harness records it. */
+const streamWithBashResult = (text: string): string =>
+  [
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "Bash",
+            input: { command: "gh" },
+          },
+        ],
+      },
+    }),
+    JSON.stringify({
+      type: "user",
+      message: {
+        content: [{ type: "tool_result", tool_use_id: "t1", content: text }],
+      },
+    }),
+    RESULT,
+  ].join("\n");
+
+test("a stub dir the agent's shell cannot write at all: no log file, and the neutral line in the trace still fails the run", async () => {
+  const logs: boolean[] = [];
+  const run = (a: AgentRunArgs) => {
+    const bin = (resolveSpawnEnv(a).PATH ?? "").split(":")[0] ?? "";
+    // the confined shell never created a log: the stub printed its line and nothing else survived
+    logs.push(existsSync(join(dirname(bin), "calls.jsonl")));
+    return Promise.resolve({
+      code: 0,
+      stdout: streamWithBashResult(
+        "gh: unsupported invocation (vigiles stub)\n",
+      ),
+    });
+  };
+  const report = await runEvalWith(base(), run);
+  assert.deepEqual(logs, [false]);
+  const missed = report.arms.a?.unansweredStubCalls ?? [];
+  assert.equal(missed.length, 1);
+  assert.equal(missed[0]?.tool, "gh");
+  assert.equal(missed[0]?.outcome.kind, "unlogged");
+  const failure = unansweredInReport(report, [GH]) ?? "";
+  assert.match(
+    failure,
+    /gh: the stub printed its unsupported-invocation line but could not log the call/,
+  );
+  assert.match(failure, /writable from the agent's shell/);
+  // the control: a trace without the line, and no log, is a run that called nothing
+  const clean = await runEvalWith(base(), () =>
+    Promise.resolve({ code: 0, stdout: streamWithBashResult("[]") }),
+  );
+  assert.deepEqual(clean.arms.a?.unansweredStubCalls, []);
+});
+
+test("a miss that is both logged and in the trace counts once; a line for a tool that is not stubbed is not ours", async () => {
+  const both = (a: AgentRunArgs) => {
+    const r = spawnSync("gh", [...PROBE], {
+      cwd: a.cwd,
+      env: resolveSpawnEnv(a),
+      encoding: "utf8",
+    });
+    return Promise.resolve({
+      code: 0,
+      stdout: streamWithBashResult(r.stderr),
+    });
+  };
+  const report = await runEvalWith(base(), both);
+  assert.deepEqual(
+    report.arms.a?.unansweredStubCalls.map((c) => c.outcome.kind),
+    ["no-rule"],
+  );
+  const other = await runEvalWith(base(), () =>
+    Promise.resolve({
+      code: 0,
+      stdout: streamWithBashResult(
+        "git: unsupported invocation (vigiles stub)\n",
+      ),
+    }),
+  );
+  assert.deepEqual(other.arms.a?.unansweredStubCalls, []);
+});
+
 test("calling runEval directly is not silent about an unanswered stub call", async () => {
   const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
   try {
