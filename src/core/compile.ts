@@ -40,7 +40,6 @@ import {
 import { purityViolations } from "./effects.js";
 import type { LinterCheckResult } from "./linters.js";
 import type { HarnessDialect } from "./dialect.js";
-import { sizeIn } from "./instruction-weight.js";
 import {
   DEFAULT_INSTRUCTION_TARGETS,
   RENDERABLE_SKILL_FRONTMATTER_KEYS,
@@ -189,9 +188,7 @@ export interface CompileError {
     | "inline-code-too-long"
     | "entry-too-long"
     | "section-too-large"
-    | "rules-too-large"
-    | "key-files-too-large"
-    | "output-too-large";
+    | "rules-too-large";
   message: string;
   path?: string;
 }
@@ -518,27 +515,19 @@ export interface CompileClaudeResult {
 export interface CompileClaudeOptions {
   /**
    * The `compile-budget` rule's severity. `"warn"` (the default) reports the
-   * per-entry and per-section budgets as warnings and evaluates the aggregates
-   * only when a threshold for them is passed; `"error"` evaluates EVERY budget,
-   * with defaults, as an error — including the whole output against the
-   * dialect's instruction budget, in the dialect's unit; `false` reports none
-   * (an explicit `maxTokens` still fails, as it always has — a separate check).
+   * per-entry and per-section budgets as warnings and evaluates the Rules total
+   * only when a threshold for it is passed; `"error"` (what
+   * `vigiles:recommended` sets) evaluates every budget, with defaults, as an
+   * error; `false` reports none (an explicit `maxTokens` still fails, as it
+   * always has — a separate check).
    */
   budgetSeverity?: "warn" | "error" | false;
-  /** Per-entry `keyFiles`/`commands` character budget (0 disables). */
+  /** Per-entry `commands` character budget (0 disables). */
   maxEntryChars?: number;
   /** Per-section character budget, beside the line budget (0 disables). */
   maxSectionChars?: number;
   /** Character budget for the whole rendered Rules section (0 disables). */
   maxRulesChars?: number;
-  /** Character budget for the whole rendered Key Files section (0 disables). */
-  maxKeyFilesChars?: number;
-  /**
-   * Ceiling on the whole compiled file, in the DIALECT's unit (Claude Code:
-   * chars, Codex: bytes). Default under `"error"`: the dialect's own budget.
-   * 0 disables.
-   */
-  maxOutput?: number;
   basePath?: string;
   specFile?: string;
   /** Injected harness dialect; its instructionTargets[0] is the default target. */
@@ -617,51 +606,27 @@ export const DEFAULT_MAX_SECTION_CHARS = 15000;
  */
 export const DEFAULT_MAX_RULES_CHARS = 20000;
 
-/**
- * The whole rendered Key Files section. Under `compile-budget: "error"` only.
- *
- * The per-entry budget alone was met, on a real 230-entry list, by CLIPPING:
- * 118 of the 230 rendered lines carried a `…` marker — every row under 200
- * characters, the list ~46.5 kB. Only a budget on the SUM sees that.
- */
-export const DEFAULT_MAX_KEY_FILES_CHARS = 10000;
-
 /** One budget, with its threshold resolved. `0` means "not evaluated". */
 interface BudgetLimits {
   readonly entryChars: number;
   readonly sectionChars: number;
   readonly rulesChars: number;
-  readonly keyFilesChars: number;
-  /** The whole-output ceiling in the harness's unit, or null when none applies. */
-  readonly harness: {
-    readonly unit: "chars" | "bytes";
-    readonly limit: number;
-    readonly onExceed: "warns" | "truncates";
-  } | null;
 }
 
 /**
  * The thresholds this compile measures against.
  *
- * 🔴 THE AGGREGATES HAVE NO DEFAULT AT `"warn"`, AND THAT IS THE ROLLOUT, NOT AN
- * OVERSIGHT. At the default severity `compile` prints exactly what it printed
- * before the rule had a name; a stricter check lands in `vigiles:strict` first
- * and is promoted only after it has been measured quiet on a real corpus. A
- * repo that wants one of them as a warning sets its threshold explicitly.
+ * The Rules total has no default at `"warn"`: a repo that does not extend
+ * `vigiles:recommended` and leaves the rule at its default sees exactly the
+ * warnings `compile` printed before the rule had a name. At `"error"` (what the
+ * preset sets) every budget applies with its default.
  *
- * 🔴 THE WHOLE-FILE CEILING IS IN THE HARNESS'S OWN UNIT, NEVER TOKENS. Claude
- * Code's limit is 40,000 CHARACTERS (`/doctor`), Codex's 32 KiB of BYTES, and
- * that is what the dialect records. A token ceiling derived from it would rest
- * on an offline estimate (`estimateTokens`, chars / 4), and offline estimates
- * undercount Claude's own tokenizer on English instruction text by roughly
- * 33–44% — a gate in an estimated unit is a gate on the wrong number. So
- * `maxOutput` is in the dialect's unit, and `maxTokens` stays what it was: an
- * explicit, separate ceiling that does not lift or replace this one.
- *
- * Codex's 32 KiB is shared by the whole AGENTS.md chain, so measuring ONE
- * compiled file against it is a lower bound: a file over it is certainly
- * truncated, a file under it may still be cut once the chain is summed. The
- * sum across files is `instruction-weight`'s job, not this rule's.
+ * 🔴 WHAT THIS RULE DOES NOT MEASURE, ON PURPOSE — each has one owner already:
+ * - the whole always-loaded size, in the harness's unit (Claude Code chars,
+ *   Codex bytes) — `instruction-weight` and its `max`, which sums the whole
+ *   chain, so moving text into a rules file does not fool it;
+ * - `keyFiles` — deprecated (`deprecated-key-files`); budgeting a section the
+ *   reader is told to delete would be a second, contradicting instruction.
  */
 function resolveBudgetLimits(
   options: Readonly<CompileClaudeOptions>,
@@ -672,53 +637,25 @@ function resolveBudgetLimits(
     entryChars: options.maxEntryChars ?? DEFAULT_MAX_ENTRY_CHARS,
     sectionChars: options.maxSectionChars ?? DEFAULT_MAX_SECTION_CHARS,
     rulesChars: options.maxRulesChars ?? (strict ? DEFAULT_MAX_RULES_CHARS : 0),
-    keyFilesChars:
-      options.maxKeyFilesChars ?? (strict ? DEFAULT_MAX_KEY_FILES_CHARS : 0),
-    harness: harnessCeiling(options, strict),
-  };
-}
-
-/**
- * The whole-file ceiling: `maxOutput` when set (0 = off), else the dialect's
- * budget under `"error"`. Measured in the dialect's unit; a caller that passes
- * `maxOutput` with no dialect gets characters, the unit `compile` prints.
- */
-function harnessCeiling(
-  options: Readonly<CompileClaudeOptions>,
-  strict: boolean,
-): BudgetLimits["harness"] {
-  const budget = options.dialect?.instructionBudget;
-  const limit = options.maxOutput ?? (strict && budget ? budget.limit : 0);
-  if (limit <= 0) return null;
-  return {
-    unit: budget?.unit ?? "chars",
-    limit,
-    onExceed: budget?.onExceed ?? "warns",
   };
 }
 
 /** What the budgets measure: the spec's own strings plus the rendered output. */
 interface BudgetInput {
   readonly spec: {
-    readonly keyFiles?: Record<string, string>;
     readonly commands?: Record<string, string>;
     readonly sections?: Record<string, unknown>;
     readonly rules: Record<string, unknown>;
   };
   readonly renderedRules: string;
-  readonly renderedKeyFiles: string;
-  readonly output: string;
 }
 
 const n = (x: number): string => x.toLocaleString("en-US");
 
 /**
- * Budget findings for the two append-only maps, section size, the two
- * aggregates (Rules, Key Files) and the whole output. Severity is applied by
- * the caller: the same finding is a warning by default and an error under
- * `vigiles:strict` (`lint-rule-calibration`: severity tracks confidence, and a
- * gate that fails every real repo on day one is switched off on day two — this
- * repo's own corpus opens at 26 over-long entries).
+ * Budget findings for `commands` entries, section size and the Rules total.
+ * Severity is applied by the caller: the same finding is a warning at the
+ * rule's default and an error under `vigiles:recommended`.
  */
 function checkContentBudgets(
   input: BudgetInput,
@@ -726,17 +663,15 @@ function checkContentBudgets(
   limits: BudgetLimits,
 ): readonly CompileError[] {
   return [
-    ...entryBudget("keyFiles", input.spec.keyFiles, specFile, limits),
     ...entryBudget("commands", input.spec.commands, specFile, limits),
     ...sectionBudget(input.spec.sections, specFile, limits),
-    ...sumBudgets(input, specFile, limits),
-    ...outputBudget(input.output, specFile, limits),
+    ...rulesBudget(input, specFile, limits),
   ];
 }
 
-/** One finding per `keyFiles` / `commands` description over the entry budget. */
+/** One finding per `commands` description over the entry budget. */
 function entryBudget(
-  field: "keyFiles" | "commands",
+  field: "commands",
   map: Readonly<Record<string, string>> | undefined,
   specFile: string,
   limits: BudgetLimits,
@@ -750,8 +685,8 @@ function entryBudget(
       message:
         `${field}[${JSON.stringify(key)}] description is ${String(description.length)} ` +
         `characters (budget ${String(limits.entryChars)}). An entry is a pointer — say what the ` +
-        `file is for in one line and move the explanation into its own header, which is read ` +
-        `when someone opens it rather than on every request.`,
+        `command does in one line and move the explanation into the script's own header or ` +
+        `--help, which is read when someone runs it rather than on every request.`,
     }));
 }
 
@@ -779,68 +714,25 @@ function sectionBudget(
     }));
 }
 
-/** The two sums: the whole Rules section and the whole Key Files section. */
-function sumBudgets(
+/** The whole Rules section, as one sum. */
+function rulesBudget(
   input: BudgetInput,
   specFile: string,
   limits: BudgetLimits,
 ): readonly CompileError[] {
   const rulesChars = input.renderedRules.length;
-  const keyFilesChars = input.renderedKeyFiles.length;
-  const rules: readonly CompileError[] =
-    limits.rulesChars > 0 && rulesChars > limits.rulesChars
-      ? [
-          {
-            type: "rules-too-large",
-            path: specFile,
-            message:
-              `the Rules section is ${n(rulesChars)} characters for ` +
-              `${String(Object.keys(input.spec.rules).length)} rules ` +
-              `(budget ${n(limits.rulesChars)}). Render a rule shorter instead of deleting it: ` +
-              `enforce(rule, why, { render: "id" }) when a linter already holds it, or ` +
-              `guidance(statement, { details: file(...) }) with the long text in that file — ` +
-              `the rule stays in the spec, where lint and audit read it.`,
-          },
-        ]
-      : [];
-  const keyFiles: readonly CompileError[] =
-    limits.keyFilesChars > 0 && keyFilesChars > limits.keyFilesChars
-      ? [
-          {
-            type: "key-files-too-large",
-            path: specFile,
-            message:
-              `the Key Files section is ${n(keyFilesChars)} characters (budget ` +
-              `${n(limits.keyFilesChars)}), loaded on every request. Keep the files an ` +
-              `agent must find without looking; point to an index file for the rest.`,
-          },
-        ]
-      : [];
-  return [...rules, ...keyFiles];
-}
-
-/** The whole compiled file against the harness ceiling, in the harness's unit. */
-function outputBudget(
-  output: string,
-  specFile: string,
-  limits: BudgetLimits,
-): readonly CompileError[] {
-  if (!limits.harness) return [];
-  const { unit, limit, onExceed } = limits.harness;
-  const size = sizeIn(output, unit);
-  if (size <= limit) return [];
-  const past =
-    onExceed === "truncates"
-      ? "silently TRUNCATES — the rules after the cut do not exist for the model"
-      : "warns and still loads every byte, on every request";
+  if (limits.rulesChars <= 0 || rulesChars <= limits.rulesChars) return [];
   return [
     {
-      type: "output-too-large",
+      type: "rules-too-large",
       path: specFile,
       message:
-        `the compiled output is ${n(size)} ${unit}, over the harness's instruction budget ` +
-        `of ${n(limit)} ${unit} (past it the harness ${past}). ` +
-        `Move detail into files the agent opens when it needs them, or render rules shorter.`,
+        `the Rules section is ${n(rulesChars)} characters for ` +
+        `${String(Object.keys(input.spec.rules).length)} rules ` +
+        `(budget ${n(limits.rulesChars)}). Render a rule shorter instead of deleting it: ` +
+        `enforce(rule, why, { render: "id" }) when a linter already holds it, or ` +
+        `guidance(statement, { details: file(...) }) with the long text in that file — ` +
+        `the rule stays in the spec, where lint and audit read it.`,
     },
   ];
 }
@@ -1162,8 +1054,6 @@ export async function compileClaude(
             {
               spec,
               renderedRules: rules.lines.join("\n\n"),
-              renderedKeyFiles: keyFiles.lines.join("\n\n"),
-              output: markdown,
             },
             specFile,
             resolveBudgetLimits(options, severity),

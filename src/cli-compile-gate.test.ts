@@ -196,32 +196,47 @@ test("a CLEAN skill spec still compiles and writes", () => {
   );
 });
 
-// --- compile budgets: a warning by default, a gate under vigiles:strict (#350)
+// --- compile budgets: a warning by default, a gate under vigiles:recommended (#350)
 
-/** A spec whose one keyFiles entry is an essay rather than a pointer. */
+/**
+ * A spec whose one commands entry is an essay rather than a pointer — written
+ * with a package.json that has the script, so the only finding is the budget.
+ */
+function writeOverBudgetSpec(): void {
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({
+      name: "gate-fixture",
+      version: "0.0.0",
+      scripts: { test: "true" },
+    }),
+  );
+  writeFileSync(join(dir, "CLAUDE.md.spec.ts"), overBudgetSpec());
+}
+
 function overBudgetSpec(): string {
   return (
     `import { instructionFile } from ${JSON.stringify(SPEC_ENTRY)};\n` +
     `export default instructionFile({\n` +
-    `  keyFiles: { "package.json": ${JSON.stringify("x".repeat(400))} },\n` +
+    `  commands: { "npm test": ${JSON.stringify("x".repeat(400))} },\n` +
     `  rules: {},\n` +
     `});\n`
   );
 }
 
 test("by default an over-budget entry is a warning and the artifact is written", () => {
-  writeFileSync(join(dir, "CLAUDE.md.spec.ts"), overBudgetSpec());
+  writeOverBudgetSpec();
   const compiled = run("compile", "CLAUDE.md.spec.ts");
   assert.equal(compiled.code, 0, compiled.out);
   assert.match(compiled.out, /budget warning/);
   assert.equal(existsSync(join(dir, "CLAUDE.md")), true);
 });
 
-test("under vigiles:strict the same entry fails compile and nothing is written", () => {
-  writeFileSync(join(dir, "CLAUDE.md.spec.ts"), overBudgetSpec());
+test("under vigiles:recommended the same entry fails compile and nothing is written", () => {
+  writeOverBudgetSpec();
   writeFileSync(
     join(dir, ".vigilesrc.json"),
-    JSON.stringify({ extends: "vigiles:strict" }),
+    JSON.stringify({ extends: "vigiles:recommended" }),
   );
   const compiled = run("compile", "CLAUDE.md.spec.ts");
   assert.notEqual(compiled.code, 0, compiled.out);
@@ -229,14 +244,14 @@ test("under vigiles:strict the same entry fails compile and nothing is written",
   assert.equal(existsSync(join(dir, "CLAUDE.md")), false);
 });
 
-test("under vigiles:strict lint gates an artifact compiled before the switch, naming compile-budget", () => {
-  writeFileSync(join(dir, "CLAUDE.md.spec.ts"), overBudgetSpec());
+test("under vigiles:recommended lint gates an artifact compiled before the switch, naming compile-budget", () => {
+  writeOverBudgetSpec();
   assert.equal(run("compile", "CLAUDE.md.spec.ts").code, 0);
   assert.equal(run("lint", ".").code, 0, "default: lint stays as it was");
 
   writeFileSync(
     join(dir, ".vigilesrc.json"),
-    JSON.stringify({ extends: "vigiles:strict" }),
+    JSON.stringify({ extends: "vigiles:recommended" }),
   );
   const linted = run("lint", ".");
   assert.notEqual(linted.code, 0, linted.out);

@@ -327,13 +327,13 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
   "compile-budget": {
     id: "compile-budget",
     // Exact once a threshold is chosen: a length or a count read off the spec
-    // and its rendered output. The threshold is the judgment, which is why the
-    // default stays `warn` and `error` is the `vigiles:strict` opt-in.
+    // and its rendered output. The threshold is the judgment: the default stays
+    // `warn`, and `vigiles:recommended` sets `error`.
     bucket: "structural-closed",
     surface: ["instruction"],
     defaultSeverity: "warn",
     summary:
-      "A compiled instruction file stays within its size budgets (entries, sections, Rules, Key Files, harness budget).",
+      "A compiled instruction file stays within its size budgets (command entries, sections, the Rules total).",
     detector: "checkContentBudgets",
     upstreamPrevention:
       "compile measures the spec before writing; a render policy (enforce render, guidance details) meets a budget without deleting a rule",

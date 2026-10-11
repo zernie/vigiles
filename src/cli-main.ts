@@ -2244,12 +2244,7 @@ function compileBudgetOptions(
   config: Readonly<VigilesConfig> | undefined,
 ): Pick<
   CompileClaudeOptions,
-  | "budgetSeverity"
-  | "maxEntryChars"
-  | "maxSectionChars"
-  | "maxRulesChars"
-  | "maxKeyFilesChars"
-  | "maxOutput"
+  "budgetSeverity" | "maxEntryChars" | "maxSectionChars" | "maxRulesChars"
 > {
   const rule = config?.rules?.["compile-budget"];
   // No config at all (a programmatic caller, a missing file) is the default.

@@ -124,22 +124,17 @@ const testCoverageConfig = z
   .strict();
 
 /**
- * Thresholds for `compile-budget`, in characters (`maxOutput`: the harness's
- * unit). Each one left out keeps its built-in default; `0` turns that one
- * budget off.
+ * Thresholds for `compile-budget`, in characters. Each one left out keeps its
+ * built-in default; `0` turns that one budget off.
  */
 const compileBudgetThresholds = z
   .object({
-    /** One `keyFiles` / `commands` description. */
+    /** One `commands` description. */
     maxEntryChars: z.number().optional(),
     /** One named prose section. */
     maxSectionChars: z.number().optional(),
     /** The whole rendered Rules section. */
     maxRulesChars: z.number().optional(),
-    /** The whole rendered Key Files section. */
-    maxKeyFilesChars: z.number().optional(),
-    /** The whole compiled file, in the harness's unit (chars / bytes). */
-    maxOutput: z.number().optional(),
   })
   .strict();
 

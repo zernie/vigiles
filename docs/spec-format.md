@@ -85,12 +85,12 @@ Each section (and each subagent section) is length-guarded at compile time: a si
 
 ### Budget warnings: what the line guard cannot see
 
-Two checks run beside the line guard and, by default, print as **warnings** — they never fail a compile, because a budget that blocks adoption of a file you already have is a budget people turn off. The rule that owns them is [`compile-budget`](rules/compile-budget.md): at `"error"` (set by `"extends": "vigiles:strict"`) they fail the compile, and so do budgets on the whole Rules section, the total size of the Key Files section, and the whole file against the harness's own budget.
+Two checks run beside the line guard and, by default, print as **warnings** — they never fail a compile, because a budget that blocks adoption of a file you already have is a budget people turn off. The rule that owns them is [`compile-budget`](rules/compile-budget.md): at `"error"` (set by `"extends": "vigiles:recommended"`) they fail the compile, and so does a budget on the whole Rules section.
 
-| check                              | default               | why                                                                                                                                                                                                                |
-| ---------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| per-entry, `keyFiles` / `commands` | **200 characters**    | An entry is a _pointer_ — what the file is for, so a reader knows whether to open it. The explanation belongs in that file's own header, where it is read when someone opens the file instead of on every request. |
-| per-section, characters            | **15 000 characters** | Lines do not measure cost. One real section here was **24 lines and 20 416 characters** — it passed a 200-_line_ gate with two orders of magnitude to spare.                                                       |
+| check                   | default               | why                                                                                                                                                                                                                   |
+| ----------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| per-entry, `commands`   | **200 characters**    | An entry is a _pointer_ — what the command does, so a reader knows when to run it. The explanation belongs in the script's own header or `--help`, where it is read when someone runs it instead of on every request. |
+| per-section, characters | **15 000 characters** | Lines do not measure cost. One real section here was **24 lines and 20 416 characters** — it passed a 200-_line_ gate with two orders of magnitude to spare.                                                          |
 
 Both are tunable (`0` disables) as options of the `compile-budget` rule: `"compile-budget": ["warn", { "maxEntryChars": 300 }]`.
 
