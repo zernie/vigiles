@@ -375,7 +375,6 @@ export function loadPlugins(
   const seenOnDisk = new Set<string>();
   const warnings: string[] = [];
   let settings: { hooks?: unknown } = {};
-  let shadowedSettingsHooks: unknown;
   for (const load of loads) {
     for (const [key, content] of Object.entries(load.files)) {
       // A file with no recorded source is one the loader synthesized rather than
@@ -389,15 +388,19 @@ export function loadPlugins(
     for (const w of load.warnings) if (!warnings.includes(w)) warnings.push(w);
     if (settings.hooks === undefined && load.settings.hooks !== undefined)
       settings = load.settings;
-    shadowedSettingsHooks ??= load.shadowedSettingsHooks;
   }
-  return {
-    settings,
-    files,
-    sources,
-    warnings,
-    ...(shadowedSettingsHooks === undefined ? {} : { shadowedSettingsHooks }),
-  };
+  // First-wins, like `settings`.
+  const shadowed = loads.find((l) => l.shadowedSettingsHooks !== undefined);
+  return { settings, files, sources, warnings, ...pickShadowed(shadowed) };
+}
+
+/** The `shadowedSettingsHooks` key of `load`, or nothing — so the key is absent rather than `undefined`. */
+function pickShadowed(
+  load: LoadedPlugin | undefined,
+): Pick<LoadedPlugin, "shadowedSettingsHooks"> {
+  return load?.shadowedSettingsHooks === undefined
+    ? {}
+    : { shadowedSettingsHooks: load.shadowedSettingsHooks };
 }
 
 /** The shape `loadPlugins` returns for an empty harness list. */

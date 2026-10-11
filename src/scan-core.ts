@@ -772,11 +772,14 @@ export function scanAgents(
 function resolveScript(
   token: string,
   root: string,
-  pluginRootToken: string,
+  roots: Readonly<{
+    pluginRootToken: string;
+    projectRootTokens: readonly string[];
+  }>,
   fullCommand: string,
   exists: (p: string) => boolean,
-  projectRootTokens: readonly string[] = [],
 ): ScanHook {
+  const { pluginRootToken, projectRootTokens } = roots;
   // Every root variable the harness sets, in BOTH spellings (`${NAME}` and
   // `$NAME`). They name different directories at run time (the plugin vs the
   // host project) but a static scan has one directory to resolve them against:
@@ -905,10 +908,9 @@ export function scanHooks(
       const hook = resolveScript(
         tok,
         root,
-        pluginRootToken,
+        { pluginRootToken, projectRootTokens },
         cmd,
         exists,
-        projectRootTokens,
       );
       const event = evMap.get(tok);
       byScript.set(hook.script, event ? { ...hook, event } : hook);
@@ -957,7 +959,11 @@ export function scanHookScripts(
   regs: readonly HookRegistration[],
   shadowed: readonly HookRegistration[],
   scan: HookScriptScan,
-): { hooks: ScanHook[]; inline: number; manual: number } {
+): {
+  readonly hooks: readonly ScanHook[];
+  readonly inline: number;
+  readonly manual: number;
+} {
   const run = (r: readonly HookRegistration[]) =>
     scanHooks(
       r,
@@ -967,10 +973,11 @@ export function scanHookScripts(
       scan.layout.projectRootTokens,
     );
   const primary = run(regs);
-  const byScript = new Map<string, ScanHook>();
-  for (const h of [...primary.hooks, ...run(shadowed).hooks])
-    if (!byScript.has(h.script)) byScript.set(h.script, h);
-  const hooks = [...byScript.values()]
+  const all = [...primary.hooks, ...run(shadowed).hooks];
+  // First occurrence wins, so a script the loader's own hooks name keeps its
+  // event; the shadowed settings only ADD scripts.
+  const hooks = all
+    .filter((h, i) => all.findIndex((o) => o.script === h.script) === i)
     .map((h): ScanHook => {
       if (h.status !== "missing") return h;
       const abs = isAbsolute(h.script)
@@ -1302,10 +1309,9 @@ export function collectHookBlockEntries(
       const r = resolveScript(
         tok,
         root,
-        pluginRootToken,
+        { pluginRootToken, projectRootTokens },
         cmd,
         exists,
-        projectRootTokens,
       );
       if (r.status === "ok") {
         const abs = isAbsolute(r.script) ? r.script : resolve(root, r.script);

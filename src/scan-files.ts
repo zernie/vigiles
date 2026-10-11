@@ -38,6 +38,7 @@ import { basename, dirname, isAbsolute, join, relative } from "./posix-path.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import type { SettingsCodec } from "./core/settings-codec.js";
+import type { HookRegistration } from "./core/hook-normalize.js";
 import {
   executableSourceDirs,
   materializePrefix,
@@ -285,7 +286,7 @@ function readHooks(
 
 /** Mirror of plugin-loader.ts `readPluginHooks`, over the file map. */
 function readPluginHooks(
-  files: Record<string, string>,
+  files: Readonly<Record<string, string>>,
   layout: PluginLayout,
 ): { readonly declared: boolean; readonly hooks: unknown } {
   const m = readManifest(files, layout);
@@ -676,6 +677,22 @@ function collectMcpServers(
 // Public API
 // ---------------------------------------------------------------------------
 
+/** `scanHookScripts` as the file map can answer it: no `node_modules`, ever. */
+function fileMapHooks(
+  regs: readonly HookRegistration[],
+  loaded: Readonly<LoadedPlugin>,
+  layout: Readonly<PluginLayout>,
+  exists: (path: string) => boolean,
+): ReturnType<typeof scanHookScripts> {
+  return scanHookScripts(regs, normalizeHooks(loaded.shadowedSettingsHooks), {
+    root: BROWSER_ROOT,
+    layout,
+    exists,
+    // A fetched file map never holds node_modules: absence there proves nothing.
+    observable: (abs) => !isDependencyPath(abs),
+  });
+}
+
 /**
  * Scan an in-memory repo-relative file map and report its surfaces + structural
  * issues — the browser-safe twin of {@link scanPlugin}. `files` is
@@ -695,17 +712,7 @@ export function scanFiles(
   const loaded = loadPluginFromFiles(files, lay, repoName);
   const exists = mapExists(files);
   const hookRegs = normalizeHooks(loaded.settings.hooks);
-  const { hooks, inline, manual } = scanHookScripts(
-    hookRegs,
-    normalizeHooks(loaded.shadowedSettingsHooks),
-    {
-      root: BROWSER_ROOT,
-      layout: lay,
-      exists,
-      // A fetched file map never holds node_modules: absence there proves nothing.
-      observable: (abs) => !isDependencyPath(abs),
-    },
-  );
+  const { hooks, inline, manual } = fileMapHooks(hookRegs, loaded, lay, exists);
   const eventNames = hookEventNames(loaded.settings.hooks);
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
   const hookEventIssues = scoredIssues(allHookEventIssues);

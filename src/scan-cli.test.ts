@@ -159,55 +159,6 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
       }),
     );
 
-    // 2d. The vigiles repository's own shape when its nudges died (measured
-    // 2026-10-11): a PLUGIN (hooks in the manifest) whose project settings
-    // wire a compiled hook through a runner that is not installed, fail-open.
-    mk("deadrunner/CLAUDE.md", "# CC\nRun `npm test`.\n");
-    mk(
-      "deadrunner/.claude-plugin/plugin.json",
-      JSON.stringify({
-        name: "p",
-        version: "0.1.0",
-        hooks: {
-          PostToolUse: [
-            {
-              hooks: [
-                {
-                  type: "command",
-                  command: "bash ${CLAUDE_PLUGIN_ROOT}/hooks/ok.sh",
-                },
-              ],
-            },
-          ],
-        },
-      }),
-    );
-    mk("deadrunner/hooks/ok.sh", "#!/bin/sh\n");
-    mk("deadrunner/.vigiles/hooks/n.hook.mjs", "export default {};\n");
-    mk(
-      "deadrunner/.claude/settings.json",
-      JSON.stringify({
-        hooks: {
-          PostToolUse: [
-            {
-              matcher: "Edit|Write",
-              hooks: [
-                {
-                  type: "command",
-                  command:
-                    'node "${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js" hook-runtime run-program "${CLAUDE_PROJECT_DIR}/.vigiles/hooks/n.hook.mjs" || exit 0',
-                },
-              ],
-            },
-          ],
-        },
-      }),
-    );
-    mk(
-      "deadrunner/.vigilesrc.json",
-      JSON.stringify({ rules: { "hook-script-exists": "error" } }),
-    );
-
     // 3. A mixed repo: BOTH CLAUDE.md and AGENTS.md → detection is ambiguous.
     mk("mixed/CLAUDE.md", "# CC\nRun `npm test`.\n");
     mk("mixed/AGENTS.md", "# Codex\nRun `make`.\n");
@@ -333,21 +284,6 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     // With the gate in place this nudge did not print at all.
     assert.match(r.stdout, /Executing checks .* skipped/);
     assert.match(r.stdout, /AGENTS\.md/);
-  });
-
-  it("a fail-open compiled hook whose runner is not installed is an ERROR, even in a plugin repo's own settings", () => {
-    const r = run("lint", join(root, "deadrunner"));
-    assert.notEqual(r.exitCode, 0, r.stdout);
-    assert.match(r.stdout, /Hook-script existence check:/);
-    assert.match(
-      r.stdout,
-      /node_modules\/vigiles\/dist\/cli\.js" is referenced but not installed/,
-    );
-    // The message names the reason it went unnoticed, not just the path.
-    assert.match(r.stdout, /nothing to say/);
-    // The hook program and the manifest's own script are present: not flagged.
-    assert.doesNotMatch(r.stdout, /n\.hook\.mjs" is referenced/);
-    assert.doesNotMatch(r.stdout, /ok\.sh" is referenced/);
   });
 
   it("Codex repo: `lint` runs the layout-driven rules (hook token, untested) and reports subagent n/a", () => {

@@ -453,16 +453,10 @@ export const INSTALLED_HOOK_RUNTIME: HookRuntime = {
  * path that is only true on the machine that ran `compile`.
  */
 export function hookRuntimeFor(manifest: unknown): HookRuntime {
-  if (typeof manifest !== "object" || manifest === null)
-    return INSTALLED_HOOK_RUNTIME;
-  const { name, bin } = manifest as { name?: unknown; bin?: unknown };
-  if (name !== "vigiles") return INSTALLED_HOOK_RUNTIME;
-  const declared =
-    typeof bin === "string"
-      ? bin
-      : typeof bin === "object" && bin !== null
-        ? (bin as Record<string, unknown>).vigiles
-        : undefined;
+  if (fieldOf(manifest, "name") !== "vigiles") return INSTALLED_HOOK_RUNTIME;
+  const bin = fieldOf(manifest, "bin");
+  // npm's two spellings: `"bin": "x.js"` or `"bin": { "vigiles": "x.js" }`.
+  const declared = typeof bin === "string" ? bin : fieldOf(bin, "vigiles");
   if (typeof declared !== "string" || declared === "")
     return INSTALLED_HOOK_RUNTIME;
   return {
@@ -471,12 +465,20 @@ export function hookRuntimeFor(manifest: unknown): HookRuntime {
   };
 }
 
+/** `value[key]` when `value` is an object, else `undefined` — no cast. */
+function fieldOf(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null) return undefined;
+  const found: unknown = Object.entries(value).find(([k]) => k === key)?.[1];
+  return found;
+}
+
 /** {@link hookRuntimeFor} over `<cwd>/package.json`; no or unreadable manifest is a consumer. */
 export function readHookRuntime(cwd: string): HookRuntime {
   try {
-    return hookRuntimeFor(
-      JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8")) as unknown,
+    const manifest: unknown = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf-8"),
     );
+    return hookRuntimeFor(manifest);
   } catch {
     return INSTALLED_HOOK_RUNTIME;
   }
