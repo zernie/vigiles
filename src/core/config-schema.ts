@@ -139,6 +139,8 @@ const compileBudgetThresholds = z
     maxKeyFiles: z.number().optional(),
     /** The whole rendered Key Files section. */
     maxKeyFilesChars: z.number().optional(),
+    /** The whole compiled file, in the harness's unit (chars / bytes). */
+    maxOutput: z.number().optional(),
   })
   .strict();
 

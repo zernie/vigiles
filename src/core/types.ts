@@ -135,6 +135,11 @@ export interface CompileBudgetConfig {
   maxKeyFiles?: number;
   /** The whole rendered Key Files section. Default 10,000 (at "error"). */
   maxKeyFilesChars?: number;
+  /**
+   * The whole compiled file, in the HARNESS's unit (Claude Code: chars, Codex:
+   * bytes). Default at "error": the harness's own budget. Never tokens.
+   */
+  maxOutput?: number;
 }
 
 export interface RulesConfig {
@@ -313,8 +318,8 @@ export interface RulesConfig {
    * Size budgets on a COMPILED instruction file (`compile` from a `.spec.ts`):
    * one `keyFiles`/`commands` entry, one prose section, the whole Rules
    * section, the number and total size of `keyFiles`, and the whole output
-   * against the harness's own budget (`dialect.instructionBudget`) unless
-   * `maxTokens` sets a ceiling of its own.
+   * against the harness's own budget (`dialect.instructionBudget`), in the
+   * harness's unit — never an estimated token count.
    *
    * Default "warn", which is exactly the behaviour before this rule had a name:
    * the per-entry and per-section budgets print as warnings and never stop a

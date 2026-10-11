@@ -2238,6 +2238,7 @@ function compileBudgetOptions(
   | "maxRulesChars"
   | "maxKeyFiles"
   | "maxKeyFilesChars"
+  | "maxOutput"
 > {
   const rule = config?.rules?.["compile-budget"];
   // No config at all (a programmatic caller, a missing file) is the default.

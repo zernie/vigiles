@@ -20,21 +20,27 @@ against the harness's own budget.
 
 ## What it checks
 
-| budget                                      | default threshold                                                               | checked at                  |
-| ------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------- |
-| one `keyFiles` / `commands` description     | 200 characters                                                                  | `warn` and `error`          |
-| one named prose section                     | 15,000 characters                                                               | `warn` and `error`          |
-| the whole rendered Rules section            | 20,000 characters                                                               | `error`, or when you set it |
-| the number of `keyFiles` entries            | 50                                                                              | `error`, or when you set it |
-| the whole rendered Key Files section        | 10,000 characters                                                               | `error`, or when you set it |
-| the whole compiled file, unless `maxTokens` | the harness's budget, in its unit: Claude Code 40,000 chars, Codex 32,768 bytes | `error` only                |
+| budget                                  | default threshold                                                               | checked at                  |
+| --------------------------------------- | ------------------------------------------------------------------------------- | --------------------------- |
+| one `keyFiles` / `commands` description | 200 characters                                                                  | `warn` and `error`          |
+| one named prose section                 | 15,000 characters                                                               | `warn` and `error`          |
+| the whole rendered Rules section        | 20,000 characters                                                               | `error`, or when you set it |
+| the number of `keyFiles` entries        | 50                                                                              | `error`, or when you set it |
+| the whole rendered Key Files section    | 10,000 characters                                                               | `error`, or when you set it |
+| the whole compiled file                 | the harness's budget, in its unit: Claude Code 40,000 chars, Codex 32,768 bytes | `error`, or when you set it |
 
 The first two are what `compile` has always printed as warnings. The other four
 are new, and at the default severity they are **not evaluated** unless you give
-them a threshold, so the default output is exactly what it was. An explicit
-`maxTokens` (in the spec or in `.vigilesrc.json`) is a ceiling of its own and
-fails `compile` at any severity, as it always has; under `error` it replaces the
-harness budget as the whole-file ceiling.
+them a threshold, so the default output is exactly what it was.
+
+The whole-file ceiling is measured in the unit the harness itself counts:
+characters for Claude Code (its `/doctor` warns past 40,000), bytes for Codex
+(it silently truncates past 32 KiB). It is never a token count: `compile`'s
+`~N tokens est.` is characters divided by four, which was measured about 40%
+under Claude Code's own `/context` count on a real instruction file. An explicit
+`maxTokens` (in the spec or in `.vigilesrc.json`) is a separate, older check: it
+fails `compile` at any severity, as it always has, and it does not replace or
+lift this ceiling.
 
 ## Severity
 
@@ -63,16 +69,17 @@ that one budget off.
 }
 ```
 
-| option             | unit       |
-| ------------------ | ---------- |
-| `maxEntryChars`    | characters |
-| `maxSectionChars`  | characters |
-| `maxRulesChars`    | characters |
-| `maxKeyFiles`      | entries    |
-| `maxKeyFilesChars` | characters |
+| option             | unit                                                        |
+| ------------------ | ----------------------------------------------------------- |
+| `maxEntryChars`    | characters                                                  |
+| `maxSectionChars`  | characters                                                  |
+| `maxRulesChars`    | characters                                                  |
+| `maxKeyFiles`      | entries                                                     |
+| `maxKeyFilesChars` | characters                                                  |
+| `maxOutput`        | the harness's unit: characters (Claude Code), bytes (Codex) |
 
-Under `"warn"`, setting `maxRulesChars`, `maxKeyFiles` or `maxKeyFilesChars`
-turns that budget on as a warning.
+Under `"warn"`, setting `maxRulesChars`, `maxKeyFiles`, `maxKeyFilesChars` or
+`maxOutput` turns that budget on as a warning.
 
 ## Why the Rules section and the list, not each rule
 

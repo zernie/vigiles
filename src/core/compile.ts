@@ -191,7 +191,8 @@ export interface CompileError {
     | "section-too-large"
     | "rules-too-large"
     | "key-files-too-many"
-    | "key-files-too-large";
+    | "key-files-too-large"
+    | "output-too-large";
   message: string;
   path?: string;
 }
@@ -521,8 +522,8 @@ export interface CompileClaudeOptions {
    * per-entry and per-section budgets as warnings and evaluates the aggregates
    * only when a threshold for them is passed; `"error"` evaluates EVERY budget,
    * with defaults, as an error — including the whole output against the
-   * dialect's instruction budget when no `maxTokens` is set; `false` reports
-   * none (an explicit `maxTokens` still fails, as it always has).
+   * dialect's instruction budget, in the dialect's unit; `false` reports none
+   * (an explicit `maxTokens` still fails, as it always has — a separate check).
    */
   budgetSeverity?: "warn" | "error" | false;
   /** Per-entry `keyFiles`/`commands` character budget (0 disables). */
@@ -535,6 +536,12 @@ export interface CompileClaudeOptions {
   maxKeyFiles?: number;
   /** Character budget for the whole rendered Key Files section (0 disables). */
   maxKeyFilesChars?: number;
+  /**
+   * Ceiling on the whole compiled file, in the DIALECT's unit (Claude Code:
+   * chars, Codex: bytes). Default under `"error"`: the dialect's own budget.
+   * 0 disables.
+   */
+  maxOutput?: number;
   basePath?: string;
   specFile?: string;
   /** Injected harness dialect; its instructionTargets[0] is the default target. */
@@ -649,18 +656,20 @@ interface BudgetLimits {
  * and is promoted only after it has been measured quiet on a real corpus. A
  * repo that wants one of them as a warning sets its threshold explicitly.
  *
- * The harness ceiling replaces a `maxTokens` nobody set. When `maxTokens` IS
- * set it is the ceiling (checked below, as before, in tokens); otherwise the
- * dialect's own budget is, in the dialect's own unit — the number the harness
- * acts on — rather than a token estimate derived from it.
+ * 🔴 THE WHOLE-FILE CEILING IS IN THE HARNESS'S OWN UNIT, NEVER TOKENS. Claude
+ * Code's limit is 40,000 CHARACTERS (`/doctor`), Codex's 32 KiB of BYTES, and
+ * that is what the dialect records. A token ceiling derived from it would rest
+ * on `estimateTokens` (chars / 4), which was measured 40% under Claude Code's
+ * own `/context` count on a real instruction file (2.4 chars per token, same on
+ * four models) — a gate in an estimated unit is a gate on the wrong number.
+ * So `maxOutput` is in the dialect's unit, and `maxTokens` stays what it was:
+ * an explicit, separate ceiling that does not lift or replace this one.
  */
 function resolveBudgetLimits(
   options: CompileClaudeOptions,
   severity: "warn" | "error",
-  maxTokens: number | undefined,
 ): BudgetLimits {
   const strict = severity === "error";
-  const budget = options.dialect?.instructionBudget;
   return {
     entryChars: options.maxEntryChars ?? DEFAULT_MAX_ENTRY_CHARS,
     sectionChars: options.maxSectionChars ?? DEFAULT_MAX_SECTION_CHARS,
@@ -668,10 +677,26 @@ function resolveBudgetLimits(
     keyFiles: options.maxKeyFiles ?? (strict ? DEFAULT_MAX_KEY_FILES : 0),
     keyFilesChars:
       options.maxKeyFilesChars ?? (strict ? DEFAULT_MAX_KEY_FILES_CHARS : 0),
-    harness:
-      strict && !maxTokens && budget
-        ? { unit: budget.unit, limit: budget.limit, onExceed: budget.onExceed }
-        : null,
+    harness: harnessCeiling(options, strict),
+  };
+}
+
+/**
+ * The whole-file ceiling: `maxOutput` when set (0 = off), else the dialect's
+ * budget under `"error"`. Measured in the dialect's unit; a caller that passes
+ * `maxOutput` with no dialect gets characters, the unit `compile` prints.
+ */
+function harnessCeiling(
+  options: CompileClaudeOptions,
+  strict: boolean,
+): BudgetLimits["harness"] {
+  const budget = options.dialect?.instructionBudget;
+  const limit = options.maxOutput ?? (strict && budget ? budget.limit : 0);
+  if (limit <= 0) return null;
+  return {
+    unit: budget?.unit ?? "chars",
+    limit,
+    onExceed: budget?.onExceed ?? "warns",
   };
 }
 
@@ -780,12 +805,12 @@ function checkContentBudgets(
     const size = sizeIn(input.output, unit);
     if (size > limit) {
       found.push({
-        type: "budget-exceeded",
+        type: "output-too-large",
         path: specFile,
         message:
           `the compiled output is ${n(size)} ${unit}, over the harness's instruction budget ` +
           `of ${n(limit)} ${unit} (past it the harness ${onExceed === "truncates" ? "silently TRUNCATES — the rules after the cut do not exist for the model" : "warns and still loads every byte, on every request"}). ` +
-          `Set maxTokens to choose a ceiling of your own.`,
+          `Move detail into files the agent opens when it needs them, or render rules shorter.`,
       });
     }
   }
@@ -1106,7 +1131,7 @@ export async function compileClaude(
             output: markdown,
           },
           specFile,
-          resolveBudgetLimits(options, severity, maxTokens),
+          resolveBudgetLimits(options, severity),
         );
   if (severity === "error") errors.push(...budgetFindings);
   return {

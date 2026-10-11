@@ -14,7 +14,11 @@ import { describe, it, expect } from "vitest";
 
 import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
 import { codexDialect } from "../adapters/codex/dialect.js";
-import { compileClaude, DEFAULT_MAX_ENTRY_CHARS } from "./compile.js";
+import {
+  compileClaude,
+  DEFAULT_MAX_ENTRY_CHARS,
+  DEFAULT_MAX_KEY_FILES,
+} from "./compile.js";
 import { guidance } from "./spec.js";
 
 const spec = (
@@ -168,6 +172,19 @@ describe("compile-budget at error (the strict tier)", () => {
     ).toEqual(["key-files-too-many"]);
   });
 
+  it("uses the built-in thresholds when none is configured", async () => {
+    const keyFiles = Object.fromEntries(
+      Array.from({ length: DEFAULT_MAX_KEY_FILES + 1 }, (_, i) => [
+        `f${String(i)}.md`,
+        "A pointer.",
+      ]),
+    );
+    const { errors } = await strict(spec({ keyFiles }));
+    expect(
+      errors.filter((e) => e.type !== "stale-file").map((e) => e.type),
+    ).toEqual(["key-files-too-many"]);
+  });
+
   it("budgets the keyFiles section's total characters", async () => {
     const keyFiles = {
       "package.json": "p".repeat(150),
@@ -192,7 +209,7 @@ describe("compile-budget at error (the strict tier)", () => {
       }),
       { dialect: claudeCodeDialect },
     );
-    const over = errors.filter((e) => e.type === "budget-exceeded");
+    const over = errors.filter((e) => e.type === "output-too-large");
     expect(over).toHaveLength(1);
     expect(over[0].message).toContain("40,000 chars");
   });
@@ -204,12 +221,14 @@ describe("compile-budget at error (the strict tier)", () => {
       spec({ sections: { A: "é".repeat(17000) } }),
       { dialect: codexDialect, maxSectionChars: 0 },
     );
-    const over = errors.filter((e) => e.type === "budget-exceeded");
+    const over = errors.filter((e) => e.type === "output-too-large");
     expect(over).toHaveLength(1);
     expect(over[0].message).toContain("32,768 bytes");
   });
 
-  it("an explicit maxTokens is the ceiling instead of the harness budget", async () => {
+  it("a token maxTokens neither replaces nor lifts the char ceiling", async () => {
+    // The harness counts characters; a ceiling in estimated tokens is a
+    // different number (chars/4 was measured 40% under Claude Code's own count).
     const big = spec({
       sections: {
         A: "a".repeat(14000),
@@ -221,7 +240,24 @@ describe("compile-budget at error (the strict tier)", () => {
       dialect: claudeCodeDialect,
       maxTokens: 50000,
     });
-    expect(errors.filter((e) => e.type === "budget-exceeded")).toHaveLength(0);
+    expect(errors.map((e) => e.type)).toEqual(["output-too-large"]);
+  });
+
+  it("maxOutput moves the ceiling, in the harness's unit", async () => {
+    const big = spec({
+      sections: {
+        A: "a".repeat(14000),
+        B: "b".repeat(14000),
+        C: "c".repeat(14000),
+      },
+    });
+    const raised = await strict(big, {
+      dialect: claudeCodeDialect,
+      maxOutput: 60000,
+    });
+    expect(raised.errors).toHaveLength(0);
+    const off = await strict(big, { dialect: claudeCodeDialect, maxOutput: 0 });
+    expect(off.errors).toHaveLength(0);
   });
 
   it("stays silent on a small, ordinary spec — the quiet half", async () => {
