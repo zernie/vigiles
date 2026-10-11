@@ -25,6 +25,7 @@ import { experimental_agent } from "../../core/spec.js";
 // adapter reuses it with codexLayout (no cross-adapter import).
 import { loadPlugin } from "../../plugin-loader.js";
 import { formatScanReport, scanPlugin } from "../../scan.js";
+import { scanFiles } from "../../scan-files.js";
 import { runHarnessTest } from "../../harness-test.js";
 import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
 
@@ -251,4 +252,43 @@ test("a codex harness test refuses an output style before running anything", asy
     ),
     /outputStyle: this harness has no output styles/,
   );
+});
+
+test("hook-script-exists: a compiled hook's relative RUNNER is checked — missing on disk, unresolved in the file map", () => {
+  // Codex declares no project-root variable, so `compile` emits the RELATIVE
+  // spelling, which resolves against the scanned root like any relative path.
+  // The Claude Code half (project-root token, plugin + settings) is in
+  // ../claude-code/hook-runner-exists.test.ts.
+  const runner = "node_modules/vigiles/dist/cli.js";
+  const dir = makeTmpDir("codex-runner");
+  try {
+    mkdirSync(join(dir, ".codex"), { recursive: true });
+    mkdirSync(join(dir, ".vigiles", "hooks"), { recursive: true });
+    const toml = `[[hooks.PostToolUse]]\ncommand = "node ${runner} hook-runtime run-program .vigiles/hooks/x.hook.mjs || exit 0"\n`;
+    const hook = "export default {};\n";
+    writeFileSync(join(dir, codexLayout.settingsPath), toml);
+    writeFileSync(join(dir, ".vigiles", "hooks", "x.hook.mjs"), hook);
+    const statusOf = (
+      hooks: readonly { script: string; status: string }[],
+      suffix: string,
+    ) => hooks.find((h) => h.script.endsWith(suffix))?.status;
+
+    const disk = scanPlugin(dir, codexLayout, codexDialect);
+    assert.equal(statusOf(disk.hooks, runner), "missing");
+    assert.equal(statusOf(disk.hooks, ".vigiles/hooks/x.hook.mjs"), "ok");
+
+    // The file map is a fetch: it never holds node_modules, so it cannot know.
+    const map = scanFiles(
+      {
+        [codexLayout.settingsPath]: toml,
+        ".vigiles/hooks/x.hook.mjs": hook,
+      },
+      codexLayout,
+      codexDialect,
+    );
+    assert.equal(statusOf(map.hooks, runner), "unresolved");
+    assert.equal(statusOf(map.hooks, ".vigiles/hooks/x.hook.mjs"), "ok");
+  } finally {
+    cleanupTmpDir(dir);
+  }
 });
