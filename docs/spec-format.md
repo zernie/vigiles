@@ -62,7 +62,6 @@ import { instructionFile, enforce, guidance, file, cmd, ref, prose } from "vigil
 export default instructionFile({
   target: "CLAUDE.md",          // or "AGENTS.md", or ["CLAUDE.md", "AGENTS.md"]
   sections: { ... },
-  keyFiles: { ... },
   commands: { ... },
   rules: { ... },
   maxSectionLines: 30,          // optional: cap per-section line count
@@ -105,16 +104,9 @@ sections: {
 }
 ```
 
-### `keyFiles`
+### `keyFiles` (deprecated)
 
-`Record<string, string>` -- File paths mapped to descriptions. Each path is verified via `existsSync` at compile time. Compiles to a bullet list under `## Key Files`.
-
-```ts
-keyFiles: {
-  "src/spec.ts": "Type system and builder functions",
-  "src/compile.ts": "Compiler: spec to markdown with SHA-256 hash",
-}
-```
+**Deprecated — removed in the next major.** `Record<string, string>` mapping file paths to descriptions, compiled to a `## Key Files` list in the instruction file that loads on every request. It still compiles (each path verified via `existsSync`), and [`deprecated-key-files`](rules/deprecated-key-files.md) warns on every spec that uses it. Don't add new entries: name a file a decision depends on with `file()` where that decision is written (a `prose` section — verified the same way), put a pointer that matters in one folder into that folder's nested `CLAUDE.md`, and drop a plain file map — the agent reads the code. [Migration guide →](rules/deprecated-key-files.md)
 
 ### `commands`
 

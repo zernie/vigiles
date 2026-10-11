@@ -66,15 +66,9 @@ export default claude({
     // Prose sections here
   },
 
-  keyFiles: {
-    // Key files here. A path maps to ONE LINE saying what the file is for —
-    // aim for 120 characters, never exceed ~200. The entry is a pointer, not a
-    // summary: how the file works belongs in its own header comment, which is
-    // read when someone opens it. This file is loaded on every request, so a
-    // paragraph here is paid for every turn. Prune a stale neighbour whenever
-    // you add one; `vigiles audit` prints the running total as
-    // `Always-loaded instructions`.
-  },
+  // No `keyFiles`: the field is deprecated (removed next major). A "Key Files"
+  // list in the original file is NOT carried over as a map — see the
+  // guideline below.
 
   commands: {
     // Commands here
@@ -89,6 +83,7 @@ export default claude({
 **Important guidelines:**
 
 - Use `file()` refs in sections where file paths appear in backticks — this enables stale reference detection
+- A "Key Files" / file-map section in the original: do NOT emit `keyFiles` (deprecated — `vigiles lint` warns as `deprecated-key-files`). Keep a pointer a decision depends on as a `file()` ref in the section where that decision is written; propose dropping the plain map entries (the agent reads the code) and list them for the user to confirm — the choice per entry is theirs (guide: `docs/rules/deprecated-key-files.md` in the vigiles repository)
 - Use `cmd()` refs for any `npm run` commands mentioned in sections
 - Convert `**Enforced by:** \`code-review\``rules to`guidance()` — code review is not a mechanical enforcement
 - For rules with no annotation, add a `// TODO: classify as enforce() or guidance()` comment
@@ -105,7 +100,7 @@ npm run build
 npx vigiles compile CLAUDE.md.spec.ts
 ```
 
-Compare the compiled output against the original file. Key differences are expected (formatting, section ordering), but all rules, commands, key files, and prose content should be preserved.
+Compare the compiled output against the original file. Key differences are expected (formatting, section ordering), but all rules, commands, and prose content should be preserved (a file map is the exception — see the `keyFiles` guideline above).
 
 ### Step 5: Present the Result
 
