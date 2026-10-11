@@ -19,6 +19,8 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 
+import { findKeyFilesInSpecSource } from "./core/keyfiles-source.js";
+
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
 
 function run(
@@ -79,6 +81,17 @@ describe("CLI: vigiles init", () => {
       content.includes("// import { instructionFile, enforce, guidance }"),
       "shows the fuller import as a comment for when rules are added",
     );
+  });
+
+  it("scaffolds a spec without the deprecated keyFiles field", () => {
+    run("init --target=NOKEYFILES.md", tmpDir);
+    const content = readFileSync(
+      join(tmpDir, "NOKEYFILES.md.spec.ts"),
+      "utf-8",
+    );
+    // Read the way `audit` reads it (AST, comments excluded): a scaffold that
+    // ships the field teaches every new repo the thing compile warns about.
+    assert.equal(findKeyFilesInSpecSource(content), null);
   });
 
   it("should not overwrite existing spec", () => {
