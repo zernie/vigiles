@@ -4,7 +4,8 @@ Warn when an instruction spec (`CLAUDE.md.spec.ts`, `AGENTS.md.spec.ts`, any
 `*.md.spec.ts`) still uses the **`keyFiles`** field. This page is the
 migration guide.
 
-**Remove `keyFiles` from your spec.** It is **deprecated** and is **removed in
+**Move each entry where it belongs, then remove `keyFiles` from your spec.**
+It is **deprecated** and is **removed in
 the next major release** after the one that deprecated it. Until then it still
 compiles exactly as before, and this rule is a **warning** — it never changes
 `vigiles lint`'s exit code at its default severity, so upgrading vigiles cannot
@@ -47,20 +48,23 @@ And on size ([How Claude remembers your project](https://code.claude.com/docs/en
 
 ## How to remove it, entry by entry
 
-Go through the map one entry at a time and ask what the entry is **for**, then
-move or delete it as below. Where each entry goes is your call — this rule only
-reports that the field is in use; it cannot know what an entry means. That the
-field goes is not optional.
+Go through the map one entry at a time. Do not just cut it: an entry sometimes
+carries a fact that is written nowhere else. Ask the questions below **in
+order** and stop at the first that fits. Where each entry goes is your call —
+this rule only reports that the field is in use; it cannot know what an entry
+means. That the field goes is not optional.
 
-| The entry is…                                              | Do this                                                                                                                                                                                                                                                                                                                                 |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **(a)** a pointer a decision depends on                    | Name the file **where that decision is written**, as a `file()` reference in a `prose` section. `vigiles compile` verifies it exists — the same check (`validateFileRef`) a `keyFiles` path had, so moving the file still fails the build. `guidance()` takes a plain string, so a path typed into a guidance rule is **not** verified. |
-| **(b)** relevant only when working in one folder           | Move it into **that folder's own nested `CLAUDE.md`** (or its spec). Claude Code loads a subdirectory's `CLAUDE.md` only when it works there, so the pointer stops costing anything elsewhere.                                                                                                                                          |
-| **(c)** a plain file or directory map ("what lives where") | **Delete it.** The agent reads the code. If **humans** need the map, keep it in that directory's `README.md`, which the harness does not load on its own.                                                                                                                                                                               |
-| **(d)** a path that no longer exists                       | **Delete it.** (Compile was already failing on it.)                                                                                                                                                                                                                                                                                     |
+| The entry…                                                                                        | Do this                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **(1)** says what the file's own header comment, your docs or the path already say                | **Delete it.** Also delete an entry whose path no longer exists (compile was already failing on it).                                                                                                                                                                                                                 |
+| **(2)** states a fact about that one file, written nowhere else                                   | **Move it into the file's header comment**, where a reader meets it on opening the file.                                                                                                                                                                                                                             |
+| **(3)** is really a rule an agent must follow while working in one folder, not a file description | **Move it into that folder's nested instruction file** — `<folder>/CLAUDE.md` (or `AGENTS.md`), compiled from its own `<folder>/CLAUDE.md.spec.ts`. The harness loads it only when the agent works in that folder, so it stops costing anything elsewhere.                                                           |
+| **(4)** points at a file an agent would otherwise not find at all                                 | **Keep a one-line pointer** where the decision that needs it is written, as a `file()` reference in a `prose` section. `vigiles compile` verifies it exists — the same check (`validateFileRef`) a `keyFiles` path had. `guidance()` takes a plain string, so a path typed into a guidance rule is **not** verified. |
 
 When every entry is placed, delete the `keyFiles` field itself. An empty
-`keyFiles: {}` is still reported — the migration is removing the field.
+`keyFiles: {}` is still reported — the migration is removing the field. If
+**humans** need a map of what lives where, keep it in that directory's
+`README.md`, which the harness does not load on its own.
 
 ### Before
 
@@ -69,9 +73,12 @@ import { instructionFile, guidance } from "vigiles/spec";
 
 export default instructionFile({
   keyFiles: {
-    "src/core/compile.ts": "Compiler: spec to markdown with SHA-256 hash",
     "src/core/spec.ts": "Type system and builder functions",
     "src/legacy/old-api.ts": "Old API",
+    "src/core/cache.ts": "Cache — entries expire after 10 minutes",
+    "src/db/":
+      "Database layer — every query goes through db/query.ts, never raw SQL",
+    "tools/release.sh": "Run before tagging a release",
   },
   rules: {
     "hash-on-compile": guidance(
@@ -88,17 +95,34 @@ import { instructionFile, guidance, file, prose } from "vigiles/spec";
 
 export default instructionFile({
   sections: {
-    // (a) the pointer the hash decision depends on, next to that decision —
-    // verified at compile time.
-    integrity: prose`The integrity hash is written by ${file("src/core/compile.ts")}.`,
+    // (4) nothing else leads an agent to the release script: a one-line
+    // pointer, next to the decision it belongs to, verified at compile time.
+    releasing: prose`Before tagging a release, run ${file("tools/release.sh")}.`,
   },
   rules: {
     "hash-on-compile": guidance(
       "Every compiled file carries an integrity hash; never edit it by hand.",
     ),
   },
-  // (c) `src/core/spec.ts` — a plain map entry: deleted (the agent finds it).
-  // (d) `src/legacy/old-api.ts` — gone from disk: deleted.
+  // (1) `src/core/spec.ts` — the path and the file's header say it: deleted.
+  // (1) `src/legacy/old-api.ts` — gone from disk: deleted.
+  // (2) `src/core/cache.ts` — the 10-minute expiry moved into that file's
+  //     header comment.
+  // (3) `src/db/` — a rule for the folder: moved into src/db/CLAUDE.md.spec.ts.
+});
+```
+
+And the new nested spec for (3), compiled to `src/db/CLAUDE.md`:
+
+```ts
+import { instructionFile, guidance } from "vigiles/spec";
+
+export default instructionFile({
+  rules: {
+    "queries-through-one-module": guidance(
+      "Every query goes through `db/query.ts`; never write raw SQL elsewhere.",
+    ),
+  },
 });
 ```
 
@@ -107,11 +131,13 @@ export default instructionFile({
 ```
 Deprecated-key-files check:
 
-  ⚠ CLAUDE.md.spec.ts: `keyFiles` is deprecated and goes away in the next major (230 entries, 45,467 characters compiled into the instruction file). Remove `keyFiles` from your spec: name a file a decision depends on where that decision is written, as a file() reference (or in that folder's own nested instruction file), and delete the rest — the agent finds files itself: https://github.com/zernie/vigiles/blob/main/docs/rules/deprecated-key-files.md
+  ⚠ CLAUDE.md.spec.ts: `keyFiles` is deprecated and goes away in the next major (230 entries, 45,467 characters compiled into the instruction file). For each entry: delete it if the file or the docs already say it · move a fact about one file into that file's header comment · move a rule for one folder into <folder>/CLAUDE.md · keep a one-line file() pointer only if nothing else leads there (guide: https://github.com/zernie/vigiles/blob/main/docs/rules/deprecated-key-files.md)
 ```
 
-The size is the size of the compiled `## Key Files` section, rendered the same
-way `compile` renders it. A map that is not a literal (a variable, a computed
+The nested file is named after the instruction file the reported spec
+compiles to (`AGENTS.md` for an `AGENTS.md.spec.ts`). The size is the size of
+the compiled `## Key Files` section, rendered the same way `compile` renders
+it. A map that is not a literal (a variable, a computed
 key or value, a spread) is reported as `not a literal map — size not measured`
 rather than guessed.
 

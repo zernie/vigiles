@@ -10,14 +10,16 @@
  * "File-by-file descriptions of the codebase" under what to EXCLUDE from
  * `CLAUDE.md` (https://code.claude.com/docs/en/best-practices).
  *
- * THE REPLACEMENT, by what the pointer is for:
- * - a pointer a decision depends on → inside the rule that needs it, as a
- *   `file()` reference (verified exactly like a `keyFiles` path, by
- *   `validateFileRef`);
- * - a pointer that matters only in one folder → that folder's nested
- *   instruction file, which loads only when the agent works there;
- * - a plain directory map → usually dropped (the agent reads the code); a
- *   `README.md` when humans need one.
+ * THE REPLACEMENT, decided per entry, in this order:
+ * - the file's own header, the docs or the path already say it → delete it;
+ * - a fact about that one file, written nowhere else → that file's header
+ *   comment, where a reader meets it on opening the file;
+ * - a rule an agent must follow while working in one folder → that folder's
+ *   nested instruction file (`<folder>/CLAUDE.md` from its own spec), which
+ *   loads only when the agent works there;
+ * - only when nothing else would lead an agent to the file → a one-line
+ *   `file()` pointer where the decision that needs it is written (verified
+ *   exactly like a `keyFiles` path, by `validateFileRef`).
  *
  * This module is pure: the renderer `compile` uses, the measurement the
  * `deprecated-key-files` rule reports, and its message — one wording for lint
@@ -76,16 +78,42 @@ export function keyFilesCost(u: KeyFilesUsage): string {
   return `${String(u.entries)} ${noun}, ${grouped(u.chars)} characters compiled into the instruction file`;
 }
 
-/** The fix, one sentence — shared by the lint message and the audit line. */
-export const KEYFILES_FIX =
-  "Remove `keyFiles` from your spec: name a file a decision depends on where " +
-  "that decision is written, as a file() reference (or in that folder's own " +
-  "nested instruction file), and delete the rest — the agent finds files itself";
+/**
+ * The instruction file a spec compiles to — `pkg/AGENTS.md.spec.ts` →
+ * `AGENTS.md` — so the fix names the nested file in the reader's own harness
+ * instead of assuming one.
+ */
+export function instructionFileOfSpec(specPath: string): string {
+  const base = specPath.split(/[\\/]/).pop() ?? specPath;
+  return base.replace(/\.spec\.ts$/, "");
+}
 
-/** The whole finding: what it costs, then what to do and where it is written up. */
-export function keyFilesDeprecationMessage(u: KeyFilesUsage): string {
+/**
+ * The fix, one sentence — shared by the lint message and the audit line. The
+ * four places an entry can go, in the order to try them; the full recipe is
+ * the migration guide. `targets` are the instruction files the reported specs
+ * compile to (`CLAUDE.md`, `AGENTS.md`), so the nested file is named for real.
+ */
+export function keyFilesFix(targets: readonly string[]): string {
+  const nested = [...new Set(targets)]
+    .sort()
+    .map((t) => `<folder>/${t}`)
+    .join(" or ");
+  return (
+    "For each entry: delete it if the file or the docs already say it · " +
+    "move a fact about one file into that file's header comment · " +
+    `move a rule for one folder into ${nested} · ` +
+    "keep a one-line file() pointer only if nothing else leads there"
+  );
+}
+
+/** The whole finding: what it costs, then where each entry goes and where it is written up. */
+export function keyFilesDeprecationMessage(
+  u: KeyFilesUsage,
+  target: string,
+): string {
   return (
     `\`keyFiles\` is deprecated and goes away in the next major (${keyFilesCost(u)}). ` +
-    `${KEYFILES_FIX}: ${KEYFILES_DOCS_URL}`
+    `${keyFilesFix([target])} (guide: ${KEYFILES_DOCS_URL})`
   );
 }

@@ -65,7 +65,9 @@ test("lint: a spec using keyFiles is reported at warn, with its size and the mig
   );
   expect(r.out).toContain("docs/rules/deprecated-key-files.md");
   // The warning says where each entry goes, not only that the field is deprecated.
-  expect(r.out).toMatch(/For each entry: delete it .* header comment .*<folder>\/CLAUDE\.md .*one-line file\(\) pointer/);
+  expect(r.out).toMatch(
+    /For each entry: delete it .* header comment .*<folder>\/CLAUDE\.md .*one-line file\(\) pointer/,
+  );
   expect(counters()).toMatchObject({
     deprecatedKeyFilesIssues: 1,
     deprecatedKeyFilesErrors: 0,
@@ -140,7 +142,7 @@ test("audit: every spec still using keyFiles, with its size and the fix — neve
   // The fix once, with the four places an entry can go; the nested file is
   // named after each reported spec's own instruction file.
   expect(text.out).toMatch(
-    /→ For each entry: delete it .*header comment.*<folder>\/CLAUDE\.md or <folder>\/AGENTS\.md.*one-line file\(\) pointer.*\[deprecated-key-files\]/,
+    /→ For each entry: delete it .*header comment.*<folder>\/AGENTS\.md or <folder>\/CLAUDE\.md.*one-line file\(\) pointer[^\n]*\n\s+\S+deprecated-key-files\.md {2}\[deprecated-key-files\]/,
   );
   // Advisory: a deprecation is not a structural defect.
   expect(text.out).not.toMatch(/structural issue\(s\)/);

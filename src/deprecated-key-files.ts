@@ -13,6 +13,7 @@
  */
 import { findKeyFilesInSpecSource } from "./core/keyfiles-source.js";
 import {
+  instructionFileOfSpec,
   keyFilesDeprecationMessage,
   type KeyFilesUsage,
 } from "./core/keyfiles.js";
@@ -69,7 +70,10 @@ export function checkDeprecatedKeyFiles(opts: {
   // included: they go to stdout and would corrupt the JSON.
   if (!opts.silent)
     found.forEach((f) => {
-      const message = keyFilesDeprecationMessage(f);
+      const message = keyFilesDeprecationMessage(
+        f,
+        instructionFileOfSpec(f.path),
+      );
       console.log(`  ${mark} ${f.path}: ${message}`);
       opts.annotate(level, message, f.path);
     });

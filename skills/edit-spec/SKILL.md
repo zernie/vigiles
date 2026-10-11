@@ -116,22 +116,21 @@ Based on what the user asked for:
   `deprecated-key-files`) and removed in the next major: it compiles a file
   map into the instruction file loaded on every request, and the agent finds
   files itself.
-- If a decision depends on the file, name it **where that decision is written**,
-  as `${file("src/services/auth.ts")}` inside a `prose` section — compile
-  verifies it exists, exactly as it verified a `keyFiles` path. (`guidance()`
-  takes a plain string, so a path typed there is not verified.)
-- If it matters only inside one folder, put it in that folder's nested
-  `CLAUDE.md` instead.
-- If it is only "what lives where", don't add it: the agent reads the code. A
-  `README.md` is the place for a map humans need.
+- Asked to add a file? Place it by the first of these that fits, and say why:
+  1. the file's own header, the docs or the path already say it → add nothing;
+  2. a fact about that one file → write it in **the file's header comment**;
+  3. a rule an agent must follow while working in one folder → that folder's
+     **nested `CLAUDE.md`** (its own `<folder>/CLAUDE.md.spec.ts`, compiled);
+  4. only if nothing else would lead an agent there → a **one-line pointer**,
+     `${file("src/services/auth.ts")}` inside a `prose` section where the
+     decision that needs it is written — compile verifies it exists, exactly
+     as it verified a `keyFiles` path. (`guidance()` takes a plain string, so a
+     path typed there is not verified.)
 - **Opened a spec that still has `keyFiles`?** Propose removing it, in the same
-  reply: go through the entries with the migration recipe
-  (`docs/rules/deprecated-key-files.md` in the vigiles repository) — (a) a
-  pointer a decision depends on → `file()` where that decision is written;
-  (b) one folder only → that folder's nested `CLAUDE.md`; (c) a plain map
-  entry → delete; (d) a missing path → delete — and show where each entry
-  goes. Where each entry goes is the user's call; apply it once they confirm.
-  Asked to "add X to key files"? Place X as above instead, and say why.
+  reply: go through the entries with the same four steps (the full recipe is
+  `docs/rules/deprecated-key-files.md` in the vigiles repository; a path that
+  no longer exists is deleted) and show, per entry, where it goes and why.
+  Where each entry goes is the user's call; apply it once they confirm.
 
 ### Step 4: Compile
 

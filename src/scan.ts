@@ -42,8 +42,9 @@ import type { ExcludeSet } from "./exclude.js";
 import type { DeprecatedKeyFilesFinding } from "./deprecated-key-files.js";
 import {
   KEYFILES_DOCS_URL,
-  KEYFILES_FIX,
+  instructionFileOfSpec,
   keyFilesCost,
+  keyFilesFix,
 } from "./core/keyfiles.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import type { ToolIssue } from "./core/tool-contract.js";
@@ -1342,7 +1343,8 @@ function deprecatedKeyFilesLines(r: ScanReport): readonly string[] {
     "Deprecated `keyFiles`",
     [
       ...found.map((f) => `  ⚠ ${f.path}: ${keyFilesCost(f)}`),
-      `    → ${KEYFILES_FIX}. ${KEYFILES_DOCS_URL}  [deprecated-key-files]`,
+      `    → ${keyFilesFix(found.map((f) => instructionFileOfSpec(f.path)))}.`,
+      `      ${KEYFILES_DOCS_URL}  [deprecated-key-files]`,
     ],
     found.length,
   );
