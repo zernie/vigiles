@@ -20,6 +20,7 @@ import {
   runsIn,
   trialsOverride,
   unansweredFailure,
+  UNANSWERED_STUB_EXIT_CODE,
 } from "./eval-entry.js";
 import { aggregateUsage, type EvalReport } from "./eval.js";
 import { ARGV_REST, type StubCall } from "./core/stub-rules.js";
@@ -272,7 +273,12 @@ test("unansweredFailure: only a runEval report with an unanswered call is a fail
       ?.code,
     1,
   );
-  assert.equal(runFailure("f", "runEval", report([miss]), { stubs })?.code, 2);
+  // its own child code: not 2 (usage), 1 (a declaration / zero runs) or 77 (skip)
+  assert.equal(
+    runFailure("f", "runEval", report([miss]), { stubs })?.code,
+    UNANSWERED_STUB_EXIT_CODE,
+  );
+  assert.equal(UNANSWERED_STUB_EXIT_CODE, 78);
   assert.equal(runFailure("f", "runEval", report([]), { stubs }), undefined);
 });
 
@@ -329,16 +335,46 @@ test("`vigiles eval` exits 2 on an unanswered stub call even when `assert` looks
     ["auth", "status"],
     ["issue", "create", "-R", "o/r", "--title", "t", "--body", "b"],
   ]);
-  assert.equal(missed.status, 2, missed.stdout + missed.stderr);
-  // the file's diagnostic is relayed by the runner; the verb adds its own line
-  assert.match(
-    missed.stdout + missed.stderr,
-    /gh \["auth","status"\] — no rule matches/,
+  const all = missed.stdout + missed.stderr;
+  assert.equal(missed.status, 2, all);
+  // the file's diagnostic is relayed by the runner, and printed ONCE
+  assert.match(all, /gh \["auth","status"\] — no rule matches/);
+  assert.equal(
+    all.split("A rule that answers every argv would hide this again").length -
+      1,
+    1,
+    all,
   );
-  assert.match(missed.stderr, /vigiles eval: a run called a stubbed tool/);
+  // the file exited with the stub code, not the usage code, and the verb says which cause it is
+  assert.match(all, /stubbed\.eval\.mjs \(exit 78\)/);
+  assert.match(
+    missed.stderr,
+    /vigiles eval: unanswered stub call\(s\) in \S*stubbed\.eval\.mjs — not a usage error/,
+  );
   // the control: every call answered → the same file passes
   const answered = run([
     ["issue", "create", "-R", "o/r", "--title", "t", "--body", "b"],
   ]);
   assert.equal(answered.status, 0, answered.stdout + answered.stderr);
+});
+
+test("an eval file that exits 2 for its own reasons is not reported as an unanswered stub call", () => {
+  const bin = fakeClaudeBin();
+  const file = standin(
+    "exits-2.eval.mjs",
+    STUBBED_EVAL.replace("assert: () => {}", "assert: () => process.exit(2)"),
+  );
+  const r = spawnSync("node", [join(DIST, "cli.js"), "eval", file], {
+    encoding: "utf8",
+    cwd: dirname(file),
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      FAKE_GH_CALLS: JSON.stringify([
+        ["issue", "create", "-R", "o/r", "--title", "t", "--body", "b"],
+      ]),
+    },
+  });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout + r.stderr, /unanswered stub call/);
 });

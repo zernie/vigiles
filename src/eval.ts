@@ -2552,9 +2552,12 @@ export function formatEvalReport(report: EvalReport): string {
       .map(([k, v]) => formatMetric(k, v, r.stats[k]))
       .join("  ");
     lines.push(`  ${arm.padEnd(10)} ${parts}${formatUsage(r.usage)}`);
-    const missed = unansweredMessage(r.unansweredStubCalls, []);
-    if (missed !== undefined)
-      lines.push(`  ⚠ ${arm}: ${missed.split("\n").join("\n    ")}`);
+    // One line: the calls themselves are printed once, by `runEval`
+    // (`unansweredInReport`), not again under every arm of the table.
+    if (r.unansweredStubCalls.length > 0)
+      lines.push(
+        `  ⚠ ${arm}: ${String(r.unansweredStubCalls.length)} stub call(s) went unanswered — the report is not a measurement`,
+      );
   }
   if (report.env?.kind === "inherit")
     lines.push(

@@ -109,11 +109,19 @@ export function runsIn(report: AnyReport): number | undefined {
 }
 
 /**
- * The exit code of an eval file whose report has an unanswered stub call.
- * `vigiles eval` exits with it too. 2, the CLI's "error": the run did not fail
- * an assertion, it produced something that is not a measurement.
+ * The exit code of an eval file whose report has an unanswered stub call. Its
+ * own code — not 2 (the CLI's usage error), 1 (a bad declaration, zero runs) or
+ * 77 (skip) — so the runner can say WHICH cause it is from a code only this path
+ * produces. `vigiles eval` itself exits {@link UNANSWERED_STUB_VERB_EXIT} for it.
  */
-export const UNANSWERED_STUB_EXIT_CODE = 2;
+export const UNANSWERED_STUB_EXIT_CODE = 78;
+
+/**
+ * What `vigiles eval` exits with when a file exited {@link UNANSWERED_STUB_EXIT_CODE}:
+ * 2, the CLI's "error" — the run did not fail an assertion, it produced something
+ * that is not a measurement. Documented in docs/cli.md.
+ */
+export const UNANSWERED_STUB_VERB_EXIT = 2;
 
 /** A `runEval` report: every arm carries its unanswered stub calls. */
 const isEvalReport = (r: AnyReport): r is EvalReport =>
@@ -154,10 +162,14 @@ export function runFailure(
       code: 1,
       message: `✗ ${file}: no runs executed (0 trials completed).`,
     };
-  const unanswered = unansweredFailure(kind, report, spec);
-  return unanswered === undefined
+  // `runEval` has already printed the calls in full (to stderr, before its
+  // report): this line is the file's verdict, not a second copy of them.
+  return unansweredFailure(kind, report, spec) === undefined
     ? undefined
-    : { code: UNANSWERED_STUB_EXIT_CODE, message: `✗ ${file}: ${unanswered}` };
+    : {
+        code: UNANSWERED_STUB_EXIT_CODE,
+        message: `✗ ${file}: stub call(s) went unanswered (listed above) — the report is not a measurement.`,
+      };
 }
 
 /**
