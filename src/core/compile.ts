@@ -582,9 +582,9 @@ function checkContentBudgets(
         type: "section-too-large",
         path: specFile,
         message:
-          `section ${JSON.stringify(name)} is ${String(body.length)} characters ` +
-          `(budget ${String(maxSectionChars)}). The line guard cannot see this — long lines are ` +
-          `the normal shape of compiled prose — and every character is loaded on every request. ` +
+          `section ${JSON.stringify(name)} is ${body.length.toLocaleString("en-US")} characters ` +
+          `(budget ${maxSectionChars.toLocaleString("en-US")}). The line guard cannot see this — long lines are ` +
+          `the normal shape of compiled prose — and every character is loaded on every request.\n` +
           MOVE_OUT_OF_ALWAYS_LOADED,
       });
     }

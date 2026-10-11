@@ -32,15 +32,15 @@ if (!over) throw new Error("fixture precondition: over the ceiling");
 
 describe("the remedy list", () => {
   it("names each carrier an always-loaded rule can move to", () => {
-    expect(MOVE_OUT_OF_ALWAYS_LOADED).toBe(
-      "Move what does not apply to every request: " +
-        "a rule for one folder → that folder's nested CLAUDE.md or AGENTS.md, loaded only when the agent works there · " +
-        "a step tied to one action → a hook · " +
-        "a procedure for one kind of task → a skill · " +
-        "a fact a machine can check → a lint rule or a test, then delete the prose · " +
-        "measurements and history → docs, linked, not loaded · " +
-        "text another file already says → delete it.",
-    );
+    expect(MOVE_OUT_OF_ALWAYS_LOADED.split("\n")).toEqual([
+      "Move what does not apply to every request:",
+      "  - a rule for one folder → that folder's nested CLAUDE.md or AGENTS.md (loads only there)",
+      "  - a step tied to one action → a hook",
+      "  - a procedure for one kind of task → a skill",
+      "  - a fact a machine can check → a lint rule or a test, then delete the prose",
+      "  - measurements and history → docs, linked, not loaded",
+      "  - text another file already says → delete it",
+    ]);
   });
 });
 
@@ -68,7 +68,11 @@ describe("every over-weight finding carries it", () => {
         rules: {},
         sections: { Positioning: "a".repeat(600) },
       } as Parameters<typeof compileClaude>[0],
-      { specFile: "CLAUDE.md.spec.ts", catalogOnly: true, maxSectionChars: 500 },
+      {
+        specFile: "CLAUDE.md.spec.ts",
+        catalogOnly: true,
+        maxSectionChars: 500,
+      },
     );
     expect(warnings.map((w) => w.message)).toEqual([
       expect.stringContaining(MOVE_OUT_OF_ALWAYS_LOADED),

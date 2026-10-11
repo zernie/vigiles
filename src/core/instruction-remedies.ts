@@ -9,11 +9,12 @@
  * when it applies. The order is the order to try: the cheapest carrier that
  * still fires at the right moment first, deletion last.
  */
-export const MOVE_OUT_OF_ALWAYS_LOADED =
-  "Move what does not apply to every request: " +
-  "a rule for one folder → that folder's nested CLAUDE.md or AGENTS.md, loaded only when the agent works there · " +
-  "a step tied to one action → a hook · " +
-  "a procedure for one kind of task → a skill · " +
-  "a fact a machine can check → a lint rule or a test, then delete the prose · " +
-  "measurements and history → docs, linked, not loaded · " +
-  "text another file already says → delete it.";
+export const MOVE_OUT_OF_ALWAYS_LOADED = [
+  "Move what does not apply to every request:",
+  "  - a rule for one folder → that folder's nested CLAUDE.md or AGENTS.md (loads only there)",
+  "  - a step tied to one action → a hook",
+  "  - a procedure for one kind of task → a skill",
+  "  - a fact a machine can check → a lint rule or a test, then delete the prose",
+  "  - measurements and history → docs, linked, not loaded",
+  "  - text another file already says → delete it",
+].join("\n");
