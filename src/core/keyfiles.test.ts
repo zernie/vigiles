@@ -50,7 +50,9 @@ describe("measureKeyFiles", () => {
       /move a rule for one folder into <folder>\/CLAUDE\.md/,
       /keep a one-line file\(\) pointer only if nothing else leads there/,
     ];
-    options.forEach((o) => expect(msg).toMatch(o));
+    options.forEach((o) => {
+      expect(msg).toMatch(o);
+    });
     const at = options.map((o) => msg.search(o));
     expect(at).toEqual([...at].sort((a, b) => a - b));
   });

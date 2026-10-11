@@ -84,8 +84,7 @@ export function keyFilesCost(u: KeyFilesUsage): string {
  * instead of assuming one.
  */
 export function instructionFileOfSpec(specPath: string): string {
-  const base = specPath.split(/[\\/]/).pop() ?? specPath;
-  return base.replace(/\.spec\.ts$/, "");
+  return specPath.replace(/^.*[\\/]/, "").replace(/\.spec\.ts$/, "");
 }
 
 /**
@@ -95,10 +94,10 @@ export function instructionFileOfSpec(specPath: string): string {
  * compile to (`CLAUDE.md`, `AGENTS.md`), so the nested file is named for real.
  */
 export function keyFilesFix(targets: readonly string[]): string {
-  const nested = [...new Set(targets)]
-    .sort()
-    .map((t) => `<folder>/${t}`)
-    .join(" or ");
+  // In the order given — the detector sorts findings by path — once each.
+  const nested = Array.from(new Set(targets), (t) => `<folder>/${t}`).join(
+    " or ",
+  );
   return (
     "For each entry: delete it if the file or the docs already say it · " +
     "move a fact about one file into that file's header comment · " +

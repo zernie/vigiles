@@ -40,6 +40,10 @@ export function findDeprecatedKeyFiles(io: {
   });
 }
 
+/** The lint message, naming the nested file after the spec's own target. */
+const messageFor = (f: DeprecatedKeyFilesFinding): string =>
+  keyFilesDeprecationMessage(f, instructionFileOfSpec(f.path));
+
 /**
  * `lint`'s side of the rule. Runs ONCE over the repository, like the
  * instruction-weight ratchet: a nested bundle's spec would otherwise be
@@ -70,10 +74,7 @@ export function checkDeprecatedKeyFiles(opts: {
   // included: they go to stdout and would corrupt the JSON.
   if (!opts.silent)
     found.forEach((f) => {
-      const message = keyFilesDeprecationMessage(
-        f,
-        instructionFileOfSpec(f.path),
-      );
+      const message = messageFor(f);
       console.log(`  ${mark} ${f.path}: ${message}`);
       opts.annotate(level, message, f.path);
     });

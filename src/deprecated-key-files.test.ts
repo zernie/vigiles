@@ -142,7 +142,7 @@ test("audit: every spec still using keyFiles, with its size and the fix — neve
   // The fix once, with the four places an entry can go; the nested file is
   // named after each reported spec's own instruction file.
   expect(text.out).toMatch(
-    /→ For each entry: delete it .*header comment.*<folder>\/AGENTS\.md or <folder>\/CLAUDE\.md.*one-line file\(\) pointer[^\n]*\n\s+\S+deprecated-key-files\.md {2}\[deprecated-key-files\]/,
+    /→ For each entry: delete it .*header comment.*<folder>\/CLAUDE\.md or <folder>\/AGENTS\.md.*one-line file\(\) pointer[^\n]*\n\s+\S+deprecated-key-files\.md {2}\[deprecated-key-files\]/,
   );
   // Advisory: a deprecation is not a structural defect.
   expect(text.out).not.toMatch(/structural issue\(s\)/);
