@@ -100,7 +100,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 530 project files. */
+  /** 531 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -132,7 +132,9 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/event-capability.ts"
     | "src/adapters/claude-code/harness-output-style.test.ts"
     | "src/adapters/claude-code/hook-condition.ts"
+    | "src/adapters/claude-code/hook-project-dir.test.ts"
     | "src/adapters/claude-code/hook-protocol.ts"
+    | "src/adapters/claude-code/hook-runner-exists.test.ts"
     | "src/adapters/claude-code/instruction-chain.test.ts"
     | "src/adapters/claude-code/instruction-chain.ts"
     | "src/adapters/claude-code/layout.test.ts"
@@ -556,7 +558,6 @@ declare module "vigiles/generated" {
     | "src/scan-behavioral.test.ts"
     | "src/scan-behavioral.ts"
     | "src/scan-cli.test.ts"
-    | "src/scan-core.test.ts"
     | "src/scan-core.ts"
     | "src/scan-files.test.ts"
     | "src/scan-files.ts"
@@ -734,7 +735,9 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/event-capability.ts"
       | "src/adapters/claude-code/harness-output-style.test.ts"
       | "src/adapters/claude-code/hook-condition.ts"
+      | "src/adapters/claude-code/hook-project-dir.test.ts"
       | "src/adapters/claude-code/hook-protocol.ts"
+      | "src/adapters/claude-code/hook-runner-exists.test.ts"
       | "src/adapters/claude-code/instruction-chain.test.ts"
       | "src/adapters/claude-code/instruction-chain.ts"
       | "src/adapters/claude-code/layout.test.ts"
@@ -1158,7 +1161,6 @@ declare module "vigiles/spec" {
       | "src/scan-behavioral.test.ts"
       | "src/scan-behavioral.ts"
       | "src/scan-cli.test.ts"
-      | "src/scan-core.test.ts"
       | "src/scan-core.ts"
       | "src/scan-files.test.ts"
       | "src/scan-files.ts"
