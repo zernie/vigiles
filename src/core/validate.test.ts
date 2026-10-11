@@ -518,6 +518,8 @@ const SHIPPED_RULE_DEFAULTS = {
   "disallowed-tools-contract": "warn",
   "description-overlap": "warn",
   "skill-description-budget": "warn",
+  // Opt-in gate: "error" only through vigiles:strict (#350).
+  "compile-budget": "warn",
   "frontmatter-valid": "warn",
   "mcp-hook-target-resolves": "warn",
   "lethal-trifecta": "warn",
