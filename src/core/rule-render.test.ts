@@ -173,3 +173,29 @@ describe("details links are verified like any file() reference", () => {
     });
   });
 });
+
+describe("render line: where the first sentence ends", () => {
+  it("line does not end a sentence at a mark inside it", async () => {
+    // Measured on this repo's own spec: "Use proper narrowing instead of !
+    // assertions." rendered as "…instead of !" — a claim nobody wrote.
+    await withDocs(async (dir) => {
+      const { markdown } = await compileIn(dir, {
+        bang: enforce(
+          "eslint/no-console",
+          "Use proper narrowing instead of ! assertions. The rest stays out.",
+          { render: "line" },
+        ),
+        abbrev: enforce(
+          "eslint/no-console",
+          "Split it, e.g. into helpers. The rest stays out.",
+          { render: "line" },
+        ),
+      });
+      expect(markdown).toContain(
+        "**Why:** Use proper narrowing instead of ! assertions.\n",
+      );
+      expect(markdown).toContain("**Why:** Split it, e.g. into helpers.\n");
+      expect(markdown).not.toContain("The rest stays out");
+    });
+  });
+});

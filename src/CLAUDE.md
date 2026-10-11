@@ -1,10 +1,10 @@
-<!-- vigiles:sha256:65476a6e6eead562 compiled from src/CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:36d3d354eaae82f0 compiled from src/CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
 ## Scope
 
-Working in `src/`? The root `CLAUDE.md` holds the full positioning, architecture, and rule set — read it first. This file adds the discipline specific to the CLI surface (`src/cli.ts`, `src/cli-main.ts`, `src/cli-commands.ts`): keep the command set small and cohesive.
+Working in `src/`? The root `CLAUDE.md` holds the full positioning, architecture, and rule set — read it first. This file adds the discipline specific to the CLI surface (`src/cli.ts`, `src/cli-main.ts`, `src/cli-commands.ts`): keep the command set small and cohesive. A new walk over the user's repository goes through `src/exclude.ts`, so `.vigilesrc.json#exclude` applies to it; a walk that does not import it ignores what the user excluded.
 
 ## Key Files
 

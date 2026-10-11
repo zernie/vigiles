@@ -421,12 +421,15 @@ function detailsLink(details: RuleDetails): string {
 }
 
 /**
- * The first sentence of `text`: up to the first `.`, `!` or `?` that is
- * followed by whitespace or ends the text. A `why` with no sentence end is
- * returned whole — truncating mid-sentence would render a claim nobody wrote.
+ * The first sentence of `text`: up to the first `.`, `!` or `?` that closes a
+ * word (no space before it) and is followed by the end of the text or by
+ * whitespace and a capital, digit, quote, backtick or bracket. So a mark inside
+ * the sentence — "instead of ! assertions", "e.g. into helpers" — does not end
+ * it. A `why` with no sentence end is returned whole — truncating mid-sentence
+ * would render a claim nobody wrote.
  */
 function firstSentence(text: string): string {
-  const m = /^[\s\S]*?[.!?](?=\s|$)/.exec(text.trim());
+  const m = /^[\s\S]*?\S[.!?](?=$|\s+[A-Z0-9"'`(*[])/.exec(text.trim());
   return m ? m[0] : text.trim();
 }
 
