@@ -100,7 +100,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 529 project files. */
+  /** 530 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -556,6 +556,7 @@ declare module "vigiles/generated" {
     | "src/scan-behavioral.test.ts"
     | "src/scan-behavioral.ts"
     | "src/scan-cli.test.ts"
+    | "src/scan-core.test.ts"
     | "src/scan-core.ts"
     | "src/scan-files.test.ts"
     | "src/scan-files.ts"
@@ -1157,6 +1158,7 @@ declare module "vigiles/spec" {
       | "src/scan-behavioral.test.ts"
       | "src/scan-behavioral.ts"
       | "src/scan-cli.test.ts"
+      | "src/scan-core.test.ts"
       | "src/scan-core.ts"
       | "src/scan-files.test.ts"
       | "src/scan-files.ts"
