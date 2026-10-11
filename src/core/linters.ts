@@ -21,7 +21,7 @@
  */
 
 import { readFileSync, existsSync, writeFileSync, rmSync } from "node:fs";
-import { resolve, join, dirname, extname } from "node:path";
+import { resolve, join, dirname, basename } from "node:path";
 import { editDistance } from "./edit-distance.js";
 import { execSync, execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -1524,30 +1524,38 @@ function hasGolangciConfig(basePath: string): boolean {
 // Linter rule discovery
 // ---------------------------------------------------------------------------
 
-/** Upper bound on the (directory, extension) probes handed to ESLint. */
+/** Upper bound on the (directory, name-shape) probes handed to ESLint. */
 const ESLINT_PROBE_CAP = 2000;
+
+/** `src/a.test.ts` → `.test.ts`; a name with no extension (`Makefile`) is its own shape. */
+function nameShape(file: string): string {
+  const name = basename(file);
+  const dot = name.indexOf(".", 1);
+  return dot === -1 ? name : name.slice(dot);
+}
 
 /**
  * The paths whose resolved config is asked of ESLint: one per distinct
- * (directory, extension) pair of the project's files, plus `dummy.js` at the
- * root. A flat config selects by glob, and a glob can only see the directory and
- * extension of a path, so one representative per pair sees every config block
- * that any file could match — without lint-running a single file.
+ * (directory, name shape) pair of the project's files, plus `dummy.js` at the
+ * root. A flat-config `files` glob selects on the directory and the name's
+ * extension chain, so one representative per pair sees every config block that
+ * any file of that pair could match — without linting a single file. What it
+ * cannot see is a block naming one exact file that shares directory and
+ * extension with siblings (`files: ["src/special.ts"]`).
  */
-function eslintProbePaths(basePath: string): string[] {
-  const files = globSync("**/*", {
+function eslintProbePaths(basePath: string): readonly string[] {
+  const files: readonly string[] = globSync("**/*", {
     cwd: basePath,
     dot: true,
     nodir: true,
     ignore: ["**/node_modules/**", "**/.git/**"],
   });
-  const probes = new Map<string, string>([["dummy.js", "dummy.js"]]);
-  for (const f of files.sort()) {
-    const key = `${dirname(f)}\0${extname(f)}`;
-    if (!probes.has(key)) probes.set(key, f);
-    if (probes.size >= ESLINT_PROBE_CAP) break;
-  }
-  return [...probes.values()];
+  // Built from entries, not by mutation: a later duplicate key replaces an
+  // earlier one, which leaves one representative per pair.
+  const byPair = new Map(
+    files.map((f) => [`${dirname(f)}\0${nameShape(f)}`, f] as const),
+  );
+  return ["dummy.js", ...byPair.values()].slice(0, ESLINT_PROBE_CAP);
 }
 
 /**
@@ -1578,8 +1586,8 @@ const ESLINT_DISCOVER_SCRIPT = `
         }
         for (const name of Object.keys(config.plugins || {})) plugins.add(name);
       }
-      out.rules = [...rules];
-      out.plugins = [...plugins];
+      out.rules = [...rules].sort();
+      out.plugins = [...plugins].sort();
     } catch (e) {
       out.error = String((e && e.message) || e);
     }
@@ -1590,39 +1598,42 @@ const ESLINT_DISCOVER_SCRIPT = `
 function discoverEslintRules(rawBasePath: string): DiscoveredRules | null {
   const basePath = resolve(rawBasePath);
   try {
-    const output = execFileSync(
-      process.execPath,
-      ["-e", ESLINT_DISCOVER_SCRIPT],
-      {
-        encoding: "utf-8",
-        cwd: basePath,
-        input: JSON.stringify(eslintProbePaths(basePath)),
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: 30000,
-      },
-    );
-    const found = JSON.parse(output.trim() || "{}") as {
-      rules?: string[];
-      plugins?: string[];
+    const output = execFileSync("node", ["-e", ESLINT_DISCOVER_SCRIPT], {
+      encoding: "utf-8",
+      cwd: basePath,
+      input: JSON.stringify(eslintProbePaths(basePath)),
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 30000,
+    });
+    const found = JSON.parse(output.trim() || "{}") as Readonly<{
+      rules?: readonly string[];
+      plugins?: readonly string[];
       error?: string;
-    };
+    }>;
     // No config at all is the ordinary "this repo does not use ESLint" case.
     // Anything else (a config that throws, a plugin that is not installed) means
     // the rules exist but could not be read — say so rather than list nothing.
     if (found.error && !/Could not find config file/.test(found.error)) {
-      console.warn(
+      console.error(
         `vigiles: could not read the ESLint config in ${basePath}: ${found.error} (ESLint rules not listed)`,
       );
     }
-    const rules = [...(found.rules ?? [])].sort();
+    const rules = found.rules ?? [];
     if (rules.length === 0) return null;
     const plugins = (found.plugins ?? []).filter((p) => p !== "@");
     const via =
       plugins.length > 0
         ? `flat config (v9+/v10), plugins: ${plugins.join(", ")}`
         : "flat config (v9+/v10)";
-    return { linter: "eslint", rules, via };
-  } catch {
+    return { linter: "eslint", rules: [...rules], via };
+  } catch (e) {
+    // The probe itself failed (no `eslint` installed is the ordinary case and
+    // stays quiet; a timeout or a crash is not).
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!/Cannot find module 'eslint'/.test(msg))
+      console.error(
+        `vigiles: ESLint rule discovery failed in ${basePath}: ${msg.split("\n")[0]}`,
+      );
     return null;
   }
 }

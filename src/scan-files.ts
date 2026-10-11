@@ -680,9 +680,8 @@ export function scanFiles(
   const { hooks, inline, manual } = scanHooks(
     hookRegs,
     BROWSER_ROOT,
-    lay.pluginRootToken,
+    lay,
     exists,
-    lay.projectRootTokens,
   );
   const eventNames = hookEventNames(loaded.settings.hooks);
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
@@ -810,9 +809,8 @@ export function scanFiles(
             collectHookBlockEntries(
               hookRegs,
               BROWSER_ROOT,
-              lay.pluginRootToken,
+              lay,
               exists,
-              lay.projectRootTokens,
             ),
             {
               noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),

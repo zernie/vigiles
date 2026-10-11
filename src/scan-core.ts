@@ -30,6 +30,7 @@ import {
   disallowedToolIssues,
 } from "./core/tool-contract.js";
 import type { HookEventIssue } from "./core/hook-events.js";
+import type { RootTokens } from "./coverage-evidence.js";
 import { editDistance } from "./core/edit-distance.js";
 import { readFrontmatter, frontmatterScalar } from "./core/frontmatter-read.js";
 import {
@@ -772,20 +773,19 @@ export function scanAgents(
 function resolveScript(
   token: string,
   root: string,
-  pluginRootToken: string,
+  roots: RootTokens,
   fullCommand: string,
   exists: (p: string) => boolean,
-  projectRootTokens: readonly string[] = [],
 ): ScanHook {
   // Every root variable the harness sets, in BOTH spellings (`${NAME}` and
   // `$NAME`). They name different directories at run time (the plugin vs the
   // host project) but a static scan has one directory to resolve them against:
   // the scanned root — the same simplification `verify-plugin-guards` makes when
   // it has no explicit `cwd`.
-  const tokens = [pluginRootToken, ...projectRootTokens].flatMap((t) => [
-    t,
-    t.replace(/^\$\{(.+)\}$/, "$$$1"),
-  ]);
+  const tokens = [
+    roots.pluginRootToken,
+    ...(roots.projectRootTokens ?? []),
+  ].flatMap((t) => [t, t.replace(/^\$\{(.+)\}$/, "$$$1")]);
   const expand = (text: string): string =>
     tokens.reduce((acc, t) => acc.replaceAll(t, root), text);
   const cleaned = expand(token.replace(/["']/g, ""));
@@ -859,9 +859,8 @@ function eventsByScript(
 export function scanHooks(
   regs: readonly HookRegistration[],
   root: string,
-  pluginRootToken: string,
+  roots: RootTokens,
   exists: (p: string) => boolean,
-  projectRootTokens: readonly string[] = [],
 ): { hooks: ScanHook[]; inline: number; manual: number } {
   const commands = regs.map((r) => r.command);
   const evMap = eventsByScript(regs);
@@ -886,14 +885,7 @@ export function scanHooks(
       continue;
     }
     for (const tok of found) {
-      const hook = resolveScript(
-        tok,
-        root,
-        pluginRootToken,
-        cmd,
-        exists,
-        projectRootTokens,
-      );
+      const hook = resolveScript(tok, root, roots, cmd, exists);
       const event = evMap.get(tok);
       byScript.set(hook.script, event ? { ...hook, event } : hook);
     }
@@ -1194,9 +1186,8 @@ export function collectDelegationTrifecta(
 export function collectHookBlockEntries(
   regs: readonly HookRegistration[],
   root: string,
-  pluginRootToken: string,
+  roots: RootTokens,
   exists: (p: string) => boolean,
-  projectRootTokens: readonly string[] = [],
 ): HookScriptEntry[] {
   const out: HookScriptEntry[] = [];
   for (const { event, command: cmd } of regs) {
@@ -1212,18 +1203,12 @@ export function collectHookBlockEntries(
       words.filter((w) => SCRIPT_WORD_RE.test(w)),
     );
     for (const w of words) {
-      if (w.includes("/") || w.includes(pluginRootToken)) candidates.add(w);
+      if (w.includes("/") || w.includes(roots.pluginRootToken))
+        candidates.add(w);
     }
     const resolvedPaths: string[] = [];
     for (const tok of candidates) {
-      const r = resolveScript(
-        tok,
-        root,
-        pluginRootToken,
-        cmd,
-        exists,
-        projectRootTokens,
-      );
+      const r = resolveScript(tok, root, roots, cmd, exists);
       if (r.status === "ok") {
         const abs = isAbsolute(r.script) ? r.script : resolve(root, r.script);
         if (!resolvedPaths.includes(abs)) resolvedPaths.push(abs);

@@ -2840,10 +2840,7 @@ function discover(excludes: ExcludeSet, silent = false): CoverageTotals {
     enabled: totalEnabled,
     documented: totalDocumented,
   });
-  if (advice.length > 0) {
-    log("");
-    for (const line of advice) log(line);
-  }
+  if (advice.length > 0) log(["", ...advice].join("\n"));
 
   return { enabled: totalEnabled, documented: totalDocumented };
 }

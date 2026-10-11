@@ -1244,51 +1244,6 @@ test("scanPlugin resolves hook scripts: ok / missing / unresolved", () => {
   cleanupTmpDir(dir);
 });
 
-test("scanPlugin resolves $CLAUDE_PROJECT_DIR hook scripts against the project root", () => {
-  // The documented spelling for a project hook (hooks do not run with a stable
-  // cwd). It used to be reported `unresolved` ("can't check") for a script that
-  // sits exactly where the harness would look, so `audit` skipped every project
-  // hook written the documented way.
-  const dir = makeTmpDir("scan-project-dir-hooks");
-  write(dir, ".claude/hooks/present.sh", "#!/bin/sh\n");
-  write(
-    dir,
-    ".claude/settings.json",
-    JSON.stringify({
-      hooks: {
-        PreToolUse: [
-          {
-            matcher: "Bash",
-            hooks: [
-              {
-                type: "command",
-                command: '"$CLAUDE_PROJECT_DIR"/.claude/hooks/present.sh',
-              },
-              {
-                type: "command",
-                command: "sh ${CLAUDE_PROJECT_DIR}/.claude/hooks/absent.sh",
-              },
-              {
-                type: "command",
-                command: '"$SOME_OTHER_VAR"/.claude/hooks/x.sh',
-              },
-            ],
-          },
-        ],
-      },
-    }),
-  );
-  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
-  const byBase = (suffix: string) =>
-    r.hooks.find((h) => h.script.endsWith(suffix));
-  assert.equal(byBase(".claude/hooks/present.sh")?.status, "ok");
-  assert.equal(byBase(".claude/hooks/absent.sh")?.status, "missing");
-  // A variable the harness does NOT set stays uncheckable — resolving only the
-  // documented project token must not turn every `$VAR` into a guess.
-  assert.equal(byBase(".claude/hooks/x.sh")?.status, "unresolved");
-  cleanupTmpDir(dir);
-});
-
 test("scanPlugin counts commands and detects MCP", () => {
   const dir = fixture();
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);

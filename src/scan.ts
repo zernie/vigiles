@@ -735,9 +735,8 @@ export function scanPlugin(
   const { hooks, inline, manual } = scanHooks(
     hookRegs,
     resolve(dir),
-    lay.pluginRootToken,
+    lay,
     existsSync,
-    lay.projectRootTokens,
   );
   // Hook-event keys are a CLOSED platform set — an unrecognized one is a dead
   // registration (the hook never fires), so flag every unknown (not just typos).
@@ -897,9 +896,8 @@ export function scanPlugin(
             collectHookBlockEntries(
               hookRegs,
               resolve(dir),
-              lay.pluginRootToken,
+              lay,
               existsSync,
-              lay.projectRootTokens,
             ),
             {
               noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),

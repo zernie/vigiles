@@ -271,10 +271,9 @@ export function formatCoverageReport(report: CoverageReport): string {
  * lint with the rule's own message. Documentation only earns its place where the
  * WHY is not in that message, and then it belongs where it is read on demand.
  */
-export function undocumentedRulesAdvice(totals: {
-  enabled: number;
-  documented: number;
-}): readonly string[] {
+export function undocumentedRulesAdvice(
+  totals: Readonly<{ enabled: number; documented: number }>,
+): readonly string[] {
   if (totals.documented >= totals.enabled) return [];
   return [
     "Undocumented is not unenforced: the linter already enforces these rules, and the agent meets each one as a lint failure.",
