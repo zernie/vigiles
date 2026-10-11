@@ -6,29 +6,23 @@
  */
 import { describe, it, expect } from "vitest";
 
-import { compileClaude } from "./compile.js";
 import {
-  checkCeiling,
   formatCeiling,
   formatRefusal,
   formatVerdict,
+  type CeilingVerdict,
 } from "./instruction-baseline.js";
-import { weighInstructions } from "./instruction-weight.js";
 import { MOVE_OUT_OF_ALWAYS_LOADED } from "./instruction-remedies.js";
-import { claudeCodeLayout } from "../adapters/claude-code/layout.js";
-import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
 
-const cc = claudeCodeDialect.instructionBudget;
-if (!cc) throw new Error("fixture precondition: the Claude Code budget exists");
-
-const weighCc = (files: Record<string, string>) =>
-  weighInstructions(claudeCodeLayout.instructionChain(files), files, cc);
-
-const over = checkCeiling(
-  weighCc({ "CLAUDE.md": "r".repeat(30_000), "a.md": "a".repeat(8_000) }),
-  20_000,
-);
-if (!over) throw new Error("fixture precondition: over the ceiling");
+const over: CeilingVerdict = {
+  total: 38_000,
+  max: 20_000,
+  unit: "chars",
+  largest: [
+    { path: "CLAUDE.md", size: 30_000 },
+    { path: "a.md", size: 8_000 },
+  ],
+};
 
 describe("the remedy list", () => {
   it("names each carrier an always-loaded rule can move to", () => {
@@ -59,23 +53,5 @@ describe("every over-weight finding carries it", () => {
       ".",
     );
     expect(msg).toContain(MOVE_OUT_OF_ALWAYS_LOADED);
-  });
-
-  it("a section over its character budget", async () => {
-    const { warnings } = await compileClaude(
-      {
-        _specType: "claude",
-        rules: {},
-        sections: { Positioning: "a".repeat(600) },
-      } as Parameters<typeof compileClaude>[0],
-      {
-        specFile: "CLAUDE.md.spec.ts",
-        catalogOnly: true,
-        maxSectionChars: 500,
-      },
-    );
-    expect(warnings.map((w) => w.message)).toEqual([
-      expect.stringContaining(MOVE_OUT_OF_ALWAYS_LOADED),
-    ]);
   });
 });

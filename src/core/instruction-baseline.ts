@@ -334,8 +334,7 @@ export function formatVerdict(verdict: RatchetVerdict, at: string): string {
           : "";
       return verdict.kind === "grew"
         ? `${where}always-loaded instructions grew ${head} over the recorded baseline.${moved} ` +
-            `If the growth is intended, record it with \`${UPDATE_BASELINE_COMMAND}\` — the diff of ${INSTRUCTION_BASELINE_FILE} is the review. ` +
-            `If it is not:\n${MOVE_OUT_OF_ALWAYS_LOADED}`
+            `If the growth is intended, record it with \`${UPDATE_BASELINE_COMMAND}\` — the diff of ${INSTRUCTION_BASELINE_FILE} is the review. If it is not:\n${MOVE_OUT_OF_ALWAYS_LOADED}`
         : `${where}always-loaded instructions shrank ${head}; the baseline still allows the old weight.${moved} ` +
             `Lock the cut in with \`${UPDATE_BASELINE_COMMAND}\`, or the headroom can be regrown without a finding.`;
     }

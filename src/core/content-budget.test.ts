@@ -13,6 +13,7 @@
 import { describe, it, expect } from "vitest";
 
 import { compileClaude, DEFAULT_MAX_ENTRY_CHARS } from "./compile.js";
+import { MOVE_OUT_OF_ALWAYS_LOADED } from "./instruction-remedies.js";
 
 const spec = (
   extra: Partial<Parameters<typeof compileClaude>[0]>,
@@ -80,6 +81,8 @@ describe("per-section character budget", () => {
       },
     );
     expect(warnings.map((w) => w.type)).toEqual(["section-too-large"]);
+    // The finding says where the text can go, not only that it is too long.
+    expect(warnings[0]?.message).toContain(MOVE_OUT_OF_ALWAYS_LOADED);
     // The point of the char budget: this same section passes the line guard.
     expect(errors.filter((e) => e.type === "section-too-long")).toHaveLength(0);
   });
