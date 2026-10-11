@@ -893,12 +893,7 @@ export function scanPlugin(
     hookBlockFindings:
       blockIneffectiveEventsOf(dialect).length > 0
         ? hookBlockIssues(
-            collectHookBlockEntries(
-              hookRegs,
-              resolve(dir),
-              lay,
-              existsSync,
-            ),
+            collectHookBlockEntries(hookRegs, resolve(dir), lay, existsSync),
             {
               noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
               permissionDecisionEvents: new Set(

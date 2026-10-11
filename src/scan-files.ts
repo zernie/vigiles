@@ -806,12 +806,7 @@ export function scanFiles(
     hookBlockFindings:
       blockIneffectiveEventsOf(dialect).length > 0
         ? hookBlockIssues(
-            collectHookBlockEntries(
-              hookRegs,
-              BROWSER_ROOT,
-              lay,
-              exists,
-            ),
+            collectHookBlockEntries(hookRegs, BROWSER_ROOT, lay, exists),
             {
               noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
               permissionDecisionEvents: new Set(
