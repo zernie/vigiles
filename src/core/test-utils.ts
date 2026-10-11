@@ -1,5 +1,5 @@
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { execSync } from "node:child_process";
 
 import type { ClaudeSpec } from "./spec.js";
@@ -8,6 +8,29 @@ import type { ClaudeSpec } from "./spec.js";
 // runtime modules that need one must not pull in `makeSpec`/`initGitRepo` and
 // their dependencies. One definition, two doors.
 export { makeTmpDir, cleanupTmpDir } from "./tmp-root.js";
+import { makeTmpDir } from "./tmp-root.js";
+
+/**
+ * A throwaway project whose ESLint is THIS repo's installed eslint (symlinked,
+ * not mocked) and whose flat config is `config`, written as `eslint.config.mjs`.
+ * The rule-resolution probe runs the real ESLint against it, so a fixture built
+ * here tests what a user's repo would get. Clean up with `cleanupTmpDir`.
+ */
+export function makeEslintProject(config: string): string {
+  const dir = makeTmpDir("eslint");
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "fixture", version: "0.0.0", type: "module" }),
+  );
+  mkdirSync(join(dir, "node_modules"));
+  symlinkSync(
+    resolve(__dirname, "..", "..", "node_modules", "eslint"),
+    join(dir, "node_modules", "eslint"),
+    "dir",
+  );
+  writeFileSync(join(dir, "eslint.config.mjs"), config);
+  return dir;
+}
 
 export function makeSpec(overrides?: Partial<ClaudeSpec>): ClaudeSpec {
   return {
