@@ -39,6 +39,9 @@
 import type { HookProtocol } from "./core/hook-protocol.js";
 import { decideHookCondition } from "./core/hook-condition.js";
 import { claudeCodeHookProtocol } from "./adapters/claude-code/hook-protocol.js";
+import { claudeCodeEventCapabilities } from "./adapters/claude-code/event-capability.js";
+import type { EventCapabilityTable } from "./core/event-capability.js";
+import { hookOutputDelivery, type HookDelivery } from "./core/hook-delivery.js";
 import { propertyTest } from "./core/proofs.js";
 import { trimTrailingSeparators } from "./core/hook-program.js";
 import {
@@ -83,7 +86,22 @@ export type RunHookOptions = Omit<RunScriptOptions, "stdin"> & {
    * Claude Code, so every existing caller is unaffected.
    */
   readonly protocol?: HookProtocol;
+  /**
+   * The harness's event capability table — what each event HONOURS — used to
+   * compute {@link HookRunResult.delivery}. Defaults to Claude Code's table when
+   * `protocol` is Claude Code's (or omitted). For any other protocol pass the
+   * adapter's `dialect.eventCapabilities`; without one, delivery is judged only
+   * where the protocol's own `injectableEvents` proves it, and is `unknown`
+   * elsewhere.
+   */
+  readonly capabilities?: EventCapabilityTable;
 };
+
+export type {
+  HookDelivery,
+  DeliveryChannel,
+  StrandedOutput,
+} from "./core/hook-delivery.js";
 
 // ---------------------------------------------------------------------------
 // propertyHook — invariant testing for a hook's (event) → decision (Phase 5 of
@@ -346,6 +364,18 @@ export interface HookRunResult extends ScriptRunResult {
   readonly ran: boolean;
   /** Why the hook ran or did not — the condition verdict, always present. */
   readonly conditionReason: string;
+  /**
+   * Whether what the hook PRINTED reached the MODEL, given its event, its exit
+   * code and which stream carried the text — `delivered` / `undelivered` /
+   * `blocked` / `silent` / `unknown`.
+   *
+   * 🔴 READ THIS, NOT `stderr`, WHEN TESTING A NUDGE. A `PostToolUse` hook that
+   * writes to stderr and exits 0 delivers NOTHING ("Claude never sees stderr
+   * from a hook that exits 0" — the host's hooks docs), yet a test asserting on
+   * `r.stderr` is green. Measured 2026-10-11: a downstream linter shipped that
+   * way for weeks. `assertDelivered(r)` fails on it and names the cure.
+   */
+  readonly delivery: HookDelivery;
 }
 
 /** Parse stdout as a hook JSON decision (pure, testable without a process). */
@@ -473,6 +503,8 @@ export function runHookWith(
       blockedBy: [],
       ran: false,
       conditionReason: verdict.why,
+      // Nothing ran, so nothing was printed — `ran: false` says why.
+      delivery: { kind: "silent" },
     };
 
   // 🔴 A SPAWN DIRECTORY WITH NO DECLARED ROOT MEANS "THIS DIRECTORY IS THE
@@ -509,6 +541,29 @@ export function runHookWith(
     blockedBy,
     ran: true,
     conditionReason: verdict.why,
+    delivery: hookOutputDelivery(
+      {
+        event: input.hook_event_name ?? "",
+        exitCode: res.exitCode,
+        stdout: res.stdout,
+        stderr: res.stderr,
+        json,
+      },
+      {
+        // The CC table goes with the CC protocol only — never as a default for
+        // another harness, whose events it would describe wrongly.
+        table:
+          opts.capabilities ??
+          (protocol === claudeCodeHookProtocol
+            ? claudeCodeEventCapabilities
+            : undefined),
+        blockExitCode: protocol.blockExitCode,
+        denyDecisionValues: protocol.denyDecisionValues,
+        haltsTurnField: protocol.haltsTurnField,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- the table-less fallback: a protocol with no table still proves its own injectable events
+        injectableEvents: protocol.injectableEvents,
+      },
+    ),
   };
 }
 

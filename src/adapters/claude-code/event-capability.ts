@@ -23,16 +23,20 @@ export const claudeCodeEventCapabilities: EventCapabilityTable = {
   events: {
     // doc: SessionStart context is prepended to the session. MEASURED 2026-09-16:
     // inject lands; exit 2 is ignored entirely (it is in noEffectHookEvents).
+    // doc (§ Exit code 0, read 2026-10-11): plain stdout is context here — "The
+    // exceptions are `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`,
+    // and `PostModelSwitch`, where Claude Code adds plain-text stdout as context".
     SessionStart: {
       carries: "session",
-      honours: ["inject"],
+      honours: ["inject", "stdout-context"],
       matcher: false,
       denyShape: "exit-code",
     },
-    // doc: exit 2 blocks the prompt and erases it; stdout becomes context.
+    // doc: exit 2 blocks the prompt and erases it; plain stdout becomes context
+    // (the same § Exit code 0 sentence as SessionStart).
     UserPromptSubmit: {
       carries: "prompt",
-      honours: ["veto", "inject"],
+      honours: ["veto", "inject", "stdout-context"],
       matcher: false,
       denyShape: "exit-code",
     },
@@ -48,7 +52,9 @@ export const claudeCodeEventCapabilities: EventCapabilityTable = {
       denyShape: "permission-decision",
     },
     // doc: exit 2 feeds stderr back to the MODEL but the tool has already run —
-    // feedback, never a veto. This distinction is why `hook-block-ineffective`
+    // feedback, never a veto. NOT `stdout-context`, and NOT stderr at exit 0:
+    // "Claude never sees stderr from a hook that exits 0" (§ Exit code 0) — the
+    // channel a downstream KB linter used for weeks, delivering nothing. This distinction is why `hook-block-ineffective`
     // does not flag PostToolUse and would cry wolf if it did.
     PostToolUse: {
       carries: "tool",
