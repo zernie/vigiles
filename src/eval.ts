@@ -25,7 +25,6 @@ import { refuseUnderForeignRunner } from "./core/foreign-runner.js";
 import { refuseDuringEvalLoad } from "./core/eval-load-phase.js";
 import { spawn, execSync } from "node:child_process";
 import {
-  mkdtempSync,
   mkdirSync,
   writeFileSync,
   readFileSync,
@@ -1695,15 +1694,16 @@ interface TrialEnv {
 
 /**
  * Build a trial's environment from the spec's {@link RunEnv}. `ephemeral`: a
- * throwaway HOME under the trial cwd, seeded (the seed first, then the
- * harness's own auth file), and a scrubbed allowlist env — the eval's injected
+ * throwaway HOME (`home`, a directory BESIDE the trial cwd — never in it, or a
+ * cache snapshot of the cwd would carry the credentials and the seed), seeded
+ * (the seed first, then the harness's own auth file), and a scrubbed allowlist env — the eval's injected
  * keys (`VIGILES_INTERCEPT_TOOLS`) allowlisted through so interception works.
  * `inherit`: an overlay on the caller's env. Either way the stub bin dir, when
  * there is one, goes first on PATH.
  */
 function trialEnv(
   runEnv: RunEnv,
-  cwd: string,
+  home: string,
   overlay: Record<string, string> | undefined,
   stubBin: string | undefined,
 ): TrialEnv {
@@ -1715,7 +1715,6 @@ function trialEnv(
         : `${stubBin}${delimiter}${path}`;
   switch (runEnv.kind) {
     case "ephemeral": {
-      const home = mkdtempSync(join(cwd, "home-"));
       // The seed was validated at the spec boundary (`parseRunEnv`): every
       // path HOME-relative, inside HOME, and not the harness's auth file.
       materializeHome(home, runEnv.home?.files ?? {});
@@ -1768,6 +1767,10 @@ async function executeTrial<M extends Metrics>(
   cfg: RunConfig,
 ): Promise<TrialOutcome<M>> {
   const cwd = makeTmpDir("eval");
+  // The ephemeral env's HOME: beside the work dir, so `snapshotDir(cwd)` (the
+  // cache record) never sees the credentials file or the seed, and the agent's
+  // `ls -a` of its project does not show it. An `inherit` run leaves it empty.
+  const home = makeTmpDir("home");
   // Tool stubs (rung R2): a shim per stub in a temp dir BESIDE the work dir —
   // not in it, so the agent does not find vigiles plumbing in its project.
   const stubs = spec.stubs;
@@ -1787,7 +1790,7 @@ async function executeTrial<M extends Metrics>(
       intercepts.length > 0
         ? { [INTERCEPT_TOOLS_ENV]: serializeIntercepts(intercepts) }
         : undefined;
-    const run = trialEnv(spec.env, cwd, overlay, stubDir?.binDir);
+    const run = trialEnv(spec.env, home, overlay, stubDir?.binDir);
     writeFiles(cwd, files);
     const hasSettings = settings !== undefined;
     if (hasSettings) {
@@ -1842,6 +1845,7 @@ async function executeTrial<M extends Metrics>(
     };
   } finally {
     rmSync(cwd, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
     if (stubDir !== undefined) removeStubDir(stubDir);
   }
 }

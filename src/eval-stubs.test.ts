@@ -11,7 +11,14 @@
 import { test, vi } from "vitest";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
@@ -374,6 +381,76 @@ test("env ephemeral with a seed: the trial's HOME holds the seeded files", async
   );
   assert.deepEqual(seen, ["z"]);
   assert.deepEqual(report.env, { kind: "ephemeral" });
+});
+
+/** Every file under `dir` as `relative path → text`. */
+function filesUnder(dir: string): Record<string, string> {
+  return Object.fromEntries(
+    readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((e) => e.isFile())
+      .map((e) => {
+        const full = join(e.parentPath, e.name);
+        return [full, readFileSync(full, "utf8")];
+      }),
+  );
+}
+
+test("a cache snapshot never holds the throwaway HOME: no credentials, no seed", async () => {
+  const realHome = makeTmpDir();
+  const cacheDir = makeTmpDir();
+  vi.stubEnv("HOME", realHome);
+  try {
+    mkdirSync(join(realHome, ".claude"), { recursive: true });
+    writeFileSync(join(realHome, ".claude/.credentials.json"), "SECRET-TOKEN");
+    const spec = base({
+      stubs: undefined,
+      env: {
+        kind: "ephemeral",
+        home: { kind: "files", files: { ".config/x/seed.txt": "SEED-BODY" } },
+      },
+      model: "claude-sonnet-4-6-20260101",
+      cache: "readwrite",
+      cacheDir,
+    });
+    const homes: string[] = [];
+    await runEvalWith(spec, (a) => {
+      // the trial really has the credentials and the seed in its HOME …
+      const home = a.env?.HOME ?? "";
+      homes.push(
+        readFileSync(join(home, ".claude/.credentials.json"), "utf8"),
+        readFileSync(join(home, ".config/x/seed.txt"), "utf8"),
+      );
+      // … and leaves a file of its own in the work dir, which IS snapshotted
+      writeFileSync(join(a.cwd, "made.txt"), "kept");
+      return Promise.resolve({ code: 0, stdout: RESULT });
+    });
+    assert.deepEqual(homes, ["SECRET-TOKEN", "SEED-BODY"]);
+    const record = Object.values(filesUnder(cacheDir)).join("\n");
+    assert.match(record, /made\.txt/, "the work dir is still snapshotted");
+    assert.doesNotMatch(
+      record,
+      /SECRET-TOKEN|credentials\.json|SEED-BODY|seed\.txt/,
+    );
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(realHome, { recursive: true, force: true });
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test("the throwaway HOME lives beside the work dir and is removed with the trial", async () => {
+  const seen: { home: string; cwd: string }[] = [];
+  await runEvalWith(
+    base({ stubs: undefined, env: { kind: "ephemeral" } }),
+    (a) => {
+      seen.push({ home: a.env?.HOME ?? "", cwd: a.cwd });
+      return Promise.resolve({ code: 0, stdout: RESULT });
+    },
+  );
+  const [one] = seen;
+  assert.ok(one && one.home !== "");
+  assert.ok(!one.home.startsWith(one.cwd + "/"), "HOME is not inside the cwd");
+  assert.equal(existsSync(one.home), false, "and it is gone after the trial");
 });
 
 test("env inherit: the reason travels with the report and is printed", async () => {

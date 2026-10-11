@@ -3227,7 +3227,7 @@ test("env ephemeral: runner gets a replaceEnv scrubbed env with auth + allowed e
     // Ephemeral mode: env is the COMPLETE replacement env, not an overlay.
     assert.equal(a.replaceEnv, true);
     assert.ok(a.env);
-    // HOME is the throwaway dir (under the trial's temp cwd), not the real one.
+    // HOME is the throwaway dir (beside the trial cwd), not the real one.
     assert.notEqual(a.env.HOME, process.env.HOME);
     assert.equal(a.env.HOME, a.env.TMPDIR);
     // Auth + PATH still present (so a real run still authenticates / resolves).
