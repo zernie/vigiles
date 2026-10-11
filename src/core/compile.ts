@@ -190,7 +190,6 @@ export interface CompileError {
     | "entry-too-long"
     | "section-too-large"
     | "rules-too-large"
-    | "key-files-too-many"
     | "key-files-too-large"
     | "output-too-large";
   message: string;
@@ -532,8 +531,6 @@ export interface CompileClaudeOptions {
   maxSectionChars?: number;
   /** Character budget for the whole rendered Rules section (0 disables). */
   maxRulesChars?: number;
-  /** Budget on the NUMBER of `keyFiles` entries (0 disables). */
-  maxKeyFiles?: number;
   /** Character budget for the whole rendered Key Files section (0 disables). */
   maxKeyFilesChars?: number;
   /**
@@ -621,15 +618,12 @@ export const DEFAULT_MAX_SECTION_CHARS = 15000;
 export const DEFAULT_MAX_RULES_CHARS = 20000;
 
 /**
- * How many `keyFiles` entries. Under `compile-budget: "error"` only.
+ * The whole rendered Key Files section. Under `compile-budget: "error"` only.
  *
  * The per-entry budget alone was met, on a real 230-entry list, by CLIPPING:
- * 118 of the 230 rendered lines carried a `…` marker. A list that long is an
- * index, and an index belongs in a file someone opens, not in every request.
+ * 118 of the 230 rendered lines carried a `…` marker — every row under 200
+ * characters, the list ~46.5 kB. Only a budget on the SUM sees that.
  */
-export const DEFAULT_MAX_KEY_FILES = 50;
-
-/** The whole Key Files section — 50 entries at the 200-character entry budget. */
 export const DEFAULT_MAX_KEY_FILES_CHARS = 10000;
 
 /** One budget, with its threshold resolved. `0` means "not evaluated". */
@@ -637,7 +631,6 @@ interface BudgetLimits {
   readonly entryChars: number;
   readonly sectionChars: number;
   readonly rulesChars: number;
-  readonly keyFiles: number;
   readonly keyFilesChars: number;
   /** The whole-output ceiling in the harness's unit, or null when none applies. */
   readonly harness: {
@@ -659,11 +652,16 @@ interface BudgetLimits {
  * 🔴 THE WHOLE-FILE CEILING IS IN THE HARNESS'S OWN UNIT, NEVER TOKENS. Claude
  * Code's limit is 40,000 CHARACTERS (`/doctor`), Codex's 32 KiB of BYTES, and
  * that is what the dialect records. A token ceiling derived from it would rest
- * on `estimateTokens` (chars / 4), which was measured 40% under Claude Code's
- * own `/context` count on a real instruction file (2.4 chars per token, same on
- * four models) — a gate in an estimated unit is a gate on the wrong number.
- * So `maxOutput` is in the dialect's unit, and `maxTokens` stays what it was:
- * an explicit, separate ceiling that does not lift or replace this one.
+ * on an offline estimate (`estimateTokens`, chars / 4), and offline estimates
+ * undercount Claude's own tokenizer on English instruction text by roughly
+ * 33–44% — a gate in an estimated unit is a gate on the wrong number. So
+ * `maxOutput` is in the dialect's unit, and `maxTokens` stays what it was: an
+ * explicit, separate ceiling that does not lift or replace this one.
+ *
+ * Codex's 32 KiB is shared by the whole AGENTS.md chain, so measuring ONE
+ * compiled file against it is a lower bound: a file over it is certainly
+ * truncated, a file under it may still be cut once the chain is summed. The
+ * sum across files is `instruction-weight`'s job, not this rule's.
  */
 function resolveBudgetLimits(
   options: CompileClaudeOptions,
@@ -674,7 +672,6 @@ function resolveBudgetLimits(
     entryChars: options.maxEntryChars ?? DEFAULT_MAX_ENTRY_CHARS,
     sectionChars: options.maxSectionChars ?? DEFAULT_MAX_SECTION_CHARS,
     rulesChars: options.maxRulesChars ?? (strict ? DEFAULT_MAX_RULES_CHARS : 0),
-    keyFiles: options.maxKeyFiles ?? (strict ? DEFAULT_MAX_KEY_FILES : 0),
     keyFilesChars:
       options.maxKeyFilesChars ?? (strict ? DEFAULT_MAX_KEY_FILES_CHARS : 0),
     harness: harnessCeiling(options, strict),
@@ -777,17 +774,6 @@ function checkContentBudgets(
         `enforce(rule, why, { render: "id" }) when a linter already holds it, or ` +
         `guidance(statement, { details: file(...) }) with the long text in that file — ` +
         `the rule stays in the spec, where lint and audit read it.`,
-    });
-  }
-  const keyFileCount = Object.keys(spec.keyFiles ?? {}).length;
-  if (limits.keyFiles > 0 && keyFileCount > limits.keyFiles) {
-    found.push({
-      type: "key-files-too-many",
-      path: specFile,
-      message:
-        `keyFiles has ${String(keyFileCount)} entries (budget ${String(limits.keyFiles)}). ` +
-        `A list this long is an index: keep the files an agent must find without looking, ` +
-        `and move the rest into a README the agent opens when it needs it.`,
     });
   }
   const keyFilesChars = input.renderedKeyFiles.length;

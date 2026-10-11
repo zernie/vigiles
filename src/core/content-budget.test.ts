@@ -17,7 +17,7 @@ import { codexDialect } from "../adapters/codex/dialect.js";
 import {
   compileClaude,
   DEFAULT_MAX_ENTRY_CHARS,
-  DEFAULT_MAX_KEY_FILES,
+  DEFAULT_MAX_KEY_FILES_CHARS,
 } from "./compile.js";
 import { guidance } from "./spec.js";
 
@@ -158,31 +158,20 @@ describe("compile-budget at error (the strict tier)", () => {
     expect(errors[0].message).toContain("30 rules");
   });
 
-  it("counts keyFiles entries — a per-entry budget met by clipping is still a list", async () => {
+  it("budgets the Key Files sum when every entry is under its own budget — clipping rows does not meet it", async () => {
+    // Each row is a legal 190-character pointer; only the SUM is over.
+    const rows = Math.ceil(DEFAULT_MAX_KEY_FILES_CHARS / 190) + 1;
     const keyFiles = Object.fromEntries(
-      Array.from({ length: 6 }, (_, i) => [`f${String(i)}.md`, "A pointer."]),
-    );
-    const { errors } = await strict(spec({ keyFiles }), {
-      maxKeyFiles: 5,
-      maxKeyFilesChars: 0,
-    });
-    // the files do not exist: stale-file errors are a different finding
-    expect(
-      errors.filter((e) => e.type !== "stale-file").map((e) => e.type),
-    ).toEqual(["key-files-too-many"]);
-  });
-
-  it("uses the built-in thresholds when none is configured", async () => {
-    const keyFiles = Object.fromEntries(
-      Array.from({ length: DEFAULT_MAX_KEY_FILES + 1 }, (_, i) => [
+      Array.from({ length: rows }, (_, i) => [
         `f${String(i)}.md`,
-        "A pointer.",
+        "k".repeat(190),
       ]),
     );
     const { errors } = await strict(spec({ keyFiles }));
+    // the files do not exist: stale-file errors are a different finding
     expect(
       errors.filter((e) => e.type !== "stale-file").map((e) => e.type),
-    ).toEqual(["key-files-too-many"]);
+    ).toEqual(["key-files-too-large"]);
   });
 
   it("budgets the keyFiles section's total characters", async () => {
@@ -228,7 +217,7 @@ describe("compile-budget at error (the strict tier)", () => {
 
   it("a token maxTokens neither replaces nor lifts the char ceiling", async () => {
     // The harness counts characters; a ceiling in estimated tokens is a
-    // different number (chars/4 was measured 40% under Claude Code's own count).
+    // different number (offline estimates undercount Claude's own tokenizer).
     const big = spec({
       sections: {
         A: "a".repeat(14000),
@@ -314,15 +303,17 @@ describe("compile-budget at its default (warn) — unchanged", () => {
   });
 
   it("evaluates an aggregate the repo configured explicitly, as a warning", async () => {
-    const keyFiles = Object.fromEntries(
-      Array.from({ length: 6 }, (_, i) => [`f${String(i)}.md`, "A pointer."]),
-    );
-    const { warnings } = await compileClaude(spec({ keyFiles }), {
+    const keyFiles = {
+      "package.json": "p".repeat(150),
+      "README.md": "r".repeat(150),
+    };
+    const { warnings, errors } = await compileClaude(spec({ keyFiles }), {
       specFile: "CLAUDE.md.spec.ts",
       catalogOnly: true,
-      maxKeyFiles: 5,
+      maxKeyFilesChars: 200,
     });
-    expect(warnings.map((w) => w.type)).toEqual(["key-files-too-many"]);
+    expect(warnings.map((w) => w.type)).toEqual(["key-files-too-large"]);
+    expect(errors.filter((e) => e.type !== "stale-file")).toEqual([]);
   });
 
   it("is silenced entirely when the rule is off", async () => {

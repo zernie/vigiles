@@ -85,7 +85,7 @@ Each section (and each subagent section) is length-guarded at compile time: a si
 
 ### Budget warnings: what the line guard cannot see
 
-Two checks run beside the line guard and, by default, print as **warnings** — they never fail a compile, because a budget that blocks adoption of a file you already have is a budget people turn off. The rule that owns them is [`compile-budget`](rules/compile-budget.md): at `"error"` (set by `"extends": "vigiles:strict"`) they fail the compile, and so do budgets on the whole Rules section, the number and size of `keyFiles`, and the whole file against the harness's own budget.
+Two checks run beside the line guard and, by default, print as **warnings** — they never fail a compile, because a budget that blocks adoption of a file you already have is a budget people turn off. The rule that owns them is [`compile-budget`](rules/compile-budget.md): at `"error"` (set by `"extends": "vigiles:strict"`) they fail the compile, and so do budgets on the whole Rules section, the total size of the Key Files section, and the whole file against the harness's own budget.
 
 | check                              | default               | why                                                                                                                                                                                                                |
 | ---------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

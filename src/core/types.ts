@@ -121,8 +121,9 @@ export interface TestCoverageConfig {
 }
 
 /**
- * Thresholds for the `compile-budget` rule. Characters, except `maxKeyFiles`,
- * which is a count. A key left out keeps its default; `0` turns that budget off.
+ * Thresholds for the `compile-budget` rule. Characters, except `maxOutput`,
+ * which is in the harness's unit. A key left out keeps its default; `0` turns
+ * that budget off.
  */
 export interface CompileBudgetConfig {
   /** One `keyFiles` / `commands` description. Default 200. */
@@ -131,8 +132,6 @@ export interface CompileBudgetConfig {
   maxSectionChars?: number;
   /** The whole rendered Rules section. Default 20,000 (at "error"). */
   maxRulesChars?: number;
-  /** How many `keyFiles` entries. Default 50 (at "error"). */
-  maxKeyFiles?: number;
   /** The whole rendered Key Files section. Default 10,000 (at "error"). */
   maxKeyFilesChars?: number;
   /**
@@ -317,7 +316,7 @@ export interface RulesConfig {
   /**
    * Size budgets on a COMPILED instruction file (`compile` from a `.spec.ts`):
    * one `keyFiles`/`commands` entry, one prose section, the whole Rules
-   * section, the number and total size of `keyFiles`, and the whole output
+   * section, the total size of the Key Files section, and the whole output
    * against the harness's own budget (`dialect.instructionBudget`), in the
    * harness's unit — never an estimated token count.
    *

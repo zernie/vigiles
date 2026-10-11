@@ -308,13 +308,13 @@ test("compile-budget defaults to warn, and recommended leaves it there", () => {
 test("compile-budget takes its thresholds as rule options", () => {
   const r = parseVigilesConfig({
     rules: {
-      "compile-budget": ["error", { maxRulesChars: 30000, maxKeyFiles: 80 }],
+      "compile-budget": ["error", { maxRulesChars: 30000, maxOutput: 50000 }],
     },
   });
   assert.ok(r.success);
   assert.deepEqual(r.data.rules["compile-budget"], [
     "error",
-    { maxRulesChars: 30000, maxKeyFiles: 80 },
+    { maxRulesChars: 30000, maxOutput: 50000 },
   ]);
   const bad = parseVigilesConfig({
     rules: { "compile-budget": ["error", { maxRuleChars: 1 }] },

@@ -2236,7 +2236,6 @@ function compileBudgetOptions(
   | "maxEntryChars"
   | "maxSectionChars"
   | "maxRulesChars"
-  | "maxKeyFiles"
   | "maxKeyFilesChars"
   | "maxOutput"
 > {

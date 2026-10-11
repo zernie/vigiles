@@ -1,7 +1,7 @@
 # `compile-budget`
 
 Size budgets on an instruction file compiled from a `.spec.ts`: one entry, one
-section, the whole Rules section, the Key Files list, and the whole output
+section, the whole Rules section, the whole Key Files section, and the whole output
 against the harness's own budget.
 
 ```json
@@ -25,19 +25,21 @@ against the harness's own budget.
 | one `keyFiles` / `commands` description | 200 characters                                                                  | `warn` and `error`          |
 | one named prose section                 | 15,000 characters                                                               | `warn` and `error`          |
 | the whole rendered Rules section        | 20,000 characters                                                               | `error`, or when you set it |
-| the number of `keyFiles` entries        | 50                                                                              | `error`, or when you set it |
 | the whole rendered Key Files section    | 10,000 characters                                                               | `error`, or when you set it |
 | the whole compiled file                 | the harness's budget, in its unit: Claude Code 40,000 chars, Codex 32,768 bytes | `error`, or when you set it |
 
-The first two are what `compile` has always printed as warnings. The other four
+The first two are what `compile` has always printed as warnings. The other three
 are new, and at the default severity they are **not evaluated** unless you give
 them a threshold, so the default output is exactly what it was.
 
 The whole-file ceiling is measured in the unit the harness itself counts:
 characters for Claude Code (its `/doctor` warns past 40,000), bytes for Codex
 (it silently truncates past 32 KiB). It is never a token count: `compile`'s
-`~N tokens est.` is characters divided by four, which was measured about 40%
-under Claude Code's own `/context` count on a real instruction file. An explicit
+`~N tokens est.` is characters divided by four, and offline estimates like it
+undercount Claude's own tokenizer on English instruction text by roughly
+33–44%. Codex's 32 KiB is shared by the whole `AGENTS.md` chain, so one compiled
+file under it can still be cut once the chain is summed; the sum is what
+[`instruction-weight`](instruction-weight.md) measures. An explicit
 `maxTokens` (in the spec or in `.vigilesrc.json`) is a separate, older check: it
 fails `compile` at any severity, as it always has, and it does not replace or
 lift this ceiling.
@@ -63,7 +65,7 @@ that one budget off.
   "rules": {
     "compile-budget": [
       "error",
-      { "maxRulesChars": 30000, "maxKeyFiles": 80, "maxKeyFilesChars": 0 }
+      { "maxRulesChars": 30000, "maxKeyFilesChars": 0 }
     ]
   }
 }
@@ -74,11 +76,10 @@ that one budget off.
 | `maxEntryChars`    | characters                                                  |
 | `maxSectionChars`  | characters                                                  |
 | `maxRulesChars`    | characters                                                  |
-| `maxKeyFiles`      | entries                                                     |
 | `maxKeyFilesChars` | characters                                                  |
 | `maxOutput`        | the harness's unit: characters (Claude Code), bytes (Codex) |
 
-Under `"warn"`, setting `maxRulesChars`, `maxKeyFiles`, `maxKeyFilesChars` or
+Under `"warn"`, setting `maxRulesChars`, `maxKeyFilesChars` or
 `maxOutput` turns that budget on as a warning.
 
 ## Why the Rules section and the list, not each rule
@@ -86,8 +87,10 @@ Under `"warn"`, setting `maxRulesChars`, `maxKeyFiles`, `maxKeyFilesChars` or
 The per-entry and per-section budgets were warnings, and on a file almost four
 times over the harness budget the only message was about one 314-character
 entry. The weight was elsewhere: one real Rules section was about 89 kB for 59
-rules, and one real Key Files list had 230 entries, 118 of them clipped with `…`
-to fit the per-entry budget. Neither aggregate had a budget. A per-rule length
+rules, and one real Key Files list was about 46.5 kB in 230 entries, 118 of them
+clipped with `…` to fit the per-entry budget. Neither sum had a budget. (Whether
+the NUMBER of entries should be capped too is a separate, open decision; this
+rule budgets only their total size.) A per-rule length
 cap was tried and removed within an hour (it fired on 40 of 53 rules); the sum is
 what loads on every request, so the sum is what is budgeted.
 
