@@ -25,6 +25,7 @@ import type { PluginScore } from "./score-core.js";
 import type { RuleInventoryItem } from "./rule-inventory.js";
 import type { RuleRouting } from "./rule-routing.js";
 import type { EvidenceCounts } from "./coverage-evidence.js";
+import type { DeprecatedKeyFilesFinding } from "./core/keyfiles-source.js";
 
 /**
  * The current schema version. Bump only on a BREAKING change to the shape.
@@ -141,6 +142,13 @@ export interface AuditReport {
    * version unchanged.
    */
   readonly brokenReferences?: readonly string[];
+  /**
+   * Instruction specs still using the deprecated `keyFiles` (the
+   * `deprecated-key-files` rule's findings: path, entry count, compiled
+   * characters). Advisory — never scored. Present only when at least one spec
+   * uses the field. Additive/optional — schema version unchanged.
+   */
+  readonly deprecatedKeyFiles?: readonly DeprecatedKeyFilesFinding[];
   /**
    * The adoption preview — "what would vigiles catch in your repo?" Present only
    * when the model-gated tier ran (behind consent); a deterministic read omits it.
@@ -290,6 +298,9 @@ export function buildAuditReport(
     inventory: inventoryOf(report),
     ...(report.danglingRefs.length
       ? { brokenReferences: report.danglingRefs }
+      : {}),
+    ...(report.deprecatedKeyFiles
+      ? { deprecatedKeyFiles: report.deprecatedKeyFiles }
       : {}),
     ...(adoptable ? { adoptable } : {}),
     ...(opts.observations ? { observations: opts.observations } : {}),

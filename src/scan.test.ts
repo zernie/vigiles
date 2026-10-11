@@ -583,7 +583,7 @@ test("audit flags every spec still using the deprecated keyFiles, with the size 
   );
   assert.match(text, /→ .*file\(\)/);
   // Advisory: a deprecation is not a structural defect, so it is not counted as one.
-  assert.match(text, /no structural issues found/);
+  assert.doesNotMatch(text, /structural issue\(s\)/);
   // …and it reaches the JSON/HTML product boundary, not only the terminal.
   const opts = { harness: "claude-code", vigilesVersion: "0.0.0" };
   assert.deepEqual(

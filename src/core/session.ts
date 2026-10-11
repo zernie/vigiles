@@ -163,6 +163,13 @@ export function loadSpecSurface(basePath: string): SpecSurface {
 /**
  * Load keyFiles from compiled markdown files. Reads each target's
  * "## Key Files" section and extracts the file paths.
+ *
+ * @deprecated Goes away together with the deprecated `keyFiles` spec field (see
+ * the `deprecated-key-files` rule), in the major after the one that deprecates
+ * it. It reads the field back out of COMPILED markdown with a regex rather than
+ * from the spec, and it is deliberately not ported in the release that
+ * deprecates the field: with the field gone, the session audit's "files the
+ * specs know about" is `surface.trackedInputs` (the sidecar manifests) alone.
  */
 export function loadKeyFilesFromSpecs(basePath: string): Set<string> {
   const keyFiles = new Set<string>();

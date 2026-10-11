@@ -165,6 +165,14 @@ export interface RulesConfig {
    */
   "instruction-weight"?: RuleSeverity;
   /**
+   * An instruction spec still uses the deprecated `keyFiles` field — a flat
+   * path → description list compiled into the file loaded on every request.
+   * Reports the entry count and compiled size with the migration (a `file()`
+   * ref in the rule that needs the pointer). The spec is parsed, never run.
+   * Default "warn": a deprecation must not turn a consumer's CI red on upgrade.
+   */
+  "deprecated-key-files"?: RuleSeverity;
+  /**
    * Near-duplicate rules WITHIN one spec, by NCD similarity — spec bloat, two
    * rules saying the same thing in different words.
    *

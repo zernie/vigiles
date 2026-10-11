@@ -368,6 +368,8 @@ import { adoptMarkdown, adoptSkill, adoptAgent } from "./core/adopt.js";
 import { computeScriptCoverage } from "./core/coverage.js";
 import { findOrphanDocs, formatOrphanReport } from "./core/orphans.js";
 import { findDocRefs, formatDocRefReport } from "./core/doc-refs.js";
+import { findDeprecatedKeyFiles } from "./core/keyfiles-source.js";
+import { keyFilesDeprecationMessage } from "./core/keyfiles.js";
 import type { DocRefReport } from "./core/doc-refs.js";
 import {
   loadHookProgram,
@@ -1345,6 +1347,8 @@ interface LintReport {
   hookMatcherErrors: number;
   instructionWeightIssues: number;
   instructionWeightErrors: number;
+  deprecatedKeyFilesIssues: number;
+  deprecatedKeyFilesErrors: number;
   docRefErrors: number;
   symbolRefErrors: number;
   mcpRefErrors: number;
@@ -1528,6 +1532,7 @@ function lintExitCode(report: LintReport): 0 | 1 | 2 {
     report.hookBlockErrors > 0 ||
     report.hookMatcherErrors > 0 ||
     report.instructionWeightErrors > 0 ||
+    report.deprecatedKeyFilesErrors > 0 ||
     report.symbolRefErrors > 0 ||
     report.mcpRefErrors > 0 ||
     // `doc-refs` is opt-in and this counter is only non-zero when the user set
@@ -2591,6 +2596,16 @@ async function runLint(
     },
   });
 
+  // 7w. Deprecated-key-files — an instruction spec still using `keyFiles`. Once
+  // over the repository, like the ratchet: a nested bundle's spec would
+  // otherwise be reported again by every bundle that encloses it.
+  const deprecatedKeyFiles = checkDeprecatedKeyFiles(
+    frame,
+    ruleSeverity(config?.rules?.["deprecated-key-files"]),
+    excludes,
+    silent,
+  );
+
   // 8. Validate vigiles builder calls inside markdown code blocks — the
   // `doc-refs` rule, DEFAULT OFF. Illustrative blocks opt out via
   // `<!-- vigiles:ignore -->` (single block) or `<!-- vigiles:ignore-file -->`
@@ -2733,6 +2748,8 @@ async function runLint(
     hookMatcherErrors: hookMatcher.errors,
     instructionWeightIssues: instructionWeight.issues,
     instructionWeightErrors: instructionWeight.errors,
+    deprecatedKeyFilesIssues: deprecatedKeyFiles.issues,
+    deprecatedKeyFilesErrors: deprecatedKeyFiles.errors,
     // Only the "error" tier gates. At "warn" the findings are printed and
     // annotated, and the exit code is untouched — same contract as every other
     // opt-in rule here.
@@ -3459,6 +3476,9 @@ export default instructionFile({${targetLine}
     // Prose sections become ## headings in the compiled output.
     // Do not add # or ## headers inside sections.
     // positioning: "What this project does and why.",
+    // A file a decision depends on: name it where the decision is, with
+    // file() inside a prose section — verified to exist at compile time. No
+    // file map: the agent finds files itself, and a map loads on every request.
 
     // This section is included in the compiled output to help agents
     // understand how to work with specs. Remove it once your team is familiar.
@@ -3469,11 +3489,6 @@ export default instructionFile({${targetLine}
     // Commands are verified against package.json at compile time.
     // "npm run build": "Compile the project",
     // "npm test": "Run all tests",
-  },
-
-  keyFiles: {
-    // File paths are verified to exist at compile time.
-    // "src/index.ts": "Main entry point",
   },
 
   rules: {
@@ -6068,6 +6083,33 @@ function checkHookMatcher(ctx: BundleCheck): {
     for (const m of found) {
       console.log(`  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(m.message)}`);
       ctx.annotate(sev === "error" ? "error" : "warning", m.message);
+    }
+  }
+  return { issues: found.length, errors: sev === "error" ? found.length : 0 };
+}
+
+/**
+ * Apply the `deprecated-key-files` rule: an instruction spec (`**\/*.md.spec.ts`,
+ * the glob `compile` uses) still sets the deprecated `keyFiles`. The spec is
+ * PARSED, never run (`findDeprecatedKeyFiles` — the same detector `audit`
+ * prints). Warning by default: a deprecation that gated would turn a
+ * consumer's CI red on upgrade, which the one-major window exists to prevent.
+ */
+function checkDeprecatedKeyFiles(
+  frame: Frame,
+  sev: ReturnType<typeof ruleSeverity>,
+  excludes: ExcludeSet,
+  silent: boolean,
+): { issues: number; errors: number } {
+  if (!sev) return { issues: 0, errors: 0 };
+  const found = findDeprecatedKeyFiles(process.cwd(), excludes.globIgnore);
+  const level = sev === "error" ? "error" : "warning";
+  if (found.length > 0 && !silent) {
+    console.log("\nDeprecated-key-files check:\n");
+    for (const f of found) {
+      const message = keyFilesDeprecationMessage(f);
+      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${f.path}: ${message}`);
+      ghAnnotate(level, message, frame.repo(resolve(process.cwd(), f.path)));
     }
   }
   return { issues: found.length, errors: sev === "error" ? found.length : 0 };

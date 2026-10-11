@@ -12,6 +12,7 @@ import { findIntegrityHeader, placeIntegrityHeader } from "./integrity.js";
 import { fencedLineFlags, markdownAnchors } from "./markdown.js";
 import { fileDefinesSymbol, langForFile, notCheckedReason } from "./symbols.js";
 import { foldLegacyPostcondition } from "./skill-normalize.js";
+import { renderKeyFiles } from "./keyfiles.js";
 
 import type {
   ClaudeSpec,
@@ -824,10 +825,8 @@ function compileKeyFilesSection(
   basePath: string,
 ): SectionResult {
   if (!spec.keyFiles) return { lines: [], errors: [] };
-  const lines = ["## Key Files", ""];
   const errors: CompileError[] = [];
   for (const [filePath, desc] of Object.entries(spec.keyFiles)) {
-    lines.push(`- \`${filePath}\` — ${desc}`);
     const err = validateFileRef(filePath, basePath);
     if (err) errors.push(err);
     if (desc.length > DEFAULT_MAX_KEYFILE_CHARS) {
@@ -837,7 +836,9 @@ function compileKeyFilesSection(
       });
     }
   }
-  return { lines: [lines.join("\n")], errors };
+  // The one renderer the `deprecated-key-files` rule measures with, so the
+  // size a finding reports is the size of what this emits.
+  return { lines: [renderKeyFiles(spec.keyFiles)], errors };
 }
 
 function compileCommandsSection(

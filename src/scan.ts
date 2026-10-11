@@ -39,6 +39,15 @@ import {
   type PluginLayout,
 } from "./core/layout.js";
 import type { ExcludeSet } from "./exclude.js";
+import {
+  findDeprecatedKeyFiles,
+  type DeprecatedKeyFilesFinding,
+} from "./core/keyfiles-source.js";
+import {
+  KEYFILES_DOCS_URL,
+  KEYFILES_FIX,
+  keyFilesCost,
+} from "./core/keyfiles.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import type { ToolIssue } from "./core/tool-contract.js";
 import {
@@ -451,6 +460,19 @@ export interface ScanReport {
    * on day one is switched off on day one.
    */
   readonly instructionWeight: InstructionWeight | null;
+  /**
+   * Instruction specs still using the deprecated `keyFiles` — the
+   * `deprecated-key-files` rule's own detector (`findDeprecatedKeyFiles`), so
+   * `lint` and `audit` cannot disagree. Advisory: printed with its fix, never
+   * scored.
+   *
+   * ABSENT when there are none, never `[]`, for the parity reason
+   * `coverageCaveats` gives. ⚠️ The browser twin produces none: it would need the
+   * TypeScript parser in the site bundle, and the demo does not fetch spec
+   * sources. No vendored parity fixture carries a spec, so the gate stays
+   * byte-identical; a spec added to one would show this gap as a parity diff.
+   */
+  readonly deprecatedKeyFiles?: readonly DeprecatedKeyFilesFinding[];
   /** Skills/agents whose `---` block isn't valid YAML — informational (may still load via salvage). */
   readonly malformedFrontmatter: readonly FrontmatterParseIssue[];
   readonly warnings: readonly string[];
@@ -942,6 +964,7 @@ export function scanPlugin(
     evaluable: coverage.total,
     coverageEvidence: coverageEvidenceCounts(coverage),
     ...(caveats.length > 0 ? { coverageCaveats: caveats } : {}),
+    ...deprecatedKeyFilesField(dir, opts.excludes),
     ownTestSignal: ownTestSignalOnDisk(dir),
     puritySummary,
   };
@@ -1296,6 +1319,33 @@ function instructionWeightLines(w: InstructionWeight): string[] {
   ];
 }
 
+/** The scan field, present only when some spec still uses `keyFiles`. */
+function deprecatedKeyFilesField(
+  dir: string,
+  excludes: ExcludeSet | undefined,
+): { deprecatedKeyFiles?: readonly DeprecatedKeyFilesFinding[] } {
+  const found = findDeprecatedKeyFiles(resolve(dir), excludes?.globIgnore);
+  return found.length > 0 ? { deprecatedKeyFiles: found } : {};
+}
+
+/**
+ * The audit's `deprecated-key-files` section: one line per spec with what it
+ * costs, then the fix once. Next to the instruction weight, because that is
+ * the number the field inflates.
+ */
+function deprecatedKeyFilesLines(r: ScanReport): string[] {
+  const found = r.deprecatedKeyFiles ?? [];
+  if (found.length === 0) return [];
+  return section(
+    "Deprecated `keyFiles`",
+    [
+      ...found.map((f) => `  ⚠ ${f.path}: ${keyFilesCost(f)}`),
+      `    → ${KEYFILES_FIX}. ${KEYFILES_DOCS_URL}  [deprecated-key-files]`,
+    ],
+    found.length,
+  );
+}
+
 /** The commands and output-style lines of a scan's facts; a harness without styles says so. */
 function inventoryFacts(r: ScanReport): readonly string[] {
   const commands = r.commands > 0 ? [`Commands: ${String(r.commands)}`] : [];
@@ -1320,6 +1370,7 @@ export function formatScanReport(r: ScanReport): string {
   // Right under the instruction file, because that is the line a reader is
   // already looking at when they wonder what it costs.
   if (r.instructionWeight) out.push(...instructionWeightLines(r.instructionWeight), ""); // prettier-ignore
+  out.push(...deprecatedKeyFilesLines(r));
 
   out.push(...section("Skills", r.skills.map(skillLine)));
 
