@@ -158,10 +158,17 @@ integer; `0`, a fraction, or a string is a config error.
 
 ## Why not a fixed budget
 
-The harness's own threshold (40 000 characters for Claude Code, 32 KiB for
-Codex) is reported by `vigiles audit`, but it cannot gate: measured repos sit
-several times over it, and a check that fails every repo on day one is switched
-off on day one. A ceiling on each rule's length fails the same way — and
+`vigiles audit` reports the weight against a budget: 40 000 characters for
+Claude Code, 32 KiB for Codex. For Codex that is the harness's own cut-off. For
+Claude Code it is stricter than the harness on purpose. Claude Code warns when
+one instruction file passes 5% of the model's context window in characters
+(never below 40 000), or when all of them together pass 120 000 (or the
+per-file limit, if higher), so on a 1M-token model a single file can reach
+about 200 000 characters before any warning. vigiles keeps the floor, which
+is Claude Code's threshold for a 200K-token window: every character is re-read
+on each request, whatever the window. Still, the budget cannot gate: measured
+repos sit several times over it, and a check that fails every repo on day one
+is switched off on day one. A ceiling on each rule's length fails the same way — and
 rewards splitting text into more files, which costs exactly as much. The
 repository's own recorded sum is the one number that is green on day one and
 still catches the regrowth.
