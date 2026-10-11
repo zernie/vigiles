@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:27ecdcdbef7f04d5 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:bc0e3560509d2fd9 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -58,11 +58,11 @@ The layers are enforced in `eslint.config.mjs` and dogfooded via `enforce("bound
 
 ## Layout
 
-What each ROOT directory is (the per-file map is Key Files below; this is the per-dir index). This repo is FIVE things at once — a TS library, a shipped Claude Code plugin, two auxiliary packages, a benchmark suite, and its own dogfood harness — so the root has a dir per concern, grouped here by concern.
+What each ROOT directory is — the per-dir index; what one file does is in that file's own header. This repo is FIVE things at once — a TS library, a shipped Claude Code plugin, two auxiliary packages, a benchmark suite, and its own dogfood harness — so the root has a dir per concern, grouped here by concern.
 
 THE LIBRARY (the one compiled thing):
 
-- `src/` — all TypeScript source, compiled to `dist/`. The ONLY thing `eslint src/` lints, vitest sweeps (`src/**/*.test.ts`), and the 100% coverage gate covers. Hexagonal: `src/core/` (domain) · `src/adapters/<harness>/` (ports) · `src/*.ts` (composition root + library). Also `src/schemas/` = DEPRECATED mdschema presets, parked (see `src/schemas/DEPRECATED.md`). A module's test sits BESIDE it as `<module>.test.ts`, so Key Files below lists the module and not its test — the test is found by name, and what it proves is in its own header. Only a test that stands ALONE is listed: one measuring somebody else's product, or one holding a whole-registry contract rather than a single module.
+- `src/` — all TypeScript source, compiled to `dist/`. The ONLY thing `eslint src/` lints, vitest sweeps (`src/**/*.test.ts`), and the 100% coverage gate covers. Hexagonal: `src/core/` (domain) · `src/adapters/<harness>/` (ports) · `src/*.ts` (composition root + library). Also `src/schemas/` = DEPRECATED mdschema presets, parked (see `src/schemas/DEPRECATED.md`). A module's test sits BESIDE it as `<module>.test.ts` — found by name, and what it proves is in its own header.
 - `dist/` — compiled JS output (gitignored; the published artifact + the audit-report template).
 
 THE SHIPPED PLUGIN (root-level by Claude Code plugin convention — these MUST sit at the repo root beside the manifest; they are markdown/shell consumed verbatim by the harness, never compiled):
@@ -342,7 +342,7 @@ BUILD + TOOLING + GENERATED:
 ### No Orphan Docs
 
 **Enforced by:** `vigiles/orphan-docs`
-**Why:** Every `.md` in an opted-in directory (vigiles scans `docs/`, declared via the `.vigilesrc.json` `orphans` block) must be referenced from at least one other markdown file — README, a compiled spec's Key Files, or another doc.
+**Why:** Every `.md` in an opted-in directory (vigiles scans `docs/`, declared via the `.vigilesrc.json` `orphans` block) must be referenced from at least one other markdown file — README, a compiled instruction file, or another doc.
 
 ### Recompile On Spec Change
 

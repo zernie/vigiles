@@ -1,6 +1,11 @@
 /**
  * vigiles CLI — verify your agent harness is real, and prove it works.
  *
+ * This is the VERB barrel: what each verb does is defined here and nowhere
+ * else. `src/cli.ts` loads it lazily for everything that is not a hook
+ * decision (those go to `src/hook-runtime.ts`), so a top-level import added
+ * here is paid by every verb but never by a gated tool call.
+ *
  * The verbs and their one-liners live in ONE place, `COMMAND_HELP` + `HELP_GROUPS`
  * near the bottom of this file, and `--help` prints from that table. A second list
  * here would be a copy that rots — this docblock WAS that copy: it named four

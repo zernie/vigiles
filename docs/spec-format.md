@@ -106,7 +106,7 @@ sections: {
 
 ### `keyFiles` (deprecated)
 
-**Deprecated — removed in the next major. Remove `keyFiles` from your spec.** `Record<string, string>` mapping file paths to descriptions, compiled to a `## Key Files` list in the instruction file that loads on every request. It still compiles (each path verified via `existsSync`), and [`deprecated-key-files`](rules/deprecated-key-files.md) warns on every spec that uses it. Name a file a decision depends on with `file()` where that decision is written (a `prose` section — verified the same way), move a pointer that matters in one folder into that folder's nested `CLAUDE.md`, and delete a plain file map — the agent reads the code. [Migration guide →](rules/deprecated-key-files.md)
+**Deprecated — removed in the next major. Move each entry where it belongs, then remove `keyFiles` from your spec.** `Record<string, string>` mapping file paths to descriptions, compiled to a `## Key Files` list in the instruction file that loads on every request. It still compiles (each path verified via `existsSync`), and [`deprecated-key-files`](rules/deprecated-key-files.md) warns on every spec that uses it. For each entry, the first that fits: delete it if the file's header, the docs or the path already say it; move a fact about one file into that file's header comment; move a rule for one folder into that folder's nested `CLAUDE.md` (its own `<folder>/CLAUDE.md.spec.ts`); keep a one-line `file()` pointer in a `prose` section (verified the same way) only if nothing else would lead an agent to the file. [Migration guide →](rules/deprecated-key-files.md)
 
 ### `commands`
 
