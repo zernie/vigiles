@@ -560,6 +560,7 @@ import { defineEval } from "vigiles";
 
 export default defineEval({
   runEval: {
+    env: { kind: "ephemeral" },
     fixture: { "src/billing.ts": "export function chargeCard() {}" },
     arms: {
       vanilla: {},

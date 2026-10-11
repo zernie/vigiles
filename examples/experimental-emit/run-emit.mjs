@@ -206,6 +206,7 @@ let emitSeq = 0;
 
 const report = await runEval({
   name: `emit from an UNFORKED skill (${skillName})`,
+  env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
   fixture: FIXTURE,
   arms: { emit: {} },
   task:

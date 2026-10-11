@@ -38,6 +38,7 @@ Conventional Commits type and colon: \`feat:\`, \`fix:\`, \`chore:\`, \`docs:\`,
 export default defineEval({
   runEval: {
     name: "skill-outcome: does the commit-message skill change the output?",
+    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
     fixture: {
       "package.json": JSON.stringify({ name: "app", private: true }),
     },

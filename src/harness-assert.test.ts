@@ -97,14 +97,27 @@ const NO_USAGE = {
   totalCacheReadTokens: 0,
 } as const;
 
+/** An arm's usage and stub calls when neither is under test. */
+const NO_MISSES = { usage: NO_USAGE, unansweredStubCalls: [] } as const;
+
 const report: EvalReport = {
   name: "demo",
   trials: 6,
   totalCostUsd: 0,
   aborted: false,
   arms: {
-    vanilla: { runs: 6, metrics: { caught: 0 }, stats: {}, usage: NO_USAGE },
-    gated: { runs: 6, metrics: { caught: 0.5 }, stats: {}, usage: NO_USAGE },
+    vanilla: {
+      runs: 6,
+      metrics: { caught: 0 },
+      stats: {},
+      ...NO_MISSES,
+    },
+    gated: {
+      runs: 6,
+      metrics: { caught: 0.5 },
+      stats: {},
+      ...NO_MISSES,
+    },
   },
 };
 
@@ -174,21 +187,21 @@ test("significantlyBeats / assertSignificant use a computed noise floor", () => 
         runs: 20,
         metrics: { caught: 0.1 },
         stats: { caught: stat(0.1, 0.05, 20) },
-        usage: NO_USAGE,
+        ...NO_MISSES,
       },
       // a real, tight separation → significant
       good: {
         runs: 20,
         metrics: { caught: 0.6 },
         stats: { caught: stat(0.6, 0.05, 20) },
-        usage: NO_USAGE,
+        ...NO_MISSES,
       },
       // a small gap drowned in wide se → not significant
       noisy: {
         runs: 5,
         metrics: { caught: 0.2 },
         stats: { caught: stat(0.2, 0.2, 5) },
-        usage: NO_USAGE,
+        ...NO_MISSES,
       },
     },
   };
@@ -250,13 +263,13 @@ test("reliable / assertReliable gate on pass^k (succeeded every trial)", () => {
         runs: 4,
         metrics: { safe: 0.75 },
         stats: { safe: { mean: 0.75, std: 0.5, se: 0.25, n: 4, passK: 0 } },
-        usage: NO_USAGE,
+        ...NO_MISSES,
       },
       solid: {
         runs: 4,
         metrics: { safe: 1 },
         stats: { safe: { mean: 1, std: 0, se: 0, n: 4, passK: 1 } },
-        usage: NO_USAGE,
+        ...NO_MISSES,
       },
     },
   };
@@ -727,7 +740,7 @@ test("assertNoRegression gates on a significant drop vs baseline", () => {
         runs: 20,
         metrics: { caught },
         stats: { caught: stat(caught, 0.03, 20) },
-        usage: NO_USAGE,
+        ...NO_MISSES,
       },
     },
   });

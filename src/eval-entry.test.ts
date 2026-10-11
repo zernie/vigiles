@@ -10,15 +10,20 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 
 import {
   declarationProblem,
   driverMisplaced,
   notADescriptionMessage,
+  runFailure,
   runsIn,
   trialsOverride,
+  unansweredFailure,
+  UNANSWERED_STUB_EXIT_CODE,
 } from "./eval-entry.js";
+import { aggregateUsage, type EvalReport } from "./eval.js";
+import { ARGV_REST, type StubCall } from "./core/stub-rules.js";
 
 const DIST = resolve("dist");
 const ENTRY = join(DIST, "eval-entry.js");
@@ -217,4 +222,159 @@ test("no argument is a usage error, not a silent success", () => {
   const r = spawnSync("node", [ENTRY], { encoding: "utf8" });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /expects one eval file/);
+});
+
+// --- an unanswered stub call fails the COMMAND, whatever `assert` does ----------
+
+test("unansweredFailure: only a runEval report with an unanswered call is a failure", () => {
+  const stubs = [
+    {
+      name: "gh",
+      rules: [
+        {
+          argv: ["issue", "create", ARGV_REST],
+          reply: { kind: "always", stdout: "u" },
+        },
+      ],
+    },
+  ];
+  const report = (unansweredStubCalls: readonly StubCall[]): EvalReport => ({
+    name: "e",
+    trials: 1,
+    totalCostUsd: 0,
+    aborted: false,
+    arms: {
+      with: {
+        runs: 1,
+        metrics: {},
+        stats: {},
+        usage: aggregateUsage([]),
+        unansweredStubCalls,
+      },
+    },
+  });
+  const miss: StubCall = {
+    tool: "gh",
+    argv: ["auth", "status"],
+    outcome: { kind: "no-rule" },
+  };
+  assert.match(
+    unansweredFailure("runEval", report([miss]), { stubs }) ?? "",
+    /gh \["auth","status"\] — no rule matches; the rules for gh are:\n\s+#1 \["issue", "create", experimental_stub\.rest\]/,
+  );
+  assert.equal(unansweredFailure("runEval", report([]), { stubs }), undefined);
+  assert.equal(
+    unansweredFailure("measure", report([miss]), { stubs }),
+    undefined,
+  );
+  // zero runs is checked first, and keeps its own exit code
+  assert.equal(
+    runFailure("f", "runEval", { ...report([miss]), arms: {} }, { stubs })
+      ?.code,
+    1,
+  );
+  // its own child code: not 2 (usage), 1 (a declaration / zero runs) or 77 (skip)
+  assert.equal(
+    runFailure("f", "runEval", report([miss]), { stubs })?.code,
+    UNANSWERED_STUB_EXIT_CODE,
+  );
+  assert.equal(UNANSWERED_STUB_EXIT_CODE, 78);
+  assert.equal(runFailure("f", "runEval", report([]), { stubs }), undefined);
+});
+
+/**
+ * A fake `claude` on PATH that does what a model did in a measured run: runs the
+ * `gh` argv lists in FAKE_GH_CALLS through its own PATH (where the eval put the
+ * stub), then prints a result event. No model, no network.
+ */
+function fakeClaudeBin(): string {
+  const bin = mkdtempSync(join(tmpdir(), "vigiles-fake-claude-"));
+  writeFileSync(
+    join(bin, "claude"),
+    `#!${process.execPath}\n` +
+      `const { spawnSync } = require("node:child_process");\n` +
+      `if (process.argv.includes("--version")) { console.log("9.9.9 (Claude Code)"); process.exit(0); }\n` +
+      `for (const argv of JSON.parse(process.env.FAKE_GH_CALLS || "[]")) spawnSync("gh", argv, { stdio: "ignore" });\n` +
+      `console.log(JSON.stringify({ type: "result", result: "filed", num_turns: 1 }));\n`,
+    { mode: 0o755 },
+  );
+  return bin;
+}
+
+const STUBBED_EVAL =
+  `import { defineEval, experimental_stub } from "${DIST}/test.js";\n` +
+  `const { rest } = experimental_stub;\n` +
+  `export default defineEval({\n` +
+  `  runEval: {\n` +
+  `    arms: { with: {} },\n` +
+  `    task: "file it",\n` +
+  `    trials: 1,\n` +
+  `    spacingSec: 0,\n` +
+  `    env: { kind: "inherit", reason: "test: a fake claude on PATH" },\n` +
+  `    stubs: [experimental_stub("gh", [{ argv: ["issue", "create", rest], reply: { kind: "always", stdout: "https://github.com/o/r/issues/1\\n" } }])],\n` +
+  `    measure: () => ({ ok: true }),\n` +
+  `  },\n` +
+  // The consumer's shape: `assert` never calls a vigiles helper.
+  `  assert: () => {},\n` +
+  `});\n`;
+
+test("`vigiles eval` exits 2 on an unanswered stub call even when `assert` looks at nothing", () => {
+  const bin = fakeClaudeBin();
+  const file = standin("stubbed.eval.mjs", STUBBED_EVAL);
+  const run = (calls: string[][]) =>
+    spawnSync("node", [join(DIST, "cli.js"), "eval", file], {
+      encoding: "utf8",
+      cwd: dirname(file),
+      env: {
+        ...process.env,
+        PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+        FAKE_GH_CALLS: JSON.stringify(calls),
+      },
+    });
+  const missed = run([
+    ["auth", "status"],
+    ["issue", "create", "-R", "o/r", "--title", "t", "--body", "b"],
+  ]);
+  const all = missed.stdout + missed.stderr;
+  assert.equal(missed.status, 2, all);
+  // the file's diagnostic is relayed by the runner, and printed ONCE
+  assert.match(all, /gh \["auth","status"\] — no rule matches/);
+  assert.equal(
+    all.split("A rule that answers every argv would hide this again").length -
+      1,
+    1,
+    all,
+  );
+  // the file exited with the stub code, not the usage code, and the verb says which cause it is
+  assert.match(all, /stubbed\.eval\.mjs \(exit 78\)/);
+  assert.match(
+    missed.stderr,
+    /vigiles eval: unanswered stub call\(s\) in \S*stubbed\.eval\.mjs — not a usage error/,
+  );
+  // the control: every call answered → the same file passes
+  const answered = run([
+    ["issue", "create", "-R", "o/r", "--title", "t", "--body", "b"],
+  ]);
+  assert.equal(answered.status, 0, answered.stdout + answered.stderr);
+});
+
+test("an eval file that exits 2 for its own reasons is not reported as an unanswered stub call", () => {
+  const bin = fakeClaudeBin();
+  const file = standin(
+    "exits-2.eval.mjs",
+    STUBBED_EVAL.replace("assert: () => {}", "assert: () => process.exit(2)"),
+  );
+  const r = spawnSync("node", [join(DIST, "cli.js"), "eval", file], {
+    encoding: "utf8",
+    cwd: dirname(file),
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      FAKE_GH_CALLS: JSON.stringify([
+        ["issue", "create", "-R", "o/r", "--title", "t", "--body", "b"],
+      ]),
+    },
+  });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout + r.stderr, /unanswered stub call/);
 });

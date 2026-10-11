@@ -188,7 +188,10 @@ merges only with `function` declarations (`experimental_skill` is a `const`).
   `@experimental` is not named for it. Today that covers the R3 disposable-service tier
   (`experimental_startServices`, … — on `vigiles`: it starts containers and calls
   no model, so it is not behind the paid `vigiles/eval` door, though it does have
-  real side effects), the emit channel (`experimental_emitTool`, … — on `vigiles`), the
+  real side effects), the per-invocation tool stub (`experimental_stub` with
+  `.rest` and `.called` — on `vigiles`; the rule shapes it builds, `ToolStub` and
+  friends, are plain data and the `EvalSpec.stubs` field takes a literal of the
+  same shape), the emit channel (`experimental_emitTool`, … — on `vigiles`), the
   compiled-hook entry points (`vigiles/hook`), and the spec builders
   `experimental_skill` / `experimental_agent` (`vigiles/spec`).
 

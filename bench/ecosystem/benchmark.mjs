@@ -134,6 +134,7 @@ for (const skill of SKILLS) {
     try {
       report = await runEval({
         name: `ecosystem: ${skill.id}/${t.name}`,
+        env: { kind: "ephemeral" },
         fixture: { ...t.files }, // both arms get the task seed
         arms: {
           baseline: {}, // task only

@@ -85,6 +85,7 @@ console.log(
 
 const report = await runEval({
   name: "caveman-compress: verbose vs compressed memory",
+  env: { kind: "ephemeral" },
   fixture: {},
   arms: {
     verbose: { files: { "CLAUDE.md": verbose } },

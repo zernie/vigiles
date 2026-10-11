@@ -143,7 +143,7 @@ request is captured (`modelRequests` is empty). The free run writes the same
 files and settings the "with" arm gets, through the same binary.
 
 The "without" arm is not empty: it selects the harness's default style. A
-paid run uses your real home directory unless `ephemeralEnv` is on, so a style
+paid run with `env: { kind: "inherit" }` uses your real home directory, so a style
 switched on for every project in `~/.claude/settings.json` would load in both
 arms, and the eval would compare the style with itself. On Claude Code the arm
 sets `outputStyle: "default"`, which wins over the user-wide setting (measured

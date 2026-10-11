@@ -38,10 +38,11 @@
  */
 import { describe, test, expect, beforeAll, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import { encodeStub } from "./core/stub-rules.js";
 
 const REPO_ROOT = resolve(__dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
@@ -290,5 +291,58 @@ export default experimental_defineReact({
     const adapter = registry.resolveAdapter(REPO_ROOT);
     expect(typeof adapter.harnessTestDriver).toBe("function");
     expect(await adapter.harnessTestDriver?.()).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A TOOL STUB's invocation (`hook-runtime stub`) — the eval tier's `gh`/`git`
+// shim execs it once per call, and a status script may make several per reply.
+// Its graph is the pure decision and `node:fs`: no verb barrel, no eval module,
+// and no zod — the rules file is vigiles' own output, parsed at the spec
+// boundary, so the stub process trusts it instead of re-validating per call.
+// ---------------------------------------------------------------------------
+
+describe("stub runtime module graph", () => {
+  function stubRoot(): string {
+    const root = join(dir, `stub-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(join(root, "rules"), { recursive: true });
+    writeFileSync(
+      join(root, "rules", "gh.json"),
+      encodeStub({
+        name: "gh",
+        rules: [
+          {
+            argv: ["api", /^repos\//],
+            reply: { kind: "always", stdout: "[]" },
+          },
+        ],
+      }),
+    );
+    return root;
+  }
+
+  test("a stub call loads the decision and nothing heavy", () => {
+    const graph = graphOf([
+      "hook-runtime",
+      "stub",
+      stubRoot(),
+      "gh",
+      "api",
+      "repos/o/r/issues?state=open",
+    ]);
+    // the positive half: it really ran the decision
+    expect(has(graph, "core/stub-rules.js")).toBe(true);
+    for (const heavy of [
+      "cli-main.js",
+      "dist/eval.js",
+      "node_modules/zod/",
+      "hook-runtime.js",
+    ])
+      expect(
+        has(graph, heavy),
+        `a stub invocation pulled ${heavy}; every \`gh\` call of a run pays for it`,
+      ).toBe(false);
+    // a ceiling with headroom, the one check that needs no list
+    expect(graph.length).toBeLessThanOrEqual(6);
   });
 });

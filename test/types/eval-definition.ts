@@ -7,7 +7,7 @@
  * the thing that spends money. `// @ts-expect-error` marks must-NOT-compile
  * cases; a line that starts compiling turns the gate red.
  */
-import { defineEval } from "../../dist/test.js";
+import { defineEval, experimental_stub } from "../../dist/test.js";
 import type {
   ArmsCheckReport,
   CheckReport,
@@ -30,8 +30,29 @@ defineEval({
   assert: (r: ArmsCheckReport) => void r.arms,
 });
 defineEval({
-  runEval: { arms: {}, task: "t", measure: () => ({ ok: 1 }) },
+  runEval: {
+    env: { kind: "ephemeral" },
+    arms: {},
+    task: "t",
+    measure: () => ({ ok: 1 }),
+  },
   assert: (r: EvalReport) => void r.totalCostUsd,
+});
+
+// Where a trial runs is a choice with no default: no `env`, no spec.
+defineEval({
+  // @ts-expect-error `runEval` needs an `env`
+  runEval: { arms: {}, task: "t", measure: () => ({ ok: 1 }) },
+});
+// `home` exists only on an ephemeral env — "seed my real HOME" cannot be written.
+defineEval({
+  runEval: {
+    // @ts-expect-error no `home` on an inherited env
+    env: { kind: "inherit", reason: "r", home: { kind: "files", files: {} } },
+    arms: {},
+    task: "t",
+    measure: () => ({ ok: 1 }),
+  },
 });
 defineEval({
   measureSelectionMatrix: { pluginDir: "." },
@@ -57,3 +78,15 @@ defineEval({
   // @ts-expect-error `measure` needs a `task`
   measure: { checks: [] },
 });
+
+// A stub rule's `rest` can only close the pattern, and a stub has at least one rule.
+const { rest } = experimental_stub;
+experimental_stub("gh", [
+  { argv: ["issue", "create", rest], reply: { kind: "always", stdout: "u" } },
+]);
+experimental_stub("gh", [
+  // @ts-expect-error `rest` before another token
+  { argv: [rest, "x"], reply: { kind: "always" } },
+]);
+// @ts-expect-error a stub with no rules
+experimental_stub("gh", []);

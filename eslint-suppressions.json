@@ -2577,9 +2577,6 @@
     "functional/no-let": {
       "count": 1
     },
-    "functional/no-loop-statements": {
-      "count": 1
-    },
     "functional/prefer-immutable-types": {
       "count": 1
     },
@@ -2661,7 +2658,7 @@
       "count": 30
     },
     "functional/no-let": {
-      "count": 19
+      "count": 17
     },
     "functional/no-loop-statements": {
       "count": 33
@@ -3974,12 +3971,6 @@
   },
   "src/tool-stub.ts": {
     "boundaries/dependencies": {
-      "count": 1
-    },
-    "functional/immutable-data": {
-      "count": 3
-    },
-    "functional/no-loop-statements": {
       "count": 1
     }
   },

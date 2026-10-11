@@ -75,6 +75,7 @@ function makeReport(
   const arms: EvalReport["arms"] = {};
   for (const [name, s] of Object.entries(stats)) {
     arms[name] = {
+      unansweredStubCalls: [],
       runs: 0,
       metrics: {},
       stats: s,

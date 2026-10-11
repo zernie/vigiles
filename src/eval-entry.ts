@@ -20,7 +20,10 @@
  *   5. prints the report with the formatter that matches the measurement;
  *   6. fails on a run that executed ZERO trials — the check every file used to
  *      hand-write as `if (report.n === 0) throw`;
- *   7. calls `assert(report)`.
+ *   7. fails — exit 2, before `assert` — on a `runEval` report with a stub call
+ *      no rule answered: such a trial measured an answer nobody wrote, and the
+ *      file's own `assert` may not look (most call only `compareArms`);
+ *   8. calls `assert(report)`.
  *
  * ## Not a CLI verb
  *
@@ -44,6 +47,7 @@ import {
   measureTriggerRate,
   runEval,
   formatCheckReport,
+  formatArmsCheckReport,
   formatEvalReport,
   formatTriggerRateReport,
   type ArmsCheckReport,
@@ -56,7 +60,9 @@ import {
   type TriggerRateReport,
   type EvalDriver,
   type TriggerRateSpec,
+  unansweredInReport,
 } from "./eval.js";
+import { parseToolStubs } from "./core/eval-spec-parse.js";
 import {
   measureSelectionMatrix,
   formatSelectionReport,
@@ -101,6 +107,70 @@ export function runsIn(report: AnyReport): number | undefined {
     return arms.reduce((t, a) => t + (a.n ?? a.runs ?? 0), 0);
   }
   return "n" in report ? report.n : undefined;
+}
+
+/**
+ * The exit code of an eval file whose report has an unanswered stub call. Its
+ * own code — not 2 (the CLI's usage error), 1 (a bad declaration, zero runs) or
+ * 77 (skip) — so the runner can say WHICH cause it is from a code only this path
+ * produces. `vigiles eval` itself exits {@link UNANSWERED_STUB_VERB_EXIT} for it.
+ */
+export const UNANSWERED_STUB_EXIT_CODE = 78;
+
+/**
+ * What `vigiles eval` exits with when a file exited {@link UNANSWERED_STUB_EXIT_CODE}:
+ * 2, the CLI's "error" — the run did not fail an assertion, it produced something
+ * that is not a measurement. Documented in docs/cli.md.
+ */
+export const UNANSWERED_STUB_VERB_EXIT = 2;
+
+/** A `runEval` report: every arm carries its unanswered stub calls. */
+const isEvalReport = (r: AnyReport): r is EvalReport =>
+  "arms" in r &&
+  Object.values(r.arms).every((a: object) => "unansweredStubCalls" in a);
+
+/**
+ * The author-facing failure when a `runEval` report carries a stub call no rule
+ * answered, or undefined. Only `runEval` has `stubs`. Pure — the rule itself is
+ * `unansweredInReport`, which the lock's refusal reads too.
+ */
+export function unansweredFailure(
+  kind: EvalKind,
+  report: AnyReport,
+  spec: unknown,
+): string | undefined {
+  if (kind !== "runEval" || !isEvalReport(report)) return undefined;
+  const raw =
+    typeof spec === "object" && spec !== null && "stubs" in spec
+      ? spec.stubs
+      : undefined;
+  return unansweredInReport(report, parseToolStubs(raw, "runEval"));
+}
+
+/**
+ * Why a finished run fails before its `assert` runs — with the exit code — or
+ * undefined. Two reasons: it ran ZERO trials (exit 1; the check every file used
+ * to hand-write), or a stub call went unanswered (exit 2). Pure.
+ */
+export function runFailure(
+  file: string,
+  kind: EvalKind,
+  report: AnyReport,
+  spec: unknown,
+): { readonly code: number; readonly message: string } | undefined {
+  if (runsIn(report) === 0)
+    return {
+      code: 1,
+      message: `✗ ${file}: no runs executed (0 trials completed).`,
+    };
+  // `runEval` has already printed the calls in full (to stderr, before its
+  // report): this line is the file's verdict, not a second copy of them.
+  return unansweredFailure(kind, report, spec) === undefined
+    ? undefined
+    : {
+        code: UNANSWERED_STUB_EXIT_CODE,
+        message: `✗ ${file}: stub call(s) went unanswered (listed above) — the report is not a measurement.`,
+      };
 }
 
 /**
@@ -159,12 +229,7 @@ function printReport(kind: EvalKind, report: AnyReport): void {
       console.log(formatCheckReport(report as CheckReport));
       return;
     case "measureArms":
-      for (const [name, arm] of Object.entries(
-        (report as ArmsCheckReport).arms,
-      )) {
-        console.log(`\n[arm: ${name}]`);
-        console.log(formatCheckReport(arm));
-      }
+      console.log(formatArmsCheckReport(report as ArmsCheckReport));
       return;
     case "measureTriggerRate":
       console.log(formatTriggerRateReport(report as TriggerRateReport));
@@ -216,12 +281,10 @@ async function main(): Promise<void> {
     );
     process.exit(2);
   }
-  const url = pathToFileURL(resolve(file)).href;
-
   let mod: unknown;
   beginEvalLoad();
   try {
-    mod = await import(url);
+    mod = await import(pathToFileURL(resolve(file)).href);
   } finally {
     endEvalLoad();
   }
@@ -261,9 +324,10 @@ async function main(): Promise<void> {
   );
   printReport(declared.kind, report);
 
-  if (runsIn(report) === 0) {
-    console.error(`✗ ${file}: no runs executed (0 trials completed).`);
-    process.exit(1);
+  const failure = runFailure(file, declared.kind, report, declared.spec);
+  if (failure !== undefined) {
+    console.error(failure.message);
+    process.exit(failure.code);
   }
 
   await (def.assert as ((r: AnyReport) => void | Promise<void>) | undefined)?.(

@@ -14,6 +14,8 @@ It does that by running the thing under test on both sides of an A/B and reading
 - [The unit: an A/B on the same real task](#the-unit-an-ab-on-the-same-real-task)
 - [The metric triple — bill, target, blast radius](#the-metric-triple--bill-target-blast-radius)
 - [Worked example](#worked-example)
+- [Where a trial runs — `env`](#where-a-trial-runs--env)
+- [Stubbing a CLI the agent calls — `experimental_stub`](#stubbing-a-cli-the-agent-calls--experimental_stub)
 - [The ecosystem benchmark — what works vs hype](#the-ecosystem-benchmark--what-works-vs-hype)
 - [Why you can afford to run it](#why-you-can-afford-to-run-it)
 - [Experimental: real side-effect testing](#experimental-real-side-effect-testing)
@@ -48,6 +50,7 @@ import { defineEval } from "vigiles";
 
 export default defineEval({
   runEval: {
+    env: { kind: "ephemeral" }, // required — see "Where a trial runs" below
     fixture: { "in.txt": "Implement a slug helper." },
     task: "Read in.txt, write slugify() to slug.js, then explain. Stop.",
     arms: {
@@ -72,6 +75,88 @@ Two ways to specify an arm:
 
 - **`files`** — drop a `SKILL.md` or config into the run. The clean A/B-able shape for an injectable skill.
 - **`pluginDir`** — load a whole real plugin natively, so its skills and hooks register the real way. Use this for "plugin on vs off."
+
+## Where a trial runs — `env`
+
+`runEval` needs `env`. There is no default, because each choice is wrong in one case without telling you:
+
+| `env`                              | HOME and environment                                                                                               | Wrong when                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `{ kind: "ephemeral" }`            | a throwaway HOME; only the harness's own auth passes ([exactly what](safety.md#what-a-child-run-inherits-exactly)) | your credential is not where the harness expects it — the run fails on trial 1, so you find out at once |
+| `{ kind: "inherit", reason: "…" }` | your real HOME and environment, minus the parent session's identity; the `reason` is printed with the report       | always a little: the result is a measurement of your machine (your config, your tokens)                 |
+
+Try `ephemeral` first. To start a run with files already in HOME — a config the skill reads, a task list the agent should find — seed them:
+
+```typescript
+env: {
+  kind: "ephemeral",
+  home: { kind: "files", files: { ".config/tool/config.json": "{}" } },
+},
+```
+
+Seed paths are relative to HOME, stay inside it, and may not overwrite the harness's own auth file; two paths that cannot both exist (`a` as a file and `a/b` beneath it, or `.claude` as a file beside the harness's `.claude/.credentials.json`) are refused too. A bad seed is refused before any trial runs, naming the paths. The HOME is a directory beside the trial's working dir, not inside it: a `cache: "readwrite"` snapshot holds the working dir only, so it never carries your credentials or the seed. `home` does not exist on `inherit`, so a seed can never be written into your real HOME. Changing the env kind or a seed's contents makes a committed lock stale; rewording an `inherit` reason does not.
+
+## Stubbing a CLI the agent calls — `experimental_stub`
+
+> ⚠️ **Experimental** — see [what `experimental_` means](experimental.md).
+
+A skill that files an issue runs `gh issue create`; a status script it runs calls `gh api repos/…/issues`. Put a stub for `gh` first on the run's `PATH` and both get a recorded answer instead of the real service. A stub answers **per invocation**, by rules over the argv tokens:
+
+```typescript
+import { defineEval, experimental_stub } from "vigiles";
+
+const { rest } = experimental_stub;
+const gh = experimental_stub("gh", [
+  // the write: `gh issue create --repo o/r --title … --body …` (or `-R o/r`)
+  {
+    argv: ["issue", "create", rest],
+    reply: { kind: "always", stdout: "https://github.com/o/r/issues/9001\n" },
+  },
+  // a script's read: exactly `gh api <endpoint>`, nothing after it
+  {
+    argv: ["api", /^repos\/o\/r\/(?:issues|pulls)\?/],
+    reply: { kind: "always", stdout: "[]" },
+  },
+]);
+
+export default defineEval({
+  runEval: {
+    env: { kind: "ephemeral" },
+    stubs: [gh],
+    arms: { baseline: {}, skill: { pluginDir: "./my-plugin" } },
+    task: "File this as an issue: init breaks in a Yarn PnP repo.",
+    measure: (ctx) => ({
+      // the precondition, measured: did this trial create an issue at all?
+      filed: experimental_stub
+        .called("gh", ["issue", "create", rest], { contains: ["o/r"] })
+        .eval(ctx).pass,
+    }),
+  },
+});
+```
+
+How a rule matches:
+
+- **Positional.** Token _i_ of the pattern matches token _i_ of the argv — an exact string, or a RegExp tested against that one token. Without a trailing `rest` the argv must have exactly that many tokens, so a read rule does not also answer the same endpoint with `-f title=…` after it.
+- **`rest`** means "any further tokens"; it can only be last.
+- **`contains`** lists tokens that must appear after the prefix, in any order — for flags a model writes either way (`--repo o/r` or `-R o/r`).
+- **First match wins.** `always` gives every matching call the same answer; `inOrder` gives call _k_ the _k_-th answer, counted from the call log. **Calls that run at the same time can race on that count:** a script that fires several `gh api …` under `Promise.all` can hand the same answer to two of them, and the exhaustion that should have fired one call later does not. Use `inOrder` for callers that go one after another; for parallel callers write one `always` rule per argv (the endpoint differs, so each rule has its own answer and nothing is counted).
+
+**An invocation no rule answers fails the eval.** The agent sees one neutral line on stderr and a non-zero exit (97). No new trials start, the report lists the call (`unansweredStubCalls`), `vigiles eval` exits 2 even if your `assert` checks nothing, and `--update` writes no lock. The eval file itself exits 78, its own code, so the runner prints "unanswered stub call(s) in <file> — not a usage error" and not the usage error that shares the 2. `runEval` prints the calls once, to stderr, when it returns — also when you call it directly, without `vigiles eval`; read `unansweredStubCalls` yourself if you need the calls in code. The message names the argv and the rule to add:
+
+```text
+1 stub call(s) went unanswered — the agent ran a command no rule scripts, so the trial measured an answer nobody wrote:
+  gh ["auth","status"] — no rule matches; the rules for gh are:
+      #1 ["issue", "create", experimental_stub.rest]
+      #2 ["api", /^repos\/o\/r\/(?:issues|pulls)\?/]
+    add: { argv: ["auth", "status"], reply: { kind: "always", stdout: "…" } }
+```
+
+Why a miss fails instead of printing a default: a stub that printed one issue URL for every argv also answered a status script's `gh api …` read with that URL, the script failed to parse it, and a model that read the stub stopped trusting it. A default answer is an observation nobody made.
+
+Every call is recorded in `ctx.stubCalls` — including calls a script makes itself, which never appear as a tool call. The record is a file in the stub directory (under the system temp dir, beside the run's working dir), appended to by the stub process, so **that directory must be writable from the agent's shell**. When the append fails the stub does not answer: the agent gets the same neutral line and exit 97 as for a miss, never a vigiles error. The run also counts, as unanswered, every occurrence of that exact neutral line in the agent's tool results beyond what the log holds, so a shell that can write nowhere outside its working dir (a sandboxed arm) still fails the run; the message says the argv is unknown and asks whether the stub directory is writable. That covers a call whose miss line reaches a tool result; a script that swallows the stub's stderr inside a confined shell is not seen.
+
+`experimental_stub.called` counts **answered** calls only: a create that came back as the miss line filed nothing, so it is not counted (the message says how many matching calls went unanswered, and the run fails on them anyway). `ctx.stubCalls` lists every recorded call, answered or not. Write the answers from the real tool (run it once and copy the output); an invented output looks plausible and is not what the tool says. A stub shadows `PATH` only: a tool called by absolute path, or a library call instead of a binary, is not stubbed.
 
 ## The ecosystem benchmark — what works vs hype
 
@@ -125,11 +210,11 @@ That's this tier. vigiles **composes with a throwaway container** rather than re
 
 R3 runs your skill **for real**, and a skill is model-driven — the model picks the actions, so it can do anything the run environment allows. vigiles gives you a **throwaway container and deletes it afterwards. That is the only isolation it provides.** It does **not** stop a skill from touching other systems your environment leaves reachable. **Treat an R3 run like running an untrusted script — the safety is on the environment you run it in, not on vigiles.**
 
-| Do                                                                                                                                                                    | Don't                                                                                                                                                           |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Run it in a **disposable environment** — a CI job, a throwaway container/VM, or a dev box with no production access.                                                  | **Run it against production**, or in a shell where `DATABASE_URL` / `AWS_*` / `~/.ssh` point at real systems — a model that finds a real credential may use it. |
-| Point the task at the **disposable service's connection string only**.                                                                                                | Assume vigiles sandboxes the filesystem or network here — it provisions and disposes the **container**, nothing more.                                           |
-| **Scrub real credentials** from the run — pair it with the eval tier's `ephemeralEnv` (throwaway HOME + cleared env) so there are no prod keys for the model to find. | Rely on the `endpoints` as a network wall — that's a **future** hardening, not applied yet.                                                                     |
+| Do                                                                                                                                                                                  | Don't                                                                                                                                                           |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Run it in a **disposable environment** — a CI job, a throwaway container/VM, or a dev box with no production access.                                                                | **Run it against production**, or in a shell where `DATABASE_URL` / `AWS_*` / `~/.ssh` point at real systems — a model that finds a real credential may use it. |
+| Point the task at the **disposable service's connection string only**.                                                                                                              | Assume vigiles sandboxes the filesystem or network here — it provisions and disposes the **container**, nothing more.                                           |
+| **Scrub real credentials** from the run — pair it with the eval tier's `env: { kind: "ephemeral" }` (throwaway HOME + cleared env) so there are no prod keys for the model to find. | Rely on the `endpoints` as a network wall — that's a **future** hardening, not applied yet.                                                                     |
 
 - ✅ **Guaranteed:** the service is created fresh and force-removed on teardown, even on failure.
 - ❌ **Not guaranteed (yet):** filesystem/network confinement of the skill. Until the egress wall lands (skill reaches only the model + the service), **an isolated run environment is doing that job, and you must provide it.** If you can't isolate the environment, don't run R3 yet.
@@ -158,7 +243,7 @@ await experimental_withServices(
   },
   experimental_dockerRuntime,
   async (svc) => {
-    // runEval — it takes a measure(ctx) callback + supports ephemeralEnv
+    // runEval — it takes a measure(ctx) callback and an ephemeral `env`
     return paid_runEval({
       // migration.sql must be in the run FIXTURE for the agent to read it —
       // a bare filename in the task doesn't materialize the file.
@@ -166,9 +251,9 @@ await experimental_withServices(
       // single arm — a baseline arm would share this DB and leave `age` behind,
       // crediting the skill for free (per-arm reset is a later increment).
       arms: { skill: { pluginDir: "./skills/migrator" } },
-      // full connection string incl. password — ephemeralEnv leaves no PGPASSWORD
+      // full connection string incl. password — an ephemeral env leaves no PGPASSWORD
       task: `Apply migration.sql to postgresql://postgres:test@${svc.endpoints[0]}/app . Stop.`,
-      ephemeralEnv: true, // ⬅ recommended — scrub real creds from the run
+      env: { kind: "ephemeral" }, // ⬅ recommended — scrub real creds from the run
       measure: () => ({
         // verify the REAL resulting DB state — R3's whole point
         migrated: /(^|\n)age(\n|$)/.test(

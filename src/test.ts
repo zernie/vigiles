@@ -235,8 +235,25 @@ export type {
   VerifyPluginGuardsOptions,
 } from "./verify-plugin-guards.js";
 
-// Tool stubs on PATH (rung R2): shadow a CLI tool with a recorded canned result.
-export * from "./tool-stub.js";
+// Tool stubs on PATH (rung R2): a fake binary that answers PER INVOCATION, by
+// rules over its argv. The helper and its check are experimental; the rule
+// shapes are plain data, because a `.mjs` literal of the same shape is accepted
+// at the spec boundary. Writing the shims is internal (`tool-stub.ts`).
+export { experimental_stub } from "./stub.js";
+export type { StubCalledBounds } from "./stub.js";
+export type {
+  ArgvPattern,
+  ArgvRest,
+  ArgvToken,
+  StubAnswer,
+  StubCall,
+  StubOutcome,
+  StubReply,
+  StubRule,
+  ToolStub,
+} from "./core/stub-rules.js";
+// Where an eval trial runs (`EvalSpec.env`).
+export type { HomeFiles, HomeSeed, RunEnv } from "./core/run-env.js";
 
 // The assembled machine — AGNOSTIC SURFACE ONLY. The Claude-Code transport
 // (`scriptModel`, `claudeCodeDriver`, `buildClaudeArgs`, `claudeAvailable`,

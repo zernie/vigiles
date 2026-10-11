@@ -6,7 +6,7 @@
  * Measured on Claude Code 2.1.292 (2026-10-07): a child `claude -p` started with
  * the parent's session variables ran AS the parent session (a task it created
  * landed in the parent's live task list), and auth still worked with those
- * variables removed. Before this file, `ephemeralEnv` passed every `CLAUDE_*`
+ * variables removed. Before this file, the ephemeral env passed every `CLAUDE_*`
  * variable through by prefix, and the default path passed the whole env.
  */
 import { spawnSync } from "node:child_process";
@@ -48,23 +48,23 @@ const parentEnv = {
 
 const identityNames = Object.keys(PARENT_IDENTITY);
 
-test("ephemeralEnv: the child gets none of the parent session's identity", () => {
+test("ephemeral env: the child gets none of the parent session's identity", () => {
   const env = ephemeralRunEnv(parentEnv, { home: "/tmp/h" });
   for (const k of identityNames) assert.equal(env[k], undefined, k);
 });
 
-test("ephemeralEnv: the auth Claude Code needs still reaches the child", () => {
+test("ephemeral env: the auth Claude Code needs still reaches the child", () => {
   const env = ephemeralRunEnv(parentEnv, { home: "/tmp/h" });
   for (const [k, v] of Object.entries(AUTH)) assert.equal(env[k], v, k);
 });
 
-test("ephemeralEnv: CLAUDE_CONFIG_DIR is dropped — it would point the child back at the real config", () => {
+test("ephemeral env: CLAUDE_CONFIG_DIR is dropped — it would point the child back at the real config", () => {
   const env = ephemeralRunEnv(parentEnv, { home: "/tmp/h" });
   assert.equal(env.CLAUDE_CONFIG_DIR, undefined);
   assert.equal(env.HOME, "/tmp/h");
 });
 
-test("ephemeralEnv: an eval-injected name cannot smuggle identity back in", () => {
+test("ephemeral env: an eval-injected name cannot smuggle identity back in", () => {
   const env = ephemeralRunEnv(parentEnv, {
     home: "/tmp/h",
     allow: ["CLAUDE_CODE_SESSION_ID"],
@@ -76,7 +76,7 @@ test("default (inherited) spawn env: the parent's identity is removed, the rest 
   const env = resolveSpawnEnv({ env: { X: "1" } }, parentEnv);
   for (const k of identityNames) assert.equal(env[k], undefined, k);
   assert.equal(env.X, "1");
-  assert.equal(env.HOME, "/home/real"); // not scrubbed: ephemeralEnv is off
+  assert.equal(env.HOME, "/home/real"); // not scrubbed: the inherited env
   assert.equal(env.GH_TOKEN, "ghp_secret");
   assert.equal(env.ANTHROPIC_API_KEY, "sk-real");
 });
