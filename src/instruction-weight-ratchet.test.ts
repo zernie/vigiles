@@ -253,3 +253,142 @@ test("an import the measurement did not follow is said out loud", () => {
   const r = run(["lint"]);
   assert.match(r.out, /1 import\(s\) not followed: b\.md/);
 });
+
+// ---------------------------------------------------------------------------
+// The opt-in absolute ceiling: `["error", { "max": N }]`.
+//
+// The ratchet alone keeps a repo four times over budget green forever; `max`
+// is the explicit, opt-in way to say "no further than this, whatever the
+// baseline says". Without it nothing above changes.
+// ---------------------------------------------------------------------------
+
+function withMax(severity: "error" | "warn", max: unknown): void {
+  put(
+    ".vigilesrc.json",
+    JSON.stringify({
+      harnesses: { "claude-code": {} },
+      rules: { "instruction-weight": [severity, { max }] },
+    }),
+  );
+}
+
+test("max: a total over the ceiling is a finding that names total, max, excess and the biggest file", () => {
+  withMax("error", 20_000);
+  const r = run(["lint"]);
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /30,000 chars/);
+  assert.match(r.out, /max 20,000/);
+  assert.match(r.out, /10,000 over/);
+  assert.match(r.out, /CLAUDE\.md 30,000/);
+  // The fix is named, and moving text is named as NOT a fix.
+  assert.match(r.out, /cut content/);
+  assert.match(
+    r.out,
+    /moving text to another always-loaded file does not help/,
+  );
+});
+
+test("max: holds independently of the baseline — an over-ceiling repo cannot hide behind a recorded one", () => {
+  put(
+    BASELINE,
+    JSON.stringify({
+      version: 1,
+      bundles: {
+        ".": {
+          unit: "chars",
+          measure: 1,
+          total: 30_000,
+          files: { "CLAUDE.md": 30_000 },
+        },
+      },
+    }),
+  );
+  withMax("error", 20_000);
+  const r = run(["lint"]);
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /held at 30,000 chars/, "the ratchet itself still holds");
+  assert.match(r.out, /10,000 over/, "the ceiling still fails");
+});
+
+test("max: the largest files are named heaviest first, spread across the sum", () => {
+  put(".claude/rules/big.md", "b".repeat(8_000));
+  withMax("error", 20_000);
+  const r = run(["lint"]);
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /CLAUDE\.md 30,000, \.claude\/rules\/big\.md 8,000/);
+});
+
+test("max: at the ceiling, and under it, are silent", () => {
+  withMax("error", 30_000);
+  const at = run(["lint"]);
+  assert.equal(at.code, 0, at.out);
+  assert.doesNotMatch(at.out, /over/);
+  withMax("error", 50_000);
+  const under = run(["lint"]);
+  assert.equal(under.code, 0, under.out);
+  assert.doesNotMatch(under.out, /max 50,000/);
+});
+
+test('max with "warn" reports the excess without touching the exit code', () => {
+  withMax("warn", 20_000);
+  const r = run(["lint"]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /⚠ .*10,000 over/);
+});
+
+test("no max: a rule given as [severity, {}] behaves like the bare severity", () => {
+  put(
+    ".vigilesrc.json",
+    JSON.stringify({
+      harnesses: { "claude-code": {} },
+      rules: { "instruction-weight": ["error", {}] },
+    }),
+  );
+  const r = run(["lint"]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /no instruction-weight baseline recorded/);
+});
+
+test("max: --update-baseline above the ceiling is refused — nothing is written", () => {
+  withMax("error", 20_000);
+  const r = run(["lint", "--update-baseline"]);
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, /refus/i);
+  assert.match(r.out, /30,000/);
+  assert.match(r.out, /20,000/);
+  assert.equal(existsSync(join(dir, BASELINE)), false, "no baseline written");
+});
+
+test('max: a refusal still fails under "warn" — re-recording must not bypass the ceiling', () => {
+  withMax("warn", 20_000);
+  const r = run(["lint", "--update-baseline"]);
+  assert.notEqual(r.code, 0, r.out);
+  assert.equal(existsSync(join(dir, BASELINE)), false);
+});
+
+test("max: a refused update leaves an existing baseline byte-identical", () => {
+  run(["lint", "--update-baseline"]);
+  const before = readFileSync(join(dir, BASELINE), "utf-8");
+  put("CLAUDE.md", `${BODY}${"y".repeat(5_000)}`);
+  withMax("error", 32_000);
+  const r = run(["lint", "--update-baseline"]);
+  assert.notEqual(r.code, 0, r.out);
+  assert.equal(readFileSync(join(dir, BASELINE), "utf-8"), before);
+});
+
+test("max: --update-baseline at or under the ceiling records as usual", () => {
+  withMax("error", 30_000);
+  const r = run(["lint", "--update-baseline"]);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(recordedTotal(), 30_000);
+});
+
+test.each([0, -1, 1.5, "40000"])(
+  "max: %j is not a ceiling — the config is rejected",
+  (bad) => {
+    withMax("error", bad);
+    const r = run(["lint"]);
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(r.out, /max/);
+  },
+);
