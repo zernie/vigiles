@@ -18,6 +18,7 @@ import {
   mkdirSync,
   rmSync,
   writeFileSync,
+  symlinkSync,
   existsSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -746,4 +747,49 @@ describe("ruff config-state (real repo layout, no dummy.py)", () => {
       );
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// generate-types — ESLint rules that only apply to SOME files
+// ---------------------------------------------------------------------------
+
+describe("generateTypes ESLint discovery beyond the root", () => {
+  it("lists rules (incl. an inline plugin's) enabled only for other globs", () => {
+    // Probing ONE file (`dummy.js` at the root) saw only the rules every file
+    // gets, so a repo whose real rules are scoped (`files: ["src/**/*.ts"]`) —
+    // and every local plugin registered in that scoped block — was invisible to
+    // `generate types` and therefore to `strengthen`.
+    withTmpDir((dir) => {
+      mkdirSync(join(dir, "src"));
+      mkdirSync(join(dir, "scripts"));
+      writeFileSync(join(dir, "package.json"), '{"name":"fx","type":"module"}');
+      symlinkSync(
+        join(process.cwd(), "node_modules"),
+        join(dir, "node_modules"),
+      );
+      writeFileSync(join(dir, "src", "a.ts"), "export const a = 1;\n");
+      writeFileSync(join(dir, "scripts", "b.mjs"), "export const b = 1;\n");
+      writeFileSync(
+        join(dir, "eslint.config.mjs"),
+        `const local = { rules: { "no-foo": { meta: { type: "problem", schema: [] }, create: () => ({}) } } };
+export default [
+  { rules: { "no-console": "error" } },
+  { files: ["src/**/*.ts"], plugins: { kb: local }, rules: { "kb/no-foo": "error", eqeqeq: "error", "no-var": "off" } },
+  { files: ["scripts/**/*.mjs"], rules: { "no-eval": "warn" } },
+];
+`,
+      );
+      const eslint = generateTypes({
+        basePath: dir,
+        fileGlobs: [],
+      }).linters.find((l) => l.linter === "eslint");
+      assert.ok(eslint, "eslint rules should be discovered");
+      assert.deepEqual([...eslint.rules].sort(), [
+        "eqeqeq",
+        "kb/no-foo",
+        "no-console",
+        "no-eval",
+      ]);
+    });
+  });
 });

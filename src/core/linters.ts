@@ -21,9 +21,9 @@
  */
 
 import { readFileSync, existsSync, writeFileSync, rmSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname, extname } from "node:path";
 import { editDistance } from "./edit-distance.js";
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { globSync } from "glob";
 import { load as loadYaml } from "js-yaml";
@@ -1524,36 +1524,104 @@ function hasGolangciConfig(basePath: string): boolean {
 // Linter rule discovery
 // ---------------------------------------------------------------------------
 
-function discoverEslintRules(basePath: string): DiscoveredRules | null {
-  try {
-    const script = `
-      const { loadESLint } = require("eslint");
-      (async () => {
-        try {
-          const ESLint = await loadESLint();
-          const eslint = new ESLint({ cwd: ${JSON.stringify(basePath)} });
-          const config = await eslint.calculateConfigForFile("dummy.js");
-          const enabled = Object.entries(config.rules || {})
-            .filter(([, v]) => {
-              const sev = Array.isArray(v) ? v[0] : v;
-              return sev !== 0 && sev !== "off";
-            })
-            .map(([k]) => k);
-          console.log(JSON.stringify(enabled));
-        } catch(e) {
-          console.log("[]");
+/** Upper bound on the (directory, extension) probes handed to ESLint. */
+const ESLINT_PROBE_CAP = 2000;
+
+/**
+ * The paths whose resolved config is asked of ESLint: one per distinct
+ * (directory, extension) pair of the project's files, plus `dummy.js` at the
+ * root. A flat config selects by glob, and a glob can only see the directory and
+ * extension of a path, so one representative per pair sees every config block
+ * that any file could match — without lint-running a single file.
+ */
+function eslintProbePaths(basePath: string): string[] {
+  const files = globSync("**/*", {
+    cwd: basePath,
+    dot: true,
+    nodir: true,
+    ignore: ["**/node_modules/**", "**/.git/**"],
+  });
+  const probes = new Map<string, string>([["dummy.js", "dummy.js"]]);
+  for (const f of files.sort()) {
+    const key = `${dirname(f)}\0${extname(f)}`;
+    if (!probes.has(key)) probes.set(key, f);
+    if (probes.size >= ESLINT_PROBE_CAP) break;
+  }
+  return [...probes.values()];
+}
+
+/**
+ * Runs inside the PROJECT's node resolution (cwd = basePath), so it loads the
+ * project's own ESLint and config through ESLint's API — inline and local
+ * plugins included, because ESLint is the one evaluating the config module.
+ * Reads the probe paths from stdin; prints `{ rules, plugins, error? }`.
+ */
+const ESLINT_DISCOVER_SCRIPT = `
+  const { loadESLint } = require("eslint");
+  let input = "";
+  process.stdin.on("data", (c) => (input += c));
+  process.stdin.on("end", async () => {
+    const out = { rules: [], plugins: [] };
+    try {
+      const probes = JSON.parse(input);
+      const ESLint = await loadESLint();
+      const eslint = new ESLint({ cwd: process.cwd() });
+      const rules = new Set();
+      const plugins = new Set();
+      for (const file of probes) {
+        const config = await eslint.calculateConfigForFile(file);
+        // undefined: the path is ignored by the config.
+        if (!config) continue;
+        for (const [name, v] of Object.entries(config.rules || {})) {
+          const sev = Array.isArray(v) ? v[0] : v;
+          if (sev !== 0 && sev !== "off") rules.add(name);
         }
-      })();
-    `;
-    const output = execSync(`node -e '${script.replace(/'/g, "'\\''")}'`, {
-      encoding: "utf-8",
-      cwd: basePath,
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 15000,
-    });
-    const rules = JSON.parse(output.trim() || "[]") as string[];
+        for (const name of Object.keys(config.plugins || {})) plugins.add(name);
+      }
+      out.rules = [...rules];
+      out.plugins = [...plugins];
+    } catch (e) {
+      out.error = String((e && e.message) || e);
+    }
+    console.log(JSON.stringify(out));
+  });
+`;
+
+function discoverEslintRules(rawBasePath: string): DiscoveredRules | null {
+  const basePath = resolve(rawBasePath);
+  try {
+    const output = execFileSync(
+      process.execPath,
+      ["-e", ESLINT_DISCOVER_SCRIPT],
+      {
+        encoding: "utf-8",
+        cwd: basePath,
+        input: JSON.stringify(eslintProbePaths(basePath)),
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 30000,
+      },
+    );
+    const found = JSON.parse(output.trim() || "{}") as {
+      rules?: string[];
+      plugins?: string[];
+      error?: string;
+    };
+    // No config at all is the ordinary "this repo does not use ESLint" case.
+    // Anything else (a config that throws, a plugin that is not installed) means
+    // the rules exist but could not be read — say so rather than list nothing.
+    if (found.error && !/Could not find config file/.test(found.error)) {
+      console.warn(
+        `vigiles: could not read the ESLint config in ${basePath}: ${found.error} (ESLint rules not listed)`,
+      );
+    }
+    const rules = [...(found.rules ?? [])].sort();
     if (rules.length === 0) return null;
-    return { linter: "eslint", rules, via: "flat config (v9+/v10)" };
+    const plugins = (found.plugins ?? []).filter((p) => p !== "@");
+    const via =
+      plugins.length > 0
+        ? `flat config (v9+/v10), plugins: ${plugins.join(", ")}`
+        : "flat config (v9+/v10)";
+    return { linter: "eslint", rules, via };
   } catch {
     return null;
   }
