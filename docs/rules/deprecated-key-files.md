@@ -122,8 +122,9 @@ does not change the grade.
 
 ## How it reads your spec
 
-The spec is **parsed, never run** (a TypeScript syntax tree; `findDeprecatedKeyFiles`
-in `src/core/keyfiles-source.ts`). A `keyFiles` inside a comment or a string is
+The spec is **parsed, never run** (a TypeScript syntax tree:
+`findKeyFilesInSpecSource` in `src/core/keyfiles-source.ts`, called by the
+detector `findDeprecatedKeyFiles` in `src/deprecated-key-files.ts`). A `keyFiles` inside a comment or a string is
 not usage and is not reported. Every `**/*.md.spec.ts` is read — the same glob
 `vigiles compile` uses — except under `node_modules` and paths your
 `.vigilesrc.json` `exclude` lists.
