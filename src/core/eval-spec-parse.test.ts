@@ -235,3 +235,34 @@ test("a seed path outside HOME, or over the harness's own auth file, is refused 
     /env\.home\.files: .*no files/,
   );
 });
+
+test("seed paths that cannot coexist are refused at the boundary, naming both", () => {
+  const seed = (files: Record<string, string>) =>
+    parseRunEnv(
+      { kind: "ephemeral", home: { kind: "files", files } },
+      "runEval",
+      KEEP,
+    );
+  // a file and a path beneath it
+  assert.throws(
+    () => seed({ a: "x", "a/b": "y" }),
+    /env\.home\.files: "a" is written as a file but "a\/b" needs it to be a directory/,
+  );
+  assert.throws(
+    () => seed({ "a/b": "y", "a/b/c/d": "z", e: "w" }),
+    /"a\/b" is written as a file but "a\/b\/c\/d" needs it/,
+  );
+  // a seed file standing where the harness's own auth file needs a directory
+  assert.throws(
+    () => seed({ ".acme": "x" }),
+    /"\.acme" is written as a file but "\.acme\/token" \(the harness's own auth file\) needs it to be a directory/,
+  );
+  // a seed path beneath the auth file, which is a file
+  assert.throws(
+    () => seed({ ".acme/token/x": "x" }),
+    /"\.acme\/token" \(the harness's own auth file\) is written as a file but "\.acme\/token\/x" needs it to be a directory/,
+  );
+  // siblings and a shared directory are fine, and so is a name that only SHARES A PREFIX
+  assert.doesNotThrow(() => seed({ "a/b": "1", "a/c": "2", ab: "3" }));
+  assert.doesNotThrow(() => seed({ ".acme/other": "1" }));
+});

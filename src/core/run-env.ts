@@ -144,6 +144,35 @@ function seedPathProblem(
 }
 
 /**
+ * The pairs that cannot both exist: one path written as a FILE while another
+ * needs it to be a DIRECTORY (`a` and `a/b`). Over the seed's paths and the
+ * harness's auth files, as a seed file standing on an auth file's parent
+ * (`.claude`) would fail the same way. Auth files among themselves are the
+ * harness's own business. Without this the run fails mid-trial with a raw
+ * `EEXIST`/`ENOTDIR`, after the trial's directories were built.
+ */
+function seedConflicts(
+  paths: readonly string[],
+  keepHomeFiles: readonly string[],
+): readonly string[] {
+  const isSeed = (p: string): boolean => paths.includes(p);
+  const label = (p: string): string =>
+    isSeed(p)
+      ? JSON.stringify(p)
+      : `${JSON.stringify(p)} (the harness's own auth file)`;
+  const all = [...paths, ...keepHomeFiles];
+  return all.flatMap((file) =>
+    all
+      .filter((under) => under.startsWith(`${file}/`))
+      .filter((under) => isSeed(file) || isSeed(under))
+      .map(
+        (under) =>
+          `${label(file)} is written as a file but ${label(under)} needs it to be a directory`,
+      ),
+  );
+}
+
+/**
  * Validate a seed and list the files it writes. Pure. `keepHomeFiles` are the
  * harness's auth files (`RunEnvPolicy.keepHomeFiles`), copied in after the seed.
  */
@@ -162,8 +191,11 @@ export function planHome(
     const why = seedPathProblem(p, keepHomeFiles);
     return why === undefined ? [] : [why];
   });
-  if (problems.length > 0)
-    return { kind: "refused", reason: problems.join("; ") };
+  // Conflicts are read over well-formed paths only: a "" or "/x" would pair with everything.
+  const refusals =
+    problems.length > 0 ? problems : seedConflicts(paths, keepHomeFiles);
+  if (refusals.length > 0)
+    return { kind: "refused", reason: refusals.join("; ") };
   return {
     kind: "ok",
     files: paths.map((path) => ({ path, contents: seed.files[path] ?? "" })),

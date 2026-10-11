@@ -360,6 +360,22 @@ test("the old argv-blind stub and a missing env are refused before the runner is
       ),
     /env\.home\.files: "\.\.\/escape" must stay inside HOME/,
   );
+  await assert.rejects(
+    () =>
+      runEvalWith(
+        base({
+          env: {
+            kind: "ephemeral",
+            home: {
+              kind: "files",
+              files: { ".claude": "x", ".claude/x": "y" },
+            },
+          },
+        }),
+        r.run,
+      ),
+    /env\.home\.files: "\.claude" is written as a file but "\.claude\/x" needs it to be a directory/,
+  );
   assert.equal(r.seen.length, 0, "nothing was spent");
 });
 
