@@ -166,6 +166,7 @@ export interface LoadedPlugin {
     readonly settings: {
         hooks?: unknown;
     };
+    readonly shadowedSettingsHooks?: unknown;
     readonly sources: Record<string, string>;
     readonly warnings: readonly string[];
 }
