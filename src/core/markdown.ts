@@ -307,3 +307,58 @@ function refsInInline(
       out.push({ kind: "code", value: child.content, line });
   }
 }
+
+/**
+ * The fragment ids a markdown file defines — what `file.md#<id>` can land on.
+ *
+ * Two sources, because both are how real files are linked into:
+ *
+ * - every HEADING, slugged the way GitHub slugs it (lowercase; drop everything
+ *   that is not a letter, number, space, `-` or `_`; spaces to `-`; a repeated
+ *   slug gets `-1`, `-2`, …), with the heading's text taken from the parser's
+ *   inline token, so emphasis and code spans do not leak their markers in;
+ * - every explicit `id="…"` / `name="…"` on raw HTML (`<a id="why"></a>`), which
+ *   is how a file in a non-Latin language gives its sections stable ASCII ids.
+ *
+ * Other renderers slug differently (GitLab, mkdocs). A link that resolves on
+ * GitHub and nowhere else is still a link this accepts; one that resolves
+ * NOWHERE — a renamed heading — is what it exists to catch.
+ */
+export function markdownAnchors(src: string): ReadonlySet<string> {
+  const ids = new Set<string>();
+  const seen = new Map<string, number>();
+  // The html-enabled parser: with the shared one, `<a id="x">` is paragraph
+  // text and its id would be invisible.
+  const tokens = mdProse().parse(src, {});
+  tokens.forEach((t, i) => {
+    if (t.type === "heading_open") {
+      const inline = tokens[i + 1];
+      const text = (inline?.children ?? [])
+        .filter((c) => c.type === "text" || c.type === "code_inline")
+        .map((c) => c.content)
+        .join("");
+      const base = text
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+        .trim()
+        .replace(/\s/g, "-");
+      const k = seen.get(base) ?? 0;
+      seen.set(base, k + 1);
+      ids.add(k === 0 ? base : `${base}-${String(k)}`);
+    }
+    const html =
+      t.type === "html_block" || t.type === "html_inline"
+        ? [t.content]
+        : t.type === "inline"
+          ? (t.children ?? [])
+              .filter((c) => c.type === "html_inline")
+              .map((c) => c.content)
+          : [];
+    for (const h of html) {
+      for (const m of h.matchAll(/\b(?:id|name)\s*=\s*["']([^"']+)["']/g)) {
+        ids.add(m[1]);
+      }
+    }
+  });
+  return ids;
+}

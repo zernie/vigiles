@@ -95,6 +95,7 @@ import type {
   VigilesConfig,
   CoverageThresholds,
   TestCoverageConfig,
+  CompileBudgetConfig,
   RuleSeverity,
   RulesConfig,
 } from "./core/types.js";
@@ -254,7 +255,7 @@ import {
   estimateTokens,
   type StampedMarkdown,
 } from "./core/compile.js";
-import type { CompileError } from "./core/compile.js";
+import type { CompileError, CompileClaudeOptions } from "./core/compile.js";
 import type { ClaudeSpec, SkillSpec, AgentSpec, Railway } from "./core/spec.js";
 import { findSimilarRules } from "./core/proofs.js";
 import { parseInlineRules } from "./core/inline.js";
@@ -700,6 +701,7 @@ async function compileClaudeToFile(
       maxSectionLines: config.maxSectionLines,
       catalogOnly: config.catalogOnly,
       linters: config.linters,
+      ...compileBudgetOptions(config),
     });
   const primaryOutput = specPath.replace(/\.spec\.ts$/, "");
   // Budget findings print BEFORE the pass/fail line and never change the exit
@@ -1286,6 +1288,8 @@ interface LintReport {
   frontmatterRules: number;
   specRefIssues: number;
   specRefErrors: number;
+  /** `compile-budget` findings at "error" (reported by `lint` only then). */
+  compileBudgetErrors: number;
   duplicatePairs: number;
   /** Severity of `duplicate-instructions` — carried so the exit code can tier it. */
   duplicateSeverity: RuleSeverity;
@@ -1531,7 +1535,8 @@ function lintExitCode(report: LintReport): 0 | 1 | 2 {
     // error — it used to sit at exit 1 because it fired unasked and could not be
     // turned off.
     report.docRefErrors > 0 ||
-    report.specRefErrors > 0
+    report.specRefErrors > 0 ||
+    report.compileBudgetErrors > 0
   )
     return 2;
   // Tierable now: a `warn` orphan/duplicate finding is reported and does NOT
@@ -2074,10 +2079,16 @@ async function checkSpecRefs(
   config: VigilesConfig | undefined,
   silent: boolean,
   dialect: HarnessDialect,
-): Promise<{ issues: number; errors: number }> {
+): Promise<{ issues: number; errors: number; budgetErrors: number }> {
   const sev = ruleSeverity(config?.rules?.["spec-refs"]) ?? "error";
-  if (!sev) return { issues: 0, errors: 0 };
+  // `compile-budget` is reported here only at "error": at its default it is a
+  // compile-time warning, and `lint` printed nothing about size before the rule
+  // had a name — the default output does not change.
+  const budgetGate =
+    ruleSeverity(config?.rules?.["compile-budget"]) === "error";
+  if (!sev && !budgetGate) return { issues: 0, errors: 0, budgetErrors: 0 };
   const found: string[] = [];
+  const overBudget: string[] = [];
   let knownAgents: readonly string[] | undefined;
   for (const specPath of findSpecs(excludes)) {
     const target = specPath.replace(/\.spec\.ts$/, "");
@@ -2089,15 +2100,18 @@ async function checkSpecRefs(
       // collected lazily so a repo with no railway spec never pays for the walk.
       if (spec._specType === "railway")
         knownAgents ??= await collectAgentNames(excludes);
-      const errors = await specCompileErrors(
+      const { errors, budget } = await specCompileErrors(
         spec,
         specPath,
         dialect,
         config,
         knownAgents ?? [],
       );
-      for (const e of errors)
-        found.push(`${target}: ${e.message} (from ${specPath})`);
+      if (sev)
+        for (const e of errors)
+          found.push(`${target}: ${e.message} (from ${specPath})`);
+      for (const e of budget)
+        overBudget.push(`${target}: ${e.message} (from ${specPath})`);
     } catch {
       // A spec that will not load is `compile`'s finding, not this one's —
       // reporting it here would double-report and blame the wrong command.
@@ -2111,7 +2125,18 @@ async function checkSpecRefs(
       ghAnnotate(sev === "error" ? "error" : "warning", msg);
     }
   }
-  return { issues: found.length, errors: sev === "error" ? found.length : 0 };
+  if (overBudget.length > 0 && !silent) {
+    console.log("\nCompile budget check (compile-budget):\n");
+    for (const msg of overBudget) {
+      console.log(`  ✗ ${msg}`);
+      ghAnnotate("error", `compile-budget: ${msg}`);
+    }
+  }
+  return {
+    issues: found.length,
+    errors: sev === "error" ? found.length : 0,
+    budgetErrors: overBudget.length,
+  };
 }
 
 /**
@@ -2139,37 +2164,88 @@ async function specCompileErrors(
   dialect: HarnessDialect,
   config: VigilesConfig | undefined,
   knownAgents: readonly string[],
-): Promise<readonly CompileError[]> {
+): Promise<SpecCompileFindings> {
   const basePath = process.cwd();
   switch (spec._specType) {
-    case "claude":
-      return (
-        await compileClaude(spec, {
-          basePath,
-          specFile: specPath,
-          dialect,
-          maxRules: config?.maxRules,
-          maxTokens: config?.maxTokens,
-          maxSectionLines: config?.maxSectionLines,
-          catalogOnly: config?.catalogOnly,
-          linters: config?.linters,
-        })
-      ).errors;
+    case "claude": {
+      const r = await compileClaude(spec, {
+        basePath,
+        specFile: specPath,
+        dialect,
+        maxRules: config?.maxRules,
+        maxTokens: config?.maxTokens,
+        maxSectionLines: config?.maxSectionLines,
+        catalogOnly: config?.catalogOnly,
+        linters: config?.linters,
+        ...compileBudgetOptions(config),
+      });
+      // A size finding is `compile-budget`'s, not a dead reference: split by
+      // IDENTITY against the compiler's own list, never by the type's name.
+      return {
+        errors: r.errors.filter((e) => !r.budgetFindings.includes(e)),
+        budget: r.errors.filter((e) => r.budgetFindings.includes(e)),
+      };
+    }
     case "skill":
-      return (
-        await compileSkill(spec, { basePath, specFile: specPath, dialect })
-      ).errors;
+      return {
+        errors: (
+          await compileSkill(spec, { basePath, specFile: specPath, dialect })
+        ).errors,
+        budget: [],
+      };
     case "agent":
-      return (
-        await compileAgent(spec, { basePath, specFile: specPath, dialect })
-      ).errors;
+      return {
+        errors: (
+          await compileAgent(spec, { basePath, specFile: specPath, dialect })
+        ).errors,
+        budget: [],
+      };
     case "railway":
-      return compileRailway(spec, { specFile: specPath, knownAgents }).errors;
+      return {
+        errors: compileRailway(spec, { specFile: specPath, knownAgents })
+          .errors,
+        budget: [],
+      };
     default:
       // A `pipeline` spec compiles through its underlying railway, so it has no
       // artifact of its own to re-derive refs for.
-      return [];
+      return { errors: [], budget: [] };
   }
+}
+
+/**
+ * What re-deriving one spec found, split by the rule that owns it: dead
+ * references (`spec-refs`) and, for an instruction spec under
+ * `compile-budget: "error"`, size budgets (`compile-budget`).
+ */
+interface SpecCompileFindings {
+  readonly errors: readonly CompileError[];
+  readonly budget: readonly CompileError[];
+}
+
+/**
+ * The `compile-budget` rule, as `compileClaude` options: its severity and any
+ * thresholds the config set. The ONE translation, so `compile` (which writes)
+ * and `lint` (which re-derives) can never measure against different numbers.
+ */
+function compileBudgetOptions(
+  config: VigilesConfig | undefined,
+): Pick<
+  CompileClaudeOptions,
+  | "budgetSeverity"
+  | "maxEntryChars"
+  | "maxSectionChars"
+  | "maxRulesChars"
+  | "maxKeyFiles"
+  | "maxKeyFilesChars"
+> {
+  const rule = config?.rules?.["compile-budget"];
+  // No config at all (a programmatic caller, a missing file) is the default.
+  if (rule === undefined) return { budgetSeverity: "warn" };
+  return {
+    budgetSeverity: ruleSeverity(rule),
+    ...ruleOptions<CompileBudgetConfig>(rule),
+  };
 }
 
 /**
@@ -2595,6 +2671,7 @@ async function runLint(
     frontmatterRules,
     specRefIssues: specRefs.issues,
     specRefErrors: specRefs.errors,
+    compileBudgetErrors: specRefs.budgetErrors,
     duplicatePairs: dups.pairCount,
     duplicateSeverity:
       ruleSeverity(config?.rules?.["duplicate-rules"]) ?? "warn",

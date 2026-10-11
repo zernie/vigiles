@@ -144,7 +144,7 @@ test("a bare string is a one-element list, not a string spread char-by-char", ()
  * one — and the list is printed only when there is not, which is the case where
  * the list IS the answer.
  */
-test("an unknown key suggests the near-miss instead of listing 34 candidates", () => {
+test("an unknown key suggests the near-miss instead of listing 35 candidates", () => {
   assert.deepEqual(problems({ rules: { "spec-ref": "error" } }), [
     '.vigilesrc.json: unknown key "spec-ref" in rules. Did you mean "spec-refs"?',
   ]);
@@ -154,7 +154,7 @@ test("an unknown key suggests the near-miss instead of listing 34 candidates", (
   assert.match(far[0], /Known: spec-refs, orphan-docs/);
   // Capped, with the remainder COUNTED rather than dropped — a silently short
   // list would read as "these are all of them".
-  assert.match(far[0], /… and 22 more\.$/);
+  assert.match(far[0], /… and 23 more\.$/);
 });
 
 test("an unknown top-level key names the near-miss", () => {
@@ -208,7 +208,7 @@ test("an empty config parses to the shipped defaults", () => {
   assert.equal(d.rules["doc-refs"], false);
   assert.equal(d.rules["prefer-compiled-hooks"], false);
   assert.equal(d.rules.integrity, "warn");
-  assert.equal(Object.keys(d.rules).length, 34);
+  assert.equal(Object.keys(d.rules).length, 35);
   assert.equal(d.harnesses, undefined, "no declaration means auto-detect");
 });
 
@@ -255,11 +255,11 @@ test("without extends, no rule moves off its built-in default", () => {
   }
 });
 
-test("an unknown preset name is refused, naming the one that exists", () => {
+test("an unknown preset name is refused, naming the ones that exist", () => {
   const r = parseVigilesConfig({ extends: "vigiles:recomended" });
   assert.ok(!r.success);
   assert.deepEqual(formatConfigIssues(r.error.issues), [
-    '.vigilesrc.json: extends — Invalid input: expected "vigiles:recommended".',
+    '.vigilesrc.json: extends — Invalid option: expected one of "vigiles:recommended"|"vigiles:strict".',
   ]);
 });
 

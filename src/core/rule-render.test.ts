@@ -39,7 +39,7 @@ const withDocs = async <T>(fn: (dir: string) => Promise<T>): Promise<T> => {
     mkdirSync(join(dir, "docs", "rules"), { recursive: true });
     writeFileSync(
       join(dir, "docs", "rules", "logging.md"),
-      "# Logging\n\n## Why not console\n\nThe long text.\n\n<a id=\"ci-output\"></a>\nMore.\n",
+      '# Logging\n\n## Why not console\n\nThe long text.\n\n<a id="ci-output"></a>\nMore.\n',
     );
     return await fn(dir);
   } finally {
@@ -76,7 +76,9 @@ describe("enforce() render policy", () => {
       const { markdown } = await compileIn(dir, {
         logging: enforce("eslint/no-console", WHY, { render: "id" }),
       });
-      expect(markdown).toContain("### Logging\n\n**Enforced by:** `eslint/no-console`");
+      expect(markdown).toContain(
+        "### Logging\n\n**Enforced by:** `eslint/no-console`",
+      );
       expect(markdown).not.toContain("**Why:**");
       expect(markdown).not.toContain("structured logger");
     });

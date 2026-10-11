@@ -190,8 +190,9 @@ excluded, with no finding either.
 
 ### `extends`
 
-Start from a named set of rule severities, then adjust it with `rules`. The one
-preset is `vigiles:recommended`. `npx vigiles init` writes it for you.
+Start from a named set of rule severities, then adjust it with `rules`. There
+are two presets: `vigiles:recommended`, which `npx vigiles init` writes for you,
+and `vigiles:strict`, which you opt into.
 
 > Default: none — every rule at its built-in severity
 
@@ -228,10 +229,26 @@ preset is not breaking. To control exactly when new rules start failing CI, pin
 the vigiles version in `package.json` (the GitHub Action runs that version) or
 list the rules yourself in `rules` instead of extending the preset.
 
+**`vigiles:strict`** is everything in `vigiles:recommended`, plus the checks
+that are exact but whose thresholds are a choice — today
+[`compile-budget`](rules/compile-budget.md), which turns the compile size
+budgets into errors. New or stricter checks land here first and move into
+`vigiles:recommended` only in a major version, after they have been measured
+quiet on real repositories. Adding a rule to `vigiles:strict` is therefore not a
+breaking change for anyone who has not opted in.
+
+```json
+{ "extends": "vigiles:strict" }
+```
+
+`extends` takes one name; `vigiles:strict` already contains the recommended
+group. `init --strict` is a different thing: it adds the workflow rules
+(`require-instructions-spec`, `untested-*`).
+
 An unknown preset name is refused:
 
 ```
-✗ .vigilesrc.json: extends — Invalid input: expected "vigiles:recommended".
+✗ .vigilesrc.json: extends — Invalid option: expected one of "vigiles:recommended"|"vigiles:strict".
 ```
 
 ### `rules`

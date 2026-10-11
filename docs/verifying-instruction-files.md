@@ -157,7 +157,7 @@ Beyond the references above, `vigiles lint` runs a set of **deterministic valida
 
 | Surface (the gate)          | Rules                                                                                                                                                           | Applies to                                |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Instruction file &amp; docs | `require-instructions-spec`, `integrity`, `coverage`, `unmarked-refs`, `orphan-docs`, `instruction-weight`                                                      | all harnesses                             |
+| Instruction file &amp; docs | `require-instructions-spec`, `integrity`, `coverage`, `unmarked-refs`, `orphan-docs`, `instruction-weight`, `compile-budget`                                    | all harnesses                             |
 | Skills                      | `untested-skill`, `skill-frontmatter`, `description-overlap`, `skill-description-budget`, `frontmatter-valid`, `skill-resource-resolves`, `skill-missing-fence` | all with skills                           |
 | Plugin layout               | `plugin-dir-layout`                                                                                                                                             | all with a plugin manifest                |
 | MCP                         | `mcp-config`                                                                                                                                                    | all with MCP                              |
@@ -178,6 +178,7 @@ The per-family tables below give each rule's default severity and what it checks
 | [`spec-refs`](rules/spec-refs.md)                                 | `"error"` | A compiled instruction file whose spec references a file, script or symbol that no longer exists |
 | [`duplicate-rules`](rules/duplicate-rules.md)                     | `"warn"`  | Two rules **within one spec** saying the same thing (deterministic NCD similarity, no model)     |
 | [`require-skill-spec`](rules/require-skill-spec.md)               | `false`   | Every SKILL.md has a `.spec.ts` (the consistent parallel; off by default)                        |
+| [`compile-budget`](rules/compile-budget.md)                       | `"warn"`  | A compiled instruction file stays within its size budgets; `error` under `vigiles:strict`        |
 
 ### Test coverage
 
@@ -271,6 +272,7 @@ Disable a rule for one file with `<!-- vigiles-disable require-instructions-spec
 `vigiles init` groups rules by confidence:
 
 - **`structural`** — FP-safe correctness rules (broken tools / dead hooks / broken MCP / collisions). `init` gates them at `error` by writing `"extends": "vigiles:recommended"` ([the preset](configuration.md#extends)); each rule's own default stays `warn`.
+- **`strict`** — exact checks whose thresholds are a choice (`compile-budget`). New or stricter checks land here before they can join `recommended`. Opt in with `"extends": "vigiles:strict"`, which also carries the structural group. Not the same as `init --strict`, which adds the workflow rules below.
 - **`workflow`** — opinionated rules a clean repo can still fail because the work isn't done yet (`require-instructions-spec`, `untested-*`). Off by default; added by `--strict`.
 - **`nudge`** — recommendations / acknowledged-noisy (`frontmatter-valid`, `skill-frontmatter`, `prefer-compiled-hooks`, `unmarked-refs`). Stays `warn` and never gates.
 

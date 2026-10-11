@@ -120,6 +120,23 @@ export interface TestCoverageConfig {
   testExtension?: string;
 }
 
+/**
+ * Thresholds for the `compile-budget` rule. Characters, except `maxKeyFiles`,
+ * which is a count. A key left out keeps its default; `0` turns that budget off.
+ */
+export interface CompileBudgetConfig {
+  /** One `keyFiles` / `commands` description. Default 200. */
+  maxEntryChars?: number;
+  /** One named prose section. Default 15,000. */
+  maxSectionChars?: number;
+  /** The whole rendered Rules section. Default 20,000 (at "error"). */
+  maxRulesChars?: number;
+  /** How many `keyFiles` entries. Default 50 (at "error"). */
+  maxKeyFiles?: number;
+  /** The whole rendered Key Files section. Default 10,000 (at "error"). */
+  maxKeyFilesChars?: number;
+}
+
 export interface RulesConfig {
   /**
    * Opt-in: a doc in a configured dir (default `docs/`) that no other `.md`
@@ -292,6 +309,21 @@ export interface RulesConfig {
    * `scan` (descriptionBudgetIssues).
    */
   "skill-description-budget"?: RuleSeverity;
+  /**
+   * Size budgets on a COMPILED instruction file (`compile` from a `.spec.ts`):
+   * one `keyFiles`/`commands` entry, one prose section, the whole Rules
+   * section, the number and total size of `keyFiles`, and the whole output
+   * against the harness's own budget (`dialect.instructionBudget`) unless
+   * `maxTokens` sets a ceiling of its own.
+   *
+   * Default "warn", which is exactly the behaviour before this rule had a name:
+   * the per-entry and per-section budgets print as warnings and never stop a
+   * compile; the aggregates and the harness ceiling are not evaluated unless a
+   * threshold is configured. "error" (set by the `vigiles:strict` preset) makes
+   * every budget, aggregates included, fail `compile` and `lint`. Options are
+   * thresholds — see {@link CompileBudgetConfig}. See docs/rules/compile-budget.md.
+   */
+  "compile-budget"?: RuleWithOptions<CompileBudgetConfig>;
   /**
    * Flag a skill/agent whose `---` frontmatter block EXISTS but isn't valid YAML
    * — fields may not parse as intended. CAVEAT: a real YAML parser (js-yaml) is

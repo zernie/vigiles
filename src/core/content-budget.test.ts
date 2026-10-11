@@ -169,7 +169,10 @@ describe("compile-budget at error (the strict tier)", () => {
   });
 
   it("budgets the keyFiles section's total characters", async () => {
-    const keyFiles = { "package.json": "p".repeat(150), "README.md": "r".repeat(150) };
+    const keyFiles = {
+      "package.json": "p".repeat(150),
+      "README.md": "r".repeat(150),
+    };
     const { errors } = await strict(spec({ keyFiles }), {
       maxKeyFilesChars: 200,
     });
@@ -180,7 +183,13 @@ describe("compile-budget at error (the strict tier)", () => {
 
   it("compares the whole output with the harness budget, in the harness's unit (Claude Code: chars)", async () => {
     const { errors } = await strict(
-      spec({ sections: { A: "a".repeat(14000), B: "b".repeat(14000), C: "c".repeat(14000) } }),
+      spec({
+        sections: {
+          A: "a".repeat(14000),
+          B: "b".repeat(14000),
+          C: "c".repeat(14000),
+        },
+      }),
       { dialect: claudeCodeDialect },
     );
     const over = errors.filter((e) => e.type === "budget-exceeded");
@@ -189,10 +198,10 @@ describe("compile-budget at error (the strict tier)", () => {
   });
 
   it("compares in bytes for a harness that counts bytes (Codex)", async () => {
-    // 11,000 two-byte characters: 22,000 chars, 44,000 bytes — under a char
+    // 17,000 two-byte characters: 17,000 chars, 34,000 bytes — under a char
     // budget of 32,768, over the byte budget Codex actually truncates at.
     const { errors } = await strict(
-      spec({ sections: { A: "é".repeat(11000) } }),
+      spec({ sections: { A: "é".repeat(17000) } }),
       { dialect: codexDialect, maxSectionChars: 0 },
     );
     const over = errors.filter((e) => e.type === "budget-exceeded");
@@ -202,7 +211,11 @@ describe("compile-budget at error (the strict tier)", () => {
 
   it("an explicit maxTokens is the ceiling instead of the harness budget", async () => {
     const big = spec({
-      sections: { A: "a".repeat(14000), B: "b".repeat(14000), C: "c".repeat(14000) },
+      sections: {
+        A: "a".repeat(14000),
+        B: "b".repeat(14000),
+        C: "c".repeat(14000),
+      },
     });
     const { errors } = await strict(big, {
       dialect: claudeCodeDialect,
@@ -248,7 +261,11 @@ describe("compile-budget at its default (warn) — unchanged", () => {
     const { errors, warnings } = await compileClaude(
       spec({
         rules,
-        sections: { A: "a".repeat(14000), B: "b".repeat(14000), C: "c".repeat(14000) },
+        sections: {
+          A: "a".repeat(14000),
+          B: "b".repeat(14000),
+          C: "c".repeat(14000),
+        },
       }),
       {
         specFile: "CLAUDE.md.spec.ts",
@@ -274,8 +291,14 @@ describe("compile-budget at its default (warn) — unchanged", () => {
 
   it("is silenced entirely when the rule is off", async () => {
     const { warnings, errors } = await compileClaude(
-      spec({ keyFiles: { "package.json": "z".repeat(5000) } }),
-      { specFile: "CLAUDE.md.spec.ts", catalogOnly: true, budgetSeverity: false },
+      // 500: over the 200 budget, under the separate 800-character key-file
+      // ERROR, which is not a budget and stays on.
+      spec({ keyFiles: { "package.json": "z".repeat(500) } }),
+      {
+        specFile: "CLAUDE.md.spec.ts",
+        catalogOnly: true,
+        budgetSeverity: false,
+      },
     );
     expect(warnings).toHaveLength(0);
     expect(errors).toHaveLength(0);

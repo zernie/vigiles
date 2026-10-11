@@ -207,6 +207,32 @@ export type AllowedAt<
 // Rule types
 // ---------------------------------------------------------------------------
 
+/**
+ * Where a rule's long text lives when the compiled file carries a short form —
+ * a `file()` reference (verified to exist, like every other one) and an
+ * optional anchor inside it (verified to be a heading or an explicit
+ * `<a id="…">` in that file). Rendered as a `[Details](path#anchor)` link.
+ */
+export interface RuleDetails {
+  readonly file: FileRef;
+  readonly anchor?: string;
+}
+
+/**
+ * How much of an `enforce()` rule the compiled file carries (#355).
+ *
+ * - `"full"` (default) — the rule id and the whole `why`, as always.
+ * - `"line"` — the rule id and the first sentence of `why`.
+ * - `"id"` — the rule id only: the linter already holds the rule, so the prose
+ *   is a second copy that costs tokens on every request and can drift.
+ *
+ * Whatever is rendered, the rule stays whole in the SPEC — lint, coverage, the
+ * audit rule map and `enforce-rules-format` read the spec, not the markdown —
+ * and the integrity hash is taken over the RENDERED file, so it stays a
+ * function of what the model actually sees.
+ */
+export type RuleRender = "full" | "line" | "id";
+
 /** A rule delegated to an external tool (linter, ast-grep, dependency-cruiser, etc.) or to a vigiles-internal check. */
 export interface EnforceRule {
   readonly _kind: "enforce";
@@ -214,13 +240,36 @@ export interface EnforceRule {
   readonly why: string;
   /** Skip verification for this rule. Default: true (verify). */
   readonly verify: boolean;
+  /** How much of the rule the compiled file carries. Default `"full"`. */
+  readonly render?: RuleRender;
+  /** Where the long text lives; rendered as a verified link. */
+  readonly details?: RuleDetails;
 }
 
 /** A guidance-only rule (prose, no enforcement). */
 export interface GuidanceRule {
   readonly _kind: "guidance";
   readonly text: string;
+  /** Where the long text lives; rendered as a verified link after `text`. */
+  readonly details?: RuleDetails;
 }
+
+/**
+ * The `details` half of a rule's options. An `anchor` is only meaningful
+ * inside a `details` file, so the type refuses one without the other.
+ */
+export type RuleDetailsOptions =
+  | { readonly details: FileRef; readonly anchor?: string }
+  | { readonly details?: undefined; readonly anchor?: never };
+
+const detailsOf = (
+  o: RuleDetailsOptions | undefined,
+): RuleDetails | undefined =>
+  o?.details
+    ? o.anchor === undefined
+      ? { file: o.details }
+      : { file: o.details, anchor: o.anchor }
+    : undefined;
 
 /** A reactive rule: runs a command when watched files change. */
 export interface GuardRule {
@@ -252,14 +301,17 @@ export type Rule = EnforceRule | GuidanceRule | GuardRule;
 export function enforce(
   ref: NoInfer<StrictLinterRule> | VigilesRef,
   why: string,
-  options?: { verify?: boolean },
+  options?: { verify?: boolean; render?: RuleRender } & RuleDetailsOptions,
 ): EnforceRule {
+  const details = detailsOf(options);
   return {
     _kind: "enforce",
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     linterRule: ref as LinterRule | VigilesRef,
     why,
     verify: options?.verify ?? true,
+    ...(options?.render === undefined ? {} : { render: options.render }),
+    ...(details ? { details } : {}),
   };
 }
 
@@ -267,9 +319,16 @@ export function enforce(
  * Declare a guidance-only rule.
  *
  *   guidance("Google unfamiliar APIs before implementing.")
+ *   guidance("Short statement.", { details: file("docs/rules/x.md"), anchor: "why" })
  */
-export function guidance(text: string): GuidanceRule {
-  return { _kind: "guidance", text };
+export function guidance(
+  text: string,
+  options?: RuleDetailsOptions,
+): GuidanceRule {
+  const details = detailsOf(options);
+  return details
+    ? { _kind: "guidance", text, details }
+    : { _kind: "guidance", text };
 }
 
 /**
