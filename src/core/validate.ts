@@ -21,6 +21,7 @@ import { cosmiconfigSync } from "cosmiconfig";
 // only works in one of the two worlds the code runs in is not one line of
 // hygiene, it is a second module system.
 import { DEFAULT_INSTRUCTION_TARGETS } from "./dialect.js";
+import { RULE_MARKER_SOURCE, isVerifiedLabel } from "./enforce-marker.js";
 import {
   vigilesConfigSchema,
   parseVigilesConfig,
@@ -212,6 +213,33 @@ export function loadConfig(
 // Parsing
 // ---------------------------------------------------------------------------
 
+/** Either compiled marker of an `enforce()` reference (see enforce-marker.ts). */
+const RULE_MARKER_RE = new RegExp(RULE_MARKER_SOURCE);
+
+/**
+ * Both compiled spellings (#351): "Enforced by" (verified) and "Claimed
+ * (unverified)". A claim is a reference too — it is kept apart so nothing
+ * counts it as enforced.
+ */
+function parseRuleMarker(
+  line: string,
+): Pick<ParsedRule, "enforcement" | "enforcedBy"> | null {
+  const m = RULE_MARKER_RE.exec(line);
+  if (!m) return null;
+  return {
+    enforcement: isVerifiedLabel(m[1]) ? "enforced" : "claimed",
+    enforcedBy: m[2] ?? null,
+  };
+}
+
+/** How many parsed rules carry one enforcement kind. */
+function countEnforcement(
+  rules: readonly ParsedRule[],
+  kind: ParsedRule["enforcement"],
+): number {
+  return rules.filter((r) => r.enforcement === kind).length;
+}
+
 export function parseRules(
   content: string,
   { ruleMarkers }: ParseOptions = {},
@@ -249,10 +277,10 @@ export function parseRules(
 
     if (!currentRule || currentRule.enforcement !== "missing") continue;
 
-    const enforcedMatch = line.match(/\*\*Enforced by:\*\*\s*`([^`]+)`/);
-    if (enforcedMatch) {
-      currentRule.enforcement = "enforced";
-      currentRule.enforcedBy = enforcedMatch[1] ?? null;
+    const marked = parseRuleMarker(line);
+    if (marked) {
+      currentRule.enforcement = marked.enforcement;
+      currentRule.enforcedBy = marked.enforcedBy;
       continue;
     }
 
@@ -284,18 +312,11 @@ export function validate(
 ): ValidationResult {
   const activeRules = rulesConfig ?? DEFAULT_RULES;
   const parsedRules = parseRules(content, { ruleMarkers });
-  const enforced = parsedRules.filter(
-    (r) => r.enforcement === "enforced",
-  ).length;
-  const guidanceOnly = parsedRules.filter(
-    (r) => r.enforcement === "guidance",
-  ).length;
-  const disabled = parsedRules.filter(
-    (r) => r.enforcement === "disabled",
-  ).length;
-  const missingCount = parsedRules.filter(
-    (r) => r.enforcement === "missing",
-  ).length;
+  const enforced = countEnforcement(parsedRules, "enforced");
+  const guidanceOnly = countEnforcement(parsedRules, "guidance");
+  const disabled = countEnforcement(parsedRules, "disabled");
+  const claimed = countEnforcement(parsedRules, "claimed");
+  const missingCount = countEnforcement(parsedRules, "missing");
 
   const errors: ValidationError[] = [];
   const warnings: ValidationError[] = [];
@@ -356,6 +377,7 @@ export function validate(
     enforced,
     guidanceOnly,
     disabled,
+    claimed,
     missing: missingCount,
     total: parsedRules.length,
     errors,

@@ -30,6 +30,7 @@ import type {
 } from "./spec.js";
 
 import { checkLinterRule, extractLinterName } from "./linters.js";
+import { CLAIMED_MARKER, ENFORCED_MARKER } from "./enforce-marker.js";
 import {
   verifyToolContract,
   disallowedToolIssues,
@@ -411,19 +412,106 @@ function renderFragment(fragment: InstructionFragment): string {
 // Compile CLAUDE.md spec → markdown
 // ---------------------------------------------------------------------------
 
-function compileRule(id: string, rule: Rule): string {
+/**
+ * Why an `enforce()` reference was NOT verified. Separate members, not one
+ * "unknown", because the compile output turns each into a different instruction
+ * (make-the-distinction-a-type): a switch someone turned off is fixed by turning
+ * it on, an unset rule by setting it, an unreadable config by fixing the probe.
+ */
+export type UnverifiedReason =
+  /** `enforce(…, { verify: false })` on this rule. */
+  | "verify-false"
+  /** `verifyLinters: false` for the whole compile. */
+  | "verification-off"
+  /** `linterModes[<linter>] === false`. */
+  | "linter-off"
+  /** catalog-only: the rule exists, the config was not read. */
+  | "config-not-read"
+  /** the whole config was read and no block sets the rule. */
+  | "not-configured"
+  /** the rule exists; whether the config switches it on could not be read. */
+  | "enabled-unknown"
+  /** the rule does not exist (a compile error as well). */
+  | "not-found"
+  /** the config switches the rule off (a compile error as well). */
+  | "disabled";
+
+/** What `compile` established about one `enforce()` reference. */
+export type EnforceVerdict =
+  | { readonly kind: "verified" }
+  | { readonly kind: "unverified"; readonly reason: UnverifiedReason };
+
+/** One `enforce()` reference and its verdict, in spec order. */
+export interface EnforceVerdictEntry {
+  readonly ref: string;
+  readonly verdict: EnforceVerdict;
+}
+
+/** The verdict a linter check result supports. */
+function verdictFromResult(
+  result: Readonly<LinterCheckResult>,
+): EnforceVerdict {
+  if (!result.exists) return { kind: "unverified", reason: "not-found" };
+  switch (result.enabled) {
+    case "enabled":
+      return { kind: "verified" };
+    case "disabled":
+      return { kind: "unverified", reason: "disabled" };
+    case "unconfigured":
+      return { kind: "unverified", reason: "not-configured" };
+    case "unknown":
+      return { kind: "unverified", reason: "enabled-unknown" };
+    default:
+      return assertNever(result.enabled);
+  }
+}
+
+/**
+ * The sentence the compile prints for an unverified reference: what happened
+ * and the one thing that turns it into "Enforced by".
+ */
+export function unverifiedAdvice(ref: string, reason: UnverifiedReason): string {
+  const linter = extractLinterName(ref);
+  switch (reason) {
+    case "verify-false":
+      return `${ref}: not checked (\`verify: false\`). Remove the option once the rule resolves, so a typo or a deleted rule fails the compile.`;
+    case "verification-off":
+      return `${ref}: not checked (\`verifyLinters: false\`).`;
+    case "linter-off":
+      return `${ref}: not checked (verification is off for ${linter}).`;
+    case "config-not-read":
+      return `${ref}: the rule exists; catalog-only mode did not read whether your config turns it on.`;
+    case "not-configured":
+      return `${ref}: the rule exists but no block of your ${linter} config sets it, so it runs nowhere. Set it in the config, or make this a guidance() rule.`;
+    case "enabled-unknown":
+      return `${ref}: the rule exists; vigiles could not read whether your ${linter} config turns it on.`;
+    case "not-found":
+      return `${ref}: the rule was not found.`;
+    case "disabled":
+      return `${ref}: the rule is turned off in your ${linter} config.`;
+    default:
+      return assertNever(reason);
+  }
+}
+
+function compileRule(id: string, rule: Rule, verdict?: EnforceVerdict): string {
   const title = id
     .replace(/[-_]/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
 
   switch (rule._kind) {
-    case "enforce":
+    case "enforce": {
+      // "Enforced by" only for a VERIFIED reference (#351); no verdict = not
+      // verified, so the default cannot print the promise by omission.
+      const marker =
+        verdict?.kind === "verified" ? ENFORCED_MARKER : CLAIMED_MARKER;
       return [
         `### ${title}`,
         "",
-        `**Enforced by:** \`${rule.linterRule}\``,
+        `${marker} \`${rule.linterRule}\``,
         `**Why:** ${rule.why}`,
       ].join("\n");
+    }
 
     case "guidance":
       return [`### ${title}`, "", `**Guidance only** — ${rule.text}`].join(
@@ -458,6 +546,12 @@ export interface CompileClaudeResult {
    */
   warnings: CompileError[];
   linterResults: LinterCheckResult[];
+  /**
+   * One entry per `enforce()` rule, in spec order: rendered "**Enforced by:**"
+   * exactly when `verdict.kind === "verified"`, "**Claimed (unverified):**"
+   * otherwise. The CLI's "N linter-verified" count is the verified entries.
+   */
+  enforceVerdicts: EnforceVerdictEntry[];
   /** Estimated token count of compiled output (~4 chars/token). */
   tokens: number;
   /** All targets from the spec (for multi-target compilation). */
@@ -706,25 +800,88 @@ function compileCommandsSection(
 }
 
 /**
- * Determine if a rule should be verified, checking three levels:
+ * Why a rule is NOT verified at all, checking three levels, or null to verify:
  * 1. Per-rule: enforce("...", "...", { verify: false })
  * 2. Global: options.verifyLinters === false
  * 3. Per-linter: options.linterModes[linterName] === false
  */
-function shouldVerifyRule(
-  rule: { linterRule: string; verify: boolean },
-  options: CompileClaudeOptions,
-): boolean {
-  if (!rule.verify) return false;
-  if (options.verifyLinters === false) return false;
+function skipVerificationReason(
+  rule: Readonly<{ linterRule: string; verify: boolean }>,
+  options: Readonly<CompileClaudeOptions>,
+): UnverifiedReason | null {
+  if (!rule.verify) return "verify-false";
+  if (options.verifyLinters === false) return "verification-off";
   const linterName = extractLinterName(rule.linterRule);
   const linterMode = options.linterModes?.[linterName];
-  if (linterMode === false) return false;
-  return true;
+  if (linterMode === false) return "linter-off";
+  return null;
 }
 
 interface RulesSectionResult extends SectionResult {
   linterResults: LinterCheckResult[];
+  enforceVerdicts: EnforceVerdictEntry[];
+}
+
+/** What verifying one `enforce()` reference produced. */
+interface EnforceCheck {
+  readonly verdict: EnforceVerdict;
+  /** Absent when verification was switched off for this reference. */
+  readonly result?: LinterCheckResult;
+  readonly error?: CompileError;
+}
+
+/** The compile error a checked reference earns, if any. */
+function enforceError(
+  ref: string,
+  result: Readonly<LinterCheckResult>,
+): CompileError | undefined {
+  if (!result.exists) {
+    return {
+      type: "invalid-rule",
+      message: result.error ?? `Rule "${ref}" not found in ${result.linter}`,
+      path: ref,
+    };
+  }
+  if (result.enabled === "disabled") {
+    return {
+      type: "invalid-rule",
+      message: `Rule "${result.rule}" exists but is disabled in ${result.linter} config`,
+      path: ref,
+    };
+  }
+  return undefined;
+}
+
+/** Verify one `enforce()` reference: its verdict, check result and any error. */
+function verifyEnforce(
+  rule: Readonly<{ linterRule: string; verify: boolean }>,
+  basePath: string,
+  options: Readonly<CompileClaudeOptions>,
+): EnforceCheck {
+  const skipped = skipVerificationReason(rule, options);
+  if (skipped !== null) {
+    return { verdict: { kind: "unverified", reason: skipped } };
+  }
+  const linterMode = options.linterModes?.[extractLinterName(rule.linterRule)];
+  const catalogOnly =
+    options.catalogOnly === true || linterMode === "catalog-only";
+  const result = checkLinterRule(rule.linterRule, basePath, {
+    catalogOnly,
+    linters: options.linters,
+  });
+  const verdict = verdictFromResult(result);
+  // catalog-only never reads the config, so "unknown" there has a known cause.
+  const explained: EnforceVerdict =
+    catalogOnly &&
+    verdict.kind === "unverified" &&
+    verdict.reason === "enabled-unknown"
+      ? { kind: "unverified", reason: "config-not-read" }
+      : verdict;
+  return {
+    verdict: explained,
+    result,
+    error: enforceError(rule.linterRule, result),
+  };
 }
 
 function compileRulesSection(
@@ -734,46 +891,25 @@ function compileRulesSection(
 ): RulesSectionResult {
   const ruleEntries = Object.entries(spec.rules);
   if (ruleEntries.length === 0) {
-    return { lines: [], errors: [], linterResults: [] };
+    return { lines: [], errors: [], linterResults: [], enforceVerdicts: [] };
   }
-  const ruleLines = ["## Rules"];
-  const errors: CompileError[] = [];
-  const linterResults: LinterCheckResult[] = [];
-
-  for (const [id, rule] of ruleEntries) {
-    ruleLines.push("");
-    ruleLines.push(compileRule(id, rule));
-    if (rule._kind === "enforce") {
-      const shouldVerify = shouldVerifyRule(rule, options);
-      if (!shouldVerify) continue;
-
-      const linterName = extractLinterName(rule.linterRule);
-      const linterMode = options.linterModes?.[linterName];
-      const catalogOnly = options.catalogOnly || linterMode === "catalog-only";
-
-      const result = checkLinterRule(rule.linterRule, basePath, {
-        catalogOnly,
-        linters: options.linters,
-      });
-      linterResults.push(result);
-      if (!result.exists) {
-        errors.push({
-          type: "invalid-rule",
-          message:
-            result.error ??
-            `Rule "${rule.linterRule}" not found in ${result.linter}`,
-          path: rule.linterRule,
-        });
-      } else if (result.enabled === "disabled") {
-        errors.push({
-          type: "invalid-rule",
-          message: `Rule "${result.rule}" exists but is disabled in ${result.linter} config`,
-          path: rule.linterRule,
-        });
-      }
-    }
-  }
-  return { lines: [ruleLines.join("\n")], errors, linterResults };
+  // Verify FIRST, render second: the marker an `enforce()` gets is the
+  // verdict's, so rendering cannot run ahead of verification (#351).
+  const rendered = ruleEntries.map(([id, rule]) => {
+    if (rule._kind !== "enforce") return { text: compileRule(id, rule) };
+    const check = verifyEnforce(rule, basePath, options);
+    return {
+      text: compileRule(id, rule, check.verdict),
+      check: { ref: rule.linterRule, ...check },
+    };
+  });
+  const checks = rendered.flatMap((r) => (r.check ? [r.check] : []));
+  return {
+    lines: [["## Rules", ...rendered.flatMap((r) => ["", r.text])].join("\n")],
+    errors: checks.flatMap((c) => (c.error ? [c.error] : [])),
+    linterResults: checks.flatMap((c) => (c.result ? [c.result] : [])),
+    enforceVerdicts: checks.map((c) => ({ ref: c.ref, verdict: c.verdict })),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -873,6 +1009,7 @@ export async function compileClaude(
       options.maxSectionChars ?? DEFAULT_MAX_SECTION_CHARS,
     ),
     linterResults: rules.linterResults,
+    enforceVerdicts: rules.enforceVerdicts,
     tokens,
     targets: allTargets,
   };

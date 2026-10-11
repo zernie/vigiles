@@ -48,6 +48,20 @@ import { codexDialect } from "../adapters/codex/dialect.js";
 
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { makeEslintProject, cleanupTmpDir } from "./test-utils.js";
+
+/**
+ * A project whose ESLint config SETS `no-console` and `no-unused-vars`, so an
+ * `enforce()` of either verifies and renders "**Enforced by:**". A compile
+ * renders that only for a reference it verified (#351), so a test asserting the
+ * marker needs a config that actually turns the rule on — this repo's own config
+ * does not set `no-console`.
+ */
+function eslintProjectWithRules(): string {
+  return makeEslintProject(
+    'export default [{ files: ["**/*.js"], rules: { "no-console": "error", "no-unused-vars": "error" } }];\n',
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Builder tests
@@ -202,7 +216,9 @@ describe("compileClaude()", () => {
         "research-first": guidance("Google unfamiliar APIs first."),
       },
     });
-    const { markdown, errors } = await compileClaude(spec);
+    const basePath = eslintProjectWithRules();
+    const { markdown, errors } = await compileClaude(spec, { basePath });
+    cleanupTmpDir(basePath);
     assert.ok(markdown.includes("<!-- vigiles:sha256:"));
     assert.ok(markdown.includes("# CLAUDE.md"));
     assert.ok(markdown.includes("### No Console"));
@@ -1647,17 +1663,25 @@ describe("compile → hash → verify → adopt roundtrip", () => {
       },
     });
 
-    const tmpDir = join(process.cwd(), ".vigiles-test-roundtrip-tmp");
-    mkdirSync(tmpDir, { recursive: true });
+    // Compile and adopt verify in the SAME project: the rendered marker
+    // depends on what verification found there (#351).
+    const tmpDir = eslintProjectWithRules();
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({ name: "fixture", scripts: { test: "true" } }),
+    );
+    mkdirSync(join(tmpDir, "src", "core"), { recursive: true });
+    writeFileSync(join(tmpDir, "src", "core", "spec.ts"), "export {};\n");
     try {
       // Step 1: Compile
       const { markdown, errors, linterResults, tokens } = await compileClaude(
         spec,
         {
-          basePath: process.cwd(),
+          basePath: tmpDir,
           specFile: "CLAUDE.md.spec.ts",
         },
       );
+      assert.ok(markdown.includes("**Enforced by:** `eslint/no-console`"));
       assert.equal(errors.length, 0);
       assert.ok(tokens > 0);
       assert.ok(linterResults.length > 0);

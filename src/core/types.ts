@@ -12,7 +12,11 @@ import type {
 export interface ParsedRule {
   title: string;
   line: number;
-  enforcement: "enforced" | "guidance" | "disabled" | "missing";
+  /**
+   * `enforced` = "**Enforced by:**" (compile verified it); `claimed` =
+   * "**Claimed (unverified):**" (a reference compile did not verify, #351).
+   */
+  enforcement: "enforced" | "claimed" | "guidance" | "disabled" | "missing";
   enforcedBy: string | null;
 }
 
@@ -29,6 +33,8 @@ export interface ValidationResult {
   enforced: number;
   guidanceOnly: number;
   disabled: number;
+  /** Rules stated as "**Claimed (unverified):**" — never counted as enforced. */
+  claimed: number;
   missing: number;
   total: number;
   errors: ValidationError[];

@@ -10,14 +10,14 @@
  *   - `enforce("eslint/no-restricted-imports", …)` against a config that never
  *     sets it read `enabled: "unknown"` and compiled to `**Enforced by:**` too.
  *
- * Siblings through the same `checkLinterRule` path: a format-only linter with no
- * config read (ktlint, no `.editorconfig`), the global and per-linter switches,
+ * Siblings through the same `checkLinterRule` path: a custom `rulesDir` linter
+ * (existence only, its config state is never read), the global and per-linter switches,
  * catalog-only mode, and the always-enabled kinds (`vigiles/*`) that must keep
  * rendering "Enforced by".
  */
 import { describe, it, afterAll } from "vitest";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { compileClaude } from "./compile.js";
@@ -46,7 +46,7 @@ function project(): string {
 const ENFORCED = (ref: string): string => `**Enforced by:** \`${ref}\``;
 const CLAIMED = (ref: string): string => `**Claimed (unverified):** \`${ref}\``;
 
-describe("compileClaude: Enforced by only for a verified reference (#351)", () => {
+describe("compileClaude: the issue's two reproduced cases (#351)", () => {
   it("issue case 1: an inline-plugin rule verifies with no verify:false", async () => {
     const res = await compileClaude(
       instructionFile({
@@ -102,6 +102,9 @@ describe("compileClaude: Enforced by only for a verified reference (#351)", () =
     });
   });
 
+});
+
+describe("compileClaude: siblings of the unverified reference (#351)", () => {
   it("a configured core rule still renders Enforced by", async () => {
     const res = await compileClaude(
       instructionFile({
@@ -135,29 +138,25 @@ describe("compileClaude: Enforced by only for a verified reference (#351)", () =
     }
   });
 
-  it("sibling: a linter whose config was not readable renders a claim (ktlint, no .editorconfig)", async () => {
-    const dir = makeTmpDir("ktlint");
+  it("sibling: a custom rulesDir linter (existence only) renders a claim", async () => {
+    const dir = makeTmpDir("rulesdir");
     dirs.push(dir);
-    const spec = instructionFile({
-      rules: { wild: enforce("ktlint/standard:no-wildcard-imports", "No *.") },
-    });
-    const none = await compileClaude(spec, { basePath: dir });
-    assert.ok(
-      none.markdown.includes(CLAIMED("ktlint/standard:no-wildcard-imports")),
+    // `@my/tool/no-foo`: linter `@my`, rule `tool/no-foo` — the scoped shape
+    // is the one `enforce()`'s type accepts for a tool vigiles does not ship.
+    mkdirSync(join(dir, "rules", "tool"), { recursive: true });
+    writeFileSync(join(dir, "rules", "tool", "no-foo.yml"), "id: no-foo\n");
+    const res = await compileClaude(
+      instructionFile({
+        rules: { foo: enforce("@my/tool/no-foo", "No foo.") },
+      }),
+      { basePath: dir, linters: { "@my": { rulesDir: "rules" } } },
     );
-    assert.deepEqual(none.enforceVerdicts[0]?.verdict, {
+    assert.deepEqual(res.errors, []);
+    assert.ok(res.markdown.includes(CLAIMED("@my/tool/no-foo")));
+    assert.deepEqual(res.enforceVerdicts[0]?.verdict, {
       kind: "unverified",
       reason: "enabled-unknown",
     });
-
-    writeFileSync(
-      join(dir, ".editorconfig"),
-      "[*.{kt,kts}]\nktlint_standard_no-wildcard-imports = enabled\n",
-    );
-    const on = await compileClaude(spec, { basePath: dir });
-    assert.ok(
-      on.markdown.includes(ENFORCED("ktlint/standard:no-wildcard-imports")),
-    );
   });
 
   it("sibling: a vigiles-internal rule keeps rendering Enforced by", async () => {

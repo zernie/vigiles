@@ -18,8 +18,20 @@
  */
 import type { BuiltinLinter } from "./spec.js";
 
-/** The config-enabled state of a linter rule in a project. */
-export type ConfigEnabledStatus = "enabled" | "disabled" | "unknown";
+/**
+ * The config-enabled state of a linter rule in a project.
+ *
+ * `unconfigured` and `unknown` are different facts and must not share a word:
+ * `unconfigured` = the WHOLE config was read and no block sets the rule (ESLint
+ * treats that as off); `unknown` = vigiles could not read it, or read only part
+ * of it. Only a linter that can see every block of its config returns
+ * `unconfigured` (today: ESLint flat config); the rest keep `unknown`.
+ */
+export type ConfigEnabledStatus =
+  | "enabled"
+  | "disabled"
+  | "unconfigured"
+  | "unknown";
 
 /** A linter's enabled rules discovered from project config, for generate-types. */
 export interface DiscoveredRules {

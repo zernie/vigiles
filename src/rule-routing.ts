@@ -47,6 +47,7 @@ import {
 } from "./rule-inventory.js";
 import type { RuleCatalog, AvailableRule } from "./core/rule-catalog.js";
 import { NORM_SIGNAL } from "./rule-signals.js";
+import { RULE_MARKER_SOURCE } from "./core/enforce-marker.js";
 
 /** How a routed rule would be enforced (a MECHANISM ladder, not a 1-10 score). */
 export type RuleCategory = "reuse" | "hook" | "meta" | "semantic" | "unrouted";
@@ -451,7 +452,9 @@ function classify(
 
 // --- Structured-marker pre-pass (S0/S1) ------------------------------------
 
-const ENFORCED_RE = /^\*\*Enforced by:\*\*\s*`([^`]+)`/;
+// Either compiled spelling (#351): a "Claimed (unverified)" reference is still a
+// rule id the doc routes to its linter — it just was not verified at compile.
+const ENFORCED_RE = new RegExp(`^${RULE_MARKER_SOURCE}`);
 const GUARD_RE = /^\*\*Guard:\*\*/;
 const GUIDANCE_RE = /^\*\*Guidance only\*\*/;
 const MARK_HEADING = /^(#{2,6})\s+(.*)$/;
@@ -504,8 +507,8 @@ function markerFor(
     const bl = raw.trim();
     const em = ENFORCED_RE.exec(bl);
     if (em) {
-      if (!looksLikeRuleId(em[1])) return null; // a prose claim, not a rule id
-      const rule = em[1].trim();
+      if (!looksLikeRuleId(em[2])) return null; // a prose claim, not a rule id
+      const rule = em[2].trim();
       const hit = catalog?.get(rule);
       return {
         category: "reuse",

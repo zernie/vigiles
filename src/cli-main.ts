@@ -252,9 +252,11 @@ import {
   validateFileRef,
   validateCommandRef,
   estimateTokens,
+  unverifiedAdvice,
   type StampedMarkdown,
 } from "./core/compile.js";
-import type { CompileError } from "./core/compile.js";
+import type { CompileError, EnforceVerdictEntry } from "./core/compile.js";
+import { RULE_MARKER_SOURCE } from "./core/enforce-marker.js";
 import type { ClaudeSpec, SkillSpec, AgentSpec, Railway } from "./core/spec.js";
 import { findSimilarRules } from "./core/proofs.js";
 import { parseInlineRules } from "./core/inline.js";
@@ -645,6 +647,37 @@ function printErrors(specFile: string, errors: CompileError[]): void {
   }
 }
 
+/**
+ * The rule count line, split by what compile VERIFIED (#351): "linter-verified"
+ * counts only references rendered "**Enforced by:**"; every other `enforce()` was
+ * rendered "**Claimed (unverified):**" and gets one line saying why and what
+ * turns it into "Enforced by". Never changes the exit code.
+ */
+function printRuleSummary(
+  specFile: string,
+  ruleCount: number,
+  verdicts: readonly EnforceVerdictEntry[],
+): void {
+  const unverified = verdicts.flatMap((v) =>
+    v.verdict.kind === "unverified"
+      ? [{ ref: v.ref, reason: v.verdict.reason }]
+      : [],
+  );
+  const verified = verdicts.length - unverified.length;
+  const claimed =
+    unverified.length > 0
+      ? `, ${String(unverified.length)} claimed unverified`
+      : "";
+  console.log(
+    `  ${String(ruleCount)} rules (${String(verified)} linter-verified${claimed})`,
+  );
+  unverified.forEach((u) => {
+    const advice = unverifiedAdvice(u.ref, u.reason);
+    console.log(`  ⚠ Claimed (unverified) — ${advice}`);
+    console.log(`::warning file=${specFile}::${advice}`);
+  });
+}
+
 /** Non-blocking advisories — printed, but never fail the compile. */
 function printWarnings(specFile: string, warnings: CompileError[]): void {
   for (const w of warnings) {
@@ -690,7 +723,7 @@ async function compileClaudeToFile(
   dialect: HarnessDialect,
 ): Promise<boolean> {
   const basePath = process.cwd();
-  const { markdown, errors, warnings, linterResults, targets } =
+  const { markdown, errors, warnings, enforceVerdicts, targets } =
     await compileClaude(spec, {
       basePath,
       specFile: specPath,
@@ -745,13 +778,10 @@ async function compileClaudeToFile(
     writeFileSync(resolve(basePath, targetPath), addHash(body, specPath));
     outputNames.push(targetPath);
   }
-  const linterCount = linterResults.filter((r) => r.exists).length;
   console.log(
     `\n✓ ${specPath} → ${outputNames.join(", ")} (${formatArtifactSize(markdown)})`,
   );
-  console.log(
-    `  ${String(Object.keys(spec.rules).length)} rules (${String(linterCount)} linter-verified)`,
-  );
+  printRuleSummary(specPath, Object.keys(spec.rules).length, enforceVerdicts);
   return true;
 }
 
@@ -2745,10 +2775,11 @@ function collectDocumentedRules(excludes: ExcludeSet): Set<string> {
   });
   for (const mdFile of mdFiles) {
     const content = readFileSync(resolve(process.cwd(), mdFile), "utf-8");
-    const enforcedRe = /\*\*Enforced by:\*\*\s*`([^`]+)`/g;
+    // Both compiled spellings (#351): an unverified claim is still documented.
+    const enforcedRe = new RegExp(RULE_MARKER_SOURCE, "g");
     let m: RegExpExecArray | null;
     while ((m = enforcedRe.exec(content)) !== null) {
-      documented.add(m[1]);
+      documented.add(m[2]);
     }
   }
   return documented;

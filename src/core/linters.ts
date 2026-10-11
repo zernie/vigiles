@@ -23,7 +23,7 @@
 import { readFileSync, existsSync, writeFileSync, rmSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { editDistance } from "./edit-distance.js";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { globSync } from "glob";
 import { load as loadYaml } from "js-yaml";
@@ -675,19 +675,32 @@ function golangciCheckExists(ruleName: string): void {
 
 type ConfigLoader = (ruleName: string) => ConfigEnabledStatus;
 
-function createCachedChecker(
-  loadConfigFn: (basePath: string) => ConfigLoader | null,
-): (ruleName: string, basePath: string) => ConfigEnabledStatus {
-  const cache = new Map<string, ConfigLoader | null>();
-  return (ruleName: string, basePath: string): ConfigEnabledStatus => {
+/**
+ * Memoize a per-project load by `basePath`; a load that throws is cached as
+ * null, so a missing tool is asked once per run, not once per reference.
+ */
+function memoByBasePath<T>(
+  load: (basePath: string) => T | null,
+): (basePath: string) => T | null {
+  const cache = new Map<string, T | null>();
+  return (basePath: string): T | null => {
     if (!cache.has(basePath)) {
       try {
-        cache.set(basePath, loadConfigFn(basePath));
+        cache.set(basePath, load(basePath));
       } catch {
         cache.set(basePath, null);
       }
     }
-    const config = cache.get(basePath);
+    return cache.get(basePath) ?? null;
+  };
+}
+
+function createCachedChecker(
+  loadConfigFn: (basePath: string) => ConfigLoader | null,
+): (ruleName: string, basePath: string) => ConfigEnabledStatus {
+  const loader = memoByBasePath(loadConfigFn);
+  return (ruleName: string, basePath: string): ConfigEnabledStatus => {
+    const config = loader(basePath);
     if (!config) return "unknown";
     return config(ruleName);
   };
@@ -697,44 +710,198 @@ function createCachedChecker(
 // the LINTERS registry (no name-keyed map). eslint/stylelint are shared by the
 // node-api adapters; the rest by their cli adapter.
 
-const eslintConfigEnabled = createCachedChecker(
-  (basePath: string): ConfigLoader | null => {
-    try {
-      const script = `
-        const { loadESLint } = require("eslint");
-        (async () => {
-          try {
-            const ESLint = await loadESLint();
-            const eslint = new ESLint({ cwd: ${JSON.stringify(basePath)} });
-            const config = await eslint.calculateConfigForFile("dummy.js");
-            console.log(JSON.stringify(config.rules || {}));
-          } catch(e) {
-            console.log("{}");
-          }
-        })();
-      `;
-      const output = execSync(`node -e '${script.replace(/'/g, "'\\''")}'`, {
-        encoding: "utf-8",
-        cwd: basePath,
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: 15000,
-      });
-      const rules = JSON.parse(output.trim() || "{}") as Record<
-        string,
-        unknown
-      >;
-      return (ruleName: string): ConfigEnabledStatus => {
-        if (!(ruleName in rules)) return "unknown";
-        const setting: unknown = rules[ruleName];
-        const severity: unknown = Array.isArray(setting) ? setting[0] : setting;
-        if (severity === 0 || severity === "off") return "disabled";
-        return "enabled";
-      };
-    } catch {
-      return null;
+// ---------------------------------------------------------------------------
+// ESLint: ask ESLint for the resolved config across EVERY block (#351)
+//
+// Two facts come out of one probe, and both used to be guessed:
+//
+//   1. WHICH PLUGINS EXIST. A plugin was found only by guessing its npm package
+//      (`eslint-plugin-<name>`), so a plugin declared INLINE in a flat config —
+//      `plugins: { kb: { rules } }`, the usual shape for project-local rules —
+//      was invisible: a real `kb/real-rule` and an invented `kb/typo` both read
+//      "not found", and `verify: false` became the only way through, after which
+//      a typo compiled to "Enforced by". ESLint already holds the plugin OBJECT
+//      under the exact namespace the rule id uses; we read it from there.
+//
+//   2. WHETHER A RULE IS ON. The state came from `calculateConfigForFile(
+//      "dummy.js")` alone, so a rule set only for `*.ts` or `docs/**\/*.md`
+//      blocks read "unknown" — and so did a rule set NOWHERE. One word for two
+//      facts; the second is the one ESLint itself calls off.
+//
+// HOW: `findConfigFile()` names the config ESLint uses; importing it lists the
+// blocks (nested arrays flattened — `defineConfig`/`extends` output is a flat
+// array). For each block's `files` glob we synthesize ONE path it matches and ask
+// ESLint `calculateConfigForFile(path)`, so override order, `ignores` and
+// `basePath` are ESLint's own resolution, not ours. A rule is `enabled` if any
+// probe has it on, `disabled` if every probe that sets it has it off. A rule no
+// block mentions is `unconfigured` — but only when the block list was read
+// (`complete`); if the import failed we probed only the default files and say
+// `unknown`. A block mentions a rule that no probe reached (a glob we could not
+// synthesize a path for) → `unknown`, never `unconfigured`.
+//
+// LIMITS, named: a config in a SUBDIRECTORY (v10 looks configs up from each
+// file) is not read, so a rule set only there reads `unconfigured`; `files`
+// given as a function is not probed. Both land on the non-failing side — the
+// reference renders as an unverified claim, it does not fail the compile.
+// ---------------------------------------------------------------------------
+
+interface EslintResolvedConfig {
+  /** plugin namespace → its rule names, from the plugin objects ESLint holds. */
+  readonly plugins: ReadonlyMap<string, ReadonlySet<string>>;
+  /** rule id → state, merged over one probe file per `files` glob. */
+  readonly rules: ReadonlyMap<string, "enabled" | "disabled">;
+  /** rule ids some block sets, whether or not a probe reached that block. */
+  readonly mentioned: ReadonlySet<string>;
+  /** every block of the config was listed, so an unmentioned rule is unset. */
+  readonly complete: boolean;
+}
+
+// Plain CommonJS for `node -e`: runs in the project's cwd so `eslint` and the
+// config's own imports resolve from the project, as `npx eslint` would.
+const ESLINT_PROBE_SCRIPT = String.raw`
+const { pathToFileURL } = require("node:url");
+const path = require("node:path");
+const PROBE = "__vigiles_probe__";
+function probeFor(pattern, base) {
+  if (Array.isArray(pattern)) pattern = pattern[0];
+  if (typeof pattern !== "string" || pattern.startsWith("!")) return null;
+  let p = pattern
+    .replace(/\{([^,}]*)[^}]*\}/g, "$1")
+    .replace(/\[!?\^?([^\]])[^\]]*\]/g, "$1")
+    .replace(/(^|\/)\*\*\//g, "$1")
+    .replace(/\/\*\*$/, "/" + PROBE + ".js")
+    .replace(/\*\*/g, PROBE)
+    .replace(/\*/g, PROBE)
+    .replace(/\?/g, "x");
+  if (p.startsWith("./")) p = p.slice(2);
+  if (p === "" || path.isAbsolute(p)) return null;
+  if (p.endsWith("/")) p += PROBE + ".js";
+  return typeof base === "string" ? path.posix.join(base, p) : p;
+}
+function severityOn(v) {
+  const sev = Array.isArray(v) ? v[0] : v;
+  return !(sev === 0 || sev === "off");
+}
+(async () => {
+  const out = { plugins: {}, rules: {}, mentioned: [], complete: false };
+  const plugins = new Map();
+  const addPlugins = (map) => {
+    if (!map || typeof map !== "object" || Array.isArray(map)) return;
+    for (const [ns, plugin] of Object.entries(map)) {
+      if (ns === "@" || !plugin || typeof plugin !== "object") continue;
+      const set = plugins.get(ns) || new Set();
+      for (const r of Object.keys(plugin.rules || {})) set.add(r);
+      plugins.set(ns, set);
     }
-  },
-);
+  };
+  try {
+    const { loadESLint } = require("eslint");
+    const ESLint = await loadESLint();
+    const eslint = new ESLint({ cwd: process.cwd() });
+    const probes = new Set(["dummy.js", "dummy.mjs", "dummy.cjs"]);
+    const mentioned = new Set();
+    try {
+      const file = typeof eslint.findConfigFile === "function" ? await eslint.findConfigFile() : undefined;
+      if (file) {
+        const mod = await import(pathToFileURL(file).href);
+        const blocks = [];
+        const walk = (x) => { if (Array.isArray(x)) x.forEach(walk); else if (x && typeof x === "object") blocks.push(x); };
+        walk(await mod.default);
+        for (const b of blocks) {
+          addPlugins(b.plugins);
+          for (const id of Object.keys(b.rules || {})) mentioned.add(id);
+          for (const f of Array.isArray(b.files) ? b.files : []) {
+            const probe = probeFor(f, b.basePath);
+            if (probe) probes.add(probe);
+          }
+        }
+        out.complete = true;
+      }
+    } catch (e) {}
+    const states = {};
+    for (const probe of probes) {
+      let cfg;
+      try { cfg = await eslint.calculateConfigForFile(probe); } catch (e) { continue; }
+      if (!cfg) continue;
+      addPlugins(cfg.plugins);
+      for (const [id, v] of Object.entries(cfg.rules || {})) {
+        states[id] = states[id] === "enabled" || severityOn(v) ? "enabled" : "disabled";
+      }
+    }
+    out.rules = states;
+    out.mentioned = [...mentioned];
+    for (const [ns, set] of plugins) out.plugins[ns] = [...set];
+  } catch (e) {
+    out.complete = false;
+  }
+  console.log(JSON.stringify(out));
+})();
+`;
+
+/** Run the probe and parse its answer; throws when ESLint could not be asked. */
+function loadEslintResolvedConfig(basePath: string): EslintResolvedConfig {
+  const output = execFileSync("node", ["-e", ESLINT_PROBE_SCRIPT], {
+    encoding: "utf-8",
+    cwd: basePath,
+    stdio: ["pipe", "pipe", "pipe"],
+    timeout: 30000,
+  });
+  const raw = JSON.parse(output.trim().split("\n").at(-1) ?? "{}") as {
+    plugins?: Record<string, string[]>;
+    rules?: Record<string, "enabled" | "disabled">;
+    mentioned?: string[];
+    complete?: boolean;
+  };
+  return {
+    plugins: new Map(
+      Object.entries(raw.plugins ?? {}).map(([ns, r]) => [ns, new Set(r)]),
+    ),
+    rules: new Map(Object.entries(raw.rules ?? {})),
+    mentioned: new Set(raw.mentioned ?? []),
+    complete: raw.complete === true,
+  };
+}
+
+/**
+ * ESLint's own view of the project's config, or null when ESLint could not be
+ * asked at all (not installed, the probe crashed). Cached per `basePath`: one
+ * subprocess per lint/compile, however many references it checks.
+ */
+const eslintResolvedConfig = memoByBasePath(loadEslintResolvedConfig);
+
+/** Enabled state of an ESLint rule id across every block of the config. */
+function eslintConfigEnabled(
+  ruleName: string,
+  basePath: string,
+): ConfigEnabledStatus {
+  const cfg = eslintResolvedConfig(basePath);
+  if (!cfg) return "unknown";
+  const state = cfg.rules.get(ruleName);
+  if (state) return state;
+  // Set somewhere we could not reach, or the block list was never read: we do
+  // not know. Set nowhere in a config we read whole: ESLint runs it nowhere.
+  if (cfg.mentioned.has(ruleName) || !cfg.complete) return "unknown";
+  return "unconfigured";
+}
+
+/**
+ * Does the plugin a config REGISTERS under `ruleId`'s namespace define the rule?
+ * null when the config registers no plugin under that namespace (the caller then
+ * falls back to the npm package guess). The namespace is everything before the
+ * LAST slash — ESLint's own split, so `@scope/plugin/rule` works.
+ */
+function eslintConfigPluginHasRule(
+  ruleId: string,
+  basePath: string,
+): boolean | null {
+  const slash = ruleId.lastIndexOf("/");
+  if (slash <= 0) return null;
+  const rules = eslintResolvedConfig(basePath)?.plugins.get(
+    ruleId.substring(0, slash),
+  );
+  if (!rules) return null;
+  return rules.has(ruleId.substring(slash + 1));
+}
 
 const stylelintConfigEnabled = createCachedChecker(
   (basePath: string): ConfigLoader | null => {
@@ -1090,6 +1257,10 @@ function closestRuleNames(
 }
 
 function isEslintPluginRule(ruleName: string, basePath: string): boolean {
+  // The plugin object the config registers wins over a package-name guess: it
+  // is what ESLint runs, and an inline plugin has no package at all (#351).
+  const inConfig = eslintConfigPluginHasRule(ruleName, basePath);
+  if (inConfig !== null) return inConfig;
   const pluginPrefix = ruleName.substring(0, ruleName.indexOf("/"));
   const pluginRuleName = ruleName.substring(ruleName.indexOf("/") + 1);
   const pluginRules = resolveEslintPluginRules(pluginPrefix, basePath);
@@ -1099,6 +1270,25 @@ function isEslintPluginRule(ruleName: string, basePath: string): boolean {
 /** @internal */ function tryScopedPlugin(
   ctx: RuleContext,
 ): LinterCheckResult | null {
+  const fullId = `${ctx.linterName}/${ctx.ruleName}`;
+  // A built-in linter's name (`ruff`, `clippy`, …) is never an ESLint plugin
+  // namespace worth spawning ESLint for; it goes on to its own CLI check.
+  const inConfig =
+    getLinterAdapter(ctx.linterName) === undefined
+      ? eslintConfigPluginHasRule(fullId, ctx.basePath)
+      : null;
+  if (inConfig !== null) {
+    if (!inConfig) {
+      return makeResult(
+        ctx,
+        false,
+        "unknown",
+        `Rule "${ctx.ruleName}" not found in ${ctx.linterName} (the plugin your ESLint config registers under that name)`,
+      );
+    }
+    const enabled = checkConfigEnabled("eslint", fullId, ctx.basePath, ctx.catalogOnly);
+    return makeResult(ctx, true, enabled);
+  }
   const pluginRules = resolveEslintPluginRules(ctx.linterName, ctx.basePath);
   if (!pluginRules) return null;
   if (!pluginRules.has(ctx.ruleName)) {
