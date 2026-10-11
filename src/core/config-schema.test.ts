@@ -274,3 +274,50 @@ test("a bad rule value under a preset is still the rule's own error", () => {
     /rules\.hook-events/,
   );
 });
+
+// ---------------------------------------------------------------------------
+// `vigiles:strict` — new, stricter checks land here before `recommended` (#350)
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY A SECOND PRESET AND NOT A BIGGER `recommended`. Adding a rule to
+ * `recommended` is a breaking change (`presets.ts`): it can turn a consumer's
+ * CI red with no edit on their side. A stricter check therefore lands in a named
+ * group a repo opts into, and is promoted later, in a major, once it has been
+ * measured quiet (Ruff preview, Biome nursery). `extends` stays ONE name, so the
+ * config shape does not change: `strict` carries everything `recommended` does.
+ */
+test("extends vigiles:strict gates the recommended group AND the compile budgets", () => {
+  const r = parseVigilesConfig({ extends: "vigiles:strict" });
+  assert.ok(r.success, "the preset name parses");
+  for (const name of RECOMMENDED_RULES) {
+    assert.equal(r.data.rules[name], "error", `${name} is gated by strict too`);
+  }
+  assert.equal(r.data.rules["compile-budget"], "error");
+});
+
+test("compile-budget defaults to warn, and recommended leaves it there", () => {
+  const plain = parseVigilesConfig({});
+  assert.ok(plain.success);
+  assert.equal(plain.data.rules["compile-budget"], "warn");
+  const rec = parseVigilesConfig({ extends: "vigiles:recommended" });
+  assert.ok(rec.success);
+  assert.equal(rec.data.rules["compile-budget"], "warn");
+});
+
+test("compile-budget takes its thresholds as rule options", () => {
+  const r = parseVigilesConfig({
+    rules: {
+      "compile-budget": ["error", { maxRulesChars: 30000, maxKeyFiles: 80 }],
+    },
+  });
+  assert.ok(r.success);
+  assert.deepEqual(r.data.rules["compile-budget"], [
+    "error",
+    { maxRulesChars: 30000, maxKeyFiles: 80 },
+  ]);
+  const bad = parseVigilesConfig({
+    rules: { "compile-budget": ["error", { maxRuleChars: 1 }] },
+  });
+  assert.ok(!bad.success, "a misspelled threshold is refused, not ignored");
+});

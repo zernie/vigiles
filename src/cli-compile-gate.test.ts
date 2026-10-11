@@ -195,3 +195,55 @@ test("a CLEAN skill spec still compiles and writes", () => {
     "and it is stamped",
   );
 });
+
+// --- compile budgets: a warning by default, a gate under vigiles:strict (#350)
+
+/** A spec whose one keyFiles entry is an essay rather than a pointer. */
+function overBudgetSpec(): string {
+  return (
+    `import { instructionFile } from ${JSON.stringify(SPEC_ENTRY)};\n` +
+    `export default instructionFile({\n` +
+    `  keyFiles: { "package.json": ${JSON.stringify("x".repeat(400))} },\n` +
+    `  rules: {},\n` +
+    `});\n`
+  );
+}
+
+test("by default an over-budget entry is a warning and the artifact is written", () => {
+  writeFileSync(join(dir, "CLAUDE.md.spec.ts"), overBudgetSpec());
+  const compiled = run("compile", "CLAUDE.md.spec.ts");
+  assert.equal(compiled.code, 0, compiled.out);
+  assert.match(compiled.out, /budget warning/);
+  assert.equal(existsSync(join(dir, "CLAUDE.md")), true);
+});
+
+test("under vigiles:strict the same entry fails compile and nothing is written", () => {
+  writeFileSync(join(dir, "CLAUDE.md.spec.ts"), overBudgetSpec());
+  writeFileSync(
+    join(dir, ".vigilesrc.json"),
+    JSON.stringify({ extends: "vigiles:strict" }),
+  );
+  const compiled = run("compile", "CLAUDE.md.spec.ts");
+  assert.notEqual(compiled.code, 0, compiled.out);
+  assert.match(compiled.out, /entry-too-long/);
+  assert.equal(existsSync(join(dir, "CLAUDE.md")), false);
+});
+
+test("under vigiles:strict lint gates an artifact compiled before the switch, naming compile-budget", () => {
+  writeFileSync(join(dir, "CLAUDE.md.spec.ts"), overBudgetSpec());
+  assert.equal(run("compile", "CLAUDE.md.spec.ts").code, 0);
+  assert.equal(run("lint", ".").code, 0, "default: lint stays as it was");
+
+  writeFileSync(
+    join(dir, ".vigilesrc.json"),
+    JSON.stringify({ extends: "vigiles:strict" }),
+  );
+  const linted = run("lint", ".");
+  assert.notEqual(linted.code, 0, linted.out);
+  assert.match(linted.out, /compile-budget/);
+  assert.doesNotMatch(
+    linted.out,
+    /Spec reference check/,
+    "a size finding is not a dead reference",
+  );
+});

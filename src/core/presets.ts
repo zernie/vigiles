@@ -43,8 +43,31 @@ export const RECOMMENDED_RULES = [
   "description-overlap",
 ] as const satisfies ReadonlyArray<keyof RulesConfig>;
 
-/** The preset names `extends` accepts. One today; the tuple is the enum. */
-export const PRESET_NAMES = ["vigiles:recommended"] as const;
+/**
+ * The rules `vigiles:strict` raises to `error` ON TOP OF the recommended group.
+ *
+ * 🔴 THIS IS WHERE A NEW OR STRICTER CHECK LANDS FIRST, not in
+ * `RECOMMENDED_RULES`. Adding there is a breaking change for every adopter;
+ * adding here reaches only repos that asked for it (Ruff's preview, Biome's
+ * nursery). A rule is promoted into `recommended` later, in a major, and only
+ * once it has been measured at zero false positives on a real corpus.
+ *
+ * Not to be confused with `init --strict`, which writes the WORKFLOW rules
+ * (`require-instructions-spec`, `untested-*`): those are about work a repo has
+ * not done yet; this group is about checks that are exact but whose thresholds
+ * are a choice (`compile-budget`).
+ */
+export const STRICT_RULES = [
+  ...RECOMMENDED_RULES,
+  "compile-budget",
+] as const satisfies ReadonlyArray<keyof RulesConfig>;
+
+/**
+ * The preset names `extends` accepts; the tuple is the enum. `extends` stays a
+ * single name — `vigiles:strict` CONTAINS the recommended group rather than
+ * being stacked on it — so a second preset did not change the config's shape.
+ */
+export const PRESET_NAMES = ["vigiles:recommended", "vigiles:strict"] as const;
 
 /** A preset name `extends` accepts. */
 export type PresetName = (typeof PRESET_NAMES)[number];
@@ -58,6 +81,9 @@ const PRESETS: Readonly<
 > = {
   "vigiles:recommended": Object.fromEntries(
     RECOMMENDED_RULES.map((r) => [r, "error"] as const),
+  ),
+  "vigiles:strict": Object.fromEntries(
+    STRICT_RULES.map((r) => [r, "error"] as const),
   ),
 };
 

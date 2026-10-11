@@ -12,7 +12,10 @@
  */
 import { describe, it, expect } from "vitest";
 
+import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
+import { codexDialect } from "../adapters/codex/dialect.js";
 import { compileClaude, DEFAULT_MAX_ENTRY_CHARS } from "./compile.js";
+import { guidance } from "./spec.js";
 
 const spec = (
   extra: Partial<Parameters<typeof compileClaude>[0]>,
@@ -94,5 +97,187 @@ describe("per-section character budget", () => {
       },
     );
     expect(warnings).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The strict tier (#350): the same budgets as ERRORS, plus the aggregates
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY A SEPARATE TIER AND NOT A FLIPPED DEFAULT. Every budget above is a
+ * warning, and on a 3.9x-over-budget file the only message was about one
+ * 314-character entry: nothing could say "this is too big". The fix is a
+ * severity the repo CHOOSES (`compile-budget: "error"`, which the
+ * `vigiles:strict` preset sets), so an adopting repo is not failed on day one
+ * and the default output is byte-for-byte what it was.
+ */
+describe("compile-budget at error (the strict tier)", () => {
+  const strict = async (
+    s: Parameters<typeof compileClaude>[0],
+    extra: Parameters<typeof compileClaude>[1] = {},
+  ) =>
+    await compileClaude(s, {
+      specFile: "CLAUDE.md.spec.ts",
+      catalogOnly: true,
+      budgetSeverity: "error",
+      ...extra,
+    });
+
+  it("turns an over-long entry into an error, not a warning", async () => {
+    const { warnings, errors } = await strict(
+      spec({
+        keyFiles: { "package.json": "x".repeat(DEFAULT_MAX_ENTRY_CHARS + 1) },
+      }),
+    );
+    expect(warnings).toHaveLength(0);
+    expect(errors.map((e) => e.type)).toEqual(["entry-too-long"]);
+  });
+
+  it("turns an over-large section into an error", async () => {
+    const { errors } = await strict(
+      spec({ sections: { Positioning: "a".repeat(600) } }),
+      { maxSectionChars: 500 },
+    );
+    expect(errors.map((e) => e.type)).toEqual(["section-too-large"]);
+  });
+
+  it("budgets the Rules section as a whole — the place the weight is", async () => {
+    const rules = Object.fromEntries(
+      Array.from({ length: 30 }, (_, i) => [
+        `rule-${String(i)}`,
+        guidance("y".repeat(150)),
+      ]),
+    );
+    const { errors } = await strict(spec({ rules }), { maxRulesChars: 2000 });
+    expect(errors.map((e) => e.type)).toEqual(["rules-too-large"]);
+    expect(errors[0].message).toContain("30 rules");
+  });
+
+  it("counts keyFiles entries — a per-entry budget met by clipping is still a list", async () => {
+    const keyFiles = Object.fromEntries(
+      Array.from({ length: 6 }, (_, i) => [`f${String(i)}.md`, "A pointer."]),
+    );
+    const { errors } = await strict(spec({ keyFiles }), {
+      maxKeyFiles: 5,
+      maxKeyFilesChars: 0,
+    });
+    // the files do not exist: stale-file errors are a different finding
+    expect(
+      errors.filter((e) => e.type !== "stale-file").map((e) => e.type),
+    ).toEqual(["key-files-too-many"]);
+  });
+
+  it("budgets the keyFiles section's total characters", async () => {
+    const keyFiles = { "package.json": "p".repeat(150), "README.md": "r".repeat(150) };
+    const { errors } = await strict(spec({ keyFiles }), {
+      maxKeyFilesChars: 200,
+    });
+    expect(
+      errors.filter((e) => e.type !== "stale-file").map((e) => e.type),
+    ).toEqual(["key-files-too-large"]);
+  });
+
+  it("compares the whole output with the harness budget, in the harness's unit (Claude Code: chars)", async () => {
+    const { errors } = await strict(
+      spec({ sections: { A: "a".repeat(14000), B: "b".repeat(14000), C: "c".repeat(14000) } }),
+      { dialect: claudeCodeDialect },
+    );
+    const over = errors.filter((e) => e.type === "budget-exceeded");
+    expect(over).toHaveLength(1);
+    expect(over[0].message).toContain("40,000 chars");
+  });
+
+  it("compares in bytes for a harness that counts bytes (Codex)", async () => {
+    // 11,000 two-byte characters: 22,000 chars, 44,000 bytes — under a char
+    // budget of 32,768, over the byte budget Codex actually truncates at.
+    const { errors } = await strict(
+      spec({ sections: { A: "é".repeat(11000) } }),
+      { dialect: codexDialect, maxSectionChars: 0 },
+    );
+    const over = errors.filter((e) => e.type === "budget-exceeded");
+    expect(over).toHaveLength(1);
+    expect(over[0].message).toContain("32,768 bytes");
+  });
+
+  it("an explicit maxTokens is the ceiling instead of the harness budget", async () => {
+    const big = spec({
+      sections: { A: "a".repeat(14000), B: "b".repeat(14000), C: "c".repeat(14000) },
+    });
+    const { errors } = await strict(big, {
+      dialect: claudeCodeDialect,
+      maxTokens: 50000,
+    });
+    expect(errors.filter((e) => e.type === "budget-exceeded")).toHaveLength(0);
+  });
+
+  it("stays silent on a small, ordinary spec — the quiet half", async () => {
+    const { errors, warnings } = await strict(
+      spec({
+        keyFiles: { "package.json": "The manifest." },
+        sections: { Overview: "A short overview." },
+        rules: { one: guidance("Short."), two: guidance("Also short.") },
+      }),
+      { dialect: claudeCodeDialect },
+    );
+    expect(errors).toHaveLength(0);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("budget errors are marked as budget findings, so lint can name the right rule", async () => {
+    const { errors, budgetFindings } = await strict(
+      spec({
+        keyFiles: { "package.json": "x".repeat(DEFAULT_MAX_ENTRY_CHARS + 1) },
+      }),
+    );
+    expect(budgetFindings).toHaveLength(1);
+    expect(errors).toContain(budgetFindings[0]);
+  });
+});
+
+describe("compile-budget at its default (warn) — unchanged", () => {
+  it("does not evaluate the new aggregates or the harness budget", async () => {
+    // 150 rules (~25 kB of Rules) and ~42 kB of output: over every strict
+    // default, and still exactly today's result.
+    const rules = Object.fromEntries(
+      Array.from({ length: 150 }, (_, i) => [
+        `rule-${String(i)}`,
+        guidance("y".repeat(150)),
+      ]),
+    );
+    const { errors, warnings } = await compileClaude(
+      spec({
+        rules,
+        sections: { A: "a".repeat(14000), B: "b".repeat(14000), C: "c".repeat(14000) },
+      }),
+      {
+        specFile: "CLAUDE.md.spec.ts",
+        catalogOnly: true,
+        dialect: claudeCodeDialect,
+      },
+    );
+    expect(errors).toHaveLength(0);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("evaluates an aggregate the repo configured explicitly, as a warning", async () => {
+    const keyFiles = Object.fromEntries(
+      Array.from({ length: 6 }, (_, i) => [`f${String(i)}.md`, "A pointer."]),
+    );
+    const { warnings } = await compileClaude(spec({ keyFiles }), {
+      specFile: "CLAUDE.md.spec.ts",
+      catalogOnly: true,
+      maxKeyFiles: 5,
+    });
+    expect(warnings.map((w) => w.type)).toEqual(["key-files-too-many"]);
+  });
+
+  it("is silenced entirely when the rule is off", async () => {
+    const { warnings, errors } = await compileClaude(
+      spec({ keyFiles: { "package.json": "z".repeat(5000) } }),
+      { specFile: "CLAUDE.md.spec.ts", catalogOnly: true, budgetSeverity: false },
+    );
+    expect(warnings).toHaveLength(0);
+    expect(errors).toHaveLength(0);
   });
 });
