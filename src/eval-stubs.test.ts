@@ -145,6 +145,41 @@ test("an unanswered call is reported, stops NEW trials, and is printed to the au
   );
 });
 
+test("a rate-limited attempt that is retried leaves no stub state behind: the retry starts from a clean log", async () => {
+  // One answer only: if the discarded attempt's call stayed in the log, the
+  // retry's identical call would find the inOrder answers used up.
+  const once = experimental_stub("gh", [
+    {
+      argv: ["issue", "create", rest],
+      reply: { kind: "inOrder", answers: [{ stdout: ISSUE_URL }] },
+    },
+  ]);
+  const outputs: string[] = [];
+  let attempt = 0;
+  const run = (a: AgentRunArgs) => {
+    const r = spawnSync("gh", CREATE, {
+      cwd: a.cwd,
+      env: resolveSpawnEnv(a),
+      encoding: "utf8",
+    });
+    outputs.push(`${String(r.status)}:${r.stdout}${r.stderr}`);
+    attempt += 1;
+    return Promise.resolve(
+      attempt === 1
+        ? { code: 1, stdout: "", stderr: "API Error: 429 rate_limit_error" }
+        : { code: 0, stdout: RESULT },
+    );
+  };
+  const report = await runEvalWith(
+    base({ stubs: [once], rateLimitRetries: 1, retryBackoffMs: 0 }),
+    run,
+  );
+  assert.deepEqual(outputs, [`0:${ISSUE_URL}`, `0:${ISSUE_URL}`]);
+  assert.equal(report.arms.a?.metrics.calls, 1, "only the kept attempt's call");
+  assert.equal(report.arms.a?.metrics.created, 1);
+  assert.deepEqual(report.arms.a?.unansweredStubCalls, []);
+});
+
 test("a stub that cannot log is never scored as answered: the model sees a miss and the run cannot pass", async () => {
   const outputs: string[] = [];
   const run = (a: AgentRunArgs) => {

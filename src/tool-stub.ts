@@ -97,6 +97,15 @@ export function readStubCalls(dir: StubDir): readonly StubCall[] {
   return existsSync(log) ? parseStubLog(readFileSync(log, "utf8")) : [];
 }
 
+/**
+ * Forget every call recorded so far. The log is the stubs' only state (an
+ * `inOrder` rule counts its prior answers in it), so a cleared log is a stub
+ * that has never been called. Safe when no call was logged yet.
+ */
+export function resetStubCalls(dir: StubDir): void {
+  rmSync(stubPaths(dir.root).log, { force: true });
+}
+
 /** Remove a stub root. Safe on one already gone. */
 export function removeStubDir(dir: StubDir): void {
   rmSync(dir.root, { recursive: true, force: true });

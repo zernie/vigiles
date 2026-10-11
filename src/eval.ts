@@ -8,6 +8,7 @@
  * benchmark harness under `bench/` — the empirical half of testing your harness.
  *
  *   const report = await runEval({
+ *     env: { kind: "ephemeral" },
  *     fixture: { "src/billing.ts": "export function chargeCard(){}" },
  *     arms: {
  *       vanilla: {},
@@ -128,7 +129,12 @@ import {
   serializeIntercepts,
   INTERCEPT_TOOLS_ENV,
 } from "./tool-intercept.js";
-import { readStubCalls, removeStubDir, writeStubDir } from "./tool-stub.js";
+import {
+  readStubCalls,
+  removeStubDir,
+  resetStubCalls,
+  writeStubDir,
+} from "./tool-stub.js";
 import {
   isUnanswered,
   unloggedMisses,
@@ -1787,7 +1793,7 @@ async function executeTrial<M extends Metrics>(
   spec: ParsedEvalSpec<M>,
   arm: EvalArm,
   trialIndex: number,
-  runner: AgentRunner,
+  retrying: RetryingRunner,
   cfg: RunConfig,
 ): Promise<TrialOutcome<M>> {
   const cwd = makeTmpDir("eval");
@@ -1845,7 +1851,16 @@ async function executeTrial<M extends Metrics>(
         stubs: stubs.map(encodeStub),
         runEnv: runEnvKeyView(spec.env),
       },
-      runner,
+      // A rate-limited attempt is discarded and retried; its stub calls must
+      // go with it, or the retry inherits a used-up `inOrder` answer and the
+      // report counts calls from a run nobody scores.
+      retrying(
+        stubDir === undefined
+          ? undefined
+          : () => {
+              resetStubCalls(stubDir);
+            },
+      ),
       cfg,
       () => (stubDir === undefined ? undefined : readStubCalls(stubDir)),
     );
@@ -1900,14 +1915,23 @@ export function isRateLimited(out: RunOut): boolean {
   return RATE_LIMIT_RE.test(`${out.stderr ?? ""}\n${out.stdout}`);
 }
 
-/** Call `runner`, retrying with exponential backoff while it looks rate-limited. */
+/** A runner that retries rate-limited attempts, running `beforeAttempt` before each one. */
+type RetryingRunner = (beforeAttempt?: () => void) => AgentRunner;
+
+/**
+ * Call `runner`, retrying with exponential backoff while it looks rate-limited.
+ * `beforeAttempt` runs before every attempt, the first included: it resets the
+ * state a discarded attempt would otherwise leave to the next.
+ */
 async function runWithRetry(
   runArgs: AgentRunArgs,
   runner: AgentRunner,
   retries: number,
   baseMs: number,
+  beforeAttempt?: () => void,
 ): Promise<RunOut> {
   for (let attempt = 0; ; attempt++) {
+    beforeAttempt?.();
     const out = await runner(runArgs);
     if (!isRateLimited(out) || attempt >= retries) return out;
     await sleep(baseMs * 2 ** attempt);
@@ -2479,8 +2503,8 @@ async function runResolvedEval<M extends Metrics>(
   if (cfg.cache !== "off" && !isDatedModel(cfg.model)) {
     warnFloatingModel(cfg.model);
   }
-  const retrying: AgentRunner = (a) =>
-    runWithRetry(a, runner, retries, backoffMs);
+  const retrying: RetryingRunner = (beforeAttempt) => (a) =>
+    runWithRetry(a, runner, retries, backoffMs, beforeAttempt);
 
   const units = buildUnits(spec.arms, trials);
   let spent = 0;
