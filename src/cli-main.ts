@@ -364,7 +364,10 @@ import {
   REQUIRE_INSTRUCTIONS_SPEC_DISABLE,
 } from "./core/integrity.js";
 import { adoptMarkdown, adoptSkill, adoptAgent } from "./core/adopt.js";
-import { computeScriptCoverage } from "./core/coverage.js";
+import {
+  computeScriptCoverage,
+  undocumentedRulesAdvice,
+} from "./core/coverage.js";
 import { findOrphanDocs, formatOrphanReport } from "./core/orphans.js";
 import { findDocRefs, formatDocRefReport } from "./core/doc-refs.js";
 import type { DocRefReport } from "./core/doc-refs.js";
@@ -2833,11 +2836,13 @@ function discover(excludes: ExcludeSet, silent = false): CoverageTotals {
     `Coverage: ${String(totalDocumented)}/${String(totalEnabled)} rules documented (${String(totalPct)}%)`,
   );
 
-  if (totalDocumented < totalEnabled) {
-    log(
-      `\nConsider adding enforce() rules for frequently-triggered undocumented rules.`,
-    );
-    log(`The agent encounters these rules but has no context about WHY.`);
+  const advice = undocumentedRulesAdvice({
+    enabled: totalEnabled,
+    documented: totalDocumented,
+  });
+  if (advice.length > 0) {
+    log("");
+    for (const line of advice) log(line);
   }
 
   return { enabled: totalEnabled, documented: totalDocumented };

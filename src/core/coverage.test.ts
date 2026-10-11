@@ -10,6 +10,7 @@ import {
   computeLinterRuleCoverage,
   checkCoverage,
   formatCoverageReport,
+  undocumentedRulesAdvice,
 } from "./coverage.js";
 import type { ClaudeSpec } from "./spec.js";
 import { makeTmpDir, cleanupTmpDir, makeSpec } from "./test-utils.js";
@@ -312,5 +313,40 @@ describe("formatCoverageReport", () => {
     assert.ok(!output.includes("✓"));
     assert.ok(!output.includes("✗"));
     assert.ok(output.includes("20%"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// undocumentedRulesAdvice
+// ---------------------------------------------------------------------------
+
+describe("undocumentedRulesAdvice", () => {
+  it("says nothing when every enabled rule is documented", () => {
+    assert.deepEqual(
+      undocumentedRulesAdvice({ enabled: 3, documented: 3 }),
+      [],
+    );
+    assert.deepEqual(
+      undocumentedRulesAdvice({ enabled: 0, documented: 0 }),
+      [],
+    );
+  });
+
+  it("never advises adding text to an always-loaded instruction file", () => {
+    // Every line in CLAUDE.md/AGENTS.md is loaded into every request, so a
+    // coverage percentage must not read as a to-do list for that file.
+    const text = undocumentedRulesAdvice({ enabled: 68, documented: 0 }).join(
+      "\n",
+    );
+    assert.ok(text.length > 0);
+    assert.doesNotMatch(text, /consider adding/i);
+    assert.doesNotMatch(
+      text,
+      /add (them|these|it)? ?to (your )?(CLAUDE|AGENTS)/i,
+    );
+    // It points at the two homes that do not grow the always-loaded file.
+    assert.match(text, /docs/);
+    assert.match(text, /enforce\(\)/);
+    assert.match(text, /already (enforces|runs)/i);
   });
 });

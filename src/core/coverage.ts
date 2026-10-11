@@ -258,3 +258,27 @@ export function formatCoverageReport(report: CoverageReport): string {
 
   return lines.join("\n");
 }
+
+/**
+ * What `vigiles lint` says under the linter-rule coverage line when some enabled
+ * rules are undocumented. Empty when nothing is.
+ *
+ * 🔴 IT MUST NOT TELL ANYONE TO WRITE MORE INTO THE INSTRUCTION FILE. This used
+ * to read "Consider adding enforce() rules for frequently-triggered undocumented
+ * rules", which turns a coverage percentage into a to-do list for CLAUDE.md —
+ * the one file whose every line is loaded into every request and every subagent.
+ * An enabled linter rule is already enforced: the agent meets it as a failing
+ * lint with the rule's own message. Documentation only earns its place where the
+ * WHY is not in that message, and then it belongs where it is read on demand.
+ */
+export function undocumentedRulesAdvice(totals: {
+  enabled: number;
+  documented: number;
+}): readonly string[] {
+  if (totals.documented >= totals.enabled) return [];
+  return [
+    "Undocumented is not unenforced: the linter already enforces these rules, and the agent meets each one as a lint failure.",
+    "Every line added to CLAUDE.md is loaded into every request, so do not document a rule just to raise this number.",
+    "Where the WHY is not obvious from the rule's own message, put it in docs/ (linked, read on demand) or declare the rule with enforce() in the spec, which also verifies it stays enabled.",
+  ];
+}
