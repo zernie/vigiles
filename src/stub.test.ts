@@ -67,6 +67,37 @@ test(".called: counts matching invocations; default is 'at least once'", () => {
   assert.equal(never.eval(trace([CREATE])).pass, false);
 });
 
+test(".called counts ANSWERED calls only: a call no rule answered did not 'file' anything", () => {
+  const created = experimental_stub.called("gh", ["issue", "create", rest]);
+  const noRule: StubCall = { ...CREATE, outcome: { kind: "no-rule" } };
+  const exhausted: StubCall = {
+    ...CREATE,
+    outcome: { kind: "exhausted", rule: 0 },
+  };
+  const unlogged: StubCall = {
+    tool: "gh",
+    argv: [],
+    outcome: { kind: "unlogged" },
+  };
+  for (const missed of [noRule, exhausted, unlogged]) {
+    const r = created.eval(trace([missed]));
+    assert.equal(r.pass, false, missed.outcome.kind);
+  }
+  // the message says why a matching call was not counted
+  assert.match(
+    created.eval(trace([noRule])).message,
+    /called 0 time\(s\).*1 matching call\(s\) went unanswered and are not counted/,
+  );
+  // so "never filed" holds when the only attempt got the miss line (the run itself still fails as unanswered)
+  const never = experimental_stub.called("gh", ["issue", "create", rest], {
+    max: 0,
+  });
+  assert.equal(never.eval(trace([noRule])).pass, true);
+  // an answered call beside an unanswered one counts once
+  assert.equal(created.eval(trace([noRule, CREATE])).pass, true);
+  assert.match(created.eval(trace([noRule, CREATE])).message, /called 1 time/);
+});
+
 test(".called on a trace with NO stub log fails — 'max: 0' must not pass because nothing was recorded", () => {
   const never = experimental_stub.called("gh", ["issue", "create", rest], {
     max: 0,

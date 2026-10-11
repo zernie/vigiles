@@ -47,6 +47,7 @@ import {
   measureTriggerRate,
   runEval,
   formatCheckReport,
+  formatArmsCheckReport,
   formatEvalReport,
   formatTriggerRateReport,
   type ArmsCheckReport,
@@ -228,12 +229,7 @@ function printReport(kind: EvalKind, report: AnyReport): void {
       console.log(formatCheckReport(report as CheckReport));
       return;
     case "measureArms":
-      for (const [name, arm] of Object.entries(
-        (report as ArmsCheckReport).arms,
-      )) {
-        console.log(`\n[arm: ${name}]`);
-        console.log(formatCheckReport(arm));
-      }
+      console.log(formatArmsCheckReport(report as ArmsCheckReport));
       return;
     case "measureTriggerRate":
       console.log(formatTriggerRateReport(report as TriggerRateReport));

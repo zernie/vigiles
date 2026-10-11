@@ -41,6 +41,7 @@ import {
   measureArmsWith,
   compareCheck,
   formatCheckReport,
+  formatArmsCheckReport,
   assertRates,
   checkReportToJUnit,
   type CheckReport,
@@ -1076,6 +1077,20 @@ test("formatCheckReport: every skill() check at 0% prints the namespace diagnost
     usage: zeroUsage,
   });
   assert.doesNotMatch(noSkill, /nothing resolved/);
+});
+
+test("measure and measureArms reports say they ran with your HOME and environment — once", () => {
+  const checkReport: CheckReport = { n: 1, perCheck: [], usage: zeroUsage };
+  const one = formatCheckReport(checkReport);
+  assert.match(
+    one,
+    /env: inherited your HOME and environment — measure and measureArms have no `env` field/,
+  );
+  const arms = formatArmsCheckReport({
+    arms: { a: checkReport, b: checkReport },
+  });
+  assert.match(arms, /\[arm: a\][\s\S]*\[arm: b\]/);
+  assert.equal(arms.split("env: inherited your HOME").length - 1, 1);
 });
 
 test("runEvalWith honors a per-arm model override (model = a harness arm)", async () => {

@@ -14,6 +14,7 @@ import { parseToolStubs } from "./core/eval-spec-parse.js";
 import {
   ARGV_REST,
   describePattern,
+  isUnanswered,
   matchArgv,
   toToolStub,
   type ArgvPattern,
@@ -46,16 +47,24 @@ const noLog = (shown: string): CheckResult =>
     `stub ${shown}: this trace has no stub log — the run declared no stubs, or its tier does not record them`,
   );
 
-/** How many of a run's stub calls are `name` with an argv matching `argv` (+ `contains`). */
+/**
+ * How many of a run's stub calls are `name` with an argv matching `argv` (+
+ * `contains`), split by whether a rule answered them. Only an ANSWERED call
+ * counts toward `called`: "the tool was called" in a measurement means the
+ * agent got its answer, so a create that came back as the miss line did not
+ * file anything. The run fails on the unanswered call separately.
+ */
 function countCalls(
   calls: readonly StubCall[],
   name: string,
   argv: ArgvPattern,
   contains: readonly ArgvToken[] | undefined,
-): number {
-  return calls.filter(
+): { readonly answered: number; readonly unanswered: number } {
+  const matching = calls.filter(
     (c) => c.tool === name && matchArgv({ argv, contains }, c.argv),
-  ).length;
+  );
+  const answered = matching.filter((c) => !isUnanswered(c.outcome)).length;
+  return { answered, unanswered: matching.length - answered };
 }
 
 /** The [min, max] a `called` check accepts, and how a report prints it. */
@@ -73,8 +82,10 @@ function rangeOf(bounds: StubCalledBounds): {
 }
 
 /**
- * A check over a run's stub log: the invocations of `name` that match `argv`
- * (and `bounds.contains`) number within `[min, max]`. A trace with no stub log
+ * A check over a run's stub log: the ANSWERED invocations of `name` that match
+ * `argv` (and `bounds.contains`) number within `[min, max]`. A call no rule
+ * answered is not counted (it is reported as unanswered, and `vigiles eval`
+ * fails the run on it). A trace with no stub log
  * FAILS — "called at most 0 times" must not pass because nothing was recorded.
  */
 function called(
@@ -91,8 +102,17 @@ function called(
     kind: "stubCalled",
     eval(t: Trace): CheckResult {
       if (t.stubCalls === undefined) return noLog(shown);
-      const n = countCalls(t.stubCalls, name, argv, bounds.contains);
-      const msg = `stub ${shown} called ${String(n)} time(s) (expected ${text})`;
+      const { answered: n, unanswered } = countCalls(
+        t.stubCalls,
+        name,
+        argv,
+        bounds.contains,
+      );
+      const missed =
+        unanswered === 0
+          ? ""
+          : `; ${String(unanswered)} matching call(s) went unanswered and are not counted`;
+      const msg = `stub ${shown} called ${String(n)} time(s) (expected ${text})${missed}`;
       return result(n >= min && n <= max, msg);
     },
     toJSON: () => ({

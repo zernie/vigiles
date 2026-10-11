@@ -758,10 +758,11 @@ export interface MeasureSpec {
 }
 
 /** The env `measure` / `measureArms` pass on: they have no `env` field yet. */
+const MEASURE_INHERIT_REASON =
+  "measure and measureArms have no `env` field; they run with your HOME and environment (docs/safety.md)";
 const INHERITED_BY_MEASURE: RunEnv = {
   kind: "inherit",
-  reason:
-    "measure and measureArms have no `env` field; they run with your HOME and environment (docs/safety.md)",
+  reason: MEASURE_INHERIT_REASON,
 };
 
 /** One check's measured rate across the trials. */
@@ -1032,8 +1033,31 @@ function checkLabel(json: CheckJSON): string {
   return json.kind;
 }
 
-/** Format a {@link CheckReport}: one line per check with its rate ± se and pass^k. */
+/** The report line that says a run used your real HOME and environment, and why. */
+const inheritLine = (reason: string): string =>
+  `  env: inherited your HOME and environment — ${reason}`;
+
+/**
+ * Format a {@link CheckReport}: one line per check with its rate ± se and
+ * pass^k, and the line saying `measure` ran with your HOME and environment
+ * (it has no `env` field; `INHERITED_BY_MEASURE`).
+ */
 export function formatCheckReport(report: CheckReport): string {
+  return [formatChecks(report), inheritLine(MEASURE_INHERIT_REASON)].join("\n");
+}
+
+/**
+ * Format an {@link ArmsCheckReport}: each arm's checks under `[arm: name]`, and
+ * the inherit line ONCE at the end — every arm ran the same way.
+ */
+export function formatArmsCheckReport(report: ArmsCheckReport): string {
+  const arms = Object.entries(report.arms).map(
+    ([name, arm]) => `\n[arm: ${name}]\n${formatChecks(arm)}`,
+  );
+  return [...arms, inheritLine(MEASURE_INHERIT_REASON)].join("\n");
+}
+
+function formatChecks(report: CheckReport): string {
   const lines = [`measured ${String(report.n)} run(s):`];
   for (const c of report.perCheck) {
     lines.push(
@@ -2560,9 +2584,7 @@ export function formatEvalReport(report: EvalReport): string {
       );
   }
   if (report.env?.kind === "inherit")
-    lines.push(
-      `  env: inherited your HOME and environment — ${report.env.reason}`,
-    );
+    lines.push(inheritLine(report.env.reason));
   return lines.join("\n");
 }
 
