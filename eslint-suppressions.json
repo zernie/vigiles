@@ -756,7 +756,7 @@
       "count": 1
     },
     "sonarjs/nested-control-flow": {
-      "count": 21
+      "count": 20
     },
     "sonarjs/no-duplicate-string": {
       "count": 4
