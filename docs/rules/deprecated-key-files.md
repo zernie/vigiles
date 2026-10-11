@@ -4,11 +4,12 @@ Warn when an instruction spec (`CLAUDE.md.spec.ts`, `AGENTS.md.spec.ts`, any
 `*.md.spec.ts`) still uses the **`keyFiles`** field. This page is the
 migration guide.
 
-**Status.** `keyFiles` is **deprecated**. It still compiles exactly as before,
-and this rule is a **warning** — it never changes `vigiles lint`'s exit code at
-its default severity, so upgrading vigiles cannot turn your CI red. The field is
-**removed in the next major release** after the one that deprecated it. Migrate
-before you take that major.
+**Remove `keyFiles` from your spec.** It is **deprecated** and is **removed in
+the next major release** after the one that deprecated it. Until then it still
+compiles exactly as before, and this rule is a **warning** — it never changes
+`vigiles lint`'s exit code at its default severity, so upgrading vigiles cannot
+turn your CI red. Remove the field before you take that major; do not add new
+entries to it.
 
 ## Why `keyFiles` is going away
 
@@ -24,8 +25,8 @@ before you take that major.
 That file is loaded **on every request**. A list of where files are is
 something the agent finds itself — it searches the repository with its own
 file tools — so every request pays for an answer the agent did not need.
-Measured on vigiles' own root spec: **230 entries, 47,728 characters — 30%** of
-a 160,000-character instruction file.
+Measured on vigiles' own root spec (2026-10-11): **230 entries, 45,467
+characters — 29%** of a 157,872-character instruction file.
 
 Anthropic's guidance for Claude Code says the same. Under what to **exclude**
 from `CLAUDE.md`
@@ -44,11 +45,12 @@ And on size ([How Claude remembers your project](https://code.claude.com/docs/en
 
 > Files in subdirectories load on demand.
 
-## How to migrate, entry by entry
+## How to remove it, entry by entry
 
-Go through the map one entry at a time and ask what the entry is **for**. The
-choice for each entry is yours — this rule only reports that the field is in
-use; it does not decide what an entry means.
+Go through the map one entry at a time and ask what the entry is **for**, then
+move or delete it as below. Where each entry goes is your call — this rule only
+reports that the field is in use; it cannot know what an entry means. That the
+field goes is not optional.
 
 | The entry is…                                              | Do this                                                                                                                                                                                                                                                                                                                                 |
 | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -57,7 +59,7 @@ use; it does not decide what an entry means.
 | **(c)** a plain file or directory map ("what lives where") | **Delete it.** The agent reads the code. If **humans** need the map, keep it in that directory's `README.md`, which the harness does not load on its own.                                                                                                                                                                               |
 | **(d)** a path that no longer exists                       | **Delete it.** (Compile was already failing on it.)                                                                                                                                                                                                                                                                                     |
 
-When every entry is placed, delete the `keyFiles` field. An empty
+When every entry is placed, delete the `keyFiles` field itself. An empty
 `keyFiles: {}` is still reported — the migration is removing the field.
 
 ### Before
@@ -105,7 +107,7 @@ export default instructionFile({
 ```
 Deprecated-key-files check:
 
-  ⚠ CLAUDE.md.spec.ts: `keyFiles` is deprecated and goes away in the next major (230 entries, 47,728 characters compiled into the instruction file). Name a file a decision depends on where that decision is written, as a file() reference (or in that folder's own nested instruction file), and delete the rest — the agent finds files itself: https://github.com/zernie/vigiles/blob/main/docs/rules/deprecated-key-files.md
+  ⚠ CLAUDE.md.spec.ts: `keyFiles` is deprecated and goes away in the next major (230 entries, 45,467 characters compiled into the instruction file). Remove `keyFiles` from your spec: name a file a decision depends on where that decision is written, as a file() reference (or in that folder's own nested instruction file), and delete the rest — the agent finds files itself: https://github.com/zernie/vigiles/blob/main/docs/rules/deprecated-key-files.md
 ```
 
 The size is the size of the compiled `## Key Files` section, rendered the same

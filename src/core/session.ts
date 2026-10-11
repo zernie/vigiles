@@ -244,6 +244,7 @@ export function analyzeSession(
 ): SessionReport {
   const changedFiles = gitChangedFiles(basePath, baseRef);
   const surface = loadSpecSurface(basePath);
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- keyFiles is deprecated, not removed: it still compiles until the next major, and this reads it back until then
   const keyFiles = loadKeyFilesFromSpecs(basePath);
 
   const trackedChanges: string[] = [];

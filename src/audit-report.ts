@@ -25,7 +25,7 @@ import type { PluginScore } from "./score-core.js";
 import type { RuleInventoryItem } from "./rule-inventory.js";
 import type { RuleRouting } from "./rule-routing.js";
 import type { EvidenceCounts } from "./coverage-evidence.js";
-import type { DeprecatedKeyFilesFinding } from "./core/keyfiles-source.js";
+import type { DeprecatedKeyFilesFinding } from "./deprecated-key-files.js";
 
 /**
  * The current schema version. Bump only on a BREAKING change to the shape.
@@ -270,6 +270,20 @@ function outputStylesField(n: number | "not-supported" | undefined): {
   return n === undefined || n === 0 ? {} : { outputStyles: n };
 }
 
+/** The scan's concrete finding lists, each present only when non-empty. */
+function scanFindingLists(
+  report: ScanReport,
+): Pick<AuditReport, "brokenReferences" | "deprecatedKeyFiles"> {
+  return {
+    ...(report.danglingRefs.length
+      ? { brokenReferences: report.danglingRefs }
+      : {}),
+    ...(report.deprecatedKeyFiles
+      ? { deprecatedKeyFiles: report.deprecatedKeyFiles }
+      : {}),
+  };
+}
+
 /**
  * Assemble the versioned {@link AuditReport} from a scan report — pure, no clock.
  * The CLI attaches `meta.generatedAt` when it writes the JSON artifact; the
@@ -296,12 +310,7 @@ export function buildAuditReport(
     verdict,
     recommendations,
     inventory: inventoryOf(report),
-    ...(report.danglingRefs.length
-      ? { brokenReferences: report.danglingRefs }
-      : {}),
-    ...(report.deprecatedKeyFiles
-      ? { deprecatedKeyFiles: report.deprecatedKeyFiles }
-      : {}),
+    ...scanFindingLists(report),
     ...(adoptable ? { adoptable } : {}),
     ...(opts.observations ? { observations: opts.observations } : {}),
     ...(opts.rulesInventory && opts.rulesInventory.length

@@ -39,10 +39,7 @@ import {
   type PluginLayout,
 } from "./core/layout.js";
 import type { ExcludeSet } from "./exclude.js";
-import {
-  findDeprecatedKeyFiles,
-  type DeprecatedKeyFilesFinding,
-} from "./core/keyfiles-source.js";
+import type { DeprecatedKeyFilesFinding } from "./deprecated-key-files.js";
 import {
   KEYFILES_DOCS_URL,
   KEYFILES_FIX,
@@ -462,9 +459,9 @@ export interface ScanReport {
   readonly instructionWeight: InstructionWeight | null;
   /**
    * Instruction specs still using the deprecated `keyFiles` — the
-   * `deprecated-key-files` rule's own detector (`findDeprecatedKeyFiles`), so
-   * `lint` and `audit` cannot disagree. Advisory: printed with its fix, never
-   * scored.
+   * `deprecated-key-files` rule's own detector (`findDeprecatedKeyFiles`),
+   * handed in through `opts` by `audit`, so `lint` and `audit` cannot
+   * disagree. Advisory: printed with its fix, never scored.
    *
    * ABSENT when there are none, never `[]`, for the parity reason
    * `coverageCaveats` gives. ⚠️ The browser twin produces none: it would need the
@@ -696,6 +693,13 @@ export function scanPlugin(
      * context `overBundles` builds, so a new checker cannot forget it).
      */
     excludes?: ExcludeSet;
+    /**
+     * The `deprecated-key-files` findings for this directory, from the rule's
+     * own detector (`findDeprecatedKeyFiles`), computed by the composition root
+     * — the one place allowed to walk the repository and read specs. `audit`
+     * passes them; every other caller leaves the field off the report.
+     */
+    deprecatedKeyFiles?: readonly DeprecatedKeyFilesFinding[];
     /**
      * The repo's `.vigilesrc.json#harnesses`, resolved — every declared harness
      * with its own layout, dialect and roots, IN DECLARATION ORDER.
@@ -964,7 +968,7 @@ export function scanPlugin(
     evaluable: coverage.total,
     coverageEvidence: coverageEvidenceCounts(coverage),
     ...(caveats.length > 0 ? { coverageCaveats: caveats } : {}),
-    ...deprecatedKeyFilesField(dir, opts.excludes),
+    ...deprecatedKeyFilesField(opts.deprecatedKeyFiles),
     ownTestSignal: ownTestSignalOnDisk(dir),
     puritySummary,
   };
@@ -1321,11 +1325,9 @@ function instructionWeightLines(w: InstructionWeight): string[] {
 
 /** The scan field, present only when some spec still uses `keyFiles`. */
 function deprecatedKeyFilesField(
-  dir: string,
-  excludes: ExcludeSet | undefined,
-): { deprecatedKeyFiles?: readonly DeprecatedKeyFilesFinding[] } {
-  const found = findDeprecatedKeyFiles(resolve(dir), excludes?.globIgnore);
-  return found.length > 0 ? { deprecatedKeyFiles: found } : {};
+  found: readonly DeprecatedKeyFilesFinding[] | undefined,
+): { readonly deprecatedKeyFiles?: readonly DeprecatedKeyFilesFinding[] } {
+  return found && found.length > 0 ? { deprecatedKeyFiles: found } : {};
 }
 
 /**
@@ -1333,7 +1335,7 @@ function deprecatedKeyFilesField(
  * costs, then the fix once. Next to the instruction weight, because that is
  * the number the field inflates.
  */
-function deprecatedKeyFilesLines(r: ScanReport): string[] {
+function deprecatedKeyFilesLines(r: ScanReport): readonly string[] {
   const found = r.deprecatedKeyFiles ?? [];
   if (found.length === 0) return [];
   return section(
@@ -1344,6 +1346,14 @@ function deprecatedKeyFilesLines(r: ScanReport): string[] {
     ],
     found.length,
   );
+}
+
+/** What the instruction file costs: its always-loaded weight, then any deprecated `keyFiles` inflating it. */
+function instructionCostLines(r: ScanReport): readonly string[] {
+  const weight = r.instructionWeight
+    ? [...instructionWeightLines(r.instructionWeight), ""]
+    : [];
+  return [...weight, ...deprecatedKeyFilesLines(r)];
 }
 
 /** The commands and output-style lines of a scan's facts; a harness without styles says so. */
@@ -1369,8 +1379,7 @@ export function formatScanReport(r: ScanReport): string {
 
   // Right under the instruction file, because that is the line a reader is
   // already looking at when they wonder what it costs.
-  if (r.instructionWeight) out.push(...instructionWeightLines(r.instructionWeight), ""); // prettier-ignore
-  out.push(...deprecatedKeyFilesLines(r));
+  out.push(...instructionCostLines(r));
 
   out.push(...section("Skills", r.skills.map(skillLine)));
 

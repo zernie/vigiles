@@ -824,9 +824,11 @@ function compileKeyFilesSection(
   spec: ClaudeSpec,
   basePath: string,
 ): SectionResult {
-  if (!spec.keyFiles) return { lines: [], errors: [] };
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- keyFiles is deprecated, not removed: it still compiles until the next major
+  const keyFiles = spec.keyFiles;
+  if (!keyFiles) return { lines: [], errors: [] };
   const errors: CompileError[] = [];
-  for (const [filePath, desc] of Object.entries(spec.keyFiles)) {
+  for (const [filePath, desc] of Object.entries(keyFiles)) {
     const err = validateFileRef(filePath, basePath);
     if (err) errors.push(err);
     if (desc.length > DEFAULT_MAX_KEYFILE_CHARS) {
@@ -838,7 +840,7 @@ function compileKeyFilesSection(
   }
   // The one renderer the `deprecated-key-files` rule measures with, so the
   // size a finding reports is the size of what this emits.
-  return { lines: [renderKeyFiles(spec.keyFiles)], errors };
+  return { lines: [renderKeyFiles(keyFiles)], errors };
 }
 
 function compileCommandsSection(

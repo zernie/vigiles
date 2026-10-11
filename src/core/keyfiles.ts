@@ -4,8 +4,8 @@
  *
  * WHY. The field compiles a flat "## Key Files" path → description list into
  * the instruction file the harness loads on EVERY request. Measured on this
- * repository's own root spec: 230 entries, 47,728 characters — 30% of a
- * 160k-character file, paid on every request, to tell an agent where files are
+ * repository's own root spec (2026-10-11): 230 entries, 45,467 characters —
+ * 29% of a 157,872-character file, paid on every request, to tell an agent where files are
  * when it finds them itself with Glob/Grep. Anthropic's own guidance lists
  * "File-by-file descriptions of the codebase" under what to EXCLUDE from
  * `CLAUDE.md` (https://code.claude.com/docs/en/best-practices).
@@ -69,7 +69,7 @@ export function measureKeyFiles(
 const grouped = (n: number): string =>
   String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
-/** The cost half of a finding, e.g. `230 entries, 47,728 characters compiled into …`. */
+/** The cost half of a finding, e.g. `230 entries, 45,467 characters compiled into …`. */
 export function keyFilesCost(u: KeyFilesUsage): string {
   if (!u.measured) return "not a literal map — size not measured";
   const noun = u.entries === 1 ? "entry" : "entries";
@@ -78,9 +78,9 @@ export function keyFilesCost(u: KeyFilesUsage): string {
 
 /** The fix, one sentence — shared by the lint message and the audit line. */
 export const KEYFILES_FIX =
-  "Name a file a decision depends on where that decision is written, as a " +
-  "file() reference (or in that folder's own nested instruction file), and " +
-  "delete the rest — the agent finds files itself";
+  "Remove `keyFiles` from your spec: name a file a decision depends on where " +
+  "that decision is written, as a file() reference (or in that folder's own " +
+  "nested instruction file), and delete the rest — the agent finds files itself";
 
 /** The whole finding: what it costs, then what to do and where it is written up. */
 export function keyFilesDeprecationMessage(u: KeyFilesUsage): string {

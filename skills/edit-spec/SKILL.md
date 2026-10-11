@@ -111,10 +111,11 @@ Based on what the user asked for:
 
 **A pointer to a file (what used to be a "key file"):**
 
-- 🔴 **Do not add to `keyFiles`.** The field is deprecated (`vigiles lint`
-  reports it as `deprecated-key-files`) and is removed in the next major: it
-  compiles a file map into the instruction file loaded on every request, and
-  the agent finds files itself.
+- 🔴 **Never add a `keyFiles` entry — not one, not even to a spec that already
+  has the field.** It is deprecated (`vigiles lint` reports it as
+  `deprecated-key-files`) and removed in the next major: it compiles a file
+  map into the instruction file loaded on every request, and the agent finds
+  files itself.
 - If a decision depends on the file, name it **where that decision is written**,
   as `${file("src/services/auth.ts")}` inside a `prose` section — compile
   verifies it exists, exactly as it verified a `keyFiles` path. (`guidance()`
@@ -123,10 +124,14 @@ Based on what the user asked for:
   `CLAUDE.md` instead.
 - If it is only "what lives where", don't add it: the agent reads the code. A
   `README.md` is the place for a map humans need.
-- Asked to "add X to key files" on a spec that still has `keyFiles`? Say the
-  field is deprecated, place the pointer as above, and offer (don't force) to
-  migrate the rest — the guide is `docs/rules/deprecated-key-files.md` in the
-  vigiles repository.
+- **Opened a spec that still has `keyFiles`?** Propose removing it, in the same
+  reply: go through the entries with the migration recipe
+  (`docs/rules/deprecated-key-files.md` in the vigiles repository) — (a) a
+  pointer a decision depends on → `file()` where that decision is written;
+  (b) one folder only → that folder's nested `CLAUDE.md`; (c) a plain map
+  entry → delete; (d) a missing path → delete — and show where each entry
+  goes. Where each entry goes is the user's call; apply it once they confirm.
+  Asked to "add X to key files"? Place X as above instead, and say why.
 
 ### Step 4: Compile
 

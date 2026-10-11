@@ -38,6 +38,7 @@ import { repoRelative, type RepoRelativePath } from "./core/repo-path.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { globSync } from "glob";
 import { excludeSet, excludedBy, type ExcludeSet } from "./exclude.js";
+import { withIgnored } from "./core/glob-ignore.js";
 import { generateTypes } from "./core/generate-types.js";
 import {
   loadHarnessModel,
@@ -368,8 +369,11 @@ import { adoptMarkdown, adoptSkill, adoptAgent } from "./core/adopt.js";
 import { computeScriptCoverage } from "./core/coverage.js";
 import { findOrphanDocs, formatOrphanReport } from "./core/orphans.js";
 import { findDocRefs, formatDocRefReport } from "./core/doc-refs.js";
-import { findDeprecatedKeyFiles } from "./core/keyfiles-source.js";
-import { keyFilesDeprecationMessage } from "./core/keyfiles.js";
+import {
+  checkDeprecatedKeyFiles,
+  findDeprecatedKeyFiles,
+  type DeprecatedKeyFilesFinding,
+} from "./deprecated-key-files.js";
 import type { DocRefReport } from "./core/doc-refs.js";
 import {
   loadHookProgram,
@@ -409,6 +413,38 @@ function findSpecs(excludes: ExcludeSet, pattern?: string): string[] {
     ignore: excludes.globIgnore,
     cwd: process.cwd(),
   });
+}
+
+/**
+ * The `deprecated-key-files` detector's I/O: every instruction spec under
+ * `root` (the glob `compile` uses), read from disk. Lint and audit both call
+ * this, so the two cannot disagree. `node_modules` is never read — someone
+ * else's spec is not this repository's to migrate.
+ */
+function specsUsingKeyFiles(
+  root: string,
+  ignore: ExcludeSet["globIgnore"],
+): readonly DeprecatedKeyFilesFinding[] {
+  return findDeprecatedKeyFiles({
+    specPaths: globSync("**/*.md.spec.ts", {
+      cwd: root,
+      dot: true,
+      nodir: true,
+      posix: true,
+      ignore: withIgnored(["**/node_modules/**"], ignore),
+    }),
+    read: (path) => readFileSync(join(root, path), "utf-8"),
+  });
+}
+
+/** `audit --single` names ONE harness: more than one directory is a contradiction (exit 2). */
+function refuseSingleOverMany(single: boolean, dirs: readonly string[]): void {
+  if (!single || dirs.length <= 1) return;
+  console.error(
+    `--single audits ONE directory as one harness, but ${String(dirs.length)} were given. ` +
+      `Drop --single for a leaderboard, or pass a single directory.`,
+  );
+  process.exit(2);
 }
 
 type AnySpec = ClaudeSpec | SkillSpec | AgentSpec | Railway;
@@ -2599,12 +2635,14 @@ async function runLint(
   // 7w. Deprecated-key-files — an instruction spec still using `keyFiles`. Once
   // over the repository, like the ratchet: a nested bundle's spec would
   // otherwise be reported again by every bundle that encloses it.
-  const deprecatedKeyFiles = checkDeprecatedKeyFiles(
-    frame,
-    ruleSeverity(config?.rules?.["deprecated-key-files"]),
-    excludes,
+  const deprecatedKeyFiles = checkDeprecatedKeyFiles({
+    severity: ruleSeverity(config?.rules?.["deprecated-key-files"]),
+    find: () => specsUsingKeyFiles(process.cwd(), excludes.globIgnore),
     silent,
-  );
+    annotate: (level, message, path) => {
+      ghAnnotate(level, message, frame.repo(resolve(process.cwd(), path)));
+    },
+  });
 
   // 8. Validate vigiles builder calls inside markdown code blocks — the
   // `doc-refs` rule, DEFAULT OFF. Illustrative blocks opt out via
@@ -6089,33 +6127,6 @@ function checkHookMatcher(ctx: BundleCheck): {
 }
 
 /**
- * Apply the `deprecated-key-files` rule: an instruction spec (`**\/*.md.spec.ts`,
- * the glob `compile` uses) still sets the deprecated `keyFiles`. The spec is
- * PARSED, never run (`findDeprecatedKeyFiles` — the same detector `audit`
- * prints). Warning by default: a deprecation that gated would turn a
- * consumer's CI red on upgrade, which the one-major window exists to prevent.
- */
-function checkDeprecatedKeyFiles(
-  frame: Frame,
-  sev: ReturnType<typeof ruleSeverity>,
-  excludes: ExcludeSet,
-  silent: boolean,
-): { issues: number; errors: number } {
-  if (!sev) return { issues: 0, errors: 0 };
-  const found = findDeprecatedKeyFiles(process.cwd(), excludes.globIgnore);
-  const level = sev === "error" ? "error" : "warning";
-  if (found.length > 0 && !silent) {
-    console.log("\nDeprecated-key-files check:\n");
-    for (const f of found) {
-      const message = keyFilesDeprecationMessage(f);
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${f.path}: ${message}`);
-      ghAnnotate(level, message, frame.repo(resolve(process.cwd(), f.path)));
-    }
-  }
-  return { issues: found.length, errors: sev === "error" ? found.length : 0 };
-}
-
-/**
  * Apply the `mcp-hook-target-resolves` rule: a `type: "mcp_tool"` hook action
  * that's incomplete (no `server`/`tool`) or targets a server the plugin doesn't
  * declare — the hook silently never dispatches. Reuses `scanPlugin`'s
@@ -9153,13 +9164,7 @@ export async function main(): Promise<void> {
       // contradiction. Refuse it (exit 2 = "could not do what you asked") rather
       // than auditing the first and dropping the rest — silently honouring half
       // an argument list is the same defect class as the ignored `--out` above.
-      if (single && dirs.length > 1) {
-        console.error(
-          `--single audits ONE directory as one harness, but ${String(dirs.length)} were given. ` +
-            `Drop --single for a leaderboard, or pass a single directory.`,
-        );
-        process.exit(2);
-      }
+      refuseSingleOverMany(single, dirs);
       const targets =
         !single && market && market.onDisk.length > 0
           ? [...market.onDisk]
@@ -9264,6 +9269,7 @@ export async function main(): Promise<void> {
         // (#281): cwd, unless the audited dir is somebody else's repository.
         const frame = frameFor(process.cwd(), root);
         const report = scanPlugin(targets[0], adapter.layout, adapter.dialect, {
+          deprecatedKeyFiles: specsUsingKeyFiles(root, excludes.globIgnore),
           sharedDirs: config.sharedDirs,
           sharedDirsRoot: frame.root,
           // `.vigilesrc.json#exclude` reaches surface DISCOVERY, not just the

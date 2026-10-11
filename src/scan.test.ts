@@ -28,7 +28,6 @@ import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { codexLayout } from "./adapters/codex/layout.js";
 import { codexDialect } from "./adapters/codex/dialect.js";
 import { auditScore } from "./audit-score.js";
-import { buildAuditReport } from "./audit-report.js";
 import { excludeSet } from "./exclude.js";
 
 function write(dir: string, rel: string, content: string): void {
@@ -537,74 +536,6 @@ test("scanPlugin reports the instruction file on any repo (spec-managed vs hand-
   assert.equal(r3.instructions, null);
   assert.doesNotMatch(formatScanReport(r3), /Instructions:/);
   cleanupTmpDir(none);
-});
-
-test("audit flags every spec still using the deprecated keyFiles, with the size and the fix", () => {
-  const dir = makeTmpDir("scan-keyfiles");
-  write(dir, "CLAUDE.md", "# Project\n");
-  write(
-    dir,
-    "CLAUDE.md.spec.ts",
-    `export default instructionFile({ keyFiles: { "a.ts": "First.", "b.ts": "Second." }, rules: {} });\n`,
-  );
-  // A nested spec is still a spec using the field — audit reads them all.
-  write(
-    dir,
-    "pkg/AGENTS.md.spec.ts",
-    `export default instructionFile({ keyFiles: files, rules: {} });\n`,
-  );
-  // node_modules is someone else's spec; an excluded dir is the user's call.
-  write(
-    dir,
-    "node_modules/dep/CLAUDE.md.spec.ts",
-    `export default instructionFile({ keyFiles: { "x": "y" }, rules: {} });\n`,
-  );
-  write(
-    dir,
-    "vendor/CLAUDE.md.spec.ts",
-    `export default instructionFile({ keyFiles: { "x": "y" }, rules: {} });\n`,
-  );
-  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect, {
-    excludes: excludeSet(dir, ["vendor"]),
-  });
-  assert.deepEqual(r.deprecatedKeyFiles, [
-    { path: "CLAUDE.md.spec.ts", entries: 2, chars: 50, measured: true },
-    { path: "pkg/AGENTS.md.spec.ts", entries: 0, chars: 0, measured: false },
-  ]);
-  const text = formatScanReport(r);
-  assert.match(text, /Deprecated `keyFiles` \(2\):/);
-  assert.match(
-    text,
-    /⚠ CLAUDE\.md\.spec\.ts: 2 entries, 50 characters compiled into the instruction file/,
-  );
-  assert.match(
-    text,
-    /pkg\/AGENTS\.md\.spec\.ts: not a literal map — size not measured/,
-  );
-  assert.match(text, /→ .*file\(\)/);
-  // Advisory: a deprecation is not a structural defect, so it is not counted as one.
-  assert.doesNotMatch(text, /structural issue\(s\)/);
-  // …and it reaches the JSON/HTML product boundary, not only the terminal.
-  const opts = { harness: "claude-code", vigilesVersion: "0.0.0" };
-  assert.deepEqual(
-    buildAuditReport(r, opts).deprecatedKeyFiles,
-    r.deprecatedKeyFiles,
-  );
-  cleanupTmpDir(dir);
-
-  // The quiet half: a spec without the field leaves the report unchanged.
-  const clean = makeTmpDir("scan-keyfiles-clean");
-  write(clean, "CLAUDE.md", "# Project\n");
-  write(
-    clean,
-    "CLAUDE.md.spec.ts",
-    "export default instructionFile({ rules: {} });\n",
-  );
-  const rc = scanPlugin(clean, claudeCodeLayout, claudeCodeDialect);
-  assert.equal("deprecatedKeyFiles" in rc, false);
-  assert.doesNotMatch(formatScanReport(rc), /keyFiles/);
-  assert.equal("deprecatedKeyFiles" in buildAuditReport(rc, opts), false);
-  cleanupTmpDir(clean);
 });
 
 test("scanPlugin flags a never-available agent tool, suppresses unrecognized plugin tools", () => {

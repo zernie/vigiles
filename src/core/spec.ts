@@ -568,11 +568,12 @@ export interface ClaudeSpec {
   /**
    * File paths → descriptions, compiled into a "## Key Files" list. Verified via existsSync.
    *
-   * @deprecated The list loads on every request and tells the agent where files
-   * are, which it finds itself. Put a pointer a rule depends on inside that rule
-   * as a `file()` reference (verified the same way), or in the folder's own
-   * nested instruction file; drop a plain directory map (or keep one in a
-   * `README.md` for humans). Still compiled for one major — the one that ships
+   * @deprecated Remove `keyFiles` from your spec. The list loads on every
+   * request and tells the agent where files are, which it finds itself. Name a
+   * file a decision depends on where that decision is written, as a `file()`
+   * reference (verified the same way), or in the folder's own nested
+   * instruction file; delete a plain directory map (a `README.md` if humans
+   * need one). Still compiled for one major — the one that ships
    * this notice — and removed in the major after it; `vigiles lint` reports
    * every use as `deprecated-key-files`. Migration: docs/rules/deprecated-key-files.md.
    */
@@ -603,7 +604,7 @@ export interface ClaudeSpec {
 type ClaudeSpecBase = {
   readonly target?: InstructionTarget | InstructionTarget[];
   readonly commands?: Record<string, string>;
-  /** @deprecated See {@link ClaudeSpec.keyFiles}: a `file()` ref in the rule that needs the pointer. Removed in the major after the one that deprecates it. */
+  /** @deprecated Remove `keyFiles` from your spec — see {@link ClaudeSpec.keyFiles}. Removed in the major after the one that deprecates it. */
   readonly keyFiles?: Record<string, string>;
   readonly maxTokens?: number;
   readonly rules: Record<string, Rule>;
