@@ -17,7 +17,7 @@
  * untouched. One source dir also means basenames are unique, so the stamp can key
  * on the basename safely.
  */
-import { readdirSync, existsSync, statSync } from "node:fs";
+import { readdirSync, existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
 import {
   baseName,
@@ -410,10 +410,76 @@ export function normalizeHookRef(
  */
 export function hookRuntimeRef(
   projectRootTokens: readonly string[] | undefined,
+  runtime: HookRuntime = INSTALLED_HOOK_RUNTIME,
 ): string {
-  const rel = "node_modules/vigiles/dist/cli.js";
   const token = projectRootTokens?.[0];
-  return token === undefined ? `node ${rel}` : `node "${token}/${rel}"`;
+  return token === undefined
+    ? `node ${runtime.path}`
+    : `node "${token}/${runtime.path}"`;
+}
+
+/**
+ * Which file a project starts the hook runtime from, and the command that puts
+ * that file on disk when it is missing.
+ */
+export interface HookRuntime {
+  /** Project-relative path of the runtime's entry point. */
+  readonly path: string;
+  /** What the start-of-session notice tells the user to run when it is missing. */
+  readonly cure: string;
+}
+
+/** A consumer's runtime: the vigiles it installed as a dependency. */
+export const INSTALLED_HOOK_RUNTIME: HookRuntime = {
+  path: "node_modules/vigiles/dist/cli.js",
+  cure: "npm ci (or npm install)",
+};
+
+/**
+ * The runtime a project with this `package.json` can actually start.
+ *
+ * 🔴 THE VIGILES REPOSITORY IS NOT ITS OWN DEPENDENCY. It compiles its own hooks,
+ * and the installed path above does not exist in it: nothing puts a package into
+ * its own `node_modules`. Measured 2026-10-11: both of the repository's compiled
+ * nudges had died with MODULE_NOT_FOUND on every tool call since #260
+ * (2026-09-21), and each one's `|| exit 0` turned the death into silence — a
+ * reminder that cannot load is skipped by design (see `hookRuntimeMissingExit`).
+ * So the package itself starts the bin it declares, which its build writes in
+ * place; the cure the notice names is that build, because `npm ci` alone does
+ * not produce `dist/`.
+ *
+ * Decided from the manifest's CONTENT (name + declared bin), never from where the
+ * running CLI happens to sit: a linked or pnpm-store copy would otherwise emit a
+ * path that is only true on the machine that ran `compile`.
+ */
+export function hookRuntimeFor(manifest: unknown): HookRuntime {
+  if (typeof manifest !== "object" || manifest === null)
+    return INSTALLED_HOOK_RUNTIME;
+  const { name, bin } = manifest as { name?: unknown; bin?: unknown };
+  if (name !== "vigiles") return INSTALLED_HOOK_RUNTIME;
+  const declared =
+    typeof bin === "string"
+      ? bin
+      : typeof bin === "object" && bin !== null
+        ? (bin as Record<string, unknown>).vigiles
+        : undefined;
+  if (typeof declared !== "string" || declared === "")
+    return INSTALLED_HOOK_RUNTIME;
+  return {
+    path: declared.replace(/^\.\//, ""),
+    cure: "npm ci && npm run build",
+  };
+}
+
+/** {@link hookRuntimeFor} over `<cwd>/package.json`; no or unreadable manifest is a consumer. */
+export function readHookRuntime(cwd: string): HookRuntime {
+  try {
+    return hookRuntimeFor(
+      JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8")) as unknown,
+    );
+  } catch {
+    return INSTALLED_HOOK_RUNTIME;
+  }
 }
 
 export function hookGateRef(
