@@ -98,13 +98,20 @@ export function ratchetLines(
 ): readonly RatchetLine[] {
   return [
     ...baselineLines(onDisk, measured),
-    ...measured.flatMap(([at, weight]): RatchetLine[] => {
-      const over = weight === null ? undefined : checkCeiling(weight, max);
-      return over === undefined
-        ? []
-        : [{ at, status: "finding", text: formatCeiling(over, at) }];
-    }),
+    ...measured.flatMap(([at, weight]) => ceilingLine(at, weight, max)),
   ];
+}
+
+/** One bundle's ceiling finding, or nothing when it is at or under `max`. */
+function ceilingLine(
+  at: string,
+  weight: InstructionWeight | null,
+  max: number | undefined,
+): readonly RatchetLine[] {
+  const over = weight === null ? undefined : checkCeiling(weight, max);
+  return over === undefined
+    ? []
+    : [{ at, status: "finding", text: formatCeiling(over, at) }];
 }
 
 function baselineLines(
@@ -160,8 +167,8 @@ export function updateRefusals(
   });
 }
 
-/** Run the ratchet for `lint`: print, annotate, count. */
-export function checkInstructionWeightRatchet(opts: {
+/** The options {@link checkInstructionWeightRatchet} takes. */
+interface RatchetOptions {
   readonly root: string;
   readonly severity: RuleSeverity;
   /** The opt-in absolute ceiling (`["error", { max }]`); `undefined` = ratchet only. */
@@ -171,22 +178,59 @@ export function checkInstructionWeightRatchet(opts: {
   /** Called only when the rule is on or an update was asked for. */
   readonly measure: () => readonly MeasuredBundle[];
   readonly annotate: (level: "error" | "warning", message: string) => void;
-}): { issues: number; errors: number } {
-  const { severity, update, silent } = opts;
-  if (!severity && !update) return { issues: 0, errors: 0 };
-  const measured = opts.measure();
+}
+
+/**
+ * What `lint` compares against: the file as it is, or — under `--update-baseline`
+ * and when nothing is over the ceiling — the file just written. A baseline above
+ * the ceiling would bypass it (re-recording is how a ratchet gets loosened), so
+ * then nothing is written and the refusals are returned for the caller to fail on.
+ */
+function recordOrRead(
+  opts: RatchetOptions,
+  measured: readonly MeasuredBundle[],
+): { readonly onDisk: BaselineOnDisk; readonly refusals: readonly string[] } {
   const before = readInstructionBaseline(opts.root);
-  // A baseline above the ceiling would bypass it: re-recording is how a ratchet
-  // gets loosened, so the refusal is a failure of its own at ANY severity.
-  const refusals = update ? updateRefusals(measured, opts.max) : [];
-  const refused = refusals.length > 0;
-  const onDisk: BaselineOnDisk =
-    update && !refused
+  const refusals = opts.update ? updateRefusals(measured, opts.max) : [];
+  const record = opts.update && refusals.length === 0;
+  return {
+    refusals,
+    onDisk: record
       ? {
           kind: "ok",
           baseline: writeInstructionBaseline(opts.root, before, measured),
         }
-      : before;
+      : before,
+  };
+}
+
+/** The human-readable report: what was recorded, then one line per bundle. */
+function printReport(
+  lines: readonly RatchetLine[],
+  severity: RuleSeverity,
+  recorded: boolean,
+): void {
+  console.log("\nInstruction-weight ratchet:\n");
+  if (recorded) console.log(`  ✓ recorded ${INSTRUCTION_BASELINE_FILE}`);
+  const marks = {
+    finding: severity === "error" ? "✗" : "⚠",
+    ok: "✓",
+    note: "ℹ",
+  } as const;
+  lines.forEach((l) => {
+    console.log(`  ${marks[l.status]} ${l.text}`);
+  });
+}
+
+/** Run the ratchet for `lint`: print, annotate, count. */
+export function checkInstructionWeightRatchet(opts: RatchetOptions): {
+  issues: number;
+  errors: number;
+} {
+  const { severity, update, silent } = opts;
+  if (!severity && !update) return { issues: 0, errors: 0 };
+  const measured = opts.measure();
+  const { onDisk, refusals } = recordOrRead(opts, measured);
   refusals.forEach((message) => {
     console.error(`✗ ${message}`);
     opts.annotate("error", message);
@@ -194,18 +238,7 @@ export function checkInstructionWeightRatchet(opts: {
   const lines = severity ? ratchetLines(onDisk, measured, opts.max) : [];
   const findings = lines.filter((l) => l.status === "finding");
   if (!silent && (update || lines.length > 0)) {
-    console.log("\nInstruction-weight ratchet:\n");
-    if (update && !refused) {
-      console.log(`  ✓ recorded ${INSTRUCTION_BASELINE_FILE}`);
-    }
-    const marks = {
-      finding: severity === "error" ? "✗" : "⚠",
-      ok: "✓",
-      note: "ℹ",
-    } as const;
-    lines.forEach((l) => {
-      console.log(`  ${marks[l.status]} ${l.text}`);
-    });
+    printReport(lines, severity, update && refusals.length === 0);
   }
   const level = severity === "error" ? "error" : "warning";
   findings.forEach((l) => {

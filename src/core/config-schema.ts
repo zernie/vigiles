@@ -553,24 +553,28 @@ function unknownKeyLines(issue: ConfigIssue): string[] {
 
 /**
  * A failed union: the one line listing what the key accepts — UNLESS a branch
- * got past the union's own position and failed deeper (`["error", {"max": 1.5}]`
- * matches the tuple branch and fails INSIDE it). That deeper issue is the
- * problem the author has; "not one of the accepted values" would send them to
- * re-read a list that was never wrong. Zod already collapses a deeper failure of
- * a non-type kind (`max: 0` → "Too small"); a type failure (`1.5`, `"4"`) is
- * the case it leaves as a bare union.
+ * got past the union's own position and failed INSIDE its options
+ * (`["error", {"max": 1.5}]` matches the tuple's shape and fails at index 1).
+ * That inner issue is the problem the author has; "not one of the accepted
+ * values" would send them to re-read a list that was never wrong. Zod already
+ * collapses an inner failure of a non-type kind (`max: 0` → "Too small"); a type
+ * failure (`1.5`, `"4"`) is the case it leaves as a bare union.
+ *
+ * "Inside" means a path of two or more: index 0 of a `[severity, options]`
+ * tuple is the severity itself, and a wrong severity (`["errr", {}]`) is still
+ * the accepted-values line. Both tuple branches (`warn` / `error`) report the
+ * same inner issue, so it is de-duplicated.
  */
-function unionLines(issue: ConfigIssue): string[] {
+function unionLines(issue: ConfigIssue): readonly string[] {
   const here = issue.path ?? [];
-  const deeper = (issue.errors ?? [])
+  const inner = (issue.errors ?? [])
     .flat()
-    .filter((e) => (e.path ?? []).length > 0 && e.code !== "invalid_union");
-  return deeper.length === 0
-    ? [badValueLine(issue)]
-    : deeper.map(
-        (e) =>
-          `.vigilesrc.json: ${pathLabel([...here, ...(e.path ?? [])])} — ${e.message ?? "invalid"}.`,
-      );
+    .filter((e) => (e.path ?? []).length >= 2 && e.code !== "invalid_union")
+    .map(
+      (e) =>
+        `.vigilesrc.json: ${pathLabel([...here, ...(e.path ?? [])])} — ${e.message ?? "invalid"}.`,
+    );
+  return inner.length === 0 ? [badValueLine(issue)] : [...new Set(inner)];
 }
 
 /** ONE line for a failed union — never one per branch. */

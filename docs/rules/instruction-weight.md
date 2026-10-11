@@ -121,6 +121,41 @@ files.
 On by default because a repo with no baseline file gets a note and nothing
 else: committing the file is the opt-in.
 
+### `max`: an opt-in absolute ceiling
+
+```json
+{ "rules": { "instruction-weight": ["error", { "max": 40000 }] } }
+```
+
+The ratchet only stops growth, so a repo four times over the harness's budget
+stays green for as long as it does not get heavier. `max` is the way to say
+"no further than this, whatever the baseline holds": a positive integer in the
+harness's own unit (characters for Claude Code, bytes for Codex), checked against
+the same total the ratchet records, per bundle.
+
+- **Over `max`** → a finding at the rule's severity, independent of the baseline
+  (it fires with no baseline file, and when the ratchet says `held`). It names
+  the total, the max, how far over, and the largest files:
+
+  ```
+  ✗ always-loaded instructions are 157,814 chars, max 40,000 — 117,814 over.
+    Largest: CLAUDE.md 120,300, .claude/rules/engineering.md 31,200. Cut
+    content; moving text to another always-loaded file does not help, and
+    re-recording the baseline does not lift the ceiling.
+  ```
+
+- **At or under `max`** → silent.
+- **`vigiles lint --update-baseline` refuses** to record a baseline above `max`:
+  it writes nothing and exits non-zero (even at `"warn"`), because re-recording
+  is the one move that would otherwise loosen the ceiling.
+- **Without `max`** the rule behaves exactly as described above; `max` is never
+  on by default, for the reason in [Why not a fixed budget](#why-not-a-fixed-budget).
+
+Use it once the content has been cut to a size you intend to keep: set `max` at
+or just above today's number, so the ratchet keeps catching small regrowth and
+the ceiling catches the baseline being raised past it. `max` must be a positive
+integer; `0`, a fraction, or a string is a config error.
+
 ## Why not a fixed budget
 
 The harness's own threshold (40 000 characters for Claude Code, 32 KiB for

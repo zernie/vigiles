@@ -274,3 +274,66 @@ test("a bad rule value under a preset is still the rule's own error", () => {
     /rules\.hook-events/,
   );
 });
+
+// ---------------------------------------------------------------------------
+// instruction-weight options: the opt-in absolute ceiling
+// ---------------------------------------------------------------------------
+
+test("instruction-weight takes a bare severity, or [severity, { max }]", () => {
+  for (const value of [
+    "error",
+    "warn",
+    false,
+    ["error", { max: 40_000 }],
+    ["warn", {}],
+  ]) {
+    assert.deepEqual(
+      problems({ rules: { "instruction-weight": value } }),
+      [],
+      JSON.stringify(value),
+    );
+  }
+  const parsed = vigilesConfigSchema.parse({
+    rules: { "instruction-weight": ["error", { max: 40_000 }] },
+  });
+  assert.deepEqual(parsed.rules?.["instruction-weight"], [
+    "error",
+    { max: 40_000 },
+  ]);
+});
+
+test("instruction-weight keeps its default when unset", () => {
+  assert.equal(
+    vigilesConfigSchema.parse({}).rules?.["instruction-weight"],
+    "error",
+  );
+});
+
+test("instruction-weight max must be a positive integer — each bad value names `max`", () => {
+  for (const bad of [0, -5, 1.5, "40000", null]) {
+    const lines = problems({
+      rules: { "instruction-weight": ["error", { max: bad }] },
+    });
+    assert.equal(lines.length, 1, JSON.stringify(bad));
+    assert.match(
+      lines[0] ?? "",
+      /instruction-weight\.1\.max/,
+      JSON.stringify(bad),
+    );
+  }
+});
+
+test("instruction-weight options are strict: a misspelt key is refused", () => {
+  const lines = problems({
+    rules: { "instruction-weight": ["error", { maxx: 40_000 }] },
+  });
+  assert.equal(lines.length, 1);
+  assert.match(lines[0] ?? "", /maxx/);
+});
+
+test('[false, { max }] is refused — an "off" rule has no ceiling to hold', () => {
+  assert.notDeepEqual(
+    problems({ rules: { "instruction-weight": [false, { max: 40_000 }] } }),
+    [],
+  );
+});

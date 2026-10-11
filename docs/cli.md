@@ -595,7 +595,8 @@ npx vigiles lint . --json-out=reports/lint.json
 **Instruction-weight baseline.** `--update-baseline` records what the harness
 loads without being asked into `.vigiles/instruction-weight.json`; commit it, and
 `lint` fails whenever that sum moves off it. `lint` without the flag never writes
-the file. See [`instruction-weight`](rules/instruction-weight.md).
+the file; with a configured `max` it refuses to record a baseline above it. See
+[`instruction-weight`](rules/instruction-weight.md).
 
 ```bash
 npx vigiles lint --update-baseline
