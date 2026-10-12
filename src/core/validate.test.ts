@@ -20,6 +20,7 @@ import {
 } from "./validate.js";
 import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
 import { vigilesConfigSchema, formatConfigIssues } from "./config-schema.js";
+import { handWrittenInstructionRemedy } from "./instruction-remedies.js";
 import type { MarkerType, ParseOptions } from "./types.js";
 
 describe("config value normalization (now the schema's job)", () => {
@@ -352,6 +353,56 @@ describe("validate", () => {
 // ---------------------------------------------------------------------------
 // require-instructions-spec rule
 // ---------------------------------------------------------------------------
+
+// What a hand-written instruction file's finding says, and which file is one.
+describe("require-instructions-spec — the finding", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-ris-finding-"));
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("says what to do with the file: the shared three-step remedy", () => {
+    const subDir = join(tmpDir, "remedy");
+    mkdirSync(subDir, { recursive: true });
+    const mdPath = join(subDir, "CLAUDE.md");
+    writeFileSync(mdPath, "# Plain\n");
+
+    const result = validate("# Plain\n", {
+      filePath: mdPath,
+      rules: { "require-instructions-spec": "warn" },
+    });
+    const finding = result.warnings.find(
+      (w) => w.rule === "require-instructions-spec",
+    );
+    assert.ok(finding, "a hand-written file gets the warning");
+    assert.ok(
+      finding.message.includes(handWrittenInstructionRemedy(mdPath)),
+      finding.message,
+    );
+  });
+
+  it("a compiled file whose spec is not its sibling is not asked for one", () => {
+    const subDir = join(tmpDir, "multi-target");
+    mkdirSync(subDir, { recursive: true });
+    const mdPath = join(subDir, "AGENTS.md");
+    const body =
+      "<!-- vigiles:sha256:0123456789abcdef compiled from CLAUDE.md.spec.ts -->\n\n# AGENTS.md\n";
+    writeFileSync(mdPath, body);
+
+    const result = validate(body, {
+      filePath: mdPath,
+      rules: { "require-instructions-spec": "error" },
+    });
+    assert.ok(
+      !result.errors.some((e) => e.rule === "require-instructions-spec"),
+    );
+  });
+});
 
 describe("require-instructions-spec", () => {
   let tmpDir: string;

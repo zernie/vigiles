@@ -1,10 +1,15 @@
 # require-instructions-spec
 
-Require a `.spec.ts` source behind every `CLAUDE.md` / `AGENTS.md` — the instruction file must be compiled from a typed spec, not hand-written. The spec is the source of truth; the markdown is a compiled build artifact.
+Require a `.spec.ts` source behind every `CLAUDE.md` / `AGENTS.md` — the root one and every nested one. The instruction file is compiled from a typed spec, not hand-written: the spec is the source of truth, and the markdown is its build output.
 
-This is a `workflow`-group rule (opinionated — a clean repo can fail it just for not having a spec yet), so it's **off by default** and enabled by `vigiles init --strict`. `vigiles init` auto-adopts every instruction file into a spec, so once you've run setup this rule is **green by construction** — it then only fires on a _new_ hand-added instruction file (a safety net, not a nag).
+## Severity
 
-## Configuration
+| Where                                                   | Severity  |
+| ------------------------------------------------------- | --------- |
+| Built-in default                                        | `"warn"`  |
+| `"extends": "vigiles:recommended"` (what `init` writes) | `"error"` |
+
+`vigiles init` adopts every instruction file it finds into a spec, nested ones included, so right after setup the rule is green. From then on it fires on an instruction file someone added by hand.
 
 ```json
 {
@@ -14,34 +19,56 @@ This is a `workflow`-group rule (opinionated — a clean repo can fail it just f
 }
 ```
 
-| Value              | Behavior                                             |
-| ------------------ | ---------------------------------------------------- |
-| `"error"`          | `vigiles lint` exits non-zero if any spec is missing |
-| `"warn"` (default) | Prints warning, exits 0                              |
-| `false`            | Skip this check                                      |
+| Value     | Behavior                                             |
+| --------- | ---------------------------------------------------- |
+| `"error"` | `vigiles lint` exits non-zero on a hand-written file |
+| `"warn"`  | Prints the finding, exits 0                          |
+| `false`   | Skip this check                                      |
 
 ## What it checks
 
-For every `CLAUDE.md` / `AGENTS.md`, vigiles looks for a sibling `.spec.ts`:
+For every `CLAUDE.md` / `AGENTS.md` that `lint` discovers, vigiles looks for a sibling `.spec.ts`:
 
 - `CLAUDE.md` → expects `CLAUDE.md.spec.ts`
 - `AGENTS.md` → expects `AGENTS.md.spec.ts`
 - `docs/CLAUDE.md` → expects `docs/CLAUDE.md.spec.ts`
 
-If the markdown already carries a `<!-- vigiles:sha256:... compiled from ... -->` header, it's spec-managed and passes.
+A file whose header reads `<!-- vigiles:sha256:... compiled from ... -->` is spec-managed and passes, wherever its spec lives.
 
-**Narrow by design:** only a `.spec.ts` (or the disable marker) satisfies this rule — the name says "spec". Inline `<!-- vigiles:enforce ... -->` comments and a `vigiles:` frontmatter block are valid Level-0/1 on-ramps, but they do **not** satisfy `require-instructions-spec`. If you author in inline/frontmatter mode, keep this rule off (its default).
+**Narrow by design:** only a `.spec.ts` (or the disable marker) satisfies this rule. Inline `<!-- vigiles:enforce ... -->` comments and a `vigiles:` frontmatter block are valid plain-markdown on-ramps, but they do not satisfy it — see [markdown mode](../markdown-mode.md#require-instructions-spec).
 
-## Adopt an existing file
+## What the finding tells you to do
 
-You usually don't hit this rule, because `vigiles init` adopts your instruction files for you. To adopt one by hand:
+Each finding names three ways out, in this order:
 
-```bash
-npx vigiles init --target=CLAUDE.md   # faithfully convert CLAUDE.md → CLAUDE.md.spec.ts
-npx vigiles compile                   # reproduce the file (+ integrity header); review the diff
-```
+1. **Adopt the file into a spec.** Two tools, for different jobs:
+   - the `adopt-spec` skill — ask your agent to run it on the file (it never fires by itself). The agent maps rules to `guidance()` / `enforce()`, commands to `cmd()` and paths to `file()`, and shows you the spec before writing it.
+   - `npx vigiles init --target=<path>` — no agent, immediate. It copies every section verbatim as prose; only paths that resolve become checked `file()` references, and rules stay prose.
 
-Adoption is faithful: every heading becomes a prose section verbatim, no rule is inferred. Run the `/strengthen` skill afterward to upgrade prose to verified `enforce()`/`guard()` rules. `vigiles eject` reverses adoption — it's never a one-way door.
+   Neither edits the markdown. Review the spec, then run `npx vigiles compile`; for a faithful adoption the diff is the integrity header. Run `/strengthen` later to turn prose into verified rules; `vigiles eject` reverses adoption.
+
+2. **Not your file** (vendored, a fixture, a submodule) — add its folder to top-level `exclude`, so vigiles does not read it at all:
+
+   ```json
+   { "exclude": ["vendor/**"] }
+   ```
+
+3. **Kept hand-written on purpose** — turn the rule off for those folders with an [`overrides`](../configuration.md#overrides) entry:
+
+   ```json
+   {
+     "overrides": [
+       {
+         "files": ["notes/**"],
+         "rules": { "require-instructions-spec": "off" }
+       }
+     ]
+   }
+   ```
+
+   Only if no instruction file in the repository should have a spec: `{ "rules": { "require-instructions-spec": "off" } }`.
+
+`vigiles audit` lists every hand-written instruction file with the same adoption steps, and leaves out the folders an override turned the rule off for.
 
 ## Disable per file
 
@@ -53,14 +80,18 @@ Adoption is faithful: every heading becomes a prose section verbatim, no rule is
 ...
 ```
 
-## Exclude paths (vendored / benchmark fixtures)
+`vigiles eject` adds this marker when it hands a compiled file back as plain markdown.
 
-For files the repo's own lint shouldn't police at all — a vendored third-party `CLAUDE.md`, a benchmark fixture injected verbatim — add a glob to `exclude` in `.vigilesrc.json` instead of editing the file (so it stays byte-faithful). Excluded paths are dropped from `lint` discovery entirely (not just this rule); `node_modules`/`dist`/`.git` are always excluded.
+## Adoption
 
-```jsonc
-{ "rules": { "require-instructions-spec": "error" }, "exclude": ["bench/**"] }
-```
+A repo that lists its rules in `.vigilesrc.json` without `extends` keeps the built-in `warn` and sees no change. A repo that extends `vigiles:recommended` gets the gate on upgrade (a major version): each hand-written instruction file fails `lint` until it is adopted, excluded, or overridden off. `"rules": { "require-instructions-spec": "warn" }` keeps the old behaviour while you work through them. A setup that declines specs (`init --ci-only`, the wizard's "gate") writes the rule as `"off"`.
 
 ## Why
 
-Hand-written instruction files rot silently. Specs catch stale references at compile time. This rule keeps spec-driven instruction files enforced once you've opted into the `workflow` tier — and since `init` adopts your files into specs up front, opting in doesn't mean a wall of failures.
+Hand-written instruction files rot silently: a renamed script or a moved path stays in the prose. A spec checks its references at compile time, and the integrity header catches a hand edit of the output.
+
+## See also
+
+- [`overrides`](../configuration.md#overrides) — per-path severities.
+- [`integrity`](integrity.md) — the compiled file was not edited by hand.
+- The validation-rule matrix in [verifying instruction files](../verifying-instruction-files.md).

@@ -39,7 +39,20 @@ With options (ESLint-style tuple):
 | Option    | Type     | Description                                                                    |
 | --------- | -------- | ------------------------------------------------------------------------------ |
 | `include` | string[] | Override which files count as tests (shared with the other `untested-*` rules) |
-| `exclude` | string[] | Extra ignore globs                                                             |
+
+To stop reporting the surfaces under some paths, turn the rule off there with an
+[`overrides`](../configuration.md#overrides) entry:
+
+```json
+{
+  "overrides": [
+    { "files": ["skills/legacy"], "rules": { "untested-skill": "off" } }
+  ]
+}
+```
+
+An `exclude` inside these options used to do that; it is refused now, with the
+equivalent `overrides` entry printed.
 
 ## Scope
 

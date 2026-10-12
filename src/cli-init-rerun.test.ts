@@ -225,3 +225,23 @@ test("brand-new repo: a bare init is still the full setup, extending the preset"
     );
   });
 });
+
+test("new repo: bare init adopts every hand-written instruction file, nested ones too, so its first lint has no spec finding", () => {
+  withScratch((s) => {
+    mkdirSync(join(s.root, ".git"));
+    writeFileSync(join(s.root, "CLAUDE.md"), "# Project\n\nHand-written.\n");
+    mkdirSync(join(s.root, "pkg"));
+    writeFileSync(join(s.root, "pkg", "CLAUDE.md"), "# Pkg\n\nNested.\n");
+    const out = init(s, ["--no-plugin"]);
+    assert.ok(existsSync(join(s.root, "CLAUDE.md.spec.ts")), out);
+    assert.ok(existsSync(join(s.root, "pkg", "CLAUDE.md.spec.ts")), out);
+    const lint = execFileSync(process.execPath, [CLI, "lint"], {
+      cwd: s.root,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 120000,
+      env: { ...process.env, HOME: s.home, PATH: s.bin, CI: "1" },
+    });
+    assert.doesNotMatch(lint, /\[require-instructions-spec\]/);
+  });
+});

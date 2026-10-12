@@ -27,9 +27,16 @@ import type { RulesConfig } from "./types.js";
  * script, a broken MCP reference, two skills that collide in the selector), so a
  * well-formed harness stays green.
  *
- * Deliberately EXCLUDES the workflow rules (`require-instructions-spec`,
- * `untested-*`): a clean repo fails those until the work is done, so they stay
- * an explicit opt-in (`init --strict`).
+ * Also gates `require-instructions-spec`: a hand-written CLAUDE.md / AGENTS.md
+ * is a file whose references nothing re-verifies on change. It is the one rule
+ * here a clean repo can fail before any work is done, so its finding names all
+ * three ways out in order — adopt it (`adopt-spec` / `init --target`), exclude
+ * a folder that is not yours, or turn it off for folders that stay hand-written
+ * (`overrides`) — and `init` adopts every instruction file it finds, so a repo
+ * set up by `init` starts green.
+ *
+ * Deliberately EXCLUDES the `untested-*` workflow rules: they stay an explicit
+ * opt-in (`init --strict`).
  */
 export const RECOMMENDED_RULES = [
   "subagent-tool-contract",
@@ -42,6 +49,7 @@ export const RECOMMENDED_RULES = [
   "disallowed-tools-contract",
   "description-overlap",
   "compile-budget",
+  "require-instructions-spec",
 ] as const satisfies ReadonlyArray<keyof RulesConfig>;
 
 /** The preset names `extends` accepts. One today; the tuple is the enum. */

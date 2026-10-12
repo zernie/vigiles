@@ -741,16 +741,16 @@
       "count": 32
     },
     "functional/immutable-data": {
-      "count": 105
+      "count": 103
     },
     "functional/no-let": {
-      "count": 99
+      "count": 97
     },
     "functional/no-loop-statements": {
-      "count": 113
+      "count": 112
     },
     "functional/prefer-immutable-types": {
-      "count": 194
+      "count": 192
     },
     "no-restricted-syntax": {
       "count": 1
@@ -773,7 +773,7 @@
       "count": 2
     },
     "local/no-harness-names": {
-      "count": 14
+      "count": 13
     }
   },
   "src/cli-untested-options.test.ts": {
@@ -1610,7 +1610,7 @@
   },
   "src/core/integrity.ts": {
     "functional/prefer-immutable-types": {
-      "count": 5
+      "count": 3
     }
   },
   "src/core/layout.test.ts": {
@@ -2270,7 +2270,7 @@
       "count": 3
     },
     "functional/immutable-data": {
-      "count": 19
+      "count": 18
     },
     "functional/no-let": {
       "count": 5
@@ -2285,7 +2285,7 @@
       "count": 2
     },
     "sonarjs/nested-control-flow": {
-      "count": 2
+      "count": 1
     },
     "sonarjs/no-nested-conditional": {
       "count": 1
@@ -2689,13 +2689,7 @@
   },
   "src/exclude.ts": {
     "boundaries/dependencies": {
-      "count": 2
-    },
-    "functional/no-let": {
       "count": 1
-    },
-    "functional/no-loop-statements": {
-      "count": 2
     }
   },
   "src/experimental-emit.test.ts": {
@@ -3297,6 +3291,11 @@
     },
     "functional/prefer-immutable-types": {
       "count": 2
+    }
+  },
+  "src/root-globs.ts": {
+    "boundaries/dependencies": {
+      "count": 1
     }
   },
   "src/rule-inventory.ts": {

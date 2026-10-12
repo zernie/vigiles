@@ -171,28 +171,6 @@ describe("findOrphanDocs()", () => {
     }
   });
 
-  it("supports tsconfig-style exclude within include scope", () => {
-    const dir = makeTmpDir("orphans-exclude");
-    try {
-      mkdirSync(join(dir, "docs/legacy"), { recursive: true });
-      writeFileSync(join(dir, "docs/active.md"), "# active");
-      writeFileSync(join(dir, "docs/legacy/old1.md"), "# legacy");
-      writeFileSync(join(dir, "docs/legacy/old2.md"), "# legacy");
-      writeFileSync(join(dir, "README.md"), "hello");
-
-      const report = findOrphanDocs({
-        basePath: dir,
-        include: ["docs/**/*.md"],
-        exclude: ["docs/legacy/**"],
-      });
-      // Only docs/active.md scanned; legacy files excluded entirely.
-      assert.equal(report.totalDocs, 1);
-      assert.deepEqual([...report.orphans], ["docs/active.md"]);
-    } finally {
-      cleanupTmpDir(dir);
-    }
-  });
-
   it("repoExclude drops an excluded corpus from BOTH walks: not a candidate, not a referencer (#192)", () => {
     const dir = makeTmpDir("orphans-repo-exclude");
     try {
@@ -231,20 +209,6 @@ describe("findOrphanDocs()", () => {
         [...excluded.orphans],
         ["docs/kept.md"],
         "a link from an excluded corpus no longer keeps a doc alive",
-      );
-
-      // The rule-level `exclude` narrows CANDIDACY only: with it (and no
-      // repoExclude) the vendored doc still counts as a referencer.
-      const narrowed = findOrphanDocs({
-        basePath: dir,
-        include,
-        exclude: ["vendored/**"],
-      });
-      assert.equal(narrowed.totalDocs, 1);
-      assert.deepEqual(
-        [...narrowed.orphans],
-        [],
-        "kept.md is still referenced by the vendored doc",
       );
     } finally {
       cleanupTmpDir(dir);
@@ -394,6 +358,6 @@ describe("formatOrphanReport()", () => {
     assert.match(out, /docs\/b\.md/);
     // Points the user at both escape hatches when something is flagged.
     assert.match(out, /vigiles-disable orphan-docs/);
-    assert.match(out, /orphans\.exclude/);
+    assert.match(out, /overrides/);
   });
 });

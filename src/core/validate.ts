@@ -22,12 +22,15 @@ import { cosmiconfigSync } from "cosmiconfig";
 // hygiene, it is a second module system.
 import { DEFAULT_INSTRUCTION_TARGETS } from "./dialect.js";
 import { RULE_MARKER_SOURCE, isVerifiedLabel } from "./enforce-marker.js";
+import { instructionSpecState } from "./integrity.js";
+import { handWrittenInstructionRemedy } from "./instruction-remedies.js";
 import {
   vigilesConfigSchema,
   parseVigilesConfig,
   formatConfigIssues,
   REPLACED_KEYS,
   replacedKeyMessage,
+  movedToOverridesMessages,
   VigilesConfigError,
 } from "./config-schema.js";
 
@@ -183,7 +186,8 @@ export function loadConfig(
   // The replaced keys get their own message BEFORE the schema's, because the
   // reader is someone whose config used to work: `.strict()` would tell them
   // "unknown key harness", which is true and useless. See REPLACED_KEYS.
-  const problems: string[] = [];
+  // The per-rule `exclude` options moved to `overrides` the same way.
+  const problems: string[] = [...movedToOverridesMessages(raw)];
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const present = REPLACED_KEYS.filter((k) => k.key in raw);
     if (present.length > 0) {
@@ -306,6 +310,25 @@ export function parseRules(
 // Core validation
 // ---------------------------------------------------------------------------
 
+/**
+ * The `require-instructions-spec` finding for one instruction file, or `null`
+ * when it is spec-managed or opted out (`instructionSpecState`, the one answer
+ * `audit` asks too). The message says what to do, in order.
+ */
+function handWrittenFinding(
+  content: string,
+  filePath: string,
+): ValidationError | null {
+  const specPath = filePath + ".spec.ts";
+  if (instructionSpecState(content, existsSync(specPath)) !== "hand-written")
+    return null;
+  return {
+    rule: "require-instructions-spec",
+    message: `No spec file found for "${filePath}". Expected "${specPath}".\n${handWrittenInstructionRemedy(filePath)}`,
+    line: 1,
+  };
+}
+
 export function validate(
   content: string,
   { ruleMarkers, rules: rulesConfig, filePath, dialect }: ValidateOptions = {},
@@ -336,21 +359,11 @@ export function validate(
     // `vigiles init` auto-adopts every instruction file into a spec, so this is
     // green by construction after setup.
     const specSeverity = activeRules["require-instructions-spec"];
-    if (specSeverity && isInstruction && !disableComment.test(content)) {
-      const specPath = filePath + ".spec.ts";
-      if (!existsSync(specPath)) {
-        const msg: ValidationError = {
-          rule: "require-instructions-spec",
-          message: `No spec file found for "${filePath}". Expected "${specPath}". Run \`npx vigiles init --target=${filePath}\` to adopt it into a spec, or disable with <!-- vigiles-disable require-instructions-spec -->.`,
-          line: 1,
-        };
-        if (specSeverity === "error") {
-          errors.push(msg);
-        } else {
-          warnings.push(msg);
-        }
-      }
-    }
+    const specFinding = isInstruction
+      ? handWrittenFinding(content, filePath)
+      : null;
+    if (specSeverity && specFinding)
+      (specSeverity === "error" ? errors : warnings).push(specFinding);
 
     // --- require-skill-spec (SKILL.md) — the consistent require-<surface>-spec
     // parallel, off by default; honored when a user sets it explicitly.

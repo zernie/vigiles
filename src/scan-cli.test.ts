@@ -31,6 +31,15 @@ import { execSync } from "node:child_process";
 
 import { VERBS } from "./cli-commands.js";
 import { knownFlagsFor } from "./cli-flag-check.js";
+import { adoptInstructionFileRemedy } from "./core/instruction-remedies.js";
+import { z } from "zod";
+
+/** The part of `audit --json` the adoption tests read — parsed, not cast. */
+const adoptableReport = z.object({
+  adoptable: z
+    .object({ surfaces: z.array(z.object({ path: z.string() })) })
+    .optional(),
+});
 
 // __dirname is src/ when vitest resolves the .ts source → ".." is the repo root.
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
@@ -649,6 +658,52 @@ describe("audit → adoption — adoptable-surfaces nudge + JSON data", () => {
     // JSON stays machine-clean — no human nudge text.
     assert.doesNotMatch(r.stdout, /could be spec-managed/);
     assert.doesNotMatch(r.stdout, /actually fire/);
+  });
+});
+
+// Measured on a repo with six hand-written CLAUDE.md files (root + five nested):
+// audit said "1 surface could be spec-managed" — it looked at the root file only,
+// while `lint` warned about all six. Every hand-written instruction file counts,
+// nested ones included; a spec-managed or opted-out one does not.
+describe("audit → every hand-written instruction file, nested included", () => {
+  let root: string;
+  const handWritten = ["CLAUDE.md", "docs/AGENTS.md", "pkg/CLAUDE.md"];
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "audit-nested-instr-"));
+    const put = (rel: string, text: string): void => {
+      mkdirSync(dirname(join(root, rel)), { recursive: true });
+      writeFileSync(join(root, rel), text);
+    };
+    for (const rel of handWritten) put(rel, `# ${rel}\n\nHand-written.\n`);
+    put(
+      "opt/CLAUDE.md",
+      "<!-- vigiles-disable require-instructions-spec -->\n# Mine\n",
+    );
+    put("managed/CLAUDE.md", "# Managed\n");
+    put("managed/CLAUDE.md.spec.ts", "export default {};\n");
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("--json counts exactly the hand-written ones", () => {
+    const r = run(`audit ${root} --json`);
+    const report = adoptableReport.parse(JSON.parse(r.stdout));
+    const paths = (report.adoptable?.surfaces ?? []).map((s) => s.path).sort();
+    assert.deepEqual(paths, [...handWritten].sort());
+  });
+
+  it("the terminal lists each one and names how to adopt it", () => {
+    const r = run(`audit ${root}`);
+    for (const rel of handWritten)
+      assert.match(r.stdout, new RegExp(`• ${rel.replace(".", "\\.")}\\n`));
+    assert.doesNotMatch(r.stdout, /• opt\/CLAUDE\.md/);
+    assert.doesNotMatch(r.stdout, /• managed\/CLAUDE\.md/);
+    // The nudge indents the shared remedy, so compare line by line.
+    for (const line of adoptInstructionFileRemedy("<path>").split("\n"))
+      assert.ok(r.stdout.includes(line.trim()), line);
   });
 });
 

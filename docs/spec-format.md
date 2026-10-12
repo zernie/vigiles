@@ -455,14 +455,19 @@ The orphan-docs check flags markdown files that no other markdown references. It
 ```json
 {
   "orphans": {
-    "include": ["docs/**/*.md", "wiki/**/*.md", "handbook/**/*.md"],
-    "exclude": ["docs/legacy/**", "**/draft-*.md"]
-  }
+    "include": ["docs/**/*.md", "wiki/**/*.md", "handbook/**/*.md"]
+  },
+  "overrides": [
+    {
+      "files": ["docs/legacy/**", "**/draft-*.md"],
+      "rules": { "orphan-docs": "off" }
+    }
+  ]
 }
 ```
 
 - `include` — glob patterns of `.md` files to scan. Defaults to `["docs/**/*.md"]`. Set to `[]` to opt in but scan nothing.
-- `exclude` — glob patterns to skip within the include scope. Same shape as `tsconfig.json#exclude`.
+- To skip some docs, turn `orphan-docs` off for their paths with an [`overrides`](configuration.md#overrides) entry.
 
 `node_modules/**`, `dist/**`, `.vigiles/**`, and `.git/**` are always excluded.
 

@@ -47,6 +47,7 @@ import {
 } from "./core/layout.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import { weighInstructions } from "./core/instruction-weight.js";
+import { instructionSpecState } from "./core/integrity-header.js";
 import {
   instructionCandidatePaths,
   resolveImports,
@@ -701,6 +702,25 @@ function fileMapHooks(
  * `AuditReport` the CLI's `audit --json` produces over the same files (modulo the
  * checkout path — see {@link BROWSER_ROOT}).
  */
+/** The instruction file and whether it is spec-managed — the same predicate
+ * as the disk scan (`scan.ts`), so the twins agree. */
+function instructionsOf(
+  files: Readonly<Record<string, string>>,
+  loadedFiles: Readonly<Record<string, string>>,
+  lay: PluginLayout,
+): ScanInstructions | null {
+  const content = loadedFiles[lay.instructionFile];
+  if (content === undefined) return null;
+  return {
+    file: lay.instructionFile,
+    hasSpec:
+      instructionSpecState(
+        content,
+        hasFile(files, `${lay.instructionFile}.spec.ts`),
+      ) === "spec-managed",
+  };
+}
+
 export function scanFiles(
   files: Record<string, string>,
   layout: PluginLayout = claudeCodeLayout,
@@ -716,13 +736,7 @@ export function scanFiles(
   const eventNames = hookEventNames(loaded.settings.hooks);
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
   const hookEventIssues = scoredIssues(allHookEventIssues);
-  const instructions: ScanInstructions | null =
-    loaded.files[lay.instructionFile] !== undefined
-      ? {
-          file: lay.instructionFile,
-          hasSpec: hasFile(files, `${lay.instructionFile}.spec.ts`),
-        }
-      : null;
+  const instructions = instructionsOf(files, loaded.files, lay);
   // The BOUNDED candidate set over the map, then the same one-level import pass
   // the disk walk runs — `resolveImports` lives in the core precisely so these
   // two cannot drift. An import the fetcher never fetched simply stays unread,

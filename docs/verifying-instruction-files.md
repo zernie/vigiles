@@ -170,16 +170,16 @@ The per-family tables below give each rule's default severity and what it checks
 
 ### Spec &amp; integrity
 
-| Rule                                                              | Default   | What it checks                                                                                   |
-| ----------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------ |
-| [`require-instructions-spec`](rules/require-instructions-spec.md) | `"warn"`  | Every CLAUDE.md / AGENTS.md has a `.spec.ts` behind it (narrow — inline/frontmatter don't count) |
-| [`integrity`](rules/integrity.md)                                 | `"warn"`  | Compiled markdown wasn't hand-edited (SHA-256 check)                                             |
-| [`coverage`](rules/coverage.md)                                   | `false`   | The spec covers enough of the project surface                                                    |
-| [`spec-refs`](rules/spec-refs.md)                                 | `"error"` | A compiled instruction file whose spec references a file, script or symbol that no longer exists |
-| [`duplicate-rules`](rules/duplicate-rules.md)                     | `"warn"`  | Two rules **within one spec** saying the same thing (deterministic NCD similarity, no model)     |
-| [`require-skill-spec`](rules/require-skill-spec.md)               | `false`   | Every SKILL.md has a `.spec.ts` (the consistent parallel; off by default)                        |
-| [`compile-budget`](rules/compile-budget.md)                       | `"warn"`  | A compiled instruction file stays within its size budgets; `error` under `vigiles:recommended`   |
-| [`deprecated-key-files`](rules/deprecated-key-files.md)           | `"warn"`  | A spec still uses the deprecated `keyFiles` map (loaded every request) — with the migration      |
+| Rule                                                              | Default                                         | What it checks                                                                                                          |
+| ----------------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| [`require-instructions-spec`](rules/require-instructions-spec.md) | `"warn"`; `"error"` under `vigiles:recommended` | Every CLAUDE.md / AGENTS.md, nested ones included, has a `.spec.ts` behind it (narrow — inline/frontmatter don't count) |
+| [`integrity`](rules/integrity.md)                                 | `"warn"`                                        | Compiled markdown wasn't hand-edited (SHA-256 check)                                                                    |
+| [`coverage`](rules/coverage.md)                                   | `false`                                         | The spec covers enough of the project surface                                                                           |
+| [`spec-refs`](rules/spec-refs.md)                                 | `"error"`                                       | A compiled instruction file whose spec references a file, script or symbol that no longer exists                        |
+| [`duplicate-rules`](rules/duplicate-rules.md)                     | `"warn"`                                        | Two rules **within one spec** saying the same thing (deterministic NCD similarity, no model)                            |
+| [`require-skill-spec`](rules/require-skill-spec.md)               | `false`                                         | Every SKILL.md has a `.spec.ts` (the consistent parallel; off by default)                                               |
+| [`compile-budget`](rules/compile-budget.md)                       | `"warn"`                                        | A compiled instruction file stays within its size budgets; `error` under `vigiles:recommended`                          |
+| [`deprecated-key-files`](rules/deprecated-key-files.md)           | `"warn"`                                        | A spec still uses the deprecated `keyFiles` map (loaded every request) — with the migration                             |
 
 ### Test coverage
 
@@ -268,12 +268,12 @@ Set severities in `.vigilesrc.json`:
 }
 ```
 
-Disable a rule for one file with `<!-- vigiles-disable require-instructions-spec -->` at the top of the markdown. `--strict` promotes `require-instructions-spec` to `"error"`.
+Disable a rule for one file with `<!-- vigiles-disable require-instructions-spec -->` at the top of the markdown, or for a folder with an [`overrides`](configuration.md#overrides) entry.
 
 `vigiles init` groups rules by confidence:
 
-- **`structural`** — FP-safe correctness rules (broken tools / dead hooks / broken MCP / collisions). `init` gates them at `error` by writing `"extends": "vigiles:recommended"` ([the preset](configuration.md#extends)); each rule's own default stays `warn`.
-- **`workflow`** — opinionated rules a clean repo can still fail because the work isn't done yet (`require-instructions-spec`, `untested-*`). Off by default; added by `--strict`.
+- **`structural`** — FP-safe correctness rules (broken tools / dead hooks / broken MCP / collisions), plus `require-instructions-spec`. `init` gates them at `error` by writing `"extends": "vigiles:recommended"` ([the preset](configuration.md#extends)); each rule's own default stays `warn`.
+- **`workflow`** — opinionated rules a clean repo can still fail because the work isn't done yet (`untested-*`). Off by default; added by `--strict`.
 - **`nudge`** — recommendations / acknowledged-noisy (`frontmatter-valid`, `skill-frontmatter`, `prefer-compiled-hooks`, `unmarked-refs`). Stays `warn` and never gates.
 
 `--report-only` writes the whole gate at `warn` (nothing fails CI). See [the CLI guide](cli.md#init).

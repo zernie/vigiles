@@ -94,10 +94,12 @@ The built-in `require-instructions-spec` rule asks for a `.spec.ts` sibling
 for every `CLAUDE.md` / `AGENTS.md`. It is **narrow**: only a `.spec.ts`
 satisfies it. Inline `<!-- vigiles:enforce -->` comments and `vigiles:`
 frontmatter are still valid plain-markdown on-ramps, but they do **not**
-satisfy `require-instructions-spec` — so a markdown-mode user simply keeps
-the rule off (it is off by default; turning it on is a workflow-tier opt-in
-for teams that want to require a typed spec). No `vigiles-disable
-require-instructions-spec` comment needed unless you have enabled the rule.
+satisfy `require-instructions-spec`. The rule's built-in severity is `warn`;
+`vigiles:recommended` raises it to `error`. A markdown-mode repo that extends
+the preset turns the rule off for the files it keeps in markdown — per folder
+with an [`overrides`](configuration.md#overrides) entry, or for the whole
+repository with `"rules": { "require-instructions-spec": "off" }` — or puts
+`<!-- vigiles-disable require-instructions-spec -->` at the top of one file.
 
 A file is checked for inline rules **only when it is not managed by a spec** —
 i.e. it has no sibling `<file>.spec.ts` and no `vigiles:sha256 … compiled from
