@@ -3,10 +3,10 @@
  *
  * Every finding that says "too much is loaded on every request" — the weight
  * ceiling, the ratchet's growth, the refusal to record a heavier baseline, a
- * section over its character budget — ends with this list. Without it the one
- * move the message offers is "cut content", and the reader deletes rules that
- * still matter instead of moving each one to the carrier that loads it only
- * when it applies. The order is the order to try: the cheapest carrier that
+ * section or the whole Rules section over its `compile-budget` — ends with
+ * this list. Without it the one move the message offers is "cut content", and
+ * the reader deletes rules that still matter instead of moving each one to the
+ * carrier that loads it only when it applies. The order is the order to try: the cheapest carrier that
  * still fires at the right moment first, deletion last.
  */
 export const MOVE_OUT_OF_ALWAYS_LOADED = [

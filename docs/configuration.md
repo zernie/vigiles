@@ -204,7 +204,10 @@ fire only on a real defect, so a well-formed harness stays green:
 `subagent-tool-contract`, `subagent-frontmatter`, `hook-events`,
 `hook-script-exists`, `mcp-config`, `mcp-tool-resolves`,
 `mcp-hook-target-resolves`, `disallowed-tools-contract` and
-`description-overlap`. Every other rule keeps its built-in severity.
+`description-overlap`. It also gates [`compile-budget`](rules/compile-budget.md):
+a compiled instruction file whose Rules section is over 20,000 characters, or
+with a section over 15,000 or a `commands` entry over 200, fails `compile` and
+`lint`. Every other rule keeps its built-in severity.
 
 **Your `rules` win.** An entry in `rules` overrides the preset, in either
 direction:

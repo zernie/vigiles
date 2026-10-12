@@ -85,14 +85,14 @@ Each section (and each subagent section) is length-guarded at compile time: a si
 
 ### Budget warnings: what the line guard cannot see
 
-Two checks run beside the line guard and print as **warnings** — they never fail a compile, because a budget that blocks adoption of a file you already have is a budget people turn off.
+Two checks run beside the line guard and, by default, print as **warnings** — they never fail a compile, because a budget that blocks adoption of a file you already have is a budget people turn off. The rule that owns them is [`compile-budget`](rules/compile-budget.md): at `"error"` (set by `"extends": "vigiles:recommended"`) they fail the compile, and so does a budget on the whole Rules section.
 
-| check                              | default               | why                                                                                                                                                                                                                |
-| ---------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| per-entry, `keyFiles` / `commands` | **200 characters**    | An entry is a _pointer_ — what the file is for, so a reader knows whether to open it. The explanation belongs in that file's own header, where it is read when someone opens the file instead of on every request. |
-| per-section, characters            | **15 000 characters** | Lines do not measure cost. One real section here was **24 lines and 20 416 characters** — it passed a 200-_line_ gate with two orders of magnitude to spare.                                                       |
+| check                   | default               | why                                                                                                                                                                                                                   |
+| ----------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| per-entry, `commands`   | **200 characters**    | An entry is a _pointer_ — what the command does, so a reader knows when to run it. The explanation belongs in the script's own header or `--help`, where it is read when someone runs it instead of on every request. |
+| per-section, characters | **15 000 characters** | Lines do not measure cost. One real section here was **24 lines and 20 416 characters** — it passed a 200-_line_ gate with two orders of magnitude to spare.                                                          |
 
-Both are tunable (`0` disables): pass `maxEntryChars` / `maxSectionChars` as compile options.
+Both are tunable (`0` disables) as options of the `compile-budget` rule: `"compile-budget": ["warn", { "maxEntryChars": 300 }]`.
 
 Why these two shapes and not a total: an instruction file grows one unremarkable entry at a time, and nobody removes one. A total tells you "too big" long after you could act, and names no offender; a per-entry budget names the row at the moment it is added. For the whole-file number — everything the harness loads _without being asked_, which is the figure that actually bills you — run `vigiles audit` and read `Always-loaded instructions`; to stop that number growing, commit a baseline with `vigiles lint --update-baseline`, and to cap it outright set `max` (rule [`instruction-weight`](rules/instruction-weight.md)).
 
@@ -333,7 +333,7 @@ Three builders cover three kinds of constraints. The split mirrors a useful ment
 
 When you're writing a new rule, ask first which category it falls into. If the answer is "I'm not sure how to mechanically check it," that's a `guidance()` rule. If the answer is "some external tool already does this," that's an `enforce()` rule. If it's "vigiles itself should check this at compile or lint time," that's `enforce("vigiles/<name>", ...)` against the built-in catalog (currently `vigiles/orphan-docs`).
 
-### `enforce(ref, why)`
+### `enforce(ref, why, options?)`
 
 Declares a rule delegated to an external linter or to a vigiles-internal check. The `ref` accepts template literal types:
 
@@ -352,7 +352,29 @@ rules: {
 }
 ```
 
-### `guidance(text)`
+**How much of the rule the compiled file carries** — `render`:
+
+| `render`         | compiled output                                    |
+| ---------------- | -------------------------------------------------- |
+| `"full"` default | `**Enforced by:**` and the whole `why`             |
+| `"line"`         | `**Enforced by:**` and the first sentence of `why` |
+| `"id"`           | `**Enforced by:**` only                            |
+
+A rule a linter already enforces does not need its reasoning in every request: the linter holds the rule, and the prose is a second copy that costs tokens and can drift. A short form keeps the rule whole in the spec, so `lint`, coverage, the `audit` rule map and the `**Enforced by:**` marker all still work. The integrity hash is taken over the compiled file, so it covers what the model actually sees.
+
+`details` (a `file()`) and an optional `anchor` link to where the long text lives, rendered as `[Details](path#anchor)`. `compile` fails if the file does not exist, or if the anchor is neither a heading in it (GitHub's slug) nor an explicit `<a id="…">`.
+
+```ts
+rules: {
+  "no-console": enforce("eslint/no-console", "Use the structured logger. Console output is lost in CI.", {
+    render: "line",
+    details: file("docs/rules/logging.md"),
+    anchor: "why-not-console",
+  }),
+}
+```
+
+### `guidance(text, options?)`
 
 Declares a prose-only rule with no mechanical enforcement. Guidance rules still participate in the monotonicity proof system: once a rule exists, it can be strengthened ( `guidance` → `enforce` ) but never weakened or removed without an explicit allowlist.
 
@@ -363,6 +385,16 @@ rules: {
 ```
 
 Compiles to: `**Guidance only** -- <text>`.
+
+With `details` (and optionally `anchor`), the long text lives in a file and the compiled rule is the statement plus a verified link — `**Guidance only** -- <text> [Details](path#anchor)`. Same verification as for `enforce()`:
+
+```ts
+rules: {
+  "small-prs": guidance("Keep pull requests small.", {
+    details: file("docs/rules/small-prs.md"),
+  }),
+}
+```
 
 ### `guard(options, description)`
 
