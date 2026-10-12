@@ -387,13 +387,12 @@ describe("formatCeiling / formatRefusal — what the reader sees", () => {
   );
   if (!v) throw new Error("fixture precondition: over the ceiling");
 
-  it("the finding gives total, max, excess, the largest files and the fix", () => {
+  it("the finding gives total, max, excess, the largest files, and says moving is no fix", () => {
     const msg = formatCeiling(v, ".");
     expect(msg).toContain("38,000 chars");
     expect(msg).toContain("max 20,000");
     expect(msg).toContain("18,000 over");
     expect(msg).toContain("CLAUDE.md 30,000, a.md 8,000");
-    expect(msg).toContain("Move what does not apply to every request");
     expect(msg).toContain(
       "Moving text to another always-loaded file does not help",
     );

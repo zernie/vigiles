@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { MOVE_OUT_OF_ALWAYS_LOADED } from "./core/instruction-remedies.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 import { compileWeightLine } from "./instruction-weight-ratchet.js";
 import { measureInstructionWeight } from "./scan.js";
@@ -282,12 +283,8 @@ test("max: a total over the ceiling is a finding that names total, max, excess a
   assert.match(r.out, /max 20,000/);
   assert.match(r.out, /10,000 over/);
   assert.match(r.out, /CLAUDE\.md 30,000/);
-  // The fix is named, and moving text is named as NOT a fix.
-  assert.match(r.out, /Cut content/);
-  assert.match(
-    r.out,
-    /moving text to another always-loaded file does not help/,
-  );
+  // The CLI prints the remedy list; its wording is owned by instruction-remedies.test.ts.
+  assert.ok(r.out.includes(MOVE_OUT_OF_ALWAYS_LOADED), r.out);
 });
 
 test("max: holds independently of the baseline — an over-ceiling repo cannot hide behind a recorded one", () => {
