@@ -178,19 +178,29 @@ export function hookGateRef(
  *
  * - QUOTES. A path with a space MUST be quoted, so the quoted form is not an
  *   exotic spelling — it is the correct one. Comparing it raw could never match.
- * - `$CLAUDE_PROJECT_DIR`. It is defined as the project root, which is exactly
- *   what `normalizeHookRef` resolves relative paths against, so stripping the
- *   prefix makes the two spellings the same path by definition rather than by
- *   guess. `${CLAUDE_PROJECT_DIR}` is the same variable in brace syntax.
+ * - the harness's PROJECT-ROOT variable (Claude Code's `$CLAUDE_PROJECT_DIR`),
+ *   handed in by the caller from its layout. It is defined as the project
+ *   root, which is exactly what a relative path resolves against, so stripping
+ *   it makes the two spellings the same path by definition rather than by
+ *   guess. `${NAME}` and `$NAME` are the same variable. Core names no harness
+ *   variable itself.
  *
  * Nothing else is stripped. A token this function does not recognise is left
  * alone and simply fails to match, which is the pre-existing behaviour: the
  * cost of a miss here is a duplicate block, and the cost of an over-match is
  * deleting a hook the user wrote themselves.
  */
-export function bareToken(token: string): string {
+export function bareToken(
+  token: string,
+  rootTokens: readonly string[],
+): string {
   const unquoted = token.replace(/^["']/, "").replace(/["']$/, "");
-  return unquoted.replace(/^\$\{?CLAUDE_PROJECT_DIR\}?[/\\]/, "");
+  const prefix = rootTokens
+    .map((t) => t.replace(/^\$\{(.+)\}$/, "$1"))
+    .flatMap((name) => [`\${${name}}`, `$${name}`])
+    .flatMap((spelled) => [`${spelled}/`, `${spelled}\\`])
+    .find((p) => unquoted.startsWith(p));
+  return prefix === undefined ? unquoted : unquoted.slice(prefix.length);
 }
 
 /** The start-of-session check line `compile` wires beside the compiled hooks. */
@@ -348,9 +358,10 @@ export function commandNamesRef(
   command: string,
   refs: readonly string[],
   normalize: (word: string) => string,
+  rootTokens: readonly string[],
 ): boolean {
   return command.split(/\s+/).some((word) => {
-    const bare = bareToken(word);
+    const bare = bareToken(word, rootTokens);
     return bare !== "" && refs.includes(normalize(bare));
   });
 }

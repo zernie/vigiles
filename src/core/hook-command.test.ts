@@ -109,17 +109,17 @@ test("hookLinePlan reads the role from the stamp and the runtime from package.js
 
 test("commandNamesRef is compile's merge key: either spelling of a ref, never a longer name", () => {
   const same = (w: string) => w.replace(/^\.\//, "");
+  const names = (command: string) =>
+    commandNamesRef(command, [REF], same, TOKENS);
+  assert.equal(names(`node x "$PROJECT_DIR/${REF}"`), true);
+  assert.equal(names(`node x "\${PROJECT_DIR}/${REF}" || exit 0`), true);
+  assert.equal(names(`node x ./${REF} || exit 0`), true);
+  assert.equal(names("node x .vigiles/hooks/my-x.hook.mjs"), false);
+  // The root variables are the caller's (its harness layout): core strips no
+  // variable it was not handed.
+  assert.equal(names(`node x "$OTHER_DIR/${REF}"`), false);
   assert.equal(
-    commandNamesRef(`node x "$PROJECT_DIR/${REF}"`, [REF], same),
-    false,
-  );
-  assert.equal(
-    commandNamesRef(`node x "$CLAUDE_PROJECT_DIR/${REF}"`, [REF], same),
-    true,
-  );
-  assert.equal(commandNamesRef(`node x ./${REF} || exit 0`, [REF], same), true);
-  assert.equal(
-    commandNamesRef("node x .vigiles/hooks/my-x.hook.mjs", [REF], same),
+    commandNamesRef(`node x "$PROJECT_DIR/${REF}"`, [REF], same, []),
     false,
   );
 });

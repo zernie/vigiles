@@ -770,13 +770,18 @@ type HookLineReading =
  */
 function readHookLine(
   command: string,
-  plan: HookLinePlan,
-  root: string,
+  scan: Pick<HookScriptScan, "plan" | "root" | "layout">,
 ): HookLineReading {
+  const { plan, root } = scan;
   const planned = plan.lines.find((l) => l.command === command);
   if (planned !== undefined) return { kind: "compiled", files: planned.files };
   const ref = plan.sources.find((r) =>
-    commandNamesRef(command, [r], (w) => repoRef(w, root)),
+    commandNamesRef(
+      command,
+      [r],
+      (w) => repoRef(w, root),
+      scan.layout.projectRootTokens ?? [],
+    ),
   );
   return ref === undefined ? { kind: "hand-written" } : { kind: "stale", ref };
 }
@@ -859,7 +864,7 @@ export function scanHooks(
     .filter((r) => r.command.trim() !== "")
     .map((reg) => ({
       reg,
-      line: readHookLine(reg.command, scan.plan, scan.root),
+      line: readHookLine(reg.command, scan),
     }));
   const at = (reg: Readonly<HookRegistration>) => ({
     event: reg.event,
@@ -1259,7 +1264,7 @@ export function collectHookBlockEntries(
   scan: Pick<HookScriptScan, "root" | "layout" | "exists" | "plan">,
 ): HookScriptEntry[] {
   return regs.flatMap(({ event, command }): HookScriptEntry[] => {
-    const line = readHookLine(command, scan.plan, scan.root);
+    const line = readHookLine(command, scan);
     const files = (line.kind === "compiled" ? line.files : [])
       .map((f) => hookFilePath(f, scan.root, scan.layout))
       .filter(scan.exists);

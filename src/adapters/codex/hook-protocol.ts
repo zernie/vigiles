@@ -16,6 +16,7 @@
  */
 import type { HookProtocol } from "../../core/hook-protocol.js";
 import { mergeHooksToml } from "../../hook-install.js";
+import { codexLayout } from "./layout.js";
 
 export const codexHookProtocol: HookProtocol = {
   name: "codex",
@@ -54,6 +55,7 @@ export const codexHookProtocol: HookProtocol = {
       existing as Parameters<typeof mergeHooksToml>[0],
       compiled as Parameters<typeof mergeHooksToml>[1],
       managedBy,
+      codexLayout.projectRootTokens ?? [],
     ) as Record<string, unknown>;
   },
 };

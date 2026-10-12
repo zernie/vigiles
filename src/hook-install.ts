@@ -416,10 +416,19 @@ function ownedRefs(hookPath: string): readonly string[] {
  * which also de-duplicates settings written by an older version), while
  * `x.hook.ts` and `my-x.hook.ts` are not (a substring test said they were).
  */
-function managesHook(entry: HookEntry, hookPath: string): boolean {
+function managesHook(
+  entry: HookEntry,
+  hookPath: string,
+  rootTokens: readonly string[],
+): boolean {
   const refs = ownedRefs(hookPath);
   return entry.hooks.some((h) =>
-    commandNamesRef(h.command, refs, (word) => normalizeHookRef(word)),
+    commandNamesRef(
+      h.command,
+      refs,
+      (word) => normalizeHookRef(word),
+      rootTokens,
+    ),
   );
 }
 
@@ -455,10 +464,16 @@ function managesHook(entry: HookEntry, hookPath: string): boolean {
 function withoutHookCommands(
   entry: HookEntry,
   hookPath: string,
+  rootTokens: readonly string[],
 ): HookEntry | null {
-  if (!managesHook(entry, hookPath)) return entry;
+  if (!managesHook(entry, hookPath, rootTokens)) return entry;
   const kept = entry.hooks.filter(
-    (h) => !managesHook({ matcher: entry.matcher, hooks: [h] }, hookPath),
+    (h) =>
+      !managesHook(
+        { matcher: entry.matcher, hooks: [h] },
+        hookPath,
+        rootTokens,
+      ),
   );
   if (kept.length === entry.hooks.length) return entry;
   return kept.length === 0 ? null : { ...entry, hooks: kept };
@@ -476,6 +491,8 @@ export function mergeHooksJson(
   existing: SettingsJson,
   compiled: CompiledHooks,
   hookPath: string,
+  /** The harness's project-root variables, from its layout: the merge key strips them. */
+  rootTokens: readonly string[],
 ): SettingsJson {
   // No keyed assignment into a shallow copy, and the containers are `readonly`.
   // That copy would SHARE its arrays with the caller's object, so the purity of
@@ -490,7 +507,7 @@ export function mergeHooksJson(
       event,
       replaceInPlace(
         before[event] ?? [],
-        (e) => withoutHookCommands(e, hookPath),
+        (e) => withoutHookCommands(e, hookPath, rootTokens),
         entries,
       ),
     ]),
@@ -548,6 +565,7 @@ export function mergeHooksToml(
   existing: ConfigToml,
   compiled: CompiledHooks,
   hookPath: string,
+  rootTokens: readonly string[],
 ): ConfigToml {
   // Same canonical-path keying as the JSON merge, and the same no-assignment
   // shape. No per-command narrowing is needed HERE, and that is a fact about the
@@ -561,7 +579,7 @@ export function mergeHooksToml(
       event,
       replaceInPlace(
         before[event] ?? [],
-        (e) => managesHook({ hooks: [{ type: "command", command: e.command }] }, hookPath) ? null : e, // prettier-ignore
+        (e) => managesHook({ hooks: [{ type: "command", command: e.command }] }, hookPath, rootTokens) ? null : e, // prettier-ignore
         toTomlEntries(entries),
       ),
     ]),

@@ -10,8 +10,8 @@ import {
 } from "./core/hook-command.js";
 import {
   readHookRuntime,
-  mergeHooksJson,
-  mergeHooksToml,
+  mergeHooksJson as mergeJsonWith,
+  mergeHooksToml as mergeTomlWith,
   normalizeHookRef,
   serializeConfig,
   discoverHookFiles,
@@ -37,6 +37,23 @@ import { resolve } from "node:path";
 const REPO = resolve(__dirname, "..");
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+/** The project-root variables of the harness these merges are written for. */
+const CC = ["${CLAUDE_PROJECT_DIR}", "${CLAUDE_PROJECT}"] as const;
+
+/** The merges as the Claude Code adapter calls them: its root variables bound. */
+const mergeHooksJson = (
+  existing: Parameters<typeof mergeJsonWith>[0],
+  compiled: Parameters<typeof mergeJsonWith>[1],
+  hookPath: string,
+): ReturnType<typeof mergeJsonWith> =>
+  mergeJsonWith(existing, compiled, hookPath, CC);
+const mergeHooksToml = (
+  existing: Parameters<typeof mergeTomlWith>[0],
+  compiled: Parameters<typeof mergeTomlWith>[1],
+  hookPath: string,
+): ReturnType<typeof mergeTomlWith> =>
+  mergeTomlWith(existing, compiled, hookPath, CC);
 
 const compiled = {
   PreToolUse: [
@@ -859,7 +876,6 @@ describe("mergeHooksJson / mergeHooksToml: a marked hook takes over its pre-mark
 });
 
 describe("hookGateRef — what compile EMITS", () => {
-  const CC = ["${CLAUDE_PROJECT_DIR}", "${CLAUDE_PROJECT}"] as const;
   const wire = (ref: string, tokens: readonly string[] | undefined) => ({
     PreToolUse: [
       {
