@@ -249,7 +249,7 @@ test("an explicit rules entry overrides the preset, in both directions", () => {
   assert.ok(r.success);
   assert.equal(r.data.rules["hook-events"], "warn", "downgraded by the user");
   assert.equal(r.data.rules["description-overlap"], false, "turned off");
-  assert.equal(r.data.rules["hook-script-exists"], "error", "rest stays gated");
+  assert.equal(r.data.rules["mcp-config"], "error", "rest stays gated");
 });
 
 test("without extends, no rule moves off its built-in default", () => {
@@ -430,4 +430,16 @@ test("loadConfig refuses a folded rule with that message, not 'unknown key'", ()
   } finally {
     cleanupTmpDir(dir);
   }
+});
+
+/**
+ * #361 names every hand-written hook under `hook-script-exists`. Until compiled
+ * plugin hooks exist (#372), a plugin cannot get rid of its own hand-written
+ * hooks, so the preset leaves the rule at `warn`. #372 makes it `error`; this is
+ * the one assertion that flip changes.
+ */
+test("vigiles:recommended leaves hook-script-exists at warn until #372", () => {
+  const r = parseVigilesConfig({ extends: "vigiles:recommended" });
+  assert.ok(r.success);
+  assert.equal(r.data.rules["hook-script-exists"], "warn");
 });

@@ -97,15 +97,16 @@ not the scanner's cwd.
 
 ### Severity
 
-| Value              | Behavior                                                                        |
-| ------------------ | ------------------------------------------------------------------------------- |
-| `"error"`          | `vigiles lint` exits non-zero (2); what `"extends": "vigiles:recommended"` sets |
-| `"warn"` (default) | Prints a warning, exits 0                                                       |
-| `false`            | Skip the check                                                                  |
+| Value              | Behavior                          |
+| ------------------ | --------------------------------- |
+| `"error"`          | `vigiles lint` exits non-zero (2) |
+| `"warn"` (default) | Prints a warning, exits 0         |
+| `false`            | Skip the check                    |
 
-Under `vigiles:recommended` every hand-written hook fails the lint until it is
-compiled (`vigiles/hook`) or the rule is turned down for the path that holds it
-(`overrides`).
+**`warn` for now, also under `"extends": "vigiles:recommended"`.** It becomes
+`error` there once [#372](https://github.com/zernie/vigiles/issues/372) lands:
+that change compiles a plugin's own hooks, and until it does a plugin has no
+way to stop shipping hand-written ones. Set `"error"` yourself to gate today.
 
 ## Scope
 

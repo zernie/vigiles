@@ -207,9 +207,10 @@ preset is `vigiles:recommended`. `npx vigiles init` writes it for you.
 `vigiles:recommended` raises the **structural** rules to `error`. These rules
 fire only on a real defect, so a well-formed harness stays green:
 `subagent-tool-contract`, `subagent-frontmatter`, `hook-events`,
-`hook-script-exists`, `mcp-config`, `mcp-tool-resolves`,
-`mcp-hook-target-resolves`, `disallowed-tools-contract` and
-`description-overlap`. It also gates [`compile-budget`](rules/compile-budget.md):
+`mcp-config`, `mcp-tool-resolves`, `mcp-hook-target-resolves`,
+`disallowed-tools-contract` and `description-overlap`.
+[`hook-script-exists`](rules/hook-script-exists.md) stays at `warn` for now; it
+becomes `error` with [#372](https://github.com/zernie/vigiles/issues/372). It also gates [`compile-budget`](rules/compile-budget.md):
 a compiled instruction file whose Rules section is over 20,000 characters, or
 with a section over 15,000 or a `commands` entry over 200, fails `compile` and
 `lint`. And it gates

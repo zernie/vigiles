@@ -23,9 +23,13 @@ import type { RulesConfig } from "./types.js";
 /**
  * The rules `vigiles:recommended` raises to `error` — the FP-safe structural
  * group: each one fires only on a genuine defect (a never-available or typo'd
- * tool, a subagent missing `name`/`description`, a typo'd hook event, a dead hook
- * script, a broken MCP reference, two skills that collide in the selector), so a
- * well-formed harness stays green.
+ * tool, a subagent missing `name`/`description`, a typo'd hook event, a broken
+ * MCP reference, two skills that collide in the selector), so a well-formed
+ * harness stays green.
+ *
+ * `hook-script-exists` is NOT here yet: it names every hand-written hook
+ * (#361), and a plugin has no compiled alternative for its own hooks until #372
+ * (https://github.com/zernie/vigiles/issues/372), which adds it back.
  *
  * Also gates `require-instructions-spec`: a hand-written CLAUDE.md / AGENTS.md
  * is a file whose references nothing re-verifies on change. It is the one rule
@@ -42,7 +46,6 @@ export const RECOMMENDED_RULES = [
   "subagent-tool-contract",
   "subagent-frontmatter",
   "hook-events",
-  "hook-script-exists",
   "mcp-config",
   "mcp-tool-resolves",
   "mcp-hook-target-resolves",
