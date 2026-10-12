@@ -103,11 +103,6 @@ export interface OrphansConfig {
    * tree) explicitly. Set to `[]` to opt in but scan nothing.
    */
   include?: readonly string[];
-  /**
-   * Glob patterns to exclude within the include scope. Same shape as
-   * `tsconfig.json#exclude`.
-   */
-  exclude?: readonly string[];
 }
 
 /**
@@ -119,8 +114,6 @@ export interface OrphansConfig {
 export interface TestCoverageConfig {
   /** Globs of test files that count as coverage. */
   include?: readonly string[];
-  /** Extra ignore globs. */
-  exclude?: readonly string[];
   /**
    * Which extension the SUGGESTED test path in an untested-* finding uses
    * (`<surface>.harness.<ext>`). Detection decides by default — a `tsconfig.json`

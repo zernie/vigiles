@@ -316,11 +316,6 @@ export interface TestCoverageOptions {
    */
   readonly testExtension?: string;
   /**
-   * The rule's own `exclude` globs, relative to `root` (added to
-   * node_modules/dist/.git/.vigiles). NARROWS on top of {@link excludes}.
-   */
-  readonly exclude?: readonly string[];
-  /**
    * The repo-wide `.vigilesrc.json#exclude`. It carries its own root, so it is
    * applied correctly whichever directory is being discovered — a string list
    * here was correct only when that directory WAS the repo root (#281).
@@ -841,7 +836,7 @@ export function findUntestedSurfaces(
   const basePath = options.basePath ?? process.cwd();
   const root = options.root ?? basePath;
   const { layout } = options;
-  const ruleIgnore = [...DEFAULT_IGNORE, ...(options.exclude ?? [])];
+  const ruleIgnore = DEFAULT_IGNORE;
   const ignore = withIgnored(ruleIgnore, options.excludes?.globIgnore);
   const globs = options.include ?? DEFAULT_TEST_GLOBS;
   // #281: surfaces are FOUND under the bundle and then re-expressed from `root`,

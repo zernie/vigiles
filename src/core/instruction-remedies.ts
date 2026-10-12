@@ -43,40 +43,48 @@ export function adoptInstructionFileRemedy(path: string): string {
   ].join("\n");
 }
 
+/** The folder of a repository-relative path, as a root-relative glob. */
+function folderGlob(path: string): string {
+  const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+  return dir === "" ? "<folder>/**" : `${dir}/**`;
+}
+
 /**
  * For a file the repository does not own — vendored, a corpus, a fixture: drop
- * its folder from what vigiles polices. `exclude` is top-level in
+ * its folder from what vigiles reads. `exclude` is top-level in
  * `.vigilesrc.json`, and its globs are relative to the repository root.
  */
 export function excludeFolderRemedy(path: string): string {
-  const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-  const glob = dir === "" ? "<folder>/**" : `${dir}/**`;
   return [
     `Not your file (vendored, a corpus, a fixture)? Exclude its folder in .vigilesrc.json:`,
-    `    { "exclude": ["${glob}"] }`,
+    `    { "exclude": ["${folderGlob(path)}"] }`,
   ].join("\n");
 }
 
 /**
- * For a repository that keeps hand-written instruction files on purpose (a
- * notes or knowledge-base repo): turn the rule off for the repository, or mark
- * one file as hand-owned.
+ * For instruction files kept hand-written on purpose (a notes or
+ * knowledge-base folder): turn the rule off for those folders with an
+ * `overrides` entry — the rule keeps guarding every other folder. Off for the
+ * whole repository is the last resort, named last.
  */
-export const KEEP_HAND_WRITTEN_REMEDY = [
-  `Keeping hand-written instruction files on purpose? Turn the rule off in .vigilesrc.json:`,
-  `    { "rules": { "require-instructions-spec": "off" } }`,
-  `  or keep just this file hand-written: put <!-- vigiles-disable require-instructions-spec --> at its top.`,
-].join("\n");
+export function keepHandWrittenRemedy(path: string): string {
+  return [
+    `Keeping instruction files hand-written on purpose (a notes or knowledge-base folder)? Turn the rule off for those folders in .vigilesrc.json:`,
+    `    { "overrides": [{ "files": ["${folderGlob(path)}"], "rules": { "require-instructions-spec": "off" } }] }`,
+    `  Only if no instruction file in the repository should have a spec: { "rules": { "require-instructions-spec": "off" } }`,
+  ].join("\n");
+}
 
 /**
  * Everything a `require-instructions-spec` finding says to do, in the order to
- * try it: adopt, else exclude what is not yours, else turn the rule off. It is
- * the first finding a new adopter sees, so it names commands, not concepts.
+ * try it: adopt, else exclude what is not yours, else turn the rule off for the
+ * folders that stay hand-written. It is the first finding a new adopter sees,
+ * so it names commands and config, not concepts.
  */
 export function handWrittenInstructionRemedy(path: string): string {
   return [
     `1. ${adoptInstructionFileRemedy(path)}`,
     `2. ${excludeFolderRemedy(path)}`,
-    `3. ${KEEP_HAND_WRITTEN_REMEDY}`,
+    `3. ${keepHandWrittenRemedy(path)}`,
   ].join("\n");
 }

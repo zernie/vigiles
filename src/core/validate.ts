@@ -29,6 +29,7 @@ import {
   formatConfigIssues,
   REPLACED_KEYS,
   replacedKeyMessage,
+  movedToOverridesMessages,
   VigilesConfigError,
 } from "./config-schema.js";
 
@@ -199,6 +200,7 @@ export function loadConfig(
       problems.push(replacedKeyMessage(present, names));
     }
   }
+  problems.push(...movedToOverridesMessages(raw));
   if (problems.length === 0) {
     const parsed = parseVigilesConfig(raw);
     if (parsed.success) return parsed.data;

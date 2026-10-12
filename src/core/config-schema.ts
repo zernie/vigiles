@@ -114,11 +114,14 @@ const coverageThresholds = z
   })
   .strict();
 
-/** Discovery options shared by the three `untested-*` rules. */
+/**
+ * Discovery options shared by the `untested-*` rules. `include` is where tests
+ * live — a real option of the rule. Skipping paths is not: that is `overrides`
+ * with the rule off (see {@link MOVED_TO_OVERRIDES}).
+ */
 const testCoverageConfig = z
   .object({
     include: stringList.optional(),
-    exclude: stringList.optional(),
     testExtension: z.string().optional(),
   })
   .strict();
@@ -204,6 +207,42 @@ const rulesSchema = z
 export const RULE_NAMES: readonly string[] = Object.keys(rulesSchema.shape);
 
 // ---------------------------------------------------------------------------
+// Overrides — per-path severities (`./overrides.ts`)
+// ---------------------------------------------------------------------------
+
+/**
+ * The rule set as an override may spell it: every rule, a SEVERITY only, no
+ * default. Options stay in `rules` — one place — so `["error", { … }]` here is
+ * refused rather than accepted and never read. Derived from `rulesSchema`'s
+ * keys, so a rule added there is overridable with no second list, and an
+ * unknown name gets the same "did you mean" as in `rules`.
+ */
+const overrideRulesSchema = z
+  .object(
+    Object.fromEntries(
+      Object.keys(rulesSchema.shape).map((name) => [
+        name,
+        severitySchema.optional(),
+      ]),
+    ),
+  )
+  .strict();
+
+/**
+ * One `overrides` entry. `files` are root-relative globs with top-level
+ * `exclude`'s semantics; an entry with none would apply nowhere, so it is
+ * refused rather than kept as a line that does nothing.
+ */
+const overrideSchema = z
+  .object({
+    files: stringList.refine((globs) => globs.length > 0, {
+      message: "needs at least one glob",
+    }),
+    rules: overrideRulesSchema,
+  })
+  .strict();
+
+// ---------------------------------------------------------------------------
 // Harnesses (#240)
 // ---------------------------------------------------------------------------
 
@@ -265,11 +304,16 @@ export const vigilesConfigSchema = z
     orphans: z
       .object({
         include: stringList.optional(),
-        exclude: stringList.optional(),
       })
       .strict()
       .optional(),
     exclude: stringList.optional(),
+    /**
+     * Per-path rule severities, ESLint's `{ files, rules }` list: a later entry
+     * wins over an earlier one, any entry over `rules`, `rules` over `extends`.
+     * Resolved by `ruleResolver` (`./overrides.ts`).
+     */
+    overrides: z.array(overrideSchema).optional(),
     sharedDirs: stringList.optional(),
     harnesses: z.record(z.string(), harnessDeclarationSchema).optional(),
     audit: z.object({ measure: z.boolean().optional() }).strict().optional(),
@@ -432,6 +476,63 @@ export function replacedKeyMessage(
   );
 }
 
+/**
+ * The per-rule `exclude` options that became `overrides`, and the rules an
+ * equivalent override turns off. `untested-*` shared ONE merged option set, so
+ * an `exclude` on any of them skipped those paths for all four.
+ */
+export const MOVED_TO_OVERRIDES: ReadonlyArray<{
+  /** Where the option sat: a rule name, or the `orphans` block. */
+  readonly owner: string;
+  /** The rules the equivalent override turns off. */
+  readonly rules: readonly string[];
+}> = [
+  ...[
+    "untested-skill",
+    "untested-subagent",
+    "untested-hook",
+    "untested-output-style",
+  ].map((owner, _i, all) => ({ owner, rules: all })),
+  { owner: "orphans", rules: ["orphan-docs"] },
+];
+
+/** A plain JSON object, narrowed without a cast. */
+function isRecord(v: unknown): v is Readonly<Record<string, unknown>> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** The `exclude` an old config wrote under `owner`, as a glob list, if any. */
+function movedExclude(raw: unknown, owner: string): readonly string[] | null {
+  if (!isRecord(raw)) return null;
+  const value = isRecord(raw.rules) ? raw.rules[owner] : undefined;
+  const tuple: readonly unknown[] = Array.isArray(value) ? value : [];
+  const holder = owner === "orphans" ? raw.orphans : tuple[1];
+  if (!isRecord(holder) || holder.exclude === undefined) return null;
+  const globs = [holder.exclude].flat();
+  return globs.filter((g): g is string => typeof g === "string");
+}
+
+/**
+ * The message an old config with a per-rule `exclude` gets — the user's OWN
+ * globs, written as the `overrides` entry that does what the option did.
+ *
+ * Read BEFORE the schema, like {@link REPLACED_KEYS}: the reader's config used
+ * to work, so "unknown key exclude" would be true and useless.
+ */
+export function movedToOverridesMessages(raw: unknown): readonly string[] {
+  return MOVED_TO_OVERRIDES.flatMap(({ owner, rules }) => {
+    const globs = movedExclude(raw, owner);
+    if (globs === null) return [];
+    const files = globs.map((g) => JSON.stringify(g)).join(", ");
+    const off = rules.map((r) => `"${r}": "off"`).join(", ");
+    return [
+      `.vigilesrc.json: "exclude" inside "${owner}" moved to "overrides" — skipping paths is not a rule option any more; an override turns the rule off for them.\n` +
+        `  Write:  "overrides": [{ "files": [${files}], "rules": { ${off} } }]\n` +
+        `  and remove "exclude" from "${owner}". Paths top-level "exclude" removes are not read at all; an override only changes what a rule reports.`,
+    ];
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Messages — the half a schema library does NOT give you
 // ---------------------------------------------------------------------------
@@ -453,6 +554,8 @@ function knownKeysAt(path: readonly PropertyKey[]): readonly string[] {
       ?.def;
     if (def?.type === "object") {
       node = (def.shape as Record<string, unknown> | undefined)?.[String(seg)];
+    } else if (def?.type === "array") {
+      node = def.element;
     } else if (def?.type === "record") {
       node = def.valueType;
     } else {

@@ -19,7 +19,7 @@ import {
   MOVE_OUT_OF_ALWAYS_LOADED,
   adoptInstructionFileRemedy,
   excludeFolderRemedy,
-  KEEP_HAND_WRITTEN_REMEDY,
+  keepHandWrittenRemedy,
   handWrittenInstructionRemedy,
 } from "./instruction-remedies.js";
 import { vigilesConfigSchema } from "./config-schema.js";
@@ -103,7 +103,7 @@ describe("what a require-instructions-spec finding says to do", () => {
       adoptInstructionFileRemedy("vendor/kit/CLAUDE.md"),
     );
     const exclude = msg.indexOf(excludeFolderRemedy("vendor/kit/CLAUDE.md"));
-    const off = msg.indexOf(KEEP_HAND_WRITTEN_REMEDY);
+    const off = msg.indexOf(keepHandWrittenRemedy("vendor/kit/CLAUDE.md"));
     expect(adopt).toBeGreaterThanOrEqual(0);
     expect(exclude).toBeGreaterThan(adopt);
     expect(off).toBeGreaterThan(exclude);
@@ -115,15 +115,22 @@ describe("what a require-instructions-spec finding says to do", () => {
     );
   });
 
-  it("the off snippet is a config the schema accepts", () => {
-    expect(KEEP_HAND_WRITTEN_REMEDY).toContain(
-      '{ "rules": { "require-instructions-spec": "off" } }',
-    );
-    expect(
-      vigilesConfigSchema.safeParse({
-        rules: { "require-instructions-spec": "off" },
-        exclude: ["vendor/kit/**"],
-      }).success,
-    ).toBe(true);
+  it("the third way out turns the rule off for the folder, whole-repo off last", () => {
+    const keep = keepHandWrittenRemedy("notes/CLAUDE.md");
+    const folder =
+      '{ "overrides": [{ "files": ["notes/**"], "rules": { "require-instructions-spec": "off" } }] }';
+    const repo = '{ "rules": { "require-instructions-spec": "off" } }';
+    expect(keep).toContain(folder);
+    expect(keep.indexOf(repo)).toBeGreaterThan(keep.indexOf(folder));
+  });
+
+  it("every snippet it prints is a config the schema accepts", () => {
+    const snippets = [
+      ...handWrittenInstructionRemedy("notes/CLAUDE.md").matchAll(/\{ "[^\n]*\}/g),
+    ].map((m): unknown => JSON.parse(m[0]));
+    expect(snippets).toHaveLength(3);
+    snippets.forEach((snippet) => {
+      expect(vigilesConfigSchema.safeParse(snippet).success).toBe(true);
+    });
   });
 });

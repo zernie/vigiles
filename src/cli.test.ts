@@ -1503,7 +1503,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
         readFileSync(join(dir, ".vigilesrc.json"), "utf-8"),
       ) as { extends?: string; rules?: Record<string, string> };
       assert.equal(
-        cfg.rules?.["require-instructions-spec"],
+        cfg.rules?.["untested-skill"],
         "error",
         "workflow rule gated under --strict",
       );
