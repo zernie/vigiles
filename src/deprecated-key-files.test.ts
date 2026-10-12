@@ -13,20 +13,17 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import { makeTmpDir, cleanupTmpDir, humanCliEnv } from "./core/test-utils.js";
 
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
 
 let dir: string;
 
 function run(args: readonly string[]): { code: number; out: string } {
-  const env = { ...process.env };
-  delete env.GITHUB_ACTIONS;
-  delete env.GITHUB_STEP_SUMMARY;
   const r = spawnSync("node", [CLI, ...args], {
     cwd: dir,
     encoding: "utf-8",
-    env,
+    env: humanCliEnv(),
   });
   return { code: r.status ?? 1, out: `${r.stdout}${r.stderr}` };
 }

@@ -17,6 +17,22 @@ import { makeTmpDir } from "./tmp-root.js";
 export const REPO_ROOT = resolve(__dirname, "..", "..");
 
 /**
+ * The environment for a CLI child whose HUMAN-READABLE output a test reads:
+ * this process's env with GitHub's annotation mode off.
+ *
+ * 🔴 Found by CI, not locally: under `GITHUB_ACTIONS` every finding is ALSO
+ * emitted as a `::warning::` / `::error::` annotation carrying the same
+ * message, so counting a finding's text in stdout doubles it on the runner
+ * while passing on a laptop. `GITHUB_STEP_SUMMARY` is dropped with it.
+ */
+export function humanCliEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.GITHUB_ACTIONS;
+  delete env.GITHUB_STEP_SUMMARY;
+  return env;
+}
+
+/**
  * A throwaway project whose ESLint is THIS repo's installed eslint (symlinked,
  * not mocked) and whose flat config is `config`, written as `eslint.config.mjs`.
  * The rule-resolution probe runs the real ESLint against it, so a fixture built

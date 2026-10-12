@@ -31,7 +31,11 @@ import { join, resolve } from "node:path";
 import { claudeCodeDialect } from "./dialect.js";
 import { claudeCodeLayout } from "./layout.js";
 import { scanPlugin } from "../../scan.js";
-import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
+import {
+  makeTmpDir,
+  cleanupTmpDir,
+  humanCliEnv,
+} from "../../core/test-utils.js";
 
 const REPO = resolve(__dirname, "..", "..", "..");
 const CLI = join(REPO, "dist", "cli.js");
@@ -70,6 +74,7 @@ function cli(
   const r = spawnSync(process.execPath, [CLI, ...args], {
     cwd: dir,
     encoding: "utf-8",
+    env: humanCliEnv(),
   });
   return { status: r.status, stdout: r.stdout + r.stderr };
 }
@@ -133,6 +138,7 @@ test("a file a compiled hook needs is missing → hook-script-exists names it", 
     const r = spawnSync(process.execPath, [CLI, "lint"], {
       cwd: dir,
       encoding: "utf-8",
+      env: humanCliEnv(),
     });
     assert.match(r.stdout, /Hook-script existence check:/);
     assert.match(

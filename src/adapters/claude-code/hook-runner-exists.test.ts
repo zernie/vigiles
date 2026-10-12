@@ -33,7 +33,11 @@ import { claudeCodeDialect } from "./dialect.js";
 import { claudeCodeLayout } from "./layout.js";
 import { scanPlugin } from "../../scan.js";
 import { scanFiles } from "../../scan-files.js";
-import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
+import {
+  makeTmpDir,
+  cleanupTmpDir,
+  humanCliEnv,
+} from "../../core/test-utils.js";
 
 const CLI = resolve(process.cwd(), "dist", "cli.js");
 const RUNNER = "node_modules/vigiles/dist/cli.js";
@@ -191,6 +195,7 @@ test("`lint`: a fail-open compiled hook whose runner is not installed is an ERRO
     const r = spawnSync(process.execPath, [CLI, "lint"], {
       cwd: dir,
       encoding: "utf-8",
+      env: humanCliEnv(),
     });
     assert.notEqual(r.status, 0, r.stdout);
     assert.match(r.stdout, /Hook-script existence check:/);
@@ -209,6 +214,7 @@ test("`lint`: a fail-open compiled hook whose runner is not installed is an ERRO
     const ok = spawnSync(process.execPath, [CLI, "lint"], {
       cwd: dir,
       encoding: "utf-8",
+      env: humanCliEnv(),
     });
     assert.doesNotMatch(ok.stdout, /is referenced but/);
     assert.equal(
