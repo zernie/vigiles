@@ -37,10 +37,10 @@ const HASH_LINE_IN_BODY_RE =
  * Split off a leading frontmatter block. `head` is `""` when the file has none, so a caller can
  * concatenate `head + body` unconditionally and get the original content back.
  */
-export function splitFrontmatter(content: string): {
+export function splitFrontmatter(content: string): Readonly<{
   head: string;
   body: string;
-} {
+}> {
   const m = FRONTMATTER_RE.exec(content);
   return m
     ? { head: m[0], body: content.slice(m[0].length) }
@@ -55,12 +55,12 @@ export function splitFrontmatter(content: string): {
  * This is the ONLY place that knows where the header can be. Matching `/^<!-- vigiles:sha256/`
  * by hand elsewhere is the bug this function exists to make unnecessary.
  */
-export function findIntegrityHeader(content: string): {
+export function findIntegrityHeader(content: string): Readonly<{
   hash: string;
   specFile: string;
   /** `content` minus the header, frontmatter still in place. */
   withoutHeader: string;
-} | null {
+}> | null {
   const { head, body } = splitFrontmatter(content);
   // After the frontmatter — the current placement. The leading `\s*` is load-bearing: the header
   // is written one blank line below the closing `---` for readability, so an anchor at position 0

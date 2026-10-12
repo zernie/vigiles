@@ -335,32 +335,16 @@ describe("validate", () => {
 // require-instructions-spec rule
 // ---------------------------------------------------------------------------
 
-describe("require-instructions-spec", () => {
+// What a hand-written instruction file's finding says, and which file is one.
+describe("require-instructions-spec — the finding", () => {
   let tmpDir: string;
 
   before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-require-instructions-spec-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-ris-finding-"));
   });
 
   after(() => {
     rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("should error when no .spec.ts file exists", () => {
-    const subDir = join(tmpDir, "no-spec");
-    mkdirSync(subDir, { recursive: true });
-    const mdPath = join(subDir, "CLAUDE.md");
-    writeFileSync(mdPath, "# CLAUDE.md\n### Rule\n**Enforced by:** `x`\n");
-
-    const result = validate("# CLAUDE.md\n### Rule\n**Enforced by:** `x`\n", {
-      filePath: mdPath,
-      rules: { "require-instructions-spec": "error" },
-    });
-    assert.equal(result.valid, false);
-    assert.ok(
-      result.errors.some((e) => e.rule === "require-instructions-spec"),
-    );
-    assert.ok(result.errors[0].message.includes("No spec file"));
   });
 
   it("says what to do with the file: the shared three-step remedy", () => {
@@ -398,6 +382,35 @@ describe("require-instructions-spec", () => {
     assert.ok(
       !result.errors.some((e) => e.rule === "require-instructions-spec"),
     );
+  });
+});
+
+describe("require-instructions-spec", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-require-instructions-spec-"));
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should error when no .spec.ts file exists", () => {
+    const subDir = join(tmpDir, "no-spec");
+    mkdirSync(subDir, { recursive: true });
+    const mdPath = join(subDir, "CLAUDE.md");
+    writeFileSync(mdPath, "# CLAUDE.md\n### Rule\n**Enforced by:** `x`\n");
+
+    const result = validate("# CLAUDE.md\n### Rule\n**Enforced by:** `x`\n", {
+      filePath: mdPath,
+      rules: { "require-instructions-spec": "error" },
+    });
+    assert.equal(result.valid, false);
+    assert.ok(
+      result.errors.some((e) => e.rule === "require-instructions-spec"),
+    );
+    assert.ok(result.errors[0].message.includes("No spec file"));
   });
 
   it("should pass when .spec.ts file exists", () => {

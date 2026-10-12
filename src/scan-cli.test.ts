@@ -32,6 +32,14 @@ import { execSync } from "node:child_process";
 import { VERBS } from "./cli-commands.js";
 import { knownFlagsFor } from "./cli-flag-check.js";
 import { adoptInstructionFileRemedy } from "./core/instruction-remedies.js";
+import { z } from "zod";
+
+/** The part of `audit --json` the adoption tests read — parsed, not cast. */
+const adoptableReport = z.object({
+  adoptable: z
+    .object({ surfaces: z.array(z.object({ path: z.string() })) })
+    .optional(),
+});
 
 // __dirname is src/ when vitest resolves the .ts source → ".." is the repo root.
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
@@ -682,9 +690,7 @@ describe("audit → every hand-written instruction file, nested included", () =>
 
   it("--json counts exactly the hand-written ones", () => {
     const r = run(`audit ${root} --json`);
-    const report = JSON.parse(r.stdout) as {
-      adoptable?: { surfaces: { path: string }[] };
-    };
+    const report = adoptableReport.parse(JSON.parse(r.stdout));
     const paths = (report.adoptable?.surfaces ?? []).map((s) => s.path).sort();
     assert.deepEqual(paths, [...handWritten].sort());
   });

@@ -667,6 +667,25 @@ function collectMcpServers(
  * `AuditReport` the CLI's `audit --json` produces over the same files (modulo the
  * checkout path — see {@link BROWSER_ROOT}).
  */
+/** The instruction file and whether it is spec-managed — the same predicate
+ * as the disk scan (`scan.ts`), so the twins agree. */
+function instructionsOf(
+  files: Readonly<Record<string, string>>,
+  loadedFiles: Readonly<Record<string, string>>,
+  lay: PluginLayout,
+): ScanInstructions | null {
+  const content = loadedFiles[lay.instructionFile];
+  if (content === undefined) return null;
+  return {
+    file: lay.instructionFile,
+    hasSpec:
+      instructionSpecState(
+        content,
+        hasFile(files, `${lay.instructionFile}.spec.ts`),
+      ) === "spec-managed",
+  };
+}
+
 export function scanFiles(
   files: Record<string, string>,
   layout: PluginLayout = claudeCodeLayout,
@@ -687,18 +706,7 @@ export function scanFiles(
   const eventNames = hookEventNames(loaded.settings.hooks);
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
   const hookEventIssues = scoredIssues(allHookEventIssues);
-  const instructions: ScanInstructions | null =
-    loaded.files[lay.instructionFile] !== undefined
-      ? {
-          file: lay.instructionFile,
-          // The same predicate as the disk scan (`scan.ts`), so the twins agree.
-          hasSpec:
-            instructionSpecState(
-              loaded.files[lay.instructionFile],
-              hasFile(files, `${lay.instructionFile}.spec.ts`),
-            ) === "spec-managed",
-        }
-      : null;
+  const instructions = instructionsOf(files, loaded.files, lay);
   // The BOUNDED candidate set over the map, then the same one-level import pass
   // the disk walk runs — `resolveImports` lives in the core precisely so these
   // two cannot drift. An import the fetcher never fetched simply stays unread,

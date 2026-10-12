@@ -3107,7 +3107,7 @@ function handWrittenInstructionFiles(
   root: string,
   instructionFile: string,
   excludes: ExcludeSet,
-): string[] {
+): readonly string[] {
   return gatherInstructionFiles(root, instructionFile, excludes)
     .filter(
       (f) =>
@@ -3123,7 +3123,7 @@ function handWrittenInstructionFiles(
  * root-level `determineTargets` does not see. Bare `init` adopts them too, so a
  * repo it sets up passes `require-instructions-spec` (in `vigiles:recommended`)
  * on its first `lint`. Read with the repo's own `exclude`. */
-function nestedHandWrittenInstructionFiles(cwd: string): string[] {
+function nestedHandWrittenInstructionFiles(cwd: string): readonly string[] {
   const config = loadConfig();
   return handWrittenInstructionFiles(
     cwd,
@@ -3146,7 +3146,7 @@ function discoverAdoptableForAudit(
   return [
     ...handWrittenInstructionFiles(root, instructionFile, excludes),
     ...discoverAdoptableSurfaces(root),
-  ];
+  ].filter((p) => !excludedBy(excludes)(resolve(root, p)));
 }
 
 /** Lint-config file BASENAMES whose CONTENTS (textual, NEVER executed) reveal
@@ -9398,9 +9398,7 @@ export async function main(): Promise<void> {
           root,
           adapter.layout.instructionFile,
           excludes,
-        )
-          .filter((p) => !excludedBy(excludes)(resolve(root, p)))
-          .map((p) => auditedBundle.scanned(p));
+        ).map((p) => auditedBundle.scanned(p));
         // Read the local flight recorder ONCE — feeds both the JSON report
         // (structured summary, the product boundary) and the terminal render.
         const ledgerRecords = readObservations(root);

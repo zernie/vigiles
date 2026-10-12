@@ -280,6 +280,25 @@ export function parseRules(
 // Core validation
 // ---------------------------------------------------------------------------
 
+/**
+ * The `require-instructions-spec` finding for one instruction file, or `null`
+ * when it is spec-managed or opted out (`instructionSpecState`, the one answer
+ * `audit` asks too). The message says what to do, in order.
+ */
+function handWrittenFinding(
+  content: string,
+  filePath: string,
+): ValidationError | null {
+  const specPath = filePath + ".spec.ts";
+  if (instructionSpecState(content, existsSync(specPath)) !== "hand-written")
+    return null;
+  return {
+    rule: "require-instructions-spec",
+    message: `No spec file found for "${filePath}". Expected "${specPath}".\n${handWrittenInstructionRemedy(filePath)}`,
+    line: 1,
+  };
+}
+
 export function validate(
   content: string,
   { ruleMarkers, rules: rulesConfig, filePath, dialect }: ValidateOptions = {},
@@ -317,23 +336,11 @@ export function validate(
     // `vigiles init` auto-adopts every instruction file into a spec, so this is
     // green by construction after setup.
     const specSeverity = activeRules["require-instructions-spec"];
-    if (specSeverity && isInstruction) {
-      const specPath = filePath + ".spec.ts";
-      if (
-        instructionSpecState(content, existsSync(specPath)) === "hand-written"
-      ) {
-        const msg: ValidationError = {
-          rule: "require-instructions-spec",
-          message: `No spec file found for "${filePath}". Expected "${specPath}".\n${handWrittenInstructionRemedy(filePath)}`,
-          line: 1,
-        };
-        if (specSeverity === "error") {
-          errors.push(msg);
-        } else {
-          warnings.push(msg);
-        }
-      }
-    }
+    const specFinding = isInstruction
+      ? handWrittenFinding(content, filePath)
+      : null;
+    if (specSeverity && specFinding)
+      (specSeverity === "error" ? errors : warnings).push(specFinding);
 
     // --- require-skill-spec (SKILL.md) — the consistent require-<surface>-spec
     // parallel, off by default; honored when a user sets it explicitly.

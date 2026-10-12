@@ -442,11 +442,7 @@ test("mergeProjectConfig: --strict adds the workflow-forcing tier on top of the 
 test("WORKFLOW_RULES is untested-*; nudge rules are NOT gated", () => {
   // A spec per instruction file moved to the preset (`vigiles:recommended`):
   // one group owns each rule, so `--strict` does not write it a second time.
-  assert.ok(
-    !(WORKFLOW_RULES as readonly string[]).includes(
-      "require-instructions-spec",
-    ),
-  );
+  assert.ok(!new Set<string>(WORKFLOW_RULES).has("require-instructions-spec"));
   assert.ok(WORKFLOW_RULES.includes("untested-skill"));
   // frontmatter-valid / skill-frontmatter are nudge-group — never gated, even --strict.
   assert.ok(
@@ -463,18 +459,15 @@ test("mergeProjectConfig: a setup that scaffolds no spec turns require-instructi
   // instruction file. Declining is recorded, not re-asked.
   const gate = mergeProjectConfig(
     {},
-    { harnesses: ["claude-code"], strict: false, specs: false },
+    { harnesses: [], strict: false, specs: false },
   );
   assert.deepEqual(gate?.rules, { "require-instructions-spec": "off" });
   const kept = mergeProjectConfig(
     { rules: { "require-instructions-spec": "error" } },
-    { harnesses: ["claude-code"], strict: false, specs: false },
+    { harnesses: [], strict: false, specs: false },
   );
   assert.deepEqual(kept?.rules, { "require-instructions-spec": "error" });
-  const full = mergeProjectConfig(
-    {},
-    { harnesses: ["claude-code"], strict: false },
-  );
+  const full = mergeProjectConfig({}, { harnesses: [], strict: false });
   assert.equal(full?.rules, undefined);
 });
 
