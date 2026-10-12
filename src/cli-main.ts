@@ -14,6 +14,7 @@
  * REMOVED commands, not against a list that merely stops growing.
  */
 
+import { registerSelfResolve } from "./runtime-self-resolve.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { anchoredWord, runProgramCommand } from "./core/hook-command.js";
 import {
@@ -8591,6 +8592,9 @@ async function installHookFile(
   target: HookTarget = { kind: "project" },
 ): Promise<HookInstallResult> {
   const source = readFileSync(resolve(process.cwd(), file), "utf-8");
+  // SPIKE: the compiler resolves `vigiles/hook` to itself on a miss, exactly as
+  // the runtime does — a plugin repo compiled through npx has no local install.
+  registerSelfResolve();
   const program = await loadHookProgram(file);
   // Emit the CANONICAL path so two spellings of the same file produce the same
   // command — the merge key and the emitted command must agree, or recompiling
