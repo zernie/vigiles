@@ -8,7 +8,15 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 
-import { frameAt, frameFor, type RepoPath } from "./frame.js";
+import {
+  findProjectRoot,
+  frameAt,
+  frameFor,
+  linkFrom,
+  rebaseArg,
+  targetBeside,
+  type RepoPath,
+} from "./frame.js";
 
 describe("frame — converting into the repo frame", () => {
   const frame = frameAt("/repo");
@@ -110,5 +118,118 @@ describe("frame — Windows paths (Node hands out `C:\\repo` there)", () => {
 
   it("keeps a target below cwd in cwd's frame", () => {
     assert.equal(frameFor("C:\\repo", "C:\\repo\\plugins\\p").root, "C:/repo");
+  });
+});
+
+describe("linkFrom: a repo path as a link written into a file", () => {
+  it("is the path itself from a root-level file", () => {
+    assert.equal(linkFrom("CLAUDE.md", "docs/rules/x.md"), "docs/rules/x.md");
+  });
+
+  it("climbs out of a nested file's directory (#371)", () => {
+    assert.equal(linkFrom("plugin/CLAUDE.md", "docs/x.md"), "../docs/x.md");
+    assert.equal(
+      linkFrom("a/b/CLAUDE.md", "src/rule-cases.test.ts"),
+      "../../src/rule-cases.test.ts",
+    );
+  });
+
+  it("stays short for a sibling and normalizes Windows separators", () => {
+    assert.equal(linkFrom("skills/x/SKILL.md", "skills/x/ref.md"), "ref.md");
+    assert.equal(
+      linkFrom("plugin\\CLAUDE.md", "plugin\\docs\\y.md"),
+      "docs/y.md",
+    );
+  });
+
+  it("names the file's own directory as `.`", () => {
+    assert.equal(linkFrom("plugin/CLAUDE.md", "plugin"), ".");
+  });
+});
+
+describe("findProjectRoot: where a command's root is", () => {
+  /** A fake filesystem: the set of absolute paths that exist. */
+  const fs =
+    (...paths: readonly string[]) =>
+    (abs: string) =>
+      paths.includes(abs);
+
+  it("is the git work-tree top when no config is on the way", () => {
+    assert.equal(findProjectRoot("/r/src/core", fs("/r/.git")), "/r");
+  });
+
+  it("is the nearest directory with .vigilesrc.json inside the work tree", () => {
+    const exists = fs(
+      "/r/.git",
+      "/r/.vigilesrc.json",
+      "/r/pkg/.vigilesrc.json",
+    );
+    assert.equal(findProjectRoot("/r/pkg/src", exists), "/r/pkg");
+    assert.equal(findProjectRoot("/r/docs", exists), "/r");
+  });
+
+  it("never reads a config above the work tree", () => {
+    const exists = fs("/home/.vigilesrc.json", "/home/r/.git");
+    assert.equal(findProjectRoot("/home/r/src", exists), "/home/r");
+  });
+
+  it("outside any checkout, is the nearest config's directory, else the start", () => {
+    assert.equal(findProjectRoot("/tmp/x/y", fs()), "/tmp/x/y");
+    assert.equal(
+      findProjectRoot("/tmp/x/y", fs("/tmp/x/.vigilesrc.json")),
+      "/tmp/x",
+    );
+  });
+});
+
+describe("targetBeside: a secondary target named from the primary's directory", () => {
+  it("climbs, descends, and stays put", () => {
+    assert.equal(targetBeside("docs/CLAUDE.md", "../AGENTS.md"), "AGENTS.md");
+    assert.equal(targetBeside("CLAUDE.md", "docs/AGENTS.md"), "docs/AGENTS.md");
+    assert.equal(targetBeside("pkg/CLAUDE.md", "AGENTS.md"), "pkg/AGENTS.md");
+  });
+});
+
+describe("rebaseArg: a typed path, re-anchored at the project root", () => {
+  it("a relative path typed in a subdirectory gains that subdirectory", () => {
+    assert.equal(rebaseArg("CLAUDE.md", "/r/pkg", "/r"), "pkg/CLAUDE.md");
+    assert.equal(rebaseArg(".", "/r/pkg", "/r"), "pkg");
+    assert.equal(rebaseArg("..", "/r/pkg", "/r"), ".");
+  });
+
+  it("typed AT the root, a path is left exactly as typed", () => {
+    // `./x`, a glob, a typo: the message must quote what the user wrote.
+    for (const typed of ["./x.md", ".vigiles/hooks/*", "nonexistent/typo.json"])
+      assert.equal(rebaseArg(typed, "/r", "/r"), typed);
+  });
+
+  it("an absolute path, or one that leaves the root, is absolute — never `../..`", () => {
+    assert.equal(rebaseArg("/etc/passwd", "/r/pkg", "/r"), "/etc/passwd");
+    assert.equal(rebaseArg("/etc/passwd", "/r", "/r"), "/etc/passwd");
+    assert.equal(rebaseArg("../../other/x", "/r/pkg", "/r"), "/other/x");
+  });
+
+  it("on Windows, a drive-letter or UNC path is absolute and left as typed", () => {
+    // Node on Windows: cwd `C:\\r\\pkg`, root as findProjectRoot returns it.
+    for (const typed of [
+      "C:\\other\\CLAUDE.md",
+      "c:/other/CLAUDE.md",
+      "D:\\x.md",
+      "\\\\server\\share\\CLAUDE.md",
+    ])
+      assert.equal(rebaseArg(typed, "C:\\r\\pkg", "C:/r"), typed);
+  });
+
+  it("on Windows, a relative path is re-anchored, and leaving the root keeps the volume", () => {
+    assert.equal(rebaseArg("CLAUDE.md", "C:\\r\\pkg", "C:/r"), "pkg/CLAUDE.md");
+    assert.equal(rebaseArg("..\\x.md", "C:\\r\\pkg", "C:/r"), "x.md");
+    assert.equal(
+      rebaseArg("..\\..\\other\\x", "C:\\r\\pkg", "C:/r"),
+      "C:/other/x",
+    );
+    assert.equal(
+      rebaseArg("../../other/x", "\\\\srv\\share\\r\\pkg", "//srv/share/r"),
+      "//srv/share/other/x",
+    );
   });
 });

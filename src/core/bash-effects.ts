@@ -78,6 +78,17 @@ interface MvdanNode {
   Value?: string;
   // ParamExp fields
   Param?: MvdanNode;
+  /** Any of these set means an operator beyond a bare `$X` / `${X}`. */
+  Excl?: boolean;
+  Length?: boolean;
+  Width?: boolean;
+  Index?: unknown;
+  Slice?: unknown;
+  Repl?: unknown;
+  Names?: unknown;
+  Exp?: unknown;
+  // Stmt fields
+  Negated?: boolean;
 }
 
 interface MvdanRedirect extends MvdanNode {
@@ -1339,158 +1350,4 @@ function normalizeCallExpr(
     redirects: normalizeRedirects(redirs),
     chdir: stripped.chdir,
   };
-}
-
-// ===========================================================================
-// FILE-OPERAND extraction (the reference question, not the effect question)
-// ===========================================================================
-
-/**
- * Interpreters, and the flags after which the NEXT word is a PROGRAM rather
- * than a path. `node -e "<js>"`, `python -c "<py>"`, `perl -E "<pl>"`.
- *
- * Keyed by the head's basename, so `/usr/local/bin/node` and `node` behave the
- * same.
- */
-const INLINE_PROGRAM_FLAGS = new Map<string, readonly string[]>([
-  ["node", ["-e", "--eval", "-p", "--print"]],
-  ["nodejs", ["-e", "--eval", "-p", "--print"]],
-  ["bun", ["-e", "--eval", "-p", "--print"]],
-  ["deno", ["-e", "--eval", "-p", "--print"]],
-  ["python", ["-c"]],
-  ["python2", ["-c"]],
-  ["python3", ["-c"]],
-  ["ruby", ["-e"]],
-  ["perl", ["-e", "-E"]],
-  ["php", ["-r"]],
-]);
-
-/**
- * Shells, whose `-c` argument is a nested SHELL program. Not program text to be
- * discarded — program text to be PARSED, so `bash -c 'exec "$ROOT/hooks/x.sh"'`
- * still yields its script.
- */
-const SHELL_HEADS = new Set([
-  "sh",
-  "bash",
-  "zsh",
-  "dash",
-  "ksh",
-  "ash",
-  "busybox",
-]);
-
-/** Guard against a pathological `sh -c 'sh -c "sh -c …"'` nest. */
-const MAX_SHELL_NESTING = 3;
-
-/**
- * Every word of every simple command in `command` that could name a FILE, with
- * inline PROGRAM TEXT removed — the primitive behind "does this hook's script
- * exist?".
- *
- * 🔴 WHY A FOURTH EXTRACTOR, stated against the three that already exist,
- * because "there is already one that returns words" is exactly the reasoning
- * that produced the bug this replaces.
- *
- *  - `leafCommands` drops every word it cannot reduce to a LITERAL, so
- *    `${CLAUDE_PLUGIN_ROOT}/hooks/x.sh` — the standard spelling of a hook path —
- *    disappears entirely. Unusable for a file question.
- *  - `leafCommandsNormalized` basenames the head, so `./hooks/x.sh` becomes
- *    `x.sh` and no resolver can find it.
- *  - `leafArgvSource` keeps the spelling but answers a DIFFERENT question:
- *    "which leaves unconditionally RUN". It drops the right-hand side of `&&`
- *    by design, so `cd "$ROOT" && node hooks/x.mjs` yields no script. For
- *    coverage attribution that abstention is correct; for "must this file
- *    exist?" it is a miss, because a conditionally-run script still has to be
- *    on disk.
- *
- * So this walks EVERY simple command, keeps every word at source level, and
- * subtracts only the words that are provably not paths.
- *
- * 🔴 WHAT IT SUBTRACTS, and the defect that motivated it. The hook scanner used
- * to run a regex over the raw command STRING. Against the standard portable
- * plugin idiom —
- *
- *     node -e "(async()=>{…await import(…join(root,'hooks','always-on.mjs'))…})()"
- *
- * — it grabbed a character run ending at `.mjs` and reported the hook's script
- * as `import(require(node:url).pathToFileURL(require(node:path).join(root,hooks,always-on.mjs`,
- * MISSING. `hooks/always-on.mjs` was 1,766 bytes on disk. Nine such findings
- * across the 32-repo corpus, contributing to two `F/0` grades. Inside a shell
- * parse the argument of `-e` is not a word the shell will ever resolve to a
- * file, so it is not returned.
- *
- * ⚠️ HOW MUCH OF THAT THE FLAG TABLE ACTUALLY DID, measured rather than
- * assumed: none of it, on that corpus. Mutating the `-e`/`-c` subtraction OFF
- * and re-auditing all three affected repos still yields ZERO false hook-script
- * findings, because both real payloads are single words that either contain
- * whitespace or do not end in a script extension, and the caller anchors its
- * match to a whole word. The table is kept because it is the difference
- * between a function whose contract ("words that could name a file") is true
- * and one whose contract is merely true-so-far: without it a JavaScript
- * program is handed to every caller as a candidate filename, and the next
- * caller inherits the bug. Recorded here so nobody reads a corpus number back
- * onto the wrong mechanism.
- *
- * Words beginning with `-` are dropped as flags: a flag is not a path, and the
- * one caller anchors its match to a whole word anyway.
- *
- * Returns `null` — not `[]` — when the text does not parse as shell, so a
- * caller can tell "no file operands" from "no analysis", and cannot silently
- * treat the second as the first.
- */
-export function commandWords(command: string): string[] | null {
-  return commandWordsAt(command, 0);
-}
-
-function commandWordsAt(command: string, depth: number): string[] | null {
-  let file: MvdanNode;
-  try {
-    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
-  } catch {
-    return null;
-  }
-  const out: string[] = [];
-  sh().syntax.Walk(file, (node) => {
-    if (sh().syntax.NodeType(node) === "CallExpr" && node.Args?.length)
-      fileOperandsOf(node.Args, depth, out);
-    return true;
-  });
-  return out;
-}
-
-/**
- * The file-operand words of ONE simple command, appended to `out`.
- *
- * Wrappers are resolved through with the same table `leafArgvSource` uses (it
- * keys on the BASENAME head, and wrappers only ever drop words off the FRONT,
- * so a count maps the result back onto the original spellings — not a second
- * copy of the rule). Flags never name a file, so they are dropped; the word
- * AFTER an inline-program flag is dropped with them, and the word after a
- * shell's `-c` is parsed as shell instead.
- */
-function fileOperandsOf(
-  args: readonly MvdanWord[],
-  depth: number,
-  out: string[],
-): void {
-  const raw = args.map((w) => sourceParts(w.Parts) ?? "");
-  const probe = [normalizeHead(raw[0] ?? ""), ...raw.slice(1)];
-  const argv = raw.slice(probe.length - stripWrappers(probe).argv.length);
-  const head = normalizeHead(argv[0] ?? "");
-  const programFlags = INLINE_PROGRAM_FLAGS.get(head);
-  const nestsShell = SHELL_HEADS.has(head) && depth < MAX_SHELL_NESTING;
-  for (let i = 0; i < argv.length; i++) {
-    const w = argv[i] ?? "";
-    if (w === "") continue;
-    if (!w.startsWith("-")) {
-      out.push(w);
-      continue;
-    }
-    if (nestsShell && w === "-c") {
-      out.push(...(commandWordsAt(argv[++i] ?? "", depth + 1) ?? []));
-    } else if (programFlags?.includes(w)) {
-      i++; // the program text — not a word any shell resolves to a file
-    }
-  }
 }

@@ -45,7 +45,16 @@
  */
 import type { Opaque } from "ts-essentials";
 
-import { isAbsolute, join, normalize, relative } from "../posix-path.js";
+import { PROJECT_CONFIG_FILE } from "./config-schema.js";
+
+import {
+  dirname as posixDirname,
+  isAbsolute,
+  join,
+  normalize,
+  relative,
+  resolve,
+} from "../posix-path.js";
 
 /** A `/`-separated path relative to {@link Frame.root}. `.` is the root itself. */
 export type RepoPath = Opaque<string, "RepoPath">;
@@ -99,8 +108,8 @@ function isBelow(rel: string): boolean {
 /**
  * The frame for a command run from `cwd` against `target` (absolute).
  *
- * The root is `cwd` — where `loadConfig()` read `.vigilesrc.json` (it does not
- * walk up; measured 2026-09-23) — UNLESS the target lies outside it. A foreign
+ * The root is `cwd` — the project root the CLI resolved once with
+ * {@link findProjectRoot} and runs from — UNLESS the target lies outside it. A foreign
  * target (`vigiles lint ../other`) is somebody else's repository, and its paths
  * mean something from ITS root; relative to `cwd` they would all start with
  * `../`, and a foreign lint must never let the caller's own files satisfy the
@@ -137,4 +146,89 @@ export function frameAt(root: string): Frame {
     };
   };
   return { root: base, repo, bundle };
+}
+
+/**
+ * The target of a markdown link written INTO the file `from` that points at
+ * `to`; both are repo-relative. A link resolves from the directory of the file
+ * it sits in, so a compiled `plugin/CLAUDE.md` must link `../docs/x.md`, not
+ * `docs/x.md` (#371). The ONE place a repo path becomes a link: every renderer
+ * that writes a path as a link calls this.
+ */
+export function linkFrom(from: string, to: string): string {
+  const dir = posixDirname(normalize(slashed(from)));
+  return relative(join("/", dir), join("/", normalize(slashed(to)))) || ".";
+}
+
+/**
+ * The repo path of a spec's secondary target `target`, which the spec names
+ * relative to its primary output `primary`'s directory: `docs/CLAUDE.md` with
+ * `../AGENTS.md` is `AGENTS.md`.
+ */
+export function targetBeside(primary: string, target: string): string {
+  return join(posixDirname(normalize(slashed(primary))), slashed(target));
+}
+
+/**
+ * The project root for a command started in `start` (absolute): the ONE answer
+ * to "relative to which directory", resolved once by the CLI, so running
+ * `vigiles lint` from `src/` gives the same findings as from the root (#371).
+ *
+ * From `start` upward:
+ *   1. the nearest directory holding `.vigilesrc.json` — a package in a
+ *      monorepo that has its own config is its own project;
+ *   2. else the git work-tree top (the nearest directory holding `.git`, a
+ *      directory or a worktree's file);
+ *   3. else `start` itself.
+ *
+ * Inside a git checkout the config search stops at the work-tree top, so a
+ * config ABOVE the checkout (a home directory) is never read. Outside any
+ * checkout it climbs to the filesystem root. `exists` is the filesystem port;
+ * the caller passes `existsSync`.
+ */
+export function findProjectRoot(
+  start: string,
+  exists: (abs: string) => boolean,
+): string {
+  const from = normalize(slashed(start));
+  const ancestors = [from, ...ancestorsOf(from)];
+  const top = ancestors.findIndex((d) => exists(join(d, ".git")));
+  const searched = top === -1 ? ancestors : ancestors.slice(0, top + 1);
+  const configured = searched.find((d) => exists(join(d, PROJECT_CONFIG_FILE)));
+  return configured ?? (top === -1 ? from : searched[top]) ?? from;
+}
+
+/**
+ * A path argument typed in `from`, re-anchored for a command that runs at
+ * `root` (both absolute) — so `vigiles lint CLAUDE.md` typed in `pkg/` reads
+ * `pkg/CLAUDE.md`. Typed AT the root it is returned exactly as typed, so a
+ * message quotes what the user wrote. Absolute (a Windows drive-letter or UNC
+ * path included), or leaving the root, it is absolute: `../../etc/passwd`
+ * names the same file and reads as a different one.
+ */
+export function rebaseArg(typed: string, from: string, root: string): string {
+  if (isAbs(slashed(typed))) return typed;
+  const [volume, here] = splitVolume(slashed(from));
+  const [, top] = splitVolume(slashed(root));
+  if (normalize(here) === normalize(top)) return typed;
+  const abs = resolve(here, slashed(typed));
+  const rel = relative(top, abs) || ".";
+  return isBelow(rel) ? rel : `${volume}${abs}`;
+}
+
+/**
+ * A `/`-separated absolute path split into its Windows volume (`C:`, or
+ * `//server/share`; `""` on POSIX) and the rooted path below it, which the
+ * POSIX ops can climb without eating the volume. `from` and `root` share one:
+ * the root is an ancestor of where the command was typed.
+ */
+function splitVolume(abs: string): readonly [string, string] {
+  const volume = /^(?:[A-Za-z]:|\/\/[^/]+\/[^/]+)(?=\/|$)/.exec(abs)?.[0] ?? "";
+  return [volume, abs.slice(volume.length) || "/"];
+}
+
+/** Every proper ancestor of an absolute directory, nearest first. */
+function ancestorsOf(dir: string): readonly string[] {
+  const parent = posixDirname(dir);
+  return parent === dir ? [] : [parent, ...ancestorsOf(parent)];
 }

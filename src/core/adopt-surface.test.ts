@@ -11,6 +11,14 @@ import { adoptSkill, adoptAgent } from "./adopt.js";
 import { compileSkill, compileAgent } from "./compile.js";
 import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
 import type { SkillSpec, AgentSpec } from "./spec.js";
+import { REPO_ROOT } from "./test-utils.js";
+
+/** Compile options for a spec at `specFile`, rooted at this repository. */
+const at = (specFile: string) => ({
+  basePath: REPO_ROOT,
+  specFile,
+  dialect: claudeCodeDialect,
+});
 
 describe("adoptSkill", () => {
   it("round-trips a clean skill: standard frontmatter + verbatim body", async () => {
@@ -38,10 +46,10 @@ Use this when the user wants a useful thing.
     expect(spec.body).toContain("## Usage");
     expect(spec.body).toContain("/my-skill <arg>");
 
-    const { markdown, errors } = await compileSkill(spec, {
-      specFile: "skills/my-skill/SKILL.md.spec.ts",
-      dialect: claudeCodeDialect,
-    });
+    const { markdown, errors } = await compileSkill(
+      spec,
+      at("skills/my-skill/SKILL.md.spec.ts"),
+    );
     expect(errors).toEqual([]);
     expect(markdown).toContain("name: my-skill");
     expect(markdown).toContain("description: Do a useful thing on request");
@@ -94,10 +102,10 @@ argument-hint: <file> [flag]
 Do the work.
 `;
     const first = adoptSkill(md, "full-skill").spec as SkillSpec;
-    const { markdown, errors } = await compileSkill(first, {
-      specFile: "skills/full-skill/SKILL.md.spec.ts",
-      dialect: claudeCodeDialect,
-    });
+    const { markdown, errors } = await compileSkill(
+      first,
+      at("skills/full-skill/SKILL.md.spec.ts"),
+    );
     expect(errors).toEqual([]);
     const back = adoptSkill(markdown, "full-skill").spec as SkillSpec;
     // Every field the adopter reads must be identical after the round-trip.
@@ -128,10 +136,10 @@ Review the file.
     // context: fork is a known key → it must NOT surface as an unmapped-key note.
     expect(r.unmappedKeys).not.toContain("context");
 
-    const { markdown, errors } = await compileSkill(spec, {
-      specFile: "skills/reviewer/SKILL.md.spec.ts",
-      dialect: claudeCodeDialect,
-    });
+    const { markdown, errors } = await compileSkill(
+      spec,
+      at("skills/reviewer/SKILL.md.spec.ts"),
+    );
     expect(errors).toEqual([]);
     // The skill tool key is `allowed-tools` (NOT `tools:`), emitted as a real
     // YAML sequence, and `context: fork` survives.
@@ -211,10 +219,10 @@ Read the diff, then report findings by severity.
     expect(spec.body).toContain("meticulous code reviewer");
     expect(spec.sections?.Method).toContain("report findings by severity");
 
-    const { markdown, errors } = await compileAgent(spec, {
-      specFile: "agents/reviewer.md.spec.ts",
-      dialect: claudeCodeDialect,
-    });
+    const { markdown, errors } = await compileAgent(
+      spec,
+      at("agents/reviewer.md.spec.ts"),
+    );
     expect(errors).toEqual([]);
     expect(markdown).toContain("name: reviewer");
     expect(markdown).toContain("## Method");
@@ -249,10 +257,7 @@ tools: Read, AskUserQuestion
 You test things.
 `;
     const spec = adoptAgent(md, "tester").spec as AgentSpec;
-    const { errors } = await compileAgent(spec, {
-      specFile: "agents/tester.md.spec.ts",
-      dialect: claudeCodeDialect,
-    });
+    const { errors } = await compileAgent(spec, at("agents/tester.md.spec.ts"));
     expect(errors.some((e) => e.message.includes("AskUserQuestion"))).toBe(
       true,
     );
@@ -269,10 +274,10 @@ describe("dogfood: adopt real vendored surfaces", () => {
       const spec = adoptSkill(readFileSync(ask, "utf8"), "ask")
         .spec as SkillSpec;
       expect(spec.name).toBe("ask");
-      const { errors } = await compileSkill(spec, {
-        specFile: "skills/ask/SKILL.md.spec.ts",
-        dialect: claudeCodeDialect,
-      });
+      const { errors } = await compileSkill(
+        spec,
+        at("skills/ask/SKILL.md.spec.ts"),
+      );
       expect(errors).toEqual([]);
     },
   );
@@ -285,10 +290,10 @@ describe("dogfood: adopt real vendored surfaces", () => {
       expect(spec.name).toBe("critic");
       expect(spec.disallowedTools).toEqual(["Write", "Edit"]);
       expect(r.unmappedKeys).toContain("level");
-      const { errors } = await compileAgent(spec, {
-        specFile: "agents/critic.md.spec.ts",
-        dialect: claudeCodeDialect,
-      });
+      const { errors } = await compileAgent(
+        spec,
+        at("agents/critic.md.spec.ts"),
+      );
       expect(errors).toEqual([]);
     },
   );

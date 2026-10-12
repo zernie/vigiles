@@ -10,6 +10,7 @@ import {
   findIntegrityHeader,
   placeIntegrityHeader,
   REQUIRE_INSTRUCTIONS_SPEC_DISABLE,
+  instructionSpecState,
 } from "./integrity.js";
 import { sha256short } from "./hash.js";
 import { addHash, compileSkill } from "./compile.js";
@@ -261,5 +262,33 @@ describe("a compiled artifact is prettier-clean by construction", () => {
 
   it("never emits two consecutive blank lines", () => {
     expect(compiled.artifact ?? "").not.toMatch(/\n[ \t]*\n[ \t]*\n/);
+  });
+});
+
+// The ONE answer to "is this instruction file hand-written?" — read by lint's
+// `require-instructions-spec`, audit's adoption list and the scan line, so the
+// three cannot count different files.
+describe("instructionSpecState", () => {
+  it("a file with a sibling spec is spec-managed", () => {
+    expect(instructionSpecState("# Plain\n", true)).toBe("spec-managed");
+  });
+
+  it("a compiled file is spec-managed even when its spec is not a sibling (multi-target)", () => {
+    expect(instructionSpecState(compiled("# AGENTS.md\n"), false)).toBe(
+      "spec-managed",
+    );
+  });
+
+  it("the disable marker opts a hand-written file out", () => {
+    expect(
+      instructionSpecState(
+        `${REQUIRE_INSTRUCTIONS_SPEC_DISABLE}\n# Mine\n`,
+        false,
+      ),
+    ).toBe("opted-out");
+  });
+
+  it("anything else is hand-written", () => {
+    expect(instructionSpecState("# Plain\n", false)).toBe("hand-written");
   });
 });

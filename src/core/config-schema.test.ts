@@ -21,8 +21,13 @@ import {
   vigilesConfigSchema,
   formatConfigIssues,
   parseVigilesConfig,
+  foldedRuleMessages,
 } from "./config-schema.js";
 import { RECOMMENDED_RULES } from "./presets.js";
+import { loadConfig } from "./validate.js";
+import { makeTmpDir, cleanupTmpDir } from "./test-utils.js";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 /** The formatted problems for a config, or `[]` when it parses. */
 function problems(config: unknown): string[] {
@@ -206,7 +211,6 @@ test("an empty config parses to the shipped defaults", () => {
   assert.deepEqual(d.ruleMarkers, ["headings", "checkboxes"]);
   assert.equal(d.rules["spec-refs"], "error");
   assert.equal(d.rules["doc-refs"], false);
-  assert.equal(d.rules["prefer-compiled-hooks"], false);
   assert.equal(d.rules.integrity, "warn");
   assert.equal(Object.keys(d.rules).length, 36);
   assert.equal(d.rules["deprecated-key-files"], "warn");
@@ -352,6 +356,24 @@ test("compile-budget defaults to warn, and recommended gates it", () => {
   assert.equal(rec.data.rules["compile-budget"], "error");
 });
 
+// `require-instructions-spec` in `vigiles:recommended`: a repo that extends
+// the preset gates on a hand-written instruction file; one that does not keeps
+// the built-in `warn`, and an explicit entry still wins.
+test("require-instructions-spec defaults to warn, and recommended gates it", () => {
+  const plain = parseVigilesConfig({});
+  assert.ok(plain.success);
+  assert.equal(plain.data.rules["require-instructions-spec"], "warn");
+  const rec = parseVigilesConfig({ extends: "vigiles:recommended" });
+  assert.ok(rec.success);
+  assert.equal(rec.data.rules["require-instructions-spec"], "error");
+  const off = parseVigilesConfig({
+    extends: "vigiles:recommended",
+    rules: { "require-instructions-spec": "off" },
+  });
+  assert.ok(off.success);
+  assert.equal(off.data.rules["require-instructions-spec"], false);
+});
+
 test("compile-budget takes its thresholds as rule options", () => {
   const r = parseVigilesConfig({
     rules: {
@@ -367,4 +389,60 @@ test("compile-budget takes its thresholds as rule options", () => {
     rules: { "compile-budget": ["error", { maxRuleChars: 1 }] },
   });
   assert.ok(!bad.success, "a misspelled threshold is refused, not ignored");
+});
+
+test("a config naming a folded rule is told which rule reports it now (#361)", () => {
+  const [inRules] = foldedRuleMessages({
+    rules: { "prefer-compiled-hooks": "warn" },
+  });
+  assert.match(
+    inRules ?? "",
+    /rule "prefer-compiled-hooks" was folded into "hand-written-hook"/,
+  );
+  assert.deepEqual(
+    foldedRuleMessages({
+      overrides: [
+        { files: ["x/**"], rules: { "prefer-compiled-hooks": "off" } },
+      ],
+    }).length,
+    1,
+    "an overrides entry names it too",
+  );
+  assert.deepEqual(
+    foldedRuleMessages({ rules: { "hook-script-exists": "error" } }),
+    [],
+  );
+  assert.equal(
+    parseVigilesConfig({ rules: { "prefer-compiled-hooks": "warn" } }).success,
+    false,
+    "the schema itself no longer accepts it",
+  );
+});
+
+test("loadConfig refuses a folded rule with that message, not 'unknown key'", () => {
+  const dir = makeTmpDir("folded-rule");
+  try {
+    writeFileSync(
+      join(dir, ".vigilesrc.json"),
+      JSON.stringify({ rules: { "prefer-compiled-hooks": false } }),
+    );
+    assert.throws(() => loadConfig(dir), /folded into "hand-written-hook"/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+/**
+ * `hand-written-hook`'s only cure is a compiled hook, written with the
+ * `experimental_define*` API — lint must not push users onto an experimental
+ * API. So the rule is OFF, in the base defaults and in the preset, until
+ * compiled hooks leave experimental (docs/experimental.md, "When the prefix
+ * comes off"). `hook-script-exists` is about lines vigiles wrote, so it gates.
+ */
+test("hand-written-hook is off by default and in vigiles:recommended; hook-script-exists gates", () => {
+  assert.equal(vigilesConfigSchema.parse({}).rules["hand-written-hook"], false);
+  const r = parseVigilesConfig({ extends: "vigiles:recommended" });
+  assert.ok(r.success);
+  assert.equal(r.data.rules["hand-written-hook"], false);
+  assert.equal(r.data.rules["hook-script-exists"], "error");
 });

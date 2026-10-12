@@ -14,12 +14,12 @@ import {
   parseRules,
   readInstructionFile,
   validatePaths,
-  expandGlobs,
   findInstructionFiles,
   loadConfig,
 } from "./validate.js";
 import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
 import { vigilesConfigSchema, formatConfigIssues } from "./config-schema.js";
+import { handWrittenInstructionRemedy } from "./instruction-remedies.js";
 import type { MarkerType, ParseOptions } from "./types.js";
 
 describe("config value normalization (now the schema's job)", () => {
@@ -98,6 +98,25 @@ describe("parseRules", () => {
     assert.equal(rules[0].title, "Use barrel imports");
     assert.equal(rules[0].enforcement, "enforced");
     assert.equal(rules[0].enforcedBy, "eslint/no-restricted-imports");
+  });
+
+  it("parses a Claimed (unverified) reference apart from an enforced one (#351)", () => {
+    const md =
+      "### A\n**Enforced by:** `eslint/no-console`\n### B\n**Claimed (unverified):** `eslint/no-restricted-imports`\n";
+    const rules = parseRules(md);
+    assert.deepEqual(
+      rules.map((r) => [r.enforcement, r.enforcedBy]),
+      [
+        ["enforced", "eslint/no-console"],
+        ["claimed", "eslint/no-restricted-imports"],
+      ],
+    );
+    const result = validate(md, {
+      rules: { "require-instructions-spec": false },
+    });
+    assert.equal(result.enforced, 1);
+    assert.equal(result.claimed, 1);
+    assert.equal(result.missing, 0);
   });
 
   it("should parse guidance-only rules", () => {
@@ -334,6 +353,56 @@ describe("validate", () => {
 // require-instructions-spec rule
 // ---------------------------------------------------------------------------
 
+// What a hand-written instruction file's finding says, and which file is one.
+describe("require-instructions-spec — the finding", () => {
+  let tmpDir: string;
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-ris-finding-"));
+  });
+
+  after(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("says what to do with the file: the shared three-step remedy", () => {
+    const subDir = join(tmpDir, "remedy");
+    mkdirSync(subDir, { recursive: true });
+    const mdPath = join(subDir, "CLAUDE.md");
+    writeFileSync(mdPath, "# Plain\n");
+
+    const result = validate("# Plain\n", {
+      filePath: mdPath,
+      rules: { "require-instructions-spec": "warn" },
+    });
+    const finding = result.warnings.find(
+      (w) => w.rule === "require-instructions-spec",
+    );
+    assert.ok(finding, "a hand-written file gets the warning");
+    assert.ok(
+      finding.message.includes(handWrittenInstructionRemedy(mdPath)),
+      finding.message,
+    );
+  });
+
+  it("a compiled file whose spec is not its sibling is not asked for one", () => {
+    const subDir = join(tmpDir, "multi-target");
+    mkdirSync(subDir, { recursive: true });
+    const mdPath = join(subDir, "AGENTS.md");
+    const body =
+      "<!-- vigiles:sha256:0123456789abcdef compiled from CLAUDE.md.spec.ts -->\n\n# AGENTS.md\n";
+    writeFileSync(mdPath, body);
+
+    const result = validate(body, {
+      filePath: mdPath,
+      rules: { "require-instructions-spec": "error" },
+    });
+    assert.ok(
+      !result.errors.some((e) => e.rule === "require-instructions-spec"),
+    );
+  });
+});
+
 describe("require-instructions-spec", () => {
   let tmpDir: string;
 
@@ -513,8 +582,7 @@ const SHIPPED_RULE_DEFAULTS = {
   "skill-frontmatter": "warn",
   "mcp-tool-resolves": "warn",
   "hook-script-exists": "warn",
-  // nudge-group recommendation → default off (opt in to surface it)
-  "prefer-compiled-hooks": false,
+  "hand-written-hook": false,
   "disallowed-tools-contract": "warn",
   "description-overlap": "warn",
   "skill-description-budget": "warn",
@@ -855,59 +923,6 @@ describe("validatePaths", () => {
     assert.equal(validated.length, 1);
     assert.equal(validated[0].path, real);
     assert.equal(validated[0].result?.enforced, 1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// expandGlobs
-// ---------------------------------------------------------------------------
-
-describe("expandGlobs", () => {
-  let tmpDir: string;
-
-  before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-glob-"));
-  });
-
-  after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("should pass through plain paths unchanged", () => {
-    const result = expandGlobs(["CLAUDE.md", "foo/AGENTS.md"]);
-    assert.deepEqual(result, ["CLAUDE.md", "foo/AGENTS.md"]);
-  });
-
-  it("should expand glob patterns into matching files", () => {
-    writeFileSync(join(tmpDir, "a.md"), "# A\n");
-    writeFileSync(join(tmpDir, "b.md"), "# B\n");
-    writeFileSync(join(tmpDir, "c.txt"), "not md\n");
-
-    const result = expandGlobs([join(tmpDir, "*.md")]);
-    assert.equal(result.length, 2);
-    assert.ok(result.some((p) => p.endsWith("a.md")));
-    assert.ok(result.some((p) => p.endsWith("b.md")));
-    assert.ok(!result.some((p) => p.endsWith("c.txt")));
-  });
-
-  it("should expand recursive globs", () => {
-    const subDir = join(tmpDir, "sub");
-    mkdirSync(subDir, { recursive: true });
-    writeFileSync(join(subDir, "nested.md"), "# Nested\n");
-
-    const result = expandGlobs([join(tmpDir, "**/*.md")]);
-    assert.ok(result.some((p) => p.endsWith("nested.md")));
-  });
-
-  it("should return empty for globs matching nothing", () => {
-    const result = expandGlobs([join(tmpDir, "*.nonexistent")]);
-    assert.deepEqual(result, []);
-  });
-
-  it("should mix plain paths and globs", () => {
-    const result = expandGlobs(["plain.md", join(tmpDir, "*.md")]);
-    assert.equal(result[0], "plain.md");
-    assert.ok(result.length > 1);
   });
 });
 

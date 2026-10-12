@@ -9,9 +9,9 @@
 >
 > ⚠️ **THIS FILE IS PUBLIC** (open-source repo). NO STRATEGY here — business
 > direction, monetization, competitive framing, and personal plans live ONLY in the
-> private `zernie/mine` repo under `vigiles/` (migrated 2026-07-13 from the old
+> owner's private strategy repository (migrated 2026-07-13 from the old
 > git-crypt `startup/` vault). HANDOFF may say strategy exists there, never name or
-> describe its contents. NEVER name a specific user/company/figure here (public). (See `doc-tiers`.)
+> describe it or its contents. NEVER name a specific user/company/figure here (public). (See `doc-tiers`.)
 
 ## RESUME HERE
 
@@ -114,7 +114,7 @@ Deterministic Codex audit = full parity (KEEP). Real-model **trigger-rate** on C
   scope entry in `roadmap.md` (Later).
 - **Backend audit service (rate-limited LLM)** — `roadmap.md` (Later); the demo reference/behavioral-gap fix.
 - **Codex trigger-rate promotion** — the live oracle-accuracy run above (blocked on codex + quota).
-- Personal/launch/calendar follow-ups → PRIVATE `zernie/mine` only. Do not restate here.
+- Personal/launch/calendar follow-ups → the owner's private repository only. Do not restate here.
 
 ## Design-of-record
 
@@ -154,5 +154,5 @@ Deterministic Codex audit = full parity (KEEP). Real-model **trigger-rate** on C
 
 ## Don't re-read unless the task needs it
 
-- strategy KB — PRIVATE `zernie/mine` repo under `vigiles/` (`add_repo zernie/mine`).
+- strategy KB — the owner's private repository; ask the owner to attach it to the session.
 - `research/roadmap.md` — the front-door (technical) roadmap.

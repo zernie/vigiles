@@ -25,8 +25,9 @@ import { experimental_agent } from "../../core/spec.js";
 // adapter reuses it with codexLayout (no cross-adapter import).
 import { loadPlugin } from "../../plugin-loader.js";
 import { formatScanReport, scanPlugin } from "../../scan.js";
+import { scanFiles } from "../../scan-files.js";
 import { runHarnessTest } from "../../harness-test.js";
-import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
+import { makeTmpDir, cleanupTmpDir, REPO_ROOT } from "../../core/test-utils.js";
 
 test("codexAdapter passes the conformance kit (ports + cross-port invariants)", () => {
   assertAdapterConformance(codexAdapter);
@@ -52,7 +53,7 @@ test("the compiler verifies a subagent tool contract under codexDialect", async 
       tools: ["shell"],
       body: "b",
     }),
-    { specFile: "w.md.spec.ts", dialect: codexDialect },
+    { basePath: REPO_ROOT, specFile: "w.md.spec.ts", dialect: codexDialect },
   );
   assert.equal(ok.errors.filter((e) => e.type === "unknown-tool").length, 0);
 
@@ -63,7 +64,7 @@ test("the compiler verifies a subagent tool contract under codexDialect", async 
       tools: ["Read"],
       body: "b",
     }),
-    { specFile: "w.md.spec.ts", dialect: codexDialect },
+    { basePath: REPO_ROOT, specFile: "w.md.spec.ts", dialect: codexDialect },
   );
   assert.ok(bad.errors.some((e) => e.type === "unknown-tool"));
 });
@@ -251,4 +252,47 @@ test("a codex harness test refuses an output style before running anything", asy
     ),
     /outputStyle: this harness has no output styles/,
   );
+});
+
+test("hook-script-exists: a compiled hook's relative RUNNER is checked — missing on disk, unresolved in the file map", () => {
+  // Codex declares no project-root variable, so `compile` emits the RELATIVE
+  // spelling, which resolves against the scanned root like any relative path.
+  // The Claude Code half (project-root token, plugin + settings) is in
+  // ../claude-code/hook-runner-exists.test.ts.
+  const runner = "node_modules/vigiles/dist/cli.js";
+  const dir = makeTmpDir("codex-runner");
+  try {
+    mkdirSync(join(dir, ".codex"), { recursive: true });
+    mkdirSync(join(dir, ".vigiles", "hooks"), { recursive: true });
+    const toml = `[[hooks.PostToolUse]]\ncommand = "node ${runner} hook-runtime run-program .vigiles/hooks/x.hook.mjs || exit 0"\n`;
+    const hook = "export default {};\n";
+    // The role compile records: the line above is the one it writes for it.
+    const stamp = JSON.stringify({ stamp: "s", role: "react" });
+    writeFileSync(join(dir, codexLayout.settingsPath), toml);
+    writeFileSync(join(dir, ".vigiles", "hooks", "x.hook.mjs"), hook);
+    writeFileSync(join(dir, ".vigiles", "hooks", "x.hook.mjs.json"), stamp);
+    const statusOf = (
+      hooks: readonly { script: string; status: string }[],
+      suffix: string,
+    ) => hooks.find((h) => h.script.endsWith(suffix))?.status;
+
+    const disk = scanPlugin(dir, codexLayout, codexDialect);
+    assert.equal(statusOf(disk.hooks, runner), "missing");
+    assert.equal(statusOf(disk.hooks, ".vigiles/hooks/x.hook.mjs"), "ok");
+
+    // The file map is a fetch: it never holds node_modules, so it cannot know.
+    const map = scanFiles(
+      {
+        [codexLayout.settingsPath]: toml,
+        ".vigiles/hooks/x.hook.mjs": hook,
+        ".vigiles/hooks/x.hook.mjs.json": stamp,
+      },
+      codexLayout,
+      codexDialect,
+    );
+    assert.equal(statusOf(map.hooks, runner), "unresolved");
+    assert.equal(statusOf(map.hooks, ".vigiles/hooks/x.hook.mjs"), "ok");
+  } finally {
+    cleanupTmpDir(dir);
+  }
 });

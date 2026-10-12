@@ -52,7 +52,13 @@ const messageFor = (f: DeprecatedKeyFilesFinding): string =>
  * one-major window exists to prevent.
  */
 export function checkDeprecatedKeyFiles(opts: {
+  /** Whether the rule can fire anywhere; `false` skips the walk. */
   readonly severity: RuleSeverity;
+  /**
+   * The severity at one spec's path — `.vigilesrc.json#overrides` applied.
+   * Omitted: `severity` everywhere.
+   */
+  readonly severityAt?: (path: string) => RuleSeverity;
   /** Called only when the rule is on. */
   readonly find: () => readonly DeprecatedKeyFilesFinding[];
   readonly silent: boolean;
@@ -65,9 +71,10 @@ export function checkDeprecatedKeyFiles(opts: {
 }): { readonly issues: number; readonly errors: number } {
   const { severity } = opts;
   if (!severity) return { issues: 0, errors: 0 };
-  const found = opts.find();
-  const mark = severity === "error" ? "✗" : "⚠";
-  const level = severity === "error" ? "error" : "warning";
+  const found = opts.find().flatMap((f) => {
+    const sev = opts.severityAt ? opts.severityAt(f.path) : severity;
+    return sev === false ? [] : [{ ...f, sev }];
+  });
   if (!opts.silent && found.length > 0)
     console.log("\nDeprecated-key-files check:\n");
   // Silent (`--json`, `--summary`) prints nothing at all, annotations
@@ -75,11 +82,11 @@ export function checkDeprecatedKeyFiles(opts: {
   if (!opts.silent)
     found.forEach((f) => {
       const message = messageFor(f);
-      console.log(`  ${mark} ${f.path}: ${message}`);
-      opts.annotate(level, message, f.path);
+      console.log(`  ${f.sev === "error" ? "✗" : "⚠"} ${f.path}: ${message}`);
+      opts.annotate(f.sev === "error" ? "error" : "warning", message, f.path);
     });
   return {
     issues: found.length,
-    errors: severity === "error" ? found.length : 0,
+    errors: found.filter((f) => f.sev === "error").length,
   };
 }

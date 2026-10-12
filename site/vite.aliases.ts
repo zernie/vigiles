@@ -59,6 +59,10 @@ export const ENGINE_MODULES = [
   // the chain a map with no `AGENTS.md` in it and print a weight of zero for a
   // repository that really loads it.
   "adapters/claude-code/dialect",
+  // Where compiled hooks and their stamps live: `fetchRepo.ts` fetches them
+  // (and package.json) because the hook-line plan reads them — derived from
+  // the engine, not re-listed.
+  "core/hook-paths",
 ] as const;
 
 /** The bare specifiers — for `optimizeDeps.include` and for the guard script. */

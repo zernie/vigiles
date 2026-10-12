@@ -15,7 +15,7 @@ import {
   symlinkSync,
   copyFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 
@@ -918,6 +918,81 @@ export default instructionFile({
   });
 });
 
+/**
+ * Every relative markdown link in a written file, resolved from that file's
+ * own directory the way a reader (or the agent) follows it.
+ */
+function linkTargets(absFile: string): readonly string[] {
+  const text = readFileSync(absFile, "utf-8");
+  return [...text.matchAll(/\]\(([^)#\s]+)(?:#[^)]*)?\)/g)]
+    .map((m) => m[1])
+    .filter((href) => !/^[a-z]+:/i.test(href))
+    .map((href) => resolve(dirname(absFile), href));
+}
+
+/** `out` (in `dir`) was written, and both its links reach files that exist. */
+function assertLinksResolve(dir: string, out: string): void {
+  const abs = join(dir, out);
+  assert.ok(existsSync(abs), `${out} written`);
+  const links = linkTargets(abs);
+  assert.equal(links.length, 2, `${out}: both links rendered`);
+  for (const link of links)
+    assert.ok(existsSync(link), `${out} links ${link}, which exists`);
+}
+
+describe("CLI: each target of a multi-target spec links from its own directory", () => {
+  const SPEC_IMPORT = resolve(process.cwd(), "src/core/spec.js");
+
+  function project(specFile: string, targets: readonly string[]): string {
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-cli-links-"));
+    mkdirSync(join(dir, "docs", "rules"), { recursive: true });
+    mkdirSync(join(dir, "skills", "fmt"), { recursive: true });
+    writeFileSync(join(dir, "docs", "rules", "logging.md"), "# logging\n");
+    writeFileSync(join(dir, "skills", "fmt", "SKILL.md"), "# fmt\n");
+    writeFileSync(
+      join(dir, specFile),
+      `import { instructionFile, guidance, file, ref } from "${SPEC_IMPORT}";
+export default instructionFile({
+  target: ${JSON.stringify(targets)},
+  sections: { Skills: [ref("skills/fmt/SKILL.md"), " formats code."] },
+  rules: {
+    "short-rule": guidance("Short.", { details: file("docs/rules/logging.md") }),
+  },
+});
+`,
+    );
+    return dir;
+  }
+
+  const cases = [
+    {
+      name: "a nested spec whose secondary target is one level UP",
+      specFile: "docs/CLAUDE.md.spec.ts",
+      targets: ["CLAUDE.md", "../AGENTS.md"],
+      written: ["docs/CLAUDE.md", "AGENTS.md"],
+    },
+    {
+      name: "a root spec whose secondary target is one level DOWN",
+      specFile: "CLAUDE.md.spec.ts",
+      targets: ["CLAUDE.md", "docs/AGENTS.md"],
+      written: ["CLAUDE.md", "docs/AGENTS.md"],
+    },
+  ];
+
+  for (const c of cases) {
+    it(c.name, () => {
+      const dir = project(c.specFile, c.targets);
+      try {
+        const { stdout, exitCode } = run(`compile ${c.specFile}`, dir);
+        assert.equal(exitCode, 0, stdout);
+        for (const out of c.written) assertLinksResolve(dir, out);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Multi-harness: config `harness` selection + the copy-mirror
 // ---------------------------------------------------------------------------
@@ -1503,7 +1578,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
         readFileSync(join(dir, ".vigilesrc.json"), "utf-8"),
       ) as { extends?: string; rules?: Record<string, string> };
       assert.equal(
-        cfg.rules?.["require-instructions-spec"],
+        cfg.rules?.["untested-skill"],
         "error",
         "workflow rule gated under --strict",
       );

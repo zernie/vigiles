@@ -40,7 +40,7 @@ The consumer repo could only reach a passing `lint` by listing whole
 directories in `exclude`:
 
 ```json
-{ "exclude": [".claude/worktrees/**", "vigiles/**", "migratsiya/papers/**"] }
+{ "exclude": [".claude/worktrees/**", "vendor/**", "papers/**"] }
 ```
 
 That silenced the rule by removing roughly a third of the repository from

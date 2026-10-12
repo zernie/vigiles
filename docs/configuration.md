@@ -63,7 +63,11 @@ place and copy the two lines you want:
     "integrity": "warn",
     "untested-skill": ["warn", { "include": ["tests/{surface}/*.eval.ts"] }]
   },
-  "orphans": { "exclude": ["docs/archive/**"] },
+  "overrides": [
+    { "files": ["notes/**"], "rules": { "require-instructions-spec": "off" } },
+    { "files": ["docs/archive/**"], "rules": { "orphan-docs": "off" } }
+  ],
+  "orphans": { "include": ["docs/**/*.md"] },
 
   "linters": { "eslint": { "rulesDir": "docs/rules" } },
   "catalogOnly": true,
@@ -186,7 +190,8 @@ note: bench/old/SKILL.md.spec.ts matches exclude "bench" — compiling because y
 ```
 
 `exclude` beats everything: a folder both excluded and named in `roots` stays
-excluded, with no finding either.
+excluded, with no finding either. To keep a folder read but stop one rule
+reporting there, use [`overrides`](#overrides) instead.
 
 ### `extends`
 
@@ -204,10 +209,16 @@ fire only on a real defect, so a well-formed harness stays green:
 `subagent-tool-contract`, `subagent-frontmatter`, `hook-events`,
 `hook-script-exists`, `mcp-config`, `mcp-tool-resolves`,
 `mcp-hook-target-resolves`, `disallowed-tools-contract` and
-`description-overlap`. It also gates [`compile-budget`](rules/compile-budget.md):
+`description-overlap`. [`hand-written-hook`](rules/hand-written-hook.md) is not
+in the preset: its cure is a compiled hook, still an
+[experimental](experimental.md) API. It also gates [`compile-budget`](rules/compile-budget.md):
 a compiled instruction file whose Rules section is over 20,000 characters, or
 with a section over 15,000 or a `commands` entry over 200, fails `compile` and
-`lint`. Every other rule keeps its built-in severity.
+`lint`. And it gates
+[`require-instructions-spec`](rules/require-instructions-spec.md): a
+hand-written `CLAUDE.md` or `AGENTS.md`, nested ones included, fails `lint`
+until it has a spec, its folder is excluded, or an [`overrides`](#overrides)
+entry turns the rule off there. Every other rule keeps its built-in severity.
 
 **Your `rules` win.** An entry in `rules` overrides the preset, in either
 direction:
@@ -254,6 +265,65 @@ Some rules take options as a second element:
 { "rules": { "coverage": ["warn", { "scripts": 50, "linterRules": 5 }] } }
 ```
 
+### `overrides`
+
+Change a rule's severity for some paths only — the folders of a notes repo that
+stay hand-written, a docs archive nothing links to, an old plugin you have not
+written tests for. One list for every rule, in the shape ESLint, Biome and
+Stylelint use: `files` are globs, `rules` are severities.
+
+> Default: none
+
+```json
+{
+  "extends": "vigiles:recommended",
+  "overrides": [
+    {
+      "files": ["notes/**", "health/**"],
+      "rules": { "require-instructions-spec": "off" }
+    },
+    { "files": ["skills/legacy"], "rules": { "untested-skill": "off" } }
+  ]
+}
+```
+
+**Which setting wins**, from weakest to strongest: the `extends` preset, then
+`rules`, then each `overrides` entry whose `files` match the finding's path, in
+order — a later entry wins over an earlier one. It is ESLint's cascade.
+
+**Globs** work exactly as in top-level [`exclude`](#exclude): relative to the
+repository root, a bare folder name covers its whole subtree, dotfiles match.
+
+**An override sets a severity only** — `"error"`, `"warn"` or `"off"` (and the
+other spellings `rules` accepts). A rule's options stay in `rules`; an override
+that sets `compile-budget` to `"warn"` keeps the thresholds `rules` gave it.
+Options inside an override are refused, as is an unknown rule name (with the
+nearest name suggested) and an entry with no `files`.
+
+**An override cannot bring back what `exclude` removed.** `exclude` means
+vigiles does not read the path at all, so there is no finding for an override
+to change. Use `exclude` for files that are not yours; use an override for
+your own files where one rule does not apply.
+
+**Which rules it affects.** An override applies to a finding tied to one file,
+at that file's path:
+
+`require-instructions-spec`, `require-skill-spec`, `integrity`, `spec-refs`,
+`compile-budget`, `duplicate-rules`, `deprecated-key-files`, `orphan-docs`,
+`doc-refs`, `unmarked-refs`, `untested-skill`, `untested-subagent`,
+`untested-hook`, `untested-output-style`, `subagent-tool-contract`,
+`subagent-frontmatter`, `skill-frontmatter`, `disallowed-tools-contract`,
+`frontmatter-valid`, `mcp-tool-resolves`, `lethal-trifecta`,
+`delegation-trifecta`, `skill-resource-resolves`, `skill-missing-fence`,
+`plugin-dir-layout`.
+
+These rules report about the repository or a settings entry rather than one
+file, so an override does not change them — set them in `rules`:
+
+`coverage`, `instruction-weight`, `hook-events`,
+`hook-script-exists`, `hook-block-ineffective`, `hook-matcher`, `mcp-config`,
+`mcp-hook-target-resolves`, `description-overlap`, `skill-description-budget`.
+
 ### `ruleMarkers`
 
 Which markdown constructs count as a rule when vigiles reads an instruction
@@ -298,17 +368,18 @@ itself. See [linter support](linter-support.md).
 
 ### `orphans`
 
-Narrows the orphan-docs check — documentation nothing links to — without
-changing what the rest of the commands read.
+Turns on the orphan-docs check — documentation nothing links to — and says
+which files count as docs.
 
-> Default: none
+> Default: none (the check is off). `include` defaults to `["docs/**/*.md"]`.
 
 ```json
-{ "orphans": { "exclude": ["docs/archive/**"] } }
+{ "orphans": { "include": ["docs/**/*.md", "research/**/*.md"] } }
 ```
 
-`orphans.exclude` narrows this one rule further. It never re-admits a path that
-top-level `exclude` already dropped: set both and you get the union.
+To stop it reporting a folder, turn `orphan-docs` off there with an
+[`overrides`](#overrides) entry; a doc in that folder still counts as a link
+that keeps others alive.
 
 ### `sharedDirs`
 
@@ -372,6 +443,59 @@ never read by the CLI.
 ```
 
 ---
+
+## Upgrading: `require-instructions-spec`, `overrides`, and hook lines
+
+Three changes, released together as a major version.
+
+**`vigiles:recommended` now gates `require-instructions-spec`.** A repo that
+extends the preset fails `lint` on every hand-written `CLAUDE.md` or
+`AGENTS.md`, nested ones included. The finding says what to do, in order: adopt
+the file into a spec (the `adopt-spec` skill, or `npx vigiles init
+--target=<path>`); exclude its folder if the file is not yours; or turn the rule
+off for the folders that stay hand-written, with an `overrides` entry. A repo
+that does not extend the preset sees no change (the built-in severity is still
+`warn`), and `"rules": { "require-instructions-spec": "warn" }` keeps the old
+behaviour in a repo that does. A bare `npx vigiles init` adopts nested
+instruction files too, and the gate-only setup (`--ci-only`) writes the rule as
+`"off"`.
+
+**The per-rule `exclude` options moved to `overrides`.** `exclude` inside an
+`untested-*` rule's options and `orphans.exclude` are refused, with the
+`overrides` entry that does the same thing built from your own globs:
+
+```
+✗ .vigilesrc.json: "exclude" inside "orphans" moved to "overrides" — skipping paths is not a rule option any more; an override turns the rule off for them.
+  Write:  "overrides": [{ "files": ["docs/archive/**"], "rules": { "orphan-docs": "off" } }]
+  and remove "exclude" from "orphans". Paths top-level "exclude" removes are not read at all; an override only changes what a rule reports.
+```
+
+The `untested-*` rules shared one set of options, so an `exclude` on any of them
+skipped those paths for all four; the suggested entry turns all four off there.
+`include` stays a rule option in both places: it says where tests live, and
+which files are docs.
+
+**Hook lines are read by identity; `prefer-compiled-hooks` became
+`hand-written-hook`.** vigiles no longer parses a hook command line it did not
+write. A line is _compiled_ only when it is exactly the line `vigiles compile`
+writes for one of your hook sources; [`hook-script-exists`](rules/hook-script-exists.md)
+checks the files such a line needs (runtime, program, stamp). Every other line
+can be one [`hand-written-hook`](rules/hand-written-hook.md) finding that names
+it. That rule is OFF by default and not in `vigiles:recommended`: its only cure
+is a compiled hook, written with an [experimental](experimental.md) API, so it is
+opt-in until compiled hooks leave experimental. A config that still names
+`prefer-compiled-hooks` is refused with a message naming `hand-written-hook`.
+
+The loss, stated plainly: **a hand-written hook whose script is missing is no
+longer detected statically.** Compile the hook (`vigiles/hook`) and the files it
+needs are checked exactly; until then `vigiles test` (`runHook`) checks a
+hand-written hook by running it.
+
+**Recompile once after upgrading.** `compile` now records each hook's role in
+its stamp, and a compiled line whose stamp has no role cannot be matched to its
+planned line. Such a line is reported by `hook-script-exists` as "edited or
+stale — recompile", an **error** under `vigiles:recommended`, until you run
+`vigiles compile`: a compiled hook is never silently left unchecked.
 
 ## Upgrading from `harness` / `surfaceRoots`
 

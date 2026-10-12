@@ -17,7 +17,7 @@
  * untouched. One source dir also means basenames are unique, so the stamp can key
  * on the basename safely.
  */
-import { readdirSync, existsSync, statSync } from "node:fs";
+import { readdirSync, existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
 import {
   baseName,
@@ -28,6 +28,13 @@ import {
   type CompilableMarker,
   type SourceKind,
 } from "./source-kinds.js";
+import {
+  commandNamesRef,
+  hookRuntimeFor,
+  INSTALLED_HOOK_RUNTIME,
+  type HookRuntime,
+} from "./core/hook-command.js";
+import { HOOKS_DIR } from "./core/hook-paths.js";
 
 /**
  * Lazy for the same reason as in `core/hook-program.ts` — and this module is
@@ -39,9 +46,6 @@ const stringifyToml = (value: unknown): string =>
   (require("@iarna/toml") as typeof import("@iarna/toml")).stringify(
     value as never,
   );
-
-/** The agnostic, committed home for hook SOURCE — one dir, cross-adapter. */
-export const HOOKS_DIR = ".vigiles/hooks";
 
 /** The committed home for registered context-provider SOURCE (v2). */
 export const PROVIDERS_DIR = ".vigiles/providers";
@@ -373,55 +377,16 @@ export function normalizeHookRef(
   return chosen.split(sep).join("/");
 }
 
-/**
- * The path token `compile` EMITS into the harness config — anchored at the project root
- * when the harness declares such a variable.
- *
- * 🔴 IT LIVES BESIDE {@link bareToken} ON PURPOSE. That function STRIPS exactly this prefix
- * and these quotes; this one ADDS them. They are one contract read from two ends, and while
- * the ends sat apart only one got fixed: 2026-08-21 taught the reader to understand the
- * anchored spelling, and the emitter went on writing the relative one for three more weeks.
- *
- * Why anchored at all, from the two measurements already in this file and in
- * `PluginLayout.projectRootTokens`: a hook command does not run with a stable cwd, so a
- * relative path "dies with exit 2 the moment the agent runs from a subdirectory". For a
- * PreToolUse gate that is not a lost nudge — a gate that cannot load must block, so the
- * repository seizes. Measured in a consumer repo 2026-09-10: recoverable by file writes
- * only, because every command was refused, including the one that repairs it.
- *
- * `bareToken(hookGateRef(ref, tokens)) === ref` is what keeps a recompile idempotent, and
- * it is asserted directly rather than left to inspection.
- */
-/**
- * Where the hook runtime lives, spelled so the shell can find it WITHOUT `npx`.
- *
- * 🔴 MEASURED 2026-09-19, warm cache, five runs each:
- *
- *     node <local>/dist/cli.js hook-runtime run-program …   193 ms
- *     npx vigiles              hook-runtime run-program …  2545 ms
- *
- * Thirteen times, on every tool call, because `npx` re-resolves the package on
- * each invocation — local, then global, then the registry. That search is the
- * single largest cost in a hook's life; everything the runtime does inside adds
- * up to less than a fifth of it.
- *
- * A harness with no project-root token gets the relative spelling, which is all
- * it can be given — see {@link hookGateRef} for the same fallback.
- */
-export function hookRuntimeRef(
-  projectRootTokens: readonly string[] | undefined,
-): string {
-  const rel = "node_modules/vigiles/dist/cli.js";
-  const token = projectRootTokens?.[0];
-  return token === undefined ? `node ${rel}` : `node "${token}/${rel}"`;
-}
-
-export function hookGateRef(
-  ref: string,
-  projectRootTokens: readonly string[] | undefined,
-): string {
-  const token = projectRootTokens?.[0];
-  return token === undefined ? ref : `"${token}/${ref}"`;
+/** {@link hookRuntimeFor} over `<cwd>/package.json`; no or unreadable manifest is a consumer. */
+export function readHookRuntime(cwd: string): HookRuntime {
+  try {
+    const manifest: unknown = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf-8"),
+    );
+    return hookRuntimeFor(manifest);
+  } catch {
+    return INSTALLED_HOOK_RUNTIME;
+  }
 }
 
 /**
@@ -451,46 +416,20 @@ function ownedRefs(hookPath: string): readonly string[] {
  * which also de-duplicates settings written by an older version), while
  * `x.hook.ts` and `my-x.hook.ts` are not (a substring test said they were).
  */
-function managesHook(entry: HookEntry, hookPath: string): boolean {
+function managesHook(
+  entry: HookEntry,
+  hookPath: string,
+  rootTokens: readonly string[],
+): boolean {
   const refs = ownedRefs(hookPath);
   return entry.hooks.some((h) =>
-    h.command.split(/\s+/).some((token) => {
-      const bare = bareToken(token);
-      return bare !== "" && refs.includes(normalizeHookRef(bare));
-    }),
+    commandNamesRef(
+      h.command,
+      refs,
+      (word) => normalizeHookRef(word),
+      rootTokens,
+    ),
   );
-}
-
-/**
- * A command token reduced to the PATH it names, so two spellings of the same
- * hook file compare equal.
- *
- * 🔴 BOTH STRIPS ARE REGRESSIONS, MEASURED IN A CONSUMER REPO 2026-08-21, and
- * they compound: a settings.json wired the Claude-Code-recommended way carries
- * BOTH a quote and the project-dir variable, so `managesHook` saw
- * `"$CLAUDE_PROJECT_DIR/.claude/hooks/x.hook.ts"`, canonicalized it to
- * something under the cwd that resembles nothing, and reported "not managed by
- * this hook". Recompiling then APPENDED its own block beside the existing one.
- * Twelve hooks, twelve duplicates, and the duplicate is the WORSE of the two:
- * it spells the path relative to the cwd, so it dies with exit 2 the moment the
- * agent runs from a subdirectory — while the healthy copy beside it keeps
- * working, which is why this survived a full day unnoticed.
- *
- * - QUOTES. A path with a space MUST be quoted, so the quoted form is not an
- *   exotic spelling — it is the correct one. Comparing it raw could never match.
- * - `$CLAUDE_PROJECT_DIR`. It is defined as the project root, which is exactly
- *   what `normalizeHookRef` resolves relative paths against, so stripping the
- *   prefix makes the two spellings the same path by definition rather than by
- *   guess. `${CLAUDE_PROJECT_DIR}` is the same variable in brace syntax.
- *
- * Nothing else is stripped. A token this function does not recognise is left
- * alone and simply fails to match, which is the pre-existing behaviour: the
- * cost of a miss here is a duplicate block, and the cost of an over-match is
- * deleting a hook the user wrote themselves.
- */
-function bareToken(token: string): string {
-  const unquoted = token.replace(/^["']/, "").replace(/["']$/, "");
-  return unquoted.replace(/^\$\{?CLAUDE_PROJECT_DIR\}?[/\\]/, "");
 }
 
 /**
@@ -525,10 +464,16 @@ function bareToken(token: string): string {
 function withoutHookCommands(
   entry: HookEntry,
   hookPath: string,
+  rootTokens: readonly string[],
 ): HookEntry | null {
-  if (!managesHook(entry, hookPath)) return entry;
+  if (!managesHook(entry, hookPath, rootTokens)) return entry;
   const kept = entry.hooks.filter(
-    (h) => !managesHook({ matcher: entry.matcher, hooks: [h] }, hookPath),
+    (h) =>
+      !managesHook(
+        { matcher: entry.matcher, hooks: [h] },
+        hookPath,
+        rootTokens,
+      ),
   );
   if (kept.length === entry.hooks.length) return entry;
   return kept.length === 0 ? null : { ...entry, hooks: kept };
@@ -546,6 +491,8 @@ export function mergeHooksJson(
   existing: SettingsJson,
   compiled: CompiledHooks,
   hookPath: string,
+  /** The harness's project-root variables, from its layout: the merge key strips them. */
+  rootTokens: readonly string[],
 ): SettingsJson {
   // No keyed assignment into a shallow copy, and the containers are `readonly`.
   // That copy would SHARE its arrays with the caller's object, so the purity of
@@ -560,7 +507,7 @@ export function mergeHooksJson(
       event,
       replaceInPlace(
         before[event] ?? [],
-        (e) => withoutHookCommands(e, hookPath),
+        (e) => withoutHookCommands(e, hookPath, rootTokens),
         entries,
       ),
     ]),
@@ -618,6 +565,7 @@ export function mergeHooksToml(
   existing: ConfigToml,
   compiled: CompiledHooks,
   hookPath: string,
+  rootTokens: readonly string[],
 ): ConfigToml {
   // Same canonical-path keying as the JSON merge, and the same no-assignment
   // shape. No per-command narrowing is needed HERE, and that is a fact about the
@@ -631,7 +579,7 @@ export function mergeHooksToml(
       event,
       replaceInPlace(
         before[event] ?? [],
-        (e) => managesHook({ hooks: [{ type: "command", command: e.command }] }, hookPath) ? null : e, // prettier-ignore
+        (e) => managesHook({ hooks: [{ type: "command", command: e.command }] }, hookPath, rootTokens) ? null : e, // prettier-ignore
         toTomlEntries(entries),
       ),
     ]),

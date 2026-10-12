@@ -18,8 +18,20 @@
  */
 import type { BuiltinLinter } from "./spec.js";
 
-/** The config-enabled state of a linter rule in a project. */
-export type ConfigEnabledStatus = "enabled" | "disabled" | "unknown";
+/**
+ * The config-enabled state of a linter rule in a project.
+ *
+ * `unconfigured` and `unknown` are different facts and must not share a word:
+ * `unconfigured` = the WHOLE config was read and no block sets the rule (ESLint
+ * treats that as off); `unknown` = vigiles could not read it, or read only part
+ * of it. Only a linter that can see every block of its config returns
+ * `unconfigured` (today: ESLint flat config); the rest keep `unknown`.
+ */
+export type ConfigEnabledStatus =
+  | "enabled"
+  | "disabled"
+  | "unconfigured"
+  | "unknown";
 
 /** A linter's enabled rules discovered from project config, for generate-types. */
 export interface DiscoveredRules {
@@ -27,6 +39,21 @@ export interface DiscoveredRules {
   rules: string[];
   via: string;
 }
+
+/**
+ * What asking a linter for its enabled rules produced. `none` (the linter is not
+ * set up here, or switches nothing on) and `unreadable` (it is set up, and its
+ * config could not be read) are different facts: the second is a problem the
+ * user has to hear about, never an empty list.
+ */
+export type Discovery =
+  | { readonly kind: "found"; readonly rules: DiscoveredRules }
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "unreadable";
+      readonly linter: string;
+      readonly reason: string;
+    };
 
 /**
  * A linter's capabilities — the variance that used to be IMPLICIT in which map
@@ -80,5 +107,5 @@ export interface LinterAdapter {
   /** All known rule names, for closest-match suggestions; absent when unlistable. */
   enumerateRules?(basePath: string): Set<string>;
   /** Enabled rules discovered from project config, for generate-types. */
-  discoverEnabled?(basePath: string): DiscoveredRules | null;
+  discoverEnabled?(basePath: string): Discovery;
 }

@@ -31,6 +31,15 @@ import { execSync } from "node:child_process";
 
 import { VERBS } from "./cli-commands.js";
 import { knownFlagsFor } from "./cli-flag-check.js";
+import { adoptInstructionFileRemedy } from "./core/instruction-remedies.js";
+import { z } from "zod";
+
+/** The part of `audit --json` the adoption tests read — parsed, not cast. */
+const adoptableReport = z.object({
+  adoptable: z
+    .object({ surfaces: z.array(z.object({ path: z.string() })) })
+    .optional(),
+});
 
 // __dirname is src/ when vitest resolves the .ts source → ".." is the repo root.
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
@@ -134,10 +143,9 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     );
     mk("codexadopt/.codex/config.toml", 'model = "gpt-5"\n');
 
-    // 2b. A Codex repo wired for `lint` — exercises the layout-driven path end to
-    // end: a TOML [hooks] referencing the harness's OWN `${PLUGIN_ROOT}` token (a
-    // MISSING script → hook-script-exists fires), an untested skill, and a
-    // subagent rule that must report n/a (Codex has no subagents).
+    // 2b. A Codex repo wired for `lint`: a TOML [hooks] line vigiles did not write
+    // (hand-written-hook, opted in, names it), an untested skill, and a subagent
+    // rule that must report n/a (Codex has no subagents).
     mk("codexlint/AGENTS.md", "# Agent instructions\nUse `npm test`.\n");
     mk(
       "codexlint/.codex/config.toml",
@@ -152,7 +160,7 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
       JSON.stringify({
         harnesses: { codex: {} },
         rules: {
-          "hook-script-exists": "warn",
+          "hand-written-hook": "warn",
           "untested-skill": "warn",
           "subagent-tool-contract": "warn",
         },
@@ -286,16 +294,16 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.match(r.stdout, /AGENTS\.md/);
   });
 
-  it("Codex repo: `lint` runs the layout-driven rules (hook token, untested) and reports subagent n/a", () => {
+  it("Codex repo: `lint` runs the layout-driven rules (shell hooks, untested) and reports subagent n/a", () => {
     // `lint` operates on cwd, so run it INSIDE the fixture. Proves the
     // deterministic rules use the resolved Codex adapter (layout + dialect), not a
     // hard-coded Claude Code default.
     const r = run("lint", join(root, "codexlint"));
 
-    // hook-script-exists resolved the harness's ${PLUGIN_ROOT} token (loaded from
-    // TOML [hooks]) and flagged the missing script.
-    assert.match(r.stdout, /Hook-script existence check:/);
-    assert.match(r.stdout, /missing\.sh.*missing/);
+    // The hook loaded from TOML [hooks] is one vigiles did not write: the
+    // shell-hooks rules ran for Codex and named it.
+    assert.match(r.stdout, /Hand-written hooks:/);
+    assert.match(r.stdout, /missing\.sh.*vigiles did not write this line/);
 
     // untested-skill found the skill under the layout's skill dir.
     assert.match(r.stdout, /Untested surfaces:/);
@@ -652,6 +660,52 @@ describe("audit → adoption — adoptable-surfaces nudge + JSON data", () => {
   });
 });
 
+// Measured on a repo with six hand-written CLAUDE.md files (root + five nested):
+// audit said "1 surface could be spec-managed" — it looked at the root file only,
+// while `lint` warned about all six. Every hand-written instruction file counts,
+// nested ones included; a spec-managed or opted-out one does not.
+describe("audit → every hand-written instruction file, nested included", () => {
+  let root: string;
+  const handWritten = ["CLAUDE.md", "docs/AGENTS.md", "pkg/CLAUDE.md"];
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "audit-nested-instr-"));
+    const put = (rel: string, text: string): void => {
+      mkdirSync(dirname(join(root, rel)), { recursive: true });
+      writeFileSync(join(root, rel), text);
+    };
+    for (const rel of handWritten) put(rel, `# ${rel}\n\nHand-written.\n`);
+    put(
+      "opt/CLAUDE.md",
+      "<!-- vigiles-disable require-instructions-spec -->\n# Mine\n",
+    );
+    put("managed/CLAUDE.md", "# Managed\n");
+    put("managed/CLAUDE.md.spec.ts", "export default {};\n");
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("--json counts exactly the hand-written ones", () => {
+    const r = run(`audit ${root} --json`);
+    const report = adoptableReport.parse(JSON.parse(r.stdout));
+    const paths = (report.adoptable?.surfaces ?? []).map((s) => s.path).sort();
+    assert.deepEqual(paths, [...handWritten].sort());
+  });
+
+  it("the terminal lists each one and names how to adopt it", () => {
+    const r = run(`audit ${root}`);
+    for (const rel of handWritten)
+      assert.match(r.stdout, new RegExp(`• ${rel.replace(".", "\\.")}\\n`));
+    assert.doesNotMatch(r.stdout, /• opt\/CLAUDE\.md/);
+    assert.doesNotMatch(r.stdout, /• managed\/CLAUDE\.md/);
+    // The nudge indents the shared remedy, so compare line by line.
+    for (const line of adoptInstructionFileRemedy("<path>").split("\n"))
+      assert.ok(r.stdout.includes(line.trim()), line);
+  });
+});
+
 // --- generate-harness: the whole-harness typed registry ------------------------
 //
 // Drives the REAL built CLI to emit `harness.gen.ts` over a dir of real specs.
@@ -755,6 +809,9 @@ export default railway({ name: "ship", steps: [delegate("planner"), delegate("im
     const dir = mkdtempSync(join(REPO, ".tmp-compile-genh-"));
     for (const [name, src] of Object.entries(SPECS))
       writeFileSync(join(dir, name), src);
+    // Its own config makes the fixture its own project: a bare `compile` run
+    // inside a checkout otherwise works on the checkout's root (#371).
+    writeFileSync(join(dir, ".vigilesrc.json"), "{}\n");
     return dir;
   }
 

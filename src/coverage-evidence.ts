@@ -207,9 +207,8 @@ export function prepareTest(path: string): PreparedTest {
  * cannot drift and none can omit the boundary (without it, `hooks.json` matched
  * as `hooks.js`).
  *
- * ⚠️ This one scans a SERIALIZED settings blob rather than a shell parse, so it
- * cannot tell an operand from inline program text the way `commandWords` can.
- * It stays a regex because every hit is gated on the file EXISTING before it
+ * ⚠️ This one scans a SERIALIZED settings blob, so it cannot tell an operand
+ * from inline program text. It stays a regex because every hit is gated on the file EXISTING before it
  * becomes a surface — a stray match is dropped, never reported — so the failure
  * mode here is under-counting, not accusation.
  */

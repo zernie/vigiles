@@ -579,3 +579,19 @@ describe("routeRules", () => {
     expect(r.possible).toEqual([]);
   });
 });
+
+describe("routeRules: the compiled Claimed (unverified) marker (#351)", () => {
+  it("routes a Claimed (unverified) reference like Enforced by", () => {
+    const md = [
+      "### No Restricted Imports",
+      "",
+      "**Claimed (unverified):** `eslint/no-restricted-imports`",
+      "**Why:** Barrel imports only.",
+    ].join("\n");
+    const r = routeRules(md, "CLAUDE.md");
+    expect(r.rules).toHaveLength(1);
+    expect(r.rules[0].category).toBe("reuse");
+    expect(r.rules[0].source).toBe("marker");
+    expect(r.rules[0].rule).toBe("eslint/no-restricted-imports");
+  });
+});

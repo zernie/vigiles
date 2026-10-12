@@ -185,7 +185,7 @@ field listing companions.
 `experimental_skill` carries the prefix, and these are the measured reasons — the
 roadmap for a feature lives with the feature, not on a separate stability page:
 
-- **A compiled `SKILL.md` now has one datapoint as an installed skill — and the header worry is stale.** Measured 2026-08-31 in `zernie/mine`: `outbound-email` was converted to a spec, compiled, and the harness listed it as an available skill with its compiled description. Read the strength honestly — the skill was already present before the conversion, so this shows the compiled form does not _break_ loading; it is not a from-scratch install.
+- **A compiled `SKILL.md` now has one datapoint as an installed skill — and the header worry is stale.** Measured 2026-08-31 in a private consumer repository: `outbound-email` was converted to a spec, compiled, and the harness listed it as an available skill with its compiled description. Read the strength honestly — the skill was already present before the conversion, so this shows the compiled form does not _break_ loading; it is not a from-scratch install.
 
   The specific fear in the previous wording is measurably gone: the `vigiles:sha256:` header no longer precedes the frontmatter. In that compiled file the frontmatter opens on **line 1** and the header sits on **line 10**, after the closing `---`. A reader anchored at `^---` finds the frontmatter exactly where it expects it.
 

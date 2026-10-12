@@ -23,7 +23,7 @@
 import { readFileSync, existsSync, writeFileSync, rmSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { editDistance } from "./edit-distance.js";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { globSync } from "glob";
 import { load as loadYaml } from "js-yaml";
@@ -69,6 +69,7 @@ augmentToolPath();
 export type {
   ConfigEnabledStatus,
   DiscoveredRules,
+  Discovery,
   LinterAdapter,
   LinterCapabilities,
 } from "./linter-adapter.js";
@@ -76,7 +77,18 @@ import type {
   ConfigEnabledStatus,
   LinterAdapter,
   DiscoveredRules,
+  Discovery,
 } from "./linter-adapter.js";
+import {
+  ESLINT_PROBE_SCRIPT,
+  PROJECT_FILES_GLOB,
+  eslintRuleState,
+  registeredPluginHasRule,
+  enabledRuleIds,
+  parseEslintInventory,
+  representativePaths,
+  type EslintInventory,
+} from "./eslint-inventory.js";
 import type { BuiltinLinter } from "./spec.js";
 import { makeTmpDir } from "./tmp-root.js";
 
@@ -675,19 +687,32 @@ function golangciCheckExists(ruleName: string): void {
 
 type ConfigLoader = (ruleName: string) => ConfigEnabledStatus;
 
-function createCachedChecker(
-  loadConfigFn: (basePath: string) => ConfigLoader | null,
-): (ruleName: string, basePath: string) => ConfigEnabledStatus {
-  const cache = new Map<string, ConfigLoader | null>();
-  return (ruleName: string, basePath: string): ConfigEnabledStatus => {
+/**
+ * Memoize a per-project load by `basePath`; a load that throws is cached as
+ * null, so a missing tool is asked once per run, not once per reference.
+ */
+function memoByBasePath<T>(
+  load: (basePath: string) => T | null,
+): (basePath: string) => T | null {
+  const cache = new Map<string, T | null>();
+  return (basePath: string): T | null => {
     if (!cache.has(basePath)) {
       try {
-        cache.set(basePath, loadConfigFn(basePath));
+        cache.set(basePath, load(basePath));
       } catch {
         cache.set(basePath, null);
       }
     }
-    const config = cache.get(basePath);
+    return cache.get(basePath) ?? null;
+  };
+}
+
+function createCachedChecker(
+  loadConfigFn: (basePath: string) => ConfigLoader | null,
+): (ruleName: string, basePath: string) => ConfigEnabledStatus {
+  const loader = memoByBasePath(loadConfigFn);
+  return (ruleName: string, basePath: string): ConfigEnabledStatus => {
+    const config = loader(basePath);
     if (!config) return "unknown";
     return config(ruleName);
   };
@@ -697,44 +722,72 @@ function createCachedChecker(
 // the LINTERS registry (no name-keyed map). eslint/stylelint are shared by the
 // node-api adapters; the rest by their cli adapter.
 
-const eslintConfigEnabled = createCachedChecker(
-  (basePath: string): ConfigLoader | null => {
-    try {
-      const script = `
-        const { loadESLint } = require("eslint");
-        (async () => {
-          try {
-            const ESLint = await loadESLint();
-            const eslint = new ESLint({ cwd: ${JSON.stringify(basePath)} });
-            const config = await eslint.calculateConfigForFile("dummy.js");
-            console.log(JSON.stringify(config.rules || {}));
-          } catch(e) {
-            console.log("{}");
-          }
-        })();
-      `;
-      const output = execSync(`node -e '${script.replace(/'/g, "'\\''")}'`, {
+// ---------------------------------------------------------------------------
+// ESLint: the enabled state and the registered plugins come from the one
+// inventory (`eslint-inventory.ts`), which `generate types` reads as well.
+// ---------------------------------------------------------------------------
+
+/** Ask ESLint, in a child process at `basePath` (see `eslint-inventory.ts`). */
+function probeEslint(basePath: string): EslintInventory {
+  const files = globSync(PROJECT_FILES_GLOB.pattern, {
+    cwd: basePath,
+    dot: true,
+    nodir: true,
+    ignore: [...PROJECT_FILES_GLOB.ignore],
+  });
+  try {
+    return parseEslintInventory(
+      execFileSync("node", ["-e", ESLINT_PROBE_SCRIPT], {
         encoding: "utf-8",
         cwd: basePath,
+        input: JSON.stringify(representativePaths(files)),
         stdio: ["pipe", "pipe", "pipe"],
-        timeout: 15000,
-      });
-      const rules = JSON.parse(output.trim() || "{}") as Record<
-        string,
-        unknown
-      >;
-      return (ruleName: string): ConfigEnabledStatus => {
-        if (!(ruleName in rules)) return "unknown";
-        const setting: unknown = rules[ruleName];
-        const severity: unknown = Array.isArray(setting) ? setting[0] : setting;
-        if (severity === 0 || severity === "off") return "disabled";
-        return "enabled";
-      };
-    } catch {
-      return null;
+        timeout: 60000,
+      }),
+    );
+  } catch (e) {
+    // The child itself died (a timeout, or a crash the probe could not catch):
+    // the config could not be read.
+    const msg = e instanceof Error ? e.message : String(e);
+    return { kind: "failed", error: msg.split("\n")[0] ?? msg };
+  }
+}
+
+const probeEslintCached = memoByBasePath(probeEslint);
+
+/**
+ * The repo's ESLint inventory — the ONE answer `enforce()` verification,
+ * `generate types` and the routing catalog read. One child process per
+ * project per run, however many references ask.
+ */
+export function eslintInventory(basePath: string): EslintInventory {
+  return (
+    probeEslintCached(resolve(basePath)) ?? {
+      kind: "failed",
+      error: "the ESLint probe could not run",
     }
-  },
-);
+  );
+}
+
+/** Enabled state of an ESLint rule id across every block of the config. */
+function eslintConfigEnabled(
+  ruleName: string,
+  basePath: string,
+): ConfigEnabledStatus {
+  return eslintRuleState(eslintInventory(basePath), ruleName);
+}
+
+/**
+ * Does the plugin a config REGISTERS under `ruleId`'s namespace define the rule?
+ * null when the config registers no plugin under that namespace (the caller then
+ * falls back to the npm package guess).
+ */
+function eslintConfigPluginHasRule(
+  ruleId: string,
+  basePath: string,
+): boolean | null {
+  return registeredPluginHasRule(eslintInventory(basePath), ruleId);
+}
 
 const stylelintConfigEnabled = createCachedChecker(
   (basePath: string): ConfigLoader | null => {
@@ -1090,6 +1143,10 @@ function closestRuleNames(
 }
 
 function isEslintPluginRule(ruleName: string, basePath: string): boolean {
+  // The plugin object the config registers wins over a package-name guess: it
+  // is what ESLint runs, and an inline plugin has no package at all (#351).
+  const inConfig = eslintConfigPluginHasRule(ruleName, basePath);
+  if (inConfig !== null) return inConfig;
   const pluginPrefix = ruleName.substring(0, ruleName.indexOf("/"));
   const pluginRuleName = ruleName.substring(ruleName.indexOf("/") + 1);
   const pluginRules = resolveEslintPluginRules(pluginPrefix, basePath);
@@ -1099,19 +1156,33 @@ function isEslintPluginRule(ruleName: string, basePath: string): boolean {
 /** @internal */ function tryScopedPlugin(
   ctx: RuleContext,
 ): LinterCheckResult | null {
-  const pluginRules = resolveEslintPluginRules(ctx.linterName, ctx.basePath);
-  if (!pluginRules) return null;
-  if (!pluginRules.has(ctx.ruleName)) {
+  const fullId = `${ctx.linterName}/${ctx.ruleName}`;
+  // A built-in linter's name (`ruff`, `clippy`, …) is never an ESLint plugin
+  // namespace worth spawning ESLint for; it goes on to its own CLI check.
+  const inConfig =
+    getLinterAdapter(ctx.linterName) === undefined
+      ? eslintConfigPluginHasRule(fullId, ctx.basePath)
+      : null;
+  // The plugin the config REGISTERS wins over an npm package-name guess (#351).
+  const exists =
+    inConfig ??
+    resolveEslintPluginRules(ctx.linterName, ctx.basePath)?.has(ctx.ruleName);
+  if (exists === undefined) return null;
+  if (!exists) {
+    const where =
+      inConfig === null
+        ? ""
+        : " (the plugin your ESLint config registers under that name)";
     return makeResult(
       ctx,
       false,
       "unknown",
-      `Rule "${ctx.ruleName}" not found in ${ctx.linterName}`,
+      `Rule "${ctx.ruleName}" not found in ${ctx.linterName}${where}`,
     );
   }
   const enabled = checkConfigEnabled(
     "eslint",
-    `${ctx.linterName}/${ctx.ruleName}`,
+    fullId,
     ctx.basePath,
     ctx.catalogOnly,
   );
@@ -1524,38 +1595,27 @@ function hasGolangciConfig(basePath: string): boolean {
 // Linter rule discovery
 // ---------------------------------------------------------------------------
 
-function discoverEslintRules(basePath: string): DiscoveredRules | null {
-  try {
-    const script = `
-      const { loadESLint } = require("eslint");
-      (async () => {
-        try {
-          const ESLint = await loadESLint();
-          const eslint = new ESLint({ cwd: ${JSON.stringify(basePath)} });
-          const config = await eslint.calculateConfigForFile("dummy.js");
-          const enabled = Object.entries(config.rules || {})
-            .filter(([, v]) => {
-              const sev = Array.isArray(v) ? v[0] : v;
-              return sev !== 0 && sev !== "off";
-            })
-            .map(([k]) => k);
-          console.log(JSON.stringify(enabled));
-        } catch(e) {
-          console.log("[]");
-        }
-      })();
-    `;
-    const output = execSync(`node -e '${script.replace(/'/g, "'\\''")}'`, {
-      encoding: "utf-8",
-      cwd: basePath,
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 15000,
-    });
-    const rules = JSON.parse(output.trim() || "[]") as string[];
-    if (rules.length === 0) return null;
-    return { linter: "eslint", rules, via: "flat config (v9+/v10)" };
-  } catch {
-    return null;
+/** `generate types`' view of the inventory: the rules the config switches on. */
+function discoverEslintRules(basePath: string): Discovery {
+  const inv = eslintInventory(basePath);
+  switch (inv.kind) {
+    case "not-installed":
+    case "no-config":
+    case "empty":
+      return { kind: "none" };
+    case "failed":
+      return { kind: "unreadable", linter: "eslint", reason: inv.error };
+    case "loaded": {
+      const plugins = [...inv.view.plugins.keys()].sort();
+      const via =
+        plugins.length > 0
+          ? `flat config (v9+/v10), plugins: ${plugins.join(", ")}`
+          : "flat config (v9+/v10)";
+      return {
+        kind: "found",
+        rules: { linter: "eslint", rules: [...enabledRuleIds(inv.view)], via },
+      };
+    }
   }
 }
 
@@ -1821,7 +1881,15 @@ function discoverGolangciLintRules(basePath: string): DiscoveredRules | null {
 // format-only mode is a separate behavior change.
 // ---------------------------------------------------------------------------
 
-type Discover = (basePath: string) => DiscoveredRules | null;
+type Discover = (basePath: string) => Discovery;
+
+/** A discoverer that answers "found" or nothing; it has no unreadable state. */
+const foundOrNone =
+  (discover: (basePath: string) => DiscoveredRules | null): Discover =>
+  (basePath) => {
+    const rules = discover(basePath);
+    return rules ? { kind: "found", rules } : { kind: "none" };
+  };
 
 const cliAdapter = (
   name: BuiltinLinter,
@@ -1880,14 +1948,14 @@ export const LINTERS: Record<BuiltinLinter, LinterAdapter> = {
     "stylelint",
     stylelintResolver,
     stylelintConfigEnabled,
-    discoverStylelintRules,
+    foundOrNone(discoverStylelintRules),
   ),
   ruff: cliAdapter(
     "ruff",
     "ruff",
     ruffCheckExists,
     ruffConfigEnabled,
-    discoverRuffRules,
+    foundOrNone(discoverRuffRules),
     enumerateRuffRules,
   ),
   clippy: cliAdapter(
@@ -1895,7 +1963,7 @@ export const LINTERS: Record<BuiltinLinter, LinterAdapter> = {
     "cargo",
     clippyCheckExists,
     clippyConfigEnabled,
-    discoverClippyRules,
+    foundOrNone(discoverClippyRules),
     enumerateClippyRules,
   ),
   pylint: cliAdapter(
@@ -1903,7 +1971,7 @@ export const LINTERS: Record<BuiltinLinter, LinterAdapter> = {
     "pylint",
     pylintCheckExists,
     pylintConfigEnabled,
-    discoverPylintRules,
+    foundOrNone(discoverPylintRules),
     enumeratePylintRules,
   ),
   rubocop: cliAdapter(
@@ -1911,7 +1979,7 @@ export const LINTERS: Record<BuiltinLinter, LinterAdapter> = {
     "rubocop",
     rubocopCheckExists,
     rubocopConfigEnabled,
-    discoverRubocopRules,
+    foundOrNone(discoverRubocopRules),
     enumerateRubocopRules,
   ),
   detekt: cliAdapter(
@@ -1919,7 +1987,7 @@ export const LINTERS: Record<BuiltinLinter, LinterAdapter> = {
     "detekt",
     detektCheckExists,
     detektEnabledStatus,
-    discoverDetektRules,
+    foundOrNone(discoverDetektRules),
     enumerateDetektRules,
   ),
   ktlint: cliAdapter(
@@ -1927,21 +1995,21 @@ export const LINTERS: Record<BuiltinLinter, LinterAdapter> = {
     "ktlint",
     ktlintCheckExists,
     ktlintEnabledStatus,
-    discoverKtlintRules,
+    foundOrNone(discoverKtlintRules),
   ),
   checkstyle: cliAdapter(
     "checkstyle",
     "checkstyle",
     checkstyleCheckExists,
     checkstyleEnabledStatus,
-    discoverCheckstyleRules,
+    foundOrNone(discoverCheckstyleRules),
   ),
   "golangci-lint": cliAdapter(
     "golangci-lint",
     "golangci-lint",
     golangciCheckExists,
     golangciConfigEnabled,
-    discoverGolangciLintRules,
+    foundOrNone(discoverGolangciLintRules),
     enumerateGolangciRules,
   ),
   cedar: {
@@ -1955,7 +2023,7 @@ export const LINTERS: Record<BuiltinLinter, LinterAdapter> = {
     },
     checkExists: (rule, basePath, customDirs) =>
       getCedarPolicies(basePath, customDirs).has(rule),
-    discoverEnabled: discoverCedarPolicies,
+    discoverEnabled: foundOrNone(discoverCedarPolicies),
   },
 };
 

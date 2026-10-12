@@ -5,12 +5,12 @@
  * A bare directory name excludes its subtree, as tsconfig/ESLint do — measured 2026-09-03: glob's own string `ignore` treated `bench` and `bench/` as matching NOTHING while the minimatch helper in `discoverNestedBundles` accepted them, so the two walks that honoured `exclude` disagreed.
  * The floor (node_modules/dist/.git/.vigiles) lives here, not per walk.
  * `exclude` filters DISCOVERY only: an explicitly named path is processed and ONE line names the pattern it matched (rg/tsc semantics with ESLint's loudness; never prettier's silent 'all clean').
- * Rule-level `orphans.exclude` / `untested-*` `exclude` NARROW (union with the floor), never override.
- * The header carries the exception table — `validateGlobRef` (reference verification), `specReferencedElsewhere` (eject safety), `expandGlobs` (a typed argument), surface walks inside a bundle, and internal machinery — so the next reader does not 'fix' them.
+ * "Do not report rule X for these paths" is not an exclusion: it is `overrides` with the rule off (`overrides.ts`). `exclude` means vigiles does not read the path at all, so an override cannot re-include it.
+ * The header carries the exception table — `validateGlobRef` (reference verification), `specReferencedElsewhere` (eject safety), surface walks inside a bundle, and internal machinery — so the next reader does not 'fix' them.
  * Enforced by the ESLint discovery guard (eslint.config.mjs: `globSync` without `ignore`, a literal in an ignore list, a raw `readdirSync` in cli.ts) and the source gate in exclude-cli.test.ts
  */
-import { Minimatch } from "minimatch";
-import { relative, sep } from "node:path";
+import { relative } from "node:path";
+import { normalizeRel, rootGlobMatcher } from "./root-globs.js";
 import type { IgnoreLike } from "glob";
 
 /** Always excluded, whatever the config says. Root-relative, like `exclude`. */
@@ -39,37 +39,15 @@ export interface ExcludeSet {
   explain(rel: string): string | null;
 }
 
-/** `a\b\c` → `a/b/c`, drop a leading `./`, drop a trailing `/`. */
-function normalizeRel(rel: string): string {
-  let r = rel
-    .split(sep)
-    .join("/")
-    .replace(/^(?:\.\/)+/, "");
-  while (r.endsWith("/")) r = r.slice(0, -1);
-  return r;
-}
-
-/** Parse `.vigilesrc.json#exclude` once, against `root`. */
+/** Parse `.vigilesrc.json#exclude` once, against `root`. The glob semantics
+ * (root-relative, a bare directory covers its subtree, dotfiles match) are
+ * `root-globs.ts`'s — the same ones `overrides[].files` uses. */
 export function excludeSet(
   root: string,
   patterns: readonly string[] | undefined,
 ): ExcludeSet {
   const user = (patterns ?? []).map(normalizeRel).filter((p) => p !== "");
-  const all = [...EXCLUDE_FLOOR, ...user];
-  // One compiled matcher pair per pattern: the pattern itself and its subtree.
-  const compiled = all.map((p) => ({
-    pattern: p,
-    self: new Minimatch(p, { dot: true }),
-    subtree: new Minimatch(`${p}/**`, { dot: true }),
-  }));
-  const explain = (rel: string): string | null => {
-    const r = normalizeRel(rel);
-    if (r === "" || r === "." || r.startsWith("../")) return null;
-    for (const c of compiled) {
-      if (c.self.match(r) || c.subtree.match(r)) return c.pattern;
-    }
-    return null;
-  };
+  const explain = rootGlobMatcher([...EXCLUDE_FLOOR, ...user]);
   const matches = (rel: string): boolean => explain(rel) !== null;
   const relOf = (p: { fullpath(): string }): string =>
     normalizeRel(relative(root, p.fullpath()));

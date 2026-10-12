@@ -35,8 +35,8 @@ export interface OrphanReport {
 }
 
 export interface FindOrphansOptions {
-  /** Repository root. Defaults to `process.cwd()`. */
-  readonly basePath?: string;
+  /** Repository root. Required: no cwd fallback. */
+  readonly basePath: string;
   /**
    * Glob patterns of `.md` files to scan. Defaults to `["docs/**\/*.md"]`
    * (`docs/` is the near-universal convention; a vigiles-specific dir like
@@ -44,8 +44,6 @@ export interface FindOrphansOptions {
    * or to your project's doc globs (e.g. `["wiki/**\/*.md"]`) to override.
    */
   readonly include?: readonly string[];
-  /** Glob patterns to exclude within the include scope (orphan CANDIDACY only). */
-  readonly exclude?: readonly string[];
   /**
    * The repo-wide `.vigilesrc.json#exclude` (`ExcludeSet.globIgnore`,
    * src/exclude.ts — correct from any glob cwd; a plain list is relative to
@@ -212,17 +210,16 @@ function refTargets(sourcePath: string, ref: string): string[] {
  * `.vigilesrc.json` → `orphans.include` (whose presence also opts the repo
  * into the scan — see the CLI gate in `vigiles lint`).
  */
-export function findOrphanDocs(options: FindOrphansOptions = {}): OrphanReport {
-  const basePath = options.basePath ?? process.cwd();
+export function findOrphanDocs(options: FindOrphansOptions): OrphanReport {
+  const basePath = options.basePath;
   const include = options.include ?? DEFAULT_INCLUDE;
-  const userExclude = options.exclude ?? [];
-  // Two exclusions with two jobs (#192). `repoExclude` is the repo-wide
-  // `.vigilesrc.json#exclude` — a vendored corpus is neither an orphan
-  // CANDIDATE nor a SOURCE of references (a link from inside it must not keep a
-  // doc alive). The rule's own `exclude` only narrows candidacy: a doc kept out
-  // of the orphan list can still reference others. Union, never override.
+  // `repoExclude` is the repo-wide `.vigilesrc.json#exclude` — a vendored
+  // corpus is neither an orphan CANDIDATE nor a SOURCE of references (a link
+  // from inside it must not keep a doc alive) (#192). Keeping a doc out of the
+  // orphan list while it still references others is `overrides` with
+  // `orphan-docs` off, applied to the report by the caller.
   const repoExclude = options.repoExclude;
-  const ignore = withIgnored([...DEFAULT_IGNORE, ...userExclude], repoExclude);
+  const ignore = withIgnored(DEFAULT_IGNORE, repoExclude);
   const layouts = options.layouts ?? [];
 
   const allDocs = collectDocs(basePath, include, ignore, layouts);
@@ -281,7 +278,7 @@ export function formatOrphanReport(report: OrphanReport): string {
   lines.push(
     "  Fix: link each from another .md (README, an instruction file, or a doc).",
     "  To silence: add `<!-- vigiles-disable orphan-docs -->` to the doc, or",
-    "  exclude it via .vigilesrc.json → `orphans.exclude` (or narrow `orphans.include`).",
+    "  turn `orphan-docs` off for its folder in .vigilesrc.json → `overrides` (or narrow `orphans.include`).",
   );
   return lines.join("\n");
 }

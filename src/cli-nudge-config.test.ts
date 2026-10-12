@@ -34,6 +34,8 @@ import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
 const SKILL = ".claude/skills/demo/SKILL.md";
 /** How `vigiles lint` prints an untested skill on stdout (the finding + fix). */
+/** The skill's folder, as an `overrides` glob. */
+const SKILL_FOLDER = `${SKILL.slice(0, SKILL.lastIndexOf("/"))}/**`;
 const UNTESTED_IN_LINT = /skill \.claude\/skills\/demo\/SKILL\.md — add e\.g\./;
 
 let dir: string;
@@ -154,17 +156,35 @@ test("a configured testGlob counts as coverage for the nudge too", () => {
   assert.match(msg, /FIRES/, "the honest remaining gap is the eval tier");
 });
 
-test("…and an `exclude` that hides the covering test is honoured too", () => {
-  // The inverse direction, so the test cannot pass by ignoring options in only
-  // one direction: here the config REMOVES coverage lint would otherwise find.
-  write(".claude/skills/demo/demo.harness.mjs", "// covers demo\n");
-  assert.doesNotMatch(nudge(), /no test or eval covers it/); // precondition
+test("an `overrides` entry turning the rule OFF for the skill's folder silences both", () => {
   write(
     ".vigilesrc.json",
     JSON.stringify({
-      rules: {
-        "untested-skill": ["warn", { exclude: ["**/*.harness.mjs"] }],
-      },
+      overrides: [
+        {
+          files: [SKILL_FOLDER],
+          rules: { "untested-skill": "off" },
+        },
+      ],
+    }),
+  );
+  assert.doesNotMatch(lint(), UNTESTED_IN_LINT);
+  assert.doesNotMatch(nudge(), /no test or eval covers it/);
+});
+
+test("…and one turning it ON for that folder, with the rule off, makes both report", () => {
+  // The inverse direction, so the test cannot pass by reading overrides in only
+  // one direction: here the config ADDS the finding the rule alone would not.
+  write(
+    ".vigilesrc.json",
+    JSON.stringify({
+      rules: { "untested-skill": false },
+      overrides: [
+        {
+          files: [SKILL_FOLDER],
+          rules: { "untested-skill": "warn" },
+        },
+      ],
     }),
   );
   assert.match(lint(), UNTESTED_IN_LINT);

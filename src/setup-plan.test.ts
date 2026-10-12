@@ -439,8 +439,10 @@ test("mergeProjectConfig: --strict adds the workflow-forcing tier on top of the 
   });
 });
 
-test("WORKFLOW_RULES is require-instructions-spec + untested-*; nudge rules are NOT gated", () => {
-  assert.ok(WORKFLOW_RULES.includes("require-instructions-spec"));
+test("WORKFLOW_RULES is untested-*; nudge rules are NOT gated", () => {
+  // A spec per instruction file moved to the preset (`vigiles:recommended`):
+  // one group owns each rule, so `--strict` does not write it a second time.
+  assert.ok(!new Set<string>(WORKFLOW_RULES).has("require-instructions-spec"));
   assert.ok(WORKFLOW_RULES.includes("untested-skill"));
   // frontmatter-valid / skill-frontmatter are nudge-group — never gated, even --strict.
   assert.ok(
@@ -449,6 +451,24 @@ test("WORKFLOW_RULES is require-instructions-spec + untested-*; nudge rules are 
   assert.ok(
     !(WORKFLOW_RULES as readonly string[]).includes("skill-frontmatter"),
   );
+});
+
+test("mergeProjectConfig: a setup that scaffolds no spec turns require-instructions-spec off", () => {
+  // The gate-only choice (`--ci-only`, the wizard's "gate") declines specs; with
+  // the preset's `error` its first `lint` would fail on every hand-written
+  // instruction file. Declining is recorded, not re-asked.
+  const gate = mergeProjectConfig(
+    {},
+    { harnesses: [], strict: false, specs: false },
+  );
+  assert.deepEqual(gate?.rules, { "require-instructions-spec": "off" });
+  const kept = mergeProjectConfig(
+    { rules: { "require-instructions-spec": "error" } },
+    { harnesses: [], strict: false, specs: false },
+  );
+  assert.deepEqual(kept?.rules, { "require-instructions-spec": "error" });
+  const full = mergeProjectConfig({}, { harnesses: [], strict: false });
+  assert.equal(full?.rules, undefined);
 });
 
 test("mergeProjectConfig: never clobbers a user-set severity or an existing extends", () => {
@@ -534,7 +554,7 @@ test("collectSetupAnswers: 'gate' mode → lint-only gate, nothing installed, on
 });
 
 test("collectSetupAnswers: 'full' + declining strict → plugin + specs on, gate rules off", async () => {
-  const { ask } = fakeAsk({ "Setup mode": "full", "enforce specs": "n" });
+  const { ask } = fakeAsk({ "Setup mode": "full", "a test per surface": "n" });
   const a = await collectSetupAnswers(ask);
   assert.equal(a.plugin, true);
   assert.equal(a.strict, false, "the workflow RULES are opt-out");
@@ -561,7 +581,7 @@ test("collectSetupAnswers: declining CI / plugin / strict is honored", async () 
   const { ask } = fakeAsk({
     "Wire CI": "n",
     "skills + hooks": "n",
-    "enforce specs": "n",
+    "a test per surface": "n",
   });
   const a = await collectSetupAnswers(ask);
   assert.equal(a.gha, false);

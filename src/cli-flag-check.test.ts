@@ -4,7 +4,7 @@
  * The behavioural half (exit codes, `--help`, the nothing-to-audit outcome)
  * lives in src/scan-cli.test.ts, which drives the real built binary.
  */
-import { test } from "vitest";
+import { describe, it, test } from "vitest";
 import assert from "node:assert/strict";
 
 import {
@@ -13,6 +13,8 @@ import {
   knownFlagsFor,
   nearestFlag,
   unknownFlags,
+  rebasePathArgs,
+  runsFromProjectRoot,
 } from "./cli-flag-check.js";
 import { VERBS } from "./cli-commands.js";
 
@@ -77,4 +79,75 @@ test("the message names the flag, the verb, and where to look", () => {
   assert.ok(msg.includes('unknown flag "--no-htlm"'), msg);
   assert.ok(msg.includes("Did you mean `--no-html`?"), msg);
   assert.ok(msg.includes("vigiles audit --help"), msg);
+});
+
+describe("rebasePathArgs: paths typed in a subdirectory, re-expressed from the root", () => {
+  const up = (p: string) => `src/${p}`;
+
+  it("rebases path positionals and path-valued flags only", () => {
+    assert.deepEqual(
+      rebasePathArgs("lint", [".", "--json", "--json-out=r.json"], up),
+      ["src/.", "--json", "--json-out=src/r.json"],
+    );
+    assert.deepEqual(rebasePathArgs("audit", ["--out=rep", "--no-html"], up), [
+      "--out=src/rep",
+      "--no-html",
+    ]);
+  });
+
+  it("leaves a generate kind and a word alone", () => {
+    assert.deepEqual(rebasePathArgs("generate", ["types", "out.d.ts"], up), [
+      "types",
+      "src/out.d.ts",
+    ]);
+  });
+
+  it("keeps -- and still rebases the path positionals after it", () => {
+    // `vigiles compile -- ./x.spec.ts` typed in pkg/ means pkg/x.spec.ts: the
+    // verb reads the word after -- as a spec path, and runs at the root.
+    assert.deepEqual(rebasePathArgs("compile", ["--", "./x.spec.ts"], up), [
+      "--",
+      "src/./x.spec.ts",
+    ]);
+    assert.deepEqual(rebasePathArgs("compile", ["a.spec.ts", "--", "x"], up), [
+      "src/a.spec.ts",
+      "--",
+      "src/x",
+    ]);
+    // After -- a dash-led word is an operand, not a flag: rebased as a path,
+    // never matched against a path-valued flag's prefix.
+    assert.deepEqual(rebasePathArgs("audit", ["--", "--out=rep"], up), [
+      "--",
+      "src/--out=rep",
+    ]);
+    // The positional spec still applies across --: generate's kind is a word.
+    assert.deepEqual(
+      rebasePathArgs("generate", ["--", "types", "out.d.ts"], up),
+      ["--", "types", "src/out.d.ts"],
+    );
+  });
+
+  it("never touches hook-runtime's machine-supplied argv or an unknown verb", () => {
+    const argv = ["run-program", "x.hook.mjs"];
+    assert.deepEqual(rebasePathArgs("hook-runtime", argv, up), argv);
+    assert.deepEqual(rebasePathArgs("nope", argv, up), argv);
+  });
+});
+
+describe("runsFromProjectRoot: which directory a verb works in", () => {
+  it("init and hook-runtime run where they are started; every other verb at the project root", () => {
+    assert.equal(runsFromProjectRoot("init"), false);
+    assert.equal(runsFromProjectRoot("hook-runtime"), false);
+    for (const verb of [
+      "lint",
+      "compile",
+      "eject",
+      "test",
+      "eval",
+      "audit",
+      "generate",
+    ])
+      assert.equal(runsFromProjectRoot(verb), true, verb);
+    assert.equal(runsFromProjectRoot("--version"), false);
+  });
 });

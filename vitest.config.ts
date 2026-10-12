@@ -93,6 +93,7 @@ export default defineConfig({
         "src/services.ts",
         "src/services-docker.ts",
         "src/core/rule-catalog.ts",
+        "src/core/hook-delivery.ts",
         "src/instruction-sources.ts",
         "src/share-link.ts",
         "src/exclude.ts",

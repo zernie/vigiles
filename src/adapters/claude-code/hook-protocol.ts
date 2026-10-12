@@ -8,6 +8,7 @@
 import type { HookProtocol } from "../../core/hook-protocol.js";
 import { claudeCodeHookCondition } from "./hook-condition.js";
 import { mergeHooksJson } from "../../hook-install.js";
+import { claudeCodeLayout } from "./layout.js";
 
 export const claudeCodeHookProtocol: HookProtocol = {
   name: "claude-code",
@@ -66,6 +67,7 @@ export const claudeCodeHookProtocol: HookProtocol = {
       existing as Parameters<typeof mergeHooksJson>[0],
       compiled as Parameters<typeof mergeHooksJson>[1],
       managedBy,
+      claudeCodeLayout.projectRootTokens ?? [],
     );
   },
 };

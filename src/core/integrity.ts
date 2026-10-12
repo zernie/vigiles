@@ -20,82 +20,22 @@
 
 import { sha256short } from "./hash.js";
 
-const HASH_LINE_RE =
-  /^<!-- vigiles:sha256:([a-f0-9]+) compiled from (.+) -->\r?\n\r?\n?/;
-
-/**
- * A YAML frontmatter block at the very start of a file: `---\n … \n---\n`.
- *
- * 🔴 THIS EXISTS BECAUSE THE INVARIANT WAS STATED IN THIS FILE AND VIOLATED IN ANOTHER.
- * `ejectMarkdown` (bottom of this module) has documented since it was written that a compiled
- * SKILL.md begins with frontmatter which MUST stay in first position, or "the harness would lose
- * the skill's name/description/tools". `addHash` in compile.ts prepended the integrity header to
- * every compiled file unconditionally — including those same skills.
- *
- * Measured 2026-08-17 on five real skills: after compiling, a reader anchored to `^---` finds NO
- * frontmatter at all. The header was the ENTIRE delta — body byte-identical, section order
- * untouched — so one misplaced line was the whole reason a compiled skill could not be adopted.
- *
- * The header now goes AFTER the frontmatter when there is one. Readers must ask this module where
- * the header is rather than anchoring their own regex at `^`: four call sites had independently
- * encoded "first line", and that duplication is what let the invariant drift unnoticed.
- */
-const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n/;
-
-/** Same header, matched where it sits below a frontmatter block (blank line allowed). */
-const HASH_LINE_IN_BODY_RE =
-  /^\s*<!-- vigiles:sha256:([a-f0-9]+) compiled from (.+) -->\r?\n\r?\n?/;
-
-/**
- * Split off a leading frontmatter block. `head` is `""` when the file has none, so a caller can
- * concatenate `head + body` unconditionally and get the original content back.
- */
-export function splitFrontmatter(content: string): {
-  head: string;
-  body: string;
-} {
-  const m = FRONTMATTER_RE.exec(content);
-  return m
-    ? { head: m[0], body: content.slice(m[0].length) }
-    : { head: "", body: content };
-}
-
-/**
- * Locate the integrity header wherever it legitimately sits — before the frontmatter (files
- * compiled before 2026-08-17) or after it (files compiled since). Returns the hash, the spec
- * path, and the content with the header removed and everything else intact.
- *
- * This is the ONLY place that knows where the header can be. Matching `/^<!-- vigiles:sha256/`
- * by hand elsewhere is the bug this function exists to make unnecessary.
- */
-export function findIntegrityHeader(content: string): {
-  hash: string;
-  specFile: string;
-  /** `content` minus the header, frontmatter still in place. */
-  withoutHeader: string;
-} | null {
-  const { head, body } = splitFrontmatter(content);
-  // After the frontmatter — the current placement. The leading `\s*` is load-bearing: the header
-  // is written one blank line below the closing `---` for readability, so an anchor at position 0
-  // of the body misses it. A test caught exactly that before it shipped.
-  const inBody = body.match(HASH_LINE_IN_BODY_RE);
-  if (inBody) {
-    return {
-      hash: inBody[1],
-      specFile: inBody[2],
-      withoutHeader: head + body.replace(HASH_LINE_IN_BODY_RE, ""),
-    };
-  }
-  // Or at the very top, which is what a file compiled before the fix looks like. Such a file has
-  // no leading frontmatter by definition — the header displaced it — so `head` is empty here.
-  const atTop = content.match(HASH_LINE_RE);
-  if (!atTop) return null;
-  return {
-    hash: atTop[1],
-    specFile: atTop[2],
-    withoutHeader: content.replace(HASH_LINE_RE, ""),
-  };
-}
+// The header parser and the hand-written predicate live in a node-free leaf so
+// the browser scan twin (`scan-files.ts`) can ask them without pulling
+// `node:crypto` in through `./hash.js`; re-exported so every existing import
+// from this module is unchanged.
+import {
+  splitFrontmatter,
+  findIntegrityHeader,
+  REQUIRE_INSTRUCTIONS_SPEC_DISABLE,
+} from "./integrity-header.js";
+export {
+  splitFrontmatter,
+  findIntegrityHeader,
+  REQUIRE_INSTRUCTIONS_SPEC_DISABLE,
+  instructionSpecState,
+  type InstructionSpecState,
+} from "./integrity-header.js";
 
 /** Render the header in its correct position for this content. */
 export function placeIntegrityHeader(
@@ -133,11 +73,6 @@ export function checkIntegrity(content: string): IntegrityResult {
   }
   return { intact: true };
 }
-
-/** The marker that tells `require-instructions-spec` a file is intentionally
- * hand-owned (no `.spec.ts` expected). */
-export const REQUIRE_INSTRUCTIONS_SPEC_DISABLE =
-  "<!-- vigiles-disable require-instructions-spec -->";
 
 /**
  * Parse the `vigiles:sha256 … compiled from <spec>` integrity header, if the

@@ -18,6 +18,7 @@ import {
   mkdirSync,
   rmSync,
   writeFileSync,
+  symlinkSync,
   existsSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,6 +36,7 @@ import {
   parseGolangciEnabledLinters,
 } from "./linters.js";
 import { generateTypes } from "./generate-types.js";
+import { makeEslintProject, cleanupTmpDir } from "./test-utils.js";
 import type { LinterRule } from "./spec.js";
 
 function hasBinary(cmd: string): boolean {
@@ -746,4 +748,138 @@ describe("ruff config-state (real repo layout, no dummy.py)", () => {
       );
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// ESLint: ask ESLint for the resolved config instead of guessing package names
+// (#351). Two reproduced defects:
+//   1. a plugin declared INLINE in a flat config (`plugins: { kb: { rules } }`)
+//      was never resolved — only `eslint-plugin-<name>` packages were tried — so
+//      a real inline rule and an invented one both read "not found";
+//   2. the enabled state came from `calculateConfigForFile("dummy.js")` only, so
+//      a rule configured for `*.ts`/`*.md` blocks, or not configured at all, read
+//      "unknown" — the same word for "set where we did not look" and "set nowhere".
+// The fixture symlinks this repo's real eslint into a tmp project: the probe is
+// the installed ESLint, not a mock of it.
+// ---------------------------------------------------------------------------
+
+describe("eslint resolved config: inline plugins and absent rules (#351)", () => {
+  const dirs: string[] = [];
+
+  function eslintRepo(config: string): string {
+    const dir = makeEslintProject(config);
+    dirs.push(dir);
+    return dir;
+  }
+
+  const rule = 'meta: { type: "problem" }, create() { return {}; }';
+
+  // The issue's config, verbatim in shape, plus a `*.ts`-only block and a
+  // `docs/**/*.md`-only inline plugin (the shape of a knowledge-base repo).
+  const CONFIG = `
+const kb = { rules: { "real-rule": { ${rule} } } };
+const docs = { rules: { "md-only": { ${rule} } } };
+export default [
+  { files: ["**/*.js"], plugins: { kb }, rules: { "kb/real-rule": "error", "no-unused-vars": "error", "no-debugger": "off" } },
+  { files: ["**/*.ts"], rules: { "no-console": "error" } },
+  { files: ["docs/**/*.md"], plugins: { docs }, rules: { "docs/md-only": "error" } },
+];
+`;
+
+  afterAll(() => {
+    for (const d of dirs) cleanupTmpDir(d);
+  });
+
+  it("resolves a rule from an inline flat-config plugin", () => {
+    const dir = eslintRepo(CONFIG);
+    const r = checkLinterRule("eslint/kb/real-rule", dir);
+    assert.equal(r.exists, true, r.error);
+    assert.equal(r.enabled, "enabled");
+  });
+
+  it("still rejects an invented rule under the same inline plugin", () => {
+    const dir = eslintRepo(CONFIG);
+    const r = checkLinterRule("eslint/kb/does-not-exist", dir);
+    assert.equal(r.exists, false);
+    assert.match(r.error ?? "", /not found/);
+  });
+
+  it("resolves the scoped spelling of an inline plugin rule (`kb/real-rule`)", () => {
+    const dir = eslintRepo(CONFIG);
+    const r = checkLinterRule("kb/real-rule", dir);
+    assert.equal(r.exists, true, r.error);
+    assert.equal(r.enabled, "enabled");
+  });
+
+  it("resolves an inline plugin declared only for a `docs/**/*.md` block", () => {
+    const dir = eslintRepo(CONFIG);
+    const r = checkLinterRule("eslint/docs/md-only", dir);
+    assert.equal(r.exists, true, r.error);
+    assert.equal(r.enabled, "enabled");
+  });
+
+  it("reads a core rule set only for `**/*.ts` as enabled, not unknown", () => {
+    const dir = eslintRepo(CONFIG);
+    assert.equal(checkLinterRule("eslint/no-console", dir).enabled, "enabled");
+  });
+
+  it("reads a core rule set in no block as unconfigured, not unknown", () => {
+    const dir = eslintRepo(CONFIG);
+    const r = checkLinterRule("eslint/no-restricted-imports", dir);
+    assert.equal(r.exists, true);
+    assert.equal(r.enabled, "unconfigured");
+  });
+
+  it("still reads a rule set to off as disabled", () => {
+    const dir = eslintRepo(CONFIG);
+    assert.equal(
+      checkLinterRule("eslint/no-debugger", dir).enabled,
+      "disabled",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// generate-types — ESLint rules that only apply to SOME files
+// ---------------------------------------------------------------------------
+
+describe("generateTypes ESLint discovery beyond the root", () => {
+  it("lists rules (incl. an inline plugin's) enabled only for other globs", () => {
+    // Probing ONE file (`dummy.js` at the root) saw only the rules every file
+    // gets, so a repo whose real rules are scoped (`files: ["src/**/*.ts"]`) —
+    // and every local plugin registered in that scoped block — was invisible to
+    // `generate types` and therefore to `strengthen`.
+    withTmpDir((dir) => {
+      mkdirSync(join(dir, "src"));
+      mkdirSync(join(dir, "scripts"));
+      writeFileSync(join(dir, "package.json"), '{"name":"fx","type":"module"}');
+      symlinkSync(
+        join(process.cwd(), "node_modules"),
+        join(dir, "node_modules"),
+      );
+      writeFileSync(join(dir, "src", "a.ts"), "export const a = 1;\n");
+      writeFileSync(join(dir, "scripts", "b.mjs"), "export const b = 1;\n");
+      writeFileSync(
+        join(dir, "eslint.config.mjs"),
+        `const local = { rules: { "no-foo": { meta: { type: "problem", schema: [] }, create: () => ({}) } } };
+export default [
+  { rules: { "no-console": "error" } },
+  { files: ["src/**/*.ts"], plugins: { kb: local }, rules: { "kb/no-foo": "error", eqeqeq: "error", "no-var": "off" } },
+  { files: ["scripts/**/*.mjs"], rules: { "no-eval": "warn" } },
+];
+`,
+      );
+      const eslint = generateTypes({
+        basePath: dir,
+        fileGlobs: [],
+      }).linters.find((l) => l.linter === "eslint");
+      assert.ok(eslint, "eslint rules should be discovered");
+      assert.deepEqual([...eslint.rules].sort(), [
+        "eqeqeq",
+        "kb/no-foo",
+        "no-console",
+        "no-eval",
+      ]);
+    });
+  });
 });

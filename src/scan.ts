@@ -12,7 +12,8 @@
  * stack on top later; this core stays pure so it runs anywhere in CI for free.
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { instructionSpecState } from "./core/integrity-header.js";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 // The COMPOSITION-ROOT loader, not the `vigiles/claude-code` wrapper: this
@@ -110,7 +111,7 @@ import {
   scanAgents,
   scanSkills,
   skillRefSources,
-  scanHooks,
+  scanHookScripts,
   frontmatterIssuesFor,
   frontmatterValueIssuesFor,
   skillMetaIssuesFor,
@@ -120,12 +121,15 @@ import {
   collectSurfaceFindings,
   collectDelegationTrifecta,
   collectHookBlockEntries,
+  hookSourceRefs,
   collectHookMatchers,
   summarizePurity,
-  preferCompiledHooksMessage,
   detectOwnTestSignal,
   remapFindingPaths,
   collectVocabularyNotes,
+  handWrittenHookMessage,
+  type HandWrittenHook,
+  type StaleHook,
 } from "./scan-core.js";
 import {
   weighInstructions,
@@ -136,9 +140,11 @@ import {
   blockIneffectiveEventsOf,
   permissionDecisionEventsOf,
 } from "./core/event-capability.js";
+import { hookLinePlan } from "./core/hook-command.js";
+import { HOOKS_DIR } from "./core/hook-paths.js";
 
 // Re-export the pure detectors (and their public types: SurfaceClassifier,
-// SkillScanContext, isManagedHookCommand, preferCompiledHooksMessage, ...) that
+// SkillScanContext, handWrittenHookMessage, ...) that
 // moved to the node-free `./scan-core.js`, so every existing consumer of
 // `./scan.js` is unchanged — one detector, no drift.
 export * from "./scan-core.js";
@@ -290,13 +296,7 @@ export interface FrontmatterValueIssue {
 export type HookStatus = "ok" | "missing" | "unresolved";
 
 export interface ScanHook {
-  /**
-   * The full hook command as it would be run (plugin-root token expanded, shell
-   * quotes stripped). Present on script-based hooks; empty string on hooks whose
-   * command is entirely inline (no script file) — but inline hooks never appear
-   * in `hooks[]`, they are counted by `inlineHooks`, so in practice `command` is
-   * always non-empty when a `ScanHook` is in the list.
-   */
+  /** The hook line that names this file, as the config wrote it. */
   readonly command: string;
   readonly script: string;
   readonly status: HookStatus;
@@ -333,12 +333,17 @@ export interface ScanReport {
   /** Hook entries with no script file (inline shell one-liners) — can't be path-checked. */
   readonly inlineHooks: number;
   /**
-   * Hand-written hook commands that are NOT compiled `vigiles/hook` artifacts (a
-   * compiled hook's command invokes `vigiles hook-runtime run-program`). The basis
-   * for the `prefer-compiled-hooks` recommendation — a single nudge regardless of
-   * count. Zero when there are no hooks or every hook is vigiles-managed.
+   * The hook lines vigiles did not write (a compiled hook's line is
+   * `hook-runtime …`, read by its own template). Each one is a
+   * `hook-script-exists` finding: a static reader cannot tell what a
+   * hand-written line runs or whether it swallows its own failure.
    */
-  readonly manualHookCount: number;
+  readonly handWrittenHooks: readonly HandWrittenHook[];
+  /**
+   * Compiled lines that are no longer the line `compile` writes (edited, or
+   * compiled by another version). `hook-script-exists` reports them.
+   */
+  readonly staleHooks: readonly StaleHook[];
   readonly commands: number;
   /**
    * Output styles found, exempt ones aside, or `"not-supported"` when the
@@ -759,11 +764,31 @@ export function scanPlugin(
   // hook detector below consumes typed `HookRegistration[]` instead of re-walking
   // `unknown`. The single seam where the per-harness hook shape is absorbed.
   const hookRegs = normalizeHooks(loaded.settings.hooks);
-  const { hooks, inline, manual } = scanHooks(
-    hookRegs,
-    resolve(dir),
-    lay.pluginRootToken,
-    existsSync,
+  // As WRITTEN: a line is read by identity with what compile would write.
+  const asWritten = normalizeHooks(loaded.hooksAsWritten);
+  const hookScan = {
+    root: resolve(dir),
+    layout: lay,
+    exists: existsSync,
+    // On disk a dependency is as observable as any other file.
+    observable: () => true,
+    plan: hookLinePlan(
+      hookSourceRefs(
+        existsSync(join(dir, HOOKS_DIR))
+          ? readdirSync(join(dir, HOOKS_DIR))
+          : [],
+      ),
+      (ref: string) => {
+        const abs = join(dir, ref);
+        return existsSync(abs) ? nodeReadFile(abs) : undefined;
+      },
+      lay.projectRootTokens,
+    ),
+  };
+  const { hooks, inline, handWritten, stale } = scanHookScripts(
+    asWritten,
+    normalizeHooks(loaded.shadowedSettingsHooks),
+    hookScan,
   );
   // Hook-event keys are a CLOSED platform set — an unrecognized one is a dead
   // registration (the hook never fires), so flag every unknown (not just typos).
@@ -797,7 +822,13 @@ export function scanPlugin(
     loaded.files[instructionFile] !== undefined
       ? {
           file: instructionFile,
-          hasSpec: existsSync(join(resolve(dir), `${instructionFile}.spec.ts`)),
+          // The one answer to "is it hand-written?" (a compiled multi-target
+          // file has no sibling spec and is still spec-managed).
+          hasSpec:
+            instructionSpecState(
+              loaded.files[instructionFile],
+              existsSync(join(resolve(dir), `${instructionFile}.spec.ts`)),
+            ) === "spec-managed",
         }
       : null;
   const mcpServers = collectMcpServers(resolve(dir), lay);
@@ -851,7 +882,8 @@ export function scanPlugin(
     agents,
     hooks,
     inlineHooks: inline,
-    manualHookCount: manual,
+    handWrittenHooks: handWritten,
+    staleHooks: stale,
     ...inventoryCounts(
       loaded.files,
       cls.isCommand,
@@ -919,21 +951,13 @@ export function scanPlugin(
     delegationTrifecta: collectDelegationTrifecta(agents, dialect),
     hookBlockFindings:
       blockIneffectiveEventsOf(dialect).length > 0
-        ? hookBlockIssues(
-            collectHookBlockEntries(
-              hookRegs,
-              resolve(dir),
-              lay.pluginRootToken,
-              existsSync,
+        ? hookBlockIssues(collectHookBlockEntries(asWritten, hookScan), {
+            noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
+            permissionDecisionEvents: new Set(
+              permissionDecisionEventsOf(dialect),
             ),
-            {
-              noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
-              permissionDecisionEvents: new Set(
-                permissionDecisionEventsOf(dialect),
-              ),
-              readFileSync: nodeReadFile,
-            },
-          )
+            readFileSync: nodeReadFile,
+          })
         : [],
     hookMatcherFindings: hookMatcherIssues(
       collectHookMatchers(hookRegs),
@@ -1358,6 +1382,15 @@ function instructionCostLines(r: ScanReport): readonly string[] {
   return [...weight, ...deprecatedKeyFilesLines(r)];
 }
 
+/** Every hand-written hook, by name: none of them can be checked statically. */
+function handWrittenLines(
+  hooks: readonly HandWrittenHook[],
+): readonly string[] {
+  return hooks.length === 0
+    ? []
+    : [...hooks.map((h) => `ℹ ${handWrittenHookMessage(h)}`), ""];
+}
+
 /** The commands and output-style lines of a scan's facts; a harness without styles says so. */
 function inventoryFacts(r: ScanReport): readonly string[] {
   const commands = r.commands > 0 ? [`Commands: ${String(r.commands)}`] : [];
@@ -1590,11 +1623,7 @@ export function formatScanReport(r: ScanReport): string {
     );
   }
 
-  // One discovery nudge toward compiled hooks (never per-hook); the hand-written
-  // shell lane stays first-class, so this is a recommendation, not a defect.
-  if (r.manualHookCount > 0) {
-    out.push(`ℹ ${preferCompiledHooksMessage(r.manualHookCount)}`, "");
-  }
+  out.push(...handWrittenLines(r.handWrittenHooks));
 
   // Malformed-YAML frontmatter is INFORMATIONAL, not a structural defect: js-yaml
   // is stricter than some loaders (a colon/quote/<example> in a one-line

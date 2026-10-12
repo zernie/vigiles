@@ -10,6 +10,7 @@
  */
 
 import { RECOMMENDED_PRESET, RECOMMENDED_RULES } from "./core/presets.js";
+import { INIT_NUDGE_COMMANDS } from "./core/hook-command.js";
 
 /** What `vigiles init` will set up. */
 export interface SetupPlan {
@@ -29,7 +30,8 @@ export interface SetupPlan {
    * `CLAUDE.md` + integrity hash). GATE-FIRST (see `gate-first-adoption`): the
    * INTEGRITY GATE (structural rules on your raw files + CI + devDep) is the
    * universal floor and needs NO spec — the `structural` rule group reads
-   * skills/agents/hooks as-is, and `require-instructions-spec` is itself opt-in. So
+   * skills/agents/hooks as-is, and a setup with this flag off writes
+   * `require-instructions-spec: "off"` (`mergeProjectConfig`'s `specs`). So
    * scaffolding a spec (extra maintenance + a compiled artifact) is the INVITED
    * layer, gated on this flag (`setupPillar1` runs iff `lint && scaffoldSpecs`).
    * Default: TRACKS the lint pillar (`resolvePlan` sets it to `plan.lint`), so bare
@@ -141,16 +143,16 @@ export function defaultPlan(strict = false): SetupPlan {
 /**
  * The **`workflow`** group — the WORKFLOW-FORCING / opinionated tier `--strict`
  * gates, which a clean repo can still fail because you haven't done the work yet:
- * a spec per instruction file (`require-instructions-spec`), a test/eval per
- * surface (`untested-*`). Opt-in by design (the smooth-adoption on-ramp). The
- * Clippy-`pedantic` / TS-`strict` analog — ONE opinionated opt-in.
+ * a test/eval per surface (`untested-*`). Opt-in by design (the smooth-adoption
+ * on-ramp). The Clippy-`pedantic` / TS-`strict` analog — ONE opinionated opt-in.
+ * A spec per instruction file (`require-instructions-spec`) is not here: it is
+ * in `vigiles:recommended` (`RECOMMENDED_RULES`), and one group owns each rule.
  *
  * NB `frontmatter-valid` / `skill-frontmatter` live in the `nudge` group, not
  * here: they're acknowledged-noisy recommendations we never gate on (see
  * research/install-enforcement-dx.md).
  */
 export const WORKFLOW_RULES = [
-  "require-instructions-spec",
   "untested-skill",
   "untested-subagent",
   "untested-hook",
@@ -161,9 +163,8 @@ export const WORKFLOW_RULES = [
  * The **`nudge`** group — recommendations / acknowledged-noisy checks that NEVER
  * gate (not even under `--strict`): `frontmatter-valid` (js-yaml is stricter than
  * CC's loader), `skill-frontmatter` (skills load without it) and `unmarked-refs`
- * (the undecidable-plaintext nudge) sit at `warn`; `prefer-compiled-hooks` defaults
- * OFF (a recommendation that shouldn't fire unasked — the shell lane stays
- * first-class). `lethal-trifecta` + `skill-resource-resolves` are here for now on a
+ * (the undecidable-plaintext nudge) sit at `warn`; `hand-written-hook` is OFF
+ * (its cure, a compiled hook, is still an experimental API). `lethal-trifecta` + `skill-resource-resolves` are here for now on a
  * don't-cry-wolf rollout (default `warn`; a team raises either to `error` by hand
  * once it's confirmed quiet on their corpus). `init` does not write these — they
  * keep their own default severities. Named for the group taxonomy
@@ -173,7 +174,7 @@ export const NUDGE_RULES = [
   "skill-description-budget",
   "frontmatter-valid",
   "skill-frontmatter",
-  "prefer-compiled-hooks",
+  "hand-written-hook",
   "unmarked-refs",
   "lethal-trifecta",
   "skill-resource-resolves",
@@ -219,6 +220,11 @@ export function mergeProjectConfig(
      * concern, so a test-only setup (`init --test` / `--no-lint`) records the
      * harness but writes NO lint rules. */
     lint?: boolean;
+    /** Whether this setup scaffolds specs (default true). `false` is the
+     * gate-only choice (`--ci-only`, the wizard's "gate"): it declines specs,
+     * so `require-instructions-spec` is written `off` rather than left to the
+     * preset's `error` to fail the first `lint`. */
+    specs?: boolean;
   }>,
 ): Record<string, unknown> | null {
   // The NESTED key (#240). `init` writes the declaration with no roots — a repo
@@ -240,7 +246,7 @@ export function mergeProjectConfig(
  */
 function lintGate(
   existing: Readonly<Record<string, unknown>>,
-  opts: Readonly<{ strict: boolean; reportOnly?: boolean }>,
+  opts: Readonly<{ strict: boolean; reportOnly?: boolean; specs?: boolean }>,
 ): Readonly<Record<string, unknown>> {
   const workflow = opts.strict ? WORKFLOW_RULES : [];
   const explicit: readonly string[] = opts.reportOnly
@@ -248,9 +254,17 @@ function lintGate(
     : workflow;
   const severity = opts.reportOnly ? "warn" : "error";
   const before = (existing.rules ?? {}) as Readonly<Record<string, unknown>>;
-  // Never clobber a severity the user already set — only fill the undefined ones.
+  const wanted: ReadonlyArray<readonly [string, string]> = [
+    ...explicit.map((r) => [r, severity] as const),
+    ...(opts.specs === false
+      ? [["require-instructions-spec", "off"] as const]
+      : []),
+  ];
+  // Never clobber a severity the user already set — only fill the undefined
+  // ones. A later entry for the same rule wins (`specs: false` over the
+  // `--report-only` warn).
   const filled = Object.fromEntries(
-    explicit.filter((r) => before[r] === undefined).map((r) => [r, severity]),
+    wanted.filter(([r]) => before[r] === undefined),
   );
   const rules =
     Object.keys(filled).length === 0 ? {} : { rules: { ...before, ...filled } };
@@ -331,16 +345,13 @@ export async function collectSetupAnswers(ask: AskFn): Promise<SetupAnswers> {
       "y",
     ),
   );
-  // Structural gating (broken tools/hooks/MCP/collisions) is always on. This asks
-  // about the WORKFLOW tier — a spec per file + a test per surface — which a clean
-  // repo can fail just for not having done the work yet, so it's the recommended
-  // default a human opts OUT of (never forced on a silent run). "yes" also turns on
-  // the spec scaffold (the workflow tier's `require-instructions-spec`).
+  // Structural gating (broken tools/hooks/MCP/collisions, and a spec per
+  // instruction file) is always on. This asks about the WORKFLOW tier — a test
+  // per surface — which a clean repo can fail just for not having done the work
+  // yet, so it's the recommended default a human opts OUT of (never forced on a
+  // silent run).
   const strict = isYesAnswer(
-    await ask(
-      "Also enforce specs + a test per surface (recommended)? [Y/n]: ",
-      "y",
-    ),
+    await ask("Also enforce a test per surface (recommended)? [Y/n]: ", "y"),
   );
   return {
     lint: pillars !== "test",
@@ -610,13 +621,13 @@ export function codexPluginHooks(): CodexPluginHook[] {
     {
       event: "PostToolUse",
       matcher: "^apply_patch$",
-      command: "npx --no-install vigiles hook-runtime eval-lock-nudge",
+      command: INIT_NUDGE_COMMANDS.evalLock,
       key: "hook-runtime eval-lock-nudge",
     },
     {
       event: "PostToolUse",
       matcher: "^apply_patch$",
-      command: "npx --no-install vigiles hook-runtime refs",
+      command: INIT_NUDGE_COMMANDS.refs,
       key: "hook-runtime refs",
     },
   ];

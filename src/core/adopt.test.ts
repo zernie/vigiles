@@ -10,6 +10,7 @@ import { describe, it, expect } from "vitest";
 
 import { adoptMarkdown, adoptToSpec } from "./adopt.js";
 import { compileClaude } from "./compile.js";
+import { REPO_ROOT } from "./test-utils.js";
 
 /** Compile an adopted file the way `vigiles init` does, returning the markdown
  *  + errors. Pure (sections-only specs touch no linter/fs). */
@@ -23,7 +24,7 @@ async function recompile(markdown: string, target = "CLAUDE.md") {
       maxSectionLines: spec.maxSectionLines,
       rules: {},
     },
-    { specFile: `${target}.spec.ts` },
+    { basePath: REPO_ROOT, specFile: `${target}.spec.ts` },
   );
 }
 

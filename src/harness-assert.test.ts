@@ -20,6 +20,7 @@ import {
   assertServedTurns,
   assertHookBlocked,
   assertHookAllowed,
+  assertDelivered,
   assertHookDenies,
   assertHookAllows,
   assertHookNotices,
@@ -84,6 +85,7 @@ function fakeHook(blocked: boolean): HookRunResult {
     decision: blocked ? "deny" : undefined,
     ran: true,
     conditionReason: "no condition declared",
+    delivery: blocked ? { kind: "blocked", stranded: [] } : { kind: "silent" },
   };
 }
 
@@ -322,6 +324,46 @@ test("assertHookBlocked / assertHookAllowed (run-hook results)", () => {
   assert.throws(() => {
     assertHookAllowed(fakeHook(true));
   });
+});
+
+test("assertDelivered: passes only on delivered, and names the cause of every other verdict", () => {
+  const withDelivery = (delivery: HookRunResult["delivery"], ran = true) => ({
+    ...fakeHook(false),
+    ran,
+    conditionReason: ran ? "no condition declared" : "the if did not match",
+    delivery,
+  });
+  assert.doesNotThrow(() => {
+    assertDelivered(
+      withDelivery({
+        kind: "delivered",
+        via: ["additional-context"],
+        stranded: [],
+      }),
+    );
+  });
+  assert.throws(() => {
+    assertDelivered(
+      withDelivery({
+        kind: "undelivered",
+        stranded: [{ stream: "stderr", bytes: 237, why: "dead stream" }],
+      }),
+    );
+  }, /237 bytes on stderr: dead stream/);
+  assert.throws(() => {
+    assertDelivered(withDelivery({ kind: "silent" }));
+  }, /printed nothing addressed to the model/);
+  assert.throws(() => {
+    assertDelivered(withDelivery({ kind: "silent" }, false));
+  }, /never ran: the if did not match/);
+  assert.throws(() => {
+    assertDelivered(withDelivery({ kind: "blocked", stranded: [] }));
+  }, /assertHookBlocked/);
+  assert.throws(() => {
+    assertDelivered(
+      withDelivery({ kind: "unknown", event: "X", why: "no row" }),
+    );
+  }, /cannot be judged: no row/);
 });
 
 test("assertNoEgress / assertEgressOnly / egressHosts (recordEgress results)", () => {

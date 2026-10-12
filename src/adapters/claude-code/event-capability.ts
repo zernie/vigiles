@@ -17,22 +17,36 @@
  */
 import type { EventCapabilityTable } from "../../core/event-capability.js";
 
+/*
+ * `halt` (doc, § JSON output, read 2026-10-12): `continue` is a universal field
+ * — "If `false`, Claude stops processing entirely after the hook runs" — and
+ * "Every event accepts them, but some events discard them [...]. Each event's
+ * section says so." The six rows that carry `halt` have no such sentence in
+ * their sections (and § JSON output names PreToolUse and PostToolUse: "the stop
+ * applies even when the tool call fails"). § PreCompact and § Notification
+ * each say they discard `continue`; SessionEnd has no turn left to stop.
+ * https://code.claude.com/docs/en/hooks
+ */
 export const claudeCodeEventCapabilities: EventCapabilityTable = {
   capturedFrom:
     "code.claude.com/docs/en/hooks (claude-code 2.1.273) + inject/veto measured 2026-09-16 headless",
   events: {
     // doc: SessionStart context is prepended to the session. MEASURED 2026-09-16:
     // inject lands; exit 2 is ignored entirely (it is in noEffectHookEvents).
+    // doc (§ Exit code 0, read 2026-10-11): plain stdout is context here — "The
+    // exceptions are `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`,
+    // and `PostModelSwitch`, where Claude Code adds plain-text stdout as context".
     SessionStart: {
       carries: "session",
-      honours: ["inject"],
+      honours: ["inject", "stdout-context", "halt"],
       matcher: false,
       denyShape: "exit-code",
     },
-    // doc: exit 2 blocks the prompt and erases it; stdout becomes context.
+    // doc: exit 2 blocks the prompt and erases it; plain stdout becomes context
+    // (the same § Exit code 0 sentence as SessionStart).
     UserPromptSubmit: {
       carries: "prompt",
-      honours: ["veto", "inject"],
+      honours: ["veto", "inject", "stdout-context", "halt"],
       matcher: false,
       denyShape: "exit-code",
     },
@@ -43,16 +57,18 @@ export const claudeCodeEventCapabilities: EventCapabilityTable = {
     // assumption nobody had run.
     PreToolUse: {
       carries: "tool",
-      honours: ["veto", "ask", "inject"],
+      honours: ["veto", "ask", "inject", "halt"],
       matcher: true,
       denyShape: "permission-decision",
     },
     // doc: exit 2 feeds stderr back to the MODEL but the tool has already run —
-    // feedback, never a veto. This distinction is why `hook-block-ineffective`
+    // feedback, never a veto. NOT `stdout-context`, and NOT stderr at exit 0:
+    // "Claude never sees stderr from a hook that exits 0" (§ Exit code 0) — the
+    // channel a downstream KB linter used for weeks, delivering nothing. This distinction is why `hook-block-ineffective`
     // does not flag PostToolUse and would cry wolf if it did.
     PostToolUse: {
       carries: "tool",
-      honours: ["feedback", "inject"],
+      honours: ["feedback", "inject", "halt"],
       matcher: true,
       denyShape: "exit-code",
     },
@@ -60,7 +76,7 @@ export const claudeCodeEventCapabilities: EventCapabilityTable = {
     // shape). MEASURED 2026-09-16: inject lands too.
     Stop: {
       carries: "stop",
-      honours: ["veto", "inject"],
+      honours: ["veto", "inject", "halt"],
       matcher: false,
       denyShape: "exit-code",
     },
@@ -68,7 +84,7 @@ export const claudeCodeEventCapabilities: EventCapabilityTable = {
     // it was not measured, and Stop's behaviour is not evidence about it.
     SubagentStop: {
       carries: "stop",
-      honours: ["veto"],
+      honours: ["veto", "halt"],
       matcher: false,
       denyShape: "exit-code",
     },

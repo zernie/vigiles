@@ -161,7 +161,7 @@ Beyond the references above, `vigiles lint` runs a set of **deterministic valida
 | Skills                      | `untested-skill`, `skill-frontmatter`, `description-overlap`, `skill-description-budget`, `frontmatter-valid`, `skill-resource-resolves`, `skill-missing-fence` | all with skills                           |
 | Plugin layout               | `plugin-dir-layout`                                                                                                                                             | all with a plugin manifest                |
 | MCP                         | `mcp-config`                                                                                                                                                    | all with MCP                              |
-| Shell hooks                 | `untested-hook`, `hook-script-exists`, `hook-events`, `hook-matcher`, `hook-block-ineffective`, `prefer-compiled-hooks`                                         | Claude Code, Codex                        |
+| Shell hooks                 | `untested-hook`, `hook-script-exists`, `hand-written-hook`, `hook-events`, `hook-matcher`, `hook-block-ineffective`                                             | Claude Code, Codex                        |
 | Subagents                   | `subagent-tool-contract`, `subagent-frontmatter`, `untested-subagent`, `mcp-tool-resolves`                                                                      | Claude Code (n/a on Codex — no subagents) |
 | Output styles               | `untested-output-style`                                                                                                                                         | Claude Code (n/a on Codex — no styles)    |
 | Safety (skills + subagents) | `lethal-trifecta`, `delegation-trifecta`                                                                                                                        | all (subagent half n/a on Codex)          |
@@ -170,16 +170,16 @@ The per-family tables below give each rule's default severity and what it checks
 
 ### Spec &amp; integrity
 
-| Rule                                                              | Default   | What it checks                                                                                   |
-| ----------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------ |
-| [`require-instructions-spec`](rules/require-instructions-spec.md) | `"warn"`  | Every CLAUDE.md / AGENTS.md has a `.spec.ts` behind it (narrow — inline/frontmatter don't count) |
-| [`integrity`](rules/integrity.md)                                 | `"warn"`  | Compiled markdown wasn't hand-edited (SHA-256 check)                                             |
-| [`coverage`](rules/coverage.md)                                   | `false`   | The spec covers enough of the project surface                                                    |
-| [`spec-refs`](rules/spec-refs.md)                                 | `"error"` | A compiled instruction file whose spec references a file, script or symbol that no longer exists |
-| [`duplicate-rules`](rules/duplicate-rules.md)                     | `"warn"`  | Two rules **within one spec** saying the same thing (deterministic NCD similarity, no model)     |
-| [`require-skill-spec`](rules/require-skill-spec.md)               | `false`   | Every SKILL.md has a `.spec.ts` (the consistent parallel; off by default)                        |
-| [`compile-budget`](rules/compile-budget.md)                       | `"warn"`  | A compiled instruction file stays within its size budgets; `error` under `vigiles:recommended`   |
-| [`deprecated-key-files`](rules/deprecated-key-files.md)           | `"warn"`  | A spec still uses the deprecated `keyFiles` map (loaded every request) — with the migration      |
+| Rule                                                              | Default                                         | What it checks                                                                                                          |
+| ----------------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| [`require-instructions-spec`](rules/require-instructions-spec.md) | `"warn"`; `"error"` under `vigiles:recommended` | Every CLAUDE.md / AGENTS.md, nested ones included, has a `.spec.ts` behind it (narrow — inline/frontmatter don't count) |
+| [`integrity`](rules/integrity.md)                                 | `"warn"`                                        | Compiled markdown wasn't hand-edited (SHA-256 check)                                                                    |
+| [`coverage`](rules/coverage.md)                                   | `false`                                         | The spec covers enough of the project surface                                                                           |
+| [`spec-refs`](rules/spec-refs.md)                                 | `"error"`                                       | A compiled instruction file whose spec references a file, script or symbol that no longer exists                        |
+| [`duplicate-rules`](rules/duplicate-rules.md)                     | `"warn"`                                        | Two rules **within one spec** saying the same thing (deterministic NCD similarity, no model)                            |
+| [`require-skill-spec`](rules/require-skill-spec.md)               | `false`                                         | Every SKILL.md has a `.spec.ts` (the consistent parallel; off by default)                                               |
+| [`compile-budget`](rules/compile-budget.md)                       | `"warn"`                                        | A compiled instruction file stays within its size budgets; `error` under `vigiles:recommended`                          |
+| [`deprecated-key-files`](rules/deprecated-key-files.md)           | `"warn"`                                        | A spec still uses the deprecated `keyFiles` map (loaded every request) — with the migration                             |
 
 ### Test coverage
 
@@ -211,11 +211,11 @@ The per-family tables below give each rule's default severity and what it checks
 | [`hook-events`](rules/hook-events.md)                           | `"warn"` | A hook registers under a real event name (a typo never fires)                                                                              |
 | [`hook-matcher`](rules/hook-matcher.md)                         | `"warn"` | A hook `matcher` fires as written (typo · uncompilable · an MCP pattern reaching nothing or missing real server names · undeclared server) |
 | [`hook-block-ineffective`](rules/hook-block-ineffective.md)     | `"warn"` | A hook that looks like it blocks actually can (right event + right deny field)                                                             |
-| [`hook-script-exists`](rules/hook-script-exists.md)             | `"warn"` | A hook's referenced script file exists on disk (else it never runs)                                                                        |
+| [`hook-script-exists`](rules/hook-script-exists.md)             | `"warn"` | A file a compiled hook line needs (runtime, program, stamp) exists                                                                         |
+| [`hand-written-hook`](rules/hand-written-hook.md)               | `false`  | Every hook line vigiles did not write is named, so it can be compiled                                                                      |
 | [`mcp-config`](rules/mcp-config.md)                             | `"warn"` | A declared MCP server can start (has a `command` or `url`)                                                                                 |
 | [`mcp-tool-resolves`](rules/mcp-tool-resolves.md)               | `"warn"` | A subagent's `mcp__server__tool` names a declared (or built-in) server                                                                     |
 | [`mcp-hook-target-resolves`](rules/mcp-hook-target-resolves.md) | `"warn"` | A `type: mcp_tool` hook names a declared server + a tool                                                                                   |
-| [`prefer-compiled-hooks`](rules/prefer-compiled-hooks.md)       | `false`  | One nudge: hand-written hooks could be compiled (recommendation; off by default)                                                           |
 
 ### Skill triggers
 
@@ -268,13 +268,13 @@ Set severities in `.vigilesrc.json`:
 }
 ```
 
-Disable a rule for one file with `<!-- vigiles-disable require-instructions-spec -->` at the top of the markdown. `--strict` promotes `require-instructions-spec` to `"error"`.
+Disable a rule for one file with `<!-- vigiles-disable require-instructions-spec -->` at the top of the markdown, or for a folder with an [`overrides`](configuration.md#overrides) entry.
 
 `vigiles init` groups rules by confidence:
 
-- **`structural`** — FP-safe correctness rules (broken tools / dead hooks / broken MCP / collisions). `init` gates them at `error` by writing `"extends": "vigiles:recommended"` ([the preset](configuration.md#extends)); each rule's own default stays `warn`.
-- **`workflow`** — opinionated rules a clean repo can still fail because the work isn't done yet (`require-instructions-spec`, `untested-*`). Off by default; added by `--strict`.
-- **`nudge`** — recommendations / acknowledged-noisy (`frontmatter-valid`, `skill-frontmatter`, `prefer-compiled-hooks`, `unmarked-refs`). Stays `warn` and never gates.
+- **`structural`** — FP-safe correctness rules (broken tools / dead hooks / broken MCP / collisions), plus `require-instructions-spec`. `init` gates them at `error` by writing `"extends": "vigiles:recommended"` ([the preset](configuration.md#extends)); each rule's own default stays `warn`.
+- **`workflow`** — opinionated rules a clean repo can still fail because the work isn't done yet (`untested-*`). Off by default; added by `--strict`.
+- **`nudge`** — recommendations / acknowledged-noisy (`frontmatter-valid`, `skill-frontmatter`, `unmarked-refs`). Stays `warn` and never gates.
 
 `--report-only` writes the whole gate at `warn` (nothing fails CI). See [the CLI guide](cli.md#init).
 

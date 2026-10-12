@@ -46,6 +46,7 @@
  * ────────────────────────────────────────────────────────────────────────────
  */
 import { executableSourceDirs } from "@engine/core/layout";
+import { HOOKS_DIR } from "@engine/core/hook-paths";
 import { claudeCodeLayout } from "@engine/adapters/claude-code/layout";
 import { claudeCodeDialect } from "@engine/adapters/claude-code/dialect";
 
@@ -241,15 +242,30 @@ function manifestHookConfig(files: RepoFiles): string | null {
 }
 
 /**
+ * What the hook-line plan reads (`hookLinePlan`): the compiled hook sources and
+ * their stamps directly in the hooks dir, and the root `package.json` (which
+ * runtime the lines start). The harness-path filter drops all three, and
+ * without them a compiled line would read as hand-written or stale here while
+ * the CLI, which reads the whole repo, reads it as compiled.
+ */
+export function isHookPlanInput(path: string): boolean {
+  if (path === "package.json") return true;
+  if (!path.startsWith(`${HOOKS_DIR}/`)) return false;
+  return !path.slice(HOOKS_DIR.length + 1).includes("/");
+}
+
+/**
  * Repo-relative paths a harness file references but that the harness-path filter
- * drops — hook scripts living OUTSIDE the harness dirs. The CLI reads the whole repo,
- * so to stay byte-identical the browser fetches any referenced path present in the
- * tree (else the scan reports a real hook script as missing + a graded penalty).
- * Two forms: (1) plugin-root / project-dir tokens (`${CLAUDE_PLUGIN_ROOT}/scripts/
- * guard.sh`, braced or unbraced); (2) a RELATIVE dir-qualified script path (`scripts/
- * guard.sh`, `./bin/x.sh`) — the form `scanHooks` resolves against the plugin root.
- * Over-matching is harmless: only tree-present paths are fetched (a real file the scan
- * simply ignores if unreferenced), bounded by the size + count caps.
+ * drops — scripts living OUTSIDE the harness dirs. The CLI reads the whole repo, so
+ * to stay byte-identical the browser fetches any referenced path present in the
+ * tree: the detectors that read script CONTENT (a broken intra-plugin reference
+ * inside a hook script) must see the same files. Hook command lines themselves are
+ * never read for a script (see `hookLinePlan` in the engine). Two forms: (1)
+ * plugin-root / project-dir tokens (`${CLAUDE_PLUGIN_ROOT}/scripts/guard.sh`, braced
+ * or unbraced); (2) a RELATIVE dir-qualified script path (`scripts/guard.sh`,
+ * `./bin/x.sh`). Over-matching is harmless: only tree-present paths are fetched (a
+ * real file the scan simply ignores if unreferenced), bounded by the size + count
+ * caps.
  */
 const ROOT_REF =
   /\$\{?(?:CLAUDE_PLUGIN_ROOT|CLAUDE_PROJECT_DIR)\}?\/([A-Za-z0-9._/-]+)/g;
@@ -454,6 +470,7 @@ export async function fetchRepo(
     const inTree = new Set(blobs.map((b) => b.path));
     for (let round = 0; round < 3; round += 1) {
       const referenced = collectReferencedPaths(files);
+      for (const p of inTree) if (isHookPlanInput(p)) referenced.add(p);
       const manifestHooks = manifestHookConfig(files);
       if (manifestHooks !== null) referenced.add(manifestHooks);
       const eligible = [...referenced]

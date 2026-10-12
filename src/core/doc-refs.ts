@@ -58,7 +58,8 @@ export interface DocRefReport {
 }
 
 export interface FindDocRefsOptions {
-  readonly basePath?: string;
+  /** The repo root. Required: no cwd fallback. */
+  readonly basePath: string;
   /** The repo exclude (`ExcludeSet.globIgnore`), or patterns relative to `basePath`. */
   readonly ignore?: GlobIgnore;
 }
@@ -322,8 +323,8 @@ function validateRefs(
  * spec.ts. Honors `<!-- vigiles:ignore-file -->` (skip the whole file)
  * and `<!-- vigiles:ignore -->` (skip the next code block).
  */
-export function findDocRefs(options: FindDocRefsOptions = {}): DocRefReport {
-  const basePath = options.basePath ?? process.cwd();
+export function findDocRefs(options: FindDocRefsOptions): DocRefReport {
+  const basePath = options.basePath;
   const ignore = withIgnored(DEFAULT_IGNORE, options.ignore);
   const files = globSync("**/*.md", { cwd: basePath, ignore });
 

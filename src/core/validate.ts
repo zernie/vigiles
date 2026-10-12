@@ -1,5 +1,4 @@
 import { readFileSync, lstatSync, existsSync, realpathSync } from "node:fs";
-import { globSync } from "glob";
 import { resolve, basename as pathBasename } from "node:path";
 import { cosmiconfigSync } from "cosmiconfig";
 // 🔴 A TOP-LEVEL IMPORT, and the lazy `require` it replaced is recorded because
@@ -21,12 +20,17 @@ import { cosmiconfigSync } from "cosmiconfig";
 // only works in one of the two worlds the code runs in is not one line of
 // hygiene, it is a second module system.
 import { DEFAULT_INSTRUCTION_TARGETS } from "./dialect.js";
+import { RULE_MARKER_SOURCE, isVerifiedLabel } from "./enforce-marker.js";
+import { instructionSpecState } from "./integrity.js";
+import { handWrittenInstructionRemedy } from "./instruction-remedies.js";
 import {
   vigilesConfigSchema,
   parseVigilesConfig,
   formatConfigIssues,
   REPLACED_KEYS,
   replacedKeyMessage,
+  movedToOverridesMessages,
+  foldedRuleMessages,
   VigilesConfigError,
 } from "./config-schema.js";
 
@@ -118,7 +122,7 @@ function defaultConfig(): VigilesConfig {
 // ---------------------------------------------------------------------------
 
 export function findInstructionFiles(
-  cwd: string = process.cwd(),
+  cwd: string,
   configFiles?: string[],
 ): string[] {
   const candidates = configFiles ?? DEFAULT_FILES;
@@ -182,7 +186,12 @@ export function loadConfig(
   // The replaced keys get their own message BEFORE the schema's, because the
   // reader is someone whose config used to work: `.strict()` would tell them
   // "unknown key harness", which is true and useless. See REPLACED_KEYS.
-  const problems: string[] = [];
+  // The per-rule `exclude` options moved to `overrides` the same way, and a
+  // rule folded into another names the one that reports it now.
+  const problems: string[] = [
+    ...movedToOverridesMessages(raw),
+    ...foldedRuleMessages(raw),
+  ];
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const present = REPLACED_KEYS.filter((k) => k.key in raw);
     if (present.length > 0) {
@@ -211,6 +220,33 @@ export function loadConfig(
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
+
+/** Either compiled marker of an `enforce()` reference (see enforce-marker.ts). */
+const RULE_MARKER_RE = new RegExp(RULE_MARKER_SOURCE);
+
+/**
+ * Both compiled spellings (#351): "Enforced by" (verified) and "Claimed
+ * (unverified)". A claim is a reference too — it is kept apart so nothing
+ * counts it as enforced.
+ */
+function parseRuleMarker(
+  line: string,
+): Readonly<Pick<ParsedRule, "enforcement" | "enforcedBy">> | null {
+  const m = RULE_MARKER_RE.exec(line);
+  if (!m) return null;
+  return {
+    enforcement: isVerifiedLabel(m[1]) ? "enforced" : "claimed",
+    enforcedBy: m[2] ?? null,
+  };
+}
+
+/** How many parsed rules carry one enforcement kind. */
+function countEnforcement(
+  rules: readonly ParsedRule[],
+  kind: ParsedRule["enforcement"],
+): number {
+  return rules.filter((r) => r.enforcement === kind).length;
+}
 
 export function parseRules(
   content: string,
@@ -249,10 +285,10 @@ export function parseRules(
 
     if (!currentRule || currentRule.enforcement !== "missing") continue;
 
-    const enforcedMatch = line.match(/\*\*Enforced by:\*\*\s*`([^`]+)`/);
-    if (enforcedMatch) {
-      currentRule.enforcement = "enforced";
-      currentRule.enforcedBy = enforcedMatch[1] ?? null;
+    const marked = parseRuleMarker(line);
+    if (marked) {
+      currentRule.enforcement = marked.enforcement;
+      currentRule.enforcedBy = marked.enforcedBy;
       continue;
     }
 
@@ -278,24 +314,36 @@ export function parseRules(
 // Core validation
 // ---------------------------------------------------------------------------
 
+/**
+ * The `require-instructions-spec` finding for one instruction file, or `null`
+ * when it is spec-managed or opted out (`instructionSpecState`, the one answer
+ * `audit` asks too). The message says what to do, in order.
+ */
+function handWrittenFinding(
+  content: string,
+  filePath: string,
+): ValidationError | null {
+  const specPath = filePath + ".spec.ts";
+  if (instructionSpecState(content, existsSync(specPath)) !== "hand-written")
+    return null;
+  return {
+    rule: "require-instructions-spec",
+    message: `No spec file found for "${filePath}". Expected "${specPath}".\n${handWrittenInstructionRemedy(filePath)}`,
+    line: 1,
+  };
+}
+
 export function validate(
   content: string,
   { ruleMarkers, rules: rulesConfig, filePath, dialect }: ValidateOptions = {},
 ): ValidationResult {
   const activeRules = rulesConfig ?? DEFAULT_RULES;
   const parsedRules = parseRules(content, { ruleMarkers });
-  const enforced = parsedRules.filter(
-    (r) => r.enforcement === "enforced",
-  ).length;
-  const guidanceOnly = parsedRules.filter(
-    (r) => r.enforcement === "guidance",
-  ).length;
-  const disabled = parsedRules.filter(
-    (r) => r.enforcement === "disabled",
-  ).length;
-  const missingCount = parsedRules.filter(
-    (r) => r.enforcement === "missing",
-  ).length;
+  const enforced = countEnforcement(parsedRules, "enforced");
+  const guidanceOnly = countEnforcement(parsedRules, "guidance");
+  const disabled = countEnforcement(parsedRules, "disabled");
+  const claimed = countEnforcement(parsedRules, "claimed");
+  const missingCount = countEnforcement(parsedRules, "missing");
 
   const errors: ValidationError[] = [];
   const warnings: ValidationError[] = [];
@@ -315,21 +363,11 @@ export function validate(
     // `vigiles init` auto-adopts every instruction file into a spec, so this is
     // green by construction after setup.
     const specSeverity = activeRules["require-instructions-spec"];
-    if (specSeverity && isInstruction && !disableComment.test(content)) {
-      const specPath = filePath + ".spec.ts";
-      if (!existsSync(specPath)) {
-        const msg: ValidationError = {
-          rule: "require-instructions-spec",
-          message: `No spec file found for "${filePath}". Expected "${specPath}". Run \`npx vigiles init --target=${filePath}\` to adopt it into a spec, or disable with <!-- vigiles-disable require-instructions-spec -->.`,
-          line: 1,
-        };
-        if (specSeverity === "error") {
-          errors.push(msg);
-        } else {
-          warnings.push(msg);
-        }
-      }
-    }
+    const specFinding = isInstruction
+      ? handWrittenFinding(content, filePath)
+      : null;
+    if (specSeverity && specFinding)
+      (specSeverity === "error" ? errors : warnings).push(specFinding);
 
     // --- require-skill-spec (SKILL.md) — the consistent require-<surface>-spec
     // parallel, off by default; honored when a user sets it explicitly.
@@ -356,6 +394,7 @@ export function validate(
     enforced,
     guidanceOnly,
     disabled,
+    claimed,
     missing: missingCount,
     total: parsedRules.length,
     errors,
@@ -402,28 +441,6 @@ export function readInstructionFile(
       reason: `Could not read: ${filePath}`,
     };
   }
-}
-
-// ---------------------------------------------------------------------------
-// Glob expansion
-// ---------------------------------------------------------------------------
-
-export function expandGlobs(patterns: string[]): string[] {
-  const GLOB_CHARS = /[*?{[]/;
-  const paths: string[] = [];
-
-  for (const pattern of patterns) {
-    if (GLOB_CHARS.test(pattern)) {
-      const matches = globSync(pattern, { cwd: process.cwd() });
-      for (const match of matches.sort()) {
-        paths.push(resolve(match));
-      }
-    } else {
-      paths.push(pattern);
-    }
-  }
-
-  return paths;
 }
 
 // ---------------------------------------------------------------------------

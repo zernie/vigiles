@@ -304,9 +304,9 @@ export interface CompileGeneratorSkillResult {
  */
 export function compileGeneratorSkill(
   source: string,
-  options: { basePath?: string; specFile?: string } = {},
+  options: { readonly basePath: string; readonly specFile?: string },
 ): CompileGeneratorSkillResult {
-  const basePath = options.basePath ?? process.cwd();
+  const basePath = options.basePath;
   const specFile = options.specFile ?? "SKILL.md.spec.ts";
   const sf = ts.createSourceFile("s.ts", source, ts.ScriptTarget.Latest, true);
   const call = findGenSkillCall(sf);
@@ -357,9 +357,9 @@ export function compileGeneratorSkill(
  */
 export function compileGenerator(
   source: string,
-  options: { basePath?: string; frontmatter?: string } = {},
+  options: { readonly basePath: string; readonly frontmatter?: string },
 ): CompileGeneratorResult {
-  const basePath = options.basePath ?? process.cwd();
+  const basePath = options.basePath;
   const sf = ts.createSourceFile(
     "skill.ts",
     source,

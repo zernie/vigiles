@@ -15,11 +15,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import {
-  classifyBashCommand,
-  commandWords,
-  isReadOnlyBash,
-} from "./bash-effects.js";
+import { classifyBashCommand, isReadOnlyBash } from "./bash-effects.js";
 import type { BashEffect } from "./bash-effects.js";
 
 // ---------------------------------------------------------------------------
@@ -526,79 +522,4 @@ test("cat with input redirection < is NOT a write → read-only", () => {
 
 test("grep pattern file | wc -l → read-only (pipe of two read-only)", () => {
   assert.equal(classifyBashCommand("grep pattern file | wc -l"), "read-only");
-});
-
-// ---------------------------------------------------------------------------
-// 5. commandWords — FILE OPERANDS, with inline program text subtracted
-// ---------------------------------------------------------------------------
-
-test("commandWords: node -e payload is a PROGRAM, not a path", () => {
-  // The measured defect (ayghri/i-have-adhd, microsoft/power-platform-skills):
-  // a regex over the raw string cut a character run out of this payload and
-  // reported it as the hook's missing script, while hooks/always-on.mjs was on
-  // disk. Inside a shell parse the argument of `-e` is not a word the shell
-  // ever resolves to a file.
-  const cmd =
-    `node -e "(async()=>{const root=process.env.CLAUDE_PLUGIN_ROOT;` +
-    `if(root)await import(require('node:url').pathToFileURL(` +
-    `require('node:path').join(root,'hooks','always-on.mjs')).href)})()"`;
-  // The head is a word too (a bare `./hooks/x.sh` head must survive), so what
-  // proves the point is that NOTHING from inside the payload comes back.
-  assert.deepEqual(commandWords(cmd), ["node"]);
-});
-
-test("commandWords: python -c and perl -e payloads are subtracted too", () => {
-  assert.deepEqual(commandWords("python3 -c \"open('hooks/a.py')\""), [
-    "python3",
-  ]);
-  assert.deepEqual(commandWords("perl -e 'do \"hooks/a.pl\"'"), ["perl"]);
-});
-
-test("commandWords: a real operand beside a program flag survives", () => {
-  // Both halves in one command: the payload is dropped, the script is kept.
-  assert.deepEqual(commandWords("node -e 'x' hooks/real.mjs"), [
-    "node",
-    "hooks/real.mjs",
-  ]);
-});
-
-test("commandWords: sh -c is a nested SHELL program and IS parsed", () => {
-  // Not "program text to discard" — program text to PARSE. Discarding it would
-  // trade the false positive for a miss on a common wrapper idiom.
-  assert.deepEqual(
-    commandWords(`bash -c 'exec "$CLAUDE_PLUGIN_ROOT/hooks/x.sh"'`),
-    ["bash", "exec", "$CLAUDE_PLUGIN_ROOT/hooks/x.sh"],
-  );
-});
-
-test("commandWords: keeps the plugin-root token verbatim", () => {
-  // `leafCommands` DROPS this word entirely (it is not a literal), which is why
-  // it could not be reused here.
-  assert.deepEqual(commandWords("${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh"), [
-    "$CLAUDE_PLUGIN_ROOT/hooks/guard.sh",
-  ]);
-});
-
-test("commandWords: keeps the RIGHT side of && — a conditional script still must exist", () => {
-  // `leafArgvSource` drops it by design (it answers "what unconditionally
-  // RUNS"), which is the whole reason this is a separate extractor.
-  assert.deepEqual(commandWords('cd "$ROOT" && node hooks/x.mjs'), [
-    "cd",
-    "$ROOT",
-    "node",
-    "hooks/x.mjs",
-  ]);
-});
-
-test("commandWords: resolves through a wrapper, drops flags", () => {
-  assert.deepEqual(
-    commandWords("env FOO=1 node --enable-source-maps h/x.mjs"),
-    ["node", "h/x.mjs"],
-  );
-});
-
-test("commandWords: unparseable shell yields null, not an empty list", () => {
-  // A caller must be able to tell "no file operands" from "no analysis"; the
-  // hook scanner treats null as an inline one-liner rather than guessing.
-  assert.equal(commandWords("node 'unterminated"), null);
 });

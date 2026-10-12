@@ -222,3 +222,106 @@ export function formatUnknownFlag(command: string, flag: string): string {
   );
   return lines.join("\n");
 }
+
+/**
+ * Which of a verb's arguments name a PATH. The CLI runs every command from the
+ * project root it resolves once (`findProjectRoot`), but a path the user types
+ * means "from where I typed it"; these are the arguments re-expressed from the
+ * root before the command runs. One table beside the flag table, so a new
+ * path-valued flag is declared where flags are.
+ */
+interface PathArguments {
+  /**
+   * Which directory the verb runs from. `project`: the resolved project root.
+   * `invocation`: where it was typed — `init` makes THAT directory a project
+   * (a workspace member it sets up must not become its monorepo's root), and
+   * `hook-runtime` takes its root from the harness event, not from a directory.
+   */
+  readonly root: "project" | "invocation";
+  /** Positionals that are paths: all of them, all after the first (a kind), or none. */
+  readonly positionals: "all" | "after-first" | "none";
+  /** `--flag=` specs whose value is a path. */
+  readonly flags: readonly FlagSpec[];
+}
+
+export const PATH_ARGUMENTS: Readonly<Record<Verb, PathArguments>> = {
+  init: { root: "invocation", positionals: "none", flags: ["--target="] },
+  compile: { root: "project", positionals: "all", flags: [] },
+  eject: { root: "project", positionals: "all", flags: [] },
+  lint: { root: "project", positionals: "all", flags: ["--json-out="] },
+  test: { root: "project", positionals: "all", flags: [] },
+  eval: { root: "project", positionals: "all", flags: [] },
+  audit: {
+    root: "project",
+    positionals: "all",
+    flags: ["--out=", "--capability-diff=", "--prompts="],
+  },
+  // `generate <kind> [out]`: the kind is a word, the rest are paths.
+  generate: { root: "project", positionals: "after-first", flags: [] },
+  // The harness supplies its argv; its paths are already what it means.
+  "hook-runtime": { root: "invocation", positionals: "none", flags: [] },
+};
+
+/** The verb's row, or undefined for a word that is not a verb. */
+function pathArgumentsOf(command: string): PathArguments | undefined {
+  return Object.entries(PATH_ARGUMENTS).find(([verb]) => verb === command)?.[1];
+}
+
+/**
+ * Whether `command` runs from the resolved project root. A word that is not a
+ * verb (`--version`, a typo) runs nowhere in particular: it is answered where
+ * it was typed.
+ */
+export function runsFromProjectRoot(command: string): boolean {
+  return pathArgumentsOf(command)?.root === "project";
+}
+
+/** Which of the positional argument indexes are paths, per the verb's spec. */
+function pathPositionalIndexes(
+  positionals: PathArguments["positionals"],
+  indexes: readonly number[],
+): readonly number[] {
+  switch (positionals) {
+    case "all":
+      return indexes;
+    case "after-first":
+      return indexes.slice(1);
+    case "none":
+      return [];
+  }
+}
+
+/** A positional word: before `--`, one not led by a dash; after it, every word. */
+function isOperand(arg: string, index: number, end: number): boolean {
+  if (index < end) return !arg.startsWith("-");
+  return index > end;
+}
+
+/**
+ * The verb's arguments (everything after the verb) with each path argument
+ * passed through `rebase`. Flags that do not take a path, words, and `--`
+ * itself are returned unchanged. After `--` every word is an operand: a path
+ * among them is rebased like any other positional, and a dash-led one is never
+ * mistaken for a path-valued flag.
+ */
+export function rebasePathArgs(
+  command: string,
+  argv: readonly string[],
+  rebase: (path: string) => string,
+): readonly string[] {
+  const spec = pathArgumentsOf(command);
+  if (!spec) return [...argv];
+  const end = argv.includes("--") ? argv.indexOf("--") : argv.length;
+  const positionalIndexes = argv.flatMap((a, i) =>
+    isOperand(a, i, end) ? [i] : [],
+  );
+  const pathPositionals = new Set(
+    pathPositionalIndexes(spec.positionals, positionalIndexes),
+  );
+  return argv.map((arg, i) => {
+    if (pathPositionals.has(i)) return rebase(arg);
+    if (i >= end) return arg;
+    const flag = spec.flags.find((f) => arg.startsWith(f));
+    return flag ? `${flag}${rebase(arg.slice(flag.length))}` : arg;
+  });
+}

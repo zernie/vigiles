@@ -13,13 +13,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import type { HarnessAdapter } from "./core/adapter.js";
-import {
-  HOOK_CHECK_REF,
-  checkPaths,
-  commandsIn,
-  renderHookCheck,
-} from "./hook-check.js";
-import { hookGateRef } from "./hook-install.js";
+import { checkPaths, commandsIn, renderHookCheck } from "./hook-check.js";
+import { HOOK_CHECK_REF, sessionCheckCommand } from "./core/hook-command.js";
+import { readHookRuntime } from "./hook-install.js";
 
 /** A harness whose hooks are shell commands listed in a settings file. */
 type ShellAdapter = Extract<HarnessAdapter, { readonly shellHooks: true }>;
@@ -45,12 +41,18 @@ function registerCheck(
   existing: Record<string, unknown>,
   cwd: string,
 ): void {
-  const ref = hookGateRef(HOOK_CHECK_REF, adapter.layout.projectRootTokens);
   const merged = adapter.hookProtocol.mergeRegistrations(
     existing,
     {
       SessionStart: [
-        { hooks: [{ type: "command", command: `sh ${ref} || exit 0` }] },
+        {
+          hooks: [
+            {
+              type: "command",
+              command: sessionCheckCommand(adapter.layout.projectRootTokens),
+            },
+          ],
+        },
       ],
     },
     HOOK_CHECK_REF,
@@ -81,7 +83,9 @@ export function installHookCheck(
 
   const script = resolve(cwd, HOOK_CHECK_REF);
   mkdirSync(dirname(script), { recursive: true });
-  writeFileSync(script, renderHookCheck(paths));
+  // The cure the notice names depends on WHICH runtime this project starts: a
+  // consumer installs it, the vigiles package itself builds it (`hookRuntimeFor`).
+  writeFileSync(script, renderHookCheck(paths, readHookRuntime(cwd).cure));
   for (const { adapter, settings } of found)
     registerCheck(adapter, settings, cwd);
   console.log(

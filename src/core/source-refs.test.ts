@@ -10,12 +10,10 @@ import { describe, it, expect } from "vitest";
 
 import {
   intraRefPattern,
-  scriptWordPattern,
   scriptRefPattern,
   startsAtSeparator,
   stripFullLineComments,
   INTRA_REF_EXTENSIONS,
-  SCRIPT_REF_EXTENSIONS,
 } from "./source-refs.js";
 
 const DIRS = ["hooks", "skills", "agents", "commands"];
@@ -69,39 +67,6 @@ describe("startsAtSeparator — the LEFT boundary", () => {
       const idx = src.indexOf("agents/adv.md");
       expect([src, startsAtSeparator(src, idx)]).toEqual([src, true]);
     }
-  });
-});
-
-describe("scriptWordPattern — whole-word anchoring", () => {
-  const re = scriptWordPattern();
-
-  it("matches a word that IS a script path", () => {
-    expect(re.test("hooks/x.mjs")).toBe(true);
-    expect(re.test("$CLAUDE_PLUGIN_ROOT/hooks/x.sh")).toBe(true);
-    for (const ext of SCRIPT_REF_EXTENSIONS)
-      expect(re.test(`a.${ext}`)).toBe(true);
-  });
-
-  it("does not match a script path buried inside a larger word", () => {
-    // `echo "see hooks/x.sh"` is ONE word that merely contains a path; before
-    // anchoring, that path was lifted out and checked as though the hook ran it.
-    expect(re.test("see hooks/x.sh")).toBe(false);
-  });
-
-  it("DOES match the `node -e` payload — anchoring is not what stops that", () => {
-    // Load-bearing negative result. The payload has no whitespace and ends in
-    // `.mjs`, so it satisfies this pattern; the defect is fixed one level up by
-    // `commandWords`. Asserted so the docstring cannot drift into claiming
-    // credit this pattern does not have.
-    expect(
-      re.test(
-        "import(require(node:url).pathToFileURL(require(node:path).join(root,hooks,always-on.mjs",
-      ),
-    ).toBe(true);
-  });
-
-  it("does not match a glob", () => {
-    expect(re.test("*.js")).toBe(false);
   });
 });
 

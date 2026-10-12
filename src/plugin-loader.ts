@@ -99,6 +99,29 @@ export interface LoadedPlugin {
    * through this instead of guessing from the key. Present for every surface file.
    */
   readonly sources: Record<string, string>;
+  /**
+   * The project settings' `hooks` block when a plugin manifest or `hooks.json`
+   * supplied {@link settings} instead — `undefined` otherwise (including when
+   * the settings ARE what `settings` holds, so nothing is counted twice).
+   *
+   * 🔴 A REPO CAN BE BOTH, AND BOTH ARE LIVE. A plugin's manifest hooks run for
+   * whoever INSTALLS it; its `.claude/settings.json` hooks run for whoever works
+   * IN it. The loader picks one source for `settings` (the sandbox runs the
+   * plugin), so the other was never looked at: the vigiles repository's own
+   * compiled nudges pointed at a runtime that did not exist for three weeks and
+   * `hook-script-exists` never read the file they were wired in (measured
+   * 2026-10-11). Raw — no token is expanded — and only PATH-CHECKED; the
+   * deterministic tier never runs it.
+   */
+  readonly shadowedSettingsHooks?: unknown;
+  /**
+   * {@link settings}' `hooks` block as the file wrote it — no root variable
+   * expanded. `settings` writes the plugin root in so the shipped wiring runs;
+   * a READER of a hook line (what it names, which hook it is) needs the line
+   * the author wrote, or every message quotes a machine path. Absent when
+   * `settings` holds no hooks.
+   */
+  readonly hooksAsWritten?: unknown;
 }
 
 const MAX_SKILL_FILE_BYTES = 256 * 1024;
@@ -158,27 +181,43 @@ function readSettingsHooks(path: string, codec: SettingsCodec): unknown {
  *   3. the `hooks/hooks.json` convention (e.g. obra/superpowers) — auto-discovered,
  *   4. a plain repo's `.claude/settings.json`.
  */
-function readHooks(root: string, layout: PluginLayout): unknown {
+function readHooks(
+  root: string,
+  layout: PluginLayout,
+): { readonly hooks: unknown; readonly shadowed: unknown } {
+  const settingsPath = join(root, layout.settingsPath);
+  const settings = (): unknown =>
+    existsSync(settingsPath)
+      ? readSettingsHooks(settingsPath, layout.settings)
+      : undefined;
+  const plugin = readPluginHooks(root, layout);
+  return plugin.declared
+    ? { hooks: plugin.hooks, shadowed: settings() }
+    : { hooks: settings(), shadowed: undefined };
+}
+
+/** Layouts 1–3 of {@link readHooks}: what the PLUGIN declares, and whether it declared anything. */
+function readPluginHooks(
+  root: string,
+  layout: PluginLayout,
+): { readonly declared: boolean; readonly hooks: unknown } {
   // A malformed manifest must not crash the loader — fall through to the
   // other layouts (safeReadManifest returns null on a parse error). Format-aware
   // so a Codex `config.toml` manifest's `[hooks]` is read, not skipped.
   const m = safeReadManifest(root, layout);
   if (m) {
-    if (typeof m.hooks === "string") return readHooksFile(join(root, m.hooks));
-    if (m.hooks !== undefined) return m.hooks;
+    if (typeof m.hooks === "string")
+      return { declared: true, hooks: readHooksFile(join(root, m.hooks)) };
+    if (m.hooks !== undefined) return { declared: true, hooks: m.hooks };
   }
   // Optional: a harness whose hooks are in-process code modules has no
   // standalone hooks FILE, so there is nothing to look for here.
   if (layout.hooksConventionPath !== undefined) {
     const conventionPath = join(root, layout.hooksConventionPath);
-    if (existsSync(conventionPath)) return readHooksFile(conventionPath);
+    if (existsSync(conventionPath))
+      return { declared: true, hooks: readHooksFile(conventionPath) };
   }
-
-  const settingsPath = join(root, layout.settingsPath);
-  if (existsSync(settingsPath))
-    return readSettingsHooks(settingsPath, layout.settings);
-
-  return undefined;
+  return { declared: false, hooks: undefined };
 }
 
 /**
@@ -259,7 +298,7 @@ export function loadPlugin(
 ): LoadedPlugin {
   const root = resolve(pluginPath);
   const excluded = excludedBy(excludes);
-  const hooks = readHooks(root, layout);
+  const { hooks, shadowed } = readHooks(root, layout);
   // Expand the plugin-root token to the real absolute path so the actual hook
   // scripts execute — we test the shipped wiring, not a reimplementation.
   const resolvedHooks = hooks
@@ -289,6 +328,8 @@ export function loadPlugin(
     files,
     sources,
     warnings: pluginWarnings(root, surfaces, resolvedHooks, files, layout),
+    ...(shadowed === undefined ? {} : { shadowedSettingsHooks: shadowed }),
+    ...(hooks ? { hooksAsWritten: hooks } : {}),
   };
 }
 
@@ -342,7 +383,6 @@ export function loadPlugins(
   const sources: Record<string, string> = {};
   const seenOnDisk = new Set<string>();
   const warnings: string[] = [];
-  let settings: { hooks?: unknown } = {};
   for (const load of loads) {
     for (const [key, content] of Object.entries(load.files)) {
       // A file with no recorded source is one the loader synthesized rather than
@@ -354,10 +394,36 @@ export function loadPlugins(
       sources[key] = onDisk;
     }
     for (const w of load.warnings) if (!warnings.includes(w)) warnings.push(w);
-    if (settings.hooks === undefined && load.settings.hooks !== undefined)
-      settings = load.settings;
   }
-  return { settings, files, sources, warnings };
+  // First-wins, like `settings`.
+  const shadowed = loads.find((l) => l.shadowedSettingsHooks !== undefined);
+  return {
+    ...pickHooks(loads),
+    files,
+    sources,
+    warnings,
+    ...pickShadowed(shadowed),
+  };
+}
+
+/** The hooks of the first load that has any, as run and as written. */
+function pickHooks(
+  loads: readonly LoadedPlugin[],
+): Pick<LoadedPlugin, "settings" | "hooksAsWritten"> {
+  const hooked = loads.find((l) => l.settings.hooks !== undefined);
+  if (hooked === undefined) return { settings: {} };
+  return hooked.hooksAsWritten === undefined
+    ? { settings: hooked.settings }
+    : { settings: hooked.settings, hooksAsWritten: hooked.hooksAsWritten };
+}
+
+/** The `shadowedSettingsHooks` key of `load`, or nothing — so the key is absent rather than `undefined`. */
+function pickShadowed(
+  load: LoadedPlugin | undefined,
+): Pick<LoadedPlugin, "shadowedSettingsHooks"> {
+  return load?.shadowedSettingsHooks === undefined
+    ? {}
+    : { shadowedSettingsHooks: load.shadowedSettingsHooks };
 }
 
 /** The shape `loadPlugins` returns for an empty harness list. */

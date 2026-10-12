@@ -141,6 +141,52 @@ export function assertHookAllowed(r: HookRunResult): void {
 }
 
 /**
+ * Assert a `runHook` result's text REACHED THE MODEL — the assertion a nudge
+ * test needs, because "the hook printed it" is not "the model received it".
+ *
+ * Reads {@link HookRunResult.delivery}: passes only on `delivered`. Each other
+ * verdict fails with its own cause — the five are different facts and a red
+ * test must name the right one:
+ * - `undelivered` — text went to a stream this event does not deliver (the
+ *   measured case: stderr at exit 0 on `PostToolUse`). Names the stream, the
+ *   bytes, and the cure.
+ * - `silent` — nothing addressed to the model, or the hook never ran (its
+ *   condition did not match).
+ * - `blocked` — a veto, which is not a nudge; use {@link assertHookBlocked}.
+ * - `unknown` — the event has no row in the harness's capability table, so
+ *   delivery cannot be judged. FAILS rather than passes (`no-silent-skips`):
+ *   pass `capabilities` to `runHook`, or add the row.
+ */
+export function assertDelivered(r: HookRunResult): void {
+  const d = r.delivery;
+  switch (d.kind) {
+    case "delivered":
+      return;
+    case "undelivered":
+      return fail(
+        `expected the hook's output to reach the model, but none did (exit ${String(r.exitCode)}):\n` +
+          d.stranded
+            .map((s) => `  - ${String(s.bytes)} bytes on ${s.stream}: ${s.why}`)
+            .join("\n"),
+      );
+    case "silent":
+      return fail(
+        r.ran
+          ? `expected the hook's output to reach the model, but it printed nothing addressed to the model (exit ${String(r.exitCode)})`
+          : `expected the hook's output to reach the model, but the hook never ran: ${r.conditionReason}`,
+      );
+    case "blocked":
+      return fail(
+        `expected a delivered nudge, but the hook BLOCKED the action (exit ${String(r.exitCode)}) — a block is not a nudge; assert it with assertHookBlocked`,
+      );
+    case "unknown":
+      return fail(
+        `delivery cannot be judged: ${d.why}. Pass the adapter's capability table as runHook's \`capabilities\` option.`,
+      );
+  }
+}
+
+/**
  * `runHookProgram`, counted AND attributed. An in-process hook decision is an
  * observation the CLI runner can see — without it, a `*.harness.*` file that only
  * tests compiled hooks would look like it did nothing at all. See check-count.ts.

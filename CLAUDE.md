@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:bc0e3560509d2fd9 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:7b997ec4d3c0a04b compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -133,6 +133,11 @@ BUILD + TOOLING + GENERATED:
 
 **Enforced by:** `boundaries/dependencies`
 **Why:** Hexagonal boundary: every file in src/ belongs to a layer, and imports point inward only.
+
+### Never Parse Hook Lines
+
+**Enforced by:** `eslint/no-restricted-imports`
+**Why:** Never parse a hook command line: it is compiled only by identity with what `compile` writes, else hand-written. [Details](docs/contributing/rules.md#never-parse-hook-lines)
 
 ### Experimental Names Carry The Warning
 

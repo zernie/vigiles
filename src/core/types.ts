@@ -12,7 +12,11 @@ import type {
 export interface ParsedRule {
   title: string;
   line: number;
-  enforcement: "enforced" | "guidance" | "disabled" | "missing";
+  /**
+   * `enforced` = "**Enforced by:**" (compile verified it); `claimed` =
+   * "**Claimed (unverified):**" (a reference compile did not verify, #351).
+   */
+  enforcement: "enforced" | "claimed" | "guidance" | "disabled" | "missing";
   enforcedBy: string | null;
 }
 
@@ -29,6 +33,8 @@ export interface ValidationResult {
   enforced: number;
   guidanceOnly: number;
   disabled: number;
+  /** Rules stated as "**Claimed (unverified):**" — never counted as enforced. */
+  claimed: number;
   missing: number;
   total: number;
   errors: ValidationError[];
@@ -103,11 +109,6 @@ export interface OrphansConfig {
    * tree) explicitly. Set to `[]` to opt in but scan nothing.
    */
   include?: readonly string[];
-  /**
-   * Glob patterns to exclude within the include scope. Same shape as
-   * `tsconfig.json#exclude`.
-   */
-  exclude?: readonly string[];
 }
 
 /**
@@ -119,8 +120,6 @@ export interface OrphansConfig {
 export interface TestCoverageConfig {
   /** Globs of test files that count as coverage. */
   include?: readonly string[];
-  /** Extra ignore globs. */
-  exclude?: readonly string[];
   /**
    * Which extension the SUGGESTED test path in an untested-* finding uses
    * (`<surface>.harness.<ext>`). Detection decides by default — a `tsconfig.json`
@@ -283,27 +282,20 @@ export interface RulesConfig {
    */
   "mcp-tool-resolves"?: RuleSeverity;
   /**
-   * Flag a hook command that references a script file which doesn't exist on
-   * disk (with `${CLAUDE_PLUGIN_ROOT}` resolved) — the hook silently never runs.
-   * FP-safe: skips unresolved `$VAR` paths, existence-guarded one-liners, and
-   * inline commands. NOT covered by Anthropic's `claude plugin validate` — the
-   * "matches" claim here was measured false on 2026-09-08 (Claude Code 2.1.263;
-   * see docs/rules/hook-script-exists.md). Default
-   * "warn"; "error" gates CI. Same detector as `scan` (hooks status "missing").
+   * A file a COMPILED hook line needs is missing — the runtime, the program or
+   * its stamp — so the hook cannot run. Read from the hook-line plan, never
+   * from parsing a line. Default "warn"; `vigiles:recommended` raises it to
+   * "error". See docs/rules/hook-script-exists.md.
    */
   "hook-script-exists"?: RuleSeverity;
   /**
-   * A single repo-level RECOMMENDATION (one finding regardless of hook count):
-   * when a plugin/repo ships hand-written hook commands that aren't compiled
-   * `vigiles/hook` artifacts, nudge toward compiled hooks — they make whole hook
-   * bug classes (exit-1-not-2, wrong decision field, matcher bypass) UNREPRESENTABLE
-   * at authoring time, and `guardrail-check` proves an existing one blocks. A
-   * discovery nudge, not a defect: the hand-written shell lane stays first-class,
-   * so it's opt-out and fires ONCE (never per-hook). The message links
-   * `docs/compiled-hooks.md`. Default "warn"; set "off" to silence or "error" to
-   * enforce. Same detector as `scan` (manualHookCount).
+   * One finding per hook line vigiles did not write: it cannot say what such a
+   * line runs or whether it swallows its own failure, so it names the hook and
+   * points at compiled hooks (`vigiles/hook`). Default OFF, also under
+   * `vigiles:recommended`: the cure is an experimental API, so it is opt-in
+   * until compiled hooks leave experimental. See docs/rules/hand-written-hook.md.
    */
-  "prefer-compiled-hooks"?: RuleSeverity;
+  "hand-written-hook"?: RuleSeverity;
   /**
    * Cross-reference a subagent's `disallowedTools:` block-list against the
    * catalog — the deny-side mirror of `subagent-tool-contract`. A close typo there

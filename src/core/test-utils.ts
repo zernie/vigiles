@@ -1,5 +1,5 @@
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { execSync } from "node:child_process";
 
 import type { ClaudeSpec } from "./spec.js";
@@ -8,6 +8,58 @@ import type { ClaudeSpec } from "./spec.js";
 // runtime modules that need one must not pull in `makeSpec`/`initGitRepo` and
 // their dependencies. One definition, two doors.
 export { makeTmpDir, cleanupTmpDir } from "./tmp-root.js";
+import { makeTmpDir } from "./tmp-root.js";
+
+/**
+ * This repository's root, for a test that compiles or scans the repo itself.
+ * Named, never `process.cwd()`: the core takes its root explicitly.
+ */
+export const REPO_ROOT = resolve(__dirname, "..", "..");
+
+/**
+ * The environment for a CLI child whose HUMAN-READABLE output a test reads:
+ * the given env (the test passes `process.env`) with GitHub's annotation
+ * mode off.
+ *
+ * 🔴 Found by CI, not locally: under `GITHUB_ACTIONS` every finding is ALSO
+ * emitted as a `::warning::` / `::error::` annotation carrying the same
+ * message, so counting a finding's text in stdout doubles it on the runner
+ * while passing on a laptop. `GITHUB_STEP_SUMMARY` is dropped with it.
+ */
+const ANNOTATION_ENV: ReadonlySet<string> = new Set([
+  "GITHUB_ACTIONS",
+  "GITHUB_STEP_SUMMARY",
+]);
+
+export function humanCliEnv(
+  env: Readonly<NodeJS.ProcessEnv>,
+): Readonly<NodeJS.ProcessEnv> {
+  return Object.fromEntries(
+    Object.entries(env).filter(([key]) => !ANNOTATION_ENV.has(key)),
+  );
+}
+
+/**
+ * A throwaway project whose ESLint is THIS repo's installed eslint (symlinked,
+ * not mocked) and whose flat config is `config`, written as `eslint.config.mjs`.
+ * The rule-resolution probe runs the real ESLint against it, so a fixture built
+ * here tests what a user's repo would get. Clean up with `cleanupTmpDir`.
+ */
+export function makeEslintProject(config: string): string {
+  const dir = makeTmpDir("eslint");
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "fixture", version: "0.0.0", type: "module" }),
+  );
+  mkdirSync(join(dir, "node_modules"));
+  symlinkSync(
+    resolve(__dirname, "..", "..", "node_modules", "eslint"),
+    join(dir, "node_modules", "eslint"),
+    "dir",
+  );
+  writeFileSync(join(dir, "eslint.config.mjs"), config);
+  return dir;
+}
 
 export function makeSpec(overrides?: Partial<ClaudeSpec>): ClaudeSpec {
   return {

@@ -39,6 +39,9 @@
 import type { HookProtocol } from "./core/hook-protocol.js";
 import { decideHookCondition } from "./core/hook-condition.js";
 import { claudeCodeHookProtocol } from "./adapters/claude-code/hook-protocol.js";
+import { ADAPTERS } from "./adapter-registry.js";
+import type { EventCapabilityTable } from "./core/event-capability.js";
+import { hookOutputDelivery, type HookDelivery } from "./core/hook-delivery.js";
 import { propertyTest } from "./core/proofs.js";
 import { trimTrailingSeparators } from "./core/hook-program.js";
 import {
@@ -83,7 +86,22 @@ export type RunHookOptions = Omit<RunScriptOptions, "stdin"> & {
    * Claude Code, so every existing caller is unaffected.
    */
   readonly protocol?: HookProtocol;
+  /**
+   * The harness's event capability table — what each event HONOURS — used to
+   * compute {@link HookRunResult.delivery}. Defaults to the table of the
+   * registered adapter whose `hookProtocol` IS `protocol` (so the default
+   * protocol gets its own harness's table, and no other). A harness with no
+   * table is judged only where the protocol's own `injectableEvents` proves
+   * delivery, and is `unknown` elsewhere.
+   */
+  readonly capabilities?: EventCapabilityTable;
 };
+
+export type {
+  HookDelivery,
+  DeliveryChannel,
+  StrandedOutput,
+} from "./core/hook-delivery.js";
 
 // ---------------------------------------------------------------------------
 // propertyHook — invariant testing for a hook's (event) → decision (Phase 5 of
@@ -179,7 +197,7 @@ export interface FileToolEventOptions {
  * test cannot pin only the spelling its author had in mind.
  *
  * 🔴 THIS EXISTS BECAUSE THE MISSING HALF HID A DEAD HOOK. Every hook test in
- * reach built `{ tool_input: { file_path: "migratsiya/papers/x.tex" } }` by
+ * reach built `{ tool_input: { file_path: "drafts/papers/x.tex" } }` by
  * hand — repo-relative, because that is how the hook's own prefixes are written.
  * Claude Code's Edit/Write/MultiEdit tools send an ABSOLUTE `file_path`,
  * `PathView.under` had no project root to reconcile the two, and so three
@@ -189,7 +207,7 @@ export interface FileToolEventOptions {
  *
  * Iterating is the point — there is deliberately no singular builder here:
  *
- *     for (const e of fileToolEvents("migratsiya/papers/x.tex"))
+ *     for (const e of fileToolEvents("drafts/papers/x.tex"))
  *       assert.ok(hookFired(runHook(cmd, e)));
  *
  * Each event also carries `cwd`, so a hook run WITHOUT `$CLAUDE_PROJECT_DIR` in
@@ -346,6 +364,18 @@ export interface HookRunResult extends ScriptRunResult {
   readonly ran: boolean;
   /** Why the hook ran or did not — the condition verdict, always present. */
   readonly conditionReason: string;
+  /**
+   * Whether what the hook PRINTED reached the MODEL, given its event, its exit
+   * code and which stream carried the text — `delivered` / `undelivered` /
+   * `blocked` / `silent` / `unknown`.
+   *
+   * 🔴 READ THIS, NOT `stderr`, WHEN TESTING A NUDGE. A `PostToolUse` hook that
+   * writes to stderr and exits 0 delivers NOTHING ("Claude never sees stderr
+   * from a hook that exits 0" — the host's hooks docs), yet a test asserting on
+   * `r.stderr` is green. Measured 2026-10-11: a downstream linter shipped that
+   * way for weeks. `assertDelivered(r)` fails on it and names the cure.
+   */
+  readonly delivery: HookDelivery;
 }
 
 /** Parse stdout as a hook JSON decision (pure, testable without a process). */
@@ -463,17 +493,7 @@ export function runHookWith(
     },
     protocol.condition,
   );
-  if (!verdict.runs)
-    return {
-      ...skippedScriptResult(),
-      json: null,
-      blocked: false,
-      decision: undefined,
-      haltsTurn: false,
-      blockedBy: [],
-      ran: false,
-      conditionReason: verdict.why,
-    };
+  if (!verdict.runs) return notRunResult(verdict.why);
 
   // 🔴 A SPAWN DIRECTORY WITH NO DECLARED ROOT MEANS "THIS DIRECTORY IS THE
   // PROJECT". Without this, a test that says `{ cwd: dir }` and nothing else
@@ -509,6 +529,61 @@ export function runHookWith(
     blockedBy,
     ran: true,
     conditionReason: verdict.why,
+    delivery: deliveryOf(input, res, json, opts.capabilities, protocol),
+  };
+}
+
+/**
+ * The capability table that belongs to `protocol` — found by IDENTITY among the
+ * registered adapters, never by name, so one harness's table is never applied
+ * to another's protocol. Undefined for an unregistered protocol or an adapter
+ * without a table.
+ */
+function tableFor(protocol: HookProtocol): EventCapabilityTable | undefined {
+  return ADAPTERS.find((a) => a.hookProtocol === protocol)?.dialect
+    .eventCapabilities;
+}
+
+/** {@link HookRunResult.delivery} for a hook that ran. */
+// eslint-disable-next-line max-params -- the five facts the verdict reads; an options bag would only rename them
+function deliveryOf(
+  input: HookInput,
+  res: ScriptRunResult,
+  json: HookOutput | null,
+  capabilities: EventCapabilityTable | undefined,
+  protocol: HookProtocol,
+): HookDelivery {
+  return hookOutputDelivery(
+    {
+      event: input.hook_event_name ?? "",
+      exitCode: res.exitCode,
+      stdout: res.stdout,
+      stderr: res.stderr,
+      json,
+    },
+    {
+      table: capabilities ?? tableFor(protocol),
+      blockExitCode: protocol.blockExitCode,
+      denyDecisionValues: protocol.denyDecisionValues,
+      haltsTurnField: protocol.haltsTurnField,
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- the table-less fallback: a protocol with no table still proves its own injectable events
+      injectableEvents: protocol.injectableEvents,
+    },
+  );
+}
+
+/** The whole result for a hook whose condition kept it from being spawned. */
+function notRunResult(conditionReason: string): HookRunResult {
+  return {
+    ...skippedScriptResult(),
+    json: null,
+    blocked: false,
+    decision: undefined,
+    haltsTurn: false,
+    blockedBy: [],
+    ran: false,
+    conditionReason,
+    delivery: { kind: "silent" }, // nothing ran; `ran: false` says why
   };
 }
 

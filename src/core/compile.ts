@@ -31,8 +31,10 @@ import type {
   RailwayStep,
   AuthoredPurity,
 } from "./spec.js";
+import { linkFrom, targetBeside } from "./frame.js";
 
 import { checkLinterRule, extractLinterName } from "./linters.js";
+import { CLAIMED_MARKER, ENFORCED_MARKER } from "./enforce-marker.js";
 import {
   verifyToolContract,
   disallowedToolIssues,
@@ -388,7 +390,19 @@ async function validateOneRef(
   }
 }
 
-function renderFragment(fragment: InstructionFragment): string {
+/** The repo-relative path a spec compiles to: the spec's own name without `.spec.ts`. */
+function compiledPathOf(specFile: string): string {
+  return specFile.endsWith(".spec.ts")
+    ? specFile.slice(0, -".spec.ts".length)
+    : specFile;
+}
+
+/**
+ * Render one fragment into the compiled file at `out` (repo-relative). A link
+ * resolves from the file it is written into, so every path rendered as a link
+ * goes through {@link linkFrom}.
+ */
+function renderFragment(fragment: InstructionFragment, out: string): string {
   if (typeof fragment === "string") return fragment;
   switch (fragment._ref) {
     case "file":
@@ -396,7 +410,7 @@ function renderFragment(fragment: InstructionFragment): string {
     case "cmd":
       return `\`${fragment.command}\``;
     case "skill":
-      return `[${basename(dirname(fragment.path))}](${fragment.path})`;
+      return `[${basename(dirname(fragment.path))}](${linkFrom(out, fragment.path)})`;
     case "symbol":
       return `\`vigiles:symbol ${fragment.file}#${fragment.symbol}\``;
     case "dir":
@@ -404,7 +418,7 @@ function renderFragment(fragment: InstructionFragment): string {
     case "glob":
       return `\`${fragment.pattern}\``;
     case "effect": {
-      const inner = fragment.body.map(renderFragment).join("").trim();
+      const inner = renderBody(fragment.body, out).trim();
       return `\n<!-- vigiles:effect -->\n\n${inner}\n\n<!-- /vigiles:effect -->\n`;
     }
     default:
@@ -416,10 +430,95 @@ function renderFragment(fragment: InstructionFragment): string {
 // Compile CLAUDE.md spec → markdown
 // ---------------------------------------------------------------------------
 
-/** `[Details](path#anchor)` for a rule's long text. */
-function detailsLink(details: RuleDetails): string {
+/**
+ * Why an `enforce()` reference was NOT verified. Separate members, not one
+ * "unknown", because the compile output turns each into a different instruction
+ * (make-the-distinction-a-type): a switch someone turned off is fixed by turning
+ * it on, an unset rule by setting it, an unreadable config by fixing the probe.
+ */
+export type UnverifiedReason =
+  /** `enforce(…, { verify: false })` on this rule. */
+  | "verify-false"
+  /** `verifyLinters: false` for the whole compile. */
+  | "verification-off"
+  /** `linterModes[<linter>] === false`. */
+  | "linter-off"
+  /** catalog-only: the rule exists, the config was not read. */
+  | "config-not-read"
+  /** the whole config was read and no block sets the rule. */
+  | "not-configured"
+  /** the rule exists; whether the config switches it on could not be read. */
+  | "enabled-unknown"
+  /** the rule does not exist (a compile error as well). */
+  | "not-found"
+  /** the config switches the rule off (a compile error as well). */
+  | "disabled";
+
+/** What `compile` established about one `enforce()` reference. */
+export type EnforceVerdict =
+  | { readonly kind: "verified" }
+  | { readonly kind: "unverified"; readonly reason: UnverifiedReason };
+
+/** One `enforce()` reference and its verdict, in spec order. */
+export interface EnforceVerdictEntry {
+  readonly ref: string;
+  readonly verdict: EnforceVerdict;
+}
+
+/** The verdict a linter check result supports. */
+function verdictFromResult(
+  result: Readonly<LinterCheckResult>,
+): EnforceVerdict {
+  if (!result.exists) return { kind: "unverified", reason: "not-found" };
+  switch (result.enabled) {
+    case "enabled":
+      return { kind: "verified" };
+    case "disabled":
+      return { kind: "unverified", reason: "disabled" };
+    case "unconfigured":
+      return { kind: "unverified", reason: "not-configured" };
+    case "unknown":
+      return { kind: "unverified", reason: "enabled-unknown" };
+    default:
+      return assertNever(result.enabled);
+  }
+}
+
+/**
+ * The sentence the compile prints for an unverified reference: what happened
+ * and the one thing that turns it into "Enforced by".
+ */
+export function unverifiedAdvice(
+  ref: string,
+  reason: UnverifiedReason,
+): string {
+  const linter = extractLinterName(ref);
+  switch (reason) {
+    case "verify-false":
+      return `${ref}: not checked (\`verify: false\`). Remove the option once the rule resolves, so a typo or a deleted rule fails the compile.`;
+    case "verification-off":
+      return `${ref}: not checked (\`verifyLinters: false\`).`;
+    case "linter-off":
+      return `${ref}: not checked (verification is off for ${linter}).`;
+    case "config-not-read":
+      return `${ref}: the rule exists; catalog-only mode did not read whether your config turns it on.`;
+    case "not-configured":
+      return `${ref}: the rule exists but no block of your ${linter} config sets it, so it runs nowhere. Set it in the config, or make this a guidance() rule.`;
+    case "enabled-unknown":
+      return `${ref}: the rule exists; vigiles could not read whether your ${linter} config turns it on.`;
+    case "not-found":
+      return `${ref}: the rule was not found.`;
+    case "disabled":
+      return `${ref}: the rule is turned off in your ${linter} config.`;
+    default:
+      return assertNever(reason);
+  }
+}
+
+/** `[Details](path#anchor)` for a rule's long text, linked from `out`. */
+function detailsLink(details: RuleDetails, out: string): string {
   const anchor = details.anchor === undefined ? "" : `#${details.anchor}`;
-  return `[Details](${details.file.path}${anchor})`;
+  return `[Details](${linkFrom(out, details.file.path)}${anchor})`;
 }
 
 /**
@@ -436,8 +535,8 @@ function firstSentence(text: string): string {
 }
 
 /** The `**Why:**` line(s) of an enforce rule under its render policy. */
-function enforceWhy(rule: EnforceRule): readonly string[] {
-  const link = rule.details ? ` ${detailsLink(rule.details)}` : "";
+function enforceWhy(rule: EnforceRule, out: string): readonly string[] {
+  const link = rule.details ? ` ${detailsLink(rule.details, out)}` : "";
   const render = rule.render ?? "full";
   switch (render) {
     case "full":
@@ -445,28 +544,38 @@ function enforceWhy(rule: EnforceRule): readonly string[] {
     case "line":
       return [`**Why:** ${firstSentence(rule.why)}${link}`];
     case "id":
-      return rule.details ? [detailsLink(rule.details)] : [];
+      return rule.details ? [detailsLink(rule.details, out)] : [];
     default:
       return assertNever(render);
   }
 }
 
-function compileRule(id: string, rule: Rule): string {
+function compileRule(
+  id: string,
+  rule: Rule,
+  out: string,
+  verdict?: EnforceVerdict,
+): string {
   const title = id
     .replace(/[-_]/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
 
   switch (rule._kind) {
-    case "enforce":
+    case "enforce": {
+      // "Enforced by" only for a VERIFIED reference (#351); no verdict = not
+      // verified, so the default cannot print the promise by omission.
+      const marker =
+        verdict?.kind === "verified" ? ENFORCED_MARKER : CLAIMED_MARKER;
       return [
         `### ${title}`,
         "",
-        `**Enforced by:** \`${rule.linterRule}\``,
-        ...enforceWhy(rule),
+        `${marker} \`${rule.linterRule}\``,
+        ...enforceWhy(rule, out),
       ].join("\n");
+    }
 
     case "guidance": {
-      const link = rule.details ? ` ${detailsLink(rule.details)}` : "";
+      const link = rule.details ? ` ${detailsLink(rule.details, out)}` : "";
       return [
         `### ${title}`,
         "",
@@ -511,10 +620,29 @@ export interface CompileClaudeResult {
    */
   budgetFindings: CompileError[];
   linterResults: LinterCheckResult[];
+  /**
+   * One entry per `enforce()` rule, in spec order: rendered "**Enforced by:**"
+   * exactly when `verdict.kind === "verified"`, "**Claimed (unverified):**"
+   * otherwise. The CLI's "N linter-verified" count is the verified entries.
+   */
+  enforceVerdicts: EnforceVerdictEntry[];
   /** Estimated token count of compiled output (~4 chars/token). */
   tokens: number;
   /** All targets from the spec (for multi-target compilation). */
   targets: string[];
+  /**
+   * Each target's file: its repo-relative path (a secondary target is named
+   * from the primary's directory) and its markdown, rendered for THAT path so
+   * every link resolves from where the file sits. The first is the primary,
+   * whose markdown is `markdown`.
+   */
+  outputs: CompiledOutput[];
+}
+
+/** One file a multi-target compile writes. */
+export interface CompiledOutput {
+  readonly path: string;
+  readonly markdown: string;
 }
 
 export interface CompileClaudeOptions {
@@ -533,7 +661,8 @@ export interface CompileClaudeOptions {
   maxSectionChars?: number;
   /** Character budget for the whole rendered Rules section (0 disables). */
   maxRulesChars?: number;
-  basePath?: string;
+  /** The repo root every reference resolves against. Required: no cwd fallback. */
+  readonly basePath: string;
   specFile?: string;
   /** Injected harness dialect; its instructionTargets[0] is the default target. */
   dialect?: HarnessDialect;
@@ -793,13 +922,28 @@ const RESERVED_SECTION_KEYS = new Set([
   "rules",
 ]);
 
+/**
+ * The prose sections as they read in the file at `out` (repo-relative): a
+ * fragment's links resolve from that file's directory, so each target of a
+ * multi-target spec renders its own.
+ */
+function renderSections(spec: ClaudeSpec, out: string): string[] {
+  return Object.entries(spec.sections ?? {}).map(([name, content]) => {
+    const heading = name.charAt(0).toUpperCase() + name.slice(1);
+    const text =
+      typeof content === "string" ? content : renderBody(content, out);
+    return `## ${heading}\n\n${text.trim()}`;
+  });
+}
+
+/** The prose sections' errors, measured on their rendering at `out`. */
 async function compileSectionsSection(
   spec: ClaudeSpec,
   basePath: string,
+  out: string,
   maxSectionLines?: number,
-): Promise<SectionResult> {
-  if (!spec.sections) return { lines: [], errors: [] };
-  const lines: string[] = [];
+): Promise<CompileError[]> {
+  if (!spec.sections) return [];
   const errors: CompileError[] = [];
   for (const [name, content] of Object.entries(spec.sections)) {
     // #4: reject reserved section keys that clash with structured fields
@@ -809,18 +953,15 @@ async function compileSectionsSection(
         message: `Section key "${name}" is reserved — use the dedicated \`${name}\` field on the spec instead.`,
       });
     }
-    const heading = name.charAt(0).toUpperCase() + name.slice(1);
     if (typeof content === "string") {
       errors.push(...validateSectionContent(name, content, maxSectionLines));
-      lines.push(`## ${heading}\n\n${content.trim()}`);
     } else {
       errors.push(...(await validateRefs(content, basePath)));
-      const rendered = content.map(renderFragment).join("");
+      const rendered = renderBody(content, out);
       errors.push(...validateSectionContent(name, rendered, maxSectionLines));
-      lines.push(`## ${heading}\n\n${rendered.trim()}`);
     }
   }
-  return { lines, errors };
+  return errors;
 }
 
 function compileKeyFilesSection(
@@ -862,21 +1003,21 @@ function compileCommandsSection(
 }
 
 /**
- * Determine if a rule should be verified, checking three levels:
+ * Why a rule is NOT verified at all, checking three levels, or null to verify:
  * 1. Per-rule: enforce("...", "...", { verify: false })
  * 2. Global: options.verifyLinters === false
  * 3. Per-linter: options.linterModes[linterName] === false
  */
-function shouldVerifyRule(
-  rule: { linterRule: string; verify: boolean },
-  options: CompileClaudeOptions,
-): boolean {
-  if (!rule.verify) return false;
-  if (options.verifyLinters === false) return false;
+function skipVerificationReason(
+  rule: Readonly<{ linterRule: string; verify: boolean }>,
+  options: Readonly<LinterVerifyOptions>,
+): UnverifiedReason | null {
+  if (!rule.verify) return "verify-false";
+  if (options.verifyLinters === false) return "verification-off";
   const linterName = extractLinterName(rule.linterRule);
   const linterMode = options.linterModes?.[linterName];
-  if (linterMode === false) return false;
-  return true;
+  if (linterMode === false) return "linter-off";
+  return null;
 }
 
 /**
@@ -903,8 +1044,80 @@ function validateRuleDetails(
   ];
 }
 
-interface RulesSectionResult extends SectionResult {
+/** The compile options that decide how an `enforce()` reference is verified. */
+type LinterVerifyOptions = Pick<
+  CompileClaudeOptions,
+  "verifyLinters" | "linterModes" | "catalogOnly" | "linters"
+>;
+
+interface RulesSectionResult {
+  /** The Rules section as it reads in the file at `out` (its links resolve from there). */
+  render: (out: string) => string[];
+  errors: CompileError[];
   linterResults: LinterCheckResult[];
+  enforceVerdicts: EnforceVerdictEntry[];
+}
+
+/** What verifying one `enforce()` reference produced. */
+interface EnforceCheck {
+  readonly verdict: EnforceVerdict;
+  /** Absent when verification was switched off for this reference. */
+  readonly result?: LinterCheckResult;
+  readonly error?: CompileError;
+}
+
+/** The compile error a checked reference earns, if any. */
+function enforceError(
+  ref: string,
+  result: Readonly<LinterCheckResult>,
+): CompileError | undefined {
+  if (!result.exists) {
+    return {
+      type: "invalid-rule",
+      message: result.error ?? `Rule "${ref}" not found in ${result.linter}`,
+      path: ref,
+    };
+  }
+  if (result.enabled === "disabled") {
+    return {
+      type: "invalid-rule",
+      message: `Rule "${result.rule}" exists but is disabled in ${result.linter} config`,
+      path: ref,
+    };
+  }
+  return undefined;
+}
+
+/** Verify one `enforce()` reference: its verdict, check result and any error. */
+function verifyEnforce(
+  rule: Readonly<{ linterRule: string; verify: boolean }>,
+  basePath: string,
+  options: Readonly<LinterVerifyOptions>,
+): EnforceCheck {
+  const skipped = skipVerificationReason(rule, options);
+  if (skipped !== null) {
+    return { verdict: { kind: "unverified", reason: skipped } };
+  }
+  const linterMode = options.linterModes?.[extractLinterName(rule.linterRule)];
+  const catalogOnly =
+    options.catalogOnly === true || linterMode === "catalog-only";
+  const result = checkLinterRule(rule.linterRule, basePath, {
+    catalogOnly,
+    linters: options.linters,
+  });
+  const verdict = verdictFromResult(result);
+  // catalog-only never reads the config, so "unknown" there has a known cause.
+  const explained: EnforceVerdict =
+    catalogOnly &&
+    verdict.kind === "unverified" &&
+    verdict.reason === "enabled-unknown"
+      ? { kind: "unverified", reason: "config-not-read" }
+      : verdict;
+  return {
+    verdict: explained,
+    result,
+    error: enforceError(rule.linterRule, result),
+  };
 }
 
 function compileRulesSection(
@@ -914,60 +1127,85 @@ function compileRulesSection(
 ): RulesSectionResult {
   const ruleEntries = Object.entries(spec.rules);
   if (ruleEntries.length === 0) {
-    return { lines: [], errors: [], linterResults: [] };
+    return {
+      render: () => [],
+      errors: [],
+      linterResults: [],
+      enforceVerdicts: [],
+    };
   }
-  const ruleLines = ["## Rules"];
-  const errors: CompileError[] = [];
-  const linterResults: LinterCheckResult[] = [];
-
-  for (const [id, rule] of ruleEntries) {
-    ruleLines.push("");
-    ruleLines.push(compileRule(id, rule));
-    if (rule._kind === "enforce") {
-      const shouldVerify = shouldVerifyRule(rule, options);
-      if (!shouldVerify) continue;
-
-      const linterName = extractLinterName(rule.linterRule);
-      const linterMode = options.linterModes?.[linterName];
-      const catalogOnly = options.catalogOnly || linterMode === "catalog-only";
-
-      const result = checkLinterRule(rule.linterRule, basePath, {
-        catalogOnly,
-        linters: options.linters,
-      });
-      linterResults.push(result);
-      if (!result.exists) {
-        errors.push({
-          type: "invalid-rule",
-          message:
-            result.error ??
-            `Rule "${rule.linterRule}" not found in ${result.linter}`,
-          path: rule.linterRule,
-        });
-      } else if (result.enabled === "disabled") {
-        errors.push({
-          type: "invalid-rule",
-          message: `Rule "${result.rule}" exists but is disabled in ${result.linter} config`,
-          path: rule.linterRule,
-        });
-      }
-    }
-  }
-  const detailsErrors = ruleEntries.flatMap(([, rule]) =>
-    rule._kind !== "guard" && rule.details
-      ? validateRuleDetails(rule.details, basePath)
-      : [],
-  );
+  // Verify FIRST, render second: the marker an `enforce()` gets is the
+  // verdict's, so rendering cannot run ahead of verification (#351). Verified
+  // once; rendered once per output file, since links depend on where it sits.
+  const verified = ruleEntries.map(([id, rule]) => {
+    if (rule._kind !== "enforce") return { id, rule };
+    const check = verifyEnforce(rule, basePath, options);
+    return { id, rule, check: { ref: rule.linterRule, ...check } };
+  });
+  const checks = verified.flatMap((r) => (r.check ? [r.check] : []));
   return {
-    lines: [ruleLines.join("\n")],
-    errors: [...errors, ...detailsErrors],
-    linterResults,
+    render: (out) => [
+      [
+        "## Rules",
+        ...verified.flatMap((r) => [
+          "",
+          compileRule(r.id, r.rule, out, r.check?.verdict),
+        ]),
+      ].join("\n"),
+    ],
+    errors: [
+      ...checks.flatMap((c) => (c.error ? [c.error] : [])),
+      ...ruleEntries.flatMap(([, rule]) =>
+        rule._kind !== "guard" && rule.details
+          ? validateRuleDetails(rule.details, basePath)
+          : [],
+      ),
+    ],
+    linterResults: checks.flatMap((c) => (c.result ? [c.result] : [])),
+    enforceVerdicts: checks.map((c) => ({ ref: c.ref, verdict: c.verdict })),
   };
 }
 
 // ---------------------------------------------------------------------------
 // compileClaude
 // ---------------------------------------------------------------------------
+
+/** The spec must be named after its primary target: `<target>.spec.ts`. */
+function specNameErrors(
+  specFile: string,
+  target: string,
+): readonly CompileError[] {
+  if (!specFile.endsWith(".spec.ts")) {
+    return [
+      {
+        type: "spec-name-mismatch",
+        message: `Spec file "${specFile}" must end with .spec.ts`,
+      },
+    ];
+  }
+  if (basename(specFile, ".spec.ts") === target) return [];
+  return [
+    {
+      type: "spec-name-mismatch",
+      message: `Spec file "${specFile}" doesn't match target "${target}". Expected "${target}.spec.ts".`,
+    },
+  ];
+}
+
+/** More rules than `maxRules` allows is an error. */
+function ruleCountErrors(
+  spec: ClaudeSpec,
+  maxRules: number | undefined,
+): readonly CompileError[] {
+  const ruleCount = Object.keys(spec.rules).length;
+  if (!maxRules || ruleCount <= maxRules) return [];
+  return [
+    {
+      type: "invalid-rule",
+      message: `${String(ruleCount)} rules exceeds maxRules limit of ${String(maxRules)}. Split into subdirectory specs.`,
+    },
+  ];
+}
 
 /**
  * Compile a ClaudeSpec into markdown.
@@ -983,62 +1221,48 @@ function compileRulesSection(
 // CC-only, so there is no per-dialect branch to gate.
 export async function compileClaude(
   spec: ClaudeSpec,
-  options: CompileClaudeOptions = {},
+  options: Readonly<CompileClaudeOptions>,
 ): Promise<CompileClaudeResult> {
   const targets =
     spec.target ?? options.dialect?.instructionTargets[0] ?? DEFAULT_TARGET;
   const target = Array.isArray(targets) ? targets[0] : targets;
-  const basePath = options.basePath ?? process.cwd();
+  const basePath = options.basePath;
   const specFile = options.specFile ?? `${target}.spec.ts`;
-  const errors: CompileError[] = [];
-  const sections: string[] = [`# ${target}`];
-
-  // Verify spec file naming matches the primary target
-  if (!specFile.endsWith(".spec.ts")) {
-    errors.push({
-      type: "spec-name-mismatch",
-      message: `Spec file "${specFile}" must end with .spec.ts`,
-    });
-  } else {
-    const baseName = basename(specFile, ".spec.ts");
-    if (baseName !== target) {
-      errors.push({
-        type: "spec-name-mismatch",
-        message: `Spec file "${specFile}" doesn't match target "${target}". Expected "${target}.spec.ts".`,
-      });
-    }
-  }
-
-  // maxRules check
-  const ruleCount = Object.keys(spec.rules).length;
-  if (options.maxRules && ruleCount > options.maxRules) {
-    errors.push({
-      type: "invalid-rule",
-      message: `${String(ruleCount)} rules exceeds maxRules limit of ${String(options.maxRules)}. Split into subdirectory specs.`,
-    });
-  }
+  const errors: CompileError[] = [
+    ...specNameErrors(specFile, target),
+    ...ruleCountErrors(spec, options.maxRules),
+  ];
 
   // Per-spec maxSectionLines takes precedence, then compile options
   const maxSectionLines = spec.maxSectionLines ?? options.maxSectionLines;
-  const prose = await compileSectionsSection(spec, basePath, maxSectionLines);
+  const out = compiledPathOf(specFile);
+  const proseErrors = await compileSectionsSection(
+    spec,
+    basePath,
+    out,
+    maxSectionLines,
+  );
   const keyFiles = compileKeyFilesSection(spec, basePath);
   const commands = compileCommandsSection(spec, basePath);
   const rules = compileRulesSection(spec, basePath, options);
-
-  sections.push(
-    ...prose.lines,
-    ...keyFiles.lines,
-    ...commands.lines,
-    ...rules.lines,
-  );
   errors.push(
-    ...prose.errors,
+    ...proseErrors,
     ...keyFiles.errors,
     ...commands.errors,
     ...rules.errors,
   );
 
-  const body = sections.join("\n\n") + "\n";
+  // The file at `at`, headed `heading`. Every link in it is written from
+  // `at`'s own directory, so each target is rendered for its own path.
+  const bodyAt = (heading: string, at: string): string =>
+    [
+      `# ${heading}`,
+      ...renderSections(spec, at),
+      ...keyFiles.lines,
+      ...commands.lines,
+      ...rules.render(at),
+    ].join("\n\n") + "\n";
+  const body = bodyAt(target, out);
   const tokens = estimateTokens(body);
 
   // Per-spec maxTokens takes precedence, then compile options. An explicit
@@ -1062,7 +1286,7 @@ export async function compileClaude(
           ...checkContentBudgets(
             {
               spec,
-              renderedRules: rules.lines.join("\n\n"),
+              renderedRules: rules.render(out).join("\n\n"),
             },
             specFile,
             resolveBudgetLimits(options, severity),
@@ -1076,8 +1300,14 @@ export async function compileClaude(
     warnings: severity === "warn" ? budgetFindings : [],
     budgetFindings,
     linterResults: rules.linterResults,
+    enforceVerdicts: rules.enforceVerdicts,
     tokens,
     targets: allTargets,
+    outputs: allTargets.map((t, i) => {
+      if (i === 0) return { path: out, markdown };
+      const path = targetBeside(out, t);
+      return { path, markdown: addHash(bodyAt(t, path), specFile) };
+    }),
   };
 }
 
@@ -1085,9 +1315,12 @@ export async function compileClaude(
 // Compile SKILL.md spec → markdown
 // ---------------------------------------------------------------------------
 
-function renderBody(body: string | InstructionFragment[]): string {
+function renderBody(
+  body: string | readonly InstructionFragment[],
+  out: string,
+): string {
   if (typeof body === "string") return body;
-  return body.map(renderFragment).join("");
+  return body.map((f) => renderFragment(f, out)).join("");
 }
 
 /** Derive the `argument-hint` frontmatter value from typed inputs. */
@@ -1135,17 +1368,17 @@ function renderGate(
 }
 
 /** Render the `## Steps` checklist with a gate per step. */
-function renderSteps(steps: readonly SkillStep[]): string {
-  const out = ["## Steps", ""];
+function renderSteps(steps: readonly SkillStep[], out: string): string {
+  const lines = ["## Steps", ""];
   steps.forEach((s, idx) => {
-    out.push(`### Step ${String(idx + 1)}`, "");
-    out.push(renderBody(s.do).trim(), "");
+    lines.push(`### Step ${String(idx + 1)}`, "");
+    lines.push(renderBody(s.do, out).trim(), "");
     if (s.gate) {
       const g = renderGate(s.gate, s.retry);
-      out.push(g.prose, "", g.marker, "");
+      lines.push(g.prose, "", g.marker, "");
     }
   });
-  return out.join("\n").trimEnd();
+  return lines.join("\n").trimEnd();
 }
 
 /** Render the `## Result` postcondition gate. */
@@ -1299,14 +1532,14 @@ function renderSkillFrontmatter(
  * the gated Steps, then the Result. body + steps compose — a skill can carry
  * both a rich reference body and a verified procedure.
  */
-function renderSkillSections(spec: SkillSpec): string {
+function renderSkillSections(spec: SkillSpec, out: string): string {
   const sections: string[] = [];
   if (spec.inputs && spec.inputs.length > 0) {
     sections.push(renderArguments(spec.inputs));
   }
-  if (spec.body !== undefined) sections.push(renderBody(spec.body).trim());
+  if (spec.body !== undefined) sections.push(renderBody(spec.body, out).trim());
   if (spec.steps && spec.steps.length > 0) {
-    sections.push(renderSteps(spec.steps));
+    sections.push(renderSteps(spec.steps, out));
   }
   if (spec.postcondition) sections.push(renderResult(spec.postcondition));
   // A forked skill (context: fork) runs as a subagent, so it may carry the SAME
@@ -1368,13 +1601,14 @@ export interface CompileSkillResult {
  */
 export async function compileSkill(
   spec: SkillSpec,
-  options: {
-    basePath?: string;
+  options: Readonly<{
+    /** The repo root every reference resolves against. Required: no cwd fallback. */
+    readonly basePath: string;
     specFile?: string;
     /** The harness dialect — supplies `skillFrontmatterKeys`. Omitting it emits
      *  every key the compiler can render, so existing callers are unchanged. */
     dialect?: HarnessDialect;
-  } = {},
+  }>,
 ): Promise<CompileSkillResult> {
   // 🔴 NORMALISE FIRST, before anything reads the spec. `compileSkill` accepts a
   // `SkillSpec` STRUCTURALLY, so a caller can hand us `{ _specType: "skill", …,
@@ -1384,7 +1618,7 @@ export async function compileSkill(
   // section AND its reference verification, silently. Doing it here rather than
   // in the readers means a reader added later cannot reintroduce the gap.
   spec = foldLegacyPostcondition(spec);
-  const basePath = options.basePath ?? process.cwd();
+  const basePath = options.basePath;
   const specFile = options.specFile ?? "SKILL.md.spec.ts";
   const frontmatterKeys =
     options.dialect?.skillFrontmatterKeys ?? RENDERABLE_SKILL_FRONTMATTER_KEYS;
@@ -1472,7 +1706,7 @@ export async function compileSkill(
     }
   }
 
-  const sections = renderSkillSections(spec);
+  const sections = renderSkillSections(spec, compiledPathOf(specFile));
   // Over-long inline code blocks are WARNINGS, not errors — they don't block
   // compilation (so adoption always compiles), just nudge toward file().
   const warnings = checkInlineCode(
@@ -1572,6 +1806,7 @@ function purityMarker(purity: AuthoredPurity | undefined): string {
 async function renderAgentSections(
   sections: Record<string, string | InstructionFragment[]>,
   basePath: string,
+  out: string,
 ): Promise<SectionResult> {
   const lines: string[] = [];
   const errors: CompileError[] = [];
@@ -1588,7 +1823,7 @@ async function renderAgentSections(
       lines.push(`## ${heading}\n\n${content.trim()}`);
     } else {
       errors.push(...(await validateRefs(content, basePath)));
-      const rendered = content.map(renderFragment).join("");
+      const rendered = renderBody(content, out);
       errors.push(...validateSectionContent(name, rendered));
       lines.push(`## ${heading}\n\n${rendered.trim()}`);
     }
@@ -1635,13 +1870,30 @@ function renderOutputContract(contract: OutputContract): string {
   ].join("\n");
 }
 
-/** Render the rules a subagent must follow as a `## Rules` section. */
-function renderAgentRules(rules: Record<string, Rule>): string {
-  const parts = ["## Rules", ""];
-  for (const [id, rule] of Object.entries(rules)) {
-    parts.push(compileRule(id, rule), "");
-  }
-  return parts.join("\n").trim();
+/**
+ * Render the rules a subagent must follow as a `## Rules` section. Each
+ * `enforce()` is verified the same way `compileClaude` verifies it, so the
+ * marker is the verdict's and a missing or switched-off rule is an error here
+ * too (#351).
+ */
+function renderAgentRules(
+  rules: Readonly<Record<string, Rule>>,
+  basePath: string,
+  out: string,
+  verify: Readonly<LinterVerifyOptions>,
+): { readonly text: string; readonly errors: readonly CompileError[] } {
+  const rendered = Object.entries(rules).map(([id, rule]) => {
+    if (rule._kind !== "enforce") return { text: compileRule(id, rule, out) };
+    const check = verifyEnforce(rule, basePath, verify);
+    return {
+      text: compileRule(id, rule, out, check.verdict),
+      error: check.error,
+    };
+  });
+  return {
+    text: ["## Rules", ...rendered.flatMap((r) => ["", r.text])].join("\n"),
+    errors: rendered.flatMap((r) => ("error" in r && r.error ? [r.error] : [])),
+  };
 }
 
 export interface CompileAgentResult {
@@ -1663,15 +1915,18 @@ export interface CompileAgentResult {
  */
 export async function compileAgent(
   spec: AgentSpec,
-  options: {
-    basePath?: string;
-    specFile?: string;
-    /** The harness dialect to verify the tool contract against (required — the
-     *  core defines no default dialect; the adapter/composition root injects it). */
-    dialect: HarnessDialect;
-  },
+  options: Readonly<
+    {
+      /** The repo root every reference resolves against. Required: no cwd fallback. */
+      basePath: string;
+      specFile?: string;
+      /** The harness dialect to verify the tool contract against (required — the
+       *  core defines no default dialect; the adapter/composition root injects it). */
+      dialect: HarnessDialect;
+    } & LinterVerifyOptions
+  >,
 ): Promise<CompileAgentResult> {
-  const basePath = options.basePath ?? process.cwd();
+  const basePath = options.basePath;
   const specFile = options.specFile ?? "agent.md.spec.ts";
   const dialect = options.dialect;
   const errors: CompileError[] = [];
@@ -1712,15 +1967,18 @@ export async function compileAgent(
     errors.push(...(await validateRefs(spec.body, basePath)));
   }
 
+  const out = compiledPathOf(specFile);
   const sections: string[] = [];
-  if (spec.body !== undefined) sections.push(renderBody(spec.body).trim());
+  if (spec.body !== undefined) sections.push(renderBody(spec.body, out).trim());
   if (spec.sections) {
-    const result = await renderAgentSections(spec.sections, basePath);
+    const result = await renderAgentSections(spec.sections, basePath, out);
     sections.push(...result.lines);
     errors.push(...result.errors);
   }
   if (spec.rules && Object.keys(spec.rules).length > 0) {
-    sections.push(renderAgentRules(spec.rules));
+    const agentRules = renderAgentRules(spec.rules, basePath, out, options);
+    sections.push(agentRules.text);
+    errors.push(...agentRules.errors);
   }
   if (spec.output) sections.push(renderOutputContract(spec.output));
   const body = sections.join("\n\n");

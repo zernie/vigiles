@@ -27,7 +27,7 @@ import { experimental_agent } from "../../core/spec.js";
 // The generic, layout-driven loader lives at the composition root; the OpenCode
 // prototype reuses it with opencodeLayout (no cross-adapter import).
 import { loadPlugin } from "../../plugin-loader.js";
-import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
+import { makeTmpDir, cleanupTmpDir, REPO_ROOT } from "../../core/test-utils.js";
 
 test("opencodeAdapter passes the conformance kit (a shellHooks:false adapter with no hookProtocol)", () => {
   assertAdapterConformance(opencodeAdapter);
@@ -78,7 +78,7 @@ test("the compiler verifies a subagent tool contract under opencodeDialect", asy
       tools: ["bash"],
       body: "b",
     }),
-    { specFile: "w.md.spec.ts", dialect: opencodeDialect },
+    { basePath: REPO_ROOT, specFile: "w.md.spec.ts", dialect: opencodeDialect },
   );
   assert.equal(ok.errors.filter((e) => e.type === "unknown-tool").length, 0);
 
@@ -89,7 +89,7 @@ test("the compiler verifies a subagent tool contract under opencodeDialect", asy
       tools: ["NotebookEdit"],
       body: "b",
     }),
-    { specFile: "w.md.spec.ts", dialect: opencodeDialect },
+    { basePath: REPO_ROOT, specFile: "w.md.spec.ts", dialect: opencodeDialect },
   );
   assert.ok(bad.errors.some((e) => e.type === "unknown-tool"));
 });

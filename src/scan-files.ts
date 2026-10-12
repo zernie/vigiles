@@ -46,6 +46,7 @@ import {
 } from "./core/layout.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import { weighInstructions } from "./core/instruction-weight.js";
+import { instructionSpecState } from "./core/integrity-header.js";
 import {
   instructionCandidatePaths,
   resolveImports,
@@ -96,7 +97,11 @@ import {
   scanAgents,
   scanSkills,
   skillRefSources,
-  scanHooks,
+  scanHookScripts,
+  hookSourceRefs,
+  type HookLineFindings,
+  type HookScriptScan,
+  isDependencyPath,
   frontmatterIssuesFor,
   frontmatterValueIssuesFor,
   skillMetaIssuesFor,
@@ -127,6 +132,9 @@ import {
   blockIneffectiveEventsOf,
   permissionDecisionEventsOf,
 } from "./core/event-capability.js";
+import { hookLinePlan } from "./core/hook-command.js";
+import { HOOKS_DIR } from "./core/hook-paths.js";
+import type { HookRegistration } from "./core/hook-normalize.js";
 
 /**
  * The synthetic absolute root every path in a browser scan resolves against. A
@@ -272,13 +280,30 @@ function readSettingsHooks(text: string, codec: SettingsCodec): unknown {
 function readHooks(
   files: Record<string, string>,
   layout: PluginLayout,
-): unknown {
+): { readonly hooks: unknown; readonly shadowed: unknown } {
+  const text = files[layout.settingsPath];
+  const settings = (): unknown =>
+    text === undefined ? undefined : readSettingsHooks(text, layout.settings);
+  const plugin = readPluginHooks(files, layout);
+  return plugin.declared
+    ? { hooks: plugin.hooks, shadowed: settings() }
+    : { hooks: settings(), shadowed: undefined };
+}
+
+/** Mirror of plugin-loader.ts `readPluginHooks`, over the file map. */
+function readPluginHooks(
+  files: Readonly<Record<string, string>>,
+  layout: PluginLayout,
+): { readonly declared: boolean; readonly hooks: unknown } {
   const m = readManifest(files, layout);
   if (m) {
     if (typeof m.hooks === "string") {
-      return readHooksJsonFile(files, m.hooks.replace(/^\.\//, ""));
+      return {
+        declared: true,
+        hooks: readHooksJsonFile(files, m.hooks.replace(/^\.\//, "")),
+      };
     }
-    if (m.hooks !== undefined) return m.hooks;
+    if (m.hooks !== undefined) return { declared: true, hooks: m.hooks };
   }
   // Optional: a harness whose hooks are in-process code modules has no
   // standalone hooks FILE. Mirrors the disk loader.
@@ -286,13 +311,12 @@ function readHooks(
     layout.hooksConventionPath !== undefined &&
     hasFile(files, layout.hooksConventionPath)
   ) {
-    return readHooksJsonFile(files, layout.hooksConventionPath);
+    return {
+      declared: true,
+      hooks: readHooksJsonFile(files, layout.hooksConventionPath),
+    };
   }
-  const settings = files[layout.settingsPath];
-  if (settings !== undefined) {
-    return readSettingsHooks(settings, layout.settings);
-  }
-  return undefined;
+  return { declared: false, hooks: undefined };
 }
 
 /** Whether the plugin declares any MCP servers (standalone file or manifest key). */
@@ -580,7 +604,7 @@ export function loadPluginFromFiles(
   layout: PluginLayout,
   repoName?: string,
 ): LoadedPlugin {
-  const hooks = readHooks(files, layout);
+  const { hooks, shadowed } = readHooks(files, layout);
   const resolvedHooks = hooks
     ? (JSON.parse(
         JSON.stringify(hooks).replaceAll(layout.pluginRootToken, BROWSER_ROOT),
@@ -616,6 +640,8 @@ export function loadPluginFromFiles(
       out,
       repoName ?? basename(BROWSER_ROOT),
     ),
+    ...(shadowed === undefined ? {} : { shadowedSettingsHooks: shadowed }),
+    ...(hooks ? { hooksAsWritten: hooks } : {}),
   };
 }
 
@@ -658,6 +684,69 @@ function collectMcpServers(
 // Public API
 // ---------------------------------------------------------------------------
 
+/** The report's hook fields, from what the hook scan found. */
+function hookReportFields(
+  found: HookLineFindings,
+): Pick<
+  ScanReport,
+  "hooks" | "inlineHooks" | "handWrittenHooks" | "staleHooks"
+> {
+  return {
+    hooks: found.hooks,
+    inlineHooks: found.inline,
+    handWrittenHooks: found.handWritten,
+    staleHooks: found.stale,
+  };
+}
+
+/** The map's hook lines as written, its hook scan, and what that scan finds. */
+function fileMapHooks(
+  files: Readonly<Record<string, string>>,
+  loaded: Readonly<LoadedPlugin>,
+  layout: Readonly<PluginLayout>,
+): ReturnType<typeof scanHookScripts> & {
+  readonly hookScan: HookScriptScan;
+  readonly asWritten: readonly HookRegistration[];
+} {
+  const hookScan = fileMapHookScan(files, layout, mapExists(files));
+  const asWritten = normalizeHooks(loaded.hooksAsWritten);
+  return {
+    hookScan,
+    asWritten,
+    ...scanHookScripts(
+      asWritten,
+      normalizeHooks(loaded.shadowedSettingsHooks),
+      hookScan,
+    ),
+  };
+}
+
+/**
+ * The hook scan as the file map can answer it: the lines as written, the plan
+ * from the map's own hook sources, stamps and `package.json`, and no
+ * `node_modules`, ever.
+ */
+function fileMapHookScan(
+  files: Readonly<Record<string, string>>,
+  layout: Readonly<PluginLayout>,
+  exists: (path: string) => boolean,
+): HookScriptScan {
+  const sources = hookSourceRefs(
+    Object.keys(files)
+      .filter((k) => k.startsWith(`${HOOKS_DIR}/`))
+      .map((k) => k.slice(HOOKS_DIR.length + 1))
+      .filter((name) => !name.includes("/")),
+  );
+  return {
+    root: BROWSER_ROOT,
+    layout,
+    exists,
+    // A fetched file map never holds node_modules: absence there proves nothing.
+    observable: (abs) => !isDependencyPath(abs),
+    plan: hookLinePlan(sources, (ref) => files[ref], layout.projectRootTokens),
+  };
+}
+
 /**
  * Scan an in-memory repo-relative file map and report its surfaces + structural
  * issues — the browser-safe twin of {@link scanPlugin}. `files` is
@@ -666,6 +755,25 @@ function collectMcpServers(
  * `AuditReport` the CLI's `audit --json` produces over the same files (modulo the
  * checkout path — see {@link BROWSER_ROOT}).
  */
+/** The instruction file and whether it is spec-managed — the same predicate
+ * as the disk scan (`scan.ts`), so the twins agree. */
+function instructionsOf(
+  files: Readonly<Record<string, string>>,
+  loadedFiles: Readonly<Record<string, string>>,
+  lay: PluginLayout,
+): ScanInstructions | null {
+  const content = loadedFiles[lay.instructionFile];
+  if (content === undefined) return null;
+  return {
+    file: lay.instructionFile,
+    hasSpec:
+      instructionSpecState(
+        content,
+        hasFile(files, `${lay.instructionFile}.spec.ts`),
+      ) === "spec-managed",
+  };
+}
+
 export function scanFiles(
   files: Record<string, string>,
   layout: PluginLayout = claudeCodeLayout,
@@ -677,22 +785,11 @@ export function scanFiles(
   const loaded = loadPluginFromFiles(files, lay, repoName);
   const exists = mapExists(files);
   const hookRegs = normalizeHooks(loaded.settings.hooks);
-  const { hooks, inline, manual } = scanHooks(
-    hookRegs,
-    BROWSER_ROOT,
-    lay.pluginRootToken,
-    exists,
-  );
+  const hk = fileMapHooks(files, loaded, lay);
   const eventNames = hookEventNames(loaded.settings.hooks);
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
   const hookEventIssues = scoredIssues(allHookEventIssues);
-  const instructions: ScanInstructions | null =
-    loaded.files[lay.instructionFile] !== undefined
-      ? {
-          file: lay.instructionFile,
-          hasSpec: hasFile(files, `${lay.instructionFile}.spec.ts`),
-        }
-      : null;
+  const instructions = instructionsOf(files, loaded.files, lay);
   // The BOUNDED candidate set over the map, then the same one-level import pass
   // the disk walk runs — `resolveImports` lives in the core precisely so these
   // two cannot drift. An import the fetcher never fetched simply stays unread,
@@ -749,9 +846,7 @@ export function scanFiles(
     ownTestSignal,
     skills,
     agents,
-    hooks,
-    inlineHooks: inline,
-    manualHookCount: manual,
+    ...hookReportFields(hk),
     ...inventoryCounts(loaded.files, cls.isCommand, [lay], coverage),
     // A declared server set counts even when the loader emitted no warning —
     // otherwise a plugin whose servers come from the Agent Plugins `mcp.json`
@@ -805,21 +900,13 @@ export function scanFiles(
     delegationTrifecta: collectDelegationTrifecta(agents, dialect),
     hookBlockFindings:
       blockIneffectiveEventsOf(dialect).length > 0
-        ? hookBlockIssues(
-            collectHookBlockEntries(
-              hookRegs,
-              BROWSER_ROOT,
-              lay.pluginRootToken,
-              exists,
+        ? hookBlockIssues(collectHookBlockEntries(hk.asWritten, hk.hookScan), {
+            noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
+            permissionDecisionEvents: new Set(
+              permissionDecisionEventsOf(dialect),
             ),
-            {
-              noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
-              permissionDecisionEvents: new Set(
-                permissionDecisionEventsOf(dialect),
-              ),
-              readFileSync: mapReadFile(files),
-            },
-          )
+            readFileSync: mapReadFile(files),
+          })
         : [],
     hookMatcherFindings: hookMatcherIssues(
       collectHookMatchers(hookRegs),

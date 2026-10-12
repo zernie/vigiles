@@ -2,90 +2,85 @@ import { describe, it, expect } from "vitest";
 import {
   enumerateEslintCatalog,
   enumeratePylintCatalog,
-  parseEslintCatalog,
+  eslintCatalogFromView,
   parsePylintCatalog,
   mergeCatalogs,
   type RuleCatalog,
 } from "./rule-catalog.js";
+import type { EslintConfigView } from "./eslint-inventory.js";
 
 // Vitest runs from the repo root (see vitest.config.ts).
 const REPO_ROOT = process.cwd();
 
-describe("parseEslintCatalog (pure)", () => {
-  it("parses a payload into core + plugin rules with enabled state", () => {
-    const raw = JSON.stringify({
-      core: ["no-console", "no-debugger"],
-      enabled: ["no-console", "boundaries/dependencies"],
-      plugins: {
+/** A config view as the ESLint inventory returns it. */
+const view = (
+  core: readonly string[],
+  enabled: readonly string[],
+  plugins: Readonly<Record<string, readonly string[]>>,
+): EslintConfigView => ({
+  core: new Set(core),
+  plugins: new Map(
+    Object.entries(plugins).map(([ns, rules]) => [ns, new Set(rules)]),
+  ),
+  rules: new Map(enabled.map((id) => [id, "enabled" as const])),
+  mentioned: new Set(enabled),
+  complete: true,
+});
+
+describe("eslintCatalogFromView (pure)", () => {
+  const built = eslintCatalogFromView(
+    view(
+      ["no-console", "no-debugger"],
+      ["no-console", "boundaries/dependencies"],
+      {
         boundaries: ["dependencies", "element-types"],
         "@typescript-eslint": ["no-explicit-any"],
       },
-    });
-    const cat = parseEslintCatalog(raw);
-    expect(cat).not.toBeNull();
-    const catalog = cat as RuleCatalog;
-    expect(catalog.linter).toBe("eslint");
-    // 2 core + 2 boundaries + 1 ts-eslint
-    expect(catalog.available).toBe(5);
-    expect(catalog.rules).toHaveLength(5);
-    // no-console (core, enabled) + boundaries/dependencies (enabled)
-    expect(catalog.enabled).toBe(2);
+    ),
+  );
+  const rule = (id: string) => built?.rules.find((r) => r.id === id);
 
-    const core = catalog.rules.find((r) => r.id === "no-console");
-    expect(core).toEqual({
+  it("counts core + plugin rules and the enabled ones", () => {
+    expect(built?.linter).toBe("eslint");
+    // 2 core + 2 boundaries + 1 ts-eslint
+    expect(built?.available).toBe(5);
+    expect(built?.rules).toHaveLength(5);
+    // no-console (core, enabled) + boundaries/dependencies (enabled)
+    expect(built?.enabled).toBe(2);
+  });
+
+  it("marks core rules with a null plugin and their enabled state", () => {
+    expect(rule("no-console")).toEqual({
       id: "no-console",
       linter: "eslint",
       plugin: null,
       enabled: true,
     });
+    expect(rule("no-debugger")).toEqual({
+      id: "no-debugger",
+      linter: "eslint",
+      plugin: null,
+      enabled: false,
+    });
+  });
 
-    const disabledCore = catalog.rules.find((r) => r.id === "no-debugger");
-    expect(disabledCore?.plugin).toBeNull();
-    expect(disabledCore?.enabled).toBe(false);
-
-    const boundaries = catalog.rules.find(
-      (r) => r.id === "boundaries/dependencies",
-    );
-    expect(boundaries).toEqual({
+  it("marks plugin rules with their prefix and their enabled state", () => {
+    expect(rule("boundaries/dependencies")).toEqual({
       id: "boundaries/dependencies",
       linter: "eslint",
       plugin: "boundaries",
       enabled: true,
     });
-
-    const tsRule = catalog.rules.find(
-      (r) => r.id === "@typescript-eslint/no-explicit-any",
-    );
-    expect(tsRule?.plugin).toBe("@typescript-eslint");
-    expect(tsRule?.enabled).toBe(false);
+    expect(rule("@typescript-eslint/no-explicit-any")).toEqual({
+      id: "@typescript-eslint/no-explicit-any",
+      linter: "eslint",
+      plugin: "@typescript-eslint",
+      enabled: false,
+    });
   });
 
-  it("returns null for the sentinel, empty, malformed, and empty-catalog inputs", () => {
-    expect(parseEslintCatalog("null")).toBeNull();
-    expect(parseEslintCatalog("   ")).toBeNull();
-    expect(parseEslintCatalog("")).toBeNull();
-    expect(parseEslintCatalog("{ not json")).toBeNull();
-    expect(parseEslintCatalog("[1,2,3]")).toBeNull();
-    expect(parseEslintCatalog("42")).toBeNull();
-    // valid object but no rules at all → null
-    expect(
-      parseEslintCatalog(
-        JSON.stringify({ core: [], enabled: [], plugins: {} }),
-      ),
-    ).toBeNull();
-  });
-
-  it("tolerates missing / wrong-typed fields", () => {
-    // no plugins key, enabled missing → still yields core rules, none enabled
-    const cat = parseEslintCatalog(JSON.stringify({ core: ["no-with"] }));
-    expect(cat?.available).toBe(1);
-    expect(cat?.enabled).toBe(0);
-    // non-string-array fields are ignored, not fatal
-    const cat2 = parseEslintCatalog(
-      JSON.stringify({ core: ["a", 1], enabled: 5, plugins: { p: "x" } }),
-    );
-    // core is not a clean string[] → dropped; plugins.p not a string[] → dropped
-    expect(cat2).toBeNull();
+  it("returns null for an empty catalog", () => {
+    expect(eslintCatalogFromView(view([], [], {}))).toBeNull();
   });
 });
 

@@ -11,6 +11,7 @@ import type { HarnessDialect } from "./dialect.js";
 // the interface). Test files are exempt from the import boundary, so this test
 // of the injection seam reaches for the reference dialect directly.
 import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
+import { REPO_ROOT } from "./test-utils.js";
 
 test("the Claude Code dialect has the expected shape", () => {
   assert.equal(claudeCodeDialect.name, "claude-code");
@@ -36,6 +37,7 @@ test("compileAgent verifies the tool contract against the injected CC dialect", 
     body: "Review the diff.",
   });
   const ok = await compileAgent(okAgent, {
+    basePath: REPO_ROOT,
     specFile: "reviewer.md.spec.ts",
     dialect: claudeCodeDialect,
   });
@@ -48,6 +50,7 @@ test("compileAgent verifies the tool contract against the injected CC dialect", 
     body: "Review the diff.",
   });
   const bad = await compileAgent(badAgent, {
+    basePath: REPO_ROOT,
     specFile: "reviewer.md.spec.ts",
     dialect: claudeCodeDialect,
   });
@@ -77,6 +80,7 @@ test("an injected dialect swaps the catalog — Codex-prep seam", async () => {
   });
   // Under the codex-ish dialect: Shell is a built-in → no error.
   const withCodex = await compileAgent(a, {
+    basePath: REPO_ROOT,
     specFile: "worker.md.spec.ts",
     dialect: codexish,
   });
@@ -86,6 +90,7 @@ test("an injected dialect swaps the catalog — Codex-prep seam", async () => {
   );
   // Under the Claude Code dialect: Shell is unknown → flagged.
   const withCc = await compileAgent(a, {
+    basePath: REPO_ROOT,
     specFile: "worker.md.spec.ts",
     dialect: claudeCodeDialect,
   });

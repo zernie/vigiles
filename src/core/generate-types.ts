@@ -72,15 +72,36 @@ function formatUnion(items: string[], indent: string = "  "): string {
 }
 
 export interface GenerateTypesOptions {
-  basePath?: string;
+  /** The repo root. Required: no cwd fallback. */
+  readonly basePath: string;
   fileGlobs?: string[];
 }
 
 export interface GenerateTypesResult {
   dts: string;
   linters: DiscoveredRules[];
+  /**
+   * Linters that are set up here but whose config could not be read: their
+   * rules are missing from `dts`, and the caller must say so (#371).
+   */
+  unreadable: readonly { readonly linter: string; readonly reason: string }[];
   scripts: string[];
   files: string[];
+}
+
+/** Every linter's enabled rules, and the linters whose config could not be read. */
+function discoverLinters(
+  basePath: string,
+): Readonly<Pick<GenerateTypesResult, "linters" | "unreadable">> {
+  const discoveries = Object.values(LINTERS).flatMap((adapter) =>
+    adapter.discoverEnabled ? [adapter.discoverEnabled(basePath)] : [],
+  );
+  return {
+    linters: discoveries.flatMap((d) => (d.kind === "found" ? [d.rules] : [])),
+    unreadable: discoveries.flatMap((d) =>
+      d.kind === "unreadable" ? [{ linter: d.linter, reason: d.reason }] : [],
+    ),
+  };
 }
 
 /**
@@ -89,17 +110,15 @@ export interface GenerateTypesResult {
  * Scans all available linters, package.json scripts, and project files.
  */
 export function generateTypes(
-  options: GenerateTypesOptions = {},
+  options: Readonly<GenerateTypesOptions>,
 ): GenerateTypesResult {
-  const basePath = options.basePath ?? process.cwd();
+  const basePath = options.basePath;
   const fileGlobs = options.fileGlobs ?? ["src/**/*"];
 
   // Discover every linter's enabled rules through the single LINTERS registry
   // (each adapter's discoverEnabled) — no separate discoverers list to keep in
   // step with the registry.
-  const linters: DiscoveredRules[] = Object.values(LINTERS)
-    .map((adapter) => adapter.discoverEnabled?.(basePath))
-    .filter((found): found is DiscoveredRules => found != null);
+  const { linters, unreadable } = discoverLinters(basePath);
 
   const scripts = discoverNpmScripts(basePath);
   const files = discoverProjectFiles(basePath, fileGlobs);
@@ -204,6 +223,7 @@ export function generateTypes(
   return {
     dts: sections.join("\n"),
     linters,
+    unreadable,
     scripts,
     files,
   };
