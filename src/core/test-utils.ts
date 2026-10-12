@@ -11,6 +11,12 @@ export { makeTmpDir, cleanupTmpDir } from "./tmp-root.js";
 import { makeTmpDir } from "./tmp-root.js";
 
 /**
+ * This repository's root, for a test that compiles or scans the repo itself.
+ * Named, never `process.cwd()`: the core takes its root explicitly.
+ */
+export const REPO_ROOT = resolve(__dirname, "..", "..");
+
+/**
  * A throwaway project whose ESLint is THIS repo's installed eslint (symlinked,
  * not mocked) and whose flat config is `config`, written as `eslint.config.mjs`.
  * The rule-resolution probe runs the real ESLint against it, so a fixture built

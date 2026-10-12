@@ -11,6 +11,7 @@ import { experimental_agent } from "./spec.js";
 const { result, railway, delegate } = experimental_agent;
 import { compileAgent, compileRailway, validateRailway } from "./compile.js";
 import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
+import { REPO_ROOT } from "./test-utils.js";
 
 // --- result() contract on an agent -----------------------------------------
 
@@ -26,7 +27,11 @@ test("compileAgent renders the result contract as an Output contract section", a
         { reason: "string", retryable: "boolean" },
       ),
     }),
-    { specFile: "agents/coder.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/coder.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(errors, []);
   assert.match(markdown, /## Output contract/);
@@ -39,7 +44,11 @@ test("compileAgent renders the result contract as an Output contract section", a
 test("an agent without a result contract has no Output contract section", async () => {
   const { markdown } = await compileAgent(
     experimental_agent({ name: "a", description: "d", body: "b" }),
-    { specFile: "a.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "a.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.doesNotMatch(markdown, /## Output contract/);
 });
@@ -52,7 +61,11 @@ test("an empty contract track renders as {}", async () => {
       body: "b",
       output: result({}, { reason: "string" }),
     }),
-    { specFile: "a.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "a.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.match(markdown, /```vigiles:ok\n\{\}\n```/);
 });

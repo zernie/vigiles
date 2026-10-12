@@ -143,11 +143,11 @@
   },
   "src/core/compile-generator.ts": {
     "max-lines-per-function": 57,
-    "complexity": 15
+    "complexity": 13
   },
   "src/core/compile.ts": {
     "max-lines-per-function": 86,
-    "complexity": 21,
+    "complexity": 19,
     "sonarjs/cognitive-complexity": 17
   },
   "src/core/compose.ts": {
@@ -212,8 +212,7 @@
     "sonarjs/cognitive-complexity": 14
   },
   "src/core/generate-types.ts": {
-    "max-lines-per-function": 87,
-    "complexity": 12
+    "max-lines-per-function": 87
   },
   "src/core/guards.ts": {
     "complexity": 14,
@@ -308,7 +307,7 @@
   "src/core/orphans.ts": {
     "max-lines-per-function": 45,
     "max-depth": 4,
-    "complexity": 13,
+    "complexity": 11,
     "sonarjs/cognitive-complexity": 20
   },
   "src/core/proofs.test.ts": {
@@ -353,7 +352,7 @@
     "complexity": 16
   },
   "src/core/spec.test.ts": {
-    "max-lines-per-function": 171
+    "max-lines-per-function": 130
   },
   "src/core/surface-discovery.ts": {
     "max-lines-per-function": 40,

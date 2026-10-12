@@ -648,7 +648,8 @@ export interface CompileClaudeOptions {
   maxSectionChars?: number;
   /** Character budget for the whole rendered Rules section (0 disables). */
   maxRulesChars?: number;
-  basePath?: string;
+  /** The repo root every reference resolves against. Required: no cwd fallback. */
+  readonly basePath: string;
   specFile?: string;
   /** Injected harness dialect; its instructionTargets[0] is the default target. */
   dialect?: HarnessDialect;
@@ -985,7 +986,7 @@ function compileCommandsSection(
  */
 function skipVerificationReason(
   rule: Readonly<{ linterRule: string; verify: boolean }>,
-  options: Readonly<CompileClaudeOptions>,
+  options: Readonly<LinterVerifyOptions>,
 ): UnverifiedReason | null {
   if (!rule.verify) return "verify-false";
   if (options.verifyLinters === false) return "verification-off";
@@ -1018,6 +1019,12 @@ function validateRuleDetails(
     },
   ];
 }
+
+/** The compile options that decide how an `enforce()` reference is verified. */
+type LinterVerifyOptions = Pick<
+  CompileClaudeOptions,
+  "verifyLinters" | "linterModes" | "catalogOnly" | "linters"
+>;
 
 interface RulesSectionResult extends SectionResult {
   linterResults: LinterCheckResult[];
@@ -1058,7 +1065,7 @@ function enforceError(
 function verifyEnforce(
   rule: Readonly<{ linterRule: string; verify: boolean }>,
   basePath: string,
-  options: Readonly<CompileClaudeOptions>,
+  options: Readonly<LinterVerifyOptions>,
 ): EnforceCheck {
   const skipped = skipVerificationReason(rule, options);
   if (skipped !== null) {
@@ -1177,12 +1184,12 @@ function ruleCountErrors(
 // CC-only, so there is no per-dialect branch to gate.
 export async function compileClaude(
   spec: ClaudeSpec,
-  options: CompileClaudeOptions = {},
+  options: Readonly<CompileClaudeOptions>,
 ): Promise<CompileClaudeResult> {
   const targets =
     spec.target ?? options.dialect?.instructionTargets[0] ?? DEFAULT_TARGET;
   const target = Array.isArray(targets) ? targets[0] : targets;
-  const basePath = options.basePath ?? process.cwd();
+  const basePath = options.basePath;
   const specFile = options.specFile ?? `${target}.spec.ts`;
   const errors: CompileError[] = [
     ...specNameErrors(specFile, target),
@@ -1550,13 +1557,14 @@ export interface CompileSkillResult {
  */
 export async function compileSkill(
   spec: SkillSpec,
-  options: {
-    basePath?: string;
+  options: Readonly<{
+    /** The repo root every reference resolves against. Required: no cwd fallback. */
+    readonly basePath: string;
     specFile?: string;
     /** The harness dialect — supplies `skillFrontmatterKeys`. Omitting it emits
      *  every key the compiler can render, so existing callers are unchanged. */
     dialect?: HarnessDialect;
-  } = {},
+  }>,
 ): Promise<CompileSkillResult> {
   // 🔴 NORMALISE FIRST, before anything reads the spec. `compileSkill` accepts a
   // `SkillSpec` STRUCTURALLY, so a caller can hand us `{ _specType: "skill", …,
@@ -1566,7 +1574,7 @@ export async function compileSkill(
   // section AND its reference verification, silently. Doing it here rather than
   // in the readers means a reader added later cannot reintroduce the gap.
   spec = foldLegacyPostcondition(spec);
-  const basePath = options.basePath ?? process.cwd();
+  const basePath = options.basePath;
   const specFile = options.specFile ?? "SKILL.md.spec.ts";
   const frontmatterKeys =
     options.dialect?.skillFrontmatterKeys ?? RENDERABLE_SKILL_FRONTMATTER_KEYS;
@@ -1863,14 +1871,15 @@ export interface CompileAgentResult {
 export async function compileAgent(
   spec: AgentSpec,
   options: {
-    basePath?: string;
+    /** The repo root every reference resolves against. Required: no cwd fallback. */
+    readonly basePath: string;
     specFile?: string;
     /** The harness dialect to verify the tool contract against (required — the
      *  core defines no default dialect; the adapter/composition root injects it). */
     dialect: HarnessDialect;
   },
 ): Promise<CompileAgentResult> {
-  const basePath = options.basePath ?? process.cwd();
+  const basePath = options.basePath;
   const specFile = options.specFile ?? "agent.md.spec.ts";
   const dialect = options.dialect;
   const errors: CompileError[] = [];

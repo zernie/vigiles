@@ -72,7 +72,8 @@ function formatUnion(items: string[], indent: string = "  "): string {
 }
 
 export interface GenerateTypesOptions {
-  basePath?: string;
+  /** The repo root. Required: no cwd fallback. */
+  readonly basePath: string;
   fileGlobs?: string[];
 }
 
@@ -91,7 +92,7 @@ export interface GenerateTypesResult {
 /** Every linter's enabled rules, and the linters whose config could not be read. */
 function discoverLinters(
   basePath: string,
-): Pick<GenerateTypesResult, "linters" | "unreadable"> {
+): Readonly<Pick<GenerateTypesResult, "linters" | "unreadable">> {
   const discoveries = Object.values(LINTERS).flatMap((adapter) =>
     adapter.discoverEnabled ? [adapter.discoverEnabled(basePath)] : [],
   );
@@ -109,9 +110,9 @@ function discoverLinters(
  * Scans all available linters, package.json scripts, and project files.
  */
 export function generateTypes(
-  options: GenerateTypesOptions = {},
+  options: Readonly<GenerateTypesOptions>,
 ): GenerateTypesResult {
-  const basePath = options.basePath ?? process.cwd();
+  const basePath = options.basePath;
   const fileGlobs = options.fileGlobs ?? ["src/**/*"];
 
   // Discover every linter's enabled rules through the single LINTERS registry

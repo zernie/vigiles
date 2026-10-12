@@ -8,8 +8,9 @@ import assert from "node:assert/strict";
 
 import { experimental_skill, cmd, file } from "../../core/spec.js";
 import { compileSkill } from "../../core/compile.js";
+import { REPO_ROOT } from "../../core/test-utils.js";
 
-const opts = { specFile: "SKILL.md.spec.ts" };
+const opts = { basePath: REPO_ROOT, specFile: "SKILL.md.spec.ts" };
 
 test("typed inputs compile to argument-hint and an Arguments section", async () => {
   const spec = experimental_skill({

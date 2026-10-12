@@ -35,8 +35,8 @@ export interface OrphanReport {
 }
 
 export interface FindOrphansOptions {
-  /** Repository root. Defaults to `process.cwd()`. */
-  readonly basePath?: string;
+  /** Repository root. Required: no cwd fallback. */
+  readonly basePath: string;
   /**
    * Glob patterns of `.md` files to scan. Defaults to `["docs/**\/*.md"]`
    * (`docs/` is the near-universal convention; a vigiles-specific dir like
@@ -210,8 +210,8 @@ function refTargets(sourcePath: string, ref: string): string[] {
  * `.vigilesrc.json` → `orphans.include` (whose presence also opts the repo
  * into the scan — see the CLI gate in `vigiles lint`).
  */
-export function findOrphanDocs(options: FindOrphansOptions = {}): OrphanReport {
-  const basePath = options.basePath ?? process.cwd();
+export function findOrphanDocs(options: FindOrphansOptions): OrphanReport {
+  const basePath = options.basePath;
   const include = options.include ?? DEFAULT_INCLUDE;
   // `repoExclude` is the repo-wide `.vigilesrc.json#exclude` — a vendored
   // corpus is neither an orphan CANDIDATE nor a SOURCE of references (a link

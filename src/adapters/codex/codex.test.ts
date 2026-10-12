@@ -27,7 +27,7 @@ import { loadPlugin } from "../../plugin-loader.js";
 import { formatScanReport, scanPlugin } from "../../scan.js";
 import { scanFiles } from "../../scan-files.js";
 import { runHarnessTest } from "../../harness-test.js";
-import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
+import { makeTmpDir, cleanupTmpDir, REPO_ROOT } from "../../core/test-utils.js";
 
 test("codexAdapter passes the conformance kit (ports + cross-port invariants)", () => {
   assertAdapterConformance(codexAdapter);
@@ -53,7 +53,7 @@ test("the compiler verifies a subagent tool contract under codexDialect", async 
       tools: ["shell"],
       body: "b",
     }),
-    { specFile: "w.md.spec.ts", dialect: codexDialect },
+    { basePath: REPO_ROOT, specFile: "w.md.spec.ts", dialect: codexDialect },
   );
   assert.equal(ok.errors.filter((e) => e.type === "unknown-tool").length, 0);
 
@@ -64,7 +64,7 @@ test("the compiler verifies a subagent tool contract under codexDialect", async 
       tools: ["Read"],
       body: "b",
     }),
-    { specFile: "w.md.spec.ts", dialect: codexDialect },
+    { basePath: REPO_ROOT, specFile: "w.md.spec.ts", dialect: codexDialect },
   );
   assert.ok(bad.errors.some((e) => e.type === "unknown-tool"));
 });

@@ -17,6 +17,7 @@ import type { HarnessDialect } from "./dialect.js";
 import { MOVE_OUT_OF_ALWAYS_LOADED } from "./instruction-remedies.js";
 import type { InstructionBudget } from "./instruction-weight.js";
 import { guidance } from "./spec.js";
+import { REPO_ROOT } from "./test-utils.js";
 
 const spec = (
   extra: Partial<Parameters<typeof compileClaude>[0]>,
@@ -28,7 +29,11 @@ const spec = (
   }) as Parameters<typeof compileClaude>[0];
 
 const compile = async (s: Parameters<typeof compileClaude>[0]) =>
-  await compileClaude(s, { specFile: "CLAUDE.md.spec.ts", catalogOnly: true });
+  await compileClaude(s, {
+    basePath: REPO_ROOT,
+    specFile: "CLAUDE.md.spec.ts",
+    catalogOnly: true,
+  });
 
 describe("per-entry budget", () => {
   it("flags a commands description that outgrew a pointer", async () => {
@@ -70,7 +75,12 @@ describe("per-entry budget", () => {
   it("can be disabled with 0", async () => {
     const { warnings } = await compileClaude(
       spec({ commands: { "npm test": "z".repeat(5000) } }),
-      { specFile: "CLAUDE.md.spec.ts", catalogOnly: true, maxEntryChars: 0 },
+      {
+        basePath: REPO_ROOT,
+        specFile: "CLAUDE.md.spec.ts",
+        catalogOnly: true,
+        maxEntryChars: 0,
+      },
     );
     expect(warnings).toHaveLength(0);
   });
@@ -81,6 +91,7 @@ describe("per-section character budget", () => {
     const { warnings, errors } = await compileClaude(
       spec({ sections: { Positioning: "a".repeat(600) } }),
       {
+        basePath: REPO_ROOT,
         specFile: "CLAUDE.md.spec.ts",
         catalogOnly: true,
         maxSectionChars: 500,
@@ -97,6 +108,7 @@ describe("per-section character budget", () => {
     const { warnings } = await compileClaude(
       spec({ sections: { Positioning: "a".repeat(400) } }),
       {
+        basePath: REPO_ROOT,
         specFile: "CLAUDE.md.spec.ts",
         catalogOnly: true,
         maxSectionChars: 500,
@@ -150,9 +162,10 @@ const bigSpec = () =>
  */
 const strict = async (
   s: Parameters<typeof compileClaude>[0],
-  extra: Parameters<typeof compileClaude>[1] = {},
+  extra: Partial<Parameters<typeof compileClaude>[1]> = {},
 ) =>
   await compileClaude(s, {
+    basePath: REPO_ROOT,
     specFile: "CLAUDE.md.spec.ts",
     catalogOnly: true,
     budgetSeverity: "error",
@@ -177,7 +190,7 @@ describe("compile-budget at error: the old budgets become errors", () => {
   it("turns an over-large section into an error", async () => {
     const { errors } = await strict(
       spec({ sections: { Positioning: "a".repeat(600) } }),
-      { maxSectionChars: 500 },
+      { basePath: REPO_ROOT, maxSectionChars: 500 },
     );
     expect(errors.map((e) => e.type)).toEqual(["section-too-large"]);
   });
@@ -198,7 +211,7 @@ describe("compile-budget at error: the old budgets become errors", () => {
         sections: { Overview: "A short overview." },
         rules: { one: guidance("Short."), two: guidance("Also short.") },
       }),
-      { dialect: countsChars },
+      { basePath: REPO_ROOT, dialect: countsChars },
     );
     expect(errors).toHaveLength(0);
     expect(warnings).toHaveLength(0);
@@ -213,7 +226,10 @@ describe("compile-budget at error: the sums", () => {
         guidance("y".repeat(150)),
       ]),
     );
-    const { errors } = await strict(spec({ rules }), { maxRulesChars: 2000 });
+    const { errors } = await strict(spec({ rules }), {
+      basePath: REPO_ROOT,
+      maxRulesChars: 2000,
+    });
     expect(errors.map((e) => e.type)).toEqual(["rules-too-large"]);
     expect(errors[0].message).toContain("30 rules");
     expect(errors[0].message).toContain("(budget 2,000)");
@@ -229,7 +245,10 @@ describe("compile-budget does not measure the whole file", () => {
     // One owner per number — `instruction-weight` and its `max` measure every
     // always-loaded file together, so moving text into a rules file does not
     // fool it, and this rule does not report the same overweight twice.
-    const { errors } = await strict(bigSpec(), { dialect: countsChars });
+    const { errors } = await strict(bigSpec(), {
+      basePath: REPO_ROOT,
+      dialect: countsChars,
+    });
     expect(budgetTypes(errors)).toEqual([]);
   });
 });
@@ -247,6 +266,7 @@ describe("compile-budget at its default (warn) — unchanged", () => {
     const { errors, warnings } = await compileClaude(
       { ...bigSpec(), rules },
       {
+        basePath: REPO_ROOT,
         specFile: "CLAUDE.md.spec.ts",
         catalogOnly: true,
         dialect: countsChars,
@@ -262,6 +282,7 @@ describe("compile-budget at its default (warn) — unchanged", () => {
       two: guidance("r".repeat(150)),
     };
     const { warnings, errors } = await compileClaude(spec({ rules }), {
+      basePath: REPO_ROOT,
       specFile: "CLAUDE.md.spec.ts",
       catalogOnly: true,
       maxRulesChars: 200,
@@ -276,6 +297,7 @@ describe("compile-budget at its default (warn) — unchanged", () => {
       // ERROR, which is not a budget and stays on.
       spec({ keyFiles: { "package.json": "z".repeat(500) } }),
       {
+        basePath: REPO_ROOT,
         specFile: "CLAUDE.md.spec.ts",
         catalogOnly: true,
         budgetSeverity: false,

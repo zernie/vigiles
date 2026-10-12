@@ -122,7 +122,7 @@ function defaultConfig(): VigilesConfig {
 // ---------------------------------------------------------------------------
 
 export function findInstructionFiles(
-  cwd: string = process.cwd(),
+  cwd: string,
   configFiles?: string[],
 ): string[] {
   const candidates = configFiles ?? DEFAULT_FILES;

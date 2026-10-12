@@ -24,7 +24,8 @@ import { globSync } from "glob";
 import { generateTypes } from "./generate-types.js";
 
 export interface GenerateSchemaOptions {
-  basePath?: string;
+  /** The repo root. Required: no cwd fallback. */
+  readonly basePath: string;
   /**
    * Custom linters from `.vigilesrc.json` (`rulesDir`-backed). These aren't
    * auto-discovered by `generate-types`, but `vigiles lint` resolves their
@@ -76,9 +77,9 @@ function customRuleRefs(
  * false-flags a valid reference.
  */
 export function generateSchema(
-  options: GenerateSchemaOptions = {},
+  options: Readonly<GenerateSchemaOptions>,
 ): GenerateSchemaResult {
-  const basePath = options.basePath ?? process.cwd();
+  const basePath = options.basePath;
   const { linters } = generateTypes({ basePath });
 
   const ruleNames = new Set<string>();

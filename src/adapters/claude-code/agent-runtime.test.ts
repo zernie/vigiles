@@ -35,7 +35,7 @@ import {
   clearEffectActive,
   readEffectActive,
 } from "./effect-region.js";
-import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
+import { makeTmpDir, cleanupTmpDir, REPO_ROOT } from "../../core/test-utils.js";
 import { runHook } from "../../run-hook.js";
 import { writeFileSync, readFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -52,7 +52,11 @@ test("parseAgentTools reads the tools list from compiled frontmatter", async () 
       tools: ["Read", "Grep", "Bash"],
       body: "b",
     }),
-    { specFile: "a.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "a.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(parseAgentTools(markdown), ["Read", "Grep", "Bash"]);
 });
@@ -60,7 +64,11 @@ test("parseAgentTools reads the tools list from compiled frontmatter", async () 
 test("parseAgentTools returns null when no tools: line (inherit-all)", async () => {
   const { markdown } = await compileAgent(
     experimental_agent({ name: "a", description: "d", body: "b" }),
-    { specFile: "a.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "a.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.equal(parseAgentTools(markdown), null);
 });
@@ -239,7 +247,7 @@ test("NESTING CONTRACT-ESCAPE regression (AgentWindowStack.tla counterexample): 
         tools: ["Read", "Write", "Edit"],
         body: prose`Write the file.`,
       }),
-      { dialect: claudeCodeDialect },
+      { basePath: REPO_ROOT, dialect: claudeCodeDialect },
     );
     writeFileSync(join(dir, "agents", "writer.md"), markdown);
 
@@ -347,7 +355,11 @@ test("parseAgentPurity reads the vigiles:purity marker compile emits", async () 
       tools: ["Read", "Write", "Bash"],
       body: "b",
     }),
-    { specFile: "agents/editor.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/editor.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.equal(parseAgentPurity(markdown), "bounded");
 });
@@ -360,7 +372,11 @@ test("parseAgentPurity returns null when no marker is present", async () => {
       tools: ["Read"],
       body: "b",
     }),
-    { specFile: "a.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "a.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.equal(parseAgentPurity(markdown), null);
 });
@@ -447,6 +463,7 @@ test("the rail the hook enforces is exactly the declared contract (round-trip)",
       body: "b",
     }),
     {
+      basePath: REPO_ROOT,
       specFile: "agents/ui-visual-validator.md.spec.ts",
       dialect: claudeCodeDialect,
     },
@@ -660,6 +677,7 @@ test("the spec form ADDS the rail the real subagent omits, and it parses + enfor
       body: "You are an experienced UI visual validation expert.",
     }),
     {
+      basePath: REPO_ROOT,
       specFile: "agents/ui-visual-validator.md.spec.ts",
       dialect: claudeCodeDialect,
     },

@@ -840,7 +840,7 @@
       "count": 13
     },
     "local/no-harness-names": {
-      "count": 9
+      "count": 3
     }
   },
   "src/core/adopt.ts": {
@@ -984,9 +984,6 @@
     "functional/prefer-immutable-types": {
       "count": 28
     },
-    "no-restricted-globals": {
-      "count": 2
-    },
     "sonarjs/no-duplicate-string": {
       "count": 1
     }
@@ -1012,9 +1009,6 @@
     },
     "no-param-reassign": {
       "count": 1
-    },
-    "no-restricted-globals": {
-      "count": 3
     },
     "sonarjs/no-duplicate-string": {
       "count": 1
@@ -1134,9 +1128,6 @@
     },
     "functional/prefer-immutable-types": {
       "count": 10
-    },
-    "no-restricted-globals": {
-      "count": 1
     },
     "sonarjs/nested-control-flow": {
       "count": 2
@@ -1319,9 +1310,6 @@
     },
     "functional/prefer-immutable-types": {
       "count": 6
-    },
-    "no-restricted-globals": {
-      "count": 1
     }
   },
   "src/core/generate-types.ts": {
@@ -1339,9 +1327,6 @@
     },
     "functional/prefer-immutable-types": {
       "count": 6
-    },
-    "no-restricted-globals": {
-      "count": 1
     }
   },
   "src/core/glob-ignore.ts": {
@@ -1830,9 +1815,6 @@
     "functional/prefer-immutable-types": {
       "count": 7
     },
-    "no-restricted-globals": {
-      "count": 1
-    },
     "sonarjs/nested-control-flow": {
       "count": 2
     }
@@ -2279,7 +2261,7 @@
       "count": 22
     },
     "no-restricted-globals": {
-      "count": 2
+      "count": 1
     },
     "sonarjs/nested-control-flow": {
       "count": 1
@@ -3920,9 +3902,6 @@
     },
     "functional/prefer-immutable-types": {
       "count": 25
-    },
-    "no-restricted-globals": {
-      "count": 1
     },
     "sonarjs/no-nested-conditional": {
       "count": 1

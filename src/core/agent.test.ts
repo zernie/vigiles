@@ -22,7 +22,7 @@ import {
 import { compileAgent, compileSkill, adoptDiff } from "./compile.js";
 import { readFrontmatter, frontmatterScalar } from "./frontmatter-read.js";
 import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
-import { makeTmpDir, cleanupTmpDir } from "./test-utils.js";
+import { makeTmpDir, cleanupTmpDir, REPO_ROOT } from "./test-utils.js";
 
 test("experimental_agent() sets the spec type", () => {
   const a = experimental_agent({
@@ -42,7 +42,11 @@ test("compileAgent renders frontmatter (name/description/model/tools) + hash", a
       tools: ["Read", "Grep", "Bash"],
       body: "You are a careful code reviewer.",
     }),
-    { specFile: "agents/reviewer.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/reviewer.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(errors, []);
   // The frontmatter — not the stamp — leads the file, and a READER must find the
@@ -82,7 +86,11 @@ test("compileAgent renders color + disallowedTools (deny-side, no allowlist)", a
       disallowedTools: ["Bash"], // subtract from inherit-all
       body: "Work, but no Bash.",
     }),
-    { specFile: "agents/broad-worker.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/broad-worker.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(errors, []);
   assert.match(markdown, /\ncolor: pink\n/);
@@ -98,7 +106,11 @@ test("compileAgent flags a disallowedTools entry that's a close typo (blocks not
       disallowedTools: ["Wrte"], // typo of Write → would block nothing
       body: "b",
     }),
-    { specFile: "agents/x.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/x.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.ok(
     errors.some((e) => /Wrte/.test(e.message) && /Write/.test(e.message)),
@@ -112,7 +124,11 @@ test("compileAgent: minimal agent omits model/tools and has no rules section", a
       description: "Echo things.",
       body: "Just echo.",
     }),
-    { specFile: "agents/echo.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/echo.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(errors, []);
   assert.doesNotMatch(markdown, /\nmodel:/);
@@ -128,7 +144,11 @@ test("compileAgent accepts built-in and MCP tools, flags unknown with a hint", a
       tools: ["Read", "Task", "Skill", "mcp__github__issue_write"],
       body: "b",
     }),
-    { specFile: "a.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "a.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(ok.errors, []);
 
@@ -140,7 +160,11 @@ test("compileAgent accepts built-in and MCP tools, flags unknown with a hint", a
       tools: ["Reed", "xyzzy123"],
       body: "b",
     }),
-    { specFile: "a.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "a.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.equal(bad.errors.length, 2);
   const reed = bad.errors.find((e) => e.message.includes('"Reed"'));
@@ -162,7 +186,11 @@ test("compileAgent flags tools that are never available to a subagent", async ()
       tools: ["Read", "AskUserQuestion", "Workflow"],
       body: "b",
     }),
-    { specFile: "a.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "a.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.equal(errors.length, 2);
   assert.ok(
@@ -181,7 +209,11 @@ test("compileAgent accepts Agent — the docs' own delegating example compiles",
       tools: ["Agent", "Read", "Bash"],
       body: "b",
     }),
-    { specFile: "coordinator.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "coordinator.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(
     errors.filter((e) => e.type === "unknown-tool"),
@@ -218,7 +250,11 @@ test("compileAgent verifies body references against the filesystem", async () =>
 });
 
 test("compileAgent renders a Rules section the worker must follow, verifying each enforce() (#351)", async () => {
-  const options = { specFile: "a.md.spec.ts", dialect: claudeCodeDialect };
+  const options = {
+    basePath: REPO_ROOT,
+    specFile: "a.md.spec.ts",
+    dialect: claudeCodeDialect,
+  };
   const { markdown, errors } = await compileAgent(
     experimental_agent({
       name: "a",
@@ -273,6 +309,7 @@ test("compileAgent flags a bad spec filename", async () => {
   const notSpec = await compileAgent(
     experimental_agent({ name: "a", description: "d" }),
     {
+      basePath: REPO_ROOT,
       specFile: "agents/reviewer.md",
       dialect: claudeCodeDialect,
     },
@@ -282,6 +319,7 @@ test("compileAgent flags a bad spec filename", async () => {
   const notMd = await compileAgent(
     experimental_agent({ name: "a", description: "d" }),
     {
+      basePath: REPO_ROOT,
       specFile: "reviewer.spec.ts",
       dialect: claudeCodeDialect,
     },
@@ -316,6 +354,7 @@ test("dogfood: a real OSS subagent as a spec, with the tool rail it shipped WITH
   });
 
   const { markdown, errors } = await compileAgent(reviewer, {
+    basePath: REPO_ROOT,
     specFile: "agents/ui-visual-validator.md.spec.ts",
     dialect: claudeCodeDialect,
   });
@@ -340,7 +379,11 @@ test("compileAgent rejects a section that clashes with the rules field", async (
       description: "d",
       sections: { rules: "this should be the rules field" },
     }),
-    { specFile: "a.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "a.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.ok(errors.some((e) => e.type === "reserved-section-key"));
 });
@@ -405,7 +448,11 @@ test('purity: "pure" agent with read-only tools compiles clean', async () => {
       tools: ["Read", "Grep", "Glob"],
       body: "Analyze only.",
     }),
-    { specFile: "agents/analyzer.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/analyzer.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(errors, []);
 });
@@ -419,7 +466,11 @@ test('purity: "pure" agent with a side-effecting tool errors, naming the tool', 
       tools: ["Read", "Write"],
       body: "b",
     }),
-    { specFile: "agents/bad.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/bad.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   const pureErrors = errors.filter((e) => e.type === "purity-violation");
   assert.equal(pureErrors.length, 1);
@@ -436,7 +487,11 @@ test('purity: "pure" agent with Bash errors', async () => {
       tools: ["Read", "Bash"],
       body: "b",
     }),
-    { specFile: "agents/bad.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/bad.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   const pureErrors = errors.filter((e) => e.type === "purity-violation");
   assert.ok(pureErrors.length > 0);
@@ -452,7 +507,11 @@ test('purity: "pure" agent with an unknown/MCP tool errors', async () => {
       tools: ["Read", "mcp__github__issue_write"],
       body: "b",
     }),
-    { specFile: "agents/bad.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/bad.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   const pureErrors = errors.filter((e) => e.type === "purity-violation");
   assert.ok(pureErrors.length > 0);
@@ -468,7 +527,11 @@ test('purity: "pure" agent with wildcard tools errors', async () => {
       tools: ["*"],
       body: "b",
     }),
-    { specFile: "agents/bad.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/bad.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   const pureErrors = errors.filter((e) => e.type === "purity-violation");
   assert.ok(pureErrors.length > 0);
@@ -483,7 +546,11 @@ test('purity: "pure" agent with NO tools list errors (absent = inherits-all)', a
       purity: "pure",
       body: "b",
     }),
-    { specFile: "agents/bad.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/bad.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   const pureErrors = errors.filter((e) => e.type === "purity-violation");
   assert.ok(pureErrors.length > 0);
@@ -500,7 +567,11 @@ test('purity: "bounded" allows decidable side-effecting tools AND Bash (runtime-
       tools: ["Read", "Write", "Edit"],
       body: "b",
     }),
-    { specFile: "agents/editor.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/editor.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(
     ok.errors.filter((e) => e.type === "purity-violation"),
@@ -518,7 +589,11 @@ test('purity: "bounded" allows decidable side-effecting tools AND Bash (runtime-
       tools: ["Read", "Write", "Bash"],
       body: "b",
     }),
-    { specFile: "agents/editor2.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/editor2.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(
     withBash.errors.filter((e) => e.type === "purity-violation"),
@@ -534,7 +609,11 @@ test('purity: "bounded" allows decidable side-effecting tools AND Bash (runtime-
       tools: ["Read", "mcp__srv__tool"],
       body: "b",
     }),
-    { specFile: "agents/editor3.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/editor3.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   const boundedErrors = bad.errors.filter((e) => e.type === "purity-violation");
   assert.ok(boundedErrors.length > 0);
@@ -549,7 +628,11 @@ test("compileAgent emits a vigiles:purity marker the runtime gate reads", async 
       tools: ["Read", "Write"],
       body: "b",
     }),
-    { specFile: "agents/editor.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/editor.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.match(markdown, /<!--\s*vigiles:purity:bounded\s*-->/);
 
@@ -562,14 +645,22 @@ test("compileAgent emits a vigiles:purity marker the runtime gate reads", async 
       tools: ["Read", "Write", "Bash"],
       body: "b",
     }),
-    { specFile: "agents/writer.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/writer.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.match(loud.markdown, /<!--\s*vigiles:purity:unrestricted\s*-->/);
 
   // no purity declared → no marker.
   const plain = await compileAgent(
     experimental_agent({ name: "plain", description: "No floor.", body: "b" }),
-    { specFile: "agents/plain.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/plain.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.doesNotMatch(plain.markdown, /vigiles:purity/);
 });
@@ -583,7 +674,11 @@ test('purity: "dangerously-unrestricted" / omitted + side-effecting tools compil
       tools: ["Read", "Write", "Bash"],
       body: "b",
     }),
-    { specFile: "agents/writer.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/writer.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(
     omitted.errors.filter((e) => e.type === "purity-violation"),
@@ -599,7 +694,11 @@ test('purity: "dangerously-unrestricted" / omitted + side-effecting tools compil
       tools: ["Read", "Write", "Bash"],
       body: "b",
     }),
-    { specFile: "agents/writer2.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/writer2.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(
     escaped.errors.filter((e) => e.type === "purity-violation"),
@@ -620,7 +719,11 @@ test('purity: "pure" skill with read-only tools compiles clean', async () => {
       tools: ["Read", "Grep"],
       body: "Review.",
     }),
-    { specFile: "SKILL.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "SKILL.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(
     errors.filter((e) => e.type === "purity-violation"),
@@ -637,7 +740,11 @@ test('purity: "pure" skill with a side-effecting tool errors', async () => {
       tools: ["Read", "Write"],
       body: "b",
     }),
-    { specFile: "SKILL.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "SKILL.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   const pureErrors = errors.filter((e) => e.type === "purity-violation");
   assert.equal(pureErrors.length, 1);
@@ -652,7 +759,11 @@ test('purity: "pure" skill with no tools declared errors (absent = inherits-all)
       purity: "pure",
       body: "Just think.",
     }),
-    { specFile: "SKILL.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "SKILL.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   const pureErrors = errors.filter((e) => e.type === "purity-violation");
   assert.ok(pureErrors.length > 0);
@@ -668,7 +779,11 @@ test('purity: "pure" skill with wildcard tools errors', async () => {
       tools: ["*"],
       body: "b",
     }),
-    { specFile: "SKILL.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "SKILL.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   const pureErrors = errors.filter((e) => e.type === "purity-violation");
   assert.ok(pureErrors.length > 0);
@@ -692,7 +807,11 @@ test("experimental_effect() body compiles to <!-- vigiles:effect --> markers in 
         `}
       `,
     }),
-    { specFile: "agents/releaser.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/releaser.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.ok(
     markdown.includes("<!-- vigiles:effect -->"),
@@ -717,7 +836,11 @@ test("experimental_effect() with a bad inner file ref reports stale-file error",
         ${experimental_effect`write ${file("nonexistent-xyz.md")}`}
       `,
     }),
-    { specFile: "agents/releaser.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "agents/releaser.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   const stale = errors.filter((e) => e.type === "stale-file");
   assert.ok(

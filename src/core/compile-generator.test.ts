@@ -14,6 +14,7 @@ import { compileSkill } from "./compile.js";
 import { experimental_skill } from "./spec.js";
 import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
 import { readFrontmatter, frontmatterScalar } from "./frontmatter-read.js";
+import { REPO_ROOT } from "./test-utils.js";
 
 const SRC = `
 import { skill, act, checkpoint, finish, cmd } from "vigiles";
@@ -83,7 +84,9 @@ test("compileGenerator prepends frontmatter when provided", () => {
 });
 
 test("compileGenerator reports when there is no generator", () => {
-  const { errors } = compileGenerator("export const x = 1;");
+  const { errors } = compileGenerator("export const x = 1;", {
+    basePath: REPO_ROOT,
+  });
   assert.ok(errors.some((e) => /No generator/.test(e.message)));
 });
 
@@ -131,7 +134,9 @@ test("compileGeneratorSkill verifies gate refs and errors clearly without genSki
   );
   assert.ok(bad.errors.some((e) => e.type === "stale-command"));
 
-  const none = compileGeneratorSkill("export default 1;");
+  const none = compileGeneratorSkill("export default 1;", {
+    basePath: REPO_ROOT,
+  });
   assert.ok(none.errors.some((e) => /genSkill/.test(e.message)));
 });
 
@@ -144,7 +149,11 @@ test("a skill can declare a disallowed-tools FENCE, and it uses the skill's key"
       disallowedTools: ["Bash", "WebFetch"],
       body: "b",
     }),
-    { specFile: "skills/fenced/SKILL.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "skills/fenced/SKILL.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.deepEqual(errors, []);
   // 🔴 HYPHENATED. `disallowedTools:` is the SUBAGENT key, read by a different
@@ -169,6 +178,7 @@ test("a disallowed-tools entry that is a typo of a real tool is an ERROR, not a 
       body: "b",
     }),
     {
+      basePath: REPO_ROOT,
       specFile: "skills/typo-fence/SKILL.md.spec.ts",
       dialect: claudeCodeDialect,
     },
@@ -189,12 +199,15 @@ test("compile quotes a description YAML would otherwise mis-read", async () => {
   // The real shape that broke two shipped skills: a colon-space inside prose.
   const withColon =
     "Узнать, сколько берут за услугу — ловит ошибки, где замер врёт: неаналоги в выборке.";
-  const { markdown } = await compileSkill({
-    name: "benchmark-price",
-    description: withColon,
-    tools: ["Read", "WebSearch"],
-    body: "Body.",
-  } as never);
+  const { markdown } = await compileSkill(
+    {
+      name: "benchmark-price",
+      description: withColon,
+      tools: ["Read", "WebSearch"],
+      body: "Body.",
+    } as never,
+    { basePath: REPO_ROOT },
+  );
 
   const fm = readFrontmatter(markdown);
   assert.equal(
@@ -259,11 +272,14 @@ const ADVERSARIAL_SCALARS: readonly (readonly [string, string])[] = [
 
 for (const [label, description] of ADVERSARIAL_SCALARS) {
   test(`compile round-trips a description: ${label}`, async () => {
-    const { markdown } = await compileSkill({
-      name: "probe-skill",
-      description,
-      body: "Body.",
-    } as never);
+    const { markdown } = await compileSkill(
+      {
+        name: "probe-skill",
+        description,
+        body: "Body.",
+      } as never,
+      { basePath: REPO_ROOT },
+    );
     const fm = readFrontmatter(markdown);
     assert.equal(
       fm.malformed,
@@ -297,11 +313,14 @@ const SAFE_SCALARS: readonly string[] = [
 
 for (const description of SAFE_SCALARS) {
   test(`compile leaves a safe description bare: ${description.slice(0, 32)}…`, async () => {
-    const { markdown } = await compileSkill({
-      name: "probe-skill",
-      description,
-      body: "Body.",
-    } as never);
+    const { markdown } = await compileSkill(
+      {
+        name: "probe-skill",
+        description,
+        body: "Body.",
+      } as never,
+      { basePath: REPO_ROOT },
+    );
     assert.ok(
       markdown.includes(`description: ${description}`),
       "a scalar that round-trips bare must stay bare, or every compiled file churns",
@@ -311,11 +330,14 @@ for (const description of SAFE_SCALARS) {
 
 test("compile leaves an already-safe description bare — no hash churn", async () => {
   const plain = "Search products on ozon.kz and return live listings.";
-  const { markdown } = await compileSkill({
-    name: "ozon-search-kz",
-    description: plain,
-    body: "Body.",
-  } as never);
+  const { markdown } = await compileSkill(
+    {
+      name: "ozon-search-kz",
+      description: plain,
+      body: "Body.",
+    } as never,
+    { basePath: REPO_ROOT },
+  );
   assert.ok(
     markdown.includes(`description: ${plain}`),
     "a safe scalar must stay unquoted, or every compiled file in every repo churns and every integrity hash moves",

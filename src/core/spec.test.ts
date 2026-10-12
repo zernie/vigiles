@@ -48,7 +48,10 @@ import { codexDialect } from "../adapters/codex/dialect.js";
 
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { makeEslintProject, cleanupTmpDir } from "./test-utils.js";
+import { makeEslintProject, cleanupTmpDir, REPO_ROOT } from "./test-utils.js";
+
+/** Compile against this repository's root. */
+const atRoot = { basePath: REPO_ROOT } as const;
 
 /**
  * A project whose ESLint config SETS `no-console` and `no-unused-vars`, so an
@@ -302,7 +305,7 @@ describe("compileClaude()", () => {
       },
       rules: {},
     });
-    const { markdown } = await compileClaude(spec);
+    const { markdown } = await compileClaude(spec, atRoot);
     assert.ok(markdown.includes("## Architecture"));
     assert.ok(markdown.includes("TypeScript strict-mode codebase."));
   });
@@ -313,7 +316,10 @@ describe("compileClaude()", () => {
       rules[`rule-${String(i)}`] = guidance("test");
     }
     const spec = instructionFile({ rules });
-    const { errors } = await compileClaude(spec, { maxRules: 3 });
+    const { errors } = await compileClaude(spec, {
+      ...atRoot,
+      maxRules: 3,
+    });
     assert.equal(errors.length, 1);
     assert.ok(errors[0].message.includes("exceeds maxRules"));
   });
@@ -342,7 +348,7 @@ describe("compileSkill()", () => {
       description: "A test skill",
       body: "Do the thing.\n\n## Step 1\nDo step 1.",
     });
-    const { markdown, errors } = await compileSkill(spec);
+    const { markdown, errors } = await compileSkill(spec, atRoot);
     assert.ok(markdown.includes("<!-- vigiles:sha256:"));
     assert.ok(markdown.includes("name: test-skill\n"));
     assert.ok(markdown.includes("description: A test skill"));
@@ -360,7 +366,7 @@ describe("compileSkill()", () => {
       description: "A skill with a big code example",
       body: `Do the thing.\n\n${bigBlock}\n`,
     });
-    const { errors, warnings } = await compileSkill(spec);
+    const { errors, warnings } = await compileSkill(spec, atRoot);
     assert.equal(errors.length, 0); // does NOT block compilation
     assert.ok(
       warnings.some((w) => w.type === "inline-code-too-long"),
@@ -376,7 +382,7 @@ describe("compileSkill()", () => {
       output: result({ defects: "string[]" }, { reason: "string" }),
       body: "Review the file.",
     });
-    const { markdown, errors } = await compileSkill(spec);
+    const { markdown, errors } = await compileSkill(spec, atRoot);
     assert.equal(errors.length, 0);
     assert.ok(markdown.includes("context: fork"));
     assert.ok(markdown.includes("## Output contract"));
@@ -391,7 +397,7 @@ describe("compileSkill()", () => {
       output: result({ ok: "boolean" }, { reason: "string" }),
       body: "Review the file.",
     });
-    const { errors } = await compileSkill(spec);
+    const { errors } = await compileSkill(spec, atRoot);
     assert.ok(errors.some((e) => e.type === "output-without-fork"));
   });
 
@@ -477,7 +483,9 @@ describe("compileSkill()", () => {
     assert.equal(errors[0].type, "stale-ref");
     assert.match(errors[0].message, /matched no files/);
   });
+});
 
+describe("compileSkill() frontmatter", () => {
   it("includes frontmatter fields", async () => {
     const spec = experimental_skill({
       name: "my-skill",
@@ -486,7 +494,7 @@ describe("compileSkill()", () => {
       argumentHint: "<some arg>",
       body: "Instructions here.",
     });
-    const { markdown } = await compileSkill(spec);
+    const { markdown } = await compileSkill(spec, atRoot);
     assert.ok(markdown.includes("disable-model-invocation: true"));
     assert.ok(markdown.includes("argument-hint: <some arg>"));
   });
@@ -501,9 +509,10 @@ describe("compileSkill()", () => {
     });
     // No dialect (default) and the explicit CC dialect must be byte-identical —
     // the full CC frontmatter set, exactly as before.
-    const def = (await compileSkill(spec)).markdown;
-    const cc = (await compileSkill(spec, { dialect: claudeCodeDialect }))
-      .markdown;
+    const def = (await compileSkill(spec, atRoot)).markdown;
+    const cc = (
+      await compileSkill(spec, { ...atRoot, dialect: claudeCodeDialect })
+    ).markdown;
     assert.equal(def, cc);
     assert.ok(cc.includes("disable-model-invocation: true"));
     assert.ok(cc.includes("argument-hint: <some arg>"));
@@ -517,7 +526,10 @@ describe("compileSkill()", () => {
       argumentHint: "<some arg>",
       body: "Instructions here.",
     });
-    const { markdown } = await compileSkill(spec, { dialect: codexDialect });
+    const { markdown } = await compileSkill(spec, {
+      ...atRoot,
+      dialect: codexDialect,
+    });
     assert.ok(markdown.includes("name: my-skill"));
     assert.ok(markdown.includes("description: My skill desc"));
     // The CC-only keys must be ABSENT under the minimal profile.
@@ -617,7 +629,10 @@ describe("maxTokens budget", () => {
       sections: { prose: "x".repeat(1000) },
       rules: {},
     });
-    const { errors, tokens } = await compileClaude(spec, { maxTokens: 100 });
+    const { errors, tokens } = await compileClaude(spec, {
+      ...atRoot,
+      maxTokens: 100,
+    });
     assert.ok(tokens > 100);
     assert.ok(errors.some((e) => e.type === "budget-exceeded"));
   });
@@ -626,7 +641,10 @@ describe("maxTokens budget", () => {
     const spec = instructionFile({
       rules: { test: guidance("Short.") },
     });
-    const { errors } = await compileClaude(spec, { maxTokens: 10000 });
+    const { errors } = await compileClaude(spec, {
+      ...atRoot,
+      maxTokens: 10000,
+    });
     assert.ok(!errors.some((e) => e.type === "budget-exceeded"));
   });
 });
@@ -641,7 +659,7 @@ describe("section guardrails", () => {
       sections: { about: "Some intro\n# Overview\nMore text" },
       rules: {},
     });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     assert.ok(errors.some((e) => e.type === "section-has-header"));
   });
 
@@ -650,7 +668,7 @@ describe("section guardrails", () => {
       sections: { about: "Some intro\n## Subsection\nMore text" },
       rules: {},
     });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     assert.ok(errors.some((e) => e.type === "section-has-header"));
   });
 
@@ -659,7 +677,7 @@ describe("section guardrails", () => {
       sections: { about: "Some intro\n### Detail\nMore text" },
       rules: {},
     });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     assert.ok(!errors.some((e) => e.type === "section-has-header"));
   });
 
@@ -668,7 +686,7 @@ describe("section guardrails", () => {
       sections: { about: "Example:\n```\n# this is a comment\n```" },
       rules: {},
     });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     assert.ok(!errors.some((e) => e.type === "section-has-header"));
   });
 
@@ -677,7 +695,7 @@ describe("section guardrails", () => {
       sections: { about: "Example:\n~~~\n## heading in fence\n~~~" },
       rules: {},
     });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     assert.ok(!errors.some((e) => e.type === "section-has-header"));
   });
 
@@ -688,7 +706,7 @@ describe("section guardrails", () => {
       },
       rules: {},
     });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     assert.ok(errors.some((e) => e.type === "section-has-header"));
   });
 
@@ -701,7 +719,10 @@ describe("section guardrails", () => {
       sections: { wall: longContent },
       rules: {},
     });
-    const { errors } = await compileClaude(spec, { maxSectionLines: 20 });
+    const { errors } = await compileClaude(spec, {
+      ...atRoot,
+      maxSectionLines: 20,
+    });
     assert.ok(errors.some((e) => e.type === "section-too-long"));
     assert.ok(errors[0].message.includes("50 lines"));
     assert.ok(errors[0].message.includes("max 20"));
@@ -716,7 +737,10 @@ describe("section guardrails", () => {
       sections: { ok: content },
       rules: {},
     });
-    const { errors } = await compileClaude(spec, { maxSectionLines: 20 });
+    const { errors } = await compileClaude(spec, {
+      ...atRoot,
+      maxSectionLines: 20,
+    });
     assert.ok(!errors.some((e) => e.type === "section-too-long"));
   });
 
@@ -727,7 +751,7 @@ describe("section guardrails", () => {
       (_, i) => `Line ${String(i + 1)}`,
     ).join("\n");
     const spec = instructionFile({ sections: { ok: content }, rules: {} });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     assert.ok(!errors.some((e) => e.type === "section-too-long"));
   });
 
@@ -739,7 +763,7 @@ describe("section guardrails", () => {
       (_, i) => `Line ${String(i + 1)}`,
     ).join("\n");
     const spec = instructionFile({ sections: { wall: dump }, rules: {} });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     const tooLong = errors.find((e) => e.type === "section-too-long");
     assert.ok(tooLong, "the default cap should fire on a 250-line section");
     assert.ok(tooLong.message.includes("max 200"));
@@ -757,7 +781,7 @@ describe("reserved section keys", () => {
       sections: { commands: "Should use the commands field instead." },
       rules: {},
     });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     assert.ok(errors.some((e) => e.type === "reserved-section-key"));
   });
 
@@ -766,7 +790,7 @@ describe("reserved section keys", () => {
       sections: { rules: "Should use the rules field instead." },
       rules: {},
     });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     assert.ok(errors.some((e) => e.type === "reserved-section-key"));
   });
 
@@ -775,7 +799,7 @@ describe("reserved section keys", () => {
       sections: { keyFiles: "Should use the keyFiles field instead." },
       rules: {},
     });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     assert.ok(errors.some((e) => e.type === "reserved-section-key"));
   });
 
@@ -784,7 +808,7 @@ describe("reserved section keys", () => {
       sections: { architecture: "This is fine." },
       rules: {},
     });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     assert.ok(!errors.some((e) => e.type === "reserved-section-key"));
   });
 });
@@ -804,7 +828,7 @@ describe("per-spec maxSectionLines", () => {
       maxSectionLines: 20,
       rules: {},
     });
-    const { errors } = await compileClaude(spec);
+    const { errors } = await compileClaude(spec, atRoot);
     assert.ok(errors.some((e) => e.type === "section-too-long"));
   });
 
@@ -820,7 +844,10 @@ describe("per-spec maxSectionLines", () => {
     });
     // But compile option says 20, which is stricter
     // Actually spec takes precedence — let's verify:
-    const { errors } = await compileClaude(spec, { maxSectionLines: 10 });
+    const { errors } = await compileClaude(spec, {
+      ...atRoot,
+      maxSectionLines: 10,
+    });
     // spec.maxSectionLines (50) takes precedence over options (10)
     assert.ok(!errors.some((e) => e.type === "section-too-long"));
   });
@@ -834,7 +861,10 @@ describe("per-spec maxSectionLines", () => {
       sections: { wall: longContent },
       rules: {},
     });
-    const { errors } = await compileClaude(spec, { maxSectionLines: 20 });
+    const { errors } = await compileClaude(spec, {
+      ...atRoot,
+      maxSectionLines: 20,
+    });
     assert.ok(errors.some((e) => e.type === "section-too-long"));
   });
 });
@@ -1394,6 +1424,7 @@ describe("spec file naming convention", () => {
   it("accepts valid CLAUDE.md.spec.ts name", async () => {
     const spec = instructionFile({ rules: {} });
     const { errors } = await compileClaude(spec, {
+      ...atRoot,
       specFile: "CLAUDE.md.spec.ts",
     });
     assert.ok(!errors.some((e) => e.type === "spec-name-mismatch"));
@@ -1402,6 +1433,7 @@ describe("spec file naming convention", () => {
   it("accepts valid nested path spec name", async () => {
     const spec = instructionFile({ rules: {} });
     const { errors } = await compileClaude(spec, {
+      ...atRoot,
       specFile: "src/CLAUDE.md.spec.ts",
     });
     assert.ok(!errors.some((e) => e.type === "spec-name-mismatch"));
@@ -1410,6 +1442,7 @@ describe("spec file naming convention", () => {
   it("errors when spec file does not end with .spec.ts", async () => {
     const spec = instructionFile({ rules: {} });
     const { errors } = await compileClaude(spec, {
+      ...atRoot,
       specFile: "CLAUDE.md.ts",
     });
     assert.ok(errors.some((e) => e.type === "spec-name-mismatch"));
@@ -1418,6 +1451,7 @@ describe("spec file naming convention", () => {
   it("errors when spec file does not match target", async () => {
     const spec = instructionFile({ rules: {} });
     const { errors } = await compileClaude(spec, {
+      ...atRoot,
       specFile: "AGENTS.md.spec.ts",
     });
     // Default target is CLAUDE.md, but spec says AGENTS.md
@@ -1432,6 +1466,7 @@ describe("spec file naming convention", () => {
       body: "Do the thing.",
     });
     const { errors } = await compileSkill(spec, {
+      ...atRoot,
       specFile: "skills/test/SKILL.md.spec.ts",
     });
     assert.ok(!errors.some((e) => e.type === "spec-name-mismatch"));
@@ -1444,6 +1479,7 @@ describe("spec file naming convention", () => {
       body: "Do the thing.",
     });
     const { errors } = await compileSkill(spec, {
+      ...atRoot,
       specFile: "skills/test/skill.spec.ts",
     });
     assert.ok(errors.some((e) => e.type === "spec-name-mismatch"));
@@ -1457,13 +1493,13 @@ describe("spec file naming convention", () => {
 describe("output target", () => {
   it("defaults to CLAUDE.md heading", async () => {
     const spec = instructionFile({ rules: {} });
-    const { markdown } = await compileClaude(spec);
+    const { markdown } = await compileClaude(spec, atRoot);
     assert.ok(markdown.includes("# CLAUDE.md"));
   });
 
   it("uses custom target for heading", async () => {
     const spec = instructionFile({ target: "AGENTS.md", rules: {} });
-    const { markdown } = await compileClaude(spec);
+    const { markdown } = await compileClaude(spec, atRoot);
     assert.ok(markdown.includes("# AGENTS.md"));
     assert.ok(!markdown.includes("# CLAUDE.md"));
   });
@@ -1471,13 +1507,14 @@ describe("output target", () => {
   it("defaults specFile based on target", async () => {
     const spec = instructionFile({ target: "AGENTS.md", rules: {} });
     // Without explicit specFile, it should derive from target
-    const { markdown } = await compileClaude(spec);
+    const { markdown } = await compileClaude(spec, atRoot);
     assert.ok(markdown.includes("compiled from AGENTS.md.spec.ts"));
   });
 
   it("accepts AGENTS.md.spec.ts naming for AGENTS.md target", async () => {
     const spec = instructionFile({ target: "AGENTS.md", rules: {} });
     const { errors } = await compileClaude(spec, {
+      ...atRoot,
       specFile: "AGENTS.md.spec.ts",
     });
     assert.ok(!errors.some((e) => e.type === "spec-name-mismatch"));
@@ -1485,7 +1522,7 @@ describe("output target", () => {
 
   it("accepts custom target name", async () => {
     const spec = instructionFile({ target: "CODEX.md", rules: {} });
-    const { markdown } = await compileClaude(spec);
+    const { markdown } = await compileClaude(spec, atRoot);
     assert.ok(markdown.includes("# CODEX.md"));
   });
 
@@ -1494,7 +1531,7 @@ describe("output target", () => {
       target: ["CLAUDE.md", "AGENTS.md"],
       rules: {},
     });
-    const { targets, markdown } = await compileClaude(spec);
+    const { targets, markdown } = await compileClaude(spec, atRoot);
     assert.deepEqual(targets, ["CLAUDE.md", "AGENTS.md"]);
     // Primary target is first in array
     assert.ok(markdown.includes("# CLAUDE.md"));
@@ -1502,13 +1539,13 @@ describe("output target", () => {
 
   it("returns single target in targets array", async () => {
     const spec = instructionFile({ target: "AGENTS.md", rules: {} });
-    const { targets } = await compileClaude(spec);
+    const { targets } = await compileClaude(spec, atRoot);
     assert.deepEqual(targets, ["AGENTS.md"]);
   });
 
   it("defaults targets to CLAUDE.md", async () => {
     const spec = instructionFile({ rules: {} });
-    const { targets } = await compileClaude(spec);
+    const { targets } = await compileClaude(spec, atRoot);
     assert.deepEqual(targets, ["CLAUDE.md"]);
   });
 });
@@ -1520,7 +1557,7 @@ describe("output target", () => {
 describe("edge cases", () => {
   it("compileClaude with empty spec produces valid markdown", async () => {
     const spec = instructionFile({ rules: {} });
-    const { markdown, errors, tokens } = await compileClaude(spec);
+    const { markdown, errors, tokens } = await compileClaude(spec, atRoot);
     assert.ok(markdown.includes("# CLAUDE.md"));
     assert.equal(errors.length, 0);
     assert.ok(tokens > 0);
@@ -1531,7 +1568,7 @@ describe("edge cases", () => {
       sections: { about: "This is a project." },
       rules: {},
     });
-    const { markdown } = await compileClaude(spec);
+    const { markdown } = await compileClaude(spec, atRoot);
     assert.ok(markdown.includes("## About"));
     assert.ok(!markdown.includes("## Rules"));
   });
@@ -1542,13 +1579,19 @@ describe("edge cases", () => {
       rules[`rule-${String(i)}`] = guidance("test");
     }
     const spec = instructionFile({ rules });
-    const { errors } = await compileClaude(spec, { maxRules: 3 });
+    const { errors } = await compileClaude(spec, {
+      ...atRoot,
+      maxRules: 3,
+    });
     assert.ok(!errors.some((e) => e.type === "invalid-rule"));
   });
 
   it("maxTokens at exact boundary passes", async () => {
     const spec = instructionFile({ rules: { a: guidance("x") } });
-    const { tokens, errors } = await compileClaude(spec, { maxTokens: 99999 });
+    const { tokens, errors } = await compileClaude(spec, {
+      ...atRoot,
+      maxTokens: 99999,
+    });
     // Should pass — output is small
     assert.ok(!errors.some((e) => e.type === "budget-exceeded"));
     assert.ok(tokens > 0);
@@ -1569,7 +1612,7 @@ describe("edge cases", () => {
     const spec = instructionFile({
       rules: { no_console_log: guidance("Don't.") },
     });
-    const { markdown } = await compileClaude(spec);
+    const { markdown } = await compileClaude(spec, atRoot);
     assert.ok(markdown.includes("### No Console Log"));
   });
 
@@ -1577,7 +1620,7 @@ describe("edge cases", () => {
     const spec = instructionFile({
       rules: { "barrel-imports-only": guidance("Use barrels.") },
     });
-    const { markdown } = await compileClaude(spec);
+    const { markdown } = await compileClaude(spec, atRoot);
     assert.ok(markdown.includes("### Barrel Imports Only"));
   });
 
@@ -1587,7 +1630,7 @@ describe("edge cases", () => {
       description: "Nothing",
       body: "",
     });
-    const { markdown } = await compileSkill(spec);
+    const { markdown } = await compileSkill(spec, atRoot);
     assert.ok(markdown.includes("name: empty"));
     assert.ok(markdown.includes("description: Nothing"));
   });

@@ -272,8 +272,8 @@ export interface UntestedReport {
 }
 
 export interface TestCoverageOptions {
-  /** The bundle whose surfaces are discovered. Defaults to `process.cwd()`. */
-  readonly basePath?: string;
+  /** The bundle whose surfaces are discovered. Required: no cwd fallback. */
+  readonly basePath: string;
   /**
    * The directory `include`, the coverage artifact and every REPORTED
    * path are relative to — where `.vigilesrc.json` lives. Defaults to `basePath`.
@@ -833,7 +833,7 @@ function exemptOf(surfaces: readonly Surface[]): {
 export function findUntestedSurfaces(
   options: TestCoverageOptions,
 ): UntestedReport {
-  const basePath = options.basePath ?? process.cwd();
+  const basePath = options.basePath;
   const root = options.root ?? basePath;
   const { layout } = options;
   const ruleIgnore = DEFAULT_IGNORE;

@@ -25,7 +25,7 @@ import {
 import { experimental_skill } from "../../core/spec.js";
 import { compileSkill } from "../../core/compile.js";
 import { claudeCodeDialect } from "./dialect.js";
-import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
+import { makeTmpDir, cleanupTmpDir, REPO_ROOT } from "../../core/test-utils.js";
 import { runHook } from "../../run-hook.js";
 
 const SAMPLE = `# skill
@@ -218,7 +218,11 @@ test("parseSkillPurity reads the vigiles:purity marker compileSkill emits", asyn
       tools: ["Read", "Bash"],
       body: "b",
     }),
-    { specFile: "SKILL.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "SKILL.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.equal(parseSkillPurity(markdown), "bounded");
 });
@@ -230,7 +234,11 @@ test("parseSkillPurity returns null when no marker is present", async () => {
       description: "Reads files.",
       body: "b",
     }),
-    { specFile: "SKILL.md.spec.ts", dialect: claudeCodeDialect },
+    {
+      basePath: REPO_ROOT,
+      specFile: "SKILL.md.spec.ts",
+      dialect: claudeCodeDialect,
+    },
   );
   assert.equal(parseSkillPurity(markdown), null);
 });
