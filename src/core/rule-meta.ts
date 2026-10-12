@@ -83,7 +83,19 @@ export interface RuleMeta {
    * always the artifact-time floor regardless.
    */
   readonly upstreamPrevention?: string;
+  /**
+   * What fixes a finding: `"edit"` (the user edits their own file), a CLI verb,
+   * or a public export. Data, so a test can hold the line that a rule ON by
+   * default is never curable only through an `experimental_` export.
+   */
+  readonly cure: RuleCure;
 }
+
+/** What fixes a rule's finding; see {@link RuleMeta.cure}. */
+export type RuleCure =
+  | "edit"
+  | { readonly cli: "compile" | "init" }
+  | { readonly export: string };
 
 /**
  * The registry. `Record<RuleName, RuleMeta>` makes completeness a COMPILE-TIME
@@ -98,6 +110,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["instruction"],
     defaultSeverity: "warn",
+    cure: { cli: "init" },
     summary: "A .spec.ts exists behind each CLAUDE.md / AGENTS.md.",
     detector: "spec-presence (cli)",
   },
@@ -106,6 +119,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["skill"],
     defaultSeverity: "off",
+    cure: { export: "experimental_skill" },
     summary: "A .spec.ts exists behind each SKILL.md (opt-in).",
     detector: "spec-presence (cli)",
   },
@@ -114,6 +128,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["instruction"],
     defaultSeverity: "warn",
+    cure: { cli: "compile" },
     summary: "A compiled instruction file still matches its spec's SHA-256.",
     detector: "checkIntegrity",
     upstreamPrevention:
@@ -124,6 +139,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["instruction"],
     defaultSeverity: "off",
+    cure: "edit",
     summary: "The spec covers ≥ threshold of linter rules / npm scripts.",
     detector: "analyzeCoverage",
   },
@@ -134,6 +150,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["skill"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "A SKILL.md ships with a test or eval.",
     detector: "findUntestedSurfaces",
   },
@@ -142,6 +159,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["subagent"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "A subagent (agents/*.md) ships with a test or eval.",
     detector: "findUntestedSurfaces",
   },
@@ -150,6 +168,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["hook"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "A file-backed hook script ships with a test or eval.",
     detector: "findUntestedSurfaces",
   },
@@ -158,6 +177,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["output-style"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "An output style ships with a test or eval.",
     detector: "findUntestedSurfaces",
   },
@@ -168,6 +188,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "heuristic-behavioral",
     surface: ["instruction"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "Code-shaped refs in an instruction file are marked (verifiable).",
     detector: "collectRefIssues",
   },
@@ -178,6 +199,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["subagent"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "A subagent's tools: are all real (no never-available / typo).",
     detector: "verifyToolContract / scoredIssues",
     upstreamPrevention:
@@ -188,6 +210,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["subagent"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "A disallowedTools: entry isn't a typo that blocks nothing.",
     detector: "disallowedToolIssues",
     upstreamPrevention:
@@ -198,6 +221,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["subagent"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "A subagent has required name/description + valid model/color.",
     detector: "frontmatterIssuesFor",
     upstreamPrevention: "compileAgent emits the required frontmatter",
@@ -209,6 +233,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["hook"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "A hook's event name is one the harness defines (it can fire).",
     detector: "verifyHookEvents / scoredIssues",
     upstreamPrevention: "compiled hook on: is dialect-validated at compile",
@@ -218,6 +243,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["hook"],
     defaultSeverity: "warn",
+    cure: { cli: "compile" },
     summary:
       "A file a compiled hook line needs (runtime, program, stamp) exists.",
     detector: "scanHooks over the hook-line plan (status 'missing')",
@@ -229,6 +255,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "heuristic-behavioral",
     surface: ["hook"],
     defaultSeverity: "off",
+    cure: { export: "experimental_defineHook" },
     summary:
       "A hook line vigiles did not write is named: a static reader cannot verify it, so compile it.",
     detector: "scanHooks (handWritten: no planned line matches)",
@@ -239,6 +266,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["hook"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "A hook that looks like it blocks actually can (event + field).",
     detector: "hookBlockIssues",
     upstreamPrevention:
@@ -249,6 +277,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["hook"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary:
       "A hook matcher fires as written (no tool-name typo, no MCP pattern that reaches nothing or misses real server names).",
     detector: "hookMatcherIssues",
@@ -259,6 +288,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["docs"],
     defaultSeverity: "off",
+    cure: "edit",
     summary:
       "Builder calls quoted in markdown ```ts fences resolve for real (opt-in: a fence is usually a drawing of config, not config).",
     detector: "findDocRefs",
@@ -268,6 +298,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["mcp"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "A declared MCP server can start (has a command or url).",
     detector: "verifyMcpServers",
   },
@@ -276,6 +307,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["subagent", "mcp"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "A subagent's mcp__server__tool names a declared server.",
     detector: "verifyMcpToolServers",
   },
@@ -284,6 +316,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["hook", "mcp"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary:
       "A type:mcp_tool hook action is complete + names a declared server.",
     detector: "verifyMcpHookTargets",
@@ -295,6 +328,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["skill"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary:
       "A SKILL.md declares an explicit name + description (reliable trigger).",
     detector: "skillMetaIssuesFor",
@@ -305,6 +339,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["skill"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "A SKILL.md opens with a --- fence (else it loads as inert body).",
     detector: "skillMissingFence",
     upstreamPrevention: "skill() compiler always emits the fence",
@@ -314,6 +349,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "heuristic-behavioral",
     surface: ["skill"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary:
       "Two model-invocable skills aren't near-identical (wrong one fires).",
     detector: "findDescriptionOverlaps",
@@ -323,6 +359,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["instruction"],
     defaultSeverity: "error",
+    cure: "edit",
     summary:
       "The always-loaded instruction weight did not move off its committed baseline.",
     detector: "compareToBaseline",
@@ -335,6 +372,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["instruction"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary:
       "A compiled instruction file stays within its size budgets (command entries, sections, the Rules total).",
     detector: "checkContentBudgets",
@@ -346,6 +384,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["instruction"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary:
       "An instruction spec doesn't use the deprecated keyFiles (always-loaded file map).",
     detector: "findDeprecatedKeyFiles",
@@ -356,6 +395,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "heuristic-behavioral",
     surface: ["skill"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary:
       "A model-invocable skill's description isn't so long the trigger is buried.",
     detector: "findDescriptionBudgetIssues",
@@ -365,6 +405,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "heuristic-behavioral",
     surface: ["skill", "subagent"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary:
       "A --- block parses as YAML (js-yaml is stricter than some loaders).",
     detector: "malformedFrontmatterFor",
@@ -375,6 +416,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["skill"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "A SKILL.md's bundled-file reference exists under the skill dir.",
     detector: "skillResourceIssues",
   },
@@ -385,6 +427,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["plugin"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "No functional surface dir is nested inside the manifest dir.",
     detector: "pluginDirLayoutIssues",
     upstreamPrevention: "init scaffolds surfaces at the plugin root",
@@ -394,6 +437,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["skill", "subagent"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "No unit's tools hold all three lethal-trifecta legs at once.",
     detector: "lethalTrifectaIssues",
   },
@@ -402,6 +446,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "structural-closed",
     surface: ["subagent"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary: "No subagent's (own ∪ delegated) capability forms a trifecta.",
     detector: "delegationTrifectaIssues",
   },
@@ -412,6 +457,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "heuristic-behavioral",
     surface: ["instruction"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary:
       "Near-duplicate rules within one spec (NCD similarity) — two rules saying the same thing.",
     detector: "findDuplicateRules",
@@ -421,6 +467,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["instruction"],
     defaultSeverity: "error",
+    cure: "edit",
     summary:
       "A compiled instruction file whose spec references a file/script that no longer exists.",
     detector: "compileClaude",
@@ -430,6 +477,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "heuristic-behavioral",
     surface: ["docs"],
     defaultSeverity: "warn",
+    cure: "edit",
     summary:
       "Opt-in: a doc in a configured dir (default docs/) that no other .md references.",
     detector: "findOrphanDocs",
