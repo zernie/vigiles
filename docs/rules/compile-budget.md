@@ -29,6 +29,12 @@ The first two are what `compile` has always printed as warnings. The Rules sum
 is new, and at the default severity it is **not evaluated** unless you give it
 a threshold, so the default output is exactly what it was.
 
+A section or Rules finding ends with the same list of places the text can move
+to (a nested instruction file, a hook, a skill, a lint rule, linked docs) that
+every `instruction-weight` finding ends with, so the one move the message
+offers is not "delete". A `commands` finding does not: an over-long entry is a
+pointer that grew, and its fix is a shorter line.
+
 ## What it does not check
 
 Each of these has one owner already, and this rule does not report it a second

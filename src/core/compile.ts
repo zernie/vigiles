@@ -41,6 +41,7 @@ import {
 import { purityViolations } from "./effects.js";
 import type { LinterCheckResult } from "./linters.js";
 import type { HarnessDialect } from "./dialect.js";
+import { MOVE_OUT_OF_ALWAYS_LOADED } from "./instruction-remedies.js";
 import {
   DEFAULT_INSTRUCTION_TARGETS,
   RENDERABLE_SKILL_FRONTMATTER_KEYS,
@@ -712,9 +713,10 @@ function sectionBudget(
       type: "section-too-large" as const,
       path: specFile,
       message:
-        `section ${JSON.stringify(name)} is ${String(body.length)} characters ` +
-        `(budget ${String(limits.sectionChars)}). The line guard cannot see this — long lines are ` +
-        `the normal shape of compiled prose — and every character is loaded on every request.`,
+        `section ${JSON.stringify(name)} is ${n(body.length)} characters ` +
+        `(budget ${n(limits.sectionChars)}). The line guard cannot see this — long lines are ` +
+        `the normal shape of compiled prose — and every character is loaded on every request.\n` +
+        MOVE_OUT_OF_ALWAYS_LOADED,
     }));
 }
 
@@ -736,7 +738,8 @@ function rulesBudget(
         `(budget ${n(limits.rulesChars)}). Render a rule shorter instead of deleting it: ` +
         `enforce(rule, why, { render: "id" }) when a linter already holds it, or ` +
         `guidance(statement, { details: file(...) }) with the long text in that file — ` +
-        `the rule stays in the spec, where lint and audit read it.`,
+        `the rule stays in the spec, where lint and audit read it.\n` +
+        MOVE_OUT_OF_ALWAYS_LOADED,
     },
   ];
 }

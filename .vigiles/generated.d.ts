@@ -100,7 +100,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 535 project files. */
+  /** 537 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -333,6 +333,8 @@ declare module "vigiles/generated" {
     | "src/core/instruction-baseline.ts"
     | "src/core/instruction-chain.test.ts"
     | "src/core/instruction-chain.ts"
+    | "src/core/instruction-remedies.test.ts"
+    | "src/core/instruction-remedies.ts"
     | "src/core/instruction-weight.test.ts"
     | "src/core/instruction-weight.ts"
     | "src/core/integrity.test.ts"
@@ -940,6 +942,8 @@ declare module "vigiles/spec" {
       | "src/core/instruction-baseline.ts"
       | "src/core/instruction-chain.test.ts"
       | "src/core/instruction-chain.ts"
+      | "src/core/instruction-remedies.test.ts"
+      | "src/core/instruction-remedies.ts"
       | "src/core/instruction-weight.test.ts"
       | "src/core/instruction-weight.ts"
       | "src/core/integrity.test.ts"

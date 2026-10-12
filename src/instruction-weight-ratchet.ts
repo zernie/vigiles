@@ -21,8 +21,11 @@ import { dirname, join } from "node:path";
 import {
   INSTRUCTION_BASELINE_FILE,
   UPDATE_BASELINE_COMMAND,
+  checkCeiling,
   compareToBaseline,
   entryFor,
+  formatCeiling,
+  formatRefusal,
   formatVerdict,
   formatWeightLine,
   parseInstructionBaseline,
@@ -79,6 +82,9 @@ export interface RatchetLine {
 
 /**
  * Pure: the lines a run prints, given what was measured and what is on disk.
+ * `max` is the opt-in absolute ceiling; a bundle over it adds a finding of its
+ * own, whatever the baseline says (including when there is none, or it is
+ * unreadable).
  *
  * A bundle with no entry is a nudge while the repo has NO baseline file (it has
  * not opted in, and a fresh repo must not fail on day one) — but a FINDING once
@@ -86,6 +92,29 @@ export interface RatchetLine {
  * weight nobody signed off on.
  */
 export function ratchetLines(
+  onDisk: BaselineOnDisk,
+  measured: readonly MeasuredBundle[],
+  max?: number,
+): readonly RatchetLine[] {
+  return [
+    ...baselineLines(onDisk, measured),
+    ...measured.flatMap(([at, weight]) => ceilingLine(at, weight, max)),
+  ];
+}
+
+/** One bundle's ceiling finding, or nothing when it is at or under `max`. */
+function ceilingLine(
+  at: string,
+  weight: InstructionWeight | null,
+  max: number | undefined,
+): readonly RatchetLine[] {
+  const over = weight === null ? undefined : checkCeiling(weight, max);
+  return over === undefined
+    ? []
+    : [{ at, status: "finding", text: formatCeiling(over, at) }];
+}
+
+function baselineLines(
   onDisk: BaselineOnDisk,
   measured: readonly MeasuredBundle[],
 ): readonly RatchetLine[] {
@@ -124,47 +153,100 @@ export function ratchetLines(
   });
 }
 
-/** Run the ratchet for `lint`: print, annotate, count. */
-export function checkInstructionWeightRatchet(opts: {
+/**
+ * The bundles `--update-baseline` must not record: each one over the ceiling,
+ * as the refusal text. Empty when there is no ceiling or nothing exceeds it.
+ */
+export function updateRefusals(
+  measured: readonly MeasuredBundle[],
+  max: number | undefined,
+): readonly string[] {
+  return measured.flatMap(([at, weight]) => {
+    const over = weight === null ? undefined : checkCeiling(weight, max);
+    return over === undefined ? [] : [formatRefusal(over, at)];
+  });
+}
+
+/** The options {@link checkInstructionWeightRatchet} takes. */
+interface RatchetOptions {
   readonly root: string;
   readonly severity: RuleSeverity;
+  /** The opt-in absolute ceiling (`["error", { max }]`); `undefined` = ratchet only. */
+  readonly max?: number;
   readonly update: boolean;
   readonly silent: boolean;
   /** Called only when the rule is on or an update was asked for. */
   readonly measure: () => readonly MeasuredBundle[];
   readonly annotate: (level: "error" | "warning", message: string) => void;
-}): { issues: number; errors: number } {
+}
+
+/**
+ * What `lint` compares against: the file as it is, or — under `--update-baseline`
+ * and when nothing is over the ceiling — the file just written. A baseline above
+ * the ceiling would bypass it (re-recording is how a ratchet gets loosened), so
+ * then nothing is written and the refusals are returned for the caller to fail on.
+ */
+function recordOrRead(
+  opts: RatchetOptions,
+  measured: readonly MeasuredBundle[],
+): { readonly onDisk: BaselineOnDisk; readonly refusals: readonly string[] } {
+  const before = readInstructionBaseline(opts.root);
+  const refusals = opts.update ? updateRefusals(measured, opts.max) : [];
+  const record = opts.update && refusals.length === 0;
+  return {
+    refusals,
+    onDisk: record
+      ? {
+          kind: "ok",
+          baseline: writeInstructionBaseline(opts.root, before, measured),
+        }
+      : before,
+  };
+}
+
+/** The human-readable report: what was recorded, then one line per bundle. */
+function printReport(
+  lines: readonly RatchetLine[],
+  severity: RuleSeverity,
+  recorded: boolean,
+): void {
+  console.log("\nInstruction-weight ratchet:\n");
+  if (recorded) console.log(`  ✓ recorded ${INSTRUCTION_BASELINE_FILE}`);
+  const marks = {
+    finding: severity === "error" ? "✗" : "⚠",
+    ok: "✓",
+    note: "ℹ",
+  } as const;
+  lines.forEach((l) => {
+    console.log(`  ${marks[l.status]} ${l.text}`);
+  });
+}
+
+/** Run the ratchet for `lint`: print, annotate, count. */
+export function checkInstructionWeightRatchet(opts: RatchetOptions): {
+  issues: number;
+  errors: number;
+} {
   const { severity, update, silent } = opts;
   if (!severity && !update) return { issues: 0, errors: 0 };
   const measured = opts.measure();
-  const before = readInstructionBaseline(opts.root);
-  const onDisk: BaselineOnDisk = update
-    ? {
-        kind: "ok",
-        baseline: writeInstructionBaseline(opts.root, before, measured),
-      }
-    : before;
-  const lines = severity ? ratchetLines(onDisk, measured) : [];
+  const { onDisk, refusals } = recordOrRead(opts, measured);
+  refusals.forEach((message) => {
+    console.error(`✗ ${message}`);
+    opts.annotate("error", message);
+  });
+  const lines = severity ? ratchetLines(onDisk, measured, opts.max) : [];
   const findings = lines.filter((l) => l.status === "finding");
   if (!silent && (update || lines.length > 0)) {
-    console.log("\nInstruction-weight ratchet:\n");
-    if (update) console.log(`  ✓ recorded ${INSTRUCTION_BASELINE_FILE}`);
-    const marks = {
-      finding: severity === "error" ? "✗" : "⚠",
-      ok: "✓",
-      note: "ℹ",
-    } as const;
-    lines.forEach((l) => {
-      console.log(`  ${marks[l.status]} ${l.text}`);
-    });
+    printReport(lines, severity, update && refusals.length === 0);
   }
   const level = severity === "error" ? "error" : "warning";
   findings.forEach((l) => {
     opts.annotate(level, l.text);
   });
   return {
-    issues: findings.length,
-    errors: severity === "error" ? findings.length : 0,
+    issues: findings.length + refusals.length,
+    errors: (severity === "error" ? findings.length : 0) + refusals.length,
   };
 }
 

@@ -14,6 +14,7 @@ import { describe, it, expect } from "vitest";
 
 import { compileClaude, DEFAULT_MAX_ENTRY_CHARS } from "./compile.js";
 import type { HarnessDialect } from "./dialect.js";
+import { MOVE_OUT_OF_ALWAYS_LOADED } from "./instruction-remedies.js";
 import type { InstructionBudget } from "./instruction-weight.js";
 import { guidance } from "./spec.js";
 
@@ -86,6 +87,8 @@ describe("per-section character budget", () => {
       },
     );
     expect(warnings.map((w) => w.type)).toEqual(["section-too-large"]);
+    // The finding says where the text can go, not only that it is too long.
+    expect(warnings[0]?.message).toContain(MOVE_OUT_OF_ALWAYS_LOADED);
     // The point of the char budget: this same section passes the line guard.
     expect(errors.filter((e) => e.type === "section-too-long")).toHaveLength(0);
   });
@@ -213,6 +216,10 @@ describe("compile-budget at error: the sums", () => {
     const { errors } = await strict(spec({ rules }), { maxRulesChars: 2000 });
     expect(errors.map((e) => e.type)).toEqual(["rules-too-large"]);
     expect(errors[0].message).toContain("30 rules");
+    expect(errors[0].message).toContain("(budget 2,000)");
+    // Rendering shorter is one move; the rest are the carriers every
+    // "too much always-loaded text" finding names.
+    expect(errors[0].message).toContain(MOVE_OUT_OF_ALWAYS_LOADED);
   });
 });
 

@@ -38,6 +38,7 @@
 import { z } from "zod";
 
 import type { InstructionWeight } from "./instruction-weight.js";
+import { MOVE_OUT_OF_ALWAYS_LOADED } from "./instruction-remedies.js";
 
 /** Where the baseline lives, relative to the directory `.vigilesrc.json` is read from. */
 export const INSTRUCTION_BASELINE_FILE = ".vigiles/instruction-weight.json";
@@ -221,6 +222,50 @@ export function compareToBaseline(
   };
 }
 
+/** One file's size, for naming where the weight is. */
+export interface FileWeight {
+  readonly path: string;
+  readonly size: number;
+}
+
+/**
+ * A total above the opt-in absolute ceiling (`["error", { max }]`).
+ *
+ * Decided on the same number the ratchet records — `committedTotal`, the SCORED
+ * files only — and in the same unit, so the two can never disagree about what
+ * the weight is. It does not look at the baseline at all: that independence is
+ * what makes it a ceiling and not a second ratchet.
+ */
+export interface CeilingVerdict {
+  readonly total: number;
+  readonly max: number;
+  readonly unit: BaselineEntry["unit"];
+  /** The scored files, heaviest first — where the cut has to come from. */
+  readonly largest: readonly FileWeight[];
+}
+
+/** How many of the heaviest files a ceiling message names. */
+const CEILING_NAMED_FILES = 5;
+
+/** `undefined` when the weight is at or under `max`, or when no ceiling is set. */
+export function checkCeiling(
+  weight: InstructionWeight,
+  max: number | undefined,
+): CeilingVerdict | undefined {
+  if (max === undefined) return undefined;
+  const { total, unit, files } = entryFor(weight);
+  if (total <= max) return undefined;
+  return {
+    total,
+    max,
+    unit,
+    largest: Object.entries(files)
+      .map(([path, size]) => ({ path, size }))
+      .sort((a, b) => b.size - a.size || a.path.localeCompare(b.path))
+      .slice(0, CEILING_NAMED_FILES),
+  };
+}
+
 /** Replace the measured bundles' entries; `null` removes one. Others are kept. */
 export function recordEntries(
   previous: InstructionBaseline | undefined,
@@ -289,11 +334,38 @@ export function formatVerdict(verdict: RatchetVerdict, at: string): string {
           : "";
       return verdict.kind === "grew"
         ? `${where}always-loaded instructions grew ${head} over the recorded baseline.${moved} ` +
-            `If the growth is intended, record it with \`${UPDATE_BASELINE_COMMAND}\` — the diff of ${INSTRUCTION_BASELINE_FILE} is the review.`
+            `If the growth is intended, record it with \`${UPDATE_BASELINE_COMMAND}\` — the diff of ${INSTRUCTION_BASELINE_FILE} is the review. If it is not:\n${MOVE_OUT_OF_ALWAYS_LOADED}`
         : `${where}always-loaded instructions shrank ${head}; the baseline still allows the old weight.${moved} ` +
             `Lock the cut in with \`${UPDATE_BASELINE_COMMAND}\`, or the headroom can be regrown without a finding.`;
     }
   }
+}
+
+/** The message for a total over the ceiling, prefixed by its bundle. */
+export function formatCeiling(verdict: CeilingVerdict, at: string): string {
+  const where = at === "." ? "" : `${at}: `;
+  const biggest = verdict.largest
+    .map((f) => `${f.path} ${n(f.size)}`)
+    .join(", ");
+  return (
+    `${where}always-loaded instructions are ${n(verdict.total)} ${verdict.unit}, ` +
+    `max ${n(verdict.max)} — ${n(verdict.total - verdict.max)} over. ` +
+    `Largest: ${biggest}.\n` +
+    `${MOVE_OUT_OF_ALWAYS_LOADED}\n` +
+    `Moving text to another always-loaded file does not help, ` +
+    `and re-recording the baseline does not lift the ceiling.`
+  );
+}
+
+/** Why `--update-baseline` wrote nothing: the ceiling it would have been recorded above. */
+export function formatRefusal(verdict: CeilingVerdict, at: string): string {
+  const where = at === "." ? "" : `${at}: `;
+  return (
+    `${where}refusing to record ${INSTRUCTION_BASELINE_FILE}: ` +
+    `${n(verdict.total)} ${verdict.unit} is over the configured max ${n(verdict.max)} ` +
+    `(${n(verdict.total - verdict.max)} over). A baseline above the ceiling would bypass it — ` +
+    `get under it first, then run \`${UPDATE_BASELINE_COMMAND}\` again.\n${MOVE_OUT_OF_ALWAYS_LOADED}`
+  );
 }
 
 /** The compile-time one-liner: weight now, against the baseline when there is one. */

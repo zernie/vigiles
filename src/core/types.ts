@@ -75,6 +75,20 @@ export interface CoverageThresholds {
 }
 
 /**
+ * Options for the `instruction-weight` rule: `["error", { max: 40000 }]`.
+ */
+export interface InstructionWeightConfig {
+  /**
+   * An opt-in ABSOLUTE ceiling on the always-loaded instruction weight, in the
+   * harness's own unit (characters for Claude Code, bytes for Codex). A total
+   * above it is a finding at the rule's severity regardless of the baseline, and
+   * `vigiles lint --update-baseline` refuses to record a baseline above it.
+   * Omitted → only the ratchet applies. A positive integer.
+   */
+  max?: number;
+}
+
+/**
  * Options for the orphan-docs check. The PRESENCE of this block in
  * `.vigilesrc.json` OPTS THE REPO IN — the scan is off unless declared,
  * because "unreferenced" only means "rot" for a hand-cross-linked corpus,
@@ -162,8 +176,12 @@ export interface RulesConfig {
    * repo's own past, not a fixed budget. No baseline file → a one-line note,
    * never a finding, so turning this on fails no repository on day one.
    * `vigiles lint --update-baseline` records it. Default: "error".
+   *
+   * `["error", { max: 40000 }]` adds an opt-in absolute ceiling on top of the
+   * ratchet: a total above `max` is a finding whatever the baseline says, and
+   * the baseline cannot be re-recorded above it.
    */
-  "instruction-weight"?: RuleSeverity;
+  "instruction-weight"?: RuleWithOptions<InstructionWeightConfig>;
   /**
    * An instruction spec still uses the deprecated `keyFiles` field — a flat
    * path → description list compiled into the file loaded on every request.
