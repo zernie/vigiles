@@ -217,7 +217,8 @@ test("compileAgent verifies body references against the filesystem", async () =>
   }
 });
 
-test("compileAgent renders a Rules section the worker must follow", async () => {
+test("compileAgent renders a Rules section the worker must follow, verifying each enforce() (#351)", async () => {
+  const options = { specFile: "a.md.spec.ts", dialect: claudeCodeDialect };
   const { markdown, errors } = await compileAgent(
     experimental_agent({
       name: "a",
@@ -230,7 +231,7 @@ test("compileAgent renders a Rules section the worker must follow", async () => 
         "research-first": guidance("Check the docs before guessing."),
       },
     }),
-    { specFile: "a.md.spec.ts", dialect: claudeCodeDialect },
+    options,
   );
   assert.deepEqual(errors, []);
   assert.match(markdown, /## Rules/);
@@ -241,6 +242,30 @@ test("compileAgent renders a Rules section the worker must follow", async () => 
   assert.match(
     markdown,
     /\*\*Guidance only\*\* — Check the docs before guessing\./,
+  );
+
+  // An invented rule is an error and never renders "Enforced by".
+  const invented = await compileAgent(
+    experimental_agent({
+      name: "a",
+      description: "d",
+      rules: {
+        invented: enforce(
+          "@typescript-eslint/no-such-rule-anywhere",
+          "Made up.",
+        ),
+      },
+    }),
+    options,
+  );
+  assert.deepEqual(
+    invented.errors.map((e) => e.type),
+    ["invalid-rule"],
+  );
+  assert.doesNotMatch(invented.markdown, /\*\*Enforced by:\*\*/);
+  assert.match(
+    invented.markdown,
+    /\*\*Claimed \(unverified\):\*\* `@typescript-eslint\/no-such-rule-anywhere`/,
   );
 });
 

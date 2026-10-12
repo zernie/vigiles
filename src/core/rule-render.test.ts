@@ -23,6 +23,11 @@ import { makeTmpDir, cleanupTmpDir } from "./test-utils.js";
 const WHY =
   "Use the structured logger. Console output is lost in CI and nobody reads it there.";
 
+/**
+ * `verifyLinters: false` keeps these tests offline; an unverified `enforce()`
+ * renders "**Claimed (unverified):**" (#351), so that is the marker asserted.
+ * What these tests pin is the Why line and the details link, not the marker.
+ */
 const compileIn = async (
   base: string,
   rules: Parameters<typeof instructionFile>[0]["rules"],
@@ -59,7 +64,7 @@ describe("enforce() render policy", () => {
       });
       expect(errors).toHaveLength(0);
       expect(markdown).toContain(
-        "**Enforced by:** `eslint/no-console`\n**Why:** " + WHY,
+        "**Claimed (unverified):** `eslint/no-console`\n**Why:** " + WHY,
       );
     });
   });
@@ -69,7 +74,9 @@ describe("enforce() render policy", () => {
       const { markdown } = await compileIn(dir, {
         logging: enforce("eslint/no-console", WHY, { render: "line" }),
       });
-      expect(markdown).toContain("**Enforced by:** `eslint/no-console`");
+      expect(markdown).toContain(
+        "**Claimed (unverified):** `eslint/no-console`",
+      );
       expect(markdown).toContain("**Why:** Use the structured logger.");
       expect(markdown).not.toContain("nobody reads it");
     });
@@ -81,7 +88,7 @@ describe("enforce() render policy", () => {
         logging: enforce("eslint/no-console", WHY, { render: "id" }),
       });
       expect(markdown).toContain(
-        "### Logging\n\n**Enforced by:** `eslint/no-console`",
+        "### Logging\n\n**Claimed (unverified):** `eslint/no-console`",
       );
       expect(markdown).not.toContain("**Why:**");
       expect(markdown).not.toContain("structured logger");

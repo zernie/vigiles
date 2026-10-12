@@ -1773,13 +1773,25 @@ function renderOutputContract(contract: OutputContract): string {
   ].join("\n");
 }
 
-/** Render the rules a subagent must follow as a `## Rules` section. */
-function renderAgentRules(rules: Record<string, Rule>): string {
-  const parts = ["## Rules", ""];
-  for (const [id, rule] of Object.entries(rules)) {
-    parts.push(compileRule(id, rule), "");
-  }
-  return parts.join("\n").trim();
+/**
+ * Render the rules a subagent must follow as a `## Rules` section. Each
+ * `enforce()` is verified the same way `compileClaude` verifies it, so the
+ * marker is the verdict's and a missing or switched-off rule is an error here
+ * too (#351).
+ */
+function renderAgentRules(
+  rules: Readonly<Record<string, Rule>>,
+  basePath: string,
+): { readonly text: string; readonly errors: readonly CompileError[] } {
+  const rendered = Object.entries(rules).map(([id, rule]) => {
+    if (rule._kind !== "enforce") return { text: compileRule(id, rule) };
+    const check = verifyEnforce(rule, basePath, {});
+    return { text: compileRule(id, rule, check.verdict), error: check.error };
+  });
+  return {
+    text: ["## Rules", ...rendered.flatMap((r) => ["", r.text])].join("\n"),
+    errors: rendered.flatMap((r) => ("error" in r && r.error ? [r.error] : [])),
+  };
 }
 
 export interface CompileAgentResult {
@@ -1858,7 +1870,9 @@ export async function compileAgent(
     errors.push(...result.errors);
   }
   if (spec.rules && Object.keys(spec.rules).length > 0) {
-    sections.push(renderAgentRules(spec.rules));
+    const agentRules = renderAgentRules(spec.rules, basePath);
+    sections.push(agentRules.text);
+    errors.push(...agentRules.errors);
   }
   if (spec.output) sections.push(renderOutputContract(spec.output));
   const body = sections.join("\n\n");

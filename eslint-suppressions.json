@@ -1005,10 +1005,10 @@
       "count": 7
     },
     "functional/no-loop-statements": {
-      "count": 14
+      "count": 13
     },
     "functional/prefer-immutable-types": {
-      "count": 45
+      "count": 44
     },
     "no-param-reassign": {
       "count": 1
