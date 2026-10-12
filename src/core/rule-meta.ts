@@ -228,7 +228,7 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     id: "hand-written-hook",
     bucket: "heuristic-behavioral",
     surface: ["hook"],
-    defaultSeverity: "warn",
+    defaultSeverity: "off",
     summary:
       "A hook line vigiles did not write is named: a static reader cannot verify it, so compile it.",
     detector: "scanHooks (handWritten: no planned line matches)",

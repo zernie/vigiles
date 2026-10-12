@@ -98,6 +98,7 @@ import {
   scanSkills,
   skillRefSources,
   scanHookScripts,
+  hookSourceRefs,
   type HookScriptScan,
   isDependencyPath,
   frontmatterIssuesFor,
@@ -132,7 +133,7 @@ import {
 } from "./core/event-capability.js";
 import { hookLinePlan } from "./core/hook-command.js";
 import { HOOKS_DIR } from "./core/hook-paths.js";
-import { classifySource } from "./source-kinds.js";
+import type { HookRegistration } from "./core/hook-normalize.js";
 
 /**
  * The synthetic absolute root every path in a browser scan resolves against. A
@@ -682,6 +683,28 @@ function collectMcpServers(
 // Public API
 // ---------------------------------------------------------------------------
 
+/** The map's hook lines as written, its hook scan, and what that scan finds. */
+function fileMapHooks(
+  files: Readonly<Record<string, string>>,
+  loaded: Readonly<LoadedPlugin>,
+  layout: Readonly<PluginLayout>,
+): ReturnType<typeof scanHookScripts> & {
+  readonly hookScan: HookScriptScan;
+  readonly asWritten: readonly HookRegistration[];
+} {
+  const hookScan = fileMapHookScan(files, layout, mapExists(files));
+  const asWritten = normalizeHooks(loaded.hooksAsWritten);
+  return {
+    hookScan,
+    asWritten,
+    ...scanHookScripts(
+      asWritten,
+      normalizeHooks(loaded.shadowedSettingsHooks),
+      hookScan,
+    ),
+  };
+}
+
 /**
  * The hook scan as the file map can answer it: the lines as written, the plan
  * from the map's own hook sources, stamps and `package.json`, and no
@@ -692,11 +715,12 @@ function fileMapHookScan(
   layout: Readonly<PluginLayout>,
   exists: (path: string) => boolean,
 ): HookScriptScan {
-  const sources = Object.keys(files)
-    .filter((k) => k.startsWith(`${HOOKS_DIR}/`))
-    .filter((k) => !k.slice(HOOKS_DIR.length + 1).includes("/"))
-    .filter((k) => classifySource(basename(k)).kind === "hook")
-    .sort();
+  const sources = hookSourceRefs(
+    Object.keys(files)
+      .filter((k) => k.startsWith(`${HOOKS_DIR}/`))
+      .map((k) => k.slice(HOOKS_DIR.length + 1))
+      .filter((name) => !name.includes("/")),
+  );
   return {
     root: BROWSER_ROOT,
     layout,
@@ -745,13 +769,7 @@ export function scanFiles(
   const loaded = loadPluginFromFiles(files, lay, repoName);
   const exists = mapExists(files);
   const hookRegs = normalizeHooks(loaded.settings.hooks);
-  const hookScan = fileMapHookScan(files, lay, exists);
-  const asWritten = normalizeHooks(loaded.hooksAsWritten);
-  const { hooks, inline, handWritten } = scanHookScripts(
-    asWritten,
-    normalizeHooks(loaded.shadowedSettingsHooks),
-    hookScan,
-  );
+  const hk = fileMapHooks(files, loaded, lay);
   const eventNames = hookEventNames(loaded.settings.hooks);
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
   const hookEventIssues = scoredIssues(allHookEventIssues);
@@ -812,9 +830,9 @@ export function scanFiles(
     ownTestSignal,
     skills,
     agents,
-    hooks,
-    inlineHooks: inline,
-    handWrittenHooks: handWritten,
+    hooks: hk.hooks,
+    inlineHooks: hk.inline,
+    handWrittenHooks: hk.handWritten,
     ...inventoryCounts(loaded.files, cls.isCommand, [lay], coverage),
     // A declared server set counts even when the loader emitted no warning —
     // otherwise a plugin whose servers come from the Agent Plugins `mcp.json`
@@ -868,16 +886,13 @@ export function scanFiles(
     delegationTrifecta: collectDelegationTrifecta(agents, dialect),
     hookBlockFindings:
       blockIneffectiveEventsOf(dialect).length > 0
-        ? hookBlockIssues(
-            collectHookBlockEntries(asWritten, hookScan),
-            {
-              noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
-              permissionDecisionEvents: new Set(
-                permissionDecisionEventsOf(dialect),
-              ),
-              readFileSync: mapReadFile(files),
-            },
-          )
+        ? hookBlockIssues(collectHookBlockEntries(hk.asWritten, hk.hookScan), {
+            noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
+            permissionDecisionEvents: new Set(
+              permissionDecisionEventsOf(dialect),
+            ),
+            readFileSync: mapReadFile(files),
+          })
         : [],
     hookMatcherFindings: hookMatcherIssues(
       collectHookMatchers(hookRegs),

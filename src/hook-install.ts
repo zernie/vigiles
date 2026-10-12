@@ -47,8 +47,6 @@ const stringifyToml = (value: unknown): string =>
     value as never,
   );
 
-
-
 /** The committed home for registered context-provider SOURCE (v2). */
 export const PROVIDERS_DIR = ".vigiles/providers";
 

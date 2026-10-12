@@ -207,10 +207,11 @@ preset is `vigiles:recommended`. `npx vigiles init` writes it for you.
 `vigiles:recommended` raises the **structural** rules to `error`. These rules
 fire only on a real defect, so a well-formed harness stays green:
 `subagent-tool-contract`, `subagent-frontmatter`, `hook-events`,
-`mcp-config`, `mcp-tool-resolves`, `mcp-hook-target-resolves`,
-`disallowed-tools-contract` and `description-overlap`.
-[`hook-script-exists`](rules/hook-script-exists.md) stays at `warn` for now; it
-becomes `error` with [#372](https://github.com/zernie/vigiles/issues/372). It also gates [`compile-budget`](rules/compile-budget.md):
+`hook-script-exists`, `mcp-config`, `mcp-tool-resolves`,
+`mcp-hook-target-resolves`, `disallowed-tools-contract` and
+`description-overlap`. [`hand-written-hook`](rules/hand-written-hook.md) is not
+in the preset: its cure is a compiled hook, still an
+[experimental](experimental.md) API. It also gates [`compile-budget`](rules/compile-budget.md):
 a compiled instruction file whose Rules section is over 20,000 characters, or
 with a section over 15,000 or a `commands` entry over 200, fails `compile` and
 `lint`. And it gates
@@ -443,9 +444,9 @@ never read by the CLI.
 
 ---
 
-## Upgrading: `require-instructions-spec` in the preset, and `overrides`
+## Upgrading: `require-instructions-spec`, `overrides`, and hook lines
 
-Two changes, released together as a major version.
+Three changes, released together as a major version.
 
 **`vigiles:recommended` now gates `require-instructions-spec`.** A repo that
 extends the preset fails `lint` on every hand-written `CLAUDE.md` or
@@ -473,6 +474,24 @@ The `untested-*` rules shared one set of options, so an `exclude` on any of them
 skipped those paths for all four; the suggested entry turns all four off there.
 `include` stays a rule option in both places: it says where tests live, and
 which files are docs.
+
+**Hook lines are read by identity; `prefer-compiled-hooks` became
+`hand-written-hook`.** vigiles no longer parses a hook command line it did not
+write. A line is _compiled_ only when it is exactly the line `vigiles compile`
+writes for one of your hook sources; [`hook-script-exists`](rules/hook-script-exists.md)
+checks the files such a line needs (runtime, program, stamp). Every other line
+can be one [`hand-written-hook`](rules/hand-written-hook.md) finding that names
+it. That rule is OFF by default and not in `vigiles:recommended`: its only cure
+is a compiled hook, written with an [experimental](experimental.md) API, so it is
+opt-in until compiled hooks leave experimental. A config that still names
+`prefer-compiled-hooks` is refused with a message naming `hand-written-hook`.
+
+The loss, stated plainly: **a hand-written hook whose script is missing is no
+longer detected statically.** Compile the hook (`vigiles/hook`) and the files it
+needs are checked exactly; until then `vigiles test` (`runHook`) checks a
+hand-written hook by running it. Recompile once after upgrading: `compile` now
+records each hook's role in its stamp, and a wired line without that record
+reads as "edited or stale: recompile".
 
 ## Upgrading from `harness` / `surfaceRoots`
 

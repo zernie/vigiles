@@ -291,8 +291,9 @@ export interface RulesConfig {
   /**
    * One finding per hook line vigiles did not write: it cannot say what such a
    * line runs or whether it swallows its own failure, so it names the hook and
-   * points at compiled hooks (`vigiles/hook`). Default "warn", also under
-   * `vigiles:recommended` until #372. See docs/rules/hand-written-hook.md.
+   * points at compiled hooks (`vigiles/hook`). Default OFF, also under
+   * `vigiles:recommended`: the cure is an experimental API, so it is opt-in
+   * until compiled hooks leave experimental. See docs/rules/hand-written-hook.md.
    */
   "hand-written-hook"?: RuleSeverity;
   /**

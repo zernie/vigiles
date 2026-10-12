@@ -873,11 +873,6 @@
       "count": 40
     }
   },
-  "src/core/bash-effects.test.ts": {
-    "local/no-harness-names": {
-      "count": 5
-    }
-  },
   "src/core/bash-effects.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 5
@@ -3045,7 +3040,7 @@
       "count": 1
     },
     "local/no-harness-names": {
-      "count": 3
+      "count": 2
     }
   },
   "src/lint-contract.test.ts": {
@@ -3528,7 +3523,7 @@
       "count": 1
     },
     "local/no-harness-names": {
-      "count": 314
+      "count": 308
     }
   },
   "src/scan.ts": {

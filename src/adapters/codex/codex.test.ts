@@ -266,8 +266,11 @@ test("hook-script-exists: a compiled hook's relative RUNNER is checked — missi
     mkdirSync(join(dir, ".vigiles", "hooks"), { recursive: true });
     const toml = `[[hooks.PostToolUse]]\ncommand = "node ${runner} hook-runtime run-program .vigiles/hooks/x.hook.mjs || exit 0"\n`;
     const hook = "export default {};\n";
+    // The role compile records: the line above is the one it writes for it.
+    const stamp = JSON.stringify({ stamp: "s", role: "react" });
     writeFileSync(join(dir, codexLayout.settingsPath), toml);
     writeFileSync(join(dir, ".vigiles", "hooks", "x.hook.mjs"), hook);
+    writeFileSync(join(dir, ".vigiles", "hooks", "x.hook.mjs.json"), stamp);
     const statusOf = (
       hooks: readonly { script: string; status: string }[],
       suffix: string,
@@ -282,6 +285,7 @@ test("hook-script-exists: a compiled hook's relative RUNNER is checked — missi
       {
         [codexLayout.settingsPath]: toml,
         ".vigiles/hooks/x.hook.mjs": hook,
+        ".vigiles/hooks/x.hook.mjs.json": stamp,
       },
       codexLayout,
       codexDialect,

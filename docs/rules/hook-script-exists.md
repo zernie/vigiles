@@ -1,21 +1,16 @@
 # hook-script-exists
 
-Two findings about hook lines, one detector (`scanHooks` in `src/scan-core.ts`,
-shared by `vigiles lint` and `vigiles audit`):
+A file a **compiled** hook line needs is missing — the hook runtime it starts,
+the hook program, or the program's stamp — so the hook cannot run. Same detector
+`vigiles audit` uses (`scanHooks` in `src/scan-core.ts`); one detector, two
+callers.
 
-1. **A file a hook line runs is missing.** A hook pointing at
-   `${CLAUDE_PLUGIN_ROOT}/hooks/x.sh` when that file is not there silently never
-   runs: the protection or automation the author wired up does not happen, and
-   nothing says so.
-2. **A hook line vigiles did not write — one finding per hook.** A static reader
-   cannot tell what a hand-written shell line runs or whether it swallows its own
-   failure, so vigiles does not guess. It names the hook and points at
-   [compiled hooks](../compiled-hooks.md) (`vigiles/hook`), whose command line
-   vigiles writes itself and therefore checks exactly.
-
-**Whether a hook works is answered only by running it** — `runHook` in a test, or
-`vigiles test` ([harness testing](../harness-testing.md)). Both findings here are
-about what can be known without running it.
+A line is compiled only by **identity**: it equals the line `vigiles compile`
+writes for one of the repo's hook sources. Its files come from that plan, never
+from reading the line. A line vigiles did not write is
+[`hand-written-hook`](hand-written-hook.md)'s, and this rule does not look for
+its script: vigiles never parses a hand-written hook command line. See that rule
+for how a line is read, and for what that costs.
 
 > **Correction, 2026-09-08.** This doc used to say the rule "matches Anthropic's
 > own `claude plugin validate`, making vigiles a superset of the official
@@ -38,106 +33,57 @@ about what can be known without running it.
 >   deletion reads as a wording change and invites someone to add it back.
 > - **What would invalidate this:** a new Claude Code minor. Re-run the probe.
 
-## How a hook line is read
-
-The line is parsed as shell (mvdan-sh), never split as a string, and gets exactly
-one of three readings (`hookCommandShape` in `src/core/hook-command.ts`):
-
-| reading    | the line                                                                                                         | what is checked                                     |
-| ---------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| `compiled` | one vigiles wrote: `node <runner> hook-runtime <kind> …`, `npx vigiles hook-runtime <kind> …`, the session check | the runner and the program it names exist           |
-| `script`   | hand-written, and STARTS by running a literal path: `./hooks/x.sh`, `bash ${CLAUDE_PLUGIN_ROOT}/hooks/x.sh`      | that one file exists; the hook is named (finding 2) |
-| `opaque`   | anything else                                                                                                    | nothing is guessed; the hook is named (finding 2)   |
-
-A compiled line is read by the template that writes it, as the WHOLE line (an
-optional `|| exit <n>` ending included). A line that mentions our words, or
-chains more work after them, is hand-written.
-Our `hook-runtime run-program` template with no program, or more than one, is
-reported as "a compiled hook line with a malformed run-program argument;
-recompile" — the cure is `vigiles compile`, not a hand-written hook.
-
-A literal path is a word with a slash that the shell does not compute: no
-variable other than the harness's own root (`${CLAUDE_PLUGIN_ROOT}`,
-`$CLAUDE_PROJECT_DIR`, either spelling) as its whole first segment, no glob, no
-`~`. `bash -x hooks/x.sh`, `sh -c '…'`, `cd "$ROOT" && node hooks/x.mjs`,
-`[ -f x ] && x`, `"$HOME"/x.sh` and `bash "${CLAUDE_PROJECT_DIR:-.}/x.sh"` are
-all opaque: finding the script in any of them takes the guessing this rule
-refuses to do.
-
 ## What it flags
 
-```jsonc
-"hooks": {
-  "PreToolUse": [{
-    "matcher": "Bash",
-    "hooks": [{ "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh" }]
-  }]
-}
-```
-
-→ `hooks/guard.sh` missing at the plugin root is finding 1; the line itself,
-hand-written, is finding 2 whether or not the file is there.
-
-**The runner of a compiled hook is checked too.** `vigiles compile` wires a hook as
+`vigiles compile` wires a hook as
 
 ```sh
-node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/x.hook.mjs" || exit 0
+node "${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js" hook-runtime run-program "${CLAUDE_PROJECT_DIR}/.vigiles/hooks/x.hook.mjs" || exit 0
 ```
 
-Both files must exist: the hook program and the runtime (`dist/cli.js`) that starts it. A missing runtime is reported as **not installed**. It matters more than it looks, because a reminder hook ends in `|| exit 0` on purpose (it must never block a session), and that ending turns "the runtime is not there" into the same silence as "the hook had nothing to say". Nothing else tells the two apart. Measured 2026-10-11 on this repository: both of its own compiled reminders had failed to load on every call for three weeks, and no gate noticed.
+Three files must exist: the runtime (`dist/cli.js`), the hook program, and its
+stamp (`.vigiles/hooks/x.hook.mjs.json`). The start-of-session check `compile`
+wires needs `.vigiles/hook-check.sh`.
+
+**A missing runtime is reported as _not installed_.** It matters more than it
+looks, because a reminder hook ends in `|| exit 0` on purpose (it must never
+block a session), and that ending turns "the runtime is not there" into the same
+silence as "the hook had nothing to say". Nothing else tells the two apart.
+Measured 2026-10-11 on this repository: both of its own compiled reminders had
+failed to load on every call for three weeks, and no gate noticed.
 
 A **dependency the scan cannot see** is not reported missing: the browser audit
 reads a GitHub fetch, which never contains `node_modules`, so there a path under
 `node_modules/` is "unresolved". On disk (`vigiles lint`, `vigiles audit`) it is
-checked like any other file. A relative path resolves against the scanned root,
-not the scanner's cwd.
+checked like any other file.
 
 ## Configuration
 
 ```json
-{ "rules": { "hook-script-exists": "warn" } }
+{ "rules": { "hook-script-exists": "error" } }
 ```
 
-### Severity
-
-| Value              | Behavior                          |
-| ------------------ | --------------------------------- |
-| `"error"`          | `vigiles lint` exits non-zero (2) |
-| `"warn"` (default) | Prints a warning, exits 0         |
-| `false`            | Skip the check                    |
-
-**`warn` for now, also under `"extends": "vigiles:recommended"`.** It becomes
-`error` there once [#372](https://github.com/zernie/vigiles/issues/372) lands:
-that change compiles a plugin's own hooks, and until it does a plugin has no
-way to stop shipping hand-written ones. Set `"error"` yourself to gate today.
+| Value              | Behavior                                                                        |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `"error"`          | `vigiles lint` exits non-zero (2); what `"extends": "vigiles:recommended"` sets |
+| `"warn"` (default) | Prints a warning, exits 0                                                       |
+| `false`            | Skip the check                                                                  |
 
 ## Scope
 
-Hook commands in `.claude/settings.json` and the plugin manifest
-(`.claude-plugin/plugin.json`, or `hooks/hooks.json`). Codex's
-`.codex/config.toml` hooks are read the same way; a relative path resolves
-against the project root.
-
-**A repository can be both a plugin and a project.** The manifest's hooks run
-for whoever installs the plugin; `.claude/settings.json` runs for whoever works
-in the repository. The files the settings name join the existence check (finding
-1); finding 2, and the other hook rules, read the hooks the loader chose (the
-manifest's).
-
-In a plugin repo, the hand-written hooks in `.claude/settings.json` are therefore
-NOT listed as findings: the loader reads the manifest's hooks and shadows the
-settings file, so only the files those settings hooks name are checked.
+Compiled hook lines in `.claude/settings.json`, the plugin manifest and Codex's
+`.codex/config.toml`. **A repository can be both a plugin and a project.** The
+manifest's hooks run for whoever installs the plugin; `.claude/settings.json`
+runs for whoever works in the repository. The compiled lines of both are
+checked here.
 
 ## Why
 
-A hook is deterministic harness machinery; a hook whose script is missing is a
-silent no-op — the worst kind of failure, because the author believes the guard is
-in place. And every hand-written line is a place where that failure, or a
-swallowed one (`|| true`), can hide from any static reader: tokenizing more shell
-shapes only moves the blind spot. A compiled hook removes it.
+A compiled hook whose runtime or program is missing is a silent no-op — the
+worst kind of failure, because the author believes the guard is in place.
 
 ## See also
 
+- [hand-written-hook](hand-written-hook.md) — every hook line vigiles did not write.
 - [compiled-hooks](../compiled-hooks.md) — writing a hook vigiles can check.
-- [untested-hook](untested-hook.md) — a hook script that ships without a test/eval
-  (a different concern: the script exists but is unverified).
+- [untested-hook](untested-hook.md) — a hook script that ships without a test/eval.

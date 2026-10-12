@@ -208,7 +208,8 @@ never cries wolf:
 
 - `subagent-tool-contract` (a typo'd / never-available tool),
   `subagent-frontmatter` (a subagent missing `name`/`description`),
-- `hook-events` (a typo'd event that never fires),
+- `hook-events` (a typo'd event that never fires), `hook-script-exists` (a file
+  a compiled hook needs is gone),
 - `mcp-config` / `mcp-tool-resolves` / `mcp-hook-target-resolves` (broken MCP),
 - `disallowed-tools-contract`, and `description-overlap` (two skills that
   collide in the selector),

@@ -13,7 +13,7 @@
  */
 
 import { instructionSpecState } from "./core/integrity-header.js";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 // The COMPOSITION-ROOT loader, not the `vigiles/claude-code` wrapper: this
@@ -121,6 +121,7 @@ import {
   collectSurfaceFindings,
   collectDelegationTrifecta,
   collectHookBlockEntries,
+  hookSourceRefs,
   collectHookMatchers,
   summarizePurity,
   detectOwnTestSignal,
@@ -139,7 +140,7 @@ import {
   permissionDecisionEventsOf,
 } from "./core/event-capability.js";
 import { hookLinePlan } from "./core/hook-command.js";
-import { discoverHookFiles } from "./hook-install.js";
+import { HOOKS_DIR } from "./core/hook-paths.js";
 
 // Re-export the pure detectors (and their public types: SurfaceClassifier,
 // SkillScanContext, handWrittenHookMessage, ...) that
@@ -766,7 +767,11 @@ export function scanPlugin(
     // On disk a dependency is as observable as any other file.
     observable: () => true,
     plan: hookLinePlan(
-      discoverHookFiles(dir).claimed,
+      hookSourceRefs(
+        existsSync(join(dir, HOOKS_DIR))
+          ? readdirSync(join(dir, HOOKS_DIR))
+          : [],
+      ),
       (ref: string) => {
         const abs = join(dir, ref);
         return existsSync(abs) ? nodeReadFile(abs) : undefined;
@@ -939,16 +944,13 @@ export function scanPlugin(
     delegationTrifecta: collectDelegationTrifecta(agents, dialect),
     hookBlockFindings:
       blockIneffectiveEventsOf(dialect).length > 0
-        ? hookBlockIssues(
-            collectHookBlockEntries(asWritten, hookScan),
-            {
-              noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
-              permissionDecisionEvents: new Set(
-                permissionDecisionEventsOf(dialect),
-              ),
-              readFileSync: nodeReadFile,
-            },
-          )
+        ? hookBlockIssues(collectHookBlockEntries(asWritten, hookScan), {
+            noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
+            permissionDecisionEvents: new Set(
+              permissionDecisionEventsOf(dialect),
+            ),
+            readFileSync: nodeReadFile,
+          })
         : [],
     hookMatcherFindings: hookMatcherIssues(
       collectHookMatchers(hookRegs),

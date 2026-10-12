@@ -37,7 +37,9 @@ import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
 
 const CLI = resolve(process.cwd(), "dist", "cli.js");
 const RUNNER = "node_modules/vigiles/dist/cli.js";
-const WIRED = `node "$CLAUDE_PROJECT_DIR/${RUNNER}" hook-runtime run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/x.hook.mjs" || exit 0`;
+// The line `compile` writes for a react hook — byte for byte, since a wired
+// line is recognised by identity with that plan (#362).
+const WIRED = `node "\${CLAUDE_PROJECT_DIR}/${RUNNER}" hook-runtime run-program "\${CLAUDE_PROJECT_DIR}/.vigiles/hooks/x.hook.mjs" || exit 0`;
 
 function write(dir: string, rel: string, content: string): void {
   const abs = join(dir, rel);
@@ -53,6 +55,20 @@ function settingsWith(command: string): string {
       ],
     },
   });
+}
+
+/** A hook program and the stamp its compile recorded (role: react). */
+function compiledHook(dir: string): void {
+  write(dir, ".vigiles/hooks/x.hook.mjs", "export default {};\n");
+  write(
+    dir,
+    ".vigiles/hooks/x.hook.mjs.json",
+    JSON.stringify({
+      file: ".vigiles/hooks/x.hook.mjs",
+      stamp: "s",
+      role: "react",
+    }),
+  );
 }
 
 /** A plugin manifest whose own hook script is present. */
@@ -103,7 +119,7 @@ test("a compiled hook whose RUNNER is not installed is `missing` on disk; instal
   const dir = makeTmpDir("runner-disk");
   try {
     write(dir, ".claude/settings.json", settingsWith(WIRED));
-    write(dir, ".vigiles/hooks/x.hook.mjs", "export default {};\n");
+    compiledHook(dir);
     let r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
     assert.equal(statusOf(r.hooks, RUNNER), "missing");
     // The hook program itself is there — the finding is the runner, not it.
@@ -121,7 +137,7 @@ test("the file-map twin cannot see node_modules, so the runner is `unresolved` t
   const dir = makeTmpDir("runner-map");
   try {
     write(dir, ".claude/settings.json", settingsWith(WIRED));
-    write(dir, ".vigiles/hooks/x.hook.mjs", "export default {};\n");
+    compiledHook(dir);
     const r = scanFiles(fileMap(dir), claudeCodeLayout, claudeCodeDialect);
     // A browser audit of a GitHub repo would otherwise accuse EVERY consumer
     // of a dead hook, because the fetch never includes node_modules.
@@ -139,17 +155,16 @@ test("a PLUGIN repo's own project settings are path-checked too, in both twins",
   const dir = makeTmpDir("runner-shadowed");
   try {
     pluginWithHook(dir);
-    write(
-      dir,
-      ".claude/settings.json",
-      settingsWith('bash "$CLAUDE_PROJECT_DIR/.claude/hooks/gone.sh" || true'),
-    );
+    compiledHook(dir);
+    write(dir, ".claude/settings.json", settingsWith(WIRED));
     const disk = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
-    assert.equal(statusOf(disk.hooks, "hooks/post.sh"), "ok");
-    assert.equal(statusOf(disk.hooks, ".claude/hooks/gone.sh"), "missing");
+    assert.equal(statusOf(disk.hooks, RUNNER), "missing");
+    assert.equal(statusOf(disk.hooks, ".vigiles/hooks/x.hook.mjs"), "ok");
     const map = scanFiles(fileMap(dir), claudeCodeLayout, claudeCodeDialect);
-    assert.equal(statusOf(map.hooks, "hooks/post.sh"), "ok");
-    assert.equal(statusOf(map.hooks, ".claude/hooks/gone.sh"), "missing");
+    assert.equal(statusOf(map.hooks, RUNNER), "unresolved");
+    assert.equal(statusOf(map.hooks, ".vigiles/hooks/x.hook.mjs"), "ok");
+    // The manifest's hand-written `post.sh` line is not read for a script.
+    assert.equal(statusOf(disk.hooks, "hooks/post.sh"), undefined);
     // Existence only: the shadowed settings do not join the other hook
     // detectors' input, so the hand-written hooks are the manifest's alone.
     assert.equal(disk.handWrittenHooks.length, 1);
@@ -164,18 +179,14 @@ test("`lint`: a fail-open compiled hook whose runner is not installed is an ERRO
   try {
     write(dir, "CLAUDE.md", "# CC\nRun `npm test`.\n");
     pluginWithHook(dir);
-    write(dir, ".vigiles/hooks/x.hook.mjs", "export default {};\n");
-    write(
-      dir,
-      ".claude/settings.json",
-      settingsWith(
-        WIRED.replaceAll("$CLAUDE_PROJECT_DIR", "${CLAUDE_PROJECT_DIR}"),
-      ),
-    );
+    compiledHook(dir);
+    write(dir, ".claude/settings.json", settingsWith(WIRED));
     write(
       dir,
       ".vigilesrc.json",
-      JSON.stringify({ rules: { "hook-script-exists": "error" } }),
+      JSON.stringify({
+        rules: { "hook-script-exists": "error", "hand-written-hook": "warn" },
+      }),
     );
     const r = spawnSync(process.execPath, [CLI, "lint"], {
       cwd: dir,
@@ -189,9 +200,8 @@ test("`lint`: a fail-open compiled hook whose runner is not installed is an ERRO
     );
     // The message names the reason it went unnoticed, not just the path.
     assert.match(r.stdout, /nothing to say/);
-    // The hook program and the manifest's own script are present: not flagged.
+    // The hook program and its stamp are present: not flagged.
     assert.doesNotMatch(r.stdout, /x\.hook\.mjs" is referenced/);
-    assert.doesNotMatch(r.stdout, /post\.sh" is referenced/);
 
     // Installed → no file is missing; what stays is the manifest's own
     // hand-written hook, named once (#361).
@@ -202,8 +212,9 @@ test("`lint`: a fail-open compiled hook whose runner is not installed is an ERRO
     });
     assert.doesNotMatch(ok.stdout, /is referenced but/);
     assert.equal(
-      ok.stdout.split("\n").filter((l) => /cannot (verify|tell)/.test(l))
-        .length,
+      ok.stdout
+        .split("\n")
+        .filter((l) => /vigiles did not write this line/.test(l)).length,
       1,
       ok.stdout,
     );

@@ -582,6 +582,7 @@ const SHIPPED_RULE_DEFAULTS = {
   "skill-frontmatter": "warn",
   "mcp-tool-resolves": "warn",
   "hook-script-exists": "warn",
+  "hand-written-hook": false,
   "disallowed-tools-contract": "warn",
   "description-overlap": "warn",
   "skill-description-budget": "warn",

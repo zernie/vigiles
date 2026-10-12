@@ -433,14 +433,16 @@ test("loadConfig refuses a folded rule with that message, not 'unknown key'", ()
 });
 
 /**
- * `hand-written-hook` names every hook line vigiles did not write. Until
- * compiled plugin hooks exist (#372), a plugin cannot get rid of its own
- * hand-written hooks, so the preset leaves the rule at `warn`. #372 makes it
- * `error`; this is the one assertion that flip changes.
+ * `hand-written-hook`'s only cure is a compiled hook, written with the
+ * `experimental_define*` API — lint must not push users onto an experimental
+ * API. So the rule is OFF, in the base defaults and in the preset, until
+ * compiled hooks leave experimental (docs/experimental.md, "When the prefix
+ * comes off"). `hook-script-exists` is about lines vigiles wrote, so it gates.
  */
-test("vigiles:recommended leaves hand-written-hook at warn until #372", () => {
+test("hand-written-hook is off by default and in vigiles:recommended; hook-script-exists gates", () => {
+  assert.equal(vigilesConfigSchema.parse({}).rules["hand-written-hook"], false);
   const r = parseVigilesConfig({ extends: "vigiles:recommended" });
   assert.ok(r.success);
-  assert.equal(r.data.rules["hand-written-hook"], "warn");
+  assert.equal(r.data.rules["hand-written-hook"], false);
   assert.equal(r.data.rules["hook-script-exists"], "error");
 });

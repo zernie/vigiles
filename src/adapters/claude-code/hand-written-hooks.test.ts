@@ -54,6 +54,15 @@ function settings(...commands: string[]): string {
   });
 }
 
+/** Opt in to `hand-written-hook` — it is off by default (its cure is an experimental API). */
+function optIn(dir: string): void {
+  write(
+    dir,
+    ".vigilesrc.json",
+    JSON.stringify({ rules: { "hand-written-hook": "warn" } }),
+  );
+}
+
 function cli(
   dir: string,
   ...args: string[]
@@ -75,6 +84,7 @@ const handWritten = (stdout: string): string[] =>
 function compiledProject(name: string): string {
   const dir = makeTmpDir(name);
   write(dir, "CLAUDE.md", "# x\nRun `npm test`.\n");
+  optIn(dir);
   write(dir, "package.json", JSON.stringify({ name: "consumer" }));
   mkdirSync(join(dir, "node_modules"));
   symlinkSync(REPO, join(dir, "node_modules", "vigiles"), "dir");
@@ -157,6 +167,7 @@ test("a hand-written hook is one finding that names it; nothing in it is taken f
   const dir = makeTmpDir("hwh-sh-c");
   try {
     write(dir, "CLAUDE.md", "# x\nRun `npm test`.\n");
+    optIn(dir);
     write(
       dir,
       ".claude/settings.json",
@@ -190,6 +201,7 @@ test("the honest loss: a hand-written hook's missing script is NOT reported — 
   const dir = makeTmpDir("hwh-literal-missing");
   try {
     write(dir, "CLAUDE.md", "# x\nRun `npm test`.\n");
+    optIn(dir);
     write(
       dir,
       ".claude/settings.json",
@@ -207,6 +219,7 @@ test("three hand-written hooks are three findings; `false` in the config turns t
   const dir = makeTmpDir("hwh-three");
   try {
     write(dir, "CLAUDE.md", "# x\nRun `npm test`.\n");
+    optIn(dir);
     write(
       dir,
       ".claude/settings.json",
@@ -222,6 +235,17 @@ test("three hand-written hooks are three findings; `false` in the config turns t
       ".vigilesrc.json",
       JSON.stringify({ rules: { "hand-written-hook": false } }),
     );
+    assert.deepEqual(handWritten(cli(dir, "lint").stdout), []);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("off by default: without opting in, a hand-written hook is not reported", () => {
+  const dir = makeTmpDir("hwh-default-off");
+  try {
+    write(dir, "CLAUDE.md", "# x\nRun `npm test`.\n");
+    write(dir, ".claude/settings.json", settings("npx prettier --check ."));
     assert.deepEqual(handWritten(cli(dir, "lint").stdout), []);
   } finally {
     cleanupTmpDir(dir);

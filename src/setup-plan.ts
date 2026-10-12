@@ -163,7 +163,8 @@ export const WORKFLOW_RULES = [
  * The **`nudge`** group — recommendations / acknowledged-noisy checks that NEVER
  * gate (not even under `--strict`): `frontmatter-valid` (js-yaml is stricter than
  * CC's loader), `skill-frontmatter` (skills load without it) and `unmarked-refs`
- * (the undecidable-plaintext nudge) sit at `warn`. `lethal-trifecta` + `skill-resource-resolves` are here for now on a
+ * (the undecidable-plaintext nudge) sit at `warn`; `hand-written-hook` is OFF
+ * (its cure, a compiled hook, is still an experimental API). `lethal-trifecta` + `skill-resource-resolves` are here for now on a
  * don't-cry-wolf rollout (default `warn`; a team raises either to `error` by hand
  * once it's confirmed quiet on their corpus). `init` does not write these — they
  * keep their own default severities. Named for the group taxonomy

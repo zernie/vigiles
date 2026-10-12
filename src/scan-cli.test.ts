@@ -143,10 +143,9 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     );
     mk("codexadopt/.codex/config.toml", 'model = "gpt-5"\n');
 
-    // 2b. A Codex repo wired for `lint` — exercises the layout-driven path end to
-    // end: a TOML [hooks] referencing the harness's OWN `${PLUGIN_ROOT}` token (a
-    // MISSING script → hook-script-exists fires), an untested skill, and a
-    // subagent rule that must report n/a (Codex has no subagents).
+    // 2b. A Codex repo wired for `lint`: a TOML [hooks] line vigiles did not write
+    // (hand-written-hook, opted in, names it), an untested skill, and a subagent
+    // rule that must report n/a (Codex has no subagents).
     mk("codexlint/AGENTS.md", "# Agent instructions\nUse `npm test`.\n");
     mk(
       "codexlint/.codex/config.toml",
@@ -162,6 +161,7 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
         harnesses: { codex: {} },
         rules: {
           "hook-script-exists": "warn",
+          "hand-written-hook": "warn",
           "untested-skill": "warn",
           "subagent-tool-contract": "warn",
         },
@@ -295,16 +295,16 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.match(r.stdout, /AGENTS\.md/);
   });
 
-  it("Codex repo: `lint` runs the layout-driven rules (hook token, untested) and reports subagent n/a", () => {
+  it("Codex repo: `lint` runs the layout-driven rules (shell hooks, untested) and reports subagent n/a", () => {
     // `lint` operates on cwd, so run it INSIDE the fixture. Proves the
     // deterministic rules use the resolved Codex adapter (layout + dialect), not a
     // hard-coded Claude Code default.
     const r = run("lint", join(root, "codexlint"));
 
-    // hook-script-exists resolved the harness's ${PLUGIN_ROOT} token (loaded from
-    // TOML [hooks]) and flagged the missing script.
-    assert.match(r.stdout, /Hook-script existence check:/);
-    assert.match(r.stdout, /missing\.sh.*missing/);
+    // The hook loaded from TOML [hooks] is one vigiles did not write: the
+    // shell-hooks rules ran for Codex and named it.
+    assert.match(r.stdout, /Hand-written hooks:/);
+    assert.match(r.stdout, /missing\.sh.*vigiles did not write this line/);
 
     // untested-skill found the skill under the layout's skill dir.
     assert.match(r.stdout, /Untested surfaces:/);

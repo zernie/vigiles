@@ -27,6 +27,12 @@ import { codexLayout } from "./adapters/codex/layout.js";
 import { codexDialect } from "./adapters/codex/dialect.js";
 import { auditScore } from "./audit-score.js";
 import { excludeSet } from "./exclude.js";
+import {
+  hookGateRef,
+  hookRuntimeRef,
+  runProgramCommand,
+} from "./core/hook-command.js";
+import { withRoleExit } from "./core/hook-program.js";
 
 function write(dir: string, rel: string, content: string): void {
   const abs = join(dir, rel);
@@ -330,33 +336,6 @@ test("scanPlugin reads a multi-line QUOTED description (value on the next line)"
   cleanupTmpDir(dir);
 });
 
-test("scanPlugin resolves a relative hook path against the plugin root, not cwd", () => {
-  // ananddtyagi/cc-marketplace shape: `./hooks/x.sh` (the file IS present).
-  // existsSync was cwd-relative → reported MISSING (false positive).
-  const dir = makeTmpDir("scan-relhook");
-  write(dir, "hooks/present.sh", "#!/usr/bin/env bash\n");
-  write(
-    dir,
-    ".claude-plugin/plugin.json",
-    JSON.stringify({
-      name: "x",
-      hooks: {
-        PreToolUse: [
-          {
-            matcher: "Edit",
-            hooks: [{ type: "command", command: "bash ./hooks/present.sh" }],
-          },
-        ],
-      },
-    }),
-  );
-  const h = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect).hooks.find(
-    (x) => x.script.includes("present.sh"),
-  );
-  assert.equal(h?.status, "ok");
-  cleanupTmpDir(dir);
-});
-
 test("scanPlugin treats an existence-guarded hook command as optional, not missing", () => {
   // gmickel/flow-next shape: `[ ! -f x ] || x` — runs x only if present.
   const dir = makeTmpDir("scan-guardhook");
@@ -389,57 +368,24 @@ test("scanPlugin treats an existence-guarded hook command as optional, not missi
   cleanupTmpDir(dir);
 });
 
-test("scanPlugin does not flag a glob pattern in a hook command as a missing script (dogfood D1)", () => {
-  // A hook command that MENTIONS a glob — `find . -name "*.js"` — must not have
-  // `"*.js"` grabbed as a script path and reported missing. The real script
-  // (present.sh) still resolves ok.
-  const dir = makeTmpDir("scan-globhook");
-  try {
-    write(dir, "hooks/present.sh", "#!/usr/bin/env bash\n");
-    write(
-      dir,
-      ".claude-plugin/plugin.json",
-      JSON.stringify({
-        name: "x",
-        hooks: {
-          PostToolUse: [
-            {
-              matcher: "Edit",
-              hooks: [
-                {
-                  type: "command",
-                  command:
-                    'bash ${CLAUDE_PLUGIN_ROOT}/hooks/present.sh && find . -name "*.js" -newer /tmp/x',
-                },
-              ],
-            },
-          ],
-        },
-      }),
-    );
-    const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
-    assert.ok(
-      !r.hooks.some((h) => h.status === "missing"),
-      "a glob pattern in the command must not be read as a missing script",
-    );
-    assert.ok(
-      r.hooks.some((h) => h.script.includes("present.sh") && h.status === "ok"),
-      "the real hook script still resolves ok",
-    );
-  } finally {
-    cleanupTmpDir(dir);
-  }
-});
-
-test("scanPlugin lists every hand-written hook, each by its kind (compiled ones excluded)", () => {
+test("scanPlugin lists every hand-written hook (a compiled one, by identity, excluded)", () => {
   const dir = makeTmpDir("scan-hand-written");
   write(dir, "hooks/guard.sh", "#!/usr/bin/env bash\n");
+  // A compiled hook: its source, the stamp compile recorded, and the exact line
+  // compile writes for it.
+  const ref = ".vigiles/hooks/x.hook.mjs";
+  write(dir, ref, "export default {};\n");
+  write(dir, `${ref}.json`, JSON.stringify({ stamp: "s", role: "react" }));
+  const tokens = claudeCodeLayout.projectRootTokens;
+  const compiled = withRoleExit(
+    runProgramCommand(hookRuntimeRef(tokens), hookGateRef(ref, tokens)),
+    "react",
+  );
   write(
     dir,
     ".claude/settings.json",
     JSON.stringify({
       hooks: {
-        // two hand-written (a script + an inline one-liner)…
         PreToolUse: [
           {
             matcher: "Bash",
@@ -452,18 +398,7 @@ test("scanPlugin lists every hand-written hook, each by its kind (compiled ones 
           },
         ],
         Stop: [{ hooks: [{ type: "command", command: "npm test" }] }],
-        // …and one compiled, vigiles-managed hook (must NOT count)
-        UserPromptSubmit: [
-          {
-            hooks: [
-              {
-                type: "command",
-                command:
-                  "node dist/cli.js hook-runtime run-program .vigiles/hooks/x.mjs",
-              },
-            ],
-          },
-        ],
+        UserPromptSubmit: [{ hooks: [{ type: "command", command: compiled }] }],
       },
     }),
   );
@@ -471,7 +406,7 @@ test("scanPlugin lists every hand-written hook, each by its kind (compiled ones 
   assert.deepEqual(
     r.handWrittenHooks.map((h) => [h.event, h.kind]),
     [
-      ["PreToolUse", "script"],
+      ["PreToolUse", "hand-written"],
       ["Stop", "hand-written"],
     ],
     "two hand-written, the compiled one excluded",
@@ -480,16 +415,12 @@ test("scanPlugin lists every hand-written hook, each by its kind (compiled ones 
   const out = formatScanReport(r);
   assert.match(
     out,
-    /PreToolUse hook `bash \$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/guard\.sh`: vigiles checks that its script exists/,
+    /PreToolUse hook `bash \$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/guard\.sh`: vigiles did not write this line/,
   );
-  assert.match(
-    out,
-    /Stop hook `npm test`: vigiles cannot verify this hand-written hook/,
-  );
+  assert.match(out, /Stop hook `npm test`: vigiles did not write this line/);
   assert.match(out, /docs\/compiled-hooks\.md/);
   cleanupTmpDir(dir);
 });
-
 test("scanPlugin lists no hand-written hooks when there are none", () => {
   const dir = makeTmpDir("scan-no-manual-hooks");
   write(dir, "CLAUDE.md", "# x\n");
@@ -1226,24 +1157,16 @@ test("scanPlugin still flags a real top-level subagent missing frontmatter", () 
   cleanupTmpDir(dir);
 });
 
-test("scanPlugin resolves hook scripts: ok / missing / opaque", () => {
+test("scanPlugin reads no hand-written hook line for a script: every one is named, none path-checked", () => {
   const dir = fixture();
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
-  const byBase = (suffix: string) =>
-    r.hooks.find((h) => h.script.endsWith(suffix));
-  assert.equal(byBase("hooks/present.sh")?.status, "ok"); // ${CLAUDE_PLUGIN_ROOT}
-  assert.equal(byBase("hooks/absent.sh")?.status, "missing"); // $CLAUDE_PLUGIN_ROOT, no file
-  // "$HOME"/weird.sh names a variable that is not a root: no word of it is
-  // taken for a script, so it is opaque — counted, named, never path-checked.
-  assert.ok(!r.hooks.some((h) => h.script.includes("weird.sh")));
-  assert.equal(r.inlineHooks, 2); // `npm test`, `bash "$HOME"/weird.sh`
-  assert.deepEqual(
-    r.handWrittenHooks.filter((h) => h.kind === "hand-written").map((h) => h.command),
-    ['bash "$HOME"/weird.sh', "npm test"],
-  );
+  // present.sh, absent.sh, "$HOME"/weird.sh and `npm test`: four lines vigiles
+  // did not write. Whether their scripts exist is a run-time question now.
+  assert.deepEqual(r.hooks, []);
+  assert.equal(r.inlineHooks, 4);
+  assert.equal(r.handWrittenHooks.length, 4);
   cleanupTmpDir(dir);
 });
-
 test("scanPlugin counts commands and detects MCP", () => {
   const dir = fixture();
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
@@ -1252,13 +1175,12 @@ test("scanPlugin counts commands and detects MCP", () => {
   cleanupTmpDir(dir);
 });
 
-test("formatScanReport flags the missing hook + the no-description skill", () => {
+test("formatScanReport flags the no-description skill", () => {
   const dir = fixture();
   const text = formatScanReport(
     scanPlugin(dir, claudeCodeLayout, claudeCodeDialect),
   );
-  assert.ok(text.includes("structural issue")); // absent.sh + nodesc
-  assert.ok(/✗ .*hooks\/absent\.sh/.test(text));
+  assert.ok(text.includes("structural issue")); // nodesc
   assert.ok(text.includes("inherits all")); // the notools agent footgun
   cleanupTmpDir(dir);
 });

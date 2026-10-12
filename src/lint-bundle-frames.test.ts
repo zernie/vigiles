@@ -64,6 +64,10 @@ function put(rel: string, body: string): void {
 /** The same defects, once per bundle; `at` is the bundle dir, `s` the suffix. */
 function plant(at: string, s: string): void {
   const p = (rel: string): string => (at ? `${at}/${rel}` : rel);
+  // A compiled hook whose program is gone: its stamp (and so its planned
+  // line) stayed behind, so `hook-script-exists` names the program.
+  const ref = `.vigiles/hooks/missing-${s}.hook.mjs`;
+  put(p(`${ref}.json`), JSON.stringify({ stamp: "s", role: "bash-gate" }));
   const hooks = JSON.stringify({
     hooks: {
       PreToolUse: [
@@ -72,7 +76,7 @@ function plant(at: string, s: string): void {
           hooks: [
             {
               type: "command",
-              command: `\${CLAUDE_PLUGIN_ROOT}/hooks/missing-${s}.sh`,
+              command: `node "\${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js" hook-runtime run-program "\${CLAUDE_PROJECT_DIR}/${ref}" || exit 2`,
             },
           ],
         },
@@ -216,8 +220,8 @@ describe("lint under bundles: all — one frame for every printed path (#281)", 
     assert.deepEqual(
       missing.map((a) => a.msg.slice(0, a.msg.indexOf(" is referenced"))),
       [
-        'hook script "hooks/missing-r.sh"',
-        '[plugins/p] hook script "plugins/p/hooks/missing-n.sh"',
+        'hook script ".vigiles/hooks/missing-r.hook.mjs"',
+        '[plugins/p] hook script "plugins/p/.vigiles/hooks/missing-n.hook.mjs"',
       ],
     );
   });

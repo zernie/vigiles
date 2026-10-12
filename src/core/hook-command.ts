@@ -45,7 +45,7 @@ export const INIT_NUDGE_COMMANDS = {
 
 /**
  * The command line `compile` writes to run a hook program: the runtime started
- * by `runnerRef`, the program at `programRef`. {@link hookCommandShape} inverts it.
+ * by `runnerRef`, the program at `programRef`. {@link plannedHookLines} uses it, so a reader compares a wired line with the same string.
  */
 export function runProgramCommand(
   runnerRef: string,

@@ -15,10 +15,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import {
-  classifyBashCommand,
-  isReadOnlyBash,
-} from "./bash-effects.js";
+import { classifyBashCommand, isReadOnlyBash } from "./bash-effects.js";
 import type { BashEffect } from "./bash-effects.js";
 
 // ---------------------------------------------------------------------------

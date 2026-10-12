@@ -2681,7 +2681,6 @@ function repairTargetOf(event: RawHookEvent): string | null {
   return typeof filePath === "string" ? filePath : null;
 }
 
-
 /**
  * True when this event IS the author repairing the hook — a FILE WRITE, and only
  * a file write.

@@ -186,7 +186,8 @@ const rulesSchema = z
     "skill-frontmatter": severitySchema.default("warn"),
     "mcp-tool-resolves": severitySchema.default("warn"),
     "hook-script-exists": severitySchema.default("warn"),
-    "hand-written-hook": severitySchema.default("warn"),
+    // OFF: its only cure is a compiled hook, an experimental API (docs/experimental.md).
+    "hand-written-hook": severitySchema.default(false),
     "disallowed-tools-contract": severitySchema.default("warn"),
     "description-overlap": severitySchema.default("warn"),
     "skill-description-budget": severitySchema.default("warn"),

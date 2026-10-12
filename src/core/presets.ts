@@ -27,9 +27,10 @@ import type { RulesConfig } from "./types.js";
  * compiled hook needs gone missing, a broken MCP reference, two skills that
  * collide in the selector), so a well-formed harness stays green.
  *
- * `hand-written-hook` is NOT here yet: a plugin has no compiled alternative for
- * its own hooks until #372 (https://github.com/zernie/vigiles/issues/372),
- * which adds it.
+ * `hand-written-hook` is NOT here: its only cure is a compiled hook, written
+ * with the `experimental_define*` API, and a preset must not push users onto an
+ * experimental API. It joins when compiled hooks leave experimental (the exit
+ * criteria in docs/experimental.md, "When the prefix comes off").
  *
  * Also gates `require-instructions-spec`: a hand-written CLAUDE.md / AGENTS.md
  * is a file whose references nothing re-verifies on change. It is the one rule

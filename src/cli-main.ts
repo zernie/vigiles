@@ -6459,12 +6459,16 @@ function checkHookScriptExists(ctx: BundleCheck): {
   issues: number;
   errors: number;
 } {
-  return reportHookLines(ctx, "hook-script-exists", "Hook-script existence check", (scan) =>
-    scan.hooks
-      .filter((h) => h.status === "missing")
-      // `script` is absolute (the root variable resolved) — printed as-is it
-      // was a machine path (#281); `scanned` makes it the bundle's own.
-      .map((h) => hookScriptMissingMessage(ctx.bundle.scanned(h.script))),
+  return reportHookLines(
+    ctx,
+    "hook-script-exists",
+    "Hook-script existence check",
+    (scan) =>
+      scan.hooks
+        .filter((h) => h.status === "missing")
+        // `script` is absolute (the root variable resolved) — printed as-is it
+        // was a machine path (#281); `scanned` makes it the bundle's own.
+        .map((h) => hookScriptMissingMessage(ctx.bundle.scanned(h.script))),
   );
 }
 
@@ -6473,22 +6477,24 @@ function checkHookScriptExists(ctx: BundleCheck): {
  * write (or wrote and someone edited). vigiles never parses such a line, so it
  * cannot say what it runs; the finding names it and points at compiled hooks.
  */
-function checkHandWrittenHooks(ctx: BundleCheck): {
-  issues: number;
-  errors: number;
-} {
-  return reportHookLines(ctx, "hand-written-hook", "Hand-written hooks", (scan) =>
-    scan.handWrittenHooks.map(handWrittenHookMessage),
+function checkHandWrittenHooks(
+  ctx: Readonly<BundleCheck>,
+): Readonly<{ issues: number; errors: number }> {
+  return reportHookLines(
+    ctx,
+    "hand-written-hook",
+    "Hand-written hooks",
+    (scan) => scan.handWrittenHooks.map(handWrittenHookMessage),
   );
 }
 
 /** Print and count one hook-line rule's messages at its configured severity. */
 function reportHookLines(
-  ctx: BundleCheck,
+  ctx: Readonly<BundleCheck>,
   rule: "hook-script-exists" | "hand-written-hook",
   heading: string,
-  messagesOf: (scan: ScanReport) => readonly string[],
-): { issues: number; errors: number } {
+  messagesOf: (scan: Readonly<ScanReport>) => readonly string[],
+): Readonly<{ issues: number; errors: number }> {
   const { config, silent, adapter } = ctx;
   const sev = ruleSeverity(config?.rules?.[rule]);
   if (!sev) return { issues: 0, errors: 0 };

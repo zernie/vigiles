@@ -76,6 +76,8 @@ import type {
   ScanDelegationFinding,
   VocabularyNote,
 } from "./scan.js";
+import { HOOKS_DIR } from "./core/hook-paths.js";
+import { classifySource } from "./source-kinds.js";
 
 // The scalar fields scan reads from a skill/agent `---` block, via the shared
 // lenient reader (core/frontmatter-read.ts) — a real YAML parse with a regex
@@ -738,6 +740,22 @@ function hookFilePath(file: string, root: string, roots: RootTokens): string {
     : join(root, file.slice(token.length + 1));
 }
 
+/**
+ * The hook sources a repo has, from the names in its hooks directory: every
+ * `.hook.` source, and every source a stamp names — so wiring left behind by a
+ * deleted hook still plans its line, and the missing program is reported.
+ */
+export function hookSourceRefs(names: readonly string[]): readonly string[] {
+  const refs = names.flatMap((name) => {
+    const kind = classifySource(name).kind;
+    if (kind === "hook") return [`${HOOKS_DIR}/${name}`];
+    return kind === "stamp" && classifySource(name.slice(0, -5)).kind === "hook"
+      ? [`${HOOKS_DIR}/${name.slice(0, -5)}`]
+      : [];
+  });
+  return [...new Set(refs)].sort();
+}
+
 /** What one hook line is, read by identity — never by parsing it. */
 type HookLineReading =
   | { readonly kind: "compiled"; readonly files: readonly string[] }
@@ -838,7 +856,10 @@ export function scanHooks(
 } {
   const read = regs
     .filter((r) => r.command.trim() !== "")
-    .map((reg) => ({ reg, line: readHookLine(reg.command, scan.plan, scan.root) }));
+    .map((reg) => ({
+      reg,
+      line: readHookLine(reg.command, scan.plan, scan.root),
+    }));
   const handWritten = read.flatMap(({ reg, line }): HandWrittenHook[] => {
     const at = { event: reg.event, command: reg.command };
     switch (line.kind) {
