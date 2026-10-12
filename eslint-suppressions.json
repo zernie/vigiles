@@ -999,7 +999,7 @@
       "count": 2
     },
     "functional/immutable-data": {
-      "count": 79
+      "count": 76
     },
     "functional/no-let": {
       "count": 7
@@ -1008,7 +1008,7 @@
       "count": 13
     },
     "functional/prefer-immutable-types": {
-      "count": 44
+      "count": 43
     },
     "no-param-reassign": {
       "count": 1

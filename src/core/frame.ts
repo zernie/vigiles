@@ -45,7 +45,13 @@
  */
 import type { Opaque } from "ts-essentials";
 
-import { isAbsolute, join, normalize, relative } from "../posix-path.js";
+import {
+  dirname as posixDirname,
+  isAbsolute,
+  join,
+  normalize,
+  relative,
+} from "../posix-path.js";
 
 /** A `/`-separated path relative to {@link Frame.root}. `.` is the root itself. */
 export type RepoPath = Opaque<string, "RepoPath">;
@@ -137,4 +143,16 @@ export function frameAt(root: string): Frame {
     };
   };
   return { root: base, repo, bundle };
+}
+
+/**
+ * The target of a markdown link written INTO the file `from` that points at
+ * `to`; both are repo-relative. A link resolves from the directory of the file
+ * it sits in, so a compiled `plugin/CLAUDE.md` must link `../docs/x.md`, not
+ * `docs/x.md` (#371). The ONE place a repo path becomes a link: every renderer
+ * that writes a path as a link calls this.
+ */
+export function linkFrom(from: string, to: string): string {
+  const dir = posixDirname(normalize(slashed(from)));
+  return relative(join("/", dir), join("/", normalize(slashed(to)))) || ".";
 }

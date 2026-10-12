@@ -31,6 +31,7 @@ import type {
   RailwayStep,
   AuthoredPurity,
 } from "./spec.js";
+import { linkFrom } from "./frame.js";
 
 import { checkLinterRule, extractLinterName } from "./linters.js";
 import { CLAIMED_MARKER, ENFORCED_MARKER } from "./enforce-marker.js";
@@ -389,7 +390,19 @@ async function validateOneRef(
   }
 }
 
-function renderFragment(fragment: InstructionFragment): string {
+/** The repo-relative path a spec compiles to: the spec's own name without `.spec.ts`. */
+function compiledPathOf(specFile: string): string {
+  return specFile.endsWith(".spec.ts")
+    ? specFile.slice(0, -".spec.ts".length)
+    : specFile;
+}
+
+/**
+ * Render one fragment into the compiled file at `out` (repo-relative). A link
+ * resolves from the file it is written into, so every path rendered as a link
+ * goes through {@link linkFrom}.
+ */
+function renderFragment(fragment: InstructionFragment, out: string): string {
   if (typeof fragment === "string") return fragment;
   switch (fragment._ref) {
     case "file":
@@ -397,7 +410,7 @@ function renderFragment(fragment: InstructionFragment): string {
     case "cmd":
       return `\`${fragment.command}\``;
     case "skill":
-      return `[${basename(dirname(fragment.path))}](${fragment.path})`;
+      return `[${basename(dirname(fragment.path))}](${linkFrom(out, fragment.path)})`;
     case "symbol":
       return `\`vigiles:symbol ${fragment.file}#${fragment.symbol}\``;
     case "dir":
@@ -405,7 +418,7 @@ function renderFragment(fragment: InstructionFragment): string {
     case "glob":
       return `\`${fragment.pattern}\``;
     case "effect": {
-      const inner = fragment.body.map(renderFragment).join("").trim();
+      const inner = renderBody(fragment.body, out).trim();
       return `\n<!-- vigiles:effect -->\n\n${inner}\n\n<!-- /vigiles:effect -->\n`;
     }
     default:
@@ -502,10 +515,10 @@ export function unverifiedAdvice(
   }
 }
 
-/** `[Details](path#anchor)` for a rule's long text. */
-function detailsLink(details: RuleDetails): string {
+/** `[Details](path#anchor)` for a rule's long text, linked from `out`. */
+function detailsLink(details: RuleDetails, out: string): string {
   const anchor = details.anchor === undefined ? "" : `#${details.anchor}`;
-  return `[Details](${details.file.path}${anchor})`;
+  return `[Details](${linkFrom(out, details.file.path)}${anchor})`;
 }
 
 /**
@@ -522,8 +535,8 @@ function firstSentence(text: string): string {
 }
 
 /** The `**Why:**` line(s) of an enforce rule under its render policy. */
-function enforceWhy(rule: EnforceRule): readonly string[] {
-  const link = rule.details ? ` ${detailsLink(rule.details)}` : "";
+function enforceWhy(rule: EnforceRule, out: string): readonly string[] {
+  const link = rule.details ? ` ${detailsLink(rule.details, out)}` : "";
   const render = rule.render ?? "full";
   switch (render) {
     case "full":
@@ -531,13 +544,18 @@ function enforceWhy(rule: EnforceRule): readonly string[] {
     case "line":
       return [`**Why:** ${firstSentence(rule.why)}${link}`];
     case "id":
-      return rule.details ? [detailsLink(rule.details)] : [];
+      return rule.details ? [detailsLink(rule.details, out)] : [];
     default:
       return assertNever(render);
   }
 }
 
-function compileRule(id: string, rule: Rule, verdict?: EnforceVerdict): string {
+function compileRule(
+  id: string,
+  rule: Rule,
+  out: string,
+  verdict?: EnforceVerdict,
+): string {
   const title = id
     .replace(/[-_]/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
@@ -552,12 +570,12 @@ function compileRule(id: string, rule: Rule, verdict?: EnforceVerdict): string {
         `### ${title}`,
         "",
         `${marker} \`${rule.linterRule}\``,
-        ...enforceWhy(rule),
+        ...enforceWhy(rule, out),
       ].join("\n");
     }
 
     case "guidance": {
-      const link = rule.details ? ` ${detailsLink(rule.details)}` : "";
+      const link = rule.details ? ` ${detailsLink(rule.details, out)}` : "";
       return [
         `### ${title}`,
         "",
@@ -893,6 +911,7 @@ const RESERVED_SECTION_KEYS = new Set([
 async function compileSectionsSection(
   spec: ClaudeSpec,
   basePath: string,
+  out: string,
   maxSectionLines?: number,
 ): Promise<SectionResult> {
   if (!spec.sections) return { lines: [], errors: [] };
@@ -912,7 +931,7 @@ async function compileSectionsSection(
       lines.push(`## ${heading}\n\n${content.trim()}`);
     } else {
       errors.push(...(await validateRefs(content, basePath)));
-      const rendered = content.map(renderFragment).join("");
+      const rendered = renderBody(content, out);
       errors.push(...validateSectionContent(name, rendered, maxSectionLines));
       lines.push(`## ${heading}\n\n${rendered.trim()}`);
     }
@@ -1070,6 +1089,7 @@ function verifyEnforce(
 function compileRulesSection(
   spec: ClaudeSpec,
   basePath: string,
+  out: string,
   options: CompileClaudeOptions,
 ): RulesSectionResult {
   const ruleEntries = Object.entries(spec.rules);
@@ -1079,10 +1099,10 @@ function compileRulesSection(
   // Verify FIRST, render second: the marker an `enforce()` gets is the
   // verdict's, so rendering cannot run ahead of verification (#351).
   const rendered = ruleEntries.map(([id, rule]) => {
-    if (rule._kind !== "enforce") return { text: compileRule(id, rule) };
+    if (rule._kind !== "enforce") return { text: compileRule(id, rule, out) };
     const check = verifyEnforce(rule, basePath, options);
     return {
-      text: compileRule(id, rule, check.verdict),
+      text: compileRule(id, rule, out, check.verdict),
       check: { ref: rule.linterRule, ...check },
     };
   });
@@ -1106,6 +1126,43 @@ function compileRulesSection(
 // compileClaude
 // ---------------------------------------------------------------------------
 
+/** The spec must be named after its primary target: `<target>.spec.ts`. */
+function specNameErrors(
+  specFile: string,
+  target: string,
+): readonly CompileError[] {
+  if (!specFile.endsWith(".spec.ts")) {
+    return [
+      {
+        type: "spec-name-mismatch",
+        message: `Spec file "${specFile}" must end with .spec.ts`,
+      },
+    ];
+  }
+  if (basename(specFile, ".spec.ts") === target) return [];
+  return [
+    {
+      type: "spec-name-mismatch",
+      message: `Spec file "${specFile}" doesn't match target "${target}". Expected "${target}.spec.ts".`,
+    },
+  ];
+}
+
+/** More rules than `maxRules` allows is an error. */
+function ruleCountErrors(
+  spec: ClaudeSpec,
+  maxRules: number | undefined,
+): readonly CompileError[] {
+  const ruleCount = Object.keys(spec.rules).length;
+  if (!maxRules || ruleCount <= maxRules) return [];
+  return [
+    {
+      type: "invalid-rule",
+      message: `${String(ruleCount)} rules exceeds maxRules limit of ${String(maxRules)}. Split into subdirectory specs.`,
+    },
+  ];
+}
+
 /**
  * Compile a ClaudeSpec into markdown.
  *
@@ -1127,40 +1184,24 @@ export async function compileClaude(
   const target = Array.isArray(targets) ? targets[0] : targets;
   const basePath = options.basePath ?? process.cwd();
   const specFile = options.specFile ?? `${target}.spec.ts`;
-  const errors: CompileError[] = [];
+  const errors: CompileError[] = [
+    ...specNameErrors(specFile, target),
+    ...ruleCountErrors(spec, options.maxRules),
+  ];
   const sections: string[] = [`# ${target}`];
-
-  // Verify spec file naming matches the primary target
-  if (!specFile.endsWith(".spec.ts")) {
-    errors.push({
-      type: "spec-name-mismatch",
-      message: `Spec file "${specFile}" must end with .spec.ts`,
-    });
-  } else {
-    const baseName = basename(specFile, ".spec.ts");
-    if (baseName !== target) {
-      errors.push({
-        type: "spec-name-mismatch",
-        message: `Spec file "${specFile}" doesn't match target "${target}". Expected "${target}.spec.ts".`,
-      });
-    }
-  }
-
-  // maxRules check
-  const ruleCount = Object.keys(spec.rules).length;
-  if (options.maxRules && ruleCount > options.maxRules) {
-    errors.push({
-      type: "invalid-rule",
-      message: `${String(ruleCount)} rules exceeds maxRules limit of ${String(options.maxRules)}. Split into subdirectory specs.`,
-    });
-  }
 
   // Per-spec maxSectionLines takes precedence, then compile options
   const maxSectionLines = spec.maxSectionLines ?? options.maxSectionLines;
-  const prose = await compileSectionsSection(spec, basePath, maxSectionLines);
+  const out = compiledPathOf(specFile);
+  const prose = await compileSectionsSection(
+    spec,
+    basePath,
+    out,
+    maxSectionLines,
+  );
   const keyFiles = compileKeyFilesSection(spec, basePath);
   const commands = compileCommandsSection(spec, basePath);
-  const rules = compileRulesSection(spec, basePath, options);
+  const rules = compileRulesSection(spec, basePath, out, options);
 
   sections.push(
     ...prose.lines,
@@ -1223,9 +1264,12 @@ export async function compileClaude(
 // Compile SKILL.md spec → markdown
 // ---------------------------------------------------------------------------
 
-function renderBody(body: string | InstructionFragment[]): string {
+function renderBody(
+  body: string | readonly InstructionFragment[],
+  out: string,
+): string {
   if (typeof body === "string") return body;
-  return body.map(renderFragment).join("");
+  return body.map((f) => renderFragment(f, out)).join("");
 }
 
 /** Derive the `argument-hint` frontmatter value from typed inputs. */
@@ -1273,17 +1317,17 @@ function renderGate(
 }
 
 /** Render the `## Steps` checklist with a gate per step. */
-function renderSteps(steps: readonly SkillStep[]): string {
-  const out = ["## Steps", ""];
+function renderSteps(steps: readonly SkillStep[], out: string): string {
+  const lines = ["## Steps", ""];
   steps.forEach((s, idx) => {
-    out.push(`### Step ${String(idx + 1)}`, "");
-    out.push(renderBody(s.do).trim(), "");
+    lines.push(`### Step ${String(idx + 1)}`, "");
+    lines.push(renderBody(s.do, out).trim(), "");
     if (s.gate) {
       const g = renderGate(s.gate, s.retry);
-      out.push(g.prose, "", g.marker, "");
+      lines.push(g.prose, "", g.marker, "");
     }
   });
-  return out.join("\n").trimEnd();
+  return lines.join("\n").trimEnd();
 }
 
 /** Render the `## Result` postcondition gate. */
@@ -1437,14 +1481,14 @@ function renderSkillFrontmatter(
  * the gated Steps, then the Result. body + steps compose — a skill can carry
  * both a rich reference body and a verified procedure.
  */
-function renderSkillSections(spec: SkillSpec): string {
+function renderSkillSections(spec: SkillSpec, out: string): string {
   const sections: string[] = [];
   if (spec.inputs && spec.inputs.length > 0) {
     sections.push(renderArguments(spec.inputs));
   }
-  if (spec.body !== undefined) sections.push(renderBody(spec.body).trim());
+  if (spec.body !== undefined) sections.push(renderBody(spec.body, out).trim());
   if (spec.steps && spec.steps.length > 0) {
-    sections.push(renderSteps(spec.steps));
+    sections.push(renderSteps(spec.steps, out));
   }
   if (spec.postcondition) sections.push(renderResult(spec.postcondition));
   // A forked skill (context: fork) runs as a subagent, so it may carry the SAME
@@ -1610,7 +1654,7 @@ export async function compileSkill(
     }
   }
 
-  const sections = renderSkillSections(spec);
+  const sections = renderSkillSections(spec, compiledPathOf(specFile));
   // Over-long inline code blocks are WARNINGS, not errors — they don't block
   // compilation (so adoption always compiles), just nudge toward file().
   const warnings = checkInlineCode(
@@ -1710,6 +1754,7 @@ function purityMarker(purity: AuthoredPurity | undefined): string {
 async function renderAgentSections(
   sections: Record<string, string | InstructionFragment[]>,
   basePath: string,
+  out: string,
 ): Promise<SectionResult> {
   const lines: string[] = [];
   const errors: CompileError[] = [];
@@ -1726,7 +1771,7 @@ async function renderAgentSections(
       lines.push(`## ${heading}\n\n${content.trim()}`);
     } else {
       errors.push(...(await validateRefs(content, basePath)));
-      const rendered = content.map(renderFragment).join("");
+      const rendered = renderBody(content, out);
       errors.push(...validateSectionContent(name, rendered));
       lines.push(`## ${heading}\n\n${rendered.trim()}`);
     }
@@ -1782,11 +1827,15 @@ function renderOutputContract(contract: OutputContract): string {
 function renderAgentRules(
   rules: Readonly<Record<string, Rule>>,
   basePath: string,
+  out: string,
 ): { readonly text: string; readonly errors: readonly CompileError[] } {
   const rendered = Object.entries(rules).map(([id, rule]) => {
-    if (rule._kind !== "enforce") return { text: compileRule(id, rule) };
+    if (rule._kind !== "enforce") return { text: compileRule(id, rule, out) };
     const check = verifyEnforce(rule, basePath, {});
-    return { text: compileRule(id, rule, check.verdict), error: check.error };
+    return {
+      text: compileRule(id, rule, out, check.verdict),
+      error: check.error,
+    };
   });
   return {
     text: ["## Rules", ...rendered.flatMap((r) => ["", r.text])].join("\n"),
@@ -1862,15 +1911,16 @@ export async function compileAgent(
     errors.push(...(await validateRefs(spec.body, basePath)));
   }
 
+  const out = compiledPathOf(specFile);
   const sections: string[] = [];
-  if (spec.body !== undefined) sections.push(renderBody(spec.body).trim());
+  if (spec.body !== undefined) sections.push(renderBody(spec.body, out).trim());
   if (spec.sections) {
-    const result = await renderAgentSections(spec.sections, basePath);
+    const result = await renderAgentSections(spec.sections, basePath, out);
     sections.push(...result.lines);
     errors.push(...result.errors);
   }
   if (spec.rules && Object.keys(spec.rules).length > 0) {
-    const agentRules = renderAgentRules(spec.rules, basePath);
+    const agentRules = renderAgentRules(spec.rules, basePath, out);
     sections.push(agentRules.text);
     errors.push(...agentRules.errors);
   }

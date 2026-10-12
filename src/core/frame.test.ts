@@ -8,7 +8,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 
-import { frameAt, frameFor, type RepoPath } from "./frame.js";
+import { frameAt, frameFor, linkFrom, type RepoPath } from "./frame.js";
 
 describe("frame — converting into the repo frame", () => {
   const frame = frameAt("/repo");
@@ -110,5 +110,31 @@ describe("frame — Windows paths (Node hands out `C:\\repo` there)", () => {
 
   it("keeps a target below cwd in cwd's frame", () => {
     assert.equal(frameFor("C:\\repo", "C:\\repo\\plugins\\p").root, "C:/repo");
+  });
+});
+
+describe("linkFrom: a repo path as a link written into a file", () => {
+  it("is the path itself from a root-level file", () => {
+    assert.equal(linkFrom("CLAUDE.md", "docs/rules/x.md"), "docs/rules/x.md");
+  });
+
+  it("climbs out of a nested file's directory (#371)", () => {
+    assert.equal(linkFrom("plugin/CLAUDE.md", "docs/x.md"), "../docs/x.md");
+    assert.equal(
+      linkFrom("a/b/CLAUDE.md", "src/rule-cases.test.ts"),
+      "../../src/rule-cases.test.ts",
+    );
+  });
+
+  it("stays short for a sibling and normalizes Windows separators", () => {
+    assert.equal(linkFrom("skills/x/SKILL.md", "skills/x/ref.md"), "ref.md");
+    assert.equal(
+      linkFrom("plugin\\CLAUDE.md", "plugin\\docs\\y.md"),
+      "docs/y.md",
+    );
+  });
+
+  it("names the file's own directory as `.`", () => {
+    assert.equal(linkFrom("plugin/CLAUDE.md", "plugin"), ".");
   });
 });

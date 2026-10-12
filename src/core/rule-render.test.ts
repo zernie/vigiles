@@ -17,7 +17,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { compileClaude, verifyHash } from "./compile.js";
-import { enforce, file, guidance, instructionFile } from "./spec.js";
+import { enforce, file, guidance, instructionFile, ref } from "./spec.js";
 import { makeTmpDir, cleanupTmpDir } from "./test-utils.js";
 
 const WHY =
@@ -203,6 +203,59 @@ describe("render line: where the first sentence ends", () => {
       );
       expect(markdown).toContain("**Why:** Split it, e.g. into helpers.\n");
       expect(markdown).not.toContain("The rest stays out");
+    });
+  });
+});
+
+describe("links in a NESTED compiled file resolve from that file (#371)", () => {
+  const compileNested = async (
+    base: string,
+    spec: Parameters<typeof instructionFile>[0],
+  ) =>
+    await compileClaude(instructionFile(spec), {
+      basePath: base,
+      specFile: "plugin/CLAUDE.md.spec.ts",
+      verifyLinters: false,
+    });
+
+  it("a rule's details link climbs out of the compiled file's directory", async () => {
+    await withDocs(async (dir) => {
+      const { markdown, errors } = await compileNested(dir, {
+        rules: {
+          "short-rule": guidance("Short.", {
+            details: file("docs/rules/logging.md"),
+            anchor: "why-not-console",
+          }),
+        },
+      });
+      expect(errors).toHaveLength(0);
+      expect(markdown).toContain(
+        "[Details](../docs/rules/logging.md#why-not-console)",
+      );
+    });
+  });
+
+  it("a ref() to a skill in a section links from the compiled file too", async () => {
+    await withDocs(async (dir) => {
+      mkdirSync(join(dir, "skills", "fmt"), { recursive: true });
+      writeFileSync(join(dir, "skills", "fmt", "SKILL.md"), "# fmt\n");
+      const { markdown, errors } = await compileNested(dir, {
+        sections: { Skills: [ref("skills/fmt/SKILL.md"), " formats code."] },
+        rules: {},
+      });
+      expect(errors).toHaveLength(0);
+      expect(markdown).toContain("[fmt](../skills/fmt/SKILL.md) formats code.");
+    });
+  });
+
+  it("a root-level compiled file keeps its links as they were", async () => {
+    await withDocs(async (dir) => {
+      const { markdown } = await compileIn(dir, {
+        "short-rule": guidance("Short.", {
+          details: file("docs/rules/logging.md"),
+        }),
+      });
+      expect(markdown).toContain("[Details](docs/rules/logging.md)");
     });
   });
 });
