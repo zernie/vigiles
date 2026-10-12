@@ -23,7 +23,7 @@ function run(args: readonly string[]): { code: number; out: string } {
   const r = spawnSync("node", [CLI, ...args], {
     cwd: dir,
     encoding: "utf-8",
-    env: humanCliEnv(),
+    env: humanCliEnv(process.env),
   });
   return { code: r.status ?? 1, out: `${r.stdout}${r.stderr}` };
 }

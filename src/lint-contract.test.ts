@@ -39,7 +39,7 @@ function run(args: string[], cwd = dir): { code: number; out: string } {
       cwd,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
-      env: humanCliEnv(),
+      env: humanCliEnv(process.env),
     });
     return { code: 0, out };
   } catch (e) {

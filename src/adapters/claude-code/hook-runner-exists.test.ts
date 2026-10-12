@@ -195,7 +195,7 @@ test("`lint`: a fail-open compiled hook whose runner is not installed is an ERRO
     const r = spawnSync(process.execPath, [CLI, "lint"], {
       cwd: dir,
       encoding: "utf-8",
-      env: humanCliEnv(),
+      env: humanCliEnv(process.env),
     });
     assert.notEqual(r.status, 0, r.stdout);
     assert.match(r.stdout, /Hook-script existence check:/);
@@ -214,7 +214,7 @@ test("`lint`: a fail-open compiled hook whose runner is not installed is an ERRO
     const ok = spawnSync(process.execPath, [CLI, "lint"], {
       cwd: dir,
       encoding: "utf-8",
-      env: humanCliEnv(),
+      env: humanCliEnv(process.env),
     });
     assert.doesNotMatch(ok.stdout, /is referenced but/);
     assert.equal(

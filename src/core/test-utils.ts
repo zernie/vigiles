@@ -18,18 +18,25 @@ export const REPO_ROOT = resolve(__dirname, "..", "..");
 
 /**
  * The environment for a CLI child whose HUMAN-READABLE output a test reads:
- * this process's env with GitHub's annotation mode off.
+ * the given env (the test passes `process.env`) with GitHub's annotation
+ * mode off.
  *
  * 🔴 Found by CI, not locally: under `GITHUB_ACTIONS` every finding is ALSO
  * emitted as a `::warning::` / `::error::` annotation carrying the same
  * message, so counting a finding's text in stdout doubles it on the runner
  * while passing on a laptop. `GITHUB_STEP_SUMMARY` is dropped with it.
  */
-export function humanCliEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  delete env.GITHUB_ACTIONS;
-  delete env.GITHUB_STEP_SUMMARY;
-  return env;
+const ANNOTATION_ENV: ReadonlySet<string> = new Set([
+  "GITHUB_ACTIONS",
+  "GITHUB_STEP_SUMMARY",
+]);
+
+export function humanCliEnv(
+  env: Readonly<NodeJS.ProcessEnv>,
+): Readonly<NodeJS.ProcessEnv> {
+  return Object.fromEntries(
+    Object.entries(env).filter(([key]) => !ANNOTATION_ENV.has(key)),
+  );
 }
 
 /**
