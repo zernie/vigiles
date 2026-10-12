@@ -124,6 +124,10 @@ in the repository. The files the settings name join the existence check (finding
 1); finding 2, and the other hook rules, read the hooks the loader chose (the
 manifest's).
 
+In a plugin repo, the hand-written hooks in `.claude/settings.json` are therefore
+NOT listed as findings: the loader reads the manifest's hooks and shadows the
+settings file, so only the files those settings hooks name are checked.
+
 ## Why
 
 A hook is deterministic harness machinery; a hook whose script is missing is a
