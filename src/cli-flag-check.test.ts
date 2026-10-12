@@ -95,16 +95,36 @@ describe("rebasePathArgs: paths typed in a subdirectory, re-expressed from the r
     ]);
   });
 
-  it("leaves a generate kind, a word, and everything after -- alone", () => {
+  it("leaves a generate kind and a word alone", () => {
     assert.deepEqual(rebasePathArgs("generate", ["types", "out.d.ts"], up), [
       "types",
       "src/out.d.ts",
     ]);
+  });
+
+  it("keeps -- and still rebases the path positionals after it", () => {
+    // `vigiles compile -- ./x.spec.ts` typed in pkg/ means pkg/x.spec.ts: the
+    // verb reads the word after -- as a spec path, and runs at the root.
+    assert.deepEqual(rebasePathArgs("compile", ["--", "./x.spec.ts"], up), [
+      "--",
+      "src/./x.spec.ts",
+    ]);
     assert.deepEqual(rebasePathArgs("compile", ["a.spec.ts", "--", "x"], up), [
       "src/a.spec.ts",
       "--",
-      "x",
+      "src/x",
     ]);
+    // After -- a dash-led word is an operand, not a flag: rebased as a path,
+    // never matched against a path-valued flag's prefix.
+    assert.deepEqual(rebasePathArgs("audit", ["--", "--out=rep"], up), [
+      "--",
+      "src/--out=rep",
+    ]);
+    // The positional spec still applies across --: generate's kind is a word.
+    assert.deepEqual(
+      rebasePathArgs("generate", ["--", "types", "out.d.ts"], up),
+      ["--", "types", "src/out.d.ts"],
+    );
   });
 
   it("never touches hook-runtime's machine-supplied argv or an unknown verb", () => {

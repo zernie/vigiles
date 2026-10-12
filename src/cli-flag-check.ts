@@ -291,10 +291,18 @@ function pathPositionalIndexes(
   }
 }
 
+/** A positional word: before `--`, one not led by a dash; after it, every word. */
+function isOperand(arg: string, index: number, end: number): boolean {
+  if (index < end) return !arg.startsWith("-");
+  return index > end;
+}
+
 /**
  * The verb's arguments (everything after the verb) with each path argument
- * passed through `rebase`. Flags that do not take a path, words, and anything
- * after `--` are returned unchanged.
+ * passed through `rebase`. Flags that do not take a path, words, and `--`
+ * itself are returned unchanged. After `--` every word is an operand: a path
+ * among them is rebased like any other positional, and a dash-led one is never
+ * mistaken for a path-valued flag.
  */
 export function rebasePathArgs(
   command: string,
@@ -304,15 +312,15 @@ export function rebasePathArgs(
   const spec = pathArgumentsOf(command);
   if (!spec) return [...argv];
   const end = argv.includes("--") ? argv.indexOf("--") : argv.length;
-  const positionalIndexes = argv
-    .slice(0, end)
-    .flatMap((a, i) => (a.startsWith("-") ? [] : [i]));
+  const positionalIndexes = argv.flatMap((a, i) =>
+    isOperand(a, i, end) ? [i] : [],
+  );
   const pathPositionals = new Set(
     pathPositionalIndexes(spec.positionals, positionalIndexes),
   );
   return argv.map((arg, i) => {
-    if (i >= end) return arg;
     if (pathPositionals.has(i)) return rebase(arg);
+    if (i >= end) return arg;
     const flag = spec.flags.find((f) => arg.startsWith(f));
     return flag ? `${flag}${rebase(arg.slice(flag.length))}` : arg;
   });
