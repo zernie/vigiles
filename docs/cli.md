@@ -580,6 +580,10 @@ type stay relative to where you typed them: `vigiles lint CLAUDE.md` run in
 the same findings as running it from the root — the same config, the same
 `overrides`, the same compiled files.
 
+Globs are not paths: `generate types --files=<glob>` matches its globs from the
+project root, and they are NOT rebased from the directory you typed them in.
+Run it from the root, or write the glob as the root sees it.
+
 ### Configuration
 
 `audit` and every other command read `.vigilesrc.json` from the project root
