@@ -45,6 +45,9 @@ import { z } from "zod";
 import { editDistance } from "./edit-distance.js";
 import { PRESET_NAMES, isPresetName, presetRules } from "./presets.js";
 
+/** The config file; the directory holding it is a project root. */
+export const PROJECT_CONFIG_FILE = ".vigilesrc.json";
+
 // ---------------------------------------------------------------------------
 // Primitives
 // ---------------------------------------------------------------------------

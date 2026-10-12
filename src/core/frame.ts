@@ -45,6 +45,8 @@
  */
 import type { Opaque } from "ts-essentials";
 
+import { PROJECT_CONFIG_FILE } from "./config-schema.js";
+
 import {
   dirname as posixDirname,
   isAbsolute,
@@ -157,9 +159,6 @@ export function linkFrom(from: string, to: string): string {
   const dir = posixDirname(normalize(slashed(from)));
   return relative(join("/", dir), join("/", normalize(slashed(to)))) || ".";
 }
-
-/** The config file whose directory is a project root. */
-export const PROJECT_CONFIG_FILE = ".vigilesrc.json";
 
 /**
  * The project root for a command started in `start` (absolute): the ONE answer
