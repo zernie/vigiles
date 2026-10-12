@@ -231,6 +231,13 @@ export function formatUnknownFlag(command: string, flag: string): string {
  * path-valued flag is declared where flags are.
  */
 interface PathArguments {
+  /**
+   * Which directory the verb runs from. `project`: the resolved project root.
+   * `invocation`: where it was typed — `init` makes THAT directory a project
+   * (a workspace member it sets up must not become its monorepo's root), and
+   * `hook-runtime` takes its root from the harness event, not from a directory.
+   */
+  readonly root: "project" | "invocation";
   /** Positionals that are paths: all of them, all after the first (a kind), or none. */
   readonly positionals: "all" | "after-first" | "none";
   /** `--flag=` specs whose value is a path. */
@@ -238,21 +245,36 @@ interface PathArguments {
 }
 
 export const PATH_ARGUMENTS: Readonly<Record<Verb, PathArguments>> = {
-  init: { positionals: "none", flags: ["--target="] },
-  compile: { positionals: "all", flags: [] },
-  eject: { positionals: "all", flags: [] },
-  lint: { positionals: "all", flags: ["--json-out="] },
-  test: { positionals: "all", flags: [] },
-  eval: { positionals: "all", flags: [] },
+  init: { root: "invocation", positionals: "none", flags: ["--target="] },
+  compile: { root: "project", positionals: "all", flags: [] },
+  eject: { root: "project", positionals: "all", flags: [] },
+  lint: { root: "project", positionals: "all", flags: ["--json-out="] },
+  test: { root: "project", positionals: "all", flags: [] },
+  eval: { root: "project", positionals: "all", flags: [] },
   audit: {
+    root: "project",
     positionals: "all",
     flags: ["--out=", "--capability-diff=", "--prompts="],
   },
   // `generate <kind> [out]`: the kind is a word, the rest are paths.
-  generate: { positionals: "after-first", flags: [] },
+  generate: { root: "project", positionals: "after-first", flags: [] },
   // The harness supplies its argv; its paths are already what it means.
-  "hook-runtime": { positionals: "none", flags: [] },
+  "hook-runtime": { root: "invocation", positionals: "none", flags: [] },
 };
+
+/** The verb's row, or undefined for a word that is not a verb. */
+function pathArgumentsOf(command: string): PathArguments | undefined {
+  return Object.entries(PATH_ARGUMENTS).find(([verb]) => verb === command)?.[1];
+}
+
+/**
+ * Whether `command` runs from the resolved project root. A word that is not a
+ * verb (`--version`, a typo) runs nowhere in particular: it is answered where
+ * it was typed.
+ */
+export function runsFromProjectRoot(command: string): boolean {
+  return pathArgumentsOf(command)?.root === "project";
+}
 
 /** Which of the positional argument indexes are paths, per the verb's spec. */
 function pathPositionalIndexes(
@@ -279,9 +301,7 @@ export function rebasePathArgs(
   argv: readonly string[],
   rebase: (path: string) => string,
 ): readonly string[] {
-  const spec = Object.entries(PATH_ARGUMENTS).find(
-    ([verb]) => verb === command,
-  )?.[1];
+  const spec = pathArgumentsOf(command);
   if (!spec) return [...argv];
   const end = argv.includes("--") ? argv.indexOf("--") : argv.length;
   const positionalIndexes = argv

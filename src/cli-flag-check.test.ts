@@ -14,6 +14,7 @@ import {
   nearestFlag,
   unknownFlags,
   rebasePathArgs,
+  runsFromProjectRoot,
 } from "./cli-flag-check.js";
 import { VERBS } from "./cli-commands.js";
 
@@ -110,5 +111,23 @@ describe("rebasePathArgs: paths typed in a subdirectory, re-expressed from the r
     const argv = ["run-program", "x.hook.mjs"];
     assert.deepEqual(rebasePathArgs("hook-runtime", argv, up), argv);
     assert.deepEqual(rebasePathArgs("nope", argv, up), argv);
+  });
+});
+
+describe("runsFromProjectRoot: which directory a verb works in", () => {
+  it("init and hook-runtime run where they are started; every other verb at the project root", () => {
+    assert.equal(runsFromProjectRoot("init"), false);
+    assert.equal(runsFromProjectRoot("hook-runtime"), false);
+    for (const verb of [
+      "lint",
+      "compile",
+      "eject",
+      "test",
+      "eval",
+      "audit",
+      "generate",
+    ])
+      assert.equal(runsFromProjectRoot(verb), true, verb);
+    assert.equal(runsFromProjectRoot("--version"), false);
   });
 });

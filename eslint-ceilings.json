@@ -491,9 +491,6 @@
   "src/lint-bundle-frames.test.ts": {
     "max-lines-per-function": 64
   },
-  "src/load-hook.ts": {
-    "max-lines-per-function": 31
-  },
   "src/local-files.test.ts": {
     "max-lines-per-function": 162
   },

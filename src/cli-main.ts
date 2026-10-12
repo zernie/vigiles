@@ -78,6 +78,7 @@ import {
   formatUnknownFlag,
   knownFlagsFor,
   rebasePathArgs,
+  runsFromProjectRoot,
   unknownFlags,
 } from "./cli-flag-check.js";
 import {
@@ -9232,7 +9233,7 @@ function enterProjectRoot(): {
   const typed = process.argv.slice(2);
   const [command = "", ...rest] = typed;
   const invocationDir = process.cwd();
-  if (typed.length === 0 || command === "hook-runtime")
+  if (!runsFromProjectRoot(command))
     return { command, projectRoot: invocationDir, args: typed };
   const projectRoot = findProjectRoot(invocationDir, existsSync);
   const args = [

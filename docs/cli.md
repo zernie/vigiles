@@ -563,8 +563,10 @@ npx vigiles audit ./repo --harness=codex # override harness detection
 
 ### Which directory is the project
 
-Every command (except `hook-runtime`, whose project comes from the harness event)
-resolves ONE project root before it does anything, and works from there. From
+Every command resolves ONE project root before it does anything, and works from
+there — except `init`, which makes the directory you run it in a project (a
+workspace member stays a member), and `hook-runtime`, whose project comes from
+the harness event. From
 the directory you ran it in, upward:
 
 1. the nearest directory holding `.vigilesrc.json` — a package in a monorepo
