@@ -324,6 +324,30 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
       "The always-loaded instruction weight did not move off its committed baseline.",
     detector: "compareToBaseline",
   },
+  "compile-budget": {
+    id: "compile-budget",
+    // Exact once a threshold is chosen: a length or a count read off the spec
+    // and its rendered output. The threshold is the judgment: the default stays
+    // `warn`, and `vigiles:recommended` sets `error`.
+    bucket: "structural-closed",
+    surface: ["instruction"],
+    defaultSeverity: "warn",
+    summary:
+      "A compiled instruction file stays within its size budgets (command entries, sections, the Rules total).",
+    detector: "checkContentBudgets",
+    upstreamPrevention:
+      "compile measures the spec before writing; a render policy (enforce render, guidance details) meets a budget without deleting a rule",
+  },
+  "deprecated-key-files": {
+    id: "deprecated-key-files",
+    bucket: "structural-closed",
+    surface: ["instruction"],
+    defaultSeverity: "warn",
+    summary:
+      "An instruction spec doesn't use the deprecated keyFiles (always-loaded file map).",
+    detector: "findDeprecatedKeyFiles",
+    upstreamPrevention: "the @deprecated keyFiles field is removed next major",
+  },
   "skill-description-budget": {
     id: "skill-description-budget",
     bucket: "heuristic-behavioral",

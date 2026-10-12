@@ -41,6 +41,7 @@ export const RECOMMENDED_RULES = [
   "mcp-hook-target-resolves",
   "disallowed-tools-contract",
   "description-overlap",
+  "compile-budget",
 ] as const satisfies ReadonlyArray<keyof RulesConfig>;
 
 /** The preset names `extends` accepts. One today; the tuple is the enum. */

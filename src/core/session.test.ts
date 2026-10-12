@@ -188,6 +188,7 @@ describe("loadKeyFilesFromSpecs", () => {
   });
 
   it("extracts keyFiles from compiled markdown", () => {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- keyFiles is deprecated, not removed: it still compiles until the next major
     const keyFiles = loadKeyFilesFromSpecs(tmpDir);
     assert.ok(keyFiles.has("src/compile.ts"));
     assert.ok(keyFiles.has("src/spec.ts"));
@@ -196,6 +197,7 @@ describe("loadKeyFilesFromSpecs", () => {
 
   it("returns empty set for missing .vigiles/", () => {
     const emptyDir = makeTmpDir();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- keyFiles is deprecated, not removed: it still compiles until the next major
     const keyFiles = loadKeyFilesFromSpecs(emptyDir);
     assert.equal(keyFiles.size, 0);
     cleanupTmpDir(emptyDir);

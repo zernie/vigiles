@@ -1,9 +1,9 @@
 /**
  * Research-index completeness — the deterministic FLOOR keeping the `research/`
  * corpus and its index (`research/CLAUDE.md.spec.ts`) in sync. The spec's
- * `keyFiles` map is the AGENT-FACING index of every research doc; the compiler
- * already verifies the OTHER direction (every indexed path EXISTS, else
- * `vigiles compile` fails), so the only open gap is a doc that was ADDED but
+ * `file()` references are the AGENT-FACING index of every research doc; the
+ * compiler already verifies the OTHER direction (every referenced path EXISTS,
+ * else `vigiles compile` fails), so the only open gap is a doc that was ADDED but
  * never indexed. This check closes it: every `research/*.md` (except the
  * human-facing `README.md`) must appear in the index, or the dogfood test fails.
  *
@@ -19,8 +19,8 @@ export const INDEX_EXEMPT = ["README.md"] as const;
 /**
  * Research doc basenames (e.g. `roadmap.md`) NOT referenced anywhere in
  * `indexContent`. A doc counts as indexed if its repo-relative path
- * (`research/<name>.md`) appears in the index — the exact form the spec's
- * `keyFiles` keys use. Exempt docs (the README) are never flagged.
+ * (`research/<name>.md`) appears in the index — the exact form a `file()`
+ * reference takes. Exempt docs (the README) are never flagged.
  */
 export function unindexedResearchDocs(
   docFilenames: readonly string[],
@@ -35,7 +35,7 @@ export function unindexedResearchDocs(
 
 /**
  * Index entries pointing at a `research/<name>.md` that no longer exists on
- * disk. The compiler catches this at compile time (a missing `keyFiles` path is
+ * disk. The compiler catches this at compile time (a missing `file()` path is
  * a compile error), so this is a belt-and-suspenders reader for a test that
  * wants to assert it directly without invoking the compiler.
  */

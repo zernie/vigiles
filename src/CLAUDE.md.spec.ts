@@ -7,22 +7,11 @@
  * directory memory whenever you work in `src/`. Source of truth; `src/CLAUDE.md`
  * is a compiled build artifact (`vigiles compile`).
  */
-import { instructionFile, guidance } from "./core/spec.js";
+import { instructionFile, guidance, file, prose } from "./core/spec.js";
 
 export default instructionFile({
   sections: {
-    scope: `Working in \`src/\`? The root \`CLAUDE.md\` holds the full positioning, architecture, and rule set — read it first. This file adds the discipline specific to the CLI surface (\`src/cli.ts\`, \`src/cli-main.ts\`, \`src/cli-commands.ts\`): keep the command set small and cohesive.`,
-  },
-
-  keyFiles: {
-    "src/cli.ts":
-      "The bin — a DISPATCHER SHIM with NO top-level imports (#216), so a hook decision never pays for the verb barrel. The emitted hook-runtime command must stay byte-stable.",
-    "src/hook-runtime.ts":
-      "The compiled-hook RUNTIME — stdin event, stamp check, dispatch by role. Kept OUT of the verb barrel so a decision loads only what it needs; three lazy edges carry their measurement.",
-    "src/cli-main.ts":
-      "The VERB barrel — the single source of truth for what each verb does. Loaded lazily by src/cli.ts for everything that is not a hook decision.",
-    "src/cli-commands.ts":
-      "The canonical VERBS + HOOK_RUNTIME_KINDS list (the self-command-refs moat)",
+    scope: prose`Working in \`src/\`? The root \`CLAUDE.md\` holds the full positioning, architecture, and rule set — read it first. This file adds the discipline specific to the CLI surface (${file("src/cli.ts")}, ${file("src/cli-main.ts")}, ${file("src/cli-commands.ts")}): keep the command set small and cohesive. A new walk over the user's repository goes through ${file("src/exclude.ts")}, so \`.vigilesrc.json#exclude\` applies to it; a walk that does not import it ignores what the user excluded.`,
   },
 
   rules: {

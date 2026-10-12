@@ -18,6 +18,7 @@
     "mcp-hook-target-resolves": "error",
     "disallowed-tools-contract": "error",
     "description-overlap": "error",
+    "compile-budget": "error",
     "untested-skill": [
       "warn",
       {

@@ -1,6 +1,11 @@
 /**
  * vigiles CLI — verify your agent harness is real, and prove it works.
  *
+ * This is the VERB barrel: what each verb does is defined here and nowhere
+ * else. `src/cli.ts` loads it lazily for everything that is not a hook
+ * decision (those go to `src/hook-runtime.ts`), so a top-level import added
+ * here is paid by every verb but never by a gated tool call.
+ *
  * The verbs and their one-liners live in ONE place, `COMMAND_HELP` + `HELP_GROUPS`
  * near the bottom of this file, and `--help` prints from that table. A second list
  * here would be a copy that rots — this docblock WAS that copy: it named four
@@ -38,6 +43,7 @@ import { repoRelative, type RepoRelativePath } from "./core/repo-path.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { globSync } from "glob";
 import { excludeSet, excludedBy, type ExcludeSet } from "./exclude.js";
+import { withIgnored } from "./core/glob-ignore.js";
 import { generateTypes } from "./core/generate-types.js";
 import {
   loadHarnessModel,
@@ -95,6 +101,8 @@ import type {
   VigilesConfig,
   CoverageThresholds,
   TestCoverageConfig,
+  InstructionWeightConfig,
+  CompileBudgetConfig,
   RuleSeverity,
   RulesConfig,
 } from "./core/types.js";
@@ -254,7 +262,7 @@ import {
   estimateTokens,
   type StampedMarkdown,
 } from "./core/compile.js";
-import type { CompileError } from "./core/compile.js";
+import type { CompileError, CompileClaudeOptions } from "./core/compile.js";
 import type { ClaudeSpec, SkillSpec, AgentSpec, Railway } from "./core/spec.js";
 import { findSimilarRules } from "./core/proofs.js";
 import { parseInlineRules } from "./core/inline.js";
@@ -370,6 +378,11 @@ import {
 } from "./core/coverage.js";
 import { findOrphanDocs, formatOrphanReport } from "./core/orphans.js";
 import { findDocRefs, formatDocRefReport } from "./core/doc-refs.js";
+import {
+  checkDeprecatedKeyFiles,
+  findDeprecatedKeyFiles,
+  type DeprecatedKeyFilesFinding,
+} from "./deprecated-key-files.js";
 import type { DocRefReport } from "./core/doc-refs.js";
 import {
   loadHookProgram,
@@ -409,6 +422,38 @@ function findSpecs(excludes: ExcludeSet, pattern?: string): string[] {
     ignore: excludes.globIgnore,
     cwd: process.cwd(),
   });
+}
+
+/**
+ * The `deprecated-key-files` detector's I/O: every instruction spec under
+ * `root` (the glob `compile` uses), read from disk. Lint and audit both call
+ * this, so the two cannot disagree. `node_modules` is never read — someone
+ * else's spec is not this repository's to migrate.
+ */
+function specsUsingKeyFiles(
+  root: string,
+  ignore: ExcludeSet["globIgnore"],
+): readonly DeprecatedKeyFilesFinding[] {
+  return findDeprecatedKeyFiles({
+    specPaths: globSync("**/*.md.spec.ts", {
+      cwd: root,
+      dot: true,
+      nodir: true,
+      posix: true,
+      ignore: withIgnored(["**/node_modules/**"], ignore),
+    }),
+    read: (path) => readFileSync(join(root, path), "utf-8"),
+  });
+}
+
+/** `audit --single` names ONE harness: more than one directory is a contradiction (exit 2). */
+function refuseSingleOverMany(single: boolean, dirs: readonly string[]): void {
+  if (!single || dirs.length <= 1) return;
+  console.error(
+    `--single audits ONE directory as one harness, but ${String(dirs.length)} were given. ` +
+      `Drop --single for a leaderboard, or pass a single directory.`,
+  );
+  process.exit(2);
 }
 
 type AnySpec = ClaudeSpec | SkillSpec | AgentSpec | Railway;
@@ -703,6 +748,7 @@ async function compileClaudeToFile(
       maxSectionLines: config.maxSectionLines,
       catalogOnly: config.catalogOnly,
       linters: config.linters,
+      ...compileBudgetOptions(config),
     });
   const primaryOutput = specPath.replace(/\.spec\.ts$/, "");
   // Budget findings print BEFORE the pass/fail line and never change the exit
@@ -1289,6 +1335,8 @@ interface LintReport {
   frontmatterRules: number;
   specRefIssues: number;
   specRefErrors: number;
+  /** `compile-budget` findings at "error" (reported by `lint` only then). */
+  compileBudgetErrors: number;
   duplicatePairs: number;
   /** Severity of `duplicate-instructions` — carried so the exit code can tier it. */
   duplicateSeverity: RuleSeverity;
@@ -1344,6 +1392,8 @@ interface LintReport {
   hookMatcherErrors: number;
   instructionWeightIssues: number;
   instructionWeightErrors: number;
+  deprecatedKeyFilesIssues: number;
+  deprecatedKeyFilesErrors: number;
   docRefErrors: number;
   symbolRefErrors: number;
   mcpRefErrors: number;
@@ -1527,6 +1577,7 @@ function lintExitCode(report: LintReport): 0 | 1 | 2 {
     report.hookBlockErrors > 0 ||
     report.hookMatcherErrors > 0 ||
     report.instructionWeightErrors > 0 ||
+    report.deprecatedKeyFilesErrors > 0 ||
     report.symbolRefErrors > 0 ||
     report.mcpRefErrors > 0 ||
     // `doc-refs` is opt-in and this counter is only non-zero when the user set
@@ -1534,7 +1585,8 @@ function lintExitCode(report: LintReport): 0 | 1 | 2 {
     // error — it used to sit at exit 1 because it fired unasked and could not be
     // turned off.
     report.docRefErrors > 0 ||
-    report.specRefErrors > 0
+    report.specRefErrors > 0 ||
+    report.compileBudgetErrors > 0
   )
     return 2;
   // Tierable now: a `warn` orphan/duplicate finding is reported and does NOT
@@ -2077,10 +2129,19 @@ async function checkSpecRefs(
   config: VigilesConfig | undefined,
   silent: boolean,
   dialect: HarnessDialect,
-): Promise<{ issues: number; errors: number }> {
+): Promise<{ issues: number; errors: number; budgetErrors: number }> {
   const sev = ruleSeverity(config?.rules?.["spec-refs"]) ?? "error";
-  if (!sev) return { issues: 0, errors: 0 };
-  const found: string[] = [];
+  // `compile-budget` is reported here only at "error": at its default it is a
+  // compile-time warning, and `lint` printed nothing about size before the rule
+  // had a name — the default output does not change.
+  const budgetGate =
+    ruleSeverity(config?.rules?.["compile-budget"]) === "error";
+  if (!sev && !budgetGate) return { issues: 0, errors: 0, budgetErrors: 0 };
+  const derived: {
+    readonly target: string;
+    readonly specPath: string;
+    readonly findings: SpecCompileFindings;
+  }[] = [];
   let knownAgents: readonly string[] | undefined;
   for (const specPath of findSpecs(excludes)) {
     const target = specPath.replace(/\.spec\.ts$/, "");
@@ -2092,21 +2153,33 @@ async function checkSpecRefs(
       // collected lazily so a repo with no railway spec never pays for the walk.
       if (spec._specType === "railway")
         knownAgents ??= await collectAgentNames(excludes);
-      const errors = await specCompileErrors(
-        spec,
+      derived.push({
+        target,
         specPath,
-        dialect,
-        config,
-        knownAgents ?? [],
-      );
-      for (const e of errors)
-        found.push(`${target}: ${e.message} (from ${specPath})`);
+        findings: await specCompileErrors(
+          spec,
+          specPath,
+          dialect,
+          config,
+          knownAgents ?? [],
+        ),
+      });
     } catch {
       // A spec that will not load is `compile`'s finding, not this one's —
       // reporting it here would double-report and blame the wrong command.
       continue;
     }
   }
+  const messages = (
+    pick: (f: SpecCompileFindings) => readonly CompileError[],
+  ) =>
+    derived.flatMap((d) =>
+      pick(d.findings).map(
+        (e) => `${d.target}: ${e.message} (from ${d.specPath})`,
+      ),
+    );
+  const found = sev ? messages((f) => f.errors) : [];
+  const overBudget = messages((f) => f.budget);
   if (found.length > 0 && !silent) {
     console.log("\nSpec reference check:\n");
     for (const msg of found) {
@@ -2114,7 +2187,18 @@ async function checkSpecRefs(
       ghAnnotate(sev === "error" ? "error" : "warning", msg);
     }
   }
-  return { issues: found.length, errors: sev === "error" ? found.length : 0 };
+  if (overBudget.length > 0 && !silent) {
+    console.log("\nCompile budget check (compile-budget):\n");
+    overBudget.forEach((msg) => {
+      console.log(`  ✗ ${msg}`);
+      ghAnnotate("error", `compile-budget: ${msg}`);
+    });
+  }
+  return {
+    issues: found.length,
+    errors: sev === "error" ? found.length : 0,
+    budgetErrors: overBudget.length,
+  };
 }
 
 /**
@@ -2142,37 +2226,83 @@ async function specCompileErrors(
   dialect: HarnessDialect,
   config: VigilesConfig | undefined,
   knownAgents: readonly string[],
-): Promise<readonly CompileError[]> {
+): Promise<SpecCompileFindings> {
   const basePath = process.cwd();
   switch (spec._specType) {
-    case "claude":
-      return (
-        await compileClaude(spec, {
-          basePath,
-          specFile: specPath,
-          dialect,
-          maxRules: config?.maxRules,
-          maxTokens: config?.maxTokens,
-          maxSectionLines: config?.maxSectionLines,
-          catalogOnly: config?.catalogOnly,
-          linters: config?.linters,
-        })
-      ).errors;
+    case "claude": {
+      const r = await compileClaude(spec, {
+        basePath,
+        specFile: specPath,
+        dialect,
+        maxRules: config?.maxRules,
+        maxTokens: config?.maxTokens,
+        maxSectionLines: config?.maxSectionLines,
+        catalogOnly: config?.catalogOnly,
+        linters: config?.linters,
+        ...compileBudgetOptions(config),
+      });
+      // A size finding is `compile-budget`'s, not a dead reference: split by
+      // IDENTITY against the compiler's own list, never by the type's name.
+      return {
+        errors: r.errors.filter((e) => !r.budgetFindings.includes(e)),
+        budget: r.errors.filter((e) => r.budgetFindings.includes(e)),
+      };
+    }
     case "skill":
-      return (
-        await compileSkill(spec, { basePath, specFile: specPath, dialect })
-      ).errors;
+      return {
+        errors: (
+          await compileSkill(spec, { basePath, specFile: specPath, dialect })
+        ).errors,
+        budget: [],
+      };
     case "agent":
-      return (
-        await compileAgent(spec, { basePath, specFile: specPath, dialect })
-      ).errors;
+      return {
+        errors: (
+          await compileAgent(spec, { basePath, specFile: specPath, dialect })
+        ).errors,
+        budget: [],
+      };
     case "railway":
-      return compileRailway(spec, { specFile: specPath, knownAgents }).errors;
+      return {
+        errors: compileRailway(spec, { specFile: specPath, knownAgents })
+          .errors,
+        budget: [],
+      };
     default:
       // A `pipeline` spec compiles through its underlying railway, so it has no
       // artifact of its own to re-derive refs for.
-      return [];
+      return { errors: [], budget: [] };
   }
+}
+
+/**
+ * What re-deriving one spec found, split by the rule that owns it: dead
+ * references (`spec-refs`) and, for an instruction spec under
+ * `compile-budget: "error"`, size budgets (`compile-budget`).
+ */
+interface SpecCompileFindings {
+  readonly errors: readonly CompileError[];
+  readonly budget: readonly CompileError[];
+}
+
+/**
+ * The `compile-budget` rule, as `compileClaude` options: its severity and any
+ * thresholds the config set. The ONE translation, so `compile` (which writes)
+ * and `lint` (which re-derives) can never measure against different numbers.
+ */
+function compileBudgetOptions(
+  config: Readonly<VigilesConfig> | undefined,
+): Pick<
+  CompileClaudeOptions,
+  "budgetSeverity" | "maxEntryChars" | "maxSectionChars" | "maxRulesChars"
+> {
+  const rule = config?.rules?.["compile-budget"];
+  // No config at all (a programmatic caller, a missing file) is the default.
+  if (rule === undefined) return { budgetSeverity: "warn" };
+  return {
+    budgetSeverity: ruleSeverity(rule),
+    ...ruleOptions<CompileBudgetConfig>(rule),
+  };
 }
 
 /**
@@ -2496,6 +2626,9 @@ async function runLint(
   const instructionWeight = checkInstructionWeightRatchet({
     root: frame.root,
     severity: ruleSeverity(config?.rules?.["instruction-weight"]),
+    max: ruleOptions<InstructionWeightConfig>(
+      config?.rules?.["instruction-weight"],
+    )?.max,
     update: flags.includes("--update-baseline"),
     silent,
     measure: () =>
@@ -2508,6 +2641,18 @@ async function runLint(
       ),
     annotate: (level, message) => {
       ghAnnotate(level, message);
+    },
+  });
+
+  // 7w. Deprecated-key-files — an instruction spec still using `keyFiles`. Once
+  // over the repository, like the ratchet: a nested bundle's spec would
+  // otherwise be reported again by every bundle that encloses it.
+  const deprecatedKeyFiles = checkDeprecatedKeyFiles({
+    severity: ruleSeverity(config?.rules?.["deprecated-key-files"]),
+    find: () => specsUsingKeyFiles(process.cwd(), excludes.globIgnore),
+    silent,
+    annotate: (level, message, path) => {
+      ghAnnotate(level, message, frame.repo(resolve(process.cwd(), path)));
     },
   });
 
@@ -2598,6 +2743,7 @@ async function runLint(
     frontmatterRules,
     specRefIssues: specRefs.issues,
     specRefErrors: specRefs.errors,
+    compileBudgetErrors: specRefs.budgetErrors,
     duplicatePairs: dups.pairCount,
     duplicateSeverity:
       ruleSeverity(config?.rules?.["duplicate-rules"]) ?? "warn",
@@ -2652,6 +2798,8 @@ async function runLint(
     hookMatcherErrors: hookMatcher.errors,
     instructionWeightIssues: instructionWeight.issues,
     instructionWeightErrors: instructionWeight.errors,
+    deprecatedKeyFilesIssues: deprecatedKeyFiles.issues,
+    deprecatedKeyFilesErrors: deprecatedKeyFiles.errors,
     // Only the "error" tier gates. At "warn" the findings are printed and
     // annotated, and the exit code is untouched — same contract as every other
     // opt-in rule here.
@@ -3377,6 +3525,9 @@ export default instructionFile({${targetLine}
     // Prose sections become ## headings in the compiled output.
     // Do not add # or ## headers inside sections.
     // positioning: "What this project does and why.",
+    // A file a decision depends on: name it where the decision is, with
+    // file() inside a prose section — verified to exist at compile time. No
+    // file map: the agent finds files itself, and a map loads on every request.
 
     // This section is included in the compiled output to help agents
     // understand how to work with specs. Remove it once your team is familiar.
@@ -3387,11 +3538,6 @@ export default instructionFile({${targetLine}
     // Commands are verified against package.json at compile time.
     // "npm run build": "Compile the project",
     // "npm test": "Run all tests",
-  },
-
-  keyFiles: {
-    // File paths are verified to exist at compile time.
-    // "src/index.ts": "Main entry point",
   },
 
   rules: {
@@ -9029,13 +9175,7 @@ export async function main(): Promise<void> {
       // contradiction. Refuse it (exit 2 = "could not do what you asked") rather
       // than auditing the first and dropping the rest — silently honouring half
       // an argument list is the same defect class as the ignored `--out` above.
-      if (single && dirs.length > 1) {
-        console.error(
-          `--single audits ONE directory as one harness, but ${String(dirs.length)} were given. ` +
-            `Drop --single for a leaderboard, or pass a single directory.`,
-        );
-        process.exit(2);
-      }
+      refuseSingleOverMany(single, dirs);
       const targets =
         !single && market && market.onDisk.length > 0
           ? [...market.onDisk]
@@ -9140,6 +9280,7 @@ export async function main(): Promise<void> {
         // (#281): cwd, unless the audited dir is somebody else's repository.
         const frame = frameFor(process.cwd(), root);
         const report = scanPlugin(targets[0], adapter.layout, adapter.dialect, {
+          deprecatedKeyFiles: specsUsingKeyFiles(root, excludes.globIgnore),
           sharedDirs: config.sharedDirs,
           sharedDirsRoot: frame.root,
           // `.vigilesrc.json#exclude` reaches surface DISCOVERY, not just the

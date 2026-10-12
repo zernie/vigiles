@@ -518,6 +518,8 @@ const SHIPPED_RULE_DEFAULTS = {
   "disallowed-tools-contract": "warn",
   "description-overlap": "warn",
   "skill-description-budget": "warn",
+  // "error" through vigiles:recommended (#350); the rule's own default stays warn.
+  "compile-budget": "warn",
   "frontmatter-valid": "warn",
   "mcp-hook-target-resolves": "warn",
   "lethal-trifecta": "warn",
@@ -531,6 +533,8 @@ const SHIPPED_RULE_DEFAULTS = {
   "doc-refs": false,
   // On, and silent until the repo commits a baseline file.
   "instruction-weight": "error",
+  // A deprecation notice: reported, never gating on upgrade.
+  "deprecated-key-files": "warn",
 };
 
 describe("loadConfig", () => {

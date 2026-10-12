@@ -4,7 +4,7 @@
  * This is the source of truth. CLAUDE.md is a compiled build artifact.
  * Run `npm run compile:spec` to regenerate CLAUDE.md from this spec.
  */
-import { claude, enforce, guidance, guard } from "./src/core/spec.js";
+import { claude, enforce, file, guidance, guard } from "./src/core/spec.js";
 
 export default claude({
   sections: {
@@ -56,11 +56,11 @@ Harness-adapter layout (hexagonal — see \`docs/harnesses.md\`). The tree is sp
 
 The layers are enforced in \`eslint.config.mjs\` and dogfooded via \`enforce("boundaries/dependencies")\`: every file belongs to a layer (\`src/core\` domain, \`src/adapters/<h>/\` one adapter each, \`src/cli{,-main}.ts\` root, rest of \`src/\` app) and imports point inward only — no adapter→adapter, and only the root wires an adapter in. \`local/no-harness-names\` stops any file, tests included, from spelling a harness other than its own adapter's (name, directory, env vars). Old violations are grandfathered. The architecture invariant is a verified reference, not a convention. Consumers select a harness by import (\`vigiles/claude-code\` beside the agnostic \`vigiles\`/\`vigiles/eval\`), not a runtime config key; the CLI selects per repo — auto-detect, a \`--harness=\` override, or a \`harnesses\` key in \`.vigilesrc.json\` written by \`init\` (the project-level declaration, distinct from the library's import-time selection). That key is an OBJECT keyed by harness name — \`{"claude-code": {"roots": [".ai"]}, "codex": {}}\` — and it REPLACED the flat \`harness\` + \`surfaceRoots\` pair outright, no alias: the old harness ARRAY's order silently decided which single layout everything was read under, so a repo declaring both got its skills OR its instruction file depending on which name it listed first, and no order gave it both (#240). Scoping each extra surface ROOT inside the harness that reads it removes the order, and a root under a harness whose layout reads nothing there is a hard error rather than a line that changes nothing. A repo declaring several harnesses still drives a byte-identical \`CLAUDE.md\`⇄\`AGENTS.md\` mirror when no sync tool fans it out. The config's SHAPE, its defaults and its error messages are ONE Zod schema (\`src/core/config-schema.ts\`) and \`VigilesConfig\` is \`z.infer\` of it, so a key cannot exist in the type and be absent from the validator.`,
 
-    layout: `What each ROOT directory is (the per-file map is Key Files below; this is the per-dir index). This repo is FIVE things at once — a TS library, a shipped Claude Code plugin, two auxiliary packages, a benchmark suite, and its own dogfood harness — so the root has a dir per concern, grouped here by concern.
+    layout: `What each ROOT directory is — the per-dir index; what one file does is in that file's own header. This repo is FIVE things at once — a TS library, a shipped Claude Code plugin, two auxiliary packages, a benchmark suite, and its own dogfood harness — so the root has a dir per concern, grouped here by concern.
 
 THE LIBRARY (the one compiled thing):
 
-- \`src/\` — all TypeScript source, compiled to \`dist/\`. The ONLY thing \`eslint src/\` lints, vitest sweeps (\`src/**/*.test.ts\`), and the 100% coverage gate covers. Hexagonal: \`src/core/\` (domain) · \`src/adapters/<harness>/\` (ports) · \`src/*.ts\` (composition root + library). Also \`src/schemas/\` = DEPRECATED mdschema presets, parked (see \`src/schemas/DEPRECATED.md\`). A module's test sits BESIDE it as \`<module>.test.ts\`, so Key Files below lists the module and not its test — the test is found by name, and what it proves is in its own header. Only a test that stands ALONE is listed: one measuring somebody else's product, or one holding a whole-registry contract rather than a single module.
+- \`src/\` — all TypeScript source, compiled to \`dist/\`. The ONLY thing \`eslint src/\` lints, vitest sweeps (\`src/**/*.test.ts\`), and the 100% coverage gate covers. Hexagonal: \`src/core/\` (domain) · \`src/adapters/<harness>/\` (ports) · \`src/*.ts\` (composition root + library). Also \`src/schemas/\` = DEPRECATED mdschema presets, parked (see \`src/schemas/DEPRECATED.md\`). A module's test sits BESIDE it as \`<module>.test.ts\` — found by name, and what it proves is in its own header.
 - \`dist/\` — compiled JS output (gitignored; the published artifact + the audit-report template).
 
 THE SHIPPED PLUGIN (root-level by Claude Code plugin convention — these MUST sit at the repo root beside the manifest; they are markdown/shell consumed verbatim by the harness, never compiled):
@@ -97,466 +97,6 @@ BUILD + TOOLING + GENERATED:
 - \`api-surface/\` — the committed public-API surface snapshots (\`*.api.md\`), one per exported entry point. A generated CONTRACT (lockfile-class), reviewed as a diff, never hand-edited: CI diffs the live \`.d.ts\` surface against these (the API surface gate) and fails a PR that changes a public export until \`npm run api:report\` regenerates + commits it. (Renamed 2026-07-14 from \`etc/\`, which was Microsoft API Extractor's default output dir; the report folder is set in \`scripts/api-extractor.mjs\`.) Distinct from the human API REFERENCE (TypeDoc → GitHub Pages).
 - \`.github/\` — CI workflows (\`ci.yml\` is the gate). \`.vigiles/\` — vigiles's own runtime output (gitignored: hook observations, eval locks, the runs ledger).`,
   },
-
-  keyFiles: {
-    "src/core/spec.ts":
-      "Type system and builder functions (enforce, guidance, claude, skill, agent, file, cmd, ref, symbol, dir, glob — dir() verifies a path exists AND is a directory, glob() verifies a pattern matches ≥1…",
-    "src/core/compile.ts":
-      "Compiler: spec → markdown with SHA-256 hash, linter verification, reference validation; compileClaude/compileSkill/compileAgent (subagents: frontmatter + verified tool contract + body marks +…",
-    "src/core/instruction-weight.ts":
-      "How heavy are the instructions a harness loads WITHOUT being asked — the SUM over everything always-loaded, not one file size. The header holds the relocation measurement.",
-    "src/core/event-capability.ts":
-      "What a hook event CARRIES and HONOURS — the one table three flat lists were approximating. Partial by construction, total at the lookup, unknown fails open.",
-    "src/adapters/claude-code/event-capability.ts":
-      "Claude Code capability capture — 9 of the vendor 31 events, each row carrying its basis (doc or measured). A row is all-or-nothing; the header says why Codex has none yet.",
-    "src/core/role-event-fit.test.ts":
-      "(role x event) fit against the six fixtures that measured the hole — each test names the letter it reproduces, and the header holds the honest scorecard of what it caught.",
-    "src/core/hook-program.ts":
-      "COMPILED HOOKS core (the GATE instrument; harness-neutral, pure).",
-    "src/hook.ts":
-      "`vigiles/hook` — the public closed vocabulary for authoring a compiled hook (re-exports core/hook-program.ts): defineHook/defineFileGate/definePromptGate/defineStopGate/defineInject/defineReact…",
-    "src/hook-install.ts":
-      "Hook installation — the bridge folding hook compilation into `vigiles compile` (no stray `compile-hook` verb; cohesive-cli-surface).",
-    "src/hook-dogfood.test.ts":
-      "OSS dogfood (vitest, model-free): proves a COMPILED hook closes the gaps a hand-written guard leaves, using the DISASTER_CATALOG as the oracle — a faithful substring guard (the widely-copied disler…",
-    "src/hook-oss-comparison.test.ts":
-      "Aggressive OSS comparison dogfood (vitest, model-free): compiled hooks vs the hand-written shapes the ecosystem ships, DISASTER_CATALOG as oracle.",
-    "src/guardrail-check.ts":
-      "VERIFY feature — 'prove your safety hook ACTUALLY blocks' (on `vigiles` root).",
-    "src/verify-plugin-guards.ts":
-      "The DIRECTORY-level disaster battery: measures each declared hook with its OWN condition, and reports a union so a hook that never ran cannot be read as a score (#212).",
-    "src/core/bash-equivalents.ts":
-      "Shell-EQUIVALENT rewrites of a dangerous command — the generator behind `experimental_alternateSpellings(events)` in guardrail-check.ts (renamed 2026-09-02 from `equivalentDisasters`, which its…",
-    ".vigiles/hooks/test-tier-nudge.hook.mjs":
-      "THIS repo's OWN compiled hook, and its first (2026-09-07) — the artifact that retired the `docs/compiled-hooks.md` line \"neither [consumer] is this repository's own harness, which still wires its…",
-    "src/test-tier-nudge.hook.test.ts":
-      "The test for this repo own compiled hook. Named <surface>.hook.test.ts because a hook name carries .hook — that is what binds it to the surface under .vigilesrc.json.",
-    ".vigiles/hooks/docs-drift-nudge.hook.mjs":
-      "This repo own compiled hook #2 — a react nudging when src/ changed and no doc did. That is a property of a DIFF, which only a hook sees; two named facts keep the silences apart.",
-    "src/docs-drift-nudge.hook.test.ts":
-      "The test for the docs-drift hook (vitest, unit tier): both silences asserted apart, and mutation-proven — deleting the docs.followed branch fails exactly one test.",
-    "examples/harness/safe-bash-guard.hook.mjs":
-      "The compiled-hook dogfood artifact — a real guard full intent (force-push/reset --hard/--no-verify/forced-rm/secret-read/curl|sh) as one pure typed function.",
-    "src/core/command-files.ts":
-      "Which FILES a shell command reads or writes — the deterministic extractor behind the path-aware half of a Bash gate (#212).",
-    "src/core/guards.ts":
-      "EXPERIMENTAL prototype (the GATE axis of the reliability runtime) — typed safe-by-construction harness GUARDS: declare guard.block / requireBefore (the ORDER axis — destroy-after-plan, enforced live…",
-    "src/hook-matcher-delivery.test.ts":
-      "Which matcher strings Claude Code honours as match-all — MEASURED, after `**` sat in MATCH_ALL (core/hook-matcher.ts) on no evidence. A claim about somebody else\'s product that prose cannot keep true.",
-    "src/core/tool-contract.ts":
-      "Tool-contract verification — the cross-referencing engine applied to a subagent's tools: rail. verifyToolContract(tools, dialect) flags never-available (denylist) + unknown (with did-you-mean ≤2)…",
-    "src/core/hook-events.ts":
-      "Hook-event verification — the cross-referencing engine applied to the EVENT a hook registers under (a typo → the hook never fires). verifyHookEvents(events, dialect) flags unknown events…",
-    "src/core/mcp-config.ts":
-      "MCP-config verification — verifyMcpServers flags a declared MCP server with neither a command (stdio) nor a url (http/sse): it can't start.",
-    "src/core/agent-plugins.ts":
-      "Agent Plugins (agent-plugins.org) 1.0.0 — the VENDOR-NEUTRAL packaging standard, recognized as an ADDITIONAL manifest source, NOT a HarnessAdapter.",
-    "src/core/mcp-tool.ts":
-      "MCP-tool resolution — the cross-referencing engine applied to an MCP tool reference's SERVER (the MCP half of the tool-reference check; subagent-tool-contract checks the built-in half but passes any…",
-    "src/core/description-overlap.ts":
-      "Description-overlap — a DETERMINISTIC proxy for a behavioral risk (the showpiece): two model-invocable skills whose descriptions are near-identical can't be told apart by the selector → the wrong…",
-    "src/core/mcp-hook.ts":
-      "MCP-hook target verification — the cross-referencing engine applied to a `type: mcp_tool` HOOK action (CC hooks support command/http/mcp_tool/prompt/agent; mcp_tool calls a tool on a connected MCP…",
-    "src/core/effects.ts":
-      "Static effect-surface analysis + the RUNTIME purity gate — the deterministic, model-free purity ladder over a declared tools: contract (an agent's side effects ARE its tool calls; the…",
-    "src/core/bash-effects.ts":
-      "Deterministic Bash-effect classifier (no LLM) — the no-model answer to 'is this Bash command read-only or side-effecting?' (Claude Code uses an LLM permission classifier; this is the deterministic…",
-    "src/core/linters.ts":
-      "Cross-referencing engine (ESLint, Stylelint, Ruff, Clippy, Pylint, RuboCop, Cedar, detekt, ktlint, Checkstyle, golangci-lint)",
-    "src/core/dialect.ts":
-      "HarnessDialect — the format/dialect PORT (hexagonal format axis): the harness-specific vocabulary the compiler needs (built-in subagent tool catalog, never-available tools, side-effecting tools via…",
-    "src/adapters/claude-code/dialect.ts":
-      "The Claude Code adapter's HarnessDialect surface: DEFINES claudeCodeDialect (the concrete dialect lives in the adapter, symmetric with claudeCodeLayout/Runtime/HookProtocol/ModelMock; core holds…",
-    "src/adapters/claude-code/typed-spec.ts":
-      "Typed Claude Code authoring surface (exported on vigiles/claude-code): the CC-bound agent/skill that pin the generic ToolVocabulary to ClaudeCodeToolVocabulary (readOnly/bounded unions derived from…",
-    "src/core/layout.ts":
-      "PluginLayout — the plugin/repo LAYOUT port (filesystem half of the format axis): where a harness's instruction file / skills / agents / commands / hooks / settings live on disk + the plugin-root…",
-    "src/adapters/claude-code/layout.ts":
-      "claudeCodeLayout — the PluginLayout port Claude Code impl (.claude-plugin/plugin.json, .claude/settings.json, skills/agents/commands surfaces); the loadPlugin default.",
-    "src/core/runtime.ts":
-      "HarnessRuntime — the runtime/transport PORT (transport axis): the facts the test tiers need to drive a harness (the agent binary to spawn + the env a no-key mock is reached through: base-URL var…",
-    "src/core/harness-driver.ts":
-      "HarnessTestDriver — the layer-2 deterministic-runner PORT: how runHarnessTest builds a harness's argv (buildArgs), starts its scripted wire-format mock (startMock → HarnessMockHandle), parses its…",
-    "src/adapters/claude-code/runtime.ts":
-      "claudeCodeRuntime — the HarnessRuntime port's Claude Code impl (spawn `claude`, reach the mock via ANTHROPIC_BASE_URL + dummy ANTHROPIC_API_KEY; versionKey → major.minor) + mockModelEnv, the pure…",
-    "src/core/hook-protocol.ts":
-      "HookProtocol — the hook-wire PORT (transport axis): how a harness signals a hook block/deny (block exit code + deny decision values + event env vars) PLUS injectableEvents — the events that honor…",
-    "src/adapters/claude-code/hook-protocol.ts":
-      "claudeCodeHookProtocol — the HookProtocol impl: blocks via exit 2 or permissionDecision:deny / decision:block; injectableEvents = [SessionStart, UserPromptSubmit, PostToolUse]",
-    "src/core/model-mock.ts":
-      "ModelMock — the model-mock PORT (transport axis): the mock model's wire format (anthropic-messages vs openai-responses) + the turn-consuming endpoint + optional count-tokens endpoint. startMock…",
-    "src/adapters/claude-code/model-mock.ts":
-      "claudeCodeModelMock — the ModelMock impl: anthropic-messages SSE at /v1/messages (+ count_tokens). A Codex codexModelMock sets openai-responses + /v1/responses",
-    "src/core/adapter.ts":
-      "HarnessAdapter — the bundle that makes a harness a single addable unit: groups the ports (dialect/layout always; runtime/hookProtocol/modelMock OPTIONAL, present iff the matching capability is…",
-    "src/adapters/claude-code/adapter.ts":
-      "claudeCodeAdapter — the Claude Code HarnessAdapter: the five CC ports bundled + a detect that recognizes a .claude-plugin/ manifest, .claude/settings.json, or CLAUDE.md.",
-    "src/adapters/codex/adapter.ts":
-      "codexAdapter — the OpenAI Codex HarnessAdapter (the five Codex ports in src/adapters/codex/{dialect,layout,runtime,hook-protocol,model-mock}.ts).",
-    "src/adapters/codex/codex.test.ts":
-      "Codex adapter validation (vitest): codexAdapter passes assertAdapterConformance + assertAdapterLoadsHooks (TOML config.toml [hooks] round-trip), the compiler verifies a subagent contract under…",
-    "src/adapters/codex/mock-model.ts":
-      "Codex transport, BUILT + PROVEN against the real `codex` binary (closes the deferred ModelMock-renderer gap): renderResponsesSSE emits the OpenAI Responses 9-event SSE sequence (response.created → ……",
-    "src/adapters/codex/driver.ts":
-      "codexDriver — the Codex HarnessTestDriver: buildArgs (codex exec flags + the keyless -c model_provider mock flags via runtime.wireMock + prompt last), startMock (startCodexMock — the Responses SSE…",
-    "src/adapters/codex/harness-test.test.ts":
-      "Codex harness-test suite (vitest): pure unit tests for buildCodexArgs (exec flags, mock flags after exec, prompt last) and parseCodexRun (trimmed stdout, empty tools/hooks) + a GATED test that…",
-    "src/adapters/codex/eval.ts":
-      "Codex EVAL-tier transport (exported on vigiles/codex), the seam measureTriggerRate/runEval dispatch to via the ModelOutputParser.",
-    "src/adapters/opencode/adapter.ts":
-      "opencodeAdapter — an EXPERIMENTAL, internal-only prototype HarnessAdapter for OpenCode (sst): dialect/layout/runtime/model-mock in src/adapters/opencode/, but NO hook-protocol — it declares…",
-    "src/adapters/opencode/opencode.test.ts":
-      "OpenCode prototype validation (vitest): opencodeAdapter passes assertAdapterConformance WITHOUT a hookProtocol (shellHooks:false relaxes it), assertHarnessTestable returns its runtime+modelMock (it…",
-    "src/adapter.ts":
-      "`vigiles/adapter` — the harness-adapter authoring kit (the documented small lib third parties use to build their own adapter): re-exports the five port interfaces + HarnessAdapter + the conformance…",
-    "src/codex.ts":
-      "`vigiles/codex` — the OpenAI Codex adapter surface (sibling of vigiles/claude-code): re-exports the Codex ports + codexAdapter + codexDriver + the proven Responses mock…",
-    "src/adapter-registry.ts":
-      "Adapter registry (composition root): ADAPTERS = [claudeCodeAdapter, codexAdapter] + detectAdapterResult/detectAdapter (highest detect() specificity wins, reports ambiguousWith for a repo that…",
-    "src/adapter-conformance.ts":
-      "Adapter conformance kit: checkAdapterConformance/assertAdapterConformance (each port populated + cross-port invariants — port names agree, instructionFile is a declared target, plugin-root tokens…",
-    "src/adapter-contract.test.ts":
-      "Adapter CONTRACT suite — the STRUCTURAL enforcement of test-both-harnesses: runs the conformance kit (src/adapter-conformance.ts) over the WHOLE registry in a loop (for adapter of ADAPTERS) instead…",
-    "src/core/cedar.test.ts":
-      "Cedar policy resolution tests — filesystem-based @id() lookup with filename fallback",
-    "src/core/generate-types.ts":
-      "Type generator: scans linters/package.json/filesystem → emits .d.ts",
-    "src/core/generate-schema.ts":
-      "JSON Schema generator: emits .vigiles/schema.json from real linter config so YAML LSP autocompletes frontmatter rule names",
-    "src/core/generate-harness.ts":
-      "Whole-harness codegen (harness-agnostic core, the THIRD generated artifact beside generate-types/generate-schema): `vigiles generate harness [dir] [out]` emits ONE harness.gen.ts registry over every…",
-    "src/cli.ts":
-      "The bin — a DISPATCHER SHIM with NO top-level imports (#216), so a hook decision never pays for the verb barrel. The emitted hook-runtime command must stay byte-stable.",
-    "src/hook-runtime.ts":
-      "The compiled-hook RUNTIME — stdin event, stamp check, dispatch by role. Kept OUT of the verb barrel so a decision loads only what it needs. SIX lazy edges now carry their measurement — the list lives in `tools/measure-hook-startup.mjs`, which owns it; do not restate the count here, it has gone stale once already.",
-    "src/hook-runtime-graph.test.ts":
-      "The module-graph invariant behind startup cost: a decision must not pull the CLI barrel or the TOML/shell parsers. Asserts the GRAPH, not a duration, so CI cannot flake it.",
-    "tools/measure-hook-startup.mjs":
-      "Human-run: prices a compiled hook's startup layer by layer (a `require` per module) and end-to-end per hook role. The NUMBERS live here and are re-measured, never quoted from prose.",
-    "src/cli-main.ts":
-      "CLI: init, compile, lint, test, eval, scan (primary commands + generate-types plumbing) + `--version` (prints the version, not the help banner).",
-    "src/skill-links.ts":
-      "Pure half of `init` linking the shipped skills into the repo (a global install is one machine's state); IO is `linkVigilesSkills` in cli-main.ts.",
-    "src/setup-plan.ts":
-      "Pure `vigiles init` decision logic (parseSetupArgs/shouldPrompt/resolvePlan/planPluginInstall): turns CLI flags + whether a human's at a TTY into a SetupPlan {lint,test,gha,plugin,strict}.",
-    "src/core/adopt.ts":
-      "Faithful markdown → typed-spec ADOPTION — the deterministic half of `init` auto-adopt. adoptMarkdown(md, target) converts an existing CLAUDE.md/AGENTS.md into a `claude()` spec SOURCE that compiles…",
-    "src/exclude.ts":
-      "The ONE exclusion policy for every walk that polices the user's repository (#192) — the parsed `.vigilesrc.json#exclude` as an `ExcludeSet`, built ONCE where `loadConfig()` runs and taken as a…",
-    "src/exclude-cli.test.ts":
-      "`exclude` e2e over the REAL built CLI on one fixture repo in BOTH directions (#192): with `vendored` (bare name) excluded, compile/lint/audit/test are clean and exit 0 — a frozen un-loadable spec, a…",
-    "src/scan.ts":
-      "`vigiles audit <dir>` — deterministic, no-model report of what a plugin/repo ships and what's broken: the top-level instruction file (CLAUDE.md/AGENTS.md) presence + spec-managed-vs-hand-written (so…",
-    "src/scan-cli.test.ts":
-      "Scan CLI e2e suite (vitest, free unit tier): drives the REAL built `node dist/cli.js audit` over the repo-shape matrix — DOGFOOD on pinned OSS plugins (test/dogfood/*) for the cc surface +…",
-    "src/scan-vendor.test.ts":
-      "Golden scan-VERDICT conformance over REAL SHA-pinned vendored plugins (test/dogfood/*) — the rules complement to vendor.test.ts (loader invariants), offline + model-free.",
-    "src/scan-behavioral.ts":
-      "`vigiles audit` model trigger tier — the BEHAVIORAL column (the model-gated half of audit, the deliberate exception to one-detector-no-drift): probePluginTriggers measures whether a plugin's…",
-    "src/leaderboard.ts":
-      "Plugin health leaderboard: scoreReport turns a ScanReport into a 0–100 structural-health score + A–F grade from concrete facts (missing hook -15, no-description skill -10…",
-    "src/score-explainer.ts":
-      "Score-explainer (C4 of the measurement-authority pivot, the strongest pairing): the deterministic WHY behind a low measured score.",
-    "src/optimize.ts":
-      "The per-repo harness optimizer's DETERMINISTIC spine, folded INLINE into the default `vigiles audit` report (each finding carries its fix via formatRecommendations — NOT its own `optimize` verb, and…",
-    "src/audit-score.ts":
-      "Category scoring for `vigiles audit` — the Lighthouse RINGS.",
-    "src/audit-prompts.ts":
-      "Auto-generated trigger probes for the `audit` model trigger tier (zero-setup): derive a diverse probe set from each skill's own description so the model-gated trigger-rate needs no hand-authored…",
-    "src/segment.ts":
-      "Tier-A deterministic (no-model) SEGMENTER — the rule-vs-not stage of the audit rule map. segmentInstructions(markdown) splits a CLAUDE.md/AGENTS.md into ATOMIC candidate rules with provenance…",
-    "src/rule-inventory.ts":
-      "The NARROW rule inventory + the static INTENT_MAP — 'which prose lines NAME an off-the-shelf lint rule, and is it enabled?'.",
-    "src/rule-routing.ts":
-      "The deterministic (no-model) ROUTING stage of the audit rule map — routeRules(text,{availableRules,minConfidence}) segments (via src/segment.ts) then routes each atomic rule into a lane by…",
-    "src/rule-signals.ts":
-      "The shared LEXICAL rule-signal vocabulary — ONE home for the deontic/imperative regexes both detection stages key on, so they can't drift.",
-    "src/core/rule-catalog.ts":
-      "The DYNAMIC available-rule catalog for the audit rule map — enumerateEslintCatalog/enumeratePylintCatalog EXECUTE the repo's real linter (own-repo + consent) to list every installed rule (plugins…",
-    "src/audit-report.ts":
-      "The `AuditReport` — the VERSIONED JSON contract every renderer reads.",
-    "src/audit-html.ts":
-      "The shareable HTML audit report — ONE renderer (pure shadcn/Tailwind, no custom-CSS fallback). renderAuditHtml(report) injects the AuditReport JSON into the prebuilt React/shadcn template…",
-    "packages/report-view/":
-      "@vigiles/report-view — the SHARED audit report view (source-only, private, never published): the presentational React components (Report, Ring, RuleInventory, Adopt, Adoptability, Observations…",
-    "packages/eslint-config/":
-      "Strict lint rules shared with paperlint, which imports index.mjs by path from node_modules (private; not in `exports`).",
-    "eslint-suppressions.json":
-      "Old findings as a count per file and rule, written by ESLint. A count only goes down (`--prune-suppressions`); a swap inside one file passes.",
-    "eslint-ceilings.json":
-      "Per-file ceilings for old functions over the size limits; `scripts/lint-ceilings.mjs` fails when one can come down.",
-    "report/":
-      "The audit report UI (@vigiles/report): a Vite + Tailwind v4 app whose src is now just main.tsx + index.css — it CONSUMES @vigiles/report-view (the shared components + schema + theme) and builds it…",
-    "src/scaffold-test.ts":
-      "The deterministic test-gen ENGINE (B1: free-form in, a RUNNABLE starter test out) — SKILL-INTERNAL, no CLI verb (the test-harness skill drives it; the standalone verb was demoted to trim the launch…",
-    "bench/corpus/coding-tasks.mjs":
-      "The reusable real-task corpus — the substrate the MEASUREMENT layer runs on. 5 NEUTRAL coding tasks (slugify/debounce/bugfix-offbyone/bigO/regex-email), each self-contained (seeds its own input)…",
-    "bench/corpus/verify.mjs":
-      "Runnable, no-model self-check for the corpus correctness oracles — proves each task's check DISCRIMINATES a known-good vs known-bad artifact (a check that always returns 1 would silently void the…",
-    "src/adapters/claude-code/run-scripts.ts":
-      "Script runner for `vigiles test` / `vigiles eval`: discover `*.harness.*` / `*.eval.*` (JS+TS), run each as a child node process, classify each result pass/skip/fail (exit 0 / SKIP_EXIT_CODE 77 /…",
-    "src/core/inline.ts":
-      "Inline-mode parser: `<!-- vigiles:enforce ... -->` comments in markdown for gradual adoption",
-    "src/core/frontmatter.ts":
-      "Frontmatter-mode parser: `vigiles: enforce:` YAML frontmatter rules in markdown (Level 1 adoption)",
-    "src/core/frontmatter-read.ts":
-      "Lenient frontmatter reader — ONE reader for the SKILL.md/subagent --- block, shared by scan + the PreToolUse rail (agent-runtime), replacing three divergent hand-parsers (scan's readField +…",
-    "src/core/hook-normalize.ts":
-      "Hook settings normalization — the typed boundary (parse-don't-validate) the audit hook detectors read. normalizeHooks(raw) parses the raw settings.hooks `unknown` ONCE into a typed…",
-    "action.yml":
-      "GitHub Action — a composite action over the published npx vigiles CLI, so it reuses the tested artifact rather than an uncommitted dist/. version: local lets this repo dogfood it.",
-    ".github/workflows/pages.yml":
-      "ONE GitHub Pages deploy for the WHOLE site (a repo gets one Pages site), on push to main — REPLACED the old separate api-docs.yml + build-only site.yml (combined in #76).",
-    "src/cli-flags.ts":
-      "Shared CLI flag → config bridge (applyConfigFlags): --max-rules / --catalog-only override the loaded config so every GitHub Action input maps to a real CLI flag.",
-    "src/cli-commands.ts":
-      "The canonical vigiles command surface — the SINGLE SOURCE OF TRUTH (VERBS + HOOK_RUNTIME_KINDS) the self-command-refs dogfood cross-references vigiles's OWN docs/comments against, so a renamed…",
-    "src/adapters/claude-code/dialect-drift.ts":
-      "Dialect freshness/drift detection — the read-local backstop for the hand-maintained claudeCodeDialect (CC is a black box).",
-    "src/self-command-refs.ts":
-      "Self-command-reference verification — the cross-referencing engine applied to vigiles's OWN docs (the cohesive-cli-surface enforcement): every `vigiles <cmd>` reference must resolve to a real VERB…",
-    "src/doc-command-coverage.ts":
-      "Doc-command coverage — the INVERSE of self-command-refs and the deterministic FLOOR under the document-the-why rule. self-command-refs checks docs→code (every `vigiles <cmd>` ref resolves); this…",
-    "src/doc-test-script-coverage.ts":
-      "Doc-test-script coverage — the SIBLING of doc-command-coverage.ts aimed at the other reader.",
-    "src/core/agent.test.ts":
-      "Subagent compilation test suite (node:test): agent() builder + compileAgent — frontmatter, tool-contract verification (built-in/MCP/never-available/did-you-mean), body-ref validation, Rules section…",
-    "src/adapters/claude-code/agent-runtime.ts":
-      "Agent PreToolUse tool-contract rail — the differentiator that closes the declared-vs-enforced gap (#4740/#21460, SDK #172): tools: is documentation, so a PreToolUse hook (vigiles hook-runtime agent)…",
-    "src/adapters/claude-code/effect-region.ts":
-      "Effect-region state — the position-aware half of the purity gate.",
-    "src/adapters/claude-code/agent-result.ts":
-      "Railway result parser: a subagent with a result() contract ends its turn with a vigiles:ok/err block; parseAgentResult turns that text into a discriminated outcome (ok | err | malformed) and…",
-    "src/core/railway.test.ts":
-      "Railway surface test suite: result() Output-contract rendering in compileAgent, delegate()/railway() builders, compileRailway orchestrator output, validateRailway static checks (unknown delegate…",
-    "src/core/validate.test.ts": "Validation test suite (node:test)",
-    "src/core/integrity.ts":
-      "Integrity check: SHA-256 hash verification for compiled markdown (detects hand-edits)",
-    "src/core/sidecar.ts":
-      "Per-spec sidecar manifests at .vigiles/<target>.inputs.json, used by session audit",
-    "src/core/coverage.ts":
-      "Spec coverage analysis: linter rule coverage + npm script coverage with configurable thresholds",
-    "src/core/session.ts":
-      "Post-session audit: git diff analysis against spec surface area",
-    "src/core/hash.ts":
-      "Shared SHA256Hash branded type and assertNever exhaustive check helper",
-    "src/core/orphans.ts":
-      "Orphan-docs detector (OPT-IN via the .vigilesrc.json `orphans` block, off unless declared): finds .md files in a configured dir (default `docs/`) that no other .md references.",
-    "src/core/compose.ts":
-      "Sync-tool compatibility detector: detectSyncTools/composeCollisions — pure filesystem check that vigiles stays composable with Ruler (.ruler/, ruler.toml) and rulesync (.rulesync/) instead of…",
-    "src/test-coverage.ts":
-      "Untested-surface detector (the per-kind vigiles/untested-skill + untested-subagent + untested-hook rules — replacing the old umbrella untested-surface): finds skills/agents/hooks that ship with no…",
-    "docs/rules/untested-skill.md":
-      "Rule doc: untested-skill — a SKILL.md must ship with a test/eval; config, severity, scope (skills/*), the two coverage detectors, the explicit vigiles:ignore-test opt-out, why.",
-    "docs/rules/untested-subagent.md":
-      "Rule doc: untested-subagent — a subagent (agents/*.md) must ship with a test/eval; the agent's contract (tool-contract / outcome) is what's tested, distinct from a skill's trigger",
-    "docs/rules/untested-hook.md":
-      "Rule doc: untested-hook — a file-backed hook script must ship with a test/eval (a runHook unit test is the natural one); scope = hooks referenced from plugin.json/settings.json",
-    "docs/rules/unmarked-refs.md":
-      "Rule doc: unmarked-refs — the PostToolUse refs-hook that nudges the agent to MARK code-shaped references in instruction files (warn → non-blocking nudge, error → block, false → off); what it checks…",
-    "docs/rules/subagent-tool-contract.md":
-      "Rule doc: subagent-tool-contract — cross-reference a subagent's tools: rail against the harness tool catalog (the cross-referencing engine).",
-    "docs/rules/hook-events.md":
-      "Rule doc: hook-events — cross-reference a hook's event name against the harness event catalog (a typo never fires).",
-    "docs/rules/subagent-frontmatter.md":
-      "Rule doc: subagent-frontmatter — two subagent-frontmatter defects, one rule: (1) a SUBAGENT missing name/description (won't register, no fallback); (2) an invalid model:/color: VALUE (a close typo…",
-    "docs/rules/mcp-config.md":
-      "Rule doc: mcp-config — flag a declared MCP server that can't start (no command/url); FP-safe unambiguous check; reads .mcp.json + manifest mcpServers (Codex TOML not yet parsed); default warn; same…",
-    "docs/rules/mcp-tool-resolves.md":
-      "Rule doc: mcp-tool-resolves — the MCP half of the tool-reference check: flag a subagent's mcp__server__tool whose server isn't in the plugin's declared mcpServers.",
-    "docs/rules/mcp-hook-target-resolves.md":
-      "Rule doc: mcp-hook-target-resolves — cross-reference a type:mcp_tool hook action against declared mcpServers: flag an incomplete action (no server/tool, always) + a server the plugin doesn't declare…",
-    "docs/rules/hook-script-exists.md":
-      "Rule doc: hook-script-exists — flag a hook command referencing a script file missing on disk (silently never runs). 🔴 The 'matches Anthropic's own `claude plugin validate`' claim that stood here was…",
-    "docs/rules/disallowed-tools-contract.md":
-      "Rule doc: disallowed-tools-contract — the DENY-side mirror of subagent-tool-contract: a disallowedTools: block-list entry that's a close typo of a real tool blocks NOTHING (the tool stays available…",
-    "docs/rules/description-overlap.md":
-      "Rule doc: description-overlap — flag two model-invocable skills with near-identical descriptions (the selector can't tell them apart → wrong one fires).",
-    "docs/rules/frontmatter-valid.md":
-      "Rule doc: frontmatter-valid — flag a skill/agent --- block that EXISTS but isn't valid YAML (fields may not parse as intended).",
-    "docs/rules/skill-frontmatter.md":
-      "Rule doc: skill-frontmatter — RECOMMEND (not require) explicit skill name+description for a reliable trigger surface; skills load without it (dir/first-paragraph fallback) so it's a best-practice…",
-    "docs/rules/doc-refs.md":
-      "Rule doc: doc-refs — validate enforce()/file()/cmd()/ref() calls quoted inside markdown ```ts fences against the real linter catalog / filesystem / package scripts.",
-    "src/core/doc-refs.ts":
-      "Markdown code-block ref validator (the opt-in `doc-refs` rule, default off): enforce()/file()/cmd()/ref() calls inside ```ts blocks, with vigiles:ignore opt-out",
-    "src/doc-refs-rule.test.ts":
-      "doc-refs WIRING over the built CLI across all three tiers: unconfigured (walk skipped), warn (prints, exit untouched), error (exit 2) — one fixture, one broken ref.",
-    "src/core/symbols.ts":
-      "Cross-language symbol extractor (ast-grep): defines symbols a file declares (functions/classes/methods/constants) across JS/TS/Python/Ruby/Rust/CSS; fileDefinesSymbol with .d.ts/.rbi fallback",
-    "src/core/refs.ts":
-      "Symbol reference verification: the `vigiles:symbol path#name` mark (verify the named file defines the symbol) + unmarkedCodeRefs detection. collectRefIssues (shared by the `vigiles refs` CLI and the…",
-    "src/mock-model.ts":
-      "Scriptable, dependency-free Anthropic Messages SSE mock (startMock/scriptModel) — point real claude at it via ANTHROPIC_BASE_URL for deterministic harness tests; extractRequest + onRequest capture…",
-    "src/harness-test.ts":
-      "Deterministic harness testing: runHarnessTest(spec, { adapter = claudeCodeAdapter }) runs the adapter's real binary + real hooks/settings against a scripted mock model, dispatching the…",
-    "src/sandbox.ts":
-      "Safe-by-default confinement: decideSandbox is the pure policy (untrusted plugin code never runs unconfined unless sandbox:false), runSandboxed co-launches the mock + claude inside one bubblewrap…",
-    "src/mock-entry.ts":
-      "In-sandbox mock entry: run as a subprocess inside the bwrap netns so the scripted mock lives on the isolated loopback; streams captured requests to a file the parent reads back for trace.modelRequests",
-    "src/run-hook.ts":
-      "Hook unit tier: runHook pipes a synthesized event JSON to a hook process (no claude, no model) and reports exit code + normalized block/allow decision — the cheap base of the pyramid, and the only…",
-    "src/hook-state-store.ts":
-      "The named-state STORE — where a compiled hook's `record()`ed facts live on disk (`.vigiles/state/<hook's dir>/<key>.json`), and the ONE seam a test seeds them through.",
-    "src/egress.ts":
-      "Allowlisted real egress (egress: { allow }): the in-between between deny-all and recordEgress — let a hook reach ONLY the listed hosts, boundary at the packet layer (an nft policy-drop chain on…",
-    "src/egress-entry.ts":
-      "Allowlisted-egress orchestrator subprocess: runHook is sync (spawnSync) but egress needs bwrap + slirp4netns alive at once, so the parent spawnSyncs this entry — it spawns bwrap (--info-fd → child…",
-    "src/eval.ts":
-      "Harness eval API: runEval drives the real claude CLI across arms x trials and aggregates mean ± se (variance) + cost/latency/token usage; bounded concurrency (runPool) + rate-limit backoff +…",
-    "src/eval-cache.ts":
-      "Eval record/replay cache — the LOCAL-SPEED half of eval staleness (gitignored, throwaway; the COMMITTED CI half is src/eval-lock.ts — keep them distinct). cacheKey hashes the model-affecting inputs…",
-    "src/eval-lock.ts":
-      "Eval LOCK — the CI STALENESS GATE for evals run on a subscription (distinct from the local eval CACHE: a COMMITTED integrity stamp, not a gitignored speed cache — the founder's 'it's more of an…",
-    "src/eval-lock-wiring.test.ts":
-      "Eval-lock WIRING suite (vitest): the lock end-to-end through runEvalWith + measureTriggerRateWith with an INJECTED runner (no model) — off drives the runner, update writes a committed lock, check…",
-    "src/stats.ts":
-      "Significance testing for eval A/B arms: Welch's t-test over the per-arm summary stats (mean/se/n, no raw rows) → two-sided p-value + verdict (Numerical-Recipes incomplete beta); compareArms computes…",
-    "src/plugin-loader.ts":
-      "Plugin/repo harness loader (harness-agnostic, composition root): loadPlugin(path, layout) + resolveHarness(opts, layout) — layout REQUIRED, injected via the PluginLayout port (src/core/layout.ts)…",
-    "src/adapters/claude-code/plugin-loader.ts":
-      "Thin Claude Code wrapper over the harness-agnostic src/plugin-loader.ts: loadPlugin(path, layout = claudeCodeLayout) + resolveHarness(opts, layout = claudeCodeLayout) supply the CC layout as the…",
-    "src/adapters/claude-code/vendor.test.ts":
-      "Conformance suite over REAL vendored plugins under test/dogfood/: model-free, in-gate, table-driven loadPlugin invariants (loads a surface, ${CLAUDE_PLUGIN_ROOT} resolves, skills materialize…",
-    "src/adapters/claude-code/skills-dogfood.test.ts":
-      "Dogfood conformance over vigiles's OWN plugin (.claude-plugin/): loadPlugin materializes every skills/<name>/SKILL.md and each has a name + non-empty description (the trigger surface); plus a…",
-    "src/agent-plugins-manifest.test.ts":
-      "Agent Plugins conformance dogfood (vitest, offline): vigiles's OWN root plugin.json is held to the agent-plugins.org 1.0.0 schema — $schema pinned to the canonical identifier, the name pattern, the…",
-    "src/harness-assert.ts":
-      "Runner-agnostic harness helpers: withHarness (auto-cleanup), throwing `assert*` helpers incl. assertHookBlocked/assertHookAllowed (over a runHook RESULT) + assertHookDenies/assertHookAllows (over a…",
-    "src/check.ts":
-      "The declarative check vocabulary (exposed on the `vigiles` root surface — except `judged`, which calls a model and lives on `vigiles/eval` as `paid_judged`; the standalone `vigiles/check` subpath…",
-    "src/arg-match.ts":
-      "Shared ArgMatcher over a tool call's input (dot-path keys; RegExp = pattern, primitive = exact; AND across keys) + matchesArgs/getPath/stringifyValue/describeArgs/serializeArgs.",
-    "src/tool-intercept.ts":
-      "Tool interception — the eval-tier half of the tool-call spy.",
-    "src/judge.ts":
-      "Thin LLM-as-judge for the eval tier: judge() grades an output against a rubric with a model (synchronous, for use inside measure); parseJudgeOutput is the pure, testable verdict parser",
-    "src/vitest.mts":
-      "Opt-in vitest integration entry (ESM, since vitest is ESM-only): registers vigilesMatchers + augments @vitest/expect Matchers so toHaveCreated/toBeatBaseline type-check; vitest is an optional peer dep",
-    "src/jest.ts":
-      "Opt-in jest integration entry (CJS): registers vigilesMatchers + augments @jest/expect Matchers; jest is an optional peer dep",
-    "test/types/smoke.vitest.ts":
-      "Type-level constraint: `vigiles/vitest` makes the matchers type-check on vitest's expect (tsc --noEmit via npm run test:types)",
-    "test/types/smoke.jest.ts":
-      "Type-level constraint: `vigiles/jest` makes the matchers type-check on jest's expect",
-    "test/runners/matchers.vitest.mjs":
-      "Cross-runner constraint: vigilesMatchers + helpers register and pass under vitest (proves runner-agnostic; `src/*.test.ts` excluded via vitest.config.ts)",
-    "test/runners/matchers.jest.cjs":
-      "Cross-runner constraint: the same vigilesMatchers register and pass under jest (CommonJS dist required natively; scoped via jest.config.cjs)",
-    "src/core/test-utils.ts":
-      "Shared test utilities: makeTmpDir, makeSpec, cleanupTmpDir, initGitRepo",
-    "src/core/types.ts":
-      "Shared types: RulesConfig, VigilesConfig, FreshnessMode, CoverageThresholds",
-    "src/core/rule-meta.ts":
-      "The RULE METADATA registry (the ESLint-`meta` pattern adapted to vigiles's shared-detector architecture): ONE Record<RuleName, RuleMeta> keyed by rule name — NOT scattered `export const meta`…",
-    "src/core/proofs.ts":
-      "Deterministic proof algorithms (monotonicity lattice, NCD, Bloom filter, Merkle DAG, fixed-point, property testing)",
-    "src/core/evolve.ts":
-      "Evolution engine: mutation operators, fitness function, proof-gated selection",
-    "CLAUDE.md.spec.ts": "This file — the source of truth for CLAUDE.md",
-    "examples/SKILL.md.spec.ts": "Example SKILL.md spec",
-    "examples/railway/ship-pr.md.spec.ts":
-      "Dogfood: a railway() over five flat agent() workers (planner→implementer→reviewer, bounded fixer recovery, reporter error track), each with a result() contract.",
-    "examples/harness/hook-unit.harness.mjs":
-      "Canonical hook unit-tier example (runHook): test a hook's logic in isolation with no claude CLI — the cheap base of the pyramid; runs in CI for free",
-    "examples/harness/policy-gate.harness.mjs":
-      "Canonical deterministic harness test (runHarnessTest): a PreToolUse Bash policy gate (block-no-verify shape) + a SessionStart setup hook (obra/superpowers shape)",
-    "examples/harness/refs-nudge.harness.mjs":
-      "Real-claude dogfood of the refs-hook (deterministic tier, no API key): the mock model Writes a CLAUDE.md naming an unmarked linter rule, the PostToolUse refs-hook fires, and requestContains asserts…",
-    "examples/harness/skill-outcome.eval.mjs":
-      "Canonical skill-outcome eval (runEval): does a skill change the agent's output? — the question you ask of any SKILL.md",
-    "examples/harness/skill-trigger-rate.eval.mjs":
-      "Canonical trigger-rate eval (measureTriggerRate): does a skill's description actually FIRE across varied prompts? — installs a real pinned plugin via pluginDir and reuses the skillResolved predicate",
-    "examples/harness/skill-selection-collision.eval.mjs":
-      "Canonical selection-collision eval (measureSelectionMatrix + assertNoCollision, on vigiles/claude-code): installs a multi-skill plugin, runs each skill's own prompts against the WHOLE set, and gates…",
-    "examples/harness/dogfood/test-harness.trigger.eval.mjs":
-      "Dogfood trigger eval — vigiles's OWN test-harness skill: fires on harness-testing requests (recall) AND stays quiet on unrelated coding (precision via irrelevantPrompts), gated by…",
-    "examples/harness/dogfood/strengthen.trigger.eval.mjs":
-      "Dogfood trigger eval — vigiles's OWN strengthen skill (made model-invocable so the agent reaches for guidance()→enforce() upgrades on its own): fires on strengthen/harden-my-rules requests (recall)…",
-    "examples/harness/dogfood/edit-spec.trigger.eval.mjs":
-      "Dogfood trigger eval — vigiles's OWN edit-spec skill (made model-invocable; the skill the pre-edit hook points at when a direct CLAUDE.md edit is blocked): fires on 'change my CLAUDE.md / add a…",
-    "examples/harness/dogfood/debug-my-harness.trigger.eval.mjs":
-      "Dogfood trigger eval — vigiles's OWN debug-my-harness skill: fires on 'why did my skill stop firing / why didn't my hook block / debug my harness' requests (recall) AND stays quiet on ordinary…",
-    "examples/harness/checks-dogfood.harness.mjs":
-      "Dogfood of the new check vocabulary on the DETERMINISTIC tiers (no key, RUNS in CI): assertChecks over a real runHook (blocked/allowed) + a real runHarness mock run (turns/output).",
-    "examples/harness/dogfood/skill-quality.eval.mjs":
-      "Dogfood of the SCORED check evaluator on vigiles's OWN strengthen skill: measure({ checks: [skill, judged, cost] }) + assertRates — does the skill FIRE, is its suggestion GOOD (model-graded judged)…",
-    "examples/harness/dogfood/skill-firing-cheap.eval.mjs":
-      "Dogfood of the CHEAP firing-only path: measure({ checks: [skill, latency], stubSkillBodies: true }) on vigiles's OWN strengthen skill — the sibling of skill-quality.eval.mjs that stubs each skill…",
-    "examples/harness/subagent.eval.mjs":
-      "Dogfood of the subagent nested-trace check on a REAL subagent — the vendored oh-my-claudecode code-reviewer agent (vigiles ships no subagents). measure drives a task that dispatches it via Task…",
-    "examples/harness/dogfood/generate-logo.trigger.eval.mjs":
-      "Dogfood trigger eval — vigiles's OWN generate-logo skill, an INTERNAL contributor-only skill (lives under .claude/skills/, this repo's own harness, NOT shipped to consumers) loaded via skillsDir: a…",
-    "examples/harness/skill-compression.eval.mjs":
-      "Worked eval verifying a token-compression claim (e.g.",
-    "examples/harness/plugin-cohesion.harness.mjs":
-      "Canonical cohesion test (runHarnessTest with plugin:): load a whole plugin (.claude-plugin/plugin.json + CLAUDE.md) and assert multiple hooks fire together",
-    "examples/harness/railway-result.harness.mjs":
-      "Worked example of the railway/Result payoff — asserting a subagent's TYPED OUTCOME deterministically (the deterministic-assert-replaces-an-LLM-judge thesis made runnable).",
-    "examples/harness/effect-boundary.harness.mjs":
-      "Worked example of the SIDE-EFFECT BOUNDARY as a deterministic test (rung 2 of the typed-contracts ladder): a unit that declares it writes only out.txt and never pushes is ASSERTED to stay inside…",
-    "bench/evals/refs-hook.eval.mjs":
-      "Worked eval reproducing benchmark #4 (forcing symbol marks → verifiable references?) as a runEval library call",
-    "src/core/hook-providers.ts":
-      "Hook CONTEXT PROVIDERS — lets a compiled gate decide on EXTERNAL STATE via `needs`/`e.ctx` without breaking capability=API-surface: the pure decide() never fetches; the TRUSTED runtime gathers a…",
-    "docs/compiled-hooks.md":
-      "Public guide to COMPILED HOOKS: author a hook as a pure typed `(event)=>Decision` against the closed `vigiles/hook` vocabulary and compile it.",
-    "src/eval-baseline.ts":
-      "Eval regression gating (Phase C): record a run's EvalReports to a committed .vigiles/eval-baseline.json, then flag any arm×metric that moved SIGNIFICANTLY in the bad direction vs that baseline…",
-    "docs/harness-testing.md":
-      "Harness-testing guide (harness-AGNOSTIC core): the levels (refs/unit/integration/eval), select-by-import + { adapter } default-Claude-Code, the Trace model + predicates/assertions…",
-    "docs/harness-testing-claude-code.md":
-      "Harness-testing — Claude Code specifics: the oh-my-claudecode Tier 0-3 walkthrough, ${CLAUDE_PLUGIN_ROOT}/hooks.json/plugin/pluginDir/Skill-tool, scriptModel + the Anthropic-Messages mock…",
-    "docs/harness-testing-codex.md":
-      "Harness-testing — Codex specifics: runHarnessTest(spec, { adapter: codexAdapter }) against real codex exec (keyless, Responses mock via startCodexMock); the what-maps (AGENTS.md instructions…",
-    "docs/harnesses.md":
-      "User-facing harness-adapter guide: which harness vigiles targets (Claude Code now, Codex likely next) and how a consumer picks one — by importing vigiles/claude-code beside the harness-agnostic…",
-    "docs/adapter-api.md":
-      "vigiles/adapter API reference: every export of the authoring kit — the five port interfaces field-by-field (with Claude Code AND Codex example values), HarnessAdapter + the detect specificity…",
-    "docs/authoring-an-adapter.md":
-      "Third-party adapter authoring guide: the documented small lib (vigiles/adapter) for teaching vigiles a new harness — the five ports to implement, a worked myHarnessAdapter skeleton, validating with…",
-    "docs/testing-matrix.md":
-      "Testing matrix: every harness-testing use case mapped to its test tier (unit / cross-runner / type / integration-CI) and file, plus why the CLI examples are .mjs and the API is TypeScript",
-    "docs/agent-setup.md":
-      "Agent setup & workflows — one guide: what `init` does + auto-detection, per-agent recipes (Claude Code / Codex / multi-agent / Cursor), non-interactive setup + fallback hooks, the recommended agent…",
-    "docs/spec-format.md": "Spec format reference (target, sections, rules)",
-    "docs/railway-subagents.md":
-      "Public guide to railway-oriented subagents: the typed Result<ok,err> outcome contract (result() on an agent()), what it compiles to (vigiles:ok/err blocks), composing flat workers…",
-    "docs/linter-support.md":
-      "Linter support details (11 catalogs + generate-types/generate-schema)",
-    "docs/comparison.md":
-      "Before/after tables (Claude Code, Codex), determinism breakdown, flow diagram",
-    "docs/rules/require-instructions-spec.md":
-      "Rule doc: require-instructions-spec — require a .spec.ts behind each CLAUDE.md/AGENTS.md (NARROW: only a .spec.ts satisfies it, not inline/frontmatter). workflow-group opt-in (--strict); satisfied…",
-    "docs/rules/require-skill-spec.md":
-      "Rule doc: require-skill-spec — the consistent require-<surface>-spec parallel (default OFF).",
-    "docs/rules/integrity.md":
-      "Rule doc: integrity check (SHA-256 hash verification for compiled markdown)",
-    "docs/rules/coverage.md":
-      "Rule doc: spec coverage thresholds (scripts, linter rules)",
-    "docs/markdown-mode.md":
-      "Markdown mode: the single no-spec on-ramp doc — inline `<!-- vigiles:enforce -->` comments (the live zero-TS floor; the former inline-mode.md reference is folded in here).",
-    "skills/linter-docs/eslint.md":
-      "ESLint reference: plugin table, AST selectors, type-aware rules, auto-fix, edge cases",
-    "skills/linter-docs/rubocop.md":
-      "RuboCop reference: gem table, node pattern DSL, auto-correct, custom cops",
-    "skills/linter-docs/pylint.md":
-      "Pylint reference: plugin table, astroid AST, type inference, custom checkers",
-    "skills/linter-docs/ruff.md":
-      "Ruff reference: 800+ reimplemented rules, rule selection, auto-fix, pyproject.toml config",
-    "skills/linter-docs/stylelint.md":
-      "Stylelint reference: plugin table, PostCSS AST, custom rules, CSS-in-JS, SCSS",
-    "skills/strengthen/SKILL.md":
-      "Strengthen skill (MODEL-INVOCABLE): upgrade guidance() → enforce() by finding existing linter rules.",
-    "skills/edit-spec/SKILL.md":
-      "Edit-spec skill (MODEL-INVOCABLE): change a compiled CLAUDE.md/AGENTS.md by editing its .spec.ts (add/modify/remove a rule, section, command, key file) — the skill the pre-edit hook points at when a…",
-    "skills/debug-my-harness/SKILL.md":
-      "Debug-my-harness skill (MODEL-INVOCABLE): diagnose why the harness misbehaved by reading the local flight-recorder ledger (.vigiles/runs.jsonl) — skill fires/collisions, hook decisions (blocked vs…",
-    "skills/linter-docs/SKILL.md":
-      "Linter-docs reference skill (user-invoked): a SKILL.md indexing the per-linter reference files (eslint/ruff/pylint/rubocop/stylelint/clippy .md) the strengthen + edit-spec skills read when matching…",
-  },
-
   commands: {
     "npm run build": "Compile TypeScript to dist/",
     "npm test": "Build and run all tests",
@@ -579,230 +119,424 @@ BUILD + TOOLING + GENERATED:
     "no-non-null-assertion": enforce(
       "@typescript-eslint/no-non-null-assertion",
       "Use proper narrowing instead of ! assertions.",
+      { render: "line" },
     ),
 
     "no-floating-promises": enforce(
       "@typescript-eslint/no-floating-promises",
       "Always await or return promises. Unhandled rejections crash the process.",
+      { render: "line" },
     ),
 
     "cognitive-complexity": enforce(
       "sonarjs/cognitive-complexity",
       "Keep functions under 10 cognitive complexity (the shared limit in packages/eslint-config). A function older than the limit is held to its file's ceiling in eslint-ceilings.json. Split complex logic into helpers.",
+      { render: "line" },
     ),
 
     "core-not-adapter": enforce(
       "boundaries/dependencies",
       "Hexagonal boundary: every file in src/ belongs to a layer, and imports point inward only. The domain (src/core) imports nothing outside itself, an adapter (src/adapters/<harness>) never imports another adapter, and only the composition root (src/cli.ts, src/cli-main.ts) wires an adapter in. Dogfoods enforce() over eslint-plugin-boundaries.",
+      { render: "line" },
     ),
 
     "experimental-names-carry-the-warning": guidance(
-      "If we EXPORT it and it is not stable, its NAME starts with `experimental_`. Declare it once with the `@experimental` TSDoc tag; the ESLint rule `local/experimental-name` (eslint-rules/experimental-name.mjs) fails if a tagged, exported declaration lacks the prefix, so the tag and the name cannot drift. It checks EVERY exported declaration, public or not — an internal reader is still a reader who trusts the name. `@internal` is a DIFFERENT question and stays a script (scripts/check-internal-tag.mjs, `npm run internal:check`): it does not mean unstable, it answers whether something is part of the API at all, and deciding that needs the export graph, which no single file knows. Types are out of scope (the convention is about call sites; a type annotation is not one). Opt out on the declaration with `vigiles:experimental-name-ok <reason>` — the reason is required and must be on the same line. Renaming an `experimental_` symbol is NOT a breaking change and gets no major bump; that is what the prefix promises. There is no `vigiles/experimental` subpath to import from either — it marked the import line, which is out of view by the time anyone reads the call. COROLLARY — ONE EXPERIMENTAL ROOT PER FEATURE: the prefix says whether THIS name is stable and cannot say whether the name a STABLE symbol depends on is stable, and `local/experimental-name` structurally cannot see that gap (it compares tag against name on ONE declaration, not the dependency between two). So the vocabulary of an experimental feature hangs off ONE marked root — `experimental_agent.result()` / `.railway()` / `.delegate()` / `.pipe()` / `.pipeStep()` / `.needs()` / `.start()` / `.andThen()`, the same chokepoint as `experimental_skill.input()`. It also survives destructuring (`const { result } = experimental_agent` still names the root at the binding site), which a namespace object or an import subpath does not. Mechanically `Object.assign(fn, {…})`, NOT a TS `namespace`: `@typescript-eslint/no-namespace` is an error here, and a namespace merges only with `function` declarations while `experimental_skill` is a `const`. WHY the name rather than the tag alone, why this is a lint rule and not the script it grew out of, and the `skill()` shipment that proved a habit is not a check: the header of eslint-rules/experimental-name.mjs. See STABILITY.md.",
+      "If we EXPORT it and it is not stable, its NAME starts with `experimental_`.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "experimental-names-carry-the-warning",
+      },
     ),
-    "never-skip-tests": guidance(
-      "All tests must pass. If a test requires a CLI tool (pylint, rubocop, ruff, clippy), install the tool, don't skip the test.",
-    ),
+    "never-skip-tests": guidance("All tests must pass.", {
+      details: file("docs/contributing/rules.md"),
+      anchor: "never-skip-tests",
+    }),
 
-    "no-silent-skips": guidance(
-      "A skip must be LOUD, never a silent green. When a test/script genuinely can't run (e.g. the deterministic tier with no `claude`), it must report `⊘ SKIPPED` (its own status, tallied separately as 'N skipped'), not exit 0 and masquerade as a `✓ passed`. `vigiles test`/`vigiles eval` classify each script pass/skip/fail by exit code (0 / `SKIP_EXIT_CODE` 77 / else); scripts call `skip(reason)` (`vigiles`) to emit it. By default a skip does NOT fail the run — tiers need different capabilities (claude, bubblewrap, model auth) that aren't all present everywhere, so failing-by-default would make the command red in any partial environment (this repo's own non-privileged `harness` job legitimately skips the egress tier and runs it under `e2e`). But where you ASSERT the capability is present (a CI job), pass `vigiles test --no-skip`: a skipped tier is untested surface and FAILS — a green-with-skips is itself a hidden gap. Equally important — DON'T over-skip: there is no blanket `claude`-gate, so unit-tier `runHook` tests (which need no model) always run; only the tiers that truly need a capability skip, and they say so. The corollary of never-skip-tests: if you can't make it pass, surface WHY, don't hide it.",
-    ),
+    "no-silent-skips": guidance("A skip must be LOUD, never a silent green.", {
+      details: file("docs/contributing/rules.md"),
+      anchor: "no-silent-skips",
+    }),
 
     "zero-config-by-default": guidance(
-      "`vigiles compile` should work with just a .spec.ts file. Config exists only for overrides (maxRules, maxTokens).",
+      "`vigiles compile` should work with just a .spec.ts file.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "zero-config-by-default",
+      },
     ),
 
     "dont-reimplement-linters": guidance(
-      "Architectural linting belongs in ast-grep/Dependency Cruiser/Steiger. Per-file code rules belong in ESLint/Ruff/Clippy. vigiles owns: spec compilation, linter cross-referencing, type generation, stale reference detection, and proof-based spec evolution.",
+      "Architectural linting belongs in ast-grep/Dependency Cruiser/Steiger.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "dont-reimplement-linters",
+      },
     ),
 
     "prefer-existing-solutions": guidance(
-      "Before building any non-trivial capability — a tool, a check, a runtime, a parser — LOOK FOR EXISTING SOLUTIONS FIRST and PREFER adopting/composing/delegating over reinventing. This is a process step, not a vibe: actually search the landscape (the web, the ecosystem, the stdlib) and write down what you found. The decision order is ADOPT > COMPOSE > BUILD. BUILD is justified ONLY when one of these holds, and you SAY WHICH: (1) no existing solution fits the exact need (after a real look); (2) building DOGFOODS or reinforces the core cross-referencing engine (e.g. self-command-refs reuses the reference-verification engine vigiles already ships, so it's ~120 lines, not a new dependency); (3) every existing option's cost — a heavy dependency, a runtime/env requirement, lock-in, lost narrative control — outweighs a small purpose-built piece. When you DO build, the prior-art comparison IS part of the justification: name the existing solutions and why each was rejected (as the self-command-refs decision did — doctest runs everything/needs a build, doc-generators kill hand-written prose, link-checkers don't cover command names, so a small deterministic cross-ref check that dogfoods the engine won). Never present a home-grown thing as novel without having checked; 'is there an existing solution?' is a question to answer with research, before writing code, not after. This generalizes the project's existing don't-reinvent stance — dont-reimplement-linters (delegate architectural/per-file linting to ast-grep/ESLint/Ruff) and compose-with-sync-tools (compose with Ruler/rulesync, don't absorb their job) — into the default reflex for ALL new work.",
+      "Before building any non-trivial capability — a tool, a check, a runtime, a parser — LOOK FOR EXISTING SOLUTIONS FIRST and PREFER adopting/composing/delegating over reinventing.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "prefer-existing-solutions",
+      },
     ),
 
     "parse-structured-input-with-a-real-parser": guidance(
-      "Parse a STRUCTURED language with its REAL parser, never a hand-rolled regex/line-scanner. This repo already lives this everywhere: Bash → mvdan-sh AST (`bash-effects.ts`), code → @ast-grep/napi (`symbols.ts`), YAML → js-yaml, TOML → @iarna/toml. Markdown was the LONE holdout — five detectors (`adopt`/`compile`/`refs`/`skill-resources`/`segment`) each hand-rolled the SAME `inFence = !inFence` fence toggle, which is WRONG on nested/unbalanced fences (a 4-backtick block containing a bare ``` line flips the toggle to 'outside' and leaks a `##` inside the block out as a real heading — demonstrated to mis-split + drift bytes on round-trip). Fixed by routing ALL FIVE through ONE markdown-it-backed oracle (`src/core/markdown.ts` `fencedLineFlags`) — the make-invalid-states-irrepresentable choke-point, so no detector can hand-roll fence state again. THE RULE: block-structure / stateful markdown parsing (fence-awareness, heading boundaries, list/blockquote nesting — anything tracking parser STATE across lines) MUST go through the shared markdown-it helper; a within-line token match (is THIS one line a fence delimiter, does a line contain a link) MAY stay a local regex (it tracks no state, so it can't have the toggle bug). This is a direct instance of prefer-existing-solutions (markdown-it is a small, zero-dep, browser-safe CommonMark parser — ADOPT beat BUILD once the failure was proven to be exactly one construct, fence boundaries) and the same 'delegate parsing to the language's real parser' reflex as dont-reimplement-linters. When you need a NEW piece of markdown structure, extend `src/core/markdown.ts` (token.map line ranges preserve verbatim slicing, so a faithful round-trip is kept — never AST-reserialize, which reflows whitespace), never a sixth private fence loop.",
+      "Parse a structured language with its real parser, never a hand-rolled regex or line scanner; SKILL.md and subagent frontmatter go through `src/core/frontmatter-read.ts`.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "parse-structured-input-with-a-real-parser",
+      },
     ),
 
     "never-close-a-half-fixed-issue": guidance(
-      "An issue closes when the thing it REPORTS stops happening — not when a PR that mentions it merges. The test is mechanical and takes a minute: re-read the issue's own symptom sentence, RUN it, and only close if it no longer reproduces. If part of the report survives, the issue stays OPEN with a comment naming exactly what remains; the only alternative is to file the remainder as its own issue, link both ways, and close the original with a pointer — never a close whose remainder lives in prose inside the closing comment. MEASURED, in this repo, 2026-09-17: #243 was closed by #244, and #244's own closing comment ends with a section headed 'Still open, and it is the larger half' — the honest half of the work documented precisely what had NOT been fixed, and the close made that documentation invisible, because a closed issue is in nobody's list. The remainder was rediscovered four days later from scratch, by an agent re-reading the closing comment. AUTHORING RULE THAT FOLLOWS: a PR that fixes part of a report says `Refs #N`, never `Closes #N` — GitHub's auto-close is what turns a partial fix into a green light, and it fires on merge with nobody deciding. WHY THIS BELONGS IN THIS REPOSITORY RATHER THAN IN A CONTRIBUTING GUIDE: a closed issue is a PASSING SIGNAL, and the product exists to catch a passing signal that stands for work nobody did — an `A (100)` over a scan that opened zero surfaces, a `skip` tallied as a pass, a green harness whose checks never loaded. The tracker is the same machine one level up, and we ran it wrong on ourselves. COST, NAMED: with an external reporter the cost is not a lost TODO but a lost reporter — someone who sees his report closed while the symptom still reproduces on his own repo stops sending reports, and this project has exactly one such contributor. EXCEPTIONS, both narrow: close as not-planned (state the reason), or close when the symptom genuinely cannot be reproduced any more and say what you ran. 'We fixed the important part' is not one of them.",
+      "An issue closes when the thing it REPORTS stops happening — not when a PR that mentions it merges.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "never-close-a-half-fixed-issue",
+      },
     ),
 
     "make-the-distinction-a-type": enforce(
       "@typescript-eslint/switch-exhaustiveness-check",
       "When a value can be absent for MORE THAN ONE REASON, the reasons are separate facts and the TYPE must name them — a tagged union, not `T | null` / a boolean / a sentinel. Collapsing them into one value means the first caller that has to explain itself to a human picks ONE wording for all of them: a check that did not run, reported in the words of a check that did. That is this tool's whole subject, so it is committed in its own source. THE TELL IS TEXTUAL — you wrote a comment saying what `null` MEANS; a docstring that disambiguates a return value is a type that is missing. Measured 2026-09-20 in `core/symbols.ts`: `langForFile` returned `LangKey | null` under the comment 'or null if unsupported (graceful skip)', and both callers (`core/refs.ts`, `core/compile.ts`) printed 'Unsupported language for symbol check'. Making the grammars optional gave that same `null` a SECOND meaning — the language IS one we parse, the package simply is not installed here — and a try/catch around the imports would have kept both callers printing the first sentence at a user whose real problem was one `npm i` away. The fix was the type: `{kind:'ready',lang} | {kind:'grammar-missing',id,pkg} | {kind:'unsupported'}`, after which refs.ts says 'Symbol not checked: the ruby grammar is not installed (npm i -D @ast-grep/lang-ruby)' — an instruction, not a verdict. THE TRIGGER, countable so this is not taste: reach for a union when BOTH hold — (1) two different causes produce the same 'nothing' (not-applicable vs cannot-run vs found-nothing), and (2) some caller turns that value into words a human reads (a finding, a log line, an exit message). One without the other does not earn it. THE COUNTERWEIGHT, because this becomes ceremony fast: a boolean is RIGHT when the absent case has exactly one cause and no caller explains it — `existsSync`, a predicate, a private helper; a union whose members no call site ever distinguishes is noise, you pay the switch and buy nothing. WHY THE LINT RULE IS PART OF THIS: introducing the union forces every EXISTING call site exactly once (the old `=== null` comparisons stop compiling, which is what got the two callers above fixed), but it does nothing for the member someone adds NEXT year — an if/else-if chain silently falls through it. `switch-exhaustiveness-check` is the part that keeps the guarantee, so a union is SWITCHED over rather than if-chained wherever the members are the subject. Configured with `considerDefaultExhaustiveForUnions: true`: a `default:` that genuinely handles the rest IS exhaustive, and without the option the rule's single finding on the whole corpus was `handleHookRuntime`'s `switch (kind: string | undefined)` — a proper default, an open `string`, nothing to enumerate. Both halves measured the same day: zero findings on the corpus as it stands, and a planted switch omitting one member reports `Cases not matched: \"grammar-missing\"`. This is the general form of what parse-structured-input-with-a-real-parser did for fence state (the 'make-invalid-states-irrepresentable choke-point'): prefer a shape in which the wrong answer cannot be written down over a discipline that asks everyone to remember it.",
+      { render: "line" },
     ),
 
-    "public-exports-are-opt-in": guidance(
-      'Public exports are opt-in. A symbol becomes public only if (a) a NAMED external consumer uses it, or (b) it is a deliberate extension point listed in STABILITY.md (the adapter kit is the example); everything else is internal by default, and "might be useful" is neither. The API report diff (`api-surface/*.api.md`, failed on by `npm run api:check`) is the review point. Measured 2026-09-23: `compileClaude`/`compileSkill`/`compileAgent`/`compileRailway` sat in `vigiles/linting` with no external caller, and the promise alone froze them synchronous when the symbol check had to become async (#257).',
-    ),
+    "public-exports-are-opt-in": guidance("Public exports are opt-in.", {
+      details: file("docs/contributing/rules.md"),
+      anchor: "public-exports-are-opt-in",
+    }),
 
     "dogfood-vendoring-policy": guidance(
-      "The dogfood corpus — real/vendored artifacts vigiles tests ITSELF against (real OSS plugins, real instruction files, gold sets, task corpora) — follows ONE policy. The rules: (1) SHA-PIN — a vendored upstream lives in `test/dogfood/<name>@<sha>/`, reproducible + offline. (2) MIT-ONLY — only MIT upstreams are vendored verbatim; a no-license/non-permissive repo is NOT committed. (3) PROVENANCE PER SLICE — every vendored slice ships BOTH a `LICENSE` (upstream MIT text + copyright) AND a `SOURCE` (upstream URL/path/commit + why-it's-here + the minimal slice); a slice without both is incomplete. (4) MINIMAL SLICE — vendor the smallest slice that reproduces the behaviour under test, never the whole repo; trim manifests so the loader sees a coherent plugin. (5) CI-ENFORCED OR LABELLED-MANUAL — a dogfood artifact CI never reads is decoration, not a guard: it must be read by a `src/**/*.test.ts` (→ `npm run coverage`) or run by a dedicated CI step (the `rule-enforcer/` trust gate and the `bench/corpus/verify*.mjs` self-checks each have one in the `check` job), OR be explicitly labelled MANUAL with the reason (real-model evals/benchmarks that cost money — `examples/harness/dogfood/*.eval.mjs`, `bench/ecosystem/**`). (6) REFRESHABLE — re-pin via `tools/refresh-vendor.sh`, breadth-sweep via `tools/dogfood-sweep.sh` (both human-run, never CI — they clone the network). When you add a new vendored corpus, it follows this same shape and gets a row in the index. DON'T CONFUSE THREE THINGS called 'dogfood' — only `test/dogfood/` is THIS corpus; `examples/harness/dogfood/` are skill-EXAMPLES, and `rule-enforcer/gold/` is that package's own gold sets, none governed by this rule. PER-ADAPTER: the ADAPTERS are symmetrically enforced (`src/adapter-contract.test.ts` loops the whole registry), but the VENDORED corpus is CC-only (real Claude Code plugins) with Codex on artificial tmp fixtures (`src/scan-cli.test.ts`) — a documented asymmetry (real Codex plugins are rare), tracked in the roadmap, not an oversight.",
+      "The dogfood corpus follows one policy: SHA-pinned, MIT-only, vendored under `test/dogfood/<name>@<sha>/`.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "dogfood-vendoring-policy",
+      },
     ),
 
     "one-detector-no-drift": guidance(
-      "A DETERMINISTIC structural check has ONE home: a single pure detector reused by BOTH `lint` (the per-commit, severity-configurable gate) and `audit` (the read-only report) — never reimplemented in each, so the two surfaces can't drift. The detectors already shared this way: untested-surface (`src/test-coverage.ts`), dangling-ref (`danglingRefs` in `src/plugin-loader.ts`), and description-overlap (`findDescriptionOverlaps` in `src/core/description-overlap.ts`, the NCD near-duplicate proxy). When a deterministic signal earns a `lint` rule, the rule and `audit` must call the SAME function (plus a `docs/rules/<name>.md` per the doc-per-rule rule). The model-gated BEHAVIORAL column (the `audit` model trigger tier / `runEval` trigger-rate, observed egress) is the deliberate EXCEPTION: it's LLM-based — needs model auth, costs tokens/quota, is non-deterministic — so it lives ONLY in the audit/eval tier and is NEVER promoted to a `lint` rule (lint stays deterministic, free, runnable on every commit with no key). The dividing line is the tool's core axis: cheap deterministic DETECTION can be a lint rule; expensive model-gated CONFIRMATION cannot. So two near-identical skill descriptions are flagged deterministically (lint/audit), but whether the wrong one actually FIRES is measured only by the model trigger tier (the `audit` trigger tier, interactive — or `measureTriggerRate` for automation).",
+      "A deterministic structural check has one home: a single pure detector reused by both `lint` and `audit`.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "one-detector-no-drift",
+      },
     ),
 
     "lint-rule-calibration": guidance(
-      "Every deterministic check sits at the STRONGEST enforcement its DECIDABILITY allows — and no further, because going further IS the bug (false confidence, or crying wolf). Prevention is a GRADIENT: `unrepresentable → won't-typecheck → won't-build → error → warning → measured`, weakening as the property gets less decidable. Every rule lands in exactly ONE of three BUCKETS, and the bucket sets the CEILING. (A) `structural-closed` — decidable from the artifact's own content over a closed vocabulary; a TYPE could make it impossible for spec-authors, so the ceiling is won't-typecheck and it is error-capable (subagent-tool-contract, skill-missing-fence, hook-block-ineffective). (B) `external-decidable` — decidable but needs the EXTERNAL world (filesystem, linter catalog, another file or server); no type can read those, so the ceiling is a hard ERROR at cross-ref or lint, NEVER a type (hook-script-exists, mcp-tool-resolves, integrity). (C) `heuristic-behavioral` — undecidable or a fuzzy proxy; the ceiling is a WARNING or a model MEASUREMENT, and an `error` here cries wolf (description-overlap's NCD proxy, frontmatter-valid, unmarked-refs). The reframe that kills 'why isn't it all types?': bucket B is type-IMPOSSIBLE yet still hard-gating, just later, and bucket C is warn-CORRECT rather than a compromise. SEVERITY TRACKS CONFIDENCE, NOT IMPORTANCE — a clean fact (A/B) may be `error`; a proxy (C) must be `warn`. The bucket is the CEILING, `defaultSeverity` is where the rule sits TODAY, and the gap is meaningful: an A/B rule at `warn` is a promotion candidate, a C rule at `warn` is permanent. MECHANICALLY ENFORCED: every rule MUST be declared in `src/core/rule-meta.ts` with bucket / surface / defaultSeverity / detector / optional upstreamPrevention — `Record<RuleName, RuleMeta>` makes completeness a tsc error, and `rule-meta.test.ts` binds the registry to `docs/rules/*.md` by exact set match and cross-checks each severity against the real defaults. NEVER move a rule onto specs: no lint rule reads a `.spec.ts`'s content, because spec correctness is a separate, earlier pipeline (the user's tsc, then `vigiles compile`) and a lint rule there would duplicate tsc. The same defect is PREVENTED at stage 1 for spec-authors (recorded as `upstreamPrevention`) and DETECTED at stage 3 for everyone else — two populations, not duplication. The full model, the results it rests on, and why the registry is central rather than co-located: the header of `src/core/rule-meta.ts` and `research/enforcement-model.md`. Adding or calibrating a rule is not done until rule-meta.ts and that model are updated alongside the docs (sibling of rules-docs-in-sync).",
+      "Every deterministic check sits at the strongest enforcement its decidability allows, and no further.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "lint-rule-calibration",
+      },
     ),
 
     "harness-parity-and-extensibility": guidance(
-      "When you design ANY capability — not just a lint rule or a test, but compile EMIT, a runtime, a new port, a new subsystem — two constraints are NON-NEGOTIABLE and apply at DESIGN time, before you write code. (1) FULLY SUPPORT BOTH SHIPPING HARNESSES — Claude Code AND Codex — as equals. Never build CC-first and bolt Codex on after: if a capability maps to both, it must WORK on both and be asserted on both (the test-both-harnesses arm); the emitted artifact must be each harness's native format (CC JSON settings / Codex TOML); the runtime must be the shared neutral path where one exists (e.g. the gate deny→exit 2 is byte-identical). Where a capability genuinely cannot map to a harness yet, that is a LOUD, documented deferral (a compile warning + a gated/skipped test stating WHY — e.g. hook REACT output shape is CC-confirmed-only; inject is now confirmed on BOTH and encoded in HookProtocol.injectableEvents), NEVER a silent CC-only path. 'Both harnesses fully' is the bar, not 'CC plus best-effort Codex'. (2) LEAVE ROOM FOR FUTURE ADAPTERS (OpenCode, Gemini, …) by construction. Every harness-specific fact lives behind one of the five ports (HarnessDialect / PluginLayout / HarnessRuntime / HookProtocol / ModelMock); the core stays harness-agnostic (core ⊄ adapter, eslint-enforced) and reads facts from the injected adapter, never a hard-coded literal. Prefer a PORT + INJECTION over an inline conditional, so adapter #3 is a NEW OBJECT registered in ADAPTERS, not an edit threaded through the core. (3) DESIGN THE NEUTRAL SHAPE FIRST, defer the abstraction until it's earned. Model the capability in harness-neutral terms and let the dialect/port supply the per-harness specifics; do NOT invent a neutral indirection layer for a difference that doesn't exist yet (rule-of-three / YAGNI / leaky-abstraction risk) — e.g. native event names are validated per-dialect now, and a neutral event-alias map is deferred to the dialect seam until a harness with DIVERGENT names lands. The seam must EXIST (the port); the mapping is added when a second divergent implementation needs it. This is the DESIGN-TIME principle; its enforcement arms are adapter-aware-lint-rules (rules), test-both-harnesses (tests), the adapter CONTRACT suite (src/adapter-contract.test.ts, the whole-registry conformance loop), and the core⊄adapter / no-CC-literal eslint boundaries. See docs/harnesses.md. Record-only is a deliberate decision, not a parity gap.",
+      "Any new capability is designed for every harness and for extension from the start, before you write code.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "harness-parity-and-extensibility",
+      },
     ),
 
     "adapter-aware-lint-rules": guidance(
-      "A lint/scan rule is scoped to the SURFACE it checks (instruction file, skills, MCP, docs, shell hooks, subagents), NEVER to a harness — a rule must work for whatever harness a repo targets, including a repo targeting SEVERAL at once (a byte-identical CLAUDE.md⇄AGENTS.md mirror is ONE logical artifact, linted once on the source slot; independent `.claude/`/`.codex/` trees are linted per target). THREE HARD RULES, all enforced. (1) NAME BY THE HARNESS-NEUTRAL CONCEPT. The Claude Code 'agent' is a SUBAGENT, so the rules are `subagent-tool-contract` / `subagent-frontmatter` / `untested-subagent`, never `agent-*` — Codex's `[agents]` is a TOML concurrency table, a different concept sharing a word. A `harness/` PREFIX is RESERVED for a concept only one harness has with no analogue; none exist today, so no rule is prefixed. (2) THREAD THE RESOLVED ADAPTER, never default to Claude Code. Each check resolves the harness ONCE (`resolveHarnessSelection`, honouring `--harness=` / the `.vigilesrc.json` key / auto-detect) and passes `adapter.layout` + `adapter.dialect` into the shared detector. An agnostic detector MUST NOT hard-code a CC literal — no `${CLAUDE_PLUGIN_ROOT}`, no `.claude/`, no `agents/`/`skills/`/`commands/` — but read them from the layout and the dialect. MECHANICALLY ENFORCED, THREE ARMS: an eslint `no-restricted-syntax` rule bans CC literals (`CLAUDE_PLUGIN_ROOT`, `.claude`, `ANTHROPIC_`) in `src/core/**` and the detectors; `eslint-plugin-boundaries` bans the core IMPORTING an adapter; and `local/no-harness-names` bans the harness NAMES themselves (`claude-code`, `codex`, `opencode`) there — in TYPE positions as well as value ones, because a name in a type propagates into every signature that references it, and in identifiers (`claudeCodeLayout`) inside `src/core/**`. The first two miss the third: `.claude` needs the dot, so the adapter name `claude-code` walks past it. Existing exemptions carry a per-line `eslint-disable-next-line local/no-harness-names -- <why>`, so adding a name is visible in review and removing one is deleting a line. (3) GATE BY CAPABILITY and report n/a (the no-silent-skips corollary): a surface rule runs only where the active adapter HAS the surface (`AdapterCapabilities.subagents` / `shellHooks`); where it does not, `reportNotApplicable` says `n/a — <harness> has no <surface>` — LOUD, never a false pass, never a crash. DOGFOOD MUST BE NON-CC-SHAPED, because a CC-shaped fixture structurally cannot catch a CC-hardcoding regression: the Codex `lint` e2e, the custom-`agentDir` classification test, and the custom-token surface-discovery test. The ONLY places a CC literal legitimately lives: `src/adapters/claude-code/`, the CC eval transport, and `init` (it installs the CC plugin). Per-rule applicability is the surface→harness matrix in `docs/verifying-instruction-files.md`.",
+      "A lint/scan rule is scoped to the surface it checks, never to a harness: name it by the harness-neutral concept, thread the resolved adapter, and never hard-code a Claude Code literal in core.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "adapter-aware-lint-rules",
+      },
     ),
 
     "test-both-harnesses": guidance(
-      "vigiles is MULTI-HARNESS, so a test of a HARNESS-FACING capability must cover BOTH adapters (Claude Code AND Codex), never just Claude Code by default. This is the test-layer companion to adapter-aware-lint-rules (which governs the RULES): it applies to compile EMIT (assert the CC JSON and the Codex TOML), the hook/agent/skill runtime, the layer-2 runners, and the scan/lint detectors. THREE SUB-RULES, mirroring no-silent-skips. (1) TEST WHAT MAPS ON BOTH — `compile --harness=codex` beside the CC default, and the agnostic detector over a NON-CC-shaped layout, because a CC-shaped fixture structurally cannot catch a CC-hardcoding regression. A genuinely harness-NEUTRAL path (the compiled-hook GATE runtime: `deny` → exit 2 is byte-identical on both) is covered ONCE, but a comment MUST say WHY one run suffices — otherwise 'only CC is tested' is ambiguous between neutral-on-purpose and oversight. (2) GATE/SKIP LOUDLY where a harness genuinely cannot run — its binary is absent, or the capability is DEFERRED for it (Codex react OUTPUT shape is CC-confirmed-only) — via `skip(reason)` or a gated test stating WHY, never a silent CC-only pass. (3) DO NOT DOUBLE-TEST AGNOSTIC CORE: a pure detector reading only harness-neutral fields needs ONE run, not a per-harness loop. STRUCTURALLY ENFORCED by `src/adapter-contract.test.ts`, which runs the conformance kit over the WHOLE registry in a loop — so registering an adapter auto-subjects it to every contract, a capability an adapter lacks is a VISIBLE `it.skip(… n/a …)`, and a meta-test FAILS THE BUILD when a `src/adapters/<dir>/` exists unregistered. KNOWN GAP, documented not hidden: the contract catches ADAPTER-level gaps but CANNOT catch a harness-facing assertion written CC-only OUTSIDE it. The contract is the FLOOR (every registered adapter is held to everything in it); THIS rule is the CEILING (deciding what belongs in it), and that judgment is the whole point.",
+      "vigiles is MULTI-HARNESS, so a test of a HARNESS-FACING capability must cover BOTH adapters (Claude Code AND Codex), never just Claude Code by default.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "test-both-harnesses",
+      },
     ),
 
     "compose-with-sync-tools": guidance(
-      "vigiles is the author+verify layer, not the fan-out layer. Stay composable with the top rule-sync/interop tools instead of reimplementing them: **Ruler** (intellectronica/ruler, the leading single-source→many-agent distributor), **rulesync**, and the **AGENTS.md** cross-tool standard. The division of labour: vigiles owns truth (a typed spec compiled to a verified CLAUDE.md/AGENTS.md whose references are real and enabled); those tools own reach (distributing that canonical file to Cursor/Cline/Windsurf/Copilot/etc.). Concretely: (1) keep emitting the canonical formats they consume — CLAUDE.md and standard AGENTS.md — and never break that contract; (2) be able to verify references in the files they generate (lint-after-the-fact for their outputs). Do NOT add native multi-format emitters (`.mdc`, `.clinerules`, …) — compose, don't absorb the per-agent format-maintenance burden. (3) Treat a symlinked-or-synced CLAUDE.md⇄AGENTS.md as ONE artifact, not two: Claude Code reads CLAUDE.md only (it does NOT natively load AGENTS.md — anthropics/claude-code#34235), so users bridge to the AGENTS.md tools via a symlink (`ln -s CLAUDE.md AGENTS.md`) or a sync tool keeping them byte-identical. vigiles must follow the symlink on read (hash + `require-instructions-spec` run once on the real file; the mirror is never flagged as a second spec-less instruction file) and stamp the integrity hash only on the compile source slot, not the distributed mirror.",
+      "vigiles is the author+verify layer, not the fan-out layer.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "compose-with-sync-tools",
+      },
     ),
 
     "smooth-adoption": guidance(
-      "`npx vigiles init` must work on first run with zero config and set up BOTH layers by default ON A NEW REPO: a typed spec + types (the Lint layer), a vigiles.harness.mjs starter (the Test layer), a `zernie/vigiles@v1` CI workflow (created when none exists; a stale old-API one is flagged, not skipped), vigiles added to devDependencies, the shipped SKILLS linked into the repo (committed relative symlinks into `node_modules/vigiles/skills/`, so every clone and container has them after `npm install`), and the Claude Code plugin installed via the MARKETPLACE for its HOOKS (`/plugin marketplace add zernie/vigiles` + `/plugin install vigiles@vigiles`, into ~/.claude/plugins/ — never vendored into the repo). Onboarding is interactive at a TTY (asks which layers / CI / plugin) and NON-INTERACTIVE for agents, CI, or piped input (or with `--yes`) — so 'set up vigiles' from a Claude Code / Codex prompt Just Works without hanging on a prompt; `--lint`/`--test` scope the layers (`--harness=` overrides detection). After install the agent edits specs automatically — no workflow change required. The DEFAULT already GATES broken surfaces (`\"extends\": \"vigiles:recommended\"` — the FP-safe `structural` rule group at `error`: a typo'd tool / dead hook / broken MCP / skill collision fails CI, while a clean repo stays green); the WORKFLOW tier (a spec per file + a test per surface) is OFFERED interactively (opt-out, default-yes) or via `--strict`, and `--report-only` downgrades everything to warnings for cautious migration. 'Permissive' means vigiles doesn't FORCE specs/TS on you and doesn't CRY WOLF — NOT that it ignores genuine breakage (see `install-enforcement-model`). Hesitant adopters can use inline mode (`<!-- vigiles:enforce ... -->` comments) without a .spec.ts — see `docs/markdown-mode.md`. RE-RUNNING `init` ON AN ADOPTED REPO IS MINIMAL (#338): 'adopted' is read from disk (`.vigilesrc.json`, or a spec beside an instruction file — deliberately NOT a vigiles devDependency, so `npm i -D vigiles && npx vigiles init` on a new repo is still the full setup); a bare re-run there only links missing skills and adds the devDependency when nothing declares it, never adds a CI workflow, edits `.vigilesrc.json`, scaffolds, writes specs for hand-written files, edits a version pin or runs the global install, and prints what `--full` would add. Any flag that selects or widens the setup keeps the full path. The decision is `adoptionState` / `rerunScope` in `src/setup-plan.ts`; the IO is `minimalRerun` in `src/cli-main.ts`. See `docs/agent-setup.md`.",
+      "`npx vigiles init` works on the first run with zero config, sets up both layers (lint and test) on a new repo, and never hangs on a prompt in agent, CI or piped runs.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "smooth-adoption",
+      },
     ),
 
     "great-agent-flow": guidance(
-      "The end-to-end experience when an AGENT is handed a short prompt like 'install vigiles and test my skills' must be GREAT — discoverable from the README front door and frictionless, because for many users the agent IS the installer. Concretely: (1) install is one non-interactive command an agent runs without hanging — `npx vigiles init` auto-detects a non-TTY and applies defaults (both layers); (2) `init` installs the model-invocable `test-harness` skill, so a follow-up 'test my skills' FIRES that skill (it picks the tier and writes the test) rather than leaving the agent to flail; (3) the README must make the skill-testing path explicit and high-signal — name `measureTriggerRate` (does a skill's description actually fire? recall + precision), not just hook examples, and surface the `test-harness` skill where the task lives, not buried in a list. The README is the agent's front door: an agent reading it for 'install + test skills' must find a clear, actionable path. Dogfood it — the shipped model-invocable consumer skills are `test-harness`, `strengthen`, `edit-spec`, and `debug-my-harness` (each reaches for itself on the matching request rather than waiting for a slash command — `debug-my-harness` reads the `.vigiles/runs.jsonl` flight recorder to diagnose why the harness misbehaved; `generate-logo` is an internal contributor-only skill under .claude/skills/, not shipped); all are covered by trigger-rate evals (`examples/harness/dogfood/`) gating recall + precision so making them auto-fire doesn't make them over-fire. The user-invoked skills (`adopt-spec`, `linter-docs`) stay disable-model-invocation. See `docs/agent-setup.md` and `docs/harness-testing.md`.",
+      "An agent handed 'install vigiles and test my skills' must succeed from the README alone, without friction.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "great-agent-flow",
+      },
     ),
 
     "install-enforcement-model": guidance(
-      "`vigiles init`'s enforcement model is RULE GROUPS keyed by confidence, NOT a strictness-preset MENU — the linter best practice (Biome's own note: 'presets are a poor emulation of rule groups'). THREE groups. (1) `structural` — the FP-safe correctness rules (subagent-tool-contract, subagent-frontmatter, hook-events, hook-script-exists, mcp-config, mcp-tool-resolves, mcp-hook-target-resolves, disallowed-tools-contract, description-overlap) — gated at `error` by the `vigiles:recommended` preset `init` writes: it catches a typo'd tool, a dead hook, a broken MCP or a skill collision, and a clean plugin stays green so it never cries wolf. (2) `workflow` — the opinionated rules a CLEAN repo can still fail because the work is not done yet (require-instructions-spec, untested-skill/subagent/hook) — OFF by default, `error` under `--strict`, the ONE opinionated opt-in. (3) `nudge` — recommendations and acknowledged-noisy rules (frontmatter-valid, skill-frontmatter, unmarked-refs at `warn`; prefer-compiled-hooks OFF) — NEVER gate, even under `--strict`. `require-instructions-spec` is NARROW (only a `.spec.ts` satisfies it) and satisfied BY CONSTRUCTION, because `init` auto-adopts every instruction file into a faithful spec — so opting into `workflow` never lands a wall of failures. `--report-only` is an ORTHOGONAL severity dial that downgrades the gating groups to `warn` (the migration on-ramp); it is NOT a rule set and composes with the group selection. The `structural` group is ONE runtime preset, `\"extends\": \"vigiles:recommended\"` (data in `src/core/presets.ts`, merged UNDER the user's own `rules` at the one parse boundary `parseVigilesConfig`, so an explicit entry downgrades or disables any rule one at a time). It is a preset and not written lines because written lines are a SNAPSHOT: a repo set up before a rule joined the group never got it on upgrade (#338). Every rule's built-in default stays `warn`; the preset is the only thing that raises them. ADDING a rule to the preset is a SEMVER-MAJOR change (`!`) — it can turn a consumer's CI red with no edit on their side — exactly as ESLint treats `eslint:recommended`; removing one is not. The other flags still EXPAND to explicit per-rule lines: `--strict` writes the `workflow` rules, and `--report-only` writes the structural rules at `warn` INSTEAD of the preset, because extending a preset that later gains an `error` rule would break its nothing-fails-CI promise. DO NOT build a relaxed/standard/strict preset menu — one preset for one group, not strictness bands. INSTALLATION IS EXPLICIT ABOUT TRADEOFFS: every choice states what you GET and what it COSTS at the point of choosing, and the SAME text is reused across the CLI prompt, the agent's `AskUserQuestion` (the tradeoff is the option `description`) and the post-install summary — one source, three surfaces, no drift. The agentic install presents the GROUP opt-in WITH its tradeoff, never an abstract strictness band. Mechanism: `RECOMMENDED_RULES` in `src/core/presets.ts`; `WORKFLOW_RULES` / `NUDGE_RULES` in `src/setup-plan.ts`; written by `mergeProjectConfig`.",
+      "`vigiles init` enforces through rule groups keyed by confidence, not a menu of strictness presets.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "install-enforcement-model",
+      },
     ),
 
     "gate-first-adoption": guidance(
-      "The adoption NORTH STAR. Every change touching `init`, the report, CLI output, onboarding or SHARING serves five GOALS. (G1) The INTEGRITY GATE is the universal floor: `audit` (local) + `lint` (CI) must be valuable AND safe for EVERY repo with zero setup and zero conflict, any stack, existing-harness or not, standing entirely on their own — this is what everyone adopts first. (G2) Everything richer (specs, installed skills, `rules → enforced`, `eval`) is VALUE ON TOP, INVITED never forced. (G3) FIT THE TEAM: the path branches by stack and existing-harness, and the tool shows ONLY what is TRUE for THIS repo — no `rules → enforced` on a non-JS stack, no `Tested` alarm for a team with its own tests. (G4) A fair result spreads on merit — a real report link, an opt-in badge, the PR comment — and a LOCAL CLI result is as shareable as a web one. (G5) Every path is judged by whether someone can run `npx vigiles audit` and get something useful on the FIRST try. THE NON-NEGOTIABLE 'NOT EVIL' CONTRACT binds every adoption surface, and breaking one is a DEFECT rather than a tradeoff: (1) a READ never writes — `audit`/`lint` never mutate, install or phone home, and setup is a separate consented step; (2) DECLINING is free, one keystroke, and REMEMBERED — no nag loops, no default-yes on an invasive choice, no penalized grade, and agent/CI/piped runs never hang on a prompt; (3) never OVER-PROMISE or measure the wrong thing, honesty over a flattering-but-false signal; (4) grade OTHERS fairly (the Lighthouse contract) — objective, reproducible, one-line-fixable findings, tone is 'worth fixing' never 'gotcha', feature a repo only if MIT-vendored or opted-in, methodology published, sorted-not-editorialized, private-first for real defects; (5) NO dark-pattern sharing — no coerced shares, contact spam, share-to-unlock, auto-posting, fake scarcity or streak guilt, and never gate real value behind a viral action (the backlash corpus behind this is in `adoption-design.md`). THE THROUGHLINE: make the GATE useful to everyone, INVITE the rest, FIT each team, and let a fair result spread on its own merits. Umbrella over smooth-adoption / great-agent-flow / install-enforcement-model / progressive-adoption / lead-with-easy-adoption — they are HOW, this is the WHY they answer to.",
+      "The adoption north star: `audit` (local) and `lint` (CI) must be useful and safe for every repo with zero setup; everything richer is invited, never forced, and the 'not evil' contract binds every adoption surface.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "gate-first-adoption",
+      },
     ),
 
     "format-before-commit": guidance(
-      "Run `npm run fmt:check` before committing. Inline code spans in markdown need surrounding spaces to render correctly.",
+      "Run `npm run fmt:check` before committing.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "format-before-commit",
+      },
     ),
 
     "run-the-gates": guidance(
-      "The gate set is ONE COMMAND — `npm run check` — never a list you retype. It builds, runs the read-only checks in parallel, then the file-WRITING ones serially, and names whatever failed; `node scripts/check.mjs --list` prints the commands without running them. THEN READ ITS LAST LINE. `check` covers ONE of CI's jobs and PRINTS the ones it does not (`NOT covered here — N more CI job(s)`, rendered from `CI_JOBS_NOT_COVERED` in `scripts/check.mjs`, which `scripts/check-covers-ci.test.ts` binds to `ci.yml` so a NEW job is a failing test rather than a silent omission). Decide FROM THAT OUTPUT which of the jobs it names your change touches, and run those too. Do NOT restate either list — not here, not in a doc, not in a prompt: the second copy is the one that goes stale, and this rule exists because copies did. MEASURED 2026-09-07 — three sessions in one day reported the gates green off a hand-written five-command list, and not one of them ran the 14 deterministic harness tests, a separate CI job that list never named. A remembered list cannot notice a job it does not know about; a printed one can. WHAT SURVIVES from that list and still applies: (a) run the gates LAST, after the final edit, on a tree nobody is touching — a gate that linted a half-written file failed on a state that never existed; (b) take the exit code WITHOUT a pipe (`cmd > /tmp/log 2>&1; RC=$?`), because `cmd | tail` reports `tail`'s status, which is how a red suite once shipped green; (c) REPORT WHICH GATES YOU RAN, BY NAME, with their exit codes — `the gates are green` is indistinguishable from `I ran a subset`, and a tier that could not run is named as SKIPPED, loudly (`no-silent-skips`), never folded into a pass. A MUTATION run obeys the same rule: run the mutant against the WHOLE relevant suite AND prove the patch landed (grep the mutated source) before reading a green as evidence — a green mutation whose patch never applied carries zero information. The executable form is `.claude/skills/ship-a-feature/` (`--gate` runs `npm run check` on a hash-frozen tree).",
+      "The gate set is ONE COMMAND — `npm run check` — never a list you retype.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "run-the-gates",
+      },
     ),
 
     "pick-the-test-tier": guidance(
-      "A new check goes in the CHEAPEST tier that can decide it — cost rises steeply, and each tier is only worth what the one below cannot reach.\n\n| what the check needs | tier | run it with |\n| --- | --- | --- |\n| nothing executes — a pure detector over given input | unit | `npm run test:unit` (CI reaches it via `npm run coverage`) |\n| a real `claude`/`codex` binary, but no model | harness | `npm run test:harness` |\n| a real model — real money | eval | not in CI; run by hand |\n| real network or Docker | integration / e2e | `npm run test:integration` / `npm run test:e2e` |\n\nThe FULL tier map — where each lives, what it needs, and which CI job (if any) runs it — is the `### Test` section of `CONTRIBUTING.md`, kept honest by `src/doc-test-script-coverage.test.ts` (every `test:*` script must appear there). What a new test still OWES is already written down and is deliberately not restated here: both harnesses (`test-both-harnesses`), a tier that cannot run saying so out loud (`no-silent-skips`), and a vendored fixture (`dogfood-vendoring-policy`).",
+      "A new check goes in the cheapest tier that can decide it: unit, then harness, then eval; the full map is in `CONTRIBUTING.md`.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "pick-the-test-tier",
+      },
     ),
 
     "conventional-commits": guidance(
-      "Commit subjects AND PR titles are Conventional Commits — they drive the release version via `@semantic-release/commit-analyzer` off `main` (`feat` → minor, `fix` → patch, everything else no bump). Allowed types (enforced by the `validate` CI job, amannn/action-semantic-pull-request): feat, fix, docs, chore, refactor, test, perf, ci, build. OPERATIONAL GOTCHA — a PR opened from the Claude Code UI (or any non-CLI flow) gets a plain prose TITLE by default, which FAILS the `validate` job (it checks the PR TITLE, not the commits). Fix the PR title to a Conventional Commit (type + optional `!` + subject) as soon as the PR exists — edit it via the GitHub API/UI; `validate` re-runs on the title edit, no new push needed. The title must carry the SAME breaking-change signal as the commits: if the branch removes/renames a public API, the PR title needs the `!` too (the release version comes from the merged title/commits). CRITICAL — signal breaking changes explicitly: a `!` after the type (`feat!:`/`refactor!:`) or a `BREAKING CHANGE:` footer triggers the MAJOR bump. The CI lint only checks the type prefix; it CANNOT tell whether a change is semantically breaking, so the `!` is on you. A change is breaking when it removes/renames/moves a public API: a `package.json` `exports` subpath (e.g. `vigiles/claude-code`), an exported symbol, a CLI command/flag, a config-file key, or a compiled-output contract. When in doubt whether a change is breaking, mark it `!` — under-signalling ships a wrong (too-low) version, which is worse than an extra major. (Pre-1.0 the major stays 0, but the signal must still be correct so the changelog is right and the first 1.0 bump is clean.)",
+      "Commit subjects AND PR titles are Conventional Commits — they drive the release version via `@semantic-release/commit-analyzer` off `main` (`feat` → minor, `fix` → patch, everything else no bump).",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "conventional-commits",
+      },
     ),
 
     "before-you-open-a-pull-request": guidance(
-      'Before changing what a rule, a file kind, a command or a config key means, or when opening a pull request, read the "Before you open a pull request" section of CONTRIBUTING.md. The full text lives there, not here.',
+      'Before changing what a rule, a file kind, a command or a config key means, or when opening a pull request, read the "Before you open a pull request" section of CONTRIBUTING.md.',
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "before-you-open-a-pull-request",
+      },
     ),
 
     "lead-with-easy-adoption": guidance(
-      "Public docs — and the README's FIRST SCREEN especially — must make CLEAR and UP-FRONT that adopting vigiles is LOW-FRICTION because SKILLS + HOOKS do the mechanical work for you. The reader's first impression must be 'I run one command and the agent takes it from there,' NEVER 'this looks like a pile of setup.' The recurring failure is presenting features as manual chores (hand-wire this hook, write this spec, remember to run `--update`) and burying the agent-does-it-for-you story — which reads as friction and loses adopters before they try it. Lead with the reassurance, then prove it. WHAT IS ACTUALLY SMOOTH (state it plainly, early): (1) ONE COMMAND — `npx vigiles init` — installs the plugin (skills + hooks), adopts your existing CLAUDE.md into a spec, and wires CI; non-interactive so an agent runs it without hanging. (2) THE AGENT DOES THE EDITS — model-invocable skills handle the work on request: `edit-spec` changes your CLAUDE.md by editing its spec, `strengthen` upgrades guidance into verified rules, and `test-harness` writes + runs the test/eval AND maintains its artifacts (e.g. it runs `vigiles eval --update` and commits the lock for you — you don't type it). (3) HOOKS NUDGE AT THE RIGHT MOMENT — the refs nudge, the eval-lock staleness nudge — so the agent is reminded in-loop instead of you remembering. So FRAME EVERY FEATURE'S UPKEEP as agent/skill/hook-driven, not homework: the eval lock is 'the test-harness skill keeps it fresh + a hook reminds you', not 'remember to run --update'. HONEST (don't overclaim): the agent + skills + hooks handle the MECHANICS; you still make the decisions and review the diffs — low-friction, not zero-thought, and the deterministic gates still catch real breakage (install-enforcement-model). The TEST: a skeptical reader skimming the first screen should come away reassured adoption is smooth, with the agent/skill/hook path obvious — not daunted by setup. This is the MESSAGING companion to smooth-adoption (the `init` mechanics) + great-agent-flow (the agent on-ramp) + cohesive-feature-delivery (every feature ships the agent-awareness surface that makes this claim TRUE); keep it honest with install-enforcement-model (smooth never means it ignores real breakage) and tight with readme-brevity.",
+      "Public docs — and the README's FIRST SCREEN especially — must make CLEAR and UP-FRONT that adopting vigiles is LOW-FRICTION because SKILLS + HOOKS do the mechanical work for you.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "lead-with-easy-adoption",
+      },
     ),
 
     "progressive-adoption": guidance(
-      "vigiles must be adoptable incrementally, like TypeScript — but progressive about ENFORCEMENT DEPTH, NOT about whether obvious breakage fails. The on-ramps: (1) `--report-only` / inline `<!-- vigiles:enforce ... -->` comments on an existing CLAUDE.md — see problems as warnings, fix gradually, nothing fails CI, no new files; (2) DEFAULT `npx vigiles init` — the FP-safe `structural` rule group gates REAL breakage (a clean repo stays green), zero linter setup; (3) `--strict` — also require a spec per file + a test per surface (the `workflow` group). Each level adds value without requiring the next; never FORCE specs/TS to use the basics. The reframe (see `install-enforcement-model`): 'permissive' = no forced specs/TS + no crying wolf (the default rules are FP-safe), NOT ignoring genuine breakage. README examples show the simplest path first.",
+      "vigiles must be adoptable incrementally, like TypeScript — but progressive about ENFORCEMENT DEPTH, NOT about whether obvious breakage fails.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "progressive-adoption",
+      },
     ),
 
     "no-session-links": guidance(
-      "This is a public repo. Claude Code session URLs are private and must not appear in commits or PRs.",
+      "This repo is public: never put a Claude Code session URL in a commit or a PR.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "no-session-links",
+      },
     ),
 
     "no-product-strategy-here": guidance(
-      "This repository is PUBLIC. Anything committed here is readable by anyone, and deleting a file does not remove it from history or from other branches. NEVER commit here, in any directory: roadmap / prioritisation / what-we-build-next; competitive analysis, positioning, poach lists; adoption, distribution, go-to-market, pricing; or design documents for capabilities that are NOT YET SHIPPED. THE LINE IS BUILT VS UNBUILT, not engineering vs business — documentation of shipped behaviour belongs here and is useful, while a design document for something unbuilt is a roadmap however technical it reads. A competitive FACT may appear only as a neutral, public-source technical note; the narrative around it does not belong in this repository at all.",
+      "This repo is public: never commit roadmap, competitive analysis, go-to-market or design documents for capabilities that are not yet shipped — the line is built vs unbuilt.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "no-product-strategy-here",
+      },
     ),
 
     "hook-startup-cost-is-watched": guidance(
-      "A compiled hook runs on EVERY matching tool call, so what it LOADS is a user-visible cost paid per call, not per session. The competitors are a `grep` on stdin (~12 ms) and a python script (~35 ms); once a hook costs hundreds of milliseconds the user's rational move is to delete it and keep the shell script, and every guarantee vigiles makes goes with it. So startup cost is watched deliberately. WE DO NOT ASSERT DURATIONS, and that is a decision with a reason rather than an omission: a timing threshold on a shared CI runner is flaky, a flaky gate is quarantined within a week, and after that the property is UNWATCHED WHILE STILL LOOKING WATCHED — worse than never having had the check (#216 says so in as many words). What is asserted instead is the MODULE GRAPH: same input, same modules, every run, every machine. The graph is a deterministic proxy because on this codebase the cost IS the require graph — a native `.node` binding or a compiler pulled onto a hook path is the difference, not arithmetic. `src/hook-runtime-graph.test.ts` owns those assertions, in BOTH directions (a role that must NOT load something, and a call that MUST still load it), plus a module-count CEILING with headroom, which is the only check there that does not need to be told what to look for. The DURATIONS live in `tools/measure-hook-startup.mjs`: run by hand, recorded with the machine and Node version beside them, re-measured rather than quoted. WHEN YOU TOUCH A HOT PATH: every lazy boundary is one convenient top-level `import` away from being undone by someone with no reason to suspect the file they are editing is on a hot path, so a new lazy edge gets a graph assertion IN THE SAME COMMIT — otherwise the fix is invisible to tests and survives only while somebody remembers it. And a new hook ROLE or hot path gets a ROW in the measurement tool BEFORE anyone cites that tool as evidence: measured 2026-09-19, it had no `react` row at all, and react is the only role that resolves an adapter — so the instrument reported a cheap hook path while react was loading the test harness, the compiler and a native binary on every matching tool call. An instrument that omits a role cannot see a regression confined to it.",
+      "A compiled hook runs on EVERY matching tool call, so what it LOADS is a user-visible cost paid per call, not per session.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "hook-startup-cost-is-watched",
+      },
     ),
 
     "subagent-model-note": guidance(
-      'When you launch a subagent (the Agent/Task tool), tell the user in one short line WHICH model you chose for it and WHY — e.g. "spawning the Explore agent on Haiku — cheap fan-out read, no synthesis needed" or "using Opus for this one — it has to reconcile conflicting findings across docs". The user wants visibility into the model-selection tradeoff (cost vs capability) you\'re making on their behalf. Keep it to a clause, not a paragraph; do it at launch, not after.',
+      "When you launch a subagent, tell the user in one short line which model you chose and why.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "subagent-model-note",
+      },
     ),
 
     "surface-architecture-decisions": guidance(
-      "The user is often flying BLIND on structure — they cannot see WHERE you put a file, whether a thing is CORE vs an ADAPTER vs a PORT, or whether you extended something vs created a sibling. So STATE a non-trivial ARCHITECTURAL decision IN CHAT, in a short scannable block, BEFORE or AS you implement it — never buried in a diff they then have to reverse-engineer. WHAT COUNTS: where a new file/module/type/detector goes; whether it is harness-agnostic CORE (`src/core/**`), an ADAPTER (`src/adapters/<harness>/**`), a PORT (one of the five injected interfaces), or the composition root (`src/*.ts`); EXTENDING an existing verb/module/report-type vs creating a new one; a cross-cutting change touching a shared type. GIVE THREE THINGS, tight: (1) WHAT — the file and where it sits; (2) WHY THERE — against OUR constraints, naming the relevant one (hexagonal `core ⊄ adapter` / per-harness-fact-behind-a-PORT + no-CC-literal-in-core / one-detector-no-drift / cohesive-cli-surface / the rule-meta triad / additive-and-lock-safe); (3) the ALTERNATIVE you rejected, in a clause, when there was a real fork. A few bullets, a QUICK SCAN — the point is that a wrong call (a leaked adapter import, a type in the wrong layer) is caught in seconds, before the diff. This is the STRUCTURE analog of subagent-model-note. TWO TYPE-DESIGN PRINCIPLES are themselves architectural decisions, so NAME them when you make one (the mechanical how lives in ts-essentials): (a) PARSE, DON'T VALIDATE — where the boundary sits is a placement decision, so say it ('parse `settings.hooks` once in `hook-normalize` → typed everywhere after'); (b) MAKE ILLEGAL STATES IRREPRESENTABLE — when you choose a type shape, name the invalid state it now forbids ('a Decision that carries `notice` only on its `kind:\"notice\"` variant, so a caller cannot read a null notice'). Both are load-bearing because re-validating one primitive at ten sites, or a boolean-flag soup that lets an impossible combo compile, is exactly the debt this rule catches at the decision rather than after the diff.",
+      "The user is often flying BLIND on structure — they cannot see WHERE you put a file, whether a thing is CORE vs an ADAPTER vs a PORT, or whether you extended something vs created a sibling.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "surface-architecture-decisions",
+      },
     ),
 
     "doc-per-rule": guidance(
-      "Every validation rule in .vigilesrc.json must have a corresponding doc in docs/rules/<rule-name>.md. The doc covers configuration, severity levels, options, what the rule checks, and why. README links to each rule doc from the rules table.",
+      "Every validation rule in .vigilesrc.json must have a corresponding doc in docs/rules/<rule-name>.md.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "doc-per-rule",
+      },
     ),
 
     "rules-docs-in-sync": guidance(
-      "The set of validation rules is a SINGLE SOURCE OF TRUTH the docs must track: the `RulesConfig` keys in `src/core/types.ts` (plus any built-in `vigiles/*` rule) ARE the rule set, and the canonical matrix in `docs/verifying-instruction-files.md` must list EVERY one with its default severity, a one-line what-it-checks, and a link to its `docs/rules/<name>.md`. It lives in the LINTING GUIDE, where a reader looking for the rules expects it, not buried in the CLI reference, and is grouped by family. So adding, removing or renaming a rule is not done until the SAME change updates FIVE places: (1) the `RulesConfig` type; (2) the per-rule matrix row; (3) the `docs/rules/<name>.md` doc; (4) the PUBLIC coverage matrix in `docs/what-vigiles-catches.md`; (5) the INTERNAL handling-mode matrix. THE TWO MATRIX KINDS DIFFER IN OBLIGATION, which is the part people get wrong: the per-rule matrix is 1:1 and must carry EVERY rule, so a new rule ALWAYS adds a row and a removed one ALWAYS drops one. The coverage matrices are organized by USER-FACING PROBLEM, so a new rule touches them only when the prevent/catch/measure story changes — a new detector for a problem already covered SHARPENS an existing row rather than adding one, and a genuinely new class of bug is placed by how badly the problem bites, NOT alphabetically. `docs/cli.md` and the README do NOT re-list the rules (readme-brevity) — they LINK to the one matrix, which is therefore the place that must stay complete. When you touch the rule set, re-derive the per-rule matrix from the `RulesConfig` keys to catch a missed row. Complements doc-per-rule, which governs the per-rule doc; this governs COMPLETENESS and WHERE the shared lists live.",
+      "The `RulesConfig` keys in `src/core/types.ts` are the rule set; `docs/verifying-instruction-files.md` and `docs/rules/` must list every rule.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "rules-docs-in-sync",
+      },
     ),
 
     "readme-brevity": guidance(
-      'README.md is the FRONT DOOR and a marketing asset, not a reference manual — it must land a WOW in the first screen for someone who already lives in agentic-coding tools (Claude Code, Codex, Cursor). Optimize for FAST SCANNING by a human skimming on a phone: SHORT (target ~140 lines, hard cap ~200), NO walls of text (a paragraph is ≤ ~3 lines; break dense prose into bullets, tables, or a one-line + `[Details →]` link), and GREAT FORMATTING (a punchy one-line tagline, a tight 2-row Lint/Test table, runnable code blocks, bold lead-ins on bullets, em-dashes not semicolons). Lead with the sell, not jargon (no "layer"; footnote the Latin). Push every detail into docs/ and LINK it (`[Details →](docs/X.md)`) the moment a section runs long — the README states WHAT and WHY, the docs hold HOW. The evals section MUST state the cost model: most questions are answered deterministically (no model, no key), and real-model evals run on YOUR Claude subscription rather than a metered API key — keep it to a sentence or a small table row, not a wall, with `[Why it\'s affordable →]` for the rest. Every claim that needs proof links out; nothing load-bearing is buried in prose. Put the INSTALL PATH ABOVE THE FOLD: the slim Quick start (the copy-paste agent prompt + `npx vigiles init`) sits right after the what-it-does table, BEFORE the deep-dive sections — order is hook → what → get-it-now → why (proof/depth) → reference — so a skimmer can try it in seconds; keep the verbose setup detail in a `<details>` so the top stays lean.',
+      "README.md is the FRONT DOOR and a marketing asset, not a reference manual — it must land a WOW in the first screen for someone who already lives in agentic-coding tools (Claude Code, Codex, Cursor).",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "readme-brevity",
+      },
     ),
 
     "docs-quality": guidance(
-      'The docs/ reference docs are the HOW the README defers to — they are NOT held to README brevity (depth is their job; a long reference doc is correct, a wall of undifferentiated prose is not). Hold each to a DOC-appropriate polish bar instead: (1) open with a one-line "what this doc is" + an UP-LINK to the README in the same breath ("the README has the pitch; this is the full guide") so a reader who landed deep can climb back to the sell; (2) be SCANNABLE — descriptive section headings, a Contents list once a doc runs long, tables and runnable code blocks over prose walls, bold lead-ins; (3) CROSS-LINK siblings (the lint guide and the testing guide point at each other; every doc ends in a "See also") and link DOWN to the deeper doc rather than inlining its detail; (4) stay CONSISTENT with the README and with each other — terminology, claims, and framing must track the front door, never contradict it (the lint/test naming, the promptfoo cost contrast, the deterministic-vs-real-model split), and a doc the README promises must actually deliver that depth (no thin stubs, no stale/renamed commands or dead example paths). The README sells; the docs prove and instruct — both are first-class, neither is a dumping ground.',
+      "The docs/ reference docs are the HOW the README defers to — they are NOT held to README brevity (depth is their job; a long reference doc is correct, a wall of undifferentiated prose is not).",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "docs-quality",
+      },
     ),
 
     "prose-clarity": guidance(
-      "Public prose (README + docs/) must be CLEAR and SCANNABLE for a human skimming on a screen — not dense, jargon-packed, or wall-of-text. The recurring failure is sentences a reader can't parse on one pass: stacked em-dash asides, nested parentheticals, three ideas welded together, internal shorthand used without a plain gloss, and BOLD on every other clause (which emphasizes nothing). Write the opposite. SEVEN HABITS, applied to every public doc you write or touch: (1) LEAD WITH THE POINT (BLUF) — the first sentence of a section says what it is or what to DO, in plain words, before any nuance. (2) ONE IDEA PER SENTENCE, short. If a sentence has two em-dashes or two nested parentheticals, split it. Prefer a period over a dash. (3) DEFINE OR DROP JARGON — gloss a term the first time ('the lock — a committed file CI checks') or replace it; never stack project shorthand ('the seam', 'model-affecting inputs', 'the gate') without a plain-English handle. (4) SCANNABLE STRUCTURE over prose walls — a paragraph is <= ~3-4 lines; break dense explanation into a TABLE (for comparisons / option lists), BULLETS with bold lead-ins, a fenced CODE block (for commands), or an ASCII / Mermaid DIAGRAM (for a flow or before/after). A flow is almost always clearer as a diagram than a paragraph. (5) EMOJI AS SIGNPOSTS, sparingly + consistently — ✅/❌/⚠️/ℹ️ to mark pass/fail/caveat/note, not decoration; one system per doc, never mid-sentence confetti. (6) BOLD ONE PHRASE PER POINT — the single key term, not every clause. (7) CONCRETE BEFORE ABSTRACT — show the command / diagram / example first, then generalize. The TEST: read each section once at skim speed; if you can't tell what it means or what to do, rewrite it. Graphics: ASCII + Mermaid + tables render natively on GitHub with no dependency and stay diffable — PREFER them; do NOT commit generated raster images into docs (binary, non-diffable, a runtime key dependency) — reserve a generated image for a README hero/logo where a raster truly earns it. This governs the WORDS + FORMATTING for readability; complements readme-brevity (front-door LENGTH), docs-quality (structure + polish + cross-links), and public-vs-internal-docs / doc-tiers (which TIER a fact belongs in). Internal docs may run denser, but the same habits still help. When in doubt, cut words and add a diagram.",
+      "Public prose (README + docs/) must be CLEAR and SCANNABLE for a human skimming on a screen — not dense, jargon-packed, or wall-of-text.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "prose-clarity",
+      },
     ),
 
     "public-vs-internal-docs": guidance(
-      "Match the detail to the AUDIENCE — don't overload public readers. INTERNAL docs (`CLAUDE.md`) hold the full record: confirmed wire schemas, parsing mechanics (dedup rules, field maps), version regressions, spike narratives, env-validation checklists, the why-behind-the-why. PUBLIC docs (`docs/*.md`, `README.md`) state only what a USER needs to ACT — the status, the one or two genuinely useful insights, and how to use the feature — and keep the rest in the internal doc (the confirmed schema + full findings live in the internal doc, referenced from `CLAUDE.md`, NOT linked from the public page — see no-internal-links-in-public-docs). Do NOT paste a JSONL/event schema, an internal dedup/parse detail, a dependency's internal version quirk, or a spike story into a user-facing guide unless a user genuinely needs it to USE the feature. The test: would a user reading this to ACCOMPLISH a task be helped by this line, or just made to scroll? When in doubt, put it in the internal doc (and don't link it publicly). A reader does not care how a feature positions us; they care what it DOES, so every tier names the user-facing BEHAVIOUR (say 'the cross-referencing engine' / 'runs on your subscription'), never a competitive label. (Complements doc-per-rule + docs-quality + readme-brevity: those govern polish and where rule docs live; this governs which TIER a given fact belongs in.)",
+      "Match the detail to the AUDIENCE — don't overload public readers.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "public-vs-internal-docs",
+      },
     ),
 
     "no-internal-links-in-public-docs": guidance(
-      "PUBLIC docs (`README.md` + `docs/*.md`) must NEVER link to or name-drop an INTERNAL doc (any internal-only file). Internal research is the project's PRIVATE record — referenced ONLY from `CLAUDE.md` keyFiles, never from a user-facing page. A reader in the README or a `docs/` guide should never be sent into internal design notes, half-finished spikes, or design notes for something unbuilt. When a public doc is tempted to link an internal doc, link the matching `docs/` guide instead — and if none exists, that's the signal to write the public one (or just drop the pointer; the prose must stand on its own). GOTCHA: stripping a public→internal link can ORPHAN the internal doc (orphan-docs requires every opted-in `.md` be referenced somewhere), so when you remove the last inbound link, ensure the doc is still cited from `CLAUDE.md` keyFiles. NOTE: currently GUIDANCE only — the deterministic enforcement (a lint rule failing on an internal-doc link in `README.md`/`docs/`) is a P1 roadmap item; until it lands, hold the line by hand. Supersedes the old 'link to the internal doc for the rest' advice in public-vs-internal-docs (keep the FACT internal, just don't LINK it publicly). Complements readme-brevity (front door) + public-vs-internal-docs (tiering).",
+      "PUBLIC docs (`README.md` + `docs/*.md`) must NEVER link to or name-drop an INTERNAL doc (any internal-only file).",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "no-internal-links-in-public-docs",
+      },
     ),
 
-    "doc-consistency": guidance(
-      "Docs MUST stay consistent with the code. When you ship, rename, or remove a CAPABILITY (a command, flag, exported symbol, key file, config key, or behaviour), update its docs in the SAME change, across BOTH tiers — the PUBLIC docs (`docs/`, `README.md`) AND the internal record (this file's keyFiles + positioning). Never let one tier describe a reality the other contradicts, and never leave a renamed command/path/example rotting in either. SPLIT THE WORK BY WHAT IS MECHANIZABLE — measured on the `hook-runtime` rename, where a manual sweep leaked 8 stale `vigiles <cmd>` references EVEN WITH the cohesive-cli-surface rule freshly written. So the CHECKABLE half is ENFORCED, never trusted to discipline: self-command-refs (every command reference resolves), orphan-docs (no `docs/` file unreferenced), the doc-refs validator (opt-in since 2026-08-19, measured at 0 true positives across 2 582 files — a fence in prose is a drawing of config, not config), and integrity. Where a doc-consistency fact CAN become a deterministic check, MAKE it one rather than adding another guidance rule. The JUDGMENT half this rule names is what no check can verify: prose accuracy, which TIER a fact belongs in, cross-links, and framing that tracks the front door — governed in detail by public-vs-internal-docs, docs-quality, readme-brevity and rules-docs-in-sync. MEASURED LIMIT, so the check is not widened into crying wolf: self-command-refs catches the `vigiles <cmd>` INVOCATION form only. A BARE command name or a BARE file path is NOT flagged, because both collide with legitimate non-references — concept names in ~10 files, test labels, illustrative paths like the README's `src/auth/login.ts`. A denylist there would fire on dozens of valid usages, so bare-name accuracy is judgment, not a gate. The deterministic check is the FLOOR; updating both tiers together, every time, is the ceiling.",
-    ),
+    "doc-consistency": guidance("Docs MUST stay consistent with the code.", {
+      details: file("docs/contributing/rules.md"),
+      anchor: "doc-consistency",
+    }),
 
     "document-the-why": guidance(
-      "Docs must give every user-facing DECISION and CONCEPT a discoverable home that answers WHY / WHAT, not only a command-or-API reference for HOW. The repeatable failure this rule names (proven twice in one session: the opt-in 'why' needed two passes; the audit→behavioral→consent story was undocumented): each guide POLISHED the mechanics while the reasoning a user needs to make a decision — why a default is what it is, what `audit` runs by default (a deterministic READ) vs only under the measure-consent, why a tier is opt-in — lived ONLY in code + a research note, so users (and the next maintainer) re-derive it in conversation. For any user-facing DECISION (a default, a consent gate, the opt-in/strict ladder, the read-vs-run axis) or CONCEPT a user must reason about (a measurement axis like recall/precision, a tier, a safety boundary, selection-collision), there must be a plain-language PUBLIC home — a guide section or an FAQ entry — that states the WHY/WHAT in the user's terms. A named feature dropped WITHOUT explanation (a bare 'selection-collision matrix' mention with no definition) FAILS this: name-dropping is not documenting. THE TEST: could a user answer 'why is it like this / what does it actually do?' from the docs ALONE, without asking a maintainer? If the only answer lives in an internal note or in the code, the rule fails. This is the COVERAGE-OF-REASONING gap none of the sibling rules own: polish rules (readme-brevity / docs-quality / prose-clarity) govern how WELL a fact is written; placement rules (doc-tiers / public-vs-internal-docs / no-internal-links-in-public-docs) govern WHERE it lives; sync rules (rules-docs-in-sync / doc-consistency) govern that docs TRACK the code and don't contradict it — but none require that the REASONING behind a user-facing decision be documented AT ALL. It sharpens cohesive-feature-delivery item (6) from one checklist line into a standing, testable bar. DETERMINISTIC FLOOR (analogical-transfer — prefer a check to guidance where one fits): the inverse of self-command-refs — every public CLI verb is MENTIONED somewhere under `docs/` — is mechanizable and catches a verb shipped undocumented (src/doc-command-coverage.ts, dogfooded in its test); the CONCEPT-coverage half (is this a concept that needs a why?) is undecidable and stays judgment. The check is the FLOOR; documenting the why for every user-facing decision is the ceiling.",
+      "Docs must give every user-facing DECISION and CONCEPT a discoverable home that answers WHY / WHAT, not only a command-or-API reference for HOW.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "document-the-why",
+      },
     ),
 
     "ts-essentials": guidance(
-      'USE `ts-essentials` — it is installed as a RUNTIME dependency (`package.json` `dependencies`, `^10.2.1`), so import what it ships instead of hand-rolling an equivalent. The exports we use, each checked against 10.2.1: `Opaque<string, "Name">` for a BRANDED value (its key is a `unique symbol`, so no object literal can forge it); `UnreachableCaseError` for the exhaustive `default: throw new UnreachableCaseError(x)` of a switch over a union; `DeepReadonly<T>` for a value nobody downstream may mutate; `StrictOmit` / `StrictExtract`, where naming a key or member that does not exist is a tsc error (plain `Omit` / `Extract` accept it silently); `NonEmptyArray<T>`, `XOR<A, B>` and `MarkRequired` / `MarkOptional`. Import the types with `import type`, so nothing of the library reaches the build output. WORKED EXAMPLE, and the reason this rule was rewritten: `RepoPath` and `BundlePath` in `src/core/frame.ts` are `Opaque<string, …>`. The earlier wording said \'prefer branded types for file paths\' while `src/` imported ts-essentials ZERO times and every path was a plain `string`. So a path relative to a nested bundle, one relative to the repo and an absolute one had the same type, and #281 shipped: `::warning file=skills/x/SKILL.md` for a file that lives at `plugins/p/skills/x/SKILL.md`. Now `ghAnnotate` takes a `RepoPath`, a bundle-relative string does not compile there, and `local/frame-mint` rejects an `as RepoPath` outside `frame.ts`. A brand is only as strong as the number of places allowed to forge it. BRAND WHEN two values of one primitive type mean different things and mixing them up still compiles (paths in different frames, hashes, rule ids), not for every string. THE PRINCIPLES, unchanged: tagged/discriminated unions instead of boolean flags that gate optional fields, to MAKE INVALID STATES IRREPRESENTABLE (a result that carries `notice` only on its `kind:"notice"` variant); an exhaustive default on every switch over a union (`assertNever` in `src/core/assert-never.ts` predates this rule and gives the same guarantee as `UnreachableCaseError`: use either, never write a third); PARSE, DON\'T VALIDATE: parse raw input (a config value, a `string | string[]`, a CLI flag) into a typed value ONCE at the boundary, then pass that value around. TWO LIMITS. A brand does not belong in a PUBLIC `.d.ts` without a reason, and `api-surface/*.api.md` is where a leak shows; the public `VerifiedPath` family (`src/core/spec.ts`) and `SHA256Hash` (`src/core/hash.ts`) keep their own `unique symbol` brands for that reason. A brand makes a mix-up UNREPRESENTABLE only from the point where the value is minted; upstream of that it is merely detectable. So mint at the boundary, in one module.',
+      "USE `ts-essentials` — it is installed as a RUNTIME dependency (`package.json` `dependencies`, `^10.2.1`), so import what it ships instead of hand-rolling an equivalent.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "ts-essentials",
+      },
     ),
 
     "prefer-immutable-updates": guidance(
-      "Build a new value, don't edit an existing one — and where the value crosses a function boundary, make the edit IMPOSSIBLE rather than merely absent. THREE RULES, strongest first. (1) TYPE THE CONTAINER `readonly` — `readonly T[]` / `Readonly<Record<K, readonly T[]>>` on every shape that is read by, or returned to, someone else. `push` then stops being a style question and becomes a tsc error. (2) UPDATE BY CONSTRUCTION — `{ ...before, ...rewritten }`, `Object.fromEntries(Object.entries(x).map(...))`, `[...kept, ...added]`, remeda for collections — rather than an accumulator you assign into. `eslint-plugin-functional` enforces this in all non-test code (no `let`, no mutation, no loops, readonly parameters); tests may mutate their own fixtures. (3) NEVER REASSIGN A PARAMETER OR ITS PROPERTIES — the caller sees that edit; `no-param-reassign` with `props: true` is an error, tests included. Code written before these rules is listed in `eslint-suppressions.json`, which only shrinks. The bug rule (3) was written for is in the `mergeHooksJson` header in `src/hook-install.ts`.",
+      "Build a new value, don't edit an existing one — and where the value crosses a function boundary, make the edit IMPOSSIBLE rather than merely absent.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "prefer-immutable-updates",
+      },
     ),
 
     "prod-grade-gha-cli": guidance(
-      "The CLI and the GitHub Action are production-grade, first-class surfaces — for most users CI is how vigiles actually runs — and must be kept that way, not treated as afterthoughts. The CLI is the single source of truth: every Action input maps to a real CLI flag (no config-file-only knobs the Action can't reach), commands emit GitHub annotations under `GITHUB_ACTIONS`, and exit codes are stable and documented (0 clean / 1 warn / 2 error). The Action wraps that CLI and must actually work as a published `uses: zernie/vigiles@v1` reference — a composite action over the published `npx vigiles` CLI, so it reuses the same tested artifact rather than a `node20` entry pointing at an uncommitted `dist/`. Its `version` input defaults to EMPTY, which runs the vigiles the CONSUMER's package.json declares — the installed copy (`npx --no-install`), else the package-lock.json version, else the declared range, and `latest` only when the repo does not declare vigiles — because a `latest` default gave a pinned consumer a second pin in CI that drifted from the first; the workflow `init` generates therefore sets no `version:`. Tested by RUNNING the step's bash against scratch repos with a recording `npx` stub (`src/action-yml.test.ts`). It must declare its `outputs:` and set them via `$GITHUB_OUTPUT` (never the deprecated `::set-output`), pin to a stable floating major-version tag (`v1`) maintained by the release pipeline, and ship a full copy-paste workflow in the docs (runs-on, checkout, setup-node, `permissions:`, every input + the `valid` output, and `@v1`-vs-`@main`-vs-pinned-SHA versioning guidance). The Action surfaces results three complementary ways: inline GitHub annotations, a job summary (`$GITHUB_STEP_SUMMARY`), and an automatic STICKY pull-request comment (found by marker and updated in place — never a new comment per run; gated to `pull_request` events with `pull-requests: write`, best-effort so a fork PR without write access degrades to a warning, not a failure). Both surfaces are dogfooded in this repo's own CI (the Action via `uses: ./`, including the PR comment) and covered by tests, so a regression in the shipped entry points is caught here. See `docs/cli.md`.",
+      "The CLI and the GitHub Action are production-grade, first-class surfaces — for most users CI is how vigiles actually runs — and must be kept that way, not treated as afterthoughts.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "prod-grade-gha-cli",
+      },
     ),
 
     "cohesive-cli-surface": guidance(
-      "vigiles is ONE cohesive organism, not a pile of stray commands — the CLI, the GitHub Action, and the agentic-coding flow are three FACES of the same capability set and must stay coherent. Four rules. (1) FEW HUMAN VERBS, each a clear mental action; a new capability EXTENDS the verb that already owns that action instead of spawning a sibling. 'Compile a typed authoring artifact into the harness's native format' is ONE verb — `compile` — whatever the artifact: a `.spec.ts` → markdown, a hook program → a settings block + stamp. NEVER ship a `compile-hook`-style stray sibling of a verb that already exists; fold it in. (2) TWO TIERS — VERBS vs RUNTIME ENTRYPOINTS. A verb is typed by a human/agent/CI (`init`/`compile`/`lint`/`scan`/`test`/`eval`). A runtime entrypoint is EMITTED into settings/hooks and invoked BY the harness, never typed by a human (the compiled-hook runtime, the agent/skill PreToolUse rails, effect markers, the refs nudge). Runtime entrypoints live under ONE hidden umbrella subcommand (`vigiles hook-runtime <kind>`) and stay OUT of the help/verb surface, so the organism reads as ~10 verbs not ~36 commands — a runtime entrypoint is an implementation detail of an emitted block, not a public command. (3) A VERB THAT PRODUCES WIRING WRITES IT. Emitting a paste-this blob is a stray half-step; the cohesive behaviour is to MERGE the result into the harness's native config (`.claude/settings.json` / `config.toml`) idempotently — found-by-marker, updated-in-place, never clobbering hand edits (the way `init` installs) — so the user's harness is actually wired, not handed homework. (4) COHERENT ACROSS THE THREE FACES. The same capability is reachable identically from the CLI verb, a GHA input that maps to that verb's flag (the prod-grade-gha-cli contract — no config-only knobs), and an agentic on-ramp (`init` wires it; a model-invocable skill reaches for it on the matching prompt — the great-agent-flow contract). A capability is NOT DONE until it is coherent on all three. When you add/rename/remove a command, change the CLI + the GHA input + `docs/cli.md` + the agent on-ramp TOGETHER (sibling of rules-docs-in-sync); renaming a runtime entrypoint BREAKS the emitted-command contract baked into every settings block + stamp, so it is a BREAKING change (`!` + regenerate every emitted block). ENFORCED, not just guidance: the self-command-refs dogfood (src/self-command-refs.test.ts) cross-references every `vigiles <cmd>` reference in the docs + comments against the real command set (src/cli-commands.ts) and FAILS CI on a stale ref — so a renamed command can't leave a rotting reference (it caught 8 a manual rename sweep missed). Complements prod-grade-gha-cli (the GHA/exit-code contract), great-agent-flow (the agent on-ramp), and smooth-adoption (`init`).",
+      "vigiles is ONE cohesive organism, not a pile of stray commands — the CLI, the GitHub Action, and the agentic-coding flow are three FACES of the same capability set and must stay coherent.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "cohesive-cli-surface",
+      },
     ),
 
     "cohesive-feature-delivery": guidance(
-      "A capability is ONE organism with MANY surfaces — and 'done' means coherent across ALL of them, not just the one you started with. This is the DEFINITION-OF-DONE CHECKLIST for any non-trivial feature; run it EVERY time, because the recurring failure is shipping the mechanism and missing the flow. Walk the rows OUT LOUD and name N/A explicitly — never silently skip one. (1) CLI — the verb/flags exist, exit codes are stable, `docs/cli.md` updated (cohesive-cli-surface). (2) GHA — a real input maps to the verb/flag, no config-only knob, dogfooded in this repo's CI (prod-grade-gha-cli). (3) INIT — `vigiles init` scaffolds/wires it where it belongs (smooth-adoption), and does NOT do the invasive thing (NEVER edit the user's CLAUDE.md to convey a workflow — that is a hook/skill's job). (4) AGENT-AWARENESS — a model-invocable SKILL documents it AND/OR a HOOK nudges at the right moment (great-agent-flow); awareness is delivered by skill+hook, not by editing the user's instruction file. (5) BOTH HARNESSES — CC and Codex are equals (harness-parity-and-extensibility + test-both-harnesses): it works on both, the emitted artifact is each one's native format, and where a harness genuinely cannot do a piece YET it is a LOUD documented deferral with the reason, stated at every site that relies on it, never a silent CC-only path. (6) DOCS — per-adapter specifics live in the per-adapter guide, the agnostic guide links DOWN to them rather than duplicating, and the decision is captured ONCE so the next session does not re-derive it (obey public-vs-internal-docs + no-internal-links-in-public-docs + doc-consistency). (7) TESTS — both-harness coverage where the surface is harness-facing, 100% on the gated modules, loud skips. (8) DISCOVERY — a user-facing capability is done only when it is FINDABLE where users and agents actually look: the CLI `--help`, the README, the site, the recommended agent prompt (docs/agent-setup.md), the model-invocable skills, and the internal contributor docs. The worked failure is `--ci-only`, and it is written up where the flag is declared (`src/setup-plan.ts`). (9) ONE SOURCE / OUTPUT PARITY — where the same information renders in more than one place, both render from ONE source, never hand-copied literals that drift. The audit HTML report and the site demo already share `@vigiles/report-view` + the `AuditReport` JSON. The audit CLI TERMINAL output is a SEPARATE plain-text renderer that CANNOT share React components, so it is the DRIFT SEAM to watch: a string changed in the terminal must be checked against the HTML, and shared DATA is what both should read. THE THROUGH-LINE: the question is never 'does the code work?' but 'can a user or agent on either harness FIND it, run it, be reminded of it, and see it rendered consistently everywhere?'. Any row unchecked means NOT done. Umbrella over cohesive-cli-surface, great-agent-flow, harness-parity-and-extensibility + test-both-harnesses, lead-with-easy-adoption + readme-brevity, and the docs rules — it exists so the INTEGRATION across them is checked as one thing.",
+      "A capability is ONE organism with MANY surfaces — and 'done' means coherent across ALL of them, not just the one you started with.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "cohesive-feature-delivery",
+      },
     ),
 
     "dual-language-tests": guidance(
-      "Harness/eval test SCRIPTS must run whether authored in JavaScript (`.mjs` / `.cjs` / `.js`) or TypeScript (`.ts` / `.mts` / `.cts`) — neither language is second-class. `vigiles test` / `vigiles eval` discover both (the `*.harness.*` / `*.eval.*` glob in `src/adapters/claude-code/run-scripts.ts`) and run a TypeScript script through `tsx` when installed, else Node's native type stripping (Node >= 22.6), failing with an actionable message when neither is available. The typed `vigiles`/`vigiles/eval` API and the zero-setup CLI scripts are two on-ramps to the same tiers. vigiles's OWN unit test suite, by contrast, is uniformly TypeScript (every `src/**/*.test.ts`, run by vitest), so the project dogfoods the typed path; the `.mjs` files under `examples/harness/` stay JavaScript on purpose as the copy-paste CLI-fallback demos (see `docs/testing-matrix.md`).",
+      "Harness/eval test SCRIPTS must run whether authored in JavaScript (`.mjs` / `.cjs` / `.js`) or TypeScript (`.ts` / `.mts` / `.cts`) — neither language is second-class.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "dual-language-tests",
+      },
     ),
 
     "analogical-transfer": guidance(
-      "The way to find a non-obvious check in the (young, ad-hoc) agent-harness space is ANALOGICAL TRANSFER: take a mature CS principle and map it onto the harness — even when it looks crazy at first, because the looks-crazy transfers are where the useful checks turn out to be. The organizing thesis they roll up into: MINIMIZE THE HARNESS STATE-SPACE / make invalid states UNREACHABLE — via four instruments (construct=spec/types so invalid states can't be expressed; verify=lint so they're detected+rejected; gate=hooks so they can't be entered in-loop; test=evals so the remaining valid space is proven). The agent-world adaptation: when the author is a model, 'make invalid states UNREPRESENTABLE' (type-system, edit-time, human audience) becomes 'make invalid states UNREACHABLE IN THE LOOP' (gating hook, loop-time, format-agnostic) — which is why the leverage is in the HARNESS, not in the authoring format. FILTER every transfer by don't-cry-wolf: keep only ones that yield a DETERMINISTIC, high-signal check or gate that shrinks the state space; if it needs a model or emits a fuzzy score, it's a cute analogy, not a check. Worked examples: object-capabilities + taint → the lethal-trifecta forbidden-state check; effect systems → declared-vs-observed effects; totality → every hook decides every event; MDL → derivable-content-is-redundant.",
+      "Find non-obvious checks by analogical transfer: map a mature CS principle onto the harness, even when it looks crazy at first.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "analogical-transfer",
+      },
     ),
 
     "doc-tiers": guidance(
-      "THIS REPO IS PUBLIC (open-source on GitHub) — every file in it, including this one, is a public disclosure. There are TWO documentation audiences here, and neither carries product strategy. (1) PUBLIC-USER — `README.md` + `docs/*.md`: what a USER needs to ACT, written as behaviour and benefit, no internal mechanics, no half-finished spikes. (2) CONTRIBUTOR — `CLAUDE.md` (compiled from `CLAUDE.md.spec.ts`) + code comments: how the shipped code WORKS and why it is shaped that way, so someone can change it safely. THE TEST BEFORE WRITING ANYTHING: does this describe something that SHIPS? If yes, it belongs in one of the two tiers. If it describes what we intend to build, how we would win, what a competitor is doing, or how the thing would be sold, it does not belong in this repository — see no-product-strategy-here. Never link a public page into internal notes (no-internal-links-in-public-docs).",
+      "This repo is public, with two documentation audiences: users (`README.md`, `docs/`) and contributors (`CLAUDE.md`, code comments); neither carries product strategy.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "doc-tiers",
+      },
     ),
 
     "audit-side-effect-free": guidance(
-      "`vigiles audit` and every DEFAULT lint/report path MUST be SAFE TO RUN ANYWHERE — it reads, reports, and runs only confined or own-repo-trusted checks; it never mutates the user's world and never executes a STRANGER's code unconfined. The dividing line is provenance + cost, not 'no execution'. A static/deterministic check (structural health, description-overlap, reference resolution) runs directly. Two ORTHOGONAL axes, not one: PROVENANCE protects the HOST (foreign code → bubblewrap-or-skip), CONFINEMENT protects your EXTERNAL STATE (your own hook/server reaching a real Postgres/API; this is the STATE-protection half that provenance does NOT cover). A plain `audit` EXECUTES NOTHING — it is a deterministic READ (six rings — four graded, two advisory — plus fixes and the report), safe + identical on every OS. The TWO executing checks (live MCP + trigger-rate) are OPT-IN behind ONE consent (`decideExecute`): at a TTY `audit` ASKS ONCE (bundled prompt, discloses cost) and REMEMBERS (`audit.measure`); headless it stays a read + a one-line nudge. There is NO execution flag — `audit` is a LOCAL report (like Lighthouse), NOT a CI step (CI uses `vigiles lint`); AUTOMATION tests the harness via the `vigiles` testing API + skills, never the report verb. On consent: LIVE MCP is own-repo only (never a stranger's server) because STARTING a server connects to a backend and deny-all-net would break the `tools/list` it performs; the trigger-rate STUBS skill bodies so no skill PROCEDURE ever runs. THE SAFETY BATTERY is DELIBERATELY NOT an audit check (narrowed 2026-06-27, 'no half-made shit pre-release'): running ARBITRARY hooks safely needs CROSS-PLATFORM confinement, and that's parked — bubblewrap is Linux-only, the env-scrub ephemeral floor + macOS sandbox-exec are the unbuilt exit criterion — so rather than ship a Linux-confined/Mac-unconfined ring, the battery lives in the `vigiles` testing API (`guardrail-check`/`assertBlocksDisasters`, confined by `src/sandbox.ts`) where you opt in EXPLICITLY (a test you wrote, no zero-config-safety promise to break). The SAFETY RING itself is a different thing and already ships, fed by the static lethal-trifecta check that reads a tool-SET and executes nothing; confinement gates giving that ring a RUN-BACKED input, not the ring. The two ORTHOGONAL axes still hold for what audit DOES run — PROVENANCE protects the HOST (live MCP is own-repo only), and the deterministic read touches nothing. So `audit` is trustworthy and zero-surprise EVEN pointed at a prod-wired repo: the default reaches nothing (a read), and execution happens only on an explicit consent that discloses what it will touch. This is what lets `audit` be the zero-config gateway.",
+      "`vigiles audit` and every default lint/report path is safe to run anywhere: it never mutates the user's world or runs a stranger's code unconfined, and every executing check — live MCP, trigger-rate, and the ESLint rule catalog (`src/core/rule-catalog.ts`, which loads the repo's ESLint config) — sits behind the one consent.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "audit-side-effect-free",
+      },
     ),
 
     "no-orphan-docs": enforce(
       "vigiles/orphan-docs",
-      "Every `.md` in an opted-in directory (vigiles scans `docs/`, declared via the `.vigilesrc.json` `orphans` block) must be referenced from at least one other markdown file — README, a compiled spec's Key Files, or another doc. Orphan docs rot silently because nothing tells the agent they're still load-bearing. The rule is OPT-IN (off unless the `orphans` block is declared; `include` defaults to `docs/`) because 'unreferenced' only signals rot in a hand-cross-linked corpus, not a nav-managed doc site (Docusaurus/MkDocs) where the page graph lives in config — an OSS sweep confirmed ~100% false positives there. Inverse of stale-reference detection: stale-ref catches specs pointing at missing files, orphan detection catches existing files that no spec points at. Mechanical check in `src/core/orphans.ts`, surfaced by `vigiles lint`.",
+      "Every `.md` in an opted-in directory (vigiles scans `docs/`, declared via the `.vigilesrc.json` `orphans` block) must be referenced from at least one other markdown file — README, a compiled instruction file, or another doc. Orphan docs rot silently because nothing tells the agent they're still load-bearing. The rule is OPT-IN (off unless the `orphans` block is declared; `include` defaults to `docs/`) because 'unreferenced' only signals rot in a hand-cross-linked corpus, not a nav-managed doc site (Docusaurus/MkDocs) where the page graph lives in config — an OSS sweep confirmed ~100% false positives there. Inverse of stale-reference detection: stale-ref catches specs pointing at missing files, orphan detection catches existing files that no spec points at. Mechanical check in `src/core/orphans.ts`, surfaced by `vigiles lint`.",
+      { render: "line" },
     ),
 
     "recompile-on-spec-change": guard(

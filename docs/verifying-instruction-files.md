@@ -40,7 +40,7 @@ The spec is the default — and the clear choice once you're standardizing rules
 
 ```typescript
 // CLAUDE.md.spec.ts
-import { instructionFile, enforce, guidance } from "vigiles/spec";
+import { instructionFile, enforce, guidance, file, prose } from "vigiles/spec";
 
 export default instructionFile({
   commands: {
@@ -49,9 +49,9 @@ export default instructionFile({
     // ✗ "npm run typecheck" → compile error: script not in package.json
   },
 
-  keyFiles: {
-    "src/utils/narrowing.ts": "Type guard utilities",
-    // ✗ "src/utils/type-helpers.ts" → compile error: file not found
+  sections: {
+    types: prose`Type guards live in ${file("src/utils/narrowing.ts")}.`,
+    // ✗ file("src/utils/type-helpers.ts") → compile error: file not found
   },
 
   rules: {
@@ -157,7 +157,7 @@ Beyond the references above, `vigiles lint` runs a set of **deterministic valida
 
 | Surface (the gate)          | Rules                                                                                                                                                           | Applies to                                |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Instruction file &amp; docs | `require-instructions-spec`, `integrity`, `coverage`, `unmarked-refs`, `orphan-docs`, `instruction-weight`                                                      | all harnesses                             |
+| Instruction file &amp; docs | `require-instructions-spec`, `integrity`, `coverage`, `unmarked-refs`, `orphan-docs`, `instruction-weight`, `compile-budget`, `deprecated-key-files`            | all harnesses                             |
 | Skills                      | `untested-skill`, `skill-frontmatter`, `description-overlap`, `skill-description-budget`, `frontmatter-valid`, `skill-resource-resolves`, `skill-missing-fence` | all with skills                           |
 | Plugin layout               | `plugin-dir-layout`                                                                                                                                             | all with a plugin manifest                |
 | MCP                         | `mcp-config`                                                                                                                                                    | all with MCP                              |
@@ -178,6 +178,8 @@ The per-family tables below give each rule's default severity and what it checks
 | [`spec-refs`](rules/spec-refs.md)                                 | `"error"` | A compiled instruction file whose spec references a file, script or symbol that no longer exists |
 | [`duplicate-rules`](rules/duplicate-rules.md)                     | `"warn"`  | Two rules **within one spec** saying the same thing (deterministic NCD similarity, no model)     |
 | [`require-skill-spec`](rules/require-skill-spec.md)               | `false`   | Every SKILL.md has a `.spec.ts` (the consistent parallel; off by default)                        |
+| [`compile-budget`](rules/compile-budget.md)                       | `"warn"`  | A compiled instruction file stays within its size budgets; `error` under `vigiles:recommended`   |
+| [`deprecated-key-files`](rules/deprecated-key-files.md)           | `"warn"`  | A spec still uses the deprecated `keyFiles` map (loaded every request) — with the migration      |
 
 ### Test coverage
 

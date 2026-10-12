@@ -75,6 +75,20 @@ export interface CoverageThresholds {
 }
 
 /**
+ * Options for the `instruction-weight` rule: `["error", { max: 40000 }]`.
+ */
+export interface InstructionWeightConfig {
+  /**
+   * An opt-in ABSOLUTE ceiling on the always-loaded instruction weight, in the
+   * harness's own unit (characters for Claude Code, bytes for Codex). A total
+   * above it is a finding at the rule's severity regardless of the baseline, and
+   * `vigiles lint --update-baseline` refuses to record a baseline above it.
+   * Omitted → only the ratchet applies. A positive integer.
+   */
+  max?: number;
+}
+
+/**
  * Options for the orphan-docs check. The PRESENCE of this block in
  * `.vigilesrc.json` OPTS THE REPO IN — the scan is off unless declared,
  * because "unreferenced" only means "rot" for a hand-cross-linked corpus,
@@ -120,6 +134,19 @@ export interface TestCoverageConfig {
   testExtension?: string;
 }
 
+/**
+ * Thresholds for the `compile-budget` rule, in characters. A key left out
+ * keeps its default; `0` turns that budget off.
+ */
+export interface CompileBudgetConfig {
+  /** One `commands` description. Default 200. */
+  maxEntryChars?: number;
+  /** One named prose section. Default 15,000. */
+  maxSectionChars?: number;
+  /** The whole rendered Rules section. Default 20,000 (at "error"). */
+  maxRulesChars?: number;
+}
+
 export interface RulesConfig {
   /**
    * Opt-in: a doc in a configured dir (default `docs/`) that no other `.md`
@@ -149,8 +176,20 @@ export interface RulesConfig {
    * repo's own past, not a fixed budget. No baseline file → a one-line note,
    * never a finding, so turning this on fails no repository on day one.
    * `vigiles lint --update-baseline` records it. Default: "error".
+   *
+   * `["error", { max: 40000 }]` adds an opt-in absolute ceiling on top of the
+   * ratchet: a total above `max` is a finding whatever the baseline says, and
+   * the baseline cannot be re-recorded above it.
    */
-  "instruction-weight"?: RuleSeverity;
+  "instruction-weight"?: RuleWithOptions<InstructionWeightConfig>;
+  /**
+   * An instruction spec still uses the deprecated `keyFiles` field — a flat
+   * path → description list compiled into the file loaded on every request.
+   * Reports the entry count and compiled size with the migration (a `file()`
+   * ref in the rule that needs the pointer). The spec is parsed, never run.
+   * Default "warn": a deprecation must not turn a consumer's CI red on upgrade.
+   */
+  "deprecated-key-files"?: RuleSeverity;
   /**
    * Near-duplicate rules WITHIN one spec, by NCD similarity — spec bloat, two
    * rules saying the same thing in different words.
@@ -292,6 +331,20 @@ export interface RulesConfig {
    * `scan` (descriptionBudgetIssues).
    */
   "skill-description-budget"?: RuleSeverity;
+  /**
+   * Size budgets on a COMPILED instruction file (`compile` from a `.spec.ts`):
+   * one `commands` entry, one prose section, and the whole Rules section. The
+   * whole always-loaded size is `instruction-weight`'s; `keyFiles` is
+   * deprecated, so neither is measured here.
+   *
+   * Default "warn", which is exactly the behaviour before this rule had a name:
+   * the per-entry and per-section budgets print as warnings and never stop a
+   * compile; the Rules total is not evaluated unless a threshold is configured.
+   * "error" (set by `vigiles:recommended`) makes every budget fail `compile` and
+   * `lint`. Options are thresholds — see {@link CompileBudgetConfig}. See
+   * docs/rules/compile-budget.md.
+   */
+  "compile-budget"?: RuleWithOptions<CompileBudgetConfig>;
   /**
    * Flag a skill/agent whose `---` frontmatter block EXISTS but isn't valid YAML
    * — fields may not parse as intended. CAVEAT: a real YAML parser (js-yaml) is

@@ -104,8 +104,12 @@ export const claudeCodeDialect: HarnessDialect = {
     unit: "chars",
     limit: 40000,
     onExceed: "warns",
+    // The CLI's warning scales with the model: per file max(40 000, window ×
+    // 0.05 × chars-per-token), all files max(120 000, that). 40 000 is its
+    // floor (a 200K-token window), kept as the budget on purpose: the weight is
+    // re-read on every request whatever the window. Read from the 2.1.296 binary.
     capturedFrom:
-      "claude-code /doctor large-file warning; the rules dir measured 2026-09-16 in a consumer repo",
+      "claude-code 2.1.296 large-file warning, floor of max(40000, window*0.05*charsPerToken); the rules dir measured 2026-09-16 in a consumer repo",
   },
   // The capability table — what each event CARRIES and HONOURS. Nine of the 31
   // events, each with its basis; see ./event-capability.ts. The three flat lists

@@ -1,7 +1,7 @@
 ---
 name: edit-spec
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash
-description: Edit a vigiles .spec.ts to change a compiled instruction file (CLAUDE.md / AGENTS.md) — add, modify, or remove a rule, section, command, or key file. Use whenever you need to change a CLAUDE.md/AGENTS.md that carries a vigiles hash (edit the spec, never the artifact), including adding a new enforce()/check()/guidance() rule.
+description: Edit a vigiles .spec.ts to change a compiled instruction file (CLAUDE.md / AGENTS.md) — add, modify, or remove a rule, section, command, or file pointer (including a request to add a "key file" — the keyFiles field is deprecated). Use whenever you need to change a CLAUDE.md/AGENTS.md that carries a vigiles hash (edit the spec, never the artifact), including adding a new enforce()/check()/guidance() rule.
 argument-hint: <what to change — e.g., "add a rule about error handling" or "update the testing section">
 ---
 
@@ -13,7 +13,7 @@ $ARGUMENTS — What the user wants to change. Examples:
 
 - "add a rule about always using the custom logger"
 - "update the architecture section"
-- "add src/services/auth.ts to key files"
+- "point the auth rule at src/services/auth.ts"
 - "add npm run lint to commands"
 - "change the testing guidance"
 
@@ -49,10 +49,7 @@ export default claude({
     architecture: "How the codebase is structured...",
   },
 
-  // File paths verified to exist at compile time
-  keyFiles: {
-    "src/index.ts": "Main entry point",
-  },
+  // (No `keyFiles` — deprecated; see "A pointer to a file" in Step 3.)
 
   // Commands verified against package.json
   commands: {
@@ -106,24 +103,34 @@ Based on what the user asked for:
 - Edit the string in `sections`. Sections are plain strings or tagged template literals with `file()`, `cmd()`, `ref()` for verified references
 - Do NOT add `#` or `##` headers inside sections — they break the document structure
 
-**Adding a key file or command:**
+**Adding a command:**
 
-- Add to `keyFiles` or `commands`. The compiler verifies these exist at compile time
-- For commands: must match a script in `package.json`
-- For key files: must exist on disk
-- 🔴 **KEEP THE DESCRIPTION TO ONE LINE — aim for 120 characters, never exceed
-  ~200.** A `keyFiles` entry is a POINTER: what the file is for, so a reader knows
-  whether to open it. The explanation of how it works belongs in that file's own
-  header comment, where it is read when someone is actually in the file. An
-  instruction file is loaded on EVERY request, so a paragraph here is paid for
-  every turn, forever, by every reader — including the ones who never touch that
-  file.
-- **This list only ever grows unless you shrink it.** Every session adds entries
-  and none removes them, so before adding, check whether a NEARBY entry is now
-  stale (the file moved, the role changed, the description restates its header)
-  and fix it in the same edit. Adding without ever pruning is how an instruction
-  file reaches four times its harness's budget — `vigiles audit` reports that
-  number as `Always-loaded instructions`, so check it when you touch this list.
+- Add to `commands`. The compiler verifies it against `package.json` scripts.
+- Keep the description to one line (aim for 120 characters, never exceed ~200):
+  the instruction file is loaded on EVERY request.
+
+**A pointer to a file (what used to be a "key file"):**
+
+- 🔴 **Never add a `keyFiles` entry — not one, not even to a spec that already
+  has the field.** It is deprecated (`vigiles lint` reports it as
+  `deprecated-key-files`) and removed in the next major: it compiles a file
+  map into the instruction file loaded on every request, and the agent finds
+  files itself.
+- Asked to add a file? Place it by the first of these that fits, and say why:
+  1. the file's own header, the docs or the path already say it → add nothing;
+  2. a fact about that one file → write it in **the file's header comment**;
+  3. a rule an agent must follow while working in one folder → that folder's
+     **nested `CLAUDE.md`** (its own `<folder>/CLAUDE.md.spec.ts`, compiled);
+  4. only if nothing else would lead an agent there → a **one-line pointer**,
+     `${file("src/services/auth.ts")}` inside a `prose` section where the
+     decision that needs it is written — compile verifies it exists, exactly
+     as it verified a `keyFiles` path. (`guidance()` takes a plain string, so a
+     path typed there is not verified.)
+- **Opened a spec that still has `keyFiles`?** Propose removing it, in the same
+  reply: go through the entries with the same four steps (the full recipe is
+  `docs/rules/deprecated-key-files.md` in the vigiles repository; a path that
+  no longer exists is deleted) and show, per entry, where it goes and why.
+  Where each entry goes is the user's call; apply it once they confirm.
 
 ### Step 4: Compile
 
@@ -135,7 +142,7 @@ npx vigiles compile
 
 This regenerates the compiled instruction file(s). Review the output for any errors:
 
-- `stale-file` — a key file path doesn't exist
+- `stale-file` — a `file()` (or deprecated `keyFiles`) path doesn't exist
 - `stale-command` — a command isn't in package.json
 - `invalid-rule` — a linter rule doesn't exist or is disabled
 - `section-has-header` — a section contains `#` headers (break into separate named sections)

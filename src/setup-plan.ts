@@ -186,6 +186,9 @@ export const NUDGE_RULES = [
   // 2 582 markdown files, because a fence in prose is a drawing of config rather
   // than config. See docs/rules/doc-refs.md.
   "doc-refs",
+  // A deprecation notice: it must never gate, or upgrading vigiles would turn a
+  // consumer's CI red — the very thing the one-major window exists to avoid.
+  "deprecated-key-files",
 ] as const;
 
 /**
