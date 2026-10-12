@@ -21,6 +21,8 @@ import { cosmiconfigSync } from "cosmiconfig";
 // only works in one of the two worlds the code runs in is not one line of
 // hygiene, it is a second module system.
 import { DEFAULT_INSTRUCTION_TARGETS } from "./dialect.js";
+import { instructionSpecState } from "./integrity.js";
+import { handWrittenInstructionRemedy } from "./instruction-remedies.js";
 import {
   vigilesConfigSchema,
   parseVigilesConfig,
@@ -315,12 +317,14 @@ export function validate(
     // `vigiles init` auto-adopts every instruction file into a spec, so this is
     // green by construction after setup.
     const specSeverity = activeRules["require-instructions-spec"];
-    if (specSeverity && isInstruction && !disableComment.test(content)) {
+    if (specSeverity && isInstruction) {
       const specPath = filePath + ".spec.ts";
-      if (!existsSync(specPath)) {
+      if (
+        instructionSpecState(content, existsSync(specPath)) === "hand-written"
+      ) {
         const msg: ValidationError = {
           rule: "require-instructions-spec",
-          message: `No spec file found for "${filePath}". Expected "${specPath}". Run \`npx vigiles init --target=${filePath}\` to adopt it into a spec, or disable with <!-- vigiles-disable require-instructions-spec -->.`,
+          message: `No spec file found for "${filePath}". Expected "${specPath}".\n${handWrittenInstructionRemedy(filePath)}`,
           line: 1,
         };
         if (specSeverity === "error") {

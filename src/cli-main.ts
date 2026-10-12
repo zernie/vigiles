@@ -370,7 +370,9 @@ import {
   findIntegrityHeader,
   parseIntegrityHeader,
   REQUIRE_INSTRUCTIONS_SPEC_DISABLE,
+  instructionSpecState,
 } from "./core/integrity.js";
+import { adoptInstructionFileRemedy } from "./core/instruction-remedies.js";
 import { adoptMarkdown, adoptSkill, adoptAgent } from "./core/adopt.js";
 import { computeScriptCoverage } from "./core/coverage.js";
 import { findOrphanDocs, formatOrphanReport } from "./core/orphans.js";
@@ -1179,8 +1181,10 @@ function validateSpecs(
       continue;
     }
 
+    // The path as discovered (cwd-relative), not `fullPath`: the finding prints
+    // it, and its `exclude` snippet must be a root-relative glob.
     const result = validate(content, {
-      filePath: fullPath,
+      filePath,
       rules: rulesConfig,
     });
     for (const err of result.errors) {
@@ -3093,26 +3097,43 @@ function discoverAdoptableSurfaces(cwd: string): string[] {
   return out;
 }
 
-/** The full adoptable-surface list `audit` reports: the instruction file (when it
- * exists hand-written, no spec) PLUS every skill/subagent surface without a spec.
- * Same notion `init` adopts; surfaced in the AuditReport + the terminal nudge so
- * the report's "Create spec" / "Create all specs" affordances have their paths.
- * Composition-root only — CC paths are intentional here (like discoverAdoptableSurfaces). */
+/** Every hand-written instruction file under `root` — root AND nested
+ * `CLAUDE.md` / `AGENTS.md`, the same files `gatherInstructionFiles` reads —
+ * by the one predicate `lint`'s `require-instructions-spec` asks
+ * (`instructionSpecState`). Measured on a repo with six hand-written files
+ * (root + five nested): `audit` counted 1 (root only) while `lint` warned about
+ * all six. A spec-managed or opted-out file is not listed. */
+function handWrittenInstructionFiles(
+  root: string,
+  instructionFile: string,
+  excludes: ExcludeSet,
+): string[] {
+  return gatherInstructionFiles(root, instructionFile, excludes)
+    .filter(
+      (f) =>
+        instructionSpecState(
+          f.text,
+          existsSync(resolve(root, `${f.path}.spec.ts`)),
+        ) === "hand-written",
+    )
+    .map((f) => f.path);
+}
+
+/** The full adoptable-surface list `audit` reports: every hand-written
+ * instruction file (nested included) PLUS every skill/subagent surface without
+ * a spec. Same notion `init` adopts; surfaced in the AuditReport + the terminal
+ * nudge so the report's "Create spec" / "Create all specs" affordances have
+ * their paths. Composition-root only — CC paths are intentional here (like
+ * discoverAdoptableSurfaces). */
 function discoverAdoptableForAudit(
   root: string,
   instructionFile: string,
+  excludes: ExcludeSet,
 ): string[] {
-  const out: string[] = [];
-  const instrAbs = resolve(root, instructionFile);
-  if (
-    existsSync(instrAbs) &&
-    !targetHasHash(instrAbs) &&
-    !existsSync(resolve(root, `${instructionFile}.spec.ts`))
-  ) {
-    out.push(instructionFile);
-  }
-  out.push(...discoverAdoptableSurfaces(root));
-  return out;
+  return [
+    ...handWrittenInstructionFiles(root, instructionFile, excludes),
+    ...discoverAdoptableSurfaces(root),
+  ];
 }
 
 /** Lint-config file BASENAMES whose CONTENTS (textual, NEVER executed) reveal
@@ -3364,29 +3385,54 @@ function computeRuleRouting(
   }
 }
 
-/** The terminal "adoptable surfaces" nudge — N un-spec'd surfaces + the create-all
- * command and up to ~5 per-surface commands (then "+K more"). "" when nothing to
+/** The terminal "adoptable surfaces" nudge. Instruction files are listed in
+ * full (up to {@link NUDGE_LIST_CAP}) with the shared adoption remedy — they
+ * have two adopters, `init --target` and the `adopt-spec` skill; skills and
+ * subagents keep the per-surface `init --target` command. "" when nothing to
  * adopt (a fully spec-managed repo says nothing). */
 function formatAdoptableNudge(surfaces: readonly string[]): string {
   if (surfaces.length === 0) return "";
+  const instructions = surfaces.filter((s) => surfaceKind(s) === "instruction");
+  const others = surfaces.filter((s) => surfaceKind(s) !== "instruction");
   const n = surfaces.length;
+  const capped = (items: readonly string[], line: (s: string) => string) => {
+    const shown = items.slice(0, NUDGE_LIST_CAP).map(line);
+    const more = items.length - shown.length;
+    return more > 0
+      ? [...shown, `    • +${String(more)} more (all in --json)`]
+      : shown;
+  };
   // Lead with the VALUE, not the chore: a spec is the pull up from the gate to
   // the richer layer, so say what it BUYS (drift-proof references + testable),
   // not just "create one". The invitation is where richer-feature adoption is
   // won — keep it compelling, never a bare to-do (research/adoption-design.md §1).
   const lines = [
     `ℹ ${String(n)} surface${n === 1 ? "" : "s"} could be spec-managed — a spec re-verifies its references on every change (a hand-edit can't silently break them) and makes it testable.`,
-    `  Adopt now, or one at a time with \`npx vigiles init --target=<path>\`:`,
   ];
-  const shown = surfaces.slice(0, 5);
-  for (const s of shown) lines.push(`    • npx vigiles init --target=${s}`);
-  const more = n - shown.length;
-  if (more > 0) lines.push(`    • +${String(more)} more`);
+  if (instructions.length > 0) {
+    const k = instructions.length;
+    lines.push(
+      `  ${String(k)} hand-written instruction file${k === 1 ? "" : "s"}:`,
+      ...capped(instructions, (s) => `    • ${s}`),
+      ...adoptInstructionFileRemedy("<path>")
+        .split("\n")
+        .map((l) => `  ${l}`),
+    );
+  }
+  if (others.length > 0) {
+    lines.push(
+      `  Skills and subagents, one at a time with \`npx vigiles init --target=<path>\`:`,
+      ...capped(others, (s) => `    • npx vigiles init --target=${s}`),
+    );
+  }
   // The remembered-decline affordance (non-evil contract): one keystroke to
   // silence, stated where it's shown so it's never a surprise nag.
   lines.push(`  (set "nudge": "dismissed" in .vigilesrc.json to hide this)`);
   return lines.join("\n");
 }
+
+/** How many paths one group of the adoption nudge prints before "+N more". */
+const NUDGE_LIST_CAP = 10;
 
 /** A small, terse behavioral nudge — the deterministic read can't tell whether a
  * skill actually FIRES. "" when there are no model-invocable skills. */
@@ -9327,6 +9373,7 @@ export async function main(): Promise<void> {
         const adoptableSurfaces: RepoPath[] = discoverAdoptableForAudit(
           root,
           adapter.layout.instructionFile,
+          excludes,
         )
           .filter((p) => !excludedBy(excludes)(resolve(root, p)))
           .map((p) => auditedBundle.scanned(p));

@@ -46,6 +46,7 @@ import {
 } from "./core/layout.js";
 import type { HarnessDialect } from "./core/dialect.js";
 import { weighInstructions } from "./core/instruction-weight.js";
+import { instructionSpecState } from "./core/integrity-header.js";
 import {
   instructionCandidatePaths,
   resolveImports,
@@ -690,7 +691,12 @@ export function scanFiles(
     loaded.files[lay.instructionFile] !== undefined
       ? {
           file: lay.instructionFile,
-          hasSpec: hasFile(files, `${lay.instructionFile}.spec.ts`),
+          // The same predicate as the disk scan (`scan.ts`), so the twins agree.
+          hasSpec:
+            instructionSpecState(
+              loaded.files[lay.instructionFile],
+              hasFile(files, `${lay.instructionFile}.spec.ts`),
+            ) === "spec-managed",
         }
       : null;
   // The BOUNDED candidate set over the map, then the same one-level import pass

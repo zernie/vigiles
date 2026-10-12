@@ -12,6 +12,7 @@
  * stack on top later; this core stays pure so it runs anywhere in CI for free.
  */
 
+import { instructionSpecState } from "./core/integrity-header.js";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -797,7 +798,13 @@ export function scanPlugin(
     loaded.files[instructionFile] !== undefined
       ? {
           file: instructionFile,
-          hasSpec: existsSync(join(resolve(dir), `${instructionFile}.spec.ts`)),
+          // The one answer to "is it hand-written?" (a compiled multi-target
+          // file has no sibling spec and is still spec-managed).
+          hasSpec:
+            instructionSpecState(
+              loaded.files[instructionFile],
+              existsSync(join(resolve(dir), `${instructionFile}.spec.ts`)),
+            ) === "spec-managed",
         }
       : null;
   const mcpServers = collectMcpServers(resolve(dir), lay);
