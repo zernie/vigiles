@@ -6,7 +6,7 @@
  * The floor (node_modules/dist/.git/.vigiles) lives here, not per walk.
  * `exclude` filters DISCOVERY only: an explicitly named path is processed and ONE line names the pattern it matched (rg/tsc semantics with ESLint's loudness; never prettier's silent 'all clean').
  * "Do not report rule X for these paths" is not an exclusion: it is `overrides` with the rule off (`overrides.ts`). `exclude` means vigiles does not read the path at all, so an override cannot re-include it.
- * The header carries the exception table — `validateGlobRef` (reference verification), `specReferencedElsewhere` (eject safety), `expandGlobs` (a typed argument), surface walks inside a bundle, and internal machinery — so the next reader does not 'fix' them.
+ * The header carries the exception table — `validateGlobRef` (reference verification), `specReferencedElsewhere` (eject safety), surface walks inside a bundle, and internal machinery — so the next reader does not 'fix' them.
  * Enforced by the ESLint discovery guard (eslint.config.mjs: `globSync` without `ignore`, a literal in an ignore list, a raw `readdirSync` in cli.ts) and the source gate in exclude-cli.test.ts
  */
 import { relative } from "node:path";

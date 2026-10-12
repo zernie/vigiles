@@ -1,5 +1,4 @@
 import { readFileSync, lstatSync, existsSync, realpathSync } from "node:fs";
-import { globSync } from "glob";
 import { resolve, basename as pathBasename } from "node:path";
 import { cosmiconfigSync } from "cosmiconfig";
 // 🔴 A TOP-LEVEL IMPORT, and the lazy `require` it replaced is recorded because
@@ -437,28 +436,6 @@ export function readInstructionFile(
       reason: `Could not read: ${filePath}`,
     };
   }
-}
-
-// ---------------------------------------------------------------------------
-// Glob expansion
-// ---------------------------------------------------------------------------
-
-export function expandGlobs(patterns: string[]): string[] {
-  const GLOB_CHARS = /[*?{[]/;
-  const paths: string[] = [];
-
-  for (const pattern of patterns) {
-    if (GLOB_CHARS.test(pattern)) {
-      const matches = globSync(pattern, { cwd: process.cwd() });
-      for (const match of matches.sort()) {
-        paths.push(resolve(match));
-      }
-    } else {
-      paths.push(pattern);
-    }
-  }
-
-  return paths;
 }
 
 // ---------------------------------------------------------------------------

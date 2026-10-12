@@ -8,7 +8,13 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 
-import { frameAt, frameFor, linkFrom, type RepoPath } from "./frame.js";
+import {
+  findProjectRoot,
+  frameAt,
+  frameFor,
+  linkFrom,
+  type RepoPath,
+} from "./frame.js";
 
 describe("frame — converting into the repo frame", () => {
   const frame = frameAt("/repo");
@@ -136,5 +142,40 @@ describe("linkFrom: a repo path as a link written into a file", () => {
 
   it("names the file's own directory as `.`", () => {
     assert.equal(linkFrom("plugin/CLAUDE.md", "plugin"), ".");
+  });
+});
+
+describe("findProjectRoot: where a command's root is", () => {
+  /** A fake filesystem: the set of absolute paths that exist. */
+  const fs =
+    (...paths: readonly string[]) =>
+    (abs: string) =>
+      paths.includes(abs);
+
+  it("is the git work-tree top when no config is on the way", () => {
+    assert.equal(findProjectRoot("/r/src/core", fs("/r/.git")), "/r");
+  });
+
+  it("is the nearest directory with .vigilesrc.json inside the work tree", () => {
+    const exists = fs(
+      "/r/.git",
+      "/r/.vigilesrc.json",
+      "/r/pkg/.vigilesrc.json",
+    );
+    assert.equal(findProjectRoot("/r/pkg/src", exists), "/r/pkg");
+    assert.equal(findProjectRoot("/r/docs", exists), "/r");
+  });
+
+  it("never reads a config above the work tree", () => {
+    const exists = fs("/home/.vigilesrc.json", "/home/r/.git");
+    assert.equal(findProjectRoot("/home/r/src", exists), "/home/r");
+  });
+
+  it("outside any checkout, is the nearest config's directory, else the start", () => {
+    assert.equal(findProjectRoot("/tmp/x/y", fs()), "/tmp/x/y");
+    assert.equal(
+      findProjectRoot("/tmp/x/y", fs("/tmp/x/.vigilesrc.json")),
+      "/tmp/x",
+    );
   });
 });

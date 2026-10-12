@@ -77,6 +77,7 @@ import { VERBS, type Verb } from "./cli-commands.js";
 import {
   formatUnknownFlag,
   knownFlagsFor,
+  rebasePathArgs,
   unknownFlags,
 } from "./cli-flag-check.js";
 import {
@@ -139,6 +140,7 @@ import {
   type Bundle,
   type Frame,
   type RepoPath,
+  findProjectRoot,
 } from "./core/frame.js";
 import { unresolvedDeclaredRoots } from "./core/surface-discovery.js";
 import {
@@ -754,12 +756,13 @@ function printWarnings(specFile: string, warnings: CompileError[]): void {
 
 /** Compile a generator-skill spec from source → SKILL.md. Returns validity. */
 function compileGeneratorSkillToFile(
+  root: string,
   specPath: string,
   source: string,
 ): boolean {
   const outputPath = specPath.replace(/\.spec\.ts$/, "");
   const { artifact, errors } = compileGeneratorSkill(source, {
-    basePath: process.cwd(),
+    basePath: root,
     specFile: specPath,
   });
   // Written only when the compile is clean: `artifact` is null otherwise, and
@@ -778,12 +781,13 @@ function compileGeneratorSkillToFile(
 
 /** Compile a ClaudeSpec → its primary + any additional targets. */
 async function compileClaudeToFile(
+  root: string,
   spec: ClaudeSpec,
   specPath: string,
   config: VigilesConfig,
   dialect: HarnessDialect,
 ): Promise<boolean> {
-  const basePath = process.cwd();
+  const basePath = root;
   const { markdown, errors, warnings, enforceVerdicts, targets } =
     await compileClaude(spec, {
       basePath,
@@ -927,13 +931,14 @@ function formatArtifactSize(markdown: string): string {
 
 /** Compile a declarative SkillSpec → SKILL.md. */
 async function compileSkillToFile(
+  root: string,
   spec: SkillSpec,
   specPath: string,
   dialect: HarnessDialect,
 ): Promise<boolean> {
   const outputPath = specPath.replace(/\.spec\.ts$/, "");
   const { artifact, errors, warnings } = await compileSkill(spec, {
-    basePath: process.cwd(),
+    basePath: root,
     specFile: specPath,
     // The SKILL.md frontmatter profile comes from the resolved harness — a Codex
     // repo gets a minimal (name + description) SKILL.md; CC gets the full set.
@@ -957,13 +962,14 @@ async function compileSkillToFile(
 
 /** Compile a subagent spec → agents/<name>.md (with its result-contract section). */
 async function compileAgentToFile(
+  root: string,
   spec: AgentSpec,
   specPath: string,
   dialect: HarnessDialect,
 ): Promise<boolean> {
   const outputPath = specPath.replace(/\.spec\.ts$/, "");
   const { artifact, errors, warnings } = await compileAgent(spec, {
-    basePath: process.cwd(),
+    basePath: root,
     specFile: specPath,
     dialect,
   });
@@ -1028,6 +1034,7 @@ async function compile(
   excludes: ExcludeSet,
   opts: { harnessFlag?: string } = {},
 ): Promise<boolean> {
+  const root = excludes.root;
   let allValid = true;
   // Parse the declared harness set ONCE (alias-normalized) and feed both the
   // dialect pick and the mirror from it — no re-parsing, no cwd-sniffing in the
@@ -1035,7 +1042,7 @@ async function compile(
   // ambiguous-detection pick.
   const declaredHarnesses = declaredHarnessNames(config.harnesses);
   const selection = resolveHarnessSelection({
-    root: process.cwd(),
+    root,
     flag: opts.harnessFlag,
     configHarness: declaredHarnesses,
   });
@@ -1046,9 +1053,10 @@ async function compile(
   let knownAgents: string[] | null = null;
   for (const specPath of specPaths) {
     // Generator skills can't be executed to markdown — compile from source.
-    const source = readFileSync(resolve(process.cwd(), specPath), "utf-8");
+    const source = readFileSync(resolve(root, specPath), "utf-8");
     if (/\bgenSkill\s*\(/.test(source)) {
-      if (!compileGeneratorSkillToFile(specPath, source)) allValid = false;
+      if (!compileGeneratorSkillToFile(root, specPath, source))
+        allValid = false;
       continue;
     }
     const spec = await loadSpec(specPath);
@@ -1069,7 +1077,9 @@ async function compile(
         opts.harnessFlag === undefined
           ? (adapterForInstructionFile(targetFile)?.dialect ?? dialect)
           : dialect;
-      if (await compileClaudeToFile(spec, specPath, config, specDialect)) {
+      if (
+        await compileClaudeToFile(root, spec, specPath, config, specDialect)
+      ) {
         writeInstructionMirrors(
           specPath.replace(/\.spec\.ts$/, ""),
           declaredHarnesses,
@@ -1087,10 +1097,10 @@ async function compile(
       for (const w of skillFrontmatterDropWarnings(spec, forHarnesses)) {
         console.log(`⚠ ${w}`);
       }
-      if (!(await compileSkillToFile(spec, specPath, dialect)))
+      if (!(await compileSkillToFile(root, spec, specPath, dialect)))
         allValid = false;
     } else if (spec._specType === "agent") {
-      if (!(await compileAgentToFile(spec, specPath, dialect)))
+      if (!(await compileAgentToFile(root, spec, specPath, dialect)))
         allValid = false;
     } else if (spec._specType === "railway") {
       knownAgents ??= await collectAgentNames(excludes);
@@ -1136,6 +1146,7 @@ interface HashCheckResult {
 }
 
 function verifyHashes(
+  root: string,
   frame: Frame,
   filePaths: string[],
   silent = false,
@@ -1145,7 +1156,7 @@ function verifyHashes(
     if (!silent) console.log(msg);
   };
   for (const filePath of filePaths) {
-    const fullPath = resolve(process.cwd(), filePath);
+    const fullPath = resolve(root, filePath);
 
     // If the file doesn't exist at all (typo, deleted), that's an error —
     // not a "no hash" informational message. Without this check, a scoped
@@ -1192,6 +1203,7 @@ function verifyHashes(
 }
 
 function validateSpecs(
+  root: string,
   filePaths: string[],
   rulesConfig: Readonly<import("./core/types.js").RulesConfig>,
   rules: RuleResolver,
@@ -1202,7 +1214,7 @@ function validateSpecs(
     if (!silent) console.log(msg);
   };
   for (const filePath of filePaths) {
-    const fullPath = resolve(process.cwd(), filePath);
+    const fullPath = resolve(root, filePath);
     let content: string;
     try {
       content = readFileSync(fullPath, "utf-8");
@@ -1216,7 +1228,7 @@ function validateSpecs(
     );
     if (hashMatch) {
       // Verify the referenced spec still exists
-      const specRef = resolve(process.cwd(), hashMatch[1]);
+      const specRef = resolve(root, hashMatch[1]);
       if (!existsSync(specRef)) {
         log(
           `  ✗ [require-instructions-spec] ${filePath} references "${hashMatch[1]}" but that spec no longer exists.`,
@@ -1259,13 +1271,15 @@ interface CombinedCheckResult {
 }
 
 function check(
+  root: string,
   frame: Frame,
   filePaths: string[],
   silent = false,
 ): CombinedCheckResult {
-  const hashes = verifyHashes(frame, filePaths, silent);
-  const vConfig = loadConfig();
+  const hashes = verifyHashes(root, frame, filePaths, silent);
+  const vConfig = loadConfig(root);
   const specsValid = validateSpecs(
+    root,
     filePaths,
     vConfig.rules,
     ruleResolver(vConfig.rules, vConfig.overrides),
@@ -1301,6 +1315,7 @@ async function findDuplicateRules(
   scopeFiles?: string[],
   severityAt: (specPath: string) => RuleSeverity = () => "warn",
 ): Promise<DuplicateResult> {
+  const root = excludes.root;
   const log = (msg: string): void => {
     if (!silent) console.log(msg);
   };
@@ -1324,21 +1339,21 @@ async function findDuplicateRules(
           for (const f of scopeFiles) {
             let resolved: string | undefined;
             try {
-              const content = readFileSync(resolve(process.cwd(), f), "utf-8");
+              const content = readFileSync(resolve(root, f), "utf-8");
               const m = compiledFromRe.exec(content);
               if (m) {
-                resolved = resolve(process.cwd(), m[1].trim());
+                resolved = resolve(root, m[1].trim());
               }
             } catch {
               // File unreadable — fall through to the naming convention
             }
             if (!resolved) {
-              resolved = resolve(process.cwd(), `${f}.spec.ts`);
+              resolved = resolve(root, `${f}.spec.ts`);
             }
             wanted.add(resolved);
           }
           return allSpecs.filter((specPath) =>
-            wanted.has(resolve(process.cwd(), specPath)),
+            wanted.has(resolve(root, specPath)),
           );
         })()
       : allSpecs;
@@ -2274,13 +2289,12 @@ async function checkSpecRefs(
       derived.push({
         target,
         specPath,
-        findings: await specCompileErrors(
-          spec,
-          specPath,
+        findings: await specCompileErrors(spec, specPath, {
+          root: excludes.root,
           dialect,
           config,
-          knownAgents ?? [],
-        ),
+          knownAgents: knownAgents ?? [],
+        }),
       });
     } catch {
       // A spec that will not load is `compile`'s finding, not this one's —
@@ -2345,14 +2359,21 @@ async function checkSpecRefs(
  * only the options differ. Exhaustive over `_specType`, so a FIFTH spec type is
  * a tsc error here instead of a silent skip, which is the failure this closes.
  */
+/** What re-deriving a spec's compile findings needs besides the spec itself. */
+interface SpecCompileContext {
+  /** The project root the spec's references resolve against. */
+  readonly root: string;
+  readonly dialect: HarnessDialect;
+  readonly config: VigilesConfig | undefined;
+  readonly knownAgents: readonly string[];
+}
+
 async function specCompileErrors(
   spec: AnySpec,
   specPath: string,
-  dialect: HarnessDialect,
-  config: VigilesConfig | undefined,
-  knownAgents: readonly string[],
+  { root, dialect, config, knownAgents }: SpecCompileContext,
 ): Promise<SpecCompileFindings> {
-  const basePath = process.cwd();
+  const basePath = root;
   // The compiled file this spec writes — `overrides` resolve at its path.
   const target = specPath.replace(/\.spec\.ts$/, "");
   switch (spec._specType) {
@@ -2456,6 +2477,8 @@ async function runLint(
   excludes: ExcludeSet,
   config?: VigilesConfig,
 ): Promise<LintReport> {
+  // The project root the CLI resolved once; the excludes are rooted at it.
+  const root = excludes.root;
   const summary = flags.includes("--summary");
   const json = flags.includes("--json");
   const silent = summary || json;
@@ -2474,7 +2497,7 @@ async function runLint(
     existsSync(positional[0]) &&
     lstatSync(positional[0]).isDirectory()
       ? resolve(positional[0])
-      : process.cwd();
+      : root;
 
   // Resolve the active harness ONCE so the harness-specific checks below run
   // against the right adapter's dialect (tool/event catalogs) and surfaces —
@@ -2510,7 +2533,7 @@ async function runLint(
   // ONE frame for the whole run (#281): every path a check prints or annotates is
   // relative to it, and config globs resolve from it — whichever bundle is being
   // scored. Built here, once, instead of each option re-deriving its own root.
-  const frame = frameFor(process.cwd(), scanRoot);
+  const frame = frameFor(root, scanRoot);
   const rules = ruleResolver(config?.rules ?? DEFAULT_RULES, config?.overrides);
   const run: BundleRun = { config, rules, silent, adapter, excludes, frame };
   if (!silent && nestedBundles.length > 0) {
@@ -2546,7 +2569,7 @@ async function runLint(
   }
   const hashResult =
     files.length > 0
-      ? check(frame, files, silent)
+      ? check(root, frame, files, silent)
       : { valid: true, hashErrors: 0, validationErrors: 0 };
 
   // 1b. Verify inline + frontmatter rules in instruction files not managed
@@ -2577,7 +2600,7 @@ async function runLint(
   let integrityErrors = 0;
   if (rules.mayFire("integrity")) {
     if (!silent) console.log("\nIntegrity check:\n");
-    integrityErrors = checkIntegrityForFiles(files, rules, silent);
+    integrityErrors = checkIntegrityForFiles(root, files, rules, silent);
   }
 
   // 6. Coverage thresholds (gates CI when severity is "error")
@@ -2612,7 +2635,7 @@ async function runLint(
   };
   if (orphansCfg) {
     const found = findOrphanDocs({
-      basePath: process.cwd(),
+      basePath: root,
       include: orphansCfg.include,
       // The repo-wide `exclude`: an excluded corpus is neither an orphan
       // candidate nor a source of references that keep a doc alive (#192).
@@ -2790,10 +2813,10 @@ async function runLint(
   const deprecatedKeyFiles = checkDeprecatedKeyFiles({
     severity: rules.mayFire("deprecated-key-files") ? "warn" : false,
     severityAt: (path) => rules.severityAt("deprecated-key-files", path),
-    find: () => specsUsingKeyFiles(process.cwd(), excludes.globIgnore),
+    find: () => specsUsingKeyFiles(root, excludes.globIgnore),
     silent,
     annotate: (level, message, path) => {
-      ghAnnotate(level, message, frame.repo(resolve(process.cwd(), path)));
+      ghAnnotate(level, message, frame.repo(resolve(root, path)));
     },
   });
 
@@ -2833,7 +2856,7 @@ async function runLint(
   // whose exit code is discarded gates nothing — after which hand-written CI steps
   // grew to do the gating instead. One unpassed argument, that whole chain.
   const docRefFound: DocRefReport = docRefSeverity
-    ? findDocRefs({ basePath: process.cwd(), ignore: excludes.globIgnore })
+    ? findDocRefs({ basePath: root, ignore: excludes.globIgnore })
     : {
         filesScanned: 0,
         filesIgnored: 0,
@@ -2884,7 +2907,7 @@ async function runLint(
       ghAnnotate(
         markOf(e.sev).level,
         `${e.kind}("${e.value}") — ${e.message}`,
-        frame.repo(resolve(process.cwd(), e.file)),
+        frame.repo(resolve(root, e.file)),
         e.line,
       );
     }
@@ -5487,6 +5510,7 @@ function writeProjectConfig(opts: {
 // ---------------------------------------------------------------------------
 
 function checkIntegrityForFiles(
+  root: string,
   files: string[],
   rules: RuleResolver,
   silent: boolean,
@@ -5495,7 +5519,7 @@ function checkIntegrityForFiles(
     if (!silent) console.log(msg);
   };
 
-  const basePath = process.cwd();
+  const basePath = root;
   // Per file: an `overrides` entry may turn `integrity` off for a folder.
   const checked = files.flatMap((filePath) => {
     const severity = rules.severityAt("integrity", filePath);
@@ -9223,6 +9247,38 @@ async function askOnce(q: string): Promise<string> {
 }
 
 /**
+ * 🔴 THE PROJECT ROOT, resolved ONCE (#371) — the only place the CLI asks where
+ * it was started. Every command then runs from the root, so `vigiles lint` in
+ * `src/` reads the root's `.vigilesrc.json`, its overrides and its compiled
+ * files exactly as it does at the root, and passes the root on explicitly. A
+ * path the user typed means "from where I typed it", so path arguments are
+ * re-expressed from the root first (`PATH_ARGUMENTS` says which arguments are
+ * paths). `hook-runtime` is exempt: its cwd and argv come from the harness.
+ */
+function enterProjectRoot(): {
+  readonly command: string;
+  readonly projectRoot: string;
+  readonly args: string[];
+} {
+  const typed = process.argv.slice(2);
+  const [command = "", ...rest] = typed;
+  const invocationDir = process.cwd();
+  if (typed.length === 0 || command === "hook-runtime")
+    return { command, projectRoot: invocationDir, args: typed };
+  const projectRoot = findProjectRoot(invocationDir, existsSync);
+  const args = [
+    command,
+    ...rebasePathArgs(
+      command,
+      rest,
+      (p) => relative(projectRoot, resolve(invocationDir, p)) || ".",
+    ),
+  ];
+  if (projectRoot !== invocationDir) process.chdir(projectRoot);
+  return { command, projectRoot, args };
+}
+
+/**
  * Persist the audit consent (`audit.measure`) into `.vigilesrc.json` without
  * clobbering existing keys — the "ask once, remember" sticky choice. Best-effort:
  * a malformed user config is left untouched, a write error is non-fatal (the
@@ -9254,8 +9310,7 @@ function rememberAuditMeasure(value: boolean): void {
 }
 
 export async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  const command = args[0];
+  const { command, projectRoot, args } = enterProjectRoot();
 
   // `--version` / `-v` / `version` prints the version number, not the help
   // banner — so `npx vigiles --version` reports e.g. `3.0.0`.
@@ -9292,11 +9347,11 @@ export async function main(): Promise<void> {
   const restArgs = args.slice(1).filter((a) => !a.startsWith("--"));
   // Shared flags (--max-rules, --catalog-only) override the loaded config so
   // every GitHub Action input maps to a real CLI flag. See src/cli-flags.ts.
-  const config = applyConfigFlags(loadConfig(), args);
+  const config = applyConfigFlags(loadConfig(projectRoot), args);
   // `.vigilesrc.json#exclude`, parsed ONCE here and threaded to every walk that
   // polices the repo (src/exclude.ts). Built where the config is loaded so a
   // command cannot re-derive it differently — the drift #192 measured.
-  const excludes = excludeSet(process.cwd(), config.exclude);
+  const excludes = excludeSet(projectRoot, config.exclude);
 
   switch (command) {
     // --- Primary commands ---
@@ -9333,7 +9388,7 @@ export async function main(): Promise<void> {
       const found =
         restArgs.length > 0
           ? partitionHookArgs(restArgs.filter((f) => !f.endsWith(".spec.ts")))
-          : discoveredHookArgs(process.cwd());
+          : discoveredHookArgs(projectRoot);
       const hooks = [...found.hooks];
       const unclaimed = found.unclaimed;
       if (
@@ -9371,11 +9426,11 @@ export async function main(): Promise<void> {
       // `lint` is the gate (rule `instruction-weight`).
       if (specs.length > 0) {
         const weightLine = compileWeightLine(
-          process.cwd(),
+          projectRoot,
           measureInstructionWeight(
-            process.cwd(),
+            projectRoot,
             resolveHarnessSelection({
-              root: process.cwd(),
+              root: projectRoot,
               flag: harnessFlag,
               configHarness: declaredHarnessNames(config.harnesses),
             }).adapter,
@@ -9606,7 +9661,7 @@ export async function main(): Promise<void> {
         }
         // The same single owner of "relative to which directory" `lint` uses
         // (#281): cwd, unless the audited dir is somebody else's repository.
-        const frame = frameFor(process.cwd(), root);
+        const frame = frameFor(projectRoot, root);
         const report = scanPlugin(targets[0], adapter.layout, adapter.dialect, {
           deprecatedKeyFiles: specsUsingKeyFiles(root, excludes.globIgnore),
           sharedDirs: config.sharedDirs,
@@ -9666,7 +9721,7 @@ export async function main(): Promise<void> {
         // report is built (it's a pure read off the scan) because the report's
         // `Evaluated` ring needs to know whether this run will ever ask the
         // skill-firing question — see `firingMeasured` below.
-        const isForeign = root !== process.cwd();
+        const isForeign = root !== projectRoot;
         // ONE read of "can we reach a model, and on whose bill", from the driving
         // adapter. It replaces a name check OR-ed with one harness's env vars at
         // four sites below, and the two hard-coded "authenticate the `claude` CLI"
@@ -9984,8 +10039,8 @@ export async function main(): Promise<void> {
         // CI upload / a custom location). The dir is created if missing.
         const outFlag = args.find((a) => a.startsWith("--out="));
         const outDir = outFlag
-          ? resolve(process.cwd(), outFlag.slice("--out=".length))
-          : process.cwd();
+          ? resolve(projectRoot, outFlag.slice("--out=".length))
+          : projectRoot;
         const openReport = !args.includes("--no-open");
         const wroteReports: string[] = [];
         // The versioned JSON artifact — the upload/CI boundary (a hosted dashboard
@@ -10036,7 +10091,7 @@ export async function main(): Promise<void> {
           // dead `../../..` entry.
           const rel = wroteReports
             .map((f) =>
-              repoRelative(process.cwd(), resolve(outDir, f), {
+              repoRelative(projectRoot, resolve(outDir, f), {
                 relative,
                 resolve,
                 isAbsolute,
@@ -10044,7 +10099,7 @@ export async function main(): Promise<void> {
               }),
             )
             .filter((p): p is RepoRelativePath => p !== null);
-          ensureReportGitignored(process.cwd(), rel);
+          ensureReportGitignored(projectRoot, rel);
         }
         // A shareable deep-link for a public GitHub repo: the in-browser demo
         // re-runs the audit LIVE for whoever opens it, so a local result is

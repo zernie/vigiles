@@ -222,3 +222,78 @@ export function formatUnknownFlag(command: string, flag: string): string {
   );
   return lines.join("\n");
 }
+
+/**
+ * Which of a verb's arguments name a PATH. The CLI runs every command from the
+ * project root it resolves once (`findProjectRoot`), but a path the user types
+ * means "from where I typed it"; these are the arguments re-expressed from the
+ * root before the command runs. One table beside the flag table, so a new
+ * path-valued flag is declared where flags are.
+ */
+interface PathArguments {
+  /** Positionals that are paths: all of them, all after the first (a kind), or none. */
+  readonly positionals: "all" | "after-first" | "none";
+  /** `--flag=` specs whose value is a path. */
+  readonly flags: readonly FlagSpec[];
+}
+
+export const PATH_ARGUMENTS: Readonly<Record<Verb, PathArguments>> = {
+  init: { positionals: "none", flags: ["--target="] },
+  compile: { positionals: "all", flags: [] },
+  eject: { positionals: "all", flags: [] },
+  lint: { positionals: "all", flags: ["--json-out="] },
+  test: { positionals: "all", flags: [] },
+  eval: { positionals: "all", flags: [] },
+  audit: {
+    positionals: "all",
+    flags: ["--out=", "--capability-diff=", "--prompts="],
+  },
+  // `generate <kind> [out]`: the kind is a word, the rest are paths.
+  generate: { positionals: "after-first", flags: [] },
+  // The harness supplies its argv; its paths are already what it means.
+  "hook-runtime": { positionals: "none", flags: [] },
+};
+
+/** Which of the positional argument indexes are paths, per the verb's spec. */
+function pathPositionalIndexes(
+  positionals: PathArguments["positionals"],
+  indexes: readonly number[],
+): readonly number[] {
+  switch (positionals) {
+    case "all":
+      return indexes;
+    case "after-first":
+      return indexes.slice(1);
+    case "none":
+      return [];
+  }
+}
+
+/**
+ * The verb's arguments (everything after the verb) with each path argument
+ * passed through `rebase`. Flags that do not take a path, words, and anything
+ * after `--` are returned unchanged.
+ */
+export function rebasePathArgs(
+  command: string,
+  argv: readonly string[],
+  rebase: (path: string) => string,
+): readonly string[] {
+  const spec = Object.entries(PATH_ARGUMENTS).find(
+    ([verb]) => verb === command,
+  )?.[1];
+  if (!spec) return [...argv];
+  const end = argv.includes("--") ? argv.indexOf("--") : argv.length;
+  const positionalIndexes = argv
+    .slice(0, end)
+    .flatMap((a, i) => (a.startsWith("-") ? [] : [i]));
+  const pathPositionals = new Set(
+    pathPositionalIndexes(spec.positionals, positionalIndexes),
+  );
+  return argv.map((arg, i) => {
+    if (i >= end) return arg;
+    if (pathPositionals.has(i)) return rebase(arg);
+    const flag = spec.flags.find((f) => arg.startsWith(f));
+    return flag ? `${flag}${rebase(arg.slice(flag.length))}` : arg;
+  });
+}

@@ -750,7 +750,7 @@
       "count": 112
     },
     "functional/prefer-immutable-types": {
-      "count": 192
+      "count": 191
     },
     "no-restricted-syntax": {
       "count": 1
@@ -2246,22 +2246,19 @@
       "count": 3
     },
     "boundaries/dependencies": {
-      "count": 3
+      "count": 2
     },
     "functional/immutable-data": {
-      "count": 18
+      "count": 15
     },
     "functional/no-let": {
       "count": 5
     },
     "functional/no-loop-statements": {
-      "count": 5
+      "count": 3
     },
     "functional/prefer-immutable-types": {
-      "count": 22
-    },
-    "no-restricted-globals": {
-      "count": 1
+      "count": 19
     },
     "sonarjs/nested-control-flow": {
       "count": 1

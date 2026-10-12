@@ -561,9 +561,28 @@ npx vigiles audit ./marketplace-repo --single  # ...or audit that root as ONE ha
 npx vigiles audit ./repo --harness=codex # override harness detection
 ```
 
+### Which directory is the project
+
+Every command (except `hook-runtime`, whose project comes from the harness event)
+resolves ONE project root before it does anything, and works from there. From
+the directory you ran it in, upward:
+
+1. the nearest directory holding `.vigilesrc.json` — a package in a monorepo
+   with its own config is its own project;
+2. else the top of the git checkout;
+3. else the directory you ran it in.
+
+Inside a git checkout the search for a config stops at the checkout's top, so a
+`.vigilesrc.json` above it (in a home directory, say) is never read. Paths you
+type stay relative to where you typed them: `vigiles lint CLAUDE.md` run in
+`pkg/` lints `pkg/CLAUDE.md`. Running `vigiles lint` from `src/` therefore gives
+the same findings as running it from the root — the same config, the same
+`overrides`, the same compiled files.
+
 ### Configuration
 
-`audit` and every other command read `.vigilesrc.json` from the repo root. The
+`audit` and every other command read `.vigilesrc.json` from the project root
+([which directory that is](#which-directory-is-the-project)). The
 keys, what each one does, and a config using all of them are on one page:
 **[Configuration](configuration.md)**.
 

@@ -10,7 +10,13 @@
  */
 import { describe, it, afterEach } from "vitest";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
@@ -42,9 +48,12 @@ function repo(
 }
 
 /** `vigiles lint` in `cwd`: combined output and exit code. */
-function lint(cwd: string): { out: string; code: number } {
+function lint(
+  cwd: string,
+  extra: readonly string[] = [],
+): { out: string; code: number } {
   try {
-    const out = execFileSync(process.execPath, [CLI, "lint"], {
+    const out = execFileSync(process.execPath, [CLI, "lint", ...extra], {
       cwd,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -155,5 +164,49 @@ describe("an override reproduces each removed per-rule `exclude`", () => {
     const r = lint(dir);
     assert.match(r.out, /docs\/lonely\.md/);
     assert.doesNotMatch(r.out, /docs\/archive\/old\.md/);
+  });
+});
+
+describe("lint from a subdirectory reads the same project (#371)", () => {
+  it("finds the root config, overrides and integrity exactly as from the root", () => {
+    const dir = repo(
+      {
+        extends: "vigiles:recommended",
+        overrides: [
+          {
+            files: ["notes/**"],
+            rules: { "require-instructions-spec": "off" },
+          },
+        ],
+      },
+      {
+        "CLAUDE.md.spec.ts":
+          'import { instructionFile, guidance } from "vigiles/spec";\n' +
+          'export default instructionFile({ rules: { a: guidance("Be brief.") } });\n',
+        "notes/CLAUDE.md": HAND,
+        "pkg/CLAUDE.md": HAND,
+        "pkg/src/index.ts": "export const x = 1;\n",
+      },
+    );
+    execFileSync(process.execPath, [CLI, "compile"], {
+      cwd: dir,
+      stdio: "pipe",
+      timeout: 60_000,
+    });
+    // A hand edit of the compiled file: the integrity finding to look for.
+    writeFileSync(
+      join(dir, "CLAUDE.md"),
+      readFileSync(join(dir, "CLAUDE.md"), "utf-8") + "\nEdited by hand.\n",
+    );
+
+    const fromRoot = lint(dir, ["--json"]);
+    const fromSub = lint(join(dir, "pkg", "src"), ["--json"]);
+    const root: unknown = JSON.parse(fromRoot.out);
+    assert.ok(typeof root === "object" && root !== null, fromRoot.out);
+    // The hand edit, and pkg/CLAUDE.md (notes/ is overridden off).
+    assert.equal(Reflect.get(root, "hashErrors"), 1, fromRoot.out);
+    assert.equal(Reflect.get(root, "validationErrors"), 1, fromRoot.out);
+    assert.equal(fromSub.code, fromRoot.code);
+    assert.deepEqual(JSON.parse(fromSub.out), root);
   });
 });

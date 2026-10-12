@@ -14,7 +14,6 @@ import {
   parseRules,
   readInstructionFile,
   validatePaths,
-  expandGlobs,
   findInstructionFiles,
   loadConfig,
 } from "./validate.js";
@@ -925,59 +924,6 @@ describe("validatePaths", () => {
     assert.equal(validated.length, 1);
     assert.equal(validated[0].path, real);
     assert.equal(validated[0].result?.enforced, 1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// expandGlobs
-// ---------------------------------------------------------------------------
-
-describe("expandGlobs", () => {
-  let tmpDir: string;
-
-  before(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "vigiles-glob-"));
-  });
-
-  after(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("should pass through plain paths unchanged", () => {
-    const result = expandGlobs(["CLAUDE.md", "foo/AGENTS.md"]);
-    assert.deepEqual(result, ["CLAUDE.md", "foo/AGENTS.md"]);
-  });
-
-  it("should expand glob patterns into matching files", () => {
-    writeFileSync(join(tmpDir, "a.md"), "# A\n");
-    writeFileSync(join(tmpDir, "b.md"), "# B\n");
-    writeFileSync(join(tmpDir, "c.txt"), "not md\n");
-
-    const result = expandGlobs([join(tmpDir, "*.md")]);
-    assert.equal(result.length, 2);
-    assert.ok(result.some((p) => p.endsWith("a.md")));
-    assert.ok(result.some((p) => p.endsWith("b.md")));
-    assert.ok(!result.some((p) => p.endsWith("c.txt")));
-  });
-
-  it("should expand recursive globs", () => {
-    const subDir = join(tmpDir, "sub");
-    mkdirSync(subDir, { recursive: true });
-    writeFileSync(join(subDir, "nested.md"), "# Nested\n");
-
-    const result = expandGlobs([join(tmpDir, "**/*.md")]);
-    assert.ok(result.some((p) => p.endsWith("nested.md")));
-  });
-
-  it("should return empty for globs matching nothing", () => {
-    const result = expandGlobs([join(tmpDir, "*.nonexistent")]);
-    assert.deepEqual(result, []);
-  });
-
-  it("should mix plain paths and globs", () => {
-    const result = expandGlobs(["plain.md", join(tmpDir, "*.md")]);
-    assert.equal(result[0], "plain.md");
-    assert.ok(result.length > 1);
   });
 });
 

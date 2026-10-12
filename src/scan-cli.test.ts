@@ -810,6 +810,9 @@ export default railway({ name: "ship", steps: [delegate("planner"), delegate("im
     const dir = mkdtempSync(join(REPO, ".tmp-compile-genh-"));
     for (const [name, src] of Object.entries(SPECS))
       writeFileSync(join(dir, name), src);
+    // Its own config makes the fixture its own project: a bare `compile` run
+    // inside a checkout otherwise works on the checkout's root (#371).
+    writeFileSync(join(dir, ".vigilesrc.json"), "{}\n");
     return dir;
   }
 

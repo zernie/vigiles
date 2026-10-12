@@ -105,8 +105,8 @@ function isBelow(rel: string): boolean {
 /**
  * The frame for a command run from `cwd` against `target` (absolute).
  *
- * The root is `cwd` — where `loadConfig()` read `.vigilesrc.json` (it does not
- * walk up; measured 2026-09-23) — UNLESS the target lies outside it. A foreign
+ * The root is `cwd` — the project root the CLI resolved once with
+ * {@link findProjectRoot} and runs from — UNLESS the target lies outside it. A foreign
  * target (`vigiles lint ../other`) is somebody else's repository, and its paths
  * mean something from ITS root; relative to `cwd` they would all start with
  * `../`, and a foreign lint must never let the caller's own files satisfy the
@@ -155,4 +155,42 @@ export function frameAt(root: string): Frame {
 export function linkFrom(from: string, to: string): string {
   const dir = posixDirname(normalize(slashed(from)));
   return relative(join("/", dir), join("/", normalize(slashed(to)))) || ".";
+}
+
+/** The config file whose directory is a project root. */
+export const PROJECT_CONFIG_FILE = ".vigilesrc.json";
+
+/**
+ * The project root for a command started in `start` (absolute): the ONE answer
+ * to "relative to which directory", resolved once by the CLI, so running
+ * `vigiles lint` from `src/` gives the same findings as from the root (#371).
+ *
+ * From `start` upward:
+ *   1. the nearest directory holding `.vigilesrc.json` — a package in a
+ *      monorepo that has its own config is its own project;
+ *   2. else the git work-tree top (the nearest directory holding `.git`, a
+ *      directory or a worktree's file);
+ *   3. else `start` itself.
+ *
+ * Inside a git checkout the config search stops at the work-tree top, so a
+ * config ABOVE the checkout (a home directory) is never read. Outside any
+ * checkout it climbs to the filesystem root. `exists` is the filesystem port;
+ * the caller passes `existsSync`.
+ */
+export function findProjectRoot(
+  start: string,
+  exists: (abs: string) => boolean,
+): string {
+  const from = normalize(slashed(start));
+  const ancestors = [from, ...ancestorsOf(from)];
+  const top = ancestors.findIndex((d) => exists(join(d, ".git")));
+  const searched = top === -1 ? ancestors : ancestors.slice(0, top + 1);
+  const configured = searched.find((d) => exists(join(d, PROJECT_CONFIG_FILE)));
+  return configured ?? (top === -1 ? from : searched[top]) ?? from;
+}
+
+/** Every proper ancestor of an absolute directory, nearest first. */
+function ancestorsOf(dir: string): readonly string[] {
+  const parent = posixDirname(dir);
+  return parent === dir ? [] : [parent, ...ancestorsOf(parent)];
 }
