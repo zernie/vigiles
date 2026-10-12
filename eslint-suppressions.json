@@ -881,16 +881,16 @@
       "count": 1
     },
     "functional/immutable-data": {
-      "count": 12
+      "count": 10
     },
     "functional/no-let": {
-      "count": 19
-    },
-    "functional/no-loop-statements": {
       "count": 17
     },
+    "functional/no-loop-statements": {
+      "count": 16
+    },
     "functional/prefer-immutable-types": {
-      "count": 45
+      "count": 40
     },
     "no-restricted-syntax": {
       "count": 1
@@ -2058,12 +2058,12 @@
   },
   "src/core/source-refs.test.ts": {
     "local/no-harness-names": {
-      "count": 2
+      "count": 1
     }
   },
   "src/core/source-refs.ts": {
     "functional/prefer-immutable-types": {
-      "count": 3
+      "count": 2
     }
   },
   "src/core/spec.test.ts": {
