@@ -769,9 +769,10 @@ function filesOf(shape: HookCommandShape): readonly string[] {
 
 /**
  * The `hook-script-exists` finding text. It names WHY nobody noticed, because
- * that is the part the author cannot see: a hook wired fail-open (`|| exit 0`,
- * `|| true` — the deliberate ending of every compiled reminder) turns "cannot
- * load" into the same silence as "nothing to say". A missing file under
+ * that is the part the author cannot see: a hook wired fail-open turns "cannot
+ * load" into the same silence as "nothing to say". `compile` ends every
+ * compiled reminder `|| exit 0` on purpose; a hand-written line may end
+ * `|| true`, which does the same. A missing file under
  * `node_modules/` is a dependency that is not installed, so the cure differs.
  */
 export function hookScriptMissingMessage(script: string): string {
