@@ -193,15 +193,29 @@ export function findProjectRoot(
  * A path argument typed in `from`, re-anchored for a command that runs at
  * `root` (both absolute) — so `vigiles lint CLAUDE.md` typed in `pkg/` reads
  * `pkg/CLAUDE.md`. Typed AT the root it is returned exactly as typed, so a
- * message quotes what the user wrote. Absolute, or leaving the root, it is
- * absolute: `../../etc/passwd` names the same file and reads as a different one.
+ * message quotes what the user wrote. Absolute (a Windows drive-letter or UNC
+ * path included), or leaving the root, it is absolute: `../../etc/passwd`
+ * names the same file and reads as a different one.
  */
 export function rebaseArg(typed: string, from: string, root: string): string {
-  const [here, top] = [normalize(slashed(from)), normalize(slashed(root))];
-  if (isAbsolute(slashed(typed)) || here === top) return typed;
+  if (isAbs(slashed(typed))) return typed;
+  const [volume, here] = splitVolume(slashed(from));
+  const [, top] = splitVolume(slashed(root));
+  if (normalize(here) === normalize(top)) return typed;
   const abs = resolve(here, slashed(typed));
   const rel = relative(top, abs) || ".";
-  return isBelow(rel) ? rel : abs;
+  return isBelow(rel) ? rel : `${volume}${abs}`;
+}
+
+/**
+ * A `/`-separated absolute path split into its Windows volume (`C:`, or
+ * `//server/share`; `""` on POSIX) and the rooted path below it, which the
+ * POSIX ops can climb without eating the volume. `from` and `root` share one:
+ * the root is an ancestor of where the command was typed.
+ */
+function splitVolume(abs: string): readonly [string, string] {
+  const volume = /^(?:[A-Za-z]:|\/\/[^/]+\/[^/]+)(?=\/|$)/.exec(abs)?.[0] ?? "";
+  return [volume, abs.slice(volume.length) || "/"];
 }
 
 /** Every proper ancestor of an absolute directory, nearest first. */

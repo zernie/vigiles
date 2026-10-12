@@ -199,4 +199,28 @@ describe("rebaseArg: a typed path, re-anchored at the project root", () => {
     assert.equal(rebaseArg("/etc/passwd", "/r", "/r"), "/etc/passwd");
     assert.equal(rebaseArg("../../other/x", "/r/pkg", "/r"), "/other/x");
   });
+
+  it("on Windows, a drive-letter or UNC path is absolute and left as typed", () => {
+    // Node on Windows: cwd `C:\\r\\pkg`, root as findProjectRoot returns it.
+    for (const typed of [
+      "C:\\other\\CLAUDE.md",
+      "c:/other/CLAUDE.md",
+      "D:\\x.md",
+      "\\\\server\\share\\CLAUDE.md",
+    ])
+      assert.equal(rebaseArg(typed, "C:\\r\\pkg", "C:/r"), typed);
+  });
+
+  it("on Windows, a relative path is re-anchored, and leaving the root keeps the volume", () => {
+    assert.equal(rebaseArg("CLAUDE.md", "C:\\r\\pkg", "C:/r"), "pkg/CLAUDE.md");
+    assert.equal(rebaseArg("..\\x.md", "C:\\r\\pkg", "C:/r"), "x.md");
+    assert.equal(
+      rebaseArg("..\\..\\other\\x", "C:\\r\\pkg", "C:/r"),
+      "C:/other/x",
+    );
+    assert.equal(
+      rebaseArg("../../other/x", "\\\\srv\\share\\r\\pkg", "//srv/share/r"),
+      "//srv/share/other/x",
+    );
+  });
 });
