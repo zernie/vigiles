@@ -30,6 +30,7 @@ import {
   disallowedToolIssues,
 } from "./core/tool-contract.js";
 import type { HookEventIssue } from "./core/hook-events.js";
+import type { RootTokens } from "./coverage-evidence.js";
 import { editDistance } from "./core/edit-distance.js";
 import { readFrontmatter, frontmatterScalar } from "./core/frontmatter-read.js";
 import {
@@ -764,22 +765,30 @@ export function scanAgents(
  * braced plugin-root token (`${CLAUDE_PLUGIN_ROOT}`, Codex `${PLUGIN_ROOT}`, …);
  * the unbraced shell form survives, so resolve BOTH forms of the HARNESS's token
  * (from the layout, not hard-coded) against the plugin root and strip shell
- * quotes. A token that still carries any `$VAR` after that is genuinely
- * uncheckable.
+ * quotes. The harness's PROJECT-root variables (`$CLAUDE_PROJECT_DIR`, the
+ * documented spelling of a project hook, set by Claude Code to the project
+ * directory) resolve against the scanned root the same way. A token that still
+ * carries any other `$VAR` after that is genuinely uncheckable.
  */
 function resolveScript(
   token: string,
   root: string,
-  pluginRootToken: string,
+  roots: RootTokens,
   fullCommand: string,
   exists: (p: string) => boolean,
 ): ScanHook {
-  // "${CLAUDE_PLUGIN_ROOT}" → unbraced "$CLAUDE_PLUGIN_ROOT".
-  const unbraced = pluginRootToken.replace(/^\$\{(.+)\}$/, "$$$1");
-  const cleaned = token
-    .replace(/["']/g, "")
-    .replaceAll(pluginRootToken, root)
-    .replaceAll(unbraced, root);
+  // Every root variable the harness sets, in BOTH spellings (`${NAME}` and
+  // `$NAME`). They name different directories at run time (the plugin vs the
+  // host project) but a static scan has one directory to resolve them against:
+  // the scanned root — the same simplification `verify-plugin-guards` makes when
+  // it has no explicit `cwd`.
+  const tokens = [
+    roots.pluginRootToken,
+    ...(roots.projectRootTokens ?? []),
+  ].flatMap((t) => [t, t.replace(/^\$\{(.+)\}$/, "$$$1")]);
+  const expand = (text: string): string =>
+    tokens.reduce((acc, t) => acc.replaceAll(t, root), text);
+  const cleaned = expand(token.replace(/["']/g, ""));
   if (cleaned.includes("$"))
     return { command: fullCommand, script: token, status: "unresolved" };
   // A relative hook path (`./hooks/x.sh`, `scripts/x.py`) is the plugin's own —
@@ -790,9 +799,7 @@ function resolveScript(
   const abs = isAbsolute(cleaned) ? cleaned : resolve(root, cleaned);
   // Resolve the full command the same way we resolve the script token (expand
   // plugin-root, strip outer quotes) so the CLI can pass it to verifyGuardrail.
-  const resolvedCommand = fullCommand
-    .replaceAll(pluginRootToken, root)
-    .replaceAll(unbraced, root);
+  const resolvedCommand = expand(fullCommand);
   return {
     command: resolvedCommand,
     script: cleaned,
@@ -852,7 +859,7 @@ function eventsByScript(
 export function scanHooks(
   regs: readonly HookRegistration[],
   root: string,
-  pluginRootToken: string,
+  roots: RootTokens,
   exists: (p: string) => boolean,
 ): { hooks: ScanHook[]; inline: number; manual: number } {
   const commands = regs.map((r) => r.command);
@@ -878,7 +885,7 @@ export function scanHooks(
       continue;
     }
     for (const tok of found) {
-      const hook = resolveScript(tok, root, pluginRootToken, cmd, exists);
+      const hook = resolveScript(tok, root, roots, cmd, exists);
       const event = evMap.get(tok);
       byScript.set(hook.script, event ? { ...hook, event } : hook);
     }
@@ -1179,7 +1186,7 @@ export function collectDelegationTrifecta(
 export function collectHookBlockEntries(
   regs: readonly HookRegistration[],
   root: string,
-  pluginRootToken: string,
+  roots: RootTokens,
   exists: (p: string) => boolean,
 ): HookScriptEntry[] {
   const out: HookScriptEntry[] = [];
@@ -1196,11 +1203,12 @@ export function collectHookBlockEntries(
       words.filter((w) => SCRIPT_WORD_RE.test(w)),
     );
     for (const w of words) {
-      if (w.includes("/") || w.includes(pluginRootToken)) candidates.add(w);
+      if (w.includes("/") || w.includes(roots.pluginRootToken))
+        candidates.add(w);
     }
     const resolvedPaths: string[] = [];
     for (const tok of candidates) {
-      const r = resolveScript(tok, root, pluginRootToken, cmd, exists);
+      const r = resolveScript(tok, root, roots, cmd, exists);
       if (r.status === "ok") {
         const abs = isAbsolute(r.script) ? r.script : resolve(root, r.script);
         if (!resolvedPaths.includes(abs)) resolvedPaths.push(abs);

@@ -762,7 +762,7 @@ export function scanPlugin(
   const { hooks, inline, manual } = scanHooks(
     hookRegs,
     resolve(dir),
-    lay.pluginRootToken,
+    lay,
     existsSync,
   );
   // Hook-event keys are a CLOSED platform set — an unrecognized one is a dead
@@ -920,12 +920,7 @@ export function scanPlugin(
     hookBlockFindings:
       blockIneffectiveEventsOf(dialect).length > 0
         ? hookBlockIssues(
-            collectHookBlockEntries(
-              hookRegs,
-              resolve(dir),
-              lay.pluginRootToken,
-              existsSync,
-            ),
+            collectHookBlockEntries(hookRegs, resolve(dir), lay, existsSync),
             {
               noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
               permissionDecisionEvents: new Set(
