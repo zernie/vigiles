@@ -3058,7 +3058,7 @@
   },
   "src/load-hook.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 4
+      "count": 3
     },
     "functional/no-let": {
       "count": 1

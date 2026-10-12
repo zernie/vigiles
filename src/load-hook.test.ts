@@ -13,6 +13,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { resolve, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -103,21 +104,52 @@ test("loadHook: an unimportable file reports WHY, not just that it failed", asyn
   }
 });
 
-test("loadHook: a TypeScript hook on a non-TS runtime says how to fix it", async () => {
+/**
+ * What a REAL Node says, not vitest: vitest transforms TypeScript itself, so an
+ * in-process import of a `.ts` hook never meets the runtime's limits. The
+ * built loader runs in a child `node`, as `vigiles hook-runtime` does.
+ */
+function loadInNode(file: string): string {
+  const loader = resolve(__dirname, "..", "dist", "load-hook.js");
+  const script =
+    `require(${JSON.stringify(loader)}).loadHook(${JSON.stringify(file)})` +
+    `.then(() => console.log("loaded"), (e) => console.log(e.message));`;
+  return execFileSync(process.execPath, ["-e", script], { encoding: "utf-8" });
+}
+
+test("loadHook: a .ts hook that fails for another reason names THAT reason, not TypeScript", () => {
   const dir = makeTmpDir();
   try {
     const file = resolve(dir, "guard.hook.ts");
-    // Deliberately unparseable AS JS too, so the failure is the runtime's
-    // inability to load TS on any Node that lacks type stripping.
-    writeFileSync(file, `const x: number = 1;\nexport default {{{`);
-    await assert.rejects(
-      () => loadHook(file),
-      (e: Error) =>
-        e instanceof HookCompileError &&
-        /Run under tsx .*Node >= 23\.6, or author the hook as a \.mjs file/s.test(
-          e.message,
-        ),
+    writeFileSync(
+      file,
+      `import x from "vigiles-no-such-package";\nconst n: number = 1;\nexport default x ?? n;\n`,
     );
+    const out = loadInNode(file);
+    if ("typescript" in process.features && process.features.typescript) {
+      // This Node strips types: the hook loaded as TypeScript and failed on
+      // its import. Blaming TypeScript sent the author to install tsx.
+      assert.match(out, /Cannot find package 'vigiles-no-such-package'/);
+      assert.doesNotMatch(out, /Run under tsx/);
+    } else {
+      // No type stripping at all: here TypeScript IS the reason.
+      assert.match(out, /Run under tsx/);
+    }
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("loadHook: TypeScript the runtime cannot strip is blamed on the runtime, with its own words", () => {
+  const dir = makeTmpDir();
+  try {
+    const file = resolve(dir, "guard.hook.ts");
+    // An `enum` needs a transform, not stripping: no Node loads it without one.
+    writeFileSync(file, `enum E { A }\nexport default { e: E.A };\n`);
+    const out = loadInNode(file);
+    assert.match(out, /Run under tsx .*or author the hook as a \.mjs file/s);
+    // …and quotes the runtime's own reason, so the author sees which limit.
+    assert.match(out, /in this Node runtime \(.+\)\./);
   } finally {
     cleanupTmpDir(dir);
   }
