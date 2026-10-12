@@ -515,7 +515,7 @@
   "src/plugin-loader.ts": {
     "max-params": 6,
     "max-lines-per-function": 117,
-    "sonarjs/cognitive-complexity": 15,
+    "sonarjs/cognitive-complexity": 12,
     "complexity": 11
   },
   "src/posix-path.ts": {
@@ -569,9 +569,8 @@
   "src/scan-core.ts": {
     "max-params": 5,
     "max-lines-per-function": 46,
-    "max-depth": 4,
     "complexity": 13,
-    "sonarjs/cognitive-complexity": 25
+    "sonarjs/cognitive-complexity": 14
   },
   "src/scan-files.test.ts": {
     "max-lines-per-function": 96
@@ -587,9 +586,9 @@
     "complexity": 11
   },
   "src/scan.ts": {
-    "max-lines-per-function": 213,
-    "sonarjs/cognitive-complexity": 17,
-    "complexity": 18
+    "max-lines-per-function": 211,
+    "sonarjs/cognitive-complexity": 16,
+    "complexity": 17
   },
   "src/score-core.ts": {
     "max-lines-per-function": 110

@@ -41,7 +41,10 @@ import {
   skillTrifectaIssue,
 } from "./core/lethal-trifecta.js";
 import { skillResourceIssues } from "./core/skill-resources.js";
-import { hookCommandShape } from "./core/hook-command.js";
+import {
+  hookCommandShape,
+  type HookCommandShape,
+} from "./core/hook-command.js";
 import { skillMissingFence } from "./core/skill-missing-fence.js";
 import type { SkillRefSource } from "./skill-refs.js";
 import {
@@ -748,13 +751,19 @@ function hookFiles(
   roots: RootTokens,
 ): readonly string[] {
   const shape = hookCommandShape(command, rootTokenList(roots));
-  const files =
-    shape.kind === "compiled"
-      ? shape.files
-      : shape.kind === "script"
-        ? [shape.file]
-        : [];
-  return files.map((f) => hookFilePath(f, root, roots));
+  return filesOf(shape).map((f) => hookFilePath(f, root, roots));
+}
+
+/** The files a reading names: a compiled line's, or a script line's one. */
+function filesOf(shape: HookCommandShape): readonly string[] {
+  switch (shape.kind) {
+    case "compiled":
+      return shape.files;
+    case "script":
+      return [shape.file];
+    case "opaque":
+      return [];
+  }
 }
 
 /**

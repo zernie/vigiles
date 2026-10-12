@@ -51,6 +51,7 @@ import {
   join,
   normalize,
   relative,
+  resolve,
 } from "../posix-path.js";
 
 /** A `/`-separated path relative to {@link Frame.root}. `.` is the root itself. */
@@ -187,6 +188,21 @@ export function findProjectRoot(
   const searched = top === -1 ? ancestors : ancestors.slice(0, top + 1);
   const configured = searched.find((d) => exists(join(d, PROJECT_CONFIG_FILE)));
   return configured ?? (top === -1 ? from : searched[top]) ?? from;
+}
+
+/**
+ * A path argument typed in `from`, re-anchored for a command that runs at
+ * `root` (both absolute) — so `vigiles lint CLAUDE.md` typed in `pkg/` reads
+ * `pkg/CLAUDE.md`. Typed AT the root it is returned exactly as typed, so a
+ * message quotes what the user wrote. Absolute, or leaving the root, it is
+ * absolute: `../../etc/passwd` names the same file and reads as a different one.
+ */
+export function rebaseArg(typed: string, from: string, root: string): string {
+  const [here, top] = [normalize(slashed(from)), normalize(slashed(root))];
+  if (isAbsolute(slashed(typed)) || here === top) return typed;
+  const abs = resolve(here, slashed(typed));
+  const rel = relative(top, abs) || ".";
+  return isBelow(rel) ? rel : abs;
 }
 
 /** Every proper ancestor of an absolute directory, nearest first. */

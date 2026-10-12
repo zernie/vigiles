@@ -744,13 +744,13 @@
       "count": 103
     },
     "functional/no-let": {
-      "count": 97
+      "count": 96
     },
     "functional/no-loop-statements": {
       "count": 112
     },
     "functional/prefer-immutable-types": {
-      "count": 191
+      "count": 189
     },
     "no-restricted-syntax": {
       "count": 1
@@ -3231,14 +3231,11 @@
     "functional/immutable-data": {
       "count": 26
     },
-    "functional/no-let": {
-      "count": 1
-    },
     "functional/no-loop-statements": {
       "count": 18
     },
     "functional/prefer-immutable-types": {
-      "count": 31
+      "count": 30
     },
     "no-param-reassign": {
       "count": 2
@@ -3462,21 +3459,18 @@
       "count": 1
     },
     "functional/immutable-data": {
-      "count": 39
+      "count": 33
     },
     "functional/no-let": {
-      "count": 3
+      "count": 2
     },
     "functional/no-loop-statements": {
-      "count": 24
+      "count": 16
     },
     "functional/prefer-immutable-types": {
-      "count": 54
+      "count": 51
     },
     "local/no-harness-names": {
-      "count": 1
-    },
-    "sonarjs/nested-control-flow": {
       "count": 1
     }
   },
@@ -3534,7 +3528,7 @@
       "count": 1
     },
     "local/no-harness-names": {
-      "count": 318
+      "count": 314
     }
   },
   "src/scan.ts": {

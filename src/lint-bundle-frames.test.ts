@@ -42,7 +42,6 @@ const RULES = [
   "mcp-hook-target-resolves",
   "mcp-tool-resolves",
   "plugin-dir-layout",
-  "prefer-compiled-hooks",
   "skill-description-budget",
   "skill-frontmatter",
   "skill-missing-fence",

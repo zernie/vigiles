@@ -755,8 +755,9 @@ export function scanPlugin(
   // hook detector below consumes typed `HookRegistration[]` instead of re-walking
   // `unknown`. The single seam where the per-harness hook shape is absorbed.
   const hookRegs = normalizeHooks(loaded.settings.hooks);
+  // As WRITTEN: hooks are named by their author's line, roots unexpanded.
   const { hooks, inline, handWritten } = scanHookScripts(
-    hookRegs,
+    normalizeHooks(loaded.hooksAsWritten),
     normalizeHooks(loaded.shadowedSettingsHooks),
     {
       root: resolve(dir),
@@ -1360,6 +1361,15 @@ function instructionCostLines(r: ScanReport): readonly string[] {
   return [...weight, ...deprecatedKeyFilesLines(r)];
 }
 
+/** Every hand-written hook, by name: none of them can be checked statically. */
+function handWrittenLines(
+  hooks: readonly HandWrittenHook[],
+): readonly string[] {
+  return hooks.length === 0
+    ? []
+    : [...hooks.map((h) => `ℹ ${handWrittenHookMessage(h)}`), ""];
+}
+
 /** The commands and output-style lines of a scan's facts; a harness without styles says so. */
 function inventoryFacts(r: ScanReport): readonly string[] {
   const commands = r.commands > 0 ? [`Commands: ${String(r.commands)}`] : [];
@@ -1592,13 +1602,7 @@ export function formatScanReport(r: ScanReport): string {
     );
   }
 
-  // Every hand-written hook, by name: none of them can be checked statically.
-  if (r.handWrittenHooks.length > 0) {
-    out.push(
-      ...r.handWrittenHooks.map((h) => `ℹ ${handWrittenHookMessage(h)}`),
-      "",
-    );
-  }
+  out.push(...handWrittenLines(r.handWrittenHooks));
 
   // Malformed-YAML frontmatter is INFORMATIONAL, not a structural defect: js-yaml
   // is stricter than some loaders (a colon/quote/<example> in a one-line

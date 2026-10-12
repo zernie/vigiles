@@ -163,6 +163,7 @@ export function isMainLoopRequest(body: {
 // @public (undocumented)
 export interface LoadedPlugin {
     readonly files: Record<string, string>;
+    readonly hooksAsWritten?: unknown;
     readonly settings: {
         hooks?: unknown;
     };

@@ -582,8 +582,6 @@ const SHIPPED_RULE_DEFAULTS = {
   "skill-frontmatter": "warn",
   "mcp-tool-resolves": "warn",
   "hook-script-exists": "warn",
-  // nudge-group recommendation → default off (opt in to surface it)
-  "prefer-compiled-hooks": false,
   "disallowed-tools-contract": "warn",
   "description-overlap": "warn",
   "skill-description-budget": "warn",

@@ -38,7 +38,6 @@ import { basename, dirname, isAbsolute, join, relative } from "./posix-path.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import type { SettingsCodec } from "./core/settings-codec.js";
-import type { HookRegistration } from "./core/hook-normalize.js";
 import {
   executableSourceDirs,
   materializePrefix,
@@ -636,6 +635,7 @@ export function loadPluginFromFiles(
       repoName ?? basename(BROWSER_ROOT),
     ),
     ...(shadowed === undefined ? {} : { shadowedSettingsHooks: shadowed }),
+    ...(hooks ? { hooksAsWritten: hooks } : {}),
   };
 }
 
@@ -678,20 +678,24 @@ function collectMcpServers(
 // Public API
 // ---------------------------------------------------------------------------
 
-/** `scanHookScripts` as the file map can answer it: no `node_modules`, ever. */
+/** `scanHookScripts` over the lines as written, as the file map can answer it: no `node_modules`, ever. */
 function fileMapHooks(
-  regs: readonly HookRegistration[],
   loaded: Readonly<LoadedPlugin>,
   layout: Readonly<PluginLayout>,
   exists: (path: string) => boolean,
 ): ReturnType<typeof scanHookScripts> {
-  return scanHookScripts(regs, normalizeHooks(loaded.shadowedSettingsHooks), {
-    root: BROWSER_ROOT,
-    layout,
-    exists,
-    // A fetched file map never holds node_modules: absence there proves nothing.
-    observable: (abs) => !isDependencyPath(abs),
-  });
+  const asWritten = normalizeHooks(loaded.hooksAsWritten);
+  return scanHookScripts(
+    asWritten,
+    normalizeHooks(loaded.shadowedSettingsHooks),
+    {
+      root: BROWSER_ROOT,
+      layout,
+      exists,
+      // A fetched file map never holds node_modules: absence there proves nothing.
+      observable: (abs) => !isDependencyPath(abs),
+    },
+  );
 }
 
 /**
@@ -732,7 +736,7 @@ export function scanFiles(
   const loaded = loadPluginFromFiles(files, lay, repoName);
   const exists = mapExists(files);
   const hookRegs = normalizeHooks(loaded.settings.hooks);
-  const { hooks, inline, handWritten } = fileMapHooks(hookRegs, loaded, lay, exists);
+  const { hooks, inline, handWritten } = fileMapHooks(loaded, lay, exists);
   const eventNames = hookEventNames(loaded.settings.hooks);
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
   const hookEventIssues = scoredIssues(allHookEventIssues);

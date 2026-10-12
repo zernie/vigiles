@@ -432,7 +432,7 @@ test("scanPlugin does not flag a glob pattern in a hook command as a missing scr
 });
 
 test("scanPlugin lists every hand-written hook, each by its kind (compiled ones excluded)", () => {
-  const dir = makeTmpDir("scan-prefer-compiled");
+  const dir = makeTmpDir("scan-hand-written");
   write(dir, "hooks/guard.sh", "#!/usr/bin/env bash\n");
   write(
     dir,
@@ -480,7 +480,7 @@ test("scanPlugin lists every hand-written hook, each by its kind (compiled ones 
   const out = formatScanReport(r);
   assert.match(
     out,
-    /PreToolUse hook `bash \$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/guard\.sh`/,
+    /PreToolUse hook `bash \$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/guard\.sh`: vigiles checks that its script exists/,
   );
   assert.match(
     out,
@@ -1226,16 +1226,21 @@ test("scanPlugin still flags a real top-level subagent missing frontmatter", () 
   cleanupTmpDir(dir);
 });
 
-test("scanPlugin resolves hook scripts: ok / missing / unresolved", () => {
+test("scanPlugin resolves hook scripts: ok / missing / opaque", () => {
   const dir = fixture();
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const byBase = (suffix: string) =>
     r.hooks.find((h) => h.script.endsWith(suffix));
   assert.equal(byBase("hooks/present.sh")?.status, "ok"); // ${CLAUDE_PLUGIN_ROOT}
   assert.equal(byBase("hooks/absent.sh")?.status, "missing"); // $CLAUDE_PLUGIN_ROOT, no file
-  // "$HOME"/weird.sh keeps an unexpanded var → can't be path-checked
-  assert.ok(r.hooks.some((h) => h.status === "unresolved"));
-  assert.equal(r.inlineHooks, 1); // `npm test`
+  // "$HOME"/weird.sh names a variable that is not a root: no word of it is
+  // taken for a script, so it is opaque — counted, named, never path-checked.
+  assert.ok(!r.hooks.some((h) => h.script.includes("weird.sh")));
+  assert.equal(r.inlineHooks, 2); // `npm test`, `bash "$HOME"/weird.sh`
+  assert.deepEqual(
+    r.handWrittenHooks.filter((h) => h.kind === "opaque").map((h) => h.command),
+    ['bash "$HOME"/weird.sh', "npm test"],
+  );
   cleanupTmpDir(dir);
 });
 
@@ -1342,37 +1347,6 @@ test("scanPlugin: an inline `node -e` hook is not reported as a missing script",
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(r.hooks, []); // no script token at all…
   assert.equal(r.inlineHooks, 1); // …it is an inline one-liner, and says so
-  cleanupTmpDir(dir);
-});
-
-test("scanPlugin: a hook script on the RIGHT of && is still existence-checked", () => {
-  // The control for the extractor choice: `leafArgvSource` drops this leaf by
-  // design, so reusing it here would have traded a false positive for a miss.
-  const dir = makeTmpDir("scan-and-hook");
-  write(dir, ".claude-plugin/plugin.json", '{"name":"p","version":"0.1.0"}');
-  write(
-    dir,
-    "hooks/hooks.json",
-    JSON.stringify({
-      hooks: {
-        SessionStart: [
-          {
-            hooks: [
-              {
-                type: "command",
-                command: 'cd "$CLAUDE_PLUGIN_ROOT" && node hooks/gone.mjs',
-              },
-            ],
-          },
-        ],
-      },
-    }),
-  );
-  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
-  assert.deepEqual(
-    r.hooks.map((h) => [h.script, h.status]),
-    [["hooks/gone.mjs", "missing"]],
-  );
   cleanupTmpDir(dir);
 });
 

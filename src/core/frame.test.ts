@@ -13,6 +13,7 @@ import {
   frameAt,
   frameFor,
   linkFrom,
+  rebaseArg,
   type RepoPath,
 } from "./frame.js";
 
@@ -177,5 +178,25 @@ describe("findProjectRoot: where a command's root is", () => {
       findProjectRoot("/tmp/x/y", fs("/tmp/x/.vigilesrc.json")),
       "/tmp/x",
     );
+  });
+});
+
+describe("rebaseArg: a typed path, re-anchored at the project root", () => {
+  it("a relative path typed in a subdirectory gains that subdirectory", () => {
+    assert.equal(rebaseArg("CLAUDE.md", "/r/pkg", "/r"), "pkg/CLAUDE.md");
+    assert.equal(rebaseArg(".", "/r/pkg", "/r"), "pkg");
+    assert.equal(rebaseArg("..", "/r/pkg", "/r"), ".");
+  });
+
+  it("typed AT the root, a path is left exactly as typed", () => {
+    // `./x`, a glob, a typo: the message must quote what the user wrote.
+    for (const typed of ["./x.md", ".vigiles/hooks/*", "nonexistent/typo.json"])
+      assert.equal(rebaseArg(typed, "/r", "/r"), typed);
+  });
+
+  it("an absolute path, or one that leaves the root, is absolute — never `../..`", () => {
+    assert.equal(rebaseArg("/etc/passwd", "/r/pkg", "/r"), "/etc/passwd");
+    assert.equal(rebaseArg("/etc/passwd", "/r", "/r"), "/etc/passwd");
+    assert.equal(rebaseArg("../../other/x", "/r/pkg", "/r"), "/other/x");
   });
 });

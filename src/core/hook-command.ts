@@ -82,12 +82,18 @@ export function hookCommandShape(
     (line.rest === "or-else" && isRoleExit(line.orElse, roots));
   const compiled = endsAsWritten ? compiledFiles(words, rootTokens) : null;
   if (compiled !== null) return { kind: "compiled", files: compiled };
+  const script = leadingScript(words);
+  return script === null ? OPAQUE : { kind: "script", file: script };
+}
+
+/** The literal path a hand-written line starts by running, or null. */
+function leadingScript(words: readonly (string | null)[]): string | null {
   const [head = null, operand = null] = words;
-  if (head === null) return OPAQUE;
-  if (isLiteralPath(head)) return { kind: "script", file: head };
-  if (INTERPRETERS.has(head) && operand !== null && isLiteralPath(operand))
-    return { kind: "script", file: operand };
-  return OPAQUE;
+  if (head === null) return null;
+  if (isLiteralPath(head)) return head;
+  return INTERPRETERS.has(head) && operand !== null && isLiteralPath(operand)
+    ? operand
+    : null;
 }
 
 /**
@@ -105,21 +111,33 @@ function compiledFiles(
   const known = words.filter((w): w is string => w !== null);
   if (known.length !== words.length) return null;
   const [head, ...rest] = known;
-  if (head === "sh")
-    return rest.length === 1 && isHookCheckRef(rest[0], rootTokens)
-      ? rest
-      : null;
-  if (head === "node") {
-    const [runner, ...runtime] = rest;
-    if (runner === undefined || !isLiteralPath(runner)) return null;
-    const program = runtimeOperand(runtime);
-    return program === null ? null : [runner, ...program];
+  switch (head) {
+    case "sh":
+      return rest.length === 1 && isHookCheckRef(rest[0], rootTokens)
+        ? rest
+        : null;
+    case "node":
+      return nodeRuntimeFiles(rest);
+    case "npx":
+      return npxRuntimeFiles(rest);
+    default:
+      return null;
   }
-  if (head === "npx") {
-    const [pkg, ...runtime] = rest[0] === "--no-install" ? rest.slice(1) : rest;
-    return pkg === "vigiles" ? runtimeOperand(runtime) : null;
-  }
-  return null;
+}
+
+/** `<runner> hook-runtime …` after `node` → the runner and the program. */
+function nodeRuntimeFiles(words: readonly string[]): readonly string[] | null {
+  const [runner, ...runtime] = words;
+  if (runner === undefined || !isLiteralPath(runner)) return null;
+  const program = runtimeOperand(runtime);
+  return program === null ? null : [runner, ...program];
+}
+
+/** `[--no-install] vigiles hook-runtime …` after `npx` → the program. */
+function npxRuntimeFiles(words: readonly string[]): readonly string[] | null {
+  const [pkg, ...runtime] =
+    words[0] === "--no-install" ? words.slice(1) : words;
+  return pkg === "vigiles" ? runtimeOperand(runtime) : null;
 }
 
 /**
@@ -132,7 +150,7 @@ function runtimeOperand(words: readonly string[]): readonly string[] | null {
   if (kind !== RUN_PROGRAM_KIND) return [];
   const [program, ...extra] = operands;
   if (program === undefined || extra.length > 0) return null;
-  return isRelativeFile(program) ? [program] : null;
+  return isFileWord(program) ? [program] : null;
 }
 
 /** `exit <n>` — the fallback `withRoleExit` gives a compiled line. */
@@ -190,18 +208,19 @@ function pieceText(
 
 /**
  * A path the shell runs as written: it has a slash (so no `PATH` lookup), and
- * is a {@link isRelativeFile}.
+ * is a {@link isFileWord}.
  */
 function isLiteralPath(text: string): boolean {
-  return text.includes("/") && isRelativeFile(text);
+  return text.includes("/") && isFileWord(text);
 }
 
 /**
- * Relative to the repo, or to a root variable that is its whole first segment;
- * not absolute, not a flag, and no variable anywhere else.
+ * A word naming one file of the repository as written: relative, or anchored
+ * at a root variable that is its whole first segment; not a flag, and no
+ * other variable. An absolute path names a file on one machine, not in the repo.
  */
-function isRelativeFile(text: string): boolean {
-  if (text === "" || text.startsWith("/") || text.startsWith("-")) return false;
+function isFileWord(text: string): boolean {
+  if (text === "" || text.startsWith("-") || text.startsWith("/")) return false;
   if (!text.startsWith("${")) return !text.includes("${");
   const rest = text.slice(text.indexOf("}") + 1);
   return rest.startsWith("/") && !rest.includes("${");

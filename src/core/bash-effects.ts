@@ -1554,41 +1554,51 @@ const OR_OP = 11;
  * operators and expansions are the shell grammar's answer, not a regex's.
  */
 export function leadingCommand(command: string): LeadingCommand | null {
-  let file: MvdanNode;
+  const stmts = onlyParse(command)?.Stmts ?? [];
+  const first = stmts[0];
+  const head = first ? leftmostCall(first) : null;
+  if (!first || !head?.Args?.length) return null;
+  return {
+    words: head.Args.map((w) => shellWord(w.Parts)),
+    ...restOf(stmts, first),
+  };
+}
+
+/** The parsed file, or null when the text is not shell. */
+function onlyParse(command: string): Readonly<MvdanNode> | null {
   try {
-    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
+    return sh().syntax.NewParser().Parse(command, "cmd.sh");
   } catch {
+    // mvdan-sh throws a Go error object (not an Error instance) on parse failure.
     return null;
   }
-  const [first, ...others] = file.Stmts ?? [];
-  if (!first) return null;
-  const head = leftmostCall(first);
-  if (!head?.Args?.length) return null;
-  const words = head.Args.map((w) => shellWord(w.Parts));
+}
+
+/** What follows the leading command, for {@link LeadingCommand}. */
+function restOf(
+  stmts: readonly Readonly<MvdanNode>[],
+  first: Readonly<MvdanNode>,
+): Pick<LeadingCommand, "rest" | "orElse"> {
+  const more: Pick<LeadingCommand, "rest" | "orElse"> = {
+    rest: "more",
+    orElse: [],
+  };
+  if (stmts.length !== 1 || (first.Redirs ?? []).length > 0) return more;
+  if (plainCall(first)) return { rest: "alone", orElse: [] };
   const cmd = first.Cmd;
-  const plain = others.length === 0 && (first.Redirs ?? []).length === 0;
-  if (plain && plainCall(first)) return { words, rest: "alone", orElse: [] };
-  const fallback =
-    plain &&
-    cmd &&
+  const isOr =
+    cmd !== undefined &&
     sh().syntax.NodeType(cmd) === "BinaryCmd" &&
-    cmd.Op === OR_OP &&
-    cmd.X &&
-    plainCall(cmd.X) &&
-    cmd.Y
-      ? plainCall(cmd.Y)
-      : null;
-  return fallback?.Args
-    ? {
-        words,
-        rest: "or-else",
-        orElse: fallback.Args.map((w) => shellWord(w.Parts)),
-      }
-    : { words, rest: "more", orElse: [] };
+    cmd.Op === OR_OP;
+  const left = isOr && cmd.X ? plainCall(cmd.X) : null;
+  const right = isOr && cmd.Y ? plainCall(cmd.Y) : null;
+  return left && right?.Args
+    ? { rest: "or-else", orElse: right.Args.map((w) => shellWord(w.Parts)) }
+    : more;
 }
 
 /** A statement that is one simple command and nothing else, or null. */
-function plainCall(stmt: MvdanNode): MvdanNode | null {
+function plainCall(stmt: Readonly<MvdanNode>): Readonly<MvdanNode> | null {
   const cmd = stmt.Cmd;
   if (!cmd || stmt.Background || stmt.Negated) return null;
   if ((stmt.Redirs ?? []).length > 0) return null;
@@ -1597,7 +1607,7 @@ function plainCall(stmt: MvdanNode): MvdanNode | null {
 }
 
 /** The leftmost simple command of a statement, through `&&` / `||` / pipes. */
-function leftmostCall(stmt: MvdanNode): MvdanNode | null {
+function leftmostCall(stmt: Readonly<MvdanNode>): Readonly<MvdanNode> | null {
   const cmd = stmt.Cmd;
   if (!cmd || stmt.Background || stmt.Negated) return null;
   if (sh().syntax.NodeType(cmd) === "BinaryCmd")
@@ -1608,32 +1618,33 @@ function leftmostCall(stmt: MvdanNode): MvdanNode | null {
 
 /** A word's pieces; null for any part the shell computes at run time. */
 function shellWord(
-  parts: readonly MvdanNode[] | undefined,
+  parts: readonly Readonly<MvdanNode>[] | undefined,
   quoted = false,
 ): ShellWord {
   if (!parts) return null;
-  const out: WordPiece[] = [];
-  for (const p of parts) {
-    const t = sh().syntax.NodeType(p);
-    if (t === "Lit" || t === "SglQuoted") {
-      const text = p.Value ?? "";
-      if (t === "Lit" && text.includes("\\")) return null;
-      out.push({ kind: "text", text, quoted: quoted || t === "SglQuoted" });
-    } else if (t === "DblQuoted") {
-      const inner = shellWord(p.Parts, true);
-      if (inner === null) return null;
-      out.push(...inner);
-    } else if (t === "ParamExp" && isBareParam(p) && p.Param?.Value) {
-      out.push({ kind: "param", name: p.Param.Value });
-    } else {
-      return null;
-    }
-  }
-  return out;
+  const each = parts.map((p) => pieces(p, quoted));
+  return each.every((x): x is readonly WordPiece[] => x !== null)
+    ? each.flat()
+    : null;
+}
+
+/** One part of a word as pieces; null when the shell computes it. */
+function pieces(p: Readonly<MvdanNode>, quoted: boolean): ShellWord {
+  const t = sh().syntax.NodeType(p);
+  const text = p.Value ?? "";
+  if (t === "SglQuoted") return [{ kind: "text", text, quoted: true }];
+  // A backslash escape is left to the shell rather than re-implemented here.
+  if (t === "Lit")
+    return text.includes("\\") ? null : [{ kind: "text", text, quoted }];
+  if (t === "DblQuoted") return shellWord(p.Parts, true);
+  const name = p.Param?.Value;
+  return t === "ParamExp" && isBareParam(p) && name
+    ? [{ kind: "param", name }]
+    : null;
 }
 
 /** `$X` or `${X}` — no default, length, index, slice, replacement or indirection. */
-function isBareParam(p: MvdanNode): boolean {
+function isBareParam(p: Readonly<MvdanNode>): boolean {
   return (
     [p.Excl, p.Length, p.Width, p.Index, p.Slice, p.Repl, p.Names, p.Exp]
       // GopherJS hands an unset field over as its Go zero value: nil, false, 0.

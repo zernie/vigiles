@@ -161,7 +161,7 @@ Beyond the references above, `vigiles lint` runs a set of **deterministic valida
 | Skills                      | `untested-skill`, `skill-frontmatter`, `description-overlap`, `skill-description-budget`, `frontmatter-valid`, `skill-resource-resolves`, `skill-missing-fence` | all with skills                           |
 | Plugin layout               | `plugin-dir-layout`                                                                                                                                             | all with a plugin manifest                |
 | MCP                         | `mcp-config`                                                                                                                                                    | all with MCP                              |
-| Shell hooks                 | `untested-hook`, `hook-script-exists`, `hook-events`, `hook-matcher`, `hook-block-ineffective`, `prefer-compiled-hooks`                                         | Claude Code, Codex                        |
+| Shell hooks                 | `untested-hook`, `hook-script-exists`, `hook-events`, `hook-matcher`, `hook-block-ineffective`                                                                  | Claude Code, Codex                        |
 | Subagents                   | `subagent-tool-contract`, `subagent-frontmatter`, `untested-subagent`, `mcp-tool-resolves`                                                                      | Claude Code (n/a on Codex — no subagents) |
 | Output styles               | `untested-output-style`                                                                                                                                         | Claude Code (n/a on Codex — no styles)    |
 | Safety (skills + subagents) | `lethal-trifecta`, `delegation-trifecta`                                                                                                                        | all (subagent half n/a on Codex)          |
@@ -211,11 +211,10 @@ The per-family tables below give each rule's default severity and what it checks
 | [`hook-events`](rules/hook-events.md)                           | `"warn"` | A hook registers under a real event name (a typo never fires)                                                                              |
 | [`hook-matcher`](rules/hook-matcher.md)                         | `"warn"` | A hook `matcher` fires as written (typo · uncompilable · an MCP pattern reaching nothing or missing real server names · undeclared server) |
 | [`hook-block-ineffective`](rules/hook-block-ineffective.md)     | `"warn"` | A hook that looks like it blocks actually can (right event + right deny field)                                                             |
-| [`hook-script-exists`](rules/hook-script-exists.md)             | `"warn"` | A hook's referenced script file exists on disk (else it never runs)                                                                        |
+| [`hook-script-exists`](rules/hook-script-exists.md)             | `"warn"` | A file a hook line runs exists, and every hand-written hook line is named (static readers cannot verify it)                                |
 | [`mcp-config`](rules/mcp-config.md)                             | `"warn"` | A declared MCP server can start (has a `command` or `url`)                                                                                 |
 | [`mcp-tool-resolves`](rules/mcp-tool-resolves.md)               | `"warn"` | A subagent's `mcp__server__tool` names a declared (or built-in) server                                                                     |
 | [`mcp-hook-target-resolves`](rules/mcp-hook-target-resolves.md) | `"warn"` | A `type: mcp_tool` hook names a declared server + a tool                                                                                   |
-| [`prefer-compiled-hooks`](rules/prefer-compiled-hooks.md)       | `false`  | One nudge: hand-written hooks could be compiled (recommendation; off by default)                                                           |
 
 ### Skill triggers
 
@@ -274,7 +273,7 @@ Disable a rule for one file with `<!-- vigiles-disable require-instructions-spec
 
 - **`structural`** — FP-safe correctness rules (broken tools / dead hooks / broken MCP / collisions), plus `require-instructions-spec`. `init` gates them at `error` by writing `"extends": "vigiles:recommended"` ([the preset](configuration.md#extends)); each rule's own default stays `warn`.
 - **`workflow`** — opinionated rules a clean repo can still fail because the work isn't done yet (`untested-*`). Off by default; added by `--strict`.
-- **`nudge`** — recommendations / acknowledged-noisy (`frontmatter-valid`, `skill-frontmatter`, `prefer-compiled-hooks`, `unmarked-refs`). Stays `warn` and never gates.
+- **`nudge`** — recommendations / acknowledged-noisy (`frontmatter-valid`, `skill-frontmatter`, `unmarked-refs`). Stays `warn` and never gates.
 
 `--report-only` writes the whole gate at `warn` (nothing fails CI). See [the CLI guide](cli.md#init).
 

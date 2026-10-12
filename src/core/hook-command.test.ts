@@ -130,3 +130,8 @@ test("anything else is opaque — no word is guessed to be the script", () => {
     assert.deepEqual(shape(command), { kind: "opaque" }, command);
   }
 });
+
+test("a backslash escape is left to the shell, not re-implemented: opaque", () => {
+  assert.deepEqual(shape("bash hooks/a\\ b.sh"), { kind: "opaque" });
+  assert.deepEqual(shape("hooks/x\\.sh"), { kind: "opaque" });
+});

@@ -194,7 +194,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 553 project files. */
+  /** 555 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -224,6 +224,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/eval-replies.test.ts"
     | "src/adapters/claude-code/eval-start-guard.test.ts"
     | "src/adapters/claude-code/event-capability.ts"
+    | "src/adapters/claude-code/hand-written-hooks.test.ts"
     | "src/adapters/claude-code/harness-output-style.test.ts"
     | "src/adapters/claude-code/hook-condition.ts"
     | "src/adapters/claude-code/hook-delivery.test.ts"
@@ -243,7 +244,6 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/output-style.ts"
     | "src/adapters/claude-code/plugin-loader.test.ts"
     | "src/adapters/claude-code/plugin-loader.ts"
-    | "src/adapters/claude-code/project-dir-hooks.test.ts"
     | "src/adapters/claude-code/refs-hook.test.ts"
     | "src/adapters/claude-code/refs-nudge-hook.test.ts"
     | "src/adapters/claude-code/replies.test.ts"
@@ -415,6 +415,8 @@ declare module "vigiles/generated" {
     | "src/core/hash.ts"
     | "src/core/hook-block-ineffective.test.ts"
     | "src/core/hook-block-ineffective.ts"
+    | "src/core/hook-command.test.ts"
+    | "src/core/hook-command.ts"
     | "src/core/hook-condition.ts"
     | "src/core/hook-delivery.test.ts"
     | "src/core/hook-delivery.ts"
@@ -943,6 +945,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/eval-replies.test.ts"
       | "src/adapters/claude-code/eval-start-guard.test.ts"
       | "src/adapters/claude-code/event-capability.ts"
+      | "src/adapters/claude-code/hand-written-hooks.test.ts"
       | "src/adapters/claude-code/harness-output-style.test.ts"
       | "src/adapters/claude-code/hook-condition.ts"
       | "src/adapters/claude-code/hook-delivery.test.ts"
@@ -962,7 +965,6 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/output-style.ts"
       | "src/adapters/claude-code/plugin-loader.test.ts"
       | "src/adapters/claude-code/plugin-loader.ts"
-      | "src/adapters/claude-code/project-dir-hooks.test.ts"
       | "src/adapters/claude-code/refs-hook.test.ts"
       | "src/adapters/claude-code/refs-nudge-hook.test.ts"
       | "src/adapters/claude-code/replies.test.ts"
@@ -1134,6 +1136,8 @@ declare module "vigiles/spec" {
       | "src/core/hash.ts"
       | "src/core/hook-block-ineffective.test.ts"
       | "src/core/hook-block-ineffective.ts"
+      | "src/core/hook-command.test.ts"
+      | "src/core/hook-command.ts"
       | "src/core/hook-condition.ts"
       | "src/core/hook-delivery.test.ts"
       | "src/core/hook-delivery.ts"

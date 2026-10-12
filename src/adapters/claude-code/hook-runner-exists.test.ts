@@ -193,13 +193,20 @@ test("`lint`: a fail-open compiled hook whose runner is not installed is an ERRO
     assert.doesNotMatch(r.stdout, /x\.hook\.mjs" is referenced/);
     assert.doesNotMatch(r.stdout, /post\.sh" is referenced/);
 
-    // Installed → the same repo lints clean on this rule.
+    // Installed → no file is missing; what stays is the manifest's own
+    // hand-written hook, named once (#361).
     write(dir, RUNNER, "// cli\n");
     const ok = spawnSync(process.execPath, [CLI, "lint"], {
       cwd: dir,
       encoding: "utf-8",
     });
-    assert.doesNotMatch(ok.stdout, /Hook-script existence check:/);
+    assert.doesNotMatch(ok.stdout, /is referenced but/);
+    assert.equal(
+      ok.stdout.split("\n").filter((l) => /cannot (verify|tell)/.test(l))
+        .length,
+      1,
+      ok.stdout,
+    );
   } finally {
     cleanupTmpDir(dir);
   }

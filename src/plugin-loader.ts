@@ -114,6 +114,14 @@ export interface LoadedPlugin {
    * deterministic tier never runs it.
    */
   readonly shadowedSettingsHooks?: unknown;
+  /**
+   * {@link settings}' `hooks` block as the file wrote it — no root variable
+   * expanded. `settings` writes the plugin root in so the shipped wiring runs;
+   * a READER of a hook line (what it names, which hook it is) needs the line
+   * the author wrote, or every message quotes a machine path. Absent when
+   * `settings` holds no hooks.
+   */
+  readonly hooksAsWritten?: unknown;
 }
 
 const MAX_SKILL_FILE_BYTES = 256 * 1024;
@@ -321,6 +329,7 @@ export function loadPlugin(
     sources,
     warnings: pluginWarnings(root, surfaces, resolvedHooks, files, layout),
     ...(shadowed === undefined ? {} : { shadowedSettingsHooks: shadowed }),
+    ...(hooks ? { hooksAsWritten: hooks } : {}),
   };
 }
 
@@ -374,7 +383,6 @@ export function loadPlugins(
   const sources: Record<string, string> = {};
   const seenOnDisk = new Set<string>();
   const warnings: string[] = [];
-  let settings: { hooks?: unknown } = {};
   for (const load of loads) {
     for (const [key, content] of Object.entries(load.files)) {
       // A file with no recorded source is one the loader synthesized rather than
@@ -386,12 +394,27 @@ export function loadPlugins(
       sources[key] = onDisk;
     }
     for (const w of load.warnings) if (!warnings.includes(w)) warnings.push(w);
-    if (settings.hooks === undefined && load.settings.hooks !== undefined)
-      settings = load.settings;
   }
   // First-wins, like `settings`.
   const shadowed = loads.find((l) => l.shadowedSettingsHooks !== undefined);
-  return { settings, files, sources, warnings, ...pickShadowed(shadowed) };
+  return {
+    ...pickHooks(loads),
+    files,
+    sources,
+    warnings,
+    ...pickShadowed(shadowed),
+  };
+}
+
+/** The hooks of the first load that has any, as run and as written. */
+function pickHooks(
+  loads: readonly LoadedPlugin[],
+): Pick<LoadedPlugin, "settings" | "hooksAsWritten"> {
+  const hooked = loads.find((l) => l.settings.hooks !== undefined);
+  if (hooked === undefined) return { settings: {} };
+  return hooked.hooksAsWritten === undefined
+    ? { settings: hooked.settings }
+    : { settings: hooked.settings, hooksAsWritten: hooked.hooksAsWritten };
 }
 
 /** The `shadowedSettingsHooks` key of `load`, or nothing — so the key is absent rather than `undefined`. */

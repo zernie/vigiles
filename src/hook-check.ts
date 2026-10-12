@@ -45,9 +45,6 @@
 import { runProgramFiles } from "./coverage-probe.js";
 import { INSTALLED_HOOK_RUNTIME } from "./hook-install.js";
 
-/** Where the generated script is written. It is committed, next to the hook sources. */
-export const HOOK_CHECK_REF = ".vigiles/hook-check.sh";
-
 /**
  * Every `command` string in a parsed hooks block. It looks for the key `command`
  * instead of following one layout, because the layout depends on the harness

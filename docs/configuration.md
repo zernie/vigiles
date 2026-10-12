@@ -318,7 +318,7 @@ at that file's path:
 These rules report about the repository or a settings entry rather than one
 file, so an override does not change them — set them in `rules`:
 
-`coverage`, `instruction-weight`, `prefer-compiled-hooks`, `hook-events`,
+`coverage`, `instruction-weight`, `hook-events`,
 `hook-script-exists`, `hook-block-ineffective`, `hook-matcher`, `mcp-config`,
 `mcp-hook-target-resolves`, `description-overlap`, `skill-description-budget`.
 

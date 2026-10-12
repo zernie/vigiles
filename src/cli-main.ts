@@ -141,6 +141,7 @@ import {
   type Frame,
   type RepoPath,
   findProjectRoot,
+  rebaseArg,
 } from "./core/frame.js";
 import { unresolvedDeclaredRoots } from "./core/surface-discovery.js";
 import {
@@ -312,6 +313,7 @@ import {
   invalidArgMessage,
   unclaimedReport,
 } from "./hook-install.js";
+import { runProgramCommand } from "./core/hook-command.js";
 import { installHookCheck } from "./hook-check-install.js";
 import { unsafeProvider } from "./core/hook-providers.js";
 import { parse as parseToml } from "@iarna/toml";
@@ -8567,9 +8569,10 @@ async function installHookFile(
     // cache, thirteen times, on every tool call. The `|| exit N` ending is what
     // the shell does when that file cannot start at all. `compileHookProgram`
     // adds it (see `hookRuntimeMissingExit`), so it is not written here.
-    gateCommand:
-      `${hookRuntimeRef(adapter.layout.projectRootTokens, runtime)} hook-runtime run-program ` +
+    gateCommand: runProgramCommand(
+      hookRuntimeRef(adapter.layout.projectRootTokens, runtime),
       hookGateRef(ref, adapter.layout.projectRootTokens),
+    ),
     dialect: adapter.dialect,
     hookProtocol: adapter.hookProtocol,
     settings: adapter.layout.settings,
@@ -9234,10 +9237,8 @@ function enterProjectRoot(): {
   const projectRoot = findProjectRoot(invocationDir, existsSync);
   const args = [
     command,
-    ...rebasePathArgs(
-      command,
-      rest,
-      (p) => relative(projectRoot, resolve(invocationDir, p)) || ".",
+    ...rebasePathArgs(command, rest, (p) =>
+      rebaseArg(p, invocationDir, projectRoot),
     ),
   ];
   if (projectRoot !== invocationDir) process.chdir(projectRoot);

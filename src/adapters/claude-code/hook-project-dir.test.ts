@@ -1,7 +1,7 @@
 /**
  * Hook scripts written with Claude Code's project-root variable
  * (`$CLAUDE_PROJECT_DIR`, both spellings) resolve against the scanned root, so
- * `audit` and `hook-script-exists` check them instead of reporting "unresolved".
+ * `audit` and `hook-script-exists` check them.
  *
  * Claude-Code-shaped fixture (`.claude/settings.json`), so it lives in the
  * adapter. The runner half (`node_modules/vigiles/dist/cli.js`) is in
@@ -63,9 +63,15 @@ test("scanPlugin resolves $CLAUDE_PROJECT_DIR hook scripts against the project r
       r.hooks.find((h) => h.script.endsWith(suffix));
     assert.equal(byBase(".claude/hooks/present.sh")?.status, "ok");
     assert.equal(byBase(".claude/hooks/absent.sh")?.status, "missing");
-    // A variable the harness does NOT set stays uncheckable — resolving only the
-    // documented project token must not turn every `$VAR` into a guess.
-    assert.equal(byBase(".claude/hooks/x.sh")?.status, "unresolved");
+    // A variable the harness does NOT set is not resolved into a guess: the
+    // line is opaque — no file is taken for its script, and it is named (#361).
+    assert.equal(byBase(".claude/hooks/x.sh"), undefined);
+    assert.deepEqual(
+      r.handWrittenHooks
+        .filter((h) => h.kind === "opaque")
+        .map((h) => h.command),
+      ['"$SOME_OTHER_VAR"/.claude/hooks/x.sh'],
+    );
   } finally {
     cleanupTmpDir(dir);
   }
