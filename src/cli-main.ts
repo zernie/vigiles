@@ -968,13 +968,17 @@ async function compileAgentToFile(
   root: string,
   spec: AgentSpec,
   specPath: string,
+  config: Readonly<VigilesConfig>,
   dialect: HarnessDialect,
 ): Promise<boolean> {
   const outputPath = specPath.replace(/\.spec\.ts$/, "");
+  // The same verify options an instruction file gets (`compileClaudeToFile`).
   const { artifact, errors, warnings } = await compileAgent(spec, {
     basePath: root,
     specFile: specPath,
     dialect,
+    catalogOnly: config.catalogOnly,
+    linters: config.linters,
   });
   // Written only when the compile is clean: `artifact` is null otherwise, and
   // `writeArtifact` takes nothing else.
@@ -1103,7 +1107,7 @@ async function compile(
       if (!(await compileSkillToFile(root, spec, specPath, dialect)))
         allValid = false;
     } else if (spec._specType === "agent") {
-      if (!(await compileAgentToFile(root, spec, specPath, dialect)))
+      if (!(await compileAgentToFile(root, spec, specPath, config, dialect)))
         allValid = false;
     } else if (spec._specType === "railway") {
       knownAgents ??= await collectAgentNames(excludes);
@@ -2406,7 +2410,13 @@ async function specCompileErrors(
     case "agent":
       return {
         errors: (
-          await compileAgent(spec, { basePath, specFile: specPath, dialect })
+          await compileAgent(spec, {
+            basePath,
+            specFile: specPath,
+            dialect,
+            catalogOnly: config?.catalogOnly,
+            linters: config?.linters,
+          })
         ).errors,
         budget: [],
       };

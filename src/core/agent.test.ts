@@ -249,12 +249,15 @@ test("compileAgent verifies body references against the filesystem", async () =>
   }
 });
 
+/** The options the two Rules-section tests compile with. */
+const RULES_OPTIONS = {
+  basePath: REPO_ROOT,
+  specFile: "a.md.spec.ts",
+  dialect: claudeCodeDialect,
+};
+
 test("compileAgent renders a Rules section the worker must follow, verifying each enforce() (#351)", async () => {
-  const options = {
-    basePath: REPO_ROOT,
-    specFile: "a.md.spec.ts",
-    dialect: claudeCodeDialect,
-  };
+  const options = RULES_OPTIONS;
   const { markdown, errors } = await compileAgent(
     experimental_agent({
       name: "a",
@@ -302,6 +305,29 @@ test("compileAgent renders a Rules section the worker must follow, verifying eac
   assert.match(
     invented.markdown,
     /\*\*Claimed \(unverified\):\*\* `@typescript-eslint\/no-such-rule-anywhere`/,
+  );
+});
+
+test("compileAgent takes compileClaude's verify options: catalog-only reads no linter config", async () => {
+  // The rule IS configured in this repo; catalog-only never reads that, so it
+  // renders as a claim, not "Enforced by".
+  const catalogOnly = await compileAgent(
+    experimental_agent({
+      name: "a",
+      description: "d",
+      rules: {
+        "no-floating": enforce(
+          "@typescript-eslint/no-floating-promises",
+          "Await promises.",
+        ),
+      },
+    }),
+    { ...RULES_OPTIONS, catalogOnly: true },
+  );
+  assert.deepEqual(catalogOnly.errors, []);
+  assert.match(
+    catalogOnly.markdown,
+    /\*\*Claimed \(unverified\):\*\* `@typescript-eslint\/no-floating-promises`/,
   );
 });
 

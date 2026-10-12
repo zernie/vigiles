@@ -1836,10 +1836,11 @@ function renderAgentRules(
   rules: Readonly<Record<string, Rule>>,
   basePath: string,
   out: string,
+  verify: Readonly<LinterVerifyOptions>,
 ): { readonly text: string; readonly errors: readonly CompileError[] } {
   const rendered = Object.entries(rules).map(([id, rule]) => {
     if (rule._kind !== "enforce") return { text: compileRule(id, rule, out) };
-    const check = verifyEnforce(rule, basePath, {});
+    const check = verifyEnforce(rule, basePath, verify);
     return {
       text: compileRule(id, rule, out, check.verdict),
       error: check.error,
@@ -1870,14 +1871,16 @@ export interface CompileAgentResult {
  */
 export async function compileAgent(
   spec: AgentSpec,
-  options: {
-    /** The repo root every reference resolves against. Required: no cwd fallback. */
-    readonly basePath: string;
-    specFile?: string;
-    /** The harness dialect to verify the tool contract against (required — the
-     *  core defines no default dialect; the adapter/composition root injects it). */
-    dialect: HarnessDialect;
-  },
+  options: Readonly<
+    {
+      /** The repo root every reference resolves against. Required: no cwd fallback. */
+      basePath: string;
+      specFile?: string;
+      /** The harness dialect to verify the tool contract against (required — the
+       *  core defines no default dialect; the adapter/composition root injects it). */
+      dialect: HarnessDialect;
+    } & LinterVerifyOptions
+  >,
 ): Promise<CompileAgentResult> {
   const basePath = options.basePath;
   const specFile = options.specFile ?? "agent.md.spec.ts";
@@ -1929,7 +1932,7 @@ export async function compileAgent(
     errors.push(...result.errors);
   }
   if (spec.rules && Object.keys(spec.rules).length > 0) {
-    const agentRules = renderAgentRules(spec.rules, basePath, out);
+    const agentRules = renderAgentRules(spec.rules, basePath, out, options);
     sections.push(agentRules.text);
     errors.push(...agentRules.errors);
   }

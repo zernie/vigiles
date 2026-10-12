@@ -1005,7 +1005,7 @@
       "count": 13
     },
     "functional/prefer-immutable-types": {
-      "count": 43
+      "count": 42
     },
     "no-param-reassign": {
       "count": 1
