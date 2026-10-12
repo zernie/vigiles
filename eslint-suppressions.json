@@ -741,7 +741,7 @@
       "count": 32
     },
     "functional/immutable-data": {
-      "count": 103
+      "count": 102
     },
     "functional/no-let": {
       "count": 96
@@ -991,7 +991,7 @@
       "count": 2
     },
     "functional/immutable-data": {
-      "count": 76
+      "count": 73
     },
     "functional/no-let": {
       "count": 7

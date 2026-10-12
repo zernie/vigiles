@@ -266,7 +266,6 @@ import {
   compileAgent,
   compileRailway,
   checkFileHash,
-  addHash,
   validateFileRef,
   validateCommandRef,
   estimateTokens,
@@ -794,7 +793,7 @@ async function compileClaudeToFile(
   dialect: HarnessDialect,
 ): Promise<boolean> {
   const basePath = root;
-  const { markdown, errors, warnings, enforceVerdicts, targets } =
+  const { markdown, errors, warnings, enforceVerdicts, outputs } =
     await compileClaude(spec, {
       basePath,
       specFile: specPath,
@@ -839,19 +838,11 @@ async function compileClaudeToFile(
     );
     return false;
   }
-  writeFileSync(resolve(basePath, primaryOutput), markdown);
-  const outputNames = [primaryOutput];
-  for (const t of targets.slice(1)) {
-    const body = markdown
-      .replace(/^<!-- vigiles:[^\n]+\n\n?/, "")
-      .replace(/^# [^\n]+/, `# ${t}`);
-    const dir = primaryOutput.substring(0, primaryOutput.lastIndexOf("/") + 1);
-    const targetPath = dir + t;
-    writeFileSync(resolve(basePath, targetPath), addHash(body, specPath));
-    outputNames.push(targetPath);
-  }
+  // Each target as compile rendered it for its own path: a secondary in
+  // another directory has its own links, so it is never a re-headed copy.
+  for (const o of outputs) writeFileSync(resolve(basePath, o.path), o.markdown);
   console.log(
-    `\n✓ ${specPath} → ${outputNames.join(", ")} (${formatArtifactSize(markdown)})`,
+    `\n✓ ${specPath} → ${outputs.map((o) => o.path).join(", ")} (${formatArtifactSize(markdown)})`,
   );
   printRuleSummary(specPath, Object.keys(spec.rules).length, enforceVerdicts);
   return true;

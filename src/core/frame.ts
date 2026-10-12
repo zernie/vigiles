@@ -161,6 +161,15 @@ export function linkFrom(from: string, to: string): string {
 }
 
 /**
+ * The repo path of a spec's secondary target `target`, which the spec names
+ * relative to its primary output `primary`'s directory: `docs/CLAUDE.md` with
+ * `../AGENTS.md` is `AGENTS.md`.
+ */
+export function targetBeside(primary: string, target: string): string {
+  return join(posixDirname(normalize(slashed(primary))), slashed(target));
+}
+
+/**
  * The project root for a command started in `start` (absolute): the ONE answer
  * to "relative to which directory", resolved once by the CLI, so running
  * `vigiles lint` from `src/` gives the same findings as from the root (#371).

@@ -31,7 +31,7 @@ import type {
   RailwayStep,
   AuthoredPurity,
 } from "./spec.js";
-import { linkFrom } from "./frame.js";
+import { linkFrom, targetBeside } from "./frame.js";
 
 import { checkLinterRule, extractLinterName } from "./linters.js";
 import { CLAIMED_MARKER, ENFORCED_MARKER } from "./enforce-marker.js";
@@ -630,6 +630,19 @@ export interface CompileClaudeResult {
   tokens: number;
   /** All targets from the spec (for multi-target compilation). */
   targets: string[];
+  /**
+   * Each target's file: its repo-relative path (a secondary target is named
+   * from the primary's directory) and its markdown, rendered for THAT path so
+   * every link resolves from where the file sits. The first is the primary,
+   * whose markdown is `markdown`.
+   */
+  outputs: CompiledOutput[];
+}
+
+/** One file a multi-target compile writes. */
+export interface CompiledOutput {
+  readonly path: string;
+  readonly markdown: string;
 }
 
 export interface CompileClaudeOptions {
@@ -909,14 +922,28 @@ const RESERVED_SECTION_KEYS = new Set([
   "rules",
 ]);
 
+/**
+ * The prose sections as they read in the file at `out` (repo-relative): a
+ * fragment's links resolve from that file's directory, so each target of a
+ * multi-target spec renders its own.
+ */
+function renderSections(spec: ClaudeSpec, out: string): string[] {
+  return Object.entries(spec.sections ?? {}).map(([name, content]) => {
+    const heading = name.charAt(0).toUpperCase() + name.slice(1);
+    const text =
+      typeof content === "string" ? content : renderBody(content, out);
+    return `## ${heading}\n\n${text.trim()}`;
+  });
+}
+
+/** The prose sections' errors, measured on their rendering at `out`. */
 async function compileSectionsSection(
   spec: ClaudeSpec,
   basePath: string,
   out: string,
   maxSectionLines?: number,
-): Promise<SectionResult> {
-  if (!spec.sections) return { lines: [], errors: [] };
-  const lines: string[] = [];
+): Promise<CompileError[]> {
+  if (!spec.sections) return [];
   const errors: CompileError[] = [];
   for (const [name, content] of Object.entries(spec.sections)) {
     // #4: reject reserved section keys that clash with structured fields
@@ -926,18 +953,15 @@ async function compileSectionsSection(
         message: `Section key "${name}" is reserved — use the dedicated \`${name}\` field on the spec instead.`,
       });
     }
-    const heading = name.charAt(0).toUpperCase() + name.slice(1);
     if (typeof content === "string") {
       errors.push(...validateSectionContent(name, content, maxSectionLines));
-      lines.push(`## ${heading}\n\n${content.trim()}`);
     } else {
       errors.push(...(await validateRefs(content, basePath)));
       const rendered = renderBody(content, out);
       errors.push(...validateSectionContent(name, rendered, maxSectionLines));
-      lines.push(`## ${heading}\n\n${rendered.trim()}`);
     }
   }
-  return { lines, errors };
+  return errors;
 }
 
 function compileKeyFilesSection(
@@ -1026,7 +1050,10 @@ type LinterVerifyOptions = Pick<
   "verifyLinters" | "linterModes" | "catalogOnly" | "linters"
 >;
 
-interface RulesSectionResult extends SectionResult {
+interface RulesSectionResult {
+  /** The Rules section as it reads in the file at `out` (its links resolve from there). */
+  render: (out: string) => string[];
+  errors: CompileError[];
   linterResults: LinterCheckResult[];
   enforceVerdicts: EnforceVerdictEntry[];
 }
@@ -1096,26 +1123,36 @@ function verifyEnforce(
 function compileRulesSection(
   spec: ClaudeSpec,
   basePath: string,
-  out: string,
   options: CompileClaudeOptions,
 ): RulesSectionResult {
   const ruleEntries = Object.entries(spec.rules);
   if (ruleEntries.length === 0) {
-    return { lines: [], errors: [], linterResults: [], enforceVerdicts: [] };
+    return {
+      render: () => [],
+      errors: [],
+      linterResults: [],
+      enforceVerdicts: [],
+    };
   }
   // Verify FIRST, render second: the marker an `enforce()` gets is the
-  // verdict's, so rendering cannot run ahead of verification (#351).
-  const rendered = ruleEntries.map(([id, rule]) => {
-    if (rule._kind !== "enforce") return { text: compileRule(id, rule, out) };
+  // verdict's, so rendering cannot run ahead of verification (#351). Verified
+  // once; rendered once per output file, since links depend on where it sits.
+  const verified = ruleEntries.map(([id, rule]) => {
+    if (rule._kind !== "enforce") return { id, rule };
     const check = verifyEnforce(rule, basePath, options);
-    return {
-      text: compileRule(id, rule, out, check.verdict),
-      check: { ref: rule.linterRule, ...check },
-    };
+    return { id, rule, check: { ref: rule.linterRule, ...check } };
   });
-  const checks = rendered.flatMap((r) => (r.check ? [r.check] : []));
+  const checks = verified.flatMap((r) => (r.check ? [r.check] : []));
   return {
-    lines: [["## Rules", ...rendered.flatMap((r) => ["", r.text])].join("\n")],
+    render: (out) => [
+      [
+        "## Rules",
+        ...verified.flatMap((r) => [
+          "",
+          compileRule(r.id, r.rule, out, r.check?.verdict),
+        ]),
+      ].join("\n"),
+    ],
     errors: [
       ...checks.flatMap((c) => (c.error ? [c.error] : [])),
       ...ruleEntries.flatMap(([, rule]) =>
@@ -1195,12 +1232,11 @@ export async function compileClaude(
     ...specNameErrors(specFile, target),
     ...ruleCountErrors(spec, options.maxRules),
   ];
-  const sections: string[] = [`# ${target}`];
 
   // Per-spec maxSectionLines takes precedence, then compile options
   const maxSectionLines = spec.maxSectionLines ?? options.maxSectionLines;
   const out = compiledPathOf(specFile);
-  const prose = await compileSectionsSection(
+  const proseErrors = await compileSectionsSection(
     spec,
     basePath,
     out,
@@ -1208,22 +1244,25 @@ export async function compileClaude(
   );
   const keyFiles = compileKeyFilesSection(spec, basePath);
   const commands = compileCommandsSection(spec, basePath);
-  const rules = compileRulesSection(spec, basePath, out, options);
-
-  sections.push(
-    ...prose.lines,
-    ...keyFiles.lines,
-    ...commands.lines,
-    ...rules.lines,
-  );
+  const rules = compileRulesSection(spec, basePath, options);
   errors.push(
-    ...prose.errors,
+    ...proseErrors,
     ...keyFiles.errors,
     ...commands.errors,
     ...rules.errors,
   );
 
-  const body = sections.join("\n\n") + "\n";
+  // The file at `at`, headed `heading`. Every link in it is written from
+  // `at`'s own directory, so each target is rendered for its own path.
+  const bodyAt = (heading: string, at: string): string =>
+    [
+      `# ${heading}`,
+      ...renderSections(spec, at),
+      ...keyFiles.lines,
+      ...commands.lines,
+      ...rules.render(at),
+    ].join("\n\n") + "\n";
+  const body = bodyAt(target, out);
   const tokens = estimateTokens(body);
 
   // Per-spec maxTokens takes precedence, then compile options. An explicit
@@ -1247,7 +1286,7 @@ export async function compileClaude(
           ...checkContentBudgets(
             {
               spec,
-              renderedRules: rules.lines.join("\n\n"),
+              renderedRules: rules.render(out).join("\n\n"),
             },
             specFile,
             resolveBudgetLimits(options, severity),
@@ -1264,6 +1303,11 @@ export async function compileClaude(
     enforceVerdicts: rules.enforceVerdicts,
     tokens,
     targets: allTargets,
+    outputs: allTargets.map((t, i) => {
+      if (i === 0) return { path: out, markdown };
+      const path = targetBeside(out, t);
+      return { path, markdown: addHash(bodyAt(t, path), specFile) };
+    }),
   };
 }
 

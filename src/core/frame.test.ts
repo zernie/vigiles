@@ -14,6 +14,7 @@ import {
   frameFor,
   linkFrom,
   rebaseArg,
+  targetBeside,
   type RepoPath,
 } from "./frame.js";
 
@@ -178,6 +179,14 @@ describe("findProjectRoot: where a command's root is", () => {
       findProjectRoot("/tmp/x/y", fs("/tmp/x/.vigilesrc.json")),
       "/tmp/x",
     );
+  });
+});
+
+describe("targetBeside: a secondary target named from the primary's directory", () => {
+  it("climbs, descends, and stays put", () => {
+    assert.equal(targetBeside("docs/CLAUDE.md", "../AGENTS.md"), "AGENTS.md");
+    assert.equal(targetBeside("CLAUDE.md", "docs/AGENTS.md"), "docs/AGENTS.md");
+    assert.equal(targetBeside("pkg/CLAUDE.md", "AGENTS.md"), "pkg/AGENTS.md");
   });
 });
 
