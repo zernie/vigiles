@@ -20,6 +20,7 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     hooks: [],
     inlineHooks: 0,
     handWrittenHooks: [],
+    staleHooks: [],
     commands: 0,
     mcp: false,
     danglingRefs: [],

@@ -18,11 +18,11 @@ lines vigiles owns, and every compile records each hook's role in its stamp
 lines compile would write — with the same template functions compile calls —
 and compares each wired line to them as a string:
 
-| the wired line                                                                 | reading        | finding                                      |
-| ------------------------------------------------------------------------------ | -------------- | -------------------------------------------- |
-| equal to a planned line                                                        | compiled       | none here; `hook-script-exists` checks files |
-| names one of the repo's hook sources (compile's merge key) but is not its line | edited / stale | "edited or stale — recompile"                |
-| anything else                                                                  | hand-written   | "vigiles did not write this line"            |
+| the wired line                                                                 | reading        | finding                                             |
+| ------------------------------------------------------------------------------ | -------------- | --------------------------------------------------- |
+| equal to a planned line                                                        | compiled       | none here; `hook-script-exists` checks files        |
+| names one of the repo's hook sources (compile's merge key) but is not its line | edited / stale | `hook-script-exists`: "edited or stale — recompile" |
+| anything else                                                                  | hand-written   | "vigiles did not write this line"                   |
 
 The start-of-session check `compile` wires and the nudges `init` wires for Codex
 are planned lines too.

@@ -806,39 +806,44 @@ export function hookScriptMissingMessage(script: string): string {
 }
 
 /**
- * A hook line vigiles did not write. `hand-written`: no line `compile` would
- * write, so vigiles cannot tell what it runs or whether it swallows its own
- * failure. `stale`: the merge key says it wires one of this repo's hook
- * sources, but it is not the line `compile` writes for it — edited by hand,
- * or compiled by another version.
+ * A hook line vigiles did not write: no line `compile` would write, so vigiles
+ * cannot tell what it runs or whether it swallows its own failure.
  */
-export type HandWrittenHook =
-  | {
-      readonly event: string;
-      readonly command: string;
-      readonly kind: "hand-written";
-    }
-  | {
-      readonly event: string;
-      readonly command: string;
-      readonly kind: "stale";
-      /** The hook source it wires. */
-      readonly ref: string;
-    };
+export interface HandWrittenHook {
+  readonly event: string;
+  readonly command: string;
+}
+
+/**
+ * A line vigiles DID write that is now wrong: `compile`'s merge key says it
+ * wires one of this repo's hook sources, but it is not the line `compile`
+ * writes for it — edited by hand, or compiled by another version. A defect in
+ * vigiles's own wiring, so `hook-script-exists` reports it, and the cure is
+ * stable: recompile.
+ */
+export interface StaleHook {
+  readonly event: string;
+  readonly command: string;
+  /** The hook source it wires. */
+  readonly ref: string;
+}
 
 /** The `hand-written-hook` finding for one line. */
 export function handWrittenHookMessage(hook: HandWrittenHook): string {
-  if (hook.kind === "stale")
-    return (
-      `${hook.event} hook \`${hook.command}\` wires ${hook.ref} but is not the ` +
-      "line `vigiles compile` writes for it: edited or stale — recompile " +
-      "(`vigiles compile`)."
-    );
   return (
     `${hook.event} hook \`${hook.command}\`: vigiles did not write this line, ` +
     "so it cannot check what it runs or whether it swallows its own failure. " +
     "Compile it with `vigiles/hook` (docs/compiled-hooks.md); until then, " +
     "`vigiles test` (`runHook`) checks it by running it."
+  );
+}
+
+/** The `hook-script-exists` finding for a compiled line that is no longer the planned one. */
+export function staleHookMessage(hook: StaleHook): string {
+  return (
+    `${hook.event} hook \`${hook.command}\` wires ${hook.ref} but is not the ` +
+    "line `vigiles compile` writes for it: edited or stale — recompile " +
+    "(`vigiles compile`)."
   );
 }
 
@@ -849,28 +854,24 @@ export function handWrittenHookMessage(hook: HandWrittenHook): string {
 export function scanHooks(
   regs: readonly HookRegistration[],
   scan: Pick<HookScriptScan, "root" | "layout" | "exists" | "plan">,
-): {
-  readonly hooks: readonly ScanHook[];
-  readonly inline: number;
-  readonly handWritten: readonly HandWrittenHook[];
-} {
+): HookLineFindings {
   const read = regs
     .filter((r) => r.command.trim() !== "")
     .map((reg) => ({
       reg,
       line: readHookLine(reg.command, scan.plan, scan.root),
     }));
-  const handWritten = read.flatMap(({ reg, line }): HandWrittenHook[] => {
-    const at = { event: reg.event, command: reg.command };
-    switch (line.kind) {
-      case "compiled":
-        return [];
-      case "stale":
-        return [{ ...at, kind: "stale", ref: line.ref }];
-      case "hand-written":
-        return [{ ...at, kind: "hand-written" }];
-    }
+  const at = (reg: Readonly<HookRegistration>) => ({
+    event: reg.event,
+    command: reg.command,
   });
+  const handWritten = read.flatMap(
+    ({ reg, line }): readonly HandWrittenHook[] =>
+      line.kind === "hand-written" ? [at(reg)] : [],
+  );
+  const stale = read.flatMap(({ reg, line }): readonly StaleHook[] =>
+    line.kind === "stale" ? [{ ...at(reg), ref: line.ref }] : [],
+  );
   const scripts = read.flatMap(({ reg, line }) =>
     (line.kind === "compiled" ? line.files : []).map((file): ScanHook => {
       const script = hookFilePath(file, scan.root, scan.layout);
@@ -886,7 +887,16 @@ export function scanHooks(
   const hooks = scripts
     .filter((h, i) => scripts.findIndex((o) => o.script === h.script) === i)
     .sort((a, b) => a.script.localeCompare(b.script));
-  return { hooks, inline: handWritten.length, handWritten };
+  return { hooks, inline: handWritten.length, handWritten, stale };
+}
+
+/** What reading a set of hook lines finds. */
+export interface HookLineFindings {
+  /** The files compiled lines need, and whether each is on disk. */
+  readonly hooks: readonly ScanHook[];
+  readonly inline: number;
+  readonly handWritten: readonly HandWrittenHook[];
+  readonly stale: readonly StaleHook[];
 }
 
 /** What {@link scanHookScripts} needs to know about the engine it runs in. */
@@ -919,7 +929,8 @@ export interface HookScriptScan {
  * green — the runner was never checked and the file it was wired in was never
  * read (the repo is a plugin, and the loader reads the manifest's hooks instead).
  *
- * The shadowed registrations feed ONLY the existence list: the inline count,
+ * The shadowed registrations feed ONLY the existence list and the stale list
+ * (both are about lines vigiles wrote): the inline count,
  * the hand-written list, and every other hook detector still see what the
  * loader chose — widening those is a separate decision. So in a plugin repo the
  * hand-written hooks of `.claude/settings.json` are not listed.
@@ -928,14 +939,11 @@ export function scanHookScripts(
   regs: readonly HookRegistration[],
   shadowed: readonly HookRegistration[],
   scan: HookScriptScan,
-): {
-  readonly hooks: readonly ScanHook[];
-  readonly inline: number;
-  readonly handWritten: readonly HandWrittenHook[];
-} {
+): HookLineFindings {
   const run = (r: readonly HookRegistration[]) => scanHooks(r, scan);
   const primary = run(regs);
-  const all = [...primary.hooks, ...run(shadowed).hooks];
+  const secondary = run(shadowed);
+  const all = [...primary.hooks, ...secondary.hooks];
   // First occurrence wins, so a script the loader's own hooks name keeps its
   // event; the shadowed settings only ADD scripts.
   const hooks = all
@@ -947,7 +955,13 @@ export function scanHookScripts(
           : h,
     )
     .sort((a, b) => a.script.localeCompare(b.script));
-  return { hooks, inline: primary.inline, handWritten: primary.handWritten };
+  return {
+    hooks,
+    inline: primary.inline,
+    handWritten: primary.handWritten,
+    // vigiles's own wiring, wherever it sits — like the files above.
+    stale: [...primary.stale, ...secondary.stale],
+  };
 }
 
 /** True when `absPath` lies inside a `node_modules` directory. */

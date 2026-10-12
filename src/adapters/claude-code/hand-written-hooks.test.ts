@@ -144,25 +144,42 @@ test("a file a compiled hook needs is missing → hook-script-exists names it", 
   }
 });
 
-test("an edited compiled line is stale: recompile — found by compile's merge key, not by reading the line", () => {
+test("an edited compiled line is a hook-script-exists ERROR under the preset — vigiles wrote it, recompile", () => {
   const dir = compiledProject("hwh-stale");
   try {
+    // Off: hand-written-hook. On: the preset. A stale line is not a hand-written
+    // hook, so it must not depend on opting in to that rule.
+    write(
+      dir,
+      ".vigilesrc.json",
+      JSON.stringify({ extends: "vigiles:recommended" }),
+    );
     const path = join(dir, ".claude", "settings.json");
     writeFileSync(
       path,
       readFileSync(path, "utf-8").replace("|| exit 0", "|| true"),
     );
-    const lines = handWritten(cli(dir, "lint").stdout);
-    assert.equal(lines.length, 1, lines.join("\n"));
+    const r = cli(dir, "lint");
+    assert.notEqual(r.status, 0, r.stdout);
+    const section = r.stdout.slice(
+      r.stdout.indexOf("Hook-script existence check:"),
+    );
     assert.match(
-      lines[0] ?? "",
-      /wires \.vigiles\/hooks\/x\.hook\.mjs .*edited or stale/,
+      section,
+      /✗ .*wires \.vigiles\/hooks\/x\.hook\.mjs .*edited or stale/,
+    );
+    assert.doesNotMatch(r.stdout, /Hand-written hooks:/);
+    // A stale line names no hand-written hook either.
+    const scan = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
+    assert.deepEqual(scan.handWrittenHooks, []);
+    assert.deepEqual(
+      scan.staleHooks.map((h) => h.ref),
+      [".vigiles/hooks/x.hook.mjs"],
     );
   } finally {
     cleanupTmpDir(dir);
   }
 });
-
 test("a hand-written hook is one finding that names it; nothing in it is taken for a script", () => {
   const dir = makeTmpDir("hwh-sh-c");
   try {
@@ -176,11 +193,7 @@ test("a hand-written hook is one finding that names it; nothing in it is taken f
     const scan = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
     assert.deepEqual(scan.hooks, []);
     assert.deepEqual(scan.handWrittenHooks, [
-      {
-        event: "PostToolUse",
-        command: "sh -c 'node hooks/gone.mjs'",
-        kind: "hand-written",
-      },
+      { event: "PostToolUse", command: "sh -c 'node hooks/gone.mjs'" },
     ]);
     const r = cli(dir, "lint");
     assert.equal(r.status, 0, r.stdout);

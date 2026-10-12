@@ -489,9 +489,13 @@ opt-in until compiled hooks leave experimental. A config that still names
 The loss, stated plainly: **a hand-written hook whose script is missing is no
 longer detected statically.** Compile the hook (`vigiles/hook`) and the files it
 needs are checked exactly; until then `vigiles test` (`runHook`) checks a
-hand-written hook by running it. Recompile once after upgrading: `compile` now
-records each hook's role in its stamp, and a wired line without that record
-reads as "edited or stale: recompile".
+hand-written hook by running it.
+
+**Recompile once after upgrading.** `compile` now records each hook's role in
+its stamp, and a compiled line whose stamp has no role cannot be matched to its
+planned line. Such a line is reported by `hook-script-exists` as "edited or
+stale — recompile", an **error** under `vigiles:recommended`, until you run
+`vigiles compile`: a compiled hook is never silently left unchecked.
 
 ## Upgrading from `harness` / `surfaceRoots`
 

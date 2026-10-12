@@ -22,6 +22,7 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     hooks: [],
     inlineHooks: 0,
     handWrittenHooks: [],
+    staleHooks: [],
     commands: 1, // a surface, so it's not the empty machine
     mcp: false,
     danglingRefs: [],

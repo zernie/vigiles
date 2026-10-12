@@ -128,6 +128,7 @@ import {
   formatMcpContractReport,
   handWrittenHookMessage,
   hookScriptMissingMessage,
+  staleHookMessage,
   measureInstructionWeight,
 } from "./scan.js";
 import {
@@ -6463,12 +6464,15 @@ function checkHookScriptExists(ctx: BundleCheck): {
     ctx,
     "hook-script-exists",
     "Hook-script existence check",
-    (scan) =>
-      scan.hooks
+    (scan) => [
+      ...scan.hooks
         .filter((h) => h.status === "missing")
         // `script` is absolute (the root variable resolved) — printed as-is it
         // was a machine path (#281); `scanned` makes it the bundle's own.
         .map((h) => hookScriptMissingMessage(ctx.bundle.scanned(h.script))),
+      // A line vigiles wrote that is now wrong: its own wiring, so here.
+      ...scan.staleHooks.map(staleHookMessage),
+    ],
   );
 }
 

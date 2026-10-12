@@ -99,6 +99,7 @@ import {
   skillRefSources,
   scanHookScripts,
   hookSourceRefs,
+  type HookLineFindings,
   type HookScriptScan,
   isDependencyPath,
   frontmatterIssuesFor,
@@ -683,6 +684,21 @@ function collectMcpServers(
 // Public API
 // ---------------------------------------------------------------------------
 
+/** The report's hook fields, from what the hook scan found. */
+function hookReportFields(
+  found: HookLineFindings,
+): Pick<
+  ScanReport,
+  "hooks" | "inlineHooks" | "handWrittenHooks" | "staleHooks"
+> {
+  return {
+    hooks: found.hooks,
+    inlineHooks: found.inline,
+    handWrittenHooks: found.handWritten,
+    staleHooks: found.stale,
+  };
+}
+
 /** The map's hook lines as written, its hook scan, and what that scan finds. */
 function fileMapHooks(
   files: Readonly<Record<string, string>>,
@@ -830,9 +846,7 @@ export function scanFiles(
     ownTestSignal,
     skills,
     agents,
-    hooks: hk.hooks,
-    inlineHooks: hk.inline,
-    handWrittenHooks: hk.handWritten,
+    ...hookReportFields(hk),
     ...inventoryCounts(loaded.files, cls.isCommand, [lay], coverage),
     // A declared server set counts even when the loader emitted no warning —
     // otherwise a plugin whose servers come from the Agent Plugins `mcp.json`

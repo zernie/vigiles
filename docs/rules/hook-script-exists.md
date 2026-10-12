@@ -35,6 +35,14 @@ for how a line is read, and for what that costs.
 
 ## What it flags
 
+**A compiled line that is no longer its planned line** — `compile`'s merge key
+says it wires one of the repo's hook sources, but it is not the line `compile`
+writes for it: edited by hand, or compiled by another version (an older vigiles
+recorded no role in the stamp). It is vigiles's own wiring gone wrong, so this
+rule reports it, "edited or stale — recompile"; the cure is `vigiles compile`.
+
+**A file a compiled line needs is missing.**
+
 `vigiles compile` wires a hook as
 
 ```sh

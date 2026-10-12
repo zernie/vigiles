@@ -404,11 +404,8 @@ test("scanPlugin lists every hand-written hook (a compiled one, by identity, exc
   );
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(
-    r.handWrittenHooks.map((h) => [h.event, h.kind]),
-    [
-      ["PreToolUse", "hand-written"],
-      ["Stop", "hand-written"],
-    ],
+    r.handWrittenHooks.map((h) => h.event),
+    ["PreToolUse", "Stop"],
     "two hand-written, the compiled one excluded",
   );
   // Each one surfaces in the report by name, linking the guide.

@@ -129,6 +129,7 @@ import {
   collectVocabularyNotes,
   handWrittenHookMessage,
   type HandWrittenHook,
+  type StaleHook,
 } from "./scan-core.js";
 import {
   weighInstructions,
@@ -338,6 +339,11 @@ export interface ScanReport {
    * hand-written line runs or whether it swallows its own failure.
    */
   readonly handWrittenHooks: readonly HandWrittenHook[];
+  /**
+   * Compiled lines that are no longer the line `compile` writes (edited, or
+   * compiled by another version). `hook-script-exists` reports them.
+   */
+  readonly staleHooks: readonly StaleHook[];
   readonly commands: number;
   /**
    * Output styles found, exempt ones aside, or `"not-supported"` when the
@@ -779,7 +785,7 @@ export function scanPlugin(
       lay.projectRootTokens,
     ),
   };
-  const { hooks, inline, handWritten } = scanHookScripts(
+  const { hooks, inline, handWritten, stale } = scanHookScripts(
     asWritten,
     normalizeHooks(loaded.shadowedSettingsHooks),
     hookScan,
@@ -877,6 +883,7 @@ export function scanPlugin(
     hooks,
     inlineHooks: inline,
     handWrittenHooks: handWritten,
+    staleHooks: stale,
     ...inventoryCounts(
       loaded.files,
       cls.isCommand,
