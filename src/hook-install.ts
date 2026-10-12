@@ -28,6 +28,12 @@ import {
   type CompilableMarker,
   type SourceKind,
 } from "./source-kinds.js";
+import {
+  bareToken,
+  hookRuntimeFor,
+  INSTALLED_HOOK_RUNTIME,
+  type HookRuntime,
+} from "./core/hook-command.js";
 
 /**
  * Lazy for the same reason as in `core/hook-program.ts` — and this module is
@@ -373,105 +379,6 @@ export function normalizeHookRef(
   return chosen.split(sep).join("/");
 }
 
-/**
- * The path token `compile` EMITS into the harness config — anchored at the project root
- * when the harness declares such a variable.
- *
- * 🔴 IT LIVES BESIDE {@link bareToken} ON PURPOSE. That function STRIPS exactly this prefix
- * and these quotes; this one ADDS them. They are one contract read from two ends, and while
- * the ends sat apart only one got fixed: 2026-08-21 taught the reader to understand the
- * anchored spelling, and the emitter went on writing the relative one for three more weeks.
- *
- * Why anchored at all, from the two measurements already in this file and in
- * `PluginLayout.projectRootTokens`: a hook command does not run with a stable cwd, so a
- * relative path "dies with exit 2 the moment the agent runs from a subdirectory". For a
- * PreToolUse gate that is not a lost nudge — a gate that cannot load must block, so the
- * repository seizes. Measured in a consumer repo 2026-09-10: recoverable by file writes
- * only, because every command was refused, including the one that repairs it.
- *
- * `bareToken(hookGateRef(ref, tokens)) === ref` is what keeps a recompile idempotent, and
- * it is asserted directly rather than left to inspection.
- */
-/**
- * Where the hook runtime lives, spelled so the shell can find it WITHOUT `npx`.
- *
- * 🔴 MEASURED 2026-09-19, warm cache, five runs each:
- *
- *     node <local>/dist/cli.js hook-runtime run-program …   193 ms
- *     npx vigiles              hook-runtime run-program …  2545 ms
- *
- * Thirteen times, on every tool call, because `npx` re-resolves the package on
- * each invocation — local, then global, then the registry. That search is the
- * single largest cost in a hook's life; everything the runtime does inside adds
- * up to less than a fifth of it.
- *
- * A harness with no project-root token gets the relative spelling, which is all
- * it can be given — see {@link hookGateRef} for the same fallback.
- */
-export function hookRuntimeRef(
-  projectRootTokens: readonly string[] | undefined,
-  runtime: HookRuntime = INSTALLED_HOOK_RUNTIME,
-): string {
-  const token = projectRootTokens?.[0];
-  return token === undefined
-    ? `node ${runtime.path}`
-    : `node "${token}/${runtime.path}"`;
-}
-
-/**
- * Which file a project starts the hook runtime from, and the command that puts
- * that file on disk when it is missing.
- */
-export interface HookRuntime {
-  /** Project-relative path of the runtime's entry point. */
-  readonly path: string;
-  /** What the start-of-session notice tells the user to run when it is missing. */
-  readonly cure: string;
-}
-
-/** A consumer's runtime: the vigiles it installed as a dependency. */
-export const INSTALLED_HOOK_RUNTIME: HookRuntime = {
-  path: "node_modules/vigiles/dist/cli.js",
-  cure: "npm ci (or npm install)",
-};
-
-/**
- * The runtime a project with this `package.json` can actually start.
- *
- * 🔴 THE VIGILES REPOSITORY IS NOT ITS OWN DEPENDENCY. It compiles its own hooks,
- * and the installed path above does not exist in it: nothing puts a package into
- * its own `node_modules`. Measured 2026-10-11: both of the repository's compiled
- * nudges had died with MODULE_NOT_FOUND on every tool call since #260
- * (2026-09-21), and each one's `|| exit 0` turned the death into silence — a
- * reminder that cannot load is skipped by design (see `hookRuntimeMissingExit`).
- * So the package itself starts the bin it declares, which its build writes in
- * place; the cure the notice names is that build, because `npm ci` alone does
- * not produce `dist/`.
- *
- * Decided from the manifest's CONTENT (name + declared bin), never from where the
- * running CLI happens to sit: a linked or pnpm-store copy would otherwise emit a
- * path that is only true on the machine that ran `compile`.
- */
-export function hookRuntimeFor(manifest: unknown): HookRuntime {
-  if (fieldOf(manifest, "name") !== "vigiles") return INSTALLED_HOOK_RUNTIME;
-  const bin = fieldOf(manifest, "bin");
-  // npm's two spellings: `"bin": "x.js"` or `"bin": { "vigiles": "x.js" }`.
-  const declared = typeof bin === "string" ? bin : fieldOf(bin, "vigiles");
-  if (typeof declared !== "string" || declared === "")
-    return INSTALLED_HOOK_RUNTIME;
-  return {
-    path: declared.replace(/^\.\//, ""),
-    cure: "npm ci && npm run build",
-  };
-}
-
-/** `value[key]` when `value` is an object, else `undefined` — no cast. */
-function fieldOf(value: unknown, key: string): unknown {
-  if (typeof value !== "object" || value === null) return undefined;
-  const found: unknown = Object.entries(value).find(([k]) => k === key)?.[1];
-  return found;
-}
-
 /** {@link hookRuntimeFor} over `<cwd>/package.json`; no or unreadable manifest is a consumer. */
 export function readHookRuntime(cwd: string): HookRuntime {
   try {
@@ -482,14 +389,6 @@ export function readHookRuntime(cwd: string): HookRuntime {
   } catch {
     return INSTALLED_HOOK_RUNTIME;
   }
-}
-
-export function hookGateRef(
-  ref: string,
-  projectRootTokens: readonly string[] | undefined,
-): string {
-  const token = projectRootTokens?.[0];
-  return token === undefined ? ref : `"${token}/${ref}"`;
 }
 
 /**
@@ -527,38 +426,6 @@ function managesHook(entry: HookEntry, hookPath: string): boolean {
       return bare !== "" && refs.includes(normalizeHookRef(bare));
     }),
   );
-}
-
-/**
- * A command token reduced to the PATH it names, so two spellings of the same
- * hook file compare equal.
- *
- * 🔴 BOTH STRIPS ARE REGRESSIONS, MEASURED IN A CONSUMER REPO 2026-08-21, and
- * they compound: a settings.json wired the Claude-Code-recommended way carries
- * BOTH a quote and the project-dir variable, so `managesHook` saw
- * `"$CLAUDE_PROJECT_DIR/.claude/hooks/x.hook.ts"`, canonicalized it to
- * something under the cwd that resembles nothing, and reported "not managed by
- * this hook". Recompiling then APPENDED its own block beside the existing one.
- * Twelve hooks, twelve duplicates, and the duplicate is the WORSE of the two:
- * it spells the path relative to the cwd, so it dies with exit 2 the moment the
- * agent runs from a subdirectory — while the healthy copy beside it keeps
- * working, which is why this survived a full day unnoticed.
- *
- * - QUOTES. A path with a space MUST be quoted, so the quoted form is not an
- *   exotic spelling — it is the correct one. Comparing it raw could never match.
- * - `$CLAUDE_PROJECT_DIR`. It is defined as the project root, which is exactly
- *   what `normalizeHookRef` resolves relative paths against, so stripping the
- *   prefix makes the two spellings the same path by definition rather than by
- *   guess. `${CLAUDE_PROJECT_DIR}` is the same variable in brace syntax.
- *
- * Nothing else is stripped. A token this function does not recognise is left
- * alone and simply fails to match, which is the pre-existing behaviour: the
- * cost of a miss here is a duplicate block, and the cost of an over-match is
- * deleting a hook the user wrote themselves.
- */
-function bareToken(token: string): string {
-  const unquoted = token.replace(/^["']/, "").replace(/["']$/, "");
-  return unquoted.replace(/^\$\{?CLAUDE_PROJECT_DIR\}?[/\\]/, "");
 }
 
 /**

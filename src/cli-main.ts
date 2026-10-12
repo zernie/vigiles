@@ -304,17 +304,19 @@ import {
 import {
   discoveredHookArgs,
   discoverProviderFiles,
-  hookGateRef,
-  hookRuntimeRef,
   readHookRuntime,
-  type HookRuntime,
   normalizeHookRef,
   partitionHookArgs,
   serializeConfig,
   invalidArgMessage,
   unclaimedReport,
 } from "./hook-install.js";
-import { runProgramCommand } from "./core/hook-command.js";
+import {
+  hookGateRef,
+  hookRuntimeRef,
+  runProgramCommand,
+  type HookRuntime,
+} from "./core/hook-command.js";
 import { installHookCheck } from "./hook-check-install.js";
 import { unsafeProvider } from "./core/hook-providers.js";
 import { parse as parseToml } from "@iarna/toml";

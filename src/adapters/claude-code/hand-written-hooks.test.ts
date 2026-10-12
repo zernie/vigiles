@@ -21,9 +21,12 @@ import { join, resolve } from "node:path";
 
 import { claudeCodeDialect } from "./dialect.js";
 import { claudeCodeLayout } from "./layout.js";
-import { hookCommandShape } from "../../core/hook-command.js";
+import {
+  hookCommandShape,
+  hookGateRef,
+  hookRuntimeRef,
+} from "../../core/hook-command.js";
 import { withRoleExit } from "../../core/hook-program.js";
-import { hookGateRef, hookRuntimeRef } from "../../hook-install.js";
 import { scanPlugin } from "../../scan.js";
 import { makeTmpDir, cleanupTmpDir } from "../../core/test-utils.js";
 

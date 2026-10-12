@@ -6,8 +6,10 @@ import {
   hookGateRef,
   hookRuntimeRef,
   hookRuntimeFor,
-  readHookRuntime,
   INSTALLED_HOOK_RUNTIME,
+} from "./core/hook-command.js";
+import {
+  readHookRuntime,
   mergeHooksJson,
   mergeHooksToml,
   normalizeHookRef,

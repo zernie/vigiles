@@ -43,7 +43,7 @@
  * and the check cannot say so.
  */
 import { runProgramFiles } from "./coverage-probe.js";
-import { INSTALLED_HOOK_RUNTIME } from "./hook-install.js";
+import { INSTALLED_HOOK_RUNTIME } from "./core/hook-command.js";
 
 /**
  * Every `command` string in a parsed hooks block. It looks for the key `command`

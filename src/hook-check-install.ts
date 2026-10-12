@@ -14,8 +14,8 @@ import { dirname, resolve } from "node:path";
 
 import type { HarnessAdapter } from "./core/adapter.js";
 import { checkPaths, commandsIn, renderHookCheck } from "./hook-check.js";
-import { HOOK_CHECK_REF } from "./core/hook-command.js";
-import { hookGateRef, readHookRuntime } from "./hook-install.js";
+import { HOOK_CHECK_REF, hookGateRef } from "./core/hook-command.js";
+import { readHookRuntime } from "./hook-install.js";
 
 /** A harness whose hooks are shell commands listed in a settings file. */
 type ShellAdapter = Extract<HarnessAdapter, { readonly shellHooks: true }>;
