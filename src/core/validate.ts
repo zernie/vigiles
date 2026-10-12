@@ -185,7 +185,8 @@ export function loadConfig(
   // The replaced keys get their own message BEFORE the schema's, because the
   // reader is someone whose config used to work: `.strict()` would tell them
   // "unknown key harness", which is true and useless. See REPLACED_KEYS.
-  const problems: string[] = [];
+  // The per-rule `exclude` options moved to `overrides` the same way.
+  const problems: string[] = [...movedToOverridesMessages(raw)];
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const present = REPLACED_KEYS.filter((k) => k.key in raw);
     if (present.length > 0) {
@@ -200,7 +201,6 @@ export function loadConfig(
       problems.push(replacedKeyMessage(present, names));
     }
   }
-  problems.push(...movedToOverridesMessages(raw));
   if (problems.length === 0) {
     const parsed = parseVigilesConfig(raw);
     if (parsed.success) return parsed.data;

@@ -550,17 +550,7 @@ export function movedToOverridesMessages(raw: unknown): readonly string[] {
 function knownKeysAt(path: readonly PropertyKey[]): readonly string[] {
   let node: unknown = vigilesConfigSchema;
   for (const seg of path) {
-    const def = (node as { _zod?: { def?: Record<string, unknown> } })._zod
-      ?.def;
-    if (def?.type === "object") {
-      node = (def.shape as Record<string, unknown> | undefined)?.[String(seg)];
-    } else if (def?.type === "array") {
-      node = def.element;
-    } else if (def?.type === "record") {
-      node = def.valueType;
-    } else {
-      return [];
-    }
+    node = childAt(node, seg);
     if (node === undefined) return [];
     node = unwrap(node);
   }
@@ -568,6 +558,19 @@ function knownKeysAt(path: readonly PropertyKey[]): readonly string[] {
   return def?.type === "object"
     ? Object.keys(def.shape as Record<string, unknown>)
     : [];
+}
+
+/**
+ * One step down a schema node: an object's field `seg`, an array's element, a
+ * record's value. `undefined` where the node has no child to step into.
+ */
+function childAt(node: unknown, seg: PropertyKey): unknown {
+  const def = (node as { _zod?: { def?: Record<string, unknown> } })._zod?.def;
+  if (def?.type === "object")
+    return (def.shape as Record<string, unknown> | undefined)?.[String(seg)];
+  if (def?.type === "array") return def.element;
+  if (def?.type === "record") return def.valueType;
+  return undefined;
 }
 
 /** Peel `.optional()` / `.default()` / `.prefault()` wrappers off a schema node. */

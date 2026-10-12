@@ -97,7 +97,7 @@
   },
   "src/cli-main.ts": {
     "max-params": 5,
-    "max-lines-per-function": 493,
+    "max-lines-per-function": 492,
     "complexity": 120,
     "max-depth": 4,
     "sonarjs/cognitive-complexity": 237
@@ -154,7 +154,7 @@
     "max-lines-per-function": 33
   },
   "src/core/config-schema.ts": {
-    "complexity": 12
+    "complexity": 11
   },
   "src/core/coverage.test.ts": {
     "max-lines-per-function": 61
@@ -303,12 +303,12 @@
     "max-lines-per-function": 73
   },
   "src/core/orphans.test.ts": {
-    "max-lines-per-function": 296
+    "max-lines-per-function": 266
   },
   "src/core/orphans.ts": {
-    "max-lines-per-function": 46,
+    "max-lines-per-function": 45,
     "max-depth": 4,
-    "complexity": 14,
+    "complexity": 13,
     "sonarjs/cognitive-complexity": 20
   },
   "src/core/proofs.test.ts": {
@@ -374,10 +374,10 @@
     "max-lines-per-function": 128
   },
   "src/core/validate.ts": {
-    "max-lines-per-function": 72,
+    "max-lines-per-function": 62,
     "complexity": 17,
     "max-depth": 4,
-    "sonarjs/cognitive-complexity": 23
+    "sonarjs/cognitive-complexity": 22
   },
   "src/core/vocabulary-consistency.ts": {
     "max-lines-per-function": 56,
@@ -435,9 +435,6 @@
   },
   "src/exclude.test.ts": {
     "max-lines-per-function": 70
-  },
-  "src/exclude.ts": {
-    "max-lines-per-function": 33
   },
   "src/experimental-emit.ts": {
     "max-lines-per-function": 61,
@@ -585,7 +582,7 @@
   },
   "src/scan-files.ts": {
     "max-params": 6,
-    "max-lines-per-function": 159,
+    "max-lines-per-function": 153,
     "complexity": 11,
     "sonarjs/cognitive-complexity": 14
   },

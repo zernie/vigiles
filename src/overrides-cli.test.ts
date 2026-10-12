@@ -52,10 +52,18 @@ function lint(cwd: string): { out: string; code: number } {
     });
     return { out, code: 0 };
   } catch (e: unknown) {
-    const err = e as { stdout?: string; stderr?: string; status?: number };
+    const field = (k: string): unknown =>
+      typeof e === "object" && e !== null && k in e
+        ? Reflect.get(e, k)
+        : undefined;
+    const text = (k: string): string => {
+      const v = field(k);
+      return typeof v === "string" ? v : "";
+    };
+    const status = field("status");
     return {
-      out: `${err.stdout ?? ""}${err.stderr ?? ""}`,
-      code: err.status ?? 1,
+      out: `${text("stdout")}${text("stderr")}`,
+      code: typeof status === "number" ? status : 1,
     };
   }
 }
@@ -78,7 +86,10 @@ describe("require-instructions-spec under vigiles:recommended", () => {
     );
     const r = lint(dir);
     assert.notEqual(r.code, 0, r.out);
-    assert.match(r.out, /✗ \[require-instructions-spec\] No spec file found for "pkg\/CLAUDE\.md"/);
+    assert.match(
+      r.out,
+      /✗ \[require-instructions-spec\] No spec file found for "pkg\/CLAUDE\.md"/,
+    );
     assert.doesNotMatch(r.out, /No spec file found for "notes\/CLAUDE\.md"/);
     assert.ok(
       r.out.includes(handWrittenInstructionRemedy("pkg/CLAUDE.md")),

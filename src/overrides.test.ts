@@ -14,8 +14,8 @@ import {
   parseVigilesConfig,
   formatConfigIssues,
   VigilesConfigError,
-} from "./config-schema.js";
-import { loadConfig } from "./validate.js";
+} from "./core/config-schema.js";
+import { loadConfig } from "./core/validate.js";
 import { ruleResolver } from "./overrides.js";
 
 /** Parse a raw config the way `loadConfig` does, or fail the test. */
@@ -95,9 +95,9 @@ describe("globs — the same semantics as top-level `exclude`", () => {
   it("dotfiles match, and a leading ./ is ignored", () => {
     const raw = {
       ...REC,
-      overrides: [{ files: ["./.claude/**"], rules: { [RULE]: "off" } }],
+      overrides: [{ files: ["./.hidden/**"], rules: { [RULE]: "off" } }],
     };
-    expect(at(raw, RULE, ".claude/CLAUDE.md")).toBe(false);
+    expect(at(raw, RULE, ".hidden/CLAUDE.md")).toBe(false);
   });
 });
 

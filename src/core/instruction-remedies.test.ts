@@ -126,7 +126,9 @@ describe("what a require-instructions-spec finding says to do", () => {
 
   it("every snippet it prints is a config the schema accepts", () => {
     const snippets = [
-      ...handWrittenInstructionRemedy("notes/CLAUDE.md").matchAll(/\{ "[^\n]*\}/g),
+      ...handWrittenInstructionRemedy("notes/CLAUDE.md").matchAll(
+        /\{ "[^\n]*\}/g,
+      ),
     ].map((m): unknown => JSON.parse(m[0]));
     expect(snippets).toHaveLength(3);
     snippets.forEach((snippet) => {

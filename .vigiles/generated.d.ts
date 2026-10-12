@@ -100,7 +100,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 537 project files. */
+  /** 542 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -337,6 +337,7 @@ declare module "vigiles/generated" {
     | "src/core/instruction-remedies.ts"
     | "src/core/instruction-weight.test.ts"
     | "src/core/instruction-weight.ts"
+    | "src/core/integrity-header.ts"
     | "src/core/integrity.test.ts"
     | "src/core/integrity.ts"
     | "src/core/keyfiles-source.ts"
@@ -536,6 +537,9 @@ declare module "vigiles/generated" {
     | "src/optimize.test.ts"
     | "src/optimize.ts"
     | "src/output-style-arms.ts"
+    | "src/overrides-cli.test.ts"
+    | "src/overrides.test.ts"
+    | "src/overrides.ts"
     | "src/package-install-scripts.e2e.test.ts"
     | "src/plugin-declaration.test.ts"
     | "src/plugin-declaration.ts"
@@ -543,6 +547,7 @@ declare module "vigiles/generated" {
     | "src/plugin-loader.ts"
     | "src/posix-path.ts"
     | "src/research-index.ts"
+    | "src/root-globs.ts"
     | "src/rule-catalog-oss.test.ts"
     | "src/rule-inventory.test.ts"
     | "src/rule-inventory.ts"
@@ -946,6 +951,7 @@ declare module "vigiles/spec" {
       | "src/core/instruction-remedies.ts"
       | "src/core/instruction-weight.test.ts"
       | "src/core/instruction-weight.ts"
+      | "src/core/integrity-header.ts"
       | "src/core/integrity.test.ts"
       | "src/core/integrity.ts"
       | "src/core/keyfiles-source.ts"
@@ -1145,6 +1151,9 @@ declare module "vigiles/spec" {
       | "src/optimize.test.ts"
       | "src/optimize.ts"
       | "src/output-style-arms.ts"
+      | "src/overrides-cli.test.ts"
+      | "src/overrides.test.ts"
+      | "src/overrides.ts"
       | "src/package-install-scripts.e2e.test.ts"
       | "src/plugin-declaration.test.ts"
       | "src/plugin-declaration.ts"
@@ -1152,6 +1161,7 @@ declare module "vigiles/spec" {
       | "src/plugin-loader.ts"
       | "src/posix-path.ts"
       | "src/research-index.ts"
+      | "src/root-globs.ts"
       | "src/rule-catalog-oss.test.ts"
       | "src/rule-inventory.test.ts"
       | "src/rule-inventory.ts"

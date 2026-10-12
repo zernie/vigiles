@@ -1,6 +1,6 @@
 /**
  * Root-relative globs as `.vigilesrc.json` spells them — THE one glob semantics
- * for the config's path lists: top-level `exclude` (`src/exclude.ts`) and
+ * for the config's path lists: top-level `exclude` (`./exclude.ts`) and
  * `overrides[].files` (`./overrides.ts`) both match through this, so "which
  * paths does this pattern cover" cannot differ between the two.
  *

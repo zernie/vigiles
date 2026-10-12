@@ -71,9 +71,8 @@ export function checkDeprecatedKeyFiles(opts: {
 }): { readonly issues: number; readonly errors: number } {
   const { severity } = opts;
   if (!severity) return { issues: 0, errors: 0 };
-  const at = opts.severityAt ?? (() => severity);
   const found = opts.find().flatMap((f) => {
-    const sev = at(f.path);
+    const sev = opts.severityAt ? opts.severityAt(f.path) : severity;
     return sev === false ? [] : [{ ...f, sev }];
   });
   if (!opts.silent && found.length > 0)

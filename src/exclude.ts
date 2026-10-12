@@ -5,12 +5,12 @@
  * A bare directory name excludes its subtree, as tsconfig/ESLint do — measured 2026-09-03: glob's own string `ignore` treated `bench` and `bench/` as matching NOTHING while the minimatch helper in `discoverNestedBundles` accepted them, so the two walks that honoured `exclude` disagreed.
  * The floor (node_modules/dist/.git/.vigiles) lives here, not per walk.
  * `exclude` filters DISCOVERY only: an explicitly named path is processed and ONE line names the pattern it matched (rg/tsc semantics with ESLint's loudness; never prettier's silent 'all clean').
- * "Do not report rule X for these paths" is not an exclusion: it is `overrides` with the rule off (`core/overrides.ts`). `exclude` means vigiles does not read the path at all, so an override cannot re-include it.
+ * "Do not report rule X for these paths" is not an exclusion: it is `overrides` with the rule off (`overrides.ts`). `exclude` means vigiles does not read the path at all, so an override cannot re-include it.
  * The header carries the exception table — `validateGlobRef` (reference verification), `specReferencedElsewhere` (eject safety), `expandGlobs` (a typed argument), surface walks inside a bundle, and internal machinery — so the next reader does not 'fix' them.
  * Enforced by the ESLint discovery guard (eslint.config.mjs: `globSync` without `ignore`, a literal in an ignore list, a raw `readdirSync` in cli.ts) and the source gate in exclude-cli.test.ts
  */
 import { relative } from "node:path";
-import { normalizeRel, rootGlobMatcher } from "./core/root-globs.js";
+import { normalizeRel, rootGlobMatcher } from "./root-globs.js";
 import type { IgnoreLike } from "glob";
 
 /** Always excluded, whatever the config says. Root-relative, like `exclude`. */
@@ -41,7 +41,7 @@ export interface ExcludeSet {
 
 /** Parse `.vigilesrc.json#exclude` once, against `root`. The glob semantics
  * (root-relative, a bare directory covers its subtree, dotfiles match) are
- * `core/root-globs.ts`'s — the same ones `overrides[].files` uses. */
+ * `root-globs.ts`'s — the same ones `overrides[].files` uses. */
 export function excludeSet(
   root: string,
   patterns: readonly string[] | undefined,

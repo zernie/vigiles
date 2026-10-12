@@ -34,6 +34,8 @@ import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
 const SKILL = ".claude/skills/demo/SKILL.md";
 /** How `vigiles lint` prints an untested skill on stdout (the finding + fix). */
+/** The skill's folder, as an `overrides` glob. */
+const SKILL_FOLDER = `${SKILL.slice(0, SKILL.lastIndexOf("/"))}/**`;
 const UNTESTED_IN_LINT = /skill \.claude\/skills\/demo\/SKILL\.md — add e\.g\./;
 
 let dir: string;
@@ -160,7 +162,7 @@ test("an `overrides` entry turning the rule OFF for the skill's folder silences 
     JSON.stringify({
       overrides: [
         {
-          files: [".claude/skills/demo/**"],
+          files: [SKILL_FOLDER],
           rules: { "untested-skill": "off" },
         },
       ],
@@ -179,7 +181,7 @@ test("…and one turning it ON for that folder, with the rule off, makes both re
       rules: { "untested-skill": false },
       overrides: [
         {
-          files: [".claude/skills/demo/**"],
+          files: [SKILL_FOLDER],
           rules: { "untested-skill": "warn" },
         },
       ],

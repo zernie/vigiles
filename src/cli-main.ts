@@ -57,11 +57,7 @@ import {
   formatCapabilityDiff,
 } from "./core/capability-diff.js";
 import { validate, loadConfig, DEFAULT_RULES } from "./core/validate.js";
-import {
-  ruleResolver,
-  type RuleName,
-  type RuleResolver,
-} from "./core/overrides.js";
+import { ruleResolver, type RuleName, type RuleResolver } from "./overrides.js";
 import {
   anyLocksCommitted,
   evalLockNudge,
@@ -1154,7 +1150,7 @@ function verifyHashes(
 
 function validateSpecs(
   filePaths: string[],
-  rulesConfig: import("./core/types.js").RulesConfig,
+  rulesConfig: Readonly<import("./core/types.js").RulesConfig>,
   rules: RuleResolver,
   silent = false,
 ): boolean {
@@ -2059,7 +2055,7 @@ interface BundleCheck {
   readonly config: VigilesConfig | undefined;
   /**
    * Every rule's severity for a finding's own path — `rules` with
-   * `.vigilesrc.json#overrides` applied (`core/overrides.ts`). A check reads
+   * `.vigilesrc.json#overrides` applied (`src/overrides.ts`). A check reads
    * its severity here per finding, never once from `config.rules`, or a folder
    * turned off by an override would still be reported.
    */
@@ -2117,8 +2113,8 @@ function graded<F extends object>(
 
 /** The `{ issues, errors }` a per-surface check returns, from its graded findings. */
 function tally(found: readonly { readonly sev: "warn" | "error" }[]): {
-  issues: number;
-  errors: number;
+  readonly issues: number;
+  readonly errors: number;
 } {
   return {
     issues: found.length,
@@ -2241,7 +2237,6 @@ async function checkSpecRefs(
           dialect,
           config,
           knownAgents ?? [],
-          target,
         ),
       });
     } catch {
@@ -2313,9 +2308,10 @@ async function specCompileErrors(
   dialect: HarnessDialect,
   config: VigilesConfig | undefined,
   knownAgents: readonly string[],
-  target: string,
 ): Promise<SpecCompileFindings> {
   const basePath = process.cwd();
+  // The compiled file this spec writes — `overrides` resolve at its path.
+  const target = specPath.replace(/\.spec\.ts$/, "");
   switch (spec._specType) {
     case "claude": {
       const r = await compileClaude(spec, {
@@ -2565,7 +2561,6 @@ async function runLint(
   // like every other rule.
   const orphansCfg = rules.mayFire("orphan-docs") ? config?.orphans : undefined;
   if (!silent) console.log("\nOrphan docs check:\n");
-  let orphanGraded: readonly Graded<{ readonly doc: string }>[] = [];
   let orphanReport: ReturnType<typeof findOrphanDocs> = {
     include: [],
     totalDocs: 0,
@@ -2586,7 +2581,7 @@ async function runLint(
     });
     // Per doc: an `overrides` entry with `orphan-docs` off drops it from the
     // report (it still counts as a doc that references others).
-    orphanGraded = graded(
+    const orphanGraded = graded(
       rules,
       "orphan-docs",
       found.orphans.map((doc) => ({ doc })),
@@ -2877,7 +2872,9 @@ async function runLint(
     integrityErrors,
     coverageErrors,
     orphanCount: orphanReport.orphans.length,
-    orphanSeverity: orphanGraded.some((o) => o.sev === "error")
+    orphanSeverity: orphanReport.orphans.some(
+      (doc) => rules.severityAt("orphan-docs", doc) === "error",
+    )
       ? "error"
       : "warn",
     untestedSurfaces: untested.untested,
@@ -5456,21 +5453,18 @@ function checkIntegrityForFiles(
     if (!silent) console.log(msg);
   };
 
-  let errorCount = 0;
-  let gating = 0;
   const basePath = process.cwd();
-
-  for (const filePath of files) {
-    // Per file: an `overrides` entry may turn `integrity` off for a folder.
+  // Per file: an `overrides` entry may turn `integrity` off for a folder.
+  const checked = files.flatMap((filePath) => {
     const severity = rules.severityAt("integrity", filePath);
-    if (severity === false) continue;
     const abs = resolve(basePath, filePath);
-    if (!existsSync(abs)) continue;
+    if (severity === false || !existsSync(abs)) return [];
     const result = checkIntegrity(readFileSync(abs, "utf-8"));
+    return [{ filePath, severity, result }];
+  });
 
+  for (const { filePath, severity, result } of checked) {
     if (!result.intact) {
-      errorCount++;
-      if (severity === "error") gating++;
       log(
         `  ${markOf(severity).mark} ${filePath} — ${result.reason ?? "tampered"}`,
       );
@@ -5479,11 +5473,11 @@ function checkIntegrityForFiles(
     }
   }
 
-  if (errorCount === 0) {
+  const broken = checked.filter((c) => !c.result.intact);
+  if (broken.length === 0) {
     log("  All compiled files intact.");
   }
-
-  return gating;
+  return broken.filter((c) => c.severity === "error").length;
 }
 
 /**

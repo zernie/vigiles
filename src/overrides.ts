@@ -27,8 +27,8 @@
  * sits in; the glob semantics are top-level `exclude`'s (`./root-globs.ts`).
  */
 import { rootGlobMatcher } from "./root-globs.js";
-import type { RuleSeverity, RulesConfig } from "./types.js";
-import { ruleSeverity } from "./types.js";
+import type { RuleSeverity, RulesConfig } from "./core/types.js";
+import { ruleSeverity } from "./core/types.js";
 
 /** A rule name — a key of the rule set. */
 export type RuleName = keyof RulesConfig;
