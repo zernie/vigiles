@@ -14,6 +14,8 @@
  * REMOVED commands, not against a list that merely stops growing.
  */
 
+import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
+import { anchoredWord, runProgramCommand } from "./core/hook-command.js";
 import {
   writeFileSync,
   existsSync,
@@ -304,6 +306,10 @@ import {
   discoverProviderFiles,
   hookGateRef,
   hookRuntimeRef,
+  hookTargetOf,
+  discoverPluginHookFiles,
+  INSTALLED_HOOK_RUNTIME,
+  type HookTarget,
   readHookRuntime,
   type HookRuntime,
   normalizeHookRef,
@@ -8582,6 +8588,7 @@ async function installHookFile(
   adapter: HarnessAdapter,
   registeredProviders: readonly string[],
   runtime: HookRuntime,
+  target: HookTarget = { kind: "project" },
 ): Promise<HookInstallResult> {
   const source = readFileSync(resolve(process.cwd(), file), "utf-8");
   const program = await loadHookProgram(file);
@@ -8601,9 +8608,22 @@ async function installHookFile(
     // cache, thirteen times, on every tool call. The `|| exit N` ending is what
     // the shell does when that file cannot start at all. `compileHookProgram`
     // adds it (see `hookRuntimeMissingExit`), so it is not written here.
+    //
+    // SPIKE: ONE TEMPLATE (`runProgramCommand`), two anchors. A plugin's
+    // program is anchored at the PLUGIN root; its runtime is the one installed
+    // in the USER's project (the plugin ships no node_modules, and never the
+    // plugin author's own `dist/` — `runtime` is ignored for the plugin target).
     gateCommand:
-      `${hookRuntimeRef(adapter.layout.projectRootTokens, runtime)} hook-runtime run-program ` +
-      hookGateRef(ref, adapter.layout.projectRootTokens),
+      target.kind === "plugin"
+        ? runProgramCommand(
+            anchoredWord(
+              adapter.layout.projectRootTokens?.[0],
+              INSTALLED_HOOK_RUNTIME.path,
+            ),
+            anchoredWord(adapter.layout.pluginRootToken, ref),
+          )
+        : `${hookRuntimeRef(adapter.layout.projectRootTokens, runtime)} hook-runtime run-program ` +
+          hookGateRef(ref, adapter.layout.projectRootTokens),
     dialect: adapter.dialect,
     hookProtocol: adapter.hookProtocol,
     settings: adapter.layout.settings,
@@ -8627,7 +8647,9 @@ async function installHookFile(
   // matcher, Codex carries one command per entry). A TOML harness with
   // CC-shaped entries was expressible under the enum and would have been
   // merged wrong; neither port can be wrong about its own half.
-  const settingsAbs = resolve(process.cwd(), adapter.layout.settingsPath);
+  const settingsRel =
+    target.kind === "plugin" ? target.manifestPath : adapter.layout.settingsPath;
+  const settingsAbs = resolve(process.cwd(), settingsRel);
   const existing: Record<string, unknown> = existsSync(settingsAbs)
     ? adapter.layout.settings.parse(readFileSync(settingsAbs, "utf-8"))
     : {};
@@ -8703,7 +8725,7 @@ async function installHookFile(
   // path at all — a nudge with no delivery, inside the check for exactly that.
   return {
     role,
-    settingsPath: adapter.layout.settingsPath,
+    settingsPath: settingsRel,
     warnings: [...(compiled.warnings ?? []), ...(warning ? [warning] : [])],
   };
 }
@@ -8762,11 +8784,20 @@ async function installHooks(
     try {
       // Fan out: the same compiled hook lands in each enabled harness's config.
       for (const adapter of adapters) {
+        const target = hookTargetOf(file, adapter.layout);
+        // A plugin hook belongs to the harness whose manifest holds it; the
+        // other enabled harnesses do not get it in their project settings.
+        if (
+          target.kind === "plugin" &&
+          !existsSync(resolve(process.cwd(), adapter.layout.manifestPath))
+        )
+          continue;
         const r = await installHookFile(
           file,
           adapter,
           registeredProviders,
           runtime,
+          target,
         );
         console.log(
           `✓ ${file} → ${r.settingsPath} (role: ${r.role}, harness: ${adapter.name})`,
@@ -9389,7 +9420,14 @@ export async function main(): Promise<void> {
         restArgs.length > 0
           ? partitionHookArgs(restArgs.filter((f) => !f.endsWith(".spec.ts")))
           : discoveredHookArgs(projectRoot);
-      const hooks = [...found.hooks];
+      // SPIKE: a bare compile also discovers a plugin's `hooks/*.hook.*`
+      // (Claude Code layout) — where a source sits decides where it is wired.
+      const hooks = [
+        ...found.hooks,
+        ...(restArgs.length > 0
+          ? []
+          : discoverPluginHookFiles(projectRoot, claudeCodeLayout)),
+      ];
       const unclaimed = found.unclaimed;
       if (
         specs.length === 0 &&

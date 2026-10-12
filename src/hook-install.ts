@@ -558,7 +558,66 @@ function managesHook(entry: HookEntry, hookPath: string): boolean {
  */
 function bareToken(token: string): string {
   const unquoted = token.replace(/^["']/, "").replace(/["']$/, "");
-  return unquoted.replace(/^\$\{?CLAUDE_PROJECT_DIR\}?[/\\]/, "");
+  // SPIKE: a plugin manifest's line anchors the PROGRAM at the plugin root, and
+  // the manifest's paths are relative to that same root, so the strip is the
+  // same identity there. (Hardcoded like its sibling; a layout-driven list of
+  // tokens is the production shape.)
+  return unquoted.replace(
+    /^\$\{?(?:CLAUDE_PROJECT_DIR|CLAUDE_PLUGIN_ROOT)\}?[/\\]/,
+    "",
+  );
+}
+
+/**
+ * SPIKE: WHERE A HOOK SOURCE SITS DECIDES WHAT IT IS WIRED INTO — never an
+ * option on the hook, which stays harness- and packaging-neutral.
+ *
+ * - `.vigiles/hooks/*.hook.*` → the harness's project settings, anchored at the
+ *   project root (unchanged);
+ * - `<hookScriptsDir>/*.hook.*` (`hooks/` for Claude Code) in a repo whose root
+ *   carries the layout's plugin manifest → that manifest's `hooks` section,
+ *   the program anchored at the plugin root.
+ */
+export type HookTarget =
+  | { readonly kind: "project" }
+  | { readonly kind: "plugin"; readonly manifestPath: string };
+
+export function hookTargetOf(
+  file: string,
+  layout: {
+    readonly manifestPath: string;
+    readonly hookScriptsDir?: string;
+  },
+  cwd: string = process.cwd(),
+): HookTarget {
+  const dir = layout.hookScriptsDir;
+  if (dir === undefined) return { kind: "project" };
+  const ref = normalizeHookRef(file, cwd);
+  const parent = dirName(ref).replace(/\/$/, "");
+  return parent === dir && existsSync(join(cwd, layout.manifestPath))
+    ? { kind: "plugin", manifestPath: layout.manifestPath }
+    : { kind: "project" };
+}
+
+/**
+ * SPIKE: the plugin's compiled hooks — `.hook.` files directly in the layout's
+ * hook-scripts dir, only when the plugin manifest exists. Unlike
+ * `.vigiles/hooks/`, this directory is SHARED with hand-written scripts
+ * (`hooks/pre-edit.sh`), so an unmarked file is left alone, never refused.
+ */
+export function discoverPluginHookFiles(
+  cwd: string,
+  layout: { readonly manifestPath: string; readonly hookScriptsDir?: string },
+): readonly string[] {
+  const dir = layout.hookScriptsDir;
+  if (dir === undefined || !existsSync(join(cwd, layout.manifestPath)))
+    return [];
+  const abs = join(cwd, dir);
+  if (!existsSync(abs)) return [];
+  return readdirSync(abs)
+    .sort()
+    .filter((f) => classifySource(f).kind === "hook")
+    .map((f) => `${dir}/${f}`);
 }
 
 /**

@@ -38,7 +38,7 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { resolve, dirname, basename, relative } from "node:path";
+import { resolve, dirname, relative } from "node:path";
 import {
   verifyHookStamp,
   HookCompileError,
@@ -152,7 +152,11 @@ export function hookStampPath(
   file: string,
   root: string = process.cwd(),
 ): string {
-  return resolve(root, ".vigiles/hooks", basename(file) + ".json");
+  // SPIKE: BESIDE THE SOURCE. Identical for `.vigiles/hooks/x` (the old
+  // basename-under-`.vigiles/hooks` rule), and the only place a PLUGIN's
+  // stamp can be found: the runtime's root is the user's project, which does
+  // not hold the plugin's stamp — and may hold a same-named one of its own.
+  return resolve(root, file) + ".json";
 }
 
 /**
@@ -545,6 +549,11 @@ export async function runHookProgramCommand(
 
   let program: AnyHook;
   try {
+    // SPIKE: a plugin's hook sits outside any node_modules; let its
+    // `import "vigiles/hook"` fall back to THIS runtime's package.
+    (
+      require("./runtime-self-resolve.js") as typeof import("./runtime-self-resolve.js")
+    ).registerSelfResolve();
     program = await loadHookProgram(file, root);
   } catch (err) {
     // A LOAD failure is a fact about the harness, not a verdict about the
