@@ -197,7 +197,7 @@ export interface FileToolEventOptions {
  * test cannot pin only the spelling its author had in mind.
  *
  * 🔴 THIS EXISTS BECAUSE THE MISSING HALF HID A DEAD HOOK. Every hook test in
- * reach built `{ tool_input: { file_path: "migratsiya/papers/x.tex" } }` by
+ * reach built `{ tool_input: { file_path: "drafts/papers/x.tex" } }` by
  * hand — repo-relative, because that is how the hook's own prefixes are written.
  * Claude Code's Edit/Write/MultiEdit tools send an ABSOLUTE `file_path`,
  * `PathView.under` had no project root to reconcile the two, and so three
@@ -207,7 +207,7 @@ export interface FileToolEventOptions {
  *
  * Iterating is the point — there is deliberately no singular builder here:
  *
- *     for (const e of fileToolEvents("migratsiya/papers/x.tex"))
+ *     for (const e of fileToolEvents("drafts/papers/x.tex"))
  *       assert.ok(hookFired(runHook(cmd, e)));
  *
  * Each event also carries `cwd`, so a hook run WITHOUT `$CLAUDE_PROJECT_DIR` in

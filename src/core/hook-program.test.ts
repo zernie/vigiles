@@ -189,10 +189,10 @@ test("commandView.touches/pipesToShell: high-signal secret-read + curl|sh matche
 // MEASURED 2026-08-12 against a real shipped guard (`paper-edit-guard.hook.ts`,
 // `CLAUDE_PROJECT_DIR` set, exit 2 = blocked, 0 = allowed):
 //
-//   sed -i s/a/b/ migratsiya/papers/x/paper.tex                  → 2  blocked
-//   sed -i s/a/b/ /home/user/mine/migratsiya/papers/x/paper.tex  → 0  ALLOWED
-//   cp /tmp/a     migratsiya/papers/x/paper.tex                  → 2  blocked
-//   cp /tmp/a     /home/user/mine/migratsiya/papers/x/paper.tex  → 0  ALLOWED
+//   sed -i s/a/b/ drafts/papers/x/paper.tex                  → 2  blocked
+//   sed -i s/a/b/ /home/user/project/drafts/papers/x/paper.tex  → 0  ALLOWED
+//   cp /tmp/a     drafts/papers/x/paper.tex                  → 2  blocked
+//   cp /tmp/a     /home/user/project/drafts/papers/x/paper.tex  → 0  ALLOWED
 //
 // The old `tokenUnder` suffix-matched with `endsWith("/" + prefix)`, which is
 // true only when a path ENDS AT the prefix — never for a file UNDER it. So any
@@ -200,14 +200,14 @@ test("commandView.touches/pipesToShell: high-signal secret-read + curl|sh matche
 // absolutely, and the two guards that were NOT bypassable were the two whose
 // authors had hand-rolled the missing bias themselves.
 // ---------------------------------------------------------------------------
-const MINE_ROOT = "/home/user/mine";
-const PAPER_DIR = ["migratsiya/papers"];
+const MINE_ROOT = "/home/user/project";
+const PAPER_DIR = ["drafts/papers"];
 
 test("touches: the ABSOLUTE spelling no longer walks past a relative prefix", () => {
   // The measured bypass, with and without a resolvable root.
   for (const cmd of [
-    "sed -i s/a/b/ /home/user/mine/migratsiya/papers/x/paper.tex",
-    "cp /tmp/a /home/user/mine/migratsiya/papers/x/paper.tex",
+    "sed -i s/a/b/ /home/user/project/drafts/papers/x/paper.tex",
+    "cp /tmp/a /home/user/project/drafts/papers/x/paper.tex",
   ]) {
     // WITH a root the path is PLACED: provably this repo's paper directory.
     assert.equal(commandView(cmd, MINE_ROOT).touches(PAPER_DIR), true, cmd);
@@ -217,10 +217,9 @@ test("touches: the ABSOLUTE spelling no longer walks past a relative prefix", ()
   }
   // The relative spelling, which always worked, still does.
   assert.equal(
-    commandView(
-      "sed -i s/a/b/ migratsiya/papers/x/paper.tex",
-      MINE_ROOT,
-    ).touches(PAPER_DIR),
+    commandView("sed -i s/a/b/ drafts/papers/x/paper.tex", MINE_ROOT).touches(
+      PAPER_DIR,
+    ),
     true,
   );
 });
@@ -233,7 +232,7 @@ test("touches: over-blocking is BOUNDED — an unrelated command is still a miss
     assert.equal(commandView("git status", root).touches(PAPER_DIR), false);
     assert.equal(commandView("cat README.md", root).touches(PAPER_DIR), false);
     assert.equal(
-      commandView("cp /tmp/a /home/user/mine/src/x.ts", root).touches(
+      commandView("cp /tmp/a /home/user/project/src/x.ts", root).touches(
         PAPER_DIR,
       ),
       false,
@@ -242,7 +241,7 @@ test("touches: over-blocking is BOUNDED — an unrelated command is still a miss
     // swallow.
     assert.equal(
       commandView(
-        "sed -i s/a/b/ /home/user/mine/migratsiya/README.md",
+        "sed -i s/a/b/ /home/user/project/drafts/README.md",
         root,
       ).touches(PAPER_DIR),
       false,
@@ -254,7 +253,7 @@ test("touches vs under: ONE rule, OPPOSITE biases, on the same input", () => {
   // A sibling checkout's copy of the same relative path. Neither primitive can
   // place it inside THIS repo, and they must disagree about what to do with that:
   // the allowlist stays quiet, the denylist blocks.
-  const foreign = "/somewhere/else/migratsiya/papers/x/paper.tex";
+  const foreign = "/somewhere/else/drafts/papers/x/paper.tex";
   assert.equal(pathView(foreign, MINE_ROOT).under(PAPER_DIR), false);
   assert.equal(
     commandView(`sed -i s/a/b/ ${foreign}`, MINE_ROOT).touches(PAPER_DIR),
@@ -272,22 +271,22 @@ test("under is UNCHANGED by the shared rule — the allowlist keeps its bias", (
   // Regression guard: `under` accepts the "under" verdict only, so widening the
   // undecidable bucket for the denylists cannot leak a grant into it.
   assert.equal(
-    pathView("/home/user/mine/src/x.ts", MINE_ROOT).under(["src"]),
+    pathView("/home/user/project/src/x.ts", MINE_ROOT).under(["src"]),
     true,
   );
   assert.equal(pathView("src/x.ts").under(["src"]), true);
-  assert.equal(pathView("/home/user/mine/src/x.ts").under(["src"]), false);
+  assert.equal(pathView("/home/user/project/src/x.ts").under(["src"]), false);
   assert.equal(pathView("/etc/passwd", MINE_ROOT).under(["etc"]), false);
   assert.equal(pathView("/etc/passwd", MINE_ROOT).under(["/etc"]), true);
   // A path INSIDE the root but not under the prefix, whose name nonetheless
   // contains the prefix's segments — `undecidable` for a denylist, still a flat
   // miss here.
   assert.equal(
-    pathView("/home/user/mine/vendor/src/x.ts", MINE_ROOT).under(["src"]),
+    pathView("/home/user/project/vendor/src/x.ts", MINE_ROOT).under(["src"]),
     false,
   );
   assert.equal(
-    commandView("cat /home/user/mine/vendor/src/x.ts", MINE_ROOT).touches([
+    commandView("cat /home/user/project/vendor/src/x.ts", MINE_ROOT).touches([
       "src",
     ]),
     true,
@@ -295,7 +294,7 @@ test("under is UNCHANGED by the shared rule — the allowlist keeps its bias", (
 });
 
 test("writesTo: the same denylist bias, because it has the same job", () => {
-  const abs = "/home/user/mine/migratsiya/papers/x/paper.tex";
+  const abs = "/home/user/project/drafts/papers/x/paper.tex";
   assert.equal(
     commandView(`echo x > ${abs}`, MINE_ROOT).writesTo(PAPER_DIR),
     true,
@@ -340,8 +339,8 @@ test("decideProgram threads the root, so a gate sees both spellings alike", () =
     cwd: MINE_ROOT,
   });
   for (const spelling of [
-    "migratsiya/papers/x/paper.tex",
-    "/home/user/mine/migratsiya/papers/x/paper.tex",
+    "drafts/papers/x/paper.tex",
+    "/home/user/project/drafts/papers/x/paper.tex",
   ]) {
     assert.equal(
       decideProgram(paperGuard, bash(`sed -i s/a/b/ ${spelling}`)).kind,
@@ -557,22 +556,22 @@ test("commandView.writeTargets: empty on a read, a quoted mention, or a path out
 });
 
 test("commandView.writeTargets: a leaf's own chdir wrapper resolves; a preceding `cd` does NOT", () => {
-  // MEASURED before this change (root set, prefix `migratsiya/papers`):
-  //   sed -i s/a/b/ migratsiya/papers/x/paper.tex          → true
-  //   env -C migratsiya sed -i s/a/b/ papers/x/paper.tex   → FALSE, silently
+  // MEASURED before this change (root set, prefix `drafts/papers`):
+  //   sed -i s/a/b/ drafts/papers/x/paper.tex          → true
+  //   env -C drafts sed -i s/a/b/ papers/x/paper.tex   → FALSE, silently
   // `stripWrappers` read the `-C` value in order to skip past it and then threw
   // it away, so the operand resolved against the wrong directory and a denylist
   // built on `writesTo` waved the write through.
   for (const cmd of [
-    "env -C migratsiya sed -i s/a/b/ papers/x/paper.tex",
-    "env --chdir=migratsiya sed -i s/a/b/ papers/x/paper.tex",
-    "sudo -D migratsiya sed -i s/a/b/ papers/x/paper.tex",
+    "env -C drafts sed -i s/a/b/ papers/x/paper.tex",
+    "env --chdir=drafts sed -i s/a/b/ papers/x/paper.tex",
+    "sudo -D drafts sed -i s/a/b/ papers/x/paper.tex",
     // The live guard's own shape: the wrapper carries the whole directory.
-    "env -C migratsiya/papers/x sed -i s/a/b/ paper.tex",
+    "env -C drafts/papers/x sed -i s/a/b/ paper.tex",
   ]) {
     assert.deepEqual(
       commandView(cmd, MINE_ROOT).writeTargets(PAPER_DIR),
-      ["migratsiya/papers/x/paper.tex"],
+      ["drafts/papers/x/paper.tex"],
       cmd,
     );
     assert.equal(commandView(cmd, MINE_ROOT).writesTo(PAPER_DIR), true, cmd);
@@ -580,10 +579,10 @@ test("commandView.writeTargets: a leaf's own chdir wrapper resolves; a preceding
   // Nested wrappers layer, rather than the innermost one winning.
   assert.deepEqual(
     commandView(
-      "sudo -D migratsiya env -C papers sed -i s/a/b/ x/paper.tex",
+      "sudo -D drafts env -C papers sed -i s/a/b/ x/paper.tex",
       MINE_ROOT,
     ).writeTargets(PAPER_DIR),
-    ["migratsiya/papers/x/paper.tex"],
+    ["drafts/papers/x/paper.tex"],
   );
   // 🔴 `-C` IS `--chdir` FOR env AND `--close-from` FOR sudo, so the option
   // table is keyed by head. Read as one shared set, this reports `5/papers/x.tex`
@@ -598,13 +597,13 @@ test("commandView.writeTargets: a leaf's own chdir wrapper resolves; a preceding
   // only the process `env` execs. Joining it would name a file nothing writes.
   assert.deepEqual(
     commandView(
-      "env -C migratsiya echo hi > papers/x/paper.md",
+      "env -C drafts echo hi > papers/x/paper.md",
       MINE_ROOT,
     ).writeTargets(PAPER_DIR),
     [],
   );
   assert.deepEqual(
-    commandView("env -C migratsiya echo hi > papers/x/paper.md").writeTargets([
+    commandView("env -C drafts echo hi > papers/x/paper.md").writeTargets([
       "papers",
     ]),
     ["papers/x/paper.md"],
@@ -617,7 +616,7 @@ test("commandView.writeTargets: a leaf's own chdir wrapper resolves; a preceding
   // here to make the day it closes loud instead of silent.
   assert.deepEqual(
     commandView(
-      "cd migratsiya && sed -i s/a/b/ papers/x/paper.tex",
+      "cd drafts && sed -i s/a/b/ papers/x/paper.tex",
       MINE_ROOT,
     ).writeTargets(PAPER_DIR),
     [],
@@ -641,13 +640,13 @@ test("commandView.writesTo is DERIVED from writeTargets — one code path, no dr
   // second extraction diverges — a chdir wrapper, a wrapper with a full path, a
   // redirection, a dynamic target, a read — rather than with more commands.
   for (const cmd of [
-    "sed -i s/a/b/ migratsiya/papers/x/paper.tex",
-    "env -C migratsiya sed -i s/a/b/ papers/x/paper.tex",
-    "env sed -i s/a/b/ migratsiya/papers/x/paper.tex",
-    "echo x > migratsiya/papers/x/paper.md",
+    "sed -i s/a/b/ drafts/papers/x/paper.tex",
+    "env -C drafts sed -i s/a/b/ papers/x/paper.tex",
+    "env sed -i s/a/b/ drafts/papers/x/paper.tex",
+    "echo x > drafts/papers/x/paper.md",
     'echo x > "$OUT"',
-    "cat migratsiya/papers/x/paper.tex",
-    "cd migratsiya && sed -i s/a/b/ papers/x/paper.tex",
+    "cat drafts/papers/x/paper.tex",
+    "cd drafts && sed -i s/a/b/ papers/x/paper.tex",
     "git status",
   ]) {
     for (const root of [MINE_ROOT, undefined]) {
@@ -661,7 +660,7 @@ test("commandView.writesTo is DERIVED from writeTargets — one code path, no dr
   }
   // The denylist bias reaches the list too: an undecidable placement is INCLUDED,
   // so a sibling checkout's copy comes back as a target rather than as silence.
-  const foreign = "/somewhere/else/migratsiya/papers/x/paper.tex";
+  const foreign = "/somewhere/else/drafts/papers/x/paper.tex";
   assert.deepEqual(
     commandView(`sed -i s/a/b/ ${foreign}`, MINE_ROOT).writeTargets(PAPER_DIR),
     [foreign],
@@ -1534,8 +1533,8 @@ test("isLoadPathRepairEvent: NO Bash command is a repair — the git escape is g
 // MEASURED 2026-08-12 on the live runtime, one compiled react hook, two
 // spellings of the same file:
 //
-//   /home/user/mine/migratsiya/papers/x/main.tex  → SILENT
-//   migratsiya/papers/x/main.tex                  → FIRES
+//   /home/user/project/drafts/papers/x/main.tex  → SILENT
+//   drafts/papers/x/main.tex                  → FIRES
 //
 // Claude Code's Edit/Write/MultiEdit always send the ABSOLUTE one. Every test
 // that existed built the relative one, so the tests reproduced the author's
@@ -1545,26 +1544,24 @@ test("isLoadPathRepairEvent: NO Bash command is a repair — the git escape is g
 // relative one is exactly the hole this section closes.
 // ===========================================================================
 
-const MINE = "/home/user/mine";
+const MINE = "/home/user/project";
 
 test("pathView: an ABSOLUTE path under the root matches a repo-relative prefix", () => {
-  const p = pathView(`${MINE}/migratsiya/papers/x/main.tex`, MINE);
-  assert.equal(p.under(["migratsiya/papers/"]), true);
-  assert.equal(p.rel, "migratsiya/papers/x/main.tex");
+  const p = pathView(`${MINE}/drafts/papers/x/main.tex`, MINE);
+  assert.equal(p.under(["drafts/papers/"]), true);
+  assert.equal(p.rel, "drafts/papers/x/main.tex");
   // The pre-fix behaviour, kept visible: with NO root the same path is a miss.
   assert.equal(
-    pathView(`${MINE}/migratsiya/papers/x/main.tex`).under([
-      "migratsiya/papers/",
-    ]),
+    pathView(`${MINE}/drafts/papers/x/main.tex`).under(["drafts/papers/"]),
     false,
   );
 });
 
 test("pathView: the RELATIVE spelling keeps matching, root or no root", () => {
   for (const root of [MINE, undefined]) {
-    const p = pathView("migratsiya/papers/x/main.tex", root);
-    assert.equal(p.under(["migratsiya/papers/"]), true, `root=${String(root)}`);
-    assert.equal(p.under(["./migratsiya/papers"]), false); // a prefix is not a path
+    const p = pathView("drafts/papers/x/main.tex", root);
+    assert.equal(p.under(["drafts/papers/"]), true, `root=${String(root)}`);
+    assert.equal(p.under(["./drafts/papers"]), false); // a prefix is not a path
     assert.equal(p.under(["health"]), false);
   }
   // `./` on the PATH is stripped in both modes.
@@ -1575,8 +1572,8 @@ test("pathView: the RELATIVE spelling keeps matching, root or no root", () => {
 test("pathView: a SIBLING checkout never matches — the resolveRef lesson, again", () => {
   // Same tail, different repo. A suffix comparison would hand this a grant
   // meant for THIS repo; `resolveRef` already paid for that hole once.
-  const other = pathView("/home/user/other/migratsiya/papers/x/main.tex", MINE);
-  assert.equal(other.under(["migratsiya/papers/"]), false);
+  const other = pathView("/home/user/other/drafts/papers/x/main.tex", MINE);
+  assert.equal(other.under(["drafts/papers/"]), false);
   assert.equal(other.rel, undefined);
   // And a path outside the root entirely.
   const outside = pathView("/etc/passwd", MINE);
@@ -1588,14 +1585,8 @@ test("pathView: an ABSOLUTE prefix matches the absolute path — in BOTH spellin
   assert.equal(pathView("/etc/passwd").under(["/etc"]), true); // no root needed
   assert.equal(pathView("/etc/passwd", MINE).under(["/etc"]), true);
   // With a root, a relative PATH resolves and can match an absolute PREFIX.
-  assert.equal(
-    pathView("migratsiya/x.md", MINE).under([`${MINE}/migratsiya`]),
-    true,
-  );
-  assert.equal(
-    pathView("migratsiya/x.md").under([`${MINE}/migratsiya`]),
-    false,
-  );
+  assert.equal(pathView("drafts/x.md", MINE).under([`${MINE}/drafts`]), true);
+  assert.equal(pathView("drafts/x.md").under([`${MINE}/drafts`]), false);
 });
 
 test("pathView: prefix spellings — trailing slash, glob tail, catch-all", () => {
@@ -1611,13 +1602,13 @@ test("pathView: prefix spellings — trailing slash, glob tail, catch-all", () =
 
 test("pathView: dot segments and a root with a trailing slash normalize", () => {
   assert.equal(
-    pathView(`${MINE}/migratsiya/./papers/x.tex`, `${MINE}/`).under([
-      "migratsiya/papers",
+    pathView(`${MINE}/drafts/./papers/x.tex`, `${MINE}/`).under([
+      "drafts/papers",
     ]),
     true,
   );
   assert.equal(
-    pathView(`${MINE}/migratsiya/../health/x.md`, MINE).under(["migratsiya"]),
+    pathView(`${MINE}/drafts/../health/x.md`, MINE).under(["drafts"]),
     false,
   );
   // The root itself is `""` relative — under a catch-all, under nothing named.
@@ -1666,13 +1657,16 @@ test("projectRootOf: $CLAUDE_PROJECT_DIR wins, the event's cwd is the fallback, 
 
 test("undecidablePathWarning: loud for the one case that decides on nothing, silent otherwise", () => {
   assert.match(
-    undecidablePathWarning("/home/user/mine/x.md", undefined) ?? "",
+    undecidablePathWarning("/home/user/project/x.md", undefined) ?? "",
     /no project root/,
   );
-  assert.equal(undecidablePathWarning("/home/user/mine/x.md", MINE), undefined);
+  assert.equal(
+    undecidablePathWarning("/home/user/project/x.md", MINE),
+    undefined,
+  );
   // A RELATIVE path is decidable without a root — warning here would read as a
   // react hook's notice (both go to stderr) and make every silent hook look live.
-  assert.equal(undecidablePathWarning("migratsiya/x.md", undefined), undefined);
+  assert.equal(undecidablePathWarning("drafts/x.md", undefined), undefined);
   assert.equal(undecidablePathWarning(undefined, undefined), undefined);
 });
 
@@ -1682,7 +1676,7 @@ const paperNudge = experimental_defineReact({
   on: "PostToolUse",
   match: tools("Edit", "Write"),
   react: (e) =>
-    e.path.under(["migratsiya/papers/"]) ? notice("checklist") : nothing(),
+    e.path.under(["drafts/papers/"]) ? notice("checklist") : nothing(),
 });
 
 const confineToSrc = experimental_defineFileGate({
@@ -1694,7 +1688,7 @@ const confineToSrc = experimental_defineFileGate({
 test("runReact: an ABSOLUTE file_path fires the react — via the root arg AND via the payload's cwd", () => {
   const abs = {
     tool_name: "Edit",
-    tool_input: { file_path: `${MINE}/migratsiya/papers/x/main.tex` },
+    tool_input: { file_path: `${MINE}/drafts/papers/x/main.tex` },
   };
   assert.equal(runReact(paperNudge, abs, {}, MINE).kind, "notice");
   assert.equal(runReact(paperNudge, { ...abs, cwd: MINE }).kind, "notice");
@@ -1707,7 +1701,7 @@ test("runReact: an ABSOLUTE file_path fires the react — via the root arg AND v
       {
         ...abs,
         tool_input: {
-          file_path: "/home/user/other/migratsiya/papers/x/main.tex",
+          file_path: "/home/user/other/drafts/papers/x/main.tex",
         },
       },
       {},
@@ -1748,7 +1742,7 @@ test("decideFileGate: an ABSOLUTE file_path inside the confinement is ALLOWED (i
 });
 
 test("runHookProgram: the dispatcher threads the root to both file roles", () => {
-  const abs = `${MINE}/migratsiya/papers/x/main.tex`;
+  const abs = `${MINE}/drafts/papers/x/main.tex`;
   const viaArg = runHookProgram(
     paperNudge,
     { tool_name: "Edit", tool_input: { file_path: abs } },

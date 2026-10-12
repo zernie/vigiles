@@ -775,16 +775,16 @@ test("…and 126/127 is distinguished from an ordinary failing exit code", () =>
 // ---------------------------------------------------------------------------
 
 test("fileToolEvents: returns BOTH spellings of the same file, relative first", () => {
-  const [rel, abs] = fileToolEvents("migratsiya/papers/x/main.tex", {
-    root: "/home/user/mine",
+  const [rel, abs] = fileToolEvents("drafts/papers/x/main.tex", {
+    root: "/home/user/project",
   });
   assert.equal(
     (rel.tool_input as { file_path: string }).file_path,
-    "migratsiya/papers/x/main.tex",
+    "drafts/papers/x/main.tex",
   );
   assert.equal(
     (abs.tool_input as { file_path: string }).file_path,
-    "/home/user/mine/migratsiya/papers/x/main.tex",
+    "/home/user/project/drafts/papers/x/main.tex",
   );
   // The two differ ONLY in the path — same event, same tool, same extras.
   assert.notEqual(
@@ -796,7 +796,7 @@ test("fileToolEvents: returns BOTH spellings of the same file, relative first", 
     assert.equal(e.tool_name, "Edit");
     // `cwd` rides along so a hook spawned WITHOUT $CLAUDE_PROJECT_DIR still
     // resolves a root — the same fallback the live runtime uses.
-    assert.equal(e.cwd, "/home/user/mine");
+    assert.equal(e.cwd, "/home/user/project");
   }
 });
 

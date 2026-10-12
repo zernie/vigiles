@@ -843,8 +843,8 @@ export default experimental_defineReact({
 // actually writes it: ABSOLUTE.
 //
 // MEASURED 2026-08-12 before the fix, same hook, two spellings:
-//   /tmp/<dir>/migratsiya/papers/x/main.tex → exit 0, NO stderr (dead)
-//   migratsiya/papers/x/main.tex            → its notice on stderr (alive)
+//   /tmp/<dir>/drafts/papers/x/main.tex → exit 0, NO stderr (dead)
+//   drafts/papers/x/main.tex            → its notice on stderr (alive)
 // Every file-tool hook in the wild writes repo-relative prefixes, so every one
 // of them was dead for every real event. Nothing caught it because the harness
 // helpers built the relative spelling — hence `fileToolEvents`, which builds both.
@@ -859,7 +859,7 @@ export default experimental_defineReact({
   on: "PostToolUse",
   match: tools("Edit", "Write"),
   react: (e) =>
-    e.path.under(["migratsiya/papers/"]) ? notice("paper checklist") : nothing(),
+    e.path.under(["drafts/papers/"]) ? notice("paper checklist") : nothing(),
 });`,
     );
     const cmd = `node ${CLI} hook-runtime run-program ${f}`;
@@ -869,7 +869,7 @@ export default experimental_defineReact({
       tool_input: { file_path },
       ...extra,
     });
-    const abs = `${dir}/migratsiya/papers/x/main.tex`;
+    const abs = `${dir}/drafts/papers/x/main.tex`;
 
     // 1) the root from $CLAUDE_PROJECT_DIR — what the harness sets for a hook.
     const viaEnv = runHook(cmd, post(abs), {
@@ -890,7 +890,7 @@ export default experimental_defineReact({
 
     // 3) the RELATIVE spelling still works — the fix adds a case, it does not
     // trade one for the other.
-    const rel = runHook(cmd, post("migratsiya/papers/x/main.tex"), {
+    const rel = runHook(cmd, post("drafts/papers/x/main.tex"), {
       cwd: dir,
       env: { CLAUDE_PROJECT_DIR: dir },
     });
@@ -899,7 +899,7 @@ export default experimental_defineReact({
     // 4) a SIBLING checkout with the same tail is NOT this repo — silent.
     const sibling = runHook(
       cmd,
-      post("/somewhere/else/migratsiya/papers/x/main.tex"),
+      post("/somewhere/else/drafts/papers/x/main.tex"),
       {
         cwd: dir,
         env: { CLAUDE_PROJECT_DIR: dir },
@@ -944,7 +944,7 @@ export default experimental_defineReact({
       // sits in `dir`, so a cwd-based root would silently miss this one too.
       const mirrored = runHook(
         cmd,
-        post(`${elsewhere}/migratsiya/papers/x/main.tex`),
+        post(`${elsewhere}/drafts/papers/x/main.tex`),
         { cwd: dir, env: { CLAUDE_PROJECT_DIR: elsewhere } },
       );
       assert.match(mirrored.stderr, /paper checklist/);

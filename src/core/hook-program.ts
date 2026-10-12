@@ -390,10 +390,10 @@ function runsSeq(argv: readonly string[], tokens: readonly string[]): boolean {
 // here is an ALLOW. Against a real shipped guard (`paper-edit-guard.hook.ts` in a
 // consumer repo, `CLAUDE_PROJECT_DIR` set, exit 2 = blocked):
 //
-//   sed -i s/a/b/ migratsiya/papers/x/paper.tex                  → 2  blocked
-//   sed -i s/a/b/ /home/user/mine/migratsiya/papers/x/paper.tex  → 0  ALLOWED
-//   cp /tmp/a     migratsiya/papers/x/paper.tex                  → 2  blocked
-//   cp /tmp/a     /home/user/mine/migratsiya/papers/x/paper.tex  → 0  ALLOWED
+//   sed -i s/a/b/ drafts/papers/x/paper.tex                  → 2  blocked
+//   sed -i s/a/b/ /home/user/project/drafts/papers/x/paper.tex  → 0  ALLOWED
+//   cp /tmp/a     drafts/papers/x/paper.tex                  → 2  blocked
+//   cp /tmp/a     /home/user/project/drafts/papers/x/paper.tex  → 0  ALLOWED
 //
 // Spelling the path absolutely walked straight through the gate. (Redirects still
 // blocked — that guard decodes its own redirect targets with a hand-written
@@ -563,8 +563,8 @@ const isAtOrUnder = (
  * Could this path be under this prefix under SOME root or working directory?
  *
  * The tractable stand-in for "unprovable": the prefix's segments occur as a whole
- * contiguous run somewhere in the path. `/home/u/mine/migratsiya/papers/x.tex`
- * could be `migratsiya/papers/x.tex` in a repo rooted at `/home/u/mine`; the
+ * contiguous run somewhere in the path. `/home/u/project/drafts/papers/x.tex`
+ * could be `drafts/papers/x.tex` in a repo rooted at `/home/u/project`; the
  * leading directories are exactly what we cannot rule out without a root.
  *
  * A leading `/` is stripped from the prefix first, so an ABSOLUTE prefix can
@@ -574,8 +574,8 @@ const isAtOrUnder = (
  * ⚠️ WHAT THIS STILL MISSES, stated rather than implied — in both cases the
  * verdict is `"outside"`, so the denylist misses too:
  *
- * 1. The segments must be PRESENT. `cd migratsiya && sed -i s/a/b/ papers/x.tex`
- *    names only `papers/x.tex`, so a prefix of `migratsiya/papers` finds nothing.
+ * 1. The segments must be PRESENT. `cd drafts && sed -i s/a/b/ papers/x.tex`
+ *    names only `papers/x.tex`, so a prefix of `drafts/papers` finds nothing.
  *    Resolving a leaf's argument against a preceding `cd` is a parser change, not
  *    a matcher one; it is the blind spot both shipped guards already document.
  * 2. An ABSOLUTE prefix against a RELATIVE token with NO root — `touches(["/r/
@@ -618,7 +618,7 @@ const mightBeUnder = (
  *
  * Note what does NOT happen: a placed path that is not under the prefix comes
  * back `"under"`-less but is still offered to `mightBeUnder`, so a denylist
- * over-blocks a sibling checkout's `…/migratsiya/papers/…` rather than silently
+ * over-blocks a sibling checkout's `…/drafts/papers/…` rather than silently
  * allowing it. That over-block is the chosen error direction, not an oversight —
  * `under` never sees it, because `under` accepts `"under"` only.
  */
@@ -721,7 +721,7 @@ function writeTargetsOf(leaf: NormalizedLeaf): string[] {
 
 /**
  * A write target as it lands on disk, given the chdir wrapper the leaf ran under
- * (`env -C migratsiya sed -i s/a/b/ papers/x.tex` writes `migratsiya/papers/x.tex`).
+ * (`env -C drafts sed -i s/a/b/ papers/x.tex` writes `drafts/papers/x.tex`).
  *
  * Absolute targets and `~`-rooted ones already name their directory and are
  * returned untouched. The join itself is {@link resolveRef} rather than a fresh
@@ -832,8 +832,8 @@ export function commandView(raw: string, root?: string): CommandView {
     // REAL BYPASS. `leafCommands` keeps a word exactly as written, quotes and
     // all, so a token arrived as `"papers/x.tex"` — with the quote characters —
     // and matched no prefix at all. MEASURED end-to-end on a shipped guard:
-    // `sed -i s/a/b/ migratsiya/papers/x/paper.tex` exited 2 (blocked) while
-    // `sed -i s/a/b/ "migratsiya/papers/x/paper.tex"` exited 0. Quoting a path
+    // `sed -i s/a/b/ drafts/papers/x/paper.tex` exited 2 (blocked) while
+    // `sed -i s/a/b/ "drafts/papers/x/paper.tex"` exited 0. Quoting a path
     // is not an exotic evasion — it is what anyone writes for a path with a
     // space in it, so every denylist built on `touches` was one quote from open.
     // `writesTo` was already correct precisely because it reads `normalized`;
@@ -1571,7 +1571,7 @@ export interface PathView {
    * True iff the path sits under at least one allowed prefix (e.g. "src/**").
    *
    * A prefix is matched in ITS OWN spelling: a repo-relative prefix (`"src"`,
-   * `"migratsiya/papers/"`) is compared against the path made repo-relative, an
+   * `"drafts/papers/"`) is compared against the path made repo-relative, an
    * absolute prefix (`"/etc"`) against the path made absolute. Which of those is
    * available depends on the project root — see {@link pathView}.
    */
@@ -1592,9 +1592,9 @@ export interface PathView {
  * 🔴 `root` IS NOT OPTIONAL IN PRACTICE — WITHOUT IT THIS IS DEAD FOR EVERY REAL
  * EVENT. Claude Code's Edit/Write/MultiEdit tools always send an ABSOLUTE
  * `file_path`, and every hook in the wild writes repo-relative prefixes
- * (`under(["migratsiya/papers/"])`). Before the root existed, the two could
- * never meet: the comparison ran `"/home/u/repo/migratsiya/papers/x.tex"`
- * against `"migratsiya/papers"` and returned `false` for all input, forever.
+ * (`under(["drafts/papers/"])`). Before the root existed, the two could
+ * never meet: the comparison ran `"/home/u/repo/drafts/papers/x.tex"`
+ * against `"drafts/papers"` and returned `false` for all input, forever.
  * MEASURED 2026-08-12 on the live runtime with one compiled react hook and two
  * spellings of the same file — the relative one printed its checklist, the
  * absolute one exited 0 in silence. Three shipped hooks in a consumer repo were
