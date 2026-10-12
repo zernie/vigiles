@@ -62,7 +62,6 @@ import { instructionFile, enforce, guidance, file, cmd, ref, prose } from "vigil
 export default instructionFile({
   target: "CLAUDE.md",          // or "AGENTS.md", or ["CLAUDE.md", "AGENTS.md"]
   sections: { ... },
-  keyFiles: { ... },
   commands: { ... },
   rules: { ... },
   maxSectionLines: 30,          // optional: cap per-section line count
@@ -105,16 +104,9 @@ sections: {
 }
 ```
 
-### `keyFiles`
+### `keyFiles` (deprecated)
 
-`Record<string, string>` -- File paths mapped to descriptions. Each path is verified via `existsSync` at compile time. Compiles to a bullet list under `## Key Files`.
-
-```ts
-keyFiles: {
-  "src/spec.ts": "Type system and builder functions",
-  "src/compile.ts": "Compiler: spec to markdown with SHA-256 hash",
-}
-```
+**Deprecated — removed in the next major. Move each entry where it belongs, then remove `keyFiles` from your spec.** `Record<string, string>` mapping file paths to descriptions, compiled to a `## Key Files` list in the instruction file that loads on every request. It still compiles (each path verified via `existsSync`), and [`deprecated-key-files`](rules/deprecated-key-files.md) warns on every spec that uses it. For each entry, the first that fits: delete it if the file's header, the docs or the path already say it; move a fact about one file into that file's header comment; move a rule for one folder into that folder's nested `CLAUDE.md` (its own `<folder>/CLAUDE.md.spec.ts`); keep a one-line `file()` pointer in a `prose` section (verified the same way) only if nothing else would lead an agent to the file. [Migration guide →](rules/deprecated-key-files.md)
 
 ### `commands`
 

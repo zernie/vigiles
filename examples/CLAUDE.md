@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:a2b6a1ad022fb612 compiled from examples/CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:66d1a7b2e152a1cc compiled from examples/CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -14,15 +14,7 @@ The linter cross-referencing engine is the core of the tool: `enforce("@typescri
 
 Three rule kinds in specs: `enforce()` (delegated to an external linter — vigiles verifies the rule exists and is enabled), `guard()` (a path→command guard, e.g. recompile when a spec changes), and `guidance()` (prose only).
 
-Core modules: `src/core/spec.ts` (types + builders), `src/core/compile.ts` (compiler), `src/core/linters.ts` (11-catalog cross-referencing engine), `src/core/generate-types.ts` (type generator).
-
-## Key Files
-
-- `src/core/spec.ts` — Type system and builder functions
-- `src/core/compile.ts` — Compiler: spec → markdown with SHA-256 hash
-- `src/core/linters.ts` — Cross-referencing engine (11 catalogs incl. Cedar + JVM/Go)
-- `src/core/generate-types.ts` — Type generator: project state → .d.ts
-- `src/cli.ts` — CLI: init, compile, lint, test, eval, generate-types
+A spec change starts in `src/core/spec.ts` (types + builders) and is compiled to markdown with a SHA-256 hash by `src/core/compile.ts`. Linter cross-referencing (11 catalogs incl. Cedar + JVM/Go) is `src/core/linters.ts`; the `.d.ts` that turns typos into type errors comes from `src/core/generate-types.ts`.
 
 ## Commands
 

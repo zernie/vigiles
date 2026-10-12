@@ -533,6 +533,8 @@ const SHIPPED_RULE_DEFAULTS = {
   "doc-refs": false,
   // On, and silent until the repo commits a baseline file.
   "instruction-weight": "error",
+  // A deprecation notice: reported, never gating on upgrade.
+  "deprecated-key-files": "warn",
 };
 
 describe("loadConfig", () => {

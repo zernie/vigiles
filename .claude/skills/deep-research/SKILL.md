@@ -43,8 +43,9 @@ transcript. "I summarized it in chat" is not saved.
 ## Where to save
 
 - **Technical research about shipped behaviour** → a `docs/` page if a user needs it to
-  act, otherwise a contributor note cited from `CLAUDE.md` keyFiles so it isn't an orphan
-  doc. Which tier is decided by `public-vs-internal-docs` and `doc-tiers`.
+  act, otherwise a contributor note cited from `CLAUDE.md` (a `file()` ref where the
+  decision it informs is written — not a new `keyFiles` entry, the field is deprecated)
+  so it isn't an orphan doc. Which tier is decided by `public-vs-internal-docs` and `doc-tiers`.
 - **Competitive, market, pricing, go-to-market or roadmap research** → **not into this
   repository, in any directory.** This repo is public and `no-product-strategy-here` is
   unconditional: a deleted file stays in history and on other branches. Hand the findings

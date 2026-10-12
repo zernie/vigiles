@@ -11,7 +11,7 @@ Start a typed `CLAUDE.md.spec.ts` from an existing hand-written CLAUDE.md (or AG
 
 Adoption is the **safe, faithful on-ramp — never an upgrade in disguise.** These are non-negotiable:
 
-- **Faithful.** Preserve every rule, command, key file, and prose section as-is. Invent nothing — the spec must compile back to ~the user's existing file.
+- **Faithful.** Preserve every rule, command, and prose section as-is. Invent nothing — the spec must compile back to ~the user's existing file. The one exception is a file map ("Key Files"): never emit the deprecated `keyFiles` field — see the guideline under Step 3.
 - **Non-destructive.** Never edit the original `CLAUDE.md` / `AGENTS.md`. Only write the new `.spec.ts`. Never auto-`compile` over the file — switching it to spec-managed is a separate, explicit step the user runs with a diff to review.
 - **Don't escalate enforcement.** Keep `guidance()` as `guidance()`. Upgrading to `enforce()` has a cost (config/plugins, possible false positives) and is a separate opt-in step — the `strengthen` skill. Adoption is **not** turning on strict / `workflow` gating.
 - **Reversible.** `vigiles eject <file>` hands the file back as plain hand-owned markdown anytime — it's never a one-way door. Tell the user this.
@@ -35,7 +35,7 @@ npm install -D vigiles
 Identify these sections in the markdown:
 
 - **Commands** — lines like `` `npm run build` — description `` or ``- `command` — description``
-- **Key files** — lines like `` `src/foo.ts` — description `` listing important files
+- **A file map ("Key Files")** — lines like `` `src/foo.ts` — description `` listing important files. Never becomes `keyFiles` (deprecated); see the guideline under Step 3
 - **Rules** — `###` headings with `**Enforced by:**` or `**Guidance only**` annotations
 - **Prose sections** — everything else (positioning, architecture, principles, etc.)
 
@@ -66,15 +66,9 @@ export default claude({
     // Prose sections here
   },
 
-  keyFiles: {
-    // Key files here. A path maps to ONE LINE saying what the file is for —
-    // aim for 120 characters, never exceed ~200. The entry is a pointer, not a
-    // summary: how the file works belongs in its own header comment, which is
-    // read when someone opens it. This file is loaded on every request, so a
-    // paragraph here is paid for every turn. Prune a stale neighbour whenever
-    // you add one; `vigiles audit` prints the running total as
-    // `Always-loaded instructions`.
-  },
+  // No `keyFiles`: the field is deprecated (removed next major). A "Key Files"
+  // list in the original file is NOT carried over as a map — see the
+  // guideline below.
 
   commands: {
     // Commands here
@@ -89,6 +83,7 @@ export default claude({
 **Important guidelines:**
 
 - Use `file()` refs in sections where file paths appear in backticks — this enables stale reference detection
+- 🔴 **Never emit `keyFiles`.** The field is deprecated and removed in the next major (`vigiles lint` warns as `deprecated-key-files`). For a "Key Files" / file-map section in the original, apply the migration recipe (`docs/rules/deprecated-key-files.md` in the vigiles repository) and show the user, per entry, where it goes — the first that fits: (1) the file's header, the docs or the path already say it (or the path no longer exists) → delete it; (2) a fact about that one file → that file's header comment; (3) a rule for working in one folder → that folder's nested `CLAUDE.md` (its own `<folder>/CLAUDE.md.spec.ts`); (4) nothing else would lead an agent to the file → a one-line `file()` pointer in the section where the decision that needs it is written. Where each entry goes is the user's call; that the map does not become `keyFiles` is not. Until they decide, carry the list over as a plain prose section so adoption stays faithful
 - Use `cmd()` refs for any `npm run` commands mentioned in sections
 - Convert `**Enforced by:** \`code-review\``rules to`guidance()` — code review is not a mechanical enforcement
 - For rules with no annotation, add a `// TODO: classify as enforce() or guidance()` comment
@@ -105,7 +100,7 @@ npm run build
 npx vigiles compile CLAUDE.md.spec.ts
 ```
 
-Compare the compiled output against the original file. Key differences are expected (formatting, section ordering), but all rules, commands, key files, and prose content should be preserved.
+Compare the compiled output against the original file. Key differences are expected (formatting, section ordering), but all rules, commands, and prose content should be preserved (a file map is the exception — see the `keyFiles` guideline above).
 
 ### Step 5: Present the Result
 

@@ -100,7 +100,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 530 project files. */
+  /** 535 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -337,6 +337,9 @@ declare module "vigiles/generated" {
     | "src/core/instruction-weight.ts"
     | "src/core/integrity.test.ts"
     | "src/core/integrity.ts"
+    | "src/core/keyfiles-source.ts"
+    | "src/core/keyfiles.test.ts"
+    | "src/core/keyfiles.ts"
     | "src/core/layout.test.ts"
     | "src/core/layout.ts"
     | "src/core/lethal-trifecta.test.ts"
@@ -431,6 +434,8 @@ declare module "vigiles/generated" {
     | "src/coverage-evidence.ts"
     | "src/coverage-probe.test.ts"
     | "src/coverage-probe.ts"
+    | "src/deprecated-key-files.test.ts"
+    | "src/deprecated-key-files.ts"
     | "src/doc-command-coverage.test.ts"
     | "src/doc-command-coverage.ts"
     | "src/doc-commands.test.ts"
@@ -939,6 +944,9 @@ declare module "vigiles/spec" {
       | "src/core/instruction-weight.ts"
       | "src/core/integrity.test.ts"
       | "src/core/integrity.ts"
+      | "src/core/keyfiles-source.ts"
+      | "src/core/keyfiles.test.ts"
+      | "src/core/keyfiles.ts"
       | "src/core/layout.test.ts"
       | "src/core/layout.ts"
       | "src/core/lethal-trifecta.test.ts"
@@ -1033,6 +1041,8 @@ declare module "vigiles/spec" {
       | "src/coverage-evidence.ts"
       | "src/coverage-probe.test.ts"
       | "src/coverage-probe.ts"
+      | "src/deprecated-key-files.test.ts"
+      | "src/deprecated-key-files.ts"
       | "src/doc-command-coverage.test.ts"
       | "src/doc-command-coverage.ts"
       | "src/doc-commands.test.ts"
