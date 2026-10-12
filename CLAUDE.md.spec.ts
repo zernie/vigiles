@@ -140,6 +140,16 @@ BUILD + TOOLING + GENERATED:
       { render: "line" },
     ),
 
+    "never-parse-hook-lines": enforce(
+      "eslint/no-restricted-imports",
+      "Never parse a hook command line: it is compiled only by identity with what `compile` writes, else hand-written.",
+      {
+        render: "line",
+        details: file("docs/contributing/rules.md"),
+        anchor: "never-parse-hook-lines",
+      },
+    ),
+
     "experimental-names-carry-the-warning": guidance(
       "If we EXPORT it and it is not stable, its NAME starts with `experimental_`.",
       {

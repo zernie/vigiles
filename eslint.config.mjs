@@ -21,6 +21,24 @@ import {
   testSizes,
 } from "./packages/eslint-config/index.mjs";
 
+/** The barrel entry points no internal module may import (see the block that uses it). */
+const NO_BARREL_IMPORTS = {
+  group: [
+    "**/linting.js",
+    "**/test.js",
+    "**/eval-surface.js",
+    "**/hook.js",
+    "**/claude-code.js",
+    "**/codex.js",
+  ],
+  message:
+    "No barrel imports: import the leaf module that defines this symbol (e.g. ./core/spec.js, ./run-hook.js), not the public barrel entry point (vigiles/<x>). Barrels pull their whole re-export graph and re-leak internal seams. The barrels themselves and tests are exempt.",
+};
+
+/** Why the hook-line readers may not import the shell parser (CLAUDE.md: never-parse-hook-lines). */
+const NEVER_PARSE_HOOK_LINES =
+  "Never parse a hook command line: a line is compiled only by exact identity with what `compile` would write (src/core/hook-command.ts hookLinePlan); everything else is hand-written. Shell parsing was tried in #359/#361 and removed in #362.";
+
 /**
  * The harness names `local/no-harness-names` forbids, READ FROM THE ADAPTER
  * DIRECTORY rather than written out here.
@@ -273,21 +291,35 @@ export default [
     rules: {
       "no-restricted-imports": [
         "error",
+        { paths: ONE_COLLECTION_LIBRARY, patterns: [NO_BARREL_IMPORTS] },
+      ],
+    },
+  },
+  // NEVER PARSE A HAND-WRITTEN HOOK COMMAND LINE (#361, #362). The hook-line
+  // plan and the scan's hook readers read a line by IDENTITY with what
+  // `compile` writes; two branches taught a reader shell shapes instead and
+  // each shape exposed the next. So these modules cannot reach the shell
+  // parser at all. Restates the two option sets above: flat config replaces a
+  // rule's options instead of merging them.
+  {
+    files: [
+      "src/core/hook-command.ts",
+      "src/core/hook-paths.ts",
+      "src/scan-core.ts",
+      "src/scan.ts",
+      "src/scan-files.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
         {
-          paths: ONE_COLLECTION_LIBRARY,
+          paths: [
+            ...ONE_COLLECTION_LIBRARY,
+            { name: "mvdan-sh", message: NEVER_PARSE_HOOK_LINES },
+          ],
           patterns: [
-            {
-              group: [
-                "**/linting.js",
-                "**/test.js",
-                "**/eval-surface.js",
-                "**/hook.js",
-                "**/claude-code.js",
-                "**/codex.js",
-              ],
-              message:
-                "No barrel imports: import the leaf module that defines this symbol (e.g. ./core/spec.js, ./run-hook.js), not the public barrel entry point (vigiles/<x>). Barrels pull their whole re-export graph and re-leak internal seams. The barrels themselves and tests are exempt.",
-            },
+            NO_BARREL_IMPORTS,
+            { group: ["**/bash-effects.js"], message: NEVER_PARSE_HOOK_LINES },
           ],
         },
       ],
