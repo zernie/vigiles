@@ -5,6 +5,9 @@ import { describe, it, expect } from "vitest";
 import {
   hookGateRef,
   hookRuntimeRef,
+  hookRuntimeFor,
+  readHookRuntime,
+  INSTALLED_HOOK_RUNTIME,
   mergeHooksJson,
   mergeHooksToml,
   normalizeHookRef,
@@ -929,6 +932,61 @@ describe("hookRuntimeRef — how compile LAUNCHES the runtime", () => {
     expect(hookRuntimeRef(undefined)).toBe(
       "node node_modules/vigiles/dist/cli.js",
     );
+  });
+
+  it("spells the runtime it is given, anchored the same way", () => {
+    const own = hookRuntimeFor({ name: "vigiles", bin: "dist/cli.js" });
+    expect(hookRuntimeRef(["${CLAUDE_PROJECT_DIR}"], own)).toBe(
+      'node "${CLAUDE_PROJECT_DIR}/dist/cli.js"',
+    );
+    // Codex declares no project-root token: the relative spelling, same file.
+    expect(hookRuntimeRef(undefined, own)).toBe("node dist/cli.js");
+  });
+});
+
+// The vigiles repository compiles its OWN hooks. Its `node_modules` has no
+// `vigiles` in it — a package is not its own dependency — so the default
+// runtime path does not exist there, and every self-hosted hook failed to load
+// from #260 (2026-09-21) until this was measured on 2026-10-11: MODULE_NOT_FOUND,
+// exit 1, swallowed by the nudge's `|| exit 0`.
+describe("hookRuntimeFor — the runtime this project can actually start", () => {
+  it("a consumer starts its local install", () => {
+    expect(hookRuntimeFor({ name: "my-app" })).toEqual(INSTALLED_HOOK_RUNTIME);
+    expect(hookRuntimeFor(undefined)).toEqual(INSTALLED_HOOK_RUNTIME);
+    expect(hookRuntimeFor("not an object")).toEqual(INSTALLED_HOOK_RUNTIME);
+  });
+
+  it("the vigiles package itself starts its own declared bin, built in place", () => {
+    for (const bin of [
+      "dist/cli.js",
+      "./dist/cli.js",
+      { vigiles: "./dist/cli.js" },
+    ]) {
+      const rt = hookRuntimeFor({ name: "vigiles", bin });
+      expect(rt.path).toBe("dist/cli.js");
+      // `npm ci` alone does not produce dist/ — the notice must name the build.
+      expect(rt.cure).toMatch(/npm run build/);
+    }
+  });
+
+  it("a package merely named vigiles with no bin keeps the installed path", () => {
+    expect(hookRuntimeFor({ name: "vigiles" })).toEqual(INSTALLED_HOOK_RUNTIME);
+  });
+
+  it("reads the project's package.json from disk", () => {
+    const dir = mkdtempSync(join(tmpdir(), "hook-runtime-"));
+    try {
+      expect(readHookRuntime(dir)).toEqual(INSTALLED_HOOK_RUNTIME);
+      writeFileSync(join(dir, "package.json"), "{ not json");
+      expect(readHookRuntime(dir)).toEqual(INSTALLED_HOOK_RUNTIME);
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "vigiles", bin: { vigiles: "dist/cli.js" } }),
+      );
+      expect(readHookRuntime(dir).path).toBe("dist/cli.js");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

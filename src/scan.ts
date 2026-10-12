@@ -110,7 +110,7 @@ import {
   scanAgents,
   scanSkills,
   skillRefSources,
-  scanHooks,
+  scanHookScripts,
   frontmatterIssuesFor,
   frontmatterValueIssuesFor,
   skillMetaIssuesFor,
@@ -759,11 +759,16 @@ export function scanPlugin(
   // hook detector below consumes typed `HookRegistration[]` instead of re-walking
   // `unknown`. The single seam where the per-harness hook shape is absorbed.
   const hookRegs = normalizeHooks(loaded.settings.hooks);
-  const { hooks, inline, manual } = scanHooks(
+  const { hooks, inline, manual } = scanHookScripts(
     hookRegs,
-    resolve(dir),
-    lay,
-    existsSync,
+    normalizeHooks(loaded.shadowedSettingsHooks),
+    {
+      root: resolve(dir),
+      layout: lay,
+      exists: existsSync,
+      // On disk a dependency is as observable as any other file.
+      observable: () => true,
+    },
   );
   // Hook-event keys are a CLOSED platform set — an unrecognized one is a dead
   // registration (the hook never fires), so flag every unknown (not just typos).

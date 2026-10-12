@@ -585,7 +585,7 @@
   },
   "src/scan-files.ts": {
     "max-params": 6,
-    "max-lines-per-function": 154,
+    "max-lines-per-function": 149,
     "complexity": 11,
     "sonarjs/cognitive-complexity": 14
   },

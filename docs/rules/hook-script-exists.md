@@ -40,12 +40,29 @@ uses (the hook resolver in `src/scan.ts`); one detector, two callers.
 
 → flagged if `hooks/guard.sh` doesn't exist at the plugin root.
 
+**The runner of a compiled hook is checked too.** `vigiles compile` wires a hook as
+
+```sh
+node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/x.hook.mjs" || exit 0
+```
+
+Both files must exist: the hook program and the runtime (`dist/cli.js`) that starts it. A missing runtime is reported as **not installed**. It matters more than it looks, because a reminder hook ends in `|| exit 0` on purpose (it must never block a session), and that ending turns "the runtime is not there" into the same silence as "the hook had nothing to say". Nothing else tells the two apart. Measured 2026-10-11 on this repository: both of its own compiled reminders had failed to load on every call for three weeks, and no gate noticed.
+
+The same goes for a hand-written hook: `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/x.sh" || true` with no `x.sh` is flagged. The fail-open ending itself is not a finding. It is the right ending for a reminder; the finding is the path that does not resolve.
+
 ## FP-safety
 
 The shared resolver already excludes the cases that aren't real misses:
 
-- **Unresolved `$VAR`** paths (`$CLAUDE_PROJECT_DIR/...`, a runtime var) → reported
-  as "unresolved", never "missing" (can't be checked, so not flagged).
+- **Unresolved `$VAR`** paths (`$HOME/...`, any variable the harness does not set)
+  → reported as "unresolved", never "missing" (can't be checked, so not flagged).
+  The harness's own root variables do resolve: the plugin root
+  (`${CLAUDE_PLUGIN_ROOT}`) and the project root (`$CLAUDE_PROJECT_DIR`), both
+  spellings, against the scanned directory.
+- **A dependency the scan cannot see.** The browser audit reads a GitHub fetch,
+  which never contains `node_modules`, so there a path under `node_modules/` is
+  "unresolved". On disk (`vigiles lint`, `vigiles audit`) it is checked like any
+  other file.
 - **Existence-guarded one-liners** (`[ ! -f x ] || x`, `test -f x && x`) → treated
   as optional, not a hard reference.
 - **Inline commands** with no script file (`echo …`, `npx …`) → counted as inline,
@@ -86,7 +103,15 @@ or not it runs.
 ## Scope
 
 Hook commands in `.claude/settings.json` and the plugin manifest
-(`.claude-plugin/plugin.json`), across braced/unbraced `${CLAUDE_PLUGIN_ROOT}`.
+(`.claude-plugin/plugin.json`, or `hooks/hooks.json`), across braced/unbraced
+`${CLAUDE_PLUGIN_ROOT}` and `$CLAUDE_PROJECT_DIR`. Codex's `.codex/config.toml`
+hooks are read the same way; a relative path resolves against the project root.
+
+**A repository can be both a plugin and a project, and both sets are checked.**
+The manifest's hooks run for whoever installs the plugin; `.claude/settings.json`
+runs for whoever works in the repository. Only the manifest's used to be checked
+when both existed. The settings file's hooks now join this existence check; the
+other hook rules still read the manifest alone.
 
 ## Why
 

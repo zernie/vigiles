@@ -121,6 +121,7 @@ import {
   verifyLiveMcpTools,
   formatMcpContractReport,
   preferCompiledHooksMessage,
+  hookScriptMissingMessage,
   measureInstructionWeight,
 } from "./scan.js";
 import {
@@ -297,6 +298,8 @@ import {
   discoverProviderFiles,
   hookGateRef,
   hookRuntimeRef,
+  readHookRuntime,
+  type HookRuntime,
   normalizeHookRef,
   partitionHookArgs,
   serializeConfig,
@@ -6247,7 +6250,7 @@ function checkHookScriptExists(ctx: BundleCheck): {
       // `script` arrives with the plugin-root token EXPANDED, i.e. absolute —
       // printed as-is it was a machine path (#281). A relative one is the
       // bundle's own, which is what `scanned` assumes.
-      const msg = `hook script "${ctx.bundle.scanned(h.script)}" is referenced but missing — the hook never runs.`;
+      const msg = hookScriptMissingMessage(ctx.bundle.scanned(h.script));
       console.log(`  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(msg)}`);
       ctx.annotate(sev === "error" ? "error" : "warning", msg);
     }
@@ -8291,7 +8294,8 @@ interface HookInstallResult {
 async function installHookFile(
   file: string,
   adapter: HarnessAdapter,
-  registeredProviders: readonly string[] = [],
+  registeredProviders: readonly string[],
+  runtime: HookRuntime,
 ): Promise<HookInstallResult> {
   const source = readFileSync(resolve(process.cwd(), file), "utf-8");
   const program = await loadHookProgram(file);
@@ -8312,7 +8316,7 @@ async function installHookFile(
     // the shell does when that file cannot start at all. `compileHookProgram`
     // adds it (see `hookRuntimeMissingExit`), so it is not written here.
     gateCommand:
-      `${hookRuntimeRef(adapter.layout.projectRootTokens)} hook-runtime run-program ` +
+      `${hookRuntimeRef(adapter.layout.projectRootTokens, runtime)} hook-runtime run-program ` +
       hookGateRef(ref, adapter.layout.projectRootTokens),
     dialect: adapter.dialect,
     hookProtocol: adapter.hookProtocol,
@@ -8445,12 +8449,32 @@ async function installHooks(
     throw e;
   }
   if (hookFiles.length === 0) return true; // providers validated; nothing to wire
+  // WHICH runtime the wiring starts — the installed package for a consumer, the
+  // package's own built bin when this IS vigiles (see `hookRuntimeFor`).
+  const runtime = readHookRuntime(process.cwd());
+  // 🔴 SAY IT NOW, because nothing will later. A nudge whose runtime cannot
+  // start ends in `|| exit 0` by design, so from then on it is indistinguishable
+  // from a nudge with nothing to say. Measured 2026-10-11 on this repository:
+  // dead for three weeks, every gate green. Not an error — the file may arrive
+  // with the next install or build — but never silent.
+  if (!existsSync(resolve(process.cwd(), runtime.path))) {
+    console.warn(
+      `⚠ the hook runtime ${runtime.path} is not on disk — every hook compiled ` +
+        `here fails to load until it is: a reminder is skipped without a word, a ` +
+        `gate refuses every command. Run ${runtime.cure}.`,
+    );
+  }
   let ok = true;
   for (const file of hookFiles) {
     try {
       // Fan out: the same compiled hook lands in each enabled harness's config.
       for (const adapter of adapters) {
-        const r = await installHookFile(file, adapter, registeredProviders);
+        const r = await installHookFile(
+          file,
+          adapter,
+          registeredProviders,
+          runtime,
+        );
         console.log(
           `✓ ${file} → ${r.settingsPath} (role: ${r.role}, harness: ${adapter.name})`,
         );

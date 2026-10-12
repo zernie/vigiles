@@ -194,6 +194,90 @@ test("a missing RUNTIME (fresh container, no node_modules): it says so, and stil
   }
 });
 
+/** The wired command for the hook file `name`, from the CC settings. */
+function wiredFor(dir: string, name: string): string {
+  const cmd = Object.values(settings(dir).hooks)
+    .flat()
+    .flatMap((e) => e.hooks.map((h) => h.command))
+    .find((c) => c.includes(name));
+  assert.ok(cmd !== undefined, `no wiring for ${name}`);
+  return cmd;
+}
+
+test("SELF-HOSTED: the vigiles package wires its own built bin, the hook really runs, and the check names the build", () => {
+  // The vigiles repository compiles its own hooks, and nothing installs a
+  // package into its own node_modules. Measured 2026-10-11: the default
+  // `node_modules/vigiles/dist/cli.js` wiring died with MODULE_NOT_FOUND on
+  // every call there, and `|| exit 0` made the death silent for three weeks.
+  const dir = project({ "nudge.hook.mjs": NUDGE });
+  try {
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "vigiles", bin: { vigiles: "./dist/cli.js" } }),
+    );
+    symlinkSync(join(REPO_ROOT, "dist"), join(dir, "dist"), "dir");
+    const r = compile(dir);
+    assert.equal(r.status, 0, r.stderr);
+    const cmd = wiredFor(dir, "nudge.hook.mjs");
+    assert.match(cmd, /"\$\{CLAUDE_PROJECT_DIR\}\/dist\/cli\.js"/);
+    assert.doesNotMatch(cmd, /node_modules\/vigiles/);
+    // Run the EXACT wired string the way the harness does: it must load and
+    // speak, not merely exit 0 — exit 0 is also what the swallowed death gave.
+    const ran = spawnSync("sh", ["-c", cmd], {
+      cwd: dir,
+      encoding: "utf-8",
+      env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+      input: JSON.stringify({
+        session_id: "s",
+        hook_event_name: "PostToolUse",
+        tool_name: "Write",
+        tool_input: { file_path: join(dir, "a.txt"), content: "x" },
+        tool_response: {},
+        cwd: dir,
+      }),
+    });
+    assert.equal(ran.status, 0, ran.stderr);
+    assert.match(ran.stdout, /remember the checklist/);
+    assert.doesNotMatch(ran.stderr, /MODULE_NOT_FOUND/);
+    // Unbuilt: the check names the file and the cure that actually produces it.
+    rmSync(join(dir, "dist"));
+    const said = context(runCheck(dir, theCheck(dir)).stdout);
+    assert.match(said, /dist\/cli\.js/);
+    assert.match(said, /npm run build/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("compile says so when the runtime it wires is not on disk", () => {
+  // A hoisted install: vigiles resolves from a PARENT node_modules, so the hook
+  // compiles (its `vigiles/hook` import walks up) — but the wiring addresses
+  // `<project>/node_modules/vigiles/dist/cli.js`, which is not there.
+  const dir = project({ "nudge.hook.mjs": NUDGE });
+  try {
+    rmSync(join(dir, "node_modules"), { recursive: true });
+    const app = join(dir, "app");
+    mkdirSync(join(app, ".vigiles", "hooks"), { recursive: true });
+    writeFileSync(join(app, ".vigiles", "hooks", "nudge.hook.mjs"), NUDGE);
+    writeFileSync(join(app, "package.json"), '{ "name": "app" }\n');
+    mkdirSync(join(dir, "node_modules"), { recursive: true });
+    symlinkSync(REPO_ROOT, join(dir, "node_modules", "vigiles"), "dir");
+    const r = compile(app);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stderr, /node_modules\/vigiles\/dist\/cli\.js/);
+    assert.match(r.stderr, /not on disk/);
+    // And silent when it is there — the warning is about this repo, not noise.
+    const ok = project({ "nudge.hook.mjs": NUDGE });
+    try {
+      assert.doesNotMatch(compile(ok).stderr, /not on disk/);
+    } finally {
+      cleanupTmpDir(ok);
+    }
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
 test("the script needs NOTHING installed: it runs under an empty PATH, healthy and not", () => {
   const dir = project({ "guard.hook.mjs": GATE });
   try {
