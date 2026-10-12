@@ -73,18 +73,55 @@ export function hookCommandShape(
   command: string,
   rootTokens: readonly string[],
 ): HookCommandShape {
-  const line = leadingCommand(command);
+  const line = readLine(command, rootTokens);
   if (line === null) return OPAQUE;
-  const roots = new Set(rootTokens.map(tokenName));
-  const words = line.words.map((w) => wordText(w, roots));
-  const endsAsWritten =
-    line.rest === "alone" ||
-    (line.rest === "or-else" && isRoleExit(line.orElse, roots));
-  const compiled = endsAsWritten ? compiledFiles(words, rootTokens) : null;
-  if (compiled !== null) return { kind: "compiled", files: compiled };
-  const script = leadingScript(words);
+  const compiled = line.endsAsWritten
+    ? compiledFiles(line.words, rootTokens)
+    : null;
+  if (compiled !== null && compiled !== MALFORMED)
+    return { kind: "compiled", files: compiled };
+  const script = leadingScript(line.words);
   return script === null ? OPAQUE : { kind: "script", file: script };
 }
+
+/**
+ * Whether `command` is our `hook-runtime run-program` template with the wrong
+ * operands — no program, or more than one. Such a line is not one vigiles
+ * wrote as it stands, so it is not `compiled`; it is not hand-written either,
+ * and the cure is to recompile, not to write a hook.
+ */
+export function malformedRunProgram(
+  command: string,
+  rootTokens: readonly string[],
+): boolean {
+  const line = readLine(command, rootTokens);
+  return line !== null && compiledFiles(line.words, rootTokens) === MALFORMED;
+}
+
+/** A line's leading words as text, and whether it ends as `compile` writes it. */
+function readLine(
+  command: string,
+  rootTokens: readonly string[],
+): {
+  readonly words: readonly (string | null)[];
+  readonly endsAsWritten: boolean;
+} | null {
+  const line = leadingCommand(command);
+  if (line === null) return null;
+  const roots = new Set(rootTokens.map(tokenName));
+  return {
+    words: line.words.map((w) => wordText(w, roots)),
+    endsAsWritten:
+      line.rest === "alone" ||
+      (line.rest === "or-else" && isRoleExit(line.orElse, roots)),
+  };
+}
+
+/** Our run-program template, with operands it never writes. */
+const MALFORMED = "malformed";
+
+/** What reading a line by the compiled template gives. */
+type TemplateRead = readonly string[] | typeof MALFORMED | null;
 
 /** The literal path a hand-written line starts by running, or null. */
 function leadingScript(words: readonly (string | null)[]): string | null {
@@ -107,7 +144,7 @@ function leadingScript(words: readonly (string | null)[]): string | null {
 function compiledFiles(
   words: readonly (string | null)[],
   rootTokens: readonly string[],
-): readonly string[] | null {
+): TemplateRead {
   const known = words.filter((w): w is string => w !== null);
   if (known.length !== words.length) return null;
   const [head, ...rest] = known;
@@ -126,15 +163,17 @@ function compiledFiles(
 }
 
 /** `<runner> hook-runtime …` after `node` → the runner and the program. */
-function nodeRuntimeFiles(words: readonly string[]): readonly string[] | null {
+function nodeRuntimeFiles(words: readonly string[]): TemplateRead {
   const [runner, ...runtime] = words;
   if (runner === undefined || !isLiteralPath(runner)) return null;
   const program = runtimeOperand(runtime);
-  return program === null ? null : [runner, ...program];
+  return program === null || program === MALFORMED
+    ? program
+    : [runner, ...program];
 }
 
 /** `[--no-install] vigiles hook-runtime …` after `npx` → the program. */
-function npxRuntimeFiles(words: readonly string[]): readonly string[] | null {
+function npxRuntimeFiles(words: readonly string[]): TemplateRead {
   const [pkg, ...runtime] =
     words[0] === "--no-install" ? words.slice(1) : words;
   return pkg === "vigiles" ? runtimeOperand(runtime) : null;
@@ -142,15 +181,17 @@ function npxRuntimeFiles(words: readonly string[]): readonly string[] | null {
 
 /**
  * `hook-runtime <kind> [<program>]` → the program it names ([] for a kind that
- * runs none); null when the words are not a runtime invocation.
+ * runs none); null when the words are not a runtime invocation; MALFORMED for
+ * `run-program` with anything but one program file.
  */
-function runtimeOperand(words: readonly string[]): readonly string[] | null {
+function runtimeOperand(words: readonly string[]): TemplateRead {
   const [verb, kind, ...operands] = words;
   if (verb !== HOOK_RUNTIME_VERB || kind === undefined) return null;
   if (kind !== RUN_PROGRAM_KIND) return [];
   const [program, ...extra] = operands;
-  if (program === undefined || extra.length > 0) return null;
-  return isFileWord(program) ? [program] : null;
+  if (program === undefined || extra.length > 0 || !isFileWord(program))
+    return MALFORMED;
+  return [program];
 }
 
 /** `exit <n>` — the fallback `withRoleExit` gives a compiled line. */

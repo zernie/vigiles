@@ -190,3 +190,26 @@ test("three hand-written hooks are three findings; `false` in the config still t
     cleanupTmpDir(dir);
   }
 });
+
+test("a compiled line with a malformed run-program argument says to recompile, not to compile by hand", () => {
+  const dir = makeTmpDir("pch-malformed");
+  try {
+    write(dir, "CLAUDE.md", "# x\nRun `npm test`.\n");
+    write(dir, "node_modules/vigiles/dist/cli.js", "// cli\n");
+    write(
+      dir,
+      ".claude/settings.json",
+      settings(
+        "node node_modules/vigiles/dist/cli.js hook-runtime run-program",
+      ),
+    );
+    const out = lint(dir).stdout;
+    assert.match(
+      out,
+      /a compiled hook line with a malformed run-program argument; recompile/,
+    );
+    assert.doesNotMatch(out, /Compile it with/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});

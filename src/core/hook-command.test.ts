@@ -16,7 +16,11 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import { HOOK_CHECK_REF, hookCommandShape } from "./hook-command.js";
+import {
+  HOOK_CHECK_REF,
+  hookCommandShape,
+  malformedRunProgram,
+} from "./hook-command.js";
 
 const ROOTS = ["${PLUGIN_ROOT}", "${PROJECT_DIR}"] as const;
 const shape = (command: string) => hookCommandShape(command, ROOTS);
@@ -134,4 +138,25 @@ test("anything else is opaque — no word is guessed to be the script", () => {
 test("a backslash escape is left to the shell, not re-implemented: opaque", () => {
   assert.deepEqual(shape("bash hooks/a\\ b.sh"), { kind: "opaque" });
   assert.deepEqual(shape("hooks/x\\.sh"), { kind: "opaque" });
+});
+
+test("a run-program line with no program, or two, is a MALFORMED compiled line — not ours, not guessed", () => {
+  const runner =
+    "node node_modules/vigiles/dist/cli.js hook-runtime run-program";
+  for (const command of [
+    runner,
+    `${runner} a.hook.mjs b.hook.mjs`,
+    `${runner} || exit 2`,
+    "npx vigiles hook-runtime run-program",
+  ]) {
+    assert.notEqual(shape(command).kind, "compiled", command);
+    assert.equal(malformedRunProgram(command, ROOTS), true, command);
+  }
+  for (const command of [
+    `${runner} a.hook.mjs`,
+    "npx vigiles hook-runtime refs",
+    "echo hook-runtime run-program",
+    "bash hooks/x.sh",
+  ])
+    assert.equal(malformedRunProgram(command, ROOTS), false, command);
 });

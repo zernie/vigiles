@@ -43,6 +43,7 @@ import {
 import { skillResourceIssues } from "./core/skill-resources.js";
 import {
   hookCommandShape,
+  malformedRunProgram,
   type HookCommandShape,
 } from "./core/hook-command.js";
 import { skillMissingFence } from "./core/skill-missing-fence.js";
@@ -783,15 +784,17 @@ export function hookScriptMissingMessage(script: string): string {
 }
 
 /**
- * A hook line vigiles did not write. `script` lines start by running a literal
- * path, which `hook-script-exists` checks; `opaque` ones name nothing a static
- * reader may take for their script. Either way only running it says whether it
- * works (`runHook`, `vigiles test`).
+ * A hook line vigiles did not write as it stands. `script` lines start by
+ * running a literal path, which `hook-script-exists` checks; `opaque` ones name
+ * nothing a static reader may take for their script; `malformed-compiled` is
+ * our own `run-program` template with the wrong operands, which only a
+ * recompile fixes. Only running a hook says whether it works (`runHook`,
+ * `vigiles test`).
  */
 export interface HandWrittenHook {
   readonly event: string;
   readonly command: string;
-  readonly kind: "script" | "opaque";
+  readonly kind: "script" | "opaque" | "malformed-compiled";
 }
 
 /**
@@ -800,6 +803,11 @@ export interface HandWrittenHook {
  * exactly, so the cure named is to compile it.
  */
 export function handWrittenHookMessage(hook: HandWrittenHook): string {
+  if (hook.kind === "malformed-compiled")
+    return (
+      `${hook.event} hook \`${hook.command}\`: a compiled hook line with a ` +
+      "malformed run-program argument; recompile (`vigiles compile`)."
+    );
   const what =
     hook.kind === "script"
       ? "vigiles checks that its script exists, but cannot tell whether it works or swallows its own failure"
@@ -833,7 +841,15 @@ export function scanHooks(
   const handWritten = shaped.flatMap(({ reg, shape }): HandWrittenHook[] =>
     shape.kind === "compiled"
       ? []
-      : [{ event: reg.event, command: reg.command, kind: shape.kind }],
+      : [
+          {
+            event: reg.event,
+            command: reg.command,
+            kind: malformedRunProgram(reg.command, tokens)
+              ? "malformed-compiled"
+              : shape.kind,
+          },
+        ],
   );
   const scripts = shaped.flatMap(({ reg }) =>
     hookFiles(reg.command, root, roots).map(

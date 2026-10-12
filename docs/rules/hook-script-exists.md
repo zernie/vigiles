@@ -52,6 +52,9 @@ one of three readings (`hookCommandShape` in `src/core/hook-command.ts`):
 A compiled line is read by the template that writes it, as the WHOLE line (an
 optional `|| exit <n>` ending included). A line that mentions our words, or
 chains more work after them, is hand-written.
+Our `hook-runtime run-program` template with no program, or more than one, is
+reported as "a compiled hook line with a malformed run-program argument;
+recompile" — the cure is `vigiles compile`, not a hand-written hook.
 
 A literal path is a word with a slash that the shell does not compute: no
 variable other than the harness's own root (`${CLAUDE_PLUGIN_ROOT}`,
