@@ -3119,6 +3119,19 @@ function handWrittenInstructionFiles(
     .map((f) => f.path);
 }
 
+/** The hand-written instruction files BELOW the root — the ones `init`'s
+ * root-level `determineTargets` does not see. Bare `init` adopts them too, so a
+ * repo it sets up passes `require-instructions-spec` (in `vigiles:recommended`)
+ * on its first `lint`. Read with the repo's own `exclude`. */
+function nestedHandWrittenInstructionFiles(cwd: string): string[] {
+  const config = loadConfig();
+  return handWrittenInstructionFiles(
+    cwd,
+    defaultAdapter.layout.instructionFile,
+    excludeSet(cwd, config.exclude),
+  ).filter((p) => p.includes("/"));
+}
+
 /** The full adoptable-surface list `audit` reports: every hand-written
  * instruction file (nested included) PLUS every skill/subagent surface without
  * a spec. Same notion `init` adopts; surfaced in the AuditReport + the terminal
@@ -4265,7 +4278,13 @@ async function setupPillar1(
   // file. An explicit --target stays scoped to that one surface.
   const targets = targetValue
     ? instructionTargets
-    : [...instructionTargets, ...discoverAdoptableSurfaces(cwd)];
+    : [
+        ...instructionTargets,
+        ...nestedHandWrittenInstructionFiles(cwd).filter(
+          (p) => !instructionTargets.includes(p),
+        ),
+        ...discoverAdoptableSurfaces(cwd),
+      ];
 
   // Create specs. An existing hand-written target is faithfully ADOPTED into a
   // spec (scaffoldSpec() does the convert), not clobbered with a blank one — so the
@@ -5024,6 +5043,7 @@ async function setup(args: string[]): Promise<void> {
     strict,
     reportOnly: parsed.reportOnly,
     lint: plan.lint,
+    specs: plan.scaffoldSpecs,
     written,
   });
 
@@ -5169,6 +5189,7 @@ function fullSetupGap(
   const unspecced = pillar1
     ? [
         ...determineTargets(detected, undefined, [...harnesses]),
+        ...nestedHandWrittenInstructionFiles(cwd),
         ...discoverAdoptableSurfaces(cwd),
       ].filter((t, i, all) => all.indexOf(t) === i && !has(`${t}.spec.ts`))
     : [];
@@ -5248,6 +5269,8 @@ function writeProjectConfig(opts: {
   /** Lint pillar on — gates writing the lint rule severities (test-only setups
    * record only the harness). */
   lint: boolean;
+  /** Whether this setup scaffolds specs — `false` records the decline. */
+  specs: boolean;
   written: string[];
 }): void {
   const configPath = resolve(process.cwd(), ".vigilesrc.json");
@@ -5268,6 +5291,7 @@ function writeProjectConfig(opts: {
     strict: opts.strict,
     reportOnly: opts.reportOnly,
     lint: opts.lint,
+    specs: opts.specs,
   });
   if (!merged) return;
   writeFileSync(configPath, JSON.stringify(merged, null, 2) + "\n");

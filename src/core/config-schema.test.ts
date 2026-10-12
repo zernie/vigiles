@@ -352,6 +352,24 @@ test("compile-budget defaults to warn, and recommended gates it", () => {
   assert.equal(rec.data.rules["compile-budget"], "error");
 });
 
+// `require-instructions-spec` in `vigiles:recommended`: a repo that extends
+// the preset gates on a hand-written instruction file; one that does not keeps
+// the built-in `warn`, and an explicit entry still wins.
+test("require-instructions-spec defaults to warn, and recommended gates it", () => {
+  const plain = parseVigilesConfig({});
+  assert.ok(plain.success);
+  assert.equal(plain.data.rules["require-instructions-spec"], "warn");
+  const rec = parseVigilesConfig({ extends: "vigiles:recommended" });
+  assert.ok(rec.success);
+  assert.equal(rec.data.rules["require-instructions-spec"], "error");
+  const off = parseVigilesConfig({
+    extends: "vigiles:recommended",
+    rules: { "require-instructions-spec": "off" },
+  });
+  assert.ok(off.success);
+  assert.equal(off.data.rules["require-instructions-spec"], false);
+});
+
 test("compile-budget takes its thresholds as rule options", () => {
   const r = parseVigilesConfig({
     rules: {
