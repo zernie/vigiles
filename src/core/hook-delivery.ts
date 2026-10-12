@@ -29,7 +29,8 @@
  *   (Codex today) can still be judged on the ONE fact its port carries, the
  *   legacy `injectableEvents`: `additionalContext` there is `delivered`, and
  *   anything else is `unknown`;
- * - a BLOCK is reported as `blocked`, not as delivery. Where the block reason
+ * - a BLOCK (a veto, or a halt of the turn) is reported as `blocked`, not as
+ *   delivery. Where the block reason
  *   goes differs per event (a vetoed prompt shows it to the user only), the
  *   capability table does not record that, and a block is not a nudge — its
  *   assertion is `assertHookBlocked`;
@@ -147,9 +148,30 @@ function vetoExpressed(e: HookEmission, f: DeliveryFacts): boolean {
   const decision = permission ?? e.json?.decision;
   const denied =
     typeof decision === "string" && f.denyDecisionValues.includes(decision);
-  const halted =
-    f.haltsTurnField !== undefined && e.json?.[f.haltsTurnField] === false;
-  return e.exitCode === f.blockExitCode || denied || halted;
+  return e.exitCode === f.blockExitCode || denied;
+}
+
+/** True iff the JSON sets the protocol's halt-the-turn field to false. */
+function haltExpressed(e: HookEmission, f: DeliveryFacts): boolean {
+  return f.haltsTurnField !== undefined && e.json?.[f.haltsTurnField] === false;
+}
+
+/**
+ * The hook stopped something: a veto on an event that honours one, or a halt
+ * on an event that honours THAT. Two channels, read apart: a halt is not a
+ * veto, and an event can honour either alone (Claude Code's `continue: false`
+ * ends the turn from `PostToolUse`, which vetoes nothing; `PreCompact` vetoes
+ * and discards `continue`).
+ */
+function stopped(
+  e: HookEmission,
+  f: DeliveryFacts,
+  honours: readonly HookChannel[],
+): boolean {
+  return (
+    (honours.includes("veto") && vetoExpressed(e, f)) ||
+    (honours.includes("halt") && haltExpressed(e, f))
+  );
 }
 
 /** Where a non-empty `additionalContext` goes on this event. */
@@ -265,7 +287,8 @@ function unrecordedEvent(e: HookEmission, f: DeliveryFacts): HookDelivery {
  * 1. nothing printed → `silent` (true on every event, known or not);
  * 2. no table row → `delivered` only on the one fact the legacy list proves,
  *    else `unknown`;
- * 3. a veto on an event that honours one → `blocked`;
+ * 3. a veto on an event that honours one, or a halt on an event that
+ *    honours `halt` → `blocked`;
  * 4. otherwise collect every channel that carried text, and every stream that
  *    carried text to no channel; at least one channel → `delivered`. A JSON
  *    object on stdout is applied on any exit code (the host's exit-code table:
@@ -282,9 +305,7 @@ export function hookOutputDelivery(
   const verdict = capabilityOf(f.table, e.event);
   if (verdict.kind === "unknown") return unrecordedEvent(e, f);
   const honours = verdict.capability.honours;
-  if (honours.includes("veto") && vetoExpressed(e, f)) {
-    return { kind: "blocked", stranded: [] };
-  }
+  if (stopped(e, f, honours)) return { kind: "blocked", stranded: [] };
   const parts = [
     ...jsonParts(e, f, honours),
     plainStdoutPart(e, honours),

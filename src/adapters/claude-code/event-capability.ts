@@ -17,6 +17,16 @@
  */
 import type { EventCapabilityTable } from "../../core/event-capability.js";
 
+/*
+ * `halt` (doc, § JSON output, read 2026-10-12): `continue` is a universal field
+ * — "If `false`, Claude stops processing entirely after the hook runs" — and
+ * "Every event accepts them, but some events discard them [...]. Each event's
+ * section says so." The six rows that carry `halt` have no such sentence in
+ * their sections (and § JSON output names PreToolUse and PostToolUse: "the stop
+ * applies even when the tool call fails"). § PreCompact and § Notification
+ * each say they discard `continue`; SessionEnd has no turn left to stop.
+ * https://code.claude.com/docs/en/hooks
+ */
 export const claudeCodeEventCapabilities: EventCapabilityTable = {
   capturedFrom:
     "code.claude.com/docs/en/hooks (claude-code 2.1.273) + inject/veto measured 2026-09-16 headless",
@@ -28,7 +38,7 @@ export const claudeCodeEventCapabilities: EventCapabilityTable = {
     // and `PostModelSwitch`, where Claude Code adds plain-text stdout as context".
     SessionStart: {
       carries: "session",
-      honours: ["inject", "stdout-context"],
+      honours: ["inject", "stdout-context", "halt"],
       matcher: false,
       denyShape: "exit-code",
     },
@@ -36,7 +46,7 @@ export const claudeCodeEventCapabilities: EventCapabilityTable = {
     // (the same § Exit code 0 sentence as SessionStart).
     UserPromptSubmit: {
       carries: "prompt",
-      honours: ["veto", "inject", "stdout-context"],
+      honours: ["veto", "inject", "stdout-context", "halt"],
       matcher: false,
       denyShape: "exit-code",
     },
@@ -47,7 +57,7 @@ export const claudeCodeEventCapabilities: EventCapabilityTable = {
     // assumption nobody had run.
     PreToolUse: {
       carries: "tool",
-      honours: ["veto", "ask", "inject"],
+      honours: ["veto", "ask", "inject", "halt"],
       matcher: true,
       denyShape: "permission-decision",
     },
@@ -58,7 +68,7 @@ export const claudeCodeEventCapabilities: EventCapabilityTable = {
     // does not flag PostToolUse and would cry wolf if it did.
     PostToolUse: {
       carries: "tool",
-      honours: ["feedback", "inject"],
+      honours: ["feedback", "inject", "halt"],
       matcher: true,
       denyShape: "exit-code",
     },
@@ -66,7 +76,7 @@ export const claudeCodeEventCapabilities: EventCapabilityTable = {
     // shape). MEASURED 2026-09-16: inject lands too.
     Stop: {
       carries: "stop",
-      honours: ["veto", "inject"],
+      honours: ["veto", "inject", "halt"],
       matcher: false,
       denyShape: "exit-code",
     },
@@ -74,7 +84,7 @@ export const claudeCodeEventCapabilities: EventCapabilityTable = {
     // it was not measured, and Stop's behaviour is not evidence about it.
     SubagentStop: {
       carries: "stop",
-      honours: ["veto"],
+      honours: ["veto", "halt"],
       matcher: false,
       denyShape: "exit-code",
     },

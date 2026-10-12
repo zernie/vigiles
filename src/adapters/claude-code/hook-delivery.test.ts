@@ -12,6 +12,10 @@
  *   `SessionStart`, and `PostModelSwitch`, where Claude Code adds plain-text
  *   stdout as context".
  * - § Exit code 2 behavior per event: `SessionStart` — "Shows stderr to user only".
+ * - § JSON output, universal fields: `continue` — "If `false`, Claude stops
+ *   processing entirely after the hook runs"; "Every event accepts them, but
+ *   some events discard them [...]. Each event's section says so." § PreCompact
+ *   and § Notification each say they discard `continue`.
  *
  * The agnostic logic is tested once in src/core/hook-delivery.test.ts; this
  * pins the TABLE. The Codex twin is ../codex/hook-delivery.test.ts.
@@ -55,5 +59,30 @@ describe("claude-code: the documented routing", () => {
 
   it("SessionStart exit 2 stderr goes to the user only", () => {
     expect(run("SessionStart", 2, "", "no")).toBe("undelivered");
+  });
+});
+
+describe("claude-code: `continue: false` halts the turn on the events that read it", () => {
+  const halt = (event: string): string => {
+    const json = { continue: false, stopReason: "build failed" };
+    return hookOutputDelivery(
+      { event, exitCode: 0, stdout: JSON.stringify(json), stderr: "", json },
+      facts,
+    ).kind;
+  };
+
+  it("on SessionStart and PostToolUse, which veto nothing, the halt is BLOCKED", () => {
+    expect(halt("SessionStart")).toBe("blocked");
+    expect(halt("PostToolUse")).toBe("blocked");
+  });
+
+  it("on the veto events too", () => {
+    for (const event of ["UserPromptSubmit", "PreToolUse", "Stop"])
+      expect(halt(event)).toBe("blocked");
+  });
+
+  it("on PreCompact and Notification, which discard `continue`, it is control JSON", () => {
+    expect(halt("PreCompact")).toBe("silent");
+    expect(halt("Notification")).toBe("silent");
   });
 });

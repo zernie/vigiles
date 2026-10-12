@@ -32,12 +32,19 @@ const facts: DeliveryFacts = {
   table: {
     capturedFrom: "fixture",
     events: {
-      SessionStart: row("session", ["inject", "stdout-context"]),
-      UserPromptSubmit: row("prompt", ["veto", "inject", "stdout-context"]),
-      PreToolUse: row("tool", ["veto", "ask", "inject"]),
-      PostToolUse: row("tool", ["feedback", "inject"]),
-      Stop: row("stop", ["veto", "inject"]),
-      SubagentStop: row("stop", ["veto"]),
+      SessionStart: row("session", ["inject", "stdout-context", "halt"]),
+      UserPromptSubmit: row("prompt", [
+        "veto",
+        "inject",
+        "stdout-context",
+        "halt",
+      ]),
+      PreToolUse: row("tool", ["veto", "ask", "inject", "halt"]),
+      PostToolUse: row("tool", ["feedback", "inject", "halt"]),
+      Stop: row("stop", ["veto", "inject", "halt"]),
+      SubagentStop: row("stop", ["veto", "halt"]),
+      // A veto event that discards the halt field.
+      PreCompact: row("none", ["veto"]),
     },
   },
   blockExitCode: 2,
@@ -230,7 +237,7 @@ describe("exit codes", () => {
     expect(d.kind === "undelivered" && d.stranded[0].why).toMatch(/exit 0/);
   });
 
-  it("halting the turn on a veto event is BLOCKED; without a halt field it is not a veto", () => {
+  it("halting the turn on a `halt` event is BLOCKED; without a halt field it is control JSON", () => {
     const halt = emit("Stop", 0, {
       stdout: JSON.stringify({ continue: false, stopReason: "run the tests" }),
     });
@@ -238,6 +245,19 @@ describe("exit codes", () => {
     // A protocol with no halt field: `continue:false` is just control JSON.
     const noHalt: DeliveryFacts = { ...facts, haltsTurnField: undefined };
     expect(hookOutputDelivery(halt, noHalt).kind).toBe("silent");
+  });
+
+  it("the halt is read on the event's `halt` channel, not its veto", () => {
+    const stdout = JSON.stringify({ continue: false });
+    // No veto, but halts: a working halt, never `silent`.
+    for (const event of ["SessionStart", "PostToolUse"])
+      expect(hookOutputDelivery(emit(event, 0, { stdout }), facts).kind).toBe(
+        "blocked",
+      );
+    // Vetoes, but discards the halt field: the halt does nothing.
+    expect(
+      hookOutputDelivery(emit("PreCompact", 0, { stdout }), facts).kind,
+    ).toBe("silent");
   });
 });
 
