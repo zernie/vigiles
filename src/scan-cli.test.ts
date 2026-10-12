@@ -160,7 +160,6 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
       JSON.stringify({
         harnesses: { codex: {} },
         rules: {
-          "hook-script-exists": "warn",
           "hand-written-hook": "warn",
           "untested-skill": "warn",
           "subagent-tool-contract": "warn",
