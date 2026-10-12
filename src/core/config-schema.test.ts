@@ -149,7 +149,7 @@ test("a bare string is a one-element list, not a string spread char-by-char", ()
  * one — and the list is printed only when there is not, which is the case where
  * the list IS the answer.
  */
-test("an unknown key suggests the near-miss instead of listing 35 candidates", () => {
+test("an unknown key suggests the near-miss instead of listing 36 candidates", () => {
   assert.deepEqual(problems({ rules: { "spec-ref": "error" } }), [
     '.vigilesrc.json: unknown key "spec-ref" in rules. Did you mean "spec-refs"?',
   ]);
@@ -159,7 +159,7 @@ test("an unknown key suggests the near-miss instead of listing 35 candidates", (
   assert.match(far[0], /Known: spec-refs, orphan-docs/);
   // Capped, with the remainder COUNTED rather than dropped — a silently short
   // list would read as "these are all of them".
-  assert.match(far[0], /… and 23 more\.$/);
+  assert.match(far[0], /… and 24 more\.$/);
 });
 
 test("an unknown top-level key names the near-miss", () => {
@@ -212,7 +212,7 @@ test("an empty config parses to the shipped defaults", () => {
   assert.equal(d.rules["spec-refs"], "error");
   assert.equal(d.rules["doc-refs"], false);
   assert.equal(d.rules.integrity, "warn");
-  assert.equal(Object.keys(d.rules).length, 35);
+  assert.equal(Object.keys(d.rules).length, 36);
   assert.equal(d.rules["deprecated-key-files"], "warn");
   assert.equal(d.harnesses, undefined, "no declaration means auto-detect");
 });
@@ -249,7 +249,7 @@ test("an explicit rules entry overrides the preset, in both directions", () => {
   assert.ok(r.success);
   assert.equal(r.data.rules["hook-events"], "warn", "downgraded by the user");
   assert.equal(r.data.rules["description-overlap"], false, "turned off");
-  assert.equal(r.data.rules["mcp-config"], "error", "rest stays gated");
+  assert.equal(r.data.rules["hook-script-exists"], "error", "rest stays gated");
 });
 
 test("without extends, no rule moves off its built-in default", () => {
@@ -397,7 +397,7 @@ test("a config naming a folded rule is told which rule reports it now (#361)", (
   });
   assert.match(
     inRules ?? "",
-    /rule "prefer-compiled-hooks" was folded into "hook-script-exists"/,
+    /rule "prefer-compiled-hooks" was folded into "hand-written-hook"/,
   );
   assert.deepEqual(
     foldedRuleMessages({
@@ -426,20 +426,21 @@ test("loadConfig refuses a folded rule with that message, not 'unknown key'", ()
       join(dir, ".vigilesrc.json"),
       JSON.stringify({ rules: { "prefer-compiled-hooks": false } }),
     );
-    assert.throws(() => loadConfig(dir), /folded into "hook-script-exists"/);
+    assert.throws(() => loadConfig(dir), /folded into "hand-written-hook"/);
   } finally {
     cleanupTmpDir(dir);
   }
 });
 
 /**
- * #361 names every hand-written hook under `hook-script-exists`. Until compiled
- * plugin hooks exist (#372), a plugin cannot get rid of its own hand-written
- * hooks, so the preset leaves the rule at `warn`. #372 makes it `error`; this is
- * the one assertion that flip changes.
+ * `hand-written-hook` names every hook line vigiles did not write. Until
+ * compiled plugin hooks exist (#372), a plugin cannot get rid of its own
+ * hand-written hooks, so the preset leaves the rule at `warn`. #372 makes it
+ * `error`; this is the one assertion that flip changes.
  */
-test("vigiles:recommended leaves hook-script-exists at warn until #372", () => {
+test("vigiles:recommended leaves hand-written-hook at warn until #372", () => {
   const r = parseVigilesConfig({ extends: "vigiles:recommended" });
   assert.ok(r.success);
-  assert.equal(r.data.rules["hook-script-exists"], "warn");
+  assert.equal(r.data.rules["hand-written-hook"], "warn");
+  assert.equal(r.data.rules["hook-script-exists"], "error");
 });

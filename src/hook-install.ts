@@ -29,11 +29,12 @@ import {
   type SourceKind,
 } from "./source-kinds.js";
 import {
-  bareToken,
+  commandNamesRef,
   hookRuntimeFor,
   INSTALLED_HOOK_RUNTIME,
   type HookRuntime,
 } from "./core/hook-command.js";
+import { HOOKS_DIR } from "./core/hook-paths.js";
 
 /**
  * Lazy for the same reason as in `core/hook-program.ts` — and this module is
@@ -46,8 +47,7 @@ const stringifyToml = (value: unknown): string =>
     value as never,
   );
 
-/** The agnostic, committed home for hook SOURCE — one dir, cross-adapter. */
-export const HOOKS_DIR = ".vigiles/hooks";
+
 
 /** The committed home for registered context-provider SOURCE (v2). */
 export const PROVIDERS_DIR = ".vigiles/providers";
@@ -421,10 +421,7 @@ function ownedRefs(hookPath: string): readonly string[] {
 function managesHook(entry: HookEntry, hookPath: string): boolean {
   const refs = ownedRefs(hookPath);
   return entry.hooks.some((h) =>
-    h.command.split(/\s+/).some((token) => {
-      const bare = bareToken(token);
-      return bare !== "" && refs.includes(normalizeHookRef(bare));
-    }),
+    commandNamesRef(h.command, refs, (word) => normalizeHookRef(word)),
   );
 }
 

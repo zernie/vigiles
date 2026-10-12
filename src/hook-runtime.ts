@@ -38,7 +38,7 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { resolve, dirname, basename, relative } from "node:path";
+import { resolve, dirname, relative } from "node:path";
 import {
   verifyHookStamp,
   HookCompileError,
@@ -71,6 +71,7 @@ import {
   type RawHookEvent,
   type HookEvent,
 } from "./core/hook-program.js";
+import { hookStampRef } from "./core/hook-paths.js";
 import {
   hasMergeConflictMarkers,
   HARNESS_CONFIG_FILES,
@@ -152,7 +153,7 @@ export function hookStampPath(
   file: string,
   root: string = process.cwd(),
 ): string {
-  return resolve(root, ".vigiles/hooks", basename(file) + ".json");
+  return resolve(root, hookStampRef(file));
 }
 
 /**

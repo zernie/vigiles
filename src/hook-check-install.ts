@@ -14,7 +14,7 @@ import { dirname, resolve } from "node:path";
 
 import type { HarnessAdapter } from "./core/adapter.js";
 import { checkPaths, commandsIn, renderHookCheck } from "./hook-check.js";
-import { HOOK_CHECK_REF, hookGateRef } from "./core/hook-command.js";
+import { HOOK_CHECK_REF, sessionCheckCommand } from "./core/hook-command.js";
 import { readHookRuntime } from "./hook-install.js";
 
 /** A harness whose hooks are shell commands listed in a settings file. */
@@ -41,12 +41,18 @@ function registerCheck(
   existing: Record<string, unknown>,
   cwd: string,
 ): void {
-  const ref = hookGateRef(HOOK_CHECK_REF, adapter.layout.projectRootTokens);
   const merged = adapter.hookProtocol.mergeRegistrations(
     existing,
     {
       SessionStart: [
-        { hooks: [{ type: "command", command: `sh ${ref} || exit 0` }] },
+        {
+          hooks: [
+            {
+              type: "command",
+              command: sessionCheckCommand(adapter.layout.projectRootTokens),
+            },
+          ],
+        },
       ],
     },
     HOOK_CHECK_REF,

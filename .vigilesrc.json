@@ -12,7 +12,7 @@
     "subagent-tool-contract": "error",
     "subagent-frontmatter": "error",
     "hook-events": "error",
-    "hook-script-exists": "warn",
+    "hook-script-exists": "error",
     "mcp-config": "error",
     "mcp-tool-resolves": "error",
     "mcp-hook-target-resolves": "error",

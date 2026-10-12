@@ -98,6 +98,7 @@ import {
   scanSkills,
   skillRefSources,
   scanHookScripts,
+  type HookScriptScan,
   isDependencyPath,
   frontmatterIssuesFor,
   frontmatterValueIssuesFor,
@@ -129,6 +130,9 @@ import {
   blockIneffectiveEventsOf,
   permissionDecisionEventsOf,
 } from "./core/event-capability.js";
+import { hookLinePlan } from "./core/hook-command.js";
+import { HOOKS_DIR } from "./core/hook-paths.js";
+import { classifySource } from "./source-kinds.js";
 
 /**
  * The synthetic absolute root every path in a browser scan resolves against. A
@@ -678,24 +682,29 @@ function collectMcpServers(
 // Public API
 // ---------------------------------------------------------------------------
 
-/** `scanHookScripts` over the lines as written, as the file map can answer it: no `node_modules`, ever. */
-function fileMapHooks(
-  loaded: Readonly<LoadedPlugin>,
+/**
+ * The hook scan as the file map can answer it: the lines as written, the plan
+ * from the map's own hook sources, stamps and `package.json`, and no
+ * `node_modules`, ever.
+ */
+function fileMapHookScan(
+  files: Readonly<Record<string, string>>,
   layout: Readonly<PluginLayout>,
   exists: (path: string) => boolean,
-): ReturnType<typeof scanHookScripts> {
-  const asWritten = normalizeHooks(loaded.hooksAsWritten);
-  return scanHookScripts(
-    asWritten,
-    normalizeHooks(loaded.shadowedSettingsHooks),
-    {
-      root: BROWSER_ROOT,
-      layout,
-      exists,
-      // A fetched file map never holds node_modules: absence there proves nothing.
-      observable: (abs) => !isDependencyPath(abs),
-    },
-  );
+): HookScriptScan {
+  const sources = Object.keys(files)
+    .filter((k) => k.startsWith(`${HOOKS_DIR}/`))
+    .filter((k) => !k.slice(HOOKS_DIR.length + 1).includes("/"))
+    .filter((k) => classifySource(basename(k)).kind === "hook")
+    .sort();
+  return {
+    root: BROWSER_ROOT,
+    layout,
+    exists,
+    // A fetched file map never holds node_modules: absence there proves nothing.
+    observable: (abs) => !isDependencyPath(abs),
+    plan: hookLinePlan(sources, (ref) => files[ref], layout.projectRootTokens),
+  };
 }
 
 /**
@@ -736,7 +745,13 @@ export function scanFiles(
   const loaded = loadPluginFromFiles(files, lay, repoName);
   const exists = mapExists(files);
   const hookRegs = normalizeHooks(loaded.settings.hooks);
-  const { hooks, inline, handWritten } = fileMapHooks(loaded, lay, exists);
+  const hookScan = fileMapHookScan(files, lay, exists);
+  const asWritten = normalizeHooks(loaded.hooksAsWritten);
+  const { hooks, inline, handWritten } = scanHookScripts(
+    asWritten,
+    normalizeHooks(loaded.shadowedSettingsHooks),
+    hookScan,
+  );
   const eventNames = hookEventNames(loaded.settings.hooks);
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
   const hookEventIssues = scoredIssues(allHookEventIssues);
@@ -854,7 +869,7 @@ export function scanFiles(
     hookBlockFindings:
       blockIneffectiveEventsOf(dialect).length > 0
         ? hookBlockIssues(
-            collectHookBlockEntries(hookRegs, BROWSER_ROOT, lay, exists),
+            collectHookBlockEntries(asWritten, hookScan),
             {
               noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
               permissionDecisionEvents: new Set(

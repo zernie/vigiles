@@ -219,10 +219,20 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     surface: ["hook"],
     defaultSeverity: "warn",
     summary:
-      "A file a hook line runs exists, and every hand-written hook line is named (a static reader cannot verify it).",
-    detector: "scanHooks (status 'missing', handWritten)",
+      "A file a compiled hook line needs (runtime, program, stamp) exists.",
+    detector: "scanHooks over the hook-line plan (status 'missing')",
     upstreamPrevention:
       "a compiled hook is self-contained (no external script)",
+  },
+  "hand-written-hook": {
+    id: "hand-written-hook",
+    bucket: "heuristic-behavioral",
+    surface: ["hook"],
+    defaultSeverity: "warn",
+    summary:
+      "A hook line vigiles did not write is named: a static reader cannot verify it, so compile it.",
+    detector: "scanHooks (handWritten: no planned line matches)",
+    upstreamPrevention: "a compiled hook's line is written by compile itself",
   },
   "hook-block-ineffective": {
     id: "hook-block-ineffective",

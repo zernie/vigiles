@@ -472,7 +472,7 @@ test("scanPlugin lists every hand-written hook, each by its kind (compiled ones 
     r.handWrittenHooks.map((h) => [h.event, h.kind]),
     [
       ["PreToolUse", "script"],
-      ["Stop", "opaque"],
+      ["Stop", "hand-written"],
     ],
     "two hand-written, the compiled one excluded",
   );
@@ -1238,7 +1238,7 @@ test("scanPlugin resolves hook scripts: ok / missing / opaque", () => {
   assert.ok(!r.hooks.some((h) => h.script.includes("weird.sh")));
   assert.equal(r.inlineHooks, 2); // `npm test`, `bash "$HOME"/weird.sh`
   assert.deepEqual(
-    r.handWrittenHooks.filter((h) => h.kind === "opaque").map((h) => h.command),
+    r.handWrittenHooks.filter((h) => h.kind === "hand-written").map((h) => h.command),
     ['bash "$HOME"/weird.sh', "npm test"],
   );
   cleanupTmpDir(dir);

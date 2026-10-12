@@ -10,6 +10,7 @@
  */
 
 import { RECOMMENDED_PRESET, RECOMMENDED_RULES } from "./core/presets.js";
+import { INIT_NUDGE_COMMANDS } from "./core/hook-command.js";
 
 /** What `vigiles init` will set up. */
 export interface SetupPlan {
@@ -172,6 +173,7 @@ export const NUDGE_RULES = [
   "skill-description-budget",
   "frontmatter-valid",
   "skill-frontmatter",
+  "hand-written-hook",
   "unmarked-refs",
   "lethal-trifecta",
   "skill-resource-resolves",
@@ -618,13 +620,13 @@ export function codexPluginHooks(): CodexPluginHook[] {
     {
       event: "PostToolUse",
       matcher: "^apply_patch$",
-      command: "npx --no-install vigiles hook-runtime eval-lock-nudge",
+      command: INIT_NUDGE_COMMANDS.evalLock,
       key: "hook-runtime eval-lock-nudge",
     },
     {
       event: "PostToolUse",
       matcher: "^apply_patch$",
-      command: "npx --no-install vigiles hook-runtime refs",
+      command: INIT_NUDGE_COMMANDS.refs,
       key: "hook-runtime refs",
     },
   ];

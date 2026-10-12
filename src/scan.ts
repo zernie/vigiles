@@ -138,6 +138,8 @@ import {
   blockIneffectiveEventsOf,
   permissionDecisionEventsOf,
 } from "./core/event-capability.js";
+import { hookLinePlan } from "./core/hook-command.js";
+import { discoverHookFiles } from "./hook-install.js";
 
 // Re-export the pure detectors (and their public types: SurfaceClassifier,
 // SkillScanContext, handWrittenHookMessage, ...) that
@@ -755,17 +757,27 @@ export function scanPlugin(
   // hook detector below consumes typed `HookRegistration[]` instead of re-walking
   // `unknown`. The single seam where the per-harness hook shape is absorbed.
   const hookRegs = normalizeHooks(loaded.settings.hooks);
-  // As WRITTEN: hooks are named by their author's line, roots unexpanded.
+  // As WRITTEN: a line is read by identity with what compile would write.
+  const asWritten = normalizeHooks(loaded.hooksAsWritten);
+  const hookScan = {
+    root: resolve(dir),
+    layout: lay,
+    exists: existsSync,
+    // On disk a dependency is as observable as any other file.
+    observable: () => true,
+    plan: hookLinePlan(
+      discoverHookFiles(dir).claimed,
+      (ref: string) => {
+        const abs = join(dir, ref);
+        return existsSync(abs) ? nodeReadFile(abs) : undefined;
+      },
+      lay.projectRootTokens,
+    ),
+  };
   const { hooks, inline, handWritten } = scanHookScripts(
-    normalizeHooks(loaded.hooksAsWritten),
+    asWritten,
     normalizeHooks(loaded.shadowedSettingsHooks),
-    {
-      root: resolve(dir),
-      layout: lay,
-      exists: existsSync,
-      // On disk a dependency is as observable as any other file.
-      observable: () => true,
-    },
+    hookScan,
   );
   // Hook-event keys are a CLOSED platform set — an unrecognized one is a dead
   // registration (the hook never fires), so flag every unknown (not just typos).
@@ -928,7 +940,7 @@ export function scanPlugin(
     hookBlockFindings:
       blockIneffectiveEventsOf(dialect).length > 0
         ? hookBlockIssues(
-            collectHookBlockEntries(hookRegs, resolve(dir), lay, existsSync),
+            collectHookBlockEntries(asWritten, hookScan),
             {
               noEffectEvents: new Set(blockIneffectiveEventsOf(dialect)),
               permissionDecisionEvents: new Set(

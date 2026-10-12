@@ -186,6 +186,7 @@ const rulesSchema = z
     "skill-frontmatter": severitySchema.default("warn"),
     "mcp-tool-resolves": severitySchema.default("warn"),
     "hook-script-exists": severitySchema.default("warn"),
+    "hand-written-hook": severitySchema.default("warn"),
     "disallowed-tools-contract": severitySchema.default("warn"),
     "description-overlap": severitySchema.default("warn"),
     "skill-description-budget": severitySchema.default("warn"),
@@ -543,8 +544,8 @@ export const FOLDED_RULES: ReadonlyArray<{
 }> = [
   {
     rule: "prefer-compiled-hooks",
-    into: "hook-script-exists",
-    what: "every hook line vigiles did not write is now one hook-script-exists finding that names it",
+    into: "hand-written-hook",
+    what: "every hook line vigiles did not write is now one hand-written-hook finding that names it",
   },
 ];
 

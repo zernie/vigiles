@@ -3,8 +3,9 @@
  *
  * The third of three reference grammars, and the only one with no parser behind
  * it. A markdown body is read by markdown-it (`core/markdown.ts` →
- * `markdownRefs`), a hook `command` is read by mvdan-sh (`core/bash-effects.ts`
- * → `commandWords`), and what is left — the body of a hook script, a helper
+ * `markdownRefs`), a hook `command` is never read at all (it is compiled or it
+ * is hand-written, by identity — `core/hook-command.ts`), and what is left — the
+ * body of a hook script, a helper
  * `.js` / `.py` / `.rb` — is scanned for path-shaped character runs, because a
  * general-purpose "find every path this program touches" analysis is not a
  * thing this tool can be.
@@ -133,31 +134,6 @@ export function intraRefPattern(dirs: readonly string[]): RegExp {
     `(?:${dirs.join("|")})/[A-Za-z0-9._/-]+\\.(?:${exts})${ENDS_TOKEN}`,
     "g",
   );
-}
-
-/**
- * A script path occupying a WHOLE shell WORD.
- *
- * ⚠️ ANCHORING IS NOT WHAT FIXES THE `node -e` DEFECT, and saying so would be
- * wrong twice over — the payload
- * `import(require(node:url).pathToFileURL(require(node:path).join(root,hooks,always-on.mjs`
- * contains no whitespace and ends in `.mjs`, so it satisfies this pattern
- * perfectly (asserted in source-refs.test.ts, so the claim cannot drift back).
- * That defect is fixed one level up, by `commandWords` refusing to hand the
- * argument of `-e` to anyone.
- *
- * What anchoring buys is narrower and worth stating exactly: the reported name
- * is always a word a shell could hand to `execve`, never a fragment cut out of
- * a longer one. `echo "see hooks/x.sh"` is one word containing a path; before,
- * `hooks/x.sh` was lifted out of it and checked as though the hook ran it.
- *
- * The cost, stated rather than discovered later: a path bundled into a flag
- * (`--require=hooks/x.js`) is no longer seen. Measured across the 32-repo
- * dogfood corpus, that costs zero findings.
- */
-export function scriptWordPattern(): RegExp {
-  const exts = SCRIPT_REF_EXTENSIONS.join("|");
-  return new RegExp(`^[^\\s*?]+\\.(?:${exts})$`);
 }
 
 /**

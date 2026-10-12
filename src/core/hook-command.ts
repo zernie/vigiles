@@ -1,27 +1,28 @@
 /**
- * What a static reader may say about a hook command line, and nothing more
- * (#361). Exactly three answers:
+ * The hook command lines vigiles WRITES, and the one way they are recognised:
+ * by IDENTITY with what `compile` would write (#361, #362).
  *
- *   - `compiled` — a line vigiles WROTE: the hook runtime
- *     (`node <runner> hook-runtime <kind> …`, `npx vigiles hook-runtime <kind> …`)
- *     or the start-of-session check. It is read by the template that emits it,
- *     so the files it runs are known exactly.
- *   - `script` — a hand-written line that STARTS by running a literal path
- *     (`./hooks/x.sh`, `bash ${ROOT}/hooks/x.sh`). That one file can be checked.
- *   - `opaque` — everything else. No word is guessed to be the script.
+ * 🔴 VIGILES NEVER PARSES A HAND-WRITTEN HOOK COMMAND LINE. Two branches of
+ * this repository tried: #359 taught `resolveScript` one more shell shape
+ * (`$CLAUDE_PROJECT_DIR`), and #361's first version parsed the line as shell
+ * and kept an interpreter list to find "the script". Each shape it learned
+ * exposed the next one it did not (`env X=1 cmd`, `sh -c '…'`, `cd d && ./x`,
+ * `bash -x x.sh`), and even a perfect parse answers only "does one path exist",
+ * never "does the hook work". Both were removed (#362). The lines vigiles owns
+ * need no parse: `compile` is their only writer, so a line is `compiled`
+ * exactly when it equals the line the plan below says compile would write for
+ * one of this repo's hook sources. Everything else is hand-written, and the
+ * answer to a hand-written hook is to compile it. Whether any hook works is
+ * answered by running it (`runHook`, `vigiles test`).
  *
- * The line is parsed as shell ({@link leadingCommand}); the reader never splits
- * the string itself. Whether a hook WORKS is not a static question in any of the
- * three cases: it is answered by running it (`runHook`, `vigiles test`).
+ * Enforced by `no-restricted-imports` in eslint.config.mjs: this module and the
+ * scan's hook readers may not import the shell parser.
  *
- * Harness-agnostic: the root variables come from the caller's layout. A path
- * names a root in its braced spelling, whichever spelling the line used.
+ * Pure and harness-agnostic: the root variables, the runtime and the hook
+ * sources come from the caller.
  */
-import {
-  leadingCommand,
-  type ShellWord,
-  type WordPiece,
-} from "./bash-effects.js";
+import { hookStampRef } from "./hook-paths.js";
+import { withRoleExit, type DispatchKind } from "./hook-program.js";
 
 /** Where `compile` writes the start-of-session check. Committed, next to the hook sources. */
 export const HOOK_CHECK_REF = ".vigiles/hook-check.sh";
@@ -32,11 +33,15 @@ export const HOOK_RUNTIME_VERB = "hook-runtime";
 /** The runtime kind that runs a compiled hook program; its one operand is the program. */
 export const RUN_PROGRAM_KIND = "run-program";
 
-/** The verdict. */
-export type HookCommandShape =
-  | { readonly kind: "compiled"; readonly files: readonly string[] }
-  | { readonly kind: "script"; readonly file: string }
-  | { readonly kind: "opaque" };
+/**
+ * The lines `init` wires for a harness with no plugin store (Codex): the
+ * shipped nudges, started through npx. Data, so the plan below knows them as
+ * vigiles's own without reading their text.
+ */
+export const INIT_NUDGE_COMMANDS = {
+  evalLock: "npx --no-install vigiles hook-runtime eval-lock-nudge",
+  refs: "npx --no-install vigiles hook-runtime refs",
+} as const;
 
 /**
  * The command line `compile` writes to run a hook program: the runtime started
@@ -47,224 +52,6 @@ export function runProgramCommand(
   programRef: string,
 ): string {
   return `${runnerRef} ${HOOK_RUNTIME_VERB} ${RUN_PROGRAM_KIND} ${programRef}`;
-}
-
-/** Programs a hand-written hook may name as `<interpreter> <literal path>`. */
-const INTERPRETERS: ReadonlySet<string> = new Set([
-  "sh",
-  "bash",
-  "zsh",
-  "dash",
-  "node",
-  "bun",
-  "python",
-  "python3",
-  "ruby",
-  "perl",
-]);
-
-const OPAQUE: HookCommandShape = { kind: "opaque" };
-
-/**
- * Classify one hook command. `rootTokens` are the harness's root variables in
- * their braced spelling (`${CLAUDE_PROJECT_DIR}`).
- */
-export function hookCommandShape(
-  command: string,
-  rootTokens: readonly string[],
-): HookCommandShape {
-  const line = readLine(command, rootTokens);
-  if (line === null) return OPAQUE;
-  const compiled = line.endsAsWritten
-    ? compiledFiles(line.words, rootTokens)
-    : null;
-  if (compiled !== null && compiled !== MALFORMED)
-    return { kind: "compiled", files: compiled };
-  const script = leadingScript(line.words);
-  return script === null ? OPAQUE : { kind: "script", file: script };
-}
-
-/**
- * Whether `command` is our `hook-runtime run-program` template with the wrong
- * operands — no program, or more than one. Such a line is not one vigiles
- * wrote as it stands, so it is not `compiled`; it is not hand-written either,
- * and the cure is to recompile, not to write a hook.
- */
-export function malformedRunProgram(
-  command: string,
-  rootTokens: readonly string[],
-): boolean {
-  const line = readLine(command, rootTokens);
-  return line !== null && compiledFiles(line.words, rootTokens) === MALFORMED;
-}
-
-/** A line's leading words as text, and whether it ends as `compile` writes it. */
-function readLine(
-  command: string,
-  rootTokens: readonly string[],
-): {
-  readonly words: readonly (string | null)[];
-  readonly endsAsWritten: boolean;
-} | null {
-  const line = leadingCommand(command);
-  if (line === null) return null;
-  const roots = new Set(rootTokens.map(tokenName));
-  return {
-    words: line.words.map((w) => wordText(w, roots)),
-    endsAsWritten:
-      line.rest === "alone" ||
-      (line.rest === "or-else" && isRoleExit(line.orElse, roots)),
-  };
-}
-
-/** Our run-program template, with operands it never writes. */
-const MALFORMED = "malformed";
-
-/** What reading a line by the compiled template gives. */
-type TemplateRead = readonly string[] | typeof MALFORMED | null;
-
-/** The literal path a hand-written line starts by running, or null. */
-function leadingScript(words: readonly (string | null)[]): string | null {
-  const [head = null, operand = null] = words;
-  if (head === null) return null;
-  if (isLiteralPath(head)) return head;
-  return INTERPRETERS.has(head) && operand !== null && isLiteralPath(operand)
-    ? operand
-    : null;
-}
-
-/**
- * The files a compiled line runs, or null when the words are not one of the
- * lines vigiles writes:
- *
- *   node <runner> hook-runtime <kind> [<program>]              → runner, program
- *   npx [--no-install] vigiles hook-runtime <kind> [<program>] → program
- *   sh <root>/.vigiles/hook-check.sh                           → the check script
- */
-function compiledFiles(
-  words: readonly (string | null)[],
-  rootTokens: readonly string[],
-): TemplateRead {
-  const known = words.filter((w): w is string => w !== null);
-  if (known.length !== words.length) return null;
-  const [head, ...rest] = known;
-  switch (head) {
-    case "sh":
-      return rest.length === 1 && isHookCheckRef(rest[0], rootTokens)
-        ? rest
-        : null;
-    case "node":
-      return nodeRuntimeFiles(rest);
-    case "npx":
-      return npxRuntimeFiles(rest);
-    default:
-      return null;
-  }
-}
-
-/** `<runner> hook-runtime …` after `node` → the runner and the program. */
-function nodeRuntimeFiles(words: readonly string[]): TemplateRead {
-  const [runner, ...runtime] = words;
-  if (runner === undefined || !isLiteralPath(runner)) return null;
-  const program = runtimeOperand(runtime);
-  return program === null || program === MALFORMED
-    ? program
-    : [runner, ...program];
-}
-
-/** `[--no-install] vigiles hook-runtime …` after `npx` → the program. */
-function npxRuntimeFiles(words: readonly string[]): TemplateRead {
-  const [pkg, ...runtime] =
-    words[0] === "--no-install" ? words.slice(1) : words;
-  return pkg === "vigiles" ? runtimeOperand(runtime) : null;
-}
-
-/**
- * `hook-runtime <kind> [<program>]` → the program it names ([] for a kind that
- * runs none); null when the words are not a runtime invocation; MALFORMED for
- * `run-program` with anything but one program file.
- */
-function runtimeOperand(words: readonly string[]): TemplateRead {
-  const [verb, kind, ...operands] = words;
-  if (verb !== HOOK_RUNTIME_VERB || kind === undefined) return null;
-  if (kind !== RUN_PROGRAM_KIND) return [];
-  const [program, ...extra] = operands;
-  if (program === undefined || extra.length > 0 || !isFileWord(program))
-    return MALFORMED;
-  return [program];
-}
-
-/** `exit <n>` — the fallback `withRoleExit` gives a compiled line. */
-function isRoleExit(
-  words: readonly ShellWord[],
-  roots: ReadonlySet<string>,
-): boolean {
-  const [verb, code, ...extra] = words.map((w) => wordText(w, roots));
-  return (
-    verb === "exit" &&
-    extra.length === 0 &&
-    typeof code === "string" &&
-    /^\d+$/.test(code)
-  );
-}
-
-function isHookCheckRef(
-  ref: string | undefined,
-  rootTokens: readonly string[],
-): boolean {
-  return (
-    ref === HOOK_CHECK_REF ||
-    rootTokens.some((t) => ref === `${t}/${HOOK_CHECK_REF}`)
-  );
-}
-
-/** `${NAME}` → `NAME`. */
-function tokenName(token: string): string {
-  return token.replace(/^\$\{(.+)\}$/, "$1");
-}
-
-/**
- * A word as the text it stands for, roots in their braced spelling; null when
- * the shell would compute any part of it (another variable, a glob, `~`).
- */
-function wordText(word: ShellWord, roots: ReadonlySet<string>): string | null {
-  if (word === null) return null;
-  const pieces = word.map((p) => pieceText(p, roots));
-  return pieces.every((p): p is string => p !== null) ? pieces.join("") : null;
-}
-
-/** Characters an unquoted shell word expands (globs, braces, a leading `~`). */
-const EXPANDED_UNQUOTED = /[*?[\]{}~]/;
-
-function pieceText(
-  piece: WordPiece,
-  roots: ReadonlySet<string>,
-): string | null {
-  if (piece.kind === "param")
-    return roots.has(piece.name) ? `\${${piece.name}}` : null;
-  return !piece.quoted && EXPANDED_UNQUOTED.test(piece.text)
-    ? null
-    : piece.text;
-}
-
-/**
- * A path the shell runs as written: it has a slash (so no `PATH` lookup), and
- * is a {@link isFileWord}.
- */
-function isLiteralPath(text: string): boolean {
-  return text.includes("/") && isFileWord(text);
-}
-
-/**
- * A word naming one file of the repository as written: relative, or anchored
- * at a root variable that is its whole first segment; not a flag, and no
- * other variable. An absolute path names a file on one machine, not in the repo.
- */
-function isFileWord(text: string): boolean {
-  if (text === "" || text.startsWith("-") || text.startsWith("/")) return false;
-  if (!text.startsWith("${")) return !text.includes("${");
-  const rest = text.slice(text.indexOf("}") + 1);
-  return rest.startsWith("/") && !rest.includes("${");
 }
 
 /**
@@ -404,4 +191,166 @@ export function hookGateRef(
 export function bareToken(token: string): string {
   const unquoted = token.replace(/^["']/, "").replace(/["']$/, "");
   return unquoted.replace(/^\$\{?CLAUDE_PROJECT_DIR\}?[/\\]/, "");
+}
+
+/** The start-of-session check line `compile` wires beside the compiled hooks. */
+export function sessionCheckCommand(
+  projectRootTokens: readonly string[] | undefined,
+): string {
+  return `sh ${hookGateRef(HOOK_CHECK_REF, projectRootTokens)} || exit 0`;
+}
+
+/**
+ * A hook source and what its last compile recorded about it. `role` comes from
+ * the stamp sidecar; a source never compiled (or compiled by a vigiles that did
+ * not record it) has none, and so has no planned line.
+ */
+export interface HookSourceRecord {
+  /** Repo-relative path of the hook source (`.vigiles/hooks/x.hook.mjs`). */
+  readonly ref: string;
+  readonly role?: DispatchKind;
+}
+
+/** One line `compile` would write, and the files it needs on disk. */
+export interface PlannedHookLine {
+  readonly command: string;
+  /** Root-anchored (`${TOKEN}/…`) or repo-relative paths. */
+  readonly files: readonly string[];
+}
+
+/**
+ * The lines `compile` and `init` would write in a repo, and the hook sources
+ * whose wiring `compile` owns (its merge key) — what a reader compares a hook
+ * line against.
+ */
+export interface HookLinePlan {
+  readonly lines: readonly PlannedHookLine[];
+  /** Repo-relative refs of every hook source, compiled or not. */
+  readonly sources: readonly string[];
+}
+
+/**
+ * The plan for a repo, from what its files say: each hook source's role from
+ * its stamp sidecar, the runtime from `package.json`. `readText` is the
+ * engine's file port (disk or a fetched file map); `undefined` = absent.
+ */
+export function hookLinePlan(
+  sourceRefs: readonly string[],
+  readText: (ref: string) => string | undefined,
+  projectRootTokens: readonly string[] | undefined,
+): HookLinePlan {
+  const sources = sourceRefs.map((ref): HookSourceRecord => {
+    const role = fieldOf(parseJson(readText(hookStampRef(ref))), "role");
+    return isDispatchKind(role) ? { ref, role } : { ref };
+  });
+  return {
+    lines: plannedHookLines({
+      sources,
+      runtime: hookRuntimeFor(parseJson(readText("package.json"))),
+      projectRootTokens,
+    }),
+    sources: sourceRefs,
+  };
+}
+
+/** JSON text → value; absent or malformed → undefined (the plan then has less). */
+function parseJson(text: string | undefined): unknown {
+  if (text === undefined) return undefined;
+  try {
+    const value: unknown = JSON.parse(text);
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Every role a compiled hook can have — a record, so a new kind is a tsc error here. */
+const DISPATCH_KINDS: Readonly<Record<DispatchKind, true>> = {
+  "bash-gate": true,
+  "file-gate": true,
+  "prompt-gate": true,
+  "stop-gate": true,
+  inject: true,
+  react: true,
+};
+
+function isDispatchKind(value: unknown): value is DispatchKind {
+  return (
+    typeof value === "string" &&
+    Object.keys(DISPATCH_KINDS).some((k) => k === value)
+  );
+}
+
+/** What the plan needs: the repo's hook sources, its runtime, the harness's root variables. */
+export interface HookPlanInput {
+  readonly sources: readonly HookSourceRecord[];
+  readonly runtime: HookRuntime;
+  readonly projectRootTokens: readonly string[] | undefined;
+}
+
+/**
+ * Every hook line `compile` (and `init`) would write in this repo — the same
+ * template functions the writers call, so the reader cannot drift from them.
+ */
+export function plannedHookLines(
+  input: HookPlanInput,
+): readonly PlannedHookLine[] {
+  const { sources, projectRootTokens: tokens } = input;
+  return [
+    ...sources.flatMap((s) => compiledLine(s, input)),
+    {
+      command: sessionCheckCommand(tokens),
+      files: [anchored(HOOK_CHECK_REF, tokens)],
+    },
+    ...Object.values(INIT_NUDGE_COMMANDS).map((command) => ({
+      command,
+      files: [],
+    })),
+  ];
+}
+
+/** The line `compile` writes for one recorded hook source; none without a role. */
+function compiledLine(
+  { ref, role }: HookSourceRecord,
+  { runtime, projectRootTokens: tokens }: HookPlanInput,
+): readonly PlannedHookLine[] {
+  if (role === undefined) return [];
+  const command = withRoleExit(
+    runProgramCommand(
+      hookRuntimeRef(tokens, runtime),
+      hookGateRef(ref, tokens),
+    ),
+    role,
+  );
+  const files = [runtime.path, ref, hookStampRef(ref)].map((f) =>
+    anchored(f, tokens),
+  );
+  return [{ command, files }];
+}
+
+/** `rel` anchored at the harness's project root, as the emitted line spells it. */
+function anchored(
+  rel: string,
+  projectRootTokens: readonly string[] | undefined,
+): string {
+  const token = projectRootTokens?.[0];
+  return token === undefined ? rel : `${token}/${rel}`;
+}
+
+/**
+ * Whether a command names one of `refs` — `compile`'s MERGE KEY, the test it
+ * uses to find the entries it owns when it rewrites a settings file. The
+ * command is split on whitespace and each word reduced by {@link bareToken};
+ * nothing is parsed as shell. `normalize` makes a word comparable to a ref
+ * (the writer and the reader each know their own root).
+ */
+export function commandNamesRef(
+  command: string,
+  refs: readonly string[],
+  normalize: (word: string) => string,
+): boolean {
+  return command.split(/\s+/).some((word) => {
+    const bare = bareToken(word);
+    return bare !== "" && refs.includes(normalize(bare));
+  });
 }

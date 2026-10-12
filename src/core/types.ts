@@ -282,15 +282,19 @@ export interface RulesConfig {
    */
   "mcp-tool-resolves"?: RuleSeverity;
   /**
-   * Two findings about hook lines (#361). A file a hook line runs is missing —
-   * a compiled line's runner or program, or the literal path a hand-written
-   * line starts with — so the hook never runs. And every hook line vigiles did
-   * not write, one finding each: a static reader cannot tell what it runs or
-   * whether it swallows its own failure; compiled hooks (`vigiles/hook`) can be
-   * checked exactly. Default "warn"; `vigiles:recommended` raises it to
+   * A file a COMPILED hook line needs is missing — the runtime, the program or
+   * its stamp — so the hook cannot run. Read from the hook-line plan, never
+   * from parsing a line. Default "warn"; `vigiles:recommended` raises it to
    * "error". See docs/rules/hook-script-exists.md.
    */
   "hook-script-exists"?: RuleSeverity;
+  /**
+   * One finding per hook line vigiles did not write: it cannot say what such a
+   * line runs or whether it swallows its own failure, so it names the hook and
+   * points at compiled hooks (`vigiles/hook`). Default "warn", also under
+   * `vigiles:recommended` until #372. See docs/rules/hand-written-hook.md.
+   */
+  "hand-written-hook"?: RuleSeverity;
   /**
    * Cross-reference a subagent's `disallowedTools:` block-list against the
    * catalog — the deny-side mirror of `subagent-tool-contract`. A close typo there

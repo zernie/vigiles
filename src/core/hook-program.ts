@@ -81,6 +81,7 @@ import {
   type StateFact,
   type StateWrite,
 } from "./hook-state.js";
+import { hookStampRef } from "./hook-paths.js";
 
 /**
  * The erased runtime shape of a gathered context. Author-facing types keep the
@@ -2614,12 +2615,6 @@ export interface HookRepoPaths {
   readonly loadPathFiles: readonly string[];
 }
 
-/** The basename of a path token — the sidecar is keyed by the hook's basename. */
-function basenameOf(token: string): string {
-  const parts = token.replace(/\\/g, "/").split("/");
-  return parts[parts.length - 1] ?? token;
-}
-
 /**
  * The tool names a repair may arrive under: the ones MEASURED to write a file
  * and carry `file_path`. Everything else is refused, including a name this list
@@ -2686,14 +2681,6 @@ function repairTargetOf(event: RawHookEvent): string | null {
   return typeof filePath === "string" ? filePath : null;
 }
 
-/**
- * The stamp sidecar a hook's compile writes, as a repo-relative reference.
- * Mirrors `hookStampPath` in cli.ts (`.vigiles/hooks/<basename>.json`); kept as a
- * string here because core takes no `node:path`.
- */
-function stampSidecarRef(hookFile: string): string {
-  return `.vigiles/hooks/${basenameOf(hookFile)}.json`;
-}
 
 /**
  * True when this event IS the author repairing the hook — a FILE WRITE, and only
@@ -2759,7 +2746,7 @@ export function isStampRepairEvent(
   const target = resolveRef(repoRoot, filePath);
   return (
     target === resolveRef(repoRoot, hookFile) ||
-    target === resolveRef(repoRoot, stampSidecarRef(hookFile))
+    target === resolveRef(repoRoot, hookStampRef(hookFile))
   );
 }
 

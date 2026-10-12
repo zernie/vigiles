@@ -1456,6 +1456,8 @@ interface LintReport {
   mcpToolErrors: number;
   hookScriptIssues: number;
   hookScriptErrors: number;
+  handWrittenHookIssues: number;
+  handWrittenHookErrors: number;
   disallowedToolIssues: number;
   disallowedToolErrors: number;
   descriptionOverlapIssues: number;
@@ -1653,6 +1655,7 @@ function lintExitCode(report: LintReport): 0 | 1 | 2 {
     report.skillFrontmatterErrors > 0 ||
     report.mcpToolErrors > 0 ||
     report.hookScriptErrors > 0 ||
+    report.handWrittenHookErrors > 0 ||
     report.disallowedToolErrors > 0 ||
     report.descriptionOverlapErrors > 0 ||
     report.descriptionBudgetErrors > 0 ||
@@ -2723,6 +2726,9 @@ async function runLint(
   // docs/rules/hook-script-exists.md and tools/measure-validate-overlap.mjs.
   const hookScripts = overBundles(checkHookScriptExists, run, lintRoots);
 
+  // 7i². Hand-written hooks — every hook line vigiles did not write, by name.
+  const handWrittenHooks = overBundles(checkHandWrittenHooks, run, lintRoots);
+
   // 7j. Disallowed-tools — a `disallowedTools:` block-list typo blocks nothing
   // (the deny-side mirror of subagent-tool-contract; close-typo only).
   const disallowedTools = overBundles(checkDisallowedTools, run, lintRoots);
@@ -2963,6 +2969,8 @@ async function runLint(
     mcpToolErrors: mcpToolResolves.errors,
     hookScriptIssues: hookScripts.issues,
     hookScriptErrors: hookScripts.errors,
+    handWrittenHookIssues: handWrittenHooks.issues,
+    handWrittenHookErrors: handWrittenHooks.errors,
     disallowedToolIssues: disallowedTools.issues,
     disallowedToolErrors: disallowedTools.errors,
     descriptionOverlapIssues: descriptionOverlap.issues,
@@ -6442,50 +6450,60 @@ function checkMcpHookTargets(ctx: BundleCheck): {
 }
 
 /**
- * Apply the `hook-script-exists` rule (#361). Two kinds of finding, both read
- * off `scanPlugin` (one detector, no drift):
- *
- *  - a file a hook line runs is missing — a compiled line's runner or program,
- *    or the literal path a hand-written line starts with;
- *  - a hook line vigiles did not write, one finding each: a static reader
- *    cannot tell what it runs or whether it swallows its own failure, so the
- *    finding names it and points at compiled hooks. No word of such a line is
- *    guessed to be its script.
- *
- * Whether a hook WORKS is answered only by running it (`runHook`, `vigiles test`).
+ * Apply the `hook-script-exists` rule: a file a COMPILED hook line needs is
+ * missing — the runtime, the program or its stamp — so the hook cannot run.
+ * The files come from the hook-line plan (`hookLinePlan`), never from reading a
+ * line: a line is compiled only by identity with what `compile` writes.
  */
 function checkHookScriptExists(ctx: BundleCheck): {
   issues: number;
   errors: number;
 } {
+  return reportHookLines(ctx, "hook-script-exists", "Hook-script existence check", (scan) =>
+    scan.hooks
+      .filter((h) => h.status === "missing")
+      // `script` is absolute (the root variable resolved) — printed as-is it
+      // was a machine path (#281); `scanned` makes it the bundle's own.
+      .map((h) => hookScriptMissingMessage(ctx.bundle.scanned(h.script))),
+  );
+}
+
+/**
+ * Apply the `hand-written-hook` rule: one finding per hook line vigiles did not
+ * write (or wrote and someone edited). vigiles never parses such a line, so it
+ * cannot say what it runs; the finding names it and points at compiled hooks.
+ */
+function checkHandWrittenHooks(ctx: BundleCheck): {
+  issues: number;
+  errors: number;
+} {
+  return reportHookLines(ctx, "hand-written-hook", "Hand-written hooks", (scan) =>
+    scan.handWrittenHooks.map(handWrittenHookMessage),
+  );
+}
+
+/** Print and count one hook-line rule's messages at its configured severity. */
+function reportHookLines(
+  ctx: BundleCheck,
+  rule: "hook-script-exists" | "hand-written-hook",
+  heading: string,
+  messagesOf: (scan: ScanReport) => readonly string[],
+): { issues: number; errors: number } {
   const { config, silent, adapter } = ctx;
-  const sev = ruleSeverity(config?.rules?.["hook-script-exists"]);
+  const sev = ruleSeverity(config?.rules?.[rule]);
   if (!sev) return { issues: 0, errors: 0 };
   if (!adapter.shellHooks) {
-    reportNotApplicable(
-      "Hook-script existence check",
-      "shell hooks",
-      adapter,
-      silent,
-    );
+    reportNotApplicable(heading, "shell hooks", adapter, silent);
     return { issues: 0, errors: 0 };
   }
   let messages: readonly string[];
   try {
-    const scan = ctx.scan();
-    messages = [
-      // `script` is absolute (the root variable resolved) — printed as-is it
-      // was a machine path (#281); `scanned` makes it the bundle's own.
-      ...scan.hooks
-        .filter((h) => h.status === "missing")
-        .map((h) => hookScriptMissingMessage(ctx.bundle.scanned(h.script))),
-      ...scan.handWrittenHooks.map(handWrittenHookMessage),
-    ];
+    messages = messagesOf(ctx.scan());
   } catch {
     return { issues: 0, errors: 0 };
   }
   if (messages.length > 0 && !silent) {
-    console.log("\nHook-script existence check:\n");
+    console.log(`\n${heading}:\n`);
     for (const msg of messages) {
       console.log(`  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(msg)}`);
       ctx.annotate(sev === "error" ? "error" : "warning", msg);
@@ -8592,11 +8610,17 @@ async function installHookFile(
     registeredProviders,
   });
 
-  // Tamper-evident stamp beside the source (one dir → basename is unique).
+  // Tamper-evident stamp beside the source (one dir → basename is unique). The
+  // role is recorded with it: `lint` rebuilds the exact line compile writes
+  // from it (`hookLinePlan`), so a wired line is read by identity, not parsed.
   mkdirSync(dirname(hookStampPath(file)), { recursive: true });
   writeFileSync(
     hookStampPath(file),
-    JSON.stringify({ file, stamp: compiled.stamp }, null, 2) + "\n",
+    JSON.stringify(
+      { file, stamp: compiled.stamp, role: dispatchKind(program) },
+      null,
+      2,
+    ) + "\n",
   );
 
   // Merge into the harness's native config, idempotently.
