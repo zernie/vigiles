@@ -28,23 +28,29 @@ signal is a proxy, not a decidable fact.
 
 ```json
 {
-  "orphans": {
-    "include": ["docs/**/*.md", "research/**/*.md"],
-    "exclude": ["docs/CHANGELOG.md"]
-  }
+  "orphans": { "include": ["docs/**/*.md", "research/**/*.md"] },
+  "overrides": [
+    { "files": ["docs/CHANGELOG.md"], "rules": { "orphan-docs": "off" } }
+  ]
 }
 ```
 
-| Key       | Default            | Meaning                                                                                                                                                                           |
-| --------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| (block)   | absent → **off**   | The block's **presence** opts the repo in — no block, no scan.                                                                                                                    |
-| `include` | `["docs/**/*.md"]` | Dirs to hold to the rule. `docs/` is the convention; add others (e.g. a `research/` notes tree) explicitly. `[]` = opted in, scans nothing.                                       |
-| `exclude` | `[]`               | Globs to drop from the candidate set. The repo-wide top-level `exclude` is the floor under it: an excluded corpus is neither a candidate nor a referencer that keeps a doc alive. |
+| Key       | Default            | Meaning                                                                                                                                     |
+| --------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| (block)   | absent → **off**   | The block's **presence** opts the repo in — no block, no scan.                                                                              |
+| `include` | `["docs/**/*.md"]` | Dirs to hold to the rule. `docs/` is the convention; add others (e.g. a `research/` notes tree) explicitly. `[]` = opted in, scans nothing. |
 
 `docs/` is the near-universal convention, so it's the default when you opt in
 without naming dirs. A vigiles-specific dir like `research/` is **not** in the
 default — declare it. This is how "provide dirs" and "default dir" reconcile: the
 block's presence is the switch, `include` is the optional override.
+
+To stop the rule reporting some docs, turn it off for their paths with an
+[`overrides`](../configuration.md#overrides) entry (as `docs/CHANGELOG.md` above):
+those docs still count as links that keep other docs alive. The top-level
+`exclude` goes further — an excluded corpus is neither a candidate nor a
+referencer. (A per-rule `orphans.exclude` used to exist; it is refused now, with
+the equivalent `overrides` entry printed.)
 
 ## What it checks
 
@@ -76,7 +82,8 @@ rot, add the inline marker:
 <!-- vigiles-disable orphan-docs -->
 ```
 
-…or exclude it via `orphans.exclude` (or narrow `orphans.include`).
+…or turn `orphan-docs` off for its path with an
+[`overrides`](../configuration.md#overrides) entry (or narrow `orphans.include`).
 
 ## Why
 

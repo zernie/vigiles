@@ -168,7 +168,7 @@ which layers, CI, and the plugin. Run by an agent, in CI, or with piped input
 | `--harness=claude,codex` | Which harness(es) to set up (default: auto-detect from the repo)                                                                                             |
 | `--no-gha`               | Skip wiring CI                                                                                                                                               |
 | `--no-plugin`            | Skip installing vigiles's skills + hooks for the agent: no skill links in the repo, no **Claude Code plugin** (into `~/.claude/`) — not a vigiles-CLI plugin |
-| `--strict`               | Also enforce the workflow tier (specs + tests; see below)                                                                                                    |
+| `--strict`               | Also enforce the workflow tier (a test per surface; see below)                                                                                               |
 | `--report-only`          | Write the whole gate at `warn` — nothing fails CI (migration mode)                                                                                           |
 | `--target=AGENTS.md`     | Adopt / create a spec for one file (Lint layer only)                                                                                                         |
 
@@ -212,23 +212,29 @@ never cries wolf:
   hook script),
 - `mcp-config` / `mcp-tool-resolves` / `mcp-hook-target-resolves` (broken MCP),
 - `disallowed-tools-contract`, and `description-overlap` (two skills that
-  collide in the selector).
+  collide in the selector),
+- `require-instructions-spec` (a spec behind every `CLAUDE.md` / `AGENTS.md`,
+  nested ones included) — green right after setup, because `init` adopts every
+  instruction file it finds (below).
 
 `--strict` adds the **`workflow`** group on top — the rules a clean repo can
-still fail because you haven't done the work yet: `require-instructions-spec` (a
-spec per instruction file) and `untested-skill` / `untested-subagent` /
-`untested-hook` / `untested-output-style` (a test per surface). These stay opt-in so your first CI run isn't
-red just for not having written a spec yet. (`frontmatter-valid` and
+still fail because you haven't done the work yet: `untested-skill` /
+`untested-subagent` / `untested-hook` / `untested-output-style` (a test per
+surface). These stay opt-in so your first CI run isn't red just for not having
+written a test yet. (`frontmatter-valid` and
 `skill-frontmatter` are **`nudge`**-group — they stay `warn` and never gate, even
 under `--strict`.) `--report-only` is the orthogonal dial: it writes the whole
 gate at `warn` so nothing fails CI — the migration / observe on-ramp. It writes
 those rules one by one instead of the preset, so a rule added to the preset
 later cannot turn its CI red.
 
-Because `init` **auto-adopts** every existing instruction file into a spec (see
-[`compile`](#compile-files--harness-selection) / the adopt note below),
-`require-instructions-spec` is green by construction right after setup — opting
-into `--strict` doesn't turn your CI red on a wall of missing specs.
+Because `init` **auto-adopts** every existing instruction file into a spec —
+the root one and every nested `CLAUDE.md` / `AGENTS.md` (see
+[`compile`](#compile-files--harness-selection) / the adopt note below) —
+`require-instructions-spec` is green by construction right after setup. A setup
+that declines specs (`--ci-only`, the wizard's "gate") writes
+`"require-instructions-spec": "off"` instead, so declining is remembered rather
+than turned into a red CI.
 
 #### Auto-adopt — `init` leaves you with specs, not homework
 
@@ -252,11 +258,11 @@ back as plain markdown. Adopt one file by hand with
 prints the exact next step instead of erroring.)
 
 **Interactive `init` offers the workflow tier (recommended, opt-out):** at a
-terminal it asks _"Also enforce specs + a test per surface?"_ (default yes), and
+terminal it asks _"Also enforce a test per surface (recommended)?"_ (default yes), and
 the agentic install flow asks the same — so a human turns it on with eyes open. A
 **non-interactive** `init` (an agent / CI with no one to ask) stays
 structural-only unless you pass `--strict`, so an automated setup never silently
-turns an existing repo's CI red for not having written a spec yet.
+turns an existing repo's CI red for not having written a test yet.
 
 Either way `init` **never clobbers a severity you set** — it only fills in the
 undefined ones. Honest limit: Claude Code itself loads a name-less or broken-YAML
@@ -1009,4 +1015,4 @@ Quick severity config:
 }
 ```
 
-Disable per-file with `<!-- vigiles-disable require-instructions-spec -->` at the top of the markdown.
+Disable per-file with `<!-- vigiles-disable require-instructions-spec -->` at the top of the markdown, or per folder with [`overrides`](configuration.md#overrides).

@@ -275,7 +275,7 @@ export interface TestCoverageOptions {
   /** The bundle whose surfaces are discovered. Defaults to `process.cwd()`. */
   readonly basePath?: string;
   /**
-   * The directory `include`, `exclude`, the coverage artifact and every REPORTED
+   * The directory `include`, the coverage artifact and every REPORTED
    * path are relative to — where `.vigilesrc.json` lives. Defaults to `basePath`.
    * Differs from it for a nested bundle under `bundles: "all"` (#281).
    */
@@ -580,8 +580,8 @@ function discoverOutputStyles(
 
 /**
  * Every kind the options switch on, found under the bundle. Discovery gets only
- * the frame-free ignore floor; the rule's and the repo's excludes are applied
- * later, from `root`, by the caller.
+ * the frame-free ignore floor; the repo's exclude is applied later, from
+ * `root`, by the caller.
  */
 function discoverSurfaces(
   basePath: string,
@@ -851,8 +851,8 @@ export function findUntestedSurfaces(
     repoExcluded(join(root, p));
 
   // Discovery globs from the BUNDLE, so it gets only the frame-free floor; the
-  // rule's patterns are root-relative and the repo's carry their own root, so
-  // both are applied below, to the root-relative path.
+  // repo's exclude carries its own root, so it is applied below, to the
+  // root-relative path.
   const found = discoverSurfaces(basePath, layout, options);
   // Hooks were never subject to `ignore` (a compiled hook lives under the
   // default-ignored `.vigiles/`); keep that, and re-apply exclude to the kinds

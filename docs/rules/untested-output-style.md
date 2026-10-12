@@ -25,7 +25,7 @@ without a test nothing notices when it stops loading or stops being followed.
 | `false`            | Skip output-style coverage entirely                            |
 
 Its severity is its own: setting `untested-hook` does not change how a style is
-reported. Options (`include`, `exclude`) are shared with the other `untested-*`
+reported. Options (`include`) are shared with the other `untested-*`
 rules — see [`untested-skill`](untested-skill.md#options).
 
 ## Scope, per harness

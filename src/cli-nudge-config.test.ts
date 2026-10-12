@@ -154,17 +154,35 @@ test("a configured testGlob counts as coverage for the nudge too", () => {
   assert.match(msg, /FIRES/, "the honest remaining gap is the eval tier");
 });
 
-test("…and an `exclude` that hides the covering test is honoured too", () => {
-  // The inverse direction, so the test cannot pass by ignoring options in only
-  // one direction: here the config REMOVES coverage lint would otherwise find.
-  write(".claude/skills/demo/demo.harness.mjs", "// covers demo\n");
-  assert.doesNotMatch(nudge(), /no test or eval covers it/); // precondition
+test("an `overrides` entry turning the rule OFF for the skill's folder silences both", () => {
   write(
     ".vigilesrc.json",
     JSON.stringify({
-      rules: {
-        "untested-skill": ["warn", { exclude: ["**/*.harness.mjs"] }],
-      },
+      overrides: [
+        {
+          files: [".claude/skills/demo/**"],
+          rules: { "untested-skill": "off" },
+        },
+      ],
+    }),
+  );
+  assert.doesNotMatch(lint(), UNTESTED_IN_LINT);
+  assert.doesNotMatch(nudge(), /no test or eval covers it/);
+});
+
+test("…and one turning it ON for that folder, with the rule off, makes both report", () => {
+  // The inverse direction, so the test cannot pass by reading overrides in only
+  // one direction: here the config ADDS the finding the rule alone would not.
+  write(
+    ".vigilesrc.json",
+    JSON.stringify({
+      rules: { "untested-skill": false },
+      overrides: [
+        {
+          files: [".claude/skills/demo/**"],
+          rules: { "untested-skill": "warn" },
+        },
+      ],
     }),
   );
   assert.match(lint(), UNTESTED_IN_LINT);

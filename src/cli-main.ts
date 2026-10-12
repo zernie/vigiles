@@ -5536,7 +5536,7 @@ const UNTESTED_RULE = {
 /**
  * The `untested-*` rules AS THE DETECTOR TAKES THEM: which kinds this repo
  * enabled, and the discovery options merged from whichever of the three rules
- * carries them (`include` / `exclude` / `testExtension` are shared).
+ * carries them (`include` / `testExtension` are shared).
  *
  * 🔴 ONE READER, BECAUSE THE SECOND ONE DRIFTED. `vigiles lint` read the config
  * here; the PostToolUse nudge (`evalLockNudgeHookCommand`) called the same
@@ -5615,7 +5615,7 @@ function checkUntestedSurfaces(ctx: BundleCheck): {
   const scanned = findUntestedSurfaces({
     ...options,
     basePath: bundle.abs,
-    // #281: `include`/`exclude` and every reported path are relative to the
+    // #281: `include` and every reported path are relative to the
     // frame root (where `.vigilesrc.json` lives), not to the bundle being scored.
     root: frame.root,
     layout: adapter.layout,
@@ -8325,9 +8325,8 @@ function evalLockNudgeHookCommand(): void {
   // heard nothing at all, while a repo that already tests got reminded. That is
   // backwards, and `untested-skill` already stated the missing half correctly;
   // it just lived in `vigiles lint`, which someone has to run by hand.
-  // Same union `vigiles lint` applies: the rule's exclude narrows, the
-  // repo-wide exclude is the floor (#192) — the nudge must not report a
-  // vendored skill the linter would never list.
+  // The repo-wide exclude `vigiles lint` applies (#192) — the nudge must not
+  // report a vendored skill the linter would never list.
   const excludes = excludeSet(cwd, config.exclude);
   // 🔴 THE BUNDLE THAT HOLDS THE EDIT, found the way `lint` finds it (#281, D6).
   // The nudge scanned the root bundle only and matched by SUFFIX, so an edit to
