@@ -41,6 +41,21 @@ export interface DiscoveredRules {
 }
 
 /**
+ * What asking a linter for its enabled rules produced. `none` (the linter is not
+ * set up here, or switches nothing on) and `unreadable` (it is set up, and its
+ * config could not be read) are different facts: the second is a problem the
+ * user has to hear about, never an empty list.
+ */
+export type Discovery =
+  | { readonly kind: "found"; readonly rules: DiscoveredRules }
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "unreadable";
+      readonly linter: string;
+      readonly reason: string;
+    };
+
+/**
  * A linter's capabilities — the variance that used to be IMPLICIT in which map
  * had an entry, now DECLARED (mirrors `AdapterCapabilities`). The conformance
  * test cross-checks each flag against the presence of its method.
@@ -92,5 +107,5 @@ export interface LinterAdapter {
   /** All known rule names, for closest-match suggestions; absent when unlistable. */
   enumerateRules?(basePath: string): Set<string>;
   /** Enabled rules discovered from project config, for generate-types. */
-  discoverEnabled?(basePath: string): DiscoveredRules | null;
+  discoverEnabled?(basePath: string): Discovery;
 }

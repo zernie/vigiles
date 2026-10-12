@@ -194,7 +194,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 551 project files. */
+  /** 553 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -385,6 +385,8 @@ declare module "vigiles/generated" {
     | "src/core/effects.test.ts"
     | "src/core/effects.ts"
     | "src/core/enforce-marker.ts"
+    | "src/core/eslint-inventory.test.ts"
+    | "src/core/eslint-inventory.ts"
     | "src/core/eval-driver.ts"
     | "src/core/eval-load-phase.test.ts"
     | "src/core/eval-load-phase.ts"
@@ -1102,6 +1104,8 @@ declare module "vigiles/spec" {
       | "src/core/effects.test.ts"
       | "src/core/effects.ts"
       | "src/core/enforce-marker.ts"
+      | "src/core/eslint-inventory.test.ts"
+      | "src/core/eslint-inventory.ts"
       | "src/core/eval-driver.ts"
       | "src/core/eval-load-phase.test.ts"
       | "src/core/eval-load-phase.ts"

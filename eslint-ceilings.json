@@ -212,7 +212,7 @@
     "sonarjs/cognitive-complexity": 14
   },
   "src/core/generate-types.ts": {
-    "max-lines-per-function": 88,
+    "max-lines-per-function": 87,
     "complexity": 12
   },
   "src/core/guards.ts": {
@@ -323,9 +323,6 @@
   },
   "src/core/rule-catalog.test.ts": {
     "max-lines-per-function": 78
-  },
-  "src/core/rule-catalog.ts": {
-    "max-lines-per-function": 39
   },
   "src/core/session.test.ts": {
     "max-lines-per-function": 99

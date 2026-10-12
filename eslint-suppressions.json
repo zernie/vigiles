@@ -1338,7 +1338,7 @@
       "count": 3
     },
     "functional/prefer-immutable-types": {
-      "count": 7
+      "count": 6
     },
     "no-restricted-globals": {
       "count": 1
@@ -1650,7 +1650,7 @@
   },
   "src/core/linter-adapter.ts": {
     "functional/prefer-immutable-types": {
-      "count": 2
+      "count": 1
     }
   },
   "src/core/linters.test.ts": {
@@ -1660,7 +1660,7 @@
   },
   "src/core/linters.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 14
+      "count": 12
     },
     "boundaries/dependencies": {
       "count": 4
@@ -1675,7 +1675,7 @@
       "count": 31
     },
     "functional/prefer-immutable-types": {
-      "count": 84
+      "count": 83
     },
     "no-restricted-globals": {
       "count": 3
@@ -1921,27 +1921,24 @@
   },
   "src/core/rule-catalog.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 3
+      "count": 2
     }
   },
   "src/core/rule-catalog.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 2
-    },
     "boundaries/dependencies": {
       "count": 1
     },
     "functional/immutable-data": {
-      "count": 6
+      "count": 5
     },
     "functional/no-let": {
-      "count": 2
+      "count": 1
     },
     "functional/no-loop-statements": {
-      "count": 6
+      "count": 5
     },
     "functional/prefer-immutable-types": {
-      "count": 15
+      "count": 13
     }
   },
   "src/core/rule-meta.test.ts": {

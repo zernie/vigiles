@@ -44,7 +44,10 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { globSync } from "glob";
 import { excludeSet, excludedBy, type ExcludeSet } from "./exclude.js";
 import { withIgnored } from "./core/glob-ignore.js";
-import { generateTypes } from "./core/generate-types.js";
+import {
+  generateTypes,
+  type GenerateTypesResult,
+} from "./core/generate-types.js";
 import {
   loadHarnessModel,
   generateHarness,
@@ -4492,6 +4495,7 @@ async function setupPillar1(
   for (const l of typesResult.linters) {
     console.log(`  ${l.linter}: ${String(l.rules.length)} rules`);
   }
+  printUnreadableLinters(typesResult.unreadable);
   if (typesResult.scripts.length > 0) {
     console.log(`  npm scripts: ${String(typesResult.scripts.length)}`);
   }
@@ -6818,6 +6822,20 @@ async function handleGenerate(
   }
 }
 
+/**
+ * A linter whose config could not be read is missing from the generated types;
+ * say so on stderr (and as a CI annotation) instead of a silent short list.
+ */
+function printUnreadableLinters(
+  unreadable: GenerateTypesResult["unreadable"],
+): void {
+  unreadable.forEach(({ linter, reason }) => {
+    const msg = `could not read the ${linter} config: ${reason} (its rules are not listed)`;
+    console.error(`  ⚠ ${msg}`);
+    console.error(`::warning::${msg}`);
+  });
+}
+
 function handleGenerateTypes(args: string[], restArgs: string[]): void {
   const checkOnly = args.includes("--check");
   const outPath = restArgs[0] ?? ".vigiles/generated.d.ts";
@@ -6837,6 +6855,7 @@ function handleGenerateTypes(args: string[], restArgs: string[]): void {
       `  ${l.linter}: ${String(l.rules.length)} enabled rules (via ${l.via})`,
     );
   }
+  printUnreadableLinters(result.unreadable);
   if (result.scripts.length > 0) {
     console.log(`  npm scripts: ${String(result.scripts.length)}`);
   }

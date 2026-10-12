@@ -15,13 +15,19 @@
  * OWN-REPO / consented capability, NOT the foreign-safe default. The deterministic
  * default rule-compile tier stays purely TEXTUAL (it parses config, never loads
  * it); reach for this only where executing the repo's toolchain is already
- * consented (own repo, on the user's machine). Mirrors the subprocess pattern of
- * `discoverEslintRules` in `src/core/generate-types.ts`: ESLint is loaded in a
- * child `node -e` process at the repo's cwd so it stays out of our process.
+ * consented (own repo, on the user's machine). The ESLint half reads the one
+ * inventory in `eslint-inventory.ts`, the same answer `generate types` and
+ * `enforce()` verification read.
  */
 
-import { resolve } from "node:path";
 import { execSync } from "node:child_process";
+
+import {
+  configView,
+  enabledRuleIds,
+  type EslintConfigView,
+} from "./eslint-inventory.js";
+import { eslintInventory } from "./linters.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,21 +63,8 @@ export interface RuleCatalog {
 }
 
 // ---------------------------------------------------------------------------
-// Pure parse: subprocess JSON → typed catalog (covered by the unit test)
+// Pure build: the inventory's view → typed catalog (covered by the unit test)
 // ---------------------------------------------------------------------------
-
-function isStringArray(v: unknown): v is string[] {
-  return Array.isArray(v) && v.every((x) => typeof x === "string");
-}
-
-function parsePlugins(v: unknown): Record<string, string[]> {
-  if (typeof v !== "object" || v === null) return {};
-  const out: Record<string, string[]> = {};
-  for (const [prefix, rules] of Object.entries(v as Record<string, unknown>)) {
-    if (isStringArray(rules)) out[prefix] = rules;
-  }
-  return out;
-}
 
 function buildRules(
   core: string[],
@@ -102,30 +95,25 @@ function buildRules(
 }
 
 /**
- * Parse the enumeration subprocess's JSON payload into a typed {@link RuleCatalog}.
- *
- * Payload shape: `{ core: string[]; enabled: string[]; plugins: Record<prefix, string[]> }`.
- * Returns null on `"null"` / malformed input / an empty catalog (mirrors
- * `discoverEslintRules` returning null when nothing is found).
+ * The routing catalog of the repo's ESLint: every core rule plus every rule of
+ * every plugin the config registers, each with its enabled state — all read
+ * from the one ESLint inventory. Null for an empty catalog.
  */
-export function parseEslintCatalog(raw: string): RuleCatalog | null {
-  const trimmed = raw.trim();
-  if (!trimmed || trimmed === "null") return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== "object" || parsed === null) return null;
-  const obj = parsed as Record<string, unknown>;
-  const core = isStringArray(obj.core) ? obj.core : [];
-  const enabledList = isStringArray(obj.enabled) ? obj.enabled : [];
-  const plugins = parsePlugins(obj.plugins);
-  const rules = buildRules(core, plugins, new Set(enabledList));
+export function eslintCatalogFromView(
+  view: EslintConfigView,
+): RuleCatalog | null {
+  const plugins = Object.fromEntries(
+    [...view.plugins].map(([ns, rules]) => [ns, [...rules]]),
+  );
+  const enabled = new Set(enabledRuleIds(view));
+  const rules = buildRules([...view.core], plugins, enabled);
   if (rules.length === 0) return null;
-  const enabled = rules.reduce((n, r) => (r.enabled ? n + 1 : n), 0);
-  return { linter: "eslint", available: rules.length, enabled, rules };
+  return {
+    linter: "eslint",
+    available: rules.length,
+    enabled: rules.filter((r) => r.enabled).length,
+    rules,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -237,62 +225,17 @@ export function mergeCatalogs(
 // Real-IO seam: run ESLint in a child process at the repo's cwd
 // ---------------------------------------------------------------------------
 
-/* v8 ignore start -- spawns a `node -e` subprocess that LOADS ESLint in the
-   repo's cwd (the executes-the-linter seam); the pure JSON→typed parse is
-   parseEslintCatalog, covered by the unit test, and the gated integration test
-   drives this real path when eslint resolves. */
-
 /**
- * Enumerate the repo's available ESLint rules (core + every installed plugin).
+ * Enumerate the repo's available ESLint rules (core + every registered plugin).
  *
  * EXECUTES the repo's ESLint in a child process — an own-repo / consented
- * capability (see the file header). Returns null if ESLint isn't resolvable, no
- * config applies, or the subprocess fails.
+ * capability (see the file header). Returns null if ESLint isn't installed, no
+ * config applies, or the config could not be read.
  */
 export function enumerateEslintCatalog(root: string): RuleCatalog | null {
-  try {
-    // A `.ts` path under src/ so the repo's flat config applies its TypeScript +
-    // plugin blocks (typescript-eslint / sonarjs / boundaries all scope to
-    // `src/**/*.ts`); the path need not exist — calculateConfigForFile resolves
-    // the config, it does not read the file.
-    const probeFile = resolve(root, "src/index.ts");
-    const script = `
-      const { loadESLint } = require("eslint");
-      const { builtinRules } = require("eslint/use-at-your-own-risk");
-      (async () => {
-        try {
-          const ESLint = await loadESLint();
-          const eslint = new ESLint({ cwd: ${JSON.stringify(root)} });
-          const cfg = await eslint.calculateConfigForFile(${JSON.stringify(probeFile)});
-          const core = [...builtinRules.keys()];
-          const enabled = Object.entries(cfg.rules || {})
-            .filter(([, v]) => {
-              const sev = Array.isArray(v) ? v[0] : v;
-              return sev !== 0 && sev !== "off";
-            })
-            .map(([k]) => k);
-          const plugins = {};
-          for (const [prefix, plugin] of Object.entries(cfg.plugins || {})) {
-            plugins[prefix] = Object.keys((plugin && plugin.rules) || {});
-          }
-          console.log(JSON.stringify({ core, enabled, plugins }));
-        } catch (e) {
-          console.log("null");
-        }
-      })();
-    `;
-    const output = execSync(`node -e '${script.replace(/'/g, "'\\''")}'`, {
-      encoding: "utf-8",
-      cwd: root,
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 15000,
-    });
-    return parseEslintCatalog(output);
-  } catch {
-    return null;
-  }
+  const view = configView(eslintInventory(root));
+  return view ? eslintCatalogFromView(view) : null;
 }
-/* v8 ignore stop */
 
 // ---------------------------------------------------------------------------
 // Real-IO seam: run pylint in a child process at the repo's cwd
