@@ -10,7 +10,7 @@
  *
  * The root tokens are passed in, so this suite spells them in neutral names —
  * the classifier is harness-agnostic, and a harness's real tokens are covered
- * where the adapter is (`adapters/claude-code/prefer-compiled-hooks.test.ts`,
+ * where the adapter is (`adapters/claude-code/hand-written-hooks.test.ts`,
  * `adapters/codex/codex.test.ts`).
  */
 import { test } from "vitest";
@@ -41,10 +41,7 @@ test("a line vigiles compiled is read by its template: runner and program, exact
     ),
     {
       kind: "compiled",
-      files: [
-        "node_modules/vigiles/dist/cli.js",
-        ".vigiles/hooks/x.hook.mjs",
-      ],
+      files: ["node_modules/vigiles/dist/cli.js", ".vigiles/hooks/x.hook.mjs"],
     },
   );
 });
@@ -88,10 +85,22 @@ test("a hand-written line that starts by running a literal path has that one fil
     return s.kind === "script" ? s.file : s.kind;
   };
   assert.equal(script("./hooks/x.sh"), "./hooks/x.sh");
-  assert.equal(script("${PLUGIN_ROOT}/hooks/x.sh --flag"), "${PLUGIN_ROOT}/hooks/x.sh");
-  assert.equal(script('"$PROJECT_DIR"/hooks/x.sh'), "${PROJECT_DIR}/hooks/x.sh");
-  assert.equal(script("bash ${PLUGIN_ROOT}/hooks/x.sh"), "${PLUGIN_ROOT}/hooks/x.sh");
-  assert.equal(script('node "$PROJECT_DIR/hooks/x.mjs" || true'), "${PROJECT_DIR}/hooks/x.mjs");
+  assert.equal(
+    script("${PLUGIN_ROOT}/hooks/x.sh --flag"),
+    "${PLUGIN_ROOT}/hooks/x.sh",
+  );
+  assert.equal(
+    script('"$PROJECT_DIR"/hooks/x.sh'),
+    "${PROJECT_DIR}/hooks/x.sh",
+  );
+  assert.equal(
+    script("bash ${PLUGIN_ROOT}/hooks/x.sh"),
+    "${PLUGIN_ROOT}/hooks/x.sh",
+  );
+  assert.equal(
+    script('node "$PROJECT_DIR/hooks/x.mjs" || true'),
+    "${PROJECT_DIR}/hooks/x.mjs",
+  );
   assert.equal(script("python3 hooks/x.py"), "hooks/x.py");
   // Only the head is read: whatever follows it is not searched for paths.
   assert.equal(
@@ -103,7 +112,7 @@ test("a hand-written line that starts by running a literal path has that one fil
 test("anything else is opaque — no word is guessed to be the script", () => {
   for (const command of [
     "sh -c 'node hooks/x.mjs'",
-    'node -e "require(\'./hooks/x.js\')"',
+    "node -e \"require('./hooks/x.js')\"",
     'cd "$PLUGIN_ROOT" && node hooks/x.mjs',
     "[ ! -f scripts/gen.py ] || scripts/gen.py",
     'node "$(dirname "$0")/x.js"',

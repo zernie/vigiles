@@ -125,7 +125,7 @@ import {
   type MarketplaceInfo,
   verifyLiveMcpTools,
   formatMcpContractReport,
-  preferCompiledHooksMessage,
+  handWrittenHookMessage,
   hookScriptMissingMessage,
   measureInstructionWeight,
 } from "./scan.js";
@@ -1457,8 +1457,6 @@ interface LintReport {
   frontmatterValidErrors: number;
   mcpHookIssues: number;
   mcpHookErrors: number;
-  preferCompiledHookIssues: number;
-  preferCompiledHookErrors: number;
   lethalTrifectaIssues: number;
   lethalTrifectaErrors: number;
   skillResourceIssues: number;
@@ -1651,7 +1649,6 @@ function lintExitCode(report: LintReport): 0 | 1 | 2 {
     report.descriptionBudgetErrors > 0 ||
     report.frontmatterValidErrors > 0 ||
     report.mcpHookErrors > 0 ||
-    report.preferCompiledHookErrors > 0 ||
     report.lethalTrifectaErrors > 0 ||
     report.skillResourceErrors > 0 ||
     report.skillFenceErrors > 0 ||
@@ -2736,14 +2733,6 @@ async function runLint(
   // targets an undeclared server (the moat applied to the hook surface).
   const mcpHookTargets = overBundles(checkMcpHookTargets, run, lintRoots);
 
-  // 7n. Prefer-compiled-hooks — ONE discovery nudge (not per-hook) toward
-  // compiled `vigiles/hook` artifacts when hand-written hooks ship. Recommendation.
-  const preferCompiledHooks = overBundles(
-    checkPreferCompiledHooks,
-    run,
-    lintRoots,
-  );
-
   // 7o. Lethal-trifecta — a unit (subagent / model-invocable skill) whose tools
   // hold all three legs (read-private + ingest-untrusted + exfiltrate) is a
   // prompt-injection exfil path (Rule of Two). Capability SET-intersection.
@@ -2969,8 +2958,6 @@ async function runLint(
     frontmatterValidErrors: frontmatterValid.errors,
     mcpHookIssues: mcpHookTargets.issues,
     mcpHookErrors: mcpHookTargets.errors,
-    preferCompiledHookIssues: preferCompiledHooks.issues,
-    preferCompiledHookErrors: preferCompiledHooks.errors,
     lethalTrifectaIssues: lethalTrifecta.issues,
     lethalTrifectaErrors: lethalTrifecta.errors,
     skillResourceIssues: skillResources.issues,
@@ -5899,36 +5886,6 @@ function checkSkillFrontmatter(ctx: BundleCheck): {
 }
 
 /**
- * Apply the `prefer-compiled-hooks` rule: a SINGLE repo-level recommendation
- * (one finding regardless of hook count) nudging hand-written hooks toward
- * compiled `vigiles/hook` artifacts. A discovery nudge, not a defect — the shell
- * lane stays first-class — so it fires once and the message links the guide.
- * Reuses `scanPlugin`'s `manualHookCount` (one-detector-no-drift).
- */
-function checkPreferCompiledHooks(ctx: BundleCheck): {
-  issues: number;
-  errors: number;
-} {
-  const { config, silent } = ctx;
-  const sev = ruleSeverity(config?.rules?.["prefer-compiled-hooks"]);
-  if (!sev) return { issues: 0, errors: 0 };
-  let count: number;
-  try {
-    count = ctx.scan().manualHookCount;
-  } catch {
-    return { issues: 0, errors: 0 };
-  }
-  if (count === 0) return { issues: 0, errors: 0 };
-  const message = preferCompiledHooksMessage(count);
-  if (!silent) {
-    console.log("\nCompiled-hooks check:\n");
-    console.log(`  ${sev === "error" ? "✗" : "ℹ"} ${ctx.label(message)}`);
-    ctx.annotate(sev === "error" ? "error" : "warning", message);
-  }
-  return { issues: 1, errors: sev === "error" ? 1 : 0 };
-}
-
-/**
  * Apply the `mcp-config` rule: a declared MCP server with neither a `command`
  * (stdio) nor a `url` (http/sse) can't start. Reuses `scanPlugin`'s `mcpIssues`.
  * Warning by default; "error" gates CI.
@@ -6470,12 +6427,17 @@ function checkMcpHookTargets(ctx: BundleCheck): {
 }
 
 /**
- * Apply the `hook-script-exists` rule: a hook command references a script file
- * that doesn't exist on disk (with `${CLAUDE_PLUGIN_ROOT}` resolved) → the hook
- * silently never runs. Reuses `scanPlugin`'s `hooks` (status "missing"); the
- * shared resolver already excludes the FP-prone cases (unresolved vars,
- * existence-guarded one-liners, inline commands). Matches Anthropic's own
- * `claude plugin validate`. Warning by default; "error" gates CI.
+ * Apply the `hook-script-exists` rule (#361). Two kinds of finding, both read
+ * off `scanPlugin` (one detector, no drift):
+ *
+ *  - a file a hook line runs is missing — a compiled line's runner or program,
+ *    or the literal path a hand-written line starts with;
+ *  - a hook line vigiles did not write, one finding each: a static reader
+ *    cannot tell what it runs or whether it swallows its own failure, so the
+ *    finding names it and points at compiled hooks. No word of such a line is
+ *    guessed to be its script.
+ *
+ * Whether a hook WORKS is answered only by running it (`runHook`, `vigiles test`).
  */
 function checkHookScriptExists(ctx: BundleCheck): {
   issues: number;
@@ -6493,26 +6455,30 @@ function checkHookScriptExists(ctx: BundleCheck): {
     );
     return { issues: 0, errors: 0 };
   }
-  let missing: { script: string }[];
+  let messages: readonly string[];
   try {
-    missing = ctx.scan().hooks.filter((h) => h.status === "missing");
+    const scan = ctx.scan();
+    messages = [
+      // `script` is absolute (the root variable resolved) — printed as-is it
+      // was a machine path (#281); `scanned` makes it the bundle's own.
+      ...scan.hooks
+        .filter((h) => h.status === "missing")
+        .map((h) => hookScriptMissingMessage(ctx.bundle.scanned(h.script))),
+      ...scan.handWrittenHooks.map(handWrittenHookMessage),
+    ];
   } catch {
     return { issues: 0, errors: 0 };
   }
-  if (missing.length > 0 && !silent) {
+  if (messages.length > 0 && !silent) {
     console.log("\nHook-script existence check:\n");
-    for (const h of missing) {
-      // `script` arrives with the plugin-root token EXPANDED, i.e. absolute —
-      // printed as-is it was a machine path (#281). A relative one is the
-      // bundle's own, which is what `scanned` assumes.
-      const msg = hookScriptMissingMessage(ctx.bundle.scanned(h.script));
+    for (const msg of messages) {
       console.log(`  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(msg)}`);
       ctx.annotate(sev === "error" ? "error" : "warning", msg);
     }
   }
   return {
-    issues: missing.length,
-    errors: sev === "error" ? missing.length : 0,
+    issues: messages.length,
+    errors: sev === "error" ? messages.length : 0,
   };
 }
 

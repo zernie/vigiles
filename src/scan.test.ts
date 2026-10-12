@@ -17,8 +17,6 @@ import {
   inspectMarketplace,
   verifyLiveMcpTools,
   formatMcpContractReport,
-  isManagedHookCommand,
-  preferCompiledHooksMessage,
 } from "./scan.js";
 import { loadPlugin } from "./adapters/claude-code/plugin-loader.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
@@ -433,19 +431,7 @@ test("scanPlugin does not flag a glob pattern in a hook command as a missing scr
   }
 });
 
-test("isManagedHookCommand: only a hook-runtime invocation is vigiles-managed", () => {
-  assert.equal(
-    isManagedHookCommand(
-      "node dist/cli.js hook-runtime run-program .vigiles/hooks/guard.mjs",
-    ),
-    true,
-  );
-  assert.equal(isManagedHookCommand("npx vigiles hook-runtime refs"), true);
-  assert.equal(isManagedHookCommand("bash ./hooks/guard.sh"), false);
-  assert.equal(isManagedHookCommand("git status"), false);
-});
-
-test("scanPlugin counts hand-written hooks for prefer-compiled-hooks (managed ones excluded)", () => {
+test("scanPlugin lists every hand-written hook, each by its kind (compiled ones excluded)", () => {
   const dir = makeTmpDir("scan-prefer-compiled");
   write(dir, "hooks/guard.sh", "#!/usr/bin/env bash\n");
   write(
@@ -482,24 +468,33 @@ test("scanPlugin counts hand-written hooks for prefer-compiled-hooks (managed on
     }),
   );
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
-  assert.equal(
-    r.manualHookCount,
-    2,
+  assert.deepEqual(
+    r.handWrittenHooks.map((h) => [h.event, h.kind]),
+    [
+      ["PreToolUse", "script"],
+      ["Stop", "opaque"],
+    ],
     "two hand-written, the compiled one excluded",
   );
-  // The single nudge surfaces in the report, linking the guide.
+  // Each one surfaces in the report by name, linking the guide.
   const out = formatScanReport(r);
-  assert.match(out, /hand-written hook/);
+  assert.match(
+    out,
+    /PreToolUse hook `bash \$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/guard\.sh`/,
+  );
+  assert.match(
+    out,
+    /Stop hook `npm test`: vigiles cannot verify this hand-written hook/,
+  );
   assert.match(out, /docs\/compiled-hooks\.md/);
-  assert.match(preferCompiledHooksMessage(2), /docs\/compiled-hooks\.md/);
   cleanupTmpDir(dir);
 });
 
-test("scanPlugin reports manualHookCount 0 when there are no hand-written hooks", () => {
+test("scanPlugin lists no hand-written hooks when there are none", () => {
   const dir = makeTmpDir("scan-no-manual-hooks");
   write(dir, "CLAUDE.md", "# x\n");
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
-  assert.equal(r.manualHookCount, 0);
+  assert.deepEqual(r.handWrittenHooks, []);
   assert.doesNotMatch(formatScanReport(r), /hand-written hook/);
   cleanupTmpDir(dir);
 });

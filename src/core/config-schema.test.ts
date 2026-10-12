@@ -21,8 +21,13 @@ import {
   vigilesConfigSchema,
   formatConfigIssues,
   parseVigilesConfig,
+  foldedRuleMessages,
 } from "./config-schema.js";
 import { RECOMMENDED_RULES } from "./presets.js";
+import { loadConfig } from "./validate.js";
+import { makeTmpDir, cleanupTmpDir } from "./test-utils.js";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 /** The formatted problems for a config, or `[]` when it parses. */
 function problems(config: unknown): string[] {
@@ -206,9 +211,8 @@ test("an empty config parses to the shipped defaults", () => {
   assert.deepEqual(d.ruleMarkers, ["headings", "checkboxes"]);
   assert.equal(d.rules["spec-refs"], "error");
   assert.equal(d.rules["doc-refs"], false);
-  assert.equal(d.rules["prefer-compiled-hooks"], false);
   assert.equal(d.rules.integrity, "warn");
-  assert.equal(Object.keys(d.rules).length, 36);
+  assert.equal(Object.keys(d.rules).length, 35);
   assert.equal(d.rules["deprecated-key-files"], "warn");
   assert.equal(d.harnesses, undefined, "no declaration means auto-detect");
 });
@@ -385,4 +389,45 @@ test("compile-budget takes its thresholds as rule options", () => {
     rules: { "compile-budget": ["error", { maxRuleChars: 1 }] },
   });
   assert.ok(!bad.success, "a misspelled threshold is refused, not ignored");
+});
+
+test("a config naming a folded rule is told which rule reports it now (#361)", () => {
+  const [inRules] = foldedRuleMessages({
+    rules: { "prefer-compiled-hooks": "warn" },
+  });
+  assert.match(
+    inRules ?? "",
+    /rule "prefer-compiled-hooks" was folded into "hook-script-exists"/,
+  );
+  assert.deepEqual(
+    foldedRuleMessages({
+      overrides: [
+        { files: ["x/**"], rules: { "prefer-compiled-hooks": "off" } },
+      ],
+    }).length,
+    1,
+    "an overrides entry names it too",
+  );
+  assert.deepEqual(
+    foldedRuleMessages({ rules: { "hook-script-exists": "error" } }),
+    [],
+  );
+  assert.equal(
+    parseVigilesConfig({ rules: { "prefer-compiled-hooks": "warn" } }).success,
+    false,
+    "the schema itself no longer accepts it",
+  );
+});
+
+test("loadConfig refuses a folded rule with that message, not 'unknown key'", () => {
+  const dir = makeTmpDir("folded-rule");
+  try {
+    writeFileSync(
+      join(dir, ".vigilesrc.json"),
+      JSON.stringify({ rules: { "prefer-compiled-hooks": false } }),
+    );
+    assert.throws(() => loadConfig(dir), /folded into "hook-script-exists"/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
 });

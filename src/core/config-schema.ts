@@ -183,7 +183,6 @@ const rulesSchema = z
     "skill-frontmatter": severitySchema.default("warn"),
     "mcp-tool-resolves": severitySchema.default("warn"),
     "hook-script-exists": severitySchema.default("warn"),
-    "prefer-compiled-hooks": severitySchema.default(false),
     "disallowed-tools-contract": severitySchema.default("warn"),
     "description-overlap": severitySchema.default("warn"),
     "skill-description-budget": severitySchema.default("warn"),
@@ -531,6 +530,42 @@ export function movedToOverridesMessages(raw: unknown): readonly string[] {
         `  and remove "exclude" from "${owner}". Paths top-level "exclude" removes are not read at all; an override only changes what a rule reports.`,
     ];
   });
+}
+
+/** Rules whose findings another rule now reports, and what changed. */
+export const FOLDED_RULES: ReadonlyArray<{
+  readonly rule: string;
+  readonly into: string;
+  readonly what: string;
+}> = [
+  {
+    rule: "prefer-compiled-hooks",
+    into: "hook-script-exists",
+    what: "every hook line vigiles did not write is now one hook-script-exists finding that names it",
+  },
+];
+
+/**
+ * The message a config naming a folded rule gets — in `rules` or in an
+ * `overrides` entry. Read BEFORE the schema, like {@link REPLACED_KEYS}: the
+ * reader's config used to work, so "unknown key" would be true and useless.
+ */
+export function foldedRuleMessages(raw: unknown): readonly string[] {
+  if (!isRecord(raw)) return [];
+  const overrides: readonly unknown[] = Array.isArray(raw.overrides)
+    ? raw.overrides
+    : [];
+  const ruleBlocks = [
+    raw.rules,
+    ...overrides.map((o) => (isRecord(o) ? o.rules : undefined)),
+  ];
+  return FOLDED_RULES.filter(({ rule }) =>
+    ruleBlocks.some((b) => isRecord(b) && rule in b),
+  ).map(
+    ({ rule, into, what }) =>
+      `.vigilesrc.json: rule "${rule}" was folded into "${into}": ${what}.\n` +
+      `  Remove "${rule}"; set "${into}" to change how those findings report.`,
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -732,7 +732,7 @@ export function scanFiles(
   const loaded = loadPluginFromFiles(files, lay, repoName);
   const exists = mapExists(files);
   const hookRegs = normalizeHooks(loaded.settings.hooks);
-  const { hooks, inline, manual } = fileMapHooks(hookRegs, loaded, lay, exists);
+  const { hooks, inline, handWritten } = fileMapHooks(hookRegs, loaded, lay, exists);
   const eventNames = hookEventNames(loaded.settings.hooks);
   const allHookEventIssues = verifyHookEvents(eventNames, dialect);
   const hookEventIssues = scoredIssues(allHookEventIssues);
@@ -795,7 +795,7 @@ export function scanFiles(
     agents,
     hooks,
     inlineHooks: inline,
-    manualHookCount: manual,
+    handWrittenHooks: handWritten,
     ...inventoryCounts(loaded.files, cls.isCommand, [lay], coverage),
     // A declared server set counts even when the loader emitted no warning —
     // otherwise a plugin whose servers come from the Agent Plugins `mcp.json`

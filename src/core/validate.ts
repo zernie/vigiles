@@ -30,6 +30,7 @@ import {
   REPLACED_KEYS,
   replacedKeyMessage,
   movedToOverridesMessages,
+  foldedRuleMessages,
   VigilesConfigError,
 } from "./config-schema.js";
 
@@ -185,8 +186,12 @@ export function loadConfig(
   // The replaced keys get their own message BEFORE the schema's, because the
   // reader is someone whose config used to work: `.strict()` would tell them
   // "unknown key harness", which is true and useless. See REPLACED_KEYS.
-  // The per-rule `exclude` options moved to `overrides` the same way.
-  const problems: string[] = [...movedToOverridesMessages(raw)];
+  // The per-rule `exclude` options moved to `overrides` the same way, and a
+  // rule folded into another names the one that reports it now.
+  const problems: string[] = [
+    ...movedToOverridesMessages(raw),
+    ...foldedRuleMessages(raw),
+  ];
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const present = REPLACED_KEYS.filter((k) => k.key in raw);
     if (present.length > 0) {

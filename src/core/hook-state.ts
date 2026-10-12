@@ -13,7 +13,7 @@
  *
  * ## The hole it fills, measured
  *
- * `prefer-compiled-hooks` says a hook should be a typed program the compiler can
+ * `hook-script-exists` says a hook should be a typed program the compiler can
  * check. In the knowledge base this repo dogfoods on, ALL SEVEN advisory hooks
  * were still hand-written shell (measured 2026-08-12), and the reason was uniform:
  * every one of them both READS and WRITES a stamp file.

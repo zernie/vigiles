@@ -14,14 +14,7 @@
  * build, so there is no runtime cycle — `scan.ts` requires `scan-core.js`, never
  * the reverse.
  */
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-} from "./posix-path.js";
+import { basename, dirname, join, relative, resolve } from "./posix-path.js";
 
 import {
   verifyToolContract,
@@ -48,8 +41,7 @@ import {
   skillTrifectaIssue,
 } from "./core/lethal-trifecta.js";
 import { skillResourceIssues } from "./core/skill-resources.js";
-import { commandWords } from "./core/bash-effects.js";
-import { scriptWordPattern } from "./core/source-refs.js";
+import { hookCommandShape } from "./core/hook-command.js";
 import { skillMissingFence } from "./core/skill-missing-fence.js";
 import type { SkillRefSource } from "./skill-refs.js";
 import {
@@ -84,40 +76,6 @@ import type {
   ScanDelegationFinding,
   VocabularyNote,
 } from "./scan.js";
-
-// A script-path token, matched against a WHOLE shell WORD. The token class is
-// `\S` MINUS the glob metacharacters `*` and `?` (dogfood D1): a real, resolvable
-// hook path never contains them, but a command that merely MENTIONS a glob — e.g.
-// `find . -name "*.js"` in a hook body — would otherwise have `"*.js"` grabbed as
-// a "script" and reported MISSING (a false positive). Shell vars / braces /
-// slashes ARE kept (`${CLAUDE_PLUGIN_ROOT}/hooks/x.sh`), since resolveScript
-// expands those. See core/source-refs.ts for the boundary rules.
-const SCRIPT_WORD_RE = scriptWordPattern();
-
-/**
- * The script-path operands a hook `command` names.
- *
- * 🔴 THE COMMAND IS SHELL, SO IT IS PARSED AS SHELL. This used to run
- * `SCRIPT_RE` over the raw command string, which cannot tell an operand from
- * the text of an inline program. Against the standard portable-plugin idiom
- * `node -e "…await import(…join(root,'hooks','always-on.mjs'))…"` it produced
- * the script name
- * `import(require(node:url).pathToFileURL(require(node:path).join(root,hooks,always-on.mjs`
- * and reported it MISSING, while `hooks/always-on.mjs` sat on disk. Nine such
- * findings across the 32-repo dogfood corpus (2026-08-17), contributing to two
- * `F/0` grades.
- *
- * `commandWords` returns the words a shell would resolve, with inline program
- * text subtracted, so the report cannot name a fragment of a JavaScript
- * expression. A command that does not parse as shell yields `null`, and the
- * caller treats it as an inline one-liner rather than guessing — abstaining is
- * the direction that cannot accuse.
- */
-function scriptTokens(command: string): string[] | null {
-  const words = commandWords(command);
-  if (words === null) return null;
-  return words.filter((w) => SCRIPT_WORD_RE.test(w));
-}
 
 // The scalar fields scan reads from a skill/agent `---` block, via the shared
 // lenient reader (core/frontmatter-read.ts) — a real YAML parse with a regex
@@ -760,69 +718,43 @@ export function scanAgents(
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/**
- * Resolve a hook script token to a checkable path. `loadPlugin` expands the
- * braced plugin-root token (`${CLAUDE_PLUGIN_ROOT}`, Codex `${PLUGIN_ROOT}`, …);
- * the unbraced shell form survives, so resolve BOTH forms of the HARNESS's token
- * (from the layout, not hard-coded) against the plugin root and strip shell
- * quotes. The harness's PROJECT-root variables (`$CLAUDE_PROJECT_DIR`, the
- * documented spelling of a project hook, set by Claude Code to the project
- * directory) resolve against the scanned root the same way. A token that still
- * carries any other `$VAR` after that is genuinely uncheckable.
- */
-function resolveScript(
-  token: string,
-  root: string,
-  roots: RootTokens,
-  fullCommand: string,
-  exists: (p: string) => boolean,
-): ScanHook {
-  // Every root variable the harness sets, in BOTH spellings (`${NAME}` and
-  // `$NAME`). They name different directories at run time (the plugin vs the
-  // host project) but a static scan has one directory to resolve them against:
-  // the scanned root — the same simplification `verify-plugin-guards` makes when
-  // it has no explicit `cwd`.
-  const tokens = [
-    roots.pluginRootToken,
-    ...(roots.projectRootTokens ?? []),
-  ].flatMap((t) => [t, t.replace(/^\$\{(.+)\}$/, "$$$1")]);
-  const expand = (text: string): string =>
-    tokens.reduce((acc, t) => acc.replaceAll(t, root), text);
-  const cleaned = expand(token.replace(/["']/g, ""));
-  if (cleaned.includes("$"))
-    return { command: fullCommand, script: token, status: "unresolved" };
-  // A relative hook path (`./hooks/x.sh`, `scripts/x.py`) is the plugin's own —
-  // resolve it against the PLUGIN ROOT, not the scanner's cwd. Without this, a
-  // plugin that references `./hooks/x.sh` (the file IS present) was reported
-  // MISSING because existsSync() checked cwd-relative (a false positive caught on
-  // ananddtyagi/cc-marketplace). The displayed `script` stays as the author wrote it.
-  const abs = isAbsolute(cleaned) ? cleaned : resolve(root, cleaned);
-  // Resolve the full command the same way we resolve the script token (expand
-  // plugin-root, strip outer quotes) so the CLI can pass it to verifyGuardrail.
-  const resolvedCommand = expand(fullCommand);
-  return {
-    command: resolvedCommand,
-    script: cleaned,
-    status: exists(abs) ? "ok" : "missing",
-  };
+/** The harness's root variables, braced: what a hook line may start a path with. */
+function rootTokenList(roots: RootTokens): readonly string[] {
+  return [roots.pluginRootToken, ...(roots.projectRootTokens ?? [])];
 }
 
-// A shell existence guard around a command — `[ ! -f x ] || x`, `[ -f x ] && x`,
-// `test -f x && …`. Authors use it to make a hook OPTIONAL (run the script only
-// if present; a no-op otherwise — e.g. a runtime-generated guard), so a missing
-// target is INTENTIONAL, not a broken reference. Don't flag scripts in such a
-// command as MISSING (a false positive caught on gmickel/flow-next's ralph-guard).
-const EXISTENCE_GUARD =
-  /(?:\[\[?\s*!?\s*-[efsx]\s)|(?:\btest\s+!?\s*-[efsx]\s)/;
+/**
+ * Where a path the classifier read ({@link hookCommandShape}) lives on disk. A
+ * root variable is its whole first segment, so it is replaced by the scanned
+ * root — the same simplification `verify-plugin-guards` makes when it has no
+ * explicit `cwd`: the plugin root and the project root are different
+ * directories at run time, and a static scan has one. Anything else is
+ * relative to that root.
+ */
+function hookFilePath(file: string, root: string, roots: RootTokens): string {
+  const token = rootTokenList(roots).find((t) => file.startsWith(`${t}/`));
+  return token === undefined
+    ? resolve(root, file)
+    : join(root, file.slice(token.length + 1));
+}
 
 /**
- * A compiled `vigiles/hook` artifact runs through the `hook-runtime run-program`
- * runtime entrypoint; any other hook command is hand-written (a shell script or
- * an inline one-liner) the author maintains directly. The basis for the
- * `prefer-compiled-hooks` nudge.
+ * The files one hook line names that a static reader can check: those of a
+ * line vigiles compiled, and the one a hand-written line starts by running.
  */
-export function isManagedHookCommand(command: string): boolean {
-  return /\bhook-runtime\b/.test(command);
+function hookFiles(
+  command: string,
+  root: string,
+  roots: RootTokens,
+): readonly string[] {
+  const shape = hookCommandShape(command, rootTokenList(roots));
+  const files =
+    shape.kind === "compiled"
+      ? shape.files
+      : shape.kind === "script"
+        ? [shape.file]
+        : [];
+  return files.map((f) => hookFilePath(f, root, roots));
 }
 
 /**
@@ -841,77 +773,75 @@ export function hookScriptMissingMessage(script: string): string {
     : `hook script "${script}" is referenced but missing — the hook never runs, and ${silent}.`;
 }
 
-/** The `prefer-compiled-hooks` recommendation message (shared by `lint` + `scan`). */
-export function preferCompiledHooksMessage(count: number): string {
+/**
+ * A hook line vigiles did not write. `script` lines start by running a literal
+ * path, which `hook-script-exists` checks; `opaque` ones name nothing a static
+ * reader may take for their script. Either way only running it says whether it
+ * works (`runHook`, `vigiles test`).
+ */
+export interface HandWrittenHook {
+  readonly event: string;
+  readonly command: string;
+  readonly kind: "script" | "opaque";
+}
+
+/**
+ * The `hook-script-exists` finding for one hand-written hook. Whether a hook
+ * works is answered only by running it; a line vigiles compiled is checked
+ * exactly, so the cure named is to compile it.
+ */
+export function handWrittenHookMessage(hook: HandWrittenHook): string {
+  const what =
+    hook.kind === "script"
+      ? "vigiles checks that its script exists, but cannot tell whether it works or swallows its own failure"
+      : "vigiles cannot verify this hand-written hook — it may point at a missing file or swallow its own failure";
   return (
-    `${String(count)} hand-written hook command(s) — if any gate the agent ` +
-    `(a block/deny decision), compiled hooks (\`vigiles/hook\`) make whole hook ` +
-    `bug classes unrepresentable at authoring time, and \`guardrail-check\` proves ` +
-    `an existing one blocks. If any NUDGE the agent, \`assertDelivered\` over a ` +
-    `\`runHook\` result proves the text reaches the model (on Claude Code, stderr from a hook ` +
-    `that exits 0 does not). See docs/compiled-hooks.md and docs/harness-testing.md.`
+    `${hook.event} hook \`${hook.command}\`: ${what}. Compile it with ` +
+    "`vigiles/hook` (docs/compiled-hooks.md): vigiles writes a compiled hook's " +
+    "command line itself and checks what it runs. Whether a hook works is " +
+    "answered only by running it (`runHook`, `vigiles test`)."
   );
 }
 
-/** Pull script-file hook commands out of the resolved settings; count inline ones. */
 /**
- * Best-effort map of each script token → the hook EVENT it's registered under,
- * by walking the canonical object-keyed-by-event settings shape
- * (`{ PreToolUse: [{ hooks: [{ command }] }], … }`). Lets the safety battery
- * scope itself to `PreToolUse` (the only event that can block a tool call), so a
- * `SessionStart`/`PostToolUse`/`Stop` hook isn't tested against the disaster
- * catalog. Returns an empty map for a non-object/array config (event → unknown).
+ * Every file the hook lines name that a static reader may check, and every
+ * line vigiles did not write.
  */
-function eventsByScript(
-  regs: readonly HookRegistration[],
-): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const reg of regs) {
-    for (const tok of scriptTokens(reg.command) ?? []) {
-      if (!map.has(tok)) map.set(tok, reg.event);
-    }
-  }
-  return map;
-}
-
 export function scanHooks(
   regs: readonly HookRegistration[],
   root: string,
   roots: RootTokens,
   exists: (p: string) => boolean,
-): { hooks: ScanHook[]; inline: number; manual: number } {
-  const commands = regs.map((r) => r.command);
-  const evMap = eventsByScript(regs);
-  // A hand-written hook is any non-empty command that isn't a vigiles-managed
-  // (compiled) hook-runtime invocation — the basis for the prefer-compiled-hooks nudge.
-  const manual = commands.filter((c) => {
-    const u = c.trim();
-    return u !== "" && !isManagedHookCommand(u);
-  }).length;
-  const byScript = new Map<string, ScanHook>();
-  let inline = 0;
-  for (const cmd of commands) {
-    const found = scriptTokens(cmd);
-    if (!found || found.length === 0) {
-      inline++;
-      continue;
-    }
-    // A guarded command runs its script only if it exists — an optional hook, not
-    // a broken one. Treat it as a conditional one-liner (inline), don't path-check.
-    if (EXISTENCE_GUARD.test(cmd)) {
-      inline++;
-      continue;
-    }
-    for (const tok of found) {
-      const hook = resolveScript(tok, root, roots, cmd, exists);
-      const event = evMap.get(tok);
-      byScript.set(hook.script, event ? { ...hook, event } : hook);
-    }
-  }
-  const hooks = [...byScript.values()].sort((a, b) =>
-    a.script.localeCompare(b.script),
+): {
+  readonly hooks: readonly ScanHook[];
+  readonly inline: number;
+  readonly handWritten: readonly HandWrittenHook[];
+} {
+  const tokens = rootTokenList(roots);
+  const shaped = regs
+    .filter((r) => r.command.trim() !== "")
+    .map((r) => ({ reg: r, shape: hookCommandShape(r.command, tokens) }));
+  const handWritten = shaped.flatMap(({ reg, shape }): HandWrittenHook[] =>
+    shape.kind === "compiled"
+      ? []
+      : [{ event: reg.event, command: reg.command, kind: shape.kind }],
   );
-  return { hooks, inline, manual };
+  const scripts = shaped.flatMap(({ reg }) =>
+    hookFiles(reg.command, root, roots).map(
+      (script): ScanHook => ({
+        command: reg.command,
+        script,
+        status: exists(script) ? "ok" : "missing",
+        event: reg.event,
+      }),
+    ),
+  );
+  // One entry per file; the first registration that names it keeps its event.
+  const hooks = scripts
+    .filter((h, i) => scripts.findIndex((o) => o.script === h.script) === i)
+    .sort((a, b) => a.script.localeCompare(b.script));
+  const inline = shaped.filter(({ shape }) => shape.kind === "opaque").length;
+  return { hooks, inline, handWritten };
 }
 
 /** What {@link scanHookScripts} needs to know about the engine it runs in. */
@@ -939,12 +869,11 @@ export interface HookScriptScan {
  * missing, the shell turns MODULE_NOT_FOUND into "nothing to say", and only a
  * path check can tell the two apart. Measured 2026-10-11 on the vigiles
  * repository itself: both of its nudges dead since #260, three weeks, every gate
- * green — the runner was never checked (a `$CLAUDE_PROJECT_DIR` path read as
- * unresolved) and the file it was wired in was never read (the repo is a plugin,
- * and the loader reads the manifest's hooks instead).
+ * green — the runner was never checked and the file it was wired in was never
+ * read (the repo is a plugin, and the loader reads the manifest's hooks instead).
  *
- * The shadowed registrations feed ONLY the existence list: the inline and
- * hand-written counts, and every other hook detector, still see what the
+ * The shadowed registrations feed ONLY the existence list: the inline count,
+ * the hand-written list, and every other hook detector still see what the
  * loader chose — widening those is a separate decision.
  */
 export function scanHookScripts(
@@ -954,7 +883,7 @@ export function scanHookScripts(
 ): {
   readonly hooks: readonly ScanHook[];
   readonly inline: number;
-  readonly manual: number;
+  readonly handWritten: readonly HandWrittenHook[];
 } {
   const run = (r: readonly HookRegistration[]) =>
     scanHooks(r, scan.root, scan.layout, scan.exists);
@@ -964,15 +893,14 @@ export function scanHookScripts(
   // event; the shadowed settings only ADD scripts.
   const hooks = all
     .filter((h, i) => all.findIndex((o) => o.script === h.script) === i)
-    .map((h): ScanHook => {
-      if (h.status !== "missing") return h;
-      const abs = isAbsolute(h.script)
-        ? h.script
-        : resolve(scan.root, h.script);
-      return scan.observable(abs) ? h : { ...h, status: "unresolved" };
-    })
+    .map(
+      (h): ScanHook =>
+        h.status === "missing" && !scan.observable(h.script)
+          ? { ...h, status: "unresolved" }
+          : h,
+    )
     .sort((a, b) => a.script.localeCompare(b.script));
-  return { hooks, inline: primary.inline, manual: primary.manual };
+  return { hooks, inline: primary.inline, handWritten: primary.handWritten };
 }
 
 /** True when `absPath` lies inside a `node_modules` directory. */
@@ -1273,42 +1201,15 @@ export function collectHookBlockEntries(
   roots: RootTokens,
   exists: (p: string) => boolean,
 ): HookScriptEntry[] {
-  const out: HookScriptEntry[] = [];
-  for (const { event, command: cmd } of regs) {
-    // A wrapper command runs MORE than one script (`node run.cjs guard.mjs`),
-    // so resolve EVERY candidate and inspect each — reading only the first
-    // (the wrapper) would miss the guard's block logic. Candidates: extensioned
-    // script-shaped words PLUS path-like words with NO extension
-    // (`bash hooks/guard`, `${ROOT}/hooks/session-start`) that resolve to a file.
-    // Words the SHELL would resolve — not a split on whitespace, which cannot
-    // see quoting and cannot tell `node -e '<program>'` from an operand.
-    const words = commandWords(cmd) ?? [];
-    const candidates = new Set<string>(
-      words.filter((w) => SCRIPT_WORD_RE.test(w)),
-    );
-    for (const w of words) {
-      if (w.includes("/") || w.includes(roots.pluginRootToken))
-        candidates.add(w);
-    }
-    const resolvedPaths: string[] = [];
-    for (const tok of candidates) {
-      const r = resolveScript(tok, root, roots, cmd, exists);
-      if (r.status === "ok") {
-        const abs = isAbsolute(r.script) ? r.script : resolve(root, r.script);
-        if (!resolvedPaths.includes(abs)) resolvedPaths.push(abs);
-      }
-    }
-    if (resolvedPaths.length > 0) {
-      // One entry per resolvable script (each is inspected on its own).
-      for (const sp of resolvedPaths) {
-        out.push({ event, command: cmd, scriptPath: sp });
-      }
-    } else {
-      // No script file resolved → inline one-liner; inspect the command text.
-      out.push({ event, command: cmd, scriptPath: null });
-    }
-  }
-  return out;
+  return regs.flatMap(({ event, command }): HookScriptEntry[] => {
+    // The files the classifier reads off the line (a compiled hook's runner and
+    // program, a hand-written line's leading script) and that are on disk —
+    // each is inspected on its own. None: the command text is inspected.
+    const files = hookFiles(command, root, roots).filter(exists);
+    return files.length > 0
+      ? files.map((scriptPath) => ({ event, command, scriptPath }))
+      : [{ event, command, scriptPath: null }];
+  });
 }
 
 /** Extract (event, matcher) pairs from the normalized hook registrations. */

@@ -282,27 +282,15 @@ export interface RulesConfig {
    */
   "mcp-tool-resolves"?: RuleSeverity;
   /**
-   * Flag a hook command that references a script file which doesn't exist on
-   * disk (with `${CLAUDE_PLUGIN_ROOT}` resolved) — the hook silently never runs.
-   * FP-safe: skips unresolved `$VAR` paths, existence-guarded one-liners, and
-   * inline commands. NOT covered by Anthropic's `claude plugin validate` — the
-   * "matches" claim here was measured false on 2026-09-08 (Claude Code 2.1.263;
-   * see docs/rules/hook-script-exists.md). Default
-   * "warn"; "error" gates CI. Same detector as `scan` (hooks status "missing").
+   * Two findings about hook lines (#361). A file a hook line runs is missing —
+   * a compiled line's runner or program, or the literal path a hand-written
+   * line starts with — so the hook never runs. And every hook line vigiles did
+   * not write, one finding each: a static reader cannot tell what it runs or
+   * whether it swallows its own failure; compiled hooks (`vigiles/hook`) can be
+   * checked exactly. Default "warn"; `vigiles:recommended` raises it to
+   * "error". See docs/rules/hook-script-exists.md.
    */
   "hook-script-exists"?: RuleSeverity;
-  /**
-   * A single repo-level RECOMMENDATION (one finding regardless of hook count):
-   * when a plugin/repo ships hand-written hook commands that aren't compiled
-   * `vigiles/hook` artifacts, nudge toward compiled hooks — they make whole hook
-   * bug classes (exit-1-not-2, wrong decision field, matcher bypass) UNREPRESENTABLE
-   * at authoring time, and `guardrail-check` proves an existing one blocks. A
-   * discovery nudge, not a defect: the hand-written shell lane stays first-class,
-   * so it's opt-out and fires ONCE (never per-hook). The message links
-   * `docs/compiled-hooks.md`. Default "warn"; set "off" to silence or "error" to
-   * enforce. Same detector as `scan` (manualHookCount).
-   */
-  "prefer-compiled-hooks"?: RuleSeverity;
   /**
    * Cross-reference a subagent's `disallowedTools:` block-list against the
    * catalog — the deny-side mirror of `subagent-tool-contract`. A close typo there

@@ -123,10 +123,11 @@ import {
   collectHookBlockEntries,
   collectHookMatchers,
   summarizePurity,
-  preferCompiledHooksMessage,
   detectOwnTestSignal,
   remapFindingPaths,
   collectVocabularyNotes,
+  handWrittenHookMessage,
+  type HandWrittenHook,
 } from "./scan-core.js";
 import {
   weighInstructions,
@@ -139,7 +140,7 @@ import {
 } from "./core/event-capability.js";
 
 // Re-export the pure detectors (and their public types: SurfaceClassifier,
-// SkillScanContext, isManagedHookCommand, preferCompiledHooksMessage, ...) that
+// SkillScanContext, handWrittenHookMessage, ...) that
 // moved to the node-free `./scan-core.js`, so every existing consumer of
 // `./scan.js` is unchanged — one detector, no drift.
 export * from "./scan-core.js";
@@ -291,13 +292,7 @@ export interface FrontmatterValueIssue {
 export type HookStatus = "ok" | "missing" | "unresolved";
 
 export interface ScanHook {
-  /**
-   * The full hook command as it would be run (plugin-root token expanded, shell
-   * quotes stripped). Present on script-based hooks; empty string on hooks whose
-   * command is entirely inline (no script file) — but inline hooks never appear
-   * in `hooks[]`, they are counted by `inlineHooks`, so in practice `command` is
-   * always non-empty when a `ScanHook` is in the list.
-   */
+  /** The hook line that names this file, as the config wrote it. */
   readonly command: string;
   readonly script: string;
   readonly status: HookStatus;
@@ -334,12 +329,12 @@ export interface ScanReport {
   /** Hook entries with no script file (inline shell one-liners) — can't be path-checked. */
   readonly inlineHooks: number;
   /**
-   * Hand-written hook commands that are NOT compiled `vigiles/hook` artifacts (a
-   * compiled hook's command invokes `vigiles hook-runtime run-program`). The basis
-   * for the `prefer-compiled-hooks` recommendation — a single nudge regardless of
-   * count. Zero when there are no hooks or every hook is vigiles-managed.
+   * The hook lines vigiles did not write (a compiled hook's line is
+   * `hook-runtime …`, read by its own template). Each one is a
+   * `hook-script-exists` finding: a static reader cannot tell what a
+   * hand-written line runs or whether it swallows its own failure.
    */
-  readonly manualHookCount: number;
+  readonly handWrittenHooks: readonly HandWrittenHook[];
   readonly commands: number;
   /**
    * Output styles found, exempt ones aside, or `"not-supported"` when the
@@ -760,7 +755,7 @@ export function scanPlugin(
   // hook detector below consumes typed `HookRegistration[]` instead of re-walking
   // `unknown`. The single seam where the per-harness hook shape is absorbed.
   const hookRegs = normalizeHooks(loaded.settings.hooks);
-  const { hooks, inline, manual } = scanHookScripts(
+  const { hooks, inline, handWritten } = scanHookScripts(
     hookRegs,
     normalizeHooks(loaded.shadowedSettingsHooks),
     {
@@ -863,7 +858,7 @@ export function scanPlugin(
     agents,
     hooks,
     inlineHooks: inline,
-    manualHookCount: manual,
+    handWrittenHooks: handWritten,
     ...inventoryCounts(
       loaded.files,
       cls.isCommand,
@@ -1597,10 +1592,12 @@ export function formatScanReport(r: ScanReport): string {
     );
   }
 
-  // One discovery nudge toward compiled hooks (never per-hook); the hand-written
-  // shell lane stays first-class, so this is a recommendation, not a defect.
-  if (r.manualHookCount > 0) {
-    out.push(`ℹ ${preferCompiledHooksMessage(r.manualHookCount)}`, "");
+  // Every hand-written hook, by name: none of them can be checked statically.
+  if (r.handWrittenHooks.length > 0) {
+    out.push(
+      ...r.handWrittenHooks.map((h) => `ℹ ${handWrittenHookMessage(h)}`),
+      "",
+    );
   }
 
   // Malformed-YAML frontmatter is INFORMATIONAL, not a structural defect: js-yaml

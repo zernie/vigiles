@@ -22,7 +22,7 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     agents: [],
     hooks: [],
     inlineHooks: 0,
-    manualHookCount: 0,
+    handWrittenHooks: [],
     commands: 0,
     mcp: false,
     danglingRefs: [],

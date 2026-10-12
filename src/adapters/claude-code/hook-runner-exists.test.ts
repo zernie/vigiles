@@ -151,9 +151,9 @@ test("a PLUGIN repo's own project settings are path-checked too, in both twins",
     assert.equal(statusOf(map.hooks, "hooks/post.sh"), "ok");
     assert.equal(statusOf(map.hooks, ".claude/hooks/gone.sh"), "missing");
     // Existence only: the shadowed settings do not join the other hook
-    // detectors' input, so the hand-written-hook count is the manifest's alone.
-    assert.equal(disk.manualHookCount, 1);
-    assert.equal(map.manualHookCount, 1);
+    // detectors' input, so the hand-written hooks are the manifest's alone.
+    assert.equal(disk.handWrittenHooks.length, 1);
+    assert.equal(map.handWrittenHooks.length, 1);
   } finally {
     cleanupTmpDir(dir);
   }

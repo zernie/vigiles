@@ -1,5 +1,5 @@
 /**
- * `prefer-compiled-hooks`: one finding PER hand-written hook (#361).
+ * `hook-script-exists`: one finding PER hand-written hook (#361).
  *
  * A static reader cannot tell what a hand-written shell line runs or whether it
  * swallows its own failure, so vigiles no longer guesses which word is the
@@ -7,7 +7,7 @@
  * command line vigiles writes itself and can therefore check exactly.
  *
  * What stays checked: the trivially safe case, a line that STARTS by running a
- * literal path (`hook-script-exists`), and the files a compiled line runs.
+ * literal path, and the files a compiled line runs.
  *
  * Claude-Code-shaped fixtures (`.claude/settings.json`, `${CLAUDE_PROJECT_DIR}`),
  * so this lives in the adapter. The Codex half is in `../codex/codex.test.ts`;
@@ -61,7 +61,10 @@ const findings = (stdout: string): string[] =>
 
 const COMPILED = withRoleExit(
   `${hookRuntimeRef(claudeCodeLayout.projectRootTokens)} hook-runtime run-program ` +
-    hookGateRef(".vigiles/hooks/x.hook.mjs", claudeCodeLayout.projectRootTokens),
+    hookGateRef(
+      ".vigiles/hooks/x.hook.mjs",
+      claudeCodeLayout.projectRootTokens,
+    ),
   "react",
 );
 
@@ -85,7 +88,11 @@ test("a hand-written `sh -c` hook gets ONE warning that names it, and no guessed
   const dir = makeTmpDir("pch-sh-c");
   try {
     write(dir, "CLAUDE.md", "# x\nRun `npm test`.\n");
-    write(dir, ".claude/settings.json", settings("sh -c 'node hooks/gone.mjs'"));
+    write(
+      dir,
+      ".claude/settings.json",
+      settings("sh -c 'node hooks/gone.mjs'"),
+    );
     const scan = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
     assert.deepEqual(scan.hooks, [], "no word is guessed to be the script");
     assert.deepEqual(scan.handWrittenHooks, [
@@ -99,7 +106,10 @@ test("a hand-written `sh -c` hook gets ONE warning that names it, and no guessed
     assert.equal(r.status, 0, r.stdout);
     const lines = findings(r.stdout);
     assert.equal(lines.length, 1, r.stdout);
-    assert.match(lines[0] ?? "", /PostToolUse hook `sh -c 'node hooks\/gone\.mjs'`/);
+    assert.match(
+      lines[0] ?? "",
+      /PostToolUse hook `sh -c 'node hooks\/gone\.mjs'`/,
+    );
     assert.match(r.stdout, /vigiles\/hook/);
     assert.match(r.stdout, /docs\/compiled-hooks\.md/);
   } finally {
@@ -123,7 +133,10 @@ test("a hand-written hook that starts with a literal path to a missing file is `
     );
     const r = lint(dir);
     assert.match(r.stdout, /Hook-script existence check:/);
-    assert.match(r.stdout, /\.claude\/hooks\/gone\.sh" is referenced but missing/);
+    assert.match(
+      r.stdout,
+      /\.claude\/hooks\/gone\.sh" is referenced but missing/,
+    );
   } finally {
     cleanupTmpDir(dir);
   }
@@ -162,12 +175,15 @@ test("three hand-written hooks are three findings; `false` in the config still t
     assert.equal(lines.length, 3, lines.join("\n"));
     // The one whose script vigiles did check says so, rather than claiming
     // it might point at a missing file.
-    assert.equal(lines.filter((l) => /checks that its script exists/.test(l)).length, 1);
+    assert.equal(
+      lines.filter((l) => /checks that its script exists/.test(l)).length,
+      1,
+    );
 
     write(
       dir,
       ".vigilesrc.json",
-      JSON.stringify({ rules: { "prefer-compiled-hooks": false } }),
+      JSON.stringify({ rules: { "hook-script-exists": false } }),
     );
     assert.deepEqual(findings(lint(dir).stdout), []);
   } finally {

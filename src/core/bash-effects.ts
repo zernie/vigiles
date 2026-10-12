@@ -78,6 +78,17 @@ interface MvdanNode {
   Value?: string;
   // ParamExp fields
   Param?: MvdanNode;
+  /** Any of these set means an operator beyond a bare `$X` / `${X}`. */
+  Excl?: boolean;
+  Length?: boolean;
+  Width?: boolean;
+  Index?: unknown;
+  Slice?: unknown;
+  Repl?: unknown;
+  Names?: unknown;
+  Exp?: unknown;
+  // Stmt fields
+  Negated?: boolean;
 }
 
 interface MvdanRedirect extends MvdanNode {
@@ -1493,4 +1504,139 @@ function fileOperandsOf(
       i++; // the program text — not a word any shell resolves to a file
     }
   }
+}
+
+// ===========================================================================
+// The LEADING command of a line, word by word, as written.
+// ===========================================================================
+
+/** One piece of a shell word: literal text, or a bare `$NAME` / `${NAME}`. */
+export type WordPiece =
+  | {
+      readonly kind: "text";
+      readonly text: string;
+      /** Inside quotes, so the shell neither globs nor tilde-expands it. */
+      readonly quoted: boolean;
+    }
+  | { readonly kind: "param"; readonly name: string };
+
+/**
+ * A word as its pieces, or `null` when part of it is computed at run time:
+ * `$(…)`, arithmetic, `${X:-y}` and every other parameter operator, or a
+ * backslash escape (left to the shell rather than re-implemented here).
+ */
+export type ShellWord = readonly WordPiece[] | null;
+
+/** The first simple command a line runs, and what (if anything) follows it. */
+export interface LeadingCommand {
+  /** Its words, in order. */
+  readonly words: readonly ShellWord[];
+  /**
+   * `"alone"` — the line is this command and nothing else.
+   * `"or-else"` — the line is this command `|| <one simple command>`; that
+   * command's words are in `orElse`.
+   * `"more"` — anything else follows (`&&`, `;`, a pipe, redirections).
+   */
+  readonly rest: "alone" | "or-else" | "more";
+  readonly orElse: readonly ShellWord[];
+}
+
+const OR_OP = 11;
+
+/**
+ * The first simple command `command` runs — the leftmost command of its first
+ * statement, through `&&`, `||` and pipes — with each word split into the
+ * pieces the shell sees. `null` when the line does not parse, or when what it
+ * starts with is not a plain simple command: a compound command (`if`, `{ … }`,
+ * a subshell), an assignment prefix (`X=1 cmd`), a negation, a background job.
+ *
+ * A reader of the line asks this instead of splitting the string, so quoting,
+ * operators and expansions are the shell grammar's answer, not a regex's.
+ */
+export function leadingCommand(command: string): LeadingCommand | null {
+  let file: MvdanNode;
+  try {
+    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
+  } catch {
+    return null;
+  }
+  const [first, ...others] = file.Stmts ?? [];
+  if (!first) return null;
+  const head = leftmostCall(first);
+  if (!head?.Args?.length) return null;
+  const words = head.Args.map((w) => shellWord(w.Parts));
+  const cmd = first.Cmd;
+  const plain = others.length === 0 && (first.Redirs ?? []).length === 0;
+  if (plain && plainCall(first)) return { words, rest: "alone", orElse: [] };
+  const fallback =
+    plain &&
+    cmd &&
+    sh().syntax.NodeType(cmd) === "BinaryCmd" &&
+    cmd.Op === OR_OP &&
+    cmd.X &&
+    plainCall(cmd.X) &&
+    cmd.Y
+      ? plainCall(cmd.Y)
+      : null;
+  return fallback?.Args
+    ? {
+        words,
+        rest: "or-else",
+        orElse: fallback.Args.map((w) => shellWord(w.Parts)),
+      }
+    : { words, rest: "more", orElse: [] };
+}
+
+/** A statement that is one simple command and nothing else, or null. */
+function plainCall(stmt: MvdanNode): MvdanNode | null {
+  const cmd = stmt.Cmd;
+  if (!cmd || stmt.Background || stmt.Negated) return null;
+  if ((stmt.Redirs ?? []).length > 0) return null;
+  if (sh().syntax.NodeType(cmd) !== "CallExpr") return null;
+  return (cmd.Assigns ?? []).length > 0 ? null : cmd;
+}
+
+/** The leftmost simple command of a statement, through `&&` / `||` / pipes. */
+function leftmostCall(stmt: MvdanNode): MvdanNode | null {
+  const cmd = stmt.Cmd;
+  if (!cmd || stmt.Background || stmt.Negated) return null;
+  if (sh().syntax.NodeType(cmd) === "BinaryCmd")
+    return cmd.X ? leftmostCall(cmd.X) : null;
+  if (sh().syntax.NodeType(cmd) !== "CallExpr") return null;
+  return (cmd.Assigns ?? []).length > 0 ? null : cmd;
+}
+
+/** A word's pieces; null for any part the shell computes at run time. */
+function shellWord(
+  parts: readonly MvdanNode[] | undefined,
+  quoted = false,
+): ShellWord {
+  if (!parts) return null;
+  const out: WordPiece[] = [];
+  for (const p of parts) {
+    const t = sh().syntax.NodeType(p);
+    if (t === "Lit" || t === "SglQuoted") {
+      const text = p.Value ?? "";
+      if (t === "Lit" && text.includes("\\")) return null;
+      out.push({ kind: "text", text, quoted: quoted || t === "SglQuoted" });
+    } else if (t === "DblQuoted") {
+      const inner = shellWord(p.Parts, true);
+      if (inner === null) return null;
+      out.push(...inner);
+    } else if (t === "ParamExp" && isBareParam(p) && p.Param?.Value) {
+      out.push({ kind: "param", name: p.Param.Value });
+    } else {
+      return null;
+    }
+  }
+  return out;
+}
+
+/** `$X` or `${X}` — no default, length, index, slice, replacement or indirection. */
+function isBareParam(p: MvdanNode): boolean {
+  return (
+    [p.Excl, p.Length, p.Width, p.Index, p.Slice, p.Repl, p.Names, p.Exp]
+      // GopherJS hands an unset field over as its Go zero value: nil, false, 0.
+      .every((f) => f === undefined || f === null || f === false || f === 0)
+  );
 }

@@ -218,8 +218,9 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     bucket: "external-decidable",
     surface: ["hook"],
     defaultSeverity: "warn",
-    summary: "A hook command's script file exists on disk (it can run).",
-    detector: "scanHooks (status 'missing')",
+    summary:
+      "A file a hook line runs exists, and every hand-written hook line is named (a static reader cannot verify it).",
+    detector: "scanHooks (status 'missing', handWritten)",
     upstreamPrevention:
       "a compiled hook is self-contained (no external script)",
   },
@@ -251,14 +252,6 @@ export const RULE_META: Record<RuleName, RuleMeta> = {
     summary:
       "Builder calls quoted in markdown ```ts fences resolve for real (opt-in: a fence is usually a drawing of config, not config).",
     detector: "findDocRefs",
-  },
-  "prefer-compiled-hooks": {
-    id: "prefer-compiled-hooks",
-    bucket: "heuristic-behavioral",
-    surface: ["hook"],
-    defaultSeverity: "off",
-    summary: "Recommends compiled hooks over hand-written shell (one nudge).",
-    detector: "scanHooks (manualHookCount)",
   },
   "mcp-config": {
     id: "mcp-config",
