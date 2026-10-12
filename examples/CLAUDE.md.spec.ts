@@ -4,7 +4,7 @@
  * This is the source of truth. CLAUDE.md is a compiled build artifact.
  * Run `vigiles compile` to generate CLAUDE.md from this spec.
  */
-import { instructionFile, guidance } from "../src/core/spec.js";
+import { instructionFile, guidance, file, prose } from "../src/core/spec.js";
 
 export default instructionFile({
   sections: {
@@ -14,18 +14,12 @@ The linter cross-referencing engine is the core of the tool: \`enforce("@typescr
 
 \`generate-types\` is the second half: scans all 11 catalog APIs, package.json, and project files to emit a \`.d.ts\` with type unions. The TS compiler then PROVES references are valid at authoring time — typos become type errors, not runtime surprises.`,
 
-    architecture: `Three rule kinds in specs: \`enforce()\` (delegated to an external linter — vigiles verifies the rule exists and is enabled), \`guard()\` (a path→command guard, e.g. recompile when a spec changes), and \`guidance()\` (prose only).
+    // Pointers sit next to the decisions they belong to, as file() refs —
+    // verified at compile time. (No `keyFiles` map: it is deprecated, and a
+    // list of where files are is something the agent finds by itself.)
+    architecture: prose`Three rule kinds in specs: \`enforce()\` (delegated to an external linter — vigiles verifies the rule exists and is enabled), \`guard()\` (a path→command guard, e.g. recompile when a spec changes), and \`guidance()\` (prose only).
 
-Core modules: \`src/core/spec.ts\` (types + builders), \`src/core/compile.ts\` (compiler), \`src/core/linters.ts\` (11-catalog cross-referencing engine), \`src/core/generate-types.ts\` (type generator).`,
-  },
-
-  keyFiles: {
-    "src/core/spec.ts": "Type system and builder functions",
-    "src/core/compile.ts": "Compiler: spec → markdown with SHA-256 hash",
-    "src/core/linters.ts":
-      "Cross-referencing engine (11 catalogs incl. Cedar + JVM/Go)",
-    "src/core/generate-types.ts": "Type generator: project state → .d.ts",
-    "src/cli.ts": "CLI: init, compile, lint, test, eval, generate-types",
+A spec change starts in ${file("src/core/spec.ts")} (types + builders) and is compiled to markdown with a SHA-256 hash by ${file("src/core/compile.ts")}. Linter cross-referencing (11 catalogs incl. Cedar + JVM/Go) is ${file("src/core/linters.ts")}; the \`.d.ts\` that turns typos into type errors comes from ${file("src/core/generate-types.ts")}.`,
   },
 
   commands: {

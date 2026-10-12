@@ -1,15 +1,10 @@
-<!-- vigiles:sha256:a1cddbdd8027018a compiled from src/core/CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:aa5bdcf472969919 compiled from src/core/CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
 ## Scope
 
 Working in `src/core/`? This is the harness-AGNOSTIC domain (spec, compile, linters, the lint/audit detectors). The root `CLAUDE.md` holds the full positioning + rule set — read it first. Two invariants live closest to this code: the core must not import an adapter (`core ⊄ adapter`, eslint-enforced) and must not hard-code a Claude Code literal (read it from the injected layout/dialect). This file adds the rule for ADDING or CHANGING a detector.
-
-## Key Files
-
-- `src/core/rule-meta.ts` — The RuleMeta registry — every rule's decidability bucket + severity + detector, the single source the detector-meta rule enforces.
-- `src/core/types.ts` — RulesConfig — the rule-name keys the registry is keyed on.
 
 ## Rules
 

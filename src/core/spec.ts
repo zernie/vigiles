@@ -565,7 +565,19 @@ export interface ClaudeSpec {
   readonly target?: InstructionTarget | InstructionTarget[];
   /** npm scripts / shell commands → descriptions. Verified against package.json. */
   readonly commands?: Record<string, string>;
-  /** File paths → descriptions. Verified via existsSync. */
+  /**
+   * File paths → descriptions, compiled into a "## Key Files" list. Verified via existsSync.
+   *
+   * @deprecated Move each entry out, then remove `keyFiles`. The list loads
+   * on every request to tell the agent where files are, which it finds itself.
+   * For each entry: delete it if the file or the docs already say it; move a
+   * fact about one file into that file's header comment; move a rule for one
+   * folder into that folder's nested instruction file; keep a one-line
+   * `file()` pointer (verified the same way) only if nothing else leads there.
+   * Still compiled for one major — the one that ships this notice — and
+   * removed in the major after it; `vigiles lint` reports every use as
+   * `deprecated-key-files`. Migration: docs/rules/deprecated-key-files.md.
+   */
   readonly keyFiles?: Record<string, string>;
   /** Named prose sections — plain strings or tagged templates with file()/cmd()/ref(). */
   readonly sections?: Record<string, string | InstructionFragment[]>;
@@ -593,6 +605,7 @@ export interface ClaudeSpec {
 type ClaudeSpecBase = {
   readonly target?: InstructionTarget | InstructionTarget[];
   readonly commands?: Record<string, string>;
+  /** @deprecated Move each entry out, then remove `keyFiles` — see {@link ClaudeSpec.keyFiles}. Removed in the major after the one that deprecates it. */
   readonly keyFiles?: Record<string, string>;
   readonly maxTokens?: number;
   readonly rules: Record<string, Rule>;

@@ -30,7 +30,7 @@ BLOCKED: ${FILE} is a compiled build artifact — do not edit it directly.
 
 Instead:
 1. Read ${SPEC_FILE} to understand the spec structure
-2. Edit ${SPEC_FILE} to make your changes (add/modify rules, sections, keyFiles, commands)
+2. Edit ${SPEC_FILE} to make your changes (add/modify rules, sections, commands)
 3. Run: npx vigiles compile
 4. The compiled ${FILE} will be regenerated automatically
 

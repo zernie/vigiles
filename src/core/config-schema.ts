@@ -196,6 +196,7 @@ const rulesSchema = z
     "hook-matcher": severitySchema.default("warn"),
     "doc-refs": severitySchema.default(false),
     "instruction-weight": withOptions(instructionWeightConfig).default("error"),
+    "deprecated-key-files": severitySchema.default("warn"),
   })
   .strict();
 

@@ -279,7 +279,7 @@ export function formatOrphanReport(report: OrphanReport): string {
   ];
   for (const o of report.orphans) lines.push(`    ${o}`);
   lines.push(
-    "  Fix: link each from another .md (README, a spec's Key Files, or a doc).",
+    "  Fix: link each from another .md (README, an instruction file, or a doc).",
     "  To silence: add `<!-- vigiles-disable orphan-docs -->` to the doc, or",
     "  exclude it via .vigilesrc.json → `orphans.exclude` (or narrow `orphans.include`).",
   );

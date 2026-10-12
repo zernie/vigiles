@@ -25,6 +25,7 @@ import type { PluginScore } from "./score-core.js";
 import type { RuleInventoryItem } from "./rule-inventory.js";
 import type { RuleRouting } from "./rule-routing.js";
 import type { EvidenceCounts } from "./coverage-evidence.js";
+import type { DeprecatedKeyFilesFinding } from "./deprecated-key-files.js";
 
 /**
  * The current schema version. Bump only on a BREAKING change to the shape.
@@ -141,6 +142,13 @@ export interface AuditReport {
    * version unchanged.
    */
   readonly brokenReferences?: readonly string[];
+  /**
+   * Instruction specs still using the deprecated `keyFiles` (the
+   * `deprecated-key-files` rule's findings: path, entry count, compiled
+   * characters). Advisory — never scored. Present only when at least one spec
+   * uses the field. Additive/optional — schema version unchanged.
+   */
+  readonly deprecatedKeyFiles?: readonly DeprecatedKeyFilesFinding[];
   /**
    * The adoption preview — "what would vigiles catch in your repo?" Present only
    * when the model-gated tier ran (behind consent); a deterministic read omits it.
@@ -262,6 +270,20 @@ function outputStylesField(n: number | "not-supported" | undefined): {
   return n === undefined || n === 0 ? {} : { outputStyles: n };
 }
 
+/** The scan's concrete finding lists, each present only when non-empty. */
+function scanFindingLists(
+  report: ScanReport,
+): Pick<AuditReport, "brokenReferences" | "deprecatedKeyFiles"> {
+  return {
+    ...(report.danglingRefs.length
+      ? { brokenReferences: report.danglingRefs }
+      : {}),
+    ...(report.deprecatedKeyFiles
+      ? { deprecatedKeyFiles: report.deprecatedKeyFiles }
+      : {}),
+  };
+}
+
 /**
  * Assemble the versioned {@link AuditReport} from a scan report — pure, no clock.
  * The CLI attaches `meta.generatedAt` when it writes the JSON artifact; the
@@ -288,9 +310,7 @@ export function buildAuditReport(
     verdict,
     recommendations,
     inventory: inventoryOf(report),
-    ...(report.danglingRefs.length
-      ? { brokenReferences: report.danglingRefs }
-      : {}),
+    ...scanFindingLists(report),
     ...(adoptable ? { adoptable } : {}),
     ...(opts.observations ? { observations: opts.observations } : {}),
     ...(opts.rulesInventory && opts.rulesInventory.length

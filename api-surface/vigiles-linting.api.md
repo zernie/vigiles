@@ -58,6 +58,7 @@ export const claude: typeof instructionFile;
 // @public (undocumented)
 export interface ClaudeSpec {
     readonly commands?: Record<string, string>;
+    // @deprecated
     readonly keyFiles?: Record<string, string>;
     readonly maxSectionLines?: number;
     readonly maxTokens?: number;
