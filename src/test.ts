@@ -99,6 +99,10 @@ export type {
   // — a type that appears in a public signature and cannot be imported is a
   // surface you can read but not write against.
   BlockMechanism,
+  // Named in HookRunResult.delivery — same reason as BlockMechanism above.
+  HookDelivery,
+  DeliveryChannel,
+  StrandedOutput,
   RunHookOptions,
   HookInput,
   HookOutput,

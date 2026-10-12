@@ -8,12 +8,14 @@ import { tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync } from "node:fs";
 
 import {
+  assertDelivered,
   assertNoEgress,
   assertEgressOnly,
   assertWroteOnly,
   assertNoWrite,
 } from "./harness-assert.js";
 import { claudeCodeHookProtocol } from "./adapters/claude-code/hook-protocol.js";
+import type { EventCapabilityTable } from "./core/event-capability.js";
 import type { HookProtocol } from "./core/hook-protocol.js";
 import {
   runHook,
@@ -1028,4 +1030,80 @@ test("runHookWith declares the spawn dir as the project root, unless told otherw
   run({ env: { OTHER: "kept" } });
   assert.equal(seen.CLAUDE_PROJECT_DIR, undefined);
   assert.equal(seen.OTHER, "kept");
+});
+
+// --- delivery: did the hook's text reach the MODEL? -------------------------
+//
+// The measured defect (2026-10-11, a downstream KB linter): a PostToolUse hook
+// wrote its findings to stderr and exited 0 — RC=0, 0 bytes stdout, 237 bytes
+// stderr — and every test of it was green because every test read `r.stderr`.
+// The host never shows that stream to the model. These run REAL processes so
+// the streams are the ones a harness would see.
+
+const NUDGE_TO_STDERR = `printf '%s' 'kb-lint: missing frontmatter' >&2; exit 0`;
+const NUDGE_AS_CONTEXT = `printf '%s' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"kb-lint: missing frontmatter"}}'`;
+const postEdit = {
+  hook_event_name: "PostToolUse",
+  tool_name: "Edit",
+  tool_input: { file_path: "notes/a.md" },
+};
+
+test("runHook: a stderr + exit 0 PostToolUse nudge is reported UNDELIVERED", () => {
+  const r = runHook(NUDGE_TO_STDERR, postEdit);
+  assert.equal(r.exitCode, 0);
+  assert.equal(r.stdout, "");
+  assert.ok(r.stderr.length > 0, "the hook DID print — to the dead stream");
+  assert.equal(r.delivery.kind, "undelivered");
+  assert.throws(() => {
+    assertDelivered(r);
+  }, /stderr[\s\S]*additionalContext/);
+});
+
+test("runHook: the same nudge as additionalContext, or via exit 2, is DELIVERED", () => {
+  const ctx = runHook(NUDGE_AS_CONTEXT, postEdit);
+  assert.equal(ctx.delivery.kind, "delivered");
+  assertDelivered(ctx);
+  const fed = runHook(
+    `printf '%s' 'kb-lint: missing frontmatter' >&2; exit 2`,
+    postEdit,
+  );
+  assert.equal(fed.delivery.kind, "delivered");
+  assertDelivered(fed);
+});
+
+test("runHook: an explicit capability table is the one delivery is judged against", () => {
+  // Override the default table with one whose PostToolUse honours ONLY inject:
+  // exit-2 stderr, delivered under the default, must now be undelivered. A
+  // table-less harness passing its own table is the same code path; its
+  // fallback without one is pinned in src/adapters/codex/hook-delivery.test.ts.
+  const capabilities: EventCapabilityTable = {
+    capturedFrom: "test fixture",
+    events: {
+      PostToolUse: {
+        carries: "tool",
+        honours: ["inject"],
+        matcher: true,
+        denyShape: "exit-code",
+      },
+    },
+  };
+  const fed = `printf x >&2; exit 2`;
+  assert.equal(runHook(fed, postEdit).delivery.kind, "delivered");
+  assert.equal(
+    runHook(fed, postEdit, { capabilities }).delivery.kind,
+    "undelivered",
+  );
+  assert.equal(
+    runHook(NUDGE_AS_CONTEXT, postEdit, { capabilities }).delivery.kind,
+    "delivered",
+  );
+});
+
+test("runHook: a hook whose condition did not match was never run — delivery is silent", () => {
+  const r = runHook(NUDGE_AS_CONTEXT, postEdit, { condition: "Bash(git *)" });
+  assert.equal(r.ran, false);
+  assert.equal(r.delivery.kind, "silent");
+  assert.throws(() => {
+    assertDelivered(r);
+  }, /never ran/);
 });

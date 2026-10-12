@@ -45,8 +45,18 @@
  * - `inject` — `additionalContext` reaches the MODEL.
  * - `feedback` — a non-zero exit reaches the model as text, but stops nothing.
  * - `halt` — the whole turn can be ended (Claude Code's `continue: false`).
+ * - `stdout-context` — PLAIN (non-JSON) stdout at exit 0 reaches the model as
+ *   context. Distinct from `inject`: on most events plain stdout goes to the
+ *   debug log while `additionalContext` still lands, so the two are separate
+ *   facts (read by `core/hook-delivery.ts`).
  */
-export type HookChannel = "veto" | "ask" | "inject" | "feedback" | "halt";
+export type HookChannel =
+  | "veto"
+  | "ask"
+  | "inject"
+  | "feedback"
+  | "halt"
+  | "stdout-context";
 
 /** What the event hands the hook — and therefore what a decide() can read. */
 export type EventPayload = "tool" | "prompt" | "stop" | "session" | "none";

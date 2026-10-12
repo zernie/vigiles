@@ -690,6 +690,37 @@ export default experimental_defineReact({
   }
 });
 
+test("compile PRINTS the role/event warning compileHookProgram returns", () => {
+  // `compileHookProgram` returned a `degraded` fit as `warnings` — a gate on
+  // PostToolUse, whose deny reaches the model as feedback and vetoes nothing —
+  // and `vigiles compile` never printed it: a message to the author that was
+  // computed and delivered to nobody, the very defect class this check is about.
+  const dir = makeTmpDir();
+  try {
+    linkVigiles(dir);
+    mkdirSync(resolve(dir, ".vigiles/hooks"), { recursive: true });
+    writeFileSync(
+      resolve(dir, ".vigiles/hooks/post-gate.hook.mjs"),
+      `import { experimental_defineHook, allow, deny } from "vigiles/hook";
+export default experimental_defineHook({
+  on: "PostToolUse",
+  decide: (e) => (e.command.runs("rm") ? deny("no") : allow()),
+});
+`,
+    );
+    const r = spawnSync("node", [CLI, "compile"], {
+      cwd: dir,
+      encoding: "utf-8",
+    });
+    const out = r.stdout + r.stderr;
+    assert.equal(r.status, 0, out); // a warning, never a rejection
+    assert.match(out, /does not honour a veto/);
+    assert.match(out, /FEEDBACK/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
 // OSS merge dogfood: compile a vigiles hook INTO a real plugin's existing
 // settings — proving the merge is non-destructive on a real-world config, not
 // just the synthetic unit fixtures in hook-install.test.ts. The seed is the

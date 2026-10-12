@@ -8276,8 +8276,12 @@ async function compileProviders(): Promise<string[]> {
 interface HookInstallResult {
   readonly role: DispatchKind;
   readonly settingsPath: string;
-  /** Loud, non-CC inject/react caveat (the no-silent-skips gap). */
-  readonly warning?: string;
+  /**
+   * Every warning for this hook on this harness: the compiler's role/event fit
+   * (`compileHookProgram`'s `warnings`, e.g. a gate on an event that only feeds
+   * back) and the install-time delivery caveats below.
+   */
+  readonly warnings: readonly string[];
 }
 
 /**
@@ -8412,7 +8416,14 @@ async function installHookFile(
         `yet automatic).`;
     }
   }
-  return { role, settingsPath: adapter.layout.settingsPath, warning };
+  // 🔴 `compiled.warnings` WAS COMPUTED AND NEVER PRINTED until 2026-10-11
+  // (#356): a degraded role/event fit reached the author's terminal by no
+  // path at all — a nudge with no delivery, inside the check for exactly that.
+  return {
+    role,
+    settingsPath: adapter.layout.settingsPath,
+    warnings: [...(compiled.warnings ?? []), ...(warning ? [warning] : [])],
+  };
 }
 
 /**
@@ -8478,7 +8489,9 @@ async function installHooks(
         console.log(
           `✓ ${file} → ${r.settingsPath} (role: ${r.role}, harness: ${adapter.name})`,
         );
-        if (r.warning) console.warn(`⚠ ${r.warning}`);
+        r.warnings.forEach((w) => {
+          console.warn(`⚠ ${w}`);
+        });
       }
     } catch (e) {
       if (e instanceof HookCompileError) {

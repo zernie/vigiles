@@ -40,7 +40,12 @@ This is **form-based** (compiled vs not), so it stays a _recommendation_: it can
 tell a correct hand-written hook from a broken one. The point is discovery and the
 authoring-time win, not a quality verdict — keep it opt-out, and use
 [`untested-hook`](untested-hook.md) + `guardrail-check` for the "is this hook
-actually sound?" question.
+actually sound?" question — and, for a NUDGE hook, `assertDelivered` over a
+`runHook` result for "does its text reach the model?" (a `PostToolUse` hook that
+writes to stderr and exits 0 reaches nobody). That last one is a test, not a lint
+finding, on purpose: where a shell script writes and which code it exits with is a
+property of its run, not its text. See
+[harness-testing.md](../harness-testing.md#assert-a-nudge-reaches-the-model-assertdelivered).
 
 ## Configuration
 

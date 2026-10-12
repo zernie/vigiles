@@ -554,7 +554,7 @@
     "complexity": 11
   },
   "src/run-hook.ts": {
-    "max-lines-per-function": 50
+    "max-lines-per-function": 41
   },
   "src/run-script.ts": {
     "max-lines-per-function": 85

@@ -78,6 +78,7 @@ function hookResult(over: Partial<HookRunResult> = {}): HookRunResult {
     decision: undefined,
     ran: true,
     conditionReason: "no condition declared",
+    delivery: { kind: "silent" },
     ...over,
   };
 }
