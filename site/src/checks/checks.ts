@@ -107,12 +107,14 @@ export const CHECKS: Record<string, CheckDoc> = {
   "hook-script-exists": {
     slug: "hook-script-exists",
     title: "Hook script exists",
-    gist: "A hook command points at a script file that isn't on disk, so the hook silently never runs.",
+    gist: "A hook that `vigiles compile` wired can't run: a file it needs is missing, or its line is no longer the one compile wrote.",
     what: [
-      "A hook's command references a script path — often via `${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh` — that doesn't exist in the repo. The hook is registered, but there's nothing to execute.",
+      "A compiled hook's line starts the vigiles runtime on a hook program, and needs three files: the runtime, the program, and its stamp. If any is missing, the hook never runs — and a reminder's `|| exit 0` makes that silence look like a hook with nothing to say.",
+      "A line that `vigiles compile` wrote but someone edited (or an older vigiles compiled) is reported too: edited or stale.",
+      "Hand-written hook lines are not read at all. vigiles never parses a command to guess which word is the script; a hand-written hook is checked by running it (`vigiles test`).",
     ],
     why: "The hook appears wired up but does nothing. A safety or formatting hook that silently no-ops is a guard you think you have and don't.",
-    fix: "Add the missing script, or fix the path. vigiles resolves the plugin-root token and checks the file exists (it skips unresolved variables and existence-guarded one-liners, so it won't cry wolf).",
+    fix: "Install dependencies when the runtime is missing, or recompile (`vigiles compile`) when the program, its stamp or the line is out of date. vigiles knows the files because it wrote the line: a line is compiled only when it is exactly the one compile writes.",
     category: "Truthfulness",
   },
 

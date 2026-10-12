@@ -2,6 +2,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   fetchRepo,
   isHarnessPath,
+  isHookPlanInput,
   isHarnessMarker,
   isTestPath,
   collectReferencedPaths,
@@ -280,5 +281,15 @@ describe("isTestPath", () => {
     expect(isTestPath("test/thing.py")).toBe(true);
     expect(isTestPath("src/index.ts")).toBe(false);
     expect(isTestPath("skills/foo/SKILL.md")).toBe(false);
+  });
+});
+
+describe("isHookPlanInput — what the hook-line plan reads", () => {
+  it("fetches compiled hooks' sources, stamps and package.json, so a compiled line reads as compiled in the browser too", () => {
+    expect(isHookPlanInput(".vigiles/hooks/guard.hook.mjs")).toBe(true);
+    expect(isHookPlanInput(".vigiles/hooks/guard.hook.mjs.json")).toBe(true);
+    expect(isHookPlanInput("package.json")).toBe(true);
+    expect(isHookPlanInput(".vigiles/hooks/nested/x.hook.mjs")).toBe(false);
+    expect(isHookPlanInput("pkg/package.json")).toBe(false);
   });
 });

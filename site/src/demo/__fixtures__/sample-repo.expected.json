@@ -8,17 +8,14 @@
     "dir": "acme/widgets"
   },
   "score": {
-    "overall": 41,
+    "overall": 56,
     "grade": "F",
     "categories": [
       {
         "key": "Truthfulness",
-        "score": 77,
+        "score": 92,
         "weight": 1,
-        "findings": [
-          "1 broken intra-plugin reference",
-          "1 hook script missing (never run)"
-        ]
+        "findings": ["1 broken intra-plugin reference"]
       },
       {
         "key": "Triggering",
@@ -64,10 +61,10 @@
     "instructionsOnly": false
   },
   "verdict": {
-    "sentence": "Two fixes away from a D.",
+    "sentence": "One fix away from a D.",
     "grade": "F",
-    "pointsToNextGrade": 19,
-    "fixesToNextGrade": 2,
+    "pointsToNextGrade": 4,
+    "fixesToNextGrade": 1,
     "perRecommendation": [
       {
         "index": 0,
@@ -75,10 +72,6 @@
       },
       {
         "index": 1,
-        "pointsIfFixed": 15
-      },
-      {
-        "index": 2,
         "pointsIfFixed": 8
       }
     ]
@@ -90,14 +83,6 @@
       "rationale": "Tool \"Grepp\" matches no known name — the subagent never gets it. Did you mean \"Grep\"?",
       "fix": "In \"reviewer\", change the tool \"Grepp\" to \"Grep\" — as written it isn't a real tool, so it's dropped and the agent can't use it.",
       "detector": "subagent-tool-contract",
-      "confidence": "likely"
-    },
-    {
-      "surface": "/__vigiles_repo__/hooks/guard.sh",
-      "action": "fix",
-      "rationale": "hook script \"/__vigiles_repo__/hooks/guard.sh\" does not exist on disk",
-      "fix": "Create \"/__vigiles_repo__/hooks/guard.sh\" or fix its path — the hook references a script that isn't on disk, so it silently never runs.",
-      "detector": "hook-script-exists",
       "confidence": "likely"
     },
     {
