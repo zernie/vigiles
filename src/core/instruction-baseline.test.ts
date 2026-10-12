@@ -8,8 +8,11 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  checkCeiling,
   compareToBaseline,
   entryFor,
+  formatCeiling,
+  formatRefusal,
   formatVerdict,
   INSTRUCTION_WEIGHT_MEASURE,
   parseInstructionBaseline,
@@ -320,5 +323,93 @@ describe("formatVerdict — what the reader sees", () => {
   it("a nested bundle is named in the message", () => {
     const v = compareToBaseline(weighCc({ "CLAUDE.md": `${BODY}y` }), recorded);
     expect(formatVerdict(v, "plugins/a")).toMatch(/^plugins\/a: /);
+  });
+});
+
+/** 30,000 chars exactly, the last bytes being the import of `a.md`. */
+const ROOT = `${"x".repeat(29_993)}\n@a.md\n`;
+
+describe("checkCeiling — the opt-in absolute max", () => {
+  it("no max → no verdict, however heavy", () => {
+    expect(checkCeiling(weighCc({ "CLAUDE.md": BODY }), undefined)).toBe(
+      undefined,
+    );
+  });
+
+  it("at or under max → no verdict", () => {
+    expect(checkCeiling(weighCc({ "CLAUDE.md": BODY }), 30_000)).toBe(
+      undefined,
+    );
+    expect(checkCeiling(weighCc({ "CLAUDE.md": BODY }), 30_001)).toBe(
+      undefined,
+    );
+  });
+
+  it("over max → total, max and the scored files heaviest first", () => {
+    const v = checkCeiling(
+      weighCc({ "CLAUDE.md": ROOT, "a.md": "a".repeat(8_000) }),
+      20_000,
+    );
+    expect(v).toEqual({
+      total: 38_000,
+      max: 20_000,
+      unit: "chars",
+      largest: [
+        { path: "CLAUDE.md", size: 30_000 },
+        { path: "a.md", size: 8_000 },
+      ],
+    });
+  });
+
+  it("names at most five files", () => {
+    const names = Array.from({ length: 8 }, (_, i) => `r${String(i)}.md`);
+    const files = Object.fromEntries(
+      names.map((name, i) => [name, "r".repeat(1_000 + i)]),
+    );
+    const root = names.map((name) => `@${name}`).join("\n");
+    const v = checkCeiling(weighCc({ "CLAUDE.md": root, ...files }), 100);
+    expect(v?.largest).toHaveLength(5);
+    expect(v?.largest[0]?.path).toBe("r7.md");
+  });
+
+  it("is blind to the baseline: it judges the tree, not its movement", () => {
+    // A tree that HELD against its baseline is still over a lower ceiling.
+    const w = weighCc({ "CLAUDE.md": BODY });
+    expect(compareToBaseline(w, entryFor(w)).kind).toBe("held");
+    expect(checkCeiling(w, 20_000)?.total).toBe(30_000);
+  });
+});
+
+describe("formatCeiling / formatRefusal — what the reader sees", () => {
+  const v = checkCeiling(
+    weighCc({ "CLAUDE.md": ROOT, "a.md": "a".repeat(8_000) }),
+    20_000,
+  );
+  if (!v) throw new Error("fixture precondition: over the ceiling");
+
+  it("the finding gives total, max, excess, the largest files, and says moving is no fix", () => {
+    const msg = formatCeiling(v, ".");
+    expect(msg).toContain("38,000 chars");
+    expect(msg).toContain("max 20,000");
+    expect(msg).toContain("18,000 over");
+    expect(msg).toContain("CLAUDE.md 30,000, a.md 8,000");
+    expect(msg).toContain(
+      "Moving text to another always-loaded file does not help",
+    );
+  });
+
+  it("a nested bundle is named", () => {
+    expect(formatCeiling(v, "plugins/a")).toMatch(/^plugins\/a: /);
+    expect(formatRefusal(v, "plugins/a")).toMatch(/^plugins\/a: /);
+  });
+
+  it("the refusal says nothing was recorded, why, and what to do", () => {
+    const msg = formatRefusal(v, ".");
+    expect(msg).toContain(
+      "refusing to record .vigiles/instruction-weight.json",
+    );
+    expect(msg).toContain("38,000 chars is over the configured max 20,000");
+    expect(msg).toContain("bypass");
+    expect(msg).toContain("get under it first");
   });
 });

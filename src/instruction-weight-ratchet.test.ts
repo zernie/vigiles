@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { MOVE_OUT_OF_ALWAYS_LOADED } from "./core/instruction-remedies.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 import { compileWeightLine } from "./instruction-weight-ratchet.js";
 import { measureInstructionWeight } from "./scan.js";
@@ -21,6 +22,8 @@ import { claudeCodeAdapter } from "./adapters/claude-code/adapter.js";
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
 const BASELINE = ".vigiles/instruction-weight.json";
 const BODY = "x".repeat(30_000);
+/** The harness pin every test starts from; `withMax` adds rules on top of it. */
+const PINNED = { harnesses: { "claude-code": {} } };
 
 let dir: string;
 
@@ -61,7 +64,7 @@ beforeEach(() => {
   dir = makeTmpDir();
   // Pin the harness: the tmp dir has no `.claude/`, and the ratchet must not
   // depend on what auto-detection picks.
-  put(".vigilesrc.json", JSON.stringify({ harnesses: { "claude-code": {} } }));
+  put(".vigilesrc.json", JSON.stringify(PINNED));
   put("CLAUDE.md", BODY);
 });
 afterEach(() => {
@@ -253,3 +256,140 @@ test("an import the measurement did not follow is said out loud", () => {
   const r = run(["lint"]);
   assert.match(r.out, /1 import\(s\) not followed: b\.md/);
 });
+
+// ---------------------------------------------------------------------------
+// The opt-in absolute ceiling: `["error", { "max": N }]`.
+//
+// The ratchet alone keeps a repo four times over budget green forever; `max`
+// is the explicit, opt-in way to say "no further than this, whatever the
+// baseline says". Without it nothing above changes.
+// ---------------------------------------------------------------------------
+
+function withMax(severity: "error" | "warn", max: unknown): void {
+  put(
+    ".vigilesrc.json",
+    JSON.stringify({
+      ...PINNED,
+      rules: { "instruction-weight": [severity, { max }] },
+    }),
+  );
+}
+
+test("max: a total over the ceiling is a finding that names total, max, excess and the biggest file", () => {
+  withMax("error", 20_000);
+  const r = run(["lint"]);
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /30,000 chars/);
+  assert.match(r.out, /max 20,000/);
+  assert.match(r.out, /10,000 over/);
+  assert.match(r.out, /CLAUDE\.md 30,000/);
+  // The CLI prints the remedy list; its wording is owned by instruction-remedies.test.ts.
+  assert.ok(r.out.includes(MOVE_OUT_OF_ALWAYS_LOADED), r.out);
+});
+
+test("max: holds independently of the baseline — an over-ceiling repo cannot hide behind a recorded one", () => {
+  put(
+    BASELINE,
+    JSON.stringify({
+      version: 1,
+      bundles: {
+        ".": {
+          unit: "chars",
+          measure: 1,
+          total: 30_000,
+          files: { "CLAUDE.md": 30_000 },
+        },
+      },
+    }),
+  );
+  withMax("error", 20_000);
+  const r = run(["lint"]);
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /held at 30,000 chars/, "the ratchet itself still holds");
+  assert.match(r.out, /10,000 over/, "the ceiling still fails");
+});
+
+test("max: the largest files are named heaviest first, imports included", () => {
+  // An import is weighed like any always-loaded file and named by its path.
+  put("CLAUDE.md", `${BODY}\n@big.md\n`);
+  put("big.md", "b".repeat(8_000));
+  withMax("error", 20_000);
+  const r = run(["lint"]);
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /CLAUDE\.md 30,009, big\.md 8,000/);
+});
+
+test("max: at the ceiling, and under it, are silent", () => {
+  withMax("error", 30_000);
+  const at = run(["lint"]);
+  assert.equal(at.code, 0, at.out);
+  assert.doesNotMatch(at.out, /\d over/);
+  withMax("error", 50_000);
+  const under = run(["lint"]);
+  assert.equal(under.code, 0, under.out);
+  assert.doesNotMatch(under.out, /max 50,000/);
+});
+
+test('max with "warn" reports the excess without touching the exit code', () => {
+  withMax("warn", 20_000);
+  const r = run(["lint"]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /⚠ .*10,000 over/);
+});
+
+test("no max: a rule given as [severity, {}] behaves like the bare severity", () => {
+  put(
+    ".vigilesrc.json",
+    JSON.stringify({
+      ...PINNED,
+      rules: { "instruction-weight": ["error", {}] },
+    }),
+  );
+  const r = run(["lint"]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /no instruction-weight baseline recorded/);
+});
+
+test("max: --update-baseline above the ceiling is refused — nothing is written", () => {
+  withMax("error", 20_000);
+  const r = run(["lint", "--update-baseline"]);
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, /refus/i);
+  assert.match(r.out, /30,000/);
+  assert.match(r.out, /20,000/);
+  assert.equal(existsSync(join(dir, BASELINE)), false, "no baseline written");
+});
+
+test('max: a refusal still fails under "warn" — re-recording must not bypass the ceiling', () => {
+  withMax("warn", 20_000);
+  const r = run(["lint", "--update-baseline"]);
+  assert.notEqual(r.code, 0, r.out);
+  assert.equal(existsSync(join(dir, BASELINE)), false);
+});
+
+test("max: a refused update leaves an existing baseline byte-identical", () => {
+  run(["lint", "--update-baseline"]);
+  const before = readFileSync(join(dir, BASELINE), "utf-8");
+  put("CLAUDE.md", `${BODY}${"y".repeat(5_000)}`);
+  withMax("error", 32_000);
+  const r = run(["lint", "--update-baseline"]);
+  assert.notEqual(r.code, 0, r.out);
+  assert.equal(readFileSync(join(dir, BASELINE), "utf-8"), before);
+});
+
+test("max: --update-baseline at or under the ceiling records as usual", () => {
+  withMax("error", 30_000);
+  const r = run(["lint", "--update-baseline"]);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(recordedTotal(), 30_000);
+});
+
+test.each([0, -1, 1.5, "40000"])(
+  "max: %j is not a ceiling — the config is rejected",
+  (bad) => {
+    withMax("error", bad);
+    const r = run(["lint"]);
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(r.out, /max/);
+  },
+);

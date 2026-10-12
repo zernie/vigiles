@@ -9,9 +9,10 @@ import { resolve, dirname, basename } from "node:path";
 
 import { sha256short, assertNever } from "./hash.js";
 import { findIntegrityHeader, placeIntegrityHeader } from "./integrity.js";
-import { fencedLineFlags } from "./markdown.js";
+import { fencedLineFlags, markdownAnchors } from "./markdown.js";
 import { fileDefinesSymbol, langForFile, notCheckedReason } from "./symbols.js";
 import { foldLegacyPostcondition } from "./skill-normalize.js";
+import { renderKeyFiles } from "./keyfiles.js";
 
 import type {
   ClaudeSpec,
@@ -21,6 +22,8 @@ import type {
   SkillStep,
   Gate,
   Rule,
+  EnforceRule,
+  RuleDetails,
   InstructionFragment,
   OutputContract,
   OutputFieldType,
@@ -39,6 +42,7 @@ import {
 import { purityViolations } from "./effects.js";
 import type { LinterCheckResult } from "./linters.js";
 import type { HarnessDialect } from "./dialect.js";
+import { MOVE_OUT_OF_ALWAYS_LOADED } from "./instruction-remedies.js";
 import {
   DEFAULT_INSTRUCTION_TARGETS,
   RENDERABLE_SKILL_FRONTMATTER_KEYS,
@@ -186,7 +190,8 @@ export interface CompileError {
     | "effect-in-skill"
     | "inline-code-too-long"
     | "entry-too-long"
-    | "section-too-large";
+    | "section-too-large"
+    | "rules-too-large";
   message: string;
   path?: string;
 }
@@ -497,6 +502,41 @@ export function unverifiedAdvice(
   }
 }
 
+/** `[Details](path#anchor)` for a rule's long text. */
+function detailsLink(details: RuleDetails): string {
+  const anchor = details.anchor === undefined ? "" : `#${details.anchor}`;
+  return `[Details](${details.file.path}${anchor})`;
+}
+
+/**
+ * The first sentence of `text`: up to the first `.`, `!` or `?` that closes a
+ * word (no space before it) and is followed by the end of the text or by
+ * whitespace and a capital, digit, quote, backtick or bracket. So a mark inside
+ * the sentence — "instead of ! assertions", "e.g. into helpers" — does not end
+ * it. A `why` with no sentence end is returned whole — truncating mid-sentence
+ * would render a claim nobody wrote.
+ */
+function firstSentence(text: string): string {
+  const m = /^[\s\S]*?\S[.!?](?=$|\s+[A-Z0-9"'`(*[])/.exec(text.trim());
+  return m ? m[0] : text.trim();
+}
+
+/** The `**Why:**` line(s) of an enforce rule under its render policy. */
+function enforceWhy(rule: EnforceRule): readonly string[] {
+  const link = rule.details ? ` ${detailsLink(rule.details)}` : "";
+  const render = rule.render ?? "full";
+  switch (render) {
+    case "full":
+      return [`**Why:** ${rule.why}${link}`];
+    case "line":
+      return [`**Why:** ${firstSentence(rule.why)}${link}`];
+    case "id":
+      return rule.details ? [detailsLink(rule.details)] : [];
+    default:
+      return assertNever(render);
+  }
+}
+
 function compileRule(id: string, rule: Rule, verdict?: EnforceVerdict): string {
   const title = id
     .replace(/[-_]/g, " ")
@@ -512,14 +552,18 @@ function compileRule(id: string, rule: Rule, verdict?: EnforceVerdict): string {
         `### ${title}`,
         "",
         `${marker} \`${rule.linterRule}\``,
-        `**Why:** ${rule.why}`,
+        ...enforceWhy(rule),
       ].join("\n");
     }
 
-    case "guidance":
-      return [`### ${title}`, "", `**Guidance only** — ${rule.text}`].join(
-        "\n",
-      );
+    case "guidance": {
+      const link = rule.details ? ` ${detailsLink(rule.details)}` : "";
+      return [
+        `### ${title}`,
+        "",
+        `**Guidance only** — ${rule.text}${link}`,
+      ].join("\n");
+    }
 
     case "guard": {
       const patterns = Array.isArray(rule.watch)
@@ -542,12 +586,21 @@ export interface CompileClaudeResult {
   markdown: string;
   errors: CompileError[];
   /**
-   * Budget findings — never errors. An over-long `keyFiles` description or a
-   * bloated section does not break the harness, it makes every request more
-   * expensive, so it must not stop a faithful adoption from compiling. Same
-   * channel discipline as `checkInlineCode`.
+   * Budget findings at the rule's DEFAULT severity (`compile-budget: "warn"`).
+   * An over-long `keyFiles` description or a bloated section does not break
+   * the harness, it makes every request more expensive, so by default it must
+   * not stop a faithful adoption from compiling. Same channel discipline as
+   * `checkInlineCode`. Empty when the rule is at `"error"` (the findings are in
+   * `errors` then) or off.
    */
   warnings: CompileError[];
+  /**
+   * Every budget finding, whatever the severity — the SAME objects that were
+   * placed in `warnings` or `errors`. `lint` re-derives a spec's references
+   * through this compiler and must not report a size finding as a dead
+   * reference, so it tells the two apart by identity here, never by type name.
+   */
+  budgetFindings: CompileError[];
   linterResults: LinterCheckResult[];
   /**
    * One entry per `enforce()` rule, in spec order: rendered "**Enforced by:**"
@@ -562,10 +615,21 @@ export interface CompileClaudeResult {
 }
 
 export interface CompileClaudeOptions {
-  /** Per-entry `keyFiles`/`commands` character budget (0 disables). */
+  /**
+   * The `compile-budget` rule's severity. `"warn"` (the default) reports the
+   * per-entry and per-section budgets as warnings and evaluates the Rules total
+   * only when a threshold for it is passed; `"error"` (what
+   * `vigiles:recommended` sets) evaluates every budget, with defaults, as an
+   * error; `false` reports none (an explicit `maxTokens` still fails, as it
+   * always has — a separate check).
+   */
+  budgetSeverity?: "warn" | "error" | false;
+  /** Per-entry `commands` character budget (0 disables). */
   maxEntryChars?: number;
   /** Per-section character budget, beside the line budget (0 disables). */
   maxSectionChars?: number;
+  /** Character budget for the whole rendered Rules section (0 disables). */
+  maxRulesChars?: number;
   basePath?: string;
   specFile?: string;
   /** Injected harness dialect; its instructionTargets[0] is the default target. */
@@ -634,57 +698,147 @@ export const DEFAULT_MAX_ENTRY_CHARS = 200;
 export const DEFAULT_MAX_SECTION_CHARS = 15000;
 
 /**
- * Budget findings for the two append-only maps and for section size. WARNINGS
- * by construction (`lint-rule-calibration`: severity tracks confidence, and a
- * gate that fails every real repo on day one is switched off on day two — this
- * repo's own corpus opens at 26 over-long entries).
+ * The Rules section, as one budget. Under `compile-budget: "error"` only.
+ *
+ * WHY THE SECTION AND NOT EACH RULE. A per-rule length cap was built and
+ * removed within an hour: it opened on 40 of 53 rules, because a rule's length
+ * is not where the cost is — the SUM is, and it is loaded on every request.
+ * 20,000 characters is half of Claude Code's 40,000-character instruction
+ * budget, which leaves the other half for everything else the file carries.
  */
-function checkContentBudgets(
-  spec: {
-    readonly keyFiles?: Record<string, string>;
+export const DEFAULT_MAX_RULES_CHARS = 20000;
+
+/** One budget, with its threshold resolved. `0` means "not evaluated". */
+interface BudgetLimits {
+  readonly entryChars: number;
+  readonly sectionChars: number;
+  readonly rulesChars: number;
+}
+
+/**
+ * The thresholds this compile measures against.
+ *
+ * The Rules total has no default at `"warn"`: a repo that does not extend
+ * `vigiles:recommended` and leaves the rule at its default sees exactly the
+ * warnings `compile` printed before the rule had a name. At `"error"` (what the
+ * preset sets) every budget applies with its default.
+ *
+ * 🔴 WHAT THIS RULE DOES NOT MEASURE, ON PURPOSE — each has one owner already:
+ * - the whole always-loaded size, in the harness's unit (Claude Code chars,
+ *   Codex bytes) — `instruction-weight` and its `max`, which sums the whole
+ *   chain, so moving text into a rules file does not fool it;
+ * - `keyFiles` — deprecated (`deprecated-key-files`); budgeting a section the
+ *   reader is told to delete would be a second, contradicting instruction.
+ */
+function resolveBudgetLimits(
+  options: Readonly<CompileClaudeOptions>,
+  severity: "warn" | "error",
+): BudgetLimits {
+  const strict = severity === "error";
+  return {
+    entryChars: options.maxEntryChars ?? DEFAULT_MAX_ENTRY_CHARS,
+    sectionChars: options.maxSectionChars ?? DEFAULT_MAX_SECTION_CHARS,
+    rulesChars: options.maxRulesChars ?? (strict ? DEFAULT_MAX_RULES_CHARS : 0),
+  };
+}
+
+/** What the budgets measure: the spec's own strings plus the rendered output. */
+interface BudgetInput {
+  readonly spec: {
     readonly commands?: Record<string, string>;
     readonly sections?: Record<string, unknown>;
-  },
+    readonly rules: Record<string, unknown>;
+  };
+  readonly renderedRules: string;
+}
+
+const n = (x: number): string => x.toLocaleString("en-US");
+
+/**
+ * Budget findings for `commands` entries, section size and the Rules total.
+ * Severity is applied by the caller: the same finding is a warning at the
+ * rule's default and an error under `vigiles:recommended`.
+ */
+function checkContentBudgets(
+  input: BudgetInput,
   specFile: string,
-  maxEntryChars: number,
-  maxSectionChars: number,
-): CompileError[] {
-  const warns: CompileError[] = [];
-  const entries: [string, Record<string, string> | undefined][] = [
-    ["keyFiles", spec.keyFiles],
-    ["commands", spec.commands],
+  limits: BudgetLimits,
+): readonly CompileError[] {
+  return [
+    ...entryBudget("commands", input.spec.commands, specFile, limits),
+    ...sectionBudget(input.spec.sections, specFile, limits),
+    ...rulesBudget(input, specFile, limits),
   ];
-  for (const [field, map] of entries) {
-    if (!map || maxEntryChars <= 0) continue;
-    for (const [key, description] of Object.entries(map)) {
-      if (description.length <= maxEntryChars) continue;
-      warns.push({
-        type: "entry-too-long",
-        path: specFile,
-        message:
-          `${field}[${JSON.stringify(key)}] description is ${String(description.length)} ` +
-          `characters (budget ${String(maxEntryChars)}). An entry is a pointer — say what the ` +
-          `file is for in one line and move the explanation into its own header, which is read ` +
-          `when someone opens it rather than on every request.`,
-      });
-    }
-  }
-  if (spec.sections && maxSectionChars > 0) {
-    for (const [name, body] of Object.entries(spec.sections)) {
-      // Fragment-valued sections are assembled later; only plain prose is
-      // measurable here, and it is the shape that grows.
-      if (typeof body !== "string" || body.length <= maxSectionChars) continue;
-      warns.push({
-        type: "section-too-large",
-        path: specFile,
-        message:
-          `section ${JSON.stringify(name)} is ${String(body.length)} characters ` +
-          `(budget ${String(maxSectionChars)}). The line guard cannot see this — long lines are ` +
-          `the normal shape of compiled prose — and every character is loaded on every request.`,
-      });
-    }
-  }
-  return warns;
+}
+
+/** One finding per `commands` description over the entry budget. */
+function entryBudget(
+  field: "commands",
+  map: Readonly<Record<string, string>> | undefined,
+  specFile: string,
+  limits: BudgetLimits,
+): readonly CompileError[] {
+  if (!map || limits.entryChars <= 0) return [];
+  return Object.entries(map)
+    .filter(([, description]) => description.length > limits.entryChars)
+    .map(([key, description]) => ({
+      type: "entry-too-long" as const,
+      path: specFile,
+      message:
+        `${field}[${JSON.stringify(key)}] description is ${String(description.length)} ` +
+        `characters (budget ${String(limits.entryChars)}). An entry is a pointer — say what the ` +
+        `command does in one line and move the explanation into the script's own header or ` +
+        `--help, which is read when someone runs it rather than on every request.`,
+    }));
+}
+
+/** One finding per plain-prose section over the section budget. */
+function sectionBudget(
+  sections: Readonly<Record<string, unknown>> | undefined,
+  specFile: string,
+  limits: BudgetLimits,
+): readonly CompileError[] {
+  if (!sections || limits.sectionChars <= 0) return [];
+  // Fragment-valued sections are assembled later; only plain prose is
+  // measurable here, and it is the shape that grows.
+  return Object.entries(sections)
+    .filter(
+      (pair): pair is [string, string] =>
+        typeof pair[1] === "string" && pair[1].length > limits.sectionChars,
+    )
+    .map(([name, body]) => ({
+      type: "section-too-large" as const,
+      path: specFile,
+      message:
+        `section ${JSON.stringify(name)} is ${n(body.length)} characters ` +
+        `(budget ${n(limits.sectionChars)}). The line guard cannot see this — long lines are ` +
+        `the normal shape of compiled prose — and every character is loaded on every request.\n` +
+        MOVE_OUT_OF_ALWAYS_LOADED,
+    }));
+}
+
+/** The whole Rules section, as one sum. */
+function rulesBudget(
+  input: BudgetInput,
+  specFile: string,
+  limits: BudgetLimits,
+): readonly CompileError[] {
+  const rulesChars = input.renderedRules.length;
+  if (limits.rulesChars <= 0 || rulesChars <= limits.rulesChars) return [];
+  return [
+    {
+      type: "rules-too-large",
+      path: specFile,
+      message:
+        `the Rules section is ${n(rulesChars)} characters for ` +
+        `${String(Object.keys(input.spec.rules).length)} rules ` +
+        `(budget ${n(limits.rulesChars)}). Render a rule shorter instead of deleting it: ` +
+        `enforce(rule, why, { render: "id" }) when a linter already holds it, or ` +
+        `guidance(statement, { details: file(...) }) with the long text in that file — ` +
+        `the rule stays in the spec, where lint and audit read it.\n` +
+        MOVE_OUT_OF_ALWAYS_LOADED,
+    },
+  ];
 }
 
 // A key-files entry is a POINTER, not an essay: the prose about why a file is
@@ -770,11 +924,11 @@ function compileKeyFilesSection(
   spec: ClaudeSpec,
   basePath: string,
 ): SectionResult {
-  if (!spec.keyFiles) return { lines: [], errors: [] };
-  const lines = ["## Key Files", ""];
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- keyFiles is deprecated, not removed: it still compiles until the next major
+  const keyFiles = spec.keyFiles;
+  if (!keyFiles) return { lines: [], errors: [] };
   const errors: CompileError[] = [];
-  for (const [filePath, desc] of Object.entries(spec.keyFiles)) {
-    lines.push(`- \`${filePath}\` — ${desc}`);
+  for (const [filePath, desc] of Object.entries(keyFiles)) {
     const err = validateFileRef(filePath, basePath);
     if (err) errors.push(err);
     if (desc.length > DEFAULT_MAX_KEYFILE_CHARS) {
@@ -784,7 +938,9 @@ function compileKeyFilesSection(
       });
     }
   }
-  return { lines: [lines.join("\n")], errors };
+  // The one renderer the `deprecated-key-files` rule measures with, so the
+  // size a finding reports is the size of what this emits.
+  return { lines: [renderKeyFiles(keyFiles)], errors };
 }
 
 function compileCommandsSection(
@@ -818,6 +974,30 @@ function skipVerificationReason(
   const linterMode = options.linterModes?.[linterName];
   if (linterMode === false) return "linter-off";
   return null;
+}
+
+/**
+ * A rule's `details` must land somewhere: the file exists (the same check as
+ * every `file()`), and its anchor, if any, is a heading or an explicit id in
+ * that file. A short rule whose long text 404s is the rule deleted, with a
+ * link standing where it was.
+ */
+function validateRuleDetails(
+  details: RuleDetails,
+  basePath: string,
+): readonly CompileError[] {
+  const missing = validateFileRef(details.file.path, basePath);
+  if (missing) return [missing];
+  if (details.anchor === undefined) return [];
+  const text = readFileSync(resolve(basePath, details.file.path), "utf-8");
+  if (markdownAnchors(text).has(details.anchor)) return [];
+  return [
+    {
+      type: "stale-ref",
+      message: `Anchor "#${details.anchor}" not found in "${details.file.path}" (no heading slugs to it and no <a id> defines it)`,
+      path: `${details.file.path}#${details.anchor}`,
+    },
+  ];
 }
 
 interface RulesSectionResult extends SectionResult {
@@ -909,7 +1089,14 @@ function compileRulesSection(
   const checks = rendered.flatMap((r) => (r.check ? [r.check] : []));
   return {
     lines: [["## Rules", ...rendered.flatMap((r) => ["", r.text])].join("\n")],
-    errors: checks.flatMap((c) => (c.error ? [c.error] : [])),
+    errors: [
+      ...checks.flatMap((c) => (c.error ? [c.error] : [])),
+      ...ruleEntries.flatMap(([, rule]) =>
+        rule._kind !== "guard" && rule.details
+          ? validateRuleDetails(rule.details, basePath)
+          : [],
+      ),
+    ],
     linterResults: checks.flatMap((c) => (c.result ? [c.result] : [])),
     enforceVerdicts: checks.map((c) => ({ ref: c.ref, verdict: c.verdict })),
   };
@@ -991,7 +1178,9 @@ export async function compileClaude(
   const body = sections.join("\n\n") + "\n";
   const tokens = estimateTokens(body);
 
-  // Per-spec maxTokens takes precedence, then compile options
+  // Per-spec maxTokens takes precedence, then compile options. An explicit
+  // ceiling is an error at any `compile-budget` severity, as it always was:
+  // the author typed a number and asked for it to hold.
   const maxTokens = spec.maxTokens ?? options.maxTokens;
   if (maxTokens && tokens > maxTokens) {
     errors.push({
@@ -1002,15 +1191,27 @@ export async function compileClaude(
 
   const markdown = addHash(body, specFile);
   const allTargets = Array.isArray(targets) ? targets : [targets];
+  const severity = options.budgetSeverity ?? "warn";
+  const budgetFindings =
+    severity === false
+      ? []
+      : [
+          ...checkContentBudgets(
+            {
+              spec,
+              renderedRules: rules.lines.join("\n\n"),
+            },
+            specFile,
+            resolveBudgetLimits(options, severity),
+          ),
+        ];
   return {
     markdown,
-    errors,
-    warnings: checkContentBudgets(
-      spec,
-      specFile,
-      options.maxEntryChars ?? DEFAULT_MAX_ENTRY_CHARS,
-      options.maxSectionChars ?? DEFAULT_MAX_SECTION_CHARS,
-    ),
+    // The SAME objects as `budgetFindings`, so `lint` can tell them apart by
+    // identity.
+    errors: severity === "error" ? [...errors, ...budgetFindings] : errors,
+    warnings: severity === "warn" ? budgetFindings : [],
+    budgetFindings,
     linterResults: rules.linterResults,
     enforceVerdicts: rules.enforceVerdicts,
     tokens,

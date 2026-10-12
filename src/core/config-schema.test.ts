@@ -144,7 +144,7 @@ test("a bare string is a one-element list, not a string spread char-by-char", ()
  * one — and the list is printed only when there is not, which is the case where
  * the list IS the answer.
  */
-test("an unknown key suggests the near-miss instead of listing 34 candidates", () => {
+test("an unknown key suggests the near-miss instead of listing 36 candidates", () => {
   assert.deepEqual(problems({ rules: { "spec-ref": "error" } }), [
     '.vigilesrc.json: unknown key "spec-ref" in rules. Did you mean "spec-refs"?',
   ]);
@@ -154,7 +154,7 @@ test("an unknown key suggests the near-miss instead of listing 34 candidates", (
   assert.match(far[0], /Known: spec-refs, orphan-docs/);
   // Capped, with the remainder COUNTED rather than dropped — a silently short
   // list would read as "these are all of them".
-  assert.match(far[0], /… and 22 more\.$/);
+  assert.match(far[0], /… and 24 more\.$/);
 });
 
 test("an unknown top-level key names the near-miss", () => {
@@ -208,7 +208,8 @@ test("an empty config parses to the shipped defaults", () => {
   assert.equal(d.rules["doc-refs"], false);
   assert.equal(d.rules["prefer-compiled-hooks"], false);
   assert.equal(d.rules.integrity, "warn");
-  assert.equal(Object.keys(d.rules).length, 34);
+  assert.equal(Object.keys(d.rules).length, 36);
+  assert.equal(d.rules["deprecated-key-files"], "warn");
   assert.equal(d.harnesses, undefined, "no declaration means auto-detect");
 });
 
@@ -255,7 +256,7 @@ test("without extends, no rule moves off its built-in default", () => {
   }
 });
 
-test("an unknown preset name is refused, naming the one that exists", () => {
+test("an unknown preset name is refused, naming the ones that exist", () => {
   const r = parseVigilesConfig({ extends: "vigiles:recomended" });
   assert.ok(!r.success);
   assert.deepEqual(formatConfigIssues(r.error.issues), [
@@ -273,4 +274,97 @@ test("a bad rule value under a preset is still the rule's own error", () => {
     formatConfigIssues(r.error.issues)[0] ?? "",
     /rules\.hook-events/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// instruction-weight options: the opt-in absolute ceiling
+// ---------------------------------------------------------------------------
+
+test("instruction-weight takes a bare severity, or [severity, { max }]", () => {
+  for (const value of [
+    "error",
+    "warn",
+    false,
+    ["error", { max: 40_000 }],
+    ["warn", {}],
+  ]) {
+    assert.deepEqual(
+      problems({ rules: { "instruction-weight": value } }),
+      [],
+      JSON.stringify(value),
+    );
+  }
+  const parsed = vigilesConfigSchema.parse({
+    rules: { "instruction-weight": ["error", { max: 40_000 }] },
+  });
+  assert.deepEqual(parsed.rules?.["instruction-weight"], [
+    "error",
+    { max: 40_000 },
+  ]);
+});
+
+test("instruction-weight keeps its default when unset", () => {
+  assert.equal(
+    vigilesConfigSchema.parse({}).rules?.["instruction-weight"],
+    "error",
+  );
+});
+
+test("instruction-weight max must be a positive integer — each bad value names `max`", () => {
+  for (const bad of [0, -5, 1.5, "40000", null]) {
+    const lines = problems({
+      rules: { "instruction-weight": ["error", { max: bad }] },
+    });
+    assert.equal(lines.length, 1, JSON.stringify(bad));
+    assert.match(
+      lines[0] ?? "",
+      /instruction-weight\.1\.max/,
+      JSON.stringify(bad),
+    );
+  }
+});
+
+test("instruction-weight options are strict: a misspelt key is refused", () => {
+  const lines = problems({
+    rules: { "instruction-weight": ["error", { maxx: 40_000 }] },
+  });
+  assert.equal(lines.length, 1);
+  assert.match(lines[0] ?? "", /maxx/);
+});
+
+test('[false, { max }] is refused — an "off" rule has no ceiling to hold', () => {
+  assert.notDeepEqual(
+    problems({ rules: { "instruction-weight": [false, { max: 40_000 }] } }),
+    [],
+  );
+});
+
+// ---------------------------------------------------------------------------
+// `compile-budget` in `vigiles:recommended` (#350) — one preset, no second tier
+// ---------------------------------------------------------------------------
+
+test("compile-budget defaults to warn, and recommended gates it", () => {
+  const plain = parseVigilesConfig({});
+  assert.ok(plain.success);
+  assert.equal(plain.data.rules["compile-budget"], "warn");
+  const rec = parseVigilesConfig({ extends: "vigiles:recommended" });
+  assert.ok(rec.success);
+  assert.equal(rec.data.rules["compile-budget"], "error");
+});
+
+test("compile-budget takes its thresholds as rule options", () => {
+  const r = parseVigilesConfig({
+    rules: {
+      "compile-budget": ["error", { maxRulesChars: 30000, maxSectionChars: 0 }],
+    },
+  });
+  assert.ok(r.success);
+  assert.deepEqual(r.data.rules["compile-budget"], [
+    "error",
+    { maxRulesChars: 30000, maxSectionChars: 0 },
+  ]);
+  const bad = parseVigilesConfig({
+    rules: { "compile-budget": ["error", { maxRuleChars: 1 }] },
+  });
+  assert.ok(!bad.success, "a misspelled threshold is refused, not ignored");
 });

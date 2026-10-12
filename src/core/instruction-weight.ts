@@ -48,7 +48,12 @@ import type {
 export interface InstructionBudget {
   /** Claude Code counts characters; Codex counts bytes. Never tokens. */
   readonly unit: "chars" | "bytes";
-  /** The harness's own threshold, in `unit`. */
+  /**
+   * The budget, in `unit`. For Codex it is the harness's own cut-off. For Claude
+   * Code it is the harness's FLOOR: the CLI warns per file at 5% of the model's
+   * context window in characters (never below 40 000) and on the sum at 120 000
+   * or that per-file limit, so on a 1M-token model it warns far later than this.
+   */
   readonly limit: number;
   /**
    * `warns` — the instructions still reach the model (Claude Code).
