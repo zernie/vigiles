@@ -107,10 +107,21 @@ interface SkillResourceRef {
 }
 
 /**
- * A SKILL.md body reference to a local bundled file that does not resolve under
- * the skill dir, tagged with WHY ({@link SkillResourceResolution}). Distributes
- * over `R`, so the default is a discriminated union that narrows on
- * `resolution`, and `SkillResourceFinding<"missing">` is the one variant.
+ * One file reference in a SKILL.md body that is not beside the SKILL.md.
+ * `resolution` says why it was reported. For `.claude/skills/deploy/SKILL.md`:
+ *
+ * ```ts
+ * // line 8 says "run `scripts/deploy.sh`"; only <repo>/scripts/deploy.sh exists
+ * { ref: "scripts/deploy.sh", resolved: "scripts/deploy.sh", kind: "path",
+ *   line: 8, resolution: "repo-root-only" }
+ * // line 9 says "see `scripts/smoke.sh`"; that file exists nowhere
+ * { ref: "scripts/smoke.sh", resolved: "scripts/smoke.sh", kind: "path",
+ *   line: 9, resolution: "missing" }
+ * ```
+ *
+ * `SkillResourceFinding` on its own is either case: check `resolution` to tell
+ * them apart. `SkillResourceFinding<"missing">` is only the first kind, so a
+ * list typed with it (the scored one) cannot be handed a note.
  */
 export type SkillResourceFinding<
   R extends SkillResourceResolution = SkillResourceResolution,
