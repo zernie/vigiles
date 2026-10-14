@@ -168,6 +168,8 @@ Beyond the references above, `vigiles lint` runs a set of **deterministic valida
 
 The per-family tables below give each rule's default severity and what it checks.
 
+**Experimental rules** are marked as such: checks vigiles ships but has not measured as reliable enough to grade you on. They are off by default, report at `warn` when you turn them on (`--preset=experimental`, or `"extends": "vigiles:experimental"`), and never count toward the `audit` score — see [experimental rules](configuration.md#experimental-rules).
+
 ### Spec &amp; integrity
 
 | Rule                                                              | Default                                         | What it checks                                                                                                          |
@@ -219,14 +221,14 @@ The per-family tables below give each rule's default severity and what it checks
 
 ### Skill triggers
 
-| Rule                                                            | Default  | What it checks                                                               |
-| --------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------- |
-| [`skill-frontmatter`](rules/skill-frontmatter.md)               | `"warn"` | Recommend explicit skill `name`+`description` (reliable trigger)             |
-| [`description-overlap`](rules/description-overlap.md)           | `"warn"` | No two model-invocable skills have near-identical descriptions               |
-| [`skill-description-budget`](rules/skill-description-budget.md) | `"warn"` | A model-invocable skill's description isn't so long the trigger is buried    |
-| [`frontmatter-valid`](rules/frontmatter-valid.md)               | `"warn"` | A skill/agent `---` block is valid YAML (js-yaml is strict — warn)           |
-| [`skill-resource-resolves`](rules/skill-resource-resolves.md)   | `"warn"` | A SKILL.md body's bundled-file refs (`scripts/`/`references/`) exist on disk |
-| [`skill-missing-fence`](rules/skill-missing-fence.md)           | `"warn"` | A SKILL.md opens with a `---` fence (else it loads as body and never fires)  |
+| Rule                                                            | Default  | What it checks                                                                                                                                      |
+| --------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`skill-frontmatter`](rules/skill-frontmatter.md)               | `"warn"` | Recommend explicit skill `name`+`description` (reliable trigger)                                                                                    |
+| [`description-overlap`](rules/description-overlap.md)           | `"warn"` | No two model-invocable skills have near-identical descriptions                                                                                      |
+| [`skill-description-budget`](rules/skill-description-budget.md) | `"warn"` | A model-invocable skill's description isn't so long the trigger is buried                                                                           |
+| [`frontmatter-valid`](rules/frontmatter-valid.md)               | `"warn"` | A skill/agent `---` block is valid YAML (js-yaml is strict — warn)                                                                                  |
+| [`skill-resource-resolves`](rules/skill-resource-resolves.md)   | `false`  | **Experimental** — off, never graded; on with `--preset=experimental`. A SKILL.md body's bundled-file refs (`scripts/`/`references/`) exist on disk |
+| [`skill-missing-fence`](rules/skill-missing-fence.md)           | `"warn"` | A SKILL.md opens with a `---` fence (else it loads as body and never fires)                                                                         |
 
 ### Structure
 
