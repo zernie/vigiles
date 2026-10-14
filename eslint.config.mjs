@@ -353,6 +353,21 @@ export default [
       "local/frame-mint": ["error", { types: ["RepoPath", "BundlePath"] }],
     },
   },
+  // Same guard for the `FilteredScan` brand: minted by `applyRules` in
+  // src/core/apply-rules.ts only, so a renderer handed a raw scan cannot be
+  // made to compile by an `as FilteredScan`. A block of its own because each
+  // block's options replace, not merge, and its mint file is a different one.
+  {
+    files: ["src/**/*.ts"],
+    ignores: ["src/core/apply-rules.ts", "src/core/frame.ts"],
+    plugins: { local },
+    rules: {
+      "local/frame-mint": [
+        "error",
+        { types: ["RepoPath", "BundlePath", "FilteredScan"] },
+      ],
+    },
+  },
   // One collection library and no `as unknown as`, everywhere including tests. The
   // blocks below that set the same two rules for their own files restate these,
   // because flat config replaces a rule's options instead of merging them.

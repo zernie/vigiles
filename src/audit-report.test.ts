@@ -14,9 +14,17 @@ import {
 import type { ScanReport, MarketplaceInfo } from "./scan.js";
 import type { PluginScore } from "./score-core.js";
 import { EXPERIMENTAL_RULES } from "./core/rule-meta.js";
+import { applyRules, type FilteredScan } from "./core/apply-rules.js";
+import { defaultSeverities } from "./core/rule.js";
+import { ruleResolver } from "./overrides.js";
+import { RULES } from "./rules/index.js";
 
-function makeReport(over: Partial<ScanReport> = {}): ScanReport {
-  return {
+/** A scan as `audit` shows it under the shipped defaults (`applyRules`). */
+const shown = <S extends object>(scan: S) =>
+  applyRules(RULES, ruleResolver(defaultSeverities(RULES)), scan);
+
+function makeReport(over: Partial<ScanReport> = {}): FilteredScan<ScanReport> {
+  return shown({
     dir: "/x/demo",
     instructions: null,
     skills: [],
@@ -49,7 +57,7 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     untested: 0,
     puritySummary: { pure: 0, bounded: 0, unrestricted: 0 },
     ...over,
-  } as ScanReport;
+  } as ScanReport);
 }
 
 describe("buildAuditReport", () => {

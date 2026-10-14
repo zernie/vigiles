@@ -15,7 +15,11 @@
 import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 
-const FENCES = new Set(["local/no-rule-ids", "local/no-group-names"]);
+const FENCES = new Set([
+  "local/no-rule-ids",
+  "local/no-group-names",
+  "local/frame-mint",
+]);
 
 const eslint = new ESLint({
   overrideConfig: [
@@ -105,6 +109,20 @@ describe("local/no-group-names — generic code never names a group", () => {
     ["a test", "src/planted.test.ts"],
   ])("allowed in %s", async (_where, path) => {
     expect(await fired(path, GROUP_TYPE)).toEqual([]);
+  });
+});
+
+describe("local/frame-mint — only applyRules mints a FilteredScan", () => {
+  const MINT = "export const f = (s: object) => s as FilteredScan<object>;\n";
+
+  it("an `as FilteredScan` in a renderer is refused", async () => {
+    expect(await fired("src/audit-report.ts", MINT)).toEqual([
+      expect.stringMatching(/^local\/frame-mint/),
+    ]);
+  });
+
+  it("…and allowed in the one file that mints it", async () => {
+    expect(await fired("src/core/apply-rules.ts", MINT)).toEqual([]);
   });
 });
 

@@ -28,6 +28,14 @@ import { formatScanReport, scanPlugin } from "../../scan.js";
 import { scanFiles } from "../../scan-files.js";
 import { runHarnessTest } from "../../harness-test.js";
 import { makeTmpDir, cleanupTmpDir, REPO_ROOT } from "../../core/test-utils.js";
+import { applyRules } from "../../core/apply-rules.js";
+import { defaultSeverities } from "../../core/rule.js";
+import { ruleResolver } from "../../overrides.js";
+import { RULES } from "../../rules/index.js";
+
+/** A scan as `audit` shows it under the shipped defaults (`applyRules`). */
+const shown = <S extends object>(scan: S) =>
+  applyRules(RULES, ruleResolver(defaultSeverities(RULES)), scan);
 
 test("codexAdapter passes the conformance kit (ports + cross-port invariants)", () => {
   assertAdapterConformance(codexAdapter);
@@ -236,7 +244,7 @@ test("a codex scan says n/a for output styles instead of staying silent", () => 
     const r = scanPlugin(dir, codexLayout, codexDialect);
     assert.equal(r.outputStyles, "not-supported");
     assert.match(
-      formatScanReport(r),
+      formatScanReport(shown(r)),
       /Output styles: n\/a \(this harness has none\)/,
     );
   } finally {

@@ -70,6 +70,7 @@ import {
 } from "./overrides.js";
 import { configFor } from "./core/config-schema.js";
 import { initPolicyOf } from "./core/rule.js";
+import { applyRules, type FilteredScan } from "./core/apply-rules.js";
 import {
   RULES,
   RULE_GROUPS,
@@ -9454,6 +9455,40 @@ function enabledExperimentalRules(
   return new Set(EXPERIMENTAL_RULES.filter((r) => rules.mayFire(r)));
 }
 
+/**
+ * The scan `audit` reports on, with this run's config applied (`applyRules`):
+ * an off rule's findings are gone before anything renders.
+ */
+function auditScan(
+  target: string,
+  adapter: HarnessAdapter,
+  config: Readonly<VigilesConfig>,
+  at: Readonly<{
+    root: string;
+    frameRoot: string;
+    excludes: ExcludeSet;
+    harnesses: readonly ScanHarness[];
+  }>,
+): FilteredScan<ScanReport> {
+  const scan = scanPlugin(target, adapter.layout, adapter.dialect, {
+    deprecatedKeyFiles: specsUsingKeyFiles(at.root, at.excludes.globIgnore),
+    sharedDirs: config.sharedDirs,
+    sharedDirsRoot: at.frameRoot,
+    // `.vigilesrc.json#exclude` reaches surface DISCOVERY, not just the
+    // instruction file. Measured 2026-09-21 before this line existed: a repo
+    // with `{"exclude": [".claude"]}` and one skill at `.claude/skills/demo`
+    // still printed `Skills (1): ✓ demo` and docked Safety to 90 for it — the
+    // grade was computed over a tree the user had told the tool to ignore.
+    excludes: at.excludes,
+    // The repo owner's answer to "N skills no harness reads": these are
+    // mine, grade them — each root under the harness whose layout reads
+    // it, so no array order decides which half of the repo is seen.
+    // `exclude` still wins over it; the walk drops an excluded path first.
+    harnesses: at.harnesses,
+  });
+  return applyRules(RULES, ruleResolver(config.rules, config.overrides), scan);
+}
+
 export async function main(): Promise<void> {
   const { command, projectRoot, args } = enterProjectRoot();
 
@@ -9805,20 +9840,14 @@ export async function main(): Promise<void> {
         // The same single owner of "relative to which directory" `lint` uses
         // (#281): cwd, unless the audited dir is somebody else's repository.
         const frame = frameFor(projectRoot, root);
-        const report = scanPlugin(targets[0], adapter.layout, adapter.dialect, {
-          deprecatedKeyFiles: specsUsingKeyFiles(root, excludes.globIgnore),
-          sharedDirs: config.sharedDirs,
-          sharedDirsRoot: frame.root,
-          // `.vigilesrc.json#exclude` reaches surface DISCOVERY, not just the
-          // instruction file. Measured 2026-09-21 before this line existed: a repo
-          // with `{"exclude": [".claude"]}` and one skill at `.claude/skills/demo`
-          // still printed `Skills (1): ✓ demo` and docked Safety to 90 for it — the
-          // grade was computed over a tree the user had told the tool to ignore.
+        // The resolved config, applied once at the source: what an off rule
+        // found is gone from everything below (terminal, JSON, HTML).
+        // The resolved config is applied once, at the source: what an off
+        // rule found is gone from everything below (terminal, JSON, HTML).
+        const report = auditScan(targets[0], adapter, config, {
+          root,
+          frameRoot: frame.root,
           excludes,
-          // The repo owner's answer to "N skills no harness reads": these are
-          // mine, grade them — each root under the harness whose layout reads
-          // it, so no array order decides which half of the repo is seen.
-          // `exclude` still wins over it; the walk drops an excluded path first.
           harnesses: scanHarnesses,
         });
         if (!json) {

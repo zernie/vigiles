@@ -97,7 +97,7 @@
   },
   "src/cli-main.ts": {
     "max-params": 5,
-    "max-lines-per-function": 489,
+    "max-lines-per-function": 488,
     "complexity": 120,
     "max-depth": 4,
     "sonarjs/cognitive-complexity": 237

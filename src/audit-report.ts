@@ -31,6 +31,7 @@ import {
   type ExperimentalRuleResult,
 } from "./experimental-findings.js";
 import type { ExperimentalRuleName } from "./core/rule-meta.js";
+import type { FilteredScan } from "./core/apply-rules.js";
 
 /**
  * The current schema version. Bump only on a BREAKING change to the shape.
@@ -329,7 +330,8 @@ function experimentalField(
  * HTML-embedded form omits it so the rendered file stays deterministic.
  */
 export function buildAuditReport(
-  report: ScanReport,
+  /** Minted by `applyRules`: an off rule's findings are already gone. */
+  report: FilteredScan<ScanReport>,
   opts: BuildAuditReportOptions,
 ): AuditReport {
   const adoptable = buildAdoptable(opts.adoptableSurfaces);

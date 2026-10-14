@@ -306,6 +306,7 @@ export const RULES = [
       "A hook line vigiles did not write is named: a static reader cannot verify it, so compile it.",
     detector: "scanHooks (handWritten: no planned line matches)",
     upstreamPrevention: "a compiled hook's line is written by compile itself",
+    legacy: { scanField: "handWrittenHooks" },
   }),
   defineRule({
     id: "disallowed-tools-contract",

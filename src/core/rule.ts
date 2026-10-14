@@ -146,6 +146,12 @@ export interface RuleSpec {
    * accepts `["warn" | "error", options]` beside a bare severity.
    */
   readonly options?: z.ZodType;
+  /**
+   * For a rule not yet migrated to a module: the scan field its findings sit
+   * in, so `applyRules` can blank them when the rule is off. Only a field that
+   * is shown and never scored is declared (see `./apply-rules.ts`).
+   */
+  readonly legacy?: { readonly scanField: string };
 }
 
 /**

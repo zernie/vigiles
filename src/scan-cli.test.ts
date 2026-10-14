@@ -14,7 +14,7 @@
  * scan.test.ts can't: harness auto-detection, the ambiguity warning, the
  * `--harness=` override, the leaderboard branch, `--json`, and the exit code.
  */
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import assert from "node:assert/strict";
 import {
   mkdtempSync,
@@ -35,6 +35,7 @@ import { skillsHome } from "./core/layout.js";
 import { knownFlagsFor } from "./cli-flag-check.js";
 import { adoptInstructionFileRemedy } from "./core/instruction-remedies.js";
 import { z } from "zod";
+import { RULES } from "./rules/index.js";
 
 /** The part of `audit --json` the adoption tests read — parsed, not cast. */
 const adoptableReport = z.object({
@@ -1717,5 +1718,49 @@ describe("a newly added coverage caveat reaches audit through the shared list", 
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+// One answer to "is this rule on?" (`applyRules`): `audit` shows what a rule
+// found only when the config turns the rule on — the answer `lint` gets. The
+// rule is found by the scan field it declares, not by spelling its id.
+describe("audit → a rule that is off shows nothing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "vigiles-audit-off-"));
+  const hookRule = RULES.find(
+    (r) => "legacy" in r && r.legacy.scanField === "handWrittenHooks",
+  );
+  const withRule = (severity: string): string => {
+    writeFileSync(
+      join(dir, ".vigilesrc.json"),
+      JSON.stringify({ rules: { [hookRule?.id ?? ""]: severity } }),
+    );
+    return run("audit . --no-interactive", dir).stdout;
+  };
+
+  beforeAll(() => {
+    mkdirSync(join(dir, "hooks"), { recursive: true });
+    writeFileSync(join(dir, "CLAUDE.md"), "# Instructions\nRun `npm test`.\n");
+    writeFileSync(
+      join(dir, "hooks", "hooks.json"),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            { hooks: [{ type: "command", command: "./hooks/guard.sh" }] },
+          ],
+        },
+      }),
+    );
+  });
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("a hook line vigiles did not write is shown when its rule is on…", () => {
+    expect(hookRule).toBeDefined();
+    expect(withRule("warn")).toMatch(/guard\.sh.*vigiles did not write/);
+  });
+
+  it("…and not shown when the rule is off", () => {
+    expect(withRule("off")).not.toMatch(/vigiles did not write/);
   });
 });

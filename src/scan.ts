@@ -150,6 +150,7 @@ import {
   permissionDecisionEventsOf,
 } from "./core/event-capability.js";
 import { hookLinePlan } from "./core/hook-command.js";
+import type { FilteredScan } from "./core/apply-rules.js";
 import { HOOKS_DIR } from "./core/hook-paths.js";
 
 // Re-export the pure detectors (and their public types: SurfaceClassifier,
@@ -1444,7 +1445,8 @@ function inventoryFacts(r: ScanReport): readonly string[] {
 }
 
 export function formatScanReport(
-  r: ScanReport,
+  /** Minted by `applyRules`: an off rule's findings are already gone. */
+  r: FilteredScan<ScanReport>,
   /**
    * The experimental block to print AFTER the verdict line, never counted in
    * it — the `AuditReport`'s own `experimental`, so the terminal, the JSON and
