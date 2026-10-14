@@ -36,6 +36,16 @@ inputs:
     description: "Only check that linter rules exist; skip config-enabled checks (maps to the CLI's --catalog-only). 'true' or 'false'."
     required: false
     default: "false"
+  preset:
+    description: >
+      Add a preset for this run, on top of the repo's .vigilesrc.json (maps to
+      the CLI's --preset=; lint only). The names are the ones `extends` takes,
+      with or without the `vigiles:` prefix: 'experimental' turns on the checks
+      not yet measured reliable enough to grade on, at warn — so they report
+      and never fail the run. Comma-separate several. Empty (the default) adds
+      none.
+    required: false
+    default: ""
   working-directory:
     description: "Directory to run vigiles in."
     required: false
@@ -80,6 +90,7 @@ runs:
         VIGILES_VERSION: ${{ inputs.version }}
         VIGILES_MAX_RULES: ${{ inputs.max-rules }}
         VIGILES_CATALOG_ONLY: ${{ inputs.catalog-only }}
+        VIGILES_PRESET: ${{ inputs.preset }}
         VIGILES_ACTION_PATH: ${{ github.action_path }}
         VIGILES_COMMENT: ${{ inputs.comment }}
         VIGILES_CAPABILITY_DIFF: ${{ inputs.capability-diff }}
@@ -112,6 +123,13 @@ runs:
 
         if [[ "${VIGILES_CATALOG_ONLY:-false}" == "true" ]]; then
           args+=("--catalog-only")
+        fi
+
+        # The CLI validates the name (an unknown preset exits 2 naming the
+        # valid ones), so the value is passed through as written.
+        preset="${VIGILES_PRESET:-}"
+        if [[ -n "${preset// /}" ]]; then
+          args+=("--preset=${preset// /}")
         fi
 
         # Resolve the runner. 'local' runs the action's own build (CI

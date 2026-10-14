@@ -71,7 +71,12 @@ import {
   mergeConflictWarning,
 } from "./core/merge-conflict.js";
 import type { TrifectaFinding } from "./core/lethal-trifecta.js";
-import { repoRootOnlyAdvice } from "./core/skill-resources.js";
+import type { ExperimentalRuleName } from "./core/rule-meta.js";
+import {
+  EXPERIMENTAL_BLURB,
+  EXPERIMENTAL_HEADING,
+  type ExperimentalRuleResult,
+} from "./experimental-findings.js";
 import type {
   SkillResourceFinding,
   SkillResourceResolution,
@@ -173,7 +178,7 @@ export interface ScanSkill {
    * or a relative markdown link with an extension) that don't resolve on disk
    * under the skill dir, each tagged `missing` or `repo-root-only`. Computed by
    * `skillResourceIssues()` (one detector, no drift); `collectSurfaceFindings`
-   * splits them into the report's two lists.
+   * splits them into the two lists under `ScanReport.experimental`.
    */
   readonly resourceIssues: readonly SkillResourceFinding[];
   /**
@@ -266,6 +271,32 @@ export interface ScanSkillResourceFinding<
   readonly name: string;
   readonly finding: SkillResourceFinding<R>;
 }
+
+/**
+ * Each experimental rule's findings, in the shape its detector produces. The
+ * mapped type is the binding to the group: a rule added to
+ * `EXPERIMENTAL_RULES` without a row in {@link ExperimentalFindingShapes} does
+ * not compile.
+ */
+interface ExperimentalFindingShapes {
+  /**
+   * SKILL.md body references to a bundled resource: `issues` resolve NOWHERE
+   * (not beside the SKILL.md, not at the repo root); `notes` miss beside the
+   * SKILL.md but exist at the repo root (#382) — they work inside this
+   * repository and break once the skill is installed elsewhere. A ref is in
+   * exactly one of the two lists. Read by the `skill-resource-resolves` lint
+   * rule (one detector, no drift).
+   */
+  readonly "skill-resource-resolves": {
+    readonly issues: readonly ScanSkillResourceFinding<"missing">[];
+    readonly notes: readonly ScanSkillResourceFinding<"repo-root-only">[];
+  };
+}
+
+/** {@link ScanReport.experimental}: one entry per experimental rule. */
+export type ExperimentalScanFindings = {
+  readonly [K in ExperimentalRuleName]: ExperimentalFindingShapes[K];
+};
 
 /** A missing-frontmatter-fence finding tagged with the skill path. */
 export interface ScanSkillFenceFinding {
@@ -418,20 +449,15 @@ export interface ScanReport {
    */
   readonly trifectaFindings: readonly ScanTrifectaFinding[];
   /**
-   * SKILL.md body references to a bundled resource that resolves NOWHERE — not
-   * beside the SKILL.md, not at the repo root — across all skills, each with the
-   * skill path for reporting/annotations. Scored, and gated by the
-   * `skill-resource-resolves` lint rule (one detector, no drift).
+   * The findings of the `experimental` rule group (`EXPERIMENTAL_RULES`,
+   * `core/rule-meta.ts`), keyed by rule. Detected on every scan — the scan is a
+   * read, and `lint` and `audit` decide whether to show them — but held APART
+   * from every field a grader reads: no scoring function reads this key, so an
+   * experimental finding cannot move a ring, the overall, the grade or the
+   * verdict. `audit` shows an enabled rule's findings in its own "Experimental —
+   * not graded" block (`./experimental-findings.ts`).
    */
-  readonly skillResourceIssues: readonly ScanSkillResourceFinding<"missing">[];
-  /**
-   * SKILL.md body references that miss beside the SKILL.md but exist at the repo
-   * root (#382): they work while the skill runs inside this repository and break
-   * once it is installed elsewhere. A NOTE — printed by `audit` and `lint`, never
-   * scored, never gated. The same detector as {@link skillResourceIssues}; a ref
-   * is in exactly one of the two lists.
-   */
-  readonly skillResourceNotes: readonly ScanSkillResourceFinding<"repo-root-only">[];
+  readonly experimental: ExperimentalScanFindings;
   /**
    * Skills whose frontmatter-looking opening has NO `---` fence, so they load as
    * pure body (invisible — no name/description/trigger). Shared by `scan` and the
@@ -1153,31 +1179,6 @@ function section(
   return [`${title} (${String(count)}):`, ...lines, ""];
 }
 
-/**
- * The two skill-resource sections of the report. The first counts refs that
- * resolve nowhere; the second holds the refs that resolve only from the repo
- * root (#382) — notes, never counted in the verdict's `broken` tally, never
- * scored — so the first section's count stays the count of real misses.
- */
-function skillResourceSections(r: ScanReport): readonly string[] {
-  return [
-    ...section(
-      "Skill bundled resources",
-      r.skillResourceIssues.map(
-        (s) =>
-          `  ✗ ${s.name}: ${s.finding.ref} (line ${String(s.finding.line)}) — bundled resource not found`,
-      ),
-    ),
-    ...section(
-      "Skill resources that resolve only from the repo root",
-      r.skillResourceNotes.map(
-        (s) =>
-          `  ℹ ${s.name}: ${s.finding.ref} (line ${String(s.finding.line)}) ${repoRootOnlyAdvice(s.finding)}`,
-      ),
-    ),
-  ];
-}
-
 /** One skill's report line: ✓/⚠ + name + notes (no-trigger, user-invoked). */
 function skillLine(s: ScanSkill): string {
   if (!s.hasDescription) {
@@ -1442,7 +1443,22 @@ function inventoryFacts(r: ScanReport): readonly string[] {
     : commands;
 }
 
-export function formatScanReport(r: ScanReport): string {
+export function formatScanReport(
+  r: ScanReport,
+  /**
+   * The experimental block to print AFTER the verdict line, never counted in
+   * it — the `AuditReport`'s own `experimental`, so the terminal, the JSON and
+   * the HTML show the same data. Absent (the default): no block.
+   */
+  experimental: readonly ExperimentalRuleResult[] = [],
+): string {
+  return [...gradedReportLines(r), ...experimentalLines(experimental)].join(
+    "\n",
+  );
+}
+
+/** The report's lines up to and including the verdict — everything graded. */
+function gradedReportLines(r: ScanReport): readonly string[] {
   const out: string[] = [`Scan: ${r.dir}`, ""];
 
   if (r.instructions) {
@@ -1549,8 +1565,6 @@ export function formatScanReport(r: ScanReport): string {
       r.trifectaFindings.length,
     ),
   );
-
-  out.push(...skillResourceSections(r));
 
   out.push(
     ...section(
@@ -1685,7 +1699,6 @@ export function formatScanReport(r: ScanReport): string {
     r.frontmatterValueIssues.length +
     r.mcpIssues.length +
     r.mcpHookIssues.length +
-    r.skillResourceIssues.length +
     r.skillFenceIssues.length +
     r.pluginLayoutIssues.length +
     r.unclaimedSurfaces.length +
@@ -1709,5 +1722,32 @@ export function formatScanReport(r: ScanReport): string {
         ? "⚠ nothing to check — 0 skills, 0 agents, 0 commands were read"
         : "✓ no structural issues found",
   );
-  return out.join("\n");
+  return out;
+}
+
+/**
+ * The "Experimental — not graded" block: each enabled experimental rule and its
+ * findings, after the verdict line so nothing in it reads as part of the grade.
+ * Rendered from the same data the JSON and HTML report carry.
+ */
+function experimentalLines(
+  results: readonly ExperimentalRuleResult[],
+): readonly string[] {
+  if (results.length === 0) return [];
+  return [
+    "",
+    `${EXPERIMENTAL_HEADING}:`,
+    `  ${EXPERIMENTAL_BLURB}`,
+    ...results.flatMap((res) =>
+      res.findings.length === 0
+        ? [`  ✓ ${res.rule}: nothing found`]
+        : [
+            `  ${res.rule} (${String(res.findings.length)}):`,
+            ...res.findings.map(
+              (f) =>
+                `    ${f.kind === "note" ? "ℹ" : "✗"} ${f.subject}: ${f.message}`,
+            ),
+          ],
+    ),
+  ];
 }

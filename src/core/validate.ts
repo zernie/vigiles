@@ -34,6 +34,7 @@ import {
   VigilesConfigError,
 } from "./config-schema.js";
 
+import type { PresetName } from "./presets.js";
 import type {
   ParsedRule,
   ValidationError,
@@ -117,6 +118,14 @@ function defaultConfig(): VigilesConfig {
   return vigilesConfigSchema.parse({});
 }
 
+/** The defaults with `presets` applied — an empty file extended on the CLI. */
+function defaultsWith(
+  presets: readonly PresetName[] | undefined,
+): Readonly<VigilesConfig> {
+  const parsed = parseVigilesConfig({}, presets);
+  return parsed.success ? parsed.data : defaultConfig();
+}
+
 // ---------------------------------------------------------------------------
 // Instruction file discovery
 // ---------------------------------------------------------------------------
@@ -167,8 +176,18 @@ export function findInstructionFiles(
  */
 export function loadConfig(
   searchFrom?: string,
-  { onInvalid = "throw" }: { onInvalid?: "throw" | "warn" } = {},
+  {
+    onInvalid = "throw",
+    presets,
+  }: Readonly<{
+    onInvalid?: "throw" | "warn";
+    /** Presets applied on top of the file's own (`--preset=`), see
+     * `parseVigilesConfig`. Applied to the defaults too, so they work in a repo
+     * with no `.vigilesrc.json` at all. */
+    presets?: readonly PresetName[];
+  }> = {},
 ): VigilesConfig {
+  const fallback = (): Readonly<VigilesConfig> => defaultsWith(presets);
   let raw: unknown;
   try {
     const explorer = cosmiconfigSync("vigiles", {
@@ -179,9 +198,9 @@ export function loadConfig(
   } catch {
     // No file, unreadable file, malformed JSON — the defaults, as always. A
     // config we CAN read and refuse is a different thing and is handled below.
-    return defaultConfig();
+    return fallback();
   }
-  if (raw === undefined || raw === null) return defaultConfig();
+  if (raw === undefined || raw === null) return fallback();
 
   // The replaced keys get their own message BEFORE the schema's, because the
   // reader is someone whose config used to work: `.strict()` would tell them
@@ -207,14 +226,14 @@ export function loadConfig(
     }
   }
   if (problems.length === 0) {
-    const parsed = parseVigilesConfig(raw);
+    const parsed = parseVigilesConfig(raw, presets);
     if (parsed.success) return parsed.data;
     problems.push(...formatConfigIssues(parsed.error.issues));
   }
   if (onInvalid === "throw") throw new VigilesConfigError(problems.join("\n"));
   for (const line of problems) console.warn(`⚠ ${line}`);
   console.warn("⚠ Using default configuration.");
-  return defaultConfig();
+  return fallback();
 }
 
 // ---------------------------------------------------------------------------

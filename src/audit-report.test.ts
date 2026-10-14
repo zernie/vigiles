@@ -13,6 +13,7 @@ import {
 } from "./audit-report.js";
 import type { ScanReport, MarketplaceInfo } from "./scan.js";
 import type { PluginScore } from "./score-core.js";
+import { EXPERIMENTAL_RULES } from "./core/rule-meta.js";
 
 function makeReport(over: Partial<ScanReport> = {}): ScanReport {
   return {
@@ -36,8 +37,7 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     descriptionOverlaps: [],
     descriptionBudgetIssues: [],
     trifectaFindings: [],
-    skillResourceIssues: [],
-    skillResourceNotes: [],
+    experimental: { "skill-resource-resolves": { issues: [], notes: [] } },
     skillFenceIssues: [],
     pluginLayoutIssues: [],
     unclaimedSurfaces: [],
@@ -366,5 +366,68 @@ describe("the inventory's output styles", () => {
 
   it("leaves the field out for zero, so a report without styles is unchanged", () => {
     expect("outputStyles" in inventory(0)).toBe(false);
+  });
+});
+
+// The experimental group: the report shows an enabled rule's findings in its
+// own block and NOTHING graded moves — score, verdict and fixes are the same
+// object as for the identical report with no findings at all.
+describe("buildAuditReport — experimental rule findings", () => {
+  const withFindings = makeReport({
+    experimental: {
+      "skill-resource-resolves": {
+        issues: [
+          {
+            path: "skills/pdf/SKILL.md",
+            name: "pdf",
+            finding: {
+              ref: "references/api.md",
+              resolved: "references/api.md",
+              kind: "link",
+              line: 9,
+              resolution: "missing",
+            },
+          },
+        ],
+        notes: [],
+      },
+    },
+  });
+  const clean = makeReport();
+  const opts = { harness: "h", vigilesVersion: "1.0.0" };
+  const on = { ...opts, experimentalRules: new Set(EXPERIMENTAL_RULES) };
+
+  it("is absent, and changes nothing, when the rule is off (the default)", () => {
+    const r = buildAuditReport(withFindings, opts);
+    expect(r.experimental).toBeUndefined();
+    expect(r).toEqual(buildAuditReport(clean, opts));
+  });
+
+  it("is a separate block when on — and the score, verdict and fixes do not move", () => {
+    const r = buildAuditReport(withFindings, on);
+    expect(r.experimental).toEqual([
+      {
+        rule: "skill-resource-resolves",
+        findings: [
+          {
+            kind: "finding",
+            path: "skills/pdf/SKILL.md",
+            line: 9,
+            subject: "pdf",
+            message: "references/api.md (line 9) — bundled resource not found",
+          },
+        ],
+      },
+    ]);
+    const base = buildAuditReport(clean, on);
+    expect(r.score).toEqual(base.score);
+    expect(r.verdict).toEqual(base.verdict);
+    expect(r.recommendations).toEqual(base.recommendations);
+  });
+
+  it("lists an enabled rule that found nothing, so the reader sees it ran", () => {
+    expect(buildAuditReport(clean, on).experimental).toEqual([
+      { rule: "skill-resource-resolves", findings: [] },
+    ]);
   });
 });

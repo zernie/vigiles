@@ -4,7 +4,14 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { RULE_META, allRuleMeta, type RuleName } from "./rule-meta.js";
+import {
+  EXPERIMENTAL_RULES,
+  RULE_META,
+  allRuleMeta,
+  isExperimentalRule,
+  type RuleName,
+} from "./rule-meta.js";
+import { presetRules } from "./presets.js";
 import { DEFAULT_RULES } from "./validate.js";
 
 const RULES_DOC_DIR = join(__dirname, "..", "..", "docs", "rules");
@@ -105,6 +112,31 @@ describe("RULE_META registry", () => {
   it("ruleMeta() round-trips a known id and rejects an unknown one", () => {
     const id: RuleName = "lethal-trifecta";
     expect(RULE_META[id].bucket).toBe("structural-closed");
+  });
+});
+
+describe("the experimental rule group", () => {
+  // The experimental GROUP is data (EXPERIMENTAL_RULES), and membership means
+  // the same thing in every place that reads it: off by default, on only at
+  // `warn` through the `vigiles:experimental` preset, and the rule's own doc
+  // says so — a reader landing on the page must learn it is not graded.
+  it("every experimental rule is off by default, warn in its preset, and its doc says so", () => {
+    expect(EXPERIMENTAL_RULES.length).toBeGreaterThan(0);
+    const preset = presetRules("vigiles:experimental");
+    expect(Object.keys(preset).sort()).toEqual([...EXPERIMENTAL_RULES].sort());
+    for (const id of EXPERIMENTAL_RULES) {
+      expect(RULE_META[id].defaultSeverity, `${id} default`).toBe("off");
+      expect(preset[id], `${id} preset severity`).toBe("warn");
+      const doc = readFileSync(join(RULES_DOC_DIR, `${id}.md`), "utf8");
+      expect(doc, `${id} doc names the flag`).toContain(
+        "--preset=experimental",
+      );
+      expect(doc, `${id} doc names the preset`).toContain(
+        "vigiles:experimental",
+      );
+    }
+    expect(isExperimentalRule("skill-resource-resolves")).toBe(true);
+    expect(isExperimentalRule("hook-events")).toBe(false);
   });
 });
 

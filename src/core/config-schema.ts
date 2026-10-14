@@ -43,7 +43,13 @@
  */
 import { z } from "zod";
 import { editDistance } from "./edit-distance.js";
-import { PRESET_NAMES, isPresetName, presetRules } from "./presets.js";
+import {
+  PRESET_NAMES,
+  PRESET_PREFIX,
+  extendedPresets,
+  presetRules,
+  type PresetName,
+} from "./presets.js";
 
 /** The config file; the directory holding it is a project root. */
 export const PROJECT_CONFIG_FILE = ".vigilesrc.json";
@@ -102,6 +108,13 @@ const withOptions = <T extends z.ZodType>(options: T) =>
 const stringList = z
   .union([z.string(), z.array(z.string())])
   .transform((v): readonly string[] => (typeof v === "string" ? [v] : v));
+
+/**
+ * One preset name — the ONE validator `extends` and `--preset=` share, so the
+ * config file and the command line accept the same names and refuse an unknown
+ * one with the same message.
+ */
+const presetNameSchema = z.enum(PRESET_NAMES);
 
 // ---------------------------------------------------------------------------
 // Rules
@@ -195,7 +208,9 @@ const rulesSchema = z
     "frontmatter-valid": severitySchema.default("warn"),
     "mcp-hook-target-resolves": severitySchema.default("warn"),
     "lethal-trifecta": severitySchema.default("warn"),
-    "skill-resource-resolves": severitySchema.default("warn"),
+    // OFF: the `experimental` group (rule-meta.ts EXPERIMENTAL_RULES) — on via
+    // the `vigiles:experimental` preset or an explicit entry here.
+    "skill-resource-resolves": severitySchema.default(false),
     "skill-missing-fence": severitySchema.default("warn"),
     "plugin-dir-layout": severitySchema.default("warn"),
     "delegation-trifecta": severitySchema.default("warn"),
@@ -324,13 +339,15 @@ export const vigilesConfigSchema = z
     eval: z.object({ apiVersion: z.number().optional() }).strict().optional(),
     nudge: z.literal("dismissed").optional(),
     /**
-     * A named preset whose rule severities apply UNDER `rules` — ESLint's
-     * `extends`. `"vigiles:recommended"` gates the structural group (see
-     * `./presets.ts`); an explicit `rules` entry overrides it. Applied by
+     * A named preset (or a list of them) whose rule severities apply UNDER
+     * `rules` — ESLint's `extends`. `"vigiles:recommended"` gates the
+     * structural group, `"vigiles:experimental"` turns the experimental group on
+     * at `warn` (see `./presets.ts`); a later preset wins over an earlier one,
+     * and an explicit `rules` entry overrides them all. Applied by
      * {@link parseVigilesConfig}, which is why this key is only VALIDATED here.
      * Placed after the keys people misspell most: the "Known:" list is capped.
      */
-    extends: z.enum(PRESET_NAMES).optional(),
+    extends: z.union([presetNameSchema, z.array(presetNameSchema)]).optional(),
     /**
      * The editor's pointer at the published JSON Schema. Accepted, never read.
      *
@@ -379,20 +396,111 @@ export const vigilesConfigSchema = z
  */
 export function parseVigilesConfig(
   raw: unknown,
+  /**
+   * Presets applied ON TOP of what the file extends — `audit`/`lint
+   * --preset=<name>` for one run. They add to the file's own presets (after
+   * them, so they win over them) and never over its explicit `rules`, which
+   * still have the last word. Not written into the parsed `extends`: that key
+   * stays what the FILE says.
+   */
+  extraPresets: readonly PresetName[] = [],
 ): Readonly<ReturnType<typeof vigilesConfigSchema.safeParse>> {
-  return vigilesConfigSchema.safeParse(withPresetRules(raw));
+  return vigilesConfigSchema.safeParse(withPresetRules(raw, extraPresets));
 }
 
-/** `raw` with its `extends` preset's rules placed under its own `rules`. */
-function withPresetRules(raw: unknown): unknown {
+/** `raw` with its presets' rules placed under its own `rules`, in order. */
+function withPresetRules(
+  raw: unknown,
+  extraPresets: readonly PresetName[],
+): unknown {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
-  const preset = "extends" in raw ? raw.extends : undefined;
+  const extended = extendedPresets("extends" in raw ? raw.extends : undefined);
+  if (extended === null) return raw;
+  return withRulesUnder(raw, presetLayer([...extended, ...extraPresets]));
+}
+
+/** The rules a list of presets sets, a later preset winning over an earlier. */
+function presetLayer(
+  names: readonly PresetName[],
+): Readonly<Record<string, unknown>> {
+  return names.reduce<Readonly<Record<string, unknown>>>(
+    (acc, name) => ({ ...acc, ...presetRules(name) }),
+    {},
+  );
+}
+
+/**
+ * `raw` with `layer` placed UNDER its own `rules`. A non-object `rules` is left
+ * for the schema to refuse with its own message.
+ */
+function withRulesUnder(
+  raw: object,
+  layer: Readonly<Record<string, unknown>>,
+): unknown {
+  if (Object.keys(layer).length === 0) return raw;
   const rules = "rules" in raw ? raw.rules : undefined;
-  if (!isPresetName(preset)) return raw;
-  if (rules === undefined) return { ...raw, rules: { ...presetRules(preset) } };
+  if (rules === undefined) return { ...raw, rules: layer };
   if (typeof rules !== "object" || rules === null || Array.isArray(rules))
     return raw;
-  return { ...raw, rules: { ...presetRules(preset), ...rules } };
+  return { ...raw, rules: { ...layer, ...rules } };
+}
+
+/** The preset names as `--preset=` lists them: without the prefix. */
+const PRESET_SHORT_NAMES = PRESET_NAMES.map((n) =>
+  n.slice(PRESET_PREFIX.length),
+).join(", ");
+
+/** The non-empty, trimmed entries of a comma list. */
+function commaList(value: string): readonly string[] {
+  return value
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+}
+
+/** One `--preset=` name through the `extends` enum, the prefix optional. */
+function parsePresetName(given: string) {
+  return presetNameSchema.safeParse(
+    given.startsWith(PRESET_PREFIX) ? given : `${PRESET_PREFIX}${given}`,
+  );
+}
+
+/**
+ * Parse the values of `--preset=` (each may be a comma list) into preset
+ * names, through the SAME enum `extends` uses. The `vigiles:` prefix is
+ * optional on the command line: `--preset=experimental` and
+ * `--preset=vigiles:experimental` are the same preset. An unknown name is an
+ * error carrying the schema's own message, with the accepted short names.
+ */
+export function parsePresetFlags(
+  values: readonly string[],
+):
+  | { readonly ok: true; readonly presets: readonly PresetName[] }
+  | { readonly ok: false; readonly message: string } {
+  const names = values.flatMap(commaList);
+  if (names.length === 0 && values.length > 0)
+    return {
+      ok: false,
+      message: `--preset: needs a name. Known: ${PRESET_SHORT_NAMES}.`,
+    };
+  const parsed = names.map((given) => ({
+    given,
+    result: parsePresetName(given),
+  }));
+  const bad = parsed.find((p) => !p.result.success);
+  if (bad !== undefined && !bad.result.success)
+    return {
+      ok: false,
+      message: `--preset: unknown preset "${bad.given}" — ${bad.result.error.issues[0]?.message ?? "invalid"}. Known: ${PRESET_SHORT_NAMES}.`,
+    };
+  return {
+    ok: true,
+    presets: [
+      ...new Set(
+        parsed.flatMap((p) => (p.result.success ? [p.result.data] : [])),
+      ),
+    ],
+  };
 }
 
 /**

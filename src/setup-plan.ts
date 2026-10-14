@@ -9,7 +9,11 @@
  * on a prompt. See docs/agent-setup.md.
  */
 
-import { RECOMMENDED_PRESET, RECOMMENDED_RULES } from "./core/presets.js";
+import {
+  RECOMMENDED_PRESET,
+  RECOMMENDED_RULES,
+  extendedPresets,
+} from "./core/presets.js";
 import { INIT_NUDGE_COMMANDS } from "./core/hook-command.js";
 
 /** What `vigiles init` will set up. */
@@ -164,9 +168,14 @@ export const WORKFLOW_RULES = [
  * gate (not even under `--strict`): `frontmatter-valid` (js-yaml is stricter than
  * CC's loader), `skill-frontmatter` (skills load without it) and `unmarked-refs`
  * (the undecidable-plaintext nudge) sit at `warn`; `hand-written-hook` is OFF
- * (its cure, a compiled hook, is still an experimental API). `lethal-trifecta` + `skill-resource-resolves` are here for now on a
- * don't-cry-wolf rollout (default `warn`; a team raises either to `error` by hand
- * once it's confirmed quiet on their corpus). `init` does not write these — they
+ * (its cure, a compiled hook, is still an experimental API). `lethal-trifecta` is
+ * here for now on a don't-cry-wolf rollout (default `warn`; a team raises it to
+ * `error` by hand once it's confirmed quiet on their corpus).
+ *
+ * The fourth group, `experimental` (`EXPERIMENTAL_RULES`, core/rule-meta.ts), is
+ * NOT here: those rules are OFF and never in the audit score, because their
+ * measured precision is below the bar — `init` writes nothing for them, `--strict`
+ * included, and `--preset=experimental` turns them on at `warn` for one run. `init` does not write these — they
  * keep their own default severities. Named for the group taxonomy
  * (research/install-enforcement-dx.md).
  */
@@ -177,7 +186,6 @@ export const NUDGE_RULES = [
   "hand-written-hook",
   "unmarked-refs",
   "lethal-trifecta",
-  "skill-resource-resolves",
   "skill-missing-fence",
   "plugin-dir-layout",
   "delegation-trifecta",
@@ -268,11 +276,29 @@ function lintGate(
   );
   const rules =
     Object.keys(filled).length === 0 ? {} : { rules: { ...before, ...filled } };
-  const preset =
-    opts.reportOnly || existing.extends !== undefined
-      ? {}
-      : { extends: RECOMMENDED_PRESET };
-  return { ...preset, ...rules };
+  return { ...recommendedExtends(existing.extends, opts.reportOnly), ...rules };
+}
+
+/**
+ * The `extends` value `init` writes so the repo extends `vigiles:recommended`,
+ * or `{}` when nothing changes: it already does, `--report-only` writes rule
+ * lines instead, or the value is not a preset list at all (left for the config
+ * validator to refuse, never silently rewritten). A repo that extends only
+ * `vigiles:experimental` gets recommended FIRST, so its own preset still wins.
+ */
+function recommendedExtends(
+  current: unknown,
+  reportOnly: boolean | undefined,
+): Readonly<{ extends?: string | readonly string[] }> {
+  const listed = extendedPresets(current);
+  if (reportOnly || listed === null || listed.includes(RECOMMENDED_PRESET))
+    return {};
+  return {
+    extends:
+      listed.length === 0
+        ? RECOMMENDED_PRESET
+        : [RECOMMENDED_PRESET, ...listed],
+  };
 }
 
 /**

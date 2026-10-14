@@ -26,25 +26,11 @@ import type { RuleInventoryItem } from "./rule-inventory.js";
 import type { RuleRouting } from "./rule-routing.js";
 import type { EvidenceCounts } from "./coverage-evidence.js";
 import type { DeprecatedKeyFilesFinding } from "./deprecated-key-files.js";
-import { repoRootOnlyAdvice } from "./core/skill-resources.js";
-
-/**
- * One `repo-root-only` skill resource on the wire — flat, and carrying the same
- * sentence `audit` and `lint` print, so a renderer shows it without re-deriving
- * the advice.
- */
-export interface SkillResourceNote {
-  /** The skill's name. */
-  readonly skill: string;
-  /** The SKILL.md that holds the reference. */
-  readonly path: string;
-  /** The reference as written in the body (`scripts/check.sh`). */
-  readonly ref: string;
-  /** 1-based line of the reference in the SKILL.md. */
-  readonly line: number;
-  /** What the note means and how to cure it (`repoRootOnlyAdvice`). */
-  readonly message: string;
-}
+import {
+  experimentalResults,
+  type ExperimentalRuleResult,
+} from "./experimental-findings.js";
+import type { ExperimentalRuleName } from "./core/rule-meta.js";
 
 /**
  * The current schema version. Bump only on a BREAKING change to the shape.
@@ -169,13 +155,16 @@ export interface AuditReport {
    */
   readonly deprecatedKeyFiles?: readonly DeprecatedKeyFilesFinding[];
   /**
-   * Skill bundled-resource refs that miss beside the SKILL.md but exist at the
-   * repo root (#382) — they work inside this repository and break once the skill
-   * is installed elsewhere. Advisory — never scored, so without this list the
-   * report would carry no trace of them. Present only when at least one exists.
-   * Additive/optional — schema version unchanged.
+   * The `experimental` rule group — checks vigiles ships but has not measured
+   * as reliable enough to grade you on (`EXPERIMENTAL_RULES`). One entry per
+   * rule this run turned on (`--preset=experimental`, `"extends":
+   * "vigiles:experimental"`, or the rule in `rules`), even when it found
+   * nothing; absent when none is on. NEVER scored: `score`, `verdict` and
+   * `recommendations` are computed without these findings, and a renderer shows
+   * them in a separate "Experimental — not graded" block. Additive/optional —
+   * schema version unchanged.
    */
-  readonly skillResourceNotes?: readonly SkillResourceNote[];
+  readonly experimental?: readonly ExperimentalRuleResult[];
   /**
    * The adoption preview — "what would vigiles catch in your repo?" Present only
    * when the model-gated tier ran (behind consent); a deterministic read omits it.
@@ -240,6 +229,12 @@ export interface BuildAuditReportOptions extends AuditScoreOptions {
    * nothing segmented.
    */
   readonly ruleRouting?: RuleRouting;
+  /**
+   * The experimental rules this run turned on — the CLI reads them off the
+   * resolved config. Omit/empty (the browser twin, which has no config) and
+   * the report carries no `experimental` block.
+   */
+  readonly experimentalRules?: ReadonlySet<ExperimentalRuleName>;
 }
 
 /** The one command that adopts every un-spec'd surface (bare `init`). */
@@ -297,32 +292,35 @@ function outputStylesField(n: number | "not-supported" | undefined): {
   return n === undefined || n === 0 ? {} : { outputStyles: n };
 }
 
-/** The scan's concrete finding lists, each present only when non-empty. */
+/**
+ * The scan's concrete finding lists, each present only when non-empty — and the
+ * experimental block, present only when some experimental rule is on.
+ */
 function scanFindingLists(
   report: ScanReport,
+  experimentalRules: ReadonlySet<ExperimentalRuleName> | undefined,
 ): Pick<
   AuditReport,
-  "brokenReferences" | "deprecatedKeyFiles" | "skillResourceNotes"
+  "brokenReferences" | "deprecatedKeyFiles" | "experimental"
 > {
   return {
+    ...experimentalField(report, experimentalRules),
     ...(report.danglingRefs.length
       ? { brokenReferences: report.danglingRefs }
       : {}),
     ...(report.deprecatedKeyFiles
       ? { deprecatedKeyFiles: report.deprecatedKeyFiles }
       : {}),
-    ...(report.skillResourceNotes.length
-      ? {
-          skillResourceNotes: report.skillResourceNotes.map((n) => ({
-            skill: n.name,
-            path: n.path,
-            ref: n.finding.ref,
-            line: n.finding.line,
-            message: repoRootOnlyAdvice(n.finding),
-          })),
-        }
-      : {}),
   };
+}
+
+/** The `experimental` block: present only when some experimental rule is on. */
+function experimentalField(
+  report: ScanReport,
+  enabled: ReadonlySet<ExperimentalRuleName> | undefined,
+): Pick<AuditReport, "experimental"> {
+  const results = experimentalResults(report, enabled ?? new Set());
+  return results.length > 0 ? { experimental: results } : {};
 }
 
 /**
@@ -351,7 +349,7 @@ export function buildAuditReport(
     verdict,
     recommendations,
     inventory: inventoryOf(report),
-    ...scanFindingLists(report),
+    ...scanFindingLists(report, opts.experimentalRules),
     ...(adoptable ? { adoptable } : {}),
     ...(opts.observations ? { observations: opts.observations } : {}),
     ...(opts.rulesInventory && opts.rulesInventory.length

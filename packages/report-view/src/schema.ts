@@ -217,14 +217,27 @@ export interface RuleRouting {
   skipped?: SkippedBullet[];
 }
 
-/** A skill ref that misses beside its SKILL.md but exists at the repo root. */
-export interface SkillResourceNote {
-  skill: string;
+/** One finding of an experimental rule (`kind: "note"` is informational). */
+export interface ExperimentalFinding {
+  kind: "finding" | "note";
   path: string;
-  ref: string;
-  line: number;
+  line?: number;
+  subject: string;
   message: string;
 }
+
+/** One enabled experimental rule and what it found (possibly nothing). */
+export interface ExperimentalRuleResult {
+  rule: string;
+  findings: ExperimentalFinding[];
+}
+
+/** The block's heading and line — the same words `vigiles audit` prints
+ *  (src/experimental-findings.ts), kept equal by hand like the rest of this
+ *  mirror. */
+export const EXPERIMENTAL_HEADING = "Experimental — not graded";
+export const EXPERIMENTAL_BLURB =
+  "Checks vigiles ships but has not measured as reliable enough to grade you on. They never move the score.";
 
 export interface AuditReport {
   meta: {
@@ -244,9 +257,10 @@ export interface AuditReport {
   /** The concrete intra-plugin references that don't resolve — the actual paths
    *  behind the Truthfulness "N broken reference(s)" count. Present only when ≥1. */
   brokenReferences?: string[];
-  /** Skill bundled-resource refs that resolve only from the repo root — a note,
-   *  never scored, shown under Truthfulness. Present only when ≥1. */
-  skillResourceNotes?: SkillResourceNote[];
+  /** The experimental rule group — checks shipped but not measured reliable
+   *  enough to grade on. One entry per rule the run turned on; absent when none.
+   *  NEVER scored: shown in its own "Experimental — not graded" block. */
+  experimental?: ExperimentalRuleResult[];
   /** The adoption preview — present only when the model-gated tier ran. */
   adoptability?: AdoptabilityResult;
   /**

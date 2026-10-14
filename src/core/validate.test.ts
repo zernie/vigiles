@@ -591,7 +591,8 @@ const SHIPPED_RULE_DEFAULTS = {
   "frontmatter-valid": "warn",
   "mcp-hook-target-resolves": "warn",
   "lethal-trifecta": "warn",
-  "skill-resource-resolves": "warn",
+  // Off: the experimental group (measured precision below the bar).
+  "skill-resource-resolves": false,
   "skill-missing-fence": "warn",
   "plugin-dir-layout": "warn",
   "delegation-trifecta": "warn",

@@ -43,6 +43,25 @@ const adoptableReport = z.object({
     .optional(),
 });
 
+/** The `experimental` block of `audit --json`, parsed rather than cast. */
+const experimentalBlocks = z.object({
+  experimental: z
+    .array(
+      z.object({
+        rule: z.string(),
+        findings: z.array(
+          z.object({
+            kind: z.enum(["finding", "note"]),
+            subject: z.string(),
+            line: z.number().optional(),
+            message: z.string(),
+          }),
+        ),
+      }),
+    )
+    .optional(),
+});
+
 // __dirname is src/ when vitest resolves the .ts source → ".." is the repo root.
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
 const VENDOR = resolve(__dirname, "..", "test/dogfood");
@@ -1178,20 +1197,32 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
       assert.doesNotMatch(r.stdout, /bundled resource not found/);
     });
 
-    it(`${adapter.name}: audit --json carries the note`, () => {
+    it(`${adapter.name}: audit --json carries the note in the experimental block`, () => {
       const r = run(`audit ${harness} --json`, makeRepo(skillsDir, true));
-      const notes = z
-        .object({
-          skillResourceNotes: z.array(
-            z.object({ skill: z.string(), ref: z.string(), line: z.number() }),
-          ),
-        })
-        .parse(JSON.parse(r.stdout)).skillResourceNotes;
+      const blocks = experimentalBlocks.parse(
+        JSON.parse(r.stdout),
+      ).experimental;
       // zod drops the keys the schema does not name, so this compares exactly
-      // the three fields that locate the note.
-      assert.deepEqual(notes, [
-        { skill: "rca", ref: "scripts/leak.py", line: 5 },
+      // the fields that locate the note.
+      assert.deepEqual(blocks, [
+        {
+          rule: "skill-resource-resolves",
+          findings: [
+            {
+              kind: "note",
+              subject: "rca",
+              line: 5,
+              message:
+                blocks?.[0]?.findings[0]?.message ??
+                "(no message: fails below)",
+            },
+          ],
+        },
       ]);
+      assert.match(
+        blocks?.[0]?.findings[0]?.message ?? "",
+        /^scripts\/leak\.py \(line 5\) resolves only from the repo root/,
+      );
     });
 
     it(`${adapter.name}: lint at "error" passes on the note and annotates it as a notice`, () => {
@@ -1218,6 +1249,148 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
       assert.doesNotMatch(r.stdout, /resolves only from the repo root/);
     });
   }
+});
+
+// The `experimental` rule group through the real binary, on every adapter
+// with skills: off by default (no finding, no block, score untouched),
+// `--preset=experimental` turns it on at warn for one run (lint exits 0), a
+// config entry turns it on with no flag, and whichever turned it on, the
+// findings sit in the "Experimental — not graded" block and the score is the
+// score of the same repo without the bad reference.
+describe("the experimental rule group (skill-resource-resolves)", () => {
+  const repos: string[] = [];
+  /** A repo whose one skill reads `references/<ref>`; `bad` leaves it missing. */
+  function makeRepo(
+    skillsDir: string,
+    bad: boolean,
+    config?: Readonly<Record<string, unknown>>,
+  ): string {
+    const dir = mkdtempSync(join(tmpdir(), "vig-exp-"));
+    repos.push(dir);
+    mkdirSync(join(dir, skillsDir, "pdf", "references"), { recursive: true });
+    writeFileSync(
+      join(dir, skillsDir, "pdf", "SKILL.md"),
+      "---\nname: pdf\ndescription: extracts text from a PDF with the bundled notes\n---\nRead [the notes](references/notes.md) first.\n",
+    );
+    if (!bad)
+      writeFileSync(
+        join(dir, skillsDir, "pdf", "references", "notes.md"),
+        "# notes\n",
+      );
+    if (config !== undefined)
+      writeFileSync(join(dir, ".vigilesrc.json"), JSON.stringify(config));
+    return dir;
+  }
+  /** The graded half of `audit --json`: what the experimental block must not move. */
+  const graded = z.object({
+    score: z.object({ overall: z.number().nullable(), grade: z.string() }),
+    verdict: z.object({ sentence: z.string() }),
+  });
+  afterAll(() => {
+    for (const d of repos) rmSync(d, { recursive: true, force: true });
+  });
+
+  for (const adapter of ADAPTERS) {
+    const skillsDir = skillsHome(adapter.layout);
+    if (skillsDir === null) continue;
+    const harness = `--harness=${adapter.name}`;
+    const graderOf = (args: string, dir: string) =>
+      graded.parse(
+        JSON.parse(run(`audit ${harness} --json ${args}`, dir).stdout),
+      );
+
+    it(`${adapter.name}: off by default — lint and audit say nothing, the score is untouched`, () => {
+      const dir = makeRepo(skillsDir, true);
+      const lint = run(`lint ${harness}`, dir);
+      assert.equal(lint.exitCode, 0, lint.stdout);
+      assert.doesNotMatch(lint.stdout, /Skill-resource check/);
+      const audit = run(`audit ${harness}`, dir);
+      assert.doesNotMatch(audit.stdout, /references\/notes\.md/);
+      assert.doesNotMatch(audit.stdout, /Experimental — not graded/);
+      const json: unknown = JSON.parse(
+        run(`audit ${harness} --json`, dir).stdout,
+      );
+      assert.equal(experimentalBlocks.parse(json).experimental, undefined);
+      assert.deepEqual(
+        graded.parse(json),
+        graderOf("", makeRepo(skillsDir, false)),
+      );
+    });
+
+    it(`${adapter.name}: --preset=experimental turns it on at warn — lint reports and exits 0`, () => {
+      const r = run(
+        `lint ${harness} --preset=experimental`,
+        makeRepo(skillsDir, true),
+      );
+      assert.equal(r.exitCode, 0, r.stdout);
+      assert.match(
+        r.stdout,
+        /⚠ .*pdf: bundled resource "references\/notes\.md" \(line 5\) is referenced but missing/,
+      );
+    });
+
+    it(`${adapter.name}: audit --preset=experimental shows the not-graded block, score unmoved`, () => {
+      const dir = makeRepo(skillsDir, true);
+      const text = run(`audit ${harness} --preset=experimental`, dir).stdout;
+      assert.match(text, /Experimental — not graded:/);
+      assert.match(
+        text,
+        /✗ pdf: references\/notes\.md \(line 5\) — bundled resource not found/,
+      );
+      const json: unknown = JSON.parse(
+        run(`audit ${harness} --json --preset=experimental`, dir).stdout,
+      );
+      assert.deepEqual(
+        experimentalBlocks.parse(json).experimental?.map((b) => b.rule),
+        ["skill-resource-resolves"],
+      );
+      assert.deepEqual(
+        graded.parse(json),
+        graderOf("--preset=experimental", makeRepo(skillsDir, false)),
+      );
+    });
+
+    it(`${adapter.name}: a config entry turns it on with no flag`, () => {
+      const dir = makeRepo(skillsDir, true, {
+        rules: { "skill-resource-resolves": "warn" },
+      });
+      const lint = run(`lint ${harness}`, dir);
+      assert.equal(lint.exitCode, 0, lint.stdout);
+      assert.match(lint.stdout, /is referenced but missing/);
+      assert.match(
+        run(`audit ${harness}`, dir).stdout,
+        /Experimental — not graded:/,
+      );
+      const viaExtends = makeRepo(skillsDir, true, {
+        extends: "vigiles:experimental",
+      });
+      assert.match(
+        run(`lint ${harness}`, viaExtends).stdout,
+        /is referenced but missing/,
+      );
+    });
+
+    it(`${adapter.name}: an explicit "off" in rules beats --preset=experimental`, () => {
+      const dir = makeRepo(skillsDir, true, {
+        rules: { "skill-resource-resolves": "off" },
+      });
+      const r = run(`lint ${harness} --preset=experimental`, dir);
+      assert.doesNotMatch(r.stdout, /Skill-resource check/);
+    });
+  }
+
+  it("an unknown preset is refused, exit 2, naming the valid ones", () => {
+    const r = run(`lint --preset=strict`, makeRepo("skills", true));
+    assert.equal(r.exitCode, 2);
+    assert.match(r.stderr, /--preset: unknown preset "strict"/);
+    assert.match(r.stderr, /Known: recommended, experimental\./);
+  });
+
+  it("--preset is a flag of audit and lint only", () => {
+    const r = run(`compile --preset=experimental`, makeRepo("skills", true));
+    assert.equal(r.exitCode, 2);
+    assert.match(r.stderr, /unknown flag "--preset=experimental"/);
+  });
 });
 
 describe("lint of a foreign repo does not satisfy target refs from the caller's cwd", () => {

@@ -25,8 +25,11 @@
  *   • a truncated GitHub tree, OR > MAX_FILES harness surfaces, OR required
  *     referenced files that exceed the fetch budget → `too-large` (points at the CLI).
  *   • any REQUIRED file (a harness surface, a referenced hook/script/config, a
- *     bundled resource — all feed GRADED findings) that fails to fetch → the
- *     retryable `error` state (not cached).
+ *     bundled resource — all feed findings the CLI reads the same way) that
+ *     fails to fetch → the retryable `error` state (not cached). (A bundled
+ *     resource feeds only `skill-resource-resolves`, an experimental rule the
+ *     demo never turns on; it is still fetched so the scan input stays the
+ *     CLI's.)
  *   • ADVISORY-only data (coverage test files — the `untested` count is excluded
  *     from the overall grade) is best-effort: its absence never errors and never
  *     changes the letter grade.
@@ -271,7 +274,7 @@ const ROOT_REF =
   /\$\{?(?:CLAUDE_PLUGIN_ROOT|CLAUDE_PROJECT_DIR)\}?\/([A-Za-z0-9._/-]+)/g;
 const REL_SCRIPT =
   /(?:^|[\s"'`(=:,])(?:\.\/)?((?:[\w.-]+\/)+[\w.-]+\.(?:sh|bash|zsh|js|mjs|cjs|ts|py|rb))(?=$|[\s"'`),;])/gm;
-// A SKILL.md's BUNDLED RESOURCES (the scan's `skillResourceIssues` verifies these):
+// A SKILL.md's BUNDLED RESOURCES (what `skill-resource-resolves` verifies):
 // a `scripts/`/`references/`/`assets/`-prefixed path with any extension, or a
 // markdown link to a relative file. The harness filter fetches the SKILL.md but
 // drops non-script resources at the REPO ROOT (a root single-skill repo's
@@ -292,8 +295,8 @@ export function collectReferencedPaths(files: RepoFiles): Set<string> {
     // manifest / settings / hook config), so scan them everywhere.
     for (const m of content.matchAll(ROOT_REF)) out.add(m[1]);
     for (const m of content.matchAll(REL_SCRIPT)) out.add(m[1]);
-    // Bundled-resource refs are graded ONLY from a SKILL.md body
-    // (skillResourceIssues), so collect them there alone — else a CLAUDE.md's
+    // Bundled-resource refs are checked ONLY from a SKILL.md body
+    // (skill-resource-resolves), so collect them there alone — else a CLAUDE.md's
     // ordinary `[doc](docs/x.md)` links would be treated as REQUIRED files and
     // could wrongly bail the whole repo to too-large/error (a repo the CLI grades).
     if (isSkillFile(path)) {
@@ -478,8 +481,9 @@ export async function fetchRepo(
         .filter((p) => (sizeOf.get(p) ?? 0) <= MAX_FILE_BYTES);
       if (eligible.length === 0) break;
       const budget = MAX_FILES - Object.keys(files).length;
-      // These referenced files feed GRADED findings (a missing hook / script /
-      // bundled resource is penalized), so if they don't fit the budget, grading
+      // These referenced files feed findings (a missing hook / script is
+      // penalized; a bundled resource feeds the experimental rule), so if they
+      // don't fit the budget, grading
       // would be over a PARTIAL repo — bail to too-large rather than slice off
       // required files (mirrors the first-pass harness cap).
       if (eligible.length > budget) return { kind: "too-large" };
@@ -490,7 +494,7 @@ export async function fetchRepo(
       await drain(extra);
     }
     // These second-pass files are all REQUIRED (a dropped hook config drops every
-    // hook; a missing script / bundled resource is a graded finding), so the same
+    // hook; a missing script is a graded finding), so the same
     // partial-data rule applies here as to the first pass.
     if (failed > 0) {
       return { kind: "error", message: "some files couldn't be fetched" };

@@ -22,8 +22,10 @@ import {
   formatConfigIssues,
   parseVigilesConfig,
   foldedRuleMessages,
+  parsePresetFlags,
 } from "./config-schema.js";
 import { RECOMMENDED_RULES } from "./presets.js";
+import { EXPERIMENTAL_RULES } from "./rule-meta.js";
 import { loadConfig } from "./validate.js";
 import { makeTmpDir, cleanupTmpDir } from "./test-utils.js";
 import { writeFileSync } from "node:fs";
@@ -264,8 +266,110 @@ test("an unknown preset name is refused, naming the ones that exist", () => {
   const r = parseVigilesConfig({ extends: "vigiles:recomended" });
   assert.ok(!r.success);
   assert.deepEqual(formatConfigIssues(r.error.issues), [
-    '.vigilesrc.json: extends — Invalid input: expected "vigiles:recommended".',
+    '.vigilesrc.json: extends is not one of the accepted values ("vigiles:recommended", "vigiles:experimental", array).',
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// The experimental group — `vigiles:experimental` and `--preset=`
+// ---------------------------------------------------------------------------
+
+test("an experimental rule is OFF by default", () => {
+  const r = parseVigilesConfig({});
+  assert.ok(r.success);
+  for (const name of EXPERIMENTAL_RULES)
+    assert.equal(r.data.rules[name], false, `${name} is off by default`);
+});
+
+test("extends vigiles:experimental turns the group on at warn — never error", () => {
+  const r = parseVigilesConfig({ extends: "vigiles:experimental" });
+  assert.ok(r.success);
+  for (const name of EXPERIMENTAL_RULES)
+    assert.equal(r.data.rules[name], "warn", `${name} on at warn`);
+  // It does not touch the structural group.
+  for (const name of RECOMMENDED_RULES)
+    assert.equal(r.data.rules[name], "warn", `${name} keeps its default`);
+});
+
+test("extends takes a list: both presets apply, and rules still win", () => {
+  const r = parseVigilesConfig({
+    extends: ["vigiles:recommended", "vigiles:experimental"],
+    rules: { "skill-resource-resolves": "off" },
+  });
+  assert.ok(r.success);
+  assert.equal(r.data.rules["hook-events"], "error");
+  assert.equal(r.data.rules["skill-resource-resolves"], false, "rules win");
+  assert.deepEqual(r.data.extends, [
+    "vigiles:recommended",
+    "vigiles:experimental",
+  ]);
+});
+
+test("a preset passed on top (--preset=) adds to the file's own, under its rules", () => {
+  const onTop = parseVigilesConfig({ extends: "vigiles:recommended" }, [
+    "vigiles:experimental",
+  ]);
+  assert.ok(onTop.success);
+  assert.equal(onTop.data.rules["hook-events"], "error", "file's preset kept");
+  assert.equal(onTop.data.rules["skill-resource-resolves"], "warn", "added");
+  assert.equal(
+    onTop.data.extends,
+    "vigiles:recommended",
+    "the parsed extends stays what the file says",
+  );
+  const userOff = parseVigilesConfig(
+    { rules: { "skill-resource-resolves": "off" } },
+    ["vigiles:experimental"],
+  );
+  assert.ok(userOff.success);
+  assert.equal(
+    userOff.data.rules["skill-resource-resolves"],
+    false,
+    "an explicit rules entry beats a command-line preset",
+  );
+  const userError = parseVigilesConfig(
+    { rules: { "skill-resource-resolves": "error" } },
+    ["vigiles:experimental"],
+  );
+  assert.ok(userError.success);
+  assert.equal(
+    userError.data.rules["skill-resource-resolves"],
+    "error",
+    "and is never downgraded by one either",
+  );
+});
+
+test("parsePresetFlags: short or prefixed names, comma lists, repeats", () => {
+  assert.deepEqual(parsePresetFlags(["experimental"]), {
+    ok: true,
+    presets: ["vigiles:experimental"],
+  });
+  assert.deepEqual(parsePresetFlags(["vigiles:experimental"]), {
+    ok: true,
+    presets: ["vigiles:experimental"],
+  });
+  assert.deepEqual(parsePresetFlags(["recommended,experimental"]), {
+    ok: true,
+    presets: ["vigiles:recommended", "vigiles:experimental"],
+  });
+  assert.deepEqual(parsePresetFlags(["experimental", "experimental"]), {
+    ok: true,
+    presets: ["vigiles:experimental"],
+  });
+  assert.deepEqual(parsePresetFlags([]), { ok: true, presets: [] });
+});
+
+test("parsePresetFlags: an unknown or empty name is refused with the valid names", () => {
+  const strict = parsePresetFlags(["strict"]);
+  assert.equal(strict.ok, false);
+  assert.ok(!strict.ok);
+  assert.match(strict.message, /--preset: unknown preset "strict"/);
+  // The message is the SAME enum's as the config validator's.
+  assert.match(strict.message, /"vigiles:recommended"\|"vigiles:experimental"/);
+  assert.match(strict.message, /Known: recommended, experimental\./);
+  const empty = parsePresetFlags([""]);
+  assert.ok(!empty.ok);
+  assert.match(empty.message, /--preset: needs a name/);
 });
 
 test("a bad rule value under a preset is still the rule's own error", () => {

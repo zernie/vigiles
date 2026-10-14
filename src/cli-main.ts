@@ -73,6 +73,12 @@ import {
 } from "./eval-entry.js";
 import { z } from "zod";
 import { applyConfigFlags } from "./cli-flags.js";
+import { parsePresetFlags } from "./core/config-schema.js";
+import { RECOMMENDED_PRESET, extendedPresets } from "./core/presets.js";
+import {
+  EXPERIMENTAL_RULES,
+  type ExperimentalRuleName,
+} from "./core/rule-meta.js";
 import { VERBS, type Verb } from "./cli-commands.js";
 import {
   formatUnknownFlag,
@@ -1284,9 +1290,12 @@ function check(
   frame: Frame,
   filePaths: string[],
   silent = false,
+  // The run's config when the caller has it — so a `--preset=` the run was
+  // given reaches the spec checks too, rather than a second read of the file.
+  config?: Readonly<VigilesConfig>,
 ): CombinedCheckResult {
   const hashes = verifyHashes(root, frame, filePaths, silent);
-  const vConfig = loadConfig(root);
+  const vConfig = config ?? loadConfig(root);
   const specsValid = validateSpecs(
     root,
     filePaths,
@@ -2584,7 +2593,7 @@ async function runLint(
   }
   const hashResult =
     files.length > 0
-      ? check(root, frame, files, silent)
+      ? check(root, frame, files, silent, config)
       : { valid: true, hashErrors: 0, validationErrors: 0 };
 
   // 1b. Verify inline + frontmatter rules in instruction files not managed
@@ -5433,7 +5442,12 @@ function configGap(
   lint: boolean,
 ): FullSetupGap["config"] {
   if (config === null) return "missing";
-  return config.extends === undefined && lint ? "no-preset" : "has-preset";
+  // "Has the preset" means extends RECOMMENDED: `vigiles:experimental` alone
+  // gates nothing. A value that is not a preset list is not ours to judge here.
+  const listed = extendedPresets(config.extends);
+  return listed !== null && !listed.includes(RECOMMENDED_PRESET) && lint
+    ? "no-preset"
+    : "has-preset";
 }
 
 /** `.vigilesrc.json` as a plain object, or null when absent or unreadable. */
@@ -6154,11 +6168,13 @@ function checkLethalTrifecta(ctx: BundleCheck): {
  * Apply the `skill-resource-resolves` rule: a SKILL.md body referencing a bundled
  * file (`scripts/`/`references/`/`assets/` or a relative markdown link with an
  * extension) that doesn't exist on disk — the agent reads the instruction and gets
- * nothing. Reuses `scanPlugin`'s `skillResourceIssues` (high-precision / FP-safe,
- * one detector, no drift). Warning by default; "error" gates CI.
+ * nothing. Reuses `scanPlugin`'s `experimental["skill-resource-resolves"]` (one
+ * detector, no drift). In the `experimental` group (measured precision 44%), so
+ * OFF by default: `--preset=experimental` or `"extends": "vigiles:experimental"`
+ * turns it on at `warn`; only an explicit `"error"` in `rules` gates CI.
  *
  * A ref that misses beside the SKILL.md but exists at the frame root is a NOTE
- * (`skillResourceNotes`, #382): printed with `ℹ` and a `::notice` annotation at
+ * (`.notes`, #382): printed with `ℹ` and a `::notice` annotation at
  * any severity, never counted, so it can never fail CI. It still goes through
  * the rule's per-path severity, so `false` or an `off` override silences it.
  */
@@ -6186,13 +6202,13 @@ function checkSkillResourceResolves(ctx: BundleCheck): {
   const found = graded(
     ctx.rules,
     "skill-resource-resolves",
-    report.skillResourceIssues,
+    report.experimental["skill-resource-resolves"].issues,
     pathOf,
   );
   const notes = graded(
     ctx.rules,
     "skill-resource-resolves",
-    report.skillResourceNotes,
+    report.experimental["skill-resource-resolves"].notes,
     pathOf,
   );
   // One printed line per finding, misses first. A note carries its own mark and
@@ -7713,6 +7729,15 @@ interface CommandHelp {
   readonly detail?: readonly string[];
 }
 
+/**
+ * The `--preset=` line `audit` and `lint` share. The names are the ones
+ * `.vigilesrc.json#extends` takes; `experimental` is the group of checks not yet
+ * measured reliable enough to grade on — on at `warn`, never scored.
+ */
+const PRESET_HELP =
+  "  --preset=<name>            add a preset for this run, on top of your config: experimental · recommended\n" +
+  "                             (experimental = checks not yet measured reliable enough to grade you on: warn, never scored)";
+
 const COMMAND_HELP: Record<Verb, CommandHelp> = {
   init: {
     usage:
@@ -7730,6 +7755,7 @@ const COMMAND_HELP: Record<Verb, CommandHelp> = {
   lint: {
     usage:
       "  vigiles lint  [files...]   Gate it in CI. The same checks — but a finding fails the build.",
+    detail: [PRESET_HELP],
   },
   audit: {
     // "Reports everything, fails nothing" states always-exit-0 as the FEATURE it is. The line
@@ -7741,6 +7767,7 @@ const COMMAND_HELP: Record<Verb, CommandHelp> = {
     detail: [
       "  2+ dirs → a leaderboard. Writes vigiles-report.html + .json (auto-gitignored).",
       "  --single                   audit this dir as ONE harness, even if it holds many bundles",
+      PRESET_HELP,
       "  The executing checks (run your hooks · live MCP · do skills fire?) run only",
       "  interactively — audit asks once and remembers; automation uses the testing API.",
     ],
@@ -9341,6 +9368,45 @@ function rememberAuditMeasure(value: boolean): void {
   }
 }
 
+/**
+ * The config this run uses: `.vigilesrc.json`, with any `--preset=<name>`
+ * (audit, lint) applied ON TOP of what the file extends — through the one
+ * validator `extends` uses, so an unknown name is "could not do what you
+ * asked": exit 2, before anything runs. Then the shared flags (--max-rules,
+ * --catalog-only) override it, so every GitHub Action input maps to a real CLI
+ * flag (src/cli-flags.ts).
+ */
+function loadRunConfig(
+  projectRoot: string,
+  args: readonly string[],
+): Readonly<VigilesConfig> {
+  const presetFlag = parsePresetFlags(
+    args
+      .filter((a) => a.startsWith("--preset="))
+      .map((a) => a.slice("--preset=".length)),
+  );
+  if (!presetFlag.ok) {
+    console.error(`✗ ${presetFlag.message}`);
+    process.exit(2);
+  }
+  return applyConfigFlags(
+    loadConfig(projectRoot, { presets: presetFlag.presets }),
+    args,
+  );
+}
+
+/**
+ * The experimental rules a config turns on — by a preset, a `rules` entry, or
+ * an `overrides` entry for some path. `audit` shows exactly these in its "not
+ * graded" block; the score reads none of them either way.
+ */
+function enabledExperimentalRules(
+  config: Readonly<VigilesConfig>,
+): ReadonlySet<ExperimentalRuleName> {
+  const rules = ruleResolver(config.rules, config.overrides);
+  return new Set(EXPERIMENTAL_RULES.filter((r) => rules.mayFire(r)));
+}
+
 export async function main(): Promise<void> {
   const { command, projectRoot, args } = enterProjectRoot();
 
@@ -9377,9 +9443,7 @@ export async function main(): Promise<void> {
   }
 
   const restArgs = args.slice(1).filter((a) => !a.startsWith("--"));
-  // Shared flags (--max-rules, --catalog-only) override the loaded config so
-  // every GitHub Action input maps to a real CLI flag. See src/cli-flags.ts.
-  const config = applyConfigFlags(loadConfig(projectRoot), args);
+  const config = loadRunConfig(projectRoot, args);
   // `.vigilesrc.json#exclude`, parsed ONCE here and threaded to every walk that
   // polices the repo (src/exclude.ts). Built where the config is loaded so a
   // command cannot re-derive it differently — the drift #192 measured.
@@ -9801,6 +9865,7 @@ export async function main(): Promise<void> {
         // and folded into the report there, so a first-time "yes" enriches THIS
         // run — not the next one.
         const auditReportBase = buildAuditReport(report, {
+          experimentalRules: enabledExperimentalRules(config),
           harness: adapter.name,
           vigilesVersion: getVersion(),
           adoptableSurfaces,
@@ -9865,7 +9930,9 @@ export async function main(): Promise<void> {
           // shown before the detailed report so the headline signal leads.
           console.log(formatAuditScore(sc));
           console.log("");
-          console.log(formatScanReport(report));
+          // The experimental block reads the report's own `experimental` —
+          // the data the JSON and HTML render — so the three cannot drift.
+          console.log(formatScanReport(report, auditReportBase.experimental));
           // Fold each finding's fix inline (replaces the former --fix-plan/--explain
           // flags): the deterministic, free recommendation list under the report.
           const fixes = formatRecommendations(plan);
@@ -9882,10 +9949,7 @@ export async function main(): Promise<void> {
           if (adoptNudge) console.log("\n" + adoptNudge);
           // A small behavioral nudge — the deterministic read can't tell whether
           // skills actually FIRE; point at the interactive measure + the API.
-          const fireNudge = formatTriggerNudge(
-            report.skills.filter((s) => s.hasDescription && !s.userInvoked)
-              .length,
-          );
+          const fireNudge = formatTriggerNudge(surfaces.triggerableSkills);
           if (fireNudge) console.log("\n" + fireNudge);
         }
         // ONE read-vs-run decision for the EXECUTING checks (live MCP + skill

@@ -42,8 +42,7 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     descriptionOverlaps: [],
     descriptionBudgetIssues: [],
     trifectaFindings: [],
-    skillResourceIssues: [],
-    skillResourceNotes: [],
+    experimental: { "skill-resource-resolves": { issues: [], notes: [] } },
     skillFenceIssues: [],
     pluginLayoutIssues: [],
     unclaimedSurfaces: [],
@@ -193,12 +192,25 @@ test("the NEW non-advisory detectors are scored (not ranked A/100 while printing
     }),
   ).score;
   assert.ok(hookBlock < 100, "an ineffective hook must drag the score");
+  // The opposite for an EXPERIMENTAL rule: its findings sit under
+  // `experimental`, which no scorer reads, so they cannot move the score.
+  const withSurface = { commands: 1 };
   const skillRes = scoreReport(
     report({
-      skillResourceIssues: [{ path: "p", name: "s", finding: {} as never }],
+      ...withSurface,
+      experimental: {
+        "skill-resource-resolves": {
+          issues: [{ path: "p", name: "s", finding: {} as never }],
+          notes: [],
+        },
+      },
     }),
   ).score;
-  assert.ok(skillRes < 100, "a broken bundled resource must drag the score");
+  assert.equal(
+    skillRes,
+    scoreReport(report(withSurface)).score,
+    "an experimental finding (skill-resource-resolves) never drags the score",
+  );
 });
 
 test("a lethal-trifecta unit deducts W_TRIFECTA (-10) — explicit AND inherits-all alike", () => {

@@ -1160,8 +1160,9 @@ export function skillMetaIssuesFor(
  * The skill-resource findings of one resolution, tagged with their skill.
  *
  * The ONE place a skill-resource finding is sorted by its resolution (#382): a
- * `missing` ref is a defect — scored, gated — and a `repo-root-only` ref is a
- * note, printed and never scored. The report holds them in two lists whose
+ * `missing` ref is a finding (`✗`, gated when the rule is at `error`) and a
+ * `repo-root-only` ref is a note, printed and never counted. Neither is scored:
+ * the rule is in the experimental group. The report holds them in two lists whose
  * element types each admit one variant, so no consumer filters, and none can
  * forget to: a note cannot reach a list that is counted.
  */
@@ -1181,18 +1182,12 @@ function skillResourcesOf<R extends SkillResourceResolution>(
  * path-tagged report lists the `audit` report AND the `lethal-trifecta` /
  * `skill-resource-resolves` lint rules both consume (one detector, no drift).
  * Shared by the disk scan and the browser twin, and keyed by the report's own
- * field names, so both engines spread the same four lists.
+ * field names, so both engines spread the same lists.
  */
 export function collectSurfaceFindings(
   agents: readonly ScanAgent[],
   skills: readonly ScanSkill[],
-): Pick<
-  ScanReport,
-  | "trifectaFindings"
-  | "skillResourceIssues"
-  | "skillResourceNotes"
-  | "skillFenceIssues"
-> {
+): Pick<ScanReport, "trifectaFindings" | "experimental" | "skillFenceIssues"> {
   const trifectaFindings: ScanTrifectaFinding[] = [];
   for (const a of agents) {
     if (a.trifecta) {
@@ -1219,8 +1214,14 @@ export function collectSurfaceFindings(
   );
   return {
     trifectaFindings,
-    skillResourceIssues: skillResourcesOf(skills, "missing"),
-    skillResourceNotes: skillResourcesOf(skills, "repo-root-only"),
+    // The experimental group's findings: detected here like every other, kept
+    // under their own key so no grader reads them (see ScanReport.experimental).
+    experimental: {
+      "skill-resource-resolves": {
+        issues: skillResourcesOf(skills, "missing"),
+        notes: skillResourcesOf(skills, "repo-root-only"),
+      },
+    },
     skillFenceIssues,
   };
 }

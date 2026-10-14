@@ -15,6 +15,7 @@ import {
   collectSetupAnswers,
   gateOnlyInvitation,
   WORKFLOW_RULES,
+  NUDGE_RULES,
   SHIPPED_SKILLS,
   adoptionState,
   rerunScope,
@@ -23,6 +24,8 @@ import {
   type AskFn,
 } from "./setup-plan.js";
 import { RECOMMENDED_RULES } from "./core/presets.js";
+import { EXPERIMENTAL_RULES } from "./core/rule-meta.js";
+import { parseVigilesConfig } from "./core/config-schema.js";
 
 test("defaults: both pillars, CI, plugin, non-strict", () => {
   assert.deepEqual(defaultPlan(), {
@@ -450,6 +453,57 @@ test("WORKFLOW_RULES is untested-*; nudge rules are NOT gated", () => {
   );
   assert.ok(
     !(WORKFLOW_RULES as readonly string[]).includes("skill-frontmatter"),
+  );
+});
+
+// The experimental group: `init` never writes it, in any mode — not even
+// `--strict`, which is the reliable `workflow` group and must not drag checks
+// measured as unreliable into CI. One group owns each rule.
+test("the experimental group is in no other group, and no init mode turns it on", () => {
+  const others = new Set<string>([
+    ...RECOMMENDED_RULES,
+    ...WORKFLOW_RULES,
+    ...NUDGE_RULES,
+  ]);
+  for (const r of EXPERIMENTAL_RULES)
+    assert.ok(!others.has(r), `${r} is owned by another group too`);
+  for (const mode of [
+    { strict: false },
+    { strict: true },
+    { strict: true, reportOnly: true },
+    { strict: false, reportOnly: true },
+  ]) {
+    const out = mergeProjectConfig({}, { harnesses: ["h"], ...mode });
+    const parsed = parseVigilesConfig(out);
+    assert.ok(parsed.success);
+    for (const r of EXPERIMENTAL_RULES)
+      assert.equal(
+        parsed.data.rules[r],
+        false,
+        `${r} stays off after init ${JSON.stringify(mode)}`,
+      );
+  }
+});
+
+test("mergeProjectConfig: a repo extending only vigiles:experimental gets recommended first", () => {
+  const out = mergeProjectConfig(
+    { extends: "vigiles:experimental" },
+    { harnesses: ["h"], strict: false },
+  );
+  assert.deepEqual(out?.extends, [
+    "vigiles:recommended",
+    "vigiles:experimental",
+  ]);
+  // Already extending both (in any form): nothing to add.
+  assert.equal(
+    mergeProjectConfig(
+      {
+        harnesses: { h: {} },
+        extends: ["vigiles:experimental", "vigiles:recommended"],
+      },
+      { harnesses: ["h"], strict: false },
+    ),
+    null,
   );
 });
 

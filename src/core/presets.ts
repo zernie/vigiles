@@ -16,9 +16,14 @@
  * can turn a consumer's CI red with no edit on their side. Removing one is not.
  * ESLint treats `eslint:recommended` the same way.
  *
+ * `vigiles:experimental` is the exception to that warning: it only ever sets
+ * `warn`, for repos that asked for the experimental group, so growing it cannot
+ * turn anyone's CI red.
+ *
  * Harness-agnostic data: rule names only, no adapter fact.
  */
 import type { RulesConfig } from "./types.js";
+import { EXPERIMENTAL_RULES } from "./rule-meta.js";
 
 /**
  * The rules `vigiles:recommended` raises to `error` — the FP-safe structural
@@ -57,21 +62,45 @@ export const RECOMMENDED_RULES = [
   "require-instructions-spec",
 ] as const satisfies ReadonlyArray<keyof RulesConfig>;
 
-/** The preset names `extends` accepts. One today; the tuple is the enum. */
-export const PRESET_NAMES = ["vigiles:recommended"] as const;
+/**
+ * The preset names `extends` accepts — the tuple is the enum, and the SAME
+ * vocabulary `audit`/`lint --preset=<name>` takes (there it may drop the
+ * `vigiles:` prefix: `--preset=experimental`).
+ *
+ * `vigiles:experimental` turns the `experimental` group (`EXPERIMENTAL_RULES`,
+ * `./rule-meta.ts`) on at `warn`: checks shipped but not measured reliable
+ * enough to grade anyone on. Adding a rule to THAT preset is not breaking — it
+ * only reports, at `warn`, for a repo that asked for the group.
+ */
+export const PRESET_NAMES = [
+  "vigiles:recommended",
+  "vigiles:experimental",
+] as const;
 
 /** A preset name `extends` accepts. */
 export type PresetName = (typeof PRESET_NAMES)[number];
 
+/** The namespace every preset name carries; the CLI flag may omit it. */
+export const PRESET_PREFIX = "vigiles:";
+
 /** The preset `init` writes. */
 export const RECOMMENDED_PRESET: PresetName = "vigiles:recommended";
 
+/** A severity a preset may set. */
+type PresetSeverity = "error" | "warn";
+
 /** What each preset sets, as the config would spell it. */
 const PRESETS: Readonly<
-  Record<PresetName, Readonly<Partial<Record<keyof RulesConfig, "error">>>>
+  Record<
+    PresetName,
+    Readonly<Partial<Record<keyof RulesConfig, PresetSeverity>>>
+  >
 > = {
   "vigiles:recommended": Object.fromEntries(
     RECOMMENDED_RULES.map((r) => [r, "error"] as const),
+  ),
+  "vigiles:experimental": Object.fromEntries(
+    EXPERIMENTAL_RULES.map((r) => [r, "warn"] as const),
   ),
 };
 
@@ -80,9 +109,20 @@ export function isPresetName(value: unknown): value is PresetName {
   return PRESET_NAMES.some((n) => n === value);
 }
 
+/**
+ * The preset names a raw `extends` value lists, in order: a string is one, an
+ * array is several. Anything else — or any entry that is not a preset — yields
+ * `null`, so the caller leaves it for the schema to refuse with its own message.
+ */
+export function extendedPresets(value: unknown): readonly PresetName[] | null {
+  if (value === undefined) return [];
+  const list: readonly unknown[] = Array.isArray(value) ? value : [value];
+  return list.every(isPresetName) ? list : null;
+}
+
 /** The rule severities a preset sets, in the config's raw spelling. */
 export function presetRules(
   name: PresetName,
-): Readonly<Partial<Record<keyof RulesConfig, "error">>> {
+): Readonly<Partial<Record<keyof RulesConfig, PresetSeverity>>> {
   return PRESETS[name];
 }

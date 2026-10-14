@@ -435,6 +435,8 @@ jobs:
       # (comment + annotations), not a bare CLI step before it. `capability-diff`
       # folds the blast-radius diff vs the PR base into the SAME sticky comment
       # (informational — no fail-on-widen — so a legit widening doesn't red CI).
+      # `preset: experimental` runs the not-yet-graded checks too: they report at
+      # warn and never fail the run, so this repo sees what they would say.
       - name: Dogfood the vigiles GitHub Action (primary lint gate)
         id: vigiles-action
         uses: ./
@@ -442,6 +444,7 @@ jobs:
           command: lint
           version: local
           capability-diff: "true"
+          preset: experimental
 
       - name: Assert the action reported success
         run: |

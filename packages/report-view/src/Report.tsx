@@ -14,10 +14,14 @@ import type {
   AuditReport,
   CategoryScore,
   Recommendation,
-  SkillResourceNote,
+  ExperimentalRuleResult,
   Verdict,
 } from "./schema";
-import { categoryScoreLabel } from "./schema";
+import {
+  categoryScoreLabel,
+  EXPERIMENTAL_BLURB,
+  EXPERIMENTAL_HEADING,
+} from "./schema";
 import { Card } from "./components/ui/card";
 import { Badge } from "./components/ui/badge";
 import { Adoptability } from "./components/Adoptability";
@@ -278,25 +282,55 @@ function SafetyCard({ finding }: { finding: string }) {
   );
 }
 
-/** Truthfulness notes that never moved the score: skill refs that resolve only
- * from the repo root (#382). Muted and marked "not graded", so a reader does not
- * hunt for the points they cost — they cost none. */
-function ResourceNotes({ notes }: { notes: readonly SkillResourceNote[] }) {
+/** The experimental rule group: every rule the run turned on and what it found,
+ * in a block of its own — muted, and headed "not graded", so a reader does not
+ * hunt the rings for points these findings cost: they cost none. */
+function ExperimentalBlock({
+  results,
+}: {
+  results: readonly ExperimentalRuleResult[];
+}) {
   return (
-    <ul className="mt-1 space-y-0.5">
-      {notes.map((n) => (
-        <li
-          key={`${n.path}:${n.line}:${n.ref}`}
-          className="text-[11px] leading-snug text-na"
-        >
-          <Info size={11} className="mr-1 inline align-[-1px]" aria-hidden />
-          <span className="font-mono">{n.ref}</span>{" "}
-          <span className="text-muted-foreground">
-            ({n.skill}, line {n.line}) — {n.message} Not graded.
-          </span>
-        </li>
-      ))}
-    </ul>
+    <section className="mt-6" aria-label={EXPERIMENTAL_HEADING}>
+      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/60">
+        {EXPERIMENTAL_HEADING}
+      </p>
+      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+        {EXPERIMENTAL_BLURB}
+      </p>
+      <ul className="mt-1.5 space-y-1">
+        {results.map((res) => (
+          <li key={res.rule} className="text-[11px] leading-snug text-na">
+            <span className="font-mono">{res.rule}</span>
+            {res.findings.length === 0 ? (
+              <span className="text-muted-foreground"> — nothing found</span>
+            ) : (
+              <ul className="mt-0.5 space-y-0.5 pl-3">
+                {res.findings.map((f) => (
+                  <li key={`${f.path}:${f.line ?? 0}:${f.message}`}>
+                    {f.kind === "note" ? (
+                      <Info
+                        size={11}
+                        className="mr-1 inline align-[-1px]"
+                        aria-hidden
+                      />
+                    ) : (
+                      <span aria-hidden className="mr-1">
+                        ✗
+                      </span>
+                    )}
+                    <span className="font-mono">{f.subject}</span>{" "}
+                    <span className="text-muted-foreground">
+                      ({f.path}) — {f.message}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -367,11 +401,9 @@ function CategoryCell({ c }: { c: CategoryScore }) {
 function CategoryRow({
   c,
   refs,
-  notes,
 }: {
   c: CategoryScore;
   refs?: readonly string[];
-  notes?: readonly SkillResourceNote[];
 }) {
   const b: Band = c.advisory ? "na" : band(c.score);
   const pct = c.score === null ? 0 : Math.max(0, Math.min(100, c.score));
@@ -457,7 +489,6 @@ function CategoryRow({
             )}
           </>
         )}
-        {notes && notes.length > 0 && <ResourceNotes notes={notes} />}
       </div>
     </div>
   );
@@ -733,7 +764,7 @@ export function Report({
     rulesInventory,
     ruleRouting,
     brokenReferences,
-    skillResourceNotes,
+    experimental,
   } = data;
   const overall = score.empty ? null : score.overall;
 
@@ -804,10 +835,12 @@ export function Report({
               key={c.key}
               c={c}
               refs={c.key === "Truthfulness" ? brokenReferences : undefined}
-              notes={c.key === "Truthfulness" ? skillResourceNotes : undefined}
             />
           ))}
         </div>
+        {experimental && experimental.length > 0 && (
+          <ExperimentalBlock results={experimental} />
+        )}
 
         {/* The two things a browser can't do — folded into the SAME strip (dashed
             rows, captioned), not bolt-on cards floating below: the model-gated
@@ -865,16 +898,10 @@ export function Report({
           <CategoryCell key={c.key} c={c} />
         ))}
       </div>
-      {/* The full report's category cells have no room for detail, so the
-          Truthfulness notes sit directly under the strip, labelled with the
-          category they belong to. */}
-      {skillResourceNotes && skillResourceNotes.length > 0 && (
-        <div className="mt-3">
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/60">
-            Truthfulness — notes, not graded
-          </p>
-          <ResourceNotes notes={skillResourceNotes} />
-        </div>
+      {/* Below the strip and apart from it: these findings are not in any
+          category, because no category is graded on them. */}
+      {experimental && experimental.length > 0 && (
+        <ExperimentalBlock results={experimental} />
       )}
 
       <h2 className="mb-3 mt-9 text-xs font-semibold uppercase tracking-widest text-muted-foreground">

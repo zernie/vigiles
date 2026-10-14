@@ -5,6 +5,8 @@
  * braced/unbraced `$CLAUDE_PLUGIN_ROOT` forms (ok / missing / unresolved),
  * command + MCP detection, and the formatted output. No model, no network.
  */
+import { experimentalResults } from "./experimental-findings.js";
+import { EXPERIMENTAL_RULES } from "./core/rule-meta.js";
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
@@ -234,16 +236,28 @@ for (const adapter of ADAPTERS) {
       write(repo, "scripts/leak.py", "# lives at the repo root only\n");
       const r = scan(repo);
       assert.deepEqual(
-        r.skillResourceIssues.map((s) => s.finding.ref),
+        r.experimental["skill-resource-resolves"].issues.map(
+          (s) => s.finding.ref,
+        ),
         ["scripts/gone.py"],
         "only the ref that exists nowhere is a missing resource",
       );
       assert.deepEqual(
-        r.skillResourceNotes.map((s) => [s.finding.ref, s.finding.resolution]),
+        r.experimental["skill-resource-resolves"].notes.map((s) => [
+          s.finding.ref,
+          s.finding.resolution,
+        ]),
         [["scripts/leak.py", "repo-root-only"]],
         "the repo-root-only ref is reported as a note, visibly",
       );
-      const text = formatScanReport(r);
+      // The rule is experimental: the report shows its findings only when the
+      // run turned the rule on, and then in the "not graded" block.
+      assert.doesNotMatch(formatScanReport(r), /scripts\/gone\.py/);
+      const text = formatScanReport(
+        r,
+        experimentalResults(r, new Set(EXPERIMENTAL_RULES)),
+      );
+      assert.match(text, /Experimental — not graded:/);
       assert.match(text, /✗ rca: scripts\/gone\.py \(line 7\)/);
       assert.match(
         text,
@@ -1997,11 +2011,19 @@ test("scanPlugin flags a SKILL.md body referencing a missing bundled resource", 
   );
   assert.equal(pdf.resourceIssues[0].ref, "references/api.md");
   // The aggregate list + the printed report both carry it.
-  const flat = r.skillResourceIssues.find((s) => s.name === "pdf");
+  const flat = r.experimental["skill-resource-resolves"].issues.find(
+    (s) => s.name === "pdf",
+  );
   assert.ok(flat);
   assert.equal(flat.finding.ref, "references/api.md");
-  assert.match(formatScanReport(r), /Skill bundled resources/);
-  assert.match(formatScanReport(r), /pdf: references\/api\.md/);
+  const on = formatScanReport(
+    r,
+    experimentalResults(r, new Set(EXPERIMENTAL_RULES)),
+  );
+  assert.match(on, /skill-resource-resolves \(1\):/);
+  assert.match(on, /✗ pdf: references\/api\.md/);
+  // Experimental: never in the structural tally, on or off.
+  assert.match(on, /✓ no structural issues found/);
   cleanupTmpDir(dir);
 });
 
@@ -2064,7 +2086,7 @@ test("skill-resource is FP-safe: URLs and $VAR tokens are not flagged", () => {
     r.skills.find((s) => s.name === "web")?.resourceIssues.length,
     0,
   );
-  assert.equal(r.skillResourceIssues.length, 0);
+  assert.equal(r.experimental["skill-resource-resolves"].issues.length, 0);
   cleanupTmpDir(dir);
 });
 
