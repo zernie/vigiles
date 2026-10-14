@@ -458,13 +458,24 @@ function lookup(
 }
 
 /**
- * The bundled-resource references in a SKILL.md body that don't resolve under
- * `skillDir`, each tagged with its {@link SkillResourceResolution}. Pure + FP-safe
- * (see the module header). `skillDir` is the directory the SKILL.md itself lives
- * in (resources are bundled beside it).
+ * Reads a SKILL.md body, finds every file it mentions (`scripts/x.sh`,
+ * `[guide](references/guide.md)`), and returns the ones that are NOT in the
+ * skill's own folder. Files that are there are not returned at all.
  *
- * The shared detector behind both `vigiles lint` (the `skill-resource-resolves`
- * rule) and `vigiles audit` (the read-only report) — one detector, no drift.
+ * ```ts
+ * // skillDir = .claude/skills/deploy, repoRoot = the repo
+ * skillResourceIssues("Run `scripts/deploy.sh`.\nSee `scripts/smoke.sh`.", skillDir, {
+ *   existsSync, repoRoot,
+ * });
+ * // → [{ ref: "scripts/deploy.sh", resolution: "repo-root-only", … },
+ * //    { ref: "scripts/smoke.sh",  resolution: "missing", … }]
+ * ```
+ *
+ * Despite the name, the result holds both kinds: `missing` (a real break) and
+ * `repo-root-only` (works here, breaks when installed elsewhere — a note). The
+ * split into two lists happens once, in `collectSurfaceFindings`. It only reads
+ * the file system through the injected `existsSync`, so it runs on disk and in
+ * the browser, and `lint` and `audit` both call it.
  */
 export function skillResourceIssues(
   skillBody: string,
