@@ -18,15 +18,42 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 
 import {
-  vigilesConfigSchema,
-  formatConfigIssues,
-  parseVigilesConfig,
-  foldedRuleMessages,
-  parsePresetFlags,
+  configFor,
+  formatConfigIssues as formatIssues,
+  parsePresetFlags as parsePresetNames,
+  type ConfigIssue,
 } from "./config-schema.js";
-import { RECOMMENDED_RULES } from "./presets.js";
-import { EXPERIMENTAL_RULES } from "./rule-meta.js";
-import { loadConfig } from "./validate.js";
+import { foldedRuleMessages } from "./config-migrations.js";
+import { presetRulesOf } from "./presets.js";
+import { defaultSeverities } from "./rule.js";
+import { loadConfig as loadConfigFor } from "./validate.js";
+import { RULES, RULE_GROUPS } from "../rules/index.js";
+
+/** The config built over the shipped rule set, as the CLI builds it. */
+const CONFIG = configFor(RULES, RULE_GROUPS);
+const parseVigilesConfig = (raw: unknown, extra?: readonly string[]) =>
+  CONFIG.parse(raw, extra);
+const vigilesConfigSchema = {
+  safeParse: (raw: unknown) => CONFIG.parse(raw),
+  parse: (raw: unknown) => {
+    const r = CONFIG.parse(raw);
+    if (!r.success) throw new Error(formatConfigIssues(r.error.issues)[0]);
+    return r.data;
+  },
+};
+const formatConfigIssues = (issues: readonly ConfigIssue[]) =>
+  formatIssues(CONFIG.schema, issues);
+const parsePresetFlags = (values: readonly string[]) =>
+  parsePresetNames(CONFIG.presetNames, values);
+const loadConfig = (dir: string) => loadConfigFor(CONFIG, dir);
+const presetRules = presetRulesOf(RULES, RULE_GROUPS);
+/** The rules each preset sets, read off the groups. */
+const idsIn = (preset: string) =>
+  RULES.map((r) => r.id).filter((id) => id in presetRules(preset));
+const RECOMMENDED_RULES = idsIn("vigiles:recommended");
+/** Each rule's shipped default, as the parsed config spells it. */
+const DEFAULT_OF = defaultSeverities(RULES);
+const EXPERIMENTAL_RULES = idsIn("vigiles:experimental");
 import { makeTmpDir, cleanupTmpDir } from "./test-utils.js";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -258,7 +285,11 @@ test("without extends, no rule moves off its built-in default", () => {
   const r = parseVigilesConfig({});
   assert.ok(r.success);
   for (const name of RECOMMENDED_RULES) {
-    assert.equal(r.data.rules[name], "warn", `${name} default is unchanged`);
+    assert.equal(
+      r.data.rules[name],
+      DEFAULT_OF[name],
+      `${name} default is unchanged`,
+    );
   }
 });
 
@@ -288,7 +319,11 @@ test("extends vigiles:experimental turns the group on at warn — never error", 
     assert.equal(r.data.rules[name], "warn", `${name} on at warn`);
   // It does not touch the structural group.
   for (const name of RECOMMENDED_RULES)
-    assert.equal(r.data.rules[name], "warn", `${name} keeps its default`);
+    assert.equal(
+      r.data.rules[name],
+      DEFAULT_OF[name],
+      `${name} keeps its default`,
+    );
 });
 
 test("extends takes a list: both presets apply, and rules still win", () => {

@@ -22,7 +22,11 @@ import {
   keepHandWrittenRemedy,
   handWrittenInstructionRemedy,
 } from "./instruction-remedies.js";
-import { vigilesConfigSchema } from "./config-schema.js";
+import { configFor } from "./config-schema.js";
+import { RULES, RULE_GROUPS } from "../rules/index.js";
+
+/** The config built over the shipped rule set, as the CLI builds it. */
+const CONFIG = configFor(RULES, RULE_GROUPS);
 
 const over: CeilingVerdict = {
   total: 38_000,
@@ -132,7 +136,7 @@ describe("what a require-instructions-spec finding says to do", () => {
     ].map((m): unknown => JSON.parse(m[0]));
     expect(snippets).toHaveLength(3);
     snippets.forEach((snippet) => {
-      expect(vigilesConfigSchema.safeParse(snippet).success).toBe(true);
+      expect(CONFIG.parse(snippet).success).toBe(true);
     });
   });
 });

@@ -184,6 +184,22 @@ describe("hook-runtime module graph", () => {
   });
 });
 
+describe("the rule set's place in the module graph", () => {
+  // The rule set (`src/rules/`) is wired in by the composition root, which a
+  // decision never loads — and a verb does. The pair keeps both halves honest.
+  test("the rule set is on a verb's rail and never on a decision's", () => {
+    expect(has(graphOf(["--help"]), "rules/index.js")).toBe(true);
+    expect(
+      has(
+        graphOf(["hook-runtime", "run-program", BASH_GATE], BASH_EVENT),
+        "rules/index.js",
+      ),
+      "a hook decision pulled dist/rules/index.js — the rule set belongs to " +
+        "the verb barrel (src/cli-main.ts), not to src/cli.ts or the runtime.",
+    ).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // THE FIFTH LAZY BOUNDARY: the harness-test DRIVER, behind a thunk on the
 // adapter (`HarnessAdapter.harnessTestDriver`).

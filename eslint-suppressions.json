@@ -1101,6 +1101,11 @@
       "count": 4
     }
   },
+  "src/core/config-migrations.ts": {
+    "local/no-rule-ids": {
+      "count": 7
+    }
+  },
   "src/core/config-schema.test.ts": {
     "local/no-harness-names": {
       "count": 16
@@ -1121,9 +1126,6 @@
     },
     "functional/prefer-immutable-types": {
       "count": 3
-    },
-    "local/no-rule-ids": {
-      "count": 41
     }
   },
   "src/core/content-budget.test.ts": {
@@ -2010,14 +2012,6 @@
       "count": 2
     }
   },
-  "src/core/presets.ts": {
-    "local/no-group-names": {
-      "count": 3
-    },
-    "local/no-rule-ids": {
-      "count": 11
-    }
-  },
   "src/core/proofs.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 7
@@ -2103,32 +2097,12 @@
       "count": 13
     }
   },
-  "src/core/rule-meta.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
-    "local/no-rule-ids": {
-      "count": 3
-    },
-    "sonarjs/no-nested-conditional": {
-      "count": 1
-    }
-  },
   "src/core/rule-meta.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
-    "functional/prefer-immutable-types": {
-      "count": 2
-    },
     "local/no-group-names": {
       "count": 6
     },
     "local/no-rule-ids": {
-      "count": 70
-    },
-    "sonarjs/no-duplicate-string": {
-      "count": 3
+      "count": 1
     }
   },
   "src/core/session.ts": {
@@ -2424,9 +2398,6 @@
   "src/core/types.ts": {
     "functional/prefer-immutable-types": {
       "count": 2
-    },
-    "local/no-rule-ids": {
-      "count": 34
     }
   },
   "src/core/validate.test.ts": {
@@ -2442,7 +2413,7 @@
   },
   "src/core/validate.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 3
+      "count": 2
     },
     "boundaries/dependencies": {
       "count": 2
@@ -2457,7 +2428,7 @@
       "count": 3
     },
     "functional/prefer-immutable-types": {
-      "count": 19
+      "count": 16
     },
     "local/no-rule-ids": {
       "count": 4
@@ -3538,11 +3509,6 @@
       "count": 1
     }
   },
-  "src/rule-cure.test.ts": {
-    "local/no-rule-ids": {
-      "count": 1
-    }
-  },
   "src/rule-inventory.ts": {
     "functional/immutable-data": {
       "count": 1
@@ -3996,14 +3962,11 @@
     "functional/prefer-immutable-types": {
       "count": 18
     },
-    "local/no-group-names": {
-      "count": 3
-    },
     "local/no-harness-names": {
       "count": 15
     },
     "local/no-rule-ids": {
-      "count": 18
+      "count": 1
     },
     "no-param-reassign": {
       "count": 10

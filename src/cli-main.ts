@@ -59,8 +59,24 @@ import {
   diffCapabilities,
   formatCapabilityDiff,
 } from "./core/capability-diff.js";
-import { validate, loadConfig, DEFAULT_RULES } from "./core/validate.js";
-import { ruleResolver, type RuleName, type RuleResolver } from "./overrides.js";
+import {
+  validate,
+  loadConfig as loadConfigFor,
+  configDefaults,
+} from "./core/validate.js";
+import {
+  ruleResolver,
+  type RuleResolver as AnyRuleResolver,
+} from "./overrides.js";
+import { configFor } from "./core/config-schema.js";
+import { initPolicyOf } from "./core/rule.js";
+import {
+  RULES,
+  RULE_GROUPS,
+  type RuleId,
+  type RulesConfig,
+  type VigilesConfig,
+} from "./rules/index.js";
 import {
   anyLocksCommitted,
   evalLockNudge,
@@ -74,7 +90,7 @@ import {
 import { z } from "zod";
 import { applyConfigFlags } from "./cli-flags.js";
 import { parsePresetFlags } from "./core/config-schema.js";
-import { RECOMMENDED_PRESET, extendedPresets } from "./core/presets.js";
+import { extendedPresets } from "./core/presets.js";
 import {
   EXPERIMENTAL_RULES,
   type ExperimentalRuleName,
@@ -110,13 +126,11 @@ import {
   type ParsedSetupArgs,
 } from "./setup-plan.js";
 import type {
-  VigilesConfig,
   CoverageThresholds,
   TestCoverageConfig,
   InstructionWeightConfig,
   CompileBudgetConfig,
   RuleSeverity,
-  RulesConfig,
 } from "./core/types.js";
 import { ruleSeverity, ruleOptions } from "./core/types.js";
 import type { SurfaceKind, TestCoverageOptions } from "./test-coverage.js";
@@ -380,6 +394,31 @@ import {
   loadFailed,
   type ScriptRunResult,
 } from "./adapters/claude-code/run-scripts.js";
+
+/**
+ * THE RULE SET, WIRED IN — the composition root's one job for rules. Core
+ * declares the port and takes the set as a parameter; this file (and the
+ * browser demo's entry) is the only place `src/rules/` is imported. `CONFIG`
+ * is `.vigilesrc.json` built for this set, `loadConfig` the loader bound to it
+ * (so every verb reads the same schema), and `INIT_POLICY` what `init` writes,
+ * derived from the groups.
+ */
+const CONFIG = configFor(RULES, RULE_GROUPS);
+const INIT_POLICY = initPolicyOf(RULES, RULE_GROUPS);
+/** Every rule at its shipped default — what a missing `.vigilesrc.json` loads as. */
+const DEFAULT_CONFIG: Readonly<VigilesConfig> = configDefaults(CONFIG);
+
+/** The resolver over this set's ids. */
+type RuleResolver = AnyRuleResolver<RuleId>;
+
+/** `.vigilesrc.json` for this rule set; see `core/validate.ts` `loadConfig`. */
+function loadConfig(
+  searchFrom?: string,
+  opts?: Parameters<typeof loadConfigFor>[2],
+): Readonly<VigilesConfig> {
+  return loadConfigFor(CONFIG, searchFrom, opts);
+}
+
 import {
   COVERAGE_ARTIFACT_VERSION,
   executedScripts,
@@ -1220,7 +1259,7 @@ function verifyHashes(
 function validateSpecs(
   root: string,
   filePaths: string[],
-  rulesConfig: Readonly<import("./core/types.js").RulesConfig>,
+  rulesConfig: Readonly<RulesConfig>,
   rules: RuleResolver,
   silent = false,
 ): boolean {
@@ -2177,7 +2216,7 @@ type Graded<F> = F & { readonly sev: "warn" | "error" };
  */
 function graded<F extends object>(
   rules: RuleResolver,
-  rule: RuleName,
+  rule: RuleId,
   found: readonly F[],
   pathOf: (f: F) => string | undefined,
 ): readonly Graded<F>[] {
@@ -2475,7 +2514,7 @@ function compileBudgetOptions(
   if (rule === undefined) return { budgetSeverity: "warn" };
   return {
     budgetSeverity: ruleResolver(
-      config?.rules ?? DEFAULT_RULES,
+      config?.rules ?? DEFAULT_CONFIG.rules,
       config?.overrides,
     ).severityAt("compile-budget", target),
     ...ruleOptions<CompileBudgetConfig>(rule),
@@ -2558,7 +2597,10 @@ async function runLint(
   // relative to it, and config globs resolve from it — whichever bundle is being
   // scored. Built here, once, instead of each option re-deriving its own root.
   const frame = frameFor(root, scanRoot);
-  const rules = ruleResolver(config?.rules ?? DEFAULT_RULES, config?.overrides);
+  const rules = ruleResolver(
+    config?.rules ?? DEFAULT_CONFIG.rules,
+    config?.overrides,
+  );
   const run: BundleRun = { config, rules, silent, adapter, excludes, frame };
   if (!silent && nestedBundles.length > 0) {
     const rel = nestedBundles.map((b) => relative(scanRoot, b) || b);
@@ -5324,7 +5366,10 @@ function minimalRerun(
   const devDep = plan.lint || plan.test ? addMissingVigilesDevDep() : [];
   const written = [...links, ...devDep];
   if (written.length === 0) console.log("\nNothing was missing.");
-  const followUps = fullSetupFollowUps(fullSetupGap(plan, detected, harnesses));
+  const followUps = fullSetupFollowUps(
+    fullSetupGap(plan, detected, harnesses),
+    INIT_POLICY.preset,
+  );
   if (followUps.length > 0) console.log(`\n${followUps.join("\n")}`);
   if (written.length > 0)
     console.log(
@@ -5444,8 +5489,8 @@ function configGap(
   if (config === null) return "missing";
   // "Has the preset" means extends RECOMMENDED: `vigiles:experimental` alone
   // gates nothing. A value that is not a preset list is not ours to judge here.
-  const listed = extendedPresets(config.extends);
-  return listed !== null && !listed.includes(RECOMMENDED_PRESET) && lint
+  const listed = extendedPresets(CONFIG.presetNames, config.extends);
+  return listed !== null && !listed.includes(INIT_POLICY.preset) && lint
     ? "no-preset"
     : "has-preset";
 }
@@ -5515,6 +5560,7 @@ function writeProjectConfig(opts: {
     }
   }
   const merged = mergeProjectConfig(existing, {
+    policy: INIT_POLICY,
     harnesses: harnessConfigKeys(opts.harnesses),
     strict: opts.strict,
     reportOnly: opts.reportOnly,
@@ -9381,6 +9427,7 @@ function loadRunConfig(
   args: readonly string[],
 ): Readonly<VigilesConfig> {
   const presetFlag = parsePresetFlags(
+    CONFIG.presetNames,
     args
       .filter((a) => a.startsWith("--preset="))
       .map((a) => a.slice("--preset=".length)),

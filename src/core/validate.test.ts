@@ -15,12 +15,37 @@ import {
   readInstructionFile,
   validatePaths,
   findInstructionFiles,
-  loadConfig,
+  loadConfig as loadConfigFor,
+  configDefaults,
 } from "./validate.js";
 import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
-import { vigilesConfigSchema, formatConfigIssues } from "./config-schema.js";
+import {
+  configFor,
+  formatConfigIssues as formatIssues,
+  type ConfigIssue,
+} from "./config-schema.js";
+import { RULES, RULE_GROUPS } from "../rules/index.js";
 import { handWrittenInstructionRemedy } from "./instruction-remedies.js";
 import type { MarkerType, ParseOptions } from "./types.js";
+
+/** The config built over the shipped rule set, as the CLI builds it. */
+const CONFIG = configFor(RULES, RULE_GROUPS);
+const vigilesConfigSchema = {
+  safeParse: (raw: unknown) => CONFIG.parse(raw),
+  parse: (raw: unknown) => {
+    const r = CONFIG.parse(raw);
+    if (!r.success) throw new Error(formatConfigIssues(r.error.issues)[0]);
+    return r.data;
+  },
+};
+const formatConfigIssues = (issues: readonly ConfigIssue[]) =>
+  formatIssues(CONFIG.schema, issues);
+/** Every rule at its shipped default — what the CLI hands `validate` with no config. */
+const DEFAULTS = configDefaults(CONFIG).rules;
+const loadConfig = (
+  searchFrom?: string,
+  opts?: Parameters<typeof loadConfigFor>[2],
+) => loadConfigFor(CONFIG, searchFrom, opts);
 
 describe("config value normalization (now the schema's job)", () => {
   /**
@@ -498,7 +523,7 @@ describe("require-instructions-spec", () => {
     writeFileSync(mdPath, "# Test\n");
 
     // Default is "warn" — valid stays true, warning emitted
-    const result = validate("# Test\n", { filePath: mdPath });
+    const result = validate("# Test\n", { filePath: mdPath, rules: DEFAULTS });
     assert.equal(result.valid, true);
     assert.ok(
       result.warnings.some((e) => e.rule === "require-instructions-spec"),
@@ -982,7 +1007,7 @@ describe("which filenames count as an instruction file — the dialect decides",
   // dialect and `require-instructions-spec` without one. Since v2.1.277 Claude
   // Code really does read `AGENTS.md`, so the narrower answer was the wrong one.
   const rulesOf = (opts: Parameters<typeof validate>[1]): string[] => {
-    const r = validate("# x\n", opts);
+    const r = validate("# x\n", { rules: DEFAULTS, ...opts });
     return [...r.errors, ...r.warnings].map((e) => e.rule);
   };
 

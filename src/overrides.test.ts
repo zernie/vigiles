@@ -11,11 +11,20 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
-  parseVigilesConfig,
-  formatConfigIssues,
+  configFor,
+  formatConfigIssues as formatIssues,
   VigilesConfigError,
+  type ConfigIssue,
 } from "./core/config-schema.js";
-import { loadConfig } from "./core/validate.js";
+import { loadConfig as loadConfigFor } from "./core/validate.js";
+import { RULES, RULE_GROUPS } from "./rules/index.js";
+
+/** The config built over the shipped rule set, as the CLI builds it. */
+const CONFIG = configFor(RULES, RULE_GROUPS);
+const parseVigilesConfig = (raw: unknown) => CONFIG.parse(raw);
+const formatConfigIssues = (issues: readonly ConfigIssue[]) =>
+  formatIssues(CONFIG.schema, issues);
+const loadConfig = (dir: string) => loadConfigFor(CONFIG, dir);
 import { ruleResolver } from "./overrides.js";
 
 /** Parse a raw config the way `loadConfig` does, or fail the test. */
