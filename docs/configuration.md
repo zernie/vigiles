@@ -54,7 +54,7 @@ place and copy the two lines you want:
   },
 
   "exclude": ["bench", "test/dogfood/**"],
-  "sharedDirs": ["packages/shared-skills"],
+  "sharedDirs": ["scripts", "references"],
   "bundles": "all",
 
   "extends": "vigiles:recommended",
@@ -383,14 +383,17 @@ that keeps others alive.
 
 ### `sharedDirs`
 
-Folders holding skills that several bundles in a monorepo share, so they are read
-once rather than reported missing in each bundle. See
-[skills in a monorepo](skills-monorepo.md).
+Top-level directories that several skills share, such as one `scripts/` tree at
+the repo root. A `SKILL.md` ref whose first path segment is one of them
+(`scripts/check.sh`) resolves against the repo root as well as the skill's own
+directory. Each entry is a single directory name, not a path. Without it, such a
+ref is reported as a note — "resolves only from the repo root" — not as a pass.
+See [skills in a monorepo](skills-monorepo.md#shared-scripts--references-trees--shareddirs).
 
 > Default: none
 
 ```json
-{ "sharedDirs": ["packages/shared-skills"] }
+{ "sharedDirs": ["scripts", "references"] }
 ```
 
 ### `bundles`

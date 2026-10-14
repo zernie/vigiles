@@ -18,6 +18,10 @@ resolve on disk:
   missing — the agent reads the instruction and gets nothing.
 ```
 
+A file that is missing beside the SKILL.md but **exists at the repository root**
+is not reported as missing. It gets a separate, ungraded note — see
+[Resolves only from the repo root](#resolves-only-from-the-repo-root--a-note-not-a-miss).
+
 It matches two shapes:
 
 - a **markdown link** `[setup](./scripts/run.sh)` whose target is a relative path
@@ -25,6 +29,88 @@ It matches two shapes:
 - an **inline-code path** `` `scripts/foo.sh` `` that is prefixed by a standard
   bundle dir (`scripts/`, `references/`, `assets/`), has an extension, **and sits
   in a line that directs the agent to use it** (see below).
+
+## Resolves only from the repo root — a note, not a miss
+
+The agent usually runs from the repository root. So when a skill says
+"run `` `scripts/check-changelog.sh` ``", it often means
+`<repo>/scripts/check-changelog.sh`, not a copy beside the SKILL.md. That works
+while the skill runs inside its own repository, and breaks once the skill is
+installed anywhere else — as a plugin, or copied into another project.
+
+Such a reference is neither missing nor fine, so vigiles reports it as its own
+kind of finding. Take this skill:
+
+```
+.claude/skills/release-check/SKILL.md   # line 8:  Run `scripts/check-changelog.sh` …
+                                        # line 10: Then read `references/release-policy.md` …
+scripts/check-changelog.sh              # at the repo root, not beside the SKILL.md
+```
+
+`references/release-policy.md` exists nowhere. `scripts/check-changelog.sh`
+exists only at the repo root.
+
+**Before** — both refs were reported as missing, and both counted against the
+score:
+
+```
+Skill bundled resources (2):
+  ✗ release-check: scripts/check-changelog.sh (line 8) — bundled resource not found
+  ✗ release-check: references/release-policy.md (line 10) — bundled resource not found
+```
+
+**After** — only the ref that exists nowhere is a miss. The other one is a note:
+
+```
+Skill bundled resources (1):
+  ✗ release-check: references/release-policy.md (line 10) — bundled resource not found
+
+Skill resources that resolve only from the repo root (1):
+  ℹ release-check: scripts/check-changelog.sh (line 8) resolves only from the repo root, not from the skill directory — it breaks once the skill is installed outside this repository. If repo-root resolution is intended, add "scripts" to sharedDirs in .vigilesrc.json.
+```
+
+`vigiles lint` prints the same two lines:
+
+```
+Skill-resource check:
+
+  ⚠ .claude/skills/release-check/SKILL.md: release-check: bundled resource "references/release-policy.md" (line 10) is referenced but missing — the agent reads the instruction and gets nothing.
+  ℹ .claude/skills/release-check/SKILL.md: release-check: bundled resource "scripts/check-changelog.sh" (line 8) resolves only from the repo root, not from the skill directory — it breaks once the skill is installed outside this repository. If repo-root resolution is intended, add "scripts" to sharedDirs in .vigilesrc.json.
+```
+
+What a note does and does not do:
+
+| Surface                                                 | A missing ref                           | A repo-root-only note                          |
+| ------------------------------------------------------- | --------------------------------------- | ---------------------------------------------- |
+| `audit` text                                            | `✗` line                                | `ℹ` line, in its own section                   |
+| `audit` score                                           | lowers the overall score, caps it at 89 | ❌ never scored                                |
+| `audit --json` / HTML                                   | named in the verdict                    | `skillResourceNotes`, shown under Truthfulness |
+| `lint` exit code                                        | fails at `"error"`                      | ❌ never fails, at any severity                |
+| GitHub Actions annotation                               | `::warning` / `::error`                 | `::notice`                                     |
+| `"skill-resource-resolves": false` or an `off` override | silenced                                | silenced                                       |
+
+ℹ️ **What "the repo root" is.** The same root `sharedDirs` is read from: the
+folder holding `.vigilesrc.json` (your working directory) for `vigiles lint`
+and `vigiles audit`, and the audited folder for `vigiles audit <other-repo>`.
+
+**Why a note, and not just resolving it from the repo root.** A real miss must
+never disappear because a file with the same name happens to sit at the root.
+Reporting the ref as a note keeps that guarantee visible: you still see every
+ref that is not beside its SKILL.md, and you can tell the ones that are gone
+from the ones that are only fragile.
+
+**Why not just ask people to set `sharedDirs`.** `sharedDirs` is opt-in, and
+`vigiles audit` is zero-config. Someone auditing a repository they do not own
+has no `.vigilesrc.json` to edit, so every repo-root path read as a broken
+reference. On a sweep of public repositories with a committed Claude Code or
+Codex harness, that was the largest single source of false "missing" reports.
+
+**To silence a note** in a repository you own, declare the directory as shared
+(`{ "sharedDirs": ["scripts"] }` — see
+[skills in a monorepo](../skills-monorepo.md#shared-scripts--references-trees--shareddirs)),
+or ship the file beside the SKILL.md if the skill is meant to be installed
+elsewhere. A file at the root with no directory (`guide.md`) cannot be declared
+shared — the note says so and suggests shipping it beside the SKILL.md.
 
 ## High-precision (FP-safe)
 
@@ -112,11 +198,11 @@ entirely with a `<!-- vigiles-disable skill-resource-resolves -->` marker.
 
 ### Severity
 
-| Value              | Behavior                                                        |
-| ------------------ | --------------------------------------------------------------- |
-| `"error"`          | `vigiles lint` exits non-zero (2) on a missing bundled resource |
-| `"warn"` (default) | Prints a warning, exits 0 (don't-cry-wolf rollout)              |
-| `false`            | Skip the check                                                  |
+| Value              | Behavior                                                                                           |
+| ------------------ | -------------------------------------------------------------------------------------------------- |
+| `"error"`          | `vigiles lint` exits non-zero (2) on a missing bundled resource; a repo-root-only note never fails |
+| `"warn"` (default) | Prints a warning, exits 0 (don't-cry-wolf rollout)                                                 |
+| `false`            | Skip the check, notes included                                                                     |
 
 Default is **`warn`** during rollout; raise to `"error"` to gate CI once you trust
 it on your own skills.
@@ -125,7 +211,8 @@ it on your own skills.
 
 Skills (`skills/*/SKILL.md`) — every harness has skills, so this rule is **not**
 capability-gated. References resolve against the skill's own directory (resources
-ship beside the SKILL.md).
+ship beside the SKILL.md), then against the repo root — through a declared
+`sharedDirs` entry (resolved), or on its own (a note).
 
 ## Why
 

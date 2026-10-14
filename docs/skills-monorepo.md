@@ -59,10 +59,12 @@ repo/
   scripts/promptfoo/leak_scan.py   # ...which lives HERE, at the repo root
 ```
 
-By default a bundled reference resolves against the skill's **own** directory, so
-the ref above would be reported as a missing bundled resource. Declare your shared
-dirs in `.vigilesrc.json` and vigiles **also** resolves those refs against the repo
-root:
+By default a bundled reference resolves against the skill's **own** directory.
+The ref above misses there but exists at the repo root, so vigiles reports it as a
+note — "resolves only from the repo root" — rather than as a missing resource
+([why](rules/skill-resource-resolves.md#resolves-only-from-the-repo-root--a-note-not-a-miss)).
+Declare your shared dirs in `.vigilesrc.json` and vigiles resolves those refs
+against the repo root outright, with no note:
 
 ```json
 {
@@ -70,12 +72,13 @@ root:
 }
 ```
 
-- ✅ **Opt-in.** A repo that omits `sharedDirs` behaves exactly as before
-  (skill-dir-only resolution) — no change.
+- ✅ **Opt-in.** A repo that omits `sharedDirs` resolves only against the skill
+  directory; a ref found at the repo root instead is a note, never a pass.
 - ✅ **Scoped.** Only a ref whose **first path segment** is a declared shared dir
-  gets repo-root resolution. A ref outside those dirs is never masked by a
-  same-named file at the repo root, so a genuinely-missing bundled resource is
-  still flagged.
+  is resolved from the repo root. Each entry is one top-level directory name
+  (`"scripts"`), not a path. A ref outside those dirs is never resolved by a
+  same-named file at the repo root: if one exists there it is a note, and if
+  none does it is still a missing resource.
 
 ## What resolves and what's skipped in a `SKILL.md` body
 
