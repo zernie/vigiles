@@ -1,5 +1,5 @@
 /**
- * The rule SET (`./index.ts`) — what the old `core/rule-meta.test.ts` held,
+ * The rule SET (`./index.ts`) — the checks that bind it to its docs,
  * moved beside the set it checks, plus the pins this PR's move needs:
  *
  * - the set is ONE thing: every rule has a doc, a row in the canonical matrix

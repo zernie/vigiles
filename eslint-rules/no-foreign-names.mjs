@@ -1,7 +1,9 @@
 /**
- * `no-foreign-names` — the shared engine behind the repo's NAME FENCES: code
- * may not spell a name that belongs to somebody else. Not in a value, not in a
- * type, not in an identifier.
+ * The shared engine of two ESLint checks on vigiles' OWN source code: each
+ * forbids generic code from writing a name that belongs to one implementation
+ * — a harness (`"claude-code"`) or one of vigiles' product rules
+ * (`"hook-events"`) — in a value, a type or an identifier. This file is not a
+ * check by itself; it builds them (`foreignNamesRule`).
  *
  * Two fences are built from it, each a rule of its own with its own message:
  *

@@ -1,5 +1,10 @@
 /**
- * `local/no-group-names` — generic code may not NAME a rule group.
+ * An ESLint check on vigiles' OWN source code. vigiles sorts its product rules
+ * into groups (`structural`, `workflow`, `nudge`, `experimental`) that decide
+ * how far a rule's findings are trusted; this check stops generic code from
+ * hardcoding a group's NAME (a type `ExperimentalFinding`, a list
+ * `EXPERIMENTAL_RULES`, a branch on `"experimental"`), so a group is only ever
+ * a field of a rule, read at run time. Registered as `local/no-group-names`.
  *
  * A rule group (`experimental`, `structural`, …) is a FACT about a rule today,
  * declared as data in `src/rules/groups.ts` and read off each rule's `group`

@@ -2686,7 +2686,7 @@ async function runLint(
   // opted into explicitly). `enforce("vigiles/orphan-docs")` in a spec only
   // validates the rule NAME — the block is what drives the scan.
   // 🔴 SEVERITY IS READ, not just the block's presence (#181). `orphan-docs` had
-  // a RULE_META entry and a documented severity, and nothing ever read it: both
+  // a declared meta and a documented severity, and nothing ever read it: both
   // `"warn"` and `"off"` still exited 1, so a repo could only choose between an
   // always-blocking check and deleting the `orphans` block. `warn` now reports
   // without touching the exit code and `false`/`"off"` skips the scan, exactly

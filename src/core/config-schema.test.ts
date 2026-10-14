@@ -229,10 +229,11 @@ test("a wrong TYPE says what was expected and what arrived", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * Parsing `{}` IS the default config — that identity is what lets the TS type be
- * `z.infer` of this schema rather than a hand-written twin. If the schema and
- * the shipped defaults ever disagree, `rule-meta.test.ts` (which reads
- * `DEFAULT_RULES`, now derived from here) is the second place it shows.
+ * Parsing `{}` IS the default config — that identity is what lets the type be
+ * derived from the schema rather than a hand-written twin. If the schema and a
+ * rule's declared default ever disagree, `src/rules/index.test.ts` (which
+ * parses `{}` against every rule's `defaultSeverity`) is the second place it
+ * shows.
  */
 test("an empty config parses to the shipped defaults", () => {
   const d = vigilesConfigSchema.parse({});

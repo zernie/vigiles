@@ -1,5 +1,7 @@
 /**
- * `local/no-rule-ids`, one case per POSITION a rule id can occupy — the same
+ * Tests for the ESLint check that stops vigiles' own generic source code from
+ * hardcoding the id of one of vigiles' product rules (`local/no-rule-ids`),
+ * one case per POSITION a rule id can occupy — the same
  * enumeration `no-harness-names.test.ts` drives its suite from, because both
  * fences are `./no-foreign-names.mjs`. A violating snippet must fire and the
  * same shape reading the id off the rule it was handed must stay silent; an

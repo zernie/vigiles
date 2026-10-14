@@ -8,7 +8,7 @@
  * cohesive, type-enforced unit: the concrete `LINTERS` registry (in
  * `linters.ts`) is a `Record<BuiltinLinter, LinterAdapter>`, so a missing linter
  * or capability is a tsc error, and `linter-contract.test.ts` covers the
- * docs/prose parity a type can't see. Mirrors the `HarnessAdapter`/`rule-meta`
+ * docs/prose parity a type can't see. Mirrors the `HarnessAdapter`/rule-set
  * patterns already used in the repo. See `research/linter-adapter-architecture.md`.
  *
  * This module is a TYPE-ONLY LEAF: it imports only a type from `spec.ts` (the

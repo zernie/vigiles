@@ -1,6 +1,12 @@
 /**
- * `local/no-rule-ids` — generic code may not spell a lint rule's id. Not in a
- * value, not in a type, not (in the contract files) in an identifier.
+ * An ESLint check on vigiles' OWN source code. vigiles ships product rules
+ * (`skill-resource-resolves`, `hook-events`, …) that it runs on users'
+ * repositories; this check stops generic code — core, app, the CLI, tests —
+ * from hardcoding the NAME of one of those product rules, so a rule's id lives
+ * only in its own module `src/rules/<id>.ts`. Same idea as `no-harness-names`,
+ * which stops generic code from writing a harness name. Registered as
+ * `local/no-rule-ids`; it looks at strings and types everywhere, and at
+ * identifiers in the generic contract files.
  *
  * A rule is a module, `src/rules/<id>.ts`, implementing core's `RuleSpec`;
  * `src/rules/index.ts` is the set; only a composition root hands the set to

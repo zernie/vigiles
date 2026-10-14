@@ -7,7 +7,7 @@
  * PRECEDENCE is ESLint's cascade: the `extends` preset, then `rules`, then each
  * override whose `files` cover the finding's path, in order — a later override
  * wins over an earlier one. `extends` < `rules` is settled when the config is
- * parsed (`parseVigilesConfig`); this module adds the per-path layer on top.
+ * parsed (`ConfigSet.parse`, `core/config-schema.ts`); this module adds the per-path layer on top.
  *
  * WHAT AN OVERRIDE SETS: a severity. A rule's options (`["error", { … }]`) live
  * in `rules`, once; an override that changes `compile-budget` to `warn` keeps

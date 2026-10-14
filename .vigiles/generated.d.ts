@@ -196,7 +196,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 563 project files. */
+  /** 565 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -669,6 +669,8 @@ declare module "vigiles/generated" {
     | "src/rule-routing.ts"
     | "src/rule-signals.ts"
     | "src/rules-layer.test.ts"
+    | "src/rules/CLAUDE.md"
+    | "src/rules/CLAUDE.md.spec.ts"
     | "src/rules/groups.ts"
     | "src/rules/index.test.ts"
     | "src/rules/index.ts"
@@ -1400,6 +1402,8 @@ declare module "vigiles/spec" {
       | "src/rule-routing.ts"
       | "src/rule-signals.ts"
       | "src/rules-layer.test.ts"
+      | "src/rules/CLAUDE.md"
+      | "src/rules/CLAUDE.md.spec.ts"
       | "src/rules/groups.ts"
       | "src/rules/index.test.ts"
       | "src/rules/index.ts"

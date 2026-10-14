@@ -12,17 +12,22 @@ lists an outer thing — not by import, not by string, not by type name.
 
 ## The map (what `eslint.config.mjs` enforces today)
 
-| layer   | where                                     | may import              | knows about                                 |
-| ------- | ----------------------------------------- | ----------------------- | ------------------------------------------- |
-| domain  | `src/core/`                               | domain, pure libraries  | nothing outside itself                      |
-| app     | `src/*.ts` (scan, score, report, runners) | domain, other app files | ports, never a concrete adapter             |
-| adapter | `src/adapters/<harness>/`                 | domain only             | its own harness and nothing else            |
-| io      | `src/adapters/*/*.io.ts`                  | + I/O modules           | the outside world                           |
-| root    | `src/cli.ts`, `src/cli-main.ts`           | anything                | everything — it is the one place that wires |
-| tests   | `src/**/*.test.ts`                        | anything                | —                                           |
+| layer   | where                                     | may import              | knows about                                   |
+| ------- | ----------------------------------------- | ----------------------- | --------------------------------------------- |
+| domain  | `src/core/`                               | domain, pure libraries  | nothing outside itself                        |
+| app     | `src/*.ts` (scan, score, report, runners) | domain, other app files | ports, never a concrete adapter               |
+| adapter | `src/adapters/<harness>/`                 | domain only             | its own harness and nothing else              |
+| rule    | `src/rules/<id>.ts`                       | domain only             | its own id and nothing else                   |
+| ruleset | `src/rules/{index,groups}.ts`             | rules, domain           | every rule and group — the set the root reads |
+| io      | `src/adapters/*/*.io.ts`                  | + I/O modules           | the outside world                             |
+| root    | `src/cli.ts`, `src/cli-main.ts`           | anything                | everything — it is the one place that wires   |
+| tests   | `src/**/*.test.ts`                        | anything                | —                                             |
 
-Held by `boundaries/dependencies` (`layers()` in `packages/eslint-config/index.mjs`) and
-`local/no-harness-names` (no file spells a harness other than its own adapter's).
+Held by `boundaries/dependencies` (`layers()` in `packages/eslint-config/index.mjs`, with
+the `rules`/`ruleset` file categories for the rule layer), `local/no-harness-names` (no
+file spells a harness other than its own adapter's), `local/no-rule-ids` (no file spells a
+rule id but the rule's own module, its test and the set) and `local/no-group-names` (no
+generic file names a rule group).
 
 Harnesses are the worked example of doing it right: core declares the five ports
 (`HarnessDialect`, `PluginLayout`, `HarnessRuntime`, `HookProtocol`, `ModelMock`), each
@@ -71,7 +76,8 @@ All four happened in one PR (#387) and were caught by the owner, not by a check:
 
 ## What is not a violation
 
-- The composition root naming everything. That is its job.
+- The composition root importing and wiring everything. That is its job — though even the
+  root spells no rule id: it picks a rule off the set by a property of the rule.
 - An implementation naming itself (an adapter spelling its own harness; a rule module its
   own id) and its own tests.
 - Detectors in `src/core`. A pure function that resolves a path or parses frontmatter is a
@@ -85,6 +91,13 @@ All four happened in one PR (#387) and were caught by the owner, not by a check:
 - Layers and policies: `layers()` in `packages/eslint-config/index.mjs`, wired in `eslint.config.mjs`.
 - Harness fence: `eslint-rules/no-harness-names.mjs` (its header says why).
 - Root `CLAUDE.md` → Architecture section (compiled from `CLAUDE.md.spec.ts`).
-- The rules-as-modules layer (rules outside core, a rule set the root passes in, a rule-id
-  fence) is being designed for PR #387; until it lands, rule metadata still sits in
-  `src/core/rule-meta.ts` and the fences above are the only ones that run.
+- The rule layer (landed in PR #387): core declares the port (`src/core/rule.ts`), a rule is a
+  module `src/rules/<id>.ts`, `src/rules/groups.ts` is the group record and
+  `src/rules/index.ts` the set; the roots (`src/cli-main.ts`, `site/src/demo/runAudit.ts`,
+  `scripts/build-config-schema.mjs`) hand it to `configFor` / `initPolicyOf` / `applyRules`.
+  Fences: the `rules`/`ruleset` boundaries categories, `local/no-rule-ids`,
+  `local/no-group-names`, `local/frame-mint` on `FilteredScan`, and `no-restricted-syntax` on
+  `.ungraded` in the scorers — planted violations in `eslint-rules/fences.corpus.test.ts`
+  and `packages/eslint-config/index.test.ts`. 35 rules are still rows in `src/rules/index.ts`
+  and old spellings are grandfathered; moving them and reaching zero is #390.
+  `docs/contributing/rules.md#rules-are-an-outer-layer` has the invariant table.

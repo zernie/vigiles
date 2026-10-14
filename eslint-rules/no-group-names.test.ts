@@ -1,5 +1,6 @@
 /**
- * `local/no-group-names`: every form of PR #387's group-named code is
+ * Tests for the ESLint check that stops vigiles' own generic source code from
+ * hardcoding the name of a rule group (`local/no-group-names`): every form of PR #387's group-named code is
  * reported, and the forms that are another concept stay silent — the
  * `experimental_` export prefix, a nudge (a hint), a GitHub Actions workflow,
  * and the eval drivers' bare `experimental` caveat (the declared hole).

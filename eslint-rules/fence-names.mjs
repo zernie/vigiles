@@ -1,6 +1,8 @@
 /**
- * The names the repo's name fences forbid, READ FROM DISK where a directory
- * already lists them — the same move `HARNESS_NAMES` makes over `src/adapters/`.
+ * The word lists the two name checks on vigiles' own source use
+ * (`no-rule-ids.mjs`: the ids of vigiles' product rules; `no-group-names.mjs`:
+ * the names of the rule groups) — read from disk where a directory already
+ * lists them, the same move `HARNESS_NAMES` makes over `src/adapters/`.
  *
  * Kept in its own module so the tests that bind each list to its source of
  * truth (`src/rules/index.test.ts`, `src/rules/groups.test.ts`) import the very
