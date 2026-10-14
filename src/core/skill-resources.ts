@@ -62,14 +62,38 @@ import type { MarkdownRef } from "./markdown.js";
 // Types
 // ---------------------------------------------------------------------------
 
-/** How a missing bundled-resource reference was found in the body. */
+/** How a bundled-resource reference was found in the body. */
 export type SkillResourceKind = "link" | "path";
 
-/** A SKILL.md body reference to a local bundled file that doesn't exist on disk. */
-export interface SkillResourceFinding {
+/**
+ * Why a bundled-resource reference is reported. A ref that resolves under the
+ * skill dir (or through a declared shared dir) is not reported at all; one that
+ * does not is reported for exactly one of these reasons:
+ *
+ * - `missing` — the file exists nowhere the detector can see. The agent reads
+ *   the instruction and gets nothing, wherever the skill runs.
+ * - `repo-root-only` — not beside the SKILL.md, but present at `repoRoot` (#382).
+ *   The agent usually runs from the repository root, so a body that says
+ *   "run `scripts/check.sh`" works while the skill runs inside its own repo and
+ *   breaks once the skill is installed anywhere else (a plugin install, a copied
+ *   skill). Not a miss, and not fine either — a separate fact.
+ *
+ * Two values rather than a boolean because each one drives a different
+ * consequence downstream: only `missing` is scored or gated, and
+ * `repo-root-only` is printed as a note. A consumer that reads only one of them
+ * says which one in its type (`SkillResourceFinding<"missing">`).
+ */
+export type SkillResourceResolution = "missing" | "repo-root-only";
+
+/** The reference itself, whatever its resolution. */
+interface SkillResourceRef {
   /** The reference text exactly as written in the body (e.g. `scripts/run.sh`). */
   readonly ref: string;
-  /** The path normalized relative to the skill dir, used for resolution. */
+  /**
+   * The path normalized relative to the skill dir — and, for `repo-root-only`,
+   * equally the path relative to the repo root, since both resolve the same
+   * relative string.
+   */
   readonly resolved: string;
   /** Whether the ref came from a markdown link `[..](..)` or an inline/path mention. */
   readonly kind: SkillResourceKind;
@@ -82,11 +106,27 @@ export interface SkillResourceFinding {
   readonly line: number;
 }
 
+/**
+ * A SKILL.md body reference to a local bundled file that does not resolve under
+ * the skill dir, tagged with WHY ({@link SkillResourceResolution}). Distributes
+ * over `R`, so the default is a discriminated union that narrows on
+ * `resolution`, and `SkillResourceFinding<"missing">` is the one variant.
+ */
+export type SkillResourceFinding<
+  R extends SkillResourceResolution = SkillResourceResolution,
+> = R extends SkillResourceResolution
+  ? SkillResourceRef & { readonly resolution: R }
+  : never;
+
 export interface SkillResourceOptions {
   /** REQUIRED, injected existence check (disk: node:fs existsSync). */
   readonly existsSync: (p: string) => boolean;
   /**
-   * Repo root, used only together with `sharedDirs` (below). Off by default.
+   * The repository root — the directory the agent usually runs from. A ref that
+   * misses under the skill dir but exists here is reported as `repo-root-only`
+   * instead of `missing`; a ref under a declared `sharedDirs` entry (below)
+   * resolves here outright. Omitted → the detector sees only the skill dir and
+   * every miss is `missing`.
    */
   readonly repoRoot?: string;
   /**
@@ -95,10 +135,9 @@ export interface SkillResourceOptions {
    * libraries keep ONE top-level `scripts/` tree instead of a copy beside every
    * SKILL.md, so a ref like `scripts/promptfoo/x.py` lives at the repo root. When
    * a ref's FIRST path segment is a declared shared dir, it may ALSO resolve
-   * against `repoRoot`. Scoped to declared dirs on PURPOSE: a repo that sets no
-   * `sharedDirs` is byte-identical to before (skill-dir-only), and even with it a
-   * ref OUTSIDE a shared dir still can't be masked by a same-named repo-root file.
-   * The controlled fix for feedback P1-4 (opt-in, never a default behavior change).
+   * against `repoRoot`. Scoped to declared dirs on PURPOSE: a ref OUTSIDE a
+   * shared dir is never RESOLVED by a same-named repo-root file — at most it is
+   * reported as `repo-root-only`, visibly, never dropped (feedback P1-4).
    */
   readonly sharedDirs?: readonly string[];
   /**
@@ -385,10 +424,33 @@ function candidateFor(ref: MarkdownRef, line: string): Candidate | null {
  */
 const DISABLE_RE = /<!--\s*vigiles-disable\s+skill-resource-resolves\s*-->/;
 
+/** Where a candidate's path was found — `found` is the one outcome not reported. */
+type Lookup = "found" | SkillResourceResolution;
+
 /**
- * The bundled-resource references in a SKILL.md body that don't resolve on disk
- * under `skillDir`. Pure + FP-safe (see the module header). `skillDir` is the
- * directory the SKILL.md itself lives in (resources are bundled beside it).
+ * Look a candidate up, in the order a reader of the skill would: beside the
+ * SKILL.md, then the repo root through a DECLARED shared dir (resolved — the
+ * repo said this tree is shared), then the repo root on its own (`repo-root-only`
+ * — it works from here, but nothing declared it, so it is reported).
+ */
+function lookup(
+  rel: string,
+  skillDir: string,
+  opts: SkillResourceOptions,
+): Lookup {
+  const exists = opts.existsSync;
+  if (exists(resolve(skillDir, rel))) return "found";
+  if (opts.repoRoot === undefined) return "missing";
+  if (!exists(resolve(opts.repoRoot, rel))) return "missing";
+  const sharedDirs = opts.sharedDirs ?? [];
+  return sharedDirs.includes(rel.split("/")[0]) ? "found" : "repo-root-only";
+}
+
+/**
+ * The bundled-resource references in a SKILL.md body that don't resolve under
+ * `skillDir`, each tagged with its {@link SkillResourceResolution}. Pure + FP-safe
+ * (see the module header). `skillDir` is the directory the SKILL.md itself lives
+ * in (resources are bundled beside it).
  *
  * The shared detector behind both `vigiles lint` (the `skill-resource-resolves`
  * rule) and `vigiles audit` (the read-only report) — one detector, no drift.
@@ -397,41 +459,50 @@ export function skillResourceIssues(
   skillBody: string,
   skillDir: string,
   opts: SkillResourceOptions,
-): SkillResourceFinding[] {
+): readonly SkillResourceFinding[] {
   if (DISABLE_RE.test(skillBody)) return [];
-  const exists = opts.existsSync;
   const lineOffset = opts.lineOffset ?? 0;
-  const sharedDirs = new Set(opts.sharedDirs ?? []);
-  // A ref resolves if it exists under the skill's own dir. If (and only if) its
-  // first segment is a DECLARED shared dir, it may also resolve against the repo
-  // root — the opt-in shared-tree case. No shared dirs → skill-dir-only (unchanged).
-  const resolvesAnywhere = (rel: string): boolean => {
-    if (exists(resolve(skillDir, rel))) return true;
-    const firstSeg = rel.split("/")[0];
-    return (
-      opts.repoRoot !== undefined &&
-      sharedDirs.has(firstSeg) &&
-      exists(resolve(opts.repoRoot, rel))
-    );
-  };
-  const findings: SkillResourceFinding[] = [];
-  const seen = new Set<string>();
-
   const lines = skillBody.split("\n");
-  for (const ref of markdownRefs(skillBody)) {
-    const c = candidateFor(ref, lines[ref.line - 1] ?? "");
-    if (c === null) continue;
-    if (resolvesAnywhere(c.resolved)) continue;
-    // De-dupe the same missing file referenced several times in the body.
-    const key = `${c.kind}:${c.resolved}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    findings.push({
-      ref: c.ref,
-      resolved: c.resolved,
-      kind: c.kind,
-      line: c.line + lineOffset,
-    });
-  }
-  return findings;
+  const reported = markdownRefs(skillBody).flatMap(
+    (ref): readonly SkillResourceFinding[] => {
+      const c = candidateFor(ref, lines[ref.line - 1] ?? "");
+      if (c === null) return [];
+      const resolution = lookup(c.resolved, skillDir, opts);
+      return resolution === "found"
+        ? []
+        : [{ ...c, line: c.line + lineOffset, resolution }];
+    },
+  );
+  // De-dupe the same file referenced several times in the body: the first
+  // mention is the one reported.
+  return reported.filter(
+    (f, i) =>
+      reported.findIndex(
+        (g) => g.kind === f.kind && g.resolved === f.resolved,
+      ) === i,
+  );
+}
+
+/**
+ * What a `repo-root-only` finding means and what to do about it — ONE sentence
+ * shared by every surface that prints the note (`audit`'s text and HTML report,
+ * `lint`'s line and its CI annotation), so they cannot drift apart.
+ *
+ * The cure depends on the path's shape: `sharedDirs` declares a top-level
+ * DIRECTORY, so a ref under one (`scripts/check.sh`) can be declared shared,
+ * while a bare file at the root (`guide.md`) has no directory to declare and the
+ * only cure is to ship it beside the SKILL.md.
+ */
+export function repoRootOnlyAdvice(
+  f: SkillResourceFinding<"repo-root-only">,
+): string {
+  const slash = f.resolved.indexOf("/");
+  const cure =
+    slash > 0
+      ? `If repo-root resolution is intended, add "${f.resolved.slice(0, slash)}" to sharedDirs in .vigilesrc.json.`
+      : "Ship it beside the SKILL.md if the skill is meant to be installed elsewhere.";
+  return (
+    "resolves only from the repo root, not from the skill directory — " +
+    `it breaks once the skill is installed outside this repository. ${cure}`
+  );
 }

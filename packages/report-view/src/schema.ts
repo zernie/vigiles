@@ -217,6 +217,15 @@ export interface RuleRouting {
   skipped?: SkippedBullet[];
 }
 
+/** A skill ref that misses beside its SKILL.md but exists at the repo root. */
+export interface SkillResourceNote {
+  skill: string;
+  path: string;
+  ref: string;
+  line: number;
+  message: string;
+}
+
 export interface AuditReport {
   meta: {
     schemaVersion: number;
@@ -235,6 +244,9 @@ export interface AuditReport {
   /** The concrete intra-plugin references that don't resolve — the actual paths
    *  behind the Truthfulness "N broken reference(s)" count. Present only when ≥1. */
   brokenReferences?: string[];
+  /** Skill bundled-resource refs that resolve only from the repo root — a note,
+   *  never scored, shown under Truthfulness. Present only when ≥1. */
+  skillResourceNotes?: SkillResourceNote[];
   /** The adoption preview — present only when the model-gated tier ran. */
   adoptability?: AdoptabilityResult;
   /**

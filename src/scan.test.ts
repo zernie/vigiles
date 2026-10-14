@@ -26,6 +26,8 @@ import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { codexLayout } from "./adapters/codex/layout.js";
 import { codexDialect } from "./adapters/codex/dialect.js";
 import { auditScore } from "./audit-score.js";
+import { ADAPTERS } from "./adapter-registry.js";
+import { skillsHome } from "./core/layout.js";
 import { excludeSet } from "./exclude.js";
 import {
   hookGateRef,
@@ -208,6 +210,64 @@ test("sharedDirs resolve against sharedDirsRoot, not a scoped subdir (P1-4 + P0-
     cleanupTmpDir(repo);
   }
 });
+
+// #382: a skill ref that resolves only from the repo root is a NOTE, not a miss.
+// The detector is harness-neutral, but where a skill lives is a layout fact, so
+// the same repo shape runs under every registered adapter that has skills.
+for (const adapter of ADAPTERS) {
+  const skillsDir = skillsHome(adapter.layout);
+  if (skillsDir === null) continue;
+  const scan = (dir: string) =>
+    scanPlugin(dir, adapter.layout, adapter.dialect);
+  test(`a repo-root-only skill ref is a note, never scored (#382, ${adapter.name})`, () => {
+    const repo = makeTmpDir("scan-382");
+    const noteOnly = makeTmpDir("scan-382-note");
+    const clean = makeTmpDir("scan-382-clean");
+    try {
+      const skill = (body: string): string =>
+        `---\nname: rca\ndescription: runs the repo's leak scanner before a commit\n---\n${body}\n`;
+      write(
+        repo,
+        `${skillsDir}/rca/SKILL.md`,
+        skill("Run `scripts/leak.py` first.\n\nThen run `scripts/gone.py`."),
+      );
+      write(repo, "scripts/leak.py", "# lives at the repo root only\n");
+      const r = scan(repo);
+      assert.deepEqual(
+        r.skillResourceIssues.map((s) => s.finding.ref),
+        ["scripts/gone.py"],
+        "only the ref that exists nowhere is a missing resource",
+      );
+      assert.deepEqual(
+        r.skillResourceNotes.map((s) => [s.finding.ref, s.finding.resolution]),
+        [["scripts/leak.py", "repo-root-only"]],
+        "the repo-root-only ref is reported as a note, visibly",
+      );
+      const text = formatScanReport(r);
+      assert.match(text, /✗ rca: scripts\/gone\.py \(line 7\)/);
+      assert.match(
+        text,
+        /ℹ rca: scripts\/leak\.py \(line 5\) resolves only from the repo root/,
+      );
+      assert.doesNotMatch(text, /✗ rca: scripts\/leak\.py/);
+
+      // The note is never scored: a repo whose only ref is repo-root-only
+      // scores exactly like the same repo with no ref at all.
+      for (const [dir, body] of [
+        [noteOnly, "Run `scripts/leak.py` first."],
+        [clean, "Run the leak scanner first."],
+      ] as const) {
+        write(dir, `${skillsDir}/rca/SKILL.md`, skill(body));
+        write(dir, "scripts/leak.py", "# lives at the repo root only\n");
+      }
+      assert.deepEqual(auditScore(scan(noteOnly)), auditScore(scan(clean)));
+    } finally {
+      cleanupTmpDir(repo);
+      cleanupTmpDir(noteOnly);
+      cleanupTmpDir(clean);
+    }
+  });
+}
 
 test("subagent classification is layout-driven (ready for new harnesses)", () => {
   // A harness whose subagents live somewhere other than `agents/` — e.g.

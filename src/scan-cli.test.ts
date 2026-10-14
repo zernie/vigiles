@@ -30,6 +30,8 @@ import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 
 import { VERBS } from "./cli-commands.js";
+import { ADAPTERS } from "./adapter-registry.js";
+import { skillsHome } from "./core/layout.js";
 import { knownFlagsFor } from "./cli-flag-check.js";
 import { adoptInstructionFileRemedy } from "./core/instruction-remedies.js";
 import { z } from "zod";
@@ -48,6 +50,7 @@ const VENDOR = resolve(__dirname, "..", "test/dogfood");
 function run(
   args: string,
   cwd?: string,
+  env?: Readonly<Record<string, string>>,
 ): { stdout: string; stderr: string; exitCode: number } {
   // A default `audit` writes vigiles-report.html + vigiles-report.json into cwd —
   // suppress both here so the test run never drops an artifact in the repo root.
@@ -62,6 +65,7 @@ function run(
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 30000,
       cwd,
+      env: env === undefined ? undefined : { ...process.env, ...env },
     });
     return { stdout, stderr: "", exitCode: 0 };
   } catch (e: unknown) {
@@ -1125,6 +1129,95 @@ describe("lint scopes surface checks to an explicit directory (P0-2)", () => {
       "a surface outside the passed dir must never enter the report",
     );
   });
+});
+
+// #382 through the real binary: a skill ref that exists only at the repo root is
+// a NOTE on every surface — audit text, audit JSON, lint line, CI annotation —
+// and never fails lint, while a ref that exists nowhere still does. Skill
+// location is a layout fact, so every registered adapter with skills runs.
+describe("a skill ref that resolves only from the repo root is a note (#382)", () => {
+  const repos: string[] = [];
+  /** A repo whose one skill runs `scripts/leak.py`; `withScript` puts it at the root. */
+  function makeRepo(skillsDir: string, withScript: boolean): string {
+    const dir = mkdtempSync(join(tmpdir(), "vig-382-"));
+    repos.push(dir);
+    mkdirSync(join(dir, skillsDir, "rca"), { recursive: true });
+    writeFileSync(
+      join(dir, skillsDir, "rca", "SKILL.md"),
+      "---\nname: rca\ndescription: runs the repository leak scanner before a commit\n---\nRun `scripts/leak.py` first.\n",
+    );
+    writeFileSync(
+      join(dir, ".vigilesrc.json"),
+      JSON.stringify({ rules: { "skill-resource-resolves": "error" } }),
+    );
+    if (withScript) {
+      mkdirSync(join(dir, "scripts"));
+      writeFileSync(join(dir, "scripts", "leak.py"), "# repo root only\n");
+    }
+    return dir;
+  }
+  afterAll(() => {
+    for (const d of repos) rmSync(d, { recursive: true, force: true });
+  });
+
+  for (const adapter of ADAPTERS) {
+    const skillsDir = skillsHome(adapter.layout);
+    if (skillsDir === null) continue;
+    const harness = `--harness=${adapter.name}`;
+
+    it(`${adapter.name}: audit prints the note, not a missing resource`, () => {
+      const r = run(`audit ${harness}`, makeRepo(skillsDir, true));
+      assert.match(
+        r.stdout,
+        /ℹ rca: scripts\/leak\.py \(line 5\) resolves only from the repo root/,
+      );
+      assert.match(
+        r.stdout,
+        /add "scripts" to sharedDirs in \.vigilesrc\.json/,
+      );
+      assert.doesNotMatch(r.stdout, /bundled resource not found/);
+    });
+
+    it(`${adapter.name}: audit --json carries the note`, () => {
+      const r = run(`audit ${harness} --json`, makeRepo(skillsDir, true));
+      const notes = z
+        .object({
+          skillResourceNotes: z.array(
+            z.object({ skill: z.string(), ref: z.string(), line: z.number() }),
+          ),
+        })
+        .parse(JSON.parse(r.stdout)).skillResourceNotes;
+      // zod drops the keys the schema does not name, so this compares exactly
+      // the three fields that locate the note.
+      assert.deepEqual(notes, [
+        { skill: "rca", ref: "scripts/leak.py", line: 5 },
+      ]);
+    });
+
+    it(`${adapter.name}: lint at "error" passes on the note and annotates it as a notice`, () => {
+      const r = run(`lint ${harness}`, makeRepo(skillsDir, true), {
+        GITHUB_ACTIONS: "true",
+      });
+      assert.equal(r.exitCode, 0, r.stdout);
+      assert.ok(
+        r.stdout.includes(
+          `::notice file=${skillsDir}/rca/SKILL.md::rca: bundled resource "scripts/leak.py" (line 5) resolves only from the repo root`,
+        ),
+        r.stdout,
+      );
+      assert.doesNotMatch(r.stdout, /::error/);
+    });
+
+    it(`${adapter.name}: lint at "error" still fails when the file exists nowhere`, () => {
+      const r = run(`lint ${harness}`, makeRepo(skillsDir, false));
+      assert.notEqual(r.exitCode, 0, r.stdout);
+      assert.match(
+        r.stdout,
+        /"scripts\/leak\.py" \(line 5\) is referenced but missing/,
+      );
+      assert.doesNotMatch(r.stdout, /resolves only from the repo root/);
+    });
+  }
 });
 
 describe("lint of a foreign repo does not satisfy target refs from the caller's cwd", () => {

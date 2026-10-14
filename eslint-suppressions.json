@@ -2045,15 +2045,6 @@
   "src/core/skill-resources.ts": {
     "boundaries/dependencies": {
       "count": 1
-    },
-    "functional/immutable-data": {
-      "count": 2
-    },
-    "functional/no-loop-statements": {
-      "count": 1
-    },
-    "functional/prefer-immutable-types": {
-      "count": 2
     }
   },
   "src/core/source-refs.test.ts": {
@@ -3463,7 +3454,7 @@
       "count": 16
     },
     "functional/prefer-immutable-types": {
-      "count": 50
+      "count": 48
     },
     "local/no-harness-names": {
       "count": 1

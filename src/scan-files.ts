@@ -824,8 +824,6 @@ export function scanFiles(
     existsSync: exists,
   });
   const puritySummary = summarizePurity(agents);
-  const { trifectaFindings, skillResourceFindings, skillFenceFindings } =
-    collectSurfaceFindings(agents, skills);
   // Remap frontmatter-family finding paths to the real on-disk path (dogfood E1),
   // same as the disk scanner — keeps the demo report byte-identical.
   const remap = <
@@ -881,9 +879,7 @@ export function scanFiles(
       sources: loaded.sources,
     }),
     descriptionBudgetIssues: descriptionBudgetFor(loaded.files, cls),
-    trifectaFindings,
-    skillResourceIssues: skillResourceFindings,
-    skillFenceIssues: skillFenceFindings,
+    ...collectSurfaceFindings(agents, skills),
     // The browser twin has the WHOLE fetched key set in hand, so discovery needs
     // no walk here — the pure classifier re-applies the same bounded-root rule.
     unclaimedSurfaces: unclaimedSurfaceFindings(

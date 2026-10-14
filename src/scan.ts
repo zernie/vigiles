@@ -71,7 +71,11 @@ import {
   mergeConflictWarning,
 } from "./core/merge-conflict.js";
 import type { TrifectaFinding } from "./core/lethal-trifecta.js";
-import type { SkillResourceFinding } from "./core/skill-resources.js";
+import { repoRootOnlyAdvice } from "./core/skill-resources.js";
+import type {
+  SkillResourceFinding,
+  SkillResourceResolution,
+} from "./core/skill-resources.js";
 import type { SkillFenceFinding } from "./core/skill-missing-fence.js";
 import {
   pluginDirLayoutIssues,
@@ -167,8 +171,9 @@ export interface ScanSkill {
   /**
    * SKILL.md body references to a bundled file (`scripts/`/`references/`/`assets/`
    * or a relative markdown link with an extension) that don't resolve on disk
-   * under the skill dir — the agent reads the instruction and gets nothing.
-   * Computed by `skillResourceIssues()` (one detector, no drift).
+   * under the skill dir, each tagged `missing` or `repo-root-only`. Computed by
+   * `skillResourceIssues()` (one detector, no drift); `collectSurfaceFindings`
+   * splits them into the report's two lists.
    */
   readonly resourceIssues: readonly SkillResourceFinding[];
   /**
@@ -249,11 +254,17 @@ export interface ScanTrifectaFinding {
   readonly finding: TrifectaFinding;
 }
 
-/** A SKILL.md body resource reference that doesn't resolve, tagged with the skill path. */
-export interface ScanSkillResourceFinding {
+/**
+ * A SKILL.md body resource reference that doesn't resolve under the skill dir,
+ * tagged with the skill path. `R` names the resolution a list holds, so the
+ * report's `missing` list cannot be handed a note.
+ */
+export interface ScanSkillResourceFinding<
+  R extends SkillResourceResolution = SkillResourceResolution,
+> {
   readonly path: string;
   readonly name: string;
-  readonly finding: SkillResourceFinding;
+  readonly finding: SkillResourceFinding<R>;
 }
 
 /** A missing-frontmatter-fence finding tagged with the skill path. */
@@ -407,12 +418,20 @@ export interface ScanReport {
    */
   readonly trifectaFindings: readonly ScanTrifectaFinding[];
   /**
-   * SKILL.md body references to a bundled resource that doesn't resolve on disk,
-   * across all skills — each carries the skill path for reporting/annotations.
-   * Shared by `scan` and the `skill-resource-resolves` lint rule (one detector, no
-   * drift).
+   * SKILL.md body references to a bundled resource that resolves NOWHERE — not
+   * beside the SKILL.md, not at the repo root — across all skills, each with the
+   * skill path for reporting/annotations. Scored, and gated by the
+   * `skill-resource-resolves` lint rule (one detector, no drift).
    */
-  readonly skillResourceIssues: readonly ScanSkillResourceFinding[];
+  readonly skillResourceIssues: readonly ScanSkillResourceFinding<"missing">[];
+  /**
+   * SKILL.md body references that miss beside the SKILL.md but exist at the repo
+   * root (#382): they work while the skill runs inside this repository and break
+   * once it is installed elsewhere. A NOTE — printed by `audit` and `lint`, never
+   * scored, never gated. The same detector as {@link skillResourceIssues}; a ref
+   * is in exactly one of the two lists.
+   */
+  readonly skillResourceNotes: readonly ScanSkillResourceFinding<"repo-root-only">[];
   /**
    * Skills whose frontmatter-looking opening has NO `---` fence, so they load as
    * pure body (invisible — no name/description/trigger). Shared by `scan` and the
@@ -847,8 +866,6 @@ export function scanPlugin(
     existsSync,
   });
   const puritySummary = summarizePurity(agents);
-  const { trifectaFindings, skillResourceFindings, skillFenceFindings } =
-    collectSurfaceFindings(agents, skills);
   // Remap frontmatter-family finding paths from the synthetic materialize key to
   // the real on-disk path (dogfood E1), so diagnostics + GitHub annotations point
   // at a file that exists (the same fix ScanAgent/ScanSkill.path already got).
@@ -924,9 +941,7 @@ export function scanPlugin(
       sources: loaded.sources,
     }),
     descriptionBudgetIssues: descriptionBudgetFor(loaded.files, cls),
-    trifectaFindings,
-    skillResourceIssues: skillResourceFindings,
-    skillFenceIssues: skillFenceFindings,
+    ...collectSurfaceFindings(agents, skills),
     unclaimedSurfaces: unclaimedSurfaceFindings(
       boundedSurfacePaths(resolve(dir), opts.excludes),
       REGISTERED_LAYOUTS,
@@ -1136,6 +1151,31 @@ function section(
 ): string[] {
   if (lines.length === 0) return [];
   return [`${title} (${String(count)}):`, ...lines, ""];
+}
+
+/**
+ * The two skill-resource sections of the report. The first counts refs that
+ * resolve nowhere; the second holds the refs that resolve only from the repo
+ * root (#382) — notes, never counted in the verdict's `broken` tally, never
+ * scored — so the first section's count stays the count of real misses.
+ */
+function skillResourceSections(r: ScanReport): readonly string[] {
+  return [
+    ...section(
+      "Skill bundled resources",
+      r.skillResourceIssues.map(
+        (s) =>
+          `  ✗ ${s.name}: ${s.finding.ref} (line ${String(s.finding.line)}) — bundled resource not found`,
+      ),
+    ),
+    ...section(
+      "Skill resources that resolve only from the repo root",
+      r.skillResourceNotes.map(
+        (s) =>
+          `  ℹ ${s.name}: ${s.finding.ref} (line ${String(s.finding.line)}) ${repoRootOnlyAdvice(s.finding)}`,
+      ),
+    ),
+  ];
 }
 
 /** One skill's report line: ✓/⚠ + name + notes (no-trigger, user-invoked). */
@@ -1510,15 +1550,7 @@ export function formatScanReport(r: ScanReport): string {
     ),
   );
 
-  out.push(
-    ...section(
-      "Skill bundled resources",
-      r.skillResourceIssues.map(
-        (s) =>
-          `  ✗ ${s.name}: ${s.finding.ref} (line ${String(s.finding.line)}) — bundled resource not found`,
-      ),
-    ),
-  );
+  out.push(...skillResourceSections(r));
 
   out.push(
     ...section(

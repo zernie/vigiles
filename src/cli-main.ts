@@ -136,6 +136,7 @@ import {
   compileWeightLine,
 } from "./instruction-weight-ratchet.js";
 import type { ScanReport, ScanHarness } from "./scan.js";
+import { repoRootOnlyAdvice } from "./core/skill-resources.js";
 import {
   frameAt,
   frameFor,
@@ -1117,6 +1118,13 @@ function isGitHubActions(): boolean {
 }
 
 /**
+ * A GitHub Actions annotation level. `notice` is for a finding that is reported
+ * but never gates (a `repo-root-only` skill resource, #382): GitHub shows it on
+ * the PR without reading it as a warning.
+ */
+type AnnotationLevel = "error" | "warning" | "notice";
+
+/**
  * Emit a GitHub Actions annotation for the inline PR experience.
  * No-op outside GitHub Actions.
  *
@@ -1128,7 +1136,7 @@ function isGitHubActions(): boolean {
  * longer compiles here; it has to go through `core/frame.ts` first.
  */
 function ghAnnotate(
-  level: "error" | "warning",
+  level: AnnotationLevel,
   message: string,
   file?: RepoPath,
   line?: number,
@@ -2131,7 +2139,7 @@ interface BundleCheck {
    */
   label(text: string): string;
   /** `ghAnnotate`, applying {@link label} when no file is named. */
-  annotate(level: "error" | "warning", message: string, file?: RepoPath): void;
+  annotate(level: AnnotationLevel, message: string, file?: RepoPath): void;
   /**
    * `scanPlugin` over THIS bundle, with the repo's `exclude`. One door, so a
    * check cannot scan a different directory or forget the exclude — every
@@ -6148,6 +6156,11 @@ function checkLethalTrifecta(ctx: BundleCheck): {
  * extension) that doesn't exist on disk — the agent reads the instruction and gets
  * nothing. Reuses `scanPlugin`'s `skillResourceIssues` (high-precision / FP-safe,
  * one detector, no drift). Warning by default; "error" gates CI.
+ *
+ * A ref that misses beside the SKILL.md but exists at the frame root is a NOTE
+ * (`skillResourceNotes`, #382): printed with `ℹ` and a `::notice` annotation at
+ * any severity, never counted, so it can never fail CI. It still goes through
+ * the rule's per-path severity, so `false` or an `off` override silences it.
  */
 function checkSkillResourceResolves(ctx: BundleCheck): {
   issues: number;
@@ -6156,38 +6169,52 @@ function checkSkillResourceResolves(ctx: BundleCheck): {
   const { config, silent } = ctx;
   if (!ctx.rules.mayFire("skill-resource-resolves"))
     return { issues: 0, errors: 0 };
-  let raw: readonly {
-    path: string;
-    name: string;
-    finding: { ref: string; line: number };
-  }[];
+  let report: ScanReport;
   try {
-    raw = ctx.scan({
+    // sharedDirs live at the frame root — the repo that OWNS the scan target:
+    // cwd for a scoped subdir or a nested bundle, the target for a foreign lint.
+    // The same root decides `repo-root-only`.
+    report = ctx.scan({
       sharedDirs: config?.sharedDirs,
-      // sharedDirs live at the frame root — the repo that OWNS the scan target:
-      // cwd for a scoped subdir or a nested bundle, the target for a foreign lint.
       sharedDirsRoot: ctx.frame.root,
-    }).skillResourceIssues;
+    });
   } catch {
     return { issues: 0, errors: 0 };
   }
-  const found = graded(ctx.rules, "skill-resource-resolves", raw, (f) =>
-    ctx.bundle.scanned(f.path),
+  const pathOf = (f: { readonly path: string }): RepoPath =>
+    ctx.bundle.scanned(f.path);
+  const found = graded(
+    ctx.rules,
+    "skill-resource-resolves",
+    report.skillResourceIssues,
+    pathOf,
   );
-  if (found.length > 0 && !silent) {
+  const notes = graded(
+    ctx.rules,
+    "skill-resource-resolves",
+    report.skillResourceNotes,
+    pathOf,
+  );
+  // One printed line per finding, misses first. A note carries its own mark and
+  // annotation level rather than the rule's, because it never gates.
+  const lines = [
+    ...found.map((s) => ({
+      at: pathOf(s),
+      ...markOf(s.sev),
+      msg: `${s.name}: bundled resource "${s.finding.ref}" (line ${String(s.finding.line)}) is referenced but missing — the agent reads the instruction and gets nothing.`,
+    })),
+    ...notes.map((s) => ({
+      at: pathOf(s),
+      mark: "ℹ",
+      level: "notice" as const,
+      msg: `${s.name}: bundled resource "${s.finding.ref}" (line ${String(s.finding.line)}) ${repoRootOnlyAdvice(s.finding)}`,
+    })),
+  ];
+  if (lines.length > 0 && !silent) {
     console.log("\nSkill-resource check:\n");
-    for (const s of found) {
-      const msg =
-        `${s.name}: bundled resource "${s.finding.ref}" (line ${String(s.finding.line)}) is referenced but missing — the agent reads the instruction and gets nothing.` +
-        // The main false-positive source in a skills monorepo, where a SKILL.md
-        // legitimately names a repo-root path. The fix already exists and works;
-        // it was documented only in docs/skills-monorepo.md, so a CI log gave no
-        // hint and the rule read as broken rather than misconfigured.
-        ` If it resolves from the repo root instead, add its directory to \`sharedDirs\` in .vigilesrc.json.`;
-      console.log(
-        `  ${markOf(s.sev).mark} ${ctx.bundle.scanned(s.path)}: ${msg}`,
-      );
-      ctx.annotate(markOf(s.sev).level, msg, ctx.bundle.scanned(s.path));
+    for (const l of lines) {
+      console.log(`  ${l.mark} ${l.at}: ${l.msg}`);
+      ctx.annotate(l.level, l.msg, l.at);
     }
   }
   return tally(found);

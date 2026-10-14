@@ -26,6 +26,25 @@ import type { RuleInventoryItem } from "./rule-inventory.js";
 import type { RuleRouting } from "./rule-routing.js";
 import type { EvidenceCounts } from "./coverage-evidence.js";
 import type { DeprecatedKeyFilesFinding } from "./deprecated-key-files.js";
+import { repoRootOnlyAdvice } from "./core/skill-resources.js";
+
+/**
+ * One `repo-root-only` skill resource on the wire — flat, and carrying the same
+ * sentence `audit` and `lint` print, so a renderer shows it without re-deriving
+ * the advice.
+ */
+export interface SkillResourceNote {
+  /** The skill's name. */
+  readonly skill: string;
+  /** The SKILL.md that holds the reference. */
+  readonly path: string;
+  /** The reference as written in the body (`scripts/check.sh`). */
+  readonly ref: string;
+  /** 1-based line of the reference in the SKILL.md. */
+  readonly line: number;
+  /** What the note means and how to cure it (`repoRootOnlyAdvice`). */
+  readonly message: string;
+}
 
 /**
  * The current schema version. Bump only on a BREAKING change to the shape.
@@ -150,6 +169,14 @@ export interface AuditReport {
    */
   readonly deprecatedKeyFiles?: readonly DeprecatedKeyFilesFinding[];
   /**
+   * Skill bundled-resource refs that miss beside the SKILL.md but exist at the
+   * repo root (#382) — they work inside this repository and break once the skill
+   * is installed elsewhere. Advisory — never scored, so without this list the
+   * report would carry no trace of them. Present only when at least one exists.
+   * Additive/optional — schema version unchanged.
+   */
+  readonly skillResourceNotes?: readonly SkillResourceNote[];
+  /**
    * The adoption preview — "what would vigiles catch in your repo?" Present only
    * when the model-gated tier ran (behind consent); a deterministic read omits it.
    * Additive/optional, so the schema version is unchanged.
@@ -273,13 +300,27 @@ function outputStylesField(n: number | "not-supported" | undefined): {
 /** The scan's concrete finding lists, each present only when non-empty. */
 function scanFindingLists(
   report: ScanReport,
-): Pick<AuditReport, "brokenReferences" | "deprecatedKeyFiles"> {
+): Pick<
+  AuditReport,
+  "brokenReferences" | "deprecatedKeyFiles" | "skillResourceNotes"
+> {
   return {
     ...(report.danglingRefs.length
       ? { brokenReferences: report.danglingRefs }
       : {}),
     ...(report.deprecatedKeyFiles
       ? { deprecatedKeyFiles: report.deprecatedKeyFiles }
+      : {}),
+    ...(report.skillResourceNotes.length
+      ? {
+          skillResourceNotes: report.skillResourceNotes.map((n) => ({
+            skill: n.name,
+            path: n.path,
+            ref: n.finding.ref,
+            line: n.finding.line,
+            message: repoRootOnlyAdvice(n.finding),
+          })),
+        }
       : {}),
   };
 }

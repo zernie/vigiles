@@ -8,11 +8,13 @@ import {
   Check,
   ShieldAlert,
   Lock,
+  Info,
 } from "lucide-react";
 import type {
   AuditReport,
   CategoryScore,
   Recommendation,
+  SkillResourceNote,
   Verdict,
 } from "./schema";
 import { categoryScoreLabel } from "./schema";
@@ -276,6 +278,28 @@ function SafetyCard({ finding }: { finding: string }) {
   );
 }
 
+/** Truthfulness notes that never moved the score: skill refs that resolve only
+ * from the repo root (#382). Muted and marked "not graded", so a reader does not
+ * hunt for the points they cost — they cost none. */
+function ResourceNotes({ notes }: { notes: readonly SkillResourceNote[] }) {
+  return (
+    <ul className="mt-1 space-y-0.5">
+      {notes.map((n) => (
+        <li
+          key={`${n.path}:${n.line}:${n.ref}`}
+          className="text-[11px] leading-snug text-na"
+        >
+          <Info size={11} className="mr-1 inline align-[-1px]" aria-hidden />
+          <span className="font-mono">{n.ref}</span>{" "}
+          <span className="text-muted-foreground">
+            ({n.skill}, line {n.line}) — {n.message} Not graded.
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** A compact category cell — a thin band bar + score, so the six read as one
  * scannable strip rather than six heavy rings competing with the verdict. */
 function CategoryCell({ c }: { c: CategoryScore }) {
@@ -343,9 +367,11 @@ function CategoryCell({ c }: { c: CategoryScore }) {
 function CategoryRow({
   c,
   refs,
+  notes,
 }: {
   c: CategoryScore;
   refs?: readonly string[];
+  notes?: readonly SkillResourceNote[];
 }) {
   const b: Band = c.advisory ? "na" : band(c.score);
   const pct = c.score === null ? 0 : Math.max(0, Math.min(100, c.score));
@@ -431,6 +457,7 @@ function CategoryRow({
             )}
           </>
         )}
+        {notes && notes.length > 0 && <ResourceNotes notes={notes} />}
       </div>
     </div>
   );
@@ -706,6 +733,7 @@ export function Report({
     rulesInventory,
     ruleRouting,
     brokenReferences,
+    skillResourceNotes,
   } = data;
   const overall = score.empty ? null : score.overall;
 
@@ -776,6 +804,7 @@ export function Report({
               key={c.key}
               c={c}
               refs={c.key === "Truthfulness" ? brokenReferences : undefined}
+              notes={c.key === "Truthfulness" ? skillResourceNotes : undefined}
             />
           ))}
         </div>
@@ -836,6 +865,17 @@ export function Report({
           <CategoryCell key={c.key} c={c} />
         ))}
       </div>
+      {/* The full report's category cells have no room for detail, so the
+          Truthfulness notes sit directly under the strip, labelled with the
+          category they belong to. */}
+      {skillResourceNotes && skillResourceNotes.length > 0 && (
+        <div className="mt-3">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/60">
+            Truthfulness — notes, not graded
+          </p>
+          <ResourceNotes notes={skillResourceNotes} />
+        </div>
+      )}
 
       <h2 className="mb-3 mt-9 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
         {recommendations.length > 0 ? "Do these first" : "Fixes"}
