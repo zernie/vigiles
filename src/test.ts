@@ -131,6 +131,7 @@ export {
   type EmitPropertySchema,
   type EmitTrackSchema,
   type EmitToolDefinition,
+  // eslint-disable-next-line local/no-group-names -- the type of the experimental_emitTool export, not a rule group
   type ExperimentalEmitTool,
 } from "./experimental-emit.js";
 

@@ -9,6 +9,15 @@ import { readdirSync, readFileSync } from "node:fs";
 import experimentalName from "./eslint-rules/experimental-name.mjs";
 import frameMint from "./eslint-rules/frame-mint.mjs";
 import noHarnessNames from "./eslint-rules/no-harness-names.mjs";
+import noGroupNames from "./eslint-rules/no-group-names.mjs";
+import noRuleIds from "./eslint-rules/no-rule-ids.mjs";
+import {
+  GROUP_NAMES,
+  GROUP_SET_NAMES,
+  RULE_IDS,
+  RULE_IDS_IN_IDENTIFIERS,
+  RULE_IDS_NOT_IN_STRINGS,
+} from "./eslint-rules/fence-names.mjs";
 import {
   AS_UNKNOWN_AS,
   ONE_COLLECTION_LIBRARY,
@@ -69,6 +78,8 @@ const local = {
     "experimental-name": experimentalName,
     "frame-mint": frameMint,
     "no-harness-names": noHarnessNames,
+    "no-rule-ids": noRuleIds,
+    "no-group-names": noGroupNames,
   },
 };
 
@@ -119,6 +130,99 @@ const harnessFences = [
     },
   })),
 ];
+
+/**
+ * THE RULE LAYER (`src/rules/`): a rule is a module `src/rules/<id>.ts`
+ * implementing core's `RuleSpec`; `index.ts` + `groups.ts` assemble the set,
+ * which only the composition roots import and hand to core. Three fences hold
+ * it, each with planted violations in `eslint-rules/fences.corpus.test.ts` and
+ * `packages/eslint-config/index.test.ts`:
+ *
+ *   I1/I2  `local/no-rule-ids`   no file outside a rule's own module spells its
+ *                                id — strings and types everywhere (tests and
+ *                                roots included), identifiers in the generic
+ *                                contract files below
+ *   I3     `boundaries`          core/app ✗→ rule, rule → core only, only the
+ *                                root → the ruleset (`layers()`'s rules slot)
+ *   I4     `local/no-group-names` generic code never names a rule group
+ *
+ * Today's sites are grandfathered in eslint-suppressions.json; zero is #390.
+ */
+const RULES_DIR = "src/rules";
+const RULE_SET_FILES = `${RULES_DIR}/{index,groups}.ts`;
+
+/** The ids the string half forbids: every id but the two English words. */
+const RULE_STRING_IDS = RULE_IDS.filter(
+  (id) => !RULE_IDS_NOT_IN_STRINGS.includes(id),
+);
+
+/** `no-rule-ids` options with `own` allowed, the identifier half on or off. */
+const ruleIdOptions = (own, identifiers) => ({
+  names: RULE_STRING_IDS.filter((id) => id !== own),
+  identifiers: identifiers
+    ? RULE_IDS_IN_IDENTIFIERS.filter((id) => id !== own)
+    : false,
+});
+
+/**
+ * The generic CONTRACT files, where an identifier named after a rule
+ * (`skillResourceIssues` as a report field, `isHandWrittenHook`) is a field or
+ * function of the contract that knows one implementation. Elsewhere the
+ * identifier half stays off: a detector in core is legitimately named after
+ * what it detects.
+ */
+const RULE_CONTRACT_FILES = [
+  "src/scan*.ts",
+  "src/score-core.ts",
+  "src/audit-score.ts",
+  "src/audit-verdict.ts",
+  "src/audit-report.ts",
+  "src/setup-plan.ts",
+  "src/overrides.ts",
+  CLI_ROOT,
+];
+
+const ruleIdFences = [
+  {
+    files: ["src/**/*.ts"],
+    ignores: [`${RULES_DIR}/**`],
+    plugins: { local },
+    rules: { "local/no-rule-ids": ["error", ruleIdOptions(null, false)] },
+  },
+  {
+    files: RULE_CONTRACT_FILES,
+    ignores: ["src/**/*.test.ts"],
+    plugins: { local },
+    rules: { "local/no-rule-ids": ["error", ruleIdOptions(null, true)] },
+  },
+  // Inside the rule layer: the set (`index.ts`) still holds the unmigrated
+  // rules as rows and may spell every id; every other file spells none but its
+  // own (`<id>.ts` and its colocated `<id>.test.ts`).
+  {
+    files: [`${RULES_DIR}/**/*.ts`],
+    ignores: [`${RULES_DIR}/index.ts`],
+    plugins: { local },
+    rules: { "local/no-rule-ids": ["error", ruleIdOptions(null, true)] },
+  },
+  ...RULE_IDS.map((own) => ({
+    files: [`${RULES_DIR}/${own}.ts`, `${RULES_DIR}/${own}.test.ts`],
+    plugins: { local },
+    rules: { "local/no-rule-ids": ["error", ruleIdOptions(own, true)] },
+  })),
+];
+
+/** No generic file names a rule group; the rule layer and tests may. */
+const groupNameFence = {
+  files: ["src/**/*.ts"],
+  ignores: [`${RULES_DIR}/**`, "src/**/*.test.ts"],
+  plugins: { local },
+  rules: {
+    "local/no-group-names": [
+      "error",
+      { names: GROUP_NAMES, setNames: GROUP_SET_NAMES },
+    ],
+  },
+};
 
 /** Per-file ceilings for functions older than the size limits. Generated, then only lowered. */
 const CEILINGS = JSON.parse(readFileSync("eslint-ceilings.json", "utf8"));
@@ -388,6 +492,8 @@ export default [
     app: "src/*.ts",
     tests: "src/**/*.test.ts",
     io: "src/adapters/*/*.io.ts",
+    rules: `${RULES_DIR}/*.ts`,
+    ruleset: RULE_SET_FILES,
     // Parsers the domain legitimately runs. None of them does I/O.
     domainLibraries: [
       ...PURE_LIBRARIES,
@@ -404,6 +510,8 @@ export default [
     ignores: [CLI_ROOT, "src/adapters/*/*.io.ts", "src/**/*.test.ts"],
   }),
   ...harnessFences,
+  ...ruleIdFences,
+  groupNameFence,
   // Test files: relax promise and duplication rules
   {
     files: ["src/**/*.test.ts"],

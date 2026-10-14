@@ -5,7 +5,7 @@
 
 declare module "vigiles/generated" {
 
-  /** 158 enabled eslint rules (via flat config (v9+/v10), plugins: @typescript-eslint, boundaries, functional, local, sonarjs). */
+  /** 160 enabled eslint rules (via flat config (v9+/v10), plugins: @typescript-eslint, boundaries, functional, local, sonarjs). */
   export type EslintRule = 
     | "@typescript-eslint/await-thenable"
     | "@typescript-eslint/ban-ts-comment"
@@ -87,7 +87,9 @@ declare module "vigiles/generated" {
     | "getter-return"
     | "local/experimental-name"
     | "local/frame-mint"
+    | "local/no-group-names"
     | "local/no-harness-names"
+    | "local/no-rule-ids"
     | "max-depth"
     | "max-lines-per-function"
     | "max-nested-callbacks"
@@ -839,7 +841,9 @@ declare module "vigiles/spec" {
       | "getter-return"
       | "local/experimental-name"
       | "local/frame-mint"
+      | "local/no-group-names"
       | "local/no-harness-names"
+      | "local/no-rule-ids"
       | "max-depth"
       | "max-lines-per-function"
       | "max-nested-callbacks"
