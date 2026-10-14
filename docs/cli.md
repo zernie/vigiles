@@ -11,6 +11,7 @@ npx vigiles init [--target=X.md]    # Scaffold a spec (runs full setup wizard by
 npx vigiles compile [files...]      # Compile .spec.ts → .md AND .vigiles/hooks/*.hook.* → merged hooks config + stamp
 npx vigiles eject [file]            # Un-manage a compiled file → plain hand-owned markdown (--keep-spec)
 npx vigiles lint [files...]         # Verify references + integrity + symbols + coverage (incl. instruction-file symbol marks)
+npx vigiles lint --preset=experimental  # Also run the experimental rules (warn only, never fail) — a preset on top of your config
 npx vigiles test [files...]         # Run *.harness.{mjs,ts} deterministic harness tests (no API key)
 npx vigiles eval [files...]         # Run *.eval.{mjs,ts} real-model harness evals (--trials=N) — local, on your subscription
 npx vigiles eval --all              # Run ALL discovered evals — a bare no-target `eval` asks first (it spends model quota)
@@ -22,6 +23,7 @@ npx vigiles audit <dir> --no-html    # Skip writing vigiles-report.html · --no-
 npx vigiles audit <dir> --out=reports  # Write the report to a custom dir (CI upload) · --no-open skips auto-opening the HTML · reports are auto-gitignored
 npx vigiles audit <dir> --json       # Print the versioned AuditReport JSON to stdout (the upload/CI contract)
 npx vigiles audit <after> --capability-diff=<before>  # Did this change WIDEN the agent's blast radius? (no model)
+npx vigiles audit --preset=experimental  # Also show the experimental rules, in a block that is never graded
 npx vigiles generate types          # Emit .d.ts from project state (for spec mode; --check to verify)
 npx vigiles generate schema         # Emit JSON Schema for vigiles: frontmatter (--check to verify)
 npx vigiles generate harness [dir]  # Emit harness.gen.ts — one typed registry over every spec (--check to verify)
@@ -598,6 +600,41 @@ The two you are most likely to want:
 | ------------------------ | ---------------------------------------------------- |
 | `exclude`                | files in the repo that are not the repo's own        |
 | `harnesses.<name>.roots` | skills in a folder the tool does not read by default |
+
+### `--preset=<name>` — a preset for one run (`audit`, `lint`)
+
+`--preset=` takes the names `"extends"` takes in `.vigilesrc.json`, with the
+`vigiles:` prefix optional: `recommended` and `experimental`. The preset is
+applied ON TOP of your config for this run only: it adds to what your file
+extends, never replaces it, and your explicit `rules` entries still win. It
+works with no `.vigilesrc.json` at all, so one command tries it on a new repo:
+
+```bash
+npx vigiles audit --preset=experimental
+npx vigiles lint --preset=recommended,experimental   # several: a comma list
+```
+
+`experimental` turns on the [experimental rules](configuration.md#experimental-rules):
+checks vigiles ships but has not measured as reliable enough to grade you on.
+They report at `warn`, so `lint` still exits 0, and `audit` prints them in a
+separate **"Experimental — not graded"** block that never moves the score,
+the grade or the verdict:
+
+```
+Experimental — not graded:
+  Checks vigiles ships but has not measured as reliable enough to grade you on. They never move the score.
+  skill-resource-resolves (2):
+    ℹ release-check: bundled resource "scripts/check-changelog.sh" (line 8) resolves only from the repo root, not from the skill directory — …
+    ✗ release-check: bundled resource "references/release-policy.md" (line 10) is referenced but missing — the agent reads the instruction and gets nothing.
+```
+
+`init --strict` is a different switch: it writes the reliable `workflow`
+rules into your config and never turns an experimental rule on. An unknown
+name exits `2`:
+
+```
+✗ --preset: unknown preset "strict" — Invalid option: expected one of "vigiles:recommended"|"vigiles:experimental". Known: recommended, experimental.
+```
 
 ### `lint` in a monorepo, and getting both artefacts from one run
 

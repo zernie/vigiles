@@ -26,6 +26,11 @@ import type { RuleInventoryItem } from "./rule-inventory.js";
 import type { RuleRouting } from "./rule-routing.js";
 import type { EvidenceCounts } from "./coverage-evidence.js";
 import type { DeprecatedKeyFilesFinding } from "./deprecated-key-files.js";
+import {
+  gradedView,
+  type FilteredScan,
+  type UngradedGroup,
+} from "./core/apply-rules.js";
 
 /**
  * The current schema version. Bump only on a BREAKING change to the shape.
@@ -150,6 +155,16 @@ export interface AuditReport {
    */
   readonly deprecatedKeyFiles?: readonly DeprecatedKeyFilesFinding[];
   /**
+   * The UNGRADED rule groups — checks vigiles ships but has not measured as
+   * reliable enough to grade you on. One block per group with a rule this run
+   * turned on (a preset, `--preset=`, or the rule in `rules`), headed by the
+   * group's own label, each rule listed even when it found nothing; absent
+   * when none is on. NEVER scored: `score`, `verdict` and `recommendations`
+   * are computed from the graded view, without these. Additive/optional —
+   * schema version unchanged.
+   */
+  readonly ungraded?: readonly UngradedGroup[];
+  /**
    * The adoption preview — "what would vigiles catch in your repo?" Present only
    * when the model-gated tier ran (behind consent); a deterministic read omits it.
    * Additive/optional, so the schema version is unchanged.
@@ -270,11 +285,15 @@ function outputStylesField(n: number | "not-supported" | undefined): {
   return n === undefined || n === 0 ? {} : { outputStyles: n };
 }
 
-/** The scan's concrete finding lists, each present only when non-empty. */
+/**
+ * The scan's concrete finding lists, each present only when non-empty — and the
+ * ungraded groups' blocks, present only when some rule of one is on.
+ */
 function scanFindingLists(
-  report: ScanReport,
-): Pick<AuditReport, "brokenReferences" | "deprecatedKeyFiles"> {
+  report: FilteredScan<ScanReport>,
+): Pick<AuditReport, "brokenReferences" | "deprecatedKeyFiles" | "ungraded"> {
   return {
+    ...(report.ungraded.length > 0 ? { ungraded: report.ungraded } : {}),
     ...(report.danglingRefs.length
       ? { brokenReferences: report.danglingRefs }
       : {}),
@@ -285,18 +304,32 @@ function scanFindingLists(
 }
 
 /**
+ * The graded half of the report — score, verdict, fixes — read off the GRADED
+ * view (`gradedView`), so an ungraded group's findings can never move it.
+ */
+function gradedPart(
+  report: FilteredScan<ScanReport>,
+  opts: BuildAuditReportOptions,
+): Pick<AuditReport, "score" | "verdict" | "recommendations"> {
+  const graded = gradedView(report);
+  const score = auditScore(graded, { firingMeasured: opts.firingMeasured });
+  const recommendations = optimize(graded).recommendations;
+  const verdict = computeVerdict({ report: graded, score, recommendations });
+  return { score, verdict, recommendations };
+}
+
+/**
  * Assemble the versioned {@link AuditReport} from a scan report — pure, no clock.
  * The CLI attaches `meta.generatedAt` when it writes the JSON artifact; the
  * HTML-embedded form omits it so the rendered file stays deterministic.
  */
 export function buildAuditReport(
-  report: ScanReport,
+  /** Minted by `applyRules`: an off rule's findings are already gone. */
+  report: FilteredScan<ScanReport>,
   opts: BuildAuditReportOptions,
 ): AuditReport {
   const adoptable = buildAdoptable(opts.adoptableSurfaces);
-  const score = auditScore(report, { firingMeasured: opts.firingMeasured });
-  const recommendations = optimize(report).recommendations;
-  const verdict = computeVerdict({ report, score, recommendations });
+  const { score, verdict, recommendations } = gradedPart(report, opts);
   return {
     meta: {
       schemaVersion: AUDIT_SCHEMA_VERSION,

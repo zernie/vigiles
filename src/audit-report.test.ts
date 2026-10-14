@@ -13,9 +13,17 @@ import {
 } from "./audit-report.js";
 import type { ScanReport, MarketplaceInfo } from "./scan.js";
 import type { PluginScore } from "./score-core.js";
+import { applyRules, type FilteredScan } from "./core/apply-rules.js";
+import { defaultSeverities, defineRule, type ScanInput } from "./core/rule.js";
+import { ruleResolver } from "./overrides.js";
+import { RULES, RULE_GROUPS } from "./rules/index.js";
 
-function makeReport(over: Partial<ScanReport> = {}): ScanReport {
-  return {
+/** A scan as `audit` shows it under the shipped defaults (`applyRules`). */
+const shown = <S extends ScanInput>(scan: S) =>
+  applyRules(RULES, RULE_GROUPS, ruleResolver(defaultSeverities(RULES)), scan);
+
+function makeReport(over: Partial<ScanReport> = {}): FilteredScan<ScanReport> {
+  return shown({
     dir: "/x/demo",
     instructions: null,
     skills: [],
@@ -36,7 +44,6 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     descriptionOverlaps: [],
     descriptionBudgetIssues: [],
     trifectaFindings: [],
-    skillResourceIssues: [],
     skillFenceIssues: [],
     pluginLayoutIssues: [],
     unclaimedSurfaces: [],
@@ -48,7 +55,7 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     untested: 0,
     puritySummary: { pure: 0, bounded: 0, unrestricted: 0 },
     ...over,
-  } as ScanReport;
+  } as ScanReport);
 }
 
 describe("buildAuditReport", () => {
@@ -365,5 +372,76 @@ describe("the inventory's output styles", () => {
 
   it("leaves the field out for zero, so a report without styles is unchanged", () => {
     expect("outputStyles" in inventory(0)).toBe(false);
+  });
+});
+
+// An UNGRADED group: the report shows its rules' findings in a block of its
+// own and NOTHING graded moves — score, verdict and fixes are the same as for
+// the identical scan with no findings at all. A fixture rule and group: what is
+// under test is the report, not a shipped rule.
+describe("buildAuditReport — ungraded group findings", () => {
+  const flagged = defineRule({
+    id: "fixture-flagged",
+    group: "shown",
+    bucket: "external-decidable",
+    surface: ["skill"],
+    defaultSeverity: "off",
+    cure: "edit",
+    summary: "flags every skill",
+    detector: "fixture",
+    findings: () => [
+      {
+        kind: "finding" as const,
+        path: "skills/pdf/SKILL.md",
+        subject: "pdf",
+        message: "flagged",
+      },
+    ],
+  });
+  const groups = { shown: { graded: false, label: "Shown", blurb: "Never." } };
+  const scan = makeReport();
+  const opts = { harness: "h", vigilesVersion: "1.0.0" };
+  const sw = (on: boolean) => ({ mayFire: () => on });
+
+  it("is absent when no rule of the group is on", () => {
+    const r = buildAuditReport(
+      applyRules([flagged], groups, sw(false), scan),
+      opts,
+    );
+    expect(r.ungraded).toBeUndefined();
+  });
+
+  it("is a separate block when on — and the score, verdict and fixes do not move", () => {
+    const on = buildAuditReport(
+      applyRules([flagged], groups, sw(true), scan),
+      opts,
+    );
+    const off = buildAuditReport(
+      applyRules([flagged], groups, sw(false), scan),
+      opts,
+    );
+    expect(on.ungraded).toEqual([
+      {
+        group: "shown",
+        label: "Shown",
+        blurb: "Never.",
+        rules: [
+          {
+            rule: flagged.id,
+            findings: [
+              {
+                kind: "finding",
+                path: "skills/pdf/SKILL.md",
+                subject: "pdf",
+                message: "flagged",
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(on.score).toEqual(off.score);
+    expect(on.verdict).toEqual(off.verdict);
+    expect(on.recommendations).toEqual(off.recommendations);
   });
 });

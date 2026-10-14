@@ -50,7 +50,6 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     descriptionOverlaps: [],
     descriptionBudgetIssues: [],
     trifectaFindings: [],
-    skillResourceIssues: [],
     skillFenceIssues: [],
     pluginLayoutIssues: [],
     unclaimedSurfaces: [],

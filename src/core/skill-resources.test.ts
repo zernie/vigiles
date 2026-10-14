@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
 
 import {
+  repoRootOnlyAdvice,
   skillResourceIssues,
   type SkillResourceFinding,
 } from "./skill-resources.js";
@@ -23,7 +24,7 @@ function existsOnly(...present: string[]): (p: string) => boolean {
 function run(
   body: string,
   exists: (p: string) => boolean,
-): SkillResourceFinding[] {
+): readonly SkillResourceFinding[] {
   return skillResourceIssues(body, SKILL_DIR, { existsSync: exists });
 }
 
@@ -371,6 +372,79 @@ describe("skillResourceIssues", () => {
     // present → resolves, not flagged
     expect(run(body, existsOnly("references/schema.json"))).toEqual([]);
   });
+});
+
+describe("skillResourceIssues — a ref that resolves only from the repo root (#382)", () => {
+  // The agent usually runs from the repository root, so a skill that says
+  // "run `scripts/check.sh`" often means `<repo>/scripts/check.sh`. That works
+  // while the skill runs inside its own repository and breaks once the skill is
+  // installed anywhere else. Not "missing", not "fine": a separate resolution.
+  const REPO_ROOT = "/repo";
+  const DIR = "/repo/tools/skills/my-skill";
+  const at =
+    (...abs: string[]) =>
+    (p: string): boolean =>
+      abs.includes(p);
+  const body = "Run `scripts/check.sh` before committing.";
+
+  it("reports `repo-root-only` when the file exists at the repo root but not beside the SKILL.md", () => {
+    expect(
+      skillResourceIssues(body, DIR, {
+        existsSync: at("/repo/scripts/check.sh"),
+        repoRoot: REPO_ROOT,
+      }),
+    ).toEqual([
+      {
+        ref: "scripts/check.sh",
+        resolved: "scripts/check.sh",
+        kind: "path",
+        line: 1,
+        resolution: "repo-root-only",
+      },
+    ]);
+  });
+
+  it("still reports `missing` when the file exists nowhere", () => {
+    expect(
+      skillResourceIssues(body, DIR, {
+        existsSync: at(),
+        repoRoot: REPO_ROOT,
+      }),
+    ).toMatchObject([{ ref: "scripts/check.sh", resolution: "missing" }]);
+  });
+
+  it("reports nothing when the file exists under the skill dir (the repo-root copy is irrelevant)", () => {
+    expect(
+      skillResourceIssues(body, DIR, {
+        existsSync: at(
+          "/repo/tools/skills/my-skill/scripts/check.sh",
+          "/repo/scripts/check.sh",
+        ),
+        repoRoot: REPO_ROOT,
+      }),
+    ).toEqual([]);
+  });
+
+  it("reports nothing when the dir is a declared shared dir — sharedDirs is unchanged", () => {
+    expect(
+      skillResourceIssues(body, DIR, {
+        existsSync: at("/repo/scripts/check.sh"),
+        repoRoot: REPO_ROOT,
+        sharedDirs: ["scripts"],
+      }),
+    ).toEqual([]);
+  });
+
+  it("applies to a markdown link the same way as to an inline path", () => {
+    expect(
+      skillResourceIssues("Read [the guide](docs/guide.md).", DIR, {
+        existsSync: at("/repo/docs/guide.md"),
+        repoRoot: REPO_ROOT,
+      }),
+    ).toMatchObject([
+      { ref: "docs/guide.md", kind: "link", resolution: "repo-root-only" },
+    ]);
+  });
 
   it("resolves a declared shared-dir ref against the repo root — P1-4 (opt-in)", () => {
     // `scripts/promptfoo/x.py` lives at the REPO ROOT, not beside the SKILL.md —
@@ -380,8 +454,10 @@ describe("skillResourceIssues", () => {
     const body = "Run `scripts/promptfoo/baseline_leak_scan.py` to check.";
     const existsAtRepoRoot = (p: string): boolean =>
       p === resolve(REPO_ROOT, "scripts/promptfoo/baseline_leak_scan.py");
-    // default (no sharedDirs) → unchanged, flagged missing
-    expect(run(body, existsAtRepoRoot)).toHaveLength(1);
+    // no repo root handed over → the detector can only see the skill dir: missing
+    expect(run(body, existsAtRepoRoot)).toMatchObject([
+      { resolution: "missing" },
+    ]);
     // opt-in: `scripts` declared shared → resolves against repo root, not flagged
     expect(
       skillResourceIssues(body, SKILL_DIR, {
@@ -394,8 +470,9 @@ describe("skillResourceIssues", () => {
 
   it("does NOT mask a ref outside a declared shared dir — P1-4 safety", () => {
     // Even with `scripts` shared, a ref under a DIFFERENT top dir (`references/`)
-    // that only exists at the repo root stays flagged — the opt-in can't silently
-    // suppress a genuinely-missing bundled resource outside the declared dirs.
+    // that only exists at the repo root is NOT resolved. It is reported as a
+    // `repo-root-only` finding — visible, never silently dropped — rather than
+    // as resolved by a same-named repo-root file.
     const REPO_ROOT = "/plugin";
     const body = "See `references/api.md`.";
     const existsAtRepoRoot = (p: string): boolean =>
@@ -406,7 +483,9 @@ describe("skillResourceIssues", () => {
         repoRoot: REPO_ROOT,
         sharedDirs: ["scripts"], // references NOT declared shared
       }),
-    ).toHaveLength(1);
+    ).toMatchObject([
+      { ref: "references/api.md", resolution: "repo-root-only" },
+    ]);
   });
 });
 
@@ -471,5 +550,30 @@ describe("lineOffset (#206)", () => {
     });
     expect(found).toHaveLength(1);
     expect(found[0]?.line).toBe(8);
+  });
+});
+
+describe("repoRootOnlyAdvice (#382)", () => {
+  const note = (resolved: string): SkillResourceFinding<"repo-root-only"> => ({
+    ref: resolved,
+    resolved,
+    kind: "path",
+    line: 1,
+    resolution: "repo-root-only",
+  });
+
+  it("names the top-level dir to declare in sharedDirs when the path has one", () => {
+    expect(repoRootOnlyAdvice(note("scripts/lint/check.sh"))).toBe(
+      "resolves only from the repo root, not from the skill directory — it breaks once the skill is installed outside this repository. " +
+        'If repo-root resolution is intended, add "scripts" to sharedDirs in .vigilesrc.json.',
+    );
+  });
+
+  it("suggests shipping the file beside the SKILL.md when there is no dir to declare", () => {
+    // sharedDirs takes a directory name; a bare root file has none.
+    expect(repoRootOnlyAdvice(note("guide.md"))).toMatch(
+      /Ship it beside the SKILL\.md if the skill is meant to be installed elsewhere\.$/,
+    );
+    expect(repoRootOnlyAdvice(note("guide.md"))).not.toMatch(/sharedDirs/);
   });
 });

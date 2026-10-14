@@ -24,15 +24,17 @@ import { RULE_MARKER_SOURCE, isVerifiedLabel } from "./enforce-marker.js";
 import { instructionSpecState } from "./integrity.js";
 import { handWrittenInstructionRemedy } from "./instruction-remedies.js";
 import {
-  vigilesConfigSchema,
-  parseVigilesConfig,
+  DEFAULT_RULE_MARKERS,
   formatConfigIssues,
+  type ConfigSet,
+  VigilesConfigError,
+} from "./config-schema.js";
+import {
   REPLACED_KEYS,
   replacedKeyMessage,
   movedToOverridesMessages,
   foldedRuleMessages,
-  VigilesConfigError,
-} from "./config-schema.js";
+} from "./config-migrations.js";
 
 import type {
   ParsedRule,
@@ -95,26 +97,24 @@ const INSTRUCTION_FILES: readonly string[] = DEFAULT_INSTRUCTION_TARGETS;
 // The default instruction file to validate when no config names one.
 const DEFAULT_FILES: string[] = [INSTRUCTION_FILES[0]];
 
-/**
- * The shipped default severity of every rule — DERIVED from the schema, never
- * listed twice.
- *
- * It used to be the literal beside the type, which is exactly the pair that
- * drifts: `rule-meta.test.ts` already cross-checks each rule's documented
- * `defaultSeverity` against this object, and it could only ever catch a doc that
- * disagreed with the literal, never a literal that disagreed with what parsing
- * actually produced. Reading it out of the parser closes that gap: this IS what
- * a `{}` config loads as.
- */
-export const DEFAULT_RULES: Required<RulesConfig> = defaultConfig()
-  .rules as Required<RulesConfig>;
-
 /** The default rule markers — read from the schema, like every other default. */
-const DEFAULT_MARKERS: readonly MarkerType[] = defaultConfig().ruleMarkers;
+const DEFAULT_MARKERS: readonly MarkerType[] = DEFAULT_RULE_MARKERS;
 
-/** A freshly parsed empty config — the defaults, straight from the schema. */
-function defaultConfig(): VigilesConfig {
-  return vigilesConfigSchema.parse({});
+/**
+ * The defaults with `presets` applied — an empty file extended on the CLI.
+ * There is no rule-set-free default here: what every rule defaults to is
+ * declared by the rule, and the set arrives as `set` from the root.
+ */
+export function configDefaults<C>(
+  set: ConfigSet<C>,
+  presets?: readonly string[],
+): C {
+  const parsed = set.parse({}, presets);
+  if (parsed.success) return parsed.data;
+  /* v8 ignore next -- `{}` with known presets always parses */
+  throw new VigilesConfigError(
+    formatConfigIssues(set.schema, parsed.error.issues).join("\n"),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -165,10 +165,22 @@ export function findInstructionFiles(
  * does not execute until the function is called. A rail that never reads a
  * config never pays for the validator.
  */
-export function loadConfig(
+export function loadConfig<C>(
+  /** The config for the rule set the root hands in (`configFor`). */
+  set: ConfigSet<C>,
   searchFrom?: string,
-  { onInvalid = "throw" }: { onInvalid?: "throw" | "warn" } = {},
-): VigilesConfig {
+  {
+    onInvalid = "throw",
+    presets,
+  }: Readonly<{
+    onInvalid?: "throw" | "warn";
+    /** Presets applied on top of the file's own (`--preset=`), see
+     * `ConfigSet.parse`. Applied to the defaults too, so they work in a repo
+     * with no `.vigilesrc.json` at all. */
+    presets?: readonly string[];
+  }> = {},
+): C {
+  const fallback = (): C => configDefaults(set, presets);
   let raw: unknown;
   try {
     const explorer = cosmiconfigSync("vigiles", {
@@ -179,9 +191,9 @@ export function loadConfig(
   } catch {
     // No file, unreadable file, malformed JSON — the defaults, as always. A
     // config we CAN read and refuse is a different thing and is handled below.
-    return defaultConfig();
+    return fallback();
   }
-  if (raw === undefined || raw === null) return defaultConfig();
+  if (raw === undefined || raw === null) return fallback();
 
   // The replaced keys get their own message BEFORE the schema's, because the
   // reader is someone whose config used to work: `.strict()` would tell them
@@ -207,14 +219,14 @@ export function loadConfig(
     }
   }
   if (problems.length === 0) {
-    const parsed = parseVigilesConfig(raw);
+    const parsed = set.parse(raw, presets);
     if (parsed.success) return parsed.data;
-    problems.push(...formatConfigIssues(parsed.error.issues));
+    problems.push(...formatConfigIssues(set.schema, parsed.error.issues));
   }
   if (onInvalid === "throw") throw new VigilesConfigError(problems.join("\n"));
   for (const line of problems) console.warn(`⚠ ${line}`);
   console.warn("⚠ Using default configuration.");
-  return defaultConfig();
+  return fallback();
 }
 
 // ---------------------------------------------------------------------------
@@ -337,7 +349,9 @@ export function validate(
   content: string,
   { ruleMarkers, rules: rulesConfig, filePath, dialect }: ValidateOptions = {},
 ): ValidationResult {
-  const activeRules = rulesConfig ?? DEFAULT_RULES;
+  // No rules handed in → every rule off: the defaults belong to the rule set,
+  // which only the root holds.
+  const activeRules = rulesConfig ?? {};
   const parsedRules = parseRules(content, { ruleMarkers });
   const enforced = countEnforcement(parsedRules, "enforced");
   const guidanceOnly = countEnforcement(parsedRules, "guidance");

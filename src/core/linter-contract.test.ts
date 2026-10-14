@@ -7,7 +7,7 @@
  * adapter's `name`, the registry keys match the `BuiltinLinter` union AND the
  * `docs/linter-support.md` table (the drift that shipped "only 7 catalogs" in a
  * sibling doc would fail HERE). Mirrors adapter-contract.test.ts (loop the
- * registry) + rule-meta.test.ts (docs set-match). See
+ * registry) + src/rules/index.test.ts (docs set-match). See
  * research/linter-adapter-architecture.md.
  */
 import { describe, it, expect } from "vitest";

@@ -9,7 +9,8 @@
  * on a prompt. See docs/agent-setup.md.
  */
 
-import { RECOMMENDED_PRESET, RECOMMENDED_RULES } from "./core/presets.js";
+import { extendedPresets } from "./core/presets.js";
+import type { InitPolicy } from "./core/rule.js";
 import { INIT_NUDGE_COMMANDS } from "./core/hook-command.js";
 
 /** What `vigiles init` will set up. */
@@ -141,58 +142,6 @@ export function defaultPlan(strict = false): SetupPlan {
 }
 
 /**
- * The **`workflow`** group — the WORKFLOW-FORCING / opinionated tier `--strict`
- * gates, which a clean repo can still fail because you haven't done the work yet:
- * a test/eval per surface (`untested-*`). Opt-in by design (the smooth-adoption
- * on-ramp). The Clippy-`pedantic` / TS-`strict` analog — ONE opinionated opt-in.
- * A spec per instruction file (`require-instructions-spec`) is not here: it is
- * in `vigiles:recommended` (`RECOMMENDED_RULES`), and one group owns each rule.
- *
- * NB `frontmatter-valid` / `skill-frontmatter` live in the `nudge` group, not
- * here: they're acknowledged-noisy recommendations we never gate on (see
- * research/install-enforcement-dx.md).
- */
-export const WORKFLOW_RULES = [
-  "untested-skill",
-  "untested-subagent",
-  "untested-hook",
-  "untested-output-style",
-] as const;
-
-/**
- * The **`nudge`** group — recommendations / acknowledged-noisy checks that NEVER
- * gate (not even under `--strict`): `frontmatter-valid` (js-yaml is stricter than
- * CC's loader), `skill-frontmatter` (skills load without it) and `unmarked-refs`
- * (the undecidable-plaintext nudge) sit at `warn`; `hand-written-hook` is OFF
- * (its cure, a compiled hook, is still an experimental API). `lethal-trifecta` + `skill-resource-resolves` are here for now on a
- * don't-cry-wolf rollout (default `warn`; a team raises either to `error` by hand
- * once it's confirmed quiet on their corpus). `init` does not write these — they
- * keep their own default severities. Named for the group taxonomy
- * (research/install-enforcement-dx.md).
- */
-export const NUDGE_RULES = [
-  "skill-description-budget",
-  "frontmatter-valid",
-  "skill-frontmatter",
-  "hand-written-hook",
-  "unmarked-refs",
-  "lethal-trifecta",
-  "skill-resource-resolves",
-  "skill-missing-fence",
-  "plugin-dir-layout",
-  "delegation-trifecta",
-  "hook-block-ineffective",
-  "hook-matcher",
-  // Default OFF for a measured reason, not a rollout one: 0 true positives over
-  // 2 582 markdown files, because a fence in prose is a drawing of config rather
-  // than config. See docs/rules/doc-refs.md.
-  "doc-refs",
-  // A deprecation notice: it must never gate, or upgrading vigiles would turn a
-  // consumer's CI red — the very thing the one-major window exists to avoid.
-  "deprecated-key-files",
-] as const;
-
-/**
  * Pure config-merge for what `vigiles init` writes to `.vigilesrc.json`: record
  * the harnesses if absent, gate the structural rules by EXTENDING the
  * `vigiles:recommended` preset (never by writing each rule), add the workflow
@@ -212,6 +161,8 @@ export const NUDGE_RULES = [
 export function mergeProjectConfig(
   existing: Readonly<Record<string, unknown>>,
   opts: Readonly<{
+    /** What `init` writes, derived from the rule groups by the root. */
+    policy: InitPolicy;
     /** Canonical harness names this repo targets, in the order to declare them. */
     harnesses: readonly string[];
     strict: boolean;
@@ -246,11 +197,16 @@ export function mergeProjectConfig(
  */
 function lintGate(
   existing: Readonly<Record<string, unknown>>,
-  opts: Readonly<{ strict: boolean; reportOnly?: boolean; specs?: boolean }>,
+  opts: Readonly<{
+    policy: InitPolicy;
+    strict: boolean;
+    reportOnly?: boolean;
+    specs?: boolean;
+  }>,
 ): Readonly<Record<string, unknown>> {
-  const workflow = opts.strict ? WORKFLOW_RULES : [];
+  const workflow = opts.strict ? opts.policy.strictRules : [];
   const explicit: readonly string[] = opts.reportOnly
-    ? [...RECOMMENDED_RULES, ...workflow]
+    ? [...opts.policy.presetRules, ...workflow]
     : workflow;
   const severity = opts.reportOnly ? "warn" : "error";
   const before = (existing.rules ?? {}) as Readonly<Record<string, unknown>>;
@@ -268,11 +224,30 @@ function lintGate(
   );
   const rules =
     Object.keys(filled).length === 0 ? {} : { rules: { ...before, ...filled } };
-  const preset =
-    opts.reportOnly || existing.extends !== undefined
-      ? {}
-      : { extends: RECOMMENDED_PRESET };
-  return { ...preset, ...rules };
+  return {
+    ...recommendedExtends(existing.extends, opts.reportOnly, opts.policy),
+    ...rules,
+  };
+}
+
+/**
+ * The `extends` value `init` writes so the repo extends `vigiles:recommended`,
+ * or `{}` when nothing changes: it already does, `--report-only` writes rule
+ * lines instead, or the value is not a preset list at all (left for the config
+ * validator to refuse, never silently rewritten). A repo that extends only
+ * `vigiles:experimental` gets recommended FIRST, so its own preset still wins.
+ */
+function recommendedExtends(
+  current: unknown,
+  reportOnly: boolean | undefined,
+  policy: InitPolicy,
+): Readonly<{ extends?: string | readonly string[] }> {
+  const listed = extendedPresets(policy.presets, current);
+  if (reportOnly || listed === null || listed.includes(policy.preset))
+    return {};
+  return {
+    extends: listed.length === 0 ? policy.preset : [policy.preset, ...listed],
+  };
 }
 
 /**
@@ -757,10 +732,14 @@ export interface FullSetupGap {
  * setup would add here, then the flag that does it. Empty when nothing is
  * missing, so a fully set-up repo is not told to run anything.
  */
-export function fullSetupFollowUps(gap: FullSetupGap): readonly string[] {
+export function fullSetupFollowUps(
+  gap: FullSetupGap,
+  /** The preset `init` writes (`InitPolicy.preset`). */
+  preset: string,
+): readonly string[] {
   const configLine: Readonly<Record<FullSetupGap["config"], string | null>> = {
-    missing: `write .vigilesrc.json with your harnesses and "extends": "${RECOMMENDED_PRESET}" (structural rules fail CI)`,
-    "no-preset": `add "extends": "${RECOMMENDED_PRESET}" to .vigilesrc.json (structural rules fail CI)`,
+    missing: `write .vigilesrc.json with your harnesses and "extends": "${preset}" (structural rules fail CI)`,
+    "no-preset": `add "extends": "${preset}" to .vigilesrc.json (structural rules fail CI)`,
     "has-preset": null,
   };
   const items = [

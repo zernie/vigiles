@@ -185,6 +185,9 @@ const libraries = (source) => ({ to: { module: { origin: ORIGINS, source } } });
 const elements = (...types) => ({ element: { types: { anyOf: types } } });
 const APP = { file: { categories: "app" } };
 const ROOT = { file: { categories: "root" } };
+const RULESET = { file: { categories: "ruleset" } };
+const RULE = { file: { categories: "rule" } };
+const TEST = { file: { categories: "test" } };
 
 /** Who may import whom: the domain knows only itself, an adapter never another adapter. */
 /**
@@ -213,6 +216,52 @@ const knowledgePolicies = (domainLibraries, appLibraries) => [
         { module: { origin: ORIGINS } },
       ],
     },
+  },
+];
+
+/**
+ * Who may import a RULE: an outer layer beside the adapters, for a repo whose
+ * lint rules are modules (`rules` in {@link Layout}). Same relation to the
+ * domain as an adapter — it implements a domain port and the root injects it —
+ * but all rules run together, so the set is assembled in the rule layer's own
+ * `ruleset` files and only the root imports those.
+ *
+ * Rules are FILES, not folders, so the layer is two file categories rather than
+ * an element: eslint-plugin-boundaries v7 matches element patterns against
+ * folders only (measured: `src/rules/*.ts` as an element classified nothing).
+ *
+ * Written as disallows with messages, then the allows that cut through them:
+ * the policies are evaluated in order and the LAST match wins, so the tests'
+ * allow comes after the disallows it overrides for a rule's colocated test.
+ *
+ * @param {string[]} domainLibraries
+ */
+const rulePolicies = (domainLibraries) => [
+  {
+    from: [elements("domain", "port", "adapter"), APP],
+    disallow: { to: [RULE, RULESET] },
+    message:
+      "Core and app never import a rule or the rule set: take the rules as a parameter (`opts.rules`), the way `scanPlugin` takes `layout`.",
+  },
+  { from: [RULE, RULESET], allow: { to: elements("domain", "port") } },
+  { from: [RULE, RULESET], allow: libraries(domainLibraries) },
+  {
+    from: RULE,
+    disallow: { to: [RULE, RULESET, elements("adapter"), APP, ROOT] },
+    message:
+      "A rule depends only on core: read what it needs off the core port it implements, never another rule, the set, an adapter or app code.",
+  },
+  { from: RULESET, allow: { to: [RULE, RULESET] } },
+  {
+    from: ROOT,
+    disallow: { to: RULE },
+    message:
+      "The root passes the rule set (the ruleset files) into core; it never runs one rule by importing its module.",
+  },
+  { from: ROOT, allow: { to: RULESET } },
+  {
+    from: TEST,
+    allow: { to: [{ element: { type: "*" } }, APP, ROOT, RULE, RULESET] },
   },
 ];
 
@@ -256,6 +305,8 @@ const element = (type, pattern, extra = {}) =>
  * @property {string} app           the flat application files, e.g. "src/*.ts"
  * @property {string} tests         test files
  * @property {string} io            files allowed to do I/O, e.g. "src/adapters/*\/*.io.ts"
+ * @property {string} [rules]       rule module files, e.g. "src/rules/*.ts" — an outer layer beside the adapters
+ * @property {string} [ruleset]     the rule-layer files that assemble the set, e.g. "src/rules/{index,groups}.ts"; only the root imports them
  * @property {string[]} [domainLibraries]  what the domain and ports may import (default PURE_LIBRARIES)
  * @property {string[]} [appLibraries]     what app files may import (default APP_LIBRARIES)
  * @property {object} [resolver]    import/resolver settings (default: the TypeScript resolver)
@@ -295,6 +346,13 @@ export const layers = (o) => ({
       { category: "app", pattern: o.app },
       { category: "test", pattern: o.tests },
       { category: "io", pattern: o.io },
+      // The set before the rules, and exclusive: `index.ts` is the set, not a rule.
+      ...(o.ruleset === undefined
+        ? []
+        : [{ category: "ruleset", pattern: o.ruleset, exclusive: true }]),
+      ...(o.rules === undefined
+        ? []
+        : [{ category: "rule", pattern: o.rules }]),
     ],
   },
   rules: {
@@ -310,6 +368,9 @@ export const layers = (o) => ({
             o.domainLibraries ?? PURE_LIBRARIES,
             o.appLibraries ?? APP_LIBRARIES,
           ),
+          ...(o.rules === undefined
+            ? []
+            : rulePolicies(o.domainLibraries ?? PURE_LIBRARIES)),
           ...(o.extraAllows ?? []),
           ...effectPolicies(o.io),
         ],

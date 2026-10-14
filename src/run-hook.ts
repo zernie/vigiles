@@ -402,7 +402,7 @@ export function parseHookOutput(stdout: string): HookOutput | null {
  * A `||` chain has no shape that can be incomplete — every term is optional by
  * construction, so nothing can say "you declared a mechanism and did not handle
  * it". `Record<BlockMechanism, …>` can: adding a member to the union without
- * adding its row is a tsc error, the same device that keeps `RULE_META` honest.
+ * adding its row is a tsc error, the same device the rule set's `satisfies` uses (src/rules/index.ts).
  */
 export type BlockMechanism = "exit-code" | "deny-decision" | "halt-field";
 

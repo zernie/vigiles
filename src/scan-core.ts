@@ -71,9 +71,9 @@ import type {
   FrontmatterValueIssue,
   FrontmatterParseIssue,
   ScanTrifectaFinding,
-  ScanSkillResourceFinding,
   ScanSkillFenceFinding,
   ScanDelegationFinding,
+  ScanReport,
   VocabularyNote,
 } from "./scan.js";
 import { HOOKS_DIR } from "./core/hook-paths.js";
@@ -1152,18 +1152,16 @@ export function skillMetaIssuesFor(
 }
 
 /**
- * Flatten the per-surface lethal-trifecta + skill-resource findings into the
- * path-tagged report lists the `audit` report AND the `lethal-trifecta` /
- * `skill-resource-resolves` lint rules both consume (one detector, no drift).
+ * Flatten the per-surface lethal-trifecta and skill-fence findings into the
+ * path-tagged report lists the `audit` report AND the lint rules both consume
+ * (one detector, no drift).
+ * Shared by the disk scan and the browser twin, and keyed by the report's own
+ * field names, so both engines spread the same lists.
  */
 export function collectSurfaceFindings(
   agents: readonly ScanAgent[],
   skills: readonly ScanSkill[],
-): {
-  trifectaFindings: ScanTrifectaFinding[];
-  skillResourceFindings: ScanSkillResourceFinding[];
-  skillFenceFindings: ScanSkillFenceFinding[];
-} {
+): Pick<ScanReport, "trifectaFindings" | "skillFenceIssues"> {
   const trifectaFindings: ScanTrifectaFinding[] = [];
   for (const a of agents) {
     if (a.trifecta) {
@@ -1185,18 +1183,10 @@ export function collectSurfaceFindings(
       });
     }
   }
-  const skillResourceFindings: ScanSkillResourceFinding[] = skills.flatMap(
-    (s) =>
-      s.resourceIssues.map((finding) => ({
-        path: s.path,
-        name: s.name,
-        finding,
-      })),
-  );
-  const skillFenceFindings: ScanSkillFenceFinding[] = skills.flatMap((s) =>
+  const skillFenceIssues: ScanSkillFenceFinding[] = skills.flatMap((s) =>
     s.fenceIssue ? [{ path: s.path, name: s.name, finding: s.fenceIssue }] : [],
   );
-  return { trifectaFindings, skillResourceFindings, skillFenceFindings };
+  return { trifectaFindings, skillFenceIssues };
 }
 
 /**

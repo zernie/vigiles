@@ -104,6 +104,7 @@ export interface EmitToolDefinition {
 }
 
 /** What `experimental_emitTool` hands back: the tool, and the prose that asks for it. */
+// eslint-disable-next-line local/no-group-names -- the type of the experimental_emitTool export, not a rule group
 export interface ExperimentalEmitTool {
   /** Serve this from your MCP server's `tools/list`. */
   readonly tool: EmitToolDefinition;
@@ -193,6 +194,7 @@ function renderShape(shape: Shape): string {
 export function experimental_emitTool(
   contract: OutputContract,
   options: { readonly name?: string } = {},
+  // eslint-disable-next-line local/no-group-names -- the type of the experimental_emitTool export, not a rule group
 ): ExperimentalEmitTool {
   const name = options.name ?? DEFAULT_EMIT_TOOL;
   const tool: EmitToolDefinition = {

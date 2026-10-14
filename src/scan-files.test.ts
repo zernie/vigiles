@@ -32,6 +32,14 @@ import { buildAuditReport } from "./audit-report.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
+import { applyRules } from "./core/apply-rules.js";
+import { defaultSeverities, type ScanInput } from "./core/rule.js";
+import { ruleResolver } from "./overrides.js";
+import { RULES, RULE_GROUPS } from "./rules/index.js";
+
+/** A scan as `audit` shows it under the shipped defaults (`applyRules`). */
+const shown = <S extends ScanInput>(scan: S) =>
+  applyRules(RULES, RULE_GROUPS, ruleResolver(defaultSeverities(RULES)), scan);
 
 const OPTS = { harness: "claude-code", vigilesVersion: "9.9.9-parity-test" };
 
@@ -92,8 +100,11 @@ describe("scanFiles parity with scanPlugin (buildAuditReport byte-identical)", (
       const fileReport = scanFiles(map);
 
       // The mandated gate: the SAME AuditReport (modulo the checkout path).
-      const diskAudit = normalizeRoot(buildAuditReport(diskReport, OPTS), abs);
-      const fileAudit = buildAuditReport(fileReport, OPTS);
+      const diskAudit = normalizeRoot(
+        buildAuditReport(shown(diskReport), OPTS),
+        abs,
+      );
+      const fileAudit = buildAuditReport(shown(fileReport), OPTS);
       expect(fileAudit).toEqual(diskAudit);
 
       // Stronger: the raw ScanReport itself matches field-for-field (only the
@@ -171,8 +182,11 @@ describe("scanFiles parity for a SINGLE-SKILL-AT-ROOT repo (the shape no vendore
         basename(abs),
       );
 
-      const diskAudit = normalizeRoot(buildAuditReport(diskReport, OPTS), abs);
-      const fileAudit = buildAuditReport(fileReport, OPTS);
+      const diskAudit = normalizeRoot(
+        buildAuditReport(shown(diskReport), OPTS),
+        abs,
+      );
+      const fileAudit = buildAuditReport(shown(fileReport), OPTS);
       expect(fileAudit).toEqual(diskAudit);
       expect(stabilize(fileReport)).toEqual(
         stabilize(normalizeRoot(diskReport, abs)),
@@ -190,7 +204,7 @@ describe("scanFiles parity for a SINGLE-SKILL-AT-ROOT repo (the shape no vendore
       "deployer.harness.mjs": "// colocated, named after the declared name\n",
     };
     const report = scanFiles(named, undefined, undefined, "single-skill-repo");
-    expect(buildAuditReport(report, OPTS).inventory.untested).toBe(0);
+    expect(buildAuditReport(shown(report), OPTS).inventory.untested).toBe(0);
     // The same map with the harness named after the checkout instead: uncovered.
     const misnamed = {
       "SKILL.md": named["SKILL.md"],
@@ -198,7 +212,7 @@ describe("scanFiles parity for a SINGLE-SKILL-AT-ROOT repo (the shape no vendore
     };
     expect(
       buildAuditReport(
-        scanFiles(misnamed, undefined, undefined, "single-skill-repo"),
+        shown(scanFiles(misnamed, undefined, undefined, "single-skill-repo")),
         OPTS,
       ).inventory.untested,
     ).toBe(1);
@@ -225,11 +239,11 @@ describe("scanFiles: only a vigiles test grants coverage (the browser twin asks 
     for (const [rel, body] of Object.entries(files))
       writeFileSync(join(abs, rel), body);
     const disk = buildAuditReport(
-      scanPlugin(abs, claudeCodeLayout, claudeCodeDialect),
+      shown(scanPlugin(abs, claudeCodeLayout, claudeCodeDialect)),
       OPTS,
     ).inventory.untested;
     const twin = buildAuditReport(
-      scanFiles(files, undefined, undefined, "single-skill-repo"),
+      shown(scanFiles(files, undefined, undefined, "single-skill-repo")),
       OPTS,
     ).inventory.untested;
     expect([disk, twin]).toEqual([1, 1]);
@@ -281,8 +295,11 @@ describe("scanFiles parity for NESTED agents (the shape no vendored fixture has)
       basename(abs),
     );
 
-    const diskAudit = normalizeRoot(buildAuditReport(diskReport, OPTS), abs);
-    const fileAudit = buildAuditReport(fileReport, OPTS);
+    const diskAudit = normalizeRoot(
+      buildAuditReport(shown(diskReport), OPTS),
+      abs,
+    );
+    const fileAudit = buildAuditReport(shown(fileReport), OPTS);
     expect(fileAudit).toEqual(diskAudit);
     expect(stabilize(fileReport)).toEqual(
       stabilize(normalizeRoot(diskReport, abs)),
@@ -318,13 +335,15 @@ describe("scanFiles parity for NESTED agents (the shape no vendored fixture has)
     // coverage discoverers, so pin it too: three agents, no colocated tests.
     expect(
       buildAuditReport(
-        scanPlugin(abs, claudeCodeLayout, claudeCodeDialect),
+        shown(scanPlugin(abs, claudeCodeLayout, claudeCodeDialect)),
         OPTS,
       ).inventory.untested,
     ).toBe(3);
     expect(
       buildAuditReport(
-        scanFiles(readDirToMap(abs), undefined, undefined, basename(abs)),
+        shown(
+          scanFiles(readDirToMap(abs), undefined, undefined, basename(abs)),
+        ),
         OPTS,
       ).inventory.untested,
     ).toBe(3);
@@ -369,8 +388,11 @@ describe("scanFiles parity for a TWO-SCOPE repo (root skills/ AND .claude/skills
       undefined,
       basename(abs),
     );
-    const diskAudit = normalizeRoot(buildAuditReport(diskReport, OPTS), abs);
-    expect(buildAuditReport(fileReport, OPTS)).toEqual(diskAudit);
+    const diskAudit = normalizeRoot(
+      buildAuditReport(shown(diskReport), OPTS),
+      abs,
+    );
+    expect(buildAuditReport(shown(fileReport), OPTS)).toEqual(diskAudit);
     expect(stabilize(fileReport)).toEqual(
       stabilize(normalizeRoot(diskReport, abs)),
     );
@@ -399,7 +421,7 @@ describe("scanFiles — non-plugin and empty inputs", () => {
     expect(report.skills).toEqual([]);
     expect(report.agents).toEqual([]);
     // Deterministic — buildAuditReport consumes it without touching disk.
-    const audit = buildAuditReport(report, OPTS);
+    const audit = buildAuditReport(shown(report), OPTS);
     expect(audit.meta.dir).toBe(BROWSER_ROOT);
     expect(audit.inventory.skills).toBe(0);
   });
@@ -613,8 +635,8 @@ describe("scanFiles parity for INSTRUCTION files (the shape no vendored fixture 
       undefined,
       basename(abs),
     );
-    expect(buildAuditReport(fileReport, OPTS)).toEqual(
-      normalizeRoot(buildAuditReport(diskReport, OPTS), abs),
+    expect(buildAuditReport(shown(fileReport), OPTS)).toEqual(
+      normalizeRoot(buildAuditReport(shown(diskReport), OPTS), abs),
     );
     expect(stabilize(fileReport)).toEqual(
       stabilize(normalizeRoot(diskReport, abs)),

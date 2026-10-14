@@ -1,4 +1,14 @@
 {
+  "packages/report-view/src/Report.tsx": {
+    "local/no-rule-ids": {
+      "count": 9
+    }
+  },
+  "packages/report-view/src/sample.ts": {
+    "local/no-rule-ids": {
+      "count": 3
+    }
+  },
   "src/action-gate.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
@@ -173,6 +183,11 @@
       "count": 2
     }
   },
+  "src/adapters/claude-code/hand-written-hooks.test.ts": {
+    "local/no-rule-ids": {
+      "count": 4
+    }
+  },
   "src/adapters/claude-code/hook-condition.ts": {
     "functional/immutable-data": {
       "count": 2
@@ -190,6 +205,11 @@
     },
     "boundaries/dependencies": {
       "count": 1
+    }
+  },
+  "src/adapters/claude-code/hook-runner-exists.test.ts": {
+    "local/no-rule-ids": {
+      "count": 2
     }
   },
   "src/adapters/claude-code/instruction-chain.ts": {
@@ -224,6 +244,16 @@
       "count": 2
     },
     "functional/prefer-immutable-types": {
+      "count": 2
+    }
+  },
+  "src/adapters/claude-code/refs-hook.test.ts": {
+    "local/no-rule-ids": {
+      "count": 4
+    }
+  },
+  "src/adapters/claude-code/refs-nudge-hook.test.ts": {
+    "local/no-rule-ids": {
       "count": 2
     }
   },
@@ -331,6 +361,11 @@
       "count": 2
     }
   },
+  "src/adapters/claude-code/untested-output-style.test.ts": {
+    "local/no-rule-ids": {
+      "count": 5
+    }
+  },
   "src/adapters/claude-code/vocabulary.ts": {
     "functional/prefer-immutable-types": {
       "count": 2
@@ -338,6 +373,9 @@
   },
   "src/adapters/codex/codex.test.ts": {
     "local/no-harness-names": {
+      "count": 1
+    },
+    "local/no-rule-ids": {
       "count": 1
     }
   },
@@ -496,6 +534,9 @@
   "src/audit-html.test.ts": {
     "local/no-harness-names": {
       "count": 1
+    },
+    "local/no-rule-ids": {
+      "count": 2
     }
   },
   "src/audit-html.ts": {
@@ -534,6 +575,9 @@
   "src/audit-report.ts": {
     "functional/prefer-immutable-types": {
       "count": 2
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/audit-score.test.ts": {
@@ -542,6 +586,9 @@
     },
     "local/no-harness-names": {
       "count": 1
+    },
+    "local/no-rule-ids": {
+      "count": 2
     },
     "no-restricted-syntax": {
       "count": 23
@@ -561,6 +608,9 @@
       "count": 6
     },
     "local/no-harness-names": {
+      "count": 1
+    },
+    "local/no-rule-ids": {
       "count": 1
     }
   },
@@ -607,6 +657,9 @@
     },
     "functional/prefer-immutable-types": {
       "count": 4
+    },
+    "local/no-rule-ids": {
+      "count": 7
     }
   },
   "src/check-count.ts": {
@@ -655,6 +708,9 @@
     "local/no-harness-names": {
       "count": 2
     },
+    "local/no-rule-ids": {
+      "count": 4
+    },
     "sonarjs/no-nested-conditional": {
       "count": 2
     }
@@ -677,6 +733,9 @@
   },
   "src/cli-compile-gate.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "local/no-rule-ids": {
       "count": 1
     }
   },
@@ -752,6 +811,12 @@
     "functional/prefer-immutable-types": {
       "count": 189
     },
+    "local/no-group-names": {
+      "count": 3
+    },
+    "local/no-rule-ids": {
+      "count": 185
+    },
     "no-restricted-syntax": {
       "count": 1
     },
@@ -774,6 +839,9 @@
     },
     "local/no-harness-names": {
       "count": 13
+    },
+    "local/no-rule-ids": {
+      "count": 7
     }
   },
   "src/cli-untested-options.test.ts": {
@@ -782,6 +850,9 @@
     },
     "local/no-harness-names": {
       "count": 1
+    },
+    "local/no-rule-ids": {
+      "count": 4
     }
   },
   "src/cli.test.ts": {
@@ -790,6 +861,9 @@
     },
     "local/no-harness-names": {
       "count": 54
+    },
+    "local/no-rule-ids": {
+      "count": 18
     }
   },
   "src/cli.ts": {
@@ -983,6 +1057,11 @@
       "count": 1
     }
   },
+  "src/core/compile.test.ts": {
+    "local/no-rule-ids": {
+      "count": 2
+    }
+  },
   "src/core/compile.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 3
@@ -1023,9 +1102,17 @@
       "count": 4
     }
   },
+  "src/core/config-migrations.ts": {
+    "local/no-rule-ids": {
+      "count": 7
+    }
+  },
   "src/core/config-schema.test.ts": {
     "local/no-harness-names": {
       "count": 16
+    },
+    "local/no-rule-ids": {
+      "count": 49
     }
   },
   "src/core/config-schema.ts": {
@@ -1045,6 +1132,9 @@
   "src/core/content-budget.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
+    },
+    "local/no-rule-ids": {
+      "count": 6
     }
   },
   "src/core/coverage.ts": {
@@ -1073,6 +1163,9 @@
   "src/core/delegation-trifecta.test.ts": {
     "local/no-harness-names": {
       "count": 12
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/core/delegation-trifecta.ts": {
@@ -1084,6 +1177,14 @@
     },
     "functional/prefer-immutable-types": {
       "count": 5
+    },
+    "local/no-rule-ids": {
+      "count": 1
+    }
+  },
+  "src/core/description-overlap.test.ts": {
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/core/description-overlap.ts": {
@@ -1103,6 +1204,16 @@
   "src/core/dialect.test.ts": {
     "local/no-harness-names": {
       "count": 18
+    }
+  },
+  "src/core/dialect.ts": {
+    "local/no-rule-ids": {
+      "count": 1
+    }
+  },
+  "src/core/doc-refs.test.ts": {
+    "local/no-rule-ids": {
+      "count": 6
     }
   },
   "src/core/doc-refs.ts": {
@@ -1362,6 +1473,11 @@
       "count": 1
     }
   },
+  "src/core/hook-block-ineffective.test.ts": {
+    "local/no-rule-ids": {
+      "count": 1
+    }
+  },
   "src/core/hook-block-ineffective.ts": {
     "functional/immutable-data": {
       "count": 2
@@ -1379,6 +1495,9 @@
   "src/core/hook-events.test.ts": {
     "local/no-harness-names": {
       "count": 6
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/core/hook-events.ts": {
@@ -1395,6 +1514,9 @@
   "src/core/hook-matcher.test.ts": {
     "local/no-harness-names": {
       "count": 2
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/core/hook-matcher.ts": {
@@ -1453,6 +1575,9 @@
     },
     "functional/prefer-immutable-types": {
       "count": 18
+    },
+    "local/no-rule-ids": {
+      "count": 1
     },
     "no-restricted-syntax": {
       "count": 7
@@ -1547,6 +1672,9 @@
   "src/core/instruction-baseline.test.ts": {
     "local/no-harness-names": {
       "count": 25
+    },
+    "local/no-rule-ids": {
+      "count": 2
     }
   },
   "src/core/instruction-baseline.ts": {
@@ -1555,6 +1683,9 @@
     },
     "functional/prefer-immutable-types": {
       "count": 10
+    },
+    "local/no-rule-ids": {
+      "count": 5
     }
   },
   "src/core/instruction-chain.test.ts": {
@@ -1573,9 +1704,22 @@
       "count": 2
     }
   },
+  "src/core/instruction-remedies.test.ts": {
+    "local/no-rule-ids": {
+      "count": 3
+    }
+  },
+  "src/core/instruction-remedies.ts": {
+    "local/no-rule-ids": {
+      "count": 2
+    }
+  },
   "src/core/instruction-weight.test.ts": {
     "local/no-harness-names": {
       "count": 58
+    },
+    "local/no-rule-ids": {
+      "count": 2
     }
   },
   "src/core/instruction-weight.ts": {
@@ -1583,14 +1727,27 @@
       "count": 3
     }
   },
+  "src/core/integrity-header.ts": {
+    "local/no-rule-ids": {
+      "count": 1
+    }
+  },
   "src/core/integrity.test.ts": {
     "local/no-harness-names": {
       "count": 2
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/core/integrity.ts": {
     "functional/prefer-immutable-types": {
       "count": 3
+    }
+  },
+  "src/core/keyfiles.ts": {
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/core/layout.test.ts": {
@@ -1612,6 +1769,9 @@
   "src/core/lethal-trifecta.test.ts": {
     "local/no-harness-names": {
       "count": 60
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/core/lethal-trifecta.ts": {
@@ -1623,6 +1783,9 @@
     },
     "functional/prefer-immutable-types": {
       "count": 4
+    },
+    "local/no-rule-ids": {
+      "count": 6
     },
     "sonarjs/no-nested-conditional": {
       "count": 1
@@ -1657,6 +1820,9 @@
     "functional/prefer-immutable-types": {
       "count": 83
     },
+    "local/no-rule-ids": {
+      "count": 1
+    },
     "no-restricted-globals": {
       "count": 3
     },
@@ -1688,6 +1854,11 @@
     },
     "functional/prefer-immutable-types": {
       "count": 8
+    }
+  },
+  "src/core/mcp-config.test.ts": {
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/core/mcp-config.ts": {
@@ -1792,6 +1963,9 @@
   "src/core/orphans.test.ts": {
     "local/no-harness-names": {
       "count": 9
+    },
+    "local/no-rule-ids": {
+      "count": 2
     }
   },
   "src/core/orphans.ts": {
@@ -1810,6 +1984,9 @@
     "functional/prefer-immutable-types": {
       "count": 7
     },
+    "local/no-rule-ids": {
+      "count": 2
+    },
     "sonarjs/nested-control-flow": {
       "count": 2
     }
@@ -1817,6 +1994,9 @@
   "src/core/plugin-dir-layout.test.ts": {
     "local/no-harness-names": {
       "count": 11
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/core/plugin-dir-layout.ts": {
@@ -1918,25 +2098,6 @@
       "count": 13
     }
   },
-  "src/core/rule-meta.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
-    "sonarjs/no-nested-conditional": {
-      "count": 1
-    }
-  },
-  "src/core/rule-meta.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
-    "functional/prefer-immutable-types": {
-      "count": 2
-    },
-    "sonarjs/no-duplicate-string": {
-      "count": 3
-    }
-  },
   "src/core/session.ts": {
     "boundaries/dependencies": {
       "count": 2
@@ -2013,6 +2174,11 @@
       "count": 8
     }
   },
+  "src/core/skill-description-budget.test.ts": {
+    "local/no-rule-ids": {
+      "count": 1
+    }
+  },
   "src/core/skill-description-budget.ts": {
     "functional/immutable-data": {
       "count": 2
@@ -2022,6 +2188,11 @@
     },
     "functional/prefer-immutable-types": {
       "count": 2
+    }
+  },
+  "src/core/skill-missing-fence.test.ts": {
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/core/skill-missing-fence.ts": {
@@ -2040,20 +2211,14 @@
   "src/core/skill-resources.test.ts": {
     "local/no-harness-names": {
       "count": 3
+    },
+    "local/no-rule-ids": {
+      "count": 2
     }
   },
   "src/core/skill-resources.ts": {
     "boundaries/dependencies": {
       "count": 1
-    },
-    "functional/immutable-data": {
-      "count": 2
-    },
-    "functional/no-loop-statements": {
-      "count": 1
-    },
-    "functional/prefer-immutable-types": {
-      "count": 2
     }
   },
   "src/core/source-refs.test.ts": {
@@ -2234,11 +2399,14 @@
     },
     "local/no-harness-names": {
       "count": 9
+    },
+    "local/no-rule-ids": {
+      "count": 82
     }
   },
   "src/core/validate.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 3
+      "count": 2
     },
     "boundaries/dependencies": {
       "count": 2
@@ -2253,7 +2421,10 @@
       "count": 3
     },
     "functional/prefer-immutable-types": {
-      "count": 19
+      "count": 16
+    },
+    "local/no-rule-ids": {
+      "count": 4
     },
     "sonarjs/nested-control-flow": {
       "count": 1
@@ -2356,6 +2527,16 @@
       "count": 6
     }
   },
+  "src/deprecated-key-files.test.ts": {
+    "local/no-rule-ids": {
+      "count": 7
+    }
+  },
+  "src/deprecated-key-files.ts": {
+    "local/no-rule-ids": {
+      "count": 1
+    }
+  },
   "src/doc-command-coverage.ts": {
     "functional/immutable-data": {
       "count": 1
@@ -2375,6 +2556,11 @@
       "count": 2
     },
     "functional/prefer-immutable-types": {
+      "count": 4
+    }
+  },
+  "src/doc-refs-rule.test.ts": {
+    "local/no-rule-ids": {
       "count": 4
     }
   },
@@ -2656,6 +2842,9 @@
     },
     "local/no-harness-names": {
       "count": 4
+    },
+    "local/no-rule-ids": {
+      "count": 5
     }
   },
   "src/exclude.ts": {
@@ -2871,6 +3060,9 @@
   "src/hook-matcher-delivery.test.ts": {
     "local/no-harness-names": {
       "count": 1
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/hook-runtime-graph.test.ts": {
@@ -2965,6 +3157,9 @@
     },
     "local/no-harness-names": {
       "count": 14
+    },
+    "local/no-rule-ids": {
+      "count": 6
     }
   },
   "src/instruction-weight-ratchet.ts": {
@@ -2973,6 +3168,9 @@
     },
     "functional/prefer-immutable-types": {
       "count": 3
+    },
+    "local/no-rule-ids": {
+      "count": 2
     },
     "sonarjs/no-nested-conditional": {
       "count": 1
@@ -3009,10 +3207,13 @@
   },
   "src/leaderboard.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 14
+      "count": 13
     },
     "local/no-harness-names": {
       "count": 25
+    },
+    "local/no-rule-ids": {
+      "count": 1
     },
     "no-restricted-syntax": {
       "count": 6
@@ -3033,6 +3234,9 @@
     },
     "local/no-harness-names": {
       "count": 1
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/lint-bundle-frames.test.ts": {
@@ -3041,6 +3245,9 @@
     },
     "local/no-harness-names": {
       "count": 2
+    },
+    "local/no-rule-ids": {
+      "count": 22
     }
   },
   "src/lint-contract.test.ts": {
@@ -3049,6 +3256,9 @@
     },
     "local/no-harness-names": {
       "count": 2
+    },
+    "local/no-rule-ids": {
+      "count": 7
     }
   },
   "src/load-hook.ts": {
@@ -3104,6 +3314,9 @@
     },
     "functional/prefer-immutable-types": {
       "count": 2
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/mock-entry.ts": {
@@ -3170,6 +3383,11 @@
       "count": 2
     }
   },
+  "src/optimize.test.ts": {
+    "local/no-rule-ids": {
+      "count": 1
+    }
+  },
   "src/optimize.ts": {
     "functional/immutable-data": {
       "count": 7
@@ -3179,6 +3397,16 @@
     },
     "functional/prefer-immutable-types": {
       "count": 4
+    }
+  },
+  "src/overrides-cli.test.ts": {
+    "local/no-rule-ids": {
+      "count": 9
+    }
+  },
+  "src/overrides.test.ts": {
+    "local/no-rule-ids": {
+      "count": 10
     }
   },
   "src/package-install-scripts.e2e.test.ts": {
@@ -3305,6 +3533,9 @@
   "src/rules-layer.test.ts": {
     "local/no-harness-names": {
       "count": 41
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/run-hook.test.ts": {
@@ -3442,6 +3673,9 @@
     "local/no-harness-names": {
       "count": 48
     },
+    "local/no-rule-ids": {
+      "count": 12
+    },
     "sonarjs/no-nested-conditional": {
       "count": 2
     }
@@ -3463,10 +3697,13 @@
       "count": 16
     },
     "functional/prefer-immutable-types": {
-      "count": 50
+      "count": 48
     },
     "local/no-harness-names": {
       "count": 1
+    },
+    "local/no-rule-ids": {
+      "count": 22
     }
   },
   "src/scan-files.test.ts": {
@@ -3495,6 +3732,9 @@
     },
     "local/no-harness-names": {
       "count": 6
+    },
+    "local/no-rule-ids": {
+      "count": 16
     }
   },
   "src/scan-trigger-suggest.test.ts": {
@@ -3516,6 +3756,9 @@
   "src/scan-vendor.test.ts": {
     "local/no-harness-names": {
       "count": 18
+    },
+    "local/no-rule-ids": {
+      "count": 4
     }
   },
   "src/scan.test.ts": {
@@ -3524,6 +3767,9 @@
     },
     "local/no-harness-names": {
       "count": 308
+    },
+    "local/no-rule-ids": {
+      "count": 2
     }
   },
   "src/scan.ts": {
@@ -3534,7 +3780,7 @@
       "count": 1
     },
     "functional/immutable-data": {
-      "count": 44
+      "count": 43
     },
     "functional/no-let": {
       "count": 3
@@ -3544,6 +3790,9 @@
     },
     "functional/prefer-immutable-types": {
       "count": 15
+    },
+    "local/no-rule-ids": {
+      "count": 33
     },
     "sonarjs/no-nested-conditional": {
       "count": 1
@@ -3569,6 +3818,9 @@
   "src/score-explainer.test.ts": {
     "local/no-harness-names": {
       "count": 2
+    },
+    "local/no-rule-ids": {
+      "count": 7
     }
   },
   "src/score-explainer.ts": {
@@ -3580,6 +3832,9 @@
     },
     "functional/prefer-immutable-types": {
       "count": 11
+    },
+    "local/no-rule-ids": {
+      "count": 7
     }
   },
   "src/segment.ts": {
@@ -3668,6 +3923,9 @@
     },
     "local/no-harness-names": {
       "count": 49
+    },
+    "local/no-rule-ids": {
+      "count": 11
     }
   },
   "src/setup-plan.ts": {
@@ -3685,6 +3943,9 @@
     },
     "local/no-harness-names": {
       "count": 15
+    },
+    "local/no-rule-ids": {
+      "count": 1
     },
     "no-param-reassign": {
       "count": 10
@@ -3811,6 +4072,11 @@
       "count": 2
     }
   },
+  "src/spec-refs-surfaces.test.ts": {
+    "local/no-rule-ids": {
+      "count": 2
+    }
+  },
   "src/stability-verbs.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
@@ -3889,6 +4155,9 @@
     "functional/prefer-immutable-types": {
       "count": 25
     },
+    "local/no-rule-ids": {
+      "count": 1
+    },
     "sonarjs/no-nested-conditional": {
       "count": 1
     }
@@ -3906,6 +4175,9 @@
   "src/tested-metric-docs.test.ts": {
     "local/no-harness-names": {
       "count": 4
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/tool-intercept.test.ts": {
@@ -3960,11 +4232,17 @@
     },
     "local/no-harness-names": {
       "count": 1
+    },
+    "local/no-rule-ids": {
+      "count": 2
     }
   },
   "src/verify-plugin-guards.test.ts": {
     "local/no-harness-names": {
       "count": 59
+    },
+    "local/no-rule-ids": {
+      "count": 1
     }
   },
   "src/verify-plugin-guards.ts": {
@@ -3982,6 +4260,9 @@
     },
     "local/no-harness-names": {
       "count": 3
+    },
+    "local/no-rule-ids": {
+      "count": 2
     },
     "no-restricted-globals": {
       "count": 3

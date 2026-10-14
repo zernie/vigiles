@@ -84,6 +84,9 @@ export const COMMAND_FLAGS: Record<Verb, readonly FlagSpec[]> = {
   compile: [],
   eject: ["--keep-spec"],
   lint: [
+    // A preset applied on top of the repo's own config for this run (the same
+    // names `extends` takes) — see parsePresetFlags.
+    "--preset=",
     "--bundles=",
     "--summary",
     "--json",
@@ -104,6 +107,7 @@ export const COMMAND_FLAGS: Record<Verb, readonly FlagSpec[]> = {
     "--update",
   ],
   audit: [
+    "--preset=",
     "--json",
     "--md",
     "--single",

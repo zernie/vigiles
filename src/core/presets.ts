@@ -1,88 +1,65 @@
 /**
  * Named rule PRESETS a `.vigilesrc.json` can `extends` — the ESLint
- * `recommended` model, stored as data.
+ * `recommended` model, stored as data on the rule GROUPS.
  *
  * 🔴 WHY A PRESET READ AT LOAD TIME, NOT RULE LINES WRITTEN AT SETUP TIME. Every
- * rule's built-in default stays `warn` (`config-schema.ts`); the structural rules
- * gate only because `init` turns them up. It used to do that by WRITING nine
- * `"<rule>": "error"` lines into the new repo's config — a snapshot of the group
- * on the day `init` ran. A repo adopted before a rule joined the group never got
- * it from an upgrade, and re-running `init` to fetch it rewrote far more than
- * the rule (#338). `"extends": "vigiles:recommended"` is resolved by the loader
- * on every run, so the repo follows the group as the installed vigiles ships it,
- * and an explicit `rules` entry still overrides it.
+ * rule keeps its own built-in default; a group gates only because its preset
+ * turns it up. `init` used to do that by WRITING nine `"<rule>": "error"` lines
+ * into the new repo's config — a snapshot of the group on the day `init` ran. A
+ * repo adopted before a rule joined the group never got it from an upgrade, and
+ * re-running `init` to fetch it rewrote far more than the rule (#338). An
+ * `extends` preset is resolved by the loader on every run, so the repo follows
+ * the group as the installed vigiles ships it, and an explicit `rules` entry
+ * still overrides it.
  *
- * ⚠️ ADDING A RULE HERE IS A BREAKING CHANGE (a `!` commit, a semver major): it
- * can turn a consumer's CI red with no edit on their side. Removing one is not.
- * ESLint treats `eslint:recommended` the same way.
+ * WHERE THE PRESETS COME FROM — not from here. A preset is a field of a group
+ * (`RuleGroupSpec.preset`: its name and the severity it sets), and a rule's
+ * membership is its own `group` field; both live in the outer rule layer
+ * (`src/rules/`) and arrive as parameters. So this file names no rule and no
+ * group, and moving a rule between groups is an edit to that rule alone.
  *
- * Harness-agnostic data: rule names only, no adapter fact.
+ * ⚠️ RAISING A RULE UNDER A PRESET THAT SETS `error` IS A BREAKING CHANGE (a `!`
+ * commit, a semver major): it can turn a consumer's CI red with no edit on their
+ * side. A preset that sets `warn` can grow freely. ESLint treats
+ * `eslint:recommended` the same way.
  */
-import type { RulesConfig } from "./types.js";
+import type { RuleGroups, RuleSpec } from "./rule.js";
+
+/** The namespace every preset name carries; the CLI flag may omit it. */
+export const PRESET_PREFIX = "vigiles:";
 
 /**
- * The rules `vigiles:recommended` raises to `error` — the FP-safe structural
- * group: each one fires only on a genuine defect (a never-available or typo'd
- * tool, a subagent missing `name`/`description`, a typo'd hook event, a file a
- * compiled hook needs gone missing, a broken MCP reference, two skills that
- * collide in the selector), so a well-formed harness stays green.
- *
- * `hand-written-hook` is NOT here: its only cure is a compiled hook, written
- * with the `experimental_define*` API, and a preset must not push users onto an
- * experimental API. It joins when compiled hooks leave experimental (the exit
- * criteria in docs/experimental.md, "When the prefix comes off").
- *
- * Also gates `require-instructions-spec`: a hand-written CLAUDE.md / AGENTS.md
- * is a file whose references nothing re-verifies on change. It is the one rule
- * here a clean repo can fail before any work is done, so its finding names all
- * three ways out in order — adopt it (`adopt-spec` / `init --target`), exclude
- * a folder that is not yours, or turn it off for folders that stay hand-written
- * (`overrides`) — and `init` adopts every instruction file it finds, so a repo
- * set up by `init` starts green.
- *
- * Deliberately EXCLUDES the `untested-*` workflow rules: they stay an explicit
- * opt-in (`init --strict`).
+ * The preset names a raw `extends` value lists, in order: a string is one, an
+ * array is several. Anything else — or any entry that is not in `known` —
+ * yields `null`, so the caller leaves it for the schema to refuse with its own
+ * message.
  */
-export const RECOMMENDED_RULES = [
-  "subagent-tool-contract",
-  "subagent-frontmatter",
-  "hook-events",
-  "hook-script-exists",
-  "mcp-config",
-  "mcp-tool-resolves",
-  "mcp-hook-target-resolves",
-  "disallowed-tools-contract",
-  "description-overlap",
-  "compile-budget",
-  "require-instructions-spec",
-] as const satisfies ReadonlyArray<keyof RulesConfig>;
-
-/** The preset names `extends` accepts. One today; the tuple is the enum. */
-export const PRESET_NAMES = ["vigiles:recommended"] as const;
-
-/** A preset name `extends` accepts. */
-export type PresetName = (typeof PRESET_NAMES)[number];
-
-/** The preset `init` writes. */
-export const RECOMMENDED_PRESET: PresetName = "vigiles:recommended";
-
-/** What each preset sets, as the config would spell it. */
-const PRESETS: Readonly<
-  Record<PresetName, Readonly<Partial<Record<keyof RulesConfig, "error">>>>
-> = {
-  "vigiles:recommended": Object.fromEntries(
-    RECOMMENDED_RULES.map((r) => [r, "error"] as const),
-  ),
-};
-
-/** Whether a raw value names a preset. */
-export function isPresetName(value: unknown): value is PresetName {
-  return PRESET_NAMES.some((n) => n === value);
+export function extendedPresets(
+  known: readonly string[],
+  value: unknown,
+): readonly string[] | null {
+  if (value === undefined) return [];
+  const list: readonly unknown[] = Array.isArray(value) ? value : [value];
+  return list.every(
+    (n): n is string => typeof n === "string" && known.includes(n),
+  )
+    ? list
+    : null;
 }
 
-/** The rule severities a preset sets, in the config's raw spelling. */
-export function presetRules(
-  name: PresetName,
-): Readonly<Partial<Record<keyof RulesConfig, "error">>> {
-  return PRESETS[name];
+/**
+ * What each preset sets, as the config would spell it: every rule whose group
+ * carries the preset, at the preset's severity.
+ */
+export function presetRulesOf(
+  rules: readonly RuleSpec[],
+  groups: RuleGroups,
+): (name: string) => Readonly<Record<string, "error" | "warn">> {
+  return (name) =>
+    Object.fromEntries(
+      rules.flatMap((r) => {
+        const preset = groups[r.group]?.preset;
+        return preset?.name === name ? [[r.id, preset.severity] as const] : [];
+      }),
+    );
 }

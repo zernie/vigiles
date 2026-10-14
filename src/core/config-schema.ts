@@ -17,17 +17,19 @@
  * happening inside the tool, so the shape is now DECLARED and anything outside
  * it is named out loud.
  *
- * THE TYPE IS DERIVED FROM THIS, not written beside it: `VigilesConfig` is
- * `z.infer<typeof vigilesConfigSchema>` (see `./types.ts`), so a field cannot
- * exist in the type and not in the validator, which is how `surfaceRoots` ended
- * up documented in `docs/cli.md` for a week after it stopped being read.
+ * THE TYPE IS DERIVED FROM THIS, not written beside it: `VigilesConfigOf` is
+ * the static keys' `z.output` plus the rule set's own entries (see `./types.ts`),
+ * so a field cannot exist in the type and not in the validator, which is how
+ * `surfaceRoots` ended up documented in `docs/cli.md` for a week after it
+ * stopped being read.
  *
- * DEFAULTS LIVE HERE TOO, and that is what makes the derivation exact. Every key
+ * THE RULES ARE A PARAMETER. The `rules` object, its defaults and the presets
+ * `extends` accepts are BUILT from the rule set a composition root hands to
+ * {@link configFor} — each rule declares its id, default and options schema in
+ * its own module (`src/rules/`), and this file names none of them. Every key
  * the loaded config is guaranteed to carry (`rules`, `files`, `ruleMarkers`)
- * carries a Zod `.default(...)`, and Zod's inferred OUTPUT type for a defaulted
- * field is non-optional — so `z.infer` reproduces the old
- * `rules: Required<RulesConfig>` exactly, rather than approximating it. Parsing
- * `{}` yields byte-for-byte the old `DEFAULT_CONFIG`.
+ * carries a Zod `.default(...)`, so parsing `{}` yields every rule at its
+ * shipped default (`src/rules/index.test.ts` pins that snapshot).
  *
  * ⚠️ ZOD COSTS ~45 ms TO IMPORT (measured, Zod 4.6.5), AND IT IS IMPORTED
  * NORMALLY — `src/core/validate.ts` has a top-level `import`, not a deferred
@@ -43,7 +45,9 @@
  */
 import { z } from "zod";
 import { editDistance } from "./edit-distance.js";
-import { PRESET_NAMES, isPresetName, presetRules } from "./presets.js";
+import { PRESET_PREFIX, extendedPresets, presetRulesOf } from "./presets.js";
+import { configDefault, type RuleGroups, type RuleSpec } from "./rule.js";
+import type { RuleSeverity, RuleWithOptions } from "./types.js";
 
 /** The config file; the directory holding it is a project root. */
 export const PROJECT_CONFIG_FILE = ".vigilesrc.json";
@@ -99,159 +103,43 @@ const withOptions = <T extends z.ZodType>(options: T) =>
  * `asStringArray` did; the difference is that anything that is neither is now a
  * schema error instead of a `console.warn` nobody reads.
  */
-const stringList = z
+export const stringList = z
   .union([z.string(), z.array(z.string())])
   .transform((v): readonly string[] => (typeof v === "string" ? [v] : v));
-
-// ---------------------------------------------------------------------------
-// Rules
-// ---------------------------------------------------------------------------
-
-/** Min % thresholds for the `coverage` rule. */
-const coverageThresholds = z
-  .object({
-    /** Min % of enabled linter rules with `enforce()` declarations. */
-    linterRules: z.number().optional(),
-    /** Min % of npm scripts documented in spec commands. */
-    scripts: z.number().optional(),
-  })
-  .strict();
-
-/**
- * Discovery options shared by the `untested-*` rules. `include` is where tests
- * live — a real option of the rule. Skipping paths is not: that is `overrides`
- * with the rule off (see {@link MOVED_TO_OVERRIDES}).
- */
-const testCoverageConfig = z
-  .object({
-    include: stringList.optional(),
-    testExtension: z.string().optional(),
-  })
-  .strict();
-
-/**
- * Options for `instruction-weight`. `max` is an opt-in ABSOLUTE ceiling on the
- * always-loaded total, in the harness's own unit — independent of the ratchet's
- * baseline. A positive integer: `0` would fail every repo that has an
- * instruction file, and `"40000"` is a string the author meant as a number.
- */
-const instructionWeightConfig = z
-  .object({
-    max: z.number().int().positive().optional(),
-  })
-  .strict();
-
-/**
- * Thresholds for `compile-budget`, in characters. Each one left out keeps its
- * built-in default; `0` turns that one budget off.
- */
-const compileBudgetThresholds = z
-  .object({
-    /** One `commands` description. */
-    maxEntryChars: z.number().optional(),
-    /** One named prose section. */
-    maxSectionChars: z.number().optional(),
-    /** The whole rendered Rules section. */
-    maxRulesChars: z.number().optional(),
-  })
-  .strict();
-
-/**
- * Every validation rule, with its shipped default severity.
- *
- * 🔴 THIS OBJECT IS THE RULE SET. `rules-docs-in-sync` already treats the
- * `RulesConfig` keys as the single source of truth the docs must track; now they
- * are also what the validator accepts, so a rule name that is not here is
- * REJECTED with the near-miss suggested rather than silently ignored — which is
- * the same class of bug as a misspelled harness name, and was equally quiet.
- */
-const rulesSchema = z
-  .object({
-    "spec-refs": severitySchema.default("error"),
-    "orphan-docs": severitySchema.default("warn"),
-    "duplicate-rules": severitySchema.default("warn"),
-    "require-instructions-spec": severitySchema.default("warn"),
-    "require-skill-spec": severitySchema.default(false),
-    integrity: severitySchema.default("warn"),
-    coverage: withOptions(coverageThresholds).default(false),
-    "untested-skill": withOptions(testCoverageConfig).default("warn"),
-    "untested-subagent": withOptions(testCoverageConfig).default("warn"),
-    "untested-hook": withOptions(testCoverageConfig).default("warn"),
-    "untested-output-style": withOptions(testCoverageConfig).default("warn"),
-    "unmarked-refs": severitySchema.default("warn"),
-    "subagent-tool-contract": severitySchema.default("warn"),
-    "hook-events": severitySchema.default("warn"),
-    "subagent-frontmatter": severitySchema.default("warn"),
-    "mcp-config": severitySchema.default("warn"),
-    "skill-frontmatter": severitySchema.default("warn"),
-    "mcp-tool-resolves": severitySchema.default("warn"),
-    "hook-script-exists": severitySchema.default("warn"),
-    // OFF: its only cure is a compiled hook, an experimental API (docs/experimental.md).
-    "hand-written-hook": severitySchema.default(false),
-    "disallowed-tools-contract": severitySchema.default("warn"),
-    "description-overlap": severitySchema.default("warn"),
-    "skill-description-budget": severitySchema.default("warn"),
-    "compile-budget": withOptions(compileBudgetThresholds).default("warn"),
-    "frontmatter-valid": severitySchema.default("warn"),
-    "mcp-hook-target-resolves": severitySchema.default("warn"),
-    "lethal-trifecta": severitySchema.default("warn"),
-    "skill-resource-resolves": severitySchema.default("warn"),
-    "skill-missing-fence": severitySchema.default("warn"),
-    "plugin-dir-layout": severitySchema.default("warn"),
-    "delegation-trifecta": severitySchema.default("warn"),
-    "hook-block-ineffective": severitySchema.default("warn"),
-    "hook-matcher": severitySchema.default("warn"),
-    "doc-refs": severitySchema.default(false),
-    "instruction-weight": withOptions(instructionWeightConfig).default("error"),
-    "deprecated-key-files": severitySchema.default("warn"),
-  })
-  .strict();
-
-/** The rule names, for the "did you mean" on an unknown one. */
-export const RULE_NAMES: readonly string[] = Object.keys(rulesSchema.shape);
 
 // ---------------------------------------------------------------------------
 // Overrides — per-path severities (`./overrides.ts`)
 // ---------------------------------------------------------------------------
 
 /**
- * The rule set as an override may spell it: every rule, a SEVERITY only, no
- * default. Options stay in `rules` — one place — so `["error", { … }]` here is
- * refused rather than accepted and never read. Derived from `rulesSchema`'s
- * keys, so a rule added there is overridable with no second list, and an
- * unknown name gets the same "did you mean" as in `rules`.
- */
-const overrideRulesSchema = z
-  .object(
-    Object.fromEntries(
-      Object.keys(rulesSchema.shape).map((name) => [
-        name,
-        severitySchema.optional(),
-      ]),
-    ),
-  )
-  .strict();
-
-/**
  * One `overrides` entry. `files` are root-relative globs with top-level
  * `exclude`'s semantics; an entry with none would apply nowhere, so it is
- * refused rather than kept as a line that does nothing.
+ * refused rather than kept as a line that does nothing. Its `rules` are every
+ * rule, a SEVERITY only, no default: options stay in `rules` — one place — so
+ * `["error", { … }]` here is refused rather than accepted and never read.
  */
-const overrideSchema = z
-  .object({
-    files: stringList.refine((globs) => globs.length > 0, {
-      message: "needs at least one glob",
-    }),
-    rules: overrideRulesSchema,
-  })
-  .strict();
+const overrideSchema = (ruleNames: readonly string[]) =>
+  z
+    .object({
+      files: stringList.refine((globs) => globs.length > 0, {
+        message: "needs at least one glob",
+      }),
+      rules: z
+        .object(
+          Object.fromEntries(
+            ruleNames.map((name) => [name, severitySchema.optional()]),
+          ),
+        )
+        .strict(),
+    })
+    .strict();
 
 // ---------------------------------------------------------------------------
 // Harnesses (#240)
 // ---------------------------------------------------------------------------
 
 /**
- * ONE harness's entry in {@link vigilesConfigSchema}'s `harnesses`.
+ * ONE harness's entry in the config's `harnesses`.
  *
  * `.strict()` is load-bearing here specifically: the whole reason this key
  * exists is that a declaration which reaches nothing used to be silent, and
@@ -270,129 +158,335 @@ export type HarnessDeclarationShape = z.infer<typeof harnessDeclarationSchema>;
 // The config
 // ---------------------------------------------------------------------------
 
-/**
- * The whole of `.vigilesrc.json`.
- *
- * `.strict()` at the top level is the check that did not exist: an unrecognized
- * key is now a named error with a suggestion, where it used to be spread into
- * the config object and never read.
- */
-export const vigilesConfigSchema = z
-  .object({
-    /** Which markdown constructs count as a rule — headings, checkboxes, or both. */
-    ruleMarkers: z
-      .array(z.enum(["headings", "checkboxes"]))
-      .default(["headings", "checkboxes"]),
-    rules: rulesSchema.prefault({}),
-    /** The instruction files to validate. */
-    files: z.array(z.string()).default(["CLAUDE.md"]),
-    maxRules: z.number().optional(),
-    maxTokens: z.number().optional(),
-    maxSectionLines: z.number().optional(),
-    catalogOnly: z.boolean().optional(),
-    linters: z
-      .record(
-        z.string(),
-        z
-          .object({
-            // NOT `stringList`: this value is handed to the linter catalog
-            // layer as written (`string | string[]`), and normalizing it here
-            // would change a published shape for no gain — the consumer already
-            // handles both. Accepting exactly what it accepts is the point.
-            rulesDir: z.union([z.string(), z.array(z.string())]).optional(),
-          })
-          .strict(),
-      )
-      .optional(),
-    bundles: z.enum(["root", "all"]).optional(),
-    orphans: z
-      .object({
-        include: stringList.optional(),
-      })
-      .strict()
-      .optional(),
-    exclude: stringList.optional(),
-    /**
-     * Per-path rule severities, ESLint's `{ files, rules }` list: a later entry
-     * wins over an earlier one, any entry over `rules`, `rules` over `extends`.
-     * Resolved by `ruleResolver` (`./overrides.ts`).
-     */
-    overrides: z.array(overrideSchema).optional(),
-    sharedDirs: stringList.optional(),
-    harnesses: z.record(z.string(), harnessDeclarationSchema).optional(),
-    audit: z.object({ measure: z.boolean().optional() }).strict().optional(),
-    eval: z.object({ apiVersion: z.number().optional() }).strict().optional(),
-    nudge: z.literal("dismissed").optional(),
-    /**
-     * A named preset whose rule severities apply UNDER `rules` — ESLint's
-     * `extends`. `"vigiles:recommended"` gates the structural group (see
-     * `./presets.ts`); an explicit `rules` entry overrides it. Applied by
-     * {@link parseVigilesConfig}, which is why this key is only VALIDATED here.
-     * Placed after the keys people misspell most: the "Known:" list is capped.
-     */
-    extends: z.enum(PRESET_NAMES).optional(),
-    /**
-     * The editor's pointer at the published JSON Schema. Accepted, never read.
-     *
-     * 🔴 IT IS DECLARED HERE RATHER THAN EXCUSED IN THE UNKNOWN-KEY WALKER, and
-     * the reason is that the walker is only half the surface. `dist/vigilesrc.
-     * schema.json` is generated FROM this object by
-     * `scripts/build-config-schema.mjs`, with `additionalProperties: false`, so
-     * a key missing here is refused TWICE: once by the CLI, and once by the
-     * editor being pointed at the schema. Measured before this key existed, on
-     * `{"$schema": <the schema's own $id>, "harnesses": {"claude-code": {}}}`:
-     *
-     * ```
-     * $ vigiles audit . --no-interactive
-     * ✗ .vigilesrc.json: unknown key "$schema" in (top level). Known: …
-     * (exit 2)
-     * $ # and the same document against dist/vigilesrc.schema.json:
-     * additionalProperties: should NOT have additional properties ($schema)
-     * ```
-     *
-     * An exception in the walker would have fixed the first line and left the
-     * second — a red squiggle on the one line whose entire job is to turn the
-     * squiggles on. One declaration, both halves, because both derive from here.
-     *
-     * It is LAST in the shape on purpose: `knownKeysAt` reads this object to
-     * build the "Known: …" candidate list, which is capped, so a key nobody
-     * misspells belongs past the cap rather than at the head of the suggestion.
-     */
-    $schema: z.string().optional(),
-  })
-  .strict();
+/** What counts as a rule in markdown, by default: both constructs. */
+export const DEFAULT_RULE_MARKERS = ["headings", "checkboxes"] as const;
 
 /**
- * Parse a raw `.vigilesrc.json` value — THE one entry point every reader uses.
- *
- * 🔴 THE PRESET IS MERGED INTO THE RAW INPUT, BEFORE THE SCHEMA, for one reason:
- * after parsing, every rule carries a value (the schema fills each default), so
- * "the user wrote `hook-events: warn`" and "nobody wrote it" are the same
- * output, and an explicit downgrade could not win over the preset. Before
- * parsing, the user's own `rules` keys are exactly what they wrote. So the
- * preset's severities go UNDER them, and the schema then normalizes and
- * validates the result as if the user had typed both.
- *
- * Only a recognized preset with an object (or absent) `rules` is expanded;
- * anything else is passed through untouched for the schema to refuse with its
- * own message, so a typo in `extends` is reported, never silently ignored.
+ * The keys of `.vigilesrc.json` that do not depend on the rule set, in the
+ * order the "Known: …" list prints them (it is capped, so the keys people
+ * misspell most come first). `rules`, `overrides` and `extends` are built from
+ * the rule set by {@link configFor} and slotted in around these.
  */
-export function parseVigilesConfig(
-  raw: unknown,
-): Readonly<ReturnType<typeof vigilesConfigSchema.safeParse>> {
-  return vigilesConfigSchema.safeParse(withPresetRules(raw));
+const configKeys = {
+  /** Which markdown constructs count as a rule — headings, checkboxes, or both. */
+  ruleMarkers: z
+    .array(z.enum(DEFAULT_RULE_MARKERS))
+    .default([...DEFAULT_RULE_MARKERS]),
+  /** The instruction files to validate. */
+  files: z.array(z.string()).default(["CLAUDE.md"]),
+  maxRules: z.number().optional(),
+  maxTokens: z.number().optional(),
+  maxSectionLines: z.number().optional(),
+  catalogOnly: z.boolean().optional(),
+  linters: z
+    .record(
+      z.string(),
+      z
+        .object({
+          // NOT `stringList`: this value is handed to the linter catalog
+          // layer as written (`string | string[]`), and normalizing it here
+          // would change a published shape for no gain — the consumer already
+          // handles both. Accepting exactly what it accepts is the point.
+          rulesDir: z.union([z.string(), z.array(z.string())]).optional(),
+        })
+        .strict(),
+    )
+    .optional(),
+  bundles: z.enum(["root", "all"]).optional(),
+  orphans: z
+    .object({
+      include: stringList.optional(),
+    })
+    .strict()
+    .optional(),
+  exclude: stringList.optional(),
+};
+
+/** The keys after `overrides`; `extends` and `$schema` close the shape. */
+const configTailKeys = {
+  sharedDirs: stringList.optional(),
+  harnesses: z.record(z.string(), harnessDeclarationSchema).optional(),
+  audit: z.object({ measure: z.boolean().optional() }).strict().optional(),
+  eval: z.object({ apiVersion: z.number().optional() }).strict().optional(),
+  nudge: z.literal("dismissed").optional(),
+};
+
+/**
+ * The editor's pointer at the published JSON Schema. Accepted, never read.
+ *
+ * 🔴 IT IS DECLARED HERE RATHER THAN EXCUSED IN THE UNKNOWN-KEY WALKER, and
+ * the reason is that the walker is only half the surface. `dist/vigilesrc.
+ * schema.json` is generated FROM this schema by
+ * `scripts/build-config-schema.mjs`, with `additionalProperties: false`, so
+ * a key missing here is refused TWICE: once by the CLI, and once by the
+ * editor being pointed at the schema. Measured before this key existed, on
+ * `{"$schema": <the schema's own $id>, "harnesses": {"claude-code": {}}}`:
+ *
+ * ```
+ * $ vigiles audit . --no-interactive
+ * ✗ .vigilesrc.json: unknown key "$schema" in (top level). Known: …
+ * (exit 2)
+ * $ # and the same document against dist/vigilesrc.schema.json:
+ * additionalProperties: should NOT have additional properties ($schema)
+ * ```
+ *
+ * It is LAST in the shape on purpose: `knownKeysAt` reads the schema to build
+ * the "Known: …" candidate list, which is capped, so a key nobody misspells
+ * belongs past the cap rather than at the head of the suggestion.
+ */
+const schemaPointer = z.string().optional();
+
+/** The keys that do not depend on the rule set, as one object type. */
+type StaticConfig = z.output<
+  z.ZodObject<
+    typeof configKeys &
+      typeof configTailKeys & { readonly $schema: typeof schemaPointer }
+  >
+>;
+
+/** One rule's entry in `rules`: a severity, or `[severity, options]`. */
+export type RuleEntry = RuleWithOptions<unknown>;
+
+/** The `rules` of a config, keyed by rule id. */
+export type RulesConfig<Id extends string = string> = {
+  readonly [K in Id]: RuleEntry;
+};
+
+/** The config entry a rule takes: with its options' type when it has options. */
+type EntryOf<S> = S extends { readonly options: infer O extends z.ZodType }
+  ? RuleWithOptions<z.output<O>>
+  : RuleSeverity;
+
+/**
+ * The PRECISE `rules` of a rule set — each id with its own options type. The
+ * composition root instantiates it over `RULES`; generic code takes
+ * {@link RulesConfig} and never names an id (the `local/no-rule-ids` fence).
+ */
+export type RulesConfigOf<R extends readonly RuleSpec[]> = {
+  readonly [S in R[number] as S["id"]]: EntryOf<S>;
+};
+
+/**
+ * The whole parsed config: the static keys as the schema defines them, plus
+ * the rule set's `rules` and `overrides`. Exported from here and re-exported
+ * (type-only) by `./types.ts`; a key cannot be in the type and absent from the
+ * validator.
+ */
+export type VigilesConfigOf<Rules> = StaticConfig & {
+  rules: Rules;
+  overrides?: readonly {
+    readonly files: readonly string[];
+    readonly rules: { readonly [K in keyof Rules]?: RuleSeverity };
+  }[];
+  extends?: string | readonly string[];
+};
+
+/** A parse of a raw config: the config, or the issues that refused it. */
+export type ConfigParse<C> =
+  | { readonly success: true; readonly data: C }
+  | {
+      readonly success: false;
+      readonly error: { readonly issues: readonly ConfigIssue[] };
+    };
+
+/**
+ * `.vigilesrc.json` for one rule set — the schema, its presets and its
+ * defaults, BUILT from the rules a composition root hands in. `C` is the parsed
+ * config's type: precise (`VigilesConfigOf<RulesConfigOf<typeof RULES>>`) at
+ * the root, string-keyed in generic code.
+ */
+export interface ConfigSet<C> {
+  /** The whole schema — for the JSON Schema build and the error messages. */
+  readonly schema: z.ZodType;
+  /** Every rule id the schema accepts, in the set's order. */
+  readonly ruleNames: readonly string[];
+  /** The preset names `extends` and `--preset=` accept, from the groups. */
+  readonly presetNames: readonly string[];
+  /**
+   * Parse a raw `.vigilesrc.json` value — THE one entry point every reader uses.
+   *
+   * 🔴 THE PRESET IS MERGED INTO THE RAW INPUT, BEFORE THE SCHEMA: after
+   * parsing, every rule carries a value (the schema fills each default), so
+   * "the user wrote `hook-events: warn`" and "nobody wrote it" are the same
+   * output, and an explicit downgrade could not win over the preset. Before
+   * parsing, the user's own `rules` keys are exactly what they wrote, so the
+   * preset's severities go UNDER them. Only a recognized preset with an object
+   * (or absent) `rules` is expanded; anything else is passed through for the
+   * schema to refuse with its own message.
+   *
+   * `extraPresets` — `audit`/`lint --preset=<name>` for one run — go after the
+   * file's own presets (so they win over them) and never over its explicit
+   * `rules`. They are not written into the parsed `extends`: that key stays
+   * what the FILE says.
+   */
+  parse(raw: unknown, extraPresets?: readonly string[]): ConfigParse<C>;
 }
 
-/** `raw` with its `extends` preset's rules placed under its own `rules`. */
-function withPresetRules(raw: unknown): unknown {
+/** Each rule's key with its default and, with `options`, the tuple form. */
+function rulesSchemaOf(rules: readonly RuleSpec[]) {
+  return z
+    .object(
+      Object.fromEntries(
+        rules.map((r) => [
+          r.id,
+          (r.options ? withOptions(r.options) : severitySchema).default(
+            configDefault(r),
+          ),
+        ]),
+      ),
+    )
+    .strict();
+}
+
+/** The whole schema, `rules`/`overrides`/`extends` slotted in key order. */
+function configSchemaOf(
+  rules: readonly RuleSpec[],
+  presetNames: readonly string[],
+) {
+  const presetName = z.enum(presetNames);
+  const { ruleMarkers, ...bodyKeys } = configKeys;
+  return z
+    .object({
+      ruleMarkers,
+      rules: rulesSchemaOf(rules).prefault({}),
+      ...bodyKeys,
+      /**
+       * Per-path rule severities, ESLint's `{ files, rules }` list: a later
+       * entry wins over an earlier one, any entry over `rules`, `rules` over
+       * `extends`. Resolved by `ruleResolver` (`../overrides.ts`).
+       */
+      overrides: z.array(overrideSchema(rules.map((r) => r.id))).optional(),
+      ...configTailKeys,
+      /**
+       * A named preset (or a list of them) whose rule severities apply UNDER
+       * `rules` — ESLint's `extends`. A later preset wins over an earlier one,
+       * and an explicit `rules` entry overrides them all. Applied by `parse`,
+       * which is why this key is only VALIDATED here.
+       */
+      extends: z.union([presetName, z.array(presetName)]).optional(),
+      $schema: schemaPointer,
+    })
+    .strict();
+}
+
+/** The core config type: every rule, by a string id. */
+type VigilesConfig = VigilesConfigOf<RulesConfig>;
+
+/**
+ * Build `.vigilesrc.json` for a rule set: each rule's key with its default and,
+ * for a rule with `options`, the `[severity, options]` form; `overrides` over
+ * the same ids; `extends` over the groups' preset names.
+ *
+ * The one place Zod cannot carry the type: an object built from
+ * `Object.fromEntries` has string keys, so the parse result is narrowed to the
+ * set's precise type by `complete`, which checks at run time that every id is
+ * present — never by an assertion.
+ */
+export function configFor<const R extends readonly RuleSpec[]>(
+  rules: R,
+  groups: RuleGroups,
+): ConfigSet<VigilesConfigOf<RulesConfigOf<R>>> {
+  const ruleNames = rules.map((r) => r.id);
+  const presets = Object.values(groups).flatMap((g) => g.preset?.name ?? []);
+  const presetNames = [...new Set(presets)];
+  const schema = configSchemaOf(rules, presetNames);
+  const presetRules = presetRulesOf(rules, groups);
+  const complete = (
+    c: Readonly<VigilesConfig>,
+  ): c is VigilesConfigOf<RulesConfigOf<R>> =>
+    ruleNames.every((id) => id in c.rules);
+  return {
+    schema,
+    ruleNames,
+    presetNames,
+    parse(raw, extraPresets = []) {
+      const parsed = schema.safeParse(
+        withPresetRules(raw, presetNames, presetRules, extraPresets),
+      );
+      if (!parsed.success) return parsed;
+      const data: Readonly<VigilesConfig> = parsed.data;
+      if (!complete(data))
+        throw new Error("configFor: a parsed config lost a rule");
+      return { success: true, data };
+    },
+  };
+}
+
+/** `raw` with its presets' rules placed under its own `rules`, in order. */
+function withPresetRules(
+  raw: unknown,
+  known: readonly string[],
+  presetRules: (name: string) => Readonly<Record<string, unknown>>,
+  extraPresets: readonly string[],
+): unknown {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
-  const preset = "extends" in raw ? raw.extends : undefined;
+  const extended = extendedPresets(
+    known,
+    "extends" in raw ? raw.extends : undefined,
+  );
+  if (extended === null) return raw;
+  const layer = [...extended, ...extraPresets].reduce<
+    Readonly<Record<string, unknown>>
+  >((acc, name) => ({ ...acc, ...presetRules(name) }), {});
+  return withRulesUnder(raw, layer);
+}
+
+/**
+ * `raw` with `layer` placed UNDER its own `rules`. A non-object `rules` is left
+ * for the schema to refuse with its own message.
+ */
+function withRulesUnder(
+  raw: object,
+  layer: Readonly<Record<string, unknown>>,
+): unknown {
+  if (Object.keys(layer).length === 0) return raw;
   const rules = "rules" in raw ? raw.rules : undefined;
-  if (!isPresetName(preset)) return raw;
-  if (rules === undefined) return { ...raw, rules: { ...presetRules(preset) } };
+  if (rules === undefined) return { ...raw, rules: layer };
   if (typeof rules !== "object" || rules === null || Array.isArray(rules))
     return raw;
-  return { ...raw, rules: { ...presetRules(preset), ...rules } };
+  return { ...raw, rules: { ...layer, ...rules } };
+}
+
+/** The non-empty, trimmed entries of a comma list. */
+function commaList(value: string): readonly string[] {
+  return value
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+}
+
+/**
+ * Parse the values of `--preset=` (each may be a comma list) into preset
+ * names, through the SAME enum `extends` validates with, so the config file
+ * and the command line refuse an unknown name with the same message. The
+ * `vigiles:` prefix is optional on the command line: `--preset=experimental`
+ * and `--preset=vigiles:experimental` are the same preset.
+ */
+export function parsePresetFlags(
+  known: readonly string[],
+  values: readonly string[],
+):
+  | { readonly ok: true; readonly presets: readonly string[] }
+  | { readonly ok: false; readonly message: string } {
+  const short = known.map((n) => n.slice(PRESET_PREFIX.length)).join(", ");
+  const names = values.flatMap(commaList);
+  if (names.length === 0 && values.length > 0)
+    return { ok: false, message: `--preset: needs a name. Known: ${short}.` };
+  const presetName = z.enum(known);
+  const parsed = names.map((given) => ({
+    given,
+    result: presetName.safeParse(
+      given.startsWith(PRESET_PREFIX) ? given : `${PRESET_PREFIX}${given}`,
+    ),
+  }));
+  const bad = parsed.find((p) => !p.result.success);
+  if (bad !== undefined && !bad.result.success)
+    return {
+      ok: false,
+      message: `--preset: unknown preset "${bad.given}" — ${bad.result.error.issues[0]?.message ?? "invalid"}. Known: ${short}.`,
+    };
+  const ok = parsed.flatMap((p) => (p.result.success ? [p.result.data] : []));
+  return { ok: true, presets: [...new Set(ok)] };
 }
 
 /**
@@ -409,170 +503,6 @@ export class VigilesConfigError extends Error {
   override readonly name = "VigilesConfigError";
 }
 
-/**
- * The whole config, AS THE SCHEMA DEFINES IT — `VigilesConfig` is this.
- *
- * Exported from here and re-exported (type-only, so no runtime cycle) by
- * `./types.ts`, which every consumer already imports. The derivation is the
- * point: a key cannot be in the type and absent from the validator.
- */
-export type VigilesConfigShape = z.infer<typeof vigilesConfigSchema>;
-
-/**
- * The two keys `harnesses` replaced, and the sentence each one gets (#240).
- *
- * They are listed here rather than left to `.strict()`'s "Unrecognized key"
- * because the reader of that message is someone whose config USED to work: they
- * need the new spelling, not the news that the old one is unknown. `.strict()`
- * would tell them the truth in the least useful possible way.
- */
-export const REPLACED_KEYS: ReadonlyArray<{
-  readonly key: string;
-  readonly was: string;
-  readonly now: string;
-}> = [
-  {
-    key: "harness",
-    // The literal OLD config text this migration notice quotes back at the user:
-    // a historical artefact, not a fact about a harness, so there is no port to
-    // read it off. This is the one exemption here that is not debt.
-    // eslint-disable-next-line local/no-harness-names -- quoted legacy config
-    was: '"harness": ["claude-code", "codex"]',
-    now: "a KEY per harness",
-  },
-  {
-    key: "surfaceRoots",
-    was: '"surfaceRoots": [".ai"]',
-    now: '"roots" INSIDE the harness that reads them',
-  },
-];
-
-/**
- * The message a config written in the replaced shape gets.
- *
- * `names` are the harnesses the user's OWN config named under the removed
- * `harness` key, so the worked example below shows THEIR migration.
- *
- * 🔴 IT USED TO BE A FIXED EXAMPLE — `{ "harnesses": { "claude-code": …,
- * "codex": {} } }`, two names typed into the core. Its own comment called that
- * debt and predicted the failure: "with a third adapter this sample goes
- * stale". Reading the names from the config being migrated is better than
- * reading them from the registry would have been, and it is available here:
- * it shows the reader their own keys instead of somebody else's.
- */
-export function replacedKeyMessage(
-  present: ReadonlyArray<(typeof REPLACED_KEYS)[number]>,
-  names: readonly string[],
-): string {
-  // Empty when the config used only `surfaceRoots`, or named no harness — a
-  // placeholder the reader will obviously replace, never an invented name.
-  const example = (names.length > 0 ? names : ["<harness>"])
-    .map((n, i) => `"${n}": ${i === 0 ? '{ "roots": [".ai"] }' : "{}"}`)
-    .join(", ");
-  return (
-    `.vigilesrc.json: ${present.map((k) => `"${k.key}"`).join(" and ")} ` +
-    `${present.length === 1 ? "was" : "were"} replaced by one nested key, "harnesses".\n` +
-    `  Write:  { "harnesses": { ${example} } }\n` +
-    present.map((k) => `  - ${k.was}  →  ${k.now}`).join("\n") +
-    `\n  The old harness ARRAY's order silently decided what got read: one order graded the ` +
-    `skills and read no instruction file, the other read the instruction file and found no ` +
-    `skills. Scoping each root under the harness that reads it removes the order.`
-  );
-}
-
-/**
- * The per-rule `exclude` options that became `overrides`, and the rules an
- * equivalent override turns off. `untested-*` shared ONE merged option set, so
- * an `exclude` on any of them skipped those paths for all four.
- */
-export const MOVED_TO_OVERRIDES: ReadonlyArray<{
-  /** Where the option sat: a rule name, or the `orphans` block. */
-  readonly owner: string;
-  /** The rules the equivalent override turns off. */
-  readonly rules: readonly string[];
-}> = [
-  ...[
-    "untested-skill",
-    "untested-subagent",
-    "untested-hook",
-    "untested-output-style",
-  ].map((owner, _i, all) => ({ owner, rules: all })),
-  { owner: "orphans", rules: ["orphan-docs"] },
-];
-
-/** A plain JSON object, narrowed without a cast. */
-function isRecord(v: unknown): v is Readonly<Record<string, unknown>> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-/** The `exclude` an old config wrote under `owner`, as a glob list, if any. */
-function movedExclude(raw: unknown, owner: string): readonly string[] | null {
-  if (!isRecord(raw)) return null;
-  const value = isRecord(raw.rules) ? raw.rules[owner] : undefined;
-  const tuple: readonly unknown[] = Array.isArray(value) ? value : [];
-  const holder = owner === "orphans" ? raw.orphans : tuple[1];
-  if (!isRecord(holder) || holder.exclude === undefined) return null;
-  const globs = [holder.exclude].flat();
-  return globs.filter((g): g is string => typeof g === "string");
-}
-
-/**
- * The message an old config with a per-rule `exclude` gets — the user's OWN
- * globs, written as the `overrides` entry that does what the option did.
- *
- * Read BEFORE the schema, like {@link REPLACED_KEYS}: the reader's config used
- * to work, so "unknown key exclude" would be true and useless.
- */
-export function movedToOverridesMessages(raw: unknown): readonly string[] {
-  return MOVED_TO_OVERRIDES.flatMap(({ owner, rules }) => {
-    const globs = movedExclude(raw, owner);
-    if (globs === null) return [];
-    const files = globs.map((g) => JSON.stringify(g)).join(", ");
-    const off = rules.map((r) => `"${r}": "off"`).join(", ");
-    return [
-      `.vigilesrc.json: "exclude" inside "${owner}" moved to "overrides" — skipping paths is not a rule option any more; an override turns the rule off for them.\n` +
-        `  Write:  "overrides": [{ "files": [${files}], "rules": { ${off} } }]\n` +
-        `  and remove "exclude" from "${owner}". Paths top-level "exclude" removes are not read at all; an override only changes what a rule reports.`,
-    ];
-  });
-}
-
-/** Rules whose findings another rule now reports, and what changed. */
-export const FOLDED_RULES: ReadonlyArray<{
-  readonly rule: string;
-  readonly into: string;
-  readonly what: string;
-}> = [
-  {
-    rule: "prefer-compiled-hooks",
-    into: "hand-written-hook",
-    what: "every hook line vigiles did not write is now one hand-written-hook finding that names it",
-  },
-];
-
-/**
- * The message a config naming a folded rule gets — in `rules` or in an
- * `overrides` entry. Read BEFORE the schema, like {@link REPLACED_KEYS}: the
- * reader's config used to work, so "unknown key" would be true and useless.
- */
-export function foldedRuleMessages(raw: unknown): readonly string[] {
-  if (!isRecord(raw)) return [];
-  const overrides: readonly unknown[] = Array.isArray(raw.overrides)
-    ? raw.overrides
-    : [];
-  const ruleBlocks = [
-    raw.rules,
-    ...overrides.map((o) => (isRecord(o) ? o.rules : undefined)),
-  ];
-  return FOLDED_RULES.filter(({ rule }) =>
-    ruleBlocks.some((b) => isRecord(b) && rule in b),
-  ).map(
-    ({ rule, into, what }) =>
-      `.vigilesrc.json: rule "${rule}" was folded into "${into}": ${what}.\n` +
-      `  Remove "${rule}"; set "${into}" to change how those findings report.`,
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Messages — the half a schema library does NOT give you
 // ---------------------------------------------------------------------------
@@ -587,8 +517,11 @@ export function foldedRuleMessages(raw: unknown): readonly string[] {
  * by `resolveDeclaredHarnesses` against the adapter registry, which core may not
  * import).
  */
-function knownKeysAt(path: readonly PropertyKey[]): readonly string[] {
-  let node: unknown = vigilesConfigSchema;
+function knownKeysAt(
+  schema: Readonly<z.ZodType>,
+  path: readonly PropertyKey[],
+): readonly string[] {
+  let node: unknown = schema;
   for (const seg of path) {
     node = childAt(node, seg);
     if (node === undefined) return [];
@@ -685,9 +618,13 @@ function pathLabel(path: readonly PropertyKey[]): string {
  * the key accepts, and an unknown key carries the candidate list plus a
  * distance-bounded "did you mean".
  */
-export function formatConfigIssues(issues: readonly ConfigIssue[]): string[] {
+export function formatConfigIssues(
+  schema: Readonly<z.ZodType>,
+  issues: readonly ConfigIssue[],
+): string[] {
   return issues.flatMap((issue) => {
-    if (issue.code === "unrecognized_keys") return unknownKeyLines(issue);
+    if (issue.code === "unrecognized_keys")
+      return unknownKeyLines(schema, issue);
     if (issue.code === "invalid_union") return unionLines(issue);
     return [
       `.vigilesrc.json: ${pathLabel(issue.path ?? [])} — ${issue.message ?? "invalid"}.`,
@@ -696,8 +633,11 @@ export function formatConfigIssues(issues: readonly ConfigIssue[]): string[] {
 }
 
 /** One line per unrecognized key, with a near-miss or the candidate list. */
-function unknownKeyLines(issue: ConfigIssue): string[] {
-  const known = knownKeysAt(issue.path ?? []);
+function unknownKeyLines(
+  schema: Readonly<z.ZodType>,
+  issue: ConfigIssue,
+): string[] {
+  const known = knownKeysAt(schema, issue.path ?? []);
   const where = pathLabel(issue.path ?? []);
   return (issue.keys ?? []).map((key) => {
     // A near-miss REPLACES the candidate list rather than joining it. The rules

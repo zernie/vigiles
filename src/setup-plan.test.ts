@@ -11,18 +11,37 @@ import {
   shouldRunGlobalInstall,
   codexPluginHooks,
   applyCodexPluginHooks,
-  mergeProjectConfig,
+  mergeProjectConfig as mergeWith,
   collectSetupAnswers,
   gateOnlyInvitation,
-  WORKFLOW_RULES,
   SHIPPED_SKILLS,
   adoptionState,
   rerunScope,
   missingVigilesDevDep,
-  fullSetupFollowUps,
+  fullSetupFollowUps as followUpsFor,
   type AskFn,
 } from "./setup-plan.js";
-import { RECOMMENDED_RULES } from "./core/presets.js";
+import { configFor } from "./core/config-schema.js";
+import { initPolicyOf } from "./core/rule.js";
+import { presetRulesOf } from "./core/presets.js";
+import { RULES, RULE_GROUPS } from "./rules/index.js";
+
+/** What `init` writes, derived from the shipped groups as the CLI derives it. */
+const POLICY = initPolicyOf(RULES, RULE_GROUPS);
+const CONFIG = configFor(RULES, RULE_GROUPS);
+const parseVigilesConfig = (raw: unknown) => CONFIG.parse(raw);
+const mergeProjectConfig = (
+  existing: Readonly<Record<string, unknown>>,
+  opts: Omit<Parameters<typeof mergeWith>[1], "policy">,
+) => mergeWith(existing, { policy: POLICY, ...opts });
+const fullSetupFollowUps = (gap: Parameters<typeof followUpsFor>[0]) =>
+  followUpsFor(gap, POLICY.preset);
+/** The rules the recommended preset raises, and `--strict`'s rules. */
+const RECOMMENDED_RULES = POLICY.presetRules;
+const WORKFLOW_RULES = POLICY.strictRules;
+const EXPERIMENTAL_RULES = RULES.map((r) => r.id).filter(
+  (id) => id in presetRulesOf(RULES, RULE_GROUPS)("vigiles:experimental"),
+);
 
 test("defaults: both pillars, CI, plugin, non-strict", () => {
   assert.deepEqual(defaultPlan(), {
@@ -450,6 +469,50 @@ test("WORKFLOW_RULES is untested-*; nudge rules are NOT gated", () => {
   );
   assert.ok(
     !(WORKFLOW_RULES as readonly string[]).includes("skill-frontmatter"),
+  );
+});
+
+// The experimental group: `init` never writes it, in any mode — not even
+// `--strict`, which is the reliable `workflow` group and must not drag checks
+// measured as unreliable into CI. One group owns each rule.
+test("no init mode turns the experimental group on", () => {
+  for (const mode of [
+    { strict: false },
+    { strict: true },
+    { strict: true, reportOnly: true },
+    { strict: false, reportOnly: true },
+  ]) {
+    const out = mergeProjectConfig({}, { harnesses: ["h"], ...mode });
+    const parsed = parseVigilesConfig(out);
+    assert.ok(parsed.success);
+    for (const r of EXPERIMENTAL_RULES)
+      assert.equal(
+        parsed.data.rules[r],
+        false,
+        `${r} stays off after init ${JSON.stringify(mode)}`,
+      );
+  }
+});
+
+test("mergeProjectConfig: a repo extending only vigiles:experimental gets recommended first", () => {
+  const out = mergeProjectConfig(
+    { extends: "vigiles:experimental" },
+    { harnesses: ["h"], strict: false },
+  );
+  assert.deepEqual(out?.extends, [
+    "vigiles:recommended",
+    "vigiles:experimental",
+  ]);
+  // Already extending both (in any form): nothing to add.
+  assert.equal(
+    mergeProjectConfig(
+      {
+        harnesses: { h: {} },
+        extends: ["vigiles:experimental", "vigiles:recommended"],
+      },
+      { harnesses: ["h"], strict: false },
+    ),
+    null,
   );
 });
 

@@ -59,8 +59,29 @@ import {
   diffCapabilities,
   formatCapabilityDiff,
 } from "./core/capability-diff.js";
-import { validate, loadConfig, DEFAULT_RULES } from "./core/validate.js";
-import { ruleResolver, type RuleName, type RuleResolver } from "./overrides.js";
+import {
+  validate,
+  loadConfig as loadConfigFor,
+  configDefaults,
+} from "./core/validate.js";
+import {
+  ruleResolver,
+  type RuleResolver as AnyRuleResolver,
+} from "./overrides.js";
+import { configFor } from "./core/config-schema.js";
+import { initPolicyOf, type Finding } from "./core/rule.js";
+import {
+  applyRules,
+  gradedView,
+  type FilteredScan,
+} from "./core/apply-rules.js";
+import {
+  RULES,
+  RULE_GROUPS,
+  type RuleId,
+  type RulesConfig,
+  type VigilesConfig,
+} from "./rules/index.js";
 import {
   anyLocksCommitted,
   evalLockNudge,
@@ -73,6 +94,8 @@ import {
 } from "./eval-entry.js";
 import { z } from "zod";
 import { applyConfigFlags } from "./cli-flags.js";
+import { parsePresetFlags } from "./core/config-schema.js";
+import { extendedPresets } from "./core/presets.js";
 import { VERBS, type Verb } from "./cli-commands.js";
 import {
   formatUnknownFlag,
@@ -104,13 +127,11 @@ import {
   type ParsedSetupArgs,
 } from "./setup-plan.js";
 import type {
-  VigilesConfig,
   CoverageThresholds,
   TestCoverageConfig,
   InstructionWeightConfig,
   CompileBudgetConfig,
   RuleSeverity,
-  RulesConfig,
 } from "./core/types.js";
 import { ruleSeverity, ruleOptions } from "./core/types.js";
 import type { SurfaceKind, TestCoverageOptions } from "./test-coverage.js";
@@ -373,6 +394,31 @@ import {
   loadFailed,
   type ScriptRunResult,
 } from "./adapters/claude-code/run-scripts.js";
+
+/**
+ * THE RULE SET, WIRED IN — the composition root's one job for rules. Core
+ * declares the port and takes the set as a parameter; this file (and the
+ * browser demo's entry) is the only place `src/rules/` is imported. `CONFIG`
+ * is `.vigilesrc.json` built for this set, `loadConfig` the loader bound to it
+ * (so every verb reads the same schema), and `INIT_POLICY` what `init` writes,
+ * derived from the groups.
+ */
+const CONFIG = configFor(RULES, RULE_GROUPS);
+const INIT_POLICY = initPolicyOf(RULES, RULE_GROUPS);
+/** Every rule at its shipped default — what a missing `.vigilesrc.json` loads as. */
+const DEFAULT_CONFIG: Readonly<VigilesConfig> = configDefaults(CONFIG);
+
+/** The resolver over this set's ids. */
+type RuleResolver = AnyRuleResolver<RuleId>;
+
+/** `.vigilesrc.json` for this rule set; see `core/validate.ts` `loadConfig`. */
+function loadConfig(
+  searchFrom?: string,
+  opts?: Parameters<typeof loadConfigFor>[2],
+): Readonly<VigilesConfig> {
+  return loadConfigFor(CONFIG, searchFrom, opts);
+}
+
 import {
   COVERAGE_ARTIFACT_VERSION,
   executedScripts,
@@ -1117,6 +1163,13 @@ function isGitHubActions(): boolean {
 }
 
 /**
+ * A GitHub Actions annotation level. `notice` is for a finding that is reported
+ * but never gates (a `repo-root-only` skill resource, #382): GitHub shows it on
+ * the PR without reading it as a warning.
+ */
+type AnnotationLevel = "error" | "warning" | "notice";
+
+/**
  * Emit a GitHub Actions annotation for the inline PR experience.
  * No-op outside GitHub Actions.
  *
@@ -1128,7 +1181,7 @@ function isGitHubActions(): boolean {
  * longer compiles here; it has to go through `core/frame.ts` first.
  */
 function ghAnnotate(
-  level: "error" | "warning",
+  level: AnnotationLevel,
   message: string,
   file?: RepoPath,
   line?: number,
@@ -1206,7 +1259,7 @@ function verifyHashes(
 function validateSpecs(
   root: string,
   filePaths: string[],
-  rulesConfig: Readonly<import("./core/types.js").RulesConfig>,
+  rulesConfig: Readonly<RulesConfig>,
   rules: RuleResolver,
   silent = false,
 ): boolean {
@@ -1276,9 +1329,12 @@ function check(
   frame: Frame,
   filePaths: string[],
   silent = false,
+  // The run's config when the caller has it — so a `--preset=` the run was
+  // given reaches the spec checks too, rather than a second read of the file.
+  config?: Readonly<VigilesConfig>,
 ): CombinedCheckResult {
   const hashes = verifyHashes(root, frame, filePaths, silent);
-  const vConfig = loadConfig(root);
+  const vConfig = config ?? loadConfig(root);
   const specsValid = validateSpecs(
     root,
     filePaths,
@@ -2131,7 +2187,7 @@ interface BundleCheck {
    */
   label(text: string): string;
   /** `ghAnnotate`, applying {@link label} when no file is named. */
-  annotate(level: "error" | "warning", message: string, file?: RepoPath): void;
+  annotate(level: AnnotationLevel, message: string, file?: RepoPath): void;
   /**
    * `scanPlugin` over THIS bundle, with the repo's `exclude`. One door, so a
    * check cannot scan a different directory or forget the exclude — every
@@ -2160,7 +2216,7 @@ type Graded<F> = F & { readonly sev: "warn" | "error" };
  */
 function graded<F extends object>(
   rules: RuleResolver,
-  rule: RuleName,
+  rule: RuleId,
   found: readonly F[],
   pathOf: (f: F) => string | undefined,
 ): readonly Graded<F>[] {
@@ -2458,7 +2514,7 @@ function compileBudgetOptions(
   if (rule === undefined) return { budgetSeverity: "warn" };
   return {
     budgetSeverity: ruleResolver(
-      config?.rules ?? DEFAULT_RULES,
+      config?.rules ?? DEFAULT_CONFIG.rules,
       config?.overrides,
     ).severityAt("compile-budget", target),
     ...ruleOptions<CompileBudgetConfig>(rule),
@@ -2541,7 +2597,10 @@ async function runLint(
   // relative to it, and config globs resolve from it — whichever bundle is being
   // scored. Built here, once, instead of each option re-deriving its own root.
   const frame = frameFor(root, scanRoot);
-  const rules = ruleResolver(config?.rules ?? DEFAULT_RULES, config?.overrides);
+  const rules = ruleResolver(
+    config?.rules ?? DEFAULT_CONFIG.rules,
+    config?.overrides,
+  );
   const run: BundleRun = { config, rules, silent, adapter, excludes, frame };
   if (!silent && nestedBundles.length > 0) {
     const rel = nestedBundles.map((b) => relative(scanRoot, b) || b);
@@ -2576,7 +2635,7 @@ async function runLint(
   }
   const hashResult =
     files.length > 0
-      ? check(root, frame, files, silent)
+      ? check(root, frame, files, silent, config)
       : { valid: true, hashErrors: 0, validationErrors: 0 };
 
   // 1b. Verify inline + frontmatter rules in instruction files not managed
@@ -2627,7 +2686,7 @@ async function runLint(
   // opted into explicitly). `enforce("vigiles/orphan-docs")` in a spec only
   // validates the rule NAME — the block is what drives the scan.
   // 🔴 SEVERITY IS READ, not just the block's presence (#181). `orphan-docs` had
-  // a RULE_META entry and a documented severity, and nothing ever read it: both
+  // a declared meta and a documented severity, and nothing ever read it: both
   // `"warn"` and `"off"` still exited 1, so a repo could only choose between an
   // always-blocking check and deleting the `orphans` block. `warn` now reports
   // without touching the exit code and `false`/`"off"` skips the scan, exactly
@@ -2751,12 +2810,18 @@ async function runLint(
   // prompt-injection exfil path (Rule of Two). Capability SET-intersection.
   const lethalTrifecta = overBundles(checkLethalTrifecta, run, lintRoots);
 
-  // 7p. Skill-resource — a SKILL.md body referencing a bundled file that doesn't
-  // exist on disk under the skill dir (the agent gets nothing). FP-safe.
-  const skillResources = overBundles(
-    checkSkillResourceResolves,
-    run,
-    lintRoots,
+  // 7p. The rules that are modules (src/rules/<id>.ts), each through the one
+  // generic check. The LintReport keeps its per-rule wire keys until #390:
+  // today the one module rule (the bundled-resource check) fills the
+  // `skillResource*` pair below.
+  const ruleModules = RULE_MODULES.map((rule) =>
+    overBundles((ctx) => checkRuleModule(ctx, rule), run, lintRoots),
+  ).reduce(
+    (acc, t) => ({
+      issues: acc.issues + t.issues,
+      errors: acc.errors + t.errors,
+    }),
+    { issues: 0, errors: 0 },
   );
 
   // 7q. Skill-missing-fence — a SKILL.md opening with `name:`/`description:` but no
@@ -2975,8 +3040,8 @@ async function runLint(
     mcpHookErrors: mcpHookTargets.errors,
     lethalTrifectaIssues: lethalTrifecta.issues,
     lethalTrifectaErrors: lethalTrifecta.errors,
-    skillResourceIssues: skillResources.issues,
-    skillResourceErrors: skillResources.errors,
+    skillResourceIssues: ruleModules.issues,
+    skillResourceErrors: ruleModules.errors,
     skillFenceIssues: skillFence.issues,
     skillFenceErrors: skillFence.errors,
     pluginLayoutIssues: pluginLayout.issues,
@@ -5307,7 +5372,10 @@ function minimalRerun(
   const devDep = plan.lint || plan.test ? addMissingVigilesDevDep() : [];
   const written = [...links, ...devDep];
   if (written.length === 0) console.log("\nNothing was missing.");
-  const followUps = fullSetupFollowUps(fullSetupGap(plan, detected, harnesses));
+  const followUps = fullSetupFollowUps(
+    fullSetupGap(plan, detected, harnesses),
+    INIT_POLICY.preset,
+  );
   if (followUps.length > 0) console.log(`\n${followUps.join("\n")}`);
   if (written.length > 0)
     console.log(
@@ -5425,7 +5493,12 @@ function configGap(
   lint: boolean,
 ): FullSetupGap["config"] {
   if (config === null) return "missing";
-  return config.extends === undefined && lint ? "no-preset" : "has-preset";
+  // "Has the preset" means extends RECOMMENDED: `vigiles:experimental` alone
+  // gates nothing. A value that is not a preset list is not ours to judge here.
+  const listed = extendedPresets(CONFIG.presetNames, config.extends);
+  return listed !== null && !listed.includes(INIT_POLICY.preset) && lint
+    ? "no-preset"
+    : "has-preset";
 }
 
 /** `.vigilesrc.json` as a plain object, or null when absent or unreadable. */
@@ -5493,6 +5566,7 @@ function writeProjectConfig(opts: {
     }
   }
   const merged = mergeProjectConfig(existing, {
+    policy: INIT_POLICY,
     harnesses: harnessConfigKeys(opts.harnesses),
     strict: opts.strict,
     reportOnly: opts.reportOnly,
@@ -6142,55 +6216,59 @@ function checkLethalTrifecta(ctx: BundleCheck): {
   return tally(found);
 }
 
+/** A rule of the set that is a module: it reports its own findings. */
+type RuleModule = Extract<
+  (typeof RULES)[number],
+  { readonly findings: unknown }
+>;
+
+/** The rules of the set that are modules — each runs through {@link checkRuleModule}. */
+const RULE_MODULES: readonly RuleModule[] = RULES.filter(
+  (r): r is RuleModule => "findings" in r,
+);
+
 /**
- * Apply the `skill-resource-resolves` rule: a SKILL.md body referencing a bundled
- * file (`scripts/`/`references/`/`assets/` or a relative markdown link with an
- * extension) that doesn't exist on disk — the agent reads the instruction and gets
- * nothing. Reuses `scanPlugin`'s `skillResourceIssues` (high-precision / FP-safe,
- * one detector, no drift). Warning by default; "error" gates CI.
+ * Apply one rule MODULE: what its `findings` reports, each at the severity its
+ * own path gets (`overrides` applied). A `finding` counts and prints at that
+ * severity; a `note` (informational — e.g. a resource that resolves only from
+ * the repository root, #382) prints with `ℹ` and a `::notice` annotation and
+ * never counts, so it can never fail CI. The scan is the same one every other
+ * check reads (`ctx.scan`), with the repo's `sharedDirs` at the frame root.
+ *
+ * The first piece of the one loop the per-rule `check*` functions become
+ * (vigiles#390): nothing here names a rule.
  */
-function checkSkillResourceResolves(ctx: BundleCheck): {
-  issues: number;
-  errors: number;
-} {
-  const { config, silent } = ctx;
-  if (!ctx.rules.mayFire("skill-resource-resolves"))
-    return { issues: 0, errors: 0 };
-  let raw: readonly {
-    path: string;
-    name: string;
-    finding: { ref: string; line: number };
-  }[];
+function checkRuleModule(
+  ctx: BundleCheck,
+  rule: RuleModule,
+): { issues: number; errors: number } {
+  if (!ctx.rules.mayFire(rule.id)) return { issues: 0, errors: 0 };
+  let found: readonly Finding[];
   try {
-    raw = ctx.scan({
-      sharedDirs: config?.sharedDirs,
-      // sharedDirs live at the frame root — the repo that OWNS the scan target:
-      // cwd for a scoped subdir or a nested bundle, the target for a foreign lint.
-      sharedDirsRoot: ctx.frame.root,
-    }).skillResourceIssues;
+    found = rule.findings(
+      ctx.scan({
+        sharedDirs: ctx.config?.sharedDirs,
+        sharedDirsRoot: ctx.frame.root,
+      }),
+    );
   } catch {
     return { issues: 0, errors: 0 };
   }
-  const found = graded(ctx.rules, "skill-resource-resolves", raw, (f) =>
-    ctx.bundle.scanned(f.path),
-  );
-  if (found.length > 0 && !silent) {
-    console.log("\nSkill-resource check:\n");
-    for (const s of found) {
-      const msg =
-        `${s.name}: bundled resource "${s.finding.ref}" (line ${String(s.finding.line)}) is referenced but missing — the agent reads the instruction and gets nothing.` +
-        // The main false-positive source in a skills monorepo, where a SKILL.md
-        // legitimately names a repo-root path. The fix already exists and works;
-        // it was documented only in docs/skills-monorepo.md, so a CI log gave no
-        // hint and the rule read as broken rather than misconfigured.
-        ` If it resolves from the repo root instead, add its directory to \`sharedDirs\` in .vigilesrc.json.`;
-      console.log(
-        `  ${markOf(s.sev).mark} ${ctx.bundle.scanned(s.path)}: ${msg}`,
-      );
-      ctx.annotate(markOf(s.sev).level, msg, ctx.bundle.scanned(s.path));
+  const pathOf = (f: Finding): RepoPath => ctx.bundle.scanned(f.path);
+  const shown = graded(ctx.rules, rule.id, found, pathOf);
+  if (shown.length > 0 && !ctx.silent) {
+    console.log(`\n${rule.id}:\n`);
+    for (const f of shown) {
+      const { mark, level } =
+        f.kind === "note"
+          ? { mark: "ℹ", level: "notice" as const }
+          : markOf(f.sev);
+      const msg = `${f.subject}: ${f.message}`;
+      console.log(`  ${mark} ${pathOf(f)}: ${msg}`);
+      ctx.annotate(level, msg, pathOf(f));
     }
   }
-  return tally(found);
+  return tally(shown.filter((f) => f.kind === "finding"));
 }
 
 /**
@@ -7686,6 +7764,15 @@ interface CommandHelp {
   readonly detail?: readonly string[];
 }
 
+/**
+ * The `--preset=` line `audit` and `lint` share. The names are the ones
+ * `.vigilesrc.json#extends` takes; `experimental` is the group of checks not yet
+ * measured reliable enough to grade on — on at `warn`, never scored.
+ */
+const PRESET_HELP =
+  "  --preset=<name>            add a preset for this run, on top of your config: experimental · recommended\n" +
+  "                             (experimental = checks not yet measured reliable enough to grade you on: warn, never scored)";
+
 const COMMAND_HELP: Record<Verb, CommandHelp> = {
   init: {
     usage:
@@ -7703,6 +7790,7 @@ const COMMAND_HELP: Record<Verb, CommandHelp> = {
   lint: {
     usage:
       "  vigiles lint  [files...]   Gate it in CI. The same checks — but a finding fails the build.",
+    detail: [PRESET_HELP],
   },
   audit: {
     // "Reports everything, fails nothing" states always-exit-0 as the FEATURE it is. The line
@@ -7714,6 +7802,7 @@ const COMMAND_HELP: Record<Verb, CommandHelp> = {
     detail: [
       "  2+ dirs → a leaderboard. Writes vigiles-report.html + .json (auto-gitignored).",
       "  --single                   audit this dir as ONE harness, even if it holds many bundles",
+      PRESET_HELP,
       "  The executing checks (run your hooks · live MCP · do skills fire?) run only",
       "  interactively — audit asks once and remembers; automation uses the testing API.",
     ],
@@ -9314,6 +9403,73 @@ function rememberAuditMeasure(value: boolean): void {
   }
 }
 
+/**
+ * The config this run uses: `.vigilesrc.json`, with any `--preset=<name>`
+ * (audit, lint) applied ON TOP of what the file extends — through the one
+ * validator `extends` uses, so an unknown name is "could not do what you
+ * asked": exit 2, before anything runs. Then the shared flags (--max-rules,
+ * --catalog-only) override it, so every GitHub Action input maps to a real CLI
+ * flag (src/cli-flags.ts).
+ */
+function loadRunConfig(
+  projectRoot: string,
+  args: readonly string[],
+): Readonly<VigilesConfig> {
+  const presetFlag = parsePresetFlags(
+    CONFIG.presetNames,
+    args
+      .filter((a) => a.startsWith("--preset="))
+      .map((a) => a.slice("--preset=".length)),
+  );
+  if (!presetFlag.ok) {
+    console.error(`✗ ${presetFlag.message}`);
+    process.exit(2);
+  }
+  return applyConfigFlags(
+    loadConfig(projectRoot, { presets: presetFlag.presets }),
+    args,
+  );
+}
+
+/**
+ * The scan `audit` reports on, with this run's config applied (`applyRules`):
+ * an off rule's findings are gone before anything renders.
+ */
+function auditScan(
+  target: string,
+  adapter: HarnessAdapter,
+  config: Readonly<VigilesConfig>,
+  at: Readonly<{
+    root: string;
+    frameRoot: string;
+    excludes: ExcludeSet;
+    harnesses: readonly ScanHarness[];
+  }>,
+): FilteredScan<ScanReport> {
+  const scan = scanPlugin(target, adapter.layout, adapter.dialect, {
+    deprecatedKeyFiles: specsUsingKeyFiles(at.root, at.excludes.globIgnore),
+    sharedDirs: config.sharedDirs,
+    sharedDirsRoot: at.frameRoot,
+    // `.vigilesrc.json#exclude` reaches surface DISCOVERY, not just the
+    // instruction file. Measured 2026-09-21 before this line existed: a repo
+    // with `{"exclude": [".claude"]}` and one skill at `.claude/skills/demo`
+    // still printed `Skills (1): ✓ demo` and docked Safety to 90 for it — the
+    // grade was computed over a tree the user had told the tool to ignore.
+    excludes: at.excludes,
+    // The repo owner's answer to "N skills no harness reads": these are
+    // mine, grade them — each root under the harness whose layout reads
+    // it, so no array order decides which half of the repo is seen.
+    // `exclude` still wins over it; the walk drops an excluded path first.
+    harnesses: at.harnesses,
+  });
+  return applyRules(
+    RULES,
+    RULE_GROUPS,
+    ruleResolver(config.rules, config.overrides),
+    scan,
+  );
+}
+
 export async function main(): Promise<void> {
   const { command, projectRoot, args } = enterProjectRoot();
 
@@ -9350,9 +9506,7 @@ export async function main(): Promise<void> {
   }
 
   const restArgs = args.slice(1).filter((a) => !a.startsWith("--"));
-  // Shared flags (--max-rules, --catalog-only) override the loaded config so
-  // every GitHub Action input maps to a real CLI flag. See src/cli-flags.ts.
-  const config = applyConfigFlags(loadConfig(projectRoot), args);
+  const config = loadRunConfig(projectRoot, args);
   // `.vigilesrc.json#exclude`, parsed ONCE here and threaded to every walk that
   // polices the repo (src/exclude.ts). Built where the config is loaded so a
   // command cannot re-derive it differently — the drift #192 measured.
@@ -9667,20 +9821,14 @@ export async function main(): Promise<void> {
         // The same single owner of "relative to which directory" `lint` uses
         // (#281): cwd, unless the audited dir is somebody else's repository.
         const frame = frameFor(projectRoot, root);
-        const report = scanPlugin(targets[0], adapter.layout, adapter.dialect, {
-          deprecatedKeyFiles: specsUsingKeyFiles(root, excludes.globIgnore),
-          sharedDirs: config.sharedDirs,
-          sharedDirsRoot: frame.root,
-          // `.vigilesrc.json#exclude` reaches surface DISCOVERY, not just the
-          // instruction file. Measured 2026-09-21 before this line existed: a repo
-          // with `{"exclude": [".claude"]}` and one skill at `.claude/skills/demo`
-          // still printed `Skills (1): ✓ demo` and docked Safety to 90 for it — the
-          // grade was computed over a tree the user had told the tool to ignore.
+        // The resolved config, applied once at the source: what an off rule
+        // found is gone from everything below (terminal, JSON, HTML).
+        // The resolved config is applied once, at the source: what an off
+        // rule found is gone from everything below (terminal, JSON, HTML).
+        const report = auditScan(targets[0], adapter, config, {
+          root,
+          frameRoot: frame.root,
           excludes,
-          // The repo owner's answer to "N skills no harness reads": these are
-          // mine, grade them — each root under the harness whose layout reads
-          // it, so no array order decides which half of the repo is seen.
-          // `exclude` still wins over it; the walk drops an excluded path first.
           harnesses: scanHarnesses,
         });
         if (!json) {
@@ -9829,7 +9977,7 @@ export async function main(): Promise<void> {
           console.error(formatNothingToAudit(root, adapter.name, market));
           process.exit(2);
         }
-        const plan = optimize(report);
+        const plan = optimize(gradedView(report));
         // The deterministic READ leads: rings + report + fixes + nudges print
         // BEFORE the consent prompt, so a plain `audit` shows its findings first.
         // (JSON stays silent until the single blob below, after consent.)
@@ -9838,6 +9986,8 @@ export async function main(): Promise<void> {
           // shown before the detailed report so the headline signal leads.
           console.log(formatAuditScore(sc));
           console.log("");
+          // The ungraded blocks come off the filtered scan — the same data
+          // the JSON and HTML render — so the three cannot drift.
           console.log(formatScanReport(report));
           // Fold each finding's fix inline (replaces the former --fix-plan/--explain
           // flags): the deterministic, free recommendation list under the report.
@@ -9855,10 +10005,7 @@ export async function main(): Promise<void> {
           if (adoptNudge) console.log("\n" + adoptNudge);
           // A small behavioral nudge — the deterministic read can't tell whether
           // skills actually FIRE; point at the interactive measure + the API.
-          const fireNudge = formatTriggerNudge(
-            report.skills.filter((s) => s.hasDescription && !s.userInvoked)
-              .length,
-          );
+          const fireNudge = formatTriggerNudge(surfaces.triggerableSkills);
           if (fireNudge) console.log("\n" + fireNudge);
         }
         // ONE read-vs-run decision for the EXECUTING checks (live MCP + skill

@@ -63,6 +63,13 @@ export const ENGINE_MODULES = [
   // (and package.json) because the hook-line plan reads them — derived from
   // the engine, not re-listed.
   "core/hook-paths",
+  // The rule set and the one place a scan meets it: the demo is a composition
+  // root like the CLI, so it hands the shipped rules (at their defaults — the
+  // browser has no config) to `applyRules` before rendering.
+  "rules/index",
+  "core/rule",
+  "core/apply-rules",
+  "overrides",
 ] as const;
 
 /** The bare specifiers — for `optimizeDeps.include` and for the guard script. */

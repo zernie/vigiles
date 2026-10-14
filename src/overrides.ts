@@ -7,7 +7,7 @@
  * PRECEDENCE is ESLint's cascade: the `extends` preset, then `rules`, then each
  * override whose `files` cover the finding's path, in order — a later override
  * wins over an earlier one. `extends` < `rules` is settled when the config is
- * parsed (`parseVigilesConfig`); this module adds the per-path layer on top.
+ * parsed (`ConfigSet.parse`, `core/config-schema.ts`); this module adds the per-path layer on top.
  *
  * WHAT AN OVERRIDE SETS: a severity. A rule's options (`["error", { … }]`) live
  * in `rules`, once; an override that changes `compile-budget` to `warn` keeps
@@ -30,41 +30,41 @@ import { rootGlobMatcher } from "./root-globs.js";
 import type { RuleSeverity, RulesConfig } from "./core/types.js";
 import { ruleSeverity } from "./core/types.js";
 
-/** A rule name — a key of the rule set. */
-export type RuleName = keyof RulesConfig;
-
 /** One `overrides` entry, as parsed: globs and the severities they set. */
-export interface RuleOverride {
+export interface RuleOverride<Id extends string = string> {
   readonly files: readonly string[];
-  readonly rules: Readonly<Partial<Record<RuleName, RuleSeverity>>>;
+  readonly rules: { readonly [K in Id]?: RuleSeverity };
 }
 
-/** The severity of every rule, for any path. */
-export interface RuleResolver {
+/**
+ * The severity of every rule, for any path. Generic over the rule ids: the
+ * root instantiates it over its rule set (a typo'd id is a tsc error there),
+ * and generic code takes it over `string` and never spells an id.
+ */
+export interface RuleResolver<Id extends string = string> {
   /**
    * The severity `rule` has for a finding at `path` (repository-relative).
    * `undefined` — a finding with no path — gets the severity from `rules`.
    */
-  severityAt(rule: RuleName, path: string | undefined): RuleSeverity;
+  severityAt(rule: Id, path: string | undefined): RuleSeverity;
   /**
    * Whether `rule` can fire anywhere: on in `rules`, or turned on by some
    * override. A check that would skip its whole scan when its rule is off asks
    * this, so an override that turns a rule ON for one folder is not dropped.
    */
-  mayFire(rule: RuleName): boolean;
+  mayFire(rule: Id): boolean;
 }
 
 /** Build the resolver once per run, from the parsed `rules` and `overrides`. */
-export function ruleResolver(
-  rules: Readonly<RulesConfig>,
-  overrides: readonly RuleOverride[] = [],
-): RuleResolver {
+export function ruleResolver<Id extends string = string>(
+  rules: Readonly<RulesConfig<Id>>,
+  overrides: readonly RuleOverride<Id>[] = [],
+): RuleResolver<Id> {
   const compiled = overrides.map((o) => ({
     covers: rootGlobMatcher(o.files),
     rules: o.rules,
   }));
-  const base = (rule: RuleName): RuleSeverity =>
-    ruleSeverity<unknown>(rules[rule]);
+  const base = (rule: Id): RuleSeverity => ruleSeverity<unknown>(rules[rule]);
   return {
     severityAt: (rule, path) =>
       path === undefined

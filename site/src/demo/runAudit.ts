@@ -7,6 +7,10 @@
  */
 import { scanFiles } from "@engine/scan-files";
 import { buildAuditReport } from "@engine/audit-report";
+import { applyRules } from "@engine/core/apply-rules";
+import { defaultSeverities } from "@engine/core/rule";
+import { ruleResolver } from "@engine/overrides";
+import { RULES, RULE_GROUPS } from "@engine/rules/index";
 import type { AuditReport } from "@vigiles/report-view";
 import type { RepoFiles } from "./fetchRepo";
 
@@ -23,7 +27,16 @@ export function runAudit(files: RepoFiles, slug: string): AuditReport {
   // the CLI does from the dir basename), not the synthetic BROWSER_ROOT.
   const repoName = slug.split("/")[1];
   const report = scanFiles(files, undefined, undefined, repoName);
-  const audit = buildAuditReport(report, {
+  // A composition root, like the CLI: it hands the shipped rule set to the
+  // engine. The browser has no `.vigilesrc.json`, so every rule sits at its
+  // shipped default.
+  const shown = applyRules(
+    RULES,
+    RULE_GROUPS,
+    ruleResolver(defaultSeverities(RULES)),
+    report,
+  );
+  const audit = buildAuditReport(shown, {
     harness: "claude-code",
     vigilesVersion: VIGILES_VERSION,
   });

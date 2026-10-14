@@ -54,7 +54,7 @@ place and copy the two lines you want:
   },
 
   "exclude": ["bench", "test/dogfood/**"],
-  "sharedDirs": ["packages/shared-skills"],
+  "sharedDirs": ["scripts", "references"],
   "bundles": "all",
 
   "extends": "vigiles:recommended",
@@ -195,14 +195,26 @@ reporting there, use [`overrides`](#overrides) instead.
 
 ### `extends`
 
-Start from a named set of rule severities, then adjust it with `rules`. The one
-preset is `vigiles:recommended`. `npx vigiles init` writes it for you.
+Start from a named set of rule severities, then adjust it with `rules`. There
+are two presets, and `extends` takes one name or a list:
+
+- `vigiles:recommended` gates the structural rules. `npx vigiles init` writes it
+  for you.
+- `vigiles:experimental` turns on the [experimental rules](#experimental-rules)
+  at `warn` — checks not yet measured reliable enough to grade you on.
 
 > Default: none — every rule at its built-in severity
 
 ```json
 { "extends": "vigiles:recommended" }
 ```
+
+```json
+{ "extends": ["vigiles:recommended", "vigiles:experimental"] }
+```
+
+In a list, a later preset wins over an earlier one where they set the same rule
+(today they set none in common).
 
 `vigiles:recommended` raises the **structural** rules to `error`. These rules
 fire only on a real defect, so a well-formed harness stays green:
@@ -245,8 +257,45 @@ list the rules yourself in `rules` instead of extending the preset.
 An unknown preset name is refused:
 
 ```
-✗ .vigilesrc.json: extends — Invalid input: expected "vigiles:recommended".
+✗ .vigilesrc.json: extends is not one of the accepted values ("vigiles:recommended", "vigiles:experimental", array).
 ```
+
+**For one run, from the command line.** `vigiles audit` and `vigiles lint` take
+`--preset=<name>` with the same names, the `vigiles:` prefix optional:
+`--preset=experimental` is `"extends": "vigiles:experimental"` for that run. It
+is added ON TOP of what your file extends — it never replaces your config, and
+your explicit `rules` entries still win. Several presets: `--preset=recommended,experimental`.
+An unknown name exits `2` and lists the valid ones:
+
+```
+✗ --preset: unknown preset "strict" — Invalid option: expected one of "vigiles:recommended"|"vigiles:experimental". Known: recommended, experimental.
+```
+
+### Experimental rules
+
+Some checks ship before they have earned a grade: we ran them over real
+public repositories and too many of their findings were false alarms. Those
+are the **experimental** rules — checks vigiles ships but has not measured as
+reliable enough to grade you on.
+
+- They are **off by default**.
+- Turned on, they report at **`warn`**, so `lint` still exits 0. Nothing vigiles
+  writes raises one to `error`: not `init`, and not `init --strict`, which is
+  for the reliable `workflow` rules.
+- They **never count toward the `audit` score**. Their findings print in a
+  separate **"Experimental — not graded"** block (terminal, `audit --json`'s
+  `ungraded` field, and the HTML report), and leave every category, the
+  overall score, the grade and the verdict exactly as they would be without
+  them.
+
+Turn them on for one run (`--preset=experimental` on `audit` or `lint`, or the
+GitHub Action's `preset` input), for the repository (`"extends":
+"vigiles:experimental"`), or one rule at a time in `rules`. An explicit `rules`
+entry wins over the preset either way.
+
+| Rule                                                          | Measured precision | Why not graded yet                                                                                                                |
+| ------------------------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| [`skill-resource-resolves`](rules/skill-resource-resolves.md) | 44% (7 of 16)      | 9 of its 16 findings in the measurement were false alarms; [#388](https://github.com/zernie/vigiles/issues/388) tracks raising it |
 
 ### `rules`
 
@@ -383,14 +432,17 @@ that keeps others alive.
 
 ### `sharedDirs`
 
-Folders holding skills that several bundles in a monorepo share, so they are read
-once rather than reported missing in each bundle. See
-[skills in a monorepo](skills-monorepo.md).
+Top-level directories that several skills share, such as one `scripts/` tree at
+the repo root. A `SKILL.md` ref whose first path segment is one of them
+(`scripts/check.sh`) resolves against the repo root as well as the skill's own
+directory. Each entry is a single directory name, not a path. Without it, such a
+ref is reported as a note — "resolves only from the repo root" — not as a pass.
+See [skills in a monorepo](skills-monorepo.md#shared-scripts--references-trees--shareddirs).
 
 > Default: none
 
 ```json
-{ "sharedDirs": ["packages/shared-skills"] }
+{ "sharedDirs": ["scripts", "references"] }
 ```
 
 ### `bundles`

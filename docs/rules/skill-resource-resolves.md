@@ -8,6 +8,51 @@ instruction, gets nothing, and **silently continues** — a documented top skill
 pain. This is the cross-reference moat applied to the SKILL.md body. Same detector
 `vigiles audit` uses (`skillResourceIssues` in `src/core/skill-resources.ts`).
 
+## Experimental: off by default, never graded
+
+This rule is in the **`experimental`** group: checks vigiles ships but has not
+measured as reliable enough to grade you on. That means:
+
+- it is **off** unless you turn it on;
+- turned on, it reports at **`warn`** — `vigiles lint` still exits 0;
+- it **never counts toward the `audit` score**. Its findings appear in a separate
+  **"Experimental — not graded"** block, after the grade, and do not move a
+  category, the overall score, the grade or the verdict.
+
+**Why it is experimental.** We ran it over 236 public repositories that commit a
+Claude Code or Codex harness, and 23 of them got a finding. After the
+repo-root-only change below, 16 `✗` findings remained. Reading each one, 7 were
+real missing files — **44% precision**; the other 9 were false alarms. A check
+that is wrong more often than right must not lower anyone's grade, so it stays
+opt-in until it measures better. That work is tracked in
+[#388](https://github.com/zernie/vigiles/issues/388).
+
+**Turn it on for one run** — no config file needed, so it works on a brand-new
+repository:
+
+```bash
+npx vigiles audit --preset=experimental
+npx vigiles lint --preset=experimental
+```
+
+**Turn it on for the repository**, either the whole experimental group or this
+rule alone:
+
+```json
+{ "extends": ["vigiles:recommended", "vigiles:experimental"] }
+```
+
+```json
+{ "rules": { "skill-resource-resolves": "warn" } }
+```
+
+`--preset=experimental` adds to your config and never overrides it: an explicit
+`"skill-resource-resolves": "off"` (or `"error"`) in `rules` still wins. In the
+GitHub Action, the same switch is the `preset` input
+([GitHub Action](../github-action.md)). `init --strict` does **not** turn it on —
+`--strict` is the reliable `workflow` group, and an unreliable check does not
+belong in a CI gate.
+
 ## What it flags
 
 A body reference that is **unambiguously a local bundled resource** but doesn't
@@ -18,6 +63,10 @@ resolve on disk:
   missing — the agent reads the instruction and gets nothing.
 ```
 
+A file that is missing beside the SKILL.md but **exists at the repository root**
+is not reported as missing. It gets a separate, ungraded note — see
+[Resolves only from the repo root](#resolves-only-from-the-repo-root--a-note-not-a-miss).
+
 It matches two shapes:
 
 - a **markdown link** `[setup](./scripts/run.sh)` whose target is a relative path
@@ -25,6 +74,91 @@ It matches two shapes:
 - an **inline-code path** `` `scripts/foo.sh` `` that is prefixed by a standard
   bundle dir (`scripts/`, `references/`, `assets/`), has an extension, **and sits
   in a line that directs the agent to use it** (see below).
+
+## Resolves only from the repo root — a note, not a miss
+
+The agent usually runs from the repository root. So when a skill says
+"run `` `scripts/check-changelog.sh` ``", it often means
+`<repo>/scripts/check-changelog.sh`, not a copy beside the SKILL.md. That works
+while the skill runs inside its own repository, and breaks once the skill is
+installed anywhere else — as a plugin, or copied into another project.
+
+Such a reference is neither missing nor fine, so vigiles reports it as its own
+kind of finding. Take this skill:
+
+```
+.claude/skills/release-check/SKILL.md   # line 8:  Run `scripts/check-changelog.sh` …
+                                        # line 10: Then read `references/release-policy.md` …
+scripts/check-changelog.sh              # at the repo root, not beside the SKILL.md
+```
+
+`references/release-policy.md` exists nowhere. `scripts/check-changelog.sh`
+exists only at the repo root.
+
+**Before** — both refs were reported as missing, and both counted against the
+score:
+
+```
+Skill bundled resources (2):
+  ✗ release-check: scripts/check-changelog.sh (line 8) — bundled resource not found
+  ✗ release-check: references/release-policy.md (line 10) — bundled resource not found
+```
+
+**After** — only the ref that exists nowhere is a miss. The other one is a note.
+With the rule on (`vigiles audit --preset=experimental`), both sit in the
+experimental block, after the grade:
+
+```
+Experimental — not graded:
+  Checks vigiles ships but has not measured as reliable enough to grade you on. They never move the score.
+  skill-resource-resolves (2):
+    ℹ release-check: bundled resource "scripts/check-changelog.sh" (line 8) resolves only from the repo root, not from the skill directory — it breaks once the skill is installed outside this repository. If repo-root resolution is intended, add "scripts" to sharedDirs in .vigilesrc.json.
+    ✗ release-check: bundled resource "references/release-policy.md" (line 10) is referenced but missing — the agent reads the instruction and gets nothing.
+```
+
+`vigiles lint --preset=experimental` prints the same two lines, in the same
+words:
+
+```
+skill-resource-resolves:
+
+  ℹ .claude/skills/release-check/SKILL.md: release-check: bundled resource "scripts/check-changelog.sh" (line 8) resolves only from the repo root, not from the skill directory — it breaks once the skill is installed outside this repository. If repo-root resolution is intended, add "scripts" to sharedDirs in .vigilesrc.json.
+  ⚠ .claude/skills/release-check/SKILL.md: release-check: bundled resource "references/release-policy.md" (line 10) is referenced but missing — the agent reads the instruction and gets nothing.
+```
+
+What each kind does, once the rule is on:
+
+| Surface                                                 | A missing ref                                    | A repo-root-only note           |
+| ------------------------------------------------------- | ------------------------------------------------ | ------------------------------- |
+| `audit` text                                            | `✗` line in the "Experimental" block             | `ℹ` line in the same block      |
+| `audit` score                                           | ❌ never scored (the rule is experimental)       | ❌ never scored                 |
+| `audit --json` / HTML                                   | `ungraded[]`, kind `finding`                     | `ungraded[]`, kind `note`       |
+| `lint` exit code                                        | 0 at `warn`; fails only at an explicit `"error"` | ❌ never fails, at any severity |
+| GitHub Actions annotation                               | `::warning` / `::error`                          | `::notice`                      |
+| `"skill-resource-resolves": false` or an `off` override | silenced                                         | silenced                        |
+
+ℹ️ **What "the repo root" is.** The same root `sharedDirs` is read from: the
+folder holding `.vigilesrc.json` (your working directory) for `vigiles lint`
+and `vigiles audit`, and the audited folder for `vigiles audit <other-repo>`.
+
+**Why a note, and not just resolving it from the repo root.** A real miss must
+never disappear because a file with the same name happens to sit at the root.
+Reporting the ref as a note keeps that guarantee visible: you still see every
+ref that is not beside its SKILL.md, and you can tell the ones that are gone
+from the ones that are only fragile.
+
+**Why not just ask people to set `sharedDirs`.** `sharedDirs` is opt-in, and
+`vigiles audit` is zero-config. Someone auditing a repository they do not own
+has no `.vigilesrc.json` to edit, so every repo-root path read as a broken
+reference. On a sweep of public repositories with a committed Claude Code or
+Codex harness, that was the largest single source of false "missing" reports.
+
+**To silence a note** in a repository you own, declare the directory as shared
+(`{ "sharedDirs": ["scripts"] }` — see
+[skills in a monorepo](../skills-monorepo.md#shared-scripts--references-trees--shareddirs)),
+or ship the file beside the SKILL.md if the skill is meant to be installed
+elsewhere. A file at the root with no directory (`guide.md`) cannot be declared
+shared — the note says so and suggests shipping it beside the SKILL.md.
 
 ## High-precision (FP-safe)
 
@@ -106,26 +240,30 @@ entirely with a `<!-- vigiles-disable skill-resource-resolves -->` marker.
 
 ## Configuration
 
+Off by default (see [Experimental](#experimental-off-by-default-never-graded)).
+To turn it on, extend the experimental preset or set the rule yourself:
+
 ```json
 { "rules": { "skill-resource-resolves": "warn" } }
 ```
 
 ### Severity
 
-| Value              | Behavior                                                        |
-| ------------------ | --------------------------------------------------------------- |
-| `"error"`          | `vigiles lint` exits non-zero (2) on a missing bundled resource |
-| `"warn"` (default) | Prints a warning, exits 0 (don't-cry-wolf rollout)              |
-| `false`            | Skip the check                                                  |
+| Value             | Behavior                                                                                           |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| `"error"`         | `vigiles lint` exits non-zero (2) on a missing bundled resource; a repo-root-only note never fails |
+| `"warn"`          | Prints a warning, exits 0. What `--preset=experimental` and `vigiles:experimental` set             |
+| `false` (default) | Skip the check, notes included                                                                     |
 
-Default is **`warn`** during rollout; raise to `"error"` to gate CI once you trust
-it on your own skills.
+Nothing vigiles writes raises it to `"error"`. Set that yourself only once the
+rule is quiet on your own skills. Whatever the severity, `audit` never scores it.
 
 ## Scope
 
 Skills (`skills/*/SKILL.md`) — every harness has skills, so this rule is **not**
 capability-gated. References resolve against the skill's own directory (resources
-ship beside the SKILL.md).
+ship beside the SKILL.md), then against the repo root — through a declared
+`sharedDirs` entry (resolved), or on its own (a note).
 
 ## Why
 

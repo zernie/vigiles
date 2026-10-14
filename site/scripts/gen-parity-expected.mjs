@@ -14,6 +14,10 @@ import { format } from "prettier";
 
 import { scanFiles } from "../../dist/scan-files.js";
 import { buildAuditReport } from "../../dist/audit-report.js";
+import { applyRules } from "../../dist/core/apply-rules.js";
+import { defaultSeverities } from "../../dist/core/rule.js";
+import { ruleResolver } from "../../dist/overrides.js";
+import { RULES, RULE_GROUPS } from "../../dist/rules/index.js";
 
 const SLUG = "acme/widgets";
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
@@ -26,7 +30,14 @@ const files = JSON.parse(
 );
 
 const report = scanFiles(files);
-const audit = buildAuditReport(report, {
+// The same rule set at its defaults that runAudit hands the engine.
+const shown = applyRules(
+  RULES,
+  RULE_GROUPS,
+  ruleResolver(defaultSeverities(RULES)),
+  report,
+);
+const audit = buildAuditReport(shown, {
   harness: "claude-code",
   vigilesVersion: "live",
 });

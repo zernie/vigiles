@@ -22,11 +22,11 @@ const MAX_RULES = "--max-rules=";
  * Unknown flags are left untouched (each command parses its own besides
  * these). Returns a new object; the input is not mutated.
  */
-export function applyConfigFlags(
-  config: VigilesConfig,
+export function applyConfigFlags<C extends VigilesConfig>(
+  config: C,
   args: readonly string[],
-): VigilesConfig {
-  const next: VigilesConfig = { ...config };
+): C {
+  const next: C = { ...config };
 
   const maxRulesFlag = args.find((a) => a.startsWith(MAX_RULES));
   if (maxRulesFlag) {

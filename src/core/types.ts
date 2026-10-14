@@ -5,8 +5,11 @@ import type { HarnessDialect } from "./dialect.js";
 // no cycle, even though config-schema.ts imports nothing from here.
 import type {
   HarnessDeclarationShape,
-  VigilesConfigShape,
+  RulesConfig,
+  VigilesConfigOf,
 } from "./config-schema.js";
+
+export type { RuleEntry, RulesConfig } from "./config-schema.js";
 
 /** A parsed rule from a markdown instruction file. */
 export interface ParsedRule {
@@ -146,311 +149,6 @@ export interface CompileBudgetConfig {
   maxRulesChars?: number;
 }
 
-export interface RulesConfig {
-  /**
-   * Opt-in: a doc in a configured dir (default `docs/`) that no other `.md`
-   * references. The `orphans` block turns the SCAN on; this turns the FINDING
-   * into a warning or an error.
-   *
-   * It lived outside this interface until 2026-09 and therefore could not be
-   * set at all: `"warn"` and `"off"` were both ignored and the check always
-   * exited 1, so a repo's only choice was an always-blocking check or deleting
-   * the `orphans` block (#181). Default: "error", matching the old behaviour.
-   */
-  "orphan-docs"?: RuleSeverity;
-  /**
-   * Re-derive a compiled instruction file's references from its `.spec.ts` and
-   * report the dead ones.
-   *
-   * The integrity hash answers "is this file still what the spec compiled to";
-   * it says nothing about whether the paths and scripts it NAMES still exist. So
-   * an artifact committed while its refs were live stayed green forever after
-   * the target was deleted — `compile` errored, `lint` said "hash valid" and
-   * exited 0 (#173). Default: "error", matching `compile`.
-   */
-  "spec-refs"?: RuleSeverity;
-  /**
-   * The always-loaded instruction weight may not move away from the committed
-   * baseline in `.vigiles/instruction-weight.json` — a ratchet against the
-   * repo's own past, not a fixed budget. No baseline file → a one-line note,
-   * never a finding, so turning this on fails no repository on day one.
-   * `vigiles lint --update-baseline` records it. Default: "error".
-   *
-   * `["error", { max: 40000 }]` adds an opt-in absolute ceiling on top of the
-   * ratchet: a total above `max` is a finding whatever the baseline says, and
-   * the baseline cannot be re-recorded above it.
-   */
-  "instruction-weight"?: RuleWithOptions<InstructionWeightConfig>;
-  /**
-   * An instruction spec still uses the deprecated `keyFiles` field — a flat
-   * path → description list compiled into the file loaded on every request.
-   * Reports the entry count and compiled size with the migration (a `file()`
-   * ref in the rule that needs the pointer). The spec is parsed, never run.
-   * Default "warn": a deprecation must not turn a consumer's CI red on upgrade.
-   */
-  "deprecated-key-files"?: RuleSeverity;
-  /**
-   * Near-duplicate rules WITHIN one spec, by NCD similarity — spec bloat, two
-   * rules saying the same thing in different words.
-   *
-   * Also previously untierable, and worse: it had no rule id at all, so there
-   * was no name a config could even mention (#181). Default: "error".
-   */
-  "duplicate-rules"?: RuleSeverity;
-  /**
-   * Require a `.spec.ts` behind each instruction file (CLAUDE.md / AGENTS.md) —
-   * the file must be compiled from a typed spec, not hand-written. NARROW: only a
-   * `.spec.ts` sibling (or an explicit `<!-- vigiles-disable
-   * require-instructions-spec -->` marker) satisfies it; inline
-   * `<!-- vigiles:enforce -->` comments do NOT (the rule name says "spec"). Default:
-   * "warn". `vigiles init` auto-adopts every instruction file into a spec, so this
-   * is GREEN by construction after setup — a safety net for a NEW hand-added file,
-   * not a nag. The workflow-tier opt-in (gated under `--strict`).
-   */
-  "require-instructions-spec"?: RuleSeverity;
-  /**
-   * Require a `.spec.ts` behind each SKILL.md — the consistent
-   * `require-<surface>-spec` parallel to `require-instructions-spec`. Default:
-   * false (OFF): skills are legitimately hand-written, and the coverage that
-   * matters ("every skill ships with a test/eval") is the `untested-skill` rule.
-   * Set it explicitly if your team wants every skill spec-managed.
-   */
-  "require-skill-spec"?: RuleSeverity;
-  /** Detect hand-edits to compiled markdown via SHA-256 hash. Default: "warn". */
-  integrity?: RuleSeverity;
-  /** Enforce minimum spec coverage thresholds. Default: false. ESLint-style: ["warn", { scripts: 50 }]. */
-  coverage?: RuleWithOptions<CoverageThresholds>;
-  /** Flag a skill (SKILL.md) that ships with no test or eval. Default: "warn". */
-  "untested-skill"?: RuleWithOptions<TestCoverageConfig>;
-  /** Flag a subagent (agents/*.md) that ships with no test or eval. Default: "warn". */
-  "untested-subagent"?: RuleWithOptions<TestCoverageConfig>;
-  /** Flag a hook script that ships with no test or eval. Default: "warn". */
-  "untested-hook"?: RuleWithOptions<TestCoverageConfig>;
-  /** Flag an output style that ships with no test or eval. Default: "warn". */
-  "untested-output-style"?: RuleWithOptions<TestCoverageConfig>;
-  /**
-   * Nudge (or block) when an instruction file has code-shaped references that
-   * aren't expressed as vigiles marks (so the lint can't verify them), or a
-   * `vigiles:symbol` mark that points at a missing symbol. Drives the
-   * PostToolUse refs-hook: "warn" (default) → a non-blocking nudge, "error" →
-   * block the edit, false → off.
-   */
-  "unmarked-refs"?: RuleSeverity;
-  /**
-   * Cross-reference each subagent's `tools:` rail against the harness tool
-   * catalog — flag a never-available tool or a close typo (the moat). Only
-   * high-confidence issues are reported (a bare unrecognized tool is likely
-   * plugin/MCP-provided, never flagged). Off unless set; "warn" surfaces,
-   * "error" gates CI. Same detector as `scan` + `compileAgent`.
-   */
-  "subagent-tool-contract"?: RuleSeverity;
-  /**
-   * Flag a hook registered under an event name the harness doesn't define (a
-   * typo → the hook never fires). High-precision: close typos only, never a
-   * framework/custom event. Default "warn"; "error" gates CI. Same detector as
-   * `scan`.
-   */
-  "hook-events"?: RuleSeverity;
-  /**
-   * Flag a skill/agent missing a required frontmatter field — a skill needs
-   * `name` (to load), an agent needs `name` + `description`. A broken surface
-   * that won't register. Default "warn"; "error" gates CI. Same detector as `scan`.
-   */
-  "subagent-frontmatter"?: RuleSeverity;
-  /**
-   * Flag a declared MCP server that can't start — neither a `command` (stdio)
-   * nor a `url` (http/sse). Default "warn"; "error" gates CI. Same detector as
-   * `scan`. (JSON `.mcp.json`/manifest `mcpServers`; Codex TOML not yet parsed.)
-   */
-  "mcp-config"?: RuleSeverity;
-  /**
-   * RECOMMEND (not require) that a SKILL.md declares an explicit `name` +
-   * `description` rather than relying on the dir-name / first-paragraph
-   * fallbacks — a more reliable trigger surface. The skill still loads without
-   * them, so this is a best-practice nudge: default "warn"; set "error" to
-   * enforce on your own skills. Same detector as `scan` (skillMetaIssues).
-   */
-  "skill-frontmatter"?: RuleSeverity;
-  /**
-   * Cross-reference an `mcp__server__tool` in a subagent's contract against the
-   * plugin's declared `mcpServers` — flag a server the plugin doesn't declare
-   * (the MCP half of the tool moat; `subagent-tool-contract` checks the built-in
-   * half). High-precision: only flags when the plugin SHIPS a declared set,
-   * allowlists harness built-ins (`ide`), and skips the plugin-namespaced
-   * `mcp__plugin_…` form. Default "warn"; "error" gates CI. Same detector as
-   * `scan` (mcpToolIssues).
-   */
-  "mcp-tool-resolves"?: RuleSeverity;
-  /**
-   * A file a COMPILED hook line needs is missing — the runtime, the program or
-   * its stamp — so the hook cannot run. Read from the hook-line plan, never
-   * from parsing a line. Default "warn"; `vigiles:recommended` raises it to
-   * "error". See docs/rules/hook-script-exists.md.
-   */
-  "hook-script-exists"?: RuleSeverity;
-  /**
-   * One finding per hook line vigiles did not write: it cannot say what such a
-   * line runs or whether it swallows its own failure, so it names the hook and
-   * points at compiled hooks (`vigiles/hook`). Default OFF, also under
-   * `vigiles:recommended`: the cure is an experimental API, so it is opt-in
-   * until compiled hooks leave experimental. See docs/rules/hand-written-hook.md.
-   */
-  "hand-written-hook"?: RuleSeverity;
-  /**
-   * Cross-reference a subagent's `disallowedTools:` block-list against the
-   * catalog — the deny-side mirror of `subagent-tool-contract`. A close typo there
-   * blocks NOTHING (you meant to deny `Bash`, wrote `Bsh`), leaving the tool
-   * available. High-precision: close-typo only (a never-available tool is
-   * harmless to list, a bare unknown is likely a plugin tool). Default "warn";
-   * "error" gates CI. Same detector as `scan` (disallowedToolIssues).
-   */
-  "disallowed-tools-contract"?: RuleSeverity;
-  /**
-   * Flag two model-invocable skills whose descriptions are near-identical — the
-   * selector can't tell them apart, so the wrong one fires (a precision
-   * collision). A DETERMINISTIC NCD proxy for a `--trigger`-class behavioral bug;
-   * calibrated FP-safe (only basically-identical text, below the sweep's
-   * most-similar distinct pair). Default "warn"; "error" gates CI. Same detector
-   * as `scan` (descriptionOverlaps).
-   */
-  "description-overlap"?: RuleSeverity;
-  /**
-   * Flag a model-invocable skill whose `description` is so long the trigger
-   * signal is buried — the selector weighs the opening most, so a bloated
-   * description hurts recall + precision. A DETERMINISTIC heuristic proxy for a
-   * `--trigger`-class behavioral bug; calibrated FP-safe (generous default
-   * budget, 500 chars). Default "warn" — a proxy, never gates. Same detector as
-   * `scan` (descriptionBudgetIssues).
-   */
-  "skill-description-budget"?: RuleSeverity;
-  /**
-   * Size budgets on a COMPILED instruction file (`compile` from a `.spec.ts`):
-   * one `commands` entry, one prose section, and the whole Rules section. The
-   * whole always-loaded size is `instruction-weight`'s; `keyFiles` is
-   * deprecated, so neither is measured here.
-   *
-   * Default "warn", which is exactly the behaviour before this rule had a name:
-   * the per-entry and per-section budgets print as warnings and never stop a
-   * compile; the Rules total is not evaluated unless a threshold is configured.
-   * "error" (set by `vigiles:recommended`) makes every budget fail `compile` and
-   * `lint`. Options are thresholds — see {@link CompileBudgetConfig}. See
-   * docs/rules/compile-budget.md.
-   */
-  "compile-budget"?: RuleWithOptions<CompileBudgetConfig>;
-  /**
-   * Flag a skill/agent whose `---` frontmatter block EXISTS but isn't valid YAML
-   * — fields may not parse as intended. CAVEAT: a real YAML parser (js-yaml) is
-   * stricter than some loaders, so a one-line `description:` containing a `: `
-   * colon or an `<example>` block is flagged even though it may still load.
-   * Hence default "warn" (a nudge), not "error" — verify before enforcing. Same
-   * detector as `scan` (malformedFrontmatter).
-   */
-  "frontmatter-valid"?: RuleSeverity;
-  /**
-   * Flag a `type: "mcp_tool"` hook action that's incomplete (missing `server` /
-   * `tool`) or targets a server the plugin doesn't declare in `mcpServers` — the
-   * hook silently never dispatches. High-precision: the undeclared-server half is
-   * gated on the plugin shipping a declared set and allowlists built-ins (`ide`),
-   * mirroring `mcp-tool-resolves`. Default "warn"; "error" gates CI. Same detector
-   * as `scan` (mcpHookIssues).
-   */
-  "mcp-hook-target-resolves"?: RuleSeverity;
-  /**
-   * Flag a unit (subagent / model-invocable skill) whose declared tools hold all
-   * THREE legs of Simon Willison's "lethal trifecta" — read private data, ingest
-   * untrusted content, AND exfiltrate — a prompt-injection exfil path with no
-   * exploit code (Meta's Rule of Two: allow at most two). A capability SET-
-   * intersection over the declared contract, NOT a text scan; high-precision (only
-   * well-known tools map to a leg). An EXPLICIT all-three contract is a "hard"
-   * finding; an inherits-all unit (no contract → every leg) is "advisory". Default
-   * "warn" (don't-cry-wolf rollout); raise to "error" to gate CI. Same detector as
-   * `scan` (lethalTrifectaIssues). See docs/rules/lethal-trifecta.md.
-   */
-  "lethal-trifecta"?: RuleSeverity;
-  /**
-   * Flag a SKILL.md body referencing a bundled file (`scripts/`/`references/`/
-   * `assets/`, or a relative markdown link with an extension) that doesn't exist
-   * on disk under the skill dir — the agent reads the instruction, gets nothing,
-   * and silently continues. The cross-reference moat applied to the SKILL.md body.
-   * High-precision / FP-safe (skips URLs, `$VAR` tokens, `../` escapes, extension-
-   * less mentions). Default "warn"; raise to "error" to gate CI. Same detector as
-   * `scan` (skillResourceIssues). See docs/rules/skill-resource-resolves.md.
-   */
-  "skill-resource-resolves"?: RuleSeverity;
-  /**
-   * Flag a SKILL.md that opens with frontmatter-looking keys (`name:`,
-   * `description:`, …) but has NO opening `---` fence — the harness loads the
-   * whole file as body, so the skill has no name/description/trigger and is
-   * invisible (never fires). High-precision (a fixed key whitelist; markdown /
-   * prose lines never match). Default "warn"; raise to "error" to gate CI. Same
-   * detector as `scan` (skillFenceIssues). See docs/rules/skill-missing-fence.md.
-   */
-  "skill-missing-fence"?: RuleSeverity;
-  /**
-   * Flag a functional surface directory (skills/agents/commands) nested INSIDE
-   * the `.claude-plugin/` manifest dir, where only `plugin.json` belongs — the
-   * harness can't see it, so the surface is invisible (the #1 plugin-author
-   * mistake). Pure filesystem check, FP-safe. Default "warn"; raise to "error"
-   * to gate CI. Same detector as `scan` (pluginLayoutIssues). See
-   * docs/rules/plugin-dir-layout.md.
-   */
-  "plugin-dir-layout"?: RuleSeverity;
-  /**
-   * Flag a lethal trifecta that EMERGES across a delegation edge — a subagent
-   * whose effective (own ∪ delegated-to) capability holds all three legs though
-   * no single unit does (the combined blast radius). The capability-diff across
-   * the delegation tree; skips units the per-unit `lethal-trifecta` already
-   * flags (no double-report), FP-safe (explicit edges, wildcard-guarded). Default
-   * "warn"; raise to "error" to gate CI. Same detector as `scan`
-   * (delegationTrifecta). See docs/rules/delegation-trifecta.md.
-   */
-  "delegation-trifecta"?: RuleSeverity;
-  /**
-   * Flag a hook that LOOKS like it blocks but silently doesn't — a block decision
-   * (`exit 2` / `decision` / `permissionDecision`) on an event that can't veto, or
-   * the legacy top-level `decision` field on a permission-gated event where only
-   * `hookSpecificOutput.permissionDecision` works (#19009, the #1 verified hook
-   * pain). FP-safe (conservative literal patterns; the blocking-event sets are
-   * read from the dialect, so it runs only where they're declared). Default "warn";
-   * raise to "error" to gate CI. Same detector as `scan` (hookBlockFindings). See
-   * docs/rules/hook-block-ineffective.md.
-   */
-  "hook-block-ineffective"?: RuleSeverity;
-  /**
-   * Flag a hook `matcher` string that doesn't fire the way it reads — a close
-   * typo of a built-in tool (`bash`→`Bash`), a matcher that doesn't COMPILE, an
-   * MCP pattern that can match no tool name at all (`mcp_memory_*` instead of
-   * `mcp__memory__.*`), an MCP pattern too narrow for real server naming
-   * (`mcp__[^_]+__[^_]+` can't cross the `_` in `mcp__Google_Calendar__…`), or a
-   * server the plugin doesn't declare. A matcher is a PATTERN, so patterns are
-   * validated by compiling and probing, never by literal shape. High-precision
-   * (close-typo only; MCP gated on a declared set, built-ins allowlisted;
-   * match-all and alternation skipped). Default "warn"; raise to "error" to gate
-   * CI. Same detector as `scan` (hookMatcherFindings). See
-   * docs/rules/hook-matcher.md.
-   */
-  "hook-matcher"?: RuleSeverity;
-  /**
-   * Validate vigiles-builder calls quoted inside ```ts fences in markdown —
-   * `enforce()` / `file()` / `cmd()` / `ref()` — against the real linter catalog,
-   * filesystem and package scripts.
-   *
-   * DEFAULT OFF, and the default is the finding. Measured on two repositories
-   * 2026-08-19 (2 582 markdown files, 52 refs): **zero true positives, and every
-   * error it has ever raised was a false one** — a design sketch writing
-   * `cmd("npm test")` for a package that doesn't exist yet, or a third-party
-   * `CLAUDE.md` captured verbatim as benchmark data. The reason is structural,
-   * not calibration: a fenced block in prose is a DRAWING of config, and this
-   * rule reads it as config. The consumer repo could only reach a clean `lint`
-   * by excluding a third of itself, after which the pass scanned 604 files and
-   * found 0 refs — inert, and still paying for the walk.
-   *
-   * Turn it on where markdown really is the source (a docs site whose fences are
-   * copy-pasted into live specs). See docs/rules/doc-refs.md.
-   */
-  "doc-refs"?: RuleSeverity;
-}
-
 // ---------------------------------------------------------------------------
 // Rule parsing helpers
 // ---------------------------------------------------------------------------
@@ -492,22 +190,23 @@ export function ruleOptions<T>(
 export type HarnessDeclaration = HarnessDeclarationShape;
 
 /**
- * Full vigiles configuration, loaded from `.vigilesrc.json`.
+ * Full vigiles configuration, loaded from `.vigilesrc.json`, with `rules` keyed
+ * by a string id — the form generic code takes.
  *
  * 🔴 DERIVED FROM THE SCHEMA, NOT WRITTEN BESIDE IT. The shape, the defaults and
- * the per-key prose all live in `./config-schema.ts`; this is
- * `z.infer<typeof vigilesConfigSchema>` with the defaults applied, so the type
- * says exactly what a parsed config carries — `rules` non-optional and complete
- * because every rule key has a schema default, optional keys optional because
- * the schema says so. A hand-written twin is the copy that drifts: `harness` and
- * `surfaceRoots` lived in that twin, in `docs/cli.md` and in the loader's
- * coercions, and the three disagreed about what was read (#240).
+ * the per-key prose all live in `./config-schema.ts`, and the `rules` are built
+ * from the rule set the composition root hands in; the root's PRECISE type
+ * (each id with its own options) is `VigilesConfig` in `src/rules/index.ts`. A
+ * hand-written twin is the copy that drifts: `harness` and `surfaceRoots` lived
+ * in that twin, in `docs/cli.md` and in the loader's coercions, and the three
+ * disagreed about what was read (#240). The per-rule prose that lived in a
+ * hand-written `RulesConfig` here is each rule's `summary` and its doc.
  *
  * The re-export is TYPE-ONLY on purpose — `types.ts` is imported by node-free
  * core modules, and a value import of the schema module would pull Zod into
  * every one of them.
  */
-export type VigilesConfig = VigilesConfigShape;
+export type VigilesConfig = VigilesConfigOf<RulesConfig>;
 
 /** Valid marker types for rule detection. */
 export type MarkerType = "headings" | "checkboxes";

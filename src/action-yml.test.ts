@@ -124,6 +124,7 @@ const script = action.runs.steps?.[0]?.run ?? "";
 function resolveRunner(
   files: Readonly<Record<string, string>>,
   version: string | undefined = action.inputs["version"]?.default,
+  env: Readonly<Record<string, string>> = {},
 ): string {
   const root = mkdtempSync(join(tmpdir(), "vigiles-action-"));
   try {
@@ -152,6 +153,7 @@ function resolveRunner(
         VIGILES_COMMAND: "lint",
         VIGILES_VERSION: version ?? "",
         VIGILES_ACTION_PATH: root,
+        ...env,
       },
     });
     return readFileSync(join(root, "npx.log"), "utf-8").trim();
@@ -226,6 +228,33 @@ describe("action.yml — which vigiles the default runs", () => {
         "26",
       ),
       "--yes vigiles@26 lint",
+    );
+  });
+});
+
+/**
+ * `preset` reaches the CLI as `--preset=<name>` — the same switch, so the
+ * experimental group is one input away in CI. The value is passed through for
+ * the CLI to validate (one validator, the config's), and empty adds nothing.
+ */
+describe("action.yml — the preset input", () => {
+  const installed = {
+    "package.json": declares("^33.3.0"),
+    "node_modules/.bin/vigiles": "#!/bin/sh\n",
+  };
+  it("is declared, defaulting to empty", () => {
+    assert.equal(action.inputs["preset"]?.default, "");
+  });
+  it("maps to --preset=", () => {
+    assert.equal(
+      resolveRunner(installed, undefined, { VIGILES_PRESET: "experimental" }),
+      "--no-install vigiles lint --preset=experimental",
+    );
+  });
+  it("adds nothing when empty", () => {
+    assert.equal(
+      resolveRunner(installed, undefined, { VIGILES_PRESET: "" }),
+      "--no-install vigiles lint",
     );
   });
 });

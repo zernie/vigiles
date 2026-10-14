@@ -54,6 +54,7 @@ import {
   type PluginScore,
 } from "./score-core.js";
 import type { ScanReport } from "./scan.js";
+import type { GradedView } from "./core/apply-rules.js";
 
 export type CategoryKey =
   | "Truthfulness"
@@ -621,7 +622,8 @@ function isEmptyAudit(r: ScanReport): boolean {
  * UNCHANGED by the Tested/Evaluated split.
  */
 export function auditScore(
-  report: ScanReport,
+  /** The graded view: an ungraded group's findings never reach a ring. */
+  report: GradedView<ScanReport>,
   opts: AuditScoreOptions = {},
 ): AuditScore {
   if (isEmptyAudit(report)) {

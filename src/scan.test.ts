@@ -26,6 +26,8 @@ import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { codexLayout } from "./adapters/codex/layout.js";
 import { codexDialect } from "./adapters/codex/dialect.js";
 import { auditScore } from "./audit-score.js";
+import { ADAPTERS } from "./adapter-registry.js";
+import { skillsHome } from "./core/layout.js";
 import { excludeSet } from "./exclude.js";
 import {
   hookGateRef,
@@ -33,6 +35,14 @@ import {
   runProgramCommand,
 } from "./core/hook-command.js";
 import { withRoleExit } from "./core/hook-program.js";
+import { applyRules } from "./core/apply-rules.js";
+import { defaultSeverities, type ScanInput } from "./core/rule.js";
+import { ruleResolver } from "./overrides.js";
+import { RULES, RULE_GROUPS } from "./rules/index.js";
+
+/** A scan as `audit` shows it under the shipped defaults (`applyRules`). */
+const shown = <S extends ScanInput>(scan: S) =>
+  applyRules(RULES, RULE_GROUPS, ruleResolver(defaultSeverities(RULES)), scan);
 
 function write(dir: string, rel: string, content: string): void {
   const abs = join(dir, rel);
@@ -208,6 +218,72 @@ test("sharedDirs resolve against sharedDirsRoot, not a scoped subdir (P1-4 + P0-
     cleanupTmpDir(repo);
   }
 });
+
+// #382: a skill ref that resolves only from the repo root is a NOTE, not a miss.
+// The detector is harness-neutral, but where a skill lives is a layout fact, so
+// the same repo shape runs under every registered adapter that has skills.
+for (const adapter of ADAPTERS) {
+  const skillsDir = skillsHome(adapter.layout);
+  if (skillsDir === null) continue;
+  const scan = (dir: string) =>
+    scanPlugin(dir, adapter.layout, adapter.dialect);
+  test(`a repo-root-only skill ref is a note, never scored (#382, ${adapter.name})`, () => {
+    const repo = makeTmpDir("scan-382");
+    const noteOnly = makeTmpDir("scan-382-note");
+    const clean = makeTmpDir("scan-382-clean");
+    try {
+      const skill = (body: string): string =>
+        `---\nname: rca\ndescription: runs the repo's leak scanner before a commit\n---\n${body}\n`;
+      write(
+        repo,
+        `${skillsDir}/rca/SKILL.md`,
+        skill("Run `scripts/leak.py` first.\n\nThen run `scripts/gone.py`."),
+      );
+      write(repo, "scripts/leak.py", "# lives at the repo root only\n");
+      const r = scan(repo);
+      const refs = r.skills.flatMap((sk) => sk.resourceIssues);
+      assert.deepEqual(
+        refs.map((f) => [f.ref, f.resolution]),
+        [
+          ["scripts/leak.py", "repo-root-only"],
+          ["scripts/gone.py", "missing"],
+        ],
+        "only the ref that exists nowhere is missing; the other is a note",
+      );
+      // The rule is in an ungraded group: the report shows its findings only
+      // when the run turned the rule on, and then in the group's own block.
+      assert.doesNotMatch(formatScanReport(shown(r)), /scripts\/gone\.py/);
+      const text = formatScanReport(
+        applyRules(RULES, RULE_GROUPS, { mayFire: () => true }, r),
+      );
+      assert.match(text, /Experimental — not graded:/);
+      assert.match(
+        text,
+        /✗ rca: bundled resource "scripts\/gone\.py" \(line 7\)/,
+      );
+      assert.match(
+        text,
+        /ℹ rca: bundled resource "scripts\/leak\.py" \(line 5\) resolves only from the repo root/,
+      );
+      assert.doesNotMatch(text, /✗ rca: bundled resource "scripts\/leak\.py"/);
+
+      // The note is never scored: a repo whose only ref is repo-root-only
+      // scores exactly like the same repo with no ref at all.
+      for (const [dir, body] of [
+        [noteOnly, "Run `scripts/leak.py` first."],
+        [clean, "Run the leak scanner first."],
+      ] as const) {
+        write(dir, `${skillsDir}/rca/SKILL.md`, skill(body));
+        write(dir, "scripts/leak.py", "# lives at the repo root only\n");
+      }
+      assert.deepEqual(auditScore(scan(noteOnly)), auditScore(scan(clean)));
+    } finally {
+      cleanupTmpDir(repo);
+      cleanupTmpDir(noteOnly);
+      cleanupTmpDir(clean);
+    }
+  });
+}
 
 test("subagent classification is layout-driven (ready for new harnesses)", () => {
   // A harness whose subagents live somewhere other than `agents/` — e.g.
@@ -408,8 +484,11 @@ test("scanPlugin lists every hand-written hook (a compiled one, by identity, exc
     ["PreToolUse", "Stop"],
     "two hand-written, the compiled one excluded",
   );
-  // Each one surfaces in the report by name, linking the guide.
-  const out = formatScanReport(r);
+  // Each one surfaces in the report by name, linking the guide — when the rule
+  // that names them is on (it is off by default; every rule is on here).
+  const out = formatScanReport(
+    applyRules(RULES, RULE_GROUPS, { mayFire: () => true }, r),
+  );
   assert.match(
     out,
     /PreToolUse hook `bash \$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/guard\.sh`: vigiles did not write this line/,
@@ -423,7 +502,7 @@ test("scanPlugin lists no hand-written hooks when there are none", () => {
   write(dir, "CLAUDE.md", "# x\n");
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(r.handWrittenHooks, []);
-  assert.doesNotMatch(formatScanReport(r), /hand-written hook/);
+  assert.doesNotMatch(formatScanReport(shown(r)), /hand-written hook/);
   cleanupTmpDir(dir);
 });
 
@@ -435,7 +514,7 @@ test("scanPlugin reports the instruction file on any repo (spec-managed vs hand-
   const r1 = scanPlugin(bare, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(r1.instructions, { file: "CLAUDE.md", hasSpec: false });
   assert.match(
-    formatScanReport(r1),
+    formatScanReport(shown(r1)),
     /Instructions: CLAUDE\.md \(hand-written, no spec\)/,
   );
   cleanupTmpDir(bare);
@@ -447,7 +526,7 @@ test("scanPlugin reports the instruction file on any repo (spec-managed vs hand-
   const r2 = scanPlugin(managed, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(r2.instructions, { file: "CLAUDE.md", hasSpec: true });
   assert.match(
-    formatScanReport(r2),
+    formatScanReport(shown(r2)),
     /Instructions: CLAUDE\.md \(spec-managed\)/,
   );
   cleanupTmpDir(managed);
@@ -457,7 +536,7 @@ test("scanPlugin reports the instruction file on any repo (spec-managed vs hand-
   write(none, "skills/foo/SKILL.md", "---\nname: foo\ndescription: foo\n---\n");
   const r3 = scanPlugin(none, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r3.instructions, null);
-  assert.doesNotMatch(formatScanReport(r3), /Instructions:/);
+  assert.doesNotMatch(formatScanReport(shown(r3)), /Instructions:/);
   cleanupTmpDir(none);
 });
 
@@ -482,7 +561,9 @@ test("scanPlugin flags a never-available agent tool, suppresses unrecognized plu
   assert.equal(agent?.toolIssues[0].tool, "AskUserQuestion");
   // the report leads with the ✗ + the actionable message
   assert.match(
-    formatScanReport(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
+    formatScanReport(
+      shown(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
+    ),
     /never available to a subagent/,
   );
 });
@@ -536,8 +617,8 @@ test("scanPlugin flags a typo'd hook event, suppresses a framework/custom event"
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.hookEventIssues.length, 1);
   assert.equal(r.hookEventIssues[0].event, "PreToolUSe");
-  assert.match(formatScanReport(r), /Hook events/);
-  assert.match(formatScanReport(r), /Did you mean "PreToolUse"\?/);
+  assert.match(formatScanReport(shown(r)), /Hook events/);
+  assert.match(formatScanReport(shown(r)), /Did you mean "PreToolUse"\?/);
   cleanupTmpDir(dir);
 });
 
@@ -587,7 +668,7 @@ test("subagent-frontmatter flags a prose-only AGENT, but NOT a frontmatter-less 
     ),
     "a prose-only agent is missing both required fields",
   );
-  assert.match(formatScanReport(r), /Frontmatter/);
+  assert.match(formatScanReport(shown(r)), /Frontmatter/);
   cleanupTmpDir(dir);
 });
 
@@ -611,8 +692,8 @@ test("scanPlugin recommends explicit skill frontmatter (skillMetaIssues), but it
   assert.ok(r.skillMetaIssues[0].path.includes("foo"));
   assert.deepEqual(r.skillMetaIssues[0].missing, ["name"]);
   // It's a recommendation, NOT a structural issue — must not flip the verdict.
-  assert.match(formatScanReport(r), /no structural issues found/);
-  assert.match(formatScanReport(r), /lack an explicit frontmatter/);
+  assert.match(formatScanReport(shown(r)), /no structural issues found/);
+  assert.match(formatScanReport(shown(r)), /lack an explicit frontmatter/);
   cleanupTmpDir(dir);
 });
 
@@ -632,7 +713,7 @@ test("scanPlugin flags an MCP server that can't start (no command/url)", () => {
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.equal(r.mcpIssues.length, 1);
   assert.equal(r.mcpIssues[0].server, "broken");
-  assert.match(formatScanReport(r), /MCP config/);
+  assert.match(formatScanReport(shown(r)), /MCP config/);
   cleanupTmpDir(dir);
 });
 
@@ -702,7 +783,9 @@ test("scanPlugin flags an mcp__server__tool whose server the plugin doesn't decl
   assert.equal(agent?.mcpToolIssues.length, 1);
   assert.equal(agent?.mcpToolIssues[0].server, "linear");
   assert.match(
-    formatScanReport(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
+    formatScanReport(
+      shown(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
+    ),
     /can't resolve/,
   );
   cleanupTmpDir(dir);
@@ -745,8 +828,8 @@ test("scanPlugin reports malformed-YAML frontmatter as an informational note, no
   assert.equal(r.malformedFrontmatter.length, 1);
   assert.match(r.malformedFrontmatter[0].path, /bad\/SKILL\.md$/);
   // It's a soft note, NOT counted in the structural verdict.
-  assert.match(formatScanReport(r), /isn't valid YAML/);
-  assert.doesNotMatch(formatScanReport(r), /1 structural issue/);
+  assert.match(formatScanReport(shown(r)), /isn't valid YAML/);
+  assert.doesNotMatch(formatScanReport(shown(r)), /1 structural issue/);
   cleanupTmpDir(dir);
 });
 
@@ -779,7 +862,7 @@ test("scanPlugin flags near-duplicate model-invocable skill descriptions, skips 
     [r.descriptionOverlaps[0].a, r.descriptionOverlaps[0].b].sort(),
     ['"a" (skills/a/SKILL.md)', '"b" (skills/b/SKILL.md)'],
   );
-  assert.match(formatScanReport(r), /near-identical/);
+  assert.match(formatScanReport(shown(r)), /near-identical/);
   cleanupTmpDir(dir);
 });
 
@@ -801,7 +884,7 @@ test("scanPlugin flags an agent model/color typo, not a valid value or full mode
   );
   // typo.md: sonet→sonnet, yelow→yellow. ok.md: full id (skipped) + valid color.
   assert.deepEqual(fields.sort(), ["color:yellow", "model:sonnet"]);
-  assert.match(formatScanReport(r), /silently falls back/);
+  assert.match(formatScanReport(shown(r)), /silently falls back/);
   cleanupTmpDir(dir);
 });
 
@@ -823,7 +906,9 @@ test("scanPlugin flags a disallowedTools typo (blocks nothing), not a valid/unkn
   assert.equal(agent?.disallowedToolIssues[0].tool, "Bsh");
   assert.match(agent?.disallowedToolIssues[0].message ?? "", /blocks nothing/);
   assert.match(
-    formatScanReport(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
+    formatScanReport(
+      shown(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
+    ),
     /Did you mean "Bash"\?/,
   );
   cleanupTmpDir(dir);
@@ -864,7 +949,7 @@ test("scanPlugin flags a mcp_tool hook targeting an undeclared server + an incom
     ),
   );
   assert.ok(r.mcpHookIssues.some((i) => i.kind === "incomplete"));
-  assert.match(formatScanReport(r), /MCP hook targets/);
+  assert.match(formatScanReport(shown(r)), /MCP hook targets/);
   cleanupTmpDir(dir);
 });
 
@@ -1175,7 +1260,7 @@ test("scanPlugin counts commands and detects MCP", () => {
 test("formatScanReport flags the no-description skill", () => {
   const dir = fixture();
   const text = formatScanReport(
-    scanPlugin(dir, claudeCodeLayout, claudeCodeDialect),
+    shown(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
   );
   assert.ok(text.includes("structural issue")); // nodesc
   assert.ok(text.includes("inherits all")); // the notools agent footgun
@@ -1201,7 +1286,7 @@ test("scanPlugin surfaces a dangling ref from a hook script, but ignores prose m
   );
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(r.danglingRefs, ["skills/missing-helper/SKILL.md"]);
-  const text = formatScanReport(r);
+  const text = formatScanReport(shown(r));
   assert.ok(text.includes("Broken references"));
   assert.ok(/✗ skills\/missing-helper\/SKILL\.md/.test(text));
   assert.ok(text.includes("structural issue")); // counted in the verdict
@@ -1494,7 +1579,7 @@ test("effect surface: formatScanReport includes purity tags per agent and the su
     "---\nname: runner\ndescription: Runs shell commands here\ntools: Bash\n---\nbody\n",
   );
   const text = formatScanReport(
-    scanPlugin(dir, claudeCodeLayout, claudeCodeDialect),
+    shown(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
   );
   // Each agent line includes the purity tag in brackets.
   assert.match(text, /reader.*\[pure\]/);
@@ -1600,8 +1685,8 @@ test("scanPlugin flags a HARD lethal trifecta on a subagent with all three legs"
   assert.ok(flat, "the finding lands on the report's flat list");
   assert.equal(flat.kind, "subagent");
   // …and it prints in the human report under the trifecta section.
-  assert.match(formatScanReport(r), /Lethal trifecta/);
-  assert.match(formatScanReport(r), /✗ subagent exfil/);
+  assert.match(formatScanReport(shown(r)), /Lethal trifecta/);
+  assert.match(formatScanReport(shown(r)), /✗ subagent exfil/);
   cleanupTmpDir(dir);
 });
 
@@ -1615,7 +1700,7 @@ test("scanPlugin reports an inherits-all subagent trifecta as ADVISORY", () => {
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const agent = r.agents.find((a) => a.name === "wide");
   assert.equal(agent?.trifecta?.severity, "advisory");
-  assert.match(formatScanReport(r), /⚠ subagent wide/);
+  assert.match(formatScanReport(shown(r)), /⚠ subagent wide/);
   cleanupTmpDir(dir);
 });
 
@@ -1750,7 +1835,7 @@ test("the report AGGREGATES unfenced skills into one line but still counts every
     );
   }
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
-  const text = formatScanReport(r);
+  const text = formatScanReport(shown(r));
   assert.equal(r.trifectaFindings.length, 3, "every unit is still a finding");
   // The header counts UNITS (3), not the lines the aggregate collapsed them into.
   assert.match(text, /Lethal trifecta \(prompt-injection exfil risk\) \(3\)/);
@@ -1936,12 +2021,13 @@ test("scanPlugin flags a SKILL.md body referencing a missing bundled resource", 
     "only the missing ref is flagged",
   );
   assert.equal(pdf.resourceIssues[0].ref, "references/api.md");
-  // The aggregate list + the printed report both carry it.
-  const flat = r.skillResourceIssues.find((s) => s.name === "pdf");
-  assert.ok(flat);
-  assert.equal(flat.finding.ref, "references/api.md");
-  assert.match(formatScanReport(r), /Skill bundled resources/);
-  assert.match(formatScanReport(r), /pdf: references\/api\.md/);
+  // The printed report carries it when the rule is on.
+  const on = formatScanReport(
+    applyRules(RULES, RULE_GROUPS, { mayFire: () => true }, r),
+  );
+  assert.match(on, /✗ pdf: bundled resource "references\/api\.md"/);
+  // Ungraded: never in the structural tally, on or off.
+  assert.match(on, /✓ no structural issues found/);
   cleanupTmpDir(dir);
 });
 
@@ -2004,7 +2090,6 @@ test("skill-resource is FP-safe: URLs and $VAR tokens are not flagged", () => {
     r.skills.find((s) => s.name === "web")?.resourceIssues.length,
     0,
   );
-  assert.equal(r.skillResourceIssues.length, 0);
   cleanupTmpDir(dir);
 });
 
@@ -2307,7 +2392,7 @@ test("advisory vocabulary notes REACH the report (computed-then-dropped guard)",
   assert.ok(notes.some((n) => /NotARealTool/.test(n.message)));
 
   // …and they must be visible in the rendered report, not just on the object.
-  const text = formatScanReport(r);
+  const text = formatScanReport(shown(r));
   assert.match(text, /Vocabulary notes \(advisory, not graded\)/);
   assert.match(text, /OnFileSave/);
   assert.match(text, /vigiles is out of date — not your config/);
@@ -2337,7 +2422,7 @@ test("a clean plugin produces NO vocabulary notes (the silent half)", () => {
   );
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(r.vocabularyNotes, []);
-  assert.doesNotMatch(formatScanReport(r), /Vocabulary notes/);
+  assert.doesNotMatch(formatScanReport(shown(r)), /Vocabulary notes/);
   cleanupTmpDir(dir);
 });
 
@@ -2445,7 +2530,7 @@ test("weight: a CLAUDE.md that is nothing but an import is REPORTED AS A REDIREC
     assert.equal(w.committedTotal, 50011);
     assert.deepEqual(w.redirects, [{ path: "CLAUDE.md", to: ["AGENTS.md"] }]);
 
-    const out = formatScanReport(r);
+    const out = formatScanReport(shown(r));
     // The FINDING, in words a reader can act on…
     assert.match(out, /CLAUDE\.md is a REDIRECT/);
     assert.match(out, /AGENTS\.md/);
@@ -2467,9 +2552,9 @@ test("weight: an ordinary instruction file is NOT called a redirect", () => {
 
     const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
     assert.deepEqual(r.instructionWeight?.redirects, []);
-    assert.doesNotMatch(formatScanReport(r), /REDIRECT/);
+    assert.doesNotMatch(formatScanReport(shown(r)), /REDIRECT/);
     // The import is still weighed and still says where it came from.
-    assert.match(formatScanReport(r), /via @AGENTS\.md in CLAUDE\.md/);
+    assert.match(formatScanReport(shown(r)), /via @AGENTS\.md in CLAUDE\.md/);
   } finally {
     cleanupTmpDir(dir);
   }
@@ -2488,7 +2573,9 @@ test("weight: the printed total SAYS it is a floor — and says nothing when the
   try {
     writeFileSync(join(dir, "CLAUDE.md"), "a".repeat(10));
     assert.match(
-      formatScanReport(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
+      formatScanReport(
+        shown(scanPlugin(dir, claudeCodeLayout, claudeCodeDialect)),
+      ),
       /a FLOOR: a home-directory or organization-managed instruction file/,
     );
   } finally {
@@ -2505,7 +2592,7 @@ test("weight: the printed total SAYS it is a floor — and says nothing when the
       instructionBudget: undefined,
     });
     assert.equal(r.instructionWeight, null);
-    assert.doesNotMatch(formatScanReport(r), /a FLOOR/);
+    assert.doesNotMatch(formatScanReport(shown(r)), /a FLOOR/);
   } finally {
     cleanupTmpDir(bare);
   }
@@ -2584,7 +2671,7 @@ test("a surface directory no harness reads is a graded finding, its neighbours a
     );
 
     // …and the report NAMES the directory, so the reader can act on it.
-    const text = formatScanReport(r);
+    const text = formatScanReport(shown(r));
     assert.match(text, /Surfaces no harness reads \(1\)/);
     assert.match(text, /\.ai\/skills\/ holds 2 skills/);
     assert.doesNotMatch(text, /no structural issues found/);
@@ -2640,7 +2727,7 @@ test("a declared harness root is read and graded, and its finding disappears", (
       "…and the declared skills are now IN the grade",
     );
     // The report says so too: the inventory names them and the finding is gone.
-    const text = formatScanReport(after);
+    const text = formatScanReport(shown(after));
     assert.match(text, /Skills \(2\)/);
     assert.doesNotMatch(text, /\.ai\/skills\/ holds/);
     assert.match(text, /\.vendor\/skills\/ holds 1 skill/);
@@ -2827,7 +2914,7 @@ test("instruction weight: the per-machine delta prints in BOTH directions", () =
   writeFileSync(join(down, "AGENTS.md"), "a".repeat(400));
   writeFileSync(join(down, "CLAUDE.local.md"), "b".repeat(20));
   const outDown = formatScanReport(
-    scanPlugin(down, claudeCodeLayout, claudeCodeDialect),
+    shown(scanPlugin(down, claudeCodeLayout, claudeCodeDialect)),
   );
   assert.match(outDown, /−\s*380 chars/, "the negative delta is printed");
   assert.match(outDown, /REMOVES/, "and says what happened");
@@ -2844,7 +2931,7 @@ test("instruction weight: the per-machine delta prints in BOTH directions", () =
   writeFileSync(join(up, "CLAUDE.md"), "a".repeat(400));
   writeFileSync(join(up, "CLAUDE.local.md"), "b".repeat(20));
   const outUp = formatScanReport(
-    scanPlugin(up, claudeCodeLayout, claudeCodeDialect),
+    shown(scanPlugin(up, claudeCodeLayout, claudeCodeDialect)),
   );
   assert.match(outUp, /\+\s*20 chars from per-machine file/, "additive delta");
   assert.doesNotMatch(outUp, /REMOVES/, "nothing was removed here");

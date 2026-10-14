@@ -140,10 +140,6 @@ export function confidentBreakages(
       label: "mcp_tool hook incomplete / undeclared server",
     },
     {
-      n: r.skillResourceIssues.length,
-      label: "skill bundled-resource ref that doesn't resolve",
-    },
-    {
       n: r.skillFenceIssues.length,
       label: "invisible skill (no opening `---` fence)",
     },
@@ -339,11 +335,6 @@ export function reportDeductions(r: ScanReport): Deduction[] {
       label: "mcp_tool hook(s) incomplete / targeting an undeclared server",
     },
     {
-      n: r.skillResourceIssues.length,
-      weight: W_DANGLING_REF,
-      label: "skill bundled-resource ref(s) that don't resolve on disk",
-    },
-    {
       n: r.skillFenceIssues.length,
       weight: W_NO_DESCRIPTION,
       label: "invisible skill(s) (frontmatter with no opening `---` fence)",
@@ -372,6 +363,9 @@ export function reportDeductions(r: ScanReport): Deduction[] {
       label:
         "hook matcher(s) that don't fire as written (dead, or too narrow for real MCP names)",
     },
+    // NB: an UNGRADED group's findings are never a deduction: `applyRules`
+    // puts them in `ungraded`, and a scorer takes a `GradedView`, which has
+    // none (core/apply-rules.ts) — their precision is below the bar for grading.
     // NB: delegationTrifecta (like the advisory per-unit/inherits-all trifecta) is a
     // ⚠ RISK, surfaced but NOT graded — only the HARD per-unit trifecta above scores.
     // NB: untested surfaces are NOT a penalty — an untested surface is a hardening

@@ -141,6 +141,7 @@ import {
   permissionDecisionEventsOf,
 } from "./core/event-capability.js";
 import { hookLinePlan } from "./core/hook-command.js";
+import type { FilteredScan, UngradedGroup } from "./core/apply-rules.js";
 import { HOOKS_DIR } from "./core/hook-paths.js";
 
 // Re-export the pure detectors (and their public types: SurfaceClassifier,
@@ -167,8 +168,9 @@ export interface ScanSkill {
   /**
    * SKILL.md body references to a bundled file (`scripts/`/`references/`/`assets/`
    * or a relative markdown link with an extension) that don't resolve on disk
-   * under the skill dir — the agent reads the instruction and gets nothing.
-   * Computed by `skillResourceIssues()` (one detector, no drift).
+   * under the skill dir, each tagged `missing` or `repo-root-only`. Computed by
+   * `skillResourceIssues()` (one detector, no drift); the rule module that
+   * reports them (`src/rules/`) reads them through core's `ScanInput`.
    */
   readonly resourceIssues: readonly SkillResourceFinding[];
   /**
@@ -247,13 +249,6 @@ export interface ScanTrifectaFinding {
   readonly kind: "subagent" | "skill";
   readonly name: string;
   readonly finding: TrifectaFinding;
-}
-
-/** A SKILL.md body resource reference that doesn't resolve, tagged with the skill path. */
-export interface ScanSkillResourceFinding {
-  readonly path: string;
-  readonly name: string;
-  readonly finding: SkillResourceFinding;
 }
 
 /** A missing-frontmatter-fence finding tagged with the skill path. */
@@ -406,13 +401,6 @@ export interface ScanReport {
    * (the report) and the `lethal-trifecta` lint rule (one detector, no drift).
    */
   readonly trifectaFindings: readonly ScanTrifectaFinding[];
-  /**
-   * SKILL.md body references to a bundled resource that doesn't resolve on disk,
-   * across all skills — each carries the skill path for reporting/annotations.
-   * Shared by `scan` and the `skill-resource-resolves` lint rule (one detector, no
-   * drift).
-   */
-  readonly skillResourceIssues: readonly ScanSkillResourceFinding[];
   /**
    * Skills whose frontmatter-looking opening has NO `---` fence, so they load as
    * pure body (invisible — no name/description/trigger). Shared by `scan` and the
@@ -847,8 +835,6 @@ export function scanPlugin(
     existsSync,
   });
   const puritySummary = summarizePurity(agents);
-  const { trifectaFindings, skillResourceFindings, skillFenceFindings } =
-    collectSurfaceFindings(agents, skills);
   // Remap frontmatter-family finding paths from the synthetic materialize key to
   // the real on-disk path (dogfood E1), so diagnostics + GitHub annotations point
   // at a file that exists (the same fix ScanAgent/ScanSkill.path already got).
@@ -924,9 +910,7 @@ export function scanPlugin(
       sources: loaded.sources,
     }),
     descriptionBudgetIssues: descriptionBudgetFor(loaded.files, cls),
-    trifectaFindings,
-    skillResourceIssues: skillResourceFindings,
-    skillFenceIssues: skillFenceFindings,
+    ...collectSurfaceFindings(agents, skills),
     unclaimedSurfaces: unclaimedSurfaceFindings(
       boundedSurfacePaths(resolve(dir), opts.excludes),
       REGISTERED_LAYOUTS,
@@ -1402,7 +1386,19 @@ function inventoryFacts(r: ScanReport): readonly string[] {
     : commands;
 }
 
-export function formatScanReport(r: ScanReport): string {
+export function formatScanReport(
+  /**
+   * Minted by `applyRules`: an off rule's findings are already gone, and an
+   * ungraded group's are in `ungraded` — printed AFTER the verdict line and
+   * never counted in it, from the same data the JSON and the HTML render.
+   */
+  r: FilteredScan<ScanReport>,
+): string {
+  return [...gradedReportLines(r), ...ungradedLines(r.ungraded)].join("\n");
+}
+
+/** The report's lines up to and including the verdict — everything graded. */
+function gradedReportLines(r: ScanReport): readonly string[] {
   const out: string[] = [`Scan: ${r.dir}`, ""];
 
   if (r.instructions) {
@@ -1507,16 +1503,6 @@ export function formatScanReport(r: ScanReport): string {
       // Count UNITS, not lines: the unfenced-skill aggregate collapses many units
       // into one line, and a header that counted lines would understate exposure.
       r.trifectaFindings.length,
-    ),
-  );
-
-  out.push(
-    ...section(
-      "Skill bundled resources",
-      r.skillResourceIssues.map(
-        (s) =>
-          `  ✗ ${s.name}: ${s.finding.ref} (line ${String(s.finding.line)}) — bundled resource not found`,
-      ),
     ),
   );
 
@@ -1653,7 +1639,6 @@ export function formatScanReport(r: ScanReport): string {
     r.frontmatterValueIssues.length +
     r.mcpIssues.length +
     r.mcpHookIssues.length +
-    r.skillResourceIssues.length +
     r.skillFenceIssues.length +
     r.pluginLayoutIssues.length +
     r.unclaimedSurfaces.length +
@@ -1677,5 +1662,29 @@ export function formatScanReport(r: ScanReport): string {
         ? "⚠ nothing to check — 0 skills, 0 agents, 0 commands were read"
         : "✓ no structural issues found",
   );
-  return out.join("\n");
+  return out;
+}
+
+/**
+ * The ungraded groups' blocks: each group's label and blurb, then every rule of
+ * it that is on and what it found — after the verdict line, so nothing in it
+ * reads as part of the grade. The label is the group's own (`RuleGroupSpec`).
+ */
+function ungradedLines(groups: readonly UngradedGroup[]): readonly string[] {
+  return groups.flatMap((g) => [
+    "",
+    `${g.label}:`,
+    ...(g.blurb === undefined ? [] : [`  ${g.blurb}`]),
+    ...g.rules.flatMap((res) =>
+      res.findings.length === 0
+        ? [`  ✓ ${res.rule}: nothing found`]
+        : [
+            `  ${res.rule} (${String(res.findings.length)}):`,
+            ...res.findings.map(
+              (f) =>
+                `    ${f.kind === "note" ? "ℹ" : "✗"} ${f.subject}: ${f.message}`,
+            ),
+          ],
+    ),
+  ]);
 }
