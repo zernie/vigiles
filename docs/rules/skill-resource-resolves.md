@@ -112,17 +112,18 @@ experimental block, after the grade:
 Experimental — not graded:
   Checks vigiles ships but has not measured as reliable enough to grade you on. They never move the score.
   skill-resource-resolves (2):
-    ✗ release-check: references/release-policy.md (line 10) — bundled resource not found
-    ℹ release-check: scripts/check-changelog.sh (line 8) resolves only from the repo root, not from the skill directory — it breaks once the skill is installed outside this repository. If repo-root resolution is intended, add "scripts" to sharedDirs in .vigilesrc.json.
+    ℹ release-check: bundled resource "scripts/check-changelog.sh" (line 8) resolves only from the repo root, not from the skill directory — it breaks once the skill is installed outside this repository. If repo-root resolution is intended, add "scripts" to sharedDirs in .vigilesrc.json.
+    ✗ release-check: bundled resource "references/release-policy.md" (line 10) is referenced but missing — the agent reads the instruction and gets nothing.
 ```
 
-`vigiles lint --preset=experimental` prints the same two lines:
+`vigiles lint --preset=experimental` prints the same two lines, in the same
+words:
 
 ```
-Skill-resource check:
+skill-resource-resolves:
 
-  ⚠ .claude/skills/release-check/SKILL.md: release-check: bundled resource "references/release-policy.md" (line 10) is referenced but missing — the agent reads the instruction and gets nothing.
   ℹ .claude/skills/release-check/SKILL.md: release-check: bundled resource "scripts/check-changelog.sh" (line 8) resolves only from the repo root, not from the skill directory — it breaks once the skill is installed outside this repository. If repo-root resolution is intended, add "scripts" to sharedDirs in .vigilesrc.json.
+  ⚠ .claude/skills/release-check/SKILL.md: release-check: bundled resource "references/release-policy.md" (line 10) is referenced but missing — the agent reads the instruction and gets nothing.
 ```
 
 What each kind does, once the rule is on:
@@ -131,7 +132,7 @@ What each kind does, once the rule is on:
 | ------------------------------------------------------- | ------------------------------------------------ | ------------------------------- |
 | `audit` text                                            | `✗` line in the "Experimental" block             | `ℹ` line in the same block      |
 | `audit` score                                           | ❌ never scored (the rule is experimental)       | ❌ never scored                 |
-| `audit --json` / HTML                                   | `experimental[]`, kind `finding`                 | `experimental[]`, kind `note`   |
+| `audit --json` / HTML                                   | `ungraded[]`, kind `finding`                     | `ungraded[]`, kind `note`       |
 | `lint` exit code                                        | 0 at `warn`; fails only at an explicit `"error"` | ❌ never fails, at any severity |
 | GitHub Actions annotation                               | `::warning` / `::error`                          | `::notice`                      |
 | `"skill-resource-resolves": false` or an `off` override | silenced                                         | silenced                        |

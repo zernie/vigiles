@@ -19,6 +19,7 @@ const FENCES = new Set([
   "local/no-rule-ids",
   "local/no-group-names",
   "local/frame-mint",
+  "no-restricted-syntax",
 ]);
 
 const eslint = new ESLint({
@@ -123,6 +124,21 @@ describe("local/frame-mint — only applyRules mints a FilteredScan", () => {
 
   it("…and allowed in the one file that mints it", async () => {
     expect(await fired("src/core/apply-rules.ts", MINT)).toEqual([]);
+  });
+});
+
+describe("no-restricted-syntax — a scorer never reads `.ungraded`", () => {
+  const READ =
+    "export const n = (r: { ungraded: unknown[] }) => r.ungraded.length;\n";
+
+  it("refused in a scorer", async () => {
+    expect(await fired("src/score-core.ts", READ)).toEqual([
+      expect.stringMatching(/^no-restricted-syntax/),
+    ]);
+  });
+
+  it("allowed in a renderer", async () => {
+    expect(await fired("src/audit-report.ts", READ)).toEqual([]);
   });
 });
 

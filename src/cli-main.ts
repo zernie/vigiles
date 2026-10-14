@@ -69,8 +69,12 @@ import {
   type RuleResolver as AnyRuleResolver,
 } from "./overrides.js";
 import { configFor } from "./core/config-schema.js";
-import { initPolicyOf } from "./core/rule.js";
-import { applyRules, type FilteredScan } from "./core/apply-rules.js";
+import { initPolicyOf, type Finding } from "./core/rule.js";
+import {
+  applyRules,
+  gradedView,
+  type FilteredScan,
+} from "./core/apply-rules.js";
 import {
   RULES,
   RULE_GROUPS,
@@ -92,10 +96,6 @@ import { z } from "zod";
 import { applyConfigFlags } from "./cli-flags.js";
 import { parsePresetFlags } from "./core/config-schema.js";
 import { extendedPresets } from "./core/presets.js";
-import {
-  EXPERIMENTAL_RULES,
-  type ExperimentalRuleName,
-} from "./core/rule-meta.js";
 import { VERBS, type Verb } from "./cli-commands.js";
 import {
   formatUnknownFlag,
@@ -157,7 +157,6 @@ import {
   compileWeightLine,
 } from "./instruction-weight-ratchet.js";
 import type { ScanReport, ScanHarness } from "./scan.js";
-import { repoRootOnlyAdvice } from "./core/skill-resources.js";
 import {
   frameAt,
   frameFor,
@@ -2811,12 +2810,18 @@ async function runLint(
   // prompt-injection exfil path (Rule of Two). Capability SET-intersection.
   const lethalTrifecta = overBundles(checkLethalTrifecta, run, lintRoots);
 
-  // 7p. Skill-resource — a SKILL.md body referencing a bundled file that doesn't
-  // exist on disk under the skill dir (the agent gets nothing). FP-safe.
-  const skillResources = overBundles(
-    checkSkillResourceResolves,
-    run,
-    lintRoots,
+  // 7p. The rules that are modules (src/rules/<id>.ts), each through the one
+  // generic check. The LintReport keeps its per-rule wire keys until #390:
+  // today the one module rule (the bundled-resource check) fills the
+  // `skillResource*` pair below.
+  const ruleModules = RULE_MODULES.map((rule) =>
+    overBundles((ctx) => checkRuleModule(ctx, rule), run, lintRoots),
+  ).reduce(
+    (acc, t) => ({
+      issues: acc.issues + t.issues,
+      errors: acc.errors + t.errors,
+    }),
+    { issues: 0, errors: 0 },
   );
 
   // 7q. Skill-missing-fence — a SKILL.md opening with `name:`/`description:` but no
@@ -3035,8 +3040,8 @@ async function runLint(
     mcpHookErrors: mcpHookTargets.errors,
     lethalTrifectaIssues: lethalTrifecta.issues,
     lethalTrifectaErrors: lethalTrifecta.errors,
-    skillResourceIssues: skillResources.issues,
-    skillResourceErrors: skillResources.errors,
+    skillResourceIssues: ruleModules.issues,
+    skillResourceErrors: ruleModules.errors,
     skillFenceIssues: skillFence.issues,
     skillFenceErrors: skillFence.errors,
     pluginLayoutIssues: pluginLayout.issues,
@@ -6211,76 +6216,59 @@ function checkLethalTrifecta(ctx: BundleCheck): {
   return tally(found);
 }
 
+/** A rule of the set that is a module: it reports its own findings. */
+type RuleModule = Extract<
+  (typeof RULES)[number],
+  { readonly findings: unknown }
+>;
+
+/** The rules of the set that are modules — each runs through {@link checkRuleModule}. */
+const RULE_MODULES: readonly RuleModule[] = RULES.filter(
+  (r): r is RuleModule => "findings" in r,
+);
+
 /**
- * Apply the `skill-resource-resolves` rule: a SKILL.md body referencing a bundled
- * file (`scripts/`/`references/`/`assets/` or a relative markdown link with an
- * extension) that doesn't exist on disk — the agent reads the instruction and gets
- * nothing. Reuses `scanPlugin`'s `experimental["skill-resource-resolves"]` (one
- * detector, no drift). In the `experimental` group (measured precision 44%), so
- * OFF by default: `--preset=experimental` or `"extends": "vigiles:experimental"`
- * turns it on at `warn`; only an explicit `"error"` in `rules` gates CI.
+ * Apply one rule MODULE: what its `findings` reports, each at the severity its
+ * own path gets (`overrides` applied). A `finding` counts and prints at that
+ * severity; a `note` (informational — e.g. a resource that resolves only from
+ * the repository root, #382) prints with `ℹ` and a `::notice` annotation and
+ * never counts, so it can never fail CI. The scan is the same one every other
+ * check reads (`ctx.scan`), with the repo's `sharedDirs` at the frame root.
  *
- * A ref that misses beside the SKILL.md but exists at the frame root is a NOTE
- * (`.notes`, #382): printed with `ℹ` and a `::notice` annotation at
- * any severity, never counted, so it can never fail CI. It still goes through
- * the rule's per-path severity, so `false` or an `off` override silences it.
+ * The first piece of the one loop the per-rule `check*` functions become
+ * (vigiles#390): nothing here names a rule.
  */
-function checkSkillResourceResolves(ctx: BundleCheck): {
-  issues: number;
-  errors: number;
-} {
-  const { config, silent } = ctx;
-  if (!ctx.rules.mayFire("skill-resource-resolves"))
-    return { issues: 0, errors: 0 };
-  let report: ScanReport;
+function checkRuleModule(
+  ctx: BundleCheck,
+  rule: RuleModule,
+): { issues: number; errors: number } {
+  if (!ctx.rules.mayFire(rule.id)) return { issues: 0, errors: 0 };
+  let found: readonly Finding[];
   try {
-    // sharedDirs live at the frame root — the repo that OWNS the scan target:
-    // cwd for a scoped subdir or a nested bundle, the target for a foreign lint.
-    // The same root decides `repo-root-only`.
-    report = ctx.scan({
-      sharedDirs: config?.sharedDirs,
-      sharedDirsRoot: ctx.frame.root,
-    });
+    found = rule.findings(
+      ctx.scan({
+        sharedDirs: ctx.config?.sharedDirs,
+        sharedDirsRoot: ctx.frame.root,
+      }),
+    );
   } catch {
     return { issues: 0, errors: 0 };
   }
-  const pathOf = (f: { readonly path: string }): RepoPath =>
-    ctx.bundle.scanned(f.path);
-  const found = graded(
-    ctx.rules,
-    "skill-resource-resolves",
-    report.experimental["skill-resource-resolves"].issues,
-    pathOf,
-  );
-  const notes = graded(
-    ctx.rules,
-    "skill-resource-resolves",
-    report.experimental["skill-resource-resolves"].notes,
-    pathOf,
-  );
-  // One printed line per finding, misses first. A note carries its own mark and
-  // annotation level rather than the rule's, because it never gates.
-  const lines = [
-    ...found.map((s) => ({
-      at: pathOf(s),
-      ...markOf(s.sev),
-      msg: `${s.name}: bundled resource "${s.finding.ref}" (line ${String(s.finding.line)}) is referenced but missing — the agent reads the instruction and gets nothing.`,
-    })),
-    ...notes.map((s) => ({
-      at: pathOf(s),
-      mark: "ℹ",
-      level: "notice" as const,
-      msg: `${s.name}: bundled resource "${s.finding.ref}" (line ${String(s.finding.line)}) ${repoRootOnlyAdvice(s.finding)}`,
-    })),
-  ];
-  if (lines.length > 0 && !silent) {
-    console.log("\nSkill-resource check:\n");
-    for (const l of lines) {
-      console.log(`  ${l.mark} ${l.at}: ${l.msg}`);
-      ctx.annotate(l.level, l.msg, l.at);
+  const pathOf = (f: Finding): RepoPath => ctx.bundle.scanned(f.path);
+  const shown = graded(ctx.rules, rule.id, found, pathOf);
+  if (shown.length > 0 && !ctx.silent) {
+    console.log(`\n${rule.id}:\n`);
+    for (const f of shown) {
+      const { mark, level } =
+        f.kind === "note"
+          ? { mark: "ℹ", level: "notice" as const }
+          : markOf(f.sev);
+      const msg = `${f.subject}: ${f.message}`;
+      console.log(`  ${mark} ${pathOf(f)}: ${msg}`);
+      ctx.annotate(level, msg, pathOf(f));
     }
   }
-  return tally(found);
+  return tally(shown.filter((f) => f.kind === "finding"));
 }
 
 /**
@@ -9444,18 +9432,6 @@ function loadRunConfig(
 }
 
 /**
- * The experimental rules a config turns on — by a preset, a `rules` entry, or
- * an `overrides` entry for some path. `audit` shows exactly these in its "not
- * graded" block; the score reads none of them either way.
- */
-function enabledExperimentalRules(
-  config: Readonly<VigilesConfig>,
-): ReadonlySet<ExperimentalRuleName> {
-  const rules = ruleResolver(config.rules, config.overrides);
-  return new Set(EXPERIMENTAL_RULES.filter((r) => rules.mayFire(r)));
-}
-
-/**
  * The scan `audit` reports on, with this run's config applied (`applyRules`):
  * an off rule's findings are gone before anything renders.
  */
@@ -9486,7 +9462,12 @@ function auditScan(
     // `exclude` still wins over it; the walk drops an excluded path first.
     harnesses: at.harnesses,
   });
-  return applyRules(RULES, ruleResolver(config.rules, config.overrides), scan);
+  return applyRules(
+    RULES,
+    RULE_GROUPS,
+    ruleResolver(config.rules, config.overrides),
+    scan,
+  );
 }
 
 export async function main(): Promise<void> {
@@ -9941,7 +9922,6 @@ export async function main(): Promise<void> {
         // and folded into the report there, so a first-time "yes" enriches THIS
         // run — not the next one.
         const auditReportBase = buildAuditReport(report, {
-          experimentalRules: enabledExperimentalRules(config),
           harness: adapter.name,
           vigilesVersion: getVersion(),
           adoptableSurfaces,
@@ -9997,7 +9977,7 @@ export async function main(): Promise<void> {
           console.error(formatNothingToAudit(root, adapter.name, market));
           process.exit(2);
         }
-        const plan = optimize(report);
+        const plan = optimize(gradedView(report));
         // The deterministic READ leads: rings + report + fixes + nudges print
         // BEFORE the consent prompt, so a plain `audit` shows its findings first.
         // (JSON stays silent until the single blob below, after consent.)
@@ -10006,9 +9986,9 @@ export async function main(): Promise<void> {
           // shown before the detailed report so the headline signal leads.
           console.log(formatAuditScore(sc));
           console.log("");
-          // The experimental block reads the report's own `experimental` —
-          // the data the JSON and HTML render — so the three cannot drift.
-          console.log(formatScanReport(report, auditReportBase.experimental));
+          // The ungraded blocks come off the filtered scan — the same data
+          // the JSON and HTML render — so the three cannot drift.
+          console.log(formatScanReport(report));
           // Fold each finding's fix inline (replaces the former --fix-plan/--explain
           // flags): the deterministic, free recommendation list under the report.
           const fixes = formatRecommendations(plan);

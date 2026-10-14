@@ -38,6 +38,7 @@ import {
   type ExplanationConfidence,
 } from "./score-explainer.js";
 import type { ScanReport } from "./scan.js";
+import type { GradedView } from "./core/apply-rules.js";
 
 /**
  * The action a recommendation asks for. The deterministic detectors yield two:
@@ -85,7 +86,7 @@ function actionFor(e: ScoreExplanation): OptimizeAction {
  * score + a typed recommendation per deterministic finding (`likely` dead-ends
  * before `possible` proxies, via explainScore's own ordering). Pure over the report.
  */
-export function optimize(report: ScanReport): OptimizeReport {
+export function optimize(report: GradedView<ScanReport>): OptimizeReport {
   const { score } = scoreReport(report);
   const recommendations: Recommendation[] = explainScore(report).map((e) => ({
     surface: e.surface,

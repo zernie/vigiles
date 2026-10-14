@@ -26,6 +26,7 @@ import {
 } from "../core/config-schema.js";
 import { defineRule, type RuleSpec } from "../core/rule.js";
 import { RULE_GROUPS, type RuleGroupName } from "./groups.js";
+import { skillResourceResolves } from "./skill-resource-resolves.js";
 
 export { RULE_GROUPS };
 
@@ -392,18 +393,7 @@ export const RULES = [
     summary: "No unit's tools hold all three lethal-trifecta legs at once.",
     detector: "lethalTrifectaIssues",
   }),
-  defineRule({
-    id: "skill-resource-resolves",
-    group: "experimental",
-    bucket: "external-decidable",
-    surface: ["skill"],
-    // OFF: in the `experimental` group — 44% measured precision.
-    // See docs/rules/skill-resource-resolves.md.
-    defaultSeverity: "off",
-    cure: "edit",
-    summary: "A SKILL.md's bundled-file reference exists under the skill dir.",
-    detector: "skillResourceIssues",
-  }),
+  skillResourceResolves,
   defineRule({
     id: "skill-missing-fence",
     group: "nudge",

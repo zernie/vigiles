@@ -14,14 +14,10 @@ import type {
   AuditReport,
   CategoryScore,
   Recommendation,
-  ExperimentalRuleResult,
+  UngradedGroup,
   Verdict,
 } from "./schema";
-import {
-  categoryScoreLabel,
-  EXPERIMENTAL_BLURB,
-  EXPERIMENTAL_HEADING,
-} from "./schema";
+import { categoryScoreLabel } from "./schema";
 import { Card } from "./components/ui/card";
 import { Badge } from "./components/ui/badge";
 import { Adoptability } from "./components/Adoptability";
@@ -282,24 +278,23 @@ function SafetyCard({ finding }: { finding: string }) {
   );
 }
 
-/** The experimental rule group: every rule the run turned on and what it found,
- * in a block of its own — muted, and headed "not graded", so a reader does not
- * hunt the rings for points these findings cost: they cost none. */
-function ExperimentalBlock({
-  results,
-}: {
-  results: readonly ExperimentalRuleResult[];
-}) {
+/** An ungraded rule group: every rule of it the run turned on and what it
+ * found, in a block of its own — muted, and headed by the group's own label
+ * ("not graded"), so a reader does not hunt the rings for points these findings
+ * cost: they cost none. */
+function UngradedBlock({ group }: { group: UngradedGroup }) {
   return (
-    <section className="mt-6" aria-label={EXPERIMENTAL_HEADING}>
+    <section className="mt-6" aria-label={group.label}>
       <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/60">
-        {EXPERIMENTAL_HEADING}
+        {group.label}
       </p>
-      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-        {EXPERIMENTAL_BLURB}
-      </p>
+      {group.blurb && (
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          {group.blurb}
+        </p>
+      )}
       <ul className="mt-1.5 space-y-1">
-        {results.map((res) => (
+        {group.rules.map((res) => (
           <li key={res.rule} className="text-[11px] leading-snug text-na">
             <span className="font-mono">{res.rule}</span>
             {res.findings.length === 0 ? (
@@ -764,7 +759,7 @@ export function Report({
     rulesInventory,
     ruleRouting,
     brokenReferences,
-    experimental,
+    ungraded,
   } = data;
   const overall = score.empty ? null : score.overall;
 
@@ -838,9 +833,9 @@ export function Report({
             />
           ))}
         </div>
-        {experimental && experimental.length > 0 && (
-          <ExperimentalBlock results={experimental} />
-        )}
+        {ungraded?.map((g) => (
+          <UngradedBlock key={g.group} group={g} />
+        ))}
 
         {/* The two things a browser can't do — folded into the SAME strip (dashed
             rows, captioned), not bolt-on cards floating below: the model-gated
@@ -900,9 +895,9 @@ export function Report({
       </div>
       {/* Below the strip and apart from it: these findings are not in any
           category, because no category is graded on them. */}
-      {experimental && experimental.length > 0 && (
-        <ExperimentalBlock results={experimental} />
-      )}
+      {ungraded?.map((g) => (
+        <UngradedBlock key={g.group} group={g} />
+      ))}
 
       <h2 className="mb-3 mt-9 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
         {recommendations.length > 0 ? "Do these first" : "Fixes"}

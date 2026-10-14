@@ -363,10 +363,9 @@ export function reportDeductions(r: ScanReport): Deduction[] {
       label:
         "hook matcher(s) that don't fire as written (dead, or too narrow for real MCP names)",
     },
-    // NB: an EXPERIMENTAL rule's findings (skill-resource-resolves today) are
-    // never a deduction: the scan keeps them under `r.experimental`, which no
-    // scorer reads — their measured precision is below the bar for grading.
-    // See EXPERIMENTAL_RULES in core/rule-meta.ts.
+    // NB: an UNGRADED group's findings are never a deduction: `applyRules`
+    // puts them in `ungraded`, and a scorer takes a `GradedView`, which has
+    // none (core/apply-rules.ts) — their precision is below the bar for grading.
     // NB: delegationTrifecta (like the advisory per-unit/inherits-all trifecta) is a
     // ⚠ RISK, surfaced but NOT graded — only the HARD per-unit trifecta above scores.
     // NB: untested surfaces are NOT a penalty — an untested surface is a hardening

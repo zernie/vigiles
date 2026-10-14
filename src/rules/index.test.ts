@@ -23,7 +23,6 @@ import { join } from "node:path";
 
 import { configFor } from "../core/config-schema.js";
 import { configDefault, initPolicyOf } from "../core/rule.js";
-import { EXPERIMENTAL_RULES } from "../core/rule-meta.js";
 import * as hookApi from "../hook.js";
 import * as specApi from "../core/spec.js";
 import * as testApi from "../test.js";
@@ -184,15 +183,14 @@ describe("presets and init derive from the groups", () => {
         expect(rule.defaultSeverity, rule.id).not.toBe("off");
   });
 
-  // TRANSITIONAL: the old experimental list survives in `core/rule-meta.ts`
-  // until the experimental block is rendered from the group record; it must
-  // say exactly what the group says until then.
-  it("the transitional experimental list equals the ungraded groups' rules", () => {
-    expect([...EXPERIMENTAL_RULES].sort()).toEqual(
-      RULES.filter((r) => !RULE_GROUPS[r.group].graded)
-        .map((r) => r.id)
-        .sort(),
-    );
+  // A rule MODULE reports through `findings`, which today reaches only the
+  // ungraded blocks (`applyRules`). A module in a graded group would need its
+  // findings to reach the scorers too — vigiles#390 wires that; until then this
+  // fails rather than letting a graded rule's findings vanish from the score.
+  it("every rule module is in an ungraded group, until #390", () => {
+    for (const rule of RULES)
+      if ("findings" in rule)
+        expect(RULE_GROUPS[rule.group].graded, rule.id).toBe(false);
   });
 });
 

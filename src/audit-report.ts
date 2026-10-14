@@ -27,11 +27,10 @@ import type { RuleRouting } from "./rule-routing.js";
 import type { EvidenceCounts } from "./coverage-evidence.js";
 import type { DeprecatedKeyFilesFinding } from "./deprecated-key-files.js";
 import {
-  experimentalResults,
-  type ExperimentalRuleResult,
-} from "./experimental-findings.js";
-import type { ExperimentalRuleName } from "./core/rule-meta.js";
-import type { FilteredScan } from "./core/apply-rules.js";
+  gradedView,
+  type FilteredScan,
+  type UngradedGroup,
+} from "./core/apply-rules.js";
 
 /**
  * The current schema version. Bump only on a BREAKING change to the shape.
@@ -156,16 +155,15 @@ export interface AuditReport {
    */
   readonly deprecatedKeyFiles?: readonly DeprecatedKeyFilesFinding[];
   /**
-   * The `experimental` rule group — checks vigiles ships but has not measured
-   * as reliable enough to grade you on (`EXPERIMENTAL_RULES`). One entry per
-   * rule this run turned on (`--preset=experimental`, `"extends":
-   * "vigiles:experimental"`, or the rule in `rules`), even when it found
-   * nothing; absent when none is on. NEVER scored: `score`, `verdict` and
-   * `recommendations` are computed without these findings, and a renderer shows
-   * them in a separate "Experimental — not graded" block. Additive/optional —
+   * The UNGRADED rule groups — checks vigiles ships but has not measured as
+   * reliable enough to grade you on. One block per group with a rule this run
+   * turned on (a preset, `--preset=`, or the rule in `rules`), headed by the
+   * group's own label, each rule listed even when it found nothing; absent
+   * when none is on. NEVER scored: `score`, `verdict` and `recommendations`
+   * are computed from the graded view, without these. Additive/optional —
    * schema version unchanged.
    */
-  readonly experimental?: readonly ExperimentalRuleResult[];
+  readonly ungraded?: readonly UngradedGroup[];
   /**
    * The adoption preview — "what would vigiles catch in your repo?" Present only
    * when the model-gated tier ran (behind consent); a deterministic read omits it.
@@ -230,12 +228,6 @@ export interface BuildAuditReportOptions extends AuditScoreOptions {
    * nothing segmented.
    */
   readonly ruleRouting?: RuleRouting;
-  /**
-   * The experimental rules this run turned on — the CLI reads them off the
-   * resolved config. Omit/empty (the browser twin, which has no config) and
-   * the report carries no `experimental` block.
-   */
-  readonly experimentalRules?: ReadonlySet<ExperimentalRuleName>;
 }
 
 /** The one command that adopts every un-spec'd surface (bare `init`). */
@@ -295,17 +287,13 @@ function outputStylesField(n: number | "not-supported" | undefined): {
 
 /**
  * The scan's concrete finding lists, each present only when non-empty — and the
- * experimental block, present only when some experimental rule is on.
+ * ungraded groups' blocks, present only when some rule of one is on.
  */
 function scanFindingLists(
-  report: ScanReport,
-  experimentalRules: ReadonlySet<ExperimentalRuleName> | undefined,
-): Pick<
-  AuditReport,
-  "brokenReferences" | "deprecatedKeyFiles" | "experimental"
-> {
+  report: FilteredScan<ScanReport>,
+): Pick<AuditReport, "brokenReferences" | "deprecatedKeyFiles" | "ungraded"> {
   return {
-    ...experimentalField(report, experimentalRules),
+    ...(report.ungraded.length > 0 ? { ungraded: report.ungraded } : {}),
     ...(report.danglingRefs.length
       ? { brokenReferences: report.danglingRefs }
       : {}),
@@ -315,13 +303,19 @@ function scanFindingLists(
   };
 }
 
-/** The `experimental` block: present only when some experimental rule is on. */
-function experimentalField(
-  report: ScanReport,
-  enabled: ReadonlySet<ExperimentalRuleName> | undefined,
-): Pick<AuditReport, "experimental"> {
-  const results = experimentalResults(report, enabled ?? new Set());
-  return results.length > 0 ? { experimental: results } : {};
+/**
+ * The graded half of the report — score, verdict, fixes — read off the GRADED
+ * view (`gradedView`), so an ungraded group's findings can never move it.
+ */
+function gradedPart(
+  report: FilteredScan<ScanReport>,
+  opts: BuildAuditReportOptions,
+): Pick<AuditReport, "score" | "verdict" | "recommendations"> {
+  const graded = gradedView(report);
+  const score = auditScore(graded, { firingMeasured: opts.firingMeasured });
+  const recommendations = optimize(graded).recommendations;
+  const verdict = computeVerdict({ report: graded, score, recommendations });
+  return { score, verdict, recommendations };
 }
 
 /**
@@ -335,9 +329,7 @@ export function buildAuditReport(
   opts: BuildAuditReportOptions,
 ): AuditReport {
   const adoptable = buildAdoptable(opts.adoptableSurfaces);
-  const score = auditScore(report, { firingMeasured: opts.firingMeasured });
-  const recommendations = optimize(report).recommendations;
-  const verdict = computeVerdict({ report, score, recommendations });
+  const { score, verdict, recommendations } = gradedPart(report, opts);
   return {
     meta: {
       schemaVersion: AUDIT_SCHEMA_VERSION,
@@ -351,7 +343,7 @@ export function buildAuditReport(
     verdict,
     recommendations,
     inventory: inventoryOf(report),
-    ...scanFindingLists(report, opts.experimentalRules),
+    ...scanFindingLists(report),
     ...(adoptable ? { adoptable } : {}),
     ...(opts.observations ? { observations: opts.observations } : {}),
     ...(opts.rulesInventory && opts.rulesInventory.length

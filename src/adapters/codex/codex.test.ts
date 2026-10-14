@@ -29,13 +29,13 @@ import { scanFiles } from "../../scan-files.js";
 import { runHarnessTest } from "../../harness-test.js";
 import { makeTmpDir, cleanupTmpDir, REPO_ROOT } from "../../core/test-utils.js";
 import { applyRules } from "../../core/apply-rules.js";
-import { defaultSeverities } from "../../core/rule.js";
+import { defaultSeverities, type ScanInput } from "../../core/rule.js";
 import { ruleResolver } from "../../overrides.js";
-import { RULES } from "../../rules/index.js";
+import { RULES, RULE_GROUPS } from "../../rules/index.js";
 
 /** A scan as `audit` shows it under the shipped defaults (`applyRules`). */
-const shown = <S extends object>(scan: S) =>
-  applyRules(RULES, ruleResolver(defaultSeverities(RULES)), scan);
+const shown = <S extends ScanInput>(scan: S) =>
+  applyRules(RULES, RULE_GROUPS, ruleResolver(defaultSeverities(RULES)), scan);
 
 test("codexAdapter passes the conformance kit (ports + cross-port invariants)", () => {
   assertAdapterConformance(codexAdapter);

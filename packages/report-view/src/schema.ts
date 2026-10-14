@@ -217,8 +217,8 @@ export interface RuleRouting {
   skipped?: SkippedBullet[];
 }
 
-/** One finding of an experimental rule (`kind: "note"` is informational). */
-export interface ExperimentalFinding {
+/** One finding of a rule (`kind: "note"` is informational, never counted). */
+export interface RuleFinding {
   kind: "finding" | "note";
   path: string;
   line?: number;
@@ -226,18 +226,20 @@ export interface ExperimentalFinding {
   message: string;
 }
 
-/** One enabled experimental rule and what it found (possibly nothing). */
-export interface ExperimentalRuleResult {
+/** One rule that is on, and what it found (possibly nothing). */
+export interface RuleResult {
   rule: string;
-  findings: ExperimentalFinding[];
+  findings: RuleFinding[];
 }
 
-/** The block's heading and line — the same words `vigiles audit` prints
- *  (src/experimental-findings.ts), kept equal by hand like the rest of this
- *  mirror. */
-export const EXPERIMENTAL_HEADING = "Experimental — not graded";
-export const EXPERIMENTAL_BLURB =
-  "Checks vigiles ships but has not measured as reliable enough to grade you on. They never move the score.";
+/** An ungraded rule group's block. Its heading and line come IN the data
+ *  (the group's own `label`/`blurb`), so this mirror holds no group's words. */
+export interface UngradedGroup {
+  group: string;
+  label: string;
+  blurb?: string;
+  rules: RuleResult[];
+}
 
 export interface AuditReport {
   meta: {
@@ -257,10 +259,10 @@ export interface AuditReport {
   /** The concrete intra-plugin references that don't resolve — the actual paths
    *  behind the Truthfulness "N broken reference(s)" count. Present only when ≥1. */
   brokenReferences?: string[];
-  /** The experimental rule group — checks shipped but not measured reliable
-   *  enough to grade on. One entry per rule the run turned on; absent when none.
-   *  NEVER scored: shown in its own "Experimental — not graded" block. */
-  experimental?: ExperimentalRuleResult[];
+  /** The ungraded rule groups — checks shipped but not measured reliable
+   *  enough to grade on. One block per group with a rule the run turned on;
+   *  absent when none. NEVER scored: each shown in a block of its own. */
+  ungraded?: UngradedGroup[];
   /** The adoption preview — present only when the model-gated tier ran. */
   adoptability?: AdoptabilityResult;
   /**

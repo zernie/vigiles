@@ -284,7 +284,7 @@ reliable enough to grade you on.
   for the reliable `workflow` rules.
 - They **never count toward the `audit` score**. Their findings print in a
   separate **"Experimental — not graded"** block (terminal, `audit --json`'s
-  `experimental` field, and the HTML report), and leave every category, the
+  `ungraded` field, and the HTML report), and leave every category, the
   overall score, the grade and the verdict exactly as they would be without
   them.
 

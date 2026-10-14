@@ -624,8 +624,8 @@ the grade or the verdict:
 Experimental — not graded:
   Checks vigiles ships but has not measured as reliable enough to grade you on. They never move the score.
   skill-resource-resolves (2):
-    ✗ release-check: references/release-policy.md (line 11) — bundled resource not found
-    ℹ release-check: scripts/check-changelog.sh (line 9) resolves only from the repo root, not from the skill directory — …
+    ℹ release-check: bundled resource "scripts/check-changelog.sh" (line 8) resolves only from the repo root, not from the skill directory — …
+    ✗ release-check: bundled resource "references/release-policy.md" (line 10) is referenced but missing — the agent reads the instruction and gets nothing.
 ```
 
 `init --strict` is a different switch: it writes the reliable `workflow`

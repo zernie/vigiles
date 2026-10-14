@@ -44,18 +44,23 @@ const adoptableReport = z.object({
     .optional(),
 });
 
-/** The `experimental` block of `audit --json`, parsed rather than cast. */
-const experimentalBlocks = z.object({
-  experimental: z
+/** The `ungraded` blocks of `audit --json`, parsed rather than cast. */
+const ungradedBlocks = z.object({
+  ungraded: z
     .array(
       z.object({
-        rule: z.string(),
-        findings: z.array(
+        label: z.string(),
+        rules: z.array(
           z.object({
-            kind: z.enum(["finding", "note"]),
-            subject: z.string(),
-            line: z.number().optional(),
-            message: z.string(),
+            rule: z.string(),
+            findings: z.array(
+              z.object({
+                kind: z.enum(["finding", "note"]),
+                subject: z.string(),
+                line: z.number().optional(),
+                message: z.string(),
+              }),
+            ),
           }),
         ),
       }),
@@ -1189,20 +1194,20 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
       const r = run(`audit ${harness}`, makeRepo(skillsDir, true));
       assert.match(
         r.stdout,
-        /ℹ rca: scripts\/leak\.py \(line 5\) resolves only from the repo root/,
+        /ℹ rca: bundled resource "scripts\/leak\.py" \(line 5\) resolves only from the repo root/,
       );
       assert.match(
         r.stdout,
         /add "scripts" to sharedDirs in \.vigilesrc\.json/,
       );
-      assert.doesNotMatch(r.stdout, /bundled resource not found/);
+      assert.doesNotMatch(r.stdout, /is referenced but missing/);
     });
 
-    it(`${adapter.name}: audit --json carries the note in the experimental block`, () => {
+    it(`${adapter.name}: audit --json carries the note in the ungraded block`, () => {
       const r = run(`audit ${harness} --json`, makeRepo(skillsDir, true));
-      const blocks = experimentalBlocks.parse(
-        JSON.parse(r.stdout),
-      ).experimental;
+      const blocks = ungradedBlocks
+        .parse(JSON.parse(r.stdout))
+        .ungraded?.flatMap((g) => g.rules);
       // zod drops the keys the schema does not name, so this compares exactly
       // the fields that locate the note.
       assert.deepEqual(blocks, [
@@ -1222,7 +1227,7 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
       ]);
       assert.match(
         blocks?.[0]?.findings[0]?.message ?? "",
-        /^scripts\/leak\.py \(line 5\) resolves only from the repo root/,
+        /^bundled resource "scripts\/leak\.py" \(line 5\) resolves only from the repo root/,
       );
     });
 
@@ -1304,14 +1309,14 @@ describe("the experimental rule group (skill-resource-resolves)", () => {
       const dir = makeRepo(skillsDir, true);
       const lint = run(`lint ${harness}`, dir);
       assert.equal(lint.exitCode, 0, lint.stdout);
-      assert.doesNotMatch(lint.stdout, /Skill-resource check/);
+      assert.doesNotMatch(lint.stdout, /bundled resource/);
       const audit = run(`audit ${harness}`, dir);
       assert.doesNotMatch(audit.stdout, /references\/notes\.md/);
       assert.doesNotMatch(audit.stdout, /Experimental — not graded/);
       const json: unknown = JSON.parse(
         run(`audit ${harness} --json`, dir).stdout,
       );
-      assert.equal(experimentalBlocks.parse(json).experimental, undefined);
+      assert.equal(ungradedBlocks.parse(json).ungraded, undefined);
       assert.deepEqual(
         graded.parse(json),
         graderOf("", makeRepo(skillsDir, false)),
@@ -1336,13 +1341,15 @@ describe("the experimental rule group (skill-resource-resolves)", () => {
       assert.match(text, /Experimental — not graded:/);
       assert.match(
         text,
-        /✗ pdf: references\/notes\.md \(line 5\) — bundled resource not found/,
+        /✗ pdf: bundled resource "references\/notes\.md" \(line 5\) is referenced but missing/,
       );
       const json: unknown = JSON.parse(
         run(`audit ${harness} --json --preset=experimental`, dir).stdout,
       );
       assert.deepEqual(
-        experimentalBlocks.parse(json).experimental?.map((b) => b.rule),
+        ungradedBlocks
+          .parse(json)
+          .ungraded?.flatMap((g) => g.rules.map((b) => b.rule)),
         ["skill-resource-resolves"],
       );
       assert.deepEqual(
@@ -1376,7 +1383,7 @@ describe("the experimental rule group (skill-resource-resolves)", () => {
         rules: { "skill-resource-resolves": "off" },
       });
       const r = run(`lint ${harness} --preset=experimental`, dir);
-      assert.doesNotMatch(r.stdout, /Skill-resource check/);
+      assert.doesNotMatch(r.stdout, /bundled resource/);
     });
   }
 

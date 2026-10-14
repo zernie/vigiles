@@ -71,16 +71,11 @@ import type {
   FrontmatterValueIssue,
   FrontmatterParseIssue,
   ScanTrifectaFinding,
-  ScanSkillResourceFinding,
   ScanSkillFenceFinding,
   ScanDelegationFinding,
   ScanReport,
   VocabularyNote,
 } from "./scan.js";
-import type {
-  SkillResourceFinding,
-  SkillResourceResolution,
-} from "./core/skill-resources.js";
 import { HOOKS_DIR } from "./core/hook-paths.js";
 import { classifySource } from "./source-kinds.js";
 
@@ -1157,37 +1152,16 @@ export function skillMetaIssuesFor(
 }
 
 /**
- * The skill-resource findings of one resolution, tagged with their skill.
- *
- * The ONE place a skill-resource finding is sorted by its resolution (#382): a
- * `missing` ref is a finding (`✗`, gated when the rule is at `error`) and a
- * `repo-root-only` ref is a note, printed and never counted. Neither is scored:
- * the rule is in the experimental group. The report holds them in two lists whose
- * element types each admit one variant, so no consumer filters, and none can
- * forget to: a note cannot reach a list that is counted.
- */
-function skillResourcesOf<R extends SkillResourceResolution>(
-  skills: readonly ScanSkill[],
-  resolution: R,
-): readonly ScanSkillResourceFinding<R>[] {
-  return skills.flatMap((s) =>
-    s.resourceIssues
-      .filter((f): f is SkillResourceFinding<R> => f.resolution === resolution)
-      .map((finding) => ({ path: s.path, name: s.name, finding })),
-  );
-}
-
-/**
- * Flatten the per-surface lethal-trifecta + skill-resource findings into the
- * path-tagged report lists the `audit` report AND the `lethal-trifecta` /
- * `skill-resource-resolves` lint rules both consume (one detector, no drift).
+ * Flatten the per-surface lethal-trifecta and skill-fence findings into the
+ * path-tagged report lists the `audit` report AND the lint rules both consume
+ * (one detector, no drift).
  * Shared by the disk scan and the browser twin, and keyed by the report's own
  * field names, so both engines spread the same lists.
  */
 export function collectSurfaceFindings(
   agents: readonly ScanAgent[],
   skills: readonly ScanSkill[],
-): Pick<ScanReport, "trifectaFindings" | "experimental" | "skillFenceIssues"> {
+): Pick<ScanReport, "trifectaFindings" | "skillFenceIssues"> {
   const trifectaFindings: ScanTrifectaFinding[] = [];
   for (const a of agents) {
     if (a.trifecta) {
@@ -1212,18 +1186,7 @@ export function collectSurfaceFindings(
   const skillFenceIssues: ScanSkillFenceFinding[] = skills.flatMap((s) =>
     s.fenceIssue ? [{ path: s.path, name: s.name, finding: s.fenceIssue }] : [],
   );
-  return {
-    trifectaFindings,
-    // The experimental group's findings: detected here like every other, kept
-    // under their own key so no grader reads them (see ScanReport.experimental).
-    experimental: {
-      "skill-resource-resolves": {
-        issues: skillResourcesOf(skills, "missing"),
-        notes: skillResourcesOf(skills, "repo-root-only"),
-      },
-    },
-    skillFenceIssues,
-  };
+  return { trifectaFindings, skillFenceIssues };
 }
 
 /**

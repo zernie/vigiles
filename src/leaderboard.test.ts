@@ -42,7 +42,6 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     descriptionOverlaps: [],
     descriptionBudgetIssues: [],
     trifectaFindings: [],
-    experimental: { "skill-resource-resolves": { issues: [], notes: [] } },
     skillFenceIssues: [],
     pluginLayoutIssues: [],
     unclaimedSurfaces: [],
@@ -192,25 +191,10 @@ test("the NEW non-advisory detectors are scored (not ranked A/100 while printing
     }),
   ).score;
   assert.ok(hookBlock < 100, "an ineffective hook must drag the score");
-  // The opposite for an EXPERIMENTAL rule: its findings sit under
-  // `experimental`, which no scorer reads, so they cannot move the score.
-  const withSurface = { commands: 1 };
-  const skillRes = scoreReport(
-    report({
-      ...withSurface,
-      experimental: {
-        "skill-resource-resolves": {
-          issues: [{ path: "p", name: "s", finding: {} as never }],
-          notes: [],
-        },
-      },
-    }),
-  ).score;
-  assert.equal(
-    skillRes,
-    scoreReport(report(withSurface)).score,
-    "an experimental finding (skill-resource-resolves) never drags the score",
-  );
+  // The opposite for an UNGRADED group's rule cannot be written here any
+  // more: its findings live only on the filtered scan's `ungraded`, which a
+  // scorer's `GradedView` type refuses (core/apply-rules.ts); the "score does
+  // not move" half is pinned in audit-report.test.ts.
 });
 
 test("a lethal-trifecta unit deducts W_TRIFECTA (-10) — explicit AND inherits-all alike", () => {

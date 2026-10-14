@@ -43,6 +43,7 @@ import { auditScore, type AuditScore } from "./audit-score.js";
 import type { Recommendation } from "./optimize.js";
 import { gradeFor, reportDeductions, type PluginScore } from "./score-core.js";
 import type { ScanReport, ScanAgent, ScanSkill, ScanHook } from "./scan.js";
+import type { GradedView } from "./core/apply-rules.js";
 
 /**
  * The inputs the verdict needs — exactly the pieces {@link buildAuditReport}
@@ -51,7 +52,8 @@ import type { ScanReport, ScanAgent, ScanSkill, ScanHook } from "./scan.js";
  * it; `recommendations` is the array whose indices `perRecommendation` aligns to.
  */
 export interface VerdictInput {
-  readonly report: ScanReport;
+  /** The graded view: an ungraded group's findings never reach the verdict. */
+  readonly report: GradedView<ScanReport>;
   readonly score: AuditScore;
   readonly recommendations: readonly Recommendation[];
 }

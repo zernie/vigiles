@@ -224,6 +224,33 @@ const groupNameFence = {
   },
 };
 
+/**
+ * I8: the report VIEW (`packages/report-view`, rendered from the AuditReport
+ * JSON) is generic too — it renders whatever ungraded groups the data carries,
+ * under the label the data carries, so it may name no rule and no group. Only
+ * the two name fences run there (it is not part of `src/`'s typed lint); the
+ * parser is set so a `.tsx` file parses.
+ */
+const reportViewFences = {
+  files: ["packages/report-view/src/**/*.{ts,tsx}"],
+  languageOptions: {
+    parser: tsparser,
+    parserOptions: { ecmaFeatures: { jsx: true } },
+  },
+  plugins: { local },
+  rules: {
+    // The view is linted for the fences only; eslint:recommended's scope rules
+    // do not understand TypeScript types and are not this block's job.
+    "no-undef": "off",
+    "no-unused-vars": "off",
+    "local/no-rule-ids": ["error", ruleIdOptions(null, false)],
+    "local/no-group-names": [
+      "error",
+      { names: GROUP_NAMES, setNames: GROUP_SET_NAMES },
+    ],
+  },
+};
+
 /** Per-file ceilings for functions older than the size limits. Generated, then only lowered. */
 const CEILINGS = JSON.parse(readFileSync("eslint-ceilings.json", "utf8"));
 
@@ -493,6 +520,30 @@ export default [
       ],
     },
   },
+  // I5: an ungraded group's findings never reach a scorer. The type holds it
+  // (a scorer takes `GradedView`, which has no `ungraded`); this is the belt,
+  // over the files that score: none of them may read `.ungraded` at all.
+  {
+    files: [
+      "src/audit-score.ts",
+      "src/audit-verdict.ts",
+      "src/optimize.ts",
+      "src/score-core.ts",
+      "src/score-explainer.ts",
+      "src/leaderboard.ts",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        AS_UNKNOWN_AS,
+        {
+          selector: 'MemberExpression[property.name="ungraded"]',
+          message:
+            "Only a renderer reads `ungraded`; a scorer takes `GradedView` (src/core/apply-rules.ts), so an ungraded group's findings can never move a grade.",
+        },
+      ],
+    },
+  },
   // The strict rules shared with paperlint (packages/eslint-config). Old code is
   // grandfathered: counting rules in eslint-suppressions.json, function sizes in
   // eslint-ceilings.json. Both may only shrink.
@@ -527,6 +578,7 @@ export default [
   ...harnessFences,
   ...ruleIdFences,
   groupNameFence,
+  reportViewFences,
   // Test files: relax promise and duplication rules
   {
     files: ["src/**/*.test.ts"],

@@ -62,7 +62,7 @@
     "max-lines-per-function": 225
   },
   "src/audit-report.ts": {
-    "max-lines-per-function": 35
+    "max-lines-per-function": 33
   },
   "src/audit-score.test.ts": {
     "max-lines-per-function": 506
@@ -97,7 +97,7 @@
   },
   "src/cli-main.ts": {
     "max-params": 5,
-    "max-lines-per-function": 488,
+    "max-lines-per-function": 487,
     "complexity": 120,
     "max-depth": 4,
     "sonarjs/cognitive-complexity": 237

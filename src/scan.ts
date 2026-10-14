@@ -71,16 +71,7 @@ import {
   mergeConflictWarning,
 } from "./core/merge-conflict.js";
 import type { TrifectaFinding } from "./core/lethal-trifecta.js";
-import type { ExperimentalRuleName } from "./core/rule-meta.js";
-import {
-  EXPERIMENTAL_BLURB,
-  EXPERIMENTAL_HEADING,
-  type ExperimentalRuleResult,
-} from "./experimental-findings.js";
-import type {
-  SkillResourceFinding,
-  SkillResourceResolution,
-} from "./core/skill-resources.js";
+import type { SkillResourceFinding } from "./core/skill-resources.js";
 import type { SkillFenceFinding } from "./core/skill-missing-fence.js";
 import {
   pluginDirLayoutIssues,
@@ -150,7 +141,7 @@ import {
   permissionDecisionEventsOf,
 } from "./core/event-capability.js";
 import { hookLinePlan } from "./core/hook-command.js";
-import type { FilteredScan } from "./core/apply-rules.js";
+import type { FilteredScan, UngradedGroup } from "./core/apply-rules.js";
 import { HOOKS_DIR } from "./core/hook-paths.js";
 
 // Re-export the pure detectors (and their public types: SurfaceClassifier,
@@ -178,8 +169,8 @@ export interface ScanSkill {
    * SKILL.md body references to a bundled file (`scripts/`/`references/`/`assets/`
    * or a relative markdown link with an extension) that don't resolve on disk
    * under the skill dir, each tagged `missing` or `repo-root-only`. Computed by
-   * `skillResourceIssues()` (one detector, no drift); `collectSurfaceFindings`
-   * splits them into the two lists under `ScanReport.experimental`.
+   * `skillResourceIssues()` (one detector, no drift); the rule module that
+   * reports them (`src/rules/`) reads them through core's `ScanInput`.
    */
   readonly resourceIssues: readonly SkillResourceFinding[];
   /**
@@ -259,45 +250,6 @@ export interface ScanTrifectaFinding {
   readonly name: string;
   readonly finding: TrifectaFinding;
 }
-
-/**
- * A SKILL.md body resource reference that doesn't resolve under the skill dir,
- * tagged with the skill path. `R` names the resolution a list holds, so the
- * report's `missing` list cannot be handed a note.
- */
-export interface ScanSkillResourceFinding<
-  R extends SkillResourceResolution = SkillResourceResolution,
-> {
-  readonly path: string;
-  readonly name: string;
-  readonly finding: SkillResourceFinding<R>;
-}
-
-/**
- * Each experimental rule's findings, in the shape its detector produces. The
- * mapped type is the binding to the group: a rule added to
- * `EXPERIMENTAL_RULES` without a row in {@link ExperimentalFindingShapes} does
- * not compile.
- */
-interface ExperimentalFindingShapes {
-  /**
-   * SKILL.md body references to a bundled resource: `issues` resolve NOWHERE
-   * (not beside the SKILL.md, not at the repo root); `notes` miss beside the
-   * SKILL.md but exist at the repo root (#382) — they work inside this
-   * repository and break once the skill is installed elsewhere. A ref is in
-   * exactly one of the two lists. Read by the `skill-resource-resolves` lint
-   * rule (one detector, no drift).
-   */
-  readonly "skill-resource-resolves": {
-    readonly issues: readonly ScanSkillResourceFinding<"missing">[];
-    readonly notes: readonly ScanSkillResourceFinding<"repo-root-only">[];
-  };
-}
-
-/** {@link ScanReport.experimental}: one entry per experimental rule. */
-export type ExperimentalScanFindings = {
-  readonly [K in ExperimentalRuleName]: ExperimentalFindingShapes[K];
-};
 
 /** A missing-frontmatter-fence finding tagged with the skill path. */
 export interface ScanSkillFenceFinding {
@@ -449,16 +401,6 @@ export interface ScanReport {
    * (the report) and the `lethal-trifecta` lint rule (one detector, no drift).
    */
   readonly trifectaFindings: readonly ScanTrifectaFinding[];
-  /**
-   * The findings of the `experimental` rule group (`EXPERIMENTAL_RULES`,
-   * `core/rule-meta.ts`), keyed by rule. Detected on every scan — the scan is a
-   * read, and `lint` and `audit` decide whether to show them — but held APART
-   * from every field a grader reads: no scoring function reads this key, so an
-   * experimental finding cannot move a ring, the overall, the grade or the
-   * verdict. `audit` shows an enabled rule's findings in its own "Experimental —
-   * not graded" block (`./experimental-findings.ts`).
-   */
-  readonly experimental: ExperimentalScanFindings;
   /**
    * Skills whose frontmatter-looking opening has NO `---` fence, so they load as
    * pure body (invisible — no name/description/trigger). Shared by `scan` and the
@@ -1445,18 +1387,14 @@ function inventoryFacts(r: ScanReport): readonly string[] {
 }
 
 export function formatScanReport(
-  /** Minted by `applyRules`: an off rule's findings are already gone. */
-  r: FilteredScan<ScanReport>,
   /**
-   * The experimental block to print AFTER the verdict line, never counted in
-   * it — the `AuditReport`'s own `experimental`, so the terminal, the JSON and
-   * the HTML show the same data. Absent (the default): no block.
+   * Minted by `applyRules`: an off rule's findings are already gone, and an
+   * ungraded group's are in `ungraded` — printed AFTER the verdict line and
+   * never counted in it, from the same data the JSON and the HTML render.
    */
-  experimental: readonly ExperimentalRuleResult[] = [],
+  r: FilteredScan<ScanReport>,
 ): string {
-  return [...gradedReportLines(r), ...experimentalLines(experimental)].join(
-    "\n",
-  );
+  return [...gradedReportLines(r), ...ungradedLines(r.ungraded)].join("\n");
 }
 
 /** The report's lines up to and including the verdict — everything graded. */
@@ -1728,19 +1666,16 @@ function gradedReportLines(r: ScanReport): readonly string[] {
 }
 
 /**
- * The "Experimental — not graded" block: each enabled experimental rule and its
- * findings, after the verdict line so nothing in it reads as part of the grade.
- * Rendered from the same data the JSON and HTML report carry.
+ * The ungraded groups' blocks: each group's label and blurb, then every rule of
+ * it that is on and what it found — after the verdict line, so nothing in it
+ * reads as part of the grade. The label is the group's own (`RuleGroupSpec`).
  */
-function experimentalLines(
-  results: readonly ExperimentalRuleResult[],
-): readonly string[] {
-  if (results.length === 0) return [];
-  return [
+function ungradedLines(groups: readonly UngradedGroup[]): readonly string[] {
+  return groups.flatMap((g) => [
     "",
-    `${EXPERIMENTAL_HEADING}:`,
-    `  ${EXPERIMENTAL_BLURB}`,
-    ...results.flatMap((res) =>
+    `${g.label}:`,
+    ...(g.blurb === undefined ? [] : [`  ${g.blurb}`]),
+    ...g.rules.flatMap((res) =>
       res.findings.length === 0
         ? [`  ✓ ${res.rule}: nothing found`]
         : [
@@ -1751,5 +1686,5 @@ function experimentalLines(
             ),
           ],
     ),
-  ];
+  ]);
 }

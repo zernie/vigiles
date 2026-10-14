@@ -147,6 +147,12 @@ export interface RuleSpec {
    */
   readonly options?: z.ZodType;
   /**
+   * A migrated rule's findings, read off the scan (`ScanInput`) and phrased
+   * the way every surface prints them. `applyRules` calls it for a rule that is
+   * on; `lint` counts what it returns at each finding's own severity.
+   */
+  readonly findings?: (scan: ScanInput) => readonly Finding[];
+  /**
    * For a rule not yet migrated to a module: the scan field its findings sit
    * in, so `applyRules` can blank them when the rule is off. Only a field that
    * is shown and never scored is declared (see `./apply-rules.ts`).

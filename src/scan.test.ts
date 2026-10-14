@@ -5,8 +5,6 @@
  * braced/unbraced `$CLAUDE_PLUGIN_ROOT` forms (ok / missing / unresolved),
  * command + MCP detection, and the formatted output. No model, no network.
  */
-import { experimentalResults } from "./experimental-findings.js";
-import { EXPERIMENTAL_RULES } from "./core/rule-meta.js";
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
@@ -38,13 +36,13 @@ import {
 } from "./core/hook-command.js";
 import { withRoleExit } from "./core/hook-program.js";
 import { applyRules } from "./core/apply-rules.js";
-import { defaultSeverities } from "./core/rule.js";
+import { defaultSeverities, type ScanInput } from "./core/rule.js";
 import { ruleResolver } from "./overrides.js";
-import { RULES } from "./rules/index.js";
+import { RULES, RULE_GROUPS } from "./rules/index.js";
 
 /** A scan as `audit` shows it under the shipped defaults (`applyRules`). */
-const shown = <S extends object>(scan: S) =>
-  applyRules(RULES, ruleResolver(defaultSeverities(RULES)), scan);
+const shown = <S extends ScanInput>(scan: S) =>
+  applyRules(RULES, RULE_GROUPS, ruleResolver(defaultSeverities(RULES)), scan);
 
 function write(dir: string, rel: string, content: string): void {
   const abs = join(dir, rel);
@@ -243,35 +241,31 @@ for (const adapter of ADAPTERS) {
       );
       write(repo, "scripts/leak.py", "# lives at the repo root only\n");
       const r = scan(repo);
+      const refs = r.skills.flatMap((sk) => sk.resourceIssues);
       assert.deepEqual(
-        r.experimental["skill-resource-resolves"].issues.map(
-          (s) => s.finding.ref,
-        ),
-        ["scripts/gone.py"],
-        "only the ref that exists nowhere is a missing resource",
+        refs.map((f) => [f.ref, f.resolution]),
+        [
+          ["scripts/leak.py", "repo-root-only"],
+          ["scripts/gone.py", "missing"],
+        ],
+        "only the ref that exists nowhere is missing; the other is a note",
       );
-      assert.deepEqual(
-        r.experimental["skill-resource-resolves"].notes.map((s) => [
-          s.finding.ref,
-          s.finding.resolution,
-        ]),
-        [["scripts/leak.py", "repo-root-only"]],
-        "the repo-root-only ref is reported as a note, visibly",
-      );
-      // The rule is experimental: the report shows its findings only when the
-      // run turned the rule on, and then in the "not graded" block.
+      // The rule is in an ungraded group: the report shows its findings only
+      // when the run turned the rule on, and then in the group's own block.
       assert.doesNotMatch(formatScanReport(shown(r)), /scripts\/gone\.py/);
       const text = formatScanReport(
-        shown(r),
-        experimentalResults(r, new Set(EXPERIMENTAL_RULES)),
+        applyRules(RULES, RULE_GROUPS, { mayFire: () => true }, r),
       );
       assert.match(text, /Experimental — not graded:/);
-      assert.match(text, /✗ rca: scripts\/gone\.py \(line 7\)/);
       assert.match(
         text,
-        /ℹ rca: scripts\/leak\.py \(line 5\) resolves only from the repo root/,
+        /✗ rca: bundled resource "scripts\/gone\.py" \(line 7\)/,
       );
-      assert.doesNotMatch(text, /✗ rca: scripts\/leak\.py/);
+      assert.match(
+        text,
+        /ℹ rca: bundled resource "scripts\/leak\.py" \(line 5\) resolves only from the repo root/,
+      );
+      assert.doesNotMatch(text, /✗ rca: bundled resource "scripts\/leak\.py"/);
 
       // The note is never scored: a repo whose only ref is repo-root-only
       // scores exactly like the same repo with no ref at all.
@@ -492,7 +486,9 @@ test("scanPlugin lists every hand-written hook (a compiled one, by identity, exc
   );
   // Each one surfaces in the report by name, linking the guide — when the rule
   // that names them is on (it is off by default; every rule is on here).
-  const out = formatScanReport(applyRules(RULES, { mayFire: () => true }, r));
+  const out = formatScanReport(
+    applyRules(RULES, RULE_GROUPS, { mayFire: () => true }, r),
+  );
   assert.match(
     out,
     /PreToolUse hook `bash \$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/guard\.sh`: vigiles did not write this line/,
@@ -2025,19 +2021,12 @@ test("scanPlugin flags a SKILL.md body referencing a missing bundled resource", 
     "only the missing ref is flagged",
   );
   assert.equal(pdf.resourceIssues[0].ref, "references/api.md");
-  // The aggregate list + the printed report both carry it.
-  const flat = r.experimental["skill-resource-resolves"].issues.find(
-    (s) => s.name === "pdf",
-  );
-  assert.ok(flat);
-  assert.equal(flat.finding.ref, "references/api.md");
+  // The printed report carries it when the rule is on.
   const on = formatScanReport(
-    shown(r),
-    experimentalResults(r, new Set(EXPERIMENTAL_RULES)),
+    applyRules(RULES, RULE_GROUPS, { mayFire: () => true }, r),
   );
-  assert.match(on, /skill-resource-resolves \(1\):/);
-  assert.match(on, /✗ pdf: references\/api\.md/);
-  // Experimental: never in the structural tally, on or off.
+  assert.match(on, /✗ pdf: bundled resource "references\/api\.md"/);
+  // Ungraded: never in the structural tally, on or off.
   assert.match(on, /✓ no structural issues found/);
   cleanupTmpDir(dir);
 });
@@ -2101,7 +2090,6 @@ test("skill-resource is FP-safe: URLs and $VAR tokens are not flagged", () => {
     r.skills.find((s) => s.name === "web")?.resourceIssues.length,
     0,
   );
-  assert.equal(r.experimental["skill-resource-resolves"].issues.length, 0);
   cleanupTmpDir(dir);
 });
 

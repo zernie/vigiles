@@ -10,7 +10,7 @@ import { buildAuditReport } from "@engine/audit-report";
 import { applyRules } from "@engine/core/apply-rules";
 import { defaultSeverities } from "@engine/core/rule";
 import { ruleResolver } from "@engine/overrides";
-import { RULES } from "@engine/rules/index";
+import { RULES, RULE_GROUPS } from "@engine/rules/index";
 import type { AuditReport } from "@vigiles/report-view";
 import type { RepoFiles } from "./fetchRepo";
 
@@ -32,6 +32,7 @@ export function runAudit(files: RepoFiles, slug: string): AuditReport {
   // shipped default.
   const shown = applyRules(
     RULES,
+    RULE_GROUPS,
     ruleResolver(defaultSeverities(RULES)),
     report,
   );

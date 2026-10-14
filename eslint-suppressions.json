@@ -1,4 +1,14 @@
 {
+  "packages/report-view/src/Report.tsx": {
+    "local/no-rule-ids": {
+      "count": 9
+    }
+  },
+  "packages/report-view/src/sample.ts": {
+    "local/no-rule-ids": {
+      "count": 3
+    }
+  },
   "src/action-gate.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
@@ -558,9 +568,6 @@
     "local/no-harness-names": {
       "count": 15
     },
-    "local/no-rule-ids": {
-      "count": 4
-    },
     "no-restricted-syntax": {
       "count": 2
     }
@@ -568,9 +575,6 @@
   "src/audit-report.ts": {
     "functional/prefer-immutable-types": {
       "count": 2
-    },
-    "local/no-group-names": {
-      "count": 19
     },
     "local/no-rule-ids": {
       "count": 1
@@ -584,7 +588,7 @@
       "count": 1
     },
     "local/no-rule-ids": {
-      "count": 3
+      "count": 2
     },
     "no-restricted-syntax": {
       "count": 23
@@ -636,9 +640,6 @@
   "src/audit-verdict.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 9
-    },
-    "local/no-rule-ids": {
-      "count": 1
     },
     "no-restricted-syntax": {
       "count": 4
@@ -811,10 +812,10 @@
       "count": 189
     },
     "local/no-group-names": {
-      "count": 12
+      "count": 3
     },
     "local/no-rule-ids": {
-      "count": 192
+      "count": 185
     },
     "no-restricted-syntax": {
       "count": 1
@@ -2097,14 +2098,6 @@
       "count": 13
     }
   },
-  "src/core/rule-meta.ts": {
-    "local/no-group-names": {
-      "count": 6
-    },
-    "local/no-rule-ids": {
-      "count": 1
-    }
-  },
   "src/core/session.ts": {
     "boundaries/dependencies": {
       "count": 2
@@ -2884,14 +2877,6 @@
       "count": 1
     }
   },
-  "src/experimental-findings.ts": {
-    "local/no-group-names": {
-      "count": 23
-    },
-    "local/no-rule-ids": {
-      "count": 1
-    }
-  },
   "src/fs-walk.test.ts": {
     "local/no-harness-names": {
       "count": 11
@@ -3222,13 +3207,13 @@
   },
   "src/leaderboard.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 14
+      "count": 13
     },
     "local/no-harness-names": {
       "count": 25
     },
     "local/no-rule-ids": {
-      "count": 4
+      "count": 1
     },
     "no-restricted-syntax": {
       "count": 6
@@ -3400,7 +3385,7 @@
   },
   "src/optimize.test.ts": {
     "local/no-rule-ids": {
-      "count": 2
+      "count": 1
     }
   },
   "src/optimize.ts": {
@@ -3714,14 +3699,11 @@
     "functional/prefer-immutable-types": {
       "count": 48
     },
-    "local/no-group-names": {
-      "count": 1
-    },
     "local/no-harness-names": {
       "count": 1
     },
     "local/no-rule-ids": {
-      "count": 23
+      "count": 22
     }
   },
   "src/scan-files.test.ts": {
@@ -3787,7 +3769,7 @@
       "count": 308
     },
     "local/no-rule-ids": {
-      "count": 6
+      "count": 2
     }
   },
   "src/scan.ts": {
@@ -3809,11 +3791,8 @@
     "functional/prefer-immutable-types": {
       "count": 15
     },
-    "local/no-group-names": {
-      "count": 19
-    },
     "local/no-rule-ids": {
-      "count": 34
+      "count": 33
     },
     "sonarjs/no-nested-conditional": {
       "count": 1
@@ -3841,7 +3820,7 @@
       "count": 2
     },
     "local/no-rule-ids": {
-      "count": 8
+      "count": 7
     }
   },
   "src/score-explainer.ts": {
