@@ -16,7 +16,7 @@
  * That is not cosmetic, because audit's flags govern what LEAVES THE MACHINE:
  * `--no-html`, `--no-json`, `--out=<dir>`, `--serve`. `--no-htlm` writes the HTML
  * report while the author believes they suppressed it. For a tool whose thesis is
- * "prose isn't policy", accepting an argument it did not understand and carrying
+ * that a stated rule is not an enforced one, accepting an argument it did not understand and carrying
  * on is the same class of error it names elsewhere: the argument is PRESENT, so
  * the property is assumed enforced.
  *

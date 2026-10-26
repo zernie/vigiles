@@ -7,8 +7,8 @@
  * that must obey it — "always pass `curl -g`, or bracketed params glob and the
  * request fails SILENTLY"; "every `psql` needs `--single-transaction`". The rule
  * and its violation live **in the same file**, three paragraphs apart, and
- * nothing compares them. It is `prose isn't policy` turned on the author's own
- * document, and it is the smallest possible instance of it.
+ * nothing compares them. It is a rule nobody checks, turned on the author's own
+ * document, and it is the smallest possible instance of one.
  *
  * vigiles cannot INFER such a rule — no tool reads "always use -g" and derives
  * which flag is mandatory. What was missing is not cleverness but a cheap way to
