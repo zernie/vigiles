@@ -95,9 +95,8 @@ npm run gate    # runs the trust gate over the corpus
 npm run demo    # end-to-end: compile → gate → enforce on demo-project/
 ```
 
-## Paper artifact
+## Reproducing the measurement
 
 The two-stage adversarial gold-set gate + its measurement (most synthesized
-checkers silently leak; the gate catches it) is the artifact for the companion
-paper "Prose Isn't Policy". The reproducible bundle is a zip of this
-subdirectory — no separate repo required.
+checkers silently leak; the gate catches it) reproduce from this subdirectory
+alone: the bundle is a zip of it — no separate repo required.

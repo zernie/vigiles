@@ -5724,7 +5724,7 @@ function untestedRules(
       include: opts.include,
       // Without this the `testExtension` documented on TestCoverageOptions was a
       // config key nothing read: a TypeScript-shaped repo got `.ts` suggestions
-      // however the author configured it. Prose isn't policy, in our own CLI.
+      // however the author configured it. A documented key must be a read key, in our own CLI too.
       testExtension: opts.testExtension,
     },
   };
