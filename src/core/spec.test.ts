@@ -1775,3 +1775,60 @@ describe("compile → hash → verify → adopt roundtrip", () => {
     }
   });
 });
+
+describe("compileSkill(): where a skill runs — agent and model (#401)", () => {
+  it("emits context, agent and model for a forked skill, in that order", async () => {
+    const spec = experimental_skill({
+      name: "reader",
+      description: "Read one paper.",
+      context: "fork",
+      agent: "general-purpose",
+      model: "sonnet",
+      body: "Read it.",
+    });
+    const { markdown, errors } = await compileSkill(spec, atRoot);
+    assert.deepEqual(errors, []);
+    assert.ok(
+      markdown.includes(
+        "\ncontext: fork\nagent: general-purpose\nmodel: sonnet\n",
+      ),
+    );
+  });
+
+  it("emits model for an inline skill: it then sets the turn's model", async () => {
+    const spec = experimental_skill({
+      name: "quick",
+      description: "A cheap inline step.",
+      model: "haiku",
+      body: "Do it.",
+    });
+    const { markdown, errors } = await compileSkill(spec, atRoot);
+    assert.deepEqual(errors, []);
+    assert.ok(markdown.includes("\nmodel: haiku\n"));
+    assert.ok(!markdown.includes("context:"));
+  });
+
+  it("errors when agent is set WITHOUT context: fork (no subagent to pick)", async () => {
+    const spec = experimental_skill({
+      name: "review",
+      description: "Review a file.",
+      agent: "Explore",
+      body: "Review the file.",
+    });
+    const { errors } = await compileSkill(spec, atRoot);
+    assert.ok(errors.some((e) => e.type === "agent-without-fork"));
+  });
+
+  it("a skill that sets neither compiles byte-identically to before", async () => {
+    const spec = experimental_skill({
+      name: "plain",
+      description: "No execution keys.",
+      context: "fork",
+      body: "Body.",
+    });
+    const { markdown } = await compileSkill(spec, atRoot);
+    assert.ok(markdown.includes("\ncontext: fork\n"));
+    assert.ok(!markdown.includes("agent:"));
+    assert.ok(!markdown.includes("model:"));
+  });
+});

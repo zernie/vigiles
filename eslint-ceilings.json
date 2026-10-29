@@ -116,8 +116,8 @@
   },
   "src/core/adopt.ts": {
     "max-lines-per-function": 43,
-    "sonarjs/cognitive-complexity": 12,
-    "complexity": 17
+    "sonarjs/cognitive-complexity": 11,
+    "complexity": 15
   },
   "src/core/bash-effects.ts": {
     "max-lines-per-function": 49,
@@ -146,8 +146,8 @@
     "complexity": 13
   },
   "src/core/compile.ts": {
-    "max-lines-per-function": 86,
-    "complexity": 19,
+    "max-lines-per-function": 79,
+    "complexity": 18,
     "sonarjs/cognitive-complexity": 17
   },
   "src/core/compose.ts": {

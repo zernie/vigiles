@@ -185,11 +185,16 @@ export const claudeCodeDialect: HarnessDialect = {
   // aliased to the compiler's RENDERABLE_SKILL_FRONTMATTER_KEYS: that constant is
   // "what vigiles can write", this list is "what Claude Code reads", and a new
   // renderable key must not silently become a claim about the vendor.
+  // `agent` and `model`: code.claude.com/docs/en/skills, frontmatter table —
+  // "Which subagent type to use when `context: fork` is set" and "With
+  // `context: fork`, the value sets the forked subagent's model instead" (#401).
   skillFrontmatterKeys: [
     "name",
     "description",
     "disable-model-invocation",
     "context",
+    "agent",
+    "model",
     "argument-hint",
     "allowed-tools",
     "disallowed-tools",

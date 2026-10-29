@@ -41,6 +41,8 @@ export const RENDERABLE_SKILL_FRONTMATTER_KEYS = [
   "description",
   "disable-model-invocation",
   "context",
+  "agent",
+  "model",
   "argument-hint",
   "allowed-tools",
   "disallowed-tools",

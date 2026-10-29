@@ -298,3 +298,46 @@ describe("dogfood: adopt real vendored surfaces", () => {
     },
   );
 });
+
+describe("adoptSkill: where a forked skill runs (#401)", () => {
+  /** Narrow an adopted surface to a skill by its tag, not by a cast. */
+  const skillOf = (spec: SkillSpec | AgentSpec): SkillSpec => {
+    if (spec._specType !== "skill") throw new Error("expected a skill spec");
+    return spec;
+  };
+
+  it("round-trips agent + model through adopt → compile", async () => {
+    const md = `---
+name: reader
+description: Read one paper and quote it
+context: fork
+agent: general-purpose
+model: sonnet
+---
+
+Read the paper.
+`;
+    const r = adoptSkill(md, "reader");
+    const spec = skillOf(r.spec);
+    expect(spec.agent).toBe("general-purpose");
+    expect(spec.model).toBe("sonnet");
+    // Known keys now: neither may surface as an unmapped-key note.
+    expect(r.unmappedKeys).not.toContain("agent");
+    expect(r.unmappedKeys).not.toContain("model");
+    expect(r.source).toContain(`agent: "general-purpose",`);
+    expect(r.source).toContain(`model: "sonnet",`);
+
+    const { markdown, errors } = await compileSkill(
+      spec,
+      at("skills/reader/SKILL.md.spec.ts"),
+    );
+    expect(errors).toEqual([]);
+    expect(markdown).toMatch(
+      /\ncontext: fork\nagent: general-purpose\nmodel: sonnet\n/,
+    );
+
+    const back = skillOf(adoptSkill(markdown, "reader").spec);
+    expect(back.agent).toBe("general-purpose");
+    expect(back.model).toBe("sonnet");
+  });
+});

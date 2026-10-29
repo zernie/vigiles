@@ -19,8 +19,8 @@ import {
   assertAdapterLoadsHooks,
 } from "../../adapter-conformance.js";
 import { ADAPTERS, getAdapter } from "../../adapter-registry.js";
-import { compileAgent } from "../../core/compile.js";
-import { experimental_agent } from "../../core/spec.js";
+import { compileAgent, compileSkill } from "../../core/compile.js";
+import { experimental_agent, experimental_skill } from "../../core/spec.js";
 // The generic, layout-driven loader lives at the composition root; the Codex
 // adapter reuses it with codexLayout (no cross-adapter import).
 import { loadPlugin } from "../../plugin-loader.js";
@@ -303,4 +303,21 @@ test("hook-script-exists: a compiled hook's relative RUNNER is checked — missi
   } finally {
     cleanupTmpDir(dir);
   }
+});
+
+test("codex drops a skill's agent and model: its dialect reads neither (#401)", async () => {
+  const spec = experimental_skill({
+    name: "reader",
+    description: "Read one paper.",
+    context: "fork",
+    agent: "general-purpose",
+    model: "sonnet",
+    body: "Read it.",
+  });
+  const { markdown } = await compileSkill(spec, {
+    basePath: REPO_ROOT,
+    dialect: codexDialect,
+  });
+  assert.ok(!markdown.includes("agent:"));
+  assert.ok(!markdown.includes("model:"));
 });

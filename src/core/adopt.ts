@@ -465,6 +465,8 @@ const SKILL_KNOWN_KEYS = new Set([
   "disable-model-invocation",
   "argument-hint",
   "context",
+  "agent",
+  "model",
 ]);
 const AGENT_KNOWN_KEYS = new Set([
   "name",
@@ -521,6 +523,37 @@ const SURFACE_HEADER = (from: string) =>
   `// frontmatter mapped; no rules inferred. Review the diff, then \`compile\`.\n`;
 
 /**
+ * Where a SKILL.md says it runs — `context`, `agent`, `model` — as spec fields and
+ * as the spec-source lines that write them, in compile's render order.
+ *
+ * `context: fork` is a supported skill key (a forked skill runs as a subagent);
+ * `"fork"` is the only valid value. Previously it was in SKILL_KNOWN_KEYS but
+ * never read, so an existing SKILL.md's `context: fork` was silently dropped on
+ * adopt with NO unmapped-key warning (the key was falsely marked "known"). (#107)
+ * `agent` and `model` are plain strings (#401).
+ */
+function adoptExecutionKeys(fm: Readonly<FrontmatterRead>): Readonly<{
+  fields: Readonly<{ context?: "fork"; agent?: string; model?: string }>;
+  lines: readonly string[];
+}> {
+  const isFork = frontmatterScalar(fm, "context") === "fork";
+  const found = (["agent", "model"] as const).flatMap((key) => {
+    const value = frontmatterScalar(fm, key);
+    return value ? [{ key, value }] : [];
+  });
+  return {
+    fields: {
+      ...(isFork ? { context: "fork" as const } : {}),
+      ...Object.fromEntries(found.map(({ key, value }) => [key, value])),
+    },
+    lines: [
+      ...(isFork ? [`  context: "fork",`] : []),
+      ...found.map(({ key, value }) => `  ${key}: ${JSON.stringify(value)},`),
+    ],
+  };
+}
+
+/**
  * Adopt an existing SKILL.md into an `experimental_skill()` spec. The body is carried verbatim
  * (skills are freeform markdown — `##` headings stay in the body), so a clean
  * skill round-trips below the integrity header.
@@ -542,11 +575,7 @@ export function adoptSkill(
   const argumentHint = frontmatterScalar(fm, "argument-hint");
   const disableModelInvocation =
     frontmatterScalar(fm, "disable-model-invocation") === "true";
-  // `context: fork` is a supported skill key (a forked skill runs as a subagent);
-  // `"fork"` is the only valid value. Previously it was in SKILL_KNOWN_KEYS but
-  // never read, so an existing SKILL.md's `context: fork` was silently dropped on
-  // adopt with NO unmapped-key warning (the key was falsely marked "known"). (#107)
-  const isFork = frontmatterScalar(fm, "context") === "fork";
+  const execution = adoptExecutionKeys(fm);
   const unmappedKeys = unmappedFrontmatterKeys(fm, SKILL_KNOWN_KEYS);
 
   const lines = [
@@ -555,7 +584,7 @@ export function adoptSkill(
   ];
   if (argumentHint)
     lines.push(`  argumentHint: ${JSON.stringify(argumentHint)},`);
-  if (isFork) lines.push(`  context: "fork",`);
+  lines.push(...execution.lines);
   if (disableModelInvocation) lines.push(`  disableModelInvocation: true,`);
   if (tools && tools.length > 0)
     lines.push(`  tools: ${JSON.stringify(tools)},`);
@@ -566,7 +595,7 @@ export function adoptSkill(
     name,
     description,
     ...(argumentHint ? { argumentHint } : {}),
-    ...(isFork ? { context: "fork" as const } : {}),
+    ...execution.fields,
     ...(disableModelInvocation ? { disableModelInvocation: true } : {}),
     ...(tools && tools.length > 0 ? { tools } : {}),
     ...(trimmedBody ? { body: trimmedBody } : {}),
