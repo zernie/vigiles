@@ -157,6 +157,8 @@ export default skill({
 | `steps`                  | `SkillStep[]`                                       | no       | Gated pipeline via `step(do, { gate, retry })` -- compiles to `## Steps`. Use this OR `body`                       |
 | `result`                 | `Gate`                                              | no       | Terminal postcondition gate (`cmd()`/`file()`/`project()`); compiles to `## Result`                                |
 | `context`                | `"fork"`                                            | no       | Run as a forked subagent -- the prerequisite for `output`                                                          |
+| `agent`                  | `string`                                            | no       | Subagent type a fork starts (`general-purpose` when omitted) -- **requires `context:"fork"`**                      |
+| `model`                  | `string`                                            | no       | Model alias, full model id or `inherit`; on a fork it is the subagent's model, inline it is the turn's model       |
 | `output`                 | `OutputContract`                                    | no       | A `result(okShape, errShape)` typed outcome -- **requires `context:"fork"`** (see [Railway](railway-subagents.md)) |
 | `body`                   | `string \| InstructionFragment[]`                   | yes\*    | Instruction body -- plain string or tagged template (\*or use `steps`)                                             |
 | `maxInlineCodeLines`     | `number`                                            | no       | Warn (non-blocking) when an inline fenced code block is longer than this, nudging it into a `file()` (default 20)  |

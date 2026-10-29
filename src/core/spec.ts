@@ -756,6 +756,23 @@ export interface SkillSpec {
    */
   readonly context?: "fork";
   /**
+   * The subagent type a forked skill starts (`agent` frontmatter): a built-in
+   * type (`Explore`, `Plan`, `general-purpose`) or a custom one from the
+   * harness's agents directory. Requires `context: "fork"` — without a fork
+   * there is no subagent to pick (compile error `agent-without-fork`). Omitted,
+   * the harness uses `general-purpose`.
+   */
+  readonly agent?: string;
+  /**
+   * The model the skill runs on (`model` frontmatter): an alias (`sonnet`,
+   * `opus`, `haiku`, `fable`), a full model id, or `inherit`. With
+   * `context: "fork"` it sets the forked subagent's model; inline, it overrides
+   * the model for the rest of the current turn. Omitted on a forked skill, the
+   * subagent resolves to the main conversation's model — which is the costly
+   * default this field exists to override.
+   */
+  readonly model?: string;
+  /**
    * The allowed-tools contract for this skill. Each entry must be a known
    * built-in tool or an MCP tool (`mcp__server__tool`). Omit to inherit all
    * tools. When `purity` is `"pure"`/`"bounded"`, the declared tools are checked

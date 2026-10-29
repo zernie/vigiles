@@ -25,7 +25,9 @@ import { getAdapter } from "./adapter-registry.js";
  * `disallowed-tools` are also droppable and are not listed here. That is the
  * pre-existing scope of this warning, carried over unchanged when the profile
  * enum became a key set — widening it is a behaviour change to argue
- * separately, not a side effect of the rename.
+ * separately, not a side effect of the rename. `agent` and `model` are in
+ * because they arrived after that scope was set (#401): no existing spec sets
+ * them, so listing them warns no one who was not warned before.
  */
 export function optionalFrontmatterKeys(spec: SkillSpec): string[] {
   const keys: string[] = [];
@@ -35,7 +37,10 @@ export function optionalFrontmatterKeys(spec: SkillSpec): string[] {
   if (spec.argumentHint || (spec.inputs && spec.inputs.length > 0)) {
     keys.push("argument-hint");
   }
-  return keys;
+  const execution = (["agent", "model"] as const).filter(
+    (key) => spec[key] !== undefined,
+  );
+  return [...keys, ...execution];
 }
 
 /**

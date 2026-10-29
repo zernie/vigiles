@@ -188,6 +188,7 @@ export interface CompileError {
     | "invalid-railway"
     | "purity-violation"
     | "output-without-fork"
+    | "agent-without-fork"
     | "effect-in-skill"
     | "inline-code-too-long"
     | "entry-too-long"
@@ -1477,6 +1478,25 @@ function yamlScalar(value: string): string {
  * exactly what a key set says. A harness that reads four of the seven now gets
  * four, instead of falling into whichever of two buckets someone picked for it.
  */
+/**
+ * The frontmatter lines that say WHERE a skill runs, in render order: `context`,
+ * then the subagent type and the model a fork starts (`agent`, `model`, #401).
+ * Only keys the dialect reads (`emits`) and the spec sets.
+ */
+function executionFrontmatter(
+  spec: SkillSpec,
+  emits: (key: string) => boolean,
+): readonly string[] {
+  const set: readonly (readonly [string, string | undefined])[] = [
+    ["context", spec.context],
+    ["agent", spec.agent === undefined ? undefined : yamlScalar(spec.agent)],
+    ["model", spec.model === undefined ? undefined : yamlScalar(spec.model)],
+  ];
+  return set.flatMap(([key, value]) =>
+    emits(key) && value !== undefined ? [`${key}: ${value}`] : [],
+  );
+}
+
 function renderSkillFrontmatter(
   spec: SkillSpec,
   keys: readonly string[] = RENDERABLE_SKILL_FRONTMATTER_KEYS,
@@ -1493,9 +1513,7 @@ function renderSkillFrontmatter(
   ) {
     fm.push(`disable-model-invocation: ${String(spec.disableModelInvocation)}`);
   }
-  if (emits("context") && spec.context !== undefined) {
-    fm.push(`context: ${spec.context}`);
-  }
+  fm.push(...executionFrontmatter(spec, emits));
   const argHint =
     spec.inputs && spec.inputs.length > 0
       ? renderArgumentHint(spec.inputs)
@@ -1597,6 +1615,41 @@ export interface CompileSkillResult {
 }
 
 /**
+ * Fields that mean something only for a FORKED skill, reported when the skill is
+ * inline. `output`: an inline skill has no call→return boundary, so a typed
+ * outcome there is a category error (see research/spec-syntax-and-railway-scope.md).
+ * `agent`: the subagent type a fork starts — inline, no subagent starts (#401).
+ * `model` is NOT here: inline it sets the turn's model, which is a real meaning.
+ */
+function forkOnlyErrors(spec: SkillSpec): readonly CompileError[] {
+  if (spec.context === "fork") return [];
+  const output: readonly CompileError[] = spec.output
+    ? [
+        {
+          type: "output-without-fork",
+          message:
+            'A skill `output` (result() contract) requires `context: "fork"` — an ' +
+            "inline skill has no return value to type. Add context:'fork' to run it " +
+            "as a subagent, or drop `output`.",
+        },
+      ]
+    : [];
+  const agent: readonly CompileError[] =
+    spec.agent === undefined
+      ? []
+      : [
+          {
+            type: "agent-without-fork",
+            message:
+              `A skill \`agent\` ("${spec.agent}") requires \`context: "fork"\` — it ` +
+              "names the subagent a forked skill starts, and an inline skill starts " +
+              "none. Add context:'fork', or drop `agent`.",
+          },
+        ];
+  return [...output, ...agent];
+}
+
+/**
  * Compile a SkillSpec into SKILL.md markdown with YAML frontmatter.
  */
 export async function compileSkill(
@@ -1642,18 +1695,7 @@ export async function compileSkill(
 
   errors.push(...(await validateRefs(collectSkillRefs(spec), basePath)));
 
-  // A typed `output` Result contract is valid ONLY for a forked skill: an inline
-  // skill has no call→return boundary, so a typed outcome there is a category
-  // error (see research/spec-syntax-and-railway-scope.md). Enforce it at compile.
-  if (spec.output && spec.context !== "fork") {
-    errors.push({
-      type: "output-without-fork",
-      message:
-        'A skill `output` (result() contract) requires `context: "fork"` — an ' +
-        "inline skill has no return value to type. Add context:'fork' to run it " +
-        "as a subagent, or drop `output`.",
-    });
-  }
+  errors.push(...forkOnlyErrors(spec));
 
   // effect() is a SUBAGENT primitive. A deterministic effect REGION needs a
   // structural call→return bracket to scope it; a default skill is spliced into

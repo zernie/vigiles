@@ -9,6 +9,16 @@ import {
 
 const base = { name: "demo", description: "d", body: prose`x` };
 
+test("optionalFrontmatterKeys picks up agent + model (#401)", () => {
+  const spec = experimental_skill({
+    ...base,
+    context: "fork",
+    agent: "general-purpose",
+    model: "sonnet",
+  });
+  assert.deepEqual(optionalFrontmatterKeys(spec), ["agent", "model"]);
+});
+
 test("optionalFrontmatterKeys picks up disable-model-invocation + argument-hint", () => {
   assert.deepEqual(
     optionalFrontmatterKeys(experimental_skill({ ...base })),

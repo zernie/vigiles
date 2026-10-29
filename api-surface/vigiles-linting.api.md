@@ -315,6 +315,7 @@ export interface SkillRef {
 
 // @public (undocumented)
 export interface SkillSpec {
+    readonly agent?: string;
     readonly argumentHint?: string;
     readonly body?: string | InstructionFragment[];
     readonly context?: "fork";
@@ -323,6 +324,7 @@ export interface SkillSpec {
     readonly disallowedTools?: readonly string[];
     readonly inputs?: readonly SkillInput[];
     readonly maxInlineCodeLines?: number;
+    readonly model?: string;
     readonly name: string;
     readonly output?: OutputContract;
     readonly postcondition?: Gate;
