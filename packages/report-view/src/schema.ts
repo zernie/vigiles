@@ -285,4 +285,39 @@ export interface AuditReport {
   rulesInventory?: RuleInventoryItem[];
   /** The deterministic State-B routing preview — segmented rules + category counts. */
   ruleRouting?: RuleRouting;
+  /**
+   * What the harness loads at session start before any decision, per part
+   * (instructions · selected output style · skill listing), in the harness's
+   * own unit. Present whenever the harness publishes an instruction budget.
+   */
+  contextCost?: ContextCostReport;
+}
+
+/** One file's share of a fixed-context part. */
+export interface FixedContextFile {
+  path: string;
+  size: number;
+}
+
+export type FixedPartName = "output-style" | "skill-listing";
+
+/** One part — only a `counted` part has a size; every other kind is why not. */
+export type FixedContextPart =
+  | {
+      part: "instructions" | FixedPartName;
+      kind: "counted";
+      total: number;
+      files: FixedContextFile[];
+    }
+  | { part: FixedPartName; kind: "none" | "not-supported" | "not-modelled" }
+  | { part: "output-style"; kind: "unresolved"; name: string };
+
+export interface FixedContextReport {
+  unit: "chars" | "bytes";
+  total: number;
+  parts: FixedContextPart[];
+}
+
+export interface ContextCostReport {
+  fixed: FixedContextReport;
 }

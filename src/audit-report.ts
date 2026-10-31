@@ -26,6 +26,7 @@ import type { RuleInventoryItem } from "./rule-inventory.js";
 import type { RuleRouting } from "./rule-routing.js";
 import type { EvidenceCounts } from "./coverage-evidence.js";
 import type { DeprecatedKeyFilesFinding } from "./deprecated-key-files.js";
+import type { FixedPart, FixedPartName } from "./core/fixed-context.js";
 import {
   gradedView,
   type FilteredScan,
@@ -121,6 +122,56 @@ export interface Adoptable {
   readonly createAllCommand: string;
 }
 
+/** One file's share of a fixed-context part, in the report's unit. */
+export interface FixedContextFile {
+  readonly path: string;
+  readonly size: number;
+}
+
+/**
+ * One part of the fixed context. Only a `counted` part has a size: every other
+ * state is a reason there is none, kept apart because each reads differently
+ * (nothing selected · the harness has no such thing · vigiles does not model
+ * it · a style selected by a name no repository file declares).
+ */
+export type FixedContextPart =
+  | {
+      readonly part: "instructions" | FixedPartName;
+      readonly kind: "counted";
+      readonly total: number;
+      readonly files: readonly FixedContextFile[];
+    }
+  | {
+      readonly part: FixedPartName;
+      readonly kind: "none" | "not-supported" | "not-modelled";
+    }
+  | {
+      readonly part: "output-style";
+      readonly kind: "unresolved";
+      /** The name the committed settings select. */
+      readonly name: string;
+    };
+
+/**
+ * What the harness loads at session start before any decision: the
+ * instructions, the output style the committed settings select and the skill
+ * listing, in the harness's own unit (characters or bytes, never tokens). The
+ * part of every request the REPOSITORY decides — the harness's own prompt,
+ * user and plugin skills and the conversation come on top.
+ */
+export interface FixedContextReport {
+  readonly unit: "chars" | "bytes";
+  /** The instructions plus every counted part. */
+  readonly total: number;
+  /** Always `instructions`, `output-style`, `skill-listing`, in that order. */
+  readonly parts: readonly FixedContextPart[];
+}
+
+/** How much context the harness carries before the conversation starts. */
+export interface ContextCostReport {
+  readonly fixed: FixedContextReport;
+}
+
 /**
  * The full audit, as the dashboard / CI / HTML all consume it. Self-describing
  * and versioned; additive-only within a `schemaVersion`.
@@ -204,6 +255,13 @@ export interface AuditReport {
    * Present only when at least one atomic rule was segmented. Additive/optional.
    */
   readonly ruleRouting?: RuleRouting;
+  /**
+   * The context the harness carries before any decision, per part
+   * ({@link ContextCostReport}). Present whenever the harness publishes an
+   * instruction budget — the same condition as the terminal's weight block.
+   * Additive/optional — schema version unchanged.
+   */
+  readonly contextCost?: ContextCostReport;
 }
 
 export interface BuildAuditReportOptions extends AuditScoreOptions {
@@ -285,6 +343,53 @@ function outputStylesField(n: number | "not-supported" | undefined): {
   return n === undefined || n === 0 ? {} : { outputStyles: n };
 }
 
+/** One scan-side part as the report carries it. */
+function fixedPartReport(
+  part: FixedPartName,
+  value: FixedPart,
+): FixedContextPart {
+  switch (value.kind) {
+    case "counted":
+      return { part, kind: "counted", total: value.total, files: value.files };
+    case "unresolved":
+      return { part: "output-style", kind: "unresolved", name: value.name };
+    case "none":
+    case "not-supported":
+    case "not-modelled":
+      return { part, kind: value.kind };
+  }
+}
+
+/** The report's `contextCost`, or nothing when the scan weighed no instructions. */
+function contextCostField(report: ScanReport): {
+  readonly contextCost?: ContextCostReport;
+} {
+  const weight = report.instructionWeight;
+  const fixed = report.fixedContext;
+  if (weight === null || fixed === undefined) return {};
+  const files = weight.files
+    .filter((f) => f.scope === "repo")
+    .map((f) => ({ path: f.path, size: f.size }));
+  return {
+    contextCost: {
+      fixed: {
+        unit: fixed.unit,
+        total: fixed.total,
+        parts: [
+          {
+            part: "instructions",
+            kind: "counted",
+            total: fixed.instructions,
+            files,
+          },
+          fixedPartReport("output-style", fixed.outputStyle),
+          fixedPartReport("skill-listing", fixed.skillListing),
+        ],
+      },
+    },
+  };
+}
+
 /**
  * The scan's concrete finding lists, each present only when non-empty — and the
  * ungraded groups' blocks, present only when some rule of one is on.
@@ -318,6 +423,21 @@ function gradedPart(
   return { score, verdict, recommendations };
 }
 
+/** The report's self-description; `generatedAt` is the CLI's, never set here. */
+function auditMeta(
+  dir: string,
+  opts: BuildAuditReportOptions,
+): AuditReportMeta {
+  return {
+    schemaVersion: AUDIT_SCHEMA_VERSION,
+    tool: "vigiles",
+    kind: "audit",
+    vigilesVersion: opts.vigilesVersion,
+    harness: opts.harness,
+    dir,
+  };
+}
+
 /**
  * Assemble the versioned {@link AuditReport} from a scan report — pure, no clock.
  * The CLI attaches `meta.generatedAt` when it writes the JSON artifact; the
@@ -331,19 +451,13 @@ export function buildAuditReport(
   const adoptable = buildAdoptable(opts.adoptableSurfaces);
   const { score, verdict, recommendations } = gradedPart(report, opts);
   return {
-    meta: {
-      schemaVersion: AUDIT_SCHEMA_VERSION,
-      tool: "vigiles",
-      kind: "audit",
-      vigilesVersion: opts.vigilesVersion,
-      harness: opts.harness,
-      dir: report.dir,
-    },
+    meta: auditMeta(report.dir, opts),
     score,
     verdict,
     recommendations,
     inventory: inventoryOf(report),
     ...scanFindingLists(report),
+    ...contextCostField(report),
     ...(adoptable ? { adoptable } : {}),
     ...(opts.observations ? { observations: opts.observations } : {}),
     ...(opts.rulesInventory && opts.rulesInventory.length

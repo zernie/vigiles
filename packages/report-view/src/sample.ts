@@ -235,4 +235,33 @@ export const SAMPLE: AuditReport = {
       configFix: '"@typescript-eslint/no-floating-promises": "error"',
     },
   ],
+  contextCost: {
+    fixed: {
+      unit: "chars",
+      total: 33912,
+      parts: [
+        {
+          part: "instructions",
+          kind: "counted",
+          total: 24665,
+          files: [{ path: "CLAUDE.md", size: 24665 }],
+        },
+        {
+          part: "output-style",
+          kind: "counted",
+          total: 4216,
+          files: [{ path: ".claude/output-styles/terse.md", size: 4216 }],
+        },
+        {
+          part: "skill-listing",
+          kind: "counted",
+          total: 5031,
+          files: [
+            { path: ".claude/skills/deploy/SKILL.md", size: 1310 },
+            { path: ".claude/skills/review/SKILL.md", size: 3721 },
+          ],
+        },
+      ],
+    },
+  },
 };
