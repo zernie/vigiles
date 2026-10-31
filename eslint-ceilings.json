@@ -61,9 +61,6 @@
   "src/audit-report.test.ts": {
     "max-lines-per-function": 225
   },
-  "src/audit-report.ts": {
-    "max-lines-per-function": 33
-  },
   "src/audit-score.test.ts": {
     "max-lines-per-function": 506
   },
@@ -97,7 +94,7 @@
   },
   "src/cli-main.ts": {
     "max-params": 5,
-    "max-lines-per-function": 487,
+    "max-lines-per-function": 486,
     "complexity": 120,
     "max-depth": 4,
     "sonarjs/cognitive-complexity": 237
@@ -476,7 +473,7 @@
     "max-lines-per-function": 82
   },
   "src/instruction-weight-ratchet.ts": {
-    "max-lines-per-function": 35
+    "max-lines-per-function": 33
   },
   "src/judge.ts": {
     "max-lines-per-function": 34
@@ -570,7 +567,7 @@
   },
   "src/scan-files.ts": {
     "max-params": 6,
-    "max-lines-per-function": 134,
+    "max-lines-per-function": 128,
     "complexity": 11,
     "sonarjs/cognitive-complexity": 14
   },

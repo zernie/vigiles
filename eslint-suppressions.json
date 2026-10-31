@@ -3171,9 +3171,6 @@
     },
     "local/no-rule-ids": {
       "count": 2
-    },
-    "sonarjs/no-nested-conditional": {
-      "count": 1
     }
   },
   "src/jest.ts": {
