@@ -1181,7 +1181,9 @@ function measuredBundle(
   harness: Parameters<typeof measureFixedContext>[1],
 ): MeasuredBundle {
   const m = measureFixedContext(abs, harness);
-  return [at, m.instructionWeight, m.fixedContext];
+  return m.instructionWeight === null
+    ? [at, null]
+    : [at, m.instructionWeight, m.fixedContext];
 }
 
 /**
@@ -9595,7 +9597,7 @@ export async function main(): Promise<void> {
       // committed baseline — shown at the moment of change. Report-only:
       // `lint` is the gate (rule `instruction-weight`).
       if (specs.length > 0) {
-        const [, weight, fixed] = measuredBundle(
+        const measured = measuredBundle(
           ".",
           projectRoot,
           resolveHarnessSelection({
@@ -9604,7 +9606,7 @@ export async function main(): Promise<void> {
             configHarness: declaredHarnessNames(config.harnesses),
           }).adapter,
         );
-        const weightLine = compileWeightLine(projectRoot, weight, fixed);
+        const weightLine = compileWeightLine(projectRoot, measured);
         if (weightLine !== null) console.log(`\n${weightLine}`);
       }
       valid =

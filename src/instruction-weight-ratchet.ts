@@ -22,7 +22,9 @@ import {
   INSTRUCTION_BASELINE_FILE,
   UPDATE_BASELINE_COMMAND,
   checkCeiling,
+  carryUnmeasured,
   compareFixedToBaseline,
+  describeUnmeasured,
   entryFor,
   formatBaselineVerdict,
   formatCeiling,
@@ -32,6 +34,7 @@ import {
   parseInstructionBaseline,
   recordEntries,
   serializeBaseline,
+  type BaselineEntry,
   type BaselineFileVersion,
   type BaselineVerdict,
   type InstructionBaseline,
@@ -52,14 +55,14 @@ export function readInstructionBaseline(root: string): BaselineOnDisk {
 }
 
 /**
- * One bundle's measurement: where it is, its weight (`null` = nothing to
- * weigh), and the fixed context around that weight when it was measured.
+ * One bundle's measurement: where it is, and either nothing to weigh or its
+ * weight WITH the fixed context around it. One union, not an optional third
+ * element: a weight without its fixed context used to read as "no parts", so a
+ * recorded part was compared as 0 — a shrink nobody made.
  */
-export type MeasuredBundle = readonly [
-  at: string,
-  weight: InstructionWeight | null,
-  fixed?: FixedContext,
-];
+export type MeasuredBundle =
+  | readonly [at: string, weight: null]
+  | readonly [at: string, weight: InstructionWeight, fixed: FixedContext];
 
 /** Write the baseline for every measured bundle; returns what was written. */
 export function writeInstructionBaseline(
@@ -67,17 +70,39 @@ export function writeInstructionBaseline(
   onDisk: BaselineOnDisk,
   measured: readonly MeasuredBundle[],
 ): InstructionBaseline {
+  const previous = onDisk.kind === "ok" ? onDisk.baseline : undefined;
   const next = recordEntries(
-    onDisk.kind === "ok" ? onDisk.baseline : undefined,
-    measured.map(
-      ([at, w, fixed]) => [at, w === null ? null : entryFor(w, fixed)] as const,
-    ),
+    previous,
+    measured.map((m) => [m[0], recordedEntry(m, previous)] as const),
   );
   const path = join(root, INSTRUCTION_BASELINE_FILE);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, serializeBaseline(next));
   return next;
 }
+
+/**
+ * What `--update-baseline` writes for one bundle: the measured entry, with
+ * every part the old entry records and this run cannot measure carried over —
+ * re-recording must not drop a part only because the adapter stopped modelling
+ * it (`carryUnmeasured`).
+ */
+function recordedEntry(
+  m: MeasuredBundle,
+  previous: Readonly<InstructionBaseline> | undefined,
+): BaselineEntry | null {
+  if (m[1] === null) return null;
+  const [at, weight, fixed] = m;
+  const old = entryAt(previous?.bundles ?? {}, at);
+  return carryUnmeasured(entryFor(weight, fixed), fixed, old).entry;
+}
+
+/** One bundle's recorded entry, or `undefined` when the file has none. */
+const entryAt = (
+  bundles: Readonly<InstructionBaseline["bundles"]>,
+  at: string,
+): BaselineEntry | undefined =>
+  Object.hasOwn(bundles, at) ? bundles[at] : undefined;
 
 /**
  * One line of lint output. `finding` counts toward the exit code; `ok` is the
@@ -123,30 +148,30 @@ function ceilingLine(
     : [{ at, status: "finding", text: formatCeiling(over, at) }];
 }
 
+/** The one finding an unreadable baseline file gets. */
+const unreadableLine = (message: string): RatchetLine => ({
+  at: ".",
+  status: "finding",
+  text:
+    `${INSTRUCTION_BASELINE_FILE} cannot be read (${message}) — ` +
+    `re-record it with \`${UPDATE_BASELINE_COMMAND}\``,
+});
+
 function baselineLines(
   onDisk: BaselineOnDisk,
   measured: readonly MeasuredBundle[],
 ): readonly RatchetLine[] {
-  if (onDisk.kind === "invalid") {
-    return [
-      {
-        at: ".",
-        status: "finding",
-        text:
-          `${INSTRUCTION_BASELINE_FILE} cannot be read (${onDisk.message}) — ` +
-          `re-record it with \`${UPDATE_BASELINE_COMMAND}\``,
-      },
-    ];
-  }
+  if (onDisk.kind === "invalid") return [unreadableLine(onDisk.message)];
   const recorded = onDisk.kind === "ok" ? onDisk.baseline.bundles : {};
   const file: BaselineFileVersion =
     onDisk.kind === "ok" ? onDisk.baseline.version : "absent";
-  return measured.flatMap(([at, weight, fixed]): RatchetLine[] => {
-    if (weight === null) return [];
+  return measured.flatMap((m): RatchetLine[] => {
+    if (m[1] === null) return [];
+    const [at, weight, fixed] = m;
     const verdict = compareFixedToBaseline(
       weight,
       fixed,
-      Object.hasOwn(recorded, at) ? recorded[at] : undefined,
+      entryAt(recorded, at),
       file,
     );
     const text = `${formatBaselineVerdict(verdict, at)}${unfollowedNote(weight)}`;
@@ -308,10 +333,10 @@ export function checkInstructionWeightRatchet(opts: RatchetOptions): {
  */
 export function compileWeightLine(
   root: string,
-  weight: InstructionWeight | null,
-  fixed?: FixedContext,
+  measured: MeasuredBundle,
 ): string | null {
-  if (weight === null) return null;
+  if (measured[1] === null) return null;
+  const [, weight, fixed] = measured;
   const onDisk = readInstructionBaseline(root);
   if (onDisk.kind === "invalid") {
     return `always-loaded: ${INSTRUCTION_BASELINE_FILE} cannot be read (${onDisk.message})`;
@@ -320,11 +345,14 @@ export function compileWeightLine(
   const verdict = compareFixedToBaseline(
     weight,
     fixed,
-    Object.hasOwn(recorded, ".") ? recorded["."] : undefined,
+    entryAt(recorded, "."),
     onDisk.kind === "ok" ? onDisk.baseline.version : "absent",
   );
-  return formatWeightLine(
+  const line = formatWeightLine(
     verdict.verdict,
     verdict.kind === "fixed" ? "fixed context" : "always-loaded",
   );
+  return verdict.kind === "fixed" && verdict.unmeasured.length > 0
+    ? [line, ...verdict.unmeasured.map(describeUnmeasured)].join("\n  ")
+    : line;
 }

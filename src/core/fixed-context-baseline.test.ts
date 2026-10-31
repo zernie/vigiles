@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import type { FixedContext, FixedPart } from "./fixed-context.js";
 import {
+  carryUnmeasured,
   compareFixedToBaseline,
   entryFor,
   formatBaselineVerdict,
@@ -211,6 +212,69 @@ describe("compareFixedToBaseline — a version-2 file reports growth by part", (
     expect(formatBaselineVerdict(v, ".")).toContain(
       "(150 chars always loaded)",
     );
+  });
+});
+
+describe("compareFixedToBaseline — a recorded part this run cannot measure", () => {
+  const unmeasurable: readonly FixedPart[] = [
+    { kind: "not-modelled" },
+    { kind: "not-supported" },
+    { kind: "unresolved", name: "Gone" },
+  ];
+
+  it.each(unmeasurable)(
+    "carries a $kind listing at its recorded size, never as 0",
+    (now) => {
+      const v = compareFixedToBaseline(
+        weight(100),
+        { ...fixed(100, 0, 0), skillListing: now },
+        recorded(100, 0, 30),
+        2,
+      );
+      // Not "shrank 130 → 100": the part was not measured, not cut.
+      expect(v.verdict).toEqual({ kind: "held", total: 130, unit: "chars" });
+      expect(v.kind === "fixed" && v.unmeasured).toEqual([
+        { part: "skill-listing", kind: now.kind, recorded: 30 },
+      ]);
+      const text = formatBaselineVerdict(v, ".");
+      expect(text).toContain(
+        `skill listing: recorded 30, not measured in this run (${now.kind})`,
+      );
+      expect(text).not.toContain("Lock the cut in");
+    },
+  );
+
+  it("still sees the instructions grow while a part is carried", () => {
+    const v = compareFixedToBaseline(
+      weight(110),
+      { ...fixed(110, 20, 0), skillListing: { kind: "not-modelled" } },
+      recorded(100, 20, 30),
+      2,
+    );
+    expect(v.verdict.kind).toBe("grew");
+    expect(v.verdict.kind === "grew" && v.verdict.to).toBe(160);
+  });
+
+  it("reads `none` as a real zero: a listing emptied on purpose is a shrink", () => {
+    const v = compareFixedToBaseline(
+      weight(100),
+      fixed(100, 0, 0),
+      recorded(100, 0, 30),
+      2,
+    );
+    expect(v.verdict.kind).toBe("shrank");
+    expect(v.kind === "fixed" && v.unmeasured).toEqual([]);
+  });
+
+  it("keeps the part on re-record, so the file stays version 2", () => {
+    const old = recorded(100, 0, 30);
+    const now = {
+      ...fixed(100, 0, 0),
+      skillListing: { kind: "not-modelled" } as const,
+    };
+    const { entry } = carryUnmeasured(entryFor(weight(100), now), now, old);
+    expect(entry.parts).toEqual(old.parts);
+    expect(recordEntries(undefined, [[".", entry]]).version).toBe(2);
   });
 });
 

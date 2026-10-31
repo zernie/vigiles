@@ -461,8 +461,10 @@ export interface ScanReport {
    * The FIXED CONTEXT around that weight — the instructions plus the output
    * style the committed settings select and the skill listing, each in the
    * same unit (`core/fixed-context.ts`). Present exactly when
-   * `instructionWeight` is: both engines compute it from the same inputs, so
-   * the field is absent on both or present on both.
+   * `instructionWeight` is: both engines build the pair as one
+   * {@link AlwaysLoaded}. Kept as two fields here because the report is
+   * filtered through `Omit`-based views, which do not distribute over a
+   * union; the gate reads the pair through `MeasuredBundle`, which is one.
    */
   readonly fixedContext?: FixedContext;
   /**
@@ -666,11 +668,17 @@ export function measureInstructionWeight(
   );
 }
 
-/** The always-loaded weight of one directory and the fixed context around it. */
-export interface AlwaysLoaded {
-  readonly instructionWeight: InstructionWeight | null;
-  readonly fixedContext?: FixedContext;
-}
+/**
+ * The always-loaded weight of one directory and the fixed context around it —
+ * both or neither, as one union, so no reader can hold a weight without the
+ * parts that go with it (and read a recorded part as 0).
+ */
+export type AlwaysLoaded =
+  | { readonly instructionWeight: null; readonly fixedContext?: undefined }
+  | {
+      readonly instructionWeight: InstructionWeight;
+      readonly fixedContext: FixedContext;
+    };
 
 /**
  * The fixed context of ONE directory under ONE harness — the same route as

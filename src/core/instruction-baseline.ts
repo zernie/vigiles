@@ -451,7 +451,64 @@ export type BaselineVerdict =
       readonly kind: "fixed";
       readonly verdict: RatchetVerdict;
       readonly byPart: readonly PartMove[];
+      /** Recorded parts this run cannot measure, carried rather than compared. */
+      readonly unmeasured: readonly UnmeasuredPart[];
     };
+
+/**
+ * A part the baseline records and this run cannot measure: the adapter no
+ * longer models it (`not-modelled`), the harness has no such part
+ * (`not-supported`), or the selected style names no repository file
+ * (`unresolved`). None of these is ZERO (`./fixed-context.ts` keeps them apart
+ * for that reason), so the recorded size is carried into the comparison and
+ * into a re-record instead of being read as a cut. Reading it as 0 would print
+ * "shrank … lock the cut in", and following that advice would delete the part
+ * — and, with no part left, turn the file back into version 1, silently
+ * returning the gate to the instructions alone.
+ */
+export interface UnmeasuredPart {
+  readonly part: FixedPartName;
+  readonly kind: Exclude<FixedPart["kind"], "counted" | "none">;
+  readonly recorded: number;
+}
+
+const partOf = (fixed: FixedContext, name: FixedPartName): FixedPart =>
+  name === "output-style" ? fixed.outputStyle : fixed.skillListing;
+
+/**
+ * `current` with every recorded part this run cannot measure carried over from
+ * `recorded`, and the list of those parts. `counted` and `none` are measured —
+ * `none` is a real zero — so they are never carried.
+ */
+export function carryUnmeasured(
+  current: BaselineEntry,
+  fixed: FixedContext,
+  recorded: BaselineEntry | undefined,
+): {
+  readonly entry: BaselineEntry;
+  readonly unmeasured: readonly UnmeasuredPart[];
+} {
+  const carried = FIXED_PART_NAMES.flatMap((name) => {
+    const was = recorded?.parts?.[name];
+    const now = partOf(fixed, name);
+    return was === undefined || now.kind === "counted" || now.kind === "none"
+      ? []
+      : [{ name, was, kind: now.kind }];
+  });
+  if (carried.length === 0) return { entry: current, unmeasured: [] };
+  const parts = Object.fromEntries([
+    ...Object.entries(current.parts ?? {}),
+    ...carried.map(({ name, was }) => [name, was] as const),
+  ]);
+  return {
+    entry: { ...current, parts },
+    unmeasured: carried.map(({ name, was, kind }) => ({
+      part: name,
+      kind,
+      recorded: was.total,
+    })),
+  };
+}
 
 /** Which version of the file the verdict is read against; `absent` = no file. */
 export type BaselineFileVersion =
@@ -461,37 +518,53 @@ export type BaselineFileVersion =
 
 export function compareFixedToBaseline(
   weight: InstructionWeight,
-  fixed: FixedContext | undefined,
+  fixed: FixedContext,
   recorded: BaselineEntry | undefined,
   file: BaselineFileVersion,
 ): BaselineVerdict {
-  const current = entryFor(weight, fixed);
+  const measuredNow = entryFor(weight, fixed);
   const sumGated =
     file === INSTRUCTION_BASELINE_VERSION ||
-    (file === "absent" && current.parts !== undefined);
+    (file === "absent" && measuredNow.parts !== undefined);
   if (!sumGated) {
     return {
       kind: "instructions-only",
       verdict: compareToBaseline(weight, recorded),
       unrecordedParts: FIXED_PART_NAMES.flatMap((part) => {
-        const total = current.parts?.[part]?.total;
+        const total = measuredNow.parts?.[part]?.total;
         return total === undefined ? [] : [{ part, total }];
       }),
     };
   }
+  return compareSum(measuredNow, fixed, recorded);
+}
+
+/** The `fixed` verdict: the sum, with unmeasurable recorded parts carried. */
+function compareSum(
+  measuredNow: BaselineEntry,
+  fixed: FixedContext,
+  recorded: BaselineEntry | undefined,
+): BaselineVerdict {
   if (recorded === undefined) {
     return {
       kind: "fixed",
-      verdict: { kind: "unrecorded", current: folded(current) },
+      verdict: { kind: "unrecorded", current: folded(measuredNow) },
       byPart: [],
+      unmeasured: [],
     };
   }
+  const { entry: current, unmeasured } = carryUnmeasured(
+    measuredNow,
+    fixed,
+    recorded,
+  );
   return {
     kind: "fixed",
     verdict:
       partMeasureChanged(current, recorded) ??
       compareEntries(folded(current), folded(recorded)),
     byPart: movesBetween(current, recorded),
+    unmeasured,
   };
 }
 
@@ -657,10 +730,20 @@ export function formatBaselineVerdict(
     return formatVerdict(verdict.verdict, at);
   }
   const text = formatVerdict(verdict.verdict, at, "fixed context");
-  return verdict.byPart.length === 0
-    ? text
-    : `${text}
-  ${describeMoves(verdict.byPart)}`;
+  const lines = [
+    text,
+    ...(verdict.byPart.length === 0 ? [] : [describeMoves(verdict.byPart)]),
+    ...verdict.unmeasured.map(describeUnmeasured),
+  ];
+  return lines.join("\n  ");
+}
+
+/** Why a recorded part was carried: the run could not measure it, not a cut. */
+export function describeUnmeasured(u: UnmeasuredPart): string {
+  return (
+    `${PART_LABEL[u.part]}: recorded ${n(u.recorded)}, not measured in this run (${u.kind}) — ` +
+    `carried at its recorded size, not compared and not dropped by \`${UPDATE_BASELINE_COMMAND}\``
+  );
 }
 
 /**

@@ -15,8 +15,12 @@ import { join, resolve } from "node:path";
 
 import { MOVE_OUT_OF_ALWAYS_LOADED } from "./core/instruction-remedies.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
-import { compileWeightLine } from "./instruction-weight-ratchet.js";
-import { measureInstructionWeight } from "./scan.js";
+import {
+  compileWeightLine,
+  readInstructionBaseline,
+  writeInstructionBaseline,
+} from "./instruction-weight-ratchet.js";
+import { measureFixedContext } from "./scan.js";
 import { claudeCodeAdapter } from "./adapters/claude-code/adapter.js";
 
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
@@ -189,11 +193,36 @@ test("--json carries the counters", () => {
 test("compile's line reads the weight against the recorded baseline", () => {
   run(["lint", "--update-baseline"]);
   put("CLAUDE.md", BODY.slice(0, 28_210));
-  const line = compileWeightLine(
-    dir,
-    measureInstructionWeight(dir, claudeCodeAdapter),
-  );
+  const m = measureFixedContext(dir, claudeCodeAdapter);
+  assert(m.instructionWeight !== null);
+  const line = compileWeightLine(dir, [
+    ".",
+    m.instructionWeight,
+    m.fixedContext,
+  ]);
   expect(line).toBe("always-loaded: 28,210 chars (baseline 30,000, -1,790)");
+});
+
+test("a recorded part this run cannot measure is carried by compile and by re-record", () => {
+  put(".claude/skills/a/SKILL.md", "---\ndescription: listed\n---\n");
+  run(["lint", "--update-baseline"]);
+  const m = measureFixedContext(dir, claudeCodeAdapter);
+  assert(m.instructionWeight !== null);
+  // An adapter that does not model the listing, against a file that records it.
+  const blind = {
+    ...m.fixedContext,
+    skillListing: { kind: "not-modelled" } as const,
+  };
+  const line = compileWeightLine(dir, [".", m.instructionWeight, blind]);
+  expect(line).toContain("(baseline 30,011, ±0)");
+  expect(line).toContain(
+    "skill listing: recorded 11, not measured in this run (not-modelled)",
+  );
+  const written = writeInstructionBaseline(dir, readInstructionBaseline(dir), [
+    [".", m.instructionWeight, blind],
+  ]);
+  expect(written.version).toBe(2);
+  expect(written.bundles["."]?.parts?.["skill-listing"]?.total).toBe(11);
 });
 
 test("once the repo has a baseline file, an UNRECORDED bundle is a finding", () => {

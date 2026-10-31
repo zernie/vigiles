@@ -69,19 +69,20 @@ Codex has no output styles; its part is `not-supported`, never written.
 
 ## What it reports
 
-| state                                                  | result                                                                                          |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| no baseline file                                       | a one-line note naming the command to start; **never a finding**                                |
-| weight equals the baseline                             | `✓ … held at N chars`                                                                           |
-| weight **grew**                                        | finding: the delta and every file that moved                                                    |
-| weight **shrank**                                      | finding: lock the cut in, or the headroom can be regrown unnoticed                              |
-| baseline recorded by another measurement               | finding: vigiles changed what counts — re-record, not a change in your files                    |
-| baseline recorded in another unit                      | finding: re-record (the repo changed harness)                                                   |
-| baseline file exists, bundle not in it                 | finding: weight nobody recorded                                                                 |
-| baseline file is not valid                             | finding; never read as empty                                                                    |
-| version-1 file, output style or listing not empty      | a note per bundle naming each part; **never a finding** — the instructions still gate as before |
-| version-2 file, a part grew or appeared                | finding: the fixed sum grew, and which part's file moved                                        |
-| version-2 file, a part recorded by another measurement | finding: re-record, naming the part                                                             |
+| state                                                                                                                      | result                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| no baseline file                                                                                                           | a one-line note naming the command to start; **never a finding**                                          |
+| weight equals the baseline                                                                                                 | `✓ … held at N chars`                                                                                     |
+| weight **grew**                                                                                                            | finding: the delta and every file that moved                                                              |
+| weight **shrank**                                                                                                          | finding: lock the cut in, or the headroom can be regrown unnoticed                                        |
+| baseline recorded by another measurement                                                                                   | finding: vigiles changed what counts — re-record, not a change in your files                              |
+| baseline recorded in another unit                                                                                          | finding: re-record (the repo changed harness)                                                             |
+| baseline file exists, bundle not in it                                                                                     | finding: weight nobody recorded                                                                           |
+| baseline file is not valid                                                                                                 | finding; never read as empty                                                                              |
+| version-1 file, output style or listing not empty                                                                          | a note per bundle naming each part; **never a finding** — the instructions still gate as before           |
+| version-2 file, a part grew or appeared                                                                                    | finding: the fixed sum grew, and which part's file moved                                                  |
+| version-2 file, a part recorded by another measurement                                                                     | finding: re-record, naming the part                                                                       |
+| version-2 file, a recorded part this run cannot measure (the adapter does not model it, or the selected style has no file) | carried at its recorded size and named on the line; never read as 0, never dropped by `--update-baseline` |
 
 ```
 ✗ always-loaded instructions grew 30,000 → 31,225 chars (+1,225) over the
