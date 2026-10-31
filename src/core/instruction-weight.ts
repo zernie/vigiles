@@ -43,6 +43,7 @@ import type {
   InstructionScope,
   LoadedInstruction,
 } from "./instruction-chain.js";
+import { sizeIn } from "./harness-unit.js";
 
 /** What the harness counts, and what it does when the count is exceeded. */
 export interface InstructionBudget {
@@ -160,20 +161,8 @@ export interface InstructionWeight {
   }[];
 }
 
-/**
- * Size in the harness's own unit. Bytes and chars differ on any non-ASCII text.
- *
- * Line endings are counted as `\n`. A checkout with `core.autocrlf` holds the
- * same commit with one more character per line, and a number that differs
- * between two clones of one commit cannot be committed and compared — a
- * 1 000-line file read +1 000 on Windows with no content change. The harness
- * may count the CR itself; reproducibility is worth more here than that
- * fidelity.
- */
-export function sizeIn(text: string, unit: "chars" | "bytes"): number {
-  const lf = text.replaceAll("\r\n", "\n");
-  return unit === "chars" ? lf.length : Buffer.byteLength(lf, "utf8");
-}
+/** Re-exported from its neutral home, where every always-loaded part is sized. */
+export { sizeIn } from "./harness-unit.js";
 
 /**
  * Weigh a harness's LOADED chain against its own budget.

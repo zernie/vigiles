@@ -6,6 +6,7 @@
  * exists to be run through the conformance kit + real Codex-shaped fixtures.
  */
 import type { HarnessDialect } from "../../core/dialect.js";
+import { codexSkillListing } from "./skill-listing.js";
 
 export const codexDialect: HarnessDialect = {
   name: "codex",
@@ -51,6 +52,9 @@ export const codexDialect: HarnessDialect = {
   // DIRECTORY along root→cwd, so at the root it is one file. A monorepo with
   // twelve package-level AGENTS.md files was told it was 12x over a budget no
   // session approaches. Which files load is now `codexLayout.instructionChain`.
+  // The session-start skill listing — part of the fixed context, counted in
+  // the same bytes as the instructions; see ./skill-listing.ts.
+  skillListing: codexSkillListing,
   instructionTargets: ["AGENTS.md"],
   pluginRootToken: "${PLUGIN_ROOT}",
   // Codex SKILL.md frontmatter is name + description ONLY — the richer keys

@@ -21,6 +21,7 @@
 import type { HarnessVocabulary } from "./vocabulary.js";
 import type { EventCapabilityTable } from "./event-capability.js";
 import type { InstructionBudget } from "./instruction-weight.js";
+import type { SkillListingRules } from "./skill-listing.js";
 
 /**
  * Every SKILL.md frontmatter key the COMPILER knows how to render, in the order
@@ -183,6 +184,14 @@ export interface HarnessDialect {
    * answer for a harness whose limits nobody has read.
    */
   readonly instructionBudget?: InstructionBudget;
+  /**
+   * How this harness renders a skill into the listing it loads at session
+   * start — {@link SkillListingRules}. Beside `instructionBudget` for the same
+   * two reasons: it is a FORMAT fact, and the browser engine is handed a
+   * dialect. Optional: absent ⇒ the fixed-context report says the listing is
+   * not modelled for this harness, never that it is empty.
+   */
+  readonly skillListing?: SkillListingRules;
   /**
    * What each hook event CARRIES and HONOURS — {@link EventCapabilityTable}.
    *
