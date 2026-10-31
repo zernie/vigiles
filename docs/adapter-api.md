@@ -152,6 +152,33 @@ what one level costs.
 materializes surfaces, expands `pluginRootToken`. And by
 `weighInstructions(chain, files, budget)` — the instruction-weight report.
 
+#### The fixed context: `dialect.skillListing` and `outputStyles.selected`
+
+Two OPTIONAL members let the instruction weight grow into the **fixed
+context** — the instructions plus what else the harness loads at session start
+before any decision — measured by `weighFixedContext` in
+`core/fixed-context.ts`, in the dialect's `instructionBudget.unit`:
+
+| Member               | Port                        | Signature                                                     | Claude Code                                                                             | Codex                                                   |
+| -------------------- | --------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `skillListing`       | `HarnessDialect`            | `{ entry(skill, settings): string \| null; capturedFrom }`    | `- name: description[ when_to_use]`, capped at 1,536 chars (`skillListingMaxDescChars`) | `- name: description (file: path)`, description ≤ 1,024 |
+| `selected(settings)` | `PluginLayout.outputStyles` | `→ { kind: "unset" \| "default" } \| { kind: "named"; name }` | reads `outputStyle`                                                                     | — (Codex has no output styles)                          |
+
+The types are exported from `vigiles/adapter` as `SkillListingRules`,
+`ListedSkill` and `StyleSelection`. `entry` receives one `ListedSkill` read by
+the core (`path`, `dirName`, parsed
+`frontmatter` or `null` when its YAML does not parse, `body`) and the
+COMMITTED settings object; it returns the line exactly as the harness renders
+it, or `null` when the harness does not list that skill. `selected` reads one
+settings object; the core resolves the name against the style files in the
+session's own style folder, in exact case.
+
+Each absence is its own state in the result, never a silent 0: a dialect
+without `skillListing` reports the listing as `not-modelled`, a layout without
+`outputStyles` reports the style as `not-supported`, an `outputStyles` without
+`selected` reports it as `not-modelled`, and a selected name no repository file
+declares is `unresolved`.
+
 ### `HarnessRuntime` (transport)
 
 How the test tiers drive the agent against a no-key mock.

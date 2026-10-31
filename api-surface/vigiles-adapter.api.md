@@ -115,6 +115,7 @@ export interface HarnessDialect {
     readonly pluginRootToken: string;
     readonly sideEffectingTools?: readonly string[];
     readonly skillFrontmatterKeys: readonly string[];
+    readonly skillListing?: SkillListingRules;
     readonly subagentToolVocabulary?: HarnessVocabulary;
 }
 
@@ -190,6 +191,14 @@ export const jsonSettingsCodec: SettingsCodec;
 
 // @public
 export function layoutClaims(layout: PluginLayout, path: string): boolean;
+
+// @public
+export interface ListedSkill {
+    readonly body: string;
+    readonly dirName: string;
+    readonly frontmatter: Readonly<Record<string, unknown>> | null;
+    readonly path: string;
+}
 
 // @public
 export interface LoadedInstruction {
@@ -311,6 +320,7 @@ export interface OutputStyleRules {
     readonly reached: (style: OutputStyle, request: ModelRequest) => boolean;
     readonly read: (path: string, text: string) => OutputStyle;
     readonly select: (name: string) => Readonly<Record<string, unknown>>;
+    readonly selected?: (settings: Readonly<Record<string, unknown>>) => StyleSelection;
     readonly selectNone: Readonly<Record<string, unknown>>;
 }
 
@@ -359,6 +369,22 @@ export interface SettingsCodec {
     parse(text: string): Record<string, unknown>;
     render(value: Record<string, unknown>): string;
 }
+
+// @public
+export interface SkillListingRules {
+    readonly capturedFrom: string;
+    readonly entry: (skill: ListedSkill, settings: Readonly<Record<string, unknown>>) => string | null;
+}
+
+// @public
+export type StyleSelection = {
+    readonly kind: "unset";
+} | {
+    readonly kind: "default";
+} | {
+    readonly kind: "named";
+    readonly name: string;
+};
 
 // @public
 export type SurfaceDirs = Readonly<Partial<Record<SurfaceKind, string>>>;

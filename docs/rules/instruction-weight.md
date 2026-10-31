@@ -1,12 +1,12 @@
 # instruction-weight
 
-Fail when the instructions the harness loads **without being asked** get
-heavier than the weight the repository last recorded. A **ratchet**: the
-baseline is the repo's own past, committed in `.vigiles/instruction-weight.json`,
-so a repo already several times over the harness's budget starts green and
-stays green only while it does not grow. Same measurement `vigiles audit`
-prints as `Always-loaded instructions`; the comparison is `compareToBaseline` in
-`src/core/instruction-baseline.ts`.
+Fail when what the harness loads **without being asked** gets heavier than the
+weight the repository last recorded. A **ratchet**: the baseline is the repo's
+own past, committed in `.vigiles/instruction-weight.json`, so a repo already
+several times over the harness's budget starts green and stays green only while
+it does not grow. Same measurement `vigiles audit` prints as
+`Always-loaded instructions` and `fixed context`; the comparison is
+`compareFixedToBaseline` in `src/core/instruction-baseline.ts`.
 
 ## What it measures
 
@@ -34,18 +34,51 @@ deep; any import the number does not include is listed on the line as
 always-loaded rules file leaves the sum unchanged, and the rule says `held`.
 A per-file limit would have scored that move as a large improvement.
 
+### The fixed context: output style and skill listing
+
+Two more things load at session start before any decision, and the rule counts
+them once you record them:
+
+- **the output style** your committed settings select, when the repository
+  holds it as a file — its body, frontmatter removed;
+- **the skill listing** — one entry per skill in the folder a session at the
+  repository root loads, rendered the way the harness renders it, with its
+  per-entry cap (Claude Code `- name: description`, capped at 1,536
+  characters or `skillListingMaxDescChars`; Codex
+  `- name: description (file: path)`, the description capped at 1,024).
+
+Together with the instructions this is the **fixed context**. The rule gates
+its **sum**, so moving a section from `CLAUDE.md` into the selected style, or
+into a skill's description, still reads `held` — and the line under the verdict
+says where the weight moved:
+
+```
+✓ fixed context held at 38,062 chars (baseline)
+  instructions 20,000 (-4,665) · output style 13,031 (+4,665) · skill listing 5,031
+```
+
+Not counted: a style selected only in a per-machine settings file, a selected
+name no repository style declares (named in `audit`, size unknown), a plugin's
+own `skills/` folder (its users load it, not a session here), user-level and
+plugin skills, and the listing's overall budget — a share of the model's
+context window, which depends on the model and is not a property of a commit.
+Codex has no output styles; its part is `not-supported`, never written.
+
 ## What it reports
 
-| state                                    | result                                                                       |
-| ---------------------------------------- | ---------------------------------------------------------------------------- |
-| no baseline file                         | a one-line note naming the command to start; **never a finding**             |
-| weight equals the baseline               | `✓ … held at N chars`                                                        |
-| weight **grew**                          | finding: the delta and every file that moved                                 |
-| weight **shrank**                        | finding: lock the cut in, or the headroom can be regrown unnoticed           |
-| baseline recorded by another measurement | finding: vigiles changed what counts — re-record, not a change in your files |
-| baseline recorded in another unit        | finding: re-record (the repo changed harness)                                |
-| baseline file exists, bundle not in it   | finding: weight nobody recorded                                              |
-| baseline file is not valid               | finding; never read as empty                                                 |
+| state                                                  | result                                                                                          |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| no baseline file                                       | a one-line note naming the command to start; **never a finding**                                |
+| weight equals the baseline                             | `✓ … held at N chars`                                                                           |
+| weight **grew**                                        | finding: the delta and every file that moved                                                    |
+| weight **shrank**                                      | finding: lock the cut in, or the headroom can be regrown unnoticed                              |
+| baseline recorded by another measurement               | finding: vigiles changed what counts — re-record, not a change in your files                    |
+| baseline recorded in another unit                      | finding: re-record (the repo changed harness)                                                   |
+| baseline file exists, bundle not in it                 | finding: weight nobody recorded                                                                 |
+| baseline file is not valid                             | finding; never read as empty                                                                    |
+| version-1 file, output style or listing not empty      | a note per bundle naming each part; **never a finding** — the instructions still gate as before |
+| version-2 file, a part grew or appeared                | finding: the fixed sum grew, and which part's file moved                                        |
+| version-2 file, a part recorded by another measurement | finding: re-record, naming the part                                                             |
 
 ```
 ✗ always-loaded instructions grew 30,000 → 31,225 chars (+1,225) over the
@@ -79,6 +112,9 @@ the author sees the effect at the moment of change:
 always-loaded: 28,210 chars (baseline 30,000, -1,790)
 ```
 
+Once the fixed context is recorded the line names it instead:
+`fixed context: 38,062 chars (baseline 38,062, ±0)`.
+
 ## The file
 
 ```json
@@ -97,10 +133,62 @@ always-loaded: 28,210 chars (baseline 30,000, -1,790)
 }
 ```
 
+A repository whose output style or skill listing is not empty gets a
+**version 2** file, where each entry also carries `parts`:
+
+```json
+{
+  "version": 2,
+  "bundles": {
+    ".": {
+      "unit": "chars",
+      "measure": 1,
+      "total": 24665,
+      "files": { "CLAUDE.md": 24665 },
+      "parts": {
+        "output-style": {
+          "measure": 1,
+          "total": 8366,
+          "files": { ".claude/output-styles/terse.md": 8366 }
+        },
+        "skill-listing": {
+          "measure": 1,
+          "total": 5031,
+          "files": { ".claude/skills/review/SKILL.md": 5031 }
+        }
+      }
+    }
+  }
+}
+```
+
+`total` stays the instructions' own total; the verdict is decided on `total`
+plus every part's `total`. A part whose total is 0 is not written. Each part has
+its own `measure`, so a change to how one part is measured asks you to re-record
+that part by name.
+
 One entry per scored bundle (`.` is the root; `--bundles=all` adds nested
 ones). `files` names where the weight is, so a message can say which file grew;
 the verdict is decided on `total`, which must equal the sum of `files`. `measure` names the measurement that produced the number; a vigiles release that changes what counts bumps it, and the rule then asks for a re-record instead of reporting growth. Keys are
 sorted and there is no timestamp, so the diff shows only real movement.
+
+### Upgrading from a version-1 file
+
+1. **Upgrade vigiles, change nothing else.** A version-1 file is read as
+   before: the instructions gate exactly as they did, and each part that is
+   not empty adds one **note** (`output style (8,366 chars) and skill listing
+(5,031 chars) load at session start but are not in the baseline…`). Notes
+   never count toward the exit code, so CI stays green.
+2. **Upgrade vigiles wherever `lint` runs** — every CI job and every
+   teammate's pinned version.
+3. **Then record:** `npx vigiles lint --update-baseline` writes version 2, and
+   from then on the gate is the sum.
+
+The order matters because version 1 was a strict format: an **older vigiles
+cannot read a version-2 file**. It reports
+`.vigiles/instruction-weight.json cannot be read` — loud, never silent, but a
+finding at the rule's severity. A repository with no output style and no listed
+skill keeps writing version 1, which every release reads.
 
 **Committed, unlike `.vigiles/coverage.json`.** Coverage records what ran on one
 machine; this records a property of the commit, computed only from committed
@@ -131,7 +219,8 @@ The ratchet only stops growth, so a repo four times over the harness's budget
 stays green for as long as it does not get heavier. `max` is the way to say
 "no further than this, whatever the baseline holds": a positive integer in the
 harness's own unit (characters for Claude Code, bytes for Codex), checked against
-the same total the ratchet records, per bundle.
+the instructions' total, per bundle. It caps the instructions only — the output
+style and the skill listing are gated by the ratchet, not by `max`.
 
 - **Over `max`** → a finding at the rule's severity, independent of the baseline
   (it fires with no baseline file, and when the ratchet says `held`). It names

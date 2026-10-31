@@ -245,9 +245,9 @@ The per-family tables below give each rule's default severity and what it checks
 
 ### Instruction weight
 
-| Rule                                                | Default   | What it checks                                                                                                                        |
-| --------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| [`instruction-weight`](rules/instruction-weight.md) | `"error"` | Everything the harness loads without being asked has not moved off the committed baseline (a ratchet; no baseline file → a note only) |
+| Rule                                                | Default   | What it checks                                                                                                                                                                                  |
+| --------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`instruction-weight`](rules/instruction-weight.md) | `"error"` | Everything the harness loads at session start (instructions, the selected output style, the skill listing) has not moved off the committed baseline (a ratchet; no baseline file → a note only) |
 
 ### Docs hygiene
 
