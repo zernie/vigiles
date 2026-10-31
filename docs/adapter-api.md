@@ -173,6 +173,13 @@ it, or `null` when the harness does not list that skill. `selected` reads one
 settings object; the core resolves the name against the style files in the
 session's own style folder, in exact case.
 
+Which `SKILL.md` files reach `entry` is a layout fact, `PluginLayout.skillDiscovery`
+(`{ minDepth, maxDepth, skipHidden }`, the directories between the skills
+folder and the file). Absent means one folder per skill (`1, 1, false`, Claude
+Code); Codex declares `0, 6, true`, its recursive walk. The pure filter and the
+disk reader both ask `sessionSkillDirs`, so the browser engine and the CLI read
+the same skills.
+
 Each absence is its own state in the result, never a silent 0: a dialect
 without `skillListing` reports the listing as `not-modelled`, a layout without
 `outputStyles` reports the style as `not-supported`, an `outputStyles` without

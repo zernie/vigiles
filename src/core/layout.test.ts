@@ -4,10 +4,17 @@
  * `test-coverage.ts`, `test-coverage-files.ts`). Unit-tested here, next to the
  * layout they belong to, so the rule has one home and one set of cases.
  */
-import { test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import assert from "node:assert/strict";
 
-import { AGENT_FILE_LEAF_RE, agentSurfaceName, skillsHome } from "./layout.js";
+import {
+  AGENT_FILE_LEAF_RE,
+  ONE_FOLDER_PER_SKILL,
+  agentSurfaceName,
+  sessionSkillDirs,
+  skillDiscoveryOf,
+  skillsHome,
+} from "./layout.js";
 
 /** The fragment as the scan classifier bounds it: `(?:^|/)agents/` … `$`. */
 const scanRe = new RegExp(`(?:^|/)agents/${AGENT_FILE_LEAF_RE}$`);
@@ -117,4 +124,26 @@ test("skillsHome is null for a layout with no skill surface", () => {
     skillsHome({ surfaces: { agent: "agents" }, userSurfaceRoot: ".x" }),
     null,
   );
+});
+
+describe("sessionSkillDirs", () => {
+  it("reads one folder per skill by default, and a recursive walk when told", () => {
+    const recursive = { minDepth: 0, maxDepth: 6, skipHidden: true };
+    expect(sessionSkillDirs("a/SKILL.md", ONE_FOLDER_PER_SKILL)).toEqual(["a"]);
+    expect(sessionSkillDirs("SKILL.md", ONE_FOLDER_PER_SKILL)).toBeNull();
+    expect(sessionSkillDirs("g/a/SKILL.md", ONE_FOLDER_PER_SKILL)).toBeNull();
+    expect(sessionSkillDirs(".h/SKILL.md", ONE_FOLDER_PER_SKILL)).toEqual([
+      ".h",
+    ]);
+    expect(sessionSkillDirs("a/README.md", ONE_FOLDER_PER_SKILL)).toBeNull();
+    expect(sessionSkillDirs("SKILL.md", recursive)).toEqual([]);
+    expect(sessionSkillDirs("a/b/c/d/e/f/SKILL.md", recursive)).toHaveLength(6);
+    expect(sessionSkillDirs("a/b/c/d/e/f/g/SKILL.md", recursive)).toBeNull();
+    expect(sessionSkillDirs("g/.h/SKILL.md", recursive)).toBeNull();
+    expect(sessionSkillDirs("g//SKILL.md", recursive)).toBeNull();
+  });
+
+  it("defaults a layout without the key to one folder per skill", () => {
+    expect(skillDiscoveryOf({})).toBe(ONE_FOLDER_PER_SKILL);
+  });
 });

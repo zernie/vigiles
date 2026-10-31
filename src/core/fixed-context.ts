@@ -29,8 +29,10 @@
  *     harness silently resolves to its default) has no size vigiles can read,
  *     and is reported by name rather than counted as zero.
  *   - skill listing: every skill in the folder a session at the repository
- *     root loads (`skillsHome`), rendered by the harness's own entry format
- *     with its per-entry cap. A plugin's `skills/` folder is what the plugin's
+ *     root loads (`skillsHome`), at the depths the harness reads there
+ *     (`SkillDiscovery`: one folder per skill on Claude Code, a recursive walk
+ *     on Codex), rendered by the harness's own entry format with its
+ *     per-entry cap. A plugin's `skills/` folder is what the plugin's
  *     USERS load, not a session here.
  *
  * Pure: the caller hands in a file map (repo-relative path → text) holding the
@@ -40,7 +42,12 @@
 import type { HarnessDialect } from "./dialect.js";
 import { frontmatterBody, readFrontmatter } from "./frontmatter-read.js";
 import { sizeIn, type HarnessUnit } from "./harness-unit.js";
-import { skillsHome, type PluginLayout } from "./layout.js";
+import {
+  sessionSkillDirs,
+  skillDiscoveryOf,
+  skillsHome,
+  type PluginLayout,
+} from "./layout.js";
 import { outputStyleHomes, type OutputStyle } from "./output-style.js";
 import type { ListedSkill } from "./skill-listing.js";
 
@@ -90,7 +97,12 @@ export interface FixedContext {
 
 type FixedLayout = Pick<
   PluginLayout,
-  "outputStyles" | "userSurfaceRoot" | "surfaces" | "settings" | "settingsPath"
+  | "outputStyles"
+  | "userSurfaceRoot"
+  | "surfaces"
+  | "skillDiscovery"
+  | "settings"
+  | "settingsPath"
 >;
 
 /** The instructions' weight, as `weighInstructions` measured it. */
@@ -177,17 +189,25 @@ export function outputStylePart(
     : counted([{ path: style.path, size: sizeIn(style.body, input.unit) }]);
 }
 
-/** Every SKILL.md one level under the session's skills folder, read once. */
+/**
+ * Every SKILL.md the session's skills folder holds at a depth the harness
+ * reads ({@link skillDiscoveryOf}), read once.
+ */
 export function sessionSkills(
   layout: FixedLayout,
   files: Readonly<Record<string, string>>,
 ): readonly ListedSkill[] {
   const home = skillsHome(layout);
   if (home === null) return [];
-  const re = new RegExp(`^${escapeRe(home)}/([^/]+)/SKILL\\.md$`);
+  const discovery = skillDiscoveryOf(layout);
+  // A SKILL.md directly in the folder takes the folder's own name.
+  const homeName = home.split("/").at(-1) ?? home;
   const found = Object.entries(files).flatMap(([path, text]) => {
-    const m = re.exec(path);
-    return m === null ? [] : [{ path, dirName: m[1] ?? "", text }];
+    if (!path.startsWith(`${home}/`)) return [];
+    const dirs = sessionSkillDirs(path.slice(home.length + 1), discovery);
+    return dirs === null
+      ? []
+      : [{ path, dirName: dirs.at(-1) ?? homeName, text }];
   });
   return [...found]
     .sort((a, b) => a.path.localeCompare(b.path))
@@ -201,9 +221,6 @@ export function sessionSkills(
       };
     });
 }
-
-const escapeRe = (s: string): string =>
-  s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** The skill listing's part: each listed skill's entry, sized. */
 export function skillListingPart(

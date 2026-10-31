@@ -509,7 +509,8 @@ Always-loaded instructions: 24,665 chars (budget 40,000)
   silently resolves to its default — is named, not counted. Codex has no output
   styles, so the row reads `n/a`.
 - **skill listing** — one entry per skill in the folder a session at the
-  repository root loads, rendered the way the harness renders it, with its
+  repository root loads (Claude Code: one folder per skill; Codex: the folder
+  walked up to six directories deep, `.`-folders skipped), rendered the way the harness renders it, with its
   per-entry cap: Claude Code `- name: description`, Codex
   `- name: description (file: path)`. A skill the harness hides
   (`disable-model-invocation: true`, `skillOverrides`) is not listed. A

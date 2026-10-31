@@ -349,6 +349,7 @@ export interface PluginLayout {
     readonly settings: SettingsCodec;
     readonly settingsLocalInfix?: string;
     readonly settingsPath: string;
+    readonly skillDiscovery?: SkillDiscovery;
     readonly surfaces: SurfaceDirs;
     readonly userSurfaceRoot?: string;
 }
@@ -368,6 +369,13 @@ export interface SettingsCodec {
     readonly label: string;
     parse(text: string): Record<string, unknown>;
     render(value: Record<string, unknown>): string;
+}
+
+// @public
+export interface SkillDiscovery {
+    readonly maxDepth: number;
+    readonly minDepth: number;
+    readonly skipHidden: boolean;
 }
 
 // @public

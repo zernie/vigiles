@@ -5,7 +5,7 @@
  *
  * The Codex twin is `src/adapters/codex/fixed-context.test.ts`.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -164,6 +164,9 @@ describe("Claude Code fixed context through scanPlugin and scanFiles", () => {
     ".claude/output-styles/nested/Other.md": "never read",
     ".claude/skills/review/SKILL.md":
       "---\nname: review\ndescription: Review a diff\n---\nbody",
+    // One folder per skill (measured on 2.1.316): neither of these is listed.
+    ".claude/skills/SKILL.md": "---\ndescription: top\n---\n",
+    ".claude/skills/group/nested/SKILL.md": "---\ndescription: nested\n---\n",
   };
 
   it("measures the same fixed context on disk and in the map, and prints it", () => {
@@ -195,5 +198,25 @@ describe("Claude Code fixed context through scanPlugin and scanFiles", () => {
       /= fixed context: [\d,]+ chars loaded at session start/,
     );
     cleanupTmpDir(tmp);
+  });
+
+  it("counts a skill folder that is a symlink, as `vigiles init` writes them", () => {
+    const tmp = makeTmpDir("fixed-context-cc-link");
+    mkdirSync(join(tmp, "shared/linked"), { recursive: true });
+    writeFileSync(
+      join(tmp, "shared/linked/SKILL.md"),
+      "---\nname: linked\ndescription: Linked in\n---\n",
+    );
+    mkdirSync(join(tmp, ".claude/skills"), { recursive: true });
+    symlinkSync(join(tmp, "shared/linked"), join(tmp, ".claude/skills/linked"));
+    writeFileSync(join(tmp, "CLAUDE.md"), "# Rules\n");
+    const part = measureFixedContext(tmp, claudeCodeAdapter).fixedContext
+      ?.skillListing;
+    cleanupTmpDir(tmp);
+    expect(part).toEqual({
+      kind: "counted",
+      total: "- linked: Linked in".length,
+      files: [{ path: ".claude/skills/linked/SKILL.md", size: 19 }],
+    });
   });
 });

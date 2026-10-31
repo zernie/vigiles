@@ -184,3 +184,58 @@ describe("Codex fixed context through scanPlugin and scanFiles", () => {
     cleanupTmpDir(tmp);
   });
 });
+
+describe("Codex walks its skills folder recursively", () => {
+  const skill = (name: string) =>
+    `---\nname: ${name}\ndescription: d\n---\nbody`;
+  // Measured on codex-cli 0.153.0: the first four are listed, the last two not.
+  const fixture: Record<string, string> = {
+    "AGENTS.md": "# Rules\n",
+    ".agents/skills/SKILL.md": skill("top"),
+    ".agents/skills/group/nested/SKILL.md": skill("nested"),
+    ".agents/skills/p/SKILL.md": skill("parent"),
+    ".agents/skills/a/b/c/d/e/f/SKILL.md": skill("six"),
+    ".agents/skills/a/b/c/d/e/f/g/SKILL.md": skill("seven"),
+    ".agents/skills/.hidden/h/SKILL.md": skill("hidden"),
+  };
+  // In `localeCompare` order, as the part lists them.
+  const listed = [
+    ".agents/skills/a/b/c/d/e/f/SKILL.md",
+    ".agents/skills/group/nested/SKILL.md",
+    ".agents/skills/p/SKILL.md",
+    ".agents/skills/SKILL.md",
+  ];
+
+  it("counts a nested skill on disk and in the map, and skips what Codex skips", () => {
+    const tmp = makeTmpDir("fixed-context-codex-nested");
+    for (const [rel, body] of Object.entries(fixture)) {
+      mkdirSync(dirname(join(tmp, rel)), { recursive: true });
+      writeFileSync(join(tmp, rel), body);
+    }
+    const disk = scanPlugin(tmp, codexLayout, codexDialect).fixedContext;
+    const map = scanFiles(fixture, codexLayout, codexDialect).fixedContext;
+    cleanupTmpDir(tmp);
+    expect(disk).toEqual(map);
+    const part = disk?.skillListing;
+    expect(
+      part?.kind === "counted" ? part.files.map((f) => f.path) : [],
+    ).toEqual(listed);
+  });
+
+  it("names a SKILL.md directly in the folder after the folder", () => {
+    const f = weigh({
+      ".agents/skills/SKILL.md": "---\ndescription: d\n---\n",
+    });
+    const line = "- skills: d (file: .agents/skills/SKILL.md)";
+    expect(f.skillListing).toEqual({
+      kind: "counted",
+      total: Buffer.byteLength(line, "utf8"),
+      files: [
+        {
+          path: ".agents/skills/SKILL.md",
+          size: Buffer.byteLength(line, "utf8"),
+        },
+      ],
+    });
+  });
+});

@@ -31,15 +31,20 @@
  * Symlinks go through the ONE policy (`src/fs-walk.ts`): `walkableRoot` at each
  * surface dir the layout-blind walk opens, `entryOf` for every entry below it.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
   instructionCandidatePaths,
   resolveImports,
 } from "./core/instruction-chain.js";
-import type { PluginLayout } from "./core/layout.js";
-import { rulesHome, skillsHome } from "./core/layout.js";
+import type { PluginLayout, SkillDiscovery } from "./core/layout.js";
+import {
+  rulesHome,
+  sessionSkillDirs,
+  skillDiscoveryOf,
+  skillsHome,
+} from "./core/layout.js";
 import { outputStyleHomes } from "./core/output-style.js";
 import {
   SURFACE_SHAPES,
@@ -242,17 +247,63 @@ export function boundedInstructionFiles(
 }
 
 /**
+ * What a path POINTS AT, links followed. Unlike {@link entryOf} this enters a
+ * symlinked directory: `vigiles init` links shipped skills into the skills
+ * folder as directories, and the harness lists them. The walk below is bounded
+ * by `maxDepth`, so a link cycle ends there.
+ */
+function targetOf(abs: string): "file" | "dir" | "other" {
+  try {
+    const st = statSync(abs);
+    if (st.isFile()) return "file";
+    return st.isDirectory() ? "dir" : "other";
+  } catch {
+    return "other";
+  }
+}
+
+/**
+ * The `SKILL.md` paths under the session's skills folder, at the depths the
+ * layout's {@link SkillDiscovery} names: directories are entered only while a
+ * deeper `SKILL.md` could still be read, and the same {@link sessionSkillDirs}
+ * the pure filter asks decides which file counts.
+ */
+function sessionSkillFiles(
+  root: string,
+  home: string,
+  discovery: SkillDiscovery,
+): readonly string[] {
+  const walk = (rel: string, depth: number): readonly string[] =>
+    namesIn(join(root, home, rel)).flatMap((name) => {
+      const childRel = rel === "" ? name : `${rel}/${name}`;
+      const entry = targetOf(join(root, home, childRel));
+      if (entry === "file") {
+        return sessionSkillDirs(childRel, discovery) === null
+          ? []
+          : [`${home}/${childRel}`];
+      }
+      const enter =
+        entry === "dir" &&
+        depth < discovery.maxDepth &&
+        !(discovery.skipHidden && name.startsWith("."));
+      return enter ? walk(childRel, depth + 1) : [];
+    });
+  return walk("", 0);
+}
+
+/**
  * The files the FIXED CONTEXT reads beyond the instruction candidates: the
  * style files in the folder a session at the root reads styles from, and each
- * `SKILL.md` one level under the session's skills folder — the two inputs
- * `core/fixed-context.ts` filters, by the same paths, out of the browser
- * engine's fetched tree.
+ * `SKILL.md` under the session's skills folder at a depth the harness reads —
+ * the two inputs `core/fixed-context.ts` filters, by the same paths, out of the
+ * browser engine's fetched tree.
  *
- * Two NAMED directories, one level each, not a walk: the layout says where
- * both are, and nothing below them is read. `exclude` does not apply, for the
- * reason it does not apply to the instruction weight: the harness loads these
- * whatever vigiles lints, and the number is a committed baseline that one more
- * `exclude` line would otherwise lower.
+ * Two NAMED directories, not a walk of the repository: the layout says where
+ * both are and how deep the harness looks under each, and nothing else is
+ * read. `exclude` does not apply, for the reason it does not apply to the
+ * instruction weight: the harness loads these whatever vigiles lints, and the
+ * number is a committed baseline that one more `exclude` line would otherwise
+ * lower.
  */
 export function fixedContextFiles(
   root: string,
@@ -265,7 +316,7 @@ export function fixedContextFiles(
   const skills =
     skillHome === null
       ? []
-      : filesDirectlyIn(root, skillHome).map((dir) => `${dir}/SKILL.md`);
+      : sessionSkillFiles(root, skillHome, skillDiscoveryOf(layout));
   return Object.fromEntries(
     [...styles, ...skills].flatMap((rel) => {
       const text = readIfFile(root, rel);

@@ -42,7 +42,8 @@ them once you record them:
 - **the output style** your committed settings select, when the repository
   holds it as a file — its body, frontmatter removed;
 - **the skill listing** — one entry per skill in the folder a session at the
-  repository root loads, rendered the way the harness renders it, with its
+  repository root loads (Claude Code: one folder per skill; Codex: the folder
+  walked up to six directories deep, `.`-folders skipped), rendered the way the harness renders it, with its
   per-entry cap (Claude Code `- name: description`, capped at 1,536
   characters or `skillListingMaxDescChars`; Codex
   `- name: description (file: path)`, the description capped at 1,024).
