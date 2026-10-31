@@ -39,7 +39,8 @@ import {
   resolveImports,
 } from "./core/instruction-chain.js";
 import type { PluginLayout } from "./core/layout.js";
-import { rulesHome } from "./core/layout.js";
+import { rulesHome, skillsHome } from "./core/layout.js";
+import { outputStyleHomes } from "./core/output-style.js";
 import {
   SURFACE_SHAPES,
   discoverSurfaces,
@@ -238,4 +239,37 @@ export function boundedInstructionFiles(
   // instruction file, and the harness really does load it, so hiding its size
   // would under-report the one number this report exists to give.
   return resolveImports(layout, candidateFiles, (rel) => readIfFile(root, rel));
+}
+
+/**
+ * The files the FIXED CONTEXT reads beyond the instruction candidates: the
+ * style files in the folder a session at the root reads styles from, and each
+ * `SKILL.md` one level under the session's skills folder — the two inputs
+ * `core/fixed-context.ts` filters, by the same paths, out of the browser
+ * engine's fetched tree.
+ *
+ * Two NAMED directories, one level each, not a walk: the layout says where
+ * both are, and nothing below them is read. `exclude` does not apply, for the
+ * reason it does not apply to the instruction weight: the harness loads these
+ * whatever vigiles lints, and the number is a committed baseline that one more
+ * `exclude` line would otherwise lower.
+ */
+export function fixedContextFiles(
+  root: string,
+  layout: PluginLayout,
+): Readonly<Record<string, string>> {
+  const styleHome = outputStyleHomes(layout).at(-1);
+  const skillHome = skillsHome(layout);
+  const styles =
+    styleHome === undefined ? [] : filesDirectlyIn(root, styleHome);
+  const skills =
+    skillHome === null
+      ? []
+      : filesDirectlyIn(root, skillHome).map((dir) => `${dir}/SKILL.md`);
+  return Object.fromEntries(
+    [...styles, ...skills].flatMap((rel) => {
+      const text = readIfFile(root, rel);
+      return text === undefined ? [] : [[rel, text]];
+    }),
+  );
 }

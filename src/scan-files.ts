@@ -45,7 +45,11 @@ import {
   type PluginLayout,
 } from "./core/layout.js";
 import type { HarnessDialect } from "./core/dialect.js";
-import { weighInstructions } from "./core/instruction-weight.js";
+import {
+  weighInstructions,
+  type InstructionWeight,
+} from "./core/instruction-weight.js";
+import { weighFixedContext, type FixedContext } from "./core/fixed-context.js";
 import { instructionSpecState } from "./core/integrity-header.js";
 import {
   instructionCandidatePaths,
@@ -924,18 +928,46 @@ export function scanFiles(
     // depth-1 dot-directories and nothing else, so handing the whole fetched map
     // over would make the browser weigh files the CLI never opens. Same filter,
     // same import pass, same chain; only the storage differs.
-    instructionWeight: dialect.instructionBudget
-      ? weighInstructions(
-          lay.instructionChain(instructionFiles),
-          instructionFiles,
-          dialect.instructionBudget,
-        )
-      : null,
+    ...alwaysLoadedInMap(lay, dialect, instructionFiles, files),
     untested: coverage.untested.length,
     untestedHarness: coverage.harness.untested.length,
     unevaluated: coverage.evals.untested.length,
     evaluable: coverage.evals.covered.length + coverage.evals.untested.length,
     coverageEvidence: countEvidence(coverage.decisions),
     puritySummary,
+  };
+}
+
+/**
+ * The browser twin of `scan.ts`'s `alwaysLoadedOf`: the same weight over the
+ * same bounded instruction files, and the fixed context over the WHOLE fetched
+ * tree — `weighFixedContext` keeps only the paths the disk reader reads (the
+ * session's style folder and one `SKILL.md` per skill directory), so the two
+ * engines see the same files.
+ */
+function alwaysLoadedInMap(
+  lay: PluginLayout,
+  dialect: HarnessDialect,
+  instructionFiles: Readonly<Record<string, string>>,
+  files: Readonly<Record<string, string>>,
+): {
+  readonly instructionWeight: InstructionWeight | null;
+  readonly fixedContext?: FixedContext;
+} {
+  const budget = dialect.instructionBudget;
+  if (budget === undefined) return { instructionWeight: null };
+  const instructionWeight = weighInstructions(
+    lay.instructionChain(instructionFiles),
+    instructionFiles,
+    budget,
+  );
+  return {
+    instructionWeight,
+    fixedContext: weighFixedContext({
+      weight: instructionWeight,
+      files: { ...files, ...instructionFiles },
+      layout: lay,
+      dialect,
+    }),
   };
 }

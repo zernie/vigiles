@@ -84,6 +84,7 @@ import {
 import {
   boundedInstructionFiles,
   boundedSurfacePaths,
+  fixedContextFiles,
 } from "./surface-discovery-fs.js";
 import { REGISTERED_LAYOUTS } from "./layout-registry.js";
 import type { DelegationTrifectaFinding } from "./core/delegation-trifecta.js";
@@ -136,6 +137,11 @@ import {
   type InstructionWeight,
   type WeighedFile,
 } from "./core/instruction-weight.js";
+import {
+  weighFixedContext,
+  type FixedContext,
+  type FixedPart,
+} from "./core/fixed-context.js";
 import {
   blockIneffectiveEventsOf,
   permissionDecisionEventsOf,
@@ -452,6 +458,14 @@ export interface ScanReport {
    */
   readonly instructionWeight: InstructionWeight | null;
   /**
+   * The FIXED CONTEXT around that weight — the instructions plus the output
+   * style the committed settings select and the skill listing, each in the
+   * same unit (`core/fixed-context.ts`). Present exactly when
+   * `instructionWeight` is: both engines compute it from the same inputs, so
+   * the field is absent on both or present on both.
+   */
+  readonly fixedContext?: FixedContext;
+  /**
    * Instruction specs still using the deprecated `keyFiles` — the
    * `deprecated-key-files` rule's own detector (`findDeprecatedKeyFiles`),
    * handed in through `opts` by `audit`, so `lint` and `audit` cannot
@@ -650,6 +664,50 @@ export function measureInstructionWeight(
     harness,
     boundedInstructionFiles(resolve(dir), harness.layout),
   );
+}
+
+/** The always-loaded weight of one directory and the fixed context around it. */
+export interface AlwaysLoaded {
+  readonly instructionWeight: InstructionWeight | null;
+  readonly fixedContext?: FixedContext;
+}
+
+/**
+ * The fixed context of ONE directory under ONE harness — the same route as
+ * {@link measureInstructionWeight}, plus the style and skill files. `lint`'s
+ * ratchet gates on it, `compile` prints it and `scanPlugin` reports it.
+ */
+export function measureFixedContext(
+  dir: string,
+  harness: Pick<ScanHarness, "layout" | "dialect">,
+): AlwaysLoaded {
+  return alwaysLoadedOf(
+    dir,
+    harness,
+    boundedInstructionFiles(resolve(dir), harness.layout),
+  );
+}
+
+function alwaysLoadedOf(
+  dir: string,
+  harness: Pick<ScanHarness, "layout" | "dialect">,
+  instructionFiles: Readonly<Record<string, string>>,
+): AlwaysLoaded {
+  const instructionWeight = weighBoundedInstructions(harness, instructionFiles);
+  if (instructionWeight === null) return { instructionWeight };
+  const files = {
+    ...instructionFiles,
+    ...fixedContextFiles(resolve(dir), harness.layout),
+  };
+  return {
+    instructionWeight,
+    fixedContext: weighFixedContext({
+      weight: instructionWeight,
+      files,
+      layout: harness.layout,
+      dialect: harness.dialect,
+    }),
+  };
 }
 
 function weighBoundedInstructions(
@@ -967,10 +1025,7 @@ export function scanPlugin(
     // unit (Claude Code counts 40 000 chars, Codex 32 768 bytes), so there is no
     // meaningful sum across two; reporting the one that owns the file that
     // exists is the only reading that is true of something.
-    instructionWeight: weighBoundedInstructions(
-      instructionHarness,
-      instructionFiles,
-    ),
+    ...alwaysLoadedOf(dir, instructionHarness, instructionFiles),
     untested: coverage.untested.length,
     untestedHarness: coverage.harness.untested.length,
     unevaluated: coverage.evals.untested.length,
@@ -1358,10 +1413,55 @@ function deprecatedKeyFilesLines(r: ScanReport): readonly string[] {
   );
 }
 
+/** One fixed-context row's value: a size, or why there is none. */
+function fixedPartValue(
+  part: FixedPart,
+  unit: string,
+  what: "output style" | "skill listing",
+): string {
+  const g = (n: number): string => n.toLocaleString("en-US");
+  switch (part.kind) {
+    case "counted": {
+      const where =
+        what === "output style"
+          ? part.files.map((f) => f.path).join(", ")
+          : `${String(part.files.length)} skill(s) listed`;
+      return `${g(part.total)} ${unit}  ${where}`;
+    }
+    case "none":
+      return what === "output style" ? "none selected" : "no skill listed";
+    case "not-supported":
+      return `n/a — this harness has no ${what}s`;
+    case "not-modelled":
+      return `not measured — the ${what} is not modelled for this harness`;
+    case "unresolved":
+      return `"${part.name}" is selected and no repository style declares that name (a built-in style, or a name that loads the default) — not counted`;
+  }
+}
+
+/**
+ * The two rows the fixed context adds under the instruction weight, and the
+ * total of all three. Said as "at session start, before any decision" because
+ * that is what the number is — not the size of a request: the harness's own
+ * prompt, user and plugin skills and the conversation come on top.
+ */
+function fixedContextLines(f: FixedContext): readonly string[] {
+  const g = (n: number): string => n.toLocaleString("en-US");
+  return [
+    `  + output style:  ${fixedPartValue(f.outputStyle, f.unit, "output style")}`,
+    `  + skill listing: ${fixedPartValue(f.skillListing, f.unit, "skill listing")}`,
+    `  = fixed context: ${g(f.total)} ${f.unit} loaded at session start before any decision (instructions + output style + skill listing)`,
+  ];
+}
+
 /** What the instruction file costs: its always-loaded weight, then any deprecated `keyFiles` inflating it. */
 function instructionCostLines(r: ScanReport): readonly string[] {
   const weight = r.instructionWeight
-    ? [...instructionWeightLines(r.instructionWeight), ""]
+    ? [
+        ...instructionWeightLines(r.instructionWeight),
+        ...(r.fixedContext ? fixedContextLines(r.fixedContext) : []),
+        "",
+      ]
     : [];
   return [...weight, ...deprecatedKeyFilesLines(r)];
 }

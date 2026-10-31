@@ -5,9 +5,20 @@
  *
  * The Codex twin is `src/adapters/codex/fixed-context.test.ts`.
  */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { applyRules } from "../../core/apply-rules.js";
 import { weighFixedContext } from "../../core/fixed-context.js";
+import { cleanupTmpDir, makeTmpDir } from "../../core/test-utils.js";
+import {
+  formatScanReport,
+  measureFixedContext,
+  scanPlugin,
+} from "../../scan.js";
+import { scanFiles } from "../../scan-files.js";
+import { claudeCodeAdapter } from "./adapter.js";
 import { sizeIn } from "../../core/harness-unit.js";
 import { claudeCodeDialect } from "./dialect.js";
 import { claudeCodeLayout } from "./layout.js";
@@ -79,7 +90,9 @@ describe("Claude Code fixed context", () => {
       1000 + 300 + entries.brief.length + entries.review.length,
     );
   });
+});
 
+describe("Claude Code output-style selection", () => {
   it("reads a style name in exact case: a wrong case is unresolved, not counted", () => {
     const f = weigh({
       ".claude/settings.json": '{"outputStyle":"terse talk"}',
@@ -135,5 +148,52 @@ describe("claudeCodeSkillListing.entry", () => {
         }),
       ).toBeNull();
     }
+  });
+});
+
+/**
+ * The same fixture through the two ENGINES: `scanPlugin` reads it from disk,
+ * `scanFiles` from a map — the browser demo's input. They must agree field for
+ * field, and the text report must print the rows.
+ */
+describe("Claude Code fixed context through scanPlugin and scanFiles", () => {
+  const fixture: Record<string, string> = {
+    "CLAUDE.md": "# Rules\n" + "a".repeat(200),
+    ".claude/settings.json": '{"outputStyle":"Terse"}',
+    ".claude/output-styles/Terse.md": "Answer in one line.",
+    ".claude/output-styles/nested/Other.md": "never read",
+    ".claude/skills/review/SKILL.md":
+      "---\nname: review\ndescription: Review a diff\n---\nbody",
+  };
+
+  it("measures the same fixed context on disk and in the map, and prints it", () => {
+    const tmp = makeTmpDir("fixed-context-cc");
+    for (const [rel, body] of Object.entries(fixture)) {
+      mkdirSync(dirname(join(tmp, rel)), { recursive: true });
+      writeFileSync(join(tmp, rel), body);
+    }
+    const disk = scanPlugin(tmp, claudeCodeLayout, claudeCodeDialect);
+    const map = scanFiles(fixture, claudeCodeLayout, claudeCodeDialect);
+    expect(disk.fixedContext).toEqual(map.fixedContext);
+    expect(measureFixedContext(tmp, claudeCodeAdapter).fixedContext).toEqual(
+      disk.fixedContext,
+    );
+    expect(disk.fixedContext?.outputStyle).toEqual({
+      kind: "counted",
+      total: "Answer in one line.".length,
+      files: [{ path: ".claude/output-styles/Terse.md", size: 19 }],
+    });
+    // No rules: the weight block is printed whatever rules are on.
+    const text = formatScanReport(
+      applyRules([], {}, { mayFire: () => false }, disk),
+    );
+    expect(text).toContain(
+      "+ output style:  19 chars  .claude/output-styles/Terse.md",
+    );
+    expect(text).toContain("+ skill listing: 23 chars  1 skill(s) listed");
+    expect(text).toMatch(
+      /= fixed context: [\d,]+ chars loaded at session start/,
+    );
+    cleanupTmpDir(tmp);
   });
 });

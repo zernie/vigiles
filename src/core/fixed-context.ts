@@ -146,9 +146,16 @@ function sessionStyles(
   const rules = layout.outputStyles;
   const home = outputStyleHomes(layout).at(-1);
   if (rules === undefined || home === undefined) return [];
+  // Direct children only — the folder the disk reader lists, one level.
+  const nameIn = (path: string): string | null => {
+    const rest = path.startsWith(`${home}/`) ? path.slice(home.length + 1) : "";
+    return rest === "" || rest.includes("/") ? null : rest;
+  };
   return Object.entries(files)
-    .filter(([path]) => path.startsWith(`${home}/`))
-    .filter(([path]) => rules.isStyleFile(path.slice(home.length + 1)))
+    .filter(([path]) => {
+      const name = nameIn(path);
+      return name !== null && rules.isStyleFile(name);
+    })
     .map(([path, text]) => rules.read(path, text));
 }
 
