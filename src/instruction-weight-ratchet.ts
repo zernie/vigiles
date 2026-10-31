@@ -22,19 +22,22 @@ import {
   INSTRUCTION_BASELINE_FILE,
   UPDATE_BASELINE_COMMAND,
   checkCeiling,
-  compareToBaseline,
+  compareFixedToBaseline,
   entryFor,
+  formatBaselineVerdict,
   formatCeiling,
   formatRefusal,
-  formatVerdict,
+  formatUnrecordedParts,
   formatWeightLine,
   parseInstructionBaseline,
   recordEntries,
   serializeBaseline,
+  type BaselineFileVersion,
+  type BaselineVerdict,
   type InstructionBaseline,
   type ParsedBaseline,
-  type RatchetVerdict,
 } from "./core/instruction-baseline.js";
+import type { FixedContext } from "./core/fixed-context.js";
 import type { InstructionWeight } from "./core/instruction-weight.js";
 import type { RuleSeverity } from "./core/types.js";
 
@@ -48,10 +51,14 @@ export function readInstructionBaseline(root: string): BaselineOnDisk {
     : { kind: "absent" };
 }
 
-/** One bundle's measurement: where it is, and its weight (`null` = nothing to weigh). */
+/**
+ * One bundle's measurement: where it is, its weight (`null` = nothing to
+ * weigh), and the fixed context around that weight when it was measured.
+ */
 export type MeasuredBundle = readonly [
   at: string,
   weight: InstructionWeight | null,
+  fixed?: FixedContext,
 ];
 
 /** Write the baseline for every measured bundle; returns what was written. */
@@ -62,7 +69,9 @@ export function writeInstructionBaseline(
 ): InstructionBaseline {
   const next = recordEntries(
     onDisk.kind === "ok" ? onDisk.baseline : undefined,
-    measured.map(([at, w]) => [at, w === null ? null : entryFor(w)] as const),
+    measured.map(
+      ([at, w, fixed]) => [at, w === null ? null : entryFor(w, fixed)] as const,
+    ),
   );
   const path = join(root, INSTRUCTION_BASELINE_FILE);
   mkdirSync(dirname(path), { recursive: true });
@@ -130,27 +139,69 @@ function baselineLines(
     ];
   }
   const recorded = onDisk.kind === "ok" ? onDisk.baseline.bundles : {};
-  return measured.flatMap(([at, weight]): RatchetLine[] => {
+  const file: BaselineFileVersion =
+    onDisk.kind === "ok" ? onDisk.baseline.version : "absent";
+  return measured.flatMap(([at, weight, fixed]): RatchetLine[] => {
     if (weight === null) return [];
-    const verdict: RatchetVerdict = compareToBaseline(
+    const verdict = compareFixedToBaseline(
       weight,
+      fixed,
       Object.hasOwn(recorded, at) ? recorded[at] : undefined,
+      file,
     );
-    const status: RatchetLine["status"] =
-      verdict.kind === "held"
-        ? "ok"
-        : verdict.kind === "unrecorded" && onDisk.kind !== "ok"
-          ? "note"
-          : "finding";
-    // An import named and not read is weight this number lacks — a second
-    // hop, or a path that does not resolve. Said on the line itself, because
-    // the gate holding is only as true as the sum it holds.
-    const unfollowed =
-      weight.unreadImports.length > 0
-        ? ` (${String(weight.unreadImports.length)} import(s) not followed: ${weight.unreadImports.join(", ")} — their size is not in this number)`
-        : "";
-    return [{ at, status, text: `${formatVerdict(verdict, at)}${unfollowed}` }];
+    const text = `${formatBaselineVerdict(verdict, at)}${unfollowedNote(weight)}`;
+    return [
+      { at, status: lineStatus(verdict, onDisk), text },
+      ...partNotes(verdict, weight.unit, at),
+    ];
   });
+}
+
+/**
+ * `held` is ok; a bundle with no entry is a nudge while the repo has no
+ * baseline file — every other verdict is a finding.
+ */
+function lineStatus(
+  verdict: BaselineVerdict,
+  onDisk: BaselineOnDisk,
+): RatchetLine["status"] {
+  if (verdict.verdict.kind === "held") return "ok";
+  return verdict.verdict.kind === "unrecorded" && onDisk.kind !== "ok"
+    ? "note"
+    : "finding";
+}
+
+/**
+ * An import named and not read is weight this number lacks — a second hop, or
+ * a path that does not resolve. Said on the line itself, because the gate
+ * holding is only as true as the sum it holds.
+ */
+function unfollowedNote(weight: InstructionWeight): string {
+  return weight.unreadImports.length > 0
+    ? ` (${String(weight.unreadImports.length)} import(s) not followed: ${weight.unreadImports.join(", ")} — their size is not in this number)`
+    : "";
+}
+
+/**
+ * A version-1 file's NOTE for parts that are not in it. Never a finding: a
+ * repo whose file predates the fixed context must not go red on upgrade — it
+ * records the parts when it chooses to, and they gate from then on.
+ */
+function partNotes(
+  verdict: BaselineVerdict,
+  unit: InstructionWeight["unit"],
+  at: string,
+): readonly RatchetLine[] {
+  return verdict.kind === "instructions-only" &&
+    verdict.unrecordedParts.length > 0
+    ? [
+        {
+          at,
+          status: "note",
+          text: formatUnrecordedParts(verdict.unrecordedParts, unit, at),
+        },
+      ]
+    : [];
 }
 
 /**
@@ -258,6 +309,7 @@ export function checkInstructionWeightRatchet(opts: RatchetOptions): {
 export function compileWeightLine(
   root: string,
   weight: InstructionWeight | null,
+  fixed?: FixedContext,
 ): string | null {
   if (weight === null) return null;
   const onDisk = readInstructionBaseline(root);
@@ -265,10 +317,14 @@ export function compileWeightLine(
     return `always-loaded: ${INSTRUCTION_BASELINE_FILE} cannot be read (${onDisk.message})`;
   }
   const recorded = onDisk.kind === "ok" ? onDisk.baseline.bundles : {};
+  const verdict = compareFixedToBaseline(
+    weight,
+    fixed,
+    Object.hasOwn(recorded, ".") ? recorded["."] : undefined,
+    onDisk.kind === "ok" ? onDisk.baseline.version : "absent",
+  );
   return formatWeightLine(
-    compareToBaseline(
-      weight,
-      Object.hasOwn(recorded, ".") ? recorded["."] : undefined,
-    ),
+    verdict.verdict,
+    verdict.kind === "fixed" ? "fixed context" : "always-loaded",
   );
 }

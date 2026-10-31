@@ -290,7 +290,7 @@ describe("the file format", () => {
       ).kind,
     ).toBe("invalid");
     expect(
-      parseInstructionBaseline(JSON.stringify({ version: 2, bundles: {} }))
+      parseInstructionBaseline(JSON.stringify({ version: 3, bundles: {} }))
         .kind,
     ).toBe("invalid");
   });

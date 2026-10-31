@@ -150,11 +150,12 @@ import {
   handWrittenHookMessage,
   hookScriptMissingMessage,
   staleHookMessage,
-  measureInstructionWeight,
+  measureFixedContext,
 } from "./scan.js";
 import {
   checkInstructionWeightRatchet,
   compileWeightLine,
+  type MeasuredBundle,
 } from "./instruction-weight-ratchet.js";
 import type { ScanReport, ScanHarness } from "./scan.js";
 import {
@@ -1168,6 +1169,20 @@ function isGitHubActions(): boolean {
  * the PR without reading it as a warning.
  */
 type AnnotationLevel = "error" | "warning" | "notice";
+
+/**
+ * One bundle's always-loaded weight and fixed context, measured by the one
+ * route `scan` reports and `lint`'s ratchet gates — so `lint` and `compile`
+ * cannot arrive at a different number from the audit.
+ */
+function measuredBundle(
+  at: string,
+  abs: string,
+  harness: Parameters<typeof measureFixedContext>[1],
+): MeasuredBundle {
+  const m = measureFixedContext(abs, harness);
+  return [at, m.instructionWeight, m.fixedContext];
+}
 
 /**
  * Emit a GitHub Actions annotation for the inline PR experience.
@@ -2862,12 +2877,8 @@ async function runLint(
     update: flags.includes("--update-baseline"),
     silent,
     measure: () =>
-      lintRoots.map(
-        (abs) =>
-          [
-            frame.bundle(abs).at,
-            measureInstructionWeight(abs, adapter),
-          ] as const,
+      lintRoots.map((abs) =>
+        measuredBundle(frame.bundle(abs).at, abs, adapter),
       ),
     annotate: (level, message) => {
       ghAnnotate(level, message);
@@ -9584,17 +9595,16 @@ export async function main(): Promise<void> {
       // committed baseline — shown at the moment of change. Report-only:
       // `lint` is the gate (rule `instruction-weight`).
       if (specs.length > 0) {
-        const weightLine = compileWeightLine(
+        const [, weight, fixed] = measuredBundle(
+          ".",
           projectRoot,
-          measureInstructionWeight(
-            projectRoot,
-            resolveHarnessSelection({
-              root: projectRoot,
-              flag: harnessFlag,
-              configHarness: declaredHarnessNames(config.harnesses),
-            }).adapter,
-          ),
+          resolveHarnessSelection({
+            root: projectRoot,
+            flag: harnessFlag,
+            configHarness: declaredHarnessNames(config.harnesses),
+          }).adapter,
         );
+        const weightLine = compileWeightLine(projectRoot, weight, fixed);
         if (weightLine !== null) console.log(`\n${weightLine}`);
       }
       valid =

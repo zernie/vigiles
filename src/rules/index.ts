@@ -467,12 +467,12 @@ export const RULES = [
     id: "instruction-weight",
     group: "structural",
     bucket: "external-decidable",
-    surface: ["instruction"],
+    surface: ["instruction", "skill", "output-style"],
     defaultSeverity: "error",
     cure: "edit",
     summary:
-      "The always-loaded instruction weight did not move off its committed baseline.",
-    detector: "compareToBaseline",
+      "What the harness loads at session start (instructions, the selected output style, the skill listing) did not move off its committed baseline.",
+    detector: "compareFixedToBaseline",
     options: instructionWeightConfig,
   }),
   defineRule({
