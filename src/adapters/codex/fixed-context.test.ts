@@ -70,22 +70,74 @@ describe("codexSkillListing.entry", () => {
     body: "",
   });
 
-  it("caps the description at 1,024 characters", () => {
+  it("cuts a description over 1,024 characters to 1,021 and '...'", () => {
     const line = codexSkillListing.entry(
       read({ description: "d".repeat(2000) }),
       {},
     );
     expect(line).toBe(
-      `- x: ${"d".repeat(1024)} (file: .agents/skills/x/SKILL.md)`,
+      `- x: ${"d".repeat(1021)}... (file: .agents/skills/x/SKILL.md)`,
+    );
+    // Exactly at the cap: kept whole, no suffix.
+    expect(
+      codexSkillListing.entry(read({ description: "d".repeat(1024) }), {}),
+    ).toBe(`- x: ${"d".repeat(1024)} (file: .agents/skills/x/SKILL.md)`);
+  });
+
+  it("counts the cap in code points, so an emoji is one character", () => {
+    const line = codexSkillListing.entry(
+      read({ description: "😀".repeat(1100) }),
+      {},
+    );
+    expect(line).toBe(
+      `- x: ${"😀".repeat(1021)}... (file: .agents/skills/x/SKILL.md)`,
     );
   });
 
-  it("renders an empty description without a dangling space", () => {
-    expect(codexSkillListing.entry(read({}), {})).toBe(
-      "- x: (file: .agents/skills/x/SKILL.md)",
-    );
-    expect(codexSkillListing.entry(read(null), {})).toBe(
-      "- x: (file: .agents/skills/x/SKILL.md)",
+  it("collapses whitespace in the name and the description to single spaces", () => {
+    expect(
+      codexSkillListing.entry(
+        read({ name: " my\n  skill ", description: "line one\n  line\ttwo\n" }),
+        {},
+      ),
+    ).toBe("- my skill: line one line two (file: .agents/skills/x/SKILL.md)");
+  });
+});
+
+describe("codexSkillListing.entry: skills Codex does not list", () => {
+  const read = (fm: Record<string, unknown> | null) => ({
+    path: ".agents/skills/x/SKILL.md",
+    dirName: "x",
+    frontmatter: fm,
+    body: "",
+  });
+
+  it("does not list a skill Codex fails to parse", () => {
+    // No frontmatter block, a block that is not YAML, no description, a
+    // description that is only whitespace, a name over 64 characters.
+    expect(codexSkillListing.entry(read({}), {})).toBeNull();
+    expect(codexSkillListing.entry(read(null), {})).toBeNull();
+    expect(codexSkillListing.entry(read({ name: "x" }), {})).toBeNull();
+    expect(
+      codexSkillListing.entry(read({ description: " \n\t" }), {}),
+    ).toBeNull();
+    expect(
+      codexSkillListing.entry(
+        read({ name: "n".repeat(65), description: "d" }),
+        {},
+      ),
+    ).toBeNull();
+    expect(
+      codexSkillListing.entry(
+        read({ name: "n".repeat(64), description: "d" }),
+        {},
+      ),
+    ).toBe(`- ${"n".repeat(64)}: d (file: .agents/skills/x/SKILL.md)`);
+  });
+
+  it("falls back to the directory name when the frontmatter has none", () => {
+    expect(codexSkillListing.entry(read({ description: "d" }), {})).toBe(
+      "- x: d (file: .agents/skills/x/SKILL.md)",
     );
   });
 });
