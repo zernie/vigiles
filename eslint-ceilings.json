@@ -255,9 +255,6 @@
   "src/core/instruction-baseline.test.ts": {
     "max-lines-per-function": 95
   },
-  "src/core/instruction-baseline.ts": {
-    "max-lines-per-function": 35
-  },
   "src/core/instruction-chain.test.ts": {
     "max-lines-per-function": 63
   },
@@ -471,9 +468,6 @@
   },
   "src/hook.test.ts": {
     "max-lines-per-function": 82
-  },
-  "src/instruction-weight-ratchet.ts": {
-    "max-lines-per-function": 33
   },
   "src/judge.ts": {
     "max-lines-per-function": 34

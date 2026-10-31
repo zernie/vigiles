@@ -21,8 +21,11 @@ import {
   writeInstructionBaseline,
 } from "./instruction-weight-ratchet.js";
 import { measureFixedContext } from "./scan.js";
+import { skillsHome } from "./core/layout.js";
 import { claudeCodeAdapter } from "./adapters/claude-code/adapter.js";
 
+/** The harness every in-process measurement here is taken under. */
+const ADAPTER = claudeCodeAdapter;
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
 const BASELINE = ".vigiles/instruction-weight.json";
 const BODY = "x".repeat(30_000);
@@ -193,7 +196,7 @@ test("--json carries the counters", () => {
 test("compile's line reads the weight against the recorded baseline", () => {
   run(["lint", "--update-baseline"]);
   put("CLAUDE.md", BODY.slice(0, 28_210));
-  const m = measureFixedContext(dir, claudeCodeAdapter);
+  const m = measureFixedContext(dir, ADAPTER);
   assert(m.instructionWeight !== null);
   const line = compileWeightLine(dir, [
     ".",
@@ -204,9 +207,10 @@ test("compile's line reads the weight against the recorded baseline", () => {
 });
 
 test("a recorded part this run cannot measure is carried by compile and by re-record", () => {
-  put(".claude/skills/a/SKILL.md", "---\ndescription: listed\n---\n");
+  const home = skillsHome(ADAPTER.layout) ?? "";
+  put(`${home}/a/SKILL.md`, "---\ndescription: listed\n---\n");
   run(["lint", "--update-baseline"]);
-  const m = measureFixedContext(dir, claudeCodeAdapter);
+  const m = measureFixedContext(dir, ADAPTER);
   assert(m.instructionWeight !== null);
   // An adapter that does not model the listing, against a file that records it.
   const blind = {

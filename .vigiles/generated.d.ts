@@ -196,7 +196,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 576 project files. */
+  /** 578 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -258,6 +258,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/runtime.ts"
     | "src/adapters/claude-code/skill-driver.test.ts"
     | "src/adapters/claude-code/skill-driver.ts"
+    | "src/adapters/claude-code/skill-listing-delivery.test.ts"
     | "src/adapters/claude-code/skill-listing.ts"
     | "src/adapters/claude-code/skill-pipeline.test.ts"
     | "src/adapters/claude-code/skill-reachability.test.ts"
@@ -288,6 +289,7 @@ declare module "vigiles/generated" {
     | "src/adapters/codex/mock-model.ts"
     | "src/adapters/codex/model-mock.ts"
     | "src/adapters/codex/runtime.ts"
+    | "src/adapters/codex/skill-listing-delivery.test.ts"
     | "src/adapters/codex/skill-listing.ts"
     | "src/adapters/opencode/adapter.ts"
     | "src/adapters/opencode/dialect.ts"
@@ -1002,6 +1004,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/runtime.ts"
       | "src/adapters/claude-code/skill-driver.test.ts"
       | "src/adapters/claude-code/skill-driver.ts"
+      | "src/adapters/claude-code/skill-listing-delivery.test.ts"
       | "src/adapters/claude-code/skill-listing.ts"
       | "src/adapters/claude-code/skill-pipeline.test.ts"
       | "src/adapters/claude-code/skill-reachability.test.ts"
@@ -1032,6 +1035,7 @@ declare module "vigiles/spec" {
       | "src/adapters/codex/mock-model.ts"
       | "src/adapters/codex/model-mock.ts"
       | "src/adapters/codex/runtime.ts"
+      | "src/adapters/codex/skill-listing-delivery.test.ts"
       | "src/adapters/codex/skill-listing.ts"
       | "src/adapters/opencode/adapter.ts"
       | "src/adapters/opencode/dialect.ts"
