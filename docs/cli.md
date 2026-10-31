@@ -511,7 +511,7 @@ Always-loaded instructions: 24,665 chars (budget 40,000)
 - **skill listing** — one entry per skill in the folder a session at the
   repository root loads (Claude Code: one folder per skill; Codex: the folder
   walked up to six directories deep, `.`-folders skipped), rendered the way the harness renders it, with its
-  per-entry cap: Claude Code `- name: description`, Codex
+  per-entry cap: Claude Code `- dir: description - when_to_use`, Codex
   `- name: description (file: path)`. A skill the harness hides
   (`disable-model-invocation: true`, `skillOverrides`) is not listed. A
   plugin's own `skills/` folder is what the plugin's users load, not a

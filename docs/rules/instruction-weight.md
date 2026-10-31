@@ -44,9 +44,11 @@ them once you record them:
 - **the skill listing** — one entry per skill in the folder a session at the
   repository root loads (Claude Code: one folder per skill; Codex: the folder
   walked up to six directories deep, `.`-folders skipped), rendered the way the harness renders it, with its
-  per-entry cap (Claude Code `- name: description`, capped at 1,536
-  characters or `skillListingMaxDescChars`; Codex
-  `- name: description (file: path)`, the description capped at 1,024).
+  per-entry cap (Claude Code `- dir: description - when_to_use`, with `<`
+  and `>` escaped as `&lt;`/`&gt;` and the text cut to 1,536 characters or
+  `skillListingMaxDescChars`; Codex `- name: description (file: path)`, the
+  description cut to 1,024, and a skill Codex cannot parse — no frontmatter,
+  no description — not listed).
 
 Together with the instructions this is the **fixed context**. The rule gates
 its **sum**, so moving a section from `CLAUDE.md` into the selected style, or

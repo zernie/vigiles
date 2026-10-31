@@ -159,10 +159,10 @@ context** — the instructions plus what else the harness loads at session start
 before any decision — measured by `weighFixedContext` in
 `core/fixed-context.ts`, in the dialect's `instructionBudget.unit`:
 
-| Member               | Port                        | Signature                                                     | Claude Code                                                                             | Codex                                                   |
-| -------------------- | --------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `skillListing`       | `HarnessDialect`            | `{ entry(skill, settings): string \| null; capturedFrom }`    | `- name: description[ when_to_use]`, capped at 1,536 chars (`skillListingMaxDescChars`) | `- name: description (file: path)`, description ≤ 1,024 |
-| `selected(settings)` | `PluginLayout.outputStyles` | `→ { kind: "unset" \| "default" } \| { kind: "named"; name }` | reads `outputStyle`                                                                     | — (Codex has no output styles)                          |
+| Member               | Port                        | Signature                                                     | Claude Code                                                                                                                                 | Codex                                                                                                  |
+| -------------------- | --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `skillListing`       | `HarnessDialect`            | `{ entry(skill, settings): string \| null; capturedFrom }`    | `- dir: description - when_to_use` (`- dir (name)` when renamed), `<`/`>` escaped, cut at 1,536 chars with `…` (`skillListingMaxDescChars`) | `- name: description (file: path)`, description cut at 1,024 with `...`; unparseable skills not listed |
+| `selected(settings)` | `PluginLayout.outputStyles` | `→ { kind: "unset" \| "default" } \| { kind: "named"; name }` | reads `outputStyle`                                                                                                                         | — (Codex has no output styles)                                                                         |
 
 The types are exported from `vigiles/adapter` as `SkillListingRules`,
 `ListedSkill` and `StyleSelection`. `entry` receives one `ListedSkill` read by

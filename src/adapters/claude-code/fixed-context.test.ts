@@ -76,7 +76,7 @@ describe("Claude Code fixed context", () => {
     });
     const entries = {
       brief: "- brief",
-      review: "- review: Review a diff before merge",
+      review: "- review: Review a diff - before merge",
     };
     expect(f.skillListing).toEqual({
       kind: "counted",
@@ -122,21 +122,102 @@ describe("claudeCodeSkillListing.entry", () => {
     body,
   });
 
-  it("caps the combined text at 1,536 characters, or the configured cap", () => {
-    const long = read({ description: "d".repeat(2000) });
-    expect(claudeCodeSkillListing.entry(long, {})?.length).toBe(
-      "- x: ".length + 1536,
+  it("cuts the combined text past 1,536 UTF-16 units, or the configured cap, with '…'", () => {
+    const at = (n: number) => read({ description: "d".repeat(n) });
+    expect(claudeCodeSkillListing.entry(at(1536), {})).toBe(
+      `- x: ${"d".repeat(1536)}`,
     );
-    const capped = claudeCodeSkillListing.entry(long, {
-      skillListingMaxDescChars: 10,
-    });
-    expect(capped).toBe(`- x: ${"d".repeat(10)}`);
+    expect(claudeCodeSkillListing.entry(at(1537), {})).toBe(
+      `- x: ${"d".repeat(1535)}…`,
+    );
+    expect(
+      claudeCodeSkillListing.entry(at(2000), { skillListingMaxDescChars: 10 }),
+    ).toBe(`- x: ${"d".repeat(9)}…`);
+  });
+});
+
+describe("claudeCodeSkillListing.entry: the text, as measured on 2.1.316", () => {
+  const read = (fm: Record<string, unknown> | null, body = "") => ({
+    path: ".claude/skills/x/SKILL.md",
+    dirName: "x",
+    frontmatter: fm,
+    body,
   });
 
-  it("falls back to the directory name and the first body line", () => {
+  it("joins when_to_use with ' - ' and caps the joined text", () => {
     expect(
-      claudeCodeSkillListing.entry(read({}, "\n\n  First.\nSecond"), {}),
-    ).toBe("- x: First.");
+      claudeCodeSkillListing.entry(
+        read({ description: "Review", when_to_use: "before merge" }),
+        {},
+      ),
+    ).toBe("- x: Review - before merge");
+    expect(
+      claudeCodeSkillListing.entry(
+        read({ description: "abcdefgh", when_to_use: "ijkl" }),
+        { skillListingMaxDescChars: 10 },
+      ),
+    ).toBe("- x: abcdefgh …");
+  });
+
+  it("escapes angle brackets before the cap, which can split an escape", () => {
+    expect(
+      claudeCodeSkillListing.entry(
+        read({ description: "Run <cmd> now & then", when_to_use: "on <go>" }),
+        {},
+      ),
+    ).toBe("- x: Run &lt;cmd&gt; now & then - on &lt;go&gt;");
+    expect(
+      claudeCodeSkillListing.entry(read({ description: "<<<" }), {
+        skillListingMaxDescChars: 6,
+      }),
+    ).toBe("- x: &lt;&…");
+  });
+
+  it("turns each control or format character into one space, then trims", () => {
+    expect(
+      claudeCodeSkillListing.entry(
+        read({ description: "  a    b  \u0001c\u007fd​e f\n" }),
+        {},
+      ),
+    ).toBe("- x: a    b   c d e f");
+  });
+});
+
+describe("claudeCodeSkillListing.entry: the label and its fallbacks", () => {
+  const read = (fm: Record<string, unknown> | null, body = "") => ({
+    path: ".claude/skills/x/SKILL.md",
+    dirName: "x",
+    frontmatter: fm,
+    body,
+  });
+
+  it("labels a renamed skill `dir (name)`, and keys overrides by the directory", () => {
+    expect(
+      claudeCodeSkillListing.entry(read({ name: "X", description: "d" }), {}),
+    ).toBe("- x (X): d");
+    expect(
+      claudeCodeSkillListing.entry(read({ name: "x", description: "d" }), {}),
+    ).toBe("- x: d");
+    expect(
+      claudeCodeSkillListing.entry(read({ name: "y", description: "d" }), {
+        skillOverrides: { y: "off" },
+      }),
+    ).toBe("- x (y): d");
+    expect(
+      claudeCodeSkillListing.entry(read({ name: "y", description: "d" }), {
+        skillOverrides: { x: "name-only" },
+      }),
+    ).toBe("- x");
+  });
+
+  it("falls back to the directory name, the first body line, then 'Skill'", () => {
+    expect(
+      claudeCodeSkillListing.entry(read({}, "\n\n  First <a>.\nSecond"), {}),
+    ).toBe("- x: First &lt;a&gt;.");
+    expect(claudeCodeSkillListing.entry(read({}), {})).toBe("- x: Skill");
+    expect(claudeCodeSkillListing.entry(read({ when_to_use: "w" }), {})).toBe(
+      "- x: Skill - w",
+    );
   });
 
   it("does not list malformed, hidden or overridden-off skills", () => {
