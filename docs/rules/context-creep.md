@@ -213,9 +213,13 @@ Once nothing is over, it deletes the file instead. It touches only the bundles
 the run scanned: `vigiles lint plugins/alpha --update-baseline` rewrites or
 drops `plugins/alpha`'s entry and leaves every other bundle's entry
 byte-identical. An entry is dropped only when the run measured that bundle and
-found it under its limits, or found the bundle gone. Raising the baseline is
-allowed: growth is not forbidden, it becomes a reviewed diff of a committed
-file instead of passing in silence.
+found it under its limits, or found the bundle gone. "Under its limits" needs
+**every part the entry recorded** to be measured in this run. When a recorded
+part cannot be measured, for example the selected output style names no style
+file, the entry stays with that part's recorded value, and `lint` says so:
+`output style not measured this run; recorded 20 chars kept`. Raising the
+baseline is allowed: growth is not forbidden, it becomes a reviewed diff of a
+committed file instead of passing in silence.
 
 **`lint` never writes.** Every default lint path is a read, and CI must not
 commit files. Over a limit with no baseline, `lint` stays a note that names the

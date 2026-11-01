@@ -30,6 +30,7 @@ import {
   entriesOf,
   hasEntries,
   parseBaselineStore,
+  unmeasuredRecorded,
   serializeBaselineStore,
   withEntries,
   type BaselineEntry,
@@ -188,8 +189,20 @@ export function contextCreepRun(
     findings: measured.flatMap((m) => bundleFindings(m, limits)),
     measured: measured.flatMap((m) => (m[1] === null ? [] : [m[0]])),
     gone: measured.flatMap((m) => (m[1] === null ? [m[0]] : [])),
+    unmeasured: Object.fromEntries(measured.flatMap(unmeasuredParts)),
     remedy: MOVE_OUT_OF_ALWAYS_LOADED,
   };
+}
+
+/** A measured bundle's parts this run could not measure, when it has any. */
+function unmeasuredParts(
+  m: MeasuredBundle,
+): readonly (readonly [string, readonly string[]])[] {
+  if (m[1] === null) return [];
+  const parts = Object.entries(alwaysLoadedMeasurement(m[1], m[2]).parts ?? {})
+    .filter(([, p]) => p.value === null)
+    .map(([name]) => name);
+  return parts.length === 0 ? [] : [[m[0], parts]];
 }
 
 /** Whether a bundle path is the scanned one or inside it (`.` covers every bundle). */
@@ -256,8 +269,9 @@ interface Migration {
  * The bundles one old file hands the store. A bundle this run measured follows
  * the normal rule — kept only while still over a limit — and keeps its
  * RECORDED numbers, never a re-measure. A bundle this run did not look at (a
- * scoped run, another bundle) is converted as recorded. A bundle the run
- * measured under its limits, or found gone, is not carried.
+ * scoped run, another bundle), or whose old entry recorded a part this run
+ * could not measure, is converted as recorded. A bundle the run measured under
+ * its limits — every recorded part measured — or found gone, is not carried.
  */
 function legacyEntries(
   legacy: Extract<LegacyBaseline, { kind: "ok" }>,
@@ -267,13 +281,18 @@ function legacyEntries(
   const scanned = run.findings.flatMap((f) =>
     f.measurement === undefined ? [] : [{ at: f.subject, now: f.measurement }],
   );
-  const unscanned = Object.keys(legacy.file.bundles)
-    .filter((at) => !looked.has(at))
+  const asked = new Set(scanned.map(({ at }) => at));
+  const unproven = Object.keys(legacy.file.bundles)
+    .filter((at) => !asked.has(at))
     .map((at) => ({ at, now: undefined }));
   return Object.fromEntries(
-    [...scanned, ...unscanned].flatMap(({ at, now }) => {
+    [...scanned, ...unproven].flatMap(({ at, now }) => {
       const entry = convertLegacyEntry(legacy, at, now);
-      return entry === undefined ? [] : [[at, entry] as const];
+      const proven =
+        now === undefined &&
+        looked.has(at) &&
+        unmeasuredRecorded(run, at, entry).length === 0;
+      return entry === undefined || proven ? [] : [[at, entry] as const];
     }),
   );
 }

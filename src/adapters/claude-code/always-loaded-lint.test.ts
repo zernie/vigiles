@@ -507,3 +507,88 @@ describe("several bundles and an old file: every recorded bundle survives every 
     expect(existsSync(join(dir, BASELINE_FILE))).toBe(false);
   });
 });
+
+/** Instructions 90 chars, the `terse` style 20 chars, against an instructions limit of 100. */
+function styleOver(): void {
+  put(
+    ".vigilesrc.json",
+    JSON.stringify({
+      harnesses: { "claude-code": {} },
+      rules: { [RULE_ID]: ["error", { limits: { instructions: 100 } }] },
+    }),
+  );
+  put("CLAUDE.md", `# P\n${"x".repeat(85)}\n`);
+  put(
+    ".claude/output-styles/terse.md",
+    `---\nname: terse\n---\n${"s".repeat(20)}`,
+  );
+  put(".claude/settings.json", JSON.stringify({ outputStyle: "terse" }));
+}
+
+/** The old file recording that 90 + 20. */
+function oldStyleFile(): void {
+  put(
+    LEGACY,
+    JSON.stringify({
+      version: 2,
+      bundles: {
+        ".": {
+          unit: "chars",
+          measure: 1,
+          total: 90,
+          files: { "CLAUDE.md": 90 },
+          parts: {
+            "output-style": {
+              measure: 1,
+              total: 20,
+              files: { ".claude/output-styles/terse.md": 20 },
+            },
+          },
+        },
+      },
+    }),
+  );
+}
+
+describe("a recorded part this run cannot measure keeps the entry", () => {
+  it("instructions 90 + a recorded style of 20 over a limit of 100; the style turns unresolved: the entry stays", () => {
+    styleOver();
+    run(["lint", "--update-baseline"]);
+    expect(recorded(".")).toBe(90);
+    expect(entries()["."]?.parts?.["output-style"]?.value).toBe(20);
+    const before = readFileSync(join(dir, BASELINE_FILE), "utf-8");
+    put(
+      ".claude/settings.json",
+      JSON.stringify({ outputStyle: "no-such-style" }),
+    );
+    const r = lint();
+    expect(r.out).toContain(
+      "output style not measured this run; recorded 20 chars kept",
+    );
+    expect(r.out).not.toContain("under the limit");
+    run(["lint", "--update-baseline"]);
+    expect(readFileSync(join(dir, BASELINE_FILE), "utf-8")).toBe(before);
+    // Restoring a larger style is growth against the kept entry, not the no-baseline note.
+    put(
+      ".claude/output-styles/terse.md",
+      `---\nname: terse\n---\n${"s".repeat(40)}`,
+    );
+    put(".claude/settings.json", JSON.stringify({ outputStyle: "terse" }));
+    const back = lint();
+    expect(back.code).toBe(2);
+    expect(back.out).toContain("Grew 110 → 130 chars (+20)");
+  });
+
+  it("a migration keeps an old entry whose recorded part this run cannot measure", () => {
+    styleOver();
+    put(
+      ".claude/settings.json",
+      JSON.stringify({ outputStyle: "no-such-style" }),
+    );
+    oldStyleFile();
+    run(["lint", "--update-baseline"]);
+    expect(existsSync(join(dir, LEGACY))).toBe(false);
+    expect(recorded(".")).toBe(90);
+    expect(entries()["."]?.parts?.["output-style"]?.value).toBe(20);
+  });
+});

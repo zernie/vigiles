@@ -182,6 +182,14 @@ export interface RuleRun {
    * is kept byte-identical and is not mentioned.
    */
   readonly gone?: readonly string[];
+  /**
+   * Per measured subject, the parts this run could not measure (unresolved,
+   * not supported, not modelled). A run proves a subject under its limits only
+   * if it measured EVERY part the subject's entry recorded: while a recorded
+   * part is unmeasurable, the entry is kept and that part's recorded value is
+   * carried forward — never dropped or shrunk because of it.
+   */
+  readonly unmeasured?: Readonly<Record<string, readonly string[]>>;
   /** What a reader does about growth — the rule's own cure, printed once per growth. */
   readonly remedy?: string;
 }
@@ -421,6 +429,42 @@ function verdictFor(
     : at("finding", why);
 }
 
+/** The parts a subject's entry recorded that this run could not measure, sorted. */
+export function unmeasuredRecorded(
+  run: RuleRun,
+  subject: string,
+  entry: BaselineEntry | undefined,
+): readonly string[] {
+  const missing = new Set(
+    run.unmeasured !== undefined && Object.hasOwn(run.unmeasured, subject)
+      ? run.unmeasured[subject]
+      : [],
+  );
+  return Object.keys(entry?.parts ?? {})
+    .filter((part) => missing.has(part))
+    .sort();
+}
+
+/** "output style not measured this run; recorded 20 chars kept", per such part. */
+function unmeasuredLine(
+  subject: string,
+  entry: BaselineEntry,
+  parts: readonly string[],
+): StoreLine {
+  const where = subject === "." ? "" : `${subject}: `;
+  const said = parts
+    .map(
+      (p) =>
+        `${p.replaceAll("-", " ")} not measured this run; recorded ${n(entry.parts?.[p]?.value ?? 0)} ${entry.unit} kept`,
+    )
+    .join("; ");
+  return {
+    subject,
+    status: "note",
+    text: `${where}${said} — ${BASELINE_FILE} keeps the entry until a run measures every part it recorded.`,
+  };
+}
+
 /** A stored entry no finding asked for: the subject is under its limit, or gone. */
 function staleLine(subject: string, measured: boolean): StoreLine {
   const where = subject === "." ? "" : `${subject}: `;
@@ -467,13 +511,30 @@ export function applyBaseline(
       .filter((f) => f.measurement !== undefined)
       .map((f) => f.subject),
   );
+  return [...lines, ...storeNotes(run, entries ?? {}, asked)];
+}
+
+/**
+ * The notes for stored entries: a recorded part this run could not measure
+ * (the entry is kept), else — when no finding asked for the subject — under
+ * its limit or gone. Entries the run did not look at are silent.
+ */
+function storeNotes(
+  run: RuleRun,
+  entries: Readonly<Record<string, BaselineEntry>>,
+  asked: ReadonlySet<string>,
+): readonly StoreLine[] {
   const gone = new Set(run.gone ?? []);
   const measured = new Set(run.measured);
-  const stale = Object.keys(entries ?? {})
-    .filter((s) => !asked.has(s) && (measured.has(s) || gone.has(s)))
-    .sort()
-    .map((subject) => staleLine(subject, measured.has(subject)));
-  return [...lines, ...stale];
+  return Object.entries(entries)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .flatMap(([s, e]) => {
+      const unmeasured = measured.has(s) ? unmeasuredRecorded(run, s, e) : [];
+      if (unmeasured.length > 0) return [unmeasuredLine(s, e, unmeasured)];
+      return !asked.has(s) && (measured.has(s) || gone.has(s))
+        ? [staleLine(s, measured.has(s))]
+        : [];
+    });
 }
 
 /**
@@ -504,7 +565,9 @@ export function withEntries(
  * or found gone becomes exactly its finding's measurement (or nothing, when it
  * is under its limit or gone), with any part this run could not measure
  * carried over. Every subject the run did not look at keeps its entry as is,
- * so a scoped run never deletes another bundle's baseline.
+ * so a scoped run never deletes another bundle's baseline — and so does one
+ * whose entry recorded a part this run could not measure, since no finding
+ * there proves nothing about that part.
  */
 export function entriesFor(
   previous: StoreOnDisk,
@@ -512,7 +575,16 @@ export function entriesFor(
 ): Readonly<Record<string, BaselineEntry>> {
   const old = entriesOf(previous, run.ruleId);
   const looked = new Set([...run.measured, ...(run.gone ?? [])]);
-  const kept = Object.entries(old ?? {}).filter(([s]) => !looked.has(s));
+  const asked = new Set(
+    run.findings.flatMap((f) =>
+      f.measurement === undefined ? [] : [f.subject],
+    ),
+  );
+  const kept = Object.entries(old ?? {}).filter(
+    ([s, e]) =>
+      !looked.has(s) ||
+      (!asked.has(s) && unmeasuredRecorded(run, s, e).length > 0),
+  );
   const fresh = run.findings.flatMap((f) =>
     f.measurement === undefined
       ? []

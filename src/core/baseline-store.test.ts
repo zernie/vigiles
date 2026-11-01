@@ -220,6 +220,50 @@ describe("recording touches only the subjects the run measured", () => {
   });
 });
 
+describe("a recorded part the run could not measure", () => {
+  const unmeasuredRun = (findings: RuleRun["findings"]): RuleRun => ({
+    ...runOf(findings),
+    unmeasured: { ".": ["b"] },
+  });
+
+  it("no finding does not prove the subject under its limit: the entry is kept, and said so", () => {
+    const lines = applyBaseline(
+      unmeasuredRun([]),
+      stored({ ".": entry({ a: 90, b: 20 }) }),
+    );
+    expect(lines.map((l) => [l.subject, l.status])).toEqual([[".", "note"]]);
+    expect(lines[0]?.text).toContain(
+      "b not measured this run; recorded 20 chars kept",
+    );
+    expect(lines[0]?.text).not.toContain("under the limit");
+    const before = stored({ ".": entry({ a: 90, b: 20 }) });
+    const next = recordRun(before, unmeasuredRun([]));
+    expect(next?.rules[RULE]?.["."]).toEqual(entry({ a: 90, b: 20 }));
+  });
+
+  it("a part the entry never recorded proves nothing either way: the subject is under its limit", () => {
+    const lines = applyBaseline(
+      unmeasuredRun([]),
+      stored({ ".": entry({ a: 90 }) }),
+    );
+    expect(lines[0]?.text).toContain("under the limit");
+    expect(
+      recordRun(stored({ ".": entry({ a: 90 }) }), unmeasuredRun([])),
+    ).toBe(undefined);
+  });
+
+  it("with a finding, the recorded value is carried forward and the note still says so", () => {
+    const lines = applyBaseline(
+      unmeasuredRun([over(".", measured({ a: 90, b: null }))]),
+      stored({ ".": entry({ a: 90, b: 20 }) }),
+    );
+    expect(lines.map((l) => l.status)).toEqual(["ok", "note"]);
+    expect(lines[1]?.text).toContain(
+      "b not measured this run; recorded 20 chars kept",
+    );
+  });
+});
+
 describe("recording", () => {
   it("writes exactly the findings that carry a measurement, keeping other rules", () => {
     const next = recordRun(
