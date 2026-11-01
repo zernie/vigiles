@@ -82,6 +82,17 @@ describe("version 2 on disk", () => {
     expect(reread).toEqual({ kind: "ok", baseline: v2 });
   });
 
+  it("keeps a version-2 file at version 2 when every part drops to zero", () => {
+    const v2 = recordEntries(undefined, [[".", recorded(100, 20, 30)]]);
+    const cut = recordEntries(v2, [[".", recorded(100, 0, 0)]]);
+    expect(cut.version).toBe(2);
+    expect(cut.bundles["."]?.parts).toBeUndefined();
+    expect(parseInstructionBaseline(serializeBaseline(cut)).kind).toBe("ok");
+    // A file that was never version 2 is not promoted by this.
+    const v1 = recordEntries(undefined, [[".", recorded(100, 0, 0)]]);
+    expect(recordEntries(v1, [[".", recorded(90, 0, 0)]]).version).toBe(1);
+  });
+
   it("refuses parts in a version-1 file, and a part whose total is not its sum", () => {
     const withParts = {
       version: 1,

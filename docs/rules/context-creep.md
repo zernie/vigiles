@@ -196,7 +196,9 @@ The order matters because version 1 was a strict format: an **older vigiles
 cannot read a version-2 file**. It reports
 `.vigiles/context-creep.json cannot be read` — loud, never silent, but a
 finding at the rule's severity. A repository with no output style and no listed
-skill keeps writing version 1, which every release reads.
+skill keeps writing version 1, which every release reads. A file that is
+already version 2 stays version 2, even after its last skill or its style is
+removed: re-adding one is then growth of the gated sum, not a note.
 
 **Committed, unlike `.vigiles/coverage.json`.** Coverage records what ran on one
 machine; this records a property of the commit, computed only from committed

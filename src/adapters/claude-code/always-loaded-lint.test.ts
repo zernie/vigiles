@@ -11,6 +11,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -108,6 +109,25 @@ describe("the ratchet over the Claude Code always-loaded context", () => {
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("always-loaded context grew 342 → 353 chars (+11)");
     expect(r.out).toContain(`${SKILL} (skill listing) +11`);
+  });
+
+  it("a version-2 baseline stays version 2 when its parts drop to zero, so a re-added part still fails", () => {
+    expect(run(["lint", "--update-baseline"]).code).toBe(0);
+    expect(written().version).toBe(2);
+
+    // Remove the last listed skill and the selected style, and lock the cut in.
+    rmSync(join(dir, SKILL));
+    put(".claude/settings.json", "{}");
+    expect(run(["lint", "--update-baseline"]).code).toBe(0);
+    const cut = written();
+    expect(cut.version).toBe(2);
+    expect(cut.bundles["."]?.parts).toBeUndefined();
+
+    // Re-adding the skill is growth of the gated sum, not a note.
+    put(SKILL, "---\nname: review\ndescription: Review a diff\n---\nbody");
+    const r = run(["lint"]);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("always-loaded context grew 300 → 323 chars (+23)");
   });
 });
 

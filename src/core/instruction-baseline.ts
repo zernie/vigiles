@@ -54,7 +54,8 @@
  *     so upgrading vigiles never turns CI red;
  *   - `--update-baseline` writes version 2 only when some part is not zero, so
  *     a repo with no output style and no listed skill keeps a version-1 file
- *     every release reads;
+ *     every release reads — and, once a file is version 2, keeps it there even
+ *     when every part drops to zero, so re-adding a part is growth, not a note;
  *   - the note and the rule doc say to upgrade vigiles wherever lint runs
  *     BEFORE re-recording.
  *
@@ -668,10 +669,18 @@ export function recordEntries(
       a.localeCompare(b),
     ),
   );
-  // Version 2 only when some entry carries a part — see the header: a repo
-  // with nothing to add keeps a file every release can read.
+  // Version 2 when some entry carries a part — see the header: a repo with
+  // nothing to add keeps a file every release can read — OR when the file was
+  // already version 2. A version is a one-way door: writing version 1 after a
+  // repo dropped its last skill or its style would turn a re-added part from
+  // growth of the gated sum into a note, so a legitimate cut, recorded,
+  // would silently switch off the gate the repo opted into.
   const withParts = Object.values(bundles).some((e) => e.parts !== undefined);
-  return { version: withParts ? INSTRUCTION_BASELINE_VERSION : 1, bundles };
+  const wasSumGated = previous?.version === INSTRUCTION_BASELINE_VERSION;
+  return {
+    version: withParts || wasSumGated ? INSTRUCTION_BASELINE_VERSION : 1,
+    bundles,
+  };
 }
 
 /** Stable text: sorted keys, two-space indent, trailing newline, no timestamp. */

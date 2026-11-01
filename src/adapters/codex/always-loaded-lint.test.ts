@@ -11,6 +11,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -94,6 +95,22 @@ describe("the ratchet over the Codex always-loaded context", () => {
       `always-loaded context held at ${String(300 + ENTRY_BYTES)} bytes`,
     );
     expect(r.out).toContain("instructions 290 (-10) · skill listing 65 (+10)");
+  });
+
+  it("a version-2 baseline stays version 2 when the listing drops to zero, so a re-added skill still fails", () => {
+    expect(run(["lint", "--update-baseline"]).code).toBe(0);
+    rmSync(join(dir, SKILL));
+    expect(run(["lint", "--update-baseline"]).code).toBe(0);
+    const cut = written();
+    expect(cut.version).toBe(2);
+    expect(cut.bundles["."]?.parts).toBeUndefined();
+
+    put(SKILL, "---\nname: review\ndescription: Prüft\n---\nbody");
+    const r = run(["lint"]);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain(
+      `always-loaded context grew 300 → ${String(300 + ENTRY_BYTES)} bytes (+${String(ENTRY_BYTES)})`,
+    );
   });
 });
 
