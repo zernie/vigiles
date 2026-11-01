@@ -120,6 +120,7 @@ export const COMMITTED_PATHS: readonly string[] = [
   "guards.json", // the declared guard set (`core/guards.ts`)
   "action-gates.json", // declared action gates (`action-gate.ts`)
   "baseline.json", // the accepted sizes rules ratchet against (`core/baseline-store.ts`)
+  "instruction-weight.json", // an old always-loaded baseline, read only to migrate it (`core/legacy-baseline.ts`)
 ];
 
 /** The header comment on a `.vigiles/.gitignore` vigiles creates. */
