@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Check, Copy, FilePlus2, Loader2, X } from "lucide-react";
 import type { Adoptable } from "../schema";
-import { Card } from "./ui/card";
 import { TEXT } from "../lib/band";
 import { cn } from "../lib/utils";
 
@@ -44,7 +43,7 @@ async function postAdopt(
 }
 
 const BTN =
-  "inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-left text-xs font-medium hover:border-foreground disabled:opacity-60";
+  "inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-left text-sm font-medium hover:border-foreground disabled:opacity-60";
 
 /** STATIC mode: copy the command to the clipboard. */
 function CopyCommand({ command, label }: { command: string; label: string }) {
@@ -137,8 +136,10 @@ function LiveButton({
 function SurfaceRow({ path, command }: { path: string; command: string }) {
   const serve = serveInfo();
   return (
-    <div className="flex flex-wrap items-center gap-3 border-l-4 border-l-warn p-3">
-      <code className="font-mono text-xs text-foreground">{path}</code>
+    <li className="flex flex-wrap items-center gap-3 border-t border-border py-3">
+      <code className="min-w-0 break-all font-mono text-sm text-foreground">
+        {path}
+      </code>
       <div className="ml-auto">
         {serve ? (
           <LiveButton
@@ -151,7 +152,7 @@ function SurfaceRow({ path, command }: { path: string; command: string }) {
           <CopyCommand command={command} label="Create spec" />
         )}
       </div>
-    </div>
+    </li>
   );
 }
 
@@ -163,10 +164,10 @@ function SurfaceRow({ path, command }: { path: string; command: string }) {
 export function Adopt({ data }: { data: Adoptable }) {
   const serve = serveInfo();
   return (
-    <Card className="p-5">
+    <div>
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <FilePlus2 size={16} className="text-muted-foreground" />
+        <div className="flex items-center gap-2 text-base font-semibold">
+          <FilePlus2 size={16} className="text-muted-foreground" aria-hidden />
           {data.surfaces.length} surface
           {data.surfaces.length === 1 ? "" : "s"} not yet spec-managed
         </div>
@@ -186,18 +187,18 @@ export function Adopt({ data }: { data: Adoptable }) {
           )}
         </div>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">
+      <p className="mt-2 text-sm text-muted-foreground">
         {serve
           ? "Click to create the typed spec — this report is live, so the CLI writes it for you (re-run audit to see it spec-managed)."
           : "Copy the command and run it in your terminal — the CLI writes the typed spec (the browser can’t write files)."}
       </p>
       {data.surfaces.length > 0 && (
-        <div className="mt-4 flex flex-col gap-2">
+        <ul className="mt-4">
           {data.surfaces.map((s) => (
             <SurfaceRow key={s.path} path={s.path} command={s.command} />
           ))}
-        </div>
+        </ul>
       )}
-    </Card>
+    </div>
   );
 }

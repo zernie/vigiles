@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import {
   CheckCircle2,
   Wrench,
@@ -18,14 +18,22 @@ import type {
   Verdict,
 } from "./schema";
 import { categoryScoreLabel } from "./schema";
-import { Card } from "./components/ui/card";
 import { Badge } from "./components/ui/badge";
+import { Band } from "./components/Band";
+import { Hero } from "./components/Hero";
+import {
+  CategoryRings,
+  FindingText,
+  FlaggedList,
+  orderedFindings,
+} from "./components/Categories";
 import { Adoptability } from "./components/Adoptability";
 import { Adopt } from "./components/Adopt";
 import { RuleInventory } from "./components/RuleInventory";
 import { Observations } from "./components/Observations";
 import { AlwaysLoaded } from "./components/AlwaysLoaded";
-import { band, type Band, TEXT, BG, BORDER, BORDER_L } from "./lib/band";
+import { band, type Band as Tone, TEXT, BG, BORDER } from "./lib/band";
+import { verdictHeadline } from "./lib/verdict";
 import { cn } from "./lib/utils";
 
 /** The one canonical paste-into-agent prompt — reused by the demo's hint line, edge
@@ -96,21 +104,6 @@ function CheckLink({
   );
 }
 
-/** A single revealed finding, rendered as plain prose. The scorer's stable
- *  "(advisory)" suffix is stripped for display and signalled separately. We do NOT
- *  try to reverse-map the prose back to an explainer slug — a finding carries no
- *  detector in the wire shape, and pattern-matching sentences to guess one is
- *  fragile; the explainer links live on the fix cards, which carry a real detector. */
-function FindingText({ text, advisory }: { text: string; advisory: boolean }) {
-  const clean = text.replace(/\s*\(advisory\)\s*$/, "");
-  return (
-    <span>
-      <span>{clean}</span>
-      {advisory && <span className="text-na"> · advisory, not graded</span>}
-    </span>
-  );
-}
-
 /** The last path segment — the audited dir reads as a plugin name, not a path. */
 function basename(dir: string): string {
   const parts = dir.replace(/[/\\]+$/, "").split(/[/\\]/);
@@ -150,20 +143,20 @@ function safetyReviewFindings(
  */
 function FixesEmptyState({ clean }: { clean: boolean }) {
   return clean ? (
-    <Card className="flex items-center gap-2 p-4 text-sm text-good">
-      <CheckCircle2 size={16} /> No deterministic fixes — the structure is
-      clean.
-    </Card>
+    <p className={cn("flex items-center gap-2 text-base", TEXT.good)}>
+      <CheckCircle2 size={18} aria-hidden /> No deterministic fixes — the
+      structure is clean.
+    </p>
   ) : (
-    <Card className="p-4 text-sm text-muted-foreground">
+    <p className="text-base text-muted-foreground">
       No deterministic auto-fixes — review the flagged findings above.
-    </Card>
+    </p>
   );
 }
 
 /** Impact band for a fix: bigger score gain ⇒ hotter. Never green (green =
  * passing only), so a fix card never masquerades as a clean signal. */
-function impactBand(points: number): Band {
+function impactBand(points: number): Tone {
   if (points >= 8) return "bad";
   if (points >= 3) return "warn";
   return "na";
@@ -187,12 +180,12 @@ function CopyFix({ r }: { r: Recommendation }) {
       type="button"
       onClick={copy}
       title={prompt}
-      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium hover:border-foreground"
+      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:border-foreground"
     >
       {copied ? (
-        <Check size={13} className={TEXT.good} />
+        <Check size={14} className={TEXT.good} aria-hidden />
       ) : (
-        <Copy size={13} className="text-muted-foreground" />
+        <Copy size={14} className="text-muted-foreground" aria-hidden />
       )}
       <span className={cn(copied && TEXT.good)}>
         {copied ? "copied!" : "copy agent prompt"}
@@ -201,18 +194,28 @@ function CopyFix({ r }: { r: Recommendation }) {
   );
 }
 
-/** One ranked fix. `points` is the real re-score gain (`+N pts`); the left border
- * + the badge encode impact, not confidence, so the eye lands on the big wins. */
+/** The fix line + its copy button + the detector's explainer link. */
+function FixActions({ r }: { r: Recommendation }) {
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <CopyFix r={r} />
+      <CheckLink
+        slug={r.detector}
+        className="font-mono text-sm text-muted-foreground hover:text-foreground"
+      >
+        {r.detector}
+      </CheckLink>
+    </div>
+  );
+}
+
+/** One ranked fix in the summary (site demo) list. `points` is the real re-score
+ * gain (`+N pts`), coloured by impact. A plain bordered box, no side stripe. */
 function FixCard({ r, points }: { r: Recommendation; points: number }) {
   const Icon = r.action === "fix" ? Wrench : GitCompareArrows;
   const accent = impactBand(points);
   return (
-    <div
-      className={cn(
-        "rounded-xl border border-l-4 border-border/40 bg-card/30 p-5",
-        BORDER_L[accent],
-      )}
-    >
+    <div className="rounded-xl border border-border/60 bg-card/30 p-5">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <Badge>
           <Icon size={12} className="mr-1" />
@@ -240,42 +243,116 @@ function FixCard({ r, points }: { r: Recommendation; points: number }) {
         {r.rationale}
       </div>
       <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm leading-relaxed text-good">→ {r.fix}</span>
+        <span className={cn("text-sm leading-relaxed", TEXT.good)}>
+          → {r.fix}
+        </span>
         <CopyFix r={r} />
       </div>
     </div>
   );
 }
 
-/** A safety review item — no auto-fix (a lethal-trifecta exfil path is a design
- * call, not a typo), so it's shown as a review card, never a ranked +N-pts fix. */
-function SafetyCard({ finding }: { finding: string }) {
+/** One numbered item of the standalone report's "Do these first" list. The
+ * numeral and the key line take the item's band; the body is ink. */
+function TodoItem({
+  n,
+  tone,
+  keyLine,
+  children,
+}: {
+  n: number;
+  tone: Tone;
+  keyLine: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <div
-      className={cn(
-        "rounded-xl border border-l-4 border-border/40 bg-card/30 p-5",
-        BORDER_L.bad,
-      )}
-    >
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <Badge>
-          <ShieldAlert size={12} className="mr-1" />
-          safety
-        </Badge>
-        <span className="leading-relaxed text-muted-foreground">
-          {finding}{" "}
-          <CheckLink
-            slug="lethal-trifecta"
-            className="text-muted-foreground hover:text-foreground"
-          >
-            what&apos;s this?
-          </CheckLink>
-        </span>
-        <span className="ml-auto text-xs text-muted-foreground">
-          your call — no deterministic fix
-        </span>
+    <li className="grid grid-cols-[2.75rem_1fr] gap-x-3.5 border-t border-border py-7 first:border-t-0 first:pt-1 sm:grid-cols-[5rem_1fr]">
+      <span
+        aria-hidden
+        className={cn(
+          "font-display text-[56px] font-semibold leading-[0.85] tabular-nums sm:text-7xl",
+          TEXT[tone],
+        )}
+      >
+        {n}
+      </span>
+      <div className="min-w-0">
+        <p
+          className={cn(
+            "mb-1.5 flex flex-wrap gap-x-3 font-display text-[15px] font-semibold",
+            TEXT[tone],
+          )}
+        >
+          {keyLine}
+        </p>
+        {children}
       </div>
-    </div>
+    </li>
+  );
+}
+
+/**
+ * "Do these first": the ranked fixes (biggest score gain first), then the Safety
+ * findings that have no auto-fix — a lethal-trifecta exfil path is a design
+ * call, not a typo, so it is never ranked as a +N-pts fix. Safety items take the
+ * Safety category's own band, so the list and the ring agree.
+ */
+function TodoList({
+  fixes,
+  reviews,
+  safetyTone,
+}: {
+  fixes: readonly { r: Recommendation; points: number }[];
+  reviews: readonly string[];
+  safetyTone: Tone;
+}) {
+  return (
+    <ol>
+      {fixes.map(({ r, points }, i) => (
+        <TodoItem
+          key={`fix-${i}`}
+          n={i + 1}
+          tone={impactBand(points)}
+          keyLine={
+            <>
+              <span>
+                {r.action} · {r.surface}
+              </span>
+              {points > 0 && <span>+{points} pts</span>}
+            </>
+          }
+        >
+          <p className="max-w-[64ch] text-[17px] leading-relaxed [text-wrap:pretty]">
+            {r.rationale}
+          </p>
+          <p className="mt-2 max-w-[64ch] text-base leading-relaxed text-foreground-soft">
+            → {r.fix}
+          </p>
+          <FixActions r={r} />
+        </TodoItem>
+      ))}
+      {reviews.map((f, i) => (
+        <TodoItem
+          key={`review-${i}`}
+          n={fixes.length + i + 1}
+          tone={safetyTone}
+          keyLine={<span>Safety</span>}
+        >
+          <p className="max-w-[64ch] text-[17px] leading-relaxed [text-wrap:pretty]">
+            {f}
+          </p>
+          <p className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[15px] text-muted-foreground">
+            <span>Your call — no deterministic fix</span>
+            <CheckLink
+              slug="lethal-trifecta"
+              className="text-foreground decoration-solid"
+            >
+              What&apos;s this?
+            </CheckLink>
+          </p>
+        </TodoItem>
+      ))}
+    </ol>
   );
 }
 
@@ -285,29 +362,29 @@ function SafetyCard({ finding }: { finding: string }) {
  * cost: they cost none. */
 function UngradedBlock({ group }: { group: UngradedGroup }) {
   return (
-    <section className="mt-6" aria-label={group.label}>
-      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/60">
+    <section className="mt-8" aria-label={group.label}>
+      <p className="font-display text-[15px] font-semibold text-muted-foreground">
         {group.label}
       </p>
       {group.blurb && (
-        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+        <p className="mt-1 text-sm leading-snug text-muted-foreground">
           {group.blurb}
         </p>
       )}
-      <ul className="mt-1.5 space-y-1">
+      <ul className="mt-2 space-y-1.5">
         {group.rules.map((res) => (
-          <li key={res.rule} className="text-[11px] leading-snug text-na">
-            <span className="font-mono">{res.rule}</span>
+          <li key={res.rule} className="text-sm leading-snug text-na-ink">
+            <span className="break-all font-mono">{res.rule}</span>
             {res.findings.length === 0 ? (
               <span className="text-muted-foreground"> — nothing found</span>
             ) : (
-              <ul className="mt-0.5 space-y-0.5 pl-3">
+              <ul className="mt-1 space-y-1 pl-3">
                 {res.findings.map((f) => (
                   <li key={`${f.path}:${f.line ?? 0}:${f.message}`}>
                     {f.kind === "note" ? (
                       <Info
-                        size={11}
-                        className="mr-1 inline align-[-1px]"
+                        size={13}
+                        className="mr-1 inline align-[-2px]"
                         aria-hidden
                       />
                     ) : (
@@ -315,7 +392,7 @@ function UngradedBlock({ group }: { group: UngradedGroup }) {
                         ✗
                       </span>
                     )}
-                    <span className="font-mono">{f.subject}</span>{" "}
+                    <span className="break-all font-mono">{f.subject}</span>{" "}
                     <span className="text-muted-foreground">
                       ({f.path}) — {f.message}
                     </span>
@@ -327,65 +404,6 @@ function UngradedBlock({ group }: { group: UngradedGroup }) {
         ))}
       </ul>
     </section>
-  );
-}
-
-/** A compact category cell — a thin band bar + score, so the six read as one
- * scannable strip rather than six heavy rings competing with the verdict. */
-function CategoryCell({ c }: { c: CategoryScore }) {
-  const b: Band = c.advisory ? "na" : band(c.score);
-  const pct = c.score === null ? 0 : Math.max(0, Math.min(100, c.score));
-  return (
-    <Card className="flex flex-col gap-2 p-3">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs font-semibold">{c.key}</span>
-        {/* An UNASKED question gets its own label — never the advisory em-dash
-            (which reads "measured, just not graded") and never a 0. */}
-        <span
-          className={cn(
-            c.notMeasured ? "text-[11px] font-semibold" : "text-sm font-bold",
-            TEXT[b],
-          )}
-        >
-          {c.notMeasured
-            ? "not measured"
-            : c.advisory
-              ? "—"
-              : c.score === null
-                ? "n/a"
-                : c.score}
-        </span>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-border">
-        <div
-          className={cn("h-full rounded-full", BG[b])}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <div className="h-8 overflow-hidden text-[11px] leading-tight text-muted-foreground">
-        {c.notMeasured ? (
-          <span className="line-clamp-2 text-na">
-            {c.findings[c.findings.length - 1] ?? "never measured"}
-          </span>
-        ) : c.advisory ? (
-          <span className="text-na">advisory — not graded</span>
-        ) : c.findings.length > 0 ? (
-          <span className="line-clamp-2">
-            {c.findings[0]}
-            {c.findings.length > 1 && (
-              <span className="text-foreground">
-                {" "}
-                · +{c.findings.length - 1} more
-              </span>
-            )}
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 text-good">
-            <CheckCircle2 size={11} /> clean
-          </span>
-        )}
-      </div>
-    </Card>
   );
 }
 
@@ -401,20 +419,12 @@ function CategoryRow({
   c: CategoryScore;
   refs?: readonly string[];
 }) {
-  const b: Band = c.advisory ? "na" : band(c.score);
+  const b: Tone = c.advisory ? "na" : band(c.score);
   const pct = c.score === null ? 0 : Math.max(0, Math.min(100, c.score));
   // A finding is advisory if the whole category is (untested surfaces) or the
   // scorer tagged that single string "(advisory)" (an inherits-all note in an
   // otherwise-100 category). Graded findings — the ones that moved the score — lead.
-  const findings = c.findings.map((f) => ({
-    text: f,
-    advisory: Boolean(c.advisory) || f.endsWith("(advisory)"),
-  }));
-  const ordered = [
-    ...findings.filter((f) => !f.advisory),
-    ...findings.filter((f) => f.advisory),
-  ];
-  const [lead, ...rest] = ordered;
+  const [lead, ...rest] = orderedFindings(c);
   const hardSafety = c.key === "Safety" && lead && !lead.advisory;
   // Advisory categories DO have a real score (e.g. Tested 94) — it just doesn't
   // move the grade. Show that number (muted, `na` tone) so the number and the bar
@@ -440,8 +450,8 @@ function CategoryRow({
       </div>
       <div className="mt-2 text-[13px] leading-snug text-muted-foreground">
         {!lead ? (
-          <span className="inline-flex items-center gap-1 text-good">
-            <CheckCircle2 size={12} /> clean
+          <span className={cn("inline-flex items-center gap-1", TEXT.good)}>
+            <CheckCircle2 size={12} aria-hidden /> clean
           </span>
         ) : (
           <>
@@ -458,7 +468,7 @@ function CategoryRow({
             {refs && refs.length > 0 && (
               <ul className="mt-1 space-y-0.5">
                 {refs.map((r) => (
-                  <li key={r} className="font-mono text-[11px] text-na">
+                  <li key={r} className="font-mono text-[11px] text-na-ink">
                     ↳ {r}{" "}
                     <span className="text-muted-foreground">— missing</span>
                   </li>
@@ -631,37 +641,30 @@ function CliRulesRow() {
   );
 }
 
-/** The verdict-led hero: the grade + score as one badge, the re-scored verdict
- * sentence as the headline, the plugin name + harness, and the trust line. */
+/** The summary (site demo) header: the grade + score as one badge, the
+ * re-scored verdict sentence as the headline, the plugin name + harness. The
+ * standalone report uses the gauge hero (components/Hero.tsx) instead. */
 function VerdictHeader({
   verdict,
   overall,
   dir,
   harness,
-  compact = false,
   subline,
 }: {
   verdict: Verdict;
   overall: number | null;
   dir: string;
   harness: string;
-  /** Summary variant: no Card border, smaller grade box, no separate trust line
-   *  (the section subhead already says "deterministic, model-free"). */
-  compact?: boolean;
   /** Extra identity context (e.g. the merged "ships" counts) appended to the name
    *  line — context belongs with identity, not as its own section band. */
   subline?: ReactNode;
 }) {
   const b = band(overall);
-  const box = compact
-    ? "h-20 w-20 rounded-xl text-4xl"
-    : "h-28 w-28 rounded-2xl text-5xl";
-  const inner = (
-    <>
+  return (
+    <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
       <div
         className={cn(
-          "flex shrink-0 flex-col items-center justify-center border-2",
-          box,
+          "flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-xl border-2 text-4xl",
           BORDER[b],
         )}
       >
@@ -673,35 +676,16 @@ function VerdictHeader({
         </span>
       </div>
       <div className="min-w-0">
-        <h1
-          className={cn(
-            "font-bold leading-snug tracking-tight",
-            compact ? "text-lg sm:text-xl" : "text-xl sm:text-2xl",
-          )}
-        >
-          {verdict.sentence}
+        <h1 className="text-lg font-bold leading-snug tracking-tight sm:text-xl">
+          {verdictHeadline(verdict)}
         </h1>
         <div className="mt-2 text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{basename(dir)}</span> ·{" "}
           {harness}
           {subline}
         </div>
-        {!compact && (
-          <div className="mt-1 text-xs text-muted-foreground">
-            deterministic · no model · nothing leaves your machine
-          </div>
-        )}
       </div>
-    </>
-  );
-  return compact ? (
-    <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
-      {inner}
     </div>
-  ) : (
-    <Card className="flex flex-col gap-5 p-7 sm:flex-row sm:items-center">
-      {inner}
-    </Card>
   );
 }
 
@@ -742,7 +726,8 @@ export function Report({
   showFooter?: boolean;
   /** `"summary"` is the decluttered in-demo variant: compact header, borderless
    *  category strip (1-col mobile), top-3 fixes folded, the model-gated tease, and
-   *  none of the standalone-only sections. `"full"` (default) is unchanged. */
+   *  none of the standalone-only sections. `"full"` (default) is the standalone
+   *  report: the gauge hero and full-width bands. */
   variant?: "full" | "summary";
   /** Summary only: click handler for the locked tease. Defaults to copying the
    *  canonical agent prompt; the demo overrides to add a toast. */
@@ -754,14 +739,8 @@ export function Report({
     recommendations,
     inventory,
     meta,
-    adoptability,
-    adoptable,
-    observations,
-    rulesInventory,
-    ruleRouting,
     brokenReferences,
     ungraded,
-    contextCost,
   } = data;
   const overall = score.empty ? null : score.overall;
 
@@ -805,7 +784,6 @@ export function Report({
     return (
       <div>
         <VerdictHeader
-          compact
           verdict={verdict}
           overall={overall}
           dir={meta.dir}
@@ -879,182 +857,252 @@ export function Report({
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 pb-16 pt-10">
-      <VerdictHeader
-        verdict={verdict}
-        overall={overall}
-        dir={meta.dir}
-        harness={meta.harness}
-      />
+    <FullReport data={data} rankedFixes={rankedFixes} showFooter={showFooter} />
+  );
+}
 
-      <h2 className="mb-3 mt-9 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-        Categories
-      </h2>
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
-        {score.categories.map((c) => (
-          <CategoryCell key={c.key} c={c} />
-        ))}
-      </div>
-      {/* Below the strip and apart from it: these findings are not in any
-          category, because no category is graded on them. */}
+type RankedFix = { r: Recommendation; points: number };
+
+/** One section of the standalone report, rendered with its ground. */
+type Section = { key: string; render: (alt: boolean) => ReactNode };
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+function categoriesSection(data: AuditReport, reviewed: ReadonlySet<string>) {
+  const { score, brokenReferences, ungraded } = data;
+  return (alt: boolean) => (
+    <Band id="report-categories" title="Categories" alt={alt}>
+      <CategoryRings categories={score.categories} />
+      <FlaggedList
+        categories={score.categories}
+        brokenReferences={brokenReferences}
+        exclude={reviewed}
+      />
+      {/* Apart from the rings: these findings are not in any category,
+          because no category is graded on them. */}
       {ungraded?.map((g) => (
         <UngradedBlock key={g.group} group={g} />
       ))}
+    </Band>
+  );
+}
 
-      <h2 className="mb-3 mt-9 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-        {recommendations.length > 0 ? "Do these first" : "Fixes"}
-      </h2>
-      {rankedFixes.length > 0 ? (
-        <div className="flex flex-col gap-2.5">
-          {rankedFixes.map(({ r, points }, i) => (
-            <FixCard key={i} r={r} points={points} />
-          ))}
-        </div>
+function todoSection(
+  data: AuditReport,
+  fixes: readonly RankedFix[],
+  reviews: readonly string[],
+) {
+  const safety = data.score.categories.find((c) => c.key === "Safety");
+  const safetyTone = band(safety?.score ?? null);
+  const empty = fixes.length === 0 && reviews.length === 0;
+  const eyebrow = [
+    fixes.length > 0 && `${plural(fixes.length, "fix")}, biggest gain first`,
+    reviews.length > 0 && `${reviews.length} with no auto-fix`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (alt: boolean) => (
+    <Band
+      id="report-todo"
+      title={empty ? "Fixes" : "Do these first"}
+      eyebrow={eyebrow || undefined}
+      alt={alt}
+    >
+      {empty ? (
+        <FixesEmptyState clean={data.score.overall === 100} />
       ) : (
-        <FixesEmptyState clean={score.overall === 100} />
+        <TodoList fixes={fixes} reviews={reviews} safetyTone={safetyTone} />
       )}
+    </Band>
+  );
+}
 
-      {/* Safety findings have no auto-fix (the lethal-trifecta exfil path is a
-          design call, not a typo) — so they never appear as a ranked +N-pts card.
-          Surface them here as review items so the report's most severe finding
-          isn't buried in 11px category-strip text. */}
-      {(() => {
-        const findings = safetyReviewFindings(score.categories);
-        if (findings.length === 0) return null;
-        return (
+function rulesSection(data: AuditReport): Section | null {
+  const { rulesInventory, ruleRouting } = data;
+  const routed =
+    ruleRouting &&
+    (ruleRouting.segmented > 0 ||
+      (ruleRouting.possible?.length ?? 0) > 0 ||
+      (ruleRouting.skipped?.length ?? 0) > 0);
+  if ((rulesInventory?.length ?? 0) === 0 && !routed) return null;
+  // EXPERIMENTAL + demoted below the deterministic sections. Detection is a
+  // heuristic, precision-first filter (it misses some rules), so it sits low
+  // and is badged experimental so a reader doesn't read it as a settled
+  // finding like the reference/hook checks above.
+  const none = (rulesInventory?.length ?? 0) === 0;
+  return {
+    key: "rules",
+    render: (alt) => (
+      <Band
+        id="report-rules"
+        alt={alt}
+        title={
           <>
-            <h2 className="mb-3 mt-9 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              Review — no auto-fix
-            </h2>
-            <div className="flex flex-col gap-2.5">
-              {findings.map((f, i) => (
-                <SafetyCard key={i} finding={f} />
-              ))}
-            </div>
-          </>
-        );
-      })()}
-
-      {adoptability && (
-        <>
-          <h2 className="mb-3 mt-9 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Broken references
-          </h2>
-          <p className="mb-3 text-xs text-muted-foreground">
-            Machine-verifiable references in your instruction file — files,
-            scripts, symbols — checked against your actual repo and config.
-            These don't resolve.
-          </p>
-          <Adoptability data={adoptability} />
-        </>
-      )}
-
-      {contextCost && (
-        <>
-          <h2 className="mb-3 mt-9 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Always-loaded context
-          </h2>
-          <p className="mb-3 text-xs text-muted-foreground">
-            What the harness reads at the start of every session, before any
-            decision: your instruction files, the selected output style and the
-            skill listing. Every request pays for it again.
-          </p>
-          <AlwaysLoaded data={contextCost.alwaysLoaded} />
-        </>
-      )}
-
-      {observations && observations.total > 0 && (
-        <>
-          <h2 className="mb-3 mt-9 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Flight recorder
-          </h2>
-          <p className="mb-3 text-xs text-muted-foreground">
-            What your harness actually did in real sessions — read off the local
-            <code className="mx-1 font-mono">.vigiles/runs.jsonl</code> ledger.
-          </p>
-          <Observations data={observations} />
-        </>
-      )}
-
-      {/* The rule map — EXPERIMENTAL + demoted below the deterministic sections.
-          Detection is a heuristic, precision-first filter (it misses some rules),
-          so it sits low and is badged experimental so a reader doesn't read it as
-          a settled finding like the reference/hook checks above. */}
-      {((rulesInventory && rulesInventory.length > 0) ||
-        (ruleRouting &&
-          (ruleRouting.segmented > 0 ||
-            (ruleRouting.possible?.length ?? 0) > 0 ||
-            (ruleRouting.skipped?.length ?? 0) > 0))) && (
-        <>
-          <h2 className="mb-3 mt-9 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             Your rules → enforced
-            <Badge className="border-warn text-warn">experimental</Badge>
-          </h2>
-          {(rulesInventory?.length ?? 0) === 0 ? (
-            // No documented rule resolved to an off-the-shelf linter rule — so
-            // don't imply enforcement (the honest non-JS / no-linter case).
-            // The routed rules below are still shown; references, structure &
-            // safety are verified regardless of the linter.
-            <p className="mb-3 text-xs text-muted-foreground">
-              No supported linter resolved here. Rule cross-referencing covers
-              ESLint, Ruff, Pylint, Clippy &amp; RuboCop — on other stacks your
-              references, structure &amp; safety are still verified; enforcing a
-              documented rule just needs one of those linters.
-            </p>
-          ) : (
-            <p className="mb-3 text-xs text-muted-foreground">
-              Prose rules in your instruction file that map to an off-the-shelf
-              lint rule — and whether it's actually enforced. Detection is a
-              heuristic, precision-first preview: it won't catch every rule.
-            </p>
-          )}
-          <RuleInventory data={rulesInventory ?? []} routing={ruleRouting} />
-        </>
-      )}
+            <Badge className="border-warn text-warn-ink">experimental</Badge>
+          </>
+        }
+      >
+        <p className="mb-6 max-w-[64ch] text-base leading-relaxed text-foreground-soft">
+          {none
+            ? // No documented rule resolved to an off-the-shelf linter rule —
+              // so don't imply enforcement (the honest non-JS / no-linter case).
+              "No supported linter resolved here. Rule cross-referencing covers ESLint, Ruff, Pylint, Clippy & RuboCop — on other stacks your references, structure & safety are still verified; enforcing a documented rule just needs one of those linters."
+            : "Prose rules in your instruction file that map to an off-the-shelf lint rule — and whether it's actually enforced. Detection is a heuristic, precision-first preview: it won't catch every rule."}
+        </p>
+        <RuleInventory data={rulesInventory ?? []} routing={ruleRouting} />
+      </Band>
+    ),
+  };
+}
 
-      {/* "What it ships" — demoted to a single meta line: it's context, not a
-          finding, so it no longer competes with the verdict + fixes for the eye. */}
-      <div className="mt-9 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span className="font-semibold uppercase tracking-widest">Ships</span>
-        <span>{inventory.skills} skills</span>
-        <span>{inventory.agents} agents</span>
-        <span>{inventory.hooks} hooks</span>
-        <span>{inventory.commands} commands</span>
-        {styleCount(inventory.outputStyles) > 0 && (
-          <span>{styleCount(inventory.outputStyles)} output styles</span>
-        )}
-        <span>MCP {inventory.mcp ? "yes" : "no"}</span>
-        {inventory.untested > 0 && (
-          <span className={TEXT.warn}>{inventory.untested} untested</span>
+/** The optional sections, in reading order; an absent one is skipped. */
+function detailSections(data: AuditReport): Section[] {
+  const { adoptability, contextCost, observations } = data;
+  const out: (Section | null)[] = [
+    adoptability
+      ? {
+          key: "refs",
+          render: (alt) => (
+            <Band id="report-refs" title="Broken references" alt={alt}>
+              <p className="mb-6 max-w-[64ch] text-base leading-relaxed text-foreground-soft">
+                Machine-verifiable references in your instruction file — files,
+                scripts, symbols — checked against your actual repo and config.
+                These don&apos;t resolve.
+              </p>
+              <Adoptability data={adoptability} />
+            </Band>
+          ),
+        }
+      : null,
+    contextCost
+      ? {
+          key: "loaded",
+          render: (alt) => (
+            <Band id="report-loaded" title="Always-loaded context" alt={alt}>
+              <AlwaysLoaded data={contextCost.alwaysLoaded} />
+            </Band>
+          ),
+        }
+      : null,
+    observations && observations.total > 0
+      ? {
+          key: "ledger",
+          render: (alt) => (
+            <Band id="report-ledger" title="Flight recorder" alt={alt}>
+              <p className="mb-6 max-w-[64ch] text-base leading-relaxed text-foreground-soft">
+                What your harness actually did in real sessions — read off the
+                local{" "}
+                <code className="rounded-md bg-code px-1.5 py-0.5 font-mono text-[0.9em]">
+                  .vigiles/runs.jsonl
+                </code>{" "}
+                ledger.
+              </p>
+              <Observations data={observations} />
+            </Band>
+          ),
+        }
+      : null,
+    rulesSection(data),
+  ];
+  return out.filter((x): x is Section => x !== null);
+}
+
+/** "What it ships" — context, not a finding, so it closes the report as one
+ * line; the optional spec-adoption fold sits under it, collapsed. */
+function ShipsSection({ data, alt }: { data: AuditReport; alt: boolean }) {
+  const { inventory, adoptable } = data;
+  const styles = styleCount(inventory.outputStyles);
+  return (
+    <section
+      aria-label="What it ships"
+      className={cn("px-5 py-10 sm:px-10", alt && "bg-band")}
+    >
+      <div className="mx-auto max-w-[66rem]">
+        <p className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[15px] text-foreground-soft">
+          <span className="font-display font-semibold text-foreground">
+            Ships
+          </span>
+          <span>{inventory.skills} skills</span>
+          <span>{inventory.agents} agents</span>
+          <span>{inventory.hooks} hooks</span>
+          <span>{inventory.commands} commands</span>
+          {styles > 0 && <span>{styles} output styles</span>}
+          <span>MCP {inventory.mcp ? "yes" : "no"}</span>
+          {inventory.untested > 0 && (
+            <span className={TEXT.warn}>{inventory.untested} untested</span>
+          )}
+        </p>
+        {/* Optional, folded, last on purpose: spec-adoption is a hardening
+            upsell, not a failure — surfacing "N surfaces not yet managed" high
+            up reads as a nag to a first-time reader. Collapsed by default. */}
+        {adoptable && adoptable.surfaces.length > 0 && (
+          <details className="group mt-6">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 font-display text-[15px] font-semibold text-foreground-soft hover:text-foreground">
+              <ChevronRight
+                size={16}
+                aria-hidden
+                className="transition-transform group-open:rotate-90"
+              />
+              Optional — turn {plural(adoptable.surfaces.length, "surface")}{" "}
+              into typed specs
+            </summary>
+            <p className="mb-4 mt-3 max-w-[64ch] text-base text-foreground-soft">
+              Hardening, not a fix: make vigiles verify these surfaces&apos;
+              references — fully, or one at a time. Skip it until you want CI to
+              gate them.
+            </p>
+            <Adopt data={adoptable} />
+          </details>
         )}
       </div>
+    </section>
+  );
+}
 
-      {/* Optional, folded, last on purpose: spec-adoption is a hardening upsell,
-          not a failure — surfacing "N surfaces not yet managed" high up reads as
-          a nag to a first-time reader. Collapsed by default. */}
-      {adoptable && adoptable.surfaces.length > 0 && (
-        <details className="group mt-6">
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground">
-            <ChevronRight
-              size={13}
-              className="transition-transform group-open:rotate-90"
-            />
-            Optional — turn {adoptable.surfaces.length} surface
-            {adoptable.surfaces.length > 1 ? "s" : ""} into typed specs
-          </summary>
-          <p className="mb-3 mt-3 text-xs text-muted-foreground">
-            Hardening, not a fix: make vigiles verify these surfaces' references
-            — fully, or one at a time. Skip it until you want CI to gate them.
-          </p>
-          <Adopt data={adoptable} />
-        </details>
-      )}
-
+/**
+ * The standalone report (the CLI's HTML file): a gauge hero, then full-width
+ * bands that alternate ground — categories, what to do first, and the detail
+ * sections the data carries. No cards: a band is the only container.
+ */
+function FullReport({
+  data,
+  rankedFixes,
+  showFooter,
+}: {
+  data: AuditReport;
+  rankedFixes: readonly RankedFix[];
+  showFooter: boolean;
+}) {
+  const { score, verdict, meta } = data;
+  const reviews = safetyReviewFindings(score.categories);
+  const reviewed: ReadonlySet<string> = new Set(reviews);
+  const sections: Section[] = [
+    { key: "categories", render: categoriesSection(data, reviewed) },
+    { key: "todo", render: todoSection(data, rankedFixes, reviews) },
+    ...detailSections(data),
+  ];
+  return (
+    <>
+      <main>
+        <Hero
+          verdict={verdict}
+          overall={score.empty ? null : score.overall}
+          name={basename(meta.dir)}
+          harness={meta.harness}
+        />
+        {sections.map((sec, i) => (
+          <Fragment key={sec.key}>{sec.render(i % 2 === 1)}</Fragment>
+        ))}
+        <ShipsSection data={data} alt={sections.length % 2 === 1} />
+      </main>
       {showFooter && (
-        <footer className="mt-12 text-center text-xs text-muted-foreground">
+        <footer className="px-5 pb-10 pt-6 text-center text-sm text-muted-foreground">
           Generated by vigiles — we run your harness, not just read it.
         </footer>
       )}
-    </div>
+    </>
   );
 }

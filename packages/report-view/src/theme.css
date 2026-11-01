@@ -1,38 +1,101 @@
 /*
-  Shared report theme — the shadcn-style tokens the report components map onto
-  (bg-card, text-muted-foreground, border-border, rounded-lg…) + the four
-  Lighthouse band colors (good/warn/bad/na). Auto light/dark via
-  prefers-color-scheme. A consumer does `@import "tailwindcss";` then
-  `@import "@vigiles/report-view/theme.css";` and `@source`s this package's src
-  so Tailwind sees the components' utility classes.
+  Shared report theme — the tokens the report components map onto
+  (bg-band, text-muted-foreground, border-border, stroke-track, font-display…).
+  Auto light/dark via prefers-color-scheme. A consumer does
+  `@import "tailwindcss";` then `@import "@vigiles/report-view/theme.css";` and
+  `@source`s this package's src so Tailwind sees the components' utility
+  classes. The site (site/src/index.css) does not import this file and
+  declares the same token names with its own values.
+
+  Every band colour comes in TWO tokens, because one colour cannot do both
+  jobs: a FILL (`--good`, `--warn`, `--bad`, `--na`) for rings and bars, at
+  least 3:1 against the ground; and an INK (`--good-ink`…) for text, at least
+  4.5:1 against every ground it sits on (page, band, the hero tint). The
+  report's grade used to be amber text at 2.15:1 because the two were one.
 */
+
+/*! Inter — SIL Open Font License 1.1, Copyright 2016 The Inter Project
+    Authors (https://github.com/rsms/inter). Space Grotesk — SIL Open Font
+    License 1.1, Copyright 2020 The Space Grotesk Project Authors
+    (https://github.com/floriankarsten/space-grotesk). License texts in
+    packages/report-view/src/fonts/. */
+/* Both files are the fontsource 5.3.0 latin variable fonts, cut down so the
+   offline report can embed them (the HTML file is self-contained):
+     pyftsubset <file> --unicodes="U+0020-007E,U+00A0-00FF,U+2010-2027,
+       U+2030-203A,U+2190-2195,U+21B3,U+2212,U+00B7"
+       --layout-features="kern,tnum,ccmp,locl,mark,mkmk,case" --flavor=woff2
+     fonttools varLib.instancer <subset> wght=400:700
+   Inter 48,256 → 21,748 bytes; Space Grotesk 22,288 → 17,412 bytes. A glyph
+   outside the subset (✓, ⛓) falls back to the system face. */
+@font-face {
+  font-family: "Inter";
+  src: url("./fonts/inter-latin-400-700.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("./fonts/space-grotesk-latin-400-700.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme inline {
   --color-background: var(--background);
+  --color-band: var(--band);
   --color-card: var(--card);
+  --color-code: var(--code);
   --color-border: var(--border);
+  --color-track: var(--border);
   --color-foreground: var(--foreground);
+  --color-foreground-soft: var(--foreground-soft);
   --color-muted-foreground: var(--muted);
   --color-good: var(--good);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
   --color-na: var(--na);
+  --color-good-ink: var(--good-ink);
+  --color-warn-ink: var(--warn-ink);
+  --color-bad-ink: var(--bad-ink);
+  --color-na-ink: var(--na-ink);
   --color-part-1: var(--part-1);
   --color-part-2: var(--part-2);
   --color-part-3: var(--part-3);
+  /* One radius for every box the report draws. */
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
   --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-xl: var(--radius);
+  --font-sans:
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
+  --font-display:
+    "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+    monospace;
 }
 
 :root {
-  --background: #fafafa;
+  color-scheme: light dark;
+  --background: #ffffff;
+  --band: #f3f4f7;
   --card: #ffffff;
-  --border: #e4e4e7;
-  --foreground: #09090b;
-  --muted: #71717a;
+  --code: #e9ecf1;
+  --border: #e3e6eb;
+  --foreground: #0d1117;
+  --foreground-soft: #3d4652;
+  --muted: #59626f;
   --good: #16a34a;
-  --warn: #f59e0b;
-  --bad: #ef4444;
-  --na: #a1a1aa;
+  --warn: #d97706;
+  --bad: #dc2626;
+  --na: #8a93a2;
+  --good-ink: #157034;
+  --warn-ink: #a3470a;
+  --bad-ink: #b91c1c;
+  --na-ink: #59626f;
   /* Series colours: one per part of a whole (the always-loaded bar). Kept
      apart from the band colours above, because a part's share is not a
      verdict. Order is the bar's left-to-right order; every adjacent pair is
@@ -40,24 +103,31 @@
   --part-1: #2563eb;
   --part-2: #0d9488;
   --part-3: #ea580c;
-  --radius: 0.75rem;
+  --radius: 0.375rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     /* "Material oceanic" dark — soft deep blue-slate, shared with the landing
        site (site/src/index.css) so the CLI report + the site demo read as one
-       softened palette. Cool off-white ink cuts pure-white glare; band colors
-       softened for calm but kept clearly semantic + AA-legible on the slate. */
+       softened palette. On this ground the band fills already pass as text, so
+       ink and fill are the same colour except for n/a. */
     --background: #10151e;
+    --band: #151c28;
     --card: #171d28;
-    --border: #232c3a;
-    --foreground: #dbe1ea;
-    --muted: #8b96a7;
+    --code: #1f2836;
+    --border: #263040;
+    --foreground: #e6ebf2;
+    --foreground-soft: #bac3cf;
+    --muted: #97a2b2;
     --good: #35c98a;
     --warn: #f2b34d;
     --bad: #f0726c;
     --na: #6b7688;
+    --good-ink: #35c98a;
+    --warn-ink: #f2b34d;
+    --bad-ink: #f0726c;
+    --na-ink: #97a2b2;
     --part-1: #4f86e8;
     --part-2: #159c8e;
     --part-3: #e0703a;
