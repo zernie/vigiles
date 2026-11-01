@@ -374,7 +374,7 @@ function RuleMapTiers({ routing }: { routing?: RuleRouting }) {
  * reuse is a config line / the strengthen skill; synthesis is a planned skill. */
 function RuleMapNextSteps() {
   return (
-    <div className="mt-5 max-w-[72ch] space-y-2 text-[15px] leading-relaxed text-foreground-soft">
+    <div className="mt-5 max-w-[34rem] space-y-2 text-[15px] leading-relaxed text-foreground-soft">
       <p>
         <span className="font-medium text-foreground">Enforceable now</span> —
         enable each in your lint config (one line), or ask your agent to run the{" "}

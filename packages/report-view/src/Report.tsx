@@ -898,7 +898,8 @@ function todoSection(
   const safetyTone = band(safety?.score ?? null);
   const empty = fixes.length === 0 && reviews.length === 0;
   const eyebrow = [
-    fixes.length > 0 && `${plural(fixes.length, "fix")}, biggest gain first`,
+    fixes.length > 0 &&
+      `${fixes.length} fix${fixes.length === 1 ? "" : "es"}, biggest gain first`,
     reviews.length > 0 && `${reviews.length} with no auto-fix`,
   ]
     .filter(Boolean)
