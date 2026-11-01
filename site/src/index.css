@@ -34,6 +34,9 @@
   --color-warn: var(--warn);
   --color-bad: var(--bad);
   --color-na: var(--na);
+  --color-part-1: var(--part-1);
+  --color-part-2: var(--part-2);
+  --color-part-3: var(--part-3);
 
   --radius-lg: 0.75rem;
   --radius-xl: 1rem;
@@ -74,6 +77,12 @@
   --warn: #f2b34d;
   --bad: #f0726c;
   --na: #6b7688;
+
+  /* Series colours for parts of a whole (the always-loaded bar), the dark
+     values of @vigiles/report-view's theme.css. Not band colours. */
+  --part-1: #4f86e8;
+  --part-2: #159c8e;
+  --part-3: #e0703a;
 }
 
 @layer base {
