@@ -181,6 +181,8 @@ describe("Codex always-loaded context through scanPlugin and scanFiles", () => {
       total:
         Buffer.byteLength(fixture["AGENTS.md"] ?? "", "utf8") +
         Buffer.byteLength(line, "utf8"),
+      // No committed `[skills] max_context_tokens`: the thread-start budget.
+      skillListingLimit: { kind: "limit", limit: 8000 },
     });
     cleanupTmpDir(tmp);
   });

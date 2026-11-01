@@ -49,7 +49,7 @@ import {
   type PluginLayout,
 } from "./layout.js";
 import { outputStyleHomes, type OutputStyle } from "./output-style.js";
-import type { ListedSkill } from "./skill-listing.js";
+import type { ListedSkill, ListingLimit } from "./skill-listing.js";
 
 /** The parts that join the instructions in the always-loaded context. */
 export type LoadedPartName = "output-style" | "skill-listing";
@@ -85,6 +85,15 @@ export type LoadedPart =
   | { readonly kind: "not-modelled" }
   | { readonly kind: "unresolved"; readonly name: string };
 
+/**
+ * The skill listing's budget for this commit: the harness's number with any
+ * committed setting applied, or `not-modelled` when the adapter does not say
+ * how the harness sizes its listing — not the same as "no limit".
+ */
+export type SkillListingLimit =
+  | ({ readonly kind: "limit" } & ListingLimit)
+  | { readonly kind: "not-modelled" };
+
 export interface AlwaysLoadedContext {
   readonly unit: HarnessUnit;
   /** The instructions' committed total — the same number the weight scores. */
@@ -93,6 +102,8 @@ export interface AlwaysLoadedContext {
   readonly skillListing: LoadedPart;
   /** Instructions plus every `counted` part. */
   readonly total: number;
+  /** The listing's budget on this commit, read from the committed settings. */
+  readonly skillListingLimit: SkillListingLimit;
 }
 
 type AlwaysLoadedLayout = Pick<
@@ -239,6 +250,17 @@ export function skillListingPart(
   );
 }
 
+/** The listing budget the committed settings give, or `not-modelled`. */
+export function skillListingLimit(
+  dialect: Pick<HarnessDialect, "skillListing">,
+  settings: Readonly<Record<string, unknown>>,
+): SkillListingLimit {
+  const budget = dialect.skillListing?.budget;
+  return budget === undefined
+    ? { kind: "not-modelled" }
+    : { kind: "limit", ...budget.limit(settings) };
+}
+
 /** The size a part adds to the sum: its total when counted, else nothing. */
 export const partTotal = (part: LoadedPart): number =>
   part.kind === "counted" ? part.total : 0;
@@ -267,5 +289,6 @@ export function weighAlwaysLoaded(
     outputStyle,
     skillListing,
     total: instructions + partTotal(outputStyle) + partTotal(skillListing),
+    skillListingLimit: skillListingLimit(input.dialect, settings),
   };
 }

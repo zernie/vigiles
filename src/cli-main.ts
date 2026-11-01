@@ -78,6 +78,7 @@ import {
 import {
   RULES,
   RULE_GROUPS,
+  contextCreepOptions,
   type RuleId,
   type RulesConfig,
   type VigilesConfig,
@@ -129,7 +130,6 @@ import {
 import type {
   CoverageThresholds,
   TestCoverageConfig,
-  ContextCreepConfig,
   CompileBudgetConfig,
   RuleSeverity,
 } from "./core/types.js";
@@ -153,10 +153,14 @@ import {
   measureAlwaysLoaded,
 } from "./scan.js";
 import {
-  checkContextCreepRatchet,
+  checkContextCreep,
   compileWeightLine,
+  recordIfMissing,
+  type ContextCreepLimits,
+  type InitBaseline,
   type MeasuredBundle,
-} from "./context-creep-ratchet.js";
+} from "./context-creep-lint.js";
+import { checkAlwaysLoadedLimits } from "./core/always-loaded-limits.js";
 import type { ScanReport, ScanHarness } from "./scan.js";
 import {
   frameAt,
@@ -408,6 +412,33 @@ const CONFIG = configFor(RULES, RULE_GROUPS);
 const INIT_POLICY = initPolicyOf(RULES, RULE_GROUPS);
 /** Every rule at its shipped default — what a missing `.vigilesrc.json` loads as. */
 const DEFAULT_CONFIG: Readonly<VigilesConfig> = configDefaults(CONFIG);
+
+/**
+ * The always-loaded rule, asked of the set by its detector rather than by
+ * name: `lint`, `compile` and `init` read its severity and options, and the
+ * baseline store keys its entries by its id.
+ */
+const ALWAYS_LOADED_RULE: RuleId = ((): RuleId => {
+  const rule = RULES.find((r) => r.detector === checkAlwaysLoadedLimits.name);
+  if (rule === undefined)
+    throw new Error("no rule reports checkAlwaysLoadedLimits");
+  return rule.id;
+})();
+
+/** The always-loaded rule's limit options, as `.vigilesrc.json` sets them. */
+function alwaysLoadedLimits(
+  config: VigilesConfig | undefined,
+): ContextCreepLimits {
+  const value: unknown = config?.rules?.[ALWAYS_LOADED_RULE];
+  const parsed = contextCreepOptions.safeParse(
+    Array.isArray(value) ? value[1] : {},
+  );
+  const opts = parsed.success ? parsed.data : undefined;
+  return {
+    ...(opts?.limits === undefined ? {} : { limits: opts.limits }),
+    ...(opts?.max === undefined ? {} : { max: opts.max }),
+  };
+}
 
 /** The resolver over this set's ids. */
 type RuleResolver = AnyRuleResolver<RuleId>;
@@ -2873,13 +2904,14 @@ async function runLint(
   // server naming, or an undeclared MCP server).
   const hookMatcher = overBundles(checkHookMatcher, run, lintRoots);
 
-  // 7v. Context-creep ratchet — the always-loaded instruction weight may
-  // not move off the committed baseline. One file for the whole run (bundles
-  // are keys inside it), so it runs ONCE over `lintRoots`, not per bundle.
-  const contextCreep = checkContextCreepRatchet({
+  // 7v. Context creep — the always-loaded context against the harness's own
+  // limits, then the baseline store over those findings. One store for the
+  // whole run (bundles are keys inside it), so it runs ONCE over `lintRoots`.
+  const contextCreep = checkContextCreep({
+    ruleId: ALWAYS_LOADED_RULE,
     root: frame.root,
-    severity: ruleSeverity(config?.rules?.["context-creep"]),
-    max: ruleOptions<ContextCreepConfig>(config?.rules?.["context-creep"])?.max,
+    severity: ruleSeverity<unknown>(config?.rules?.[ALWAYS_LOADED_RULE]),
+    ...alwaysLoadedLimits(config),
     update: flags.includes("--update-baseline"),
     silent,
     measure: () =>
@@ -5341,6 +5373,11 @@ async function setup(args: string[]): Promise<void> {
     written,
   });
 
+  // The always-loaded baseline, on a repository already over a limit: the
+  // gate starts from today's size instead of waiting for someone to find the
+  // flag. Read after the config is written, so the harness it records is used.
+  if (plan.lint) written.push(...initBaseline());
+
   printSetupSummary({
     plan,
     strict,
@@ -5393,7 +5430,10 @@ function minimalRerun(
   printDetection(detected, harnesses);
   const links = plan.plugin ? linkSkillsOnly(harnesses) : [];
   const devDep = plan.lint || plan.test ? addMissingVigilesDevDep() : [];
-  const written = [...links, ...devDep];
+  // A missing always-loaded baseline is missing AND local: recorded only on a
+  // repository over a limit, never over an existing one.
+  const baseline = plan.lint ? initBaseline() : [];
+  const written = [...links, ...devDep, ...baseline];
   if (written.length === 0) console.log("\nNothing was missing.");
   const followUps = fullSetupFollowUps(
     fullSetupGap(plan, detected, harnesses),
@@ -5404,6 +5444,48 @@ function minimalRerun(
     console.log(
       `\n  Commit:\n    git add ${written.join(" ")} && git commit -m "Update vigiles"`,
     );
+}
+
+/** What `init` prints about the always-loaded baseline. */
+function initBaselineLine(outcome: InitBaseline): string | undefined {
+  switch (outcome.kind) {
+    case "under-limits":
+      return undefined;
+    case "kept":
+      return `✓ ${outcome.file} already holds the always-loaded baseline — left as it is`;
+    case "legacy":
+      return `ℹ ${outcome.file} is the old always-loaded baseline — migrate it with \`${outcome.command}\` (it keeps the recorded numbers)`;
+    case "recorded":
+      return (
+        `✓ always-loaded context: ${outcome.over.join("; ")}. Recorded ${outcome.file} — commit it. ` +
+        "CI now fails only if it grows past that size."
+      );
+  }
+}
+
+/**
+ * `init`'s baseline step over the repository root: record the always-loaded
+ * baseline when the repository is over a harness limit and has none. Off when
+ * the rule is off. Returns the file written, for the commit hint.
+ */
+function initBaseline(): readonly string[] {
+  const root = process.cwd();
+  const config = loadConfig();
+  if (!ruleSeverity<unknown>(config.rules?.[ALWAYS_LOADED_RULE])) return [];
+  const adapter = resolveHarnessSelection({
+    root,
+    flag: undefined,
+    configHarness: declaredHarnessNames(config.harnesses),
+  }).adapter;
+  const outcome = recordIfMissing(
+    root,
+    ALWAYS_LOADED_RULE,
+    [measuredBundle(".", root, adapter)],
+    alwaysLoadedLimits(config),
+  );
+  const line = initBaselineLine(outcome);
+  if (line !== undefined) console.log(`\n${line}`);
+  return outcome.kind === "recorded" ? [outcome.file] : [];
 }
 
 /**
@@ -9616,7 +9698,12 @@ export async function main(): Promise<void> {
             configHarness: declaredHarnessNames(config.harnesses),
           }).adapter,
         );
-        const weightLine = compileWeightLine(projectRoot, measured);
+        const weightLine = compileWeightLine(
+          projectRoot,
+          ALWAYS_LOADED_RULE,
+          measured,
+          alwaysLoadedLimits(config),
+        );
         if (weightLine !== null) console.log(`\n${weightLine}`);
       }
       valid =

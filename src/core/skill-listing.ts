@@ -50,4 +50,30 @@ export interface SkillListingRules {
   ) => string | null;
   /** The vendor artifact this was read from, version included. */
   readonly capturedFrom: string;
+  /**
+   * The size of the listing as a WHOLE past which the harness drops skill
+   * descriptions, so some skills lose the text they trigger on. Absent when
+   * the adapter does not model one — a different fact from "no limit".
+   */
+  readonly budget?: SkillListingBudget;
+}
+
+/** The listing's budget for one commit: the harness default, or a committed setting. */
+export interface ListingLimit {
+  /** In the harness's unit (the instruction budget's `unit`). */
+  readonly limit: number;
+  /** The committed setting that moved it off the default, when one did. */
+  readonly setBy?: string;
+}
+
+/** How a harness sizes its whole skill listing. */
+export interface SkillListingBudget {
+  /**
+   * The limit a session on this commit gets, from the COMMITTED settings
+   * (`{}` when there are none). Per-machine environment variables that move
+   * it are not a property of the commit and are not read.
+   */
+  readonly limit: (settings: Readonly<Record<string, unknown>>) => ListingLimit;
+  /** The vendor artifact this was read from, version included. */
+  readonly capturedFrom: string;
 }

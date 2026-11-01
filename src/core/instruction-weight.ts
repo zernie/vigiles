@@ -32,9 +32,9 @@
  * against sit at roughly four times the Claude Code threshold. A rule that
  * fails every real repo on day one is switched off on day one
  * (`lint-rule-calibration`: severity tracks confidence, and a check nobody
- * leaves on catches nothing). So `audit` reports the budget, and what `lint`
- * gates is the repo's OWN recorded weight (`./instruction-baseline.ts`): green
- * on day one at any size, red the day it grows.
+ * leaves on catches nothing). So going over it is a finding the baseline store
+ * can accept (`./always-loaded-limits.ts`, `./baseline-store.ts`): green on
+ * day one at any size the repository recorded, red the day it grows.
  */
 
 import type {

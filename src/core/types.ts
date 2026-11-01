@@ -84,15 +84,23 @@ export interface CoverageThresholds {
 }
 
 /**
- * Options for the `context-creep` rule: `["error", { max: 40000 }]`.
+ * Options for the `context-creep` rule:
+ * `["error", { limits: { "skill-listing": 9000 }, max: 60000 }]`.
  */
 export interface ContextCreepConfig {
   /**
-   * An opt-in ABSOLUTE ceiling on the always-loaded instruction weight, in the
-   * harness's own unit (characters for Claude Code, bytes for Codex). A total
-   * above it is a finding at the rule's severity regardless of the baseline, and
-   * `vigiles lint --update-baseline` refuses to record a baseline above it.
-   * Omitted → only the ratchet applies. A positive integer.
+   * Per-part limits in the harness's own unit (characters for Claude Code,
+   * bytes for Codex). A part left out keeps the harness's number. Going over
+   * one is a finding the baseline store can accept. Positive integers.
+   */
+  limits?: {
+    instructions?: number;
+    "skill-listing"?: number;
+  };
+  /**
+   * An opt-in ABSOLUTE ceiling on the scored instruction weight. A total above
+   * it is a finding no baseline lifts, and `vigiles lint --update-baseline`
+   * refuses to record above it. A positive integer.
    */
   max?: number;
 }
