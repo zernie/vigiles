@@ -152,12 +152,12 @@ what one level costs.
 materializes surfaces, expands `pluginRootToken`. And by
 `weighInstructions(chain, files, budget)` — the instruction-weight report.
 
-#### The fixed context: `dialect.skillListing` and `outputStyles.selected`
+#### The always-loaded context: `dialect.skillListing` and `outputStyles.selected`
 
-Two OPTIONAL members let the instruction weight grow into the **fixed
+Two OPTIONAL members let the instruction weight grow into the **always-loaded
 context** — the instructions plus what else the harness loads at session start
-before any decision — measured by `weighFixedContext` in
-`core/fixed-context.ts`, in the dialect's `instructionBudget.unit`:
+before any decision — measured by `weighAlwaysLoaded` in
+`core/always-loaded.ts`, in the dialect's `instructionBudget.unit`:
 
 | Member               | Port                        | Signature                                                     | Claude Code                                                                                                                                 | Codex                                                                                                  |
 | -------------------- | --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |

@@ -1,5 +1,5 @@
 /**
- * The instruction-weight RATCHET (vitest, unit tier, nothing spawned).
+ * The context-creep RATCHET (vitest, unit tier, nothing spawned).
  *
  * The load-bearing case is the same evasion `instruction-weight.test.ts` is
  * built around, asked one level up: a regrowth that hides in a sibling file the
@@ -405,9 +405,7 @@ describe("formatCeiling / formatRefusal — what the reader sees", () => {
 
   it("the refusal says nothing was recorded, why, and what to do", () => {
     const msg = formatRefusal(v, ".");
-    expect(msg).toContain(
-      "refusing to record .vigiles/instruction-weight.json",
-    );
+    expect(msg).toContain("refusing to record .vigiles/context-creep.json");
     expect(msg).toContain("38,000 chars is over the configured max 20,000");
     expect(msg).toContain("bypass");
     expect(msg).toContain("get under it first");

@@ -188,7 +188,7 @@ export interface HarnessDialect {
    * How this harness renders a skill into the listing it loads at session
    * start — {@link SkillListingRules}. Beside `instructionBudget` for the same
    * two reasons: it is a FORMAT fact, and the browser engine is handed a
-   * dialect. Optional: absent ⇒ the fixed-context report says the listing is
+   * dialect. Optional: absent ⇒ the always-loaded report says the listing is
    * not modelled for this harness, never that it is empty.
    */
   readonly skillListing?: SkillListingRules;

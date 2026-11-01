@@ -1,12 +1,14 @@
-# instruction-weight
+# context-creep — keep the always-loaded context from growing
 
-Fail when what the harness loads **without being asked** gets heavier than the
-weight the repository last recorded. A **ratchet**: the baseline is the repo's
-own past, committed in `.vigiles/instruction-weight.json`, so a repo already
+Context engineering starts with the part you pay for on every request: what the
+harness loads **without being asked**. This rule fails when that gets heavier
+than the weight the repository last recorded — context creep, one unremarkable
+line at a time. A **ratchet**: the baseline is the repo's
+own past, committed in `.vigiles/context-creep.json`, so a repo already
 several times over the harness's budget starts green and stays green only while
 it does not grow. Same measurement `vigiles audit` prints as
-`Always-loaded instructions` and `fixed context`; the comparison is
-`compareFixedToBaseline` in `src/core/instruction-baseline.ts`.
+`Always-loaded instructions` and `always-loaded context`; the comparison is
+`compareAlwaysLoadedToBaseline` in `src/core/instruction-baseline.ts`.
 
 ## What it measures
 
@@ -34,7 +36,7 @@ deep; any import the number does not include is listed on the line as
 always-loaded rules file leaves the sum unchanged, and the rule says `held`.
 A per-file limit would have scored that move as a large improvement.
 
-### The fixed context: output style and skill listing
+### The always-loaded context: output style and skill listing
 
 Two more things load at session start before any decision, and the rule counts
 them once you record them:
@@ -50,13 +52,13 @@ them once you record them:
   description cut to 1,024, and a skill Codex cannot parse — no frontmatter,
   no description — not listed).
 
-Together with the instructions this is the **fixed context**. The rule gates
+Together with the instructions this is the **always-loaded context**. The rule gates
 its **sum**, so moving a section from `CLAUDE.md` into the selected style, or
 into a skill's description, still reads `held` — and the line under the verdict
 says where the weight moved:
 
 ```
-✓ fixed context held at 38,062 chars (baseline)
+✓ always-loaded context held at 38,062 chars (baseline)
   instructions 20,000 (-4,665) · output style 13,031 (+4,665) · skill listing 5,031
 ```
 
@@ -80,7 +82,7 @@ Codex has no output styles; its part is `not-supported`, never written.
 | baseline file exists, bundle not in it                                                                                     | finding: weight nobody recorded                                                                           |
 | baseline file is not valid                                                                                                 | finding; never read as empty                                                                              |
 | version-1 file, output style or listing not empty                                                                          | a note per bundle naming each part; **never a finding** — the instructions still gate as before           |
-| version-2 file, a part grew or appeared                                                                                    | finding: the fixed sum grew, and which part's file moved                                                  |
+| version-2 file, a part grew or appeared                                                                                    | finding: the always-loaded sum grew, and which part's file moved                                          |
 | version-2 file, a part recorded by another measurement                                                                     | finding: re-record, naming the part                                                                       |
 | version-2 file, a recorded part this run cannot measure (the adapter does not model it, or the selected style has no file) | carried at its recorded size and named on the line; never read as 0, never dropped by `--update-baseline` |
 
@@ -88,7 +90,7 @@ Codex has no output styles; its part is `not-supported`, never written.
 ✗ always-loaded instructions grew 30,000 → 31,225 chars (+1,225) over the
   recorded baseline. Changed: .claude/rules/moved.md +11,225 (new), CLAUDE.md
   -10,000. If the growth is intended, record it with
-  `vigiles lint --update-baseline` — the diff of .vigiles/instruction-weight.json
+  `vigiles lint --update-baseline` — the diff of .vigiles/context-creep.json
   is the review.
 ```
 
@@ -101,7 +103,7 @@ baseline equal to the tree, so any growth at all shows up.
 
 ```bash
 npx vigiles lint --update-baseline
-git add .vigiles/instruction-weight.json
+git add .vigiles/context-creep.json
 ```
 
 `lint` never writes the file on its own — a read never writes. The flag is the
@@ -116,8 +118,8 @@ the author sees the effect at the moment of change:
 always-loaded: 28,210 chars (baseline 30,000, -1,790)
 ```
 
-Once the fixed context is recorded the line names it instead:
-`fixed context: 38,062 chars (baseline 38,062, ±0)`.
+Once the always-loaded context is recorded the line names it instead:
+`always loaded: 38,062 chars (baseline 38,062, ±0)`.
 
 ## The file
 
@@ -190,7 +192,7 @@ sorted and there is no timestamp, so the diff shows only real movement.
 
 The order matters because version 1 was a strict format: an **older vigiles
 cannot read a version-2 file**. It reports
-`.vigiles/instruction-weight.json cannot be read` — loud, never silent, but a
+`.vigiles/context-creep.json cannot be read` — loud, never silent, but a
 finding at the rule's severity. A repository with no output style and no listed
 skill keeps writing version 1, which every release reads.
 
@@ -198,10 +200,31 @@ skill keeps writing version 1, which every release reads.
 machine; this records a property of the commit, computed only from committed
 files.
 
+## The baseline file's old name
+
+The rule was called `instruction-weight` and its baseline lived in
+`.vigiles/instruction-weight.json`. The rule id is now `context-creep` and the
+file `.vigiles/context-creep.json`. Nothing breaks on upgrade as far as the file
+goes:
+
+| On disk           | `lint` reads | And says (a note, never a finding, exit code untouched)               |
+| ----------------- | ------------ | --------------------------------------------------------------------- |
+| the new file only | the new file | nothing                                                               |
+| the old file only | the old file | `git mv .vigiles/instruction-weight.json .vigiles/context-creep.json` |
+| both              | the new file | the old one is stale: `git rm .vigiles/instruction-weight.json`       |
+| neither           | nothing      | the usual "no baseline recorded" note                                 |
+
+`--update-baseline` writes only the new path. `vigiles lint --summary` — the
+line the shipped session-start hook injects into the agent — carries the same
+note as one extra line while the old file exists, so the agent renames it.
+
+A `.vigilesrc.json` that still names `rules.instruction-weight` is refused by
+the strict config schema; rename the key to `context-creep`.
+
 ## Configuration
 
 ```json
-{ "rules": { "instruction-weight": "error" } }
+{ "rules": { "context-creep": "error" } }
 ```
 
 | Value               | Behavior                                                      |
@@ -216,7 +239,7 @@ else: committing the file is the opt-in.
 ### `max`: an opt-in absolute ceiling
 
 ```json
-{ "rules": { "instruction-weight": ["error", { "max": 40000 }] } }
+{ "rules": { "context-creep": ["error", { "max": 40000 }] } }
 ```
 
 The ratchet only stops growth, so a repo four times over the harness's budget

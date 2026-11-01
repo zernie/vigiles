@@ -909,6 +909,28 @@
       "count": 1
     }
   },
+  "src/context-creep-ratchet.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 3
+    },
+    "local/no-harness-names": {
+      "count": 14
+    },
+    "local/no-rule-ids": {
+      "count": 6
+    }
+  },
+  "src/context-creep-ratchet.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
+    "functional/prefer-immutable-types": {
+      "count": 2
+    },
+    "local/no-rule-ids": {
+      "count": 1
+    }
+  },
   "src/core/adopt-surface.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 13
@@ -1134,7 +1156,7 @@
       "count": 1
     },
     "local/no-rule-ids": {
-      "count": 6
+      "count": 5
     }
   },
   "src/core/coverage.ts": {
@@ -1204,11 +1226,6 @@
   "src/core/dialect.test.ts": {
     "local/no-harness-names": {
       "count": 18
-    }
-  },
-  "src/core/dialect.ts": {
-    "local/no-rule-ids": {
-      "count": 1
     }
   },
   "src/core/doc-refs.test.ts": {
@@ -1674,7 +1691,7 @@
       "count": 25
     },
     "local/no-rule-ids": {
-      "count": 2
+      "count": 1
     }
   },
   "src/core/instruction-baseline.ts": {
@@ -1717,9 +1734,6 @@
   "src/core/instruction-weight.test.ts": {
     "local/no-harness-names": {
       "count": 58
-    },
-    "local/no-rule-ids": {
-      "count": 2
     }
   },
   "src/core/instruction-weight.ts": {
@@ -3151,28 +3165,6 @@
       "count": 2
     }
   },
-  "src/instruction-weight-ratchet.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 3
-    },
-    "local/no-harness-names": {
-      "count": 14
-    },
-    "local/no-rule-ids": {
-      "count": 6
-    }
-  },
-  "src/instruction-weight-ratchet.ts": {
-    "boundaries/dependencies": {
-      "count": 1
-    },
-    "functional/prefer-immutable-types": {
-      "count": 3
-    },
-    "local/no-rule-ids": {
-      "count": 2
-    }
-  },
   "src/jest.ts": {
     "boundaries/dependencies": {
       "count": 1
@@ -3731,7 +3723,7 @@
       "count": 6
     },
     "local/no-rule-ids": {
-      "count": 16
+      "count": 15
     }
   },
   "src/scan-trigger-suggest.test.ts": {
@@ -3789,7 +3781,7 @@
       "count": 15
     },
     "local/no-rule-ids": {
-      "count": 33
+      "count": 32
     },
     "sonarjs/no-nested-conditional": {
       "count": 1

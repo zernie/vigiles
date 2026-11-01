@@ -236,7 +236,7 @@ export const SAMPLE: AuditReport = {
     },
   ],
   contextCost: {
-    fixed: {
+    alwaysLoaded: {
       unit: "chars",
       total: 33912,
       parts: [

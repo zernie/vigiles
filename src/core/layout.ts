@@ -288,7 +288,7 @@ export function skillsHome(
  * number of directories between the folder and the file, and whether a
  * directory whose name starts with `.` is entered.
  *
- * WHY A LAYOUT FACT AND NOT A CORE CONSTANT. The fixed-context skill listing
+ * WHY A LAYOUT FACT AND NOT A CORE CONSTANT. The always-loaded skill listing
  * read exactly `<skillsHome>/<dir>/SKILL.md`, which is Claude Code's shape and
  * not Codex's: Codex walks a repository skill root recursively (`max_depth` 6
  * in `codex-rs/ext/skills/src/loader/discovery.rs`, hidden directories
@@ -297,7 +297,7 @@ export function skillsHome(
  * 0.153.0: a `SKILL.md` directly in the folder, and one six directories down,
  * are both listed; seven down, or under a `.`-directory, are not.
  *
- * The two readers — the pure filter in `core/fixed-context.ts` and the disk
+ * The two readers — the pure filter in `core/always-loaded.ts` and the disk
  * walk in `surface-discovery-fs.ts` — both ask {@link sessionSkillDirs}, so
  * they cannot disagree about which files exist.
  */

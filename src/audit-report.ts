@@ -26,7 +26,7 @@ import type { RuleInventoryItem } from "./rule-inventory.js";
 import type { RuleRouting } from "./rule-routing.js";
 import type { EvidenceCounts } from "./coverage-evidence.js";
 import type { DeprecatedKeyFilesFinding } from "./deprecated-key-files.js";
-import type { FixedPart, FixedPartName } from "./core/fixed-context.js";
+import type { LoadedPart, LoadedPartName } from "./core/always-loaded.js";
 import {
   gradedView,
   type FilteredScan,
@@ -122,27 +122,27 @@ export interface Adoptable {
   readonly createAllCommand: string;
 }
 
-/** One file's share of a fixed-context part, in the report's unit. */
-export interface FixedContextFile {
+/** One file's share of an always-loaded part, in the report's unit. */
+export interface AlwaysLoadedFile {
   readonly path: string;
   readonly size: number;
 }
 
 /**
- * One part of the fixed context. Only a `counted` part has a size: every other
+ * One part of the always-loaded context. Only a `counted` part has a size: every other
  * state is a reason there is none, kept apart because each reads differently
  * (nothing selected · the harness has no such thing · vigiles does not model
  * it · a style selected by a name no repository file declares).
  */
-export type FixedContextPart =
+export type AlwaysLoadedPart =
   | {
-      readonly part: "instructions" | FixedPartName;
+      readonly part: "instructions" | LoadedPartName;
       readonly kind: "counted";
       readonly total: number;
-      readonly files: readonly FixedContextFile[];
+      readonly files: readonly AlwaysLoadedFile[];
     }
   | {
-      readonly part: FixedPartName;
+      readonly part: LoadedPartName;
       readonly kind: "none" | "not-supported" | "not-modelled";
     }
   | {
@@ -159,17 +159,17 @@ export type FixedContextPart =
  * part of every request the REPOSITORY decides — the harness's own prompt,
  * user and plugin skills and the conversation come on top.
  */
-export interface FixedContextReport {
+export interface AlwaysLoadedReport {
   readonly unit: "chars" | "bytes";
   /** The instructions plus every counted part. */
   readonly total: number;
   /** Always `instructions`, `output-style`, `skill-listing`, in that order. */
-  readonly parts: readonly FixedContextPart[];
+  readonly parts: readonly AlwaysLoadedPart[];
 }
 
 /** How much context the harness carries before the conversation starts. */
 export interface ContextCostReport {
-  readonly fixed: FixedContextReport;
+  readonly alwaysLoaded: AlwaysLoadedReport;
 }
 
 /**
@@ -344,10 +344,10 @@ function outputStylesField(n: number | "not-supported" | undefined): {
 }
 
 /** One scan-side part as the report carries it. */
-function fixedPartReport(
-  part: FixedPartName,
-  value: FixedPart,
-): FixedContextPart {
+function loadedPartReport(
+  part: LoadedPartName,
+  value: LoadedPart,
+): AlwaysLoadedPart {
   switch (value.kind) {
     case "counted":
       return { part, kind: "counted", total: value.total, files: value.files };
@@ -365,25 +365,25 @@ function contextCostField(report: ScanReport): {
   readonly contextCost?: ContextCostReport;
 } {
   const weight = report.instructionWeight;
-  const fixed = report.fixedContext;
-  if (weight === null || fixed === undefined) return {};
+  const loaded = report.alwaysLoaded;
+  if (weight === null || loaded === undefined) return {};
   const files = weight.files
     .filter((f) => f.scope === "repo")
     .map((f) => ({ path: f.path, size: f.size }));
   return {
     contextCost: {
-      fixed: {
-        unit: fixed.unit,
-        total: fixed.total,
+      alwaysLoaded: {
+        unit: loaded.unit,
+        total: loaded.total,
         parts: [
           {
             part: "instructions",
             kind: "counted",
-            total: fixed.instructions,
+            total: loaded.instructions,
             files,
           },
-          fixedPartReport("output-style", fixed.outputStyle),
-          fixedPartReport("skill-listing", fixed.skillListing),
+          loadedPartReport("output-style", loaded.outputStyle),
+          loadedPartReport("skill-listing", loaded.skillListing),
         ],
       },
     },

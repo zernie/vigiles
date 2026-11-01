@@ -84,7 +84,7 @@ import {
 import {
   boundedInstructionFiles,
   boundedSurfacePaths,
-  fixedContextFiles,
+  alwaysLoadedFiles,
 } from "./surface-discovery-fs.js";
 import { REGISTERED_LAYOUTS } from "./layout-registry.js";
 import type { DelegationTrifectaFinding } from "./core/delegation-trifecta.js";
@@ -138,10 +138,10 @@ import {
   type WeighedFile,
 } from "./core/instruction-weight.js";
 import {
-  weighFixedContext,
-  type FixedContext,
-  type FixedPart,
-} from "./core/fixed-context.js";
+  weighAlwaysLoaded,
+  type AlwaysLoadedContext,
+  type LoadedPart,
+} from "./core/always-loaded.js";
 import {
   blockIneffectiveEventsOf,
   permissionDecisionEventsOf,
@@ -458,15 +458,15 @@ export interface ScanReport {
    */
   readonly instructionWeight: InstructionWeight | null;
   /**
-   * The FIXED CONTEXT around that weight — the instructions plus the output
+   * The ALWAYS-LOADED CONTEXT around that weight — the instructions plus the output
    * style the committed settings select and the skill listing, each in the
-   * same unit (`core/fixed-context.ts`). Present exactly when
+   * same unit (`core/always-loaded.ts`). Present exactly when
    * `instructionWeight` is: both engines build the pair as one
    * {@link AlwaysLoaded}. Kept as two fields here because the report is
    * filtered through `Omit`-based views, which do not distribute over a
    * union; the gate reads the pair through `MeasuredBundle`, which is one.
    */
-  readonly fixedContext?: FixedContext;
+  readonly alwaysLoaded?: AlwaysLoadedContext;
   /**
    * Instruction specs still using the deprecated `keyFiles` — the
    * `deprecated-key-files` rule's own detector (`findDeprecatedKeyFiles`),
@@ -652,7 +652,7 @@ export interface ScanHarness {
  * The always-loaded instruction weight of ONE directory under ONE harness —
  * the bounded read, the harness's chain, and the sum, in one place.
  *
- * `scanPlugin` reports it, `lint`'s instruction-weight ratchet gates on it and
+ * `scanPlugin` reports it, `lint`'s context-creep ratchet gates on it and
  * `compile` prints it, so all three must arrive at the same number by the same
  * route; this function is that route. `null` when the harness publishes no
  * budget (there is no unit to count in).
@@ -669,23 +669,23 @@ export function measureInstructionWeight(
 }
 
 /**
- * The always-loaded weight of one directory and the fixed context around it —
+ * The always-loaded weight of one directory and the always-loaded context around it —
  * both or neither, as one union, so no reader can hold a weight without the
  * parts that go with it (and read a recorded part as 0).
  */
 export type AlwaysLoaded =
-  | { readonly instructionWeight: null; readonly fixedContext?: undefined }
+  | { readonly instructionWeight: null; readonly alwaysLoaded?: undefined }
   | {
       readonly instructionWeight: InstructionWeight;
-      readonly fixedContext: FixedContext;
+      readonly alwaysLoaded: AlwaysLoadedContext;
     };
 
 /**
- * The fixed context of ONE directory under ONE harness — the same route as
+ * The always-loaded context of ONE directory under ONE harness — the same route as
  * {@link measureInstructionWeight}, plus the style and skill files. `lint`'s
  * ratchet gates on it, `compile` prints it and `scanPlugin` reports it.
  */
-export function measureFixedContext(
+export function measureAlwaysLoaded(
   dir: string,
   harness: Pick<ScanHarness, "layout" | "dialect">,
 ): AlwaysLoaded {
@@ -705,11 +705,11 @@ function alwaysLoadedOf(
   if (instructionWeight === null) return { instructionWeight };
   const files = {
     ...instructionFiles,
-    ...fixedContextFiles(resolve(dir), harness.layout),
+    ...alwaysLoadedFiles(resolve(dir), harness.layout),
   };
   return {
     instructionWeight,
-    fixedContext: weighFixedContext({
+    alwaysLoaded: weighAlwaysLoaded({
       weight: instructionWeight,
       files,
       layout: harness.layout,
@@ -1421,9 +1421,9 @@ function deprecatedKeyFilesLines(r: ScanReport): readonly string[] {
   );
 }
 
-/** One fixed-context row's value: a size, or why there is none. */
-function fixedPartValue(
-  part: FixedPart,
+/** One always-loaded row's value: a size, or why there is none. */
+function loadedPartValue(
+  part: LoadedPart,
   unit: string,
   what: "output style" | "skill listing",
 ): string {
@@ -1448,17 +1448,17 @@ function fixedPartValue(
 }
 
 /**
- * The two rows the fixed context adds under the instruction weight, and the
+ * The two rows the always-loaded context adds under the instruction weight, and the
  * total of all three. Said as "at session start, before any decision" because
  * that is what the number is — not the size of a request: the harness's own
  * prompt, user and plugin skills and the conversation come on top.
  */
-function fixedContextLines(f: FixedContext): readonly string[] {
+function alwaysLoadedLines(f: AlwaysLoadedContext): readonly string[] {
   const g = (n: number): string => n.toLocaleString("en-US");
   return [
-    `  + output style:  ${fixedPartValue(f.outputStyle, f.unit, "output style")}`,
-    `  + skill listing: ${fixedPartValue(f.skillListing, f.unit, "skill listing")}`,
-    `  = fixed context: ${g(f.total)} ${f.unit} loaded at session start before any decision (instructions + output style + skill listing)`,
+    `  + output style:  ${loadedPartValue(f.outputStyle, f.unit, "output style")}`,
+    `  + skill listing: ${loadedPartValue(f.skillListing, f.unit, "skill listing")}`,
+    `  = always loaded: ${g(f.total)} ${f.unit} loaded at session start before any decision (instructions + output style + skill listing)`,
   ];
 }
 
@@ -1467,7 +1467,7 @@ function instructionCostLines(r: ScanReport): readonly string[] {
   const weight = r.instructionWeight
     ? [
         ...instructionWeightLines(r.instructionWeight),
-        ...(r.fixedContext ? fixedContextLines(r.fixedContext) : []),
+        ...(r.alwaysLoaded ? alwaysLoadedLines(r.alwaysLoaded) : []),
         "",
       ]
     : [];

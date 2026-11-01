@@ -1,9 +1,9 @@
 /**
- * Fixed-context suite (vitest, unit tier, nothing spawned).
+ * Always-loaded suite (vitest, unit tier, nothing spawned).
  *
  * Harness-agnostic: a fake layout and dialect, so what is proven here is the
  * SUM and the distinctions between the part states. Each adapter's own suite
- * (`src/adapters/<h>/fixed-context.test.ts`) proves its renderer and selection
+ * (`src/adapters/<h>/always-loaded.test.ts`) proves its renderer and selection
  * against real file shapes.
  *
  * The load-bearing case is the evasion one, as for the instruction weight:
@@ -18,9 +18,9 @@ import type { SkillListingRules } from "./skill-listing.js";
 import {
   partTotal,
   sessionSkills,
-  weighFixedContext,
-  type FixedContextInput,
-} from "./fixed-context.js";
+  weighAlwaysLoaded,
+  type AlwaysLoadedInput,
+} from "./always-loaded.js";
 
 const weight = (committedTotal: number) =>
   ({ unit: "chars", committedTotal }) as const;
@@ -60,8 +60,8 @@ const listing: SkillListingRules = {
 
 const input = (
   files: Record<string, string>,
-  over: Partial<FixedContextInput> = {},
-): FixedContextInput => ({
+  over: Partial<AlwaysLoadedInput> = {},
+): AlwaysLoadedInput => ({
   weight: weight(100),
   files,
   layout: {
@@ -75,9 +75,9 @@ const input = (
   ...over,
 });
 
-describe("weighFixedContext", () => {
+describe("weighAlwaysLoaded", () => {
   it("sums the instructions, the selected style and the listing", () => {
-    const f = weighFixedContext(
+    const f = weighAlwaysLoaded(
       input({
         ".h/settings.json": JSON.stringify({ style: "terse" }),
         ".h/styles/terse.md": "x".repeat(40),
@@ -105,29 +105,29 @@ describe("weighFixedContext", () => {
       ".h/settings.json": JSON.stringify({ style: "terse" }),
       ".h/styles/terse.md": "x".repeat(styleChars),
     });
-    const before = weighFixedContext(input(files(10), { weight: weight(500) }));
-    const after = weighFixedContext(input(files(310), { weight: weight(200) }));
+    const before = weighAlwaysLoaded(input(files(10), { weight: weight(500) }));
+    const after = weighAlwaysLoaded(input(files(310), { weight: weight(200) }));
     expect(after.total).toBe(before.total);
   });
 });
 
-describe("weighFixedContext — each absence is its own state", () => {
+describe("weighAlwaysLoaded — each absence is its own state", () => {
   it("keeps none, unresolved, not-supported and not-modelled apart", () => {
-    expect(weighFixedContext(input({})).outputStyle).toEqual({ kind: "none" });
+    expect(weighAlwaysLoaded(input({})).outputStyle).toEqual({ kind: "none" });
     const defaulted = { ".h/settings.json": '{"style":"default"}' };
-    expect(weighFixedContext(input(defaulted)).outputStyle.kind).toBe("none");
+    expect(weighAlwaysLoaded(input(defaulted)).outputStyle.kind).toBe("none");
     const typo = { ".h/settings.json": '{"style":"Terse"}' };
-    expect(weighFixedContext(input(typo)).outputStyle).toEqual({
+    expect(weighAlwaysLoaded(input(typo)).outputStyle).toEqual({
       kind: "unresolved",
       name: "Terse",
     });
     const base = input({});
-    const noStyles = weighFixedContext({
+    const noStyles = weighAlwaysLoaded({
       ...base,
       layout: { ...base.layout, outputStyles: undefined },
     });
     expect(noStyles.outputStyle).toEqual({ kind: "not-supported" });
-    const noSelected = weighFixedContext({
+    const noSelected = weighAlwaysLoaded({
       ...base,
       layout: {
         ...base.layout,
@@ -135,22 +135,22 @@ describe("weighFixedContext — each absence is its own state", () => {
       },
     });
     expect(noSelected.outputStyle).toEqual({ kind: "not-modelled" });
-    expect(weighFixedContext(input({}, { dialect: {} })).skillListing).toEqual({
+    expect(weighAlwaysLoaded(input({}, { dialect: {} })).skillListing).toEqual({
       kind: "not-modelled",
     });
-    expect(weighFixedContext(input({})).skillListing).toEqual({ kind: "none" });
+    expect(weighAlwaysLoaded(input({})).skillListing).toEqual({ kind: "none" });
   });
 });
 
-describe("weighFixedContext — what is not counted", () => {
+describe("weighAlwaysLoaded — what is not counted", () => {
   it("adds nothing for a part that is not counted", () => {
-    const f = weighFixedContext(input({}));
+    const f = weighAlwaysLoaded(input({}));
     expect(f.total).toBe(100);
     expect(partTotal({ kind: "unresolved", name: "x" })).toBe(0);
   });
 
   it("reads a style only from the session's own folder, not a plugin root", () => {
-    const f = weighFixedContext(
+    const f = weighAlwaysLoaded(
       input({
         ".h/settings.json": JSON.stringify({ style: "terse" }),
         "styles/terse.md": "x".repeat(40),
@@ -160,7 +160,7 @@ describe("weighFixedContext — what is not counted", () => {
   });
 
   it("reads unparseable settings as no settings", () => {
-    const f = weighFixedContext(input({ ".h/settings.json": "{not json" }));
+    const f = weighAlwaysLoaded(input({ ".h/settings.json": "{not json" }));
     expect(f.outputStyle).toEqual({ kind: "none" });
   });
 });

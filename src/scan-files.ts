@@ -49,7 +49,10 @@ import {
   weighInstructions,
   type InstructionWeight,
 } from "./core/instruction-weight.js";
-import { weighFixedContext, type FixedContext } from "./core/fixed-context.js";
+import {
+  weighAlwaysLoaded,
+  type AlwaysLoadedContext,
+} from "./core/always-loaded.js";
 import { instructionSpecState } from "./core/integrity-header.js";
 import {
   instructionCandidatePaths,
@@ -940,8 +943,8 @@ export function scanFiles(
 
 /**
  * The browser twin of `scan.ts`'s `alwaysLoadedOf`: the same weight over the
- * same bounded instruction files, and the fixed context over the WHOLE fetched
- * tree — `weighFixedContext` keeps only the paths the disk reader reads (the
+ * same bounded instruction files, and the always-loaded context over the WHOLE fetched
+ * tree — `weighAlwaysLoaded` keeps only the paths the disk reader reads (the
  * session's style folder and one `SKILL.md` per skill directory), so the two
  * engines see the same files.
  */
@@ -952,7 +955,7 @@ function alwaysLoadedInMap(
   files: Readonly<Record<string, string>>,
 ): {
   readonly instructionWeight: InstructionWeight | null;
-  readonly fixedContext?: FixedContext;
+  readonly alwaysLoaded?: AlwaysLoadedContext;
 } {
   const budget = dialect.instructionBudget;
   if (budget === undefined) return { instructionWeight: null };
@@ -963,7 +966,7 @@ function alwaysLoadedInMap(
   );
   return {
     instructionWeight,
-    fixedContext: weighFixedContext({
+    alwaysLoaded: weighAlwaysLoaded({
       weight: instructionWeight,
       files: { ...files, ...instructionFiles },
       layout: lay,

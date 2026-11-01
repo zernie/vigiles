@@ -292,10 +292,10 @@ function sessionSkillFiles(
 }
 
 /**
- * The files the FIXED CONTEXT reads beyond the instruction candidates: the
+ * The files the ALWAYS-LOADED CONTEXT reads beyond the instruction candidates: the
  * style files in the folder a session at the root reads styles from, and each
  * `SKILL.md` under the session's skills folder at a depth the harness reads —
- * the two inputs `core/fixed-context.ts` filters, by the same paths, out of the
+ * the two inputs `core/always-loaded.ts` filters, by the same paths, out of the
  * browser engine's fetched tree.
  *
  * Two NAMED directories, not a walk of the repository: the layout says where
@@ -305,7 +305,7 @@ function sessionSkillFiles(
  * number is a committed baseline that one more `exclude` line would otherwise
  * lower.
  */
-export function fixedContextFiles(
+export function alwaysLoadedFiles(
   root: string,
   layout: PluginLayout,
 ): Readonly<Record<string, string>> {

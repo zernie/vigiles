@@ -1,5 +1,5 @@
 /**
- * DRIFT TEST for the fixed context on Codex: the skill-listing entries
+ * DRIFT TEST for the always-loaded context on Codex: the skill-listing entries
  * `codexSkillListing` renders must appear in the first request real `codex`
  * sends to the scripted Responses mock, and the skills it refuses must not
  * (harness tier: no key, no cost; skipped where `codex` is absent, installed
@@ -31,7 +31,7 @@ import { dirname, join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { sessionSkills } from "../../core/fixed-context.js";
+import { sessionSkills } from "../../core/always-loaded.js";
 import { skillsHome } from "../../core/layout.js";
 import { codexLayout } from "./layout.js";
 import { startCodexMock } from "./mock-model.js";

@@ -34,12 +34,12 @@ export const RULE_IDS_NOT_IN_STRINGS = ["coverage", "integrity"];
  * Ids left out of the IDENTIFIER half: the one-word ids (an identifier segment
  * `coverage` is not the rule), and three older concept names that the code used
  * before they were rule ids — measured on 2026-10-14 at 47 (`hook-matcher`), 45
- * (`instruction-weight`) and 42 (`deprecated-key-files`) identifier hits, almost
+ * (`instruction-weight`, now `context-creep`) and 42 (`deprecated-key-files`) identifier hits, almost
  * all naming the concept, not the rule.
  */
 export const RULE_IDS_NOT_IN_IDENTIFIERS = [
   "hook-matcher",
-  "instruction-weight",
+  "context-creep",
   "deprecated-key-files",
 ];
 

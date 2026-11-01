@@ -1,5 +1,5 @@
 /**
- * The FIXED CONTEXT: everything the harness loads at session start without a
+ * The ALWAYS-LOADED CONTEXT: everything the harness loads at session start without a
  * decision — the always-loaded instructions, the output style the committed
  * settings select, and the skill listing — summed in the harness's own unit.
  *
@@ -51,17 +51,17 @@ import {
 import { outputStyleHomes, type OutputStyle } from "./output-style.js";
 import type { ListedSkill } from "./skill-listing.js";
 
-/** The parts that join the instructions in the fixed context. */
-export type FixedPartName = "output-style" | "skill-listing";
+/** The parts that join the instructions in the always-loaded context. */
+export type LoadedPartName = "output-style" | "skill-listing";
 
 /** One file's share of a part, in the harness's unit. */
-export interface FixedPartFile {
+export interface LoadedPartFile {
   readonly path: string;
   readonly size: number;
 }
 
 /**
- * One part of the fixed context. Each absence is its own fact, because each
+ * One part of the always-loaded context. Each absence is its own fact, because each
  * calls for a different reading:
  *
  *   - `counted` — the part loads, and this is its size;
@@ -74,28 +74,28 @@ export interface FixedPartFile {
  *   - `unresolved` — a style is selected by a name no repository file
  *     declares: a built-in style, or a typo that loads the default.
  */
-export type FixedPart =
+export type LoadedPart =
   | {
       readonly kind: "counted";
       readonly total: number;
-      readonly files: readonly FixedPartFile[];
+      readonly files: readonly LoadedPartFile[];
     }
   | { readonly kind: "none" }
   | { readonly kind: "not-supported" }
   | { readonly kind: "not-modelled" }
   | { readonly kind: "unresolved"; readonly name: string };
 
-export interface FixedContext {
+export interface AlwaysLoadedContext {
   readonly unit: HarnessUnit;
   /** The instructions' committed total — the same number the weight scores. */
   readonly instructions: number;
-  readonly outputStyle: FixedPart;
-  readonly skillListing: FixedPart;
+  readonly outputStyle: LoadedPart;
+  readonly skillListing: LoadedPart;
   /** Instructions plus every `counted` part. */
   readonly total: number;
 }
 
-type FixedLayout = Pick<
+type AlwaysLoadedLayout = Pick<
   PluginLayout,
   | "outputStyles"
   | "userSurfaceRoot"
@@ -112,24 +112,24 @@ export interface WeighedInstructions {
   readonly committedTotal: number;
 }
 
-export interface FixedContextInput {
+export interface AlwaysLoadedInput {
   readonly weight: WeighedInstructions;
   readonly files: Readonly<Record<string, string>>;
-  readonly layout: FixedLayout;
+  readonly layout: AlwaysLoadedLayout;
   readonly dialect: Pick<HarnessDialect, "skillListing">;
 }
 
 /** What one part is measured from: the input, in the weight's unit. */
-export interface FixedPartInput {
+export interface LoadedPartInput {
   readonly files: Readonly<Record<string, string>>;
-  readonly layout: FixedLayout;
+  readonly layout: AlwaysLoadedLayout;
   readonly dialect: Pick<HarnessDialect, "skillListing">;
   readonly unit: HarnessUnit;
 }
 
 /** The committed settings object; `{}` when absent or not parseable. */
 function committedSettings(
-  layout: FixedLayout,
+  layout: AlwaysLoadedLayout,
   files: Readonly<Record<string, string>>,
 ): Readonly<Record<string, unknown>> {
   const text = files[layout.settingsPath];
@@ -141,7 +141,7 @@ function committedSettings(
   }
 }
 
-const counted = (files: readonly FixedPartFile[]): FixedPart =>
+const counted = (files: readonly LoadedPartFile[]): LoadedPart =>
   files.length === 0
     ? { kind: "none" }
     : {
@@ -152,7 +152,7 @@ const counted = (files: readonly FixedPartFile[]): FixedPart =>
 
 /** The style files in the folder a session at the repository root reads. */
 function sessionStyles(
-  layout: FixedLayout,
+  layout: AlwaysLoadedLayout,
   files: Readonly<Record<string, string>>,
 ): readonly OutputStyle[] {
   const rules = layout.outputStyles;
@@ -173,9 +173,9 @@ function sessionStyles(
 
 /** The selected output style's part. */
 export function outputStylePart(
-  input: FixedPartInput,
+  input: LoadedPartInput,
   settings: Readonly<Record<string, unknown>>,
-): FixedPart {
+): LoadedPart {
   const rules = input.layout.outputStyles;
   if (rules === undefined) return { kind: "not-supported" };
   if (rules.selected === undefined) return { kind: "not-modelled" };
@@ -194,7 +194,7 @@ export function outputStylePart(
  * reads ({@link skillDiscoveryOf}), read once.
  */
 export function sessionSkills(
-  layout: FixedLayout,
+  layout: AlwaysLoadedLayout,
   files: Readonly<Record<string, string>>,
 ): readonly ListedSkill[] {
   const home = skillsHome(layout);
@@ -224,9 +224,9 @@ export function sessionSkills(
 
 /** The skill listing's part: each listed skill's entry, sized. */
 export function skillListingPart(
-  input: FixedPartInput,
+  input: LoadedPartInput,
   settings: Readonly<Record<string, unknown>>,
-): FixedPart {
+): LoadedPart {
   const rules = input.dialect.skillListing;
   if (rules === undefined) return { kind: "not-modelled" };
   return counted(
@@ -240,16 +240,18 @@ export function skillListingPart(
 }
 
 /** The size a part adds to the sum: its total when counted, else nothing. */
-export const partTotal = (part: FixedPart): number =>
+export const partTotal = (part: LoadedPart): number =>
   part.kind === "counted" ? part.total : 0;
 
 /**
- * Weigh the fixed context: the instructions' committed total (already
+ * Weigh the always-loaded context: the instructions' committed total (already
  * measured by the instruction weight) plus the selected output style and the
  * skill listing, each in the same unit by the same `sizeIn`.
  */
-export function weighFixedContext(input: FixedContextInput): FixedContext {
-  const part: FixedPartInput = {
+export function weighAlwaysLoaded(
+  input: AlwaysLoadedInput,
+): AlwaysLoadedContext {
+  const part: LoadedPartInput = {
     files: input.files,
     layout: input.layout,
     dialect: input.dialect,

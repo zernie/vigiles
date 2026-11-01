@@ -46,7 +46,7 @@ const messageFor = (f: DeprecatedKeyFilesFinding): string =>
 
 /**
  * `lint`'s side of the rule. Runs ONCE over the repository, like the
- * instruction-weight ratchet: a nested bundle's spec would otherwise be
+ * context-creep ratchet: a nested bundle's spec would otherwise be
  * reported again by every bundle that encloses it. Warning by default — a
  * deprecation that gated would turn a consumer's CI red on upgrade, which the
  * one-major window exists to prevent.

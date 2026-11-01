@@ -1,11 +1,11 @@
 /**
- * DRIFT TEST for the fixed context on Claude Code: the skill-listing entries
+ * DRIFT TEST for the always-loaded context on Claude Code: the skill-listing entries
  * `claudeCodeSkillListing` renders, and the body of the selected output style,
  * must appear VERBATIM in the first request the real `claude` binary sends to
  * the scripted mock model (harness tier: no key, no cost; skipped where the
  * CLI is absent).
  *
- * WHY THIS AND NOT ONLY THE GOLDEN STRINGS in `fixed-context.test.ts`. A golden
+ * WHY THIS AND NOT ONLY THE GOLDEN STRINGS in `always-loaded.test.ts`. A golden
  * string pins what we BELIEVE the harness renders; only the binary says what it
  * sends. The first run of this test found five such beliefs wrong — the
  * `when_to_use` separator, the angle-bracket escape, the control-character
@@ -16,7 +16,7 @@
  */
 import { describe, expect, test } from "vitest";
 
-import { sessionSkills } from "../../core/fixed-context.js";
+import { sessionSkills } from "../../core/always-loaded.js";
 import { styleReached } from "../../core/output-style.js";
 import { claudeAvailable, runHarnessTest } from "../../harness-test.js";
 import { claudeCodeLayout } from "./layout.js";

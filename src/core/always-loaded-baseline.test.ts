@@ -1,5 +1,5 @@
 /**
- * The ratchet over the FIXED CONTEXT (vitest, unit tier, nothing spawned):
+ * The ratchet over the ALWAYS-LOADED CONTEXT (vitest, unit tier, nothing spawned):
  * the version-2 baseline shape, and the verdict decided on the sum of the
  * instructions and the recorded parts.
  *
@@ -10,10 +10,10 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { FixedContext, FixedPart } from "./fixed-context.js";
+import type { AlwaysLoadedContext, LoadedPart } from "./always-loaded.js";
 import {
   carryUnmeasured,
-  compareFixedToBaseline,
+  compareAlwaysLoadedToBaseline,
   entryFor,
   formatBaselineVerdict,
   formatUnrecordedParts,
@@ -38,16 +38,16 @@ const weight = (size: number): Weight => ({
   redirects: [],
 });
 
-const part = (path: string, size: number): FixedPart =>
+const part = (path: string, size: number): LoadedPart =>
   size === 0
     ? { kind: "none" }
     : { kind: "counted", total: size, files: [{ path, size }] };
 
-const fixed = (
+const loaded = (
   instructions: number,
   style: number,
   listing: number,
-): FixedContext => ({
+): AlwaysLoadedContext => ({
   unit: "chars",
   instructions,
   outputStyle: part("styles/terse.md", style),
@@ -57,7 +57,7 @@ const fixed = (
 
 /** A recorded entry as `--update-baseline` would write it. */
 const recorded = (i: number, s: number, l: number): BaselineEntry =>
-  entryFor(weight(i), fixed(i, s, l));
+  entryFor(weight(i), loaded(i, s, l));
 
 describe("version 2 on disk", () => {
   it("records only the parts that are not zero", () => {
@@ -105,11 +105,11 @@ describe("version 2 on disk", () => {
   });
 });
 
-describe("compareFixedToBaseline — a version-1 file", () => {
+describe("compareAlwaysLoadedToBaseline — a version-1 file", () => {
   it("decides on the instructions and lists each new part for a note", () => {
-    const v = compareFixedToBaseline(
+    const v = compareAlwaysLoadedToBaseline(
       weight(100),
-      fixed(100, 20, 30),
+      loaded(100, 20, 30),
       entryFor(weight(100)),
       1,
     );
@@ -122,9 +122,9 @@ describe("compareFixedToBaseline — a version-1 file", () => {
   });
 
   it("stays on the instructions with no file and nothing to add", () => {
-    const v = compareFixedToBaseline(
+    const v = compareAlwaysLoadedToBaseline(
       weight(100),
-      fixed(100, 0, 0),
+      loaded(100, 0, 0),
       undefined,
       "absent",
     );
@@ -132,16 +132,16 @@ describe("compareFixedToBaseline — a version-1 file", () => {
   });
 });
 
-describe("compareFixedToBaseline — a version-2 file decides on the sum", () => {
+describe("compareAlwaysLoadedToBaseline — a version-2 file decides on the sum", () => {
   it("nets out text moved from the instructions into the style", () => {
-    const v = compareFixedToBaseline(
+    const v = compareAlwaysLoadedToBaseline(
       weight(70),
-      fixed(70, 50, 30),
+      loaded(70, 50, 30),
       recorded(100, 20, 30),
       2,
     );
     expect(v.verdict).toEqual({ kind: "held", total: 150, unit: "chars" });
-    expect(v.kind === "fixed" && v.byPart).toEqual([
+    expect(v.kind === "always-loaded" && v.byPart).toEqual([
       { part: "instructions", from: 100, to: 70 },
       { part: "output-style", from: 20, to: 50 },
       { part: "skill-listing", from: 30, to: 30 },
@@ -153,17 +153,17 @@ describe("compareFixedToBaseline — a version-2 file decides on the sum", () =>
   });
 });
 
-describe("compareFixedToBaseline — a version-2 file reports growth by part", () => {
+describe("compareAlwaysLoadedToBaseline — a version-2 file reports growth by part", () => {
   it("names the part a file grew in", () => {
-    const v = compareFixedToBaseline(
+    const v = compareAlwaysLoadedToBaseline(
       weight(100),
-      fixed(100, 20, 45),
+      loaded(100, 20, 45),
       recorded(100, 20, 30),
       2,
     );
     expect(v.verdict.kind).toBe("grew");
     expect(formatBaselineVerdict(v, ".")).toContain(
-      "fixed context grew 150 → 165 chars (+15)",
+      "always-loaded context grew 150 → 165 chars (+15)",
     );
     expect(formatBaselineVerdict(v, ".")).toContain(
       "skills/a/SKILL.md (skill listing) +15",
@@ -171,15 +171,17 @@ describe("compareFixedToBaseline — a version-2 file reports growth by part", (
   });
 
   it("reads a part missing from a version-2 entry as growth, not a note", () => {
-    const v = compareFixedToBaseline(
+    const v = compareAlwaysLoadedToBaseline(
       weight(100),
-      fixed(100, 20, 30),
+      loaded(100, 20, 30),
       recorded(100, 20, 0),
       2,
     );
     expect(v.verdict.kind).toBe("grew");
   });
+});
 
+describe("compareAlwaysLoadedToBaseline — a version-2 file whose measurement changed", () => {
   it("asks to re-record a part whose measurement changed, by name", () => {
     const old = recorded(100, 20, 30);
     const stale: BaselineEntry = {
@@ -189,7 +191,12 @@ describe("compareFixedToBaseline — a version-2 file reports growth by part", (
         "skill-listing": { measure: 0, total: 30, files: { a: 30 } },
       },
     };
-    const v = compareFixedToBaseline(weight(100), fixed(100, 20, 30), stale, 2);
+    const v = compareAlwaysLoadedToBaseline(
+      weight(100),
+      loaded(100, 20, 30),
+      stale,
+      2,
+    );
     expect(v.verdict).toEqual({
       kind: "measure-changed",
       recorded: 0,
@@ -201,22 +208,22 @@ describe("compareFixedToBaseline — a version-2 file reports growth by part", (
     );
   });
 
-  it("with no file and something to add, reports the fixed total unrecorded", () => {
-    const v = compareFixedToBaseline(
+  it("with no file and something to add, reports the always-loaded total unrecorded", () => {
+    const v = compareAlwaysLoadedToBaseline(
       weight(100),
-      fixed(100, 20, 30),
+      loaded(100, 20, 30),
       undefined,
       "absent",
     );
-    expect(v.kind).toBe("fixed");
+    expect(v.kind).toBe("always-loaded");
     expect(formatBaselineVerdict(v, ".")).toContain(
       "(150 chars always loaded)",
     );
   });
 });
 
-describe("compareFixedToBaseline — a recorded part this run cannot measure", () => {
-  const unmeasurable: readonly FixedPart[] = [
+describe("compareAlwaysLoadedToBaseline — a recorded part this run cannot measure", () => {
+  const unmeasurable: readonly LoadedPart[] = [
     { kind: "not-modelled" },
     { kind: "not-supported" },
     { kind: "unresolved", name: "Gone" },
@@ -225,15 +232,15 @@ describe("compareFixedToBaseline — a recorded part this run cannot measure", (
   it.each(unmeasurable)(
     "carries a $kind listing at its recorded size, never as 0",
     (now) => {
-      const v = compareFixedToBaseline(
+      const v = compareAlwaysLoadedToBaseline(
         weight(100),
-        { ...fixed(100, 0, 0), skillListing: now },
+        { ...loaded(100, 0, 0), skillListing: now },
         recorded(100, 0, 30),
         2,
       );
       // Not "shrank 130 → 100": the part was not measured, not cut.
       expect(v.verdict).toEqual({ kind: "held", total: 130, unit: "chars" });
-      expect(v.kind === "fixed" && v.unmeasured).toEqual([
+      expect(v.kind === "always-loaded" && v.unmeasured).toEqual([
         { part: "skill-listing", kind: now.kind, recorded: 30 },
       ]);
       const text = formatBaselineVerdict(v, ".");
@@ -245,9 +252,9 @@ describe("compareFixedToBaseline — a recorded part this run cannot measure", (
   );
 
   it("still sees the instructions grow while a part is carried", () => {
-    const v = compareFixedToBaseline(
+    const v = compareAlwaysLoadedToBaseline(
       weight(110),
-      { ...fixed(110, 20, 0), skillListing: { kind: "not-modelled" } },
+      { ...loaded(110, 20, 0), skillListing: { kind: "not-modelled" } },
       recorded(100, 20, 30),
       2,
     );
@@ -256,20 +263,20 @@ describe("compareFixedToBaseline — a recorded part this run cannot measure", (
   });
 
   it("reads `none` as a real zero: a listing emptied on purpose is a shrink", () => {
-    const v = compareFixedToBaseline(
+    const v = compareAlwaysLoadedToBaseline(
       weight(100),
-      fixed(100, 0, 0),
+      loaded(100, 0, 0),
       recorded(100, 0, 30),
       2,
     );
     expect(v.verdict.kind).toBe("shrank");
-    expect(v.kind === "fixed" && v.unmeasured).toEqual([]);
+    expect(v.kind === "always-loaded" && v.unmeasured).toEqual([]);
   });
 
   it("keeps the part on re-record, so the file stays version 2", () => {
     const old = recorded(100, 0, 30);
     const now = {
-      ...fixed(100, 0, 0),
+      ...loaded(100, 0, 0),
       skillListing: { kind: "not-modelled" } as const,
     };
     const { entry } = carryUnmeasured(entryFor(weight(100), now), now, old);

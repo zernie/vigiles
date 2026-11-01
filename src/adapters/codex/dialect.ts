@@ -52,7 +52,7 @@ export const codexDialect: HarnessDialect = {
   // DIRECTORY along root→cwd, so at the root it is one file. A monorepo with
   // twelve package-level AGENTS.md files was told it was 12x over a budget no
   // session approaches. Which files load is now `codexLayout.instructionChain`.
-  // The session-start skill listing — part of the fixed context, counted in
+  // The session-start skill listing — part of the always-loaded context, counted in
   // the same bytes as the instructions; see ./skill-listing.ts.
   skillListing: codexSkillListing,
   instructionTargets: ["AGENTS.md"],

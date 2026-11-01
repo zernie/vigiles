@@ -129,7 +129,7 @@ import {
 import type {
   CoverageThresholds,
   TestCoverageConfig,
-  InstructionWeightConfig,
+  ContextCreepConfig,
   CompileBudgetConfig,
   RuleSeverity,
 } from "./core/types.js";
@@ -150,13 +150,13 @@ import {
   handWrittenHookMessage,
   hookScriptMissingMessage,
   staleHookMessage,
-  measureFixedContext,
+  measureAlwaysLoaded,
 } from "./scan.js";
 import {
-  checkInstructionWeightRatchet,
+  checkContextCreepRatchet,
   compileWeightLine,
   type MeasuredBundle,
-} from "./instruction-weight-ratchet.js";
+} from "./context-creep-ratchet.js";
 import type { ScanReport, ScanHarness } from "./scan.js";
 import {
   frameAt,
@@ -958,7 +958,7 @@ function writeInstructionMirrors(
  *
  * `estimateTokens` is `length / 4`, calibrated for ASCII English; it undercounts
  * Cyrillic and CJK substantially. It is labelled `est.` for that reason and must
- * never become the number a rule gates on — see the instruction-weight rule.
+ * never become the number a rule gates on — see the context-creep rule.
  */
 function formatArtifactSize(markdown: string): string {
   const chars = markdown.length;
@@ -1171,19 +1171,19 @@ function isGitHubActions(): boolean {
 type AnnotationLevel = "error" | "warning" | "notice";
 
 /**
- * One bundle's always-loaded weight and fixed context, measured by the one
+ * One bundle's always-loaded weight and always-loaded context, measured by the one
  * route `scan` reports and `lint`'s ratchet gates — so `lint` and `compile`
  * cannot arrive at a different number from the audit.
  */
 function measuredBundle(
   at: string,
   abs: string,
-  harness: Parameters<typeof measureFixedContext>[1],
+  harness: Parameters<typeof measureAlwaysLoaded>[1],
 ): MeasuredBundle {
-  const m = measureFixedContext(abs, harness);
+  const m = measureAlwaysLoaded(abs, harness);
   return m.instructionWeight === null
     ? [at, null]
-    : [at, m.instructionWeight, m.fixedContext];
+    : [at, m.instructionWeight, m.alwaysLoaded];
 }
 
 /**
@@ -1547,8 +1547,14 @@ interface LintReport {
   hookBlockErrors: number;
   hookMatcherIssues: number;
   hookMatcherErrors: number;
-  instructionWeightIssues: number;
-  instructionWeightErrors: number;
+  contextCreepIssues: number;
+  contextCreepErrors: number;
+  /**
+   * Notes the context-creep ratchet raises that never count: today the one
+   * naming the old baseline file and the command that moves it. `--summary`
+   * prints them, because the session-start hook injects that output.
+   */
+  contextCreepNotes: readonly string[];
   deprecatedKeyFilesIssues: number;
   deprecatedKeyFilesErrors: number;
   docRefErrors: number;
@@ -1733,7 +1739,7 @@ function lintExitCode(report: LintReport): 0 | 1 | 2 {
     report.delegationTrifectaErrors > 0 ||
     report.hookBlockErrors > 0 ||
     report.hookMatcherErrors > 0 ||
-    report.instructionWeightErrors > 0 ||
+    report.contextCreepErrors > 0 ||
     report.deprecatedKeyFilesErrors > 0 ||
     report.symbolRefErrors > 0 ||
     report.mcpRefErrors > 0 ||
@@ -2093,7 +2099,7 @@ function verifyMarkdownModeRules(
  * suggest improvements.
  *
  * Flags:
- *   --summary   Print a single-line summary (for SessionStart hooks)
+ *   --summary   Print a single-line summary (for SessionStart hooks), plus one note line while the old baseline file exists
  *   --json      Print structured JSON report (for CI integration)
  */
 /**
@@ -2867,15 +2873,13 @@ async function runLint(
   // server naming, or an undeclared MCP server).
   const hookMatcher = overBundles(checkHookMatcher, run, lintRoots);
 
-  // 7v. Instruction-weight ratchet — the always-loaded instruction weight may
+  // 7v. Context-creep ratchet — the always-loaded instruction weight may
   // not move off the committed baseline. One file for the whole run (bundles
   // are keys inside it), so it runs ONCE over `lintRoots`, not per bundle.
-  const instructionWeight = checkInstructionWeightRatchet({
+  const contextCreep = checkContextCreepRatchet({
     root: frame.root,
-    severity: ruleSeverity(config?.rules?.["instruction-weight"]),
-    max: ruleOptions<InstructionWeightConfig>(
-      config?.rules?.["instruction-weight"],
-    )?.max,
+    severity: ruleSeverity(config?.rules?.["context-creep"]),
+    max: ruleOptions<ContextCreepConfig>(config?.rules?.["context-creep"])?.max,
     update: flags.includes("--update-baseline"),
     silent,
     measure: () =>
@@ -3065,8 +3069,9 @@ async function runLint(
     hookBlockErrors: hookBlock.errors,
     hookMatcherIssues: hookMatcher.issues,
     hookMatcherErrors: hookMatcher.errors,
-    instructionWeightIssues: instructionWeight.issues,
-    instructionWeightErrors: instructionWeight.errors,
+    contextCreepIssues: contextCreep.issues,
+    contextCreepErrors: contextCreep.errors,
+    contextCreepNotes: contextCreep.notes,
     deprecatedKeyFilesIssues: deprecatedKeyFiles.issues,
     deprecatedKeyFilesErrors: deprecatedKeyFiles.errors,
     // Only the "error" tier gates. At "warn" the findings are printed and
@@ -3155,6 +3160,11 @@ function printLintSummary(report: LintReport): void {
   } else {
     console.log(`vigiles: ${parts.join(" / ")}`);
   }
+  // One extra line per note, only when there is one: the old baseline file's
+  // rename command reaches the agent through the session-start hook.
+  report.contextCreepNotes.forEach((note) => {
+    console.log(`vigiles: note — ${note}`);
+  });
 }
 
 function collectDocumentedRules(excludes: ExcludeSet): Set<string> {
@@ -9595,7 +9605,7 @@ export async function main(): Promise<void> {
           (await compile(specs, config, excludes, { harnessFlag })) && valid;
       // The always-loaded weight the author just produced, against the
       // committed baseline — shown at the moment of change. Report-only:
-      // `lint` is the gate (rule `instruction-weight`).
+      // `lint` is the gate (rule `context-creep`).
       if (specs.length > 0) {
         const measured = measuredBundle(
           ".",

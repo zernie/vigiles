@@ -1,5 +1,5 @@
 /**
- * The instruction-weight RATCHET: the always-loaded weight may not grow past
+ * The context-creep RATCHET: the always-loaded weight may not grow past
  * what the repository itself last recorded.
  *
  * WHY A RATCHET AND NOT THE BUDGET. `./instruction-weight.ts` explains why the
@@ -32,9 +32,9 @@
  * baseline is allowed and is the point: growth is not forbidden, it is made
  * visible as a reviewed diff of a committed file.
  *
- * VERSION 2 — THE FIXED CONTEXT. The output style the committed settings select
+ * VERSION 2 — THE ALWAYS-LOADED CONTEXT. The output style the committed settings select
  * and the skill listing load at session start exactly as the instructions do
- * (`./fixed-context.ts`), so a section moved from `CLAUDE.md` into either is
+ * (`./always-loaded.ts`), so a section moved from `CLAUDE.md` into either is
  * the same relocation the sum above exists to see. A version-2 entry carries
  * them as `parts`, each with its own `measure`, and the verdict is decided on
  * the SUM of the instructions and every recorded part. Per part, so a change
@@ -59,20 +59,54 @@
  *     BEFORE re-recording.
  *
  * Pure: parsing, comparison and formatting only. Reading and writing the file
- * is the caller's (`src/instruction-weight-ratchet.ts`).
+ * is the caller's (`src/context-creep-ratchet.ts`).
  */
 import { z } from "zod";
 
 import type { InstructionWeight } from "./instruction-weight.js";
 import { MOVE_OUT_OF_ALWAYS_LOADED } from "./instruction-remedies.js";
 import type {
-  FixedContext,
-  FixedPart,
-  FixedPartName,
-} from "./fixed-context.js";
+  AlwaysLoadedContext,
+  LoadedPart,
+  LoadedPartName,
+} from "./always-loaded.js";
 
 /** Where the baseline lives, relative to the directory `.vigilesrc.json` is read from. */
-export const INSTRUCTION_BASELINE_FILE = ".vigiles/instruction-weight.json";
+export const INSTRUCTION_BASELINE_FILE = ".vigiles/context-creep.json";
+
+/**
+ * The name this baseline had before the rule became `context-creep`. Still
+ * READ when the new file is absent (a repo upgrading keeps its ratchet), never
+ * written; {@link legacyBaselineNote} tells the author how to move it.
+ */
+export const LEGACY_INSTRUCTION_BASELINE_FILE =
+  ".vigiles/instruction-weight.json";
+
+/** Which of the two baseline files exist: neither/only the new one, the old one alone, or both. */
+export type LegacyBaseline = "none" | "only" | "both";
+
+/** The command that renames the old baseline — quoted verbatim by the note. */
+export const RENAME_BASELINE_COMMAND = `git mv ${LEGACY_INSTRUCTION_BASELINE_FILE} ${INSTRUCTION_BASELINE_FILE}`;
+
+/** The command that drops a stale old baseline once the new one exists. */
+export const REMOVE_LEGACY_BASELINE_COMMAND = `git rm ${LEGACY_INSTRUCTION_BASELINE_FILE}`;
+
+/**
+ * The one-sentence NOTE (never a finding) for a repo that still has the old
+ * file, or `undefined` when it has not. The exact command is in the text: the
+ * session-start hook injects `lint --summary` into the agent, and the agent
+ * runs the command.
+ */
+export function legacyBaselineNote(legacy: LegacyBaseline): string | undefined {
+  switch (legacy) {
+    case "none":
+      return undefined;
+    case "only":
+      return `${LEGACY_INSTRUCTION_BASELINE_FILE} is the old name of the context-creep baseline (still read) — rename it with \`${RENAME_BASELINE_COMMAND}\``;
+    case "both":
+      return `${LEGACY_INSTRUCTION_BASELINE_FILE} is stale: ${INSTRUCTION_BASELINE_FILE} is read instead — delete it with \`${REMOVE_LEGACY_BASELINE_COMMAND}\``;
+  }
+}
 
 /** The command that writes the baseline — named once, quoted by every message. */
 export const UPDATE_BASELINE_COMMAND = "vigiles lint --update-baseline";
@@ -80,7 +114,7 @@ export const UPDATE_BASELINE_COMMAND = "vigiles lint --update-baseline";
 /**
  * The newest on-disk shape this release reads and writes. Bumped only on an
  * incompatible change. Version 1 is still read, and still WRITTEN when no
- * fixed-context part has anything in it — see the header for why.
+ * always-loaded part has anything in it — see the header for why.
  */
 export const INSTRUCTION_BASELINE_VERSION = 2;
 
@@ -89,10 +123,10 @@ export const INSTRUCTION_BASELINE_VERSION = 2;
  * {@link INSTRUCTION_WEIGHT_MEASURE}, per part, so a change to how the skill
  * listing is rendered re-records the listing and names it.
  */
-export const FIXED_PART_MEASURE = 1;
+export const LOADED_PART_MEASURE = 1;
 
 /** The parts a version-2 entry may carry, in the order they are printed. */
-export const FIXED_PART_NAMES: readonly FixedPartName[] = [
+export const LOADED_PART_NAMES: readonly LoadedPartName[] = [
   "output-style",
   "skill-listing",
 ];
@@ -132,7 +166,7 @@ const entrySchema = z
     measure: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
     files: z.record(z.string(), z.number().int().nonnegative()),
-    /** Version 2 only: the fixed-context parts beside the instructions. */
+    /** Version 2 only: the always-loaded parts beside the instructions. */
     parts: z
       .object({
         "output-style": partSchema.optional(),
@@ -160,7 +194,7 @@ const baselineSchema = z
 
 /** One bundle's recorded weight. */
 export type BaselineEntry = Readonly<z.infer<typeof entrySchema>>;
-/** One recorded fixed-context part. */
+/** One recorded always-loaded part. */
 export type BaselinePart = Readonly<z.infer<typeof partSchema>>;
 /** The whole committed file. */
 export type InstructionBaseline = z.infer<typeof baselineSchema>;
@@ -200,24 +234,24 @@ const sortedFiles = (
   );
 
 /** A part as it would be recorded, or nothing when it adds nothing. */
-function partEntry(part: FixedPart): BaselinePart | undefined {
+function partEntry(part: LoadedPart): BaselinePart | undefined {
   return part.kind === "counted" && part.total > 0
     ? {
-        measure: FIXED_PART_MEASURE,
+        measure: LOADED_PART_MEASURE,
         total: part.total,
         files: sortedFiles(part.files),
       }
     : undefined;
 }
 
-/** The parts of a fixed context that would be recorded, by name. */
+/** The parts of an always-loaded that would be recorded, by name. */
 function partEntries(
-  fixed: FixedContext | undefined,
+  loaded: AlwaysLoadedContext | undefined,
 ): Readonly<NonNullable<BaselineEntry["parts"]>> | undefined {
-  if (fixed === undefined) return undefined;
+  if (loaded === undefined) return undefined;
   const byName = {
-    "output-style": partEntry(fixed.outputStyle),
-    "skill-listing": partEntry(fixed.skillListing),
+    "output-style": partEntry(loaded.outputStyle),
+    "skill-listing": partEntry(loaded.skillListing),
   };
   const kept = Object.entries(byName).filter(([, p]) => p !== undefined);
   return kept.length === 0 ? undefined : Object.fromEntries(kept);
@@ -225,14 +259,14 @@ function partEntries(
 
 /**
  * What a measured weight would be recorded as: the SCORED files only, plus
- * every fixed-context part that is not zero when one is handed in.
+ * every always-loaded part that is not zero when one is handed in.
  */
 export function entryFor(
   weight: InstructionWeight,
-  fixed?: FixedContext,
+  loaded?: AlwaysLoadedContext,
 ): BaselineEntry {
   const scored = weight.files.filter((f) => f.scope === "repo");
-  const parts = partEntries(fixed);
+  const parts = partEntries(loaded);
   return {
     unit: weight.unit,
     measure: INSTRUCTION_WEIGHT_MEASURE,
@@ -269,8 +303,8 @@ export type RatchetVerdict =
       readonly kind: "measure-changed";
       readonly recorded: number;
       readonly current: number;
-      /** Set when it is one fixed-context PART whose measurement changed. */
-      readonly part?: FixedPartName;
+      /** Set when it is one always-loaded PART whose measurement changed. */
+      readonly part?: LoadedPartName;
     }
   | {
       readonly kind: "held";
@@ -314,7 +348,7 @@ export function compareToBaseline(
 function measureChanged(
   recorded: number,
   current: number,
-  part?: FixedPartName,
+  part?: LoadedPartName,
 ): RatchetVerdict {
   return {
     kind: "measure-changed",
@@ -352,18 +386,18 @@ function compareEntries(
   };
 }
 
-const PART_LABEL: Readonly<Record<FixedPartName, string>> = {
+const PART_LABEL: Readonly<Record<LoadedPartName, string>> = {
   "output-style": "output style",
   "skill-listing": "skill listing",
 };
 
 /**
- * One entry with its parts folded in: the total is the fixed sum, and each
+ * One entry with its parts folded in: the total is the always-loaded sum, and each
  * part's files are named with the part, so a `grew` message says which part a
  * file moved in. In memory only — never written.
  */
 function folded(entry: BaselineEntry): BaselineEntry {
-  const parts = FIXED_PART_NAMES.flatMap((name) => {
+  const parts = LOADED_PART_NAMES.flatMap((name) => {
     const part = entry.parts?.[name];
     return part === undefined ? [] : [{ name, part }];
   });
@@ -385,7 +419,7 @@ function folded(entry: BaselineEntry): BaselineEntry {
 
 /** One part's recorded and current size, for the line that says where weight moved. */
 export interface PartMove {
-  readonly part: "instructions" | FixedPartName;
+  readonly part: "instructions" | LoadedPartName;
   readonly from: number;
   readonly to: number;
 }
@@ -395,7 +429,7 @@ function movesBetween(
   current: BaselineEntry,
   recorded: BaselineEntry,
 ): readonly PartMove[] {
-  const parts = FIXED_PART_NAMES.flatMap((part): PartMove[] => {
+  const parts = LOADED_PART_NAMES.flatMap((part): PartMove[] => {
     const from = recorded.parts?.[part]?.total;
     const to = current.parts?.[part]?.total;
     return from === undefined && to === undefined
@@ -413,7 +447,7 @@ function partMeasureChanged(
   current: BaselineEntry,
   recorded: BaselineEntry,
 ): RatchetVerdict | undefined {
-  const changed = FIXED_PART_NAMES.find((name) => {
+  const changed = LOADED_PART_NAMES.find((name) => {
     const was = recorded.parts?.[name]?.measure;
     const now = current.parts?.[name]?.measure;
     return was !== undefined && now !== undefined && was !== now;
@@ -421,18 +455,18 @@ function partMeasureChanged(
   if (changed === undefined) return undefined;
   return measureChanged(
     recorded.parts?.[changed]?.measure ?? 0,
-    FIXED_PART_MEASURE,
+    LOADED_PART_MEASURE,
     changed,
   );
 }
 
 /**
- * The ratchet's verdict for one bundle with its fixed context:
+ * The ratchet's verdict for one bundle with its always-loaded context:
  *
  *   - `instructions-only` — decided on the instructions as before. A version-1
  *     file, or a repo with no part to add and no file yet. Each part that is
  *     not zero is listed so the caller can print it as a NOTE.
- *   - `fixed` — decided on the SUM of the instructions and the parts: a
+ *   - `always-loaded` — decided on the SUM of the instructions and the parts: a
  *     version-2 file, or no file yet and something to add (recording then
  *     writes version 2). `byPart` says where weight moved, also on `held`,
  *     because a held sum can hide a listing that doubled while the
@@ -443,12 +477,12 @@ export type BaselineVerdict =
       readonly kind: "instructions-only";
       readonly verdict: RatchetVerdict;
       readonly unrecordedParts: readonly {
-        readonly part: FixedPartName;
+        readonly part: LoadedPartName;
         readonly total: number;
       }[];
     }
   | {
-      readonly kind: "fixed";
+      readonly kind: "always-loaded";
       readonly verdict: RatchetVerdict;
       readonly byPart: readonly PartMove[];
       /** Recorded parts this run cannot measure, carried rather than compared. */
@@ -459,7 +493,7 @@ export type BaselineVerdict =
  * A part the baseline records and this run cannot measure: the adapter no
  * longer models it (`not-modelled`), the harness has no such part
  * (`not-supported`), or the selected style names no repository file
- * (`unresolved`). None of these is ZERO (`./fixed-context.ts` keeps them apart
+ * (`unresolved`). None of these is ZERO (`./always-loaded.ts` keeps them apart
  * for that reason), so the recorded size is carried into the comparison and
  * into a re-record instead of being read as a cut. Reading it as 0 would print
  * "shrank … lock the cut in", and following that advice would delete the part
@@ -467,13 +501,16 @@ export type BaselineVerdict =
  * returning the gate to the instructions alone.
  */
 export interface UnmeasuredPart {
-  readonly part: FixedPartName;
-  readonly kind: Exclude<FixedPart["kind"], "counted" | "none">;
+  readonly part: LoadedPartName;
+  readonly kind: Exclude<LoadedPart["kind"], "counted" | "none">;
   readonly recorded: number;
 }
 
-const partOf = (fixed: FixedContext, name: FixedPartName): FixedPart =>
-  name === "output-style" ? fixed.outputStyle : fixed.skillListing;
+const partOf = (
+  loaded: AlwaysLoadedContext,
+  name: LoadedPartName,
+): LoadedPart =>
+  name === "output-style" ? loaded.outputStyle : loaded.skillListing;
 
 /**
  * `current` with every recorded part this run cannot measure carried over from
@@ -482,15 +519,15 @@ const partOf = (fixed: FixedContext, name: FixedPartName): FixedPart =>
  */
 export function carryUnmeasured(
   current: BaselineEntry,
-  fixed: FixedContext,
+  loaded: AlwaysLoadedContext,
   recorded: BaselineEntry | undefined,
 ): {
   readonly entry: BaselineEntry;
   readonly unmeasured: readonly UnmeasuredPart[];
 } {
-  const carried = FIXED_PART_NAMES.flatMap((name) => {
+  const carried = LOADED_PART_NAMES.flatMap((name) => {
     const was = recorded?.parts?.[name];
-    const now = partOf(fixed, name);
+    const now = partOf(loaded, name);
     return was === undefined || now.kind === "counted" || now.kind === "none"
       ? []
       : [{ name, was, kind: now.kind }];
@@ -516,13 +553,13 @@ export type BaselineFileVersion =
   | typeof INSTRUCTION_BASELINE_VERSION
   | "absent";
 
-export function compareFixedToBaseline(
+export function compareAlwaysLoadedToBaseline(
   weight: InstructionWeight,
-  fixed: FixedContext,
+  loaded: AlwaysLoadedContext,
   recorded: BaselineEntry | undefined,
   file: BaselineFileVersion,
 ): BaselineVerdict {
-  const measuredNow = entryFor(weight, fixed);
+  const measuredNow = entryFor(weight, loaded);
   const sumGated =
     file === INSTRUCTION_BASELINE_VERSION ||
     (file === "absent" && measuredNow.parts !== undefined);
@@ -530,24 +567,24 @@ export function compareFixedToBaseline(
     return {
       kind: "instructions-only",
       verdict: compareToBaseline(weight, recorded),
-      unrecordedParts: FIXED_PART_NAMES.flatMap((part) => {
+      unrecordedParts: LOADED_PART_NAMES.flatMap((part) => {
         const total = measuredNow.parts?.[part]?.total;
         return total === undefined ? [] : [{ part, total }];
       }),
     };
   }
-  return compareSum(measuredNow, fixed, recorded);
+  return compareSum(measuredNow, loaded, recorded);
 }
 
-/** The `fixed` verdict: the sum, with unmeasurable recorded parts carried. */
+/** The `always-loaded` verdict: the sum, with unmeasurable recorded parts carried. */
 function compareSum(
   measuredNow: BaselineEntry,
-  fixed: FixedContext,
+  loaded: AlwaysLoadedContext,
   recorded: BaselineEntry | undefined,
 ): BaselineVerdict {
   if (recorded === undefined) {
     return {
-      kind: "fixed",
+      kind: "always-loaded",
       verdict: { kind: "unrecorded", current: folded(measuredNow) },
       byPart: [],
       unmeasured: [],
@@ -555,11 +592,11 @@ function compareSum(
   }
   const { entry: current, unmeasured } = carryUnmeasured(
     measuredNow,
-    fixed,
+    loaded,
     recorded,
   );
   return {
-    kind: "fixed",
+    kind: "always-loaded",
     verdict:
       partMeasureChanged(current, recorded) ??
       compareEntries(folded(current), folded(recorded)),
@@ -659,7 +696,7 @@ function measureChangedText(
   const whose =
     verdict.part === undefined ? "" : `'s ${PART_LABEL[verdict.part]}`;
   return (
-    `${where}the instruction-weight baseline${whose} was recorded by measurement ${String(verdict.recorded)}, this vigiles uses ${String(verdict.current)} — ` +
+    `${where}the context-creep baseline${whose} was recorded by measurement ${String(verdict.recorded)}, this vigiles uses ${String(verdict.current)} — ` +
     `what counts changed in vigiles, not in your files. Re-record it with \`${UPDATE_BASELINE_COMMAND}\``
   );
 }
@@ -674,12 +711,12 @@ export function formatVerdict(
   switch (verdict.kind) {
     case "unrecorded":
       return (
-        `${where}no instruction-weight baseline recorded (${n(verdict.current.total)} ${verdict.current.unit} always loaded) — ` +
+        `${where}no context-creep baseline recorded (${n(verdict.current.total)} ${verdict.current.unit} always loaded) — ` +
         `run \`${UPDATE_BASELINE_COMMAND}\` and commit ${INSTRUCTION_BASELINE_FILE} to stop it growing unnoticed`
       );
     case "unit-changed":
       return (
-        `${where}the instruction-weight baseline is in ${verdict.recorded} but this harness counts ${verdict.current} — ` +
+        `${where}the context-creep baseline is in ${verdict.recorded} but this harness counts ${verdict.current} — ` +
         `re-record it with \`${UPDATE_BASELINE_COMMAND}\``
       );
     case "measure-changed":
@@ -729,7 +766,7 @@ export function formatBaselineVerdict(
   if (verdict.kind === "instructions-only") {
     return formatVerdict(verdict.verdict, at);
   }
-  const text = formatVerdict(verdict.verdict, at, "fixed context");
+  const text = formatVerdict(verdict.verdict, at, "always-loaded context");
   const lines = [
     text,
     ...(verdict.byPart.length === 0 ? [] : [describeMoves(verdict.byPart)]),
@@ -752,7 +789,7 @@ export function describeUnmeasured(u: UnmeasuredPart): string {
  * one cost of recording, an older vigiles reading the new file as unreadable.
  */
 export function formatUnrecordedParts(
-  parts: readonly { readonly part: FixedPartName; readonly total: number }[],
+  parts: readonly { readonly part: LoadedPartName; readonly total: number }[],
   unit: BaselineEntry["unit"],
   at: string,
 ): string {

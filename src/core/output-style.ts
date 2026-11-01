@@ -46,7 +46,7 @@ export interface OutputStyleRules {
   /**
    * Which style ONE settings object switches on — the inverse of
    * {@link select}. Pure: the caller parses the file. Optional: absent ⇒ the
-   * fixed-context report says the selection is not modelled for this harness,
+   * always-loaded report says the selection is not modelled for this harness,
    * rather than guessing that nothing is selected.
    */
   readonly selected?: (

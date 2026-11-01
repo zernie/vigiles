@@ -1,6 +1,6 @@
 /**
- * `lint`'s side of the instruction-weight ratchet: measure each scored bundle,
- * compare it with `.vigiles/instruction-weight.json`, and — only under the
+ * `lint`'s side of the context-creep ratchet: measure each scored bundle,
+ * compare it with `.vigiles/context-creep.json`, and — only under the
  * explicit `--update-baseline` — write that file.
  *
  * The decisions (what a verdict is, what it says) live in
@@ -20,10 +20,11 @@ import { dirname, join } from "node:path";
 
 import {
   INSTRUCTION_BASELINE_FILE,
+  LEGACY_INSTRUCTION_BASELINE_FILE,
   UPDATE_BASELINE_COMMAND,
   checkCeiling,
   carryUnmeasured,
-  compareFixedToBaseline,
+  compareAlwaysLoadedToBaseline,
   describeUnmeasured,
   entryFor,
   formatBaselineVerdict,
@@ -31,6 +32,7 @@ import {
   formatRefusal,
   formatUnrecordedParts,
   formatWeightLine,
+  legacyBaselineNote,
   parseInstructionBaseline,
   recordEntries,
   serializeBaseline,
@@ -38,17 +40,43 @@ import {
   type BaselineFileVersion,
   type BaselineVerdict,
   type InstructionBaseline,
+  type LegacyBaseline,
   type ParsedBaseline,
 } from "./core/instruction-baseline.js";
-import type { FixedContext } from "./core/fixed-context.js";
+import type { AlwaysLoadedContext } from "./core/always-loaded.js";
 import type { InstructionWeight } from "./core/instruction-weight.js";
 import type { RuleSeverity } from "./core/types.js";
 
 /** The file on disk, read once: absent, parsed, or refused. */
 export type BaselineOnDisk = { readonly kind: "absent" } | ParsedBaseline;
 
+/**
+ * Where the baseline is read from, and whether the pre-rename file is still
+ * around. The new file wins; the old one is read only when the new one is
+ * absent, so a repo that upgrades keeps its ratchet until it renames the file.
+ */
+export interface BaselineSource {
+  /** The path read (repo-relative): the new file, else the old one, else the new path. */
+  readonly file: string;
+  readonly legacy: LegacyBaseline;
+}
+
+export function baselineSource(root: string): BaselineSource {
+  const hasNew = existsSync(join(root, INSTRUCTION_BASELINE_FILE));
+  const hasOld = existsSync(join(root, LEGACY_INSTRUCTION_BASELINE_FILE));
+  if (hasNew) {
+    return {
+      file: INSTRUCTION_BASELINE_FILE,
+      legacy: hasOld ? "both" : "none",
+    };
+  }
+  return hasOld
+    ? { file: LEGACY_INSTRUCTION_BASELINE_FILE, legacy: "only" }
+    : { file: INSTRUCTION_BASELINE_FILE, legacy: "none" };
+}
+
 export function readInstructionBaseline(root: string): BaselineOnDisk {
-  const path = join(root, INSTRUCTION_BASELINE_FILE);
+  const path = join(root, baselineSource(root).file);
   return existsSync(path)
     ? parseInstructionBaseline(readFileSync(path, "utf-8"))
     : { kind: "absent" };
@@ -56,13 +84,17 @@ export function readInstructionBaseline(root: string): BaselineOnDisk {
 
 /**
  * One bundle's measurement: where it is, and either nothing to weigh or its
- * weight WITH the fixed context around it. One union, not an optional third
- * element: a weight without its fixed context used to read as "no parts", so a
+ * weight WITH the always-loaded context around it. One union, not an optional third
+ * element: a weight without its always-loaded context used to read as "no parts", so a
  * recorded part was compared as 0 — a shrink nobody made.
  */
 export type MeasuredBundle =
   | readonly [at: string, weight: null]
-  | readonly [at: string, weight: InstructionWeight, fixed: FixedContext];
+  | readonly [
+      at: string,
+      weight: InstructionWeight,
+      loaded: AlwaysLoadedContext,
+    ];
 
 /** Write the baseline for every measured bundle; returns what was written. */
 export function writeInstructionBaseline(
@@ -92,9 +124,9 @@ function recordedEntry(
   previous: Readonly<InstructionBaseline> | undefined,
 ): BaselineEntry | null {
   if (m[1] === null) return null;
-  const [at, weight, fixed] = m;
+  const [at, weight, loaded] = m;
   const old = entryAt(previous?.bundles ?? {}, at);
-  return carryUnmeasured(entryFor(weight, fixed), fixed, old).entry;
+  return carryUnmeasured(entryFor(weight, loaded), loaded, old).entry;
 }
 
 /** One bundle's recorded entry, or `undefined` when the file has none. */
@@ -129,9 +161,11 @@ export function ratchetLines(
   onDisk: BaselineOnDisk,
   measured: readonly MeasuredBundle[],
   max?: number,
+  source: BaselineSource = { file: INSTRUCTION_BASELINE_FILE, legacy: "none" },
 ): readonly RatchetLine[] {
   return [
-    ...baselineLines(onDisk, measured),
+    ...baselineLines(onDisk, measured, source.file),
+    ...legacyLines(source.legacy),
     ...measured.flatMap(([at, weight]) => ceilingLine(at, weight, max)),
   ];
 }
@@ -149,28 +183,35 @@ function ceilingLine(
 }
 
 /** The one finding an unreadable baseline file gets. */
-const unreadableLine = (message: string): RatchetLine => ({
+const unreadableLine = (message: string, file: string): RatchetLine => ({
   at: ".",
   status: "finding",
   text:
-    `${INSTRUCTION_BASELINE_FILE} cannot be read (${message}) — ` +
+    `${file} cannot be read (${message}) — ` +
     `re-record it with \`${UPDATE_BASELINE_COMMAND}\``,
 });
+
+/** The rename/remove NOTE for a repo that still has the old baseline file. */
+function legacyLines(legacy: LegacyBaseline): readonly RatchetLine[] {
+  const text = legacyBaselineNote(legacy);
+  return text === undefined ? [] : [{ at: ".", status: "note", text }];
+}
 
 function baselineLines(
   onDisk: BaselineOnDisk,
   measured: readonly MeasuredBundle[],
+  path: string,
 ): readonly RatchetLine[] {
-  if (onDisk.kind === "invalid") return [unreadableLine(onDisk.message)];
+  if (onDisk.kind === "invalid") return [unreadableLine(onDisk.message, path)];
   const recorded = onDisk.kind === "ok" ? onDisk.baseline.bundles : {};
   const file: BaselineFileVersion =
     onDisk.kind === "ok" ? onDisk.baseline.version : "absent";
   return measured.flatMap((m): RatchetLine[] => {
     if (m[1] === null) return [];
-    const [at, weight, fixed] = m;
-    const verdict = compareFixedToBaseline(
+    const [at, weight, loaded] = m;
+    const verdict = compareAlwaysLoadedToBaseline(
       weight,
-      fixed,
+      loaded,
       entryAt(recorded, at),
       file,
     );
@@ -209,7 +250,7 @@ function unfollowedNote(weight: InstructionWeight): string {
 
 /**
  * A version-1 file's NOTE for parts that are not in it. Never a finding: a
- * repo whose file predates the fixed context must not go red on upgrade — it
+ * repo whose file predates the always-loaded context must not go red on upgrade — it
  * records the parts when it chooses to, and they gate from then on.
  */
 function partNotes(
@@ -243,7 +284,7 @@ export function updateRefusals(
   });
 }
 
-/** The options {@link checkInstructionWeightRatchet} takes. */
+/** The options {@link checkContextCreepRatchet} takes. */
 interface RatchetOptions {
   readonly root: string;
   readonly severity: RuleSeverity;
@@ -286,7 +327,7 @@ function printReport(
   severity: RuleSeverity,
   recorded: boolean,
 ): void {
-  console.log("\nInstruction-weight ratchet:\n");
+  console.log("\nContext-creep ratchet:\n");
   if (recorded) console.log(`  ✓ recorded ${INSTRUCTION_BASELINE_FILE}`);
   const marks = {
     finding: severity === "error" ? "✗" : "⚠",
@@ -298,20 +339,46 @@ function printReport(
   });
 }
 
-/** Run the ratchet for `lint`: print, annotate, count. */
-export function checkInstructionWeightRatchet(opts: RatchetOptions): {
-  issues: number;
-  errors: number;
-} {
-  const { severity, update, silent } = opts;
-  if (!severity && !update) return { issues: 0, errors: 0 };
-  const measured = opts.measure();
-  const { onDisk, refusals } = recordOrRead(opts, measured);
+/** What {@link checkContextCreepRatchet} hands back to `lint`. */
+interface RatchetResult {
+  readonly issues: number;
+  readonly errors: number;
+  /** Notes to show even when `lint` is silent (`--summary`): the old-file rename command. */
+  readonly notes: readonly string[];
+}
+
+/** The notes `--summary` carries: only while the rule is on, and only the old-file one. */
+function noteTexts(
+  severity: RuleSeverity,
+  source: BaselineSource,
+): readonly string[] {
+  return severity ? legacyLines(source.legacy).map((l) => l.text) : [];
+}
+
+/** The refusals, printed and annotated: a baseline above the ceiling is never written. */
+function reportRefusals(
+  opts: RatchetOptions,
+  refusals: readonly string[],
+): void {
   refusals.forEach((message) => {
     console.error(`✗ ${message}`);
     opts.annotate("error", message);
   });
-  const lines = severity ? ratchetLines(onDisk, measured, opts.max) : [];
+}
+
+/** Run the ratchet for `lint`: print, annotate, count. */
+export function checkContextCreepRatchet(opts: RatchetOptions): RatchetResult {
+  const { severity, update, silent } = opts;
+  if (!severity && !update) return { issues: 0, errors: 0, notes: [] };
+  const measured = opts.measure();
+  const { onDisk, refusals } = recordOrRead(opts, measured);
+  reportRefusals(opts, refusals);
+  // Read AFTER a possible write: an update leaves the new file beside an old
+  // one, and the note must then say the old one is stale.
+  const source = baselineSource(opts.root);
+  const lines = severity
+    ? ratchetLines(onDisk, measured, opts.max, source)
+    : [];
   const findings = lines.filter((l) => l.status === "finding");
   if (!silent && (update || lines.length > 0)) {
     printReport(lines, severity, update && refusals.length === 0);
@@ -323,6 +390,7 @@ export function checkInstructionWeightRatchet(opts: RatchetOptions): {
   return {
     issues: findings.length + refusals.length,
     errors: (severity === "error" ? findings.length : 0) + refusals.length,
+    notes: noteTexts(severity, source),
   };
 }
 
@@ -336,23 +404,25 @@ export function compileWeightLine(
   measured: MeasuredBundle,
 ): string | null {
   if (measured[1] === null) return null;
-  const [, weight, fixed] = measured;
+  const [, weight, loaded] = measured;
   const onDisk = readInstructionBaseline(root);
   if (onDisk.kind === "invalid") {
-    return `always-loaded: ${INSTRUCTION_BASELINE_FILE} cannot be read (${onDisk.message})`;
+    return `always-loaded: ${baselineSource(root).file} cannot be read (${onDisk.message})`;
   }
   const recorded = onDisk.kind === "ok" ? onDisk.baseline.bundles : {};
-  const verdict = compareFixedToBaseline(
+  const verdict = compareAlwaysLoadedToBaseline(
     weight,
-    fixed,
+    loaded,
     entryAt(recorded, "."),
     onDisk.kind === "ok" ? onDisk.baseline.version : "absent",
   );
   const line = formatWeightLine(
     verdict.verdict,
-    verdict.kind === "fixed" ? "fixed context" : "always-loaded",
+    verdict.kind === "always-loaded"
+      ? "always-loaded context"
+      : "always-loaded",
   );
-  return verdict.kind === "fixed" && verdict.unmeasured.length > 0
+  return verdict.kind === "always-loaded" && verdict.unmeasured.length > 0
     ? [line, ...verdict.unmeasured.map(describeUnmeasured)].join("\n  ")
     : line;
 }

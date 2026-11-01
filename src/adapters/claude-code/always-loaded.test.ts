@@ -1,20 +1,20 @@
 /**
- * The fixed context as Claude Code loads it (vitest, unit tier, nothing
+ * The always-loaded context as Claude Code loads it (vitest, unit tier, nothing
  * spawned): its output-style selection and its skill-listing entry, run
  * through the core sum on a fixture repo.
  *
- * The Codex twin is `src/adapters/codex/fixed-context.test.ts`.
+ * The Codex twin is `src/adapters/codex/always-loaded.test.ts`.
  */
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { applyRules } from "../../core/apply-rules.js";
-import { weighFixedContext } from "../../core/fixed-context.js";
+import { weighAlwaysLoaded } from "../../core/always-loaded.js";
 import { cleanupTmpDir, makeTmpDir } from "../../core/test-utils.js";
 import {
   formatScanReport,
-  measureFixedContext,
+  measureAlwaysLoaded,
   scanPlugin,
 } from "../../scan.js";
 import { scanFiles } from "../../scan-files.js";
@@ -34,7 +34,7 @@ const INSTRUCTION_FILE = claudeCodeLayout.instructionFile;
  */
 function weigh(files: Record<string, string>) {
   const root = files[INSTRUCTION_FILE];
-  return weighFixedContext({
+  return weighAlwaysLoaded({
     weight: {
       unit: "chars",
       committedTotal: root === undefined ? 0 : sizeIn(root, "chars"),
@@ -48,7 +48,7 @@ function weigh(files: Record<string, string>) {
 const skill = (fm: string, body = "Body line.\n"): string =>
   `---\n${fm}\n---\n${body}`;
 
-describe("Claude Code fixed context", () => {
+describe("Claude Code always-loaded context", () => {
   it("counts CLAUDE.md, the selected style's body and each listed entry", () => {
     const f = weigh({
       "CLAUDE.md": "a".repeat(1000),
@@ -237,7 +237,7 @@ describe("claudeCodeSkillListing.entry: the label and its fallbacks", () => {
  * `scanFiles` from a map — the browser demo's input. They must agree field for
  * field, and the text report must print the rows.
  */
-describe("Claude Code fixed context through scanPlugin and scanFiles", () => {
+describe("Claude Code always-loaded context through scanPlugin and scanFiles", () => {
   const fixture: Record<string, string> = {
     "CLAUDE.md": "# Rules\n" + "a".repeat(200),
     ".claude/settings.json": '{"outputStyle":"Terse"}',
@@ -250,19 +250,19 @@ describe("Claude Code fixed context through scanPlugin and scanFiles", () => {
     ".claude/skills/group/nested/SKILL.md": "---\ndescription: nested\n---\n",
   };
 
-  it("measures the same fixed context on disk and in the map, and prints it", () => {
-    const tmp = makeTmpDir("fixed-context-cc");
+  it("measures the same always-loaded context on disk and in the map, and prints it", () => {
+    const tmp = makeTmpDir("always-loaded-cc");
     for (const [rel, body] of Object.entries(fixture)) {
       mkdirSync(dirname(join(tmp, rel)), { recursive: true });
       writeFileSync(join(tmp, rel), body);
     }
     const disk = scanPlugin(tmp, claudeCodeLayout, claudeCodeDialect);
     const map = scanFiles(fixture, claudeCodeLayout, claudeCodeDialect);
-    expect(disk.fixedContext).toEqual(map.fixedContext);
-    expect(measureFixedContext(tmp, claudeCodeAdapter).fixedContext).toEqual(
-      disk.fixedContext,
+    expect(disk.alwaysLoaded).toEqual(map.alwaysLoaded);
+    expect(measureAlwaysLoaded(tmp, claudeCodeAdapter).alwaysLoaded).toEqual(
+      disk.alwaysLoaded,
     );
-    expect(disk.fixedContext?.outputStyle).toEqual({
+    expect(disk.alwaysLoaded?.outputStyle).toEqual({
       kind: "counted",
       total: "Answer in one line.".length,
       files: [{ path: ".claude/output-styles/Terse.md", size: 19 }],
@@ -276,13 +276,13 @@ describe("Claude Code fixed context through scanPlugin and scanFiles", () => {
     );
     expect(text).toContain("+ skill listing: 23 chars  1 skill(s) listed");
     expect(text).toMatch(
-      /= fixed context: [\d,]+ chars loaded at session start/,
+      /= always loaded: [\d,]+ chars loaded at session start/,
     );
     cleanupTmpDir(tmp);
   });
 
   it("counts a skill folder that is a symlink, as `vigiles init` writes them", () => {
-    const tmp = makeTmpDir("fixed-context-cc-link");
+    const tmp = makeTmpDir("always-loaded-cc-link");
     mkdirSync(join(tmp, "shared/linked"), { recursive: true });
     writeFileSync(
       join(tmp, "shared/linked/SKILL.md"),
@@ -291,7 +291,7 @@ describe("Claude Code fixed context through scanPlugin and scanFiles", () => {
     mkdirSync(join(tmp, ".claude/skills"), { recursive: true });
     symlinkSync(join(tmp, "shared/linked"), join(tmp, ".claude/skills/linked"));
     writeFileSync(join(tmp, "CLAUDE.md"), "# Rules\n");
-    const part = measureFixedContext(tmp, claudeCodeAdapter).fixedContext
+    const part = measureAlwaysLoaded(tmp, claudeCodeAdapter).alwaysLoaded
       ?.skillListing;
     cleanupTmpDir(tmp);
     expect(part).toEqual({

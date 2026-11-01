@@ -491,7 +491,7 @@ detection, and untested-surface counts. `--json` for CI; `--no-html` to skip the
 report file.
 
 **What loads before the conversation starts.** Under the always-loaded
-instructions, `audit` prints the **fixed context**: everything the harness loads
+instructions, `audit` prints the **always-loaded context**: everything the harness loads
 at session start before any decision, in the harness's own unit — characters for
 Claude Code, bytes for Codex, never tokens.
 
@@ -499,7 +499,7 @@ Claude Code, bytes for Codex, never tokens.
 Always-loaded instructions: 24,665 chars (budget 40,000)
   + output style:  8,366 chars  .claude/output-styles/terse.md
   + skill listing: 5,031 chars  12 skill(s) listed
-  = fixed context: 38,062 chars loaded at session start before any decision (instructions + output style + skill listing)
+  = always loaded: 38,062 chars loaded at session start before any decision (instructions + output style + skill listing)
 ```
 
 - **output style** — the style your _committed_ settings select, when the
@@ -520,7 +520,7 @@ Always-loaded instructions: 24,665 chars (budget 40,000)
 This is the part of every request the **repository** decides. The harness's
 own system prompt and tool definitions, user-level and plugin skills, and the
 conversation itself come on top. The same three parts are in the JSON as
-`contextCost.fixed`, and [`instruction-weight`](rules/instruction-weight.md)
+`contextCost.alwaysLoaded`, and [`context-creep`](rules/context-creep.md)
 gates their sum once you record it.
 
 It also prints a **rule inventory**: prose rules in your instruction file that
@@ -693,13 +693,15 @@ the log for a human AND the JSON for a PR comment scans once:
 npx vigiles lint . --json-out=reports/lint.json
 ```
 
-**Instruction-weight baseline.** `--update-baseline` records what the harness
+**Context-creep baseline.** `--update-baseline` records what the harness
 loads without being asked — the instructions, plus the selected output style and
 the skill listing when either is not empty — into
-`.vigiles/instruction-weight.json`; commit it, and `lint` fails whenever that
+`.vigiles/context-creep.json`; commit it, and `lint` fails whenever that
 sum moves off it. `lint` without the flag never writes
 the file; with a configured `max` it refuses to record a baseline above it. See
-[`instruction-weight`](rules/instruction-weight.md).
+[`context-creep`](rules/context-creep.md). A repo still on the pre-rename
+`.vigiles/instruction-weight.json` keeps being read; `lint` (and `lint --summary`,
+as one extra line) prints the `git mv` that moves it.
 
 ```bash
 npx vigiles lint --update-baseline

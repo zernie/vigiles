@@ -3,7 +3,7 @@
  * every session before the model has made a single decision, so the model can
  * pick a skill by its description.
  *
- * WHY IT IS PART OF THE FIXED CONTEXT. Each listed skill costs its entry on
+ * WHY IT IS PART OF THE ALWAYS-LOADED CONTEXT. Each listed skill costs its entry on
  * every request of every session, whether or not it is ever invoked — the same
  * property that makes the instruction file a cost. A description moved out of
  * `CLAUDE.md` into a skill's frontmatter still loads at session start, so a
@@ -15,7 +15,7 @@
  * reads, the per-entry cap, which settings hide a skill — is each harness's own
  * format, given by its dialect as {@link SkillListingRules}. A dialect without
  * it is a harness whose listing vigiles does not model; that is a different
- * fact from "this harness lists nothing", and the fixed-context report keeps
+ * fact from "this harness lists nothing", and the always-loaded report keeps
  * the two apart.
  */
 

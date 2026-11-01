@@ -293,31 +293,31 @@ export interface AuditReport {
   contextCost?: ContextCostReport;
 }
 
-/** One file's share of a fixed-context part. */
-export interface FixedContextFile {
+/** One file's share of an always-loaded part. */
+export interface AlwaysLoadedFile {
   path: string;
   size: number;
 }
 
-export type FixedPartName = "output-style" | "skill-listing";
+export type LoadedPartName = "output-style" | "skill-listing";
 
 /** One part — only a `counted` part has a size; every other kind is why not. */
-export type FixedContextPart =
+export type AlwaysLoadedPart =
   | {
-      part: "instructions" | FixedPartName;
+      part: "instructions" | LoadedPartName;
       kind: "counted";
       total: number;
-      files: FixedContextFile[];
+      files: AlwaysLoadedFile[];
     }
-  | { part: FixedPartName; kind: "none" | "not-supported" | "not-modelled" }
+  | { part: LoadedPartName; kind: "none" | "not-supported" | "not-modelled" }
   | { part: "output-style"; kind: "unresolved"; name: string };
 
-export interface FixedContextReport {
+export interface AlwaysLoadedReport {
   unit: "chars" | "bytes";
   total: number;
-  parts: FixedContextPart[];
+  parts: AlwaysLoadedPart[];
 }
 
 export interface ContextCostReport {
-  fixed: FixedContextReport;
+  alwaysLoaded: AlwaysLoadedReport;
 }

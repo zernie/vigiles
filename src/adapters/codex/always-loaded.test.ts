@@ -1,17 +1,17 @@
 /**
- * The fixed context as Codex loads it (vitest, unit tier, nothing spawned):
+ * The always-loaded context as Codex loads it (vitest, unit tier, nothing spawned):
  * bytes, not characters; no output styles at all; and its own skill-listing
  * entry shape. The Claude Code twin is
- * `src/adapters/claude-code/fixed-context.test.ts`.
+ * `src/adapters/claude-code/always-loaded.test.ts`.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { weighFixedContext } from "../../core/fixed-context.js";
+import { weighAlwaysLoaded } from "../../core/always-loaded.js";
 import { sizeIn } from "../../core/harness-unit.js";
 import { cleanupTmpDir, makeTmpDir } from "../../core/test-utils.js";
-import { measureFixedContext, scanPlugin } from "../../scan.js";
+import { measureAlwaysLoaded, scanPlugin } from "../../scan.js";
 import { scanFiles } from "../../scan-files.js";
 import { codexAdapter } from "./adapter.js";
 import { codexDialect } from "./dialect.js";
@@ -27,7 +27,7 @@ const INSTRUCTION_FILE = codexLayout.instructionFile;
  */
 function weigh(files: Record<string, string>) {
   const root = files[INSTRUCTION_FILE];
-  return weighFixedContext({
+  return weighAlwaysLoaded({
     weight: {
       unit: "bytes",
       committedTotal: root === undefined ? 0 : sizeIn(root, "bytes"),
@@ -38,7 +38,7 @@ function weigh(files: Record<string, string>) {
   });
 }
 
-describe("Codex fixed context", () => {
+describe("Codex always-loaded context", () => {
   it("weighs instructions and listing in bytes; output styles are not supported", () => {
     const description = "Проверяет дифф"; // 14 chars, 27 bytes
     const f = weigh({
@@ -142,7 +142,7 @@ describe("codexSkillListing.entry: skills Codex does not list", () => {
   });
 });
 
-describe("Codex fixed context through scanPlugin and scanFiles", () => {
+describe("Codex always-loaded context through scanPlugin and scanFiles", () => {
   const fixture: Record<string, string> = {
     "AGENTS.md": "# Rules\nÜbersicht\n",
     ".agents/skills/review/SKILL.md":
@@ -150,20 +150,20 @@ describe("Codex fixed context through scanPlugin and scanFiles", () => {
   };
 
   it("measures the same bytes on disk and in the map", () => {
-    const tmp = makeTmpDir("fixed-context-codex");
+    const tmp = makeTmpDir("always-loaded-codex");
     for (const [rel, body] of Object.entries(fixture)) {
       mkdirSync(dirname(join(tmp, rel)), { recursive: true });
       writeFileSync(join(tmp, rel), body);
     }
     const disk = scanPlugin(tmp, codexLayout, codexDialect);
     const map = scanFiles(fixture, codexLayout, codexDialect);
-    expect(disk.fixedContext).toEqual(map.fixedContext);
-    expect(measureFixedContext(tmp, codexAdapter).fixedContext).toEqual(
-      disk.fixedContext,
+    expect(disk.alwaysLoaded).toEqual(map.alwaysLoaded);
+    expect(measureAlwaysLoaded(tmp, codexAdapter).alwaysLoaded).toEqual(
+      disk.alwaysLoaded,
     );
     const line =
       "- review: Prüft einen Diff (file: .agents/skills/review/SKILL.md)";
-    expect(disk.fixedContext).toEqual({
+    expect(disk.alwaysLoaded).toEqual({
       unit: "bytes",
       instructions: Buffer.byteLength(fixture["AGENTS.md"] ?? "", "utf8"),
       outputStyle: { kind: "not-supported" },
@@ -207,13 +207,13 @@ describe("Codex walks its skills folder recursively", () => {
   ];
 
   it("counts a nested skill on disk and in the map, and skips what Codex skips", () => {
-    const tmp = makeTmpDir("fixed-context-codex-nested");
+    const tmp = makeTmpDir("always-loaded-codex-nested");
     for (const [rel, body] of Object.entries(fixture)) {
       mkdirSync(dirname(join(tmp, rel)), { recursive: true });
       writeFileSync(join(tmp, rel), body);
     }
-    const disk = scanPlugin(tmp, codexLayout, codexDialect).fixedContext;
-    const map = scanFiles(fixture, codexLayout, codexDialect).fixedContext;
+    const disk = scanPlugin(tmp, codexLayout, codexDialect).alwaysLoaded;
+    const map = scanFiles(fixture, codexLayout, codexDialect).alwaysLoaded;
     cleanupTmpDir(tmp);
     expect(disk).toEqual(map);
     const part = disk?.skillListing;

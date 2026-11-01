@@ -467,7 +467,7 @@ describe("buildAuditReport — contextCost", () => {
     const r = buildAuditReport(
       makeReport({
         instructionWeight: weight,
-        fixedContext: {
+        alwaysLoaded: {
           unit: "bytes",
           instructions: 100,
           outputStyle: { kind: "not-supported" },
@@ -483,7 +483,7 @@ describe("buildAuditReport — contextCost", () => {
     );
     expect(r.meta.schemaVersion).toBe(2);
     expect(r.contextCost).toEqual({
-      fixed: {
+      alwaysLoaded: {
         unit: "bytes",
         total: 140,
         parts: [
@@ -509,7 +509,7 @@ describe("buildAuditReport — contextCost", () => {
     const r = buildAuditReport(
       makeReport({
         instructionWeight: weight,
-        fixedContext: {
+        alwaysLoaded: {
           unit: "bytes",
           instructions: 100,
           outputStyle: { kind: "unresolved", name: "Terse" },
@@ -519,7 +519,7 @@ describe("buildAuditReport — contextCost", () => {
       }),
       { harness: "h", vigilesVersion: "1.0.0" },
     );
-    expect(r.contextCost?.fixed.parts.slice(1)).toEqual([
+    expect(r.contextCost?.alwaysLoaded.parts.slice(1)).toEqual([
       { part: "output-style", kind: "unresolved", name: "Terse" },
       { part: "skill-listing", kind: "not-modelled" },
     ]);
