@@ -38,10 +38,26 @@
  * binary with it; modelling them while CI runs the pinned release would leave
  * the delivery test proving nothing.
  *
- * The listing as a WHOLE also has a budget (1% of the model's context window),
- * past which descriptions are dropped by least use. That budget depends on the
- * model and on this machine's usage, so it is not a property of a commit and
- * is not modelled here; every entry is counted at its full capped size.
+ * The listing as a WHOLE also has a budget, past which descriptions are
+ * dropped by least use. Read from the pinned 2.1.187 binary
+ * (`@anthropic-ai/claude-code-linux-x64@2.1.187`, sha256 bb02fcb3…bf361):
+ *
+ *   budget = floor(contextWindowTokens × charsPerToken × fraction)
+ *
+ *   - `fraction` is `skillListingBudgetFraction` from settings, default 0.01
+ *     (`var FRd=0.01`);
+ *   - `contextWindowTokens` defaults to 200 000 (`URd=200000`), 1 000 000 on
+ *     a 1M-context model;
+ *   - `charsPerToken` is 4 for the models in a fixed set (claude-3-*,
+ *     opus-4-0/4-1/4-5/4-6, sonnet-4-0/4-5/4-6, haiku-4-5) and 3 for every
+ *     other model (`function oA(e){if(!e)return 4;…return l3u.has(n)?4:3}`);
+ *   - the env var `SLASH_COMMAND_TOOL_CHAR_BUDGET` replaces the whole number.
+ *
+ * The listing is measured against it as the sum of each entry's display width
+ * (`Bun.stringWidth`, not `.length`) plus one newline between entries, over
+ * every listed skill — bundled, user and plugin skills included, not only the
+ * repository's. Its floor is 200 000 × 3 × 0.01 = 6 000 characters. It is not
+ * modelled here yet; every entry is counted at its full capped size.
  */
 import type {
   ListedSkill,

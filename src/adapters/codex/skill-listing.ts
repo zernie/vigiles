@@ -33,9 +33,21 @@
  *     path; the size is reproducible from a commit, and each entry is off by
  *     the difference between that path and the one Codex printed.
  *
- * The listing as a whole has a budget (2% of the model's context window, or a
- * configured token count), past which descriptions are dropped. It depends on
- * the model, so it is not a property of a commit and is not modelled here.
+ * The listing as a whole has a budget, past which descriptions are shortened
+ * and then skills omitted ("Exceeded skills context budget …"). Read from
+ * `codex-rs/ext/skills/src/render.rs` and `extension.rs` at tag rust-v0.153.0
+ * (`skill_metadata_budget`):
+ *
+ *   - a configured `max_context_tokens` wins, capped at 10 000 tokens;
+ *   - else, at THREAD START (`CatalogSurface::ThreadContext`), the window is
+ *     passed as `None`, so the budget is 8 000 CHARACTERS
+ *     (`DEFAULT_SKILL_METADATA_CHAR_BUDGET`), each line costing its Unicode
+ *     scalar count plus one newline;
+ *   - on a TURN (`CatalogSurface::TurnInput`) it is 2% of the model's context
+ *     window in tokens, each line costing ceil((bytes + 1) / 4).
+ *
+ * The thread-start number is the one that does not depend on the model. It is
+ * not modelled here yet.
  */
 import type {
   ListedSkill,
