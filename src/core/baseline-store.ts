@@ -30,7 +30,10 @@
  *   - entries for the rule, none for this subject → a finding: weight that
  *     appeared after the baseline was recorded is weight nobody signed off on;
  *   - another unit or measure → a finding asking to re-record;
- *   - at the stored value → held; below it → a NOTE to lower the baseline;
+ *   - at the stored value → held; below it → a finding asking to record the
+ *     lower number, because a baseline above the tree is headroom that can be
+ *     regrown unseen (the stale-entry rule of PHPStan, Psalm, ESLint's unpruned
+ *     suppressions and `betterer ci`);
  *     above it → a finding, with what moved.
  *
  * And per stored entry whose subject produced no such finding: a NOTE that the
@@ -378,8 +381,9 @@ function compared(
   }
   const { head, parts } = movement(m.unit, current, stored);
   return at(
-    "note",
-    `Shrank ${head} below the recorded baseline, which still allows the old size. Lock the cut in with \`${UPDATE_BASELINE_COMMAND}\`.${parts}`,
+    "finding",
+    `The size went down: ${head}, below the recorded baseline, which still allows the old size — headroom that can be regrown without a finding. ` +
+      `Record the new, lower number with \`${UPDATE_BASELINE_COMMAND}\`.${parts}`,
   );
 }
 

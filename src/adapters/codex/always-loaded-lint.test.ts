@@ -141,6 +141,19 @@ describe("the skill listing over Codex's thread-start budget (8,000)", () => {
     expect(grown.out).toContain("(+10)"); // "- Prüfe.\n" is 10 bytes, 9 chars
   });
 
+  it("with a file: a shrink fails until the lower number is recorded", () => {
+    run(["lint", "--update-baseline"]);
+    put("AGENTS.md", "# Project\n");
+    const shrunk = lint();
+    expect(shrunk.code).toBe(2);
+    expect(shrunk.out).toContain(
+      "The size went down: 8,376 → 8,338 bytes (-38)",
+    );
+    expect(shrunk.out).toContain("Record the new, lower number");
+    run(["lint", "--update-baseline"]);
+    expect(lint().code).toBe(0);
+  });
+
   it("dropping under every limit with the file: a note that it can go", () => {
     run(["lint", "--update-baseline"]);
     put(".agents/skills/s8/SKILL.md", "---\nname: s8\ndescription: x\n---\n");

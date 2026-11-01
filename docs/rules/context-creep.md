@@ -145,7 +145,7 @@ budget, so the real listing is larger.
 | a part over its limit, no baseline recorded                                              | a **note** naming the part, the limit, what the harness does past it, and the command; never a finding       |
 | over, and the size equals the recorded baseline                                          | `✓ … Held at the recorded baseline`                                                                          |
 | over, and it **grew** past the baseline                                                  | finding: the delta, every file that moved, and which part                                                    |
-| over, and it **shrank** below the baseline                                               | note: lock the cut in with the command, or the headroom can be regrown                                       |
+| over, and it **shrank** below the baseline                                               | finding: the size went down — record the new, lower number with the command                                  |
 | under every limit again, with an entry in the baseline                                   | note: the entry is no longer needed — `--update-baseline` drops it and deletes an empty file                 |
 | baseline recorded by another measurement, or in another unit                             | finding: re-record (vigiles changed what counts, or the repo changed harness)                                |
 | the baseline has entries for this rule, but not this bundle                              | finding: weight nobody recorded                                                                              |
@@ -166,6 +166,20 @@ budget, so the real listing is larger.
 
 Going over a limit **never fails on its own**. It only switches the baseline
 on, so a repository over the limit starts green.
+
+A **shrink is a finding too**, until the lower number is recorded. A baseline
+above the tree is headroom: every character up to the old number would pass,
+and that is exactly where regrowth lands unnoticed. Recording the cut in the
+same change keeps the baseline equal to the tree, so any growth at all shows
+up. This is the rule PHPStan, Psalm, ESLint's unpruned suppressions and
+`betterer ci` apply to a stale baseline entry.
+
+```
+✗ always-loaded context is over the harness's limit: skill listing 7,530 chars, …
+  The size went down: 7,578 → 7,540 chars (-38), below the recorded baseline,
+  which still allows the old size — headroom that can be regrown without a
+  finding. Record the new, lower number with `vigiles lint --update-baseline`.
+```
 
 ## Recording the baseline
 

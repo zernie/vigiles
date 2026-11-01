@@ -109,7 +109,7 @@ describe("applying the store to a rule's findings", () => {
       applyBaseline(runOf([over(".", measured({ a, b: 5 }))]), store)[0]
         ?.status;
     expect(at(10)).toBe("ok");
-    expect(at(9)).toBe("note");
+    expect(at(9)).toBe("finding");
     expect(at(11)).toBe("finding");
   });
 

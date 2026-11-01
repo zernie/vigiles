@@ -152,7 +152,7 @@ describe("the skill listing over Claude Code's listing budget (6,000 chars)", ()
     );
   });
 
-  it("with a file: an equal tree holds, growth fails, a shrink is a note", () => {
+  it("with a file: an equal tree holds, growth fails, a shrink fails until recorded", () => {
     expect(run(["lint", "--update-baseline"]).code).toBe(0);
     const entry = store().rules;
     const [ruleEntries] = Object.values(entry);
@@ -171,8 +171,15 @@ describe("the skill listing over Claude Code's listing budget (6,000 chars)", ()
 
     put("CLAUDE.md", "# Project\n");
     const shrunk = lint();
-    expect(shrunk.code).toBe(0);
-    expect(shrunk.out).toContain("Shrank");
+    expect(shrunk.code).toBe(2);
+    expect(shrunk.out).toContain(
+      "The size went down: 7,578 → 7,540 chars (-38), below the recorded baseline",
+    );
+    expect(shrunk.out).toContain(
+      "Record the new, lower number with `vigiles lint --update-baseline`",
+    );
+    run(["lint", "--update-baseline"]);
+    expect(lint().code).toBe(0);
   });
 
   it("dropping under every limit with the file: a note that it can go, and an update deletes it", () => {
