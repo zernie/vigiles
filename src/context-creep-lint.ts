@@ -256,8 +256,11 @@ function wroteLine(
 }
 
 /** What `record` says about a migration. */
-function migratedLine(file: string, converted: boolean): string {
-  return converted
+function migratedLine(file: string, plan: Migration): string {
+  if (Object.keys(plan.entries).length === 0) {
+    return `✓ nothing is over a limit, so nothing in ${file} needed carrying over`;
+  }
+  return plan.converted
     ? `✓ migrated ${file} into ${BASELINE_FILE}, keeping its recorded numbers — run \`${UPDATE_BASELINE_COMMAND}\` again to accept the current size`
     : `✓ ${file} could not be read, so the current size was recorded instead`;
 }
@@ -286,7 +289,7 @@ function record(
   });
   return [
     wroteLine(next, onDisk),
-    ...(first === undefined ? [] : [migratedLine(first, plan.converted)]),
+    ...(first === undefined ? [] : [migratedLine(first, plan)]),
     ...legacy.map((f) => `✓ deleted ${f}`),
   ];
 }
