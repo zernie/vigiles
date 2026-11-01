@@ -50,7 +50,9 @@ them once you record them:
   and `>` escaped as `&lt;`/`&gt;` and the text cut to 1,536 characters or
   `skillListingMaxDescChars`; Codex `- name: description (file: path)`, the
   description cut to 1,024, and a skill Codex cannot parse — no frontmatter,
-  no description — not listed).
+  no description — not listed). A skill folder that is a symlink counts like
+  a real one — that is how `vigiles init` installs skills. A link back to a
+  folder that contains it (a cycle) is not followed.
 
 Together with the instructions this is the **always-loaded context**. The rule gates
 its **sum**, so moving a section from `CLAUDE.md` into the selected style, or
@@ -288,6 +290,34 @@ is switched off on day one. A ceiling on each rule's length fails the same way �
 rewards splitting text into more files, which costs exactly as much. The
 repository's own recorded sum is the one number that is green on day one and
 still catches the regrowth.
+
+## Known limits
+
+### Codex lists a skill whose frontmatter has an unquoted colon
+
+```yaml
+---
+name: deploy
+description: Build for AWS: ECS
+---
+```
+
+The second `: ` makes that `description` line invalid YAML.
+
+- **Codex** repairs this one case: it quotes the value and parses the block
+  again, so the skill is listed.
+- **vigiles** does not repair it. It reads the frontmatter as invalid and
+  leaves the skill out of the listing.
+
+**Effect on the number:** for Codex, the skill listing is under-counted by that
+skill's whole entry (`- deploy: Build for AWS: ECS (file: …)`), and so is the
+always-loaded total.
+
+**Fix:** quote the description. Both read it the same way then:
+
+```yaml
+description: "Build for AWS: ECS"
+```
 
 ## See also
 
