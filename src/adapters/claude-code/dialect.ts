@@ -9,6 +9,7 @@
  */
 import type { HarnessDialect } from "../../core/dialect.js";
 import { claudeCodeEventCapabilities } from "./event-capability.js";
+import { claudeCodeSkillListing } from "./skill-listing.js";
 import {
   claudeCodeAvailableAgentTools,
   claudeCodeConditionalAgentToolNames,
@@ -111,6 +112,9 @@ export const claudeCodeDialect: HarnessDialect = {
     capturedFrom:
       "claude-code 2.1.296 large-file warning, floor of max(40000, window*0.05*charsPerToken); the rules dir measured 2026-09-16 in a consumer repo",
   },
+  // The session-start skill listing — part of the always-loaded context; see
+  // ./skill-listing.ts for each rule and its source.
+  skillListing: claudeCodeSkillListing,
   // The capability table — what each event CARRIES and HONOURS. Nine of the 31
   // events, each with its basis; see ./event-capability.ts. The three flat lists
   // above are kept for now and are ASSERTED against this table in

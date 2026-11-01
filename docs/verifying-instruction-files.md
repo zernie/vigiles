@@ -157,7 +157,7 @@ Beyond the references above, `vigiles lint` runs a set of **deterministic valida
 
 | Surface (the gate)          | Rules                                                                                                                                                           | Applies to                                |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Instruction file &amp; docs | `require-instructions-spec`, `integrity`, `coverage`, `unmarked-refs`, `orphan-docs`, `instruction-weight`, `compile-budget`, `deprecated-key-files`            | all harnesses                             |
+| Instruction file &amp; docs | `require-instructions-spec`, `integrity`, `coverage`, `unmarked-refs`, `orphan-docs`, `context-creep`, `compile-budget`, `deprecated-key-files`                 | all harnesses                             |
 | Skills                      | `untested-skill`, `skill-frontmatter`, `description-overlap`, `skill-description-budget`, `frontmatter-valid`, `skill-resource-resolves`, `skill-missing-fence` | all with skills                           |
 | Plugin layout               | `plugin-dir-layout`                                                                                                                                             | all with a plugin manifest                |
 | MCP                         | `mcp-config`                                                                                                                                                    | all with MCP                              |
@@ -245,9 +245,9 @@ The per-family tables below give each rule's default severity and what it checks
 
 ### Instruction weight
 
-| Rule                                                | Default   | What it checks                                                                                                                        |
-| --------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| [`instruction-weight`](rules/instruction-weight.md) | `"error"` | Everything the harness loads without being asked has not moved off the committed baseline (a ratchet; no baseline file → a note only) |
+| Rule                                      | Default   | What it checks                                                                                                                                                                                  |
+| ----------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`context-creep`](rules/context-creep.md) | `"error"` | Everything the harness loads at session start (instructions, the selected output style, the skill listing) has not moved off the committed baseline (a ratchet; no baseline file → a note only) |
 
 ### Docs hygiene
 

@@ -148,6 +148,18 @@ export const myHarnessAdapter: HarnessAdapter = {
 };
 ```
 
+### Optional: the always-loaded context
+
+If your harness lists skills to the model at session start, give the dialect a
+`skillListing` — `entry(skill, settings)` returns one listed skill exactly as
+the harness renders it (or `null` when it hides that skill) — and if it has
+output styles, give `layout.outputStyles` a `selected(settings)` that reads
+which style a settings object switches on. `vigiles audit` then prints both
+under the instruction weight, and the `context-creep` ratchet can gate
+their sum. Leave either out and the report says that part is not modelled for
+your harness, rather than counting it as zero. See
+[the adapter API reference](adapter-api.md#the-always-loaded-context-dialectskilllisting-and-outputstylesselected).
+
 ## Validate it
 
 Drop the conformance checks in your test suite. `assertAdapterConformance`

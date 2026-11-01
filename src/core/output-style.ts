@@ -43,7 +43,26 @@ export interface OutputStyleRules {
   readonly selectNone: Readonly<Record<string, unknown>>;
   /** Whether one model request carries the style. */
   readonly reached: (style: OutputStyle, request: ModelRequest) => boolean;
+  /**
+   * Which style ONE settings object switches on — the inverse of
+   * {@link select}. Pure: the caller parses the file. Optional: absent ⇒ the
+   * always-loaded report says the selection is not modelled for this harness,
+   * rather than guessing that nothing is selected.
+   */
+  readonly selected?: (
+    settings: Readonly<Record<string, unknown>>,
+  ) => StyleSelection;
 }
+
+/**
+ * What a settings object says about the output style. Three different facts:
+ * the key is absent, it names the harness's own default (no extra text), or
+ * it names a style — which may or may not be a file the repository holds.
+ */
+export type StyleSelection =
+  | { readonly kind: "unset" }
+  | { readonly kind: "default" }
+  | { readonly kind: "named"; readonly name: string };
 
 /** What a repository holds, or that its harness has no such thing. */
 export type OutputStyleScan =

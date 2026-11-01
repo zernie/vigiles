@@ -31,7 +31,7 @@ a threshold, so the default output is exactly what it was.
 
 A section or Rules finding ends with the same list of places the text can move
 to (a nested instruction file, a hook, a skill, a lint rule, linked docs) that
-every `instruction-weight` finding ends with, so the one move the message
+every `context-creep` finding ends with, so the one move the message
 offers is not "delete". A `commands` finding does not: an over-long entry is a
 pointer that grew, and its fix is a shorter line.
 
@@ -40,7 +40,7 @@ pointer that grew, and its fix is a shorter line.
 Each of these has one owner already, and this rule does not report it a second
 time:
 
-- **The whole always-loaded size** — [`instruction-weight`](instruction-weight.md).
+- **The whole always-loaded size** — [`context-creep`](context-creep.md).
   It sums every file the harness loads unasked, in the harness's
   own unit (characters for Claude Code, bytes for Codex), so moving text from
   the compiled file into an always-loaded rules file does not fool it. A
@@ -118,12 +118,12 @@ A repo that lists its rules in `.vigilesrc.json` without `extends` keeps the
 default and sees no change. A repo that extends `vigiles:recommended` gets the
 gate on upgrade (a major version). If its file is over budget, it renders rules
 shorter, or sets `"compile-budget": "warn"` in `rules` until it is under; the
-[`instruction-weight`](instruction-weight.md) ratchet meanwhile keeps the
+[`context-creep`](context-creep.md) ratchet meanwhile keeps the
 always-loaded weight from growing.
 
 ## See also
 
-- [`instruction-weight`](instruction-weight.md) — the ratchet on everything the
+- [`context-creep`](context-creep.md) — the ratchet on everything the
   harness loads unasked.
 - The validation-rule matrix in
   [verifying instruction files](../verifying-instruction-files.md).

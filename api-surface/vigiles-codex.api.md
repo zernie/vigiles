@@ -136,6 +136,7 @@ export function renderResponsesSSE(text: string, opts?: {
 // @public
 export function startCodexMock(script: readonly CodexTurn[], opts?: {
     onRequest?: (req: CodexRequest) => void;
+    onBody?: (body: string) => void;
 }): Promise<CodexMockHandle>;
 
 // (No @packageDocumentation comment for this package)

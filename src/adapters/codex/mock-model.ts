@@ -241,7 +241,16 @@ export function parseResponsesRequest(body: string): {
  */
 export function startCodexMock(
   script: readonly CodexTurn[],
-  opts: { onRequest?: (req: CodexRequest) => void } = {},
+  opts: {
+    onRequest?: (req: CodexRequest) => void;
+    /**
+     * The raw `/v1/responses` body, before {@link parseResponsesRequest}
+     * narrows it to the prompt. For a test that must see what the parse drops
+     * — the instructions and developer messages, where Codex puts its skill
+     * listing.
+     */
+    onBody?: (body: string) => void;
+  } = {},
 ): Promise<CodexMockHandle> {
   let i = 0;
   const requests: CodexRequest[] = [];
@@ -257,6 +266,7 @@ export function startCodexMock(
         res.end("{}");
         return;
       }
+      opts.onBody?.(body);
       const parsed = parseResponsesRequest(body);
       requests.push(parsed);
       opts.onRequest?.(parsed);

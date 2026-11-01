@@ -30,6 +30,7 @@ describe("output styles in the report inventory", () => {
 
   it("an older report without the field renders no style count", () => {
     render(<Report data={SAMPLE} />);
-    expect(screen.queryByText(/output style/)).toBeNull();
+    // The count, not the phrase: the always-loaded section names output styles in prose.
+    expect(screen.queryByText(/\d+ output styles?$/)).toBeNull();
   });
 });

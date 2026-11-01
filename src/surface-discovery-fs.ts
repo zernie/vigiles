@@ -38,8 +38,14 @@ import {
   instructionCandidatePaths,
   resolveImports,
 } from "./core/instruction-chain.js";
-import type { PluginLayout } from "./core/layout.js";
-import { rulesHome } from "./core/layout.js";
+import type { PluginLayout, SkillDiscovery } from "./core/layout.js";
+import {
+  rulesHome,
+  sessionSkillDirs,
+  skillDiscoveryOf,
+  skillsHome,
+} from "./core/layout.js";
+import { outputStyleHomes } from "./core/output-style.js";
 import {
   SURFACE_SHAPES,
   discoverSurfaces,
@@ -47,7 +53,7 @@ import {
   type DiscoveredSurface,
 } from "./core/surface-discovery.js";
 import { excludedBy, type ExcludeSet } from "./exclude.js";
-import { entryOf, walkableRoot } from "./fs-walk.js";
+import { entryOf, skillTreeEntryOf, walkableRoot } from "./fs-walk.js";
 
 /** The shape directory names, as a set — the only dirs the walk descends into. */
 const SHAPE_DIRS = new Set(SURFACE_SHAPES.map((s) => s.dir));
@@ -238,4 +244,80 @@ export function boundedInstructionFiles(
   // instruction file, and the harness really does load it, so hiding its size
   // would under-report the one number this report exists to give.
   return resolveImports(layout, candidateFiles, (rel) => readIfFile(root, rel));
+}
+
+/**
+ * The `SKILL.md` paths under the session's skills folder, at the depths the
+ * layout's {@link SkillDiscovery} names: directories are entered only while a
+ * deeper `SKILL.md` could still be read, and the same {@link sessionSkillDirs}
+ * the pure filter asks decides which file counts.
+ */
+function sessionSkillFiles(
+  root: string,
+  home: string,
+  discovery: SkillDiscovery,
+): readonly string[] {
+  // A linked skill folder is entered — `vigiles init` links shipped skills in
+  // as directories, and the harness lists them — through the SAME classifier
+  // the loader's skills walk uses (`skillTreeEntryOf`), so the audit's skill
+  // count and this listing cannot disagree about which folders exist. One
+  // directory link per path; a link back over the tree is refused.
+  const walk = (
+    rel: string,
+    depth: number,
+    mayFollow: boolean,
+  ): readonly string[] =>
+    namesIn(join(root, home, rel)).flatMap((name) => {
+      const childRel = rel === "" ? name : `${rel}/${name}`;
+      const entry = skillTreeEntryOf(
+        join(root, home, childRel),
+        root,
+        mayFollow,
+      );
+      if (entry.kind === "file") {
+        return sessionSkillDirs(childRel, discovery) === null
+          ? []
+          : [`${home}/${childRel}`];
+      }
+      const enter =
+        entry.kind === "dir" &&
+        depth < discovery.maxDepth &&
+        !(discovery.skipHidden && name.startsWith("."));
+      return enter ? walk(childRel, depth + 1, entry.mayFollowBelow) : [];
+    });
+  return walk("", 0, true);
+}
+
+/**
+ * The files the ALWAYS-LOADED CONTEXT reads beyond the instruction candidates: the
+ * style files in the folder a session at the root reads styles from, and each
+ * `SKILL.md` under the session's skills folder at a depth the harness reads —
+ * the two inputs `core/always-loaded.ts` filters, by the same paths, out of the
+ * browser engine's fetched tree.
+ *
+ * Two NAMED directories, not a walk of the repository: the layout says where
+ * both are and how deep the harness looks under each, and nothing else is
+ * read. `exclude` does not apply, for the reason it does not apply to the
+ * instruction weight: the harness loads these whatever vigiles lints, and the
+ * number is a committed baseline that one more `exclude` line would otherwise
+ * lower.
+ */
+export function alwaysLoadedFiles(
+  root: string,
+  layout: PluginLayout,
+): Readonly<Record<string, string>> {
+  const styleHome = outputStyleHomes(layout).at(-1);
+  const skillHome = skillsHome(layout);
+  const styles =
+    styleHome === undefined ? [] : filesDirectlyIn(root, styleHome);
+  const skills =
+    skillHome === null
+      ? []
+      : sessionSkillFiles(root, skillHome, skillDiscoveryOf(layout));
+  return Object.fromEntries(
+    [...styles, ...skills].flatMap((rel) => {
+      const text = readIfFile(root, rel);
+      return text === undefined ? [] : [[rel, text]];
+    }),
+  );
 }

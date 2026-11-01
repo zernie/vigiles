@@ -4,6 +4,7 @@
  * and escapes untrusted text so it can't break out of the <script>. renderAuditHtml
  * (which reads the built template from disk) is exercised e2e in scan-cli.test.ts.
  */
+import { runInNewContext } from "node:vm";
 import { describe, it, expect } from "vitest";
 import { injectReportData } from "./audit-html.js";
 import type { AuditReport } from "./audit-report.js";
@@ -131,5 +132,25 @@ describe("injectReportData", () => {
     expect(liveHtml).toContain("deadbeef");
     // the data global is still set (serve is prepended onto the same statement)
     expect(liveHtml).toContain("window.__VIGILES_DATA__");
+  });
+});
+
+describe("injectReportData with `$` in report text", () => {
+  it("🔴 keeps it verbatim, so the page reads the real data", () => {
+    // `String.replace` reads `$1`, `$&`, `` $` ``, `$'` and `$$` in a replacement
+    // string as patterns. Report text quotes instruction files, which say things
+    // like "$120/h", and one stray `$1` used to splice a quote into the JSON: the
+    // script failed to parse and the page fell back to the built-in sample report
+    // without a word.
+    const text = "rate $120/h, then $& and $' and $` and $$ stay as written";
+    const dollars: AuditReport = {
+      ...report,
+      recommendations: [{ ...report.recommendations[0], fix: text }],
+    };
+    const html = injectReportData(TEMPLATE, dollars, { token: "deadbeef" });
+    const script = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? "";
+    const page: { window: { __VIGILES_DATA__?: AuditReport } } = { window: {} };
+    runInNewContext(script, page);
+    expect(page.window.__VIGILES_DATA__?.recommendations[0].fix).toBe(text);
   });
 });

@@ -12,7 +12,11 @@ import {
   yaml,
 } from "../../core/frontmatter-read.js";
 import type { ModelRequest } from "../../core/harness-driver.js";
-import type { OutputStyle, OutputStyleRules } from "../../core/output-style.js";
+import type {
+  OutputStyle,
+  OutputStyleRules,
+  StyleSelection,
+} from "../../core/output-style.js";
 
 /** Claude Code puts this line, then the body, into the first user message. */
 const HEADER = "# Output Style: ";
@@ -79,6 +83,22 @@ const reached = (style: OutputStyle, request: ModelRequest): boolean => {
   );
 };
 
+/**
+ * `outputStyle` in one settings file. `default` (any case) is Claude Code's own
+ * style, which adds no text; anything else is a name, matched by the harness
+ * against each style's `name` in exact case — a wrong case silently loads the
+ * default, which is why the resolution against files stays exact.
+ */
+const selected = (
+  settings: Readonly<Record<string, unknown>>,
+): StyleSelection => {
+  const value = settings["outputStyle"];
+  if (typeof value !== "string" || value === "") return { kind: "unset" };
+  return value.toLowerCase() === "default"
+    ? { kind: "default" }
+    : { kind: "named", name: value };
+};
+
 export const claudeCodeOutputStyles: OutputStyleRules = {
   dir: "output-styles",
   isStyleFile: (pathInDir) => pathInDir.endsWith(".md"),
@@ -88,4 +108,5 @@ export const claudeCodeOutputStyles: OutputStyleRules = {
   // project; the project's own `default` wins over it (measured on 2.1.292).
   selectNone: { outputStyle: "default" },
   reached,
+  selected,
 };

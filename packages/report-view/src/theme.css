@@ -16,6 +16,9 @@
   --color-warn: var(--warn);
   --color-bad: var(--bad);
   --color-na: var(--na);
+  --color-part-1: var(--part-1);
+  --color-part-2: var(--part-2);
+  --color-part-3: var(--part-3);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
 }
@@ -30,6 +33,13 @@
   --warn: #f59e0b;
   --bad: #ef4444;
   --na: #a1a1aa;
+  /* Series colours: one per part of a whole (the always-loaded bar). Kept
+     apart from the band colours above, because a part's share is not a
+     verdict. Order is the bar's left-to-right order; every adjacent pair is
+     checked for colour-blind separation in both themes. */
+  --part-1: #2563eb;
+  --part-2: #0d9488;
+  --part-3: #ea580c;
   --radius: 0.75rem;
 }
 
@@ -48,6 +58,9 @@
     --warn: #f2b34d;
     --bad: #f0726c;
     --na: #6b7688;
+    --part-1: #4f86e8;
+    --part-2: #159c8e;
+    --part-3: #e0703a;
   }
 }
 

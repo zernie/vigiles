@@ -445,3 +445,88 @@ describe("buildAuditReport — ungraded group findings", () => {
     expect(on.recommendations).toEqual(off.recommendations);
   });
 });
+
+describe("buildAuditReport — contextCost", () => {
+  const weight: NonNullable<ScanReport["instructionWeight"]> = {
+    unit: "bytes",
+    limit: 32768,
+    onExceed: "truncates",
+    files: [
+      { path: "INSTRUCTIONS.md", size: 100, role: "root", scope: "repo" },
+      { path: "LOCAL.md", size: 7, role: "root", scope: "local" },
+    ],
+    committedTotal: 100,
+    effectiveTotal: 107,
+    overBy: null,
+    unreadImports: [],
+    unweighedPatterns: [],
+    redirects: [],
+  };
+
+  it("carries every part, its state, and the committed files only", () => {
+    const r = buildAuditReport(
+      makeReport({
+        instructionWeight: weight,
+        alwaysLoaded: {
+          unit: "bytes",
+          instructions: 100,
+          outputStyle: { kind: "not-supported" },
+          skillListing: {
+            kind: "counted",
+            total: 40,
+            files: [{ path: "skills/a/SKILL.md", size: 40 }],
+          },
+          total: 140,
+        },
+      }),
+      { harness: "h", vigilesVersion: "1.0.0" },
+    );
+    expect(r.meta.schemaVersion).toBe(2);
+    expect(r.contextCost).toEqual({
+      alwaysLoaded: {
+        unit: "bytes",
+        total: 140,
+        parts: [
+          {
+            part: "instructions",
+            kind: "counted",
+            total: 100,
+            files: [{ path: "INSTRUCTIONS.md", size: 100 }],
+          },
+          { part: "output-style", kind: "not-supported" },
+          {
+            part: "skill-listing",
+            kind: "counted",
+            total: 40,
+            files: [{ path: "skills/a/SKILL.md", size: 40 }],
+          },
+        ],
+      },
+    });
+  });
+
+  it("names an unresolved style and leaves the field off when nothing was weighed", () => {
+    const r = buildAuditReport(
+      makeReport({
+        instructionWeight: weight,
+        alwaysLoaded: {
+          unit: "bytes",
+          instructions: 100,
+          outputStyle: { kind: "unresolved", name: "Terse" },
+          skillListing: { kind: "not-modelled" },
+          total: 100,
+        },
+      }),
+      { harness: "h", vigilesVersion: "1.0.0" },
+    );
+    expect(r.contextCost?.alwaysLoaded.parts.slice(1)).toEqual([
+      { part: "output-style", kind: "unresolved", name: "Terse" },
+      { part: "skill-listing", kind: "not-modelled" },
+    ]);
+    const none = buildAuditReport(makeReport(), {
+      harness: "h",
+      vigilesVersion: "1.0.0",
+    });
+    expect("contextCost" in none).toBe(false);
+  });
+});

@@ -758,7 +758,7 @@ interface BudgetLimits {
  *
  * 🔴 WHAT THIS RULE DOES NOT MEASURE, ON PURPOSE — each has one owner already:
  * - the whole always-loaded size, in the harness's unit (Claude Code chars,
- *   Codex bytes) — `instruction-weight` and its `max`, which sums the whole
+ *   Codex bytes) — `context-creep` and its `max`, which sums the whole
  *   chain, so moving text into a rules file does not fool it;
  * - `keyFiles` — deprecated (`deprecated-key-files`); budgeting a section the
  *   reader is told to delete would be a second, contradicting instruction.

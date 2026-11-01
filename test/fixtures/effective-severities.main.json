@@ -35,7 +35,7 @@
     "hook-block-ineffective": "warn",
     "hook-matcher": "warn",
     "doc-refs": false,
-    "instruction-weight": "error",
+    "context-creep": "error",
     "deprecated-key-files": "warn"
   },
   "{\"extends\":\"vigiles:recommended\"}": {
@@ -73,7 +73,7 @@
     "hook-block-ineffective": "warn",
     "hook-matcher": "warn",
     "doc-refs": false,
-    "instruction-weight": "error",
+    "context-creep": "error",
     "deprecated-key-files": "warn"
   }
 }

@@ -84,6 +84,7 @@ import {
 import {
   boundedInstructionFiles,
   boundedSurfacePaths,
+  alwaysLoadedFiles,
 } from "./surface-discovery-fs.js";
 import { REGISTERED_LAYOUTS } from "./layout-registry.js";
 import type { DelegationTrifectaFinding } from "./core/delegation-trifecta.js";
@@ -136,6 +137,11 @@ import {
   type InstructionWeight,
   type WeighedFile,
 } from "./core/instruction-weight.js";
+import {
+  weighAlwaysLoaded,
+  type AlwaysLoadedContext,
+  type LoadedPart,
+} from "./core/always-loaded.js";
 import {
   blockIneffectiveEventsOf,
   permissionDecisionEventsOf,
@@ -452,6 +458,16 @@ export interface ScanReport {
    */
   readonly instructionWeight: InstructionWeight | null;
   /**
+   * The ALWAYS-LOADED CONTEXT around that weight — the instructions plus the output
+   * style the committed settings select and the skill listing, each in the
+   * same unit (`core/always-loaded.ts`). Present exactly when
+   * `instructionWeight` is: both engines build the pair as one
+   * {@link AlwaysLoaded}. Kept as two fields here because the report is
+   * filtered through `Omit`-based views, which do not distribute over a
+   * union; the gate reads the pair through `MeasuredBundle`, which is one.
+   */
+  readonly alwaysLoaded?: AlwaysLoadedContext;
+  /**
    * Instruction specs still using the deprecated `keyFiles` — the
    * `deprecated-key-files` rule's own detector (`findDeprecatedKeyFiles`),
    * handed in through `opts` by `audit`, so `lint` and `audit` cannot
@@ -636,7 +652,7 @@ export interface ScanHarness {
  * The always-loaded instruction weight of ONE directory under ONE harness —
  * the bounded read, the harness's chain, and the sum, in one place.
  *
- * `scanPlugin` reports it, `lint`'s instruction-weight ratchet gates on it and
+ * `scanPlugin` reports it, `lint`'s context-creep ratchet gates on it and
  * `compile` prints it, so all three must arrive at the same number by the same
  * route; this function is that route. `null` when the harness publishes no
  * budget (there is no unit to count in).
@@ -650,6 +666,56 @@ export function measureInstructionWeight(
     harness,
     boundedInstructionFiles(resolve(dir), harness.layout),
   );
+}
+
+/**
+ * The always-loaded weight of one directory and the always-loaded context around it —
+ * both or neither, as one union, so no reader can hold a weight without the
+ * parts that go with it (and read a recorded part as 0).
+ */
+export type AlwaysLoaded =
+  | { readonly instructionWeight: null; readonly alwaysLoaded?: undefined }
+  | {
+      readonly instructionWeight: InstructionWeight;
+      readonly alwaysLoaded: AlwaysLoadedContext;
+    };
+
+/**
+ * The always-loaded context of ONE directory under ONE harness — the same route as
+ * {@link measureInstructionWeight}, plus the style and skill files. `lint`'s
+ * ratchet gates on it, `compile` prints it and `scanPlugin` reports it.
+ */
+export function measureAlwaysLoaded(
+  dir: string,
+  harness: Pick<ScanHarness, "layout" | "dialect">,
+): AlwaysLoaded {
+  return alwaysLoadedOf(
+    dir,
+    harness,
+    boundedInstructionFiles(resolve(dir), harness.layout),
+  );
+}
+
+function alwaysLoadedOf(
+  dir: string,
+  harness: Pick<ScanHarness, "layout" | "dialect">,
+  instructionFiles: Readonly<Record<string, string>>,
+): AlwaysLoaded {
+  const instructionWeight = weighBoundedInstructions(harness, instructionFiles);
+  if (instructionWeight === null) return { instructionWeight };
+  const files = {
+    ...instructionFiles,
+    ...alwaysLoadedFiles(resolve(dir), harness.layout),
+  };
+  return {
+    instructionWeight,
+    alwaysLoaded: weighAlwaysLoaded({
+      weight: instructionWeight,
+      files,
+      layout: harness.layout,
+      dialect: harness.dialect,
+    }),
+  };
 }
 
 function weighBoundedInstructions(
@@ -967,10 +1033,7 @@ export function scanPlugin(
     // unit (Claude Code counts 40 000 chars, Codex 32 768 bytes), so there is no
     // meaningful sum across two; reporting the one that owns the file that
     // exists is the only reading that is true of something.
-    instructionWeight: weighBoundedInstructions(
-      instructionHarness,
-      instructionFiles,
-    ),
+    ...alwaysLoadedOf(dir, instructionHarness, instructionFiles),
     untested: coverage.untested.length,
     untestedHarness: coverage.harness.untested.length,
     unevaluated: coverage.evals.untested.length,
@@ -1358,10 +1421,55 @@ function deprecatedKeyFilesLines(r: ScanReport): readonly string[] {
   );
 }
 
+/** One always-loaded row's value: a size, or why there is none. */
+function loadedPartValue(
+  part: LoadedPart,
+  unit: string,
+  what: "output style" | "skill listing",
+): string {
+  const g = (n: number): string => n.toLocaleString("en-US");
+  switch (part.kind) {
+    case "counted": {
+      const where =
+        what === "output style"
+          ? part.files.map((f) => f.path).join(", ")
+          : `${String(part.files.length)} skill(s) listed`;
+      return `${g(part.total)} ${unit}  ${where}`;
+    }
+    case "none":
+      return what === "output style" ? "none selected" : "no skill listed";
+    case "not-supported":
+      return `n/a — this harness has no ${what}s`;
+    case "not-modelled":
+      return `not measured — the ${what} is not modelled for this harness`;
+    case "unresolved":
+      return `"${part.name}" is selected and no repository style declares that name (a built-in style, or a name that loads the default) — not counted`;
+  }
+}
+
+/**
+ * The two rows the always-loaded context adds under the instruction weight, and the
+ * total of all three. Said as "at session start, before any decision" because
+ * that is what the number is — not the size of a request: the harness's own
+ * prompt, user and plugin skills and the conversation come on top.
+ */
+function alwaysLoadedLines(f: AlwaysLoadedContext): readonly string[] {
+  const g = (n: number): string => n.toLocaleString("en-US");
+  return [
+    `  + output style:  ${loadedPartValue(f.outputStyle, f.unit, "output style")}`,
+    `  + skill listing: ${loadedPartValue(f.skillListing, f.unit, "skill listing")}`,
+    `  = always loaded: ${g(f.total)} ${f.unit} loaded at session start before any decision (instructions + output style + skill listing)`,
+  ];
+}
+
 /** What the instruction file costs: its always-loaded weight, then any deprecated `keyFiles` inflating it. */
 function instructionCostLines(r: ScanReport): readonly string[] {
   const weight = r.instructionWeight
-    ? [...instructionWeightLines(r.instructionWeight), ""]
+    ? [
+        ...instructionWeightLines(r.instructionWeight),
+        ...(r.alwaysLoaded ? alwaysLoadedLines(r.alwaysLoaded) : []),
+        "",
+      ]
     : [];
   return [...weight, ...deprecatedKeyFilesLines(r)];
 }

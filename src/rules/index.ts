@@ -53,12 +53,12 @@ const testCoverageConfig = z
   .strict();
 
 /**
- * Options for `instruction-weight`. `max` is an opt-in ABSOLUTE ceiling on the
+ * Options for `context-creep`. `max` is an opt-in ABSOLUTE ceiling on the
  * always-loaded total, in the harness's own unit — independent of the ratchet's
  * baseline. A positive integer: `0` would fail every repo that has an
  * instruction file, and `"40000"` is a string the author meant as a number.
  */
-const instructionWeightConfig = z
+const contextCreepConfig = z
   .object({
     max: z.number().int().positive().optional(),
   })
@@ -464,16 +464,16 @@ export const RULES = [
     detector: "findDocRefs",
   }),
   defineRule({
-    id: "instruction-weight",
+    id: "context-creep",
     group: "structural",
     bucket: "external-decidable",
-    surface: ["instruction"],
+    surface: ["instruction", "skill", "output-style"],
     defaultSeverity: "error",
     cure: "edit",
     summary:
-      "The always-loaded instruction weight did not move off its committed baseline.",
-    detector: "compareToBaseline",
-    options: instructionWeightConfig,
+      "What the harness loads at session start (instructions, the selected output style, the skill listing) did not move off its committed baseline.",
+    detector: "compareAlwaysLoadedToBaseline",
+    options: contextCreepConfig,
   }),
   defineRule({
     id: "deprecated-key-files",

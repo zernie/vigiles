@@ -84,9 +84,9 @@ export interface CoverageThresholds {
 }
 
 /**
- * Options for the `instruction-weight` rule: `["error", { max: 40000 }]`.
+ * Options for the `context-creep` rule: `["error", { max: 40000 }]`.
  */
-export interface InstructionWeightConfig {
+export interface ContextCreepConfig {
   /**
    * An opt-in ABSOLUTE ceiling on the always-loaded instruction weight, in the
    * harness's own unit (characters for Claude Code, bytes for Codex). A total

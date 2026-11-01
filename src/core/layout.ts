@@ -138,6 +138,11 @@ export interface PluginLayout {
    */
   readonly outputStyles?: OutputStyleRules;
   /**
+   * How deep a session finds a `SKILL.md` under {@link skillsHome} (absent =
+   * {@link ONE_FOLDER_PER_SKILL}). See {@link SkillDiscovery}.
+   */
+  readonly skillDiscovery?: SkillDiscovery;
+  /**
    * The WORD a per-machine settings sibling inserts before the extension, e.g.
    * `local` → `.claude/settings.local.json` (absent = this harness has no
    * per-machine settings layer that we have OBSERVED).
@@ -276,6 +281,63 @@ export function skillsHome(
   if (skill === undefined || skill === "") return null;
   const root = layout.userSurfaceRoot;
   return root === undefined || root === "" ? skill : `${root}/${skill}`;
+}
+
+/**
+ * Where under the session's skills folder a harness finds a `SKILL.md`: the
+ * number of directories between the folder and the file, and whether a
+ * directory whose name starts with `.` is entered.
+ *
+ * WHY A LAYOUT FACT AND NOT A CORE CONSTANT. The always-loaded skill listing
+ * read exactly `<skillsHome>/<dir>/SKILL.md`, which is Claude Code's shape and
+ * not Codex's: Codex walks a repository skill root recursively (`max_depth` 6
+ * in `codex-rs/ext/skills/src/loader/discovery.rs`, hidden directories
+ * pruned), so a skill grouped under `.agents/skills/<group>/<name>/` loaded in
+ * every session and was left out of the gated sum. Measured on codex-cli
+ * 0.153.0: a `SKILL.md` directly in the folder, and one six directories down,
+ * are both listed; seven down, or under a `.`-directory, are not.
+ *
+ * The two readers — the pure filter in `core/always-loaded.ts` and the disk
+ * walk in `surface-discovery-fs.ts` — both ask {@link sessionSkillDirs}, so
+ * they cannot disagree about which files exist.
+ */
+export interface SkillDiscovery {
+  /** Fewest directories between the skills folder and a `SKILL.md`. */
+  readonly minDepth: number;
+  /** Most directories between the skills folder and a `SKILL.md`. */
+  readonly maxDepth: number;
+  /** Whether a directory whose name starts with `.` is skipped. */
+  readonly skipHidden: boolean;
+}
+
+/** One directory per skill, `<skillsHome>/<name>/SKILL.md` — Claude Code's shape. */
+export const ONE_FOLDER_PER_SKILL: SkillDiscovery = {
+  minDepth: 1,
+  maxDepth: 1,
+  skipHidden: false,
+};
+
+/** The layout's skill discovery, defaulted. */
+export const skillDiscoveryOf = (
+  layout: Pick<PluginLayout, "skillDiscovery">,
+): SkillDiscovery => layout.skillDiscovery ?? ONE_FOLDER_PER_SKILL;
+
+/**
+ * The directories between the skills folder and a `SKILL.md`, for a path
+ * RELATIVE to that folder — or `null` when the harness would not read it.
+ */
+export function sessionSkillDirs(
+  rel: string,
+  discovery: SkillDiscovery,
+): readonly string[] | null {
+  const segments = rel.split("/");
+  if (segments.at(-1) !== "SKILL.md") return null;
+  const dirs = segments.slice(0, -1);
+  const fits =
+    dirs.length >= discovery.minDepth &&
+    dirs.length <= discovery.maxDepth &&
+    dirs.every((d) => d !== "" && !(discovery.skipHidden && d.startsWith(".")));
+  return fits ? dirs : null;
 }
 
 /**

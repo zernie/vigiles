@@ -75,6 +75,11 @@ export const codexLayout: PluginLayout = {
   // NOT share a parent (`.agents/` vs `.codex/`), so no single root can name
   // both; spelling each dir in full is the only shape that keeps the reported key
   // equal to the real on-disk path.
+  // Repository skill roots are walked recursively: a SKILL.md directly in the
+  // folder up to six directories down, `.`-directories pruned
+  // (`codex-rs/ext/skills/src/loader/discovery.rs`; measured on 0.153.0 — see
+  // `SkillDiscovery`).
+  skillDiscovery: { minDepth: 0, maxDepth: 6, skipHidden: true },
   surfaces: {
     skill: ".agents/skills",
     // No `agent` key: Codex `[agents]` is a TOML concurrency table, not a

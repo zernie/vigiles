@@ -1,5 +1,5 @@
 /**
- * The instruction-weight ratchet through the REAL built CLI — what `lint` prints,
+ * The context-creep ratchet through the REAL built CLI — what `lint` prints,
  * what exit code it returns, and what it writes (only under `--update-baseline`).
  *
  * The comparison itself is unit-tested in `core/instruction-baseline.test.ts`;
@@ -15,12 +15,26 @@ import { join, resolve } from "node:path";
 
 import { MOVE_OUT_OF_ALWAYS_LOADED } from "./core/instruction-remedies.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
-import { compileWeightLine } from "./instruction-weight-ratchet.js";
-import { measureInstructionWeight } from "./scan.js";
+import {
+  INSTRUCTION_BASELINE_FILE,
+  LEGACY_INSTRUCTION_BASELINE_FILE,
+  RENAME_BASELINE_COMMAND,
+  legacyBaselineNote,
+} from "./core/instruction-baseline.js";
+import {
+  baselineSource,
+  compileWeightLine,
+  readInstructionBaseline,
+  writeInstructionBaseline,
+} from "./context-creep-ratchet.js";
+import { measureAlwaysLoaded } from "./scan.js";
+import { skillsHome } from "./core/layout.js";
 import { claudeCodeAdapter } from "./adapters/claude-code/adapter.js";
 
+/** The harness every in-process measurement here is taken under. */
+const ADAPTER = claudeCodeAdapter;
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
-const BASELINE = ".vigiles/instruction-weight.json";
+const BASELINE = ".vigiles/context-creep.json";
 const BODY = "x".repeat(30_000);
 /** The harness pin every test starts from; `withMax` adds rules on top of it. */
 const PINNED = { harnesses: { "claude-code": {} } };
@@ -74,7 +88,7 @@ afterEach(() => {
 test("no baseline: lint passes, says how to start, and writes NOTHING", () => {
   const r = run(["lint"]);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /no instruction-weight baseline recorded \(30,000 chars/);
+  assert.match(r.out, /no context-creep baseline recorded \(30,000 chars/);
   assert.match(r.out, /vigiles lint --update-baseline/);
   assert.equal(existsSync(join(dir, BASELINE)), false, "a read never writes");
 });
@@ -147,7 +161,7 @@ test('"warn" reports growth without touching the exit code', () => {
     ".vigilesrc.json",
     JSON.stringify({
       harnesses: { "claude-code": {} },
-      rules: { "instruction-weight": "warn" },
+      rules: { "context-creep": "warn" },
     }),
   );
   run(["lint", "--update-baseline"]);
@@ -162,13 +176,13 @@ test("off: growth past the baseline is not reported", () => {
     ".vigilesrc.json",
     JSON.stringify({
       harnesses: { "claude-code": {} },
-      rules: { "instruction-weight": "off" },
+      rules: { "context-creep": "off" },
     }),
   );
   put(BASELINE, JSON.stringify({ version: 1, bundles: {} }));
   const r = run(["lint"]);
   assert.equal(r.code, 0, r.out);
-  assert.doesNotMatch(r.out, /Instruction-weight ratchet/);
+  assert.doesNotMatch(r.out, /Context-creep ratchet/);
 });
 
 test("an unreadable baseline is a finding, never read as empty", () => {
@@ -183,17 +197,43 @@ test("--json carries the counters", () => {
   put("CLAUDE.md", `${BODY}y`);
   const r = run(["lint", "--json"]);
   const report = JSON.parse(r.out) as Record<string, number>;
-  expect(report.instructionWeightErrors).toBe(1);
+  expect(report.contextCreepErrors).toBe(1);
 });
 
 test("compile's line reads the weight against the recorded baseline", () => {
   run(["lint", "--update-baseline"]);
   put("CLAUDE.md", BODY.slice(0, 28_210));
-  const line = compileWeightLine(
-    dir,
-    measureInstructionWeight(dir, claudeCodeAdapter),
-  );
+  const m = measureAlwaysLoaded(dir, ADAPTER);
+  assert(m.instructionWeight !== null);
+  const line = compileWeightLine(dir, [
+    ".",
+    m.instructionWeight,
+    m.alwaysLoaded,
+  ]);
   expect(line).toBe("always-loaded: 28,210 chars (baseline 30,000, -1,790)");
+});
+
+test("a recorded part this run cannot measure is carried by compile and by re-record", () => {
+  const home = skillsHome(ADAPTER.layout) ?? "";
+  put(`${home}/a/SKILL.md`, "---\ndescription: listed\n---\n");
+  run(["lint", "--update-baseline"]);
+  const m = measureAlwaysLoaded(dir, ADAPTER);
+  assert(m.instructionWeight !== null);
+  // An adapter that does not model the listing, against a file that records it.
+  const blind = {
+    ...m.alwaysLoaded,
+    skillListing: { kind: "not-modelled" } as const,
+  };
+  const line = compileWeightLine(dir, [".", m.instructionWeight, blind]);
+  expect(line).toContain("(baseline 30,011, ±0)");
+  expect(line).toContain(
+    "skill listing: recorded 11, not measured in this run (not-modelled)",
+  );
+  const written = writeInstructionBaseline(dir, readInstructionBaseline(dir), [
+    [".", m.instructionWeight, blind],
+  ]);
+  expect(written.version).toBe(2);
+  expect(written.bundles["."]?.parts?.["skill-listing"]?.total).toBe(11);
 });
 
 test("once the repo has a baseline file, an UNRECORDED bundle is a finding", () => {
@@ -215,7 +255,7 @@ test("once the repo has a baseline file, an UNRECORDED bundle is a finding", () 
   );
   const r = run(["lint"]);
   assert.equal(r.code, 2, r.out);
-  assert.match(r.out, /no instruction-weight baseline recorded/);
+  assert.match(r.out, /no context-creep baseline recorded/);
 });
 
 test("an `exclude`d always-loaded file still counts — exclude is not claudeMdExcludes", () => {
@@ -270,7 +310,7 @@ function withMax(severity: "error" | "warn", max: unknown): void {
     ".vigilesrc.json",
     JSON.stringify({
       ...PINNED,
-      rules: { "instruction-weight": [severity, { max }] },
+      rules: { "context-creep": [severity, { max }] },
     }),
   );
 }
@@ -342,12 +382,12 @@ test("no max: a rule given as [severity, {}] behaves like the bare severity", ()
     ".vigilesrc.json",
     JSON.stringify({
       ...PINNED,
-      rules: { "instruction-weight": ["error", {}] },
+      rules: { "context-creep": ["error", {}] },
     }),
   );
   const r = run(["lint"]);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /no instruction-weight baseline recorded/);
+  assert.match(r.out, /no context-creep baseline recorded/);
 });
 
 test("max: --update-baseline above the ceiling is refused — nothing is written", () => {
@@ -393,3 +433,36 @@ test.each([0, -1, 1.5, "40000"])(
     assert.match(r.out, /max/);
   },
 );
+
+// The baseline's old file name: which file is read, and what is said about it.
+// The built-CLI half, on both adapters, is in each adapter's
+// `always-loaded-lint.test.ts`.
+test("baselineSource: new wins, old is read only alone, neither names the new path", () => {
+  const legacy = LEGACY_INSTRUCTION_BASELINE_FILE;
+  expect(baselineSource(dir)).toEqual({
+    file: INSTRUCTION_BASELINE_FILE,
+    legacy: "none",
+  });
+  put(legacy, "{}");
+  expect(baselineSource(dir)).toEqual({ file: legacy, legacy: "only" });
+  put(BASELINE, "{}");
+  expect(baselineSource(dir)).toEqual({ file: BASELINE, legacy: "both" });
+});
+
+test("an old-named file is parsed like the new one; a broken one is named by its own path", () => {
+  put(LEGACY_INSTRUCTION_BASELINE_FILE, "{not json");
+  const onDisk = readInstructionBaseline(dir);
+  expect(onDisk.kind).toBe("invalid");
+  const r = run(["lint"]);
+  assert.match(r.out, /\.vigiles\/instruction-weight\.json cannot be read/);
+});
+
+test("legacyBaselineNote is silent for none, and carries the exact command otherwise", () => {
+  expect(legacyBaselineNote("none")).toBeUndefined();
+  expect(legacyBaselineNote("only")).toContain(
+    `\`${RENAME_BASELINE_COMMAND}\``,
+  );
+  expect(legacyBaselineNote("both")).toContain(
+    "`git rm .vigiles/instruction-weight.json`",
+  );
+});

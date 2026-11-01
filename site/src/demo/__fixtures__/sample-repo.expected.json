@@ -109,5 +109,32 @@
       "configured": 0
     }
   },
-  "brokenReferences": ["hooks/guard.sh"]
+  "brokenReferences": ["hooks/guard.sh"],
+  "contextCost": {
+    "alwaysLoaded": {
+      "unit": "chars",
+      "total": 67,
+      "parts": [
+        {
+          "part": "instructions",
+          "kind": "counted",
+          "total": 67,
+          "files": [
+            {
+              "path": "CLAUDE.md",
+              "size": 67
+            }
+          ]
+        },
+        {
+          "part": "output-style",
+          "kind": "none"
+        },
+        {
+          "part": "skill-listing",
+          "kind": "none"
+        }
+      ]
+    }
+  }
 }

@@ -240,9 +240,9 @@ describe("compile-budget at error: the sums", () => {
 });
 
 describe("compile-budget does not measure the whole file", () => {
-  it("leaves an over-budget file to instruction-weight, which sums the chain", async () => {
+  it("leaves an over-budget file to context-creep, which sums the chain", async () => {
     // ~42,000 characters against a 40,000-character harness: no finding here.
-    // One owner per number — `instruction-weight` and its `max` measure every
+    // One owner per number — `context-creep` and its `max` measure every
     // always-loaded file together, so moving text into a rules file does not
     // fool it, and this rule does not report the same overweight twice.
     const { errors } = await strict(bigSpec(), {

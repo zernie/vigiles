@@ -626,7 +626,7 @@ const SHIPPED_RULE_DEFAULTS = {
   // Off by measurement: 0 true positives over 2 582 markdown files.
   "doc-refs": false,
   // On, and silent until the repo commits a baseline file.
-  "instruction-weight": "error",
+  "context-creep": "error",
   // A deprecation notice: reported, never gating on upgrade.
   "deprecated-key-files": "warn",
 };

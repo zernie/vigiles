@@ -152,6 +152,40 @@ what one level costs.
 materializes surfaces, expands `pluginRootToken`. And by
 `weighInstructions(chain, files, budget)` — the instruction-weight report.
 
+#### The always-loaded context: `dialect.skillListing` and `outputStyles.selected`
+
+Two OPTIONAL members let the instruction weight grow into the **always-loaded
+context** — the instructions plus what else the harness loads at session start
+before any decision — measured by `weighAlwaysLoaded` in
+`core/always-loaded.ts`, in the dialect's `instructionBudget.unit`:
+
+| Member               | Port                        | Signature                                                     | Claude Code                                                                                                                    | Codex                                                                                                  |
+| -------------------- | --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `skillListing`       | `HarnessDialect`            | `{ entry(skill, settings): string \| null; capturedFrom }`    | `- dir: description - when_to_use` as Claude Code 2.1.187 renders it, cut at 1,536 chars with `…` (`skillListingMaxDescChars`) | `- name: description (file: path)`, description cut at 1,024 with `...`; unparseable skills not listed |
+| `selected(settings)` | `PluginLayout.outputStyles` | `→ { kind: "unset" \| "default" } \| { kind: "named"; name }` | reads `outputStyle`                                                                                                            | — (Codex has no output styles)                                                                         |
+
+The types are exported from `vigiles/adapter` as `SkillListingRules`,
+`ListedSkill` and `StyleSelection`. `entry` receives one `ListedSkill` read by
+the core (`path`, `dirName`, parsed
+`frontmatter` or `null` when its YAML does not parse, `body`) and the
+COMMITTED settings object; it returns the line exactly as the harness renders
+it, or `null` when the harness does not list that skill. `selected` reads one
+settings object; the core resolves the name against the style files in the
+session's own style folder, in exact case.
+
+Which `SKILL.md` files reach `entry` is a layout fact, `PluginLayout.skillDiscovery`
+(`{ minDepth, maxDepth, skipHidden }`, the directories between the skills
+folder and the file). Absent means one folder per skill (`1, 1, false`, Claude
+Code); Codex declares `0, 6, true`, its recursive walk. The pure filter and the
+disk reader both ask `sessionSkillDirs`, so the browser engine and the CLI read
+the same skills.
+
+Each absence is its own state in the result, never a silent 0: a dialect
+without `skillListing` reports the listing as `not-modelled`, a layout without
+`outputStyles` reports the style as `not-supported`, an `outputStyles` without
+`selected` reports it as `not-modelled`, and a selected name no repository file
+declares is `unresolved`.
+
 ### `HarnessRuntime` (transport)
 
 How the test tiers drive the agent against a no-key mock.

@@ -21,7 +21,7 @@
  * of rediscovering ELOOP.
  */
 import { lstatSync, realpathSync, statSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { dirname, resolve, sep } from "node:path";
 
 /** What a walk should do with one directory entry. */
 export type EntryKind = "dir" | "file" | "skip";
@@ -131,6 +131,66 @@ export function walkableRoot(dir: string, scanRoot: string): boolean {
     return !contains(realpathSync(dir), realpath(scanRoot));
   } catch {
     return false; // dangling link — nothing to walk
+  }
+}
+
+/** A classified entry, plus whether entries BELOW it may still cross a directory link. */
+export interface LinkedEntry extends Entry {
+  readonly mayFollowBelow: boolean;
+}
+
+/**
+ * {@link entryOf} for a walk over a SKILLS folder, where ONE symlinked directory
+ * per path may be entered.
+ *
+ * 🔴 WHY SKILLS GET THIS AND OTHER SURFACES DO NOT. `vigiles init` installs a
+ * shipped skill by linking its folder into the skills folder, and both Claude
+ * Code and Codex list a linked skill folder like a real one. Under
+ * {@link entryOf} alone the loader refused every such link, so on a real
+ * repository `vigiles audit` printed `Skills (58)` while the skill listing it
+ * weighs — and the harness — carried 83: 27 skill folders were links. The
+ * listing reader and the loader now both classify through this function, so the
+ * count and the listing cannot disagree about which folders exist.
+ *
+ * THE POLICY IS {@link walkableRoot}'s, ONE LEVEL DOWN. A linked skill folder is
+ * an entry the layout names, like a surface root, so it is followed — with two
+ * refusals, both the cycle case: a target that CONTAINS the scanned root
+ * (`skills/x -> <repo>`), and a target that contains the link itself
+ * (`skills/a/self -> skills`), which re-enters the tree being walked.
+ *
+ * Termination is by CONSTRUCTION, as everywhere in this module: below a
+ * followed link `mayFollowBelow` is `false`, so every path crosses at most one
+ * directory link (plus its root's own), and a walk over finite real
+ * directories ends. A chain of links that never points back at an ancestor
+ * (`A/b -> B`, `B/c -> A`) is cut at the second hop by the same rule. There is
+ * no visited-set to get wrong.
+ */
+export function skillTreeEntryOf(
+  path: string,
+  scanRoot: string,
+  mayFollow: boolean,
+): LinkedEntry {
+  const entry = entryOf(path);
+  if (entry.kind === "skip" && mayFollow && followableDirLink(path, scanRoot))
+    return { kind: "dir", size: 0, mayFollowBelow: false };
+  return { ...entry, mayFollowBelow: mayFollow };
+}
+
+/**
+ * Whether an entry {@link entryOf} skipped is a directory link a skills walk may
+ * enter. Only skipped entries are asked, so a plain directory never reaches
+ * here; a dangling link throws from `realpathSync` and is refused.
+ */
+function followableDirLink(path: string, scanRoot: string): boolean {
+  try {
+    const target = realpathSync(path);
+    return (
+      !contains(target, realpath(scanRoot)) &&
+      !contains(target, realpathSync(dirname(path))) &&
+      statSync(target).isDirectory()
+    );
+  } catch {
+    return false;
   }
 }
 
