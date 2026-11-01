@@ -62,13 +62,18 @@ export function injectReportData(
   if (!re.test(template)) {
     throw new Error("audit report template is missing the data placeholder");
   }
-  let out = template.replace(re, escapeForScript(JSON.stringify(report)));
+  // Every replacement goes through a function: a replacement STRING reads `$1`,
+  // `$&`, `$'` and the like as patterns, and report text quotes files that say
+  // "$120/h". A function's return value is used verbatim.
+  const data = escapeForScript(JSON.stringify(report));
+  let out = template.replace(re, () => data);
   if (serve) {
     // Prepend the serve global onto the same statement that carries the data, so
     // it's set before the app bundle reads it. The token is hex, but escape anyway.
+    const prefix = `window.__VIGILES_SERVE__=${escapeForScript(JSON.stringify(serve))};`;
     out = out.replace(
       "window.__VIGILES_DATA__",
-      `window.__VIGILES_SERVE__=${escapeForScript(JSON.stringify(serve))};window.__VIGILES_DATA__`,
+      () => `${prefix}window.__VIGILES_DATA__`,
     );
   }
   return out;
