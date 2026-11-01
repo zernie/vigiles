@@ -73,13 +73,14 @@
   block; ONE idea per sentence; NO internal vocabulary (moat/flywheel) / NO
   research/ links / NO enterprise/national-interest framing — name the user
   benefit; ~220-line body cap; push depth into docs/ and LINK it. Assets: the hero
-  vigiles-audit.png is a REPRESENTATIVE report ("my-plugin", C 77) — the verdict-
-  led header + category strip + ranked fixes + broken references. The "Your rules →
-  enforced" preview is DEMOTED low + badged EXPERIMENTAL (the rule map is alpha —
-  research/rule-enforcer-design.md §8). Re-render if the UI changes: `npm run build`
-  (rebuilds report/dist/index.html from the SAMPLE fixture), then headless Chromium
-  (puppeteer-core, executablePath /opt/pw-browsers/chromium) with
-  prefers-color-scheme:dark emulated + a fullPage screenshot at deviceScaleFactor 2
+  vigiles-audit.png is a REPRESENTATIVE report ("my-plugin", C 77) — the grade
+  gauge + category rings + "Do these first" + broken references + always-loaded
+  context. The "Your rules → enforced" preview is DEMOTED low + badged EXPERIMENTAL
+  (the rule map is alpha — research/rule-enforcer-design.md §8) and sits below the
+  crop. Re-render if the UI changes: `npm run build` (rebuilds
+  report/dist/index.html from the SAMPLE fixture), then headless Chromium at a
+  1100px viewport with prefers-color-scheme:dark emulated + a fullPage screenshot
+  at deviceScaleFactor 2, cropped at the bottom of the always-loaded section
   → vigiles-audit.png (2200px wide).
 -->
 
@@ -127,7 +128,7 @@ It's free and open-source, runs entirely on your machine, and never bills per to
 ## What it caught
 
 <p align="center">
-  <img src="vigiles-audit.png" width="760" alt="vigiles audit report for my-plugin: a verdict header reading 'Two one-line fixes away from a B.' next to a C (77/100) grade, a five-category strip (Truthfulness, Triggering, Structure, Safety, Tested), ranked fix cards with '+N pts' impact badges, broken-reference findings — and, lower down and badged experimental, a 'Your rules → enforced' preview mapping a prose rule the config silently turns off" />
+  <img src="vigiles-audit.png" width="760" alt="vigiles audit report for my-plugin: a C grade gauge (77/100) beside the verdict 'Two one-line fixes away from a B.' and '3 points to B', score rings for Truthfulness, Triggering, Structure and Safety plus dashed advisory rings for Tested and Evaluated, the findings in full, a numbered 'Do these first' list with '+N pts' gains, broken-reference findings, and the always-loaded context total split into three shares" />
 </p>
 
 **Like Google's Lighthouse, but for your agent harness.** One command grades it A–F across six categories, leads with a plain-English verdict — _"two one-line fixes away from a B"_ — and ranks every fix by the points it buys back:

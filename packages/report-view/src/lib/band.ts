@@ -1,8 +1,9 @@
 /**
  * Score → band → Tailwind utility classes. Class names are LITERAL (not built by
  * string concat) so Tailwind's JIT detects and emits them. The band colors are
- * registered as theme colors in index.css (`--color-good/warn/bad/na`), so these
- * are first-class Tailwind utilities — no inline styles, no arbitrary `[var()]`.
+ * registered as theme colors in theme.css (`--color-good/warn/bad/na` for fills,
+ * `--color-*-ink` for text), so these are first-class Tailwind utilities — no
+ * inline styles, no arbitrary `[var()]`.
  */
 export type Band = "good" | "warn" | "bad" | "na";
 
@@ -13,11 +14,13 @@ export function band(score: number | null): Band {
   return "bad";
 }
 
+/** Text in a band colour — the INK token, which passes 4.5:1 where the fill
+ *  colour (rings, bars) does not. Never use a fill class for text. */
 export const TEXT: Record<Band, string> = {
-  good: "text-good",
-  warn: "text-warn",
-  bad: "text-bad",
-  na: "text-na",
+  good: "text-good-ink",
+  warn: "text-warn-ink",
+  bad: "text-bad-ink",
+  na: "text-na-ink",
 };
 export const BG: Record<Band, string> = {
   good: "bg-good",
@@ -30,18 +33,6 @@ export const STROKE: Record<Band, string> = {
   warn: "stroke-warn",
   bad: "stroke-bad",
   na: "stroke-na",
-};
-export const FILL: Record<Band, string> = {
-  good: "fill-good",
-  warn: "fill-warn",
-  bad: "fill-bad",
-  na: "fill-na",
-};
-export const BORDER_L: Record<Band, string> = {
-  good: "border-l-good",
-  warn: "border-l-warn",
-  bad: "border-l-bad",
-  na: "border-l-na",
 };
 /** Full (all-sides) band border — literal class names so the JIT emits them. */
 export const BORDER: Record<Band, string> = {

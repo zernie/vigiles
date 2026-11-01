@@ -37,6 +37,17 @@
   --color-part-1: var(--part-1);
   --color-part-2: var(--part-2);
   --color-part-3: var(--part-3);
+  /* The report view's text-colour (ink) tokens, kept apart from the fills
+     above (see packages/report-view/src/theme.css). On this dark ground the
+     fills already pass as text, so only n/a differs. */
+  --color-good-ink: var(--good);
+  --color-warn-ink: var(--warn);
+  --color-bad-ink: var(--bad);
+  --color-na-ink: hsl(var(--muted-foreground));
+  --color-band: hsl(var(--card));
+  --color-code: hsl(var(--muted));
+  --color-track: hsl(var(--border));
+  --color-foreground-soft: hsl(var(--foreground));
 
   --radius-lg: 0.75rem;
   --radius-xl: 1rem;
@@ -46,6 +57,8 @@
   --font-serif:
     "Iowan Old Style", "Palatino Linotype", Palatino, Charter, Georgia,
     "Times New Roman", serif;
+  /* The report view's heading/figure face; the site keeps its own sans. */
+  --font-display: "Inter", "Helvetica Neue", Arial, sans-serif;
   --font-mono:
     ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono",
     monospace;
