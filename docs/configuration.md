@@ -314,6 +314,43 @@ Some rules take options as a second element:
 { "rules": { "coverage": ["warn", { "scripts": 50, "linterRules": 5 }] } }
 ```
 
+#### `context-creep` limits
+
+[`context-creep`](rules/context-creep.md) checks what the harness loads at
+session start against the harness's own limit for each part: 40,000
+characters of instructions and 6,000 of skill listing on Claude Code, 32,768
+bytes of instructions and 8,000 of skill listing on Codex. Override either
+part for this repository:
+
+```json
+{
+  "rules": {
+    "context-creep": [
+      "error",
+      { "limits": { "instructions": 60000, "skill-listing": 9000 } }
+    ]
+  }
+}
+```
+
+- Each value is a **positive integer in the harness's own unit**: characters
+  for Claude Code, bytes for Codex. A part you leave out keeps the harness's
+  number.
+- The keys are `instructions` (the selected output style counts with them) and
+  `skill-listing`. Anything else, `0`, a fraction or a string is refused by the
+  strict schema, and `lint` stops with the config error.
+- The override applies to `lint`, `compile` and `init`. `vigiles audit`
+  reports against the harness's own limits.
+- A committed `skillListingBudgetFraction` (Claude Code) or `[skills]
+max_context_tokens` (Codex) already moves the listing limit without an
+  override. Per-machine environment variables are not read.
+- `max` is a separate option: a ceiling on the instructions that no baseline
+  lifts. See the [rule doc](rules/context-creep.md#max-an-opt-in-absolute-ceiling).
+
+The size a repository accepted over a limit lives in `.vigiles/baseline.json`,
+written by `vigiles init` or `vigiles lint --update-baseline`, never by plain
+`lint`.
+
 ### `overrides`
 
 Change a rule's severity for some paths only — the folders of a notes repo that

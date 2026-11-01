@@ -5,9 +5,10 @@
 # Uses `vigiles lint --summary` which is designed for this: it
 # silences all per-stage output and prints a single line like
 #   vigiles: 3 stale / 2 validation errors / 1 duplicate
-# (or "vigiles: clean") so the injection costs a handful of tokens. While a
-# repo still has the old baseline file it adds one `vigiles: note — … git mv …`
-# line, so the agent renames it.
+# (or "vigiles: clean") so the injection costs a handful of tokens. While the
+# always-loaded context is over a harness limit with no baseline recorded, or
+# an old baseline file still needs migrating, it adds one `vigiles: note — …`
+# line naming the command, so the agent runs it.
 #
 # Hook runs on the `startup` and `compact` matchers — the latter is
 # effectively free on token budget because it fires every time

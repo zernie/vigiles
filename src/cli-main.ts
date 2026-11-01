@@ -1602,9 +1602,10 @@ interface LintReport {
   contextCreepIssues: number;
   contextCreepErrors: number;
   /**
-   * Notes the context-creep ratchet raises that never count: today the one
-   * naming the old baseline file and the command that moves it. `--summary`
-   * prints them, because the session-start hook injects that output.
+   * Notes the always-loaded check raises that never count: over a limit with
+   * no baseline recorded, and an old baseline file to migrate — each with its
+   * command. `--summary` prints them, because the session-start hook injects
+   * that output.
    */
   contextCreepNotes: readonly string[];
   deprecatedKeyFilesIssues: number;
@@ -3213,8 +3214,8 @@ function printLintSummary(report: LintReport): void {
   } else {
     console.log(`vigiles: ${parts.join(" / ")}`);
   }
-  // One extra line per note, only when there is one: the old baseline file's
-  // rename command reaches the agent through the session-start hook.
+  // One extra line per note, only when there is one: the command to record or
+  // migrate the baseline reaches the agent through the session-start hook.
   report.contextCreepNotes.forEach((note) => {
     console.log(`vigiles: note — ${note}`);
   });

@@ -93,7 +93,7 @@ Two checks run beside the line guard and, by default, print as **warnings** — 
 
 Both are tunable (`0` disables) as options of the `compile-budget` rule: `"compile-budget": ["warn", { "maxEntryChars": 300 }]`.
 
-Why these two shapes and not a total: an instruction file grows one unremarkable entry at a time, and nobody removes one. A total tells you "too big" long after you could act, and names no offender; a per-entry budget names the row at the moment it is added. For the whole-file number — everything the harness loads _without being asked_, which is the figure that actually bills you — run `vigiles audit` and read `Always-loaded instructions`; to stop that number growing, commit a baseline with `vigiles lint --update-baseline`, and to cap it outright set `max` (rule [`context-creep`](rules/context-creep.md)).
+Why these two shapes and not a total: an instruction file grows one unremarkable entry at a time, and nobody removes one. A total tells you "too big" long after you could act, and names no offender; a per-entry budget names the row at the moment it is added. For the whole-file number — everything the harness loads _without being asked_, which is the figure that actually bills you — run `vigiles audit` and read `Always-loaded instructions`; the rule [`context-creep`](rules/context-creep.md) checks it against the harness's own limit, and above the limit stops it growing past the baseline `vigiles lint --update-baseline` records; to cap it outright set `max`.
 
 <!-- vigiles:ignore -->
 

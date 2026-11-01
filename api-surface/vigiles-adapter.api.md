@@ -201,6 +201,12 @@ export interface ListedSkill {
 }
 
 // @public
+export interface ListingLimit {
+    readonly limit: number;
+    readonly setBy?: string;
+}
+
+// @public
 export interface LoadedInstruction {
     readonly path: string;
     // (undocumented)
@@ -379,7 +385,14 @@ export interface SkillDiscovery {
 }
 
 // @public
+export interface SkillListingBudget {
+    readonly capturedFrom: string;
+    readonly limit: (settings: Readonly<Record<string, unknown>>) => ListingLimit;
+}
+
+// @public
 export interface SkillListingRules {
+    readonly budget?: SkillListingBudget;
     readonly capturedFrom: string;
     readonly entry: (skill: ListedSkill, settings: Readonly<Record<string, unknown>>) => string | null;
 }

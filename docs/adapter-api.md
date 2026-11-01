@@ -159,19 +159,29 @@ context** — the instructions plus what else the harness loads at session start
 before any decision — measured by `weighAlwaysLoaded` in
 `core/always-loaded.ts`, in the dialect's `instructionBudget.unit`:
 
-| Member               | Port                        | Signature                                                     | Claude Code                                                                                                                    | Codex                                                                                                  |
-| -------------------- | --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `skillListing`       | `HarnessDialect`            | `{ entry(skill, settings): string \| null; capturedFrom }`    | `- dir: description - when_to_use` as Claude Code 2.1.187 renders it, cut at 1,536 chars with `…` (`skillListingMaxDescChars`) | `- name: description (file: path)`, description cut at 1,024 with `...`; unparseable skills not listed |
-| `selected(settings)` | `PluginLayout.outputStyles` | `→ { kind: "unset" \| "default" } \| { kind: "named"; name }` | reads `outputStyle`                                                                                                            | — (Codex has no output styles)                                                                         |
+| Member               | Port                        | Signature                                                           | Claude Code                                                                                                                    | Codex                                                                                                  |
+| -------------------- | --------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `skillListing`       | `HarnessDialect`            | `{ entry(skill, settings): string \| null; capturedFrom; budget? }` | `- dir: description - when_to_use` as Claude Code 2.1.187 renders it, cut at 1,536 chars with `…` (`skillListingMaxDescChars`) | `- name: description (file: path)`, description cut at 1,024 with `...`; unparseable skills not listed |
+| `selected(settings)` | `PluginLayout.outputStyles` | `→ { kind: "unset" \| "default" } \| { kind: "named"; name }`       | reads `outputStyle`                                                                                                            | — (Codex has no output styles)                                                                         |
 
 The types are exported from `vigiles/adapter` as `SkillListingRules`,
-`ListedSkill` and `StyleSelection`. `entry` receives one `ListedSkill` read by
+`ListedSkill`, `SkillListingBudget`, `ListingLimit` and `StyleSelection`. `entry` receives one `ListedSkill` read by
 the core (`path`, `dirName`, parsed
 `frontmatter` or `null` when its YAML does not parse, `body`) and the
 COMMITTED settings object; it returns the line exactly as the harness renders
 it, or `null` when the harness does not list that skill. `selected` reads one
 settings object; the core resolves the name against the style files in the
 session's own style folder, in exact case.
+
+`budget` is optional: the size of the whole listing past which the harness
+drops descriptions. `budget.limit(settings)` gets the same COMMITTED settings
+and returns `{ limit, setBy? }` in the dialect's unit — `setBy` names the
+committed setting that moved it off the default. Claude Code returns 6,000
+characters (`skillListingBudgetFraction` moves it); Codex returns 8,000
+(`[skills] max_context_tokens` replaces it). The
+[`context-creep`](rules/context-creep.md) rule checks the listing against it.
+Without `budget` the listing has no limit of its own, and no number is
+invented for it.
 
 Which `SKILL.md` files reach `entry` is a layout fact, `PluginLayout.skillDiscovery`
 (`{ minDepth, maxDepth, skipHidden }`, the directories between the skills

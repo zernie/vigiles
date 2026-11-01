@@ -155,9 +155,13 @@ If your harness lists skills to the model at session start, give the dialect a
 the harness renders it (or `null` when it hides that skill) — and if it has
 output styles, give `layout.outputStyles` a `selected(settings)` that reads
 which style a settings object switches on. `vigiles audit` then prints both
-under the instruction weight, and the `context-creep` ratchet can gate
-their sum. Leave either out and the report says that part is not modelled for
-your harness, rather than counting it as zero. See
+under the instruction weight, and the `context-creep` rule counts them. If
+your harness drops descriptions past a size for the whole listing, give
+`skillListing` a `budget` too — `limit(settings)` returns that size in your
+unit for one commit (and `setBy`, the committed setting that moved it) — and
+`context-creep` checks the listing against it. Leave any of them out and the
+report says that part is not modelled for your harness, rather than counting
+it as zero or inventing a limit. See
 [the adapter API reference](adapter-api.md#the-always-loaded-context-dialectskilllisting-and-outputstylesselected).
 
 ## Validate it
