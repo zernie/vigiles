@@ -112,7 +112,7 @@ test("a skills walk enters ONE linked skill folder per path, never one that loop
   // construction rather than of a visited-set.
   const dir = makeTmpDir("fs-walk-skill-links");
   const repo = join(dir, "repo");
-  const skills = join(repo, ".claude", "skills");
+  const skills = join(repo, "surface", "skills");
   mkdirSync(join(skills, "own"), { recursive: true });
   mkdirSync(join(dir, "shared", "linked"), { recursive: true });
   symlinkSync(join(dir, "shared", "linked"), join(skills, "linked"), "dir");

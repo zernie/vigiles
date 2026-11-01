@@ -494,6 +494,42 @@ function surfaceHasLoadable(
     : keys.some((k) => k.endsWith(".md"));
 }
 
+/**
+ * One surface dir's tree, or `{}` when there is nothing to read.
+ *
+ * `walkableRoot` classifies the walk's ENTRY POINT — `statSync` follows a symlink,
+ * so a `skills -> ..` link handed the whole repo (node_modules included) to the
+ * file map the entire report is computed from. It is a DIFFERENT rule from the
+ * per-entry one and that function says why; a shared skills dir linked in from
+ * outside is still read.
+ */
+function surfaceTreeAt(
+  root: string,
+  dir: string,
+  excluded: Excluded,
+  links: LinkHop = NO_DIR_LINKS,
+): Record<string, string> {
+  const isDir = existsSync(dir) && statSync(dir).isDirectory();
+  return isDir && walkableRoot(dir, root) && !excluded(dir)
+    ? readTree(dir, dir, excluded, links)
+    : {};
+}
+
+/**
+ * The link policy a surface's walk gets: the SKILLS surface may cross one
+ * directory link per path — a linked skill folder is how `vigiles init`
+ * installs a skill, and the harness lists it — every other surface none.
+ */
+function linksFor(
+  layout: PluginLayout,
+  surface: string,
+  root: string,
+): LinkHop {
+  return surface === layout.surfaces.skill
+    ? { scanRoot: root, mayFollow: true }
+    : NO_DIR_LINKS;
+}
+
 function materializeSurfaces(
   root: string,
   layout: PluginLayout,
@@ -504,39 +540,15 @@ function materializeSurfaces(
 ): MaterializedSurfaces {
   const counts: Record<string, number> = {};
   const harnessCounts: Record<string, number> = {};
-  const isDir = (p: string): boolean =>
-    existsSync(p) && statSync(p).isDirectory();
-  /**
-   * One surface dir's tree, or `{}` when there is nothing to read.
-   *
-   * `walkableRoot` classifies the walk's ENTRY POINT — `isDir` follows a symlink,
-   * so a `skills -> ..` link handed the whole repo (node_modules included) to the
-   * file map the entire report is computed from. It is a DIFFERENT rule from the
-   * per-entry one and that function says why; a shared skills dir linked in from
-   * outside is still read.
-   *
-   * `links` is set for the SKILLS surface only: a linked skill folder is how
-   * `vigiles init` installs a skill, and the harness lists it.
-   */
-  const surfaceTree = (
-    dir: string,
-    links: LinkHop = NO_DIR_LINKS,
-  ): Record<string, string> =>
-    isDir(dir) && walkableRoot(dir, root) && !excluded(dir)
-      ? readTree(dir, dir, excluded, links)
-      : {};
-  const skillLinks: LinkHop = { scanRoot: root, mayFollow: true };
+  const surfaceTree = (dir: string, links?: LinkHop) =>
+    surfaceTreeAt(root, dir, excluded, links);
   /** Every surface tree of one scope, read once, keyed by surface dir. */
   const scopeTrees = (base: string): Map<string, Record<string, string>> => {
     const trees = new Map<string, Record<string, string>>();
-    for (const surface of surfaceDirs(layout))
-      trees.set(
-        surface,
-        surfaceTree(
-          join(root, base, surface),
-          surface === layout.surfaces.skill ? skillLinks : NO_DIR_LINKS,
-        ),
-      );
+    for (const surface of surfaceDirs(layout)) {
+      const dir = join(root, base, surface);
+      trees.set(surface, surfaceTree(dir, linksFor(layout, surface, root)));
+    }
     return trees;
   };
   const hasLoadable = (trees: ReadonlyMap<string, Record<string, string>>) =>

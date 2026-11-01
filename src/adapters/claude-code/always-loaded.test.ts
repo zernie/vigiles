@@ -295,6 +295,9 @@ describe("Claude Code always-loaded context through scanPlugin and scanFiles", (
       files: [{ path: ".claude/skills/linked/SKILL.md", size: 19 }],
     });
   });
+});
+
+describe("Claude Code skill folders linked in", () => {
   it("the audit's skill count and the listing agree on symlinked skill folders", () => {
     // On a real repository the audit printed `Skills (58)` while the listing it
     // weighs carried 83: the loader refused every linked skill folder, the

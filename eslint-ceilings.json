@@ -498,7 +498,7 @@
   },
   "src/plugin-loader.ts": {
     "max-params": 6,
-    "max-lines-per-function": 117,
+    "max-lines-per-function": 115,
     "sonarjs/cognitive-complexity": 12,
     "complexity": 11
   },
