@@ -24,6 +24,7 @@ import { Adoptability } from "./components/Adoptability";
 import { Adopt } from "./components/Adopt";
 import { RuleInventory } from "./components/RuleInventory";
 import { Observations } from "./components/Observations";
+import { AlwaysLoaded } from "./components/AlwaysLoaded";
 import { band, type Band, TEXT, BG, BORDER, BORDER_L } from "./lib/band";
 import { cn } from "./lib/utils";
 
@@ -760,6 +761,7 @@ export function Report({
     ruleRouting,
     brokenReferences,
     ungraded,
+    contextCost,
   } = data;
   const overall = score.empty ? null : score.overall;
 
@@ -944,6 +946,20 @@ export function Report({
             These don't resolve.
           </p>
           <Adoptability data={adoptability} />
+        </>
+      )}
+
+      {contextCost && (
+        <>
+          <h2 className="mb-3 mt-9 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            Always-loaded context
+          </h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            What the harness reads at the start of every session, before any
+            decision: your instruction files, the selected output style and the
+            skill listing. Every request pays for it again.
+          </p>
+          <AlwaysLoaded data={contextCost.alwaysLoaded} />
         </>
       )}
 
