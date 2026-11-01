@@ -5,9 +5,11 @@
  * to those findings — and, only under the explicit `--update-baseline`, write
  * the store.
  *
- * This module owns what the core must not do: reading and writing
- * `.vigiles/baseline.json`, finding and deleting the file earlier releases
- * wrote, and turning lines into lint counters and annotations.
+ * This module decides what is read, written and deleted — the store, and the
+ * file earlier releases wrote — and turns lines into lint counters and
+ * annotations. The bytes go through {@link BaselineFiles}, a port the
+ * composition root fills with the file system, so this module does no I/O of
+ * its own.
  *
  * WHY THE STORE IS COMMITTED, unlike `.vigiles/coverage.json`. Coverage records
  * what tests ran on THIS machine. The store records a property of the COMMIT:
@@ -20,15 +22,6 @@
  * deletes it once nothing is; `init` writes it once on a repository that is
  * over a limit and has none (`recordIfMissing`).
  */
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
-
 import {
   BASELINE_FILE,
   UPDATE_BASELINE_COMMAND,
@@ -66,6 +59,19 @@ import type { InstructionWeight } from "./core/instruction-weight.js";
 import type { RuleSeverity } from "./core/types.js";
 
 /**
+ * The repository's files, by path relative to the config root. The root fills
+ * it with the file system; a test can fill it with a map.
+ */
+export interface BaselineFiles {
+  /** The file's text, or `undefined` when it does not exist. */
+  readonly read: (path: string) => string | undefined;
+  /** Write the file, creating its folder. */
+  readonly write: (path: string, text: string) => void;
+  /** Delete the file; nothing when it does not exist. */
+  readonly remove: (path: string) => void;
+}
+
+/**
  * One bundle's measurement: where it is, and either nothing to weigh or its
  * weight WITH the always-loaded context around it.
  */
@@ -85,33 +91,26 @@ export interface ContextCreepLimits {
   readonly max?: number;
 }
 
-export function readBaselineStore(root: string): StoreOnDisk {
-  const path = join(root, BASELINE_FILE);
-  return existsSync(path)
-    ? parseBaselineStore(readFileSync(path, "utf-8"))
-    : { kind: "absent" };
+export function readBaselineStore(files: BaselineFiles): StoreOnDisk {
+  const text = files.read(BASELINE_FILE);
+  return text === undefined ? { kind: "absent" } : parseBaselineStore(text);
 }
 
 /** Write the store, or delete the file when there is nothing left in it. */
 function writeBaselineStore(
-  root: string,
-  store: BaselineStore | undefined,
+  files: BaselineFiles,
+  store: Readonly<BaselineStore> | undefined,
 ): void {
-  const path = join(root, BASELINE_FILE);
-  if (store === undefined) {
-    rmSync(path, { force: true });
-    return;
-  }
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, serializeBaselineStore(store));
+  if (store === undefined) files.remove(BASELINE_FILE);
+  else files.write(BASELINE_FILE, serializeBaselineStore(store));
 }
 
 /** The old baseline files present in this repository, newest name first. */
 export function legacyFilesPresent(
-  root: string,
+  files: BaselineFiles,
   ruleId: string,
 ): readonly string[] {
-  return legacyBaselineFiles(ruleId).filter((f) => existsSync(join(root, f)));
+  return legacyBaselineFiles(ruleId).filter((f) => files.read(f) !== undefined);
 }
 
 /** One bundle's check against its limits, or nothing to weigh. */
@@ -134,6 +133,24 @@ function unfollowedNote(weight: InstructionWeight): string {
     : "";
 }
 
+/** The over-limit finding for a bundle, carrying what the store records. */
+function overLimitFinding(
+  at: string,
+  weight: InstructionWeight,
+  loaded: AlwaysLoadedContext,
+  check: LimitCheck,
+): readonly RuleFinding[] {
+  return check.over.length === 0
+    ? []
+    : [
+        {
+          subject: at,
+          text: `${formatOverLimit(check, at)}${unfollowedNote(weight)}`,
+          measurement: alwaysLoadedMeasurement(weight, loaded),
+        },
+      ];
+}
+
 /** The findings one bundle produces: over a limit (acceptable), over the ceiling (never). */
 function bundleFindings(
   m: MeasuredBundle,
@@ -144,15 +161,7 @@ function bundleFindings(
   const check = checkAlwaysLoadedLimits(weight, loaded, limits.limits);
   const ceiling = checkCeiling(weight, limits.max);
   return [
-    ...(check.over.length === 0
-      ? []
-      : [
-          {
-            subject: at,
-            text: `${formatOverLimit(check, at)}${unfollowedNote(weight)}`,
-            measurement: alwaysLoadedMeasurement(weight, loaded),
-          },
-        ]),
+    ...overLimitFinding(at, weight, loaded, check),
     ...(ceiling === undefined
       ? []
       : [
@@ -183,19 +192,14 @@ export function updateRefusals(
   measured: readonly MeasuredBundle[],
   max: number | undefined,
 ): readonly string[] {
+  const text = {
+    file: BASELINE_FILE,
+    command: UPDATE_BASELINE_COMMAND,
+    remedy: MOVE_OUT_OF_ALWAYS_LOADED,
+  };
   return measured.flatMap(([at, weight]) => {
     const over = weight === null ? undefined : checkCeiling(weight, max);
-    return over === undefined
-      ? []
-      : [
-          formatRefusal(
-            over,
-            at,
-            BASELINE_FILE,
-            UPDATE_BASELINE_COMMAND,
-            MOVE_OUT_OF_ALWAYS_LOADED,
-          ),
-        ];
+    return over === undefined ? [] : [formatRefusal(over, at, text)];
   });
 }
 
@@ -210,6 +214,12 @@ export function legacyLine(file: string): StoreLine {
   };
 }
 
+/** The entries a migration writes, and whether the old file could be converted. */
+interface Migration {
+  readonly entries: Readonly<Record<string, BaselineEntry>>;
+  readonly converted: boolean;
+}
+
 /**
  * The entries a migration writes: each bundle still over a limit keeps its
  * entry from the old file (the recorded numbers, never a re-measure), and a
@@ -217,31 +227,39 @@ export function legacyLine(file: string): StoreLine {
  * that cannot be read is replaced by the current sizes, and the caller says so.
  */
 function migratedEntries(
-  root: string,
-  file: string,
+  oldText: string,
   run: RuleRun,
   onDisk: StoreOnDisk,
-): {
-  readonly entries: Readonly<Record<string, BaselineEntry>>;
-  readonly converted: boolean;
-} {
+): Migration {
   const current = entriesFor(onDisk, run);
-  const legacy = parseLegacyBaseline(readFileSync(join(root, file), "utf-8"));
+  const legacy = parseLegacyBaseline(oldText);
   if (legacy.kind === "invalid") return { entries: current, converted: false };
   const entries = Object.fromEntries(
-    run.findings.flatMap((f) =>
-      f.measurement === undefined
-        ? []
-        : [
-            [
-              f.subject,
-              convertLegacyEntry(legacy, f.subject, f.measurement) ??
-                current[f.subject],
-            ] as const,
-          ],
-    ),
+    run.findings.flatMap((f) => {
+      if (f.measurement === undefined) return [];
+      const kept = convertLegacyEntry(legacy, f.subject, f.measurement);
+      return [[f.subject, kept ?? current[f.subject]] as const];
+    }),
   );
   return { entries, converted: true };
+}
+
+/** What `record` says about the store it wrote or removed. */
+function wroteLine(
+  next: Readonly<BaselineStore> | undefined,
+  onDisk: StoreOnDisk,
+): string {
+  if (next !== undefined) return `✓ recorded ${BASELINE_FILE}`;
+  return onDisk.kind === "ok"
+    ? `✓ nothing is over a limit — removed ${BASELINE_FILE}`
+    : "✓ nothing is over a limit — no baseline to record";
+}
+
+/** What `record` says about a migration. */
+function migratedLine(file: string, converted: boolean): string {
+  return converted
+    ? `✓ migrated ${file} into ${BASELINE_FILE}, keeping its recorded numbers — run \`${UPDATE_BASELINE_COMMAND}\` again to accept the current size`
+    : `✓ ${file} could not be read, so the current size was recorded instead`;
 }
 
 /**
@@ -250,44 +268,33 @@ function migratedEntries(
  * are recorded. Old files are deleted either way. Returns what to print.
  */
 function record(
-  root: string,
+  files: BaselineFiles,
   run: RuleRun,
   onDisk: StoreOnDisk,
 ): readonly string[] {
-  const legacy = legacyFilesPresent(root, run.ruleId);
-  const migrating = legacy.length > 0 && !hasEntries(onDisk, run.ruleId);
-  const first = legacy[0];
-  const plan =
-    migrating && first !== undefined
-      ? migratedEntries(root, first, run, onDisk)
-      : { entries: entriesFor(onDisk, run), converted: false };
+  const legacy = legacyFilesPresent(files, run.ruleId);
+  const first = hasEntries(onDisk, run.ruleId) ? undefined : legacy[0];
+  const oldText = first === undefined ? undefined : files.read(first);
+  const plan: Migration =
+    oldText === undefined
+      ? { entries: entriesFor(onDisk, run), converted: false }
+      : migratedEntries(oldText, run, onDisk);
   const next = withEntries(onDisk, run.ruleId, plan.entries);
-  writeBaselineStore(root, next);
+  writeBaselineStore(files, next);
   legacy.forEach((f) => {
-    rmSync(join(root, f), { force: true });
+    files.remove(f);
   });
-  const wrote =
-    next === undefined
-      ? Object.keys(onDisk.kind === "ok" ? onDisk.store.rules : {}).length > 0
-        ? `✓ nothing is over a limit — removed ${BASELINE_FILE}`
-        : "✓ nothing is over a limit — no baseline to record"
-      : `✓ recorded ${BASELINE_FILE}`;
-  const migrated =
-    migrating && first !== undefined
-      ? [
-          plan.converted
-            ? `✓ migrated ${first} into ${BASELINE_FILE}, keeping its recorded numbers — run \`${UPDATE_BASELINE_COMMAND}\` again to accept the current size`
-            : `✓ ${first} could not be read, so the current size was recorded instead`,
-        ]
-      : [];
-  const removed = legacy.map((f) => `✓ deleted ${f}`);
-  return [wrote, ...migrated, ...removed];
+  return [
+    wroteLine(next, onDisk),
+    ...(first === undefined ? [] : [migratedLine(first, plan.converted)]),
+    ...legacy.map((f) => `✓ deleted ${f}`),
+  ];
 }
 
 /** The options {@link checkContextCreep} takes. */
 export interface ContextCreepOptions extends ContextCreepLimits {
   readonly ruleId: string;
-  readonly root: string;
+  readonly files: BaselineFiles;
   readonly severity: RuleSeverity;
   readonly update: boolean;
   readonly silent: boolean;
@@ -348,43 +355,65 @@ function printReport(
   });
 }
 
-/** Run the check for `lint`: record if asked, then print, annotate, count. */
-export function checkContextCreep(
+/** `--update-baseline`: refuse over the ceiling, else record. Returns what it printed and refused. */
+function update(
   opts: ContextCreepOptions,
-): ContextCreepResult {
-  const { severity, update, silent, root, ruleId } = opts;
-  if (!severity && !update) return { issues: 0, errors: 0, notes: [] };
-  const measured = opts.measure();
-  const run = contextCreepRun(ruleId, measured, opts);
-  const refusals = update ? updateRefusals(measured, opts.max) : [];
+  measured: readonly MeasuredBundle[],
+  run: RuleRun,
+): { readonly recorded: readonly string[]; readonly refusals: number } {
+  if (!opts.update) return { recorded: [], refusals: 0 };
+  const refusals = updateRefusals(measured, opts.max);
   refusals.forEach((message) => {
     console.error(`✗ ${message}`);
     opts.annotate("error", message);
   });
-  const recorded =
-    update && refusals.length === 0
-      ? record(root, run, readBaselineStore(root))
-      : [];
-  const onDisk = readBaselineStore(root);
-  const legacy = legacyFilesPresent(root, ruleId);
-  const lines = severity
-    ? [...applyBaseline(run, onDisk), ...legacy.map(legacyLine)]
-    : [];
-  if (!silent && (update || lines.length > 0)) {
-    printReport(lines, recorded, severity);
-  }
-  const findings = lines.filter((l) => l.status === "finding");
-  const level = severity === "error" ? "error" : "warning";
+  return refusals.length > 0
+    ? { recorded: [], refusals: refusals.length }
+    : {
+        recorded: record(opts.files, run, readBaselineStore(opts.files)),
+        refusals: 0,
+      };
+}
+
+/** Annotate every finding at the rule's level and every summary note as a notice. */
+function annotateAll(
+  opts: ContextCreepOptions,
+  findings: readonly StoreLine[],
+  notes: readonly string[],
+): void {
+  const level = opts.severity === "error" ? "error" : "warning";
   findings.forEach((l) => {
     opts.annotate(level, l.text);
   });
-  const notes = severity ? summaryNotes(run, onDisk, legacy) : [];
   notes.forEach((note) => {
     opts.annotate("notice", note);
   });
+}
+
+/** Run the check for `lint`: record if asked, then print, annotate, count. */
+export function checkContextCreep(
+  opts: ContextCreepOptions,
+): ContextCreepResult {
+  const { severity, files, ruleId } = opts;
+  if (!severity && !opts.update) return { issues: 0, errors: 0, notes: [] };
+  const measured = opts.measure();
+  const run = contextCreepRun(ruleId, measured, opts);
+  const { recorded, refusals } = update(opts, measured, run);
+  const onDisk = readBaselineStore(files);
+  const legacy = legacyFilesPresent(files, ruleId);
+  const lines = severity
+    ? [...applyBaseline(run, onDisk), ...legacy.map(legacyLine)]
+    : [];
+  if (!opts.silent && (opts.update || lines.length > 0)) {
+    printReport(lines, recorded, severity);
+  }
+  const findings = lines.filter((l) => l.status === "finding");
+  const notes = severity ? summaryNotes(run, onDisk, legacy) : [];
+  annotateAll(opts, findings, notes);
+  const counted = severity === "error" ? findings.length : 0;
   return {
-    issues: findings.length + refusals.length,
-    errors: (severity === "error" ? findings.length : 0) + refusals.length,
+    issues: findings.length + refusals,
+    errors: counted + refusals,
     notes,
   };
 }
@@ -400,6 +429,22 @@ export type InitBaseline =
       readonly over: readonly string[];
     };
 
+/** "skill-listing is 7,530 chars, over the limit of 6,000", per over part. */
+function overParts(
+  measured: readonly MeasuredBundle[],
+  limits: ContextCreepLimits,
+): readonly string[] {
+  const g = (x: number): string => x.toLocaleString("en-US");
+  return measured.flatMap((m) => {
+    const check = limitCheck(m, limits);
+    const where = m[0] === "." ? "" : `${m[0]}: `;
+    return (check?.over ?? []).map(
+      (p) =>
+        `${where}${p.part} is ${g(p.size)} ${check?.unit ?? ""}, over the limit of ${g(p.limit)}`,
+    );
+  });
+}
+
 /**
  * `init`'s step: on a repository over a limit with no baseline yet, record one
  * so the gate starts from today's size. It never overwrites an existing
@@ -407,30 +452,35 @@ export type InitBaseline =
  * for — re-measuring would accept unseen growth).
  */
 export function recordIfMissing(
-  root: string,
+  files: BaselineFiles,
   ruleId: string,
   measured: readonly MeasuredBundle[],
   limits: ContextCreepLimits,
 ): InitBaseline {
-  const onDisk = readBaselineStore(root);
+  const onDisk = readBaselineStore(files);
   if (hasEntries(onDisk, ruleId) || onDisk.kind === "invalid") {
     return { kind: "kept", file: BASELINE_FILE };
   }
-  const legacy = legacyFilesPresent(root, ruleId)[0];
+  const legacy = legacyFilesPresent(files, ruleId)[0];
   if (legacy !== undefined) {
     return { kind: "legacy", file: legacy, command: UPDATE_BASELINE_COMMAND };
   }
-  const run = contextCreepRun(ruleId, measured, limits);
-  const entries = entriesFor(onDisk, run);
+  const entries = entriesFor(onDisk, contextCreepRun(ruleId, measured, limits));
   if (Object.keys(entries).length === 0) return { kind: "under-limits" };
-  writeBaselineStore(root, withEntries(onDisk, ruleId, entries));
-  const over = measured.flatMap((m) =>
-    (limitCheck(m, limits)?.over ?? []).map(
-      (p) =>
-        `${m[0] === "." ? "" : `${m[0]}: `}${p.part} is ${p.size.toLocaleString("en-US")} ${m[1]?.unit ?? ""}, over the limit of ${p.limit.toLocaleString("en-US")}`,
-    ),
-  );
-  return { kind: "recorded", file: BASELINE_FILE, over };
+  writeBaselineStore(files, withEntries(onDisk, ruleId, entries));
+  return {
+    kind: "recorded",
+    file: BASELINE_FILE,
+    over: overParts(measured, limits),
+  };
+}
+
+/** Where the size stands against the store, in a few words, for `compile`. */
+function compileStatus(line: StoreLine | undefined): string {
+  if (line?.status === "ok") return "held at the baseline";
+  if (line?.status === "finding")
+    return "grew past the baseline — `vigiles lint` fails";
+  return "not a finding — `vigiles lint` says why";
 }
 
 /**
@@ -439,7 +489,7 @@ export function recordIfMissing(
  * `lint` stays the single gate. `null` when there is nothing to weigh.
  */
 export function compileWeightLine(
-  root: string,
+  files: BaselineFiles,
   ruleId: string,
   measured: MeasuredBundle,
   limits: ContextCreepLimits,
@@ -452,16 +502,9 @@ export function compileWeightLine(
     .join(" · ");
   const head = `always-loaded context: ${g(measured[2].total)} ${check.unit} — ${parts}`;
   if (check.over.length === 0) return `${head} (under every limit)`;
-  const verdict = applyBaseline(
+  const line = applyBaseline(
     contextCreepRun(ruleId, [measured], limits),
-    readBaselineStore(root),
+    readBaselineStore(files),
   ).find((l) => l.subject === measured[0]);
-  const status = ((): string => {
-    if (verdict === undefined) return "";
-    if (verdict.status === "ok") return "held at the baseline";
-    return verdict.status === "note"
-      ? `no baseline or below it — see \`vigiles lint\``
-      : "grew past the baseline — `vigiles lint` fails";
-  })();
-  return `${head} (over a limit; ${status})`;
+  return `${head} (over a limit; ${compileStatus(line)})`;
 }

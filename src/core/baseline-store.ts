@@ -104,18 +104,24 @@ export type BaselineStore = z.infer<typeof storeSchema>;
 /** The file, read once at the boundary: absent, parsed, or refused. */
 export type StoreOnDisk =
   | { readonly kind: "absent" }
-  | { readonly kind: "ok"; readonly store: BaselineStore }
+  | { readonly kind: "ok"; readonly store: Readonly<BaselineStore> }
   | { readonly kind: "invalid"; readonly message: string };
+
+/** JSON text as a value, or `invalid` — never throws. */
+export function readJson(
+  text: string,
+): { readonly ok: true; readonly value: unknown } | { readonly ok: false } {
+  try {
+    const value: unknown = JSON.parse(text);
+    return { ok: true, value };
+  } catch {
+    return { ok: false };
+  }
+}
 
 /** Parse the file's text; never throws. */
 export function parseBaselineStore(text: string): StoreOnDisk {
-  const json = ((): { ok: true; value: unknown } | { ok: false } => {
-    try {
-      return { ok: true, value: JSON.parse(text) as unknown };
-    } catch {
-      return { ok: false };
-    }
-  })();
+  const json = readJson(text);
   if (!json.ok) return { kind: "invalid", message: "not valid JSON" };
   const parsed = storeSchema.safeParse(json.value);
   return parsed.success
@@ -199,42 +205,45 @@ const entryAt = (
  * measure takes its stored value (or is left out when there is none), and
  * zero parts are dropped.
  */
+/** One recorded part, as the schema holds it. */
+type StoredPart = NonNullable<BaselineEntry["parts"]>[string];
+
+/** One measured part as recorded: carried when unmeasured, dropped when zero. */
+function recordedPart(
+  name: string,
+  p: MeasuredPart,
+  stored: BaselineEntry | undefined,
+): readonly (readonly [string, StoredPart])[] {
+  const carried = p.value === null ? stored?.parts?.[name] : undefined;
+  if (carried !== undefined) return [[name, carried]];
+  if (p.value === null || p.value === 0) return [];
+  return [
+    [
+      name,
+      p.files === undefined
+        ? { value: p.value }
+        : { value: p.value, files: { ...p.files } },
+    ],
+  ];
+}
+
 export function toEntry(
   m: Measurement,
   stored: BaselineEntry | undefined,
 ): BaselineEntry {
-  if (m.parts === undefined) {
-    return {
-      direction: "shrink-only",
-      unit: m.unit,
-      measure: m.measure,
-      value: m.value,
-    };
-  }
-  const parts = Object.entries(m.parts).flatMap(
-    ([name, p]): [
-      string,
-      { value: number; files?: Record<string, number> },
-    ][] => {
-      const carried = p.value === null ? stored?.parts?.[name] : undefined;
-      if (carried !== undefined) return [[name, { ...carried }]];
-      if (p.value === null || p.value === 0) return [];
-      return [
-        [
-          name,
-          p.files === undefined
-            ? { value: p.value }
-            : { value: p.value, files: { ...p.files } },
-        ],
-      ];
-    },
-  );
-  return {
+  const head = {
     direction: "shrink-only",
     unit: m.unit,
     measure: m.measure,
+  } as const;
+  if (m.parts === undefined) return { ...head, value: m.value };
+  const parts = Object.entries(m.parts)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .flatMap(([name, p]) => recordedPart(name, p, stored));
+  return {
+    ...head,
     value: sumOf(parts.map(([, p]) => p.value)),
-    parts: Object.fromEntries(parts.sort(([a], [b]) => a.localeCompare(b))),
+    parts: Object.fromEntries(parts),
   };
 }
 
@@ -258,18 +267,20 @@ function partMoves(current: BaselineEntry, stored: BaselineEntry): string {
     .join(" · ");
 }
 
+/** Every file of every part, named with its part. */
+const flatFiles = (e: BaselineEntry): Readonly<Record<string, number>> =>
+  Object.fromEntries(
+    Object.entries(e.parts ?? {}).flatMap(([name, p]) =>
+      Object.entries(p.files ?? {}).map(
+        ([file, s]) => [`${file} (${name})`, s] as const,
+      ),
+    ),
+  );
+
 /** Every file whose size moved, largest movement first. */
 function fileMoves(current: BaselineEntry, stored: BaselineEntry): string {
-  const flat = (e: BaselineEntry): Readonly<Record<string, number>> =>
-    Object.fromEntries(
-      Object.entries(e.parts ?? {}).flatMap(([name, p]) =>
-        Object.entries(p.files ?? {}).map(
-          ([file, s]) => [`${file} (${name})`, s] as const,
-        ),
-      ),
-    );
-  const before = flat(stored);
-  const after = flat(current);
+  const before = flatFiles(stored);
+  const after = flatFiles(current);
   const moves = [...new Set([...Object.keys(before), ...Object.keys(after)])]
     .map((file) => ({
       file,
@@ -293,17 +304,93 @@ function fileMoves(current: BaselineEntry, stored: BaselineEntry): string {
     .join(", ");
 }
 
-/** The verdict for one finding that carries a measurement. */
-function verdictFor(
-  f: RuleFinding & { readonly measurement: Measurement },
-  entries: Readonly<Record<string, BaselineEntry>> | undefined,
-  remedy: string | undefined,
-): StoreLine {
-  const at = (status: StoreLine["status"], text: string): StoreLine => ({
+/** A finding with the store's verdict appended. */
+const withVerdict =
+  (f: RuleFinding) =>
+  (status: StoreLine["status"], text: string): StoreLine => ({
     subject: f.subject,
     status,
     text: `${f.text}\n  ${text}`,
   });
+
+/** Why an entry cannot be compared: another unit or measurement, or nothing. */
+function incomparable(
+  stored: BaselineEntry,
+  m: Measurement,
+): string | undefined {
+  if (stored.unit !== m.unit) {
+    return `The baseline is in ${stored.unit}, this harness counts ${m.unit}. Re-record it with \`${UPDATE_BASELINE_COMMAND}\`.`;
+  }
+  if (stored.measure !== m.measure) {
+    return `The baseline was recorded by measurement ${String(stored.measure)}, this vigiles uses ${String(m.measure)} — what counts changed in vigiles, not in your files. Re-record it with \`${UPDATE_BASELINE_COMMAND}\`.`;
+  }
+  return undefined;
+}
+
+/** "15 → 17 chars (+2)", and each part's size with its move. */
+function movement(
+  unit: string,
+  current: BaselineEntry,
+  stored: BaselineEntry,
+): { readonly head: string; readonly parts: string } {
+  const delta = current.value - stored.value;
+  return {
+    head: `${n(stored.value)} → ${n(current.value)} ${unit} (${signed(delta)})`,
+    parts:
+      current.parts === undefined ? "" : `\n  ${partMoves(current, stored)}`,
+  };
+}
+
+/** Growth: by how much, which files and parts moved, and both ways out. */
+function grewText(
+  unit: string,
+  current: BaselineEntry,
+  stored: BaselineEntry,
+  remedy: string | undefined,
+): string {
+  const { head, parts } = movement(unit, current, stored);
+  const files = fileMoves(current, stored);
+  const changed = files === "" ? "" : ` Changed: ${files}.`;
+  const cure = remedy === undefined ? "" : ` If it is not:\n${remedy}`;
+  return (
+    `Grew ${head} over the recorded baseline.${changed}${parts}\n  ` +
+    `If the growth is intended, record it with \`${UPDATE_BASELINE_COMMAND}\` — the diff of ${BASELINE_FILE} is the review.${cure}`
+  );
+}
+
+/** The comparison of a measurement with its comparable stored entry. */
+function compared(
+  f: RuleFinding,
+  m: Measurement,
+  stored: BaselineEntry,
+  remedy: string | undefined,
+): StoreLine {
+  const at = withVerdict(f);
+  const current = toEntry(m, stored);
+  if (current.value === stored.value) {
+    return at(
+      "ok",
+      `Held at the recorded baseline (${n(stored.value)} ${m.unit}).`,
+    );
+  }
+  if (current.value > stored.value) {
+    return at("finding", grewText(m.unit, current, stored, remedy));
+  }
+  const { head, parts } = movement(m.unit, current, stored);
+  return at(
+    "note",
+    `Shrank ${head} below the recorded baseline, which still allows the old size. Lock the cut in with \`${UPDATE_BASELINE_COMMAND}\`.${parts}`,
+  );
+}
+
+/** The verdict for one finding that carries a measurement. */
+function verdictFor(
+  f: RuleFinding,
+  m: Measurement,
+  entries: Readonly<Record<string, BaselineEntry>> | undefined,
+  remedy: string | undefined,
+): StoreLine {
+  const at = withVerdict(f);
   if (entries === undefined) {
     return at(
       "note",
@@ -317,41 +404,10 @@ function verdictFor(
       `${BASELINE_FILE} has no entry for this, so nobody accepted this size. Record it with \`${UPDATE_BASELINE_COMMAND}\` (the diff is the review), or get under the limit.`,
     );
   }
-  const m = f.measurement;
-  if (stored.unit !== m.unit || stored.measure !== m.measure) {
-    const why =
-      stored.unit === m.unit
-        ? `was recorded by measurement ${String(stored.measure)}, this vigiles uses ${String(m.measure)} — what counts changed in vigiles, not in your files`
-        : `is in ${stored.unit}, this harness counts ${m.unit}`;
-    return at(
-      "finding",
-      `The baseline ${why}. Re-record it with \`${UPDATE_BASELINE_COMMAND}\`.`,
-    );
-  }
-  const current = toEntry(m, stored);
-  const head = `${n(stored.value)} → ${n(current.value)} ${m.unit}`;
-  const parts =
-    current.parts === undefined ? "" : `\n  ${partMoves(current, stored)}`;
-  if (current.value === stored.value) {
-    return {
-      subject: f.subject,
-      status: "ok",
-      text: `${f.text}\n  Held at the recorded baseline (${n(stored.value)} ${m.unit}).`,
-    };
-  }
-  if (current.value < stored.value) {
-    return at(
-      "note",
-      `Shrank ${head} (${signed(current.value - stored.value)}) below the recorded baseline, which still allows the old size. Lock the cut in with \`${UPDATE_BASELINE_COMMAND}\`.${parts}`,
-    );
-  }
-  const files = fileMoves(current, stored);
-  return at(
-    "finding",
-    `Grew ${head} (${signed(current.value - stored.value)}) over the recorded baseline.${files === "" ? "" : ` Changed: ${files}.`}${parts}\n  ` +
-      `If the growth is intended, record it with \`${UPDATE_BASELINE_COMMAND}\` — the diff of ${BASELINE_FILE} is the review.` +
-      (remedy === undefined ? "" : ` If it is not:\n${remedy}`),
-  );
+  const why = incomparable(stored, m);
+  return why === undefined
+    ? compared(f, m, stored, remedy)
+    : at("finding", why);
 }
 
 /** A stored entry no finding asked for: the subject is under its limit, or gone. */
@@ -366,33 +422,34 @@ function staleLine(subject: string, measured: boolean): StoreLine {
   };
 }
 
+/** A finding the store does not touch. */
+const asIs = (f: RuleFinding): StoreLine => ({
+  subject: f.subject,
+  status: "finding",
+  text: f.text,
+});
+
+/** An unreadable store: one finding for it, and every finding stays a finding. */
+const unreadable = (run: RuleRun, message: string): readonly StoreLine[] => [
+  {
+    subject: ".",
+    status: "finding",
+    text: `${BASELINE_FILE} cannot be read (${message}) — re-record it with \`${UPDATE_BASELINE_COMMAND}\``,
+  },
+  ...run.findings.map(asIs),
+];
+
 /** Apply the store to one rule's run: the lines lint prints, in subject order. */
 export function applyBaseline(
   run: RuleRun,
   store: StoreOnDisk,
 ): readonly StoreLine[] {
-  if (store.kind === "invalid") {
-    return [
-      {
-        subject: ".",
-        status: "finding",
-        text: `${BASELINE_FILE} cannot be read (${store.message}) — re-record it with \`${UPDATE_BASELINE_COMMAND}\``,
-      },
-      ...run.findings.map(
-        (f): StoreLine => ({
-          subject: f.subject,
-          status: "finding",
-          text: f.text,
-        }),
-      ),
-    ];
-  }
+  if (store.kind === "invalid") return unreadable(run, store.message);
   const entries = entriesOf(store, run.ruleId);
-  const lines = run.findings.map(
-    (f): StoreLine =>
-      f.measurement === undefined
-        ? { subject: f.subject, status: "finding", text: f.text }
-        : verdictFor({ ...f, measurement: f.measurement }, entries, run.remedy),
+  const lines = run.findings.map((f) =>
+    f.measurement === undefined
+      ? asIs(f)
+      : verdictFor(f, f.measurement, entries, run.remedy),
   );
   const asked = new Set(
     run.findings
@@ -415,7 +472,7 @@ export function withEntries(
   previous: StoreOnDisk,
   ruleId: string,
   entries: Readonly<Record<string, BaselineEntry>>,
-): BaselineStore | undefined {
+): Readonly<BaselineStore> | undefined {
   const before = previous.kind === "ok" ? previous.store.rules : {};
   const fresh = Object.entries(entries).sort(([a], [b]) => a.localeCompare(b));
   const others = Object.entries(before).filter(([id]) => id !== ruleId);
@@ -456,7 +513,7 @@ export function entriesFor(
 export const recordRun = (
   previous: StoreOnDisk,
   run: RuleRun,
-): BaselineStore | undefined =>
+): Readonly<BaselineStore> | undefined =>
   withEntries(previous, run.ruleId, entriesFor(previous, run));
 
 /** Whether the store already holds entries for a rule — `init` never overwrites them. */

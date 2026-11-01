@@ -280,13 +280,18 @@ export function formatCeiling(
   );
 }
 
+/** What a refusal names: the file it did not write, the command to rerun, the cure. */
+export interface RefusalText {
+  readonly file: string;
+  readonly command: string;
+  readonly remedy: string;
+}
+
 /** Why `--update-baseline` wrote nothing: a ceiling the baseline would have sat above. */
 export function formatRefusal(
   verdict: CeilingVerdict,
   at: string,
-  file: string,
-  command: string,
-  remedy: string,
+  { file, command, remedy }: RefusalText,
 ): string {
   const where = at === "." ? "" : `${at}: `;
   return (

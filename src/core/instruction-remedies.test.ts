@@ -62,7 +62,11 @@ describe("every over-weight finding carries it", () => {
 
   it("the refusal to record a baseline above the ceiling", () => {
     expect(
-      formatRefusal(over, ".", BASELINE_FILE, "cmd", MOVE_OUT_OF_ALWAYS_LOADED),
+      formatRefusal(over, ".", {
+        file: BASELINE_FILE,
+        command: "cmd",
+        remedy: MOVE_OUT_OF_ALWAYS_LOADED,
+      }),
     ).toContain(MOVE_OUT_OF_ALWAYS_LOADED);
   });
 

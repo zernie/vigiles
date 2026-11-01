@@ -37,7 +37,7 @@ const measured = (
       v === null ? { value: null } : { value: v, files: { [`${k}.md`]: v } },
     ]),
   ),
-  value: Object.values(parts).reduce<number>((a, b) => a + (b ?? 0), 0),
+  value: Object.values(parts).reduce((a: number, b) => a + (b ?? 0), 0),
 });
 
 const over = (
@@ -131,7 +131,9 @@ describe("applying the store to a rule's findings", () => {
     );
     expect(line?.status).toBe("ok");
   });
+});
 
+describe("entries the store cannot compare, or no longer needs", () => {
   it("an entry for the rule but not this subject is a finding", () => {
     const [line] = applyBaseline(
       runOf([over("pkg", measured({ a: 1 }))], [".", "pkg"]),

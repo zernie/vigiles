@@ -109,7 +109,9 @@ describe("checkAlwaysLoadedLimits", () => {
       ).over,
     ).toEqual([]);
   });
+});
 
+describe("where a limit comes from", () => {
   it("an override replaces a limit, even one the harness does not model", () => {
     const c = checkAlwaysLoadedLimits(
       weight(40),

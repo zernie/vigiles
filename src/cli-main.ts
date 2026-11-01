@@ -156,6 +156,7 @@ import {
   checkContextCreep,
   compileWeightLine,
   recordIfMissing,
+  type BaselineFiles,
   type ContextCreepLimits,
   type InitBaseline,
   type MeasuredBundle,
@@ -425,9 +426,29 @@ const ALWAYS_LOADED_RULE: RuleId = ((): RuleId => {
   return rule.id;
 })();
 
+/**
+ * The repository's files under `root`, for the baseline store — the file
+ * system I/O the context-creep module takes as a port.
+ */
+function repoFiles(root: string): BaselineFiles {
+  return {
+    read: (path) => {
+      const abs = join(root, path);
+      return existsSync(abs) ? readFileSync(abs, "utf-8") : undefined;
+    },
+    write: (path, text) => {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), text);
+    },
+    remove: (path) => {
+      rmSync(join(root, path), { force: true });
+    },
+  };
+}
+
 /** The always-loaded rule's limit options, as `.vigilesrc.json` sets them. */
 function alwaysLoadedLimits(
-  config: VigilesConfig | undefined,
+  config: Readonly<VigilesConfig> | undefined,
 ): ContextCreepLimits {
   const value: unknown = config?.rules?.[ALWAYS_LOADED_RULE];
   const parsed = contextCreepOptions.safeParse(
@@ -2909,7 +2930,7 @@ async function runLint(
   // whole run (bundles are keys inside it), so it runs ONCE over `lintRoots`.
   const contextCreep = checkContextCreep({
     ruleId: ALWAYS_LOADED_RULE,
-    root: frame.root,
+    files: repoFiles(frame.root),
     severity: ruleSeverity<unknown>(config?.rules?.[ALWAYS_LOADED_RULE]),
     ...alwaysLoadedLimits(config),
     update: flags.includes("--update-baseline"),
@@ -5376,7 +5397,7 @@ async function setup(args: string[]): Promise<void> {
   // The always-loaded baseline, on a repository already over a limit: the
   // gate starts from today's size instead of waiting for someone to find the
   // flag. Read after the config is written, so the harness it records is used.
-  if (plan.lint) written.push(...initBaseline());
+  const baseline = plan.lint ? initBaseline() : [];
 
   printSetupSummary({
     plan,
@@ -5384,7 +5405,7 @@ async function setup(args: string[]): Promise<void> {
     targets,
     adopted,
     // The skill links the plugin step created, so the commit hint names them.
-    written: [...written, ...linkedSkills],
+    written: [...written, ...linkedSkills, ...baseline],
   });
 
   // Surface the OTHER mode so both directions are discoverable — the two branches
@@ -5446,6 +5467,29 @@ function minimalRerun(
     );
 }
 
+/**
+ * `compile`'s always-loaded line: the size now against each limit, and against
+ * the baseline when over one. Report-only — `lint` is the gate.
+ */
+function printCompileWeight(
+  projectRoot: string,
+  harnessFlag: string | undefined,
+  config: Readonly<VigilesConfig>,
+): void {
+  const adapter = resolveHarnessSelection({
+    root: projectRoot,
+    flag: harnessFlag,
+    configHarness: declaredHarnessNames(config.harnesses),
+  }).adapter;
+  const line = compileWeightLine(
+    repoFiles(projectRoot),
+    ALWAYS_LOADED_RULE,
+    measuredBundle(".", projectRoot, adapter),
+    alwaysLoadedLimits(config),
+  );
+  if (line !== null) console.log(`\n${line}`);
+}
+
 /** What `init` prints about the always-loaded baseline. */
 function initBaselineLine(outcome: InitBaseline): string | undefined {
   switch (outcome.kind) {
@@ -5478,7 +5522,7 @@ function initBaseline(): readonly string[] {
     configHarness: declaredHarnessNames(config.harnesses),
   }).adapter;
   const outcome = recordIfMissing(
-    root,
+    repoFiles(root),
     ALWAYS_LOADED_RULE,
     [measuredBundle(".", root, adapter)],
     alwaysLoadedLimits(config),
@@ -9685,27 +9729,10 @@ export async function main(): Promise<void> {
       if (specs.length > 0)
         valid =
           (await compile(specs, config, excludes, { harnessFlag })) && valid;
-      // The always-loaded weight the author just produced, against the
-      // committed baseline — shown at the moment of change. Report-only:
-      // `lint` is the gate (rule `context-creep`).
-      if (specs.length > 0) {
-        const measured = measuredBundle(
-          ".",
-          projectRoot,
-          resolveHarnessSelection({
-            root: projectRoot,
-            flag: harnessFlag,
-            configHarness: declaredHarnessNames(config.harnesses),
-          }).adapter,
-        );
-        const weightLine = compileWeightLine(
-          projectRoot,
-          ALWAYS_LOADED_RULE,
-          measured,
-          alwaysLoadedLimits(config),
-        );
-        if (weightLine !== null) console.log(`\n${weightLine}`);
-      }
+      // The always-loaded size the author just produced, against the
+      // harness's limits — shown at the moment of change. Report-only.
+      if (specs.length > 0)
+        printCompileWeight(projectRoot, harnessFlag, config);
       valid =
         (await installHooks(
           hooks,

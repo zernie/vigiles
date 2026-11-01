@@ -19,9 +19,11 @@
 import { z } from "zod";
 
 import {
+  readJson,
   toEntry,
   type BaselineEntry,
   type Measurement,
+  type MeasuredPart,
 } from "./baseline-store.js";
 import { ALWAYS_LOADED_MEASURE } from "./always-loaded-limits.js";
 
@@ -40,7 +42,9 @@ const LEGACY_MEASURE = 1;
 const size = z.number().int().nonnegative();
 const files = z.record(z.string(), size);
 
-const legacyPart = z.object({ measure: size, total: size, files }).strict();
+const legacyPartSchema = z
+  .object({ measure: size, total: size, files })
+  .strict();
 
 const legacyEntry = z
   .object({
@@ -50,8 +54,8 @@ const legacyEntry = z
     files,
     parts: z
       .object({
-        "output-style": legacyPart.optional(),
-        "skill-listing": legacyPart.optional(),
+        "output-style": legacyPartSchema.optional(),
+        "skill-listing": legacyPartSchema.optional(),
       })
       .strict()
       .optional(),
@@ -71,13 +75,7 @@ export type LegacyBaseline =
   | { readonly kind: "invalid"; readonly message: string };
 
 export function parseLegacyBaseline(text: string): LegacyBaseline {
-  const json = ((): { ok: true; value: unknown } | { ok: false } => {
-    try {
-      return { ok: true, value: JSON.parse(text) as unknown };
-    } catch {
-      return { ok: false };
-    }
-  })();
+  const json = readJson(text);
   if (!json.ok) return { kind: "invalid", message: "not valid JSON" };
   const parsed = legacyFile.safeParse(json.value);
   return parsed.success
@@ -87,6 +85,32 @@ export function parseLegacyBaseline(text: string): LegacyBaseline {
         message: parsed.error.issues.map((i) => i.message).join("; "),
       };
 }
+
+type LegacyEntry = z.infer<typeof legacyEntry>;
+type PartName = "output-style" | "skill-listing";
+
+/**
+ * One part of an old entry as a measured part: as recorded; zero when a
+ * version-2 file left it out (it wrote only parts that were not zero); today's
+ * size when a version-1 file never recorded it.
+ */
+function legacyPart(
+  old: Readonly<LegacyEntry>,
+  version: 1 | 2,
+  name: PartName,
+  current: Measurement,
+): Readonly<Record<string, MeasuredPart>> {
+  const p = old.parts?.[name];
+  if (p !== undefined) return { [name]: { value: p.total, files: p.files } };
+  if (version === 2) return { [name]: { value: 0 } };
+  const now = current.parts?.[name];
+  return now === undefined ? {} : { [name]: now };
+}
+
+/** Whether every number in the old entry was taken by the one measurement earlier releases had. */
+const sameMeasure = (old: Readonly<LegacyEntry>): boolean =>
+  old.measure === LEGACY_MEASURE &&
+  Object.values(old.parts ?? {}).every((p) => p.measure === LEGACY_MEASURE);
 
 /**
  * One old entry as a store entry, or `undefined` when the old file has no
@@ -99,32 +123,18 @@ export function convertLegacyEntry(
   at: string,
   current: Measurement,
 ): BaselineEntry | undefined {
-  const bundles = legacy.file.bundles;
+  const { bundles, version } = legacy.file;
   if (!Object.hasOwn(bundles, at)) return undefined;
   const old = bundles[at];
-  const recordedParts = old.parts ?? {};
-  const sameMeasure =
-    old.measure === LEGACY_MEASURE &&
-    Object.values(recordedParts).every((p) => p.measure === LEGACY_MEASURE);
-  const part = (
-    name: "output-style" | "skill-listing",
-  ): Measurement["parts"] => {
-    const p = recordedParts[name];
-    if (p !== undefined) return { [name]: { value: p.total, files: p.files } };
-    // Version 2 wrote only the parts that were not zero; version 1 none at all.
-    if (legacy.file.version === 2) return { [name]: { value: 0 } };
-    const now = current.parts?.[name];
-    return now === undefined ? {} : { [name]: now };
-  };
   const parts = {
     instructions: { value: old.total, files: old.files },
-    ...part("output-style"),
-    ...part("skill-listing"),
+    ...legacyPart(old, version, "output-style", current),
+    ...legacyPart(old, version, "skill-listing", current),
   };
   return toEntry(
     {
       unit: old.unit,
-      measure: sameMeasure ? ALWAYS_LOADED_MEASURE : 0,
+      measure: sameMeasure(old) ? ALWAYS_LOADED_MEASURE : 0,
       parts,
       value: 0,
     },
