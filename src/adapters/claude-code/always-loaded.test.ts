@@ -137,7 +137,7 @@ describe("claudeCodeSkillListing.entry", () => {
   });
 });
 
-describe("claudeCodeSkillListing.entry: the text, as measured on 2.1.316", () => {
+describe("claudeCodeSkillListing.entry: the text, as measured on 2.1.187 (the pin)", () => {
   const read = (fm: Record<string, unknown> | null, body = "") => ({
     path: ".claude/skills/x/SKILL.md",
     dirName: "x",
@@ -160,27 +160,23 @@ describe("claudeCodeSkillListing.entry: the text, as measured on 2.1.316", () =>
     ).toBe("- x: abcdefgh …");
   });
 
-  it("escapes angle brackets before the cap, which can split an escape", () => {
+  it("leaves angle brackets and ampersands as written", () => {
+    // 2.1.316 escapes them to `&lt;`/`&gt;` — see the module header.
     expect(
       claudeCodeSkillListing.entry(
         read({ description: "Run <cmd> now & then", when_to_use: "on <go>" }),
         {},
       ),
-    ).toBe("- x: Run &lt;cmd&gt; now & then - on &lt;go&gt;");
-    expect(
-      claudeCodeSkillListing.entry(read({ description: "<<<" }), {
-        skillListingMaxDescChars: 6,
-      }),
-    ).toBe("- x: &lt;&…");
+    ).toBe("- x: Run <cmd> now & then - on <go>");
   });
 
-  it("turns each control or format character into one space, then trims", () => {
-    expect(
-      claudeCodeSkillListing.entry(
-        read({ description: "  a    b  \u0001c\u007fd​e f\n" }),
-        {},
-      ),
-    ).toBe("- x: a    b   c d e f");
+  it("trims the text and keeps control and format characters as written", () => {
+    // 2.1.316 turns each into one space — see the module header.
+    const text = "  a    b  \u0001c\u007fd​e f\n";
+    expect(claudeCodeSkillListing.entry(read({ description: text }), {})).toBe(
+      `- x: ${text.trim()}`,
+    );
+    expect(text.trim()).toContain("\u0001");
   });
 });
 
@@ -192,18 +188,16 @@ describe("claudeCodeSkillListing.entry: the label and its fallbacks", () => {
     body,
   });
 
-  it("labels a renamed skill `dir (name)`, and keys overrides by the directory", () => {
+  it("labels a skill by its directory, and keys overrides by the directory", () => {
+    // 2.1.316 adds a differing name in parentheses — see the module header.
     expect(
       claudeCodeSkillListing.entry(read({ name: "X", description: "d" }), {}),
-    ).toBe("- x (X): d");
-    expect(
-      claudeCodeSkillListing.entry(read({ name: "x", description: "d" }), {}),
     ).toBe("- x: d");
     expect(
       claudeCodeSkillListing.entry(read({ name: "y", description: "d" }), {
         skillOverrides: { y: "off" },
       }),
-    ).toBe("- x (y): d");
+    ).toBe("- x: d");
     expect(
       claudeCodeSkillListing.entry(read({ name: "y", description: "d" }), {
         skillOverrides: { x: "name-only" },
@@ -214,7 +208,7 @@ describe("claudeCodeSkillListing.entry: the label and its fallbacks", () => {
   it("falls back to the directory name, the first body line, then 'Skill'", () => {
     expect(
       claudeCodeSkillListing.entry(read({}, "\n\n  First <a>.\nSecond"), {}),
-    ).toBe("- x: First &lt;a&gt;.");
+    ).toBe("- x: First <a>.");
     expect(claudeCodeSkillListing.entry(read({}), {})).toBe("- x: Skill");
     expect(claudeCodeSkillListing.entry(read({ when_to_use: "w" }), {})).toBe(
       "- x: Skill - w",

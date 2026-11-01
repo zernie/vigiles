@@ -46,9 +46,8 @@ them once you record them:
 - **the skill listing** — one entry per skill in the folder a session at the
   repository root loads (Claude Code: one folder per skill; Codex: the folder
   walked up to six directories deep, `.`-folders skipped), rendered the way the harness renders it, with its
-  per-entry cap (Claude Code `- dir: description - when_to_use`, with `<`
-  and `>` escaped as `&lt;`/`&gt;` and the text cut to 1,536 characters or
-  `skillListingMaxDescChars`; Codex `- name: description (file: path)`, the
+  per-entry cap (Claude Code `- dir: description - when_to_use`, the text cut
+  to 1,536 characters or `skillListingMaxDescChars`; Codex `- name: description (file: path)`, the
   description cut to 1,024, and a skill Codex cannot parse — no frontmatter,
   no description — not listed). A skill folder that is a symlink counts like
   a real one — that is how `vigiles init` installs skills. A link back to a
@@ -320,6 +319,22 @@ always-loaded total.
 ```yaml
 description: "Build for AWS: ECS"
 ```
+
+### Claude Code is modelled on one release
+
+The Claude Code entry is rendered the way the release vigiles is validated
+against renders it: **2.1.187**, the version vigiles's own CI runs. Newer
+releases render more text per entry:
+
+| Newer releases (measured on 2.1.316)                  | Per entry                     |
+| ----------------------------------------------------- | ----------------------------- |
+| escape `<` and `>` as `&lt;` and `&gt;`               | +3 characters per bracket     |
+| add a frontmatter `name` that differs from the folder | `- dir (name):`, +3 plus name |
+| replace control characters with spaces                | same length                   |
+
+**Effect on the number:** on a newer Claude Code, the skill listing is
+under-counted by those characters. A description with no `<`, `>` and no
+differing `name` is counted exactly.
 
 ## See also
 
