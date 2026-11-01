@@ -119,8 +119,8 @@ export const COMMITTED_PATHS: readonly string[] = [
   "schema.json", // YAML-LSP frontmatter schema (`vigiles init`)
   "guards.json", // the declared guard set (`core/guards.ts`)
   "action-gates.json", // declared action gates (`action-gate.ts`)
-  "context-creep.json", // the context-creep ratchet's baseline (`core/instruction-baseline.ts`)
-  "instruction-weight.json", // that baseline's name before the rename, still read (`core/instruction-baseline.ts`)
+  "baseline.json", // the accepted sizes rules ratchet against (`core/baseline-store.ts`)
+  "instruction-weight.json", // an old always-loaded baseline, read only to migrate it (`core/legacy-baseline.ts`)
 ];
 
 /** The header comment on a `.vigiles/.gitignore` vigiles creates. */

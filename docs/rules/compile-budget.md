@@ -118,12 +118,13 @@ A repo that lists its rules in `.vigilesrc.json` without `extends` keeps the
 default and sees no change. A repo that extends `vigiles:recommended` gets the
 gate on upgrade (a major version). If its file is over budget, it renders rules
 shorter, or sets `"compile-budget": "warn"` in `rules` until it is under; the
-[`context-creep`](context-creep.md) ratchet meanwhile keeps the
-always-loaded weight from growing.
+[`context-creep`](context-creep.md) rule meanwhile keeps the
+always-loaded weight within the harness's limits, or from growing past the
+size the repository accepted.
 
 ## See also
 
-- [`context-creep`](context-creep.md) — the ratchet on everything the
-  harness loads unasked.
+- [`context-creep`](context-creep.md) — the harness's limits on everything
+  it loads unasked, with a recorded baseline above them.
 - The validation-rule matrix in
   [verifying instruction files](../verifying-instruction-files.md).

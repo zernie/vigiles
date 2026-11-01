@@ -38,13 +38,36 @@
  * binary with it; modelling them while CI runs the pinned release would leave
  * the delivery test proving nothing.
  *
- * The listing as a WHOLE also has a budget (1% of the model's context window),
- * past which descriptions are dropped by least use. That budget depends on the
- * model and on this machine's usage, so it is not a property of a commit and
- * is not modelled here; every entry is counted at its full capped size.
+ * The listing as a WHOLE also has a budget, past which descriptions are
+ * dropped by least use. Read from the pinned 2.1.187 binary
+ * (`@anthropic-ai/claude-code-linux-x64@2.1.187`, sha256 bb02fcb3…bf361):
+ *
+ *   budget = floor(contextWindowTokens × charsPerToken × fraction)
+ *
+ *   - `fraction` is `skillListingBudgetFraction` from settings, default 0.01
+ *     (`var FRd=0.01`);
+ *   - `contextWindowTokens` defaults to 200 000 (`URd=200000`), 1 000 000 on
+ *     a 1M-context model;
+ *   - `charsPerToken` is 4 for the models in a fixed set (claude-3-*,
+ *     opus-4-0/4-1/4-5/4-6, sonnet-4-0/4-5/4-6, haiku-4-5) and 3 for every
+ *     other model (`function oA(e){if(!e)return 4;…return l3u.has(n)?4:3}`);
+ *   - the env var `SLASH_COMMAND_TOOL_CHAR_BUDGET` replaces the whole number.
+ *
+ * The listing is measured against it as the sum of each entry's display width
+ * (`Bun.stringWidth`, not `.length`) plus one newline between entries, over
+ * every listed skill — bundled, user and plugin skills included, not only the
+ * repository's. Its floor is 200 000 × 3 × 0.01 = 6 000 characters, and that
+ * floor is {@link claudeCodeListingBudget}: the window and the chars per token
+ * depend on the model a person picks, so the smallest a commit can be sure of
+ * is what vigiles holds it to. A committed `skillListingBudgetFraction` moves
+ * it; the environment variable is per machine and is not read. vigiles sums
+ * entry LENGTHS without the newlines, an under-count of one character per
+ * listed skill (and more for wide characters, which `stringWidth` counts as 2).
  */
 import type {
   ListedSkill,
+  ListingLimit,
+  SkillListingBudget,
   SkillListingRules,
 } from "../../core/skill-listing.js";
 
@@ -109,8 +132,50 @@ const entry = (
   return `- ${skill.dirName}: ${capped(combined, capFrom(settings))}`;
 };
 
+/** The context window the budget is computed on: the CLI's default, `URd=200000`. */
+const FLOOR_WINDOW_TOKENS = 200_000;
+/** Characters per token for every model outside the CLI's older-model set. */
+const FLOOR_CHARS_PER_TOKEN = 3;
+/** `skillListingBudgetFraction`'s default, `FRd=0.01`. */
+const DEFAULT_FRACTION = 0.01;
+/** The setting that moves the fraction, as the settings schema names it. */
+const FRACTION_SETTING = "skillListingBudgetFraction";
+
+/** The committed fraction when the CLI would accept it (`gt(0).lte(1)`), else none. */
+const fractionFrom = (
+  settings: Readonly<Record<string, unknown>>,
+): number | undefined => {
+  const v = settings[FRACTION_SETTING];
+  return typeof v === "number" && v > 0 && v <= 1 ? v : undefined;
+};
+
+/** `Math.max(1, Math.floor(window × charsPerToken × fraction))`, as the CLI computes it. */
+const listingLimit = (
+  settings: Readonly<Record<string, unknown>>,
+): ListingLimit => {
+  const fraction = fractionFrom(settings);
+  const limit = Math.max(
+    1,
+    Math.floor(
+      FLOOR_WINDOW_TOKENS *
+        FLOOR_CHARS_PER_TOKEN *
+        (fraction ?? DEFAULT_FRACTION),
+    ),
+  );
+  return fraction === undefined
+    ? { limit }
+    : { limit, setBy: FRACTION_SETTING };
+};
+
+export const claudeCodeListingBudget: SkillListingBudget = {
+  limit: listingLimit,
+  capturedFrom:
+    "claude-code 2.1.187 binary (sha256 bb02fcb3…bf361): function E2e — floor((window ?? 200000) × oA(model) × (skillListingBudgetFraction ?? 0.01)), oA = 4 for an older-model set else 3; floor at 200000 × 3",
+};
+
 export const claudeCodeSkillListing: SkillListingRules = {
   entry,
+  budget: claudeCodeListingBudget,
   capturedFrom:
     "code.claude.com/docs/en/skills (fetched 2026-10-31); measured on Claude Code 2.1.187 (VALIDATED_CC_VERSION)",
 };

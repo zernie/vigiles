@@ -815,7 +815,7 @@
       "count": 3
     },
     "local/no-rule-ids": {
-      "count": 185
+      "count": 183
     },
     "no-restricted-syntax": {
       "count": 1
@@ -906,28 +906,6 @@
   },
   "src/comparison-snapshot.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    }
-  },
-  "src/context-creep-ratchet.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 3
-    },
-    "local/no-harness-names": {
-      "count": 14
-    },
-    "local/no-rule-ids": {
-      "count": 6
-    }
-  },
-  "src/context-creep-ratchet.ts": {
-    "boundaries/dependencies": {
-      "count": 1
-    },
-    "functional/prefer-immutable-types": {
-      "count": 2
-    },
-    "local/no-rule-ids": {
       "count": 1
     }
   },
@@ -1684,25 +1662,6 @@
     },
     "functional/prefer-immutable-types": {
       "count": 1
-    }
-  },
-  "src/core/instruction-baseline.test.ts": {
-    "local/no-harness-names": {
-      "count": 25
-    },
-    "local/no-rule-ids": {
-      "count": 1
-    }
-  },
-  "src/core/instruction-baseline.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
-    "functional/prefer-immutable-types": {
-      "count": 10
-    },
-    "local/no-rule-ids": {
-      "count": 5
     }
   },
   "src/core/instruction-chain.test.ts": {
@@ -3303,9 +3262,6 @@
     },
     "functional/prefer-immutable-types": {
       "count": 2
-    },
-    "local/no-rule-ids": {
-      "count": 1
     }
   },
   "src/mock-entry.ts": {

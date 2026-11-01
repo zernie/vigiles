@@ -37,7 +37,12 @@ export type {
 } from "./core/output-style.js";
 // `HarnessDialect.skillListing` is on the port too: an author implementing it
 // names the rules and the one skill its `entry` reads.
-export type { ListedSkill, SkillListingRules } from "./core/skill-listing.js";
+export type {
+  ListedSkill,
+  ListingLimit,
+  SkillListingBudget,
+  SkillListingRules,
+} from "./core/skill-listing.js";
 export type { ModelRequest } from "./core/harness-driver.js";
 // The three derived readers. They are part of the port's surface, not helpers:
 // an adapter author reads a layout through them, and they are what replaced the

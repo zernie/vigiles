@@ -53,14 +53,27 @@ const testCoverageConfig = z
   .strict();
 
 /**
- * Options for `context-creep`. `max` is an opt-in ABSOLUTE ceiling on the
- * always-loaded total, in the harness's own unit — independent of the ratchet's
- * baseline. A positive integer: `0` would fail every repo that has an
- * instruction file, and `"40000"` is a string the author meant as a number.
+ * Options for `context-creep`.
+ *
+ * `limits` overrides the harness's own limit for a part, in the harness's unit
+ * (characters for Claude Code, bytes for Codex): `instructions` (the selected
+ * output style counts with them) and `skill-listing`. A part left out keeps
+ * the harness's number. Going over a limit is a finding the baseline store can
+ * accept; `max` is the opt-in ABSOLUTE ceiling on the scored instructions that
+ * no baseline lifts. Each value is a positive integer: `0` would put every
+ * repository with an instruction file over, and `"40000"` is a string the
+ * author meant as a number.
  */
-const contextCreepConfig = z
+export const contextCreepOptions = z
   .object({
     max: z.number().int().positive().optional(),
+    limits: z
+      .object({
+        instructions: z.number().int().positive().optional(),
+        "skill-listing": z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -471,9 +484,9 @@ export const RULES = [
     defaultSeverity: "error",
     cure: "edit",
     summary:
-      "What the harness loads at session start (instructions, the selected output style, the skill listing) did not move off its committed baseline.",
-    detector: "compareAlwaysLoadedToBaseline",
-    options: contextCreepConfig,
+      "What the harness loads at session start (instructions with the selected output style, the skill listing) is within the harness's own limits, or no larger than the size .vigiles/baseline.json accepted.",
+    detector: "checkAlwaysLoadedLimits",
+    options: contextCreepOptions,
   }),
   defineRule({
     id: "deprecated-key-files",

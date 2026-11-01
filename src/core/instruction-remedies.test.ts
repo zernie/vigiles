@@ -9,9 +9,9 @@ import { describe, it, expect } from "vitest";
 import {
   formatCeiling,
   formatRefusal,
-  formatVerdict,
   type CeilingVerdict,
-} from "./instruction-baseline.js";
+} from "./always-loaded-limits.js";
+import { applyBaseline, BASELINE_FILE } from "./baseline-store.js";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -55,19 +55,54 @@ describe("the remedy list", () => {
 
 describe("every over-weight finding carries it", () => {
   it("the ceiling finding", () => {
-    expect(formatCeiling(over, ".")).toContain(MOVE_OUT_OF_ALWAYS_LOADED);
+    expect(formatCeiling(over, ".", MOVE_OUT_OF_ALWAYS_LOADED)).toContain(
+      MOVE_OUT_OF_ALWAYS_LOADED,
+    );
   });
 
   it("the refusal to record a baseline above the ceiling", () => {
-    expect(formatRefusal(over, ".")).toContain(MOVE_OUT_OF_ALWAYS_LOADED);
+    expect(
+      formatRefusal(over, ".", {
+        file: BASELINE_FILE,
+        command: "cmd",
+        remedy: MOVE_OUT_OF_ALWAYS_LOADED,
+      }),
+    ).toContain(MOVE_OUT_OF_ALWAYS_LOADED);
   });
 
   it("growth over the recorded baseline", () => {
-    const msg = formatVerdict(
-      { kind: "grew", from: 10, to: 20, unit: "chars", changes: [] },
-      ".",
+    const [line] = applyBaseline(
+      {
+        ruleId: "fixture-rule",
+        findings: [
+          {
+            subject: ".",
+            text: "over",
+            measurement: { unit: "chars", measure: 1, value: 20 },
+          },
+        ],
+        measured: ["."],
+        remedy: MOVE_OUT_OF_ALWAYS_LOADED,
+      },
+      {
+        kind: "ok",
+        store: {
+          version: 1,
+          rules: {
+            "fixture-rule": {
+              ".": {
+                direction: "shrink-only",
+                unit: "chars",
+                measure: 1,
+                value: 10,
+              },
+            },
+          },
+        },
+      },
     );
-    expect(msg).toContain(MOVE_OUT_OF_ALWAYS_LOADED);
+    expect(line?.status).toBe("finding");
+    expect(line?.text).toContain(MOVE_OUT_OF_ALWAYS_LOADED);
   });
 });
 

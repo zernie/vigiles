@@ -33,12 +33,31 @@
  *     path; the size is reproducible from a commit, and each entry is off by
  *     the difference between that path and the one Codex printed.
  *
- * The listing as a whole has a budget (2% of the model's context window, or a
- * configured token count), past which descriptions are dropped. It depends on
- * the model, so it is not a property of a commit and is not modelled here.
+ * The listing as a whole has a budget, past which descriptions are shortened
+ * and then skills omitted ("Exceeded skills context budget …"). Read from
+ * `codex-rs/ext/skills/src/render.rs` and `extension.rs` at tag rust-v0.153.0
+ * (`skill_metadata_budget`):
+ *
+ *   - a configured `max_context_tokens` wins, capped at 10 000 tokens;
+ *   - else, at THREAD START (`CatalogSurface::ThreadContext`), the window is
+ *     passed as `None`, so the budget is 8 000 CHARACTERS
+ *     (`DEFAULT_SKILL_METADATA_CHAR_BUDGET`), each line costing its Unicode
+ *     scalar count plus one newline;
+ *   - on a TURN (`CatalogSurface::TurnInput`) it is 2% of the model's context
+ *     window in tokens, each line costing ceil((bytes + 1) / 4).
+ *
+ * The thread-start number does not depend on the model, so it is
+ * {@link codexListingBudget}: 8 000 — compared against vigiles's Codex unit,
+ * BYTES, which is never smaller than the characters Codex counts, so a
+ * non-ASCII listing is reported over a little early, never late. A committed
+ * `[skills] max_context_tokens` in `.codex/config.toml` replaces it with that
+ * many tokens (at most 10 000), four bytes each. vigiles sums entries without
+ * the newline Codex adds to each line: one byte per listed skill under.
  */
 import type {
   ListedSkill,
+  ListingLimit,
+  SkillListingBudget,
   SkillListingRules,
 } from "../../core/skill-listing.js";
 
@@ -80,8 +99,48 @@ const entry = (skill: ListedSkill): string | null => {
   return `- ${name}: ${capped(description)} (file: ${skill.path})`;
 };
 
+/** `DEFAULT_SKILL_METADATA_CHAR_BUDGET`: the thread-start budget, no window passed. */
+const THREAD_START_BUDGET = 8000;
+/** `MAX_CONFIGURED_SKILL_METADATA_TOKEN_BUDGET`: a configured budget is capped here. */
+const MAX_CONFIGURED_TOKENS = 10_000;
+/** `APPROX_BYTES_PER_TOKEN`, the conversion `approx_token_count` uses. */
+const BYTES_PER_TOKEN = 4;
+/** The committed setting, as `.codex/config.toml` spells it. */
+const TOKENS_SETTING = "skills.max_context_tokens";
+
+const isRecord = (v: unknown): v is Readonly<Record<string, unknown>> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** `[skills] max_context_tokens` when it is a positive integer (`NonZeroUsize`). */
+const configuredTokens = (
+  settings: Readonly<Record<string, unknown>>,
+): number | undefined => {
+  const skills = settings["skills"];
+  const v = isRecord(skills) ? skills["max_context_tokens"] : undefined;
+  return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : undefined;
+};
+
+const listingLimit = (
+  settings: Readonly<Record<string, unknown>>,
+): ListingLimit => {
+  const tokens = configuredTokens(settings);
+  return tokens === undefined
+    ? { limit: THREAD_START_BUDGET }
+    : {
+        limit: Math.min(tokens, MAX_CONFIGURED_TOKENS) * BYTES_PER_TOKEN,
+        setBy: TOKENS_SETTING,
+      };
+};
+
+export const codexListingBudget: SkillListingBudget = {
+  limit: listingLimit,
+  capturedFrom:
+    "openai/codex rust-v0.153.0 codex-rs/ext/skills/src/render.rs skill_metadata_budget + extension.rs:234 (thread start passes no window → 8_000 chars; max_context_tokens capped at 10_000)",
+};
+
 export const codexSkillListing: SkillListingRules = {
   entry,
+  budget: codexListingBudget,
   capturedFrom:
     "openai/codex codex-rs/skills/src/parser.rs + codex-rs/ext/skills/src/render.rs (main, fetched 2026-10-31); measured on codex-cli 0.153.0",
 };

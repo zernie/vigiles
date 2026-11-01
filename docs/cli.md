@@ -693,15 +693,16 @@ the log for a human AND the JSON for a PR comment scans once:
 npx vigiles lint . --json-out=reports/lint.json
 ```
 
-**Context-creep baseline.** `--update-baseline` records what the harness
-loads without being asked — the instructions, plus the selected output style and
-the skill listing when either is not empty — into
-`.vigiles/context-creep.json`; commit it, and `lint` fails whenever that
-sum moves off it. `lint` without the flag never writes
-the file; with a configured `max` it refuses to record a baseline above it. See
-[`context-creep`](rules/context-creep.md). A repo still on the pre-rename
-`.vigiles/instruction-weight.json` keeps being read; `lint` (and `lint --summary`,
-as one extra line) prints the `git mv` that moves it.
+**Context-creep baseline.** [`context-creep`](rules/context-creep.md) checks
+what the harness loads without being asked against the harness's own limits.
+Under every limit nothing is recorded. Over a limit, `--update-baseline` records
+today's size into `.vigiles/baseline.json`; commit it, and `lint` fails only
+when the size grows past it. The flag writes the file only while something is
+over a limit, and deletes it once nothing is. `vigiles init` records it for
+you on a repository that is over. `lint` without the flag never writes; with a
+configured `max` the flag refuses to record above it. A repository that still
+has `.vigiles/context-creep.json` gets a finding naming it, and the same flag
+migrates it, keeping its recorded numbers.
 
 ```bash
 npx vigiles lint --update-baseline

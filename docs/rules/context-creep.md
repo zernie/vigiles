@@ -1,14 +1,69 @@
-# context-creep — keep the always-loaded context from growing
+# context-creep — keep the always-loaded context within the harness's limits
 
 Context engineering starts with the part you pay for on every request: what the
-harness loads **without being asked**. This rule fails when that gets heavier
-than the weight the repository last recorded — context creep, one unremarkable
-line at a time. A **ratchet**: the baseline is the repo's
-own past, committed in `.vigiles/context-creep.json`, so a repo already
-several times over the harness's budget starts green and stays green only while
-it does not grow. Same measurement `vigiles audit` prints as
-`Always-loaded instructions` and `always-loaded context`; the comparison is
-`compareAlwaysLoadedToBaseline` in `src/core/instruction-baseline.ts`.
+harness loads **without being asked**. This rule checks that against the
+**harness's own limits**, one per part:
+
+1. **Under every limit, nothing happens.** The context may grow freely up to
+   the limit, and no file is needed.
+2. **Over a limit, the size you accepted holds.** You record today's size once
+   in `.vigiles/baseline.json`. From then on the check passes while the context
+   stays at or below that size, and fails the day it grows past it.
+
+So a repository far under the limits never pays for a gate it does not need,
+and a repository already several times over starts green and fails only when
+it gets heavier.
+
+The rule itself is stateless: it measures and compares against the limit. The
+baseline store is applied **after** the rule has produced its findings, the way
+ESLint applies bulk suppressions: the rule never reads the store, and the store
+never knows how the rule measures. `vigiles audit` prints the same measurement
+under `Always-loaded instructions` and `always-loaded context`, against the
+same limits; the detector is `checkAlwaysLoadedLimits` in
+`src/core/always-loaded-limits.ts`.
+
+## The limits
+
+Each number is the one the harness itself publishes or acts on. vigiles does
+not invent thresholds.
+
+| part                                                  | Claude Code                                                               | Codex                                                                                 |
+| ----------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **instructions** (the selected output style included) | 40,000 characters: the floor of the CLI's large-file warning              | 32,768 bytes: `project_doc_max_bytes`, past which Codex **silently truncates**        |
+| **skill listing**                                     | 6,000 characters: the listing budget, past which descriptions are dropped | 8,000 at thread start, past which descriptions are shortened and then skills left out |
+| **output style**                                      | no limit of its own; counted with the instructions                        | not supported                                                                         |
+
+Where the numbers come from:
+
+- **Claude Code skill listing.** In the pinned release (2.1.187) the budget is
+  `floor(context window × characters per token × skillListingBudgetFraction)`.
+  The window is 200,000 tokens unless the model has a 1M window. The fraction
+  defaults to 0.01. Characters per token is **4** for a fixed set of older
+  models and **3** for every other model. vigiles uses the floor:
+  200,000 × 3 × 0.01 = **6,000**.
+- **Claude Code instructions.** The CLI warns per file at 5% of the window in
+  characters, never below 40,000. vigiles uses that floor.
+- **Codex skill listing.** At thread start Codex sizes the listing in
+  characters with no model window, so the budget is the fixed 8,000. vigiles
+  measures Codex in bytes, which is never fewer than characters, so a
+  non-ASCII listing is reported over slightly early, never late.
+
+### Committed settings that move a limit
+
+A setting committed to the repository changes what every teammate's session
+loads, so vigiles reads it:
+
+| harness     | setting                                                                 | listing limit                                   |
+| ----------- | ----------------------------------------------------------------------- | ----------------------------------------------- |
+| Claude Code | `skillListingBudgetFraction` in `.claude/settings.json` (0 < value ≤ 1) | `floor(200,000 × 3 × value)`                    |
+| Codex       | `max_context_tokens` under `[skills]` in `.codex/config.toml`           | `min(value, 10,000)` tokens × 4 bytes per token |
+
+The message names the setting when one moved the limit.
+
+**Not read:** per-machine environment variables that also move these numbers:
+Claude Code's `SLASH_COMMAND_TOOL_CHAR_BUDGET` and
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the model a person picks. They are not a
+property of the commit, so CI could not reproduce them.
 
 ## What it measures
 
@@ -32,14 +87,9 @@ same. A rule's `paths:` scopes it only when it is a non-empty list of globs;
 deep; any import the number does not include is listed on the line as
 `N import(s) not followed`.
 
-**Moving text does not help.** Cutting a section out of `CLAUDE.md` into an
-always-loaded rules file leaves the sum unchanged, and the rule says `held`.
-A per-file limit would have scored that move as a large improvement.
-
 ### The always-loaded context: output style and skill listing
 
-Two more things load at session start before any decision, and the rule counts
-them once you record them:
+Two more things load at session start before any decision:
 
 - **the output style** your committed settings select, when the repository
   holds it as a file — its body, frontmatter removed;
@@ -53,115 +103,156 @@ them once you record them:
   a real one — that is how `vigiles init` installs skills. A link back to a
   folder that contains it (a cycle) is not followed.
 
-Together with the instructions this is the **always-loaded context**. The rule gates
-its **sum**, so moving a section from `CLAUDE.md` into the selected style, or
-into a skill's description, still reads `held` — and the line under the verdict
+Together with the instructions this is the **always-loaded context**. The limits
+are checked per part. Once a part is over, the baseline holds the **sum** of
+all parts, so moving a section from `CLAUDE.md` into the selected style, or
+into a skill's description, still reads as held. The line under the verdict
 says where the weight moved:
 
 ```
-✓ always-loaded context held at 38,062 chars (baseline)
-  instructions 20,000 (-4,665) · output style 13,031 (+4,665) · skill listing 5,031
+✓ … Held at the recorded baseline (38,062 chars).
+  instructions 20,000 (-4,665) · output-style 13,031 (+4,665) · skill-listing 5,031
 ```
 
 Not counted: a style selected only in a per-machine settings file, a selected
 name no repository style declares (named in `audit`, size unknown), a plugin's
-own `skills/` folder (its users load it, not a session here), user-level and
-plugin skills, and the listing's overall budget — a share of the model's
-context window, which depends on the model and is not a property of a commit.
-Codex has no output styles; its part is `not-supported`, never written.
+own `skills/` folder (its users load it, not a session here), and user-level
+and plugin skills. Codex has no output styles.
+
+## A skill listing over its budget is a behaviour problem
+
+Past the listing budget the harness does not just cost more. It **drops skill
+descriptions** at session start, so some skills lose the text the model picks
+them by, and may never trigger. `vigiles audit` says so in its always-loaded
+block:
+
+```
+  limits (chars): instructions 10 of 40,000 · skill-listing 7,530 of 6,000
+  ⚠ the skill listing is over the harness's listing budget by 1,530 chars: at
+    session start the harness drops skill descriptions past it, so some skills
+    lose the text they are picked by and may never trigger
+```
+
+The count covers the repository's skills only. In a real session the
+harness's own bundled skills and your user and plugin skills share the same
+budget, so the real listing is larger.
 
 ## What it reports
 
-| state                                                                                                                      | result                                                                                                    |
-| -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| no baseline file                                                                                                           | a one-line note naming the command to start; **never a finding**                                          |
-| weight equals the baseline                                                                                                 | `✓ … held at N chars`                                                                                     |
-| weight **grew**                                                                                                            | finding: the delta and every file that moved                                                              |
-| weight **shrank**                                                                                                          | finding: lock the cut in, or the headroom can be regrown unnoticed                                        |
-| baseline recorded by another measurement                                                                                   | finding: vigiles changed what counts — re-record, not a change in your files                              |
-| baseline recorded in another unit                                                                                          | finding: re-record (the repo changed harness)                                                             |
-| baseline file exists, bundle not in it                                                                                     | finding: weight nobody recorded                                                                           |
-| baseline file is not valid                                                                                                 | finding; never read as empty                                                                              |
-| version-1 file, output style or listing not empty                                                                          | a note per bundle naming each part; **never a finding** — the instructions still gate as before           |
-| version-2 file, a part grew or appeared                                                                                    | finding: the always-loaded sum grew, and which part's file moved                                          |
-| version-2 file, a part recorded by another measurement                                                                     | finding: re-record, naming the part                                                                       |
-| version-2 file, a recorded part this run cannot measure (the adapter does not model it, or the selected style has no file) | carried at its recorded size and named on the line; never read as 0, never dropped by `--update-baseline` |
+| state                                                                                    | result                                                                                                       |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| every part at or under its limit                                                         | nothing; no file needed                                                                                      |
+| a part over its limit, no baseline recorded                                              | a **note** naming the part, the limit, what the harness does past it, and the command; never a finding       |
+| over, and the size equals the recorded baseline                                          | `✓ … Held at the recorded baseline`                                                                          |
+| over, and it **grew** past the baseline                                                  | finding: the delta, every file that moved, and which part                                                    |
+| over, and it **shrank** below the baseline                                               | finding: the size went down — record the new, lower number with the command                                  |
+| under every limit again, with an entry in the baseline                                   | note: the entry is no longer needed — `--update-baseline` drops it and deletes an empty file                 |
+| baseline recorded by another measurement, or in another unit                             | finding: re-record (vigiles changed what counts, or the repo changed harness)                                |
+| the baseline has entries for this rule, but not this bundle                              | finding: weight nobody recorded                                                                              |
+| `.vigiles/baseline.json` is not valid                                                    | finding; never read as empty                                                                                 |
+| a part this run cannot measure (the adapter does not model it, or the style has no file) | carried at its recorded size; never read as 0                                                                |
+| an old `.vigiles/context-creep.json` exists                                              | finding naming the file and the command that migrates it ([below](#migrating-from-vigilescontext-creepjson)) |
 
 ```
-✗ always-loaded instructions grew 30,000 → 31,225 chars (+1,225) over the
-  recorded baseline. Changed: .claude/rules/moved.md +11,225 (new), CLAUDE.md
-  -10,000. If the growth is intended, record it with
-  `vigiles lint --update-baseline` — the diff of .vigiles/context-creep.json
-  is the review.
+✗ always-loaded context is over the harness's limit: skill listing 7,530 chars,
+  limit 6,000 (the harness's own) — 1,530 over; the harness drops skill
+  descriptions past it, so some skills lose the text they trigger on
+  Grew 7,578 → 7,598 chars (+20) over the recorded baseline. Changed:
+  CLAUDE.md (instructions) +20.
+  instructions 68 (+20) · skill-listing 7,530
+  If the growth is intended, record it with `vigiles lint --update-baseline` —
+  the diff of .vigiles/baseline.json is the review. If it is not: …
 ```
 
-A shrink is a finding for the same reason as ESLint's unpruned suppressions and
-`betterer ci`: a baseline above the tree is headroom, and every character up to
-the old number would pass. Recording the cut in the same change keeps the
-baseline equal to the tree, so any growth at all shows up.
+Going over a limit **never fails on its own**. It only switches the baseline
+on, so a repository over the limit starts green.
+
+A **shrink is a finding too**, until the lower number is recorded. A baseline
+above the tree is headroom: every character up to the old number would pass,
+and that is exactly where regrowth lands unnoticed. Recording the cut in the
+same change keeps the baseline equal to the tree, so any growth at all shows
+up. This is the rule PHPStan, Psalm, ESLint's unpruned suppressions and
+`betterer ci` apply to a stale baseline entry.
+
+```
+✗ always-loaded context is over the harness's limit: skill listing 7,530 chars, …
+  The size went down: 7,578 → 7,540 chars (-38), below the recorded baseline,
+  which still allows the old size — headroom that can be regrown without a
+  finding. Record the new, lower number with `vigiles lint --update-baseline`.
+```
 
 ## Recording the baseline
 
+You do not need to know the flag. **`vigiles init` records the baseline** on a
+repository that is over a limit and has none, and says so:
+
+```
+✓ always-loaded context: skill-listing is 7,530 chars, over the limit of 6,000.
+  Recorded .vigiles/baseline.json — commit it. CI now fails only if it grows past that size.
+```
+
+`init` measures the same bundles `lint` scores (the root, plus every nested
+bundle under `"bundles": "all"`) and records each one over a limit. Under
+every limit it writes nothing. A rerun of `init` never overwrites an existing
+entry; it only adds bundles that are over a limit and have none yet.
+
+While a repository is over a limit with no baseline, `vigiles lint --summary`
+— the line the shipped session-start hook injects into the agent — carries one
+extra line naming the command, so the agent working in the repository records
+it. In GitHub Actions the same note is a `notice` annotation on the run.
+
+To record by hand, or to accept growth:
+
 ```bash
 npx vigiles lint --update-baseline
-git add .vigiles/context-creep.json
+git add .vigiles/baseline.json
 ```
 
-`lint` never writes the file on its own — a read never writes. The flag is the
-only writer, the same shape as `eslint --suppress-all` and `jest -u`. Raising
-the baseline is allowed: growth is not forbidden, it becomes a reviewed diff of
-a committed file instead of passing in silence.
+`--update-baseline` writes the file **only while some part is over a limit**.
+Once nothing is over, it deletes the file instead. It touches only the bundles
+the run scanned: `vigiles lint plugins/alpha --update-baseline` rewrites or
+drops `plugins/alpha`'s entry and leaves every other bundle's entry
+byte-identical. An entry is dropped only when the run measured that bundle and
+found it under its limits, or found the bundle gone. "Under its limits" needs
+**every part the entry recorded** to be measured in this run. When a recorded
+part cannot be measured, for example the selected output style names no style
+file, the entry stays with that part's recorded value, and `lint` says so:
+`output style not measured this run; recorded 20 chars kept`. Raising the
+baseline is allowed: growth is not forbidden, it becomes a reviewed diff of a
+committed file instead of passing in silence.
 
-`vigiles compile` prints the weight after it writes, against the baseline, so
-the author sees the effect at the moment of change:
+**`lint` never writes.** Every default lint path is a read, and CI must not
+commit files. Over a limit with no baseline, `lint` stays a note that names the
+command.
+
+`vigiles compile` prints the size after it writes, against each limit:
 
 ```
-always-loaded: 28,210 chars (baseline 30,000, -1,790)
+always-loaded context: 7,598 chars — instructions 68/40,000 · skill-listing 7,530/6,000 (over a limit; grew past the baseline — `vigiles lint` fails)
 ```
-
-Once the always-loaded context is recorded the line names it instead:
-`always loaded: 38,062 chars (baseline 38,062, ±0)`.
 
 ## The file
+
+`.vigiles/baseline.json` is one store for every rule that accepts a recorded
+size, keyed by rule id and then by subject (here, the bundle; `.` is the
+root):
 
 ```json
 {
   "version": 1,
-  "bundles": {
-    ".": {
-      "unit": "chars",
-      "measure": 1,
-      "total": 30000,
-      "files": {
-        "CLAUDE.md": 30000
-      }
-    }
-  }
-}
-```
-
-A repository whose output style or skill listing is not empty gets a
-**version 2** file, where each entry also carries `parts`:
-
-```json
-{
-  "version": 2,
-  "bundles": {
-    ".": {
-      "unit": "chars",
-      "measure": 1,
-      "total": 24665,
-      "files": { "CLAUDE.md": 24665 },
-      "parts": {
-        "output-style": {
-          "measure": 1,
-          "total": 8366,
-          "files": { ".claude/output-styles/terse.md": 8366 }
-        },
-        "skill-listing": {
-          "measure": 1,
-          "total": 5031,
-          "files": { ".claude/skills/review/SKILL.md": 5031 }
+  "rules": {
+    "context-creep": {
+      ".": {
+        "direction": "shrink-only",
+        "unit": "chars",
+        "measure": 1,
+        "value": 7578,
+        "parts": {
+          "instructions": { "value": 48, "files": { "CLAUDE.md": 48 } },
+          "skill-listing": {
+            "value": 7530,
+            "files": { ".claude/skills/review/SKILL.md": 1506 }
+          }
         }
       }
     }
@@ -169,60 +260,46 @@ A repository whose output style or skill listing is not empty gets a
 }
 ```
 
-`total` stays the instructions' own total; the verdict is decided on `total`
-plus every part's `total`. A part whose total is 0 is not written. Each part has
-its own `measure`, so a change to how one part is measured asks you to re-record
-that part by name.
-
-One entry per scored bundle (`.` is the root; `--bundles=all` adds nested
-ones). `files` names where the weight is, so a message can say which file grew;
-the verdict is decided on `total`, which must equal the sum of `files`. `measure` names the measurement that produced the number; a vigiles release that changes what counts bumps it, and the rule then asks for a re-record instead of reporting growth. Keys are
-sorted and there is no timestamp, so the diff shows only real movement.
-
-### Upgrading from a version-1 file
-
-1. **Upgrade vigiles, change nothing else.** A version-1 file is read as
-   before: the instructions gate exactly as they did, and each part that is
-   not empty adds one **note** (`output style (8,366 chars) and skill listing
-(5,031 chars) load at session start but are not in the baseline…`). Notes
-   never count toward the exit code, so CI stays green.
-2. **Upgrade vigiles wherever `lint` runs** — every CI job and every
-   teammate's pinned version.
-3. **Then record:** `npx vigiles lint --update-baseline` writes version 2, and
-   from then on the gate is the sum.
-
-The order matters because version 1 was a strict format: an **older vigiles
-cannot read a version-2 file**. It reports
-`.vigiles/context-creep.json cannot be read` — loud, never silent, but a
-finding at the rule's severity. A repository with no output style and no listed
-skill keeps writing version 1, which every release reads. A file that is
-already version 2 stays version 2, even after its last skill or its style is
-removed: re-adding one is then growth of the gated sum, not a note.
+- `value` is the accepted size, in `unit`. `direction: "shrink-only"` means it
+  may hold or fall, never rise.
+- `parts` must sum to `value`, and each part's `files` to its `value`; a
+  hand-edited number that does not add up is refused. A part of 0 is not
+  written.
+- `measure` names the measurement that produced the number. A release that
+  changes what counts bumps it, and the rule then asks for a re-record instead
+  of reporting growth.
+- Recording one rule never touches another rule's entries. Keys are sorted
+  and there is no timestamp, so the diff shows only real movement.
 
 **Committed, unlike `.vigiles/coverage.json`.** Coverage records what ran on one
 machine; this records a property of the commit, computed only from committed
-files.
+files and committed settings.
 
-## The baseline file's old name
+## Migrating from `.vigiles/context-creep.json`
 
-The rule was called `instruction-weight` and its baseline lived in
-`.vigiles/instruction-weight.json`. The rule id is now `context-creep` and the
-file `.vigiles/context-creep.json`. Nothing breaks on upgrade as far as the file
-goes:
+Earlier releases kept this baseline in `.vigiles/context-creep.json` (and,
+before the rule's rename, `.vigiles/instruction-weight.json`). **That file is
+no longer read.** While it exists, `lint` reports a finding that names it and
+the one command that migrates it:
 
-| On disk           | `lint` reads | And says (a note, never a finding, exit code untouched)               |
-| ----------------- | ------------ | --------------------------------------------------------------------- |
-| the new file only | the new file | nothing                                                               |
-| the old file only | the old file | `git mv .vigiles/instruction-weight.json .vigiles/context-creep.json` |
-| both              | the new file | the old one is stale: `git rm .vigiles/instruction-weight.json`       |
-| neither           | nothing      | the usual "no baseline recorded" note                                 |
+```bash
+npx vigiles lint --update-baseline
+git add -A .vigiles   # the new file, and the old one's deletion
+```
 
-`--update-baseline` writes only the new path. `vigiles lint --summary` — the
-line the shipped session-start hook injects into the agent — carries the same
-note as one extra line while the old file exists, so the agent renames it.
-
-A `.vigilesrc.json` that still names `rules.instruction-weight` is refused by
-the strict config schema; rename the key to `context-creep`.
+The command **keeps the recorded numbers**: it converts each old entry instead
+of re-measuring, so growth that landed since the old file was recorded still
+fails. **Every bundle the old file recorded carries over**, including the ones
+the run did not scan: `vigiles lint plugins/alpha --update-baseline` converts
+the root's entry too, as recorded. The only entries left behind are bundles
+the run measured and found under their limits, or found gone. An entry already
+in `.vigiles/baseline.json` wins over the old file's, and when both old files
+exist the newer name wins a bundle they both record. Parts a version-1 file
+never recorded (the output style and the skill listing) are taken at today's
+size for a scanned bundle, since they were never gated, and stay unrecorded
+for one the run did not scan. The old file is deleted only after the new file
+is written. Run `--update-baseline` once more to accept the current size.
+`init` does not migrate on its own; it prints the same command.
 
 ## Configuration
 
@@ -230,14 +307,33 @@ the strict config schema; rename the key to `context-creep`.
 { "rules": { "context-creep": "error" } }
 ```
 
-| Value               | Behavior                                                      |
-| ------------------- | ------------------------------------------------------------- |
-| `"error"` (default) | `vigiles lint` exits 2 when the weight moved off the baseline |
-| `"warn"`            | Prints the finding, exits 0                                   |
-| `false`             | Skip the check                                                |
+| Value               | Behavior                                                                 |
+| ------------------- | ------------------------------------------------------------------------ |
+| `"error"` (default) | `vigiles lint` exits 2 when a part over its limit grew past the baseline |
+| `"warn"`            | Prints the finding, exits 0                                              |
+| `false`             | Skip the check (and `init` records nothing)                              |
 
-On by default because a repo with no baseline file gets a note and nothing
-else: committing the file is the opt-in.
+On by default because a repository under every limit sees nothing, and one
+over a limit with no baseline sees a note.
+
+### `limits`: override a harness limit
+
+```json
+{
+  "rules": {
+    "context-creep": [
+      "error",
+      { "limits": { "instructions": 60000, "skill-listing": 9000 } }
+    ]
+  }
+}
+```
+
+Each value is a positive integer in the harness's own unit (characters for
+Claude Code, bytes for Codex). A part left out keeps the harness's number. An
+override can give a part a limit the adapter does not model. `0`, a fraction,
+a string or an unknown key is a config error. Overrides apply to `lint`,
+`compile` and `init`; `vigiles audit` reports against the harness's own limits.
 
 ### `max`: an opt-in absolute ceiling
 
@@ -245,52 +341,14 @@ else: committing the file is the opt-in.
 { "rules": { "context-creep": ["error", { "max": 40000 }] } }
 ```
 
-The ratchet only stops growth, so a repo four times over the harness's budget
-stays green for as long as it does not get heavier. `max` is the way to say
-"no further than this, whatever the baseline holds": a positive integer in the
-harness's own unit (characters for Claude Code, bytes for Codex), checked against
-the instructions' total, per bundle. It caps the instructions only — the output
-style and the skill listing are gated by the ratchet, not by `max`.
+A limit switches the baseline on; `max` is a ceiling **no baseline lifts**. It
+is checked against the instructions' total, per bundle, in the harness's unit.
 
-- **Over `max`** → a finding at the rule's severity, independent of the baseline
-  (it fires with no baseline file, and when the ratchet says `held`). It names
-  the total, the max, how far over, and the largest files:
-
-  ```
-  ✗ always-loaded instructions are 157,814 chars, max 40,000 — 117,814 over.
-    Largest: CLAUDE.md 120,300, .claude/rules/engineering.md 31,200. Cut
-    content; moving text to another always-loaded file does not help, and
-    re-recording the baseline does not lift the ceiling.
-  ```
-
-- **At or under `max`** → silent.
-- **`vigiles lint --update-baseline` refuses** to record a baseline above `max`:
-  it writes nothing and exits non-zero (even at `"warn"`), because re-recording
-  is the one move that would otherwise loosen the ceiling.
-- **Without `max`** the rule behaves exactly as described above; `max` is never
-  on by default, for the reason in [Why not a fixed budget](#why-not-a-fixed-budget).
-
-Use it once the content has been cut to a size you intend to keep: set `max` at
-or just above today's number, so the ratchet keeps catching small regrowth and
-the ceiling catches the baseline being raised past it. `max` must be a positive
-integer; `0`, a fraction, or a string is a config error.
-
-## Why not a fixed budget
-
-`vigiles audit` reports the weight against a budget: 40 000 characters for
-Claude Code, 32 KiB for Codex. For Codex that is the harness's own cut-off. For
-Claude Code it is stricter than the harness on purpose. Claude Code warns when
-one instruction file passes 5% of the model's context window in characters
-(never below 40 000), or when all of them together pass 120 000 (or the
-per-file limit, if higher), so on a 1M-token model a single file can reach
-about 200 000 characters before any warning. vigiles keeps the floor, which
-is Claude Code's threshold for a 200K-token window: every character is re-read
-on each request, whatever the window. Still, the budget cannot gate: measured
-repos sit several times over it, and a check that fails every repo on day one
-is switched off on day one. A ceiling on each rule's length fails the same way — and
-rewards splitting text into more files, which costs exactly as much. The
-repository's own recorded sum is the one number that is green on day one and
-still catches the regrowth.
+- **Over `max`** → a finding at the rule's severity, whatever the baseline
+  holds, naming the total, the max, how far over and the largest files.
+- **`vigiles lint --update-baseline` refuses** to record while a bundle is over
+  `max`: it writes nothing and exits non-zero (even at `"warn"`).
+- `max` is never on by default.
 
 ## Known limits
 
@@ -320,6 +378,13 @@ always-loaded total.
 description: "Build for AWS: ECS"
 ```
 
+### The listing is measured without separators
+
+Both harnesses add a newline per entry when they measure the listing against
+its budget, and Claude Code counts display width (a wide character counts as
+2). vigiles sums the entries' lengths, so the listing is under-counted by about
+one character per listed skill.
+
 ### Claude Code is modelled on one release
 
 The Claude Code entry is rendered the way the release vigiles is validated
@@ -339,6 +404,6 @@ differing `name` is counted exactly.
 ## See also
 
 - [`vigiles audit`](../cli.md) — the full weight report: per-file sizes, the
-  budget, and what the harness does when over it.
+  limits, and what the harness does when over them.
 - [skill-description-budget](skill-description-budget.md) — a per-description
   length heuristic for skills.

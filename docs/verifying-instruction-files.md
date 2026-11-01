@@ -245,9 +245,9 @@ The per-family tables below give each rule's default severity and what it checks
 
 ### Instruction weight
 
-| Rule                                      | Default   | What it checks                                                                                                                                                                                  |
-| ----------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`context-creep`](rules/context-creep.md) | `"error"` | Everything the harness loads at session start (instructions, the selected output style, the skill listing) has not moved off the committed baseline (a ratchet; no baseline file → a note only) |
+| Rule                                      | Default   | What it checks                                                                                                                                                                                                                                            |
+| ----------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`context-creep`](rules/context-creep.md) | `"error"` | Everything the harness loads at session start (instructions with the selected output style, the skill listing) is within the harness's own limits; over a limit, it is no larger than the size `.vigiles/baseline.json` accepted (no entry → a note only) |
 
 ### Docs hygiene
 
