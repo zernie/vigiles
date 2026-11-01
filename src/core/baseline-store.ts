@@ -175,6 +175,13 @@ export interface RuleRun {
   readonly findings: readonly RuleFinding[];
   /** Every subject the rule measured this run, over its limit or not. */
   readonly measured: readonly string[];
+  /**
+   * Subjects the run looked for and found nothing to measure — the file is
+   * gone. With {@link measured}, these are the only subjects a run may drop:
+   * an entry the run never looked at (another bundle, outside a scoped run)
+   * is kept byte-identical and is not mentioned.
+   */
+  readonly gone?: readonly string[];
   /** What a reader does about growth — the rule's own cure, printed once per growth. */
   readonly remedy?: string;
 }
@@ -187,7 +194,7 @@ export interface StoreLine {
 }
 
 /** The rule's entries, or none. */
-const entriesOf = (
+export const entriesOf = (
   store: StoreOnDisk,
   ruleId: string,
 ): Readonly<Record<string, BaselineEntry>> | undefined =>
@@ -422,7 +429,7 @@ function staleLine(subject: string, measured: boolean): StoreLine {
     status: "note",
     text: measured
       ? `${where}under the limit, so ${BASELINE_FILE} no longer needs its entry — \`${UPDATE_BASELINE_COMMAND}\` drops it (and deletes the file once it is empty).`
-      : `${where}no longer measured, so its entry in ${BASELINE_FILE} is stale — \`${UPDATE_BASELINE_COMMAND}\` drops it.`,
+      : `${where}nothing to measure any more, so its entry in ${BASELINE_FILE} is stale — \`${UPDATE_BASELINE_COMMAND}\` drops it.`,
   };
 }
 
@@ -460,10 +467,12 @@ export function applyBaseline(
       .filter((f) => f.measurement !== undefined)
       .map((f) => f.subject),
   );
+  const gone = new Set(run.gone ?? []);
+  const measured = new Set(run.measured);
   const stale = Object.keys(entries ?? {})
-    .filter((subject) => !asked.has(subject))
+    .filter((s) => !asked.has(s) && (measured.has(s) || gone.has(s)))
     .sort()
-    .map((subject) => staleLine(subject, run.measured.includes(subject)));
+    .map((subject) => staleLine(subject, measured.has(subject)));
   return [...lines, ...stale];
 }
 
@@ -491,26 +500,25 @@ export function withEntries(
 }
 
 /**
- * The entries recording one rule's run writes: exactly the findings that carry
- * a measurement, each with any part this run could not measure carried over.
+ * The rule's entries after recording one run: every subject the run measured
+ * or found gone becomes exactly its finding's measurement (or nothing, when it
+ * is under its limit or gone), with any part this run could not measure
+ * carried over. Every subject the run did not look at keeps its entry as is,
+ * so a scoped run never deletes another bundle's baseline.
  */
 export function entriesFor(
   previous: StoreOnDisk,
   run: RuleRun,
 ): Readonly<Record<string, BaselineEntry>> {
   const old = entriesOf(previous, run.ruleId);
-  return Object.fromEntries(
-    run.findings.flatMap((f) =>
-      f.measurement === undefined
-        ? []
-        : [
-            [
-              f.subject,
-              toEntry(f.measurement, entryAt(old, f.subject)),
-            ] as const,
-          ],
-    ),
+  const looked = new Set([...run.measured, ...(run.gone ?? [])]);
+  const kept = Object.entries(old ?? {}).filter(([s]) => !looked.has(s));
+  const fresh = run.findings.flatMap((f) =>
+    f.measurement === undefined
+      ? []
+      : [[f.subject, toEntry(f.measurement, entryAt(old, f.subject))] as const],
   );
+  return Object.fromEntries([...kept, ...fresh]);
 }
 
 /** The store after recording one rule's run ({@link withEntries} of {@link entriesFor}). */

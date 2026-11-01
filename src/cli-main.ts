@@ -443,6 +443,7 @@ function repoFiles(root: string): BaselineFiles {
     remove: (path) => {
       rmSync(join(root, path), { force: true });
     },
+    exists: (path) => existsSync(join(root, path)),
   };
 }
 
@@ -2932,6 +2933,7 @@ async function runLint(
   const contextCreep = checkContextCreep({
     ruleId: ALWAYS_LOADED_RULE,
     files: repoFiles(frame.root),
+    scope: frame.bundle(scanRoot).at,
     severity: ruleSeverity<unknown>(config?.rules?.[ALWAYS_LOADED_RULE]),
     ...alwaysLoadedLimits(config),
     update: flags.includes("--update-baseline"),
@@ -5522,10 +5524,16 @@ function initBaseline(): readonly string[] {
     flag: undefined,
     configHarness: declaredHarnessNames(config.harnesses),
   }).adapter;
+  // The bundles `lint` scores, so the next `lint` finds an entry for each.
+  const frame = frameFor(root, root);
+  const bundles =
+    config.bundles === "all"
+      ? [root, ...discoverNestedBundles(root, excludeSet(root, config.exclude))]
+      : [root];
   const outcome = recordIfMissing(
     repoFiles(root),
     ALWAYS_LOADED_RULE,
-    [measuredBundle(".", root, adapter)],
+    bundles.map((abs) => measuredBundle(frame.bundle(abs).at, abs, adapter)),
     alwaysLoadedLimits(config),
   );
   const line = initBaselineLine(outcome);

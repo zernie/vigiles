@@ -327,3 +327,69 @@ describe("init records the baseline only where it is needed", () => {
     expect(again.out).toContain("left as it is");
   });
 });
+
+describe("several bundles: init and a scoped update touch only what they measured", () => {
+  /** Root and `plugins/alpha` both scored, each over an instructions limit of 20. */
+  function twoBundles(): void {
+    put(
+      ".vigilesrc.json",
+      JSON.stringify({
+        harnesses: { "claude-code": {} },
+        bundles: "all",
+        rules: { [RULE_ID]: ["error", { limits: { instructions: 20 } }] },
+      }),
+    );
+    put("plugins/alpha/.claude-plugin/plugin.json", '{"name":"alpha"}');
+    put(
+      "plugins/alpha/CLAUDE.md",
+      "# Alpha\n\nAlpha plugin instructions here.\n",
+    );
+  }
+
+  const entries = (): Readonly<Record<string, unknown>> =>
+    Object.values(store().rules)[0] ?? {};
+
+  it("init records every bundle lint scores, so the next lint holds", () => {
+    twoBundles();
+    run(["init", "--ci-only", "--no-plugin", "--no-gha"]);
+    expect(Object.keys(entries())).toEqual([".", "plugins/alpha"]);
+    expect(lint().out).not.toContain("has no entry for this");
+  });
+
+  it("a rerun of init adds a bundle that is missing, and keeps the others byte-identical", () => {
+    twoBundles();
+    put("plugins/alpha/CLAUDE.md", "# A\n"); // under the limit at first
+    run(["init", "--ci-only", "--no-plugin", "--no-gha"]);
+    const root = JSON.stringify(entries()["."]);
+    expect(Object.keys(entries())).toEqual(["."]);
+    append("CLAUDE.md", "- grew\n");
+    put(
+      "plugins/alpha/CLAUDE.md",
+      "# Alpha\n\nAlpha plugin instructions here.\n",
+    );
+    run(["init", "--ci-only", "--no-plugin", "--no-gha"]);
+    expect(Object.keys(entries())).toEqual([".", "plugins/alpha"]);
+    expect(JSON.stringify(entries()["."])).toBe(root);
+  });
+
+  it("a scoped update leaves every other bundle's entry untouched", () => {
+    twoBundles();
+    run(["lint", "--update-baseline"]);
+    const root = JSON.stringify(entries()["."]);
+    append("plugins/alpha/CLAUDE.md", "- more\n");
+    run(["lint", "plugins/alpha", "--update-baseline"]);
+    expect(Object.keys(entries())).toEqual([".", "plugins/alpha"]);
+    expect(JSON.stringify(entries()["."])).toBe(root);
+  });
+
+  it("a scoped update on a bundle now under its limit drops only that entry, not the file", () => {
+    twoBundles();
+    run(["lint", "--update-baseline"]);
+    const root = JSON.stringify(entries()["."]);
+    put("plugins/alpha/CLAUDE.md", "# A\n");
+    run(["lint", "plugins/alpha", "--update-baseline"]);
+    expect(existsSync(join(dir, BASELINE_FILE))).toBe(true);
+    expect(Object.keys(entries())).toEqual(["."]);
+    expect(JSON.stringify(entries()["."])).toBe(root);
+  });
+});

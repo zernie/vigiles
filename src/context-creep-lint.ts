@@ -27,6 +27,7 @@ import {
   UPDATE_BASELINE_COMMAND,
   applyBaseline,
   entriesFor,
+  entriesOf,
   hasEntries,
   parseBaselineStore,
   serializeBaselineStore,
@@ -69,6 +70,8 @@ export interface BaselineFiles {
   readonly write: (path: string, text: string) => void;
   /** Delete the file; nothing when it does not exist. */
   readonly remove: (path: string) => void;
+  /** Whether a directory (a bundle) exists. */
+  readonly exists: (path: string) => boolean;
 }
 
 /**
@@ -183,8 +186,33 @@ export function contextCreepRun(
     ruleId,
     findings: measured.flatMap((m) => bundleFindings(m, limits)),
     measured: measured.flatMap((m) => (m[1] === null ? [] : [m[0]])),
+    gone: measured.flatMap((m) => (m[1] === null ? [m[0]] : [])),
     remedy: MOVE_OUT_OF_ALWAYS_LOADED,
   };
+}
+
+/** Whether a bundle path is the scanned one or inside it (`.` covers every bundle). */
+const inScope = (subject: string, scope: string): boolean =>
+  scope === "." || subject === scope || subject.startsWith(`${scope}/`);
+
+/**
+ * The run with every recorded bundle inside the scan's scope whose directory
+ * no longer exists added as gone — the one way an entry the scan did not
+ * measure may be dropped. Outside the scope nothing is touched.
+ */
+function withGoneBundles(
+  run: RuleRun,
+  onDisk: StoreOnDisk,
+  files: BaselineFiles,
+  scope: string,
+): RuleRun {
+  const seen = new Set([...run.measured, ...(run.gone ?? [])]);
+  const vanished = Object.keys(entriesOf(onDisk, run.ruleId) ?? {}).filter(
+    (s) => !seen.has(s) && inScope(s, scope) && !files.exists(s),
+  );
+  return vanished.length === 0
+    ? run
+    : { ...run, gone: [...(run.gone ?? []), ...vanished] };
 }
 
 /** The bundles `--update-baseline` must not record: each one over the ceiling. */
@@ -298,6 +326,8 @@ function record(
 export interface ContextCreepOptions extends ContextCreepLimits {
   readonly ruleId: string;
   readonly files: BaselineFiles;
+  /** The scanned bundle (`.` = the whole repository); entries outside it are never touched. */
+  readonly scope: string;
   readonly severity: RuleSeverity;
   readonly update: boolean;
   readonly silent: boolean;
@@ -393,6 +423,18 @@ function annotateAll(
   });
 }
 
+/** The rule's run over the measured bundles, with vanished in-scope bundles marked gone. */
+const scopedRun = (
+  opts: ContextCreepOptions,
+  measured: readonly MeasuredBundle[],
+): RuleRun =>
+  withGoneBundles(
+    contextCreepRun(opts.ruleId, measured, opts),
+    readBaselineStore(opts.files),
+    opts.files,
+    opts.scope,
+  );
+
 /** Run the check for `lint`: record if asked, then print, annotate, count. */
 export function checkContextCreep(
   opts: ContextCreepOptions,
@@ -400,7 +442,7 @@ export function checkContextCreep(
   const { severity, files, ruleId } = opts;
   if (!severity && !opts.update) return { issues: 0, errors: 0, notes: [] };
   const measured = opts.measure();
-  const run = contextCreepRun(ruleId, measured, opts);
+  const run = scopedRun(opts, measured);
   const { recorded, refusals } = update(opts, measured, run);
   const onDisk = readBaselineStore(files);
   const legacy = legacyFilesPresent(files, ruleId);
@@ -448,11 +490,43 @@ function overParts(
   });
 }
 
+/** The entries a fresh run over `measured` would write that `existing` lacks. */
+function missingEntries(
+  ruleId: string,
+  measured: readonly MeasuredBundle[],
+  limits: ContextCreepLimits,
+  existing: Readonly<Record<string, BaselineEntry>>,
+): readonly (readonly [string, BaselineEntry])[] {
+  const fresh = entriesFor(
+    { kind: "absent" },
+    contextCreepRun(ruleId, measured, limits),
+  );
+  return Object.entries(fresh).filter(([s]) => !Object.hasOwn(existing, s));
+}
+
+/** `init`'s summary for the bundles it just added: each over-limit part of those only. */
+function recordedOutcome(
+  measured: readonly MeasuredBundle[],
+  limits: ContextCreepLimits,
+  added: readonly (readonly [string, BaselineEntry])[],
+): InitBaseline {
+  const subjects = new Set(added.map(([s]) => s));
+  return {
+    kind: "recorded",
+    file: BASELINE_FILE,
+    over: overParts(
+      measured.filter((m) => subjects.has(m[0])),
+      limits,
+    ),
+  };
+}
+
 /**
- * `init`'s step: on a repository over a limit with no baseline yet, record one
- * so the gate starts from today's size. It never overwrites an existing
- * baseline, and never re-measures over an old file (that is what migrating is
- * for — re-measuring would accept unseen growth).
+ * `init`'s step: record every bundle over a limit that has no entry yet, so
+ * the gate starts from today's size. An existing entry is never overwritten
+ * (a rerun adds only the bundles that are missing), and nothing is measured
+ * over an old file — that is what migrating is for, and re-measuring would
+ * accept unseen growth.
  */
 export function recordIfMissing(
   files: BaselineFiles,
@@ -461,21 +535,26 @@ export function recordIfMissing(
   limits: ContextCreepLimits,
 ): InitBaseline {
   const onDisk = readBaselineStore(files);
-  if (hasEntries(onDisk, ruleId) || onDisk.kind === "invalid") {
-    return { kind: "kept", file: BASELINE_FILE };
-  }
+  if (onDisk.kind === "invalid") return { kind: "kept", file: BASELINE_FILE };
   const legacy = legacyFilesPresent(files, ruleId)[0];
   if (legacy !== undefined) {
     return { kind: "legacy", file: legacy, command: UPDATE_BASELINE_COMMAND };
   }
-  const entries = entriesFor(onDisk, contextCreepRun(ruleId, measured, limits));
-  if (Object.keys(entries).length === 0) return { kind: "under-limits" };
-  writeBaselineStore(files, withEntries(onDisk, ruleId, entries));
-  return {
-    kind: "recorded",
-    file: BASELINE_FILE,
-    over: overParts(measured, limits),
-  };
+  const existing = entriesOf(onDisk, ruleId) ?? {};
+  const missing = missingEntries(ruleId, measured, limits, existing);
+  if (missing.length === 0) {
+    return Object.keys(existing).length > 0
+      ? { kind: "kept", file: BASELINE_FILE }
+      : { kind: "under-limits" };
+  }
+  writeBaselineStore(
+    files,
+    withEntries(onDisk, ruleId, {
+      ...existing,
+      ...Object.fromEntries(missing),
+    }),
+  );
+  return recordedOutcome(measured, limits, missing);
 }
 
 /** Where the size stands against the store, in a few words, for `compile`. */

@@ -158,17 +158,21 @@ describe("entries the store cannot compare, or no longer needs", () => {
     expect([unit?.status, measure?.status]).toEqual(["finding", "finding"]);
   });
 
-  it("a stored subject no finding asked for is a note: under the limit, or gone", () => {
+  it("a stored subject no finding asked for is a note: under the limit, or gone; one not looked at is silent", () => {
     const lines = applyBaseline(
-      runOf([], ["."]),
-      stored({ ".": entry({ a: 1 }), gone: entry({ a: 1 }) }),
+      { ...runOf([], ["."]), gone: ["gone"] },
+      stored({
+        ".": entry({ a: 1 }),
+        gone: entry({ a: 1 }),
+        elsewhere: entry({ a: 1 }),
+      }),
     );
     expect(lines.map((l) => [l.subject, l.status])).toEqual([
       [".", "note"],
       ["gone", "note"],
     ]);
     expect(lines[0]?.text).toContain("under the limit");
-    expect(lines[1]?.text).toContain("no longer measured");
+    expect(lines[1]?.text).toContain("nothing to measure any more");
   });
 
   it("an unreadable store is one finding, and every finding stays a finding", () => {
@@ -181,14 +185,52 @@ describe("entries the store cannot compare, or no longer needs", () => {
   });
 });
 
+describe("recording touches only the subjects the run measured", () => {
+  it("an unmeasured subject's entry is kept byte-identical", () => {
+    const other = entry({ a: 50 });
+    const next = recordRun(
+      stored({ ".": other, "plugins/alpha": entry({ a: 5 }) }),
+      runOf([over("plugins/alpha", measured({ a: 7 }))], ["plugins/alpha"]),
+    );
+    expect(next?.rules[RULE]?.["."]).toEqual(other);
+    expect(next?.rules[RULE]?.["plugins/alpha"]?.value).toBe(7);
+  });
+
+  it("a measured subject now under its limit is dropped, and the file stays for the rest", () => {
+    const next = recordRun(
+      stored({ ".": entry({ a: 50 }), "plugins/alpha": entry({ a: 5 }) }),
+      runOf([], ["plugins/alpha"]),
+    );
+    expect(Object.keys(next?.rules[RULE] ?? {})).toEqual(["."]);
+  });
+
+  it("a subject the run found gone is dropped; one it never looked at is not", () => {
+    const run: RuleRun = { ...runOf([], []), gone: ["old"] };
+    const next = recordRun(
+      stored({ ".": entry({ a: 1 }), old: entry({ a: 1 }) }),
+      run,
+    );
+    expect(Object.keys(next?.rules[RULE] ?? {})).toEqual(["."]);
+    expect(
+      applyBaseline(
+        run,
+        stored({ ".": entry({ a: 1 }), old: entry({ a: 1 }) }),
+      ).map((l) => l.subject),
+    ).toEqual(["old"]);
+  });
+});
+
 describe("recording", () => {
   it("writes exactly the findings that carry a measurement, keeping other rules", () => {
     const next = recordRun(
       stored({ old: entry({ a: 1 }) }, { "x.md": entry({ lines: 9 }) }),
-      runOf([
-        over(".", measured({ a: 3, b: 0 })),
-        { subject: ".", text: "ceiling" },
-      ]),
+      runOf(
+        [
+          over(".", measured({ a: 3, b: 0 })),
+          { subject: ".", text: "ceiling" },
+        ],
+        [".", "old"],
+      ),
     );
     expect(Object.keys(next?.rules[RULE] ?? {})).toEqual(["."]);
     expect(next?.rules[RULE]?.["."]?.parts).toEqual({

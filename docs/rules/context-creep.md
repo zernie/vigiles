@@ -191,8 +191,10 @@ repository that is over a limit and has none, and says so:
   Recorded .vigiles/baseline.json — commit it. CI now fails only if it grows past that size.
 ```
 
-`init` under every limit writes nothing, and a rerun of `init` never
-overwrites an existing baseline.
+`init` measures the same bundles `lint` scores (the root, plus every nested
+bundle under `"bundles": "all"`) and records each one over a limit. Under
+every limit it writes nothing. A rerun of `init` never overwrites an existing
+entry; it only adds bundles that are over a limit and have none yet.
 
 While a repository is over a limit with no baseline, `vigiles lint --summary`
 — the line the shipped session-start hook injects into the agent — carries one
@@ -207,7 +209,11 @@ git add .vigiles/baseline.json
 ```
 
 `--update-baseline` writes the file **only while some part is over a limit**.
-Once nothing is over, it deletes the file instead. Raising the baseline is
+Once nothing is over, it deletes the file instead. It touches only the bundles
+the run scanned: `vigiles lint plugins/alpha --update-baseline` rewrites or
+drops `plugins/alpha`'s entry and leaves every other bundle's entry
+byte-identical. An entry is dropped only when the run measured that bundle and
+found it under its limits, or found the bundle gone. Raising the baseline is
 allowed: growth is not forbidden, it becomes a reviewed diff of a committed
 file instead of passing in silence.
 
