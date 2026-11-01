@@ -283,13 +283,19 @@ npx vigiles lint --update-baseline
 git add -A .vigiles   # the new file, and the old one's deletion
 ```
 
-The command **keeps the recorded numbers**: it converts each old entry for a
-bundle that is still over a limit, instead of re-measuring, so growth that
-landed since the old file was recorded still fails. Parts a version-1 file
+The command **keeps the recorded numbers**: it converts each old entry instead
+of re-measuring, so growth that landed since the old file was recorded still
+fails. **Every bundle the old file recorded carries over**, including the ones
+the run did not scan: `vigiles lint plugins/alpha --update-baseline` converts
+the root's entry too, as recorded. The only entries left behind are bundles
+the run measured and found under their limits, or found gone. An entry already
+in `.vigiles/baseline.json` wins over the old file's, and when both old files
+exist the newer name wins a bundle they both record. Parts a version-1 file
 never recorded (the output style and the skill listing) are taken at today's
-size, since they were never gated. Then it deletes the old file. Run
-`--update-baseline` once more to accept the current size. `init` does not
-migrate on its own; it prints the same command.
+size for a scanned bundle, since they were never gated, and stay unrecorded
+for one the run did not scan. The old file is deleted only after the new file
+is written. Run `--update-baseline` once more to accept the current size.
+`init` does not migrate on its own; it prints the same command.
 
 ## Configuration
 

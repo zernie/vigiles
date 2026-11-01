@@ -53,6 +53,7 @@ import {
   convertLegacyEntry,
   legacyBaselineFiles,
   parseLegacyBaseline,
+  type LegacyBaseline,
 } from "./core/legacy-baseline.js";
 import { MOVE_OUT_OF_ALWAYS_LOADED } from "./core/instruction-remedies.js";
 import type { AlwaysLoadedContext } from "./core/always-loaded.js";
@@ -238,38 +239,77 @@ export function legacyLine(file: string): StoreLine {
     status: "finding",
     text:
       `${file} is no longer read: the always-loaded baseline moved to ${BASELINE_FILE}. ` +
-      `Migrate it with \`${UPDATE_BASELINE_COMMAND}\` — it keeps the recorded numbers of every bundle still over a limit and deletes ${file}.`,
+      `Migrate it with \`${UPDATE_BASELINE_COMMAND}\` — it carries every recorded bundle over with its recorded numbers (dropping only a bundle the run finds under its limits or gone) and deletes ${file}.`,
   };
 }
 
-/** The entries a migration writes, and whether the old file could be converted. */
+/** What recording writes, and what it made of each old file. */
 interface Migration {
   readonly entries: Readonly<Record<string, BaselineEntry>>;
-  readonly converted: boolean;
+  /** Old files read and carried over. */
+  readonly migrated: readonly string[];
+  /** Old files that could not be read: nothing in them could be carried. */
+  readonly unreadable: readonly string[];
 }
 
 /**
- * The entries a migration writes: each bundle still over a limit keeps its
- * entry from the old file (the recorded numbers, never a re-measure), and a
- * bundle the old file did not record is taken at its current size. A file
- * that cannot be read is replaced by the current sizes, and the caller says so.
+ * The bundles one old file hands the store. A bundle this run measured follows
+ * the normal rule — kept only while still over a limit — and keeps its
+ * RECORDED numbers, never a re-measure. A bundle this run did not look at (a
+ * scoped run, another bundle) is converted as recorded. A bundle the run
+ * measured under its limits, or found gone, is not carried.
  */
-function migratedEntries(
-  oldText: string,
+function legacyEntries(
+  legacy: Extract<LegacyBaseline, { kind: "ok" }>,
+  run: RuleRun,
+): Readonly<Record<string, BaselineEntry>> {
+  const looked = new Set([...run.measured, ...(run.gone ?? [])]);
+  const scanned = run.findings.flatMap((f) =>
+    f.measurement === undefined ? [] : [{ at: f.subject, now: f.measurement }],
+  );
+  const unscanned = Object.keys(legacy.file.bundles)
+    .filter((at) => !looked.has(at))
+    .map((at) => ({ at, now: undefined }));
+  return Object.fromEntries(
+    [...scanned, ...unscanned].flatMap(({ at, now }) => {
+      const entry = convertLegacyEntry(legacy, at, now);
+      return entry === undefined ? [] : [[at, entry] as const];
+    }),
+  );
+}
+
+/**
+ * The rule's entries after recording, with every old file folded in: the
+ * run's own entries ({@link entriesFor}), then each old file's bundles the
+ * store does not already hold, the newest file winning a bundle two of them
+ * record. Every entry of every readable old file is therefore either in the
+ * result or deliberately dropped (measured under its limits, or gone), which
+ * is what lets the caller delete the old files after writing.
+ */
+function migrate(
+  files: BaselineFiles,
+  legacy: readonly string[],
   run: RuleRun,
   onDisk: StoreOnDisk,
 ): Migration {
-  const current = entriesFor(onDisk, run);
-  const legacy = parseLegacyBaseline(oldText);
-  if (legacy.kind === "invalid") return { entries: current, converted: false };
-  const entries = Object.fromEntries(
-    run.findings.flatMap((f) => {
-      if (f.measurement === undefined) return [];
-      const kept = convertLegacyEntry(legacy, f.subject, f.measurement);
-      return [[f.subject, kept ?? current[f.subject]] as const];
-    }),
+  const parsed = legacy.map((f) => ({
+    file: f,
+    old: parseLegacyBaseline(files.read(f) ?? ""),
+  }));
+  const stored = entriesOf(onDisk, run.ruleId) ?? {};
+  const carried = parsed.reduceRight<Readonly<Record<string, BaselineEntry>>>(
+    (acc, { old }) =>
+      old.kind === "ok" ? { ...acc, ...legacyEntries(old, run) } : acc,
+    {},
   );
-  return { entries, converted: true };
+  const unstored = Object.entries(carried).filter(
+    ([s]) => !Object.hasOwn(stored, s),
+  );
+  return {
+    entries: { ...entriesFor(onDisk, run), ...Object.fromEntries(unstored) },
+    migrated: parsed.flatMap((p) => (p.old.kind === "ok" ? [p.file] : [])),
+    unreadable: parsed.flatMap((p) => (p.old.kind === "ok" ? [] : [p.file])),
+  };
 }
 
 /** What `record` says about the store it wrote or removed. */
@@ -283,20 +323,28 @@ function wroteLine(
     : "✓ nothing is over a limit — no baseline to record";
 }
 
-/** What `record` says about a migration. */
-function migratedLine(file: string, plan: Migration): string {
-  if (Object.keys(plan.entries).length === 0) {
-    return `✓ nothing is over a limit, so nothing in ${file} needed carrying over`;
-  }
-  return plan.converted
-    ? `✓ migrated ${file} into ${BASELINE_FILE}, keeping its recorded numbers — run \`${UPDATE_BASELINE_COMMAND}\` again to accept the current size`
-    : `✓ ${file} could not be read, so the current size was recorded instead`;
+/** What `record` says about each old file it folded in. */
+function migratedLines(plan: Migration): readonly string[] {
+  const empty = Object.keys(plan.entries).length === 0;
+  return [
+    ...plan.migrated.map((file) =>
+      empty
+        ? `✓ nothing is over a limit, so nothing in ${file} needed carrying over`
+        : `✓ migrated ${file} into ${BASELINE_FILE}, keeping its recorded numbers — run \`${UPDATE_BASELINE_COMMAND}\` again to accept the current size`,
+    ),
+    ...plan.unreadable.map(
+      (file) =>
+        `✓ ${file} could not be read, so the current size was recorded instead`,
+    ),
+  ];
 }
 
 /**
- * Record the run. With an old file present and no entries in the store yet,
- * it is a MIGRATION (the old numbers carry over); otherwise the current sizes
- * are recorded. Old files are deleted either way. Returns what to print.
+ * Record the run, folding in every old baseline file (the old numbers carry
+ * over for each bundle the store does not hold yet). The store is written
+ * first and the old files deleted after, so an old file goes only once each of
+ * its entries is in the store or was dropped by the normal rule. Returns what
+ * to print.
  */
 function record(
   files: BaselineFiles,
@@ -304,12 +352,7 @@ function record(
   onDisk: StoreOnDisk,
 ): readonly string[] {
   const legacy = legacyFilesPresent(files, run.ruleId);
-  const first = hasEntries(onDisk, run.ruleId) ? undefined : legacy[0];
-  const oldText = first === undefined ? undefined : files.read(first);
-  const plan: Migration =
-    oldText === undefined
-      ? { entries: entriesFor(onDisk, run), converted: false }
-      : migratedEntries(oldText, run, onDisk);
+  const plan = migrate(files, legacy, run, onDisk);
   const next = withEntries(onDisk, run.ruleId, plan.entries);
   writeBaselineStore(files, next);
   legacy.forEach((f) => {
@@ -317,7 +360,7 @@ function record(
   });
   return [
     wroteLine(next, onDisk),
-    ...(first === undefined ? [] : [migratedLine(first, plan)]),
+    ...migratedLines(plan),
     ...legacy.map((f) => `✓ deleted ${f}`),
   ];
 }

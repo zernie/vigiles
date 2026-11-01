@@ -23,14 +23,27 @@ import {
   BASELINE_FILE,
   UPDATE_BASELINE_COMMAND,
   parseBaselineStore,
+  type BaselineEntry,
   type BaselineStore,
 } from "../../core/baseline-store.js";
 import { checkAlwaysLoadedLimits } from "../../core/always-loaded-limits.js";
-import { legacyBaselineFiles } from "../../core/legacy-baseline.js";
+import {
+  PRE_RENAME_BASELINE_FILE,
+  legacyBaselineFiles,
+} from "../../core/legacy-baseline.js";
 import { cleanupTmpDir, makeTmpDir } from "../../core/test-utils.js";
 import { RULES } from "../../rules/index.js";
 
 const CLI = resolve(__dirname, "..", "..", "..", "dist", "cli.js");
+const SPEC_ENTRY = resolve(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "dist",
+  "core",
+  "spec.js",
+);
 /** The rule, asked of the set by its detector — never spelled. */
 const RULE_ID =
   RULES.find((r) => r.detector === checkAlwaysLoadedLimits.name)?.id ?? "";
@@ -328,27 +341,28 @@ describe("init records the baseline only where it is needed", () => {
   });
 });
 
+/** Root and `plugins/alpha` both scored, each over an instructions limit of 20. */
+function twoBundles(): void {
+  put(
+    ".vigilesrc.json",
+    JSON.stringify({
+      harnesses: { "claude-code": {} },
+      bundles: "all",
+      rules: { [RULE_ID]: ["error", { limits: { instructions: 20 } }] },
+    }),
+  );
+  put("plugins/alpha/.claude-plugin/plugin.json", '{"name":"alpha"}');
+  put(
+    "plugins/alpha/CLAUDE.md",
+    "# Alpha\n\nAlpha plugin instructions here.\n",
+  );
+}
+
+/** The rule's entries in the store. */
+const entries = (): Readonly<Record<string, BaselineEntry>> =>
+  Object.values(store().rules)[0] ?? {};
+
 describe("several bundles: init and a scoped update touch only what they measured", () => {
-  /** Root and `plugins/alpha` both scored, each over an instructions limit of 20. */
-  function twoBundles(): void {
-    put(
-      ".vigilesrc.json",
-      JSON.stringify({
-        harnesses: { "claude-code": {} },
-        bundles: "all",
-        rules: { [RULE_ID]: ["error", { limits: { instructions: 20 } }] },
-      }),
-    );
-    put("plugins/alpha/.claude-plugin/plugin.json", '{"name":"alpha"}');
-    put(
-      "plugins/alpha/CLAUDE.md",
-      "# Alpha\n\nAlpha plugin instructions here.\n",
-    );
-  }
-
-  const entries = (): Readonly<Record<string, unknown>> =>
-    Object.values(store().rules)[0] ?? {};
-
   it("init records every bundle lint scores, so the next lint holds", () => {
     twoBundles();
     run(["init", "--ci-only", "--no-plugin", "--no-gha"]);
@@ -391,5 +405,105 @@ describe("several bundles: init and a scoped update touch only what they measure
     expect(existsSync(join(dir, BASELINE_FILE))).toBe(true);
     expect(Object.keys(entries())).toEqual(["."]);
     expect(JSON.stringify(entries()["."])).toBe(root);
+  });
+});
+
+/** An old version-2 file recording instructions only, one total per bundle. */
+function oldFile(file: string, totals: Readonly<Record<string, number>>): void {
+  put(
+    file,
+    JSON.stringify({
+      version: 2,
+      bundles: Object.fromEntries(
+        Object.entries(totals).map(([at, total]) => [
+          at,
+          {
+            unit: "chars",
+            measure: 1,
+            total,
+            files: { "CLAUDE.md": total },
+          },
+        ]),
+      ),
+    }),
+  );
+}
+
+/** Every file under `.vigiles/` with its bytes, so a test can say nothing changed. */
+const vigilesBytes = (): Readonly<Record<string, string>> =>
+  Object.fromEntries(
+    vigilesDir().map((f) => [
+      f,
+      readFileSync(join(dir, ".vigiles", f), "utf-8"),
+    ]),
+  );
+
+const recorded = (at: string): number | undefined =>
+  entries()[at]?.parts?.["instructions"]?.value;
+
+describe("several bundles and an old file: every recorded bundle survives every write", () => {
+  beforeEach(twoBundles);
+
+  it("a scoped migration carries every bundle of the old file, not only the scanned one", () => {
+    oldFile(LEGACY, { ".": 30, "plugins/alpha": 25 });
+    const r = run(["lint", "plugins/alpha", "--update-baseline"]);
+    expect(r.out).toContain(`migrated ${LEGACY}`);
+    expect(existsSync(join(dir, LEGACY))).toBe(false);
+    expect(Object.keys(entries())).toEqual([".", "plugins/alpha"]);
+    // Both keep the recorded numbers: the unscanned root as recorded, the
+    // scanned bundle because a migration never re-measures.
+    expect(recorded(".")).toBe(30);
+    expect(recorded("plugins/alpha")).toBe(25);
+  });
+
+  it("a migration still drops a recorded bundle the scan found under its limit", () => {
+    oldFile(LEGACY, { ".": 30, "plugins/alpha": 25 });
+    put("plugins/alpha/CLAUDE.md", "# A\n");
+    run(["lint", "--update-baseline"]);
+    expect(Object.keys(entries())).toEqual(["."]);
+    expect(recorded(".")).toBe(30);
+  });
+
+  it("an old file beside a store: the bundles the store lacks carry over, the store's entries win", () => {
+    run(["lint", "plugins/alpha", "--update-baseline"]);
+    const alpha = JSON.stringify(entries()["plugins/alpha"]);
+    oldFile(LEGACY, { ".": 30, "plugins/alpha": 25 });
+    run(["lint", "plugins/alpha", "--update-baseline"]);
+    expect(existsSync(join(dir, LEGACY))).toBe(false);
+    expect(Object.keys(entries())).toEqual([".", "plugins/alpha"]);
+    expect(recorded(".")).toBe(30);
+    expect(JSON.stringify(entries()["plugins/alpha"])).toBe(alpha);
+  });
+
+  it("both old files: each one's bundles carry over, and the newer file wins a bundle both record", () => {
+    oldFile(LEGACY, { "plugins/alpha": 25 });
+    oldFile(PRE_RENAME_BASELINE_FILE, { ".": 30, "plugins/alpha": 21 });
+    run(["lint", "plugins/alpha", "--update-baseline"]);
+    expect(existsSync(join(dir, LEGACY))).toBe(false);
+    expect(existsSync(join(dir, PRE_RENAME_BASELINE_FILE))).toBe(false);
+    expect(recorded(".")).toBe(30);
+    expect(recorded("plugins/alpha")).toBe(25);
+  });
+
+  it("compile only reads: the store and the old file stay byte-identical", () => {
+    run(["lint", "plugins/alpha", "--update-baseline"]);
+    oldFile(LEGACY, { ".": 30 });
+    const before = vigilesBytes();
+    put(
+      "CLAUDE.md.spec.ts",
+      `import { instructionFile } from ${JSON.stringify(SPEC_ENTRY)};\n` +
+        `export default instructionFile({ sections: { Overview: \`Use the npm scripts.\` }, rules: {} });\n`,
+    );
+    const r = run(["compile", "CLAUDE.md.spec.ts"]);
+    expect(r.out).toContain("always-loaded context:");
+    expect(vigilesBytes()).toEqual(before);
+  });
+
+  it("init beside an old file writes nothing and deletes nothing: migrating is the update's job", () => {
+    oldFile(LEGACY, { ".": 30, "plugins/alpha": 25 });
+    const r = run(["init", "--ci-only", "--no-plugin", "--no-gha"]);
+    expect(r.out).toContain(LEGACY);
+    expect(existsSync(join(dir, LEGACY))).toBe(true);
+    expect(existsSync(join(dir, BASELINE_FILE))).toBe(false);
   });
 });

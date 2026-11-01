@@ -98,12 +98,12 @@ function legacyPart(
   old: Readonly<LegacyEntry>,
   version: 1 | 2,
   name: PartName,
-  current: Measurement,
+  current: Measurement | undefined,
 ): Readonly<Record<string, MeasuredPart>> {
   const p = old.parts?.[name];
   if (p !== undefined) return { [name]: { value: p.total, files: p.files } };
   if (version === 2) return { [name]: { value: 0 } };
-  const now = current.parts?.[name];
+  const now = current?.parts?.[name];
   return now === undefined ? {} : { [name]: now };
 }
 
@@ -115,13 +115,15 @@ const sameMeasure = (old: Readonly<LegacyEntry>): boolean =>
 /**
  * One old entry as a store entry, or `undefined` when the old file has no
  * entry for this bundle. `current` fills the parts a version-1 file never
- * recorded; a measurement version other than the one earlier releases wrote
- * becomes measure 0, which the store reads as "re-record".
+ * recorded; for a bundle this run did not measure it is `undefined`, and
+ * those parts stay unrecorded, exactly as the old file left them. A
+ * measurement version other than the one earlier releases wrote becomes
+ * measure 0, which the store reads as "re-record".
  */
 export function convertLegacyEntry(
   legacy: Extract<LegacyBaseline, { kind: "ok" }>,
   at: string,
-  current: Measurement,
+  current: Measurement | undefined,
 ): BaselineEntry | undefined {
   const { bundles, version } = legacy.file;
   if (!Object.hasOwn(bundles, at)) return undefined;
