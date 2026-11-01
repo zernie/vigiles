@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { applyRules } from "../../core/apply-rules.js";
 import { weighAlwaysLoaded } from "../../core/always-loaded.js";
 import { cleanupTmpDir, makeTmpDir } from "../../core/test-utils.js";
+import { excludeSet } from "../../exclude.js";
 import {
   formatScanReport,
   measureAlwaysLoaded,
@@ -299,5 +300,55 @@ describe("Claude Code always-loaded context through scanPlugin and scanFiles", (
       total: "- linked: Linked in".length,
       files: [{ path: ".claude/skills/linked/SKILL.md", size: 19 }],
     });
+  });
+  it("the audit's skill count and the listing agree on symlinked skill folders", () => {
+    // On a real repository the audit printed `Skills (58)` while the listing it
+    // weighs carried 83: the loader refused every linked skill folder, the
+    // listing reader followed them. Both now classify through one function, so
+    // the only difference left is a stated reason — `exclude`, which hides a
+    // skill from the audit and not from the harness.
+    const tmp = makeTmpDir("always-loaded-cc-link-count");
+    const skill = (dir: string, name: string): void => {
+      mkdirSync(join(tmp, dir), { recursive: true });
+      writeFileSync(
+        join(tmp, dir, "SKILL.md"),
+        `---\nname: ${name}\ndescription: The ${name} skill\n---\n`,
+      );
+    };
+    skill(".claude/skills/own", "own");
+    skill("shared/linked", "linked");
+    skill("shared/vendored", "vendored");
+    symlinkSync(join(tmp, "shared/linked"), join(tmp, ".claude/skills/linked"));
+    symlinkSync(
+      join(tmp, "shared/vendored"),
+      join(tmp, ".claude/skills/vendored"),
+    );
+    // A link back over the skills folder is a cycle: neither walk enters it.
+    symlinkSync(join(tmp, ".claude/skills"), join(tmp, ".claude/skills/back"));
+    writeFileSync(join(tmp, "CLAUDE.md"), "# Rules\n");
+    const excludes = excludeSet(tmp, [".claude/skills/vendored"]);
+
+    const audited = scanPlugin(tmp, claudeCodeLayout, claudeCodeDialect, {
+      excludes,
+    }).skills.map((s) => s.name);
+    const listing = measureAlwaysLoaded(tmp, claudeCodeAdapter).alwaysLoaded
+      ?.skillListing;
+    const listed =
+      listing?.kind === "counted" ? listing.files.map((f) => f.path) : [];
+    const withoutExclude = scanPlugin(
+      tmp,
+      claudeCodeLayout,
+      claudeCodeDialect,
+    ).skills.map((s) => s.name);
+    cleanupTmpDir(tmp);
+
+    expect(listed).toEqual([
+      ".claude/skills/linked/SKILL.md",
+      ".claude/skills/own/SKILL.md",
+      ".claude/skills/vendored/SKILL.md",
+    ]);
+    expect(audited.sort()).toEqual(["linked", "own"]);
+    // The one skill apart is the excluded one, and only because of `exclude`.
+    expect(withoutExclude.sort()).toEqual(["linked", "own", "vendored"]);
   });
 });

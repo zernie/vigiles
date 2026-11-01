@@ -14,8 +14,9 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
-import { entryOf, walkableRoot } from "./fs-walk.js";
+import { entryOf, skillTreeEntryOf, walkableRoot } from "./fs-walk.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 test("a symlinked directory is refused; a symlinked file is not", () => {
@@ -101,5 +102,59 @@ test("a symlinked ROOT is followed, unless it swallows the tree being scanned", 
   symlinkSync(join(dir, "nowhere"), join(repo, ".claude", "dangling"), "dir");
   assert.equal(walkableRoot(join(repo, ".claude", "dangling"), repo), false);
   assert.equal(walkableRoot(join(repo, "does-not-exist"), repo), false);
+  cleanupTmpDir(dir);
+});
+
+test("a skills walk enters ONE linked skill folder per path, never one that loops back", () => {
+  // `vigiles init` links shipped skills in as folders and the harness lists
+  // them, so a skills walk follows the link — once. Both refusals are the
+  // cycle case; the hop limit is what makes termination a matter of
+  // construction rather than of a visited-set.
+  const dir = makeTmpDir("fs-walk-skill-links");
+  const repo = join(dir, "repo");
+  const skills = join(repo, ".claude", "skills");
+  mkdirSync(join(skills, "own"), { recursive: true });
+  mkdirSync(join(dir, "shared", "linked"), { recursive: true });
+  symlinkSync(join(dir, "shared", "linked"), join(skills, "linked"), "dir");
+
+  // FOLLOWED: a skill folder linked in from outside, and nothing below it may
+  // cross another link.
+  assert.deepEqual(skillTreeEntryOf(join(skills, "linked"), repo, true), {
+    kind: "dir",
+    size: 0,
+    mayFollowBelow: false,
+  });
+  // …but not once a link has already been crossed on this path: then it is
+  // exactly `entryOf`'s refusal.
+  assert.deepEqual(skillTreeEntryOf(join(skills, "linked"), repo, false), {
+    kind: "skip",
+    size: 0,
+    mayFollowBelow: false,
+  });
+  // A real folder passes the allowance down unchanged.
+  assert.deepEqual(skillTreeEntryOf(join(skills, "own"), repo, true), {
+    kind: "dir",
+    size: 0,
+    mayFollowBelow: true,
+  });
+
+  // REFUSED: a target containing the scanned repo, and a target containing the
+  // link itself — both re-enter the tree being walked.
+  symlinkSync(repo, join(skills, "up"), "dir");
+  symlinkSync(skills, join(skills, "own", "back"), "dir");
+  assert.equal(skillTreeEntryOf(join(skills, "up"), repo, true).kind, "skip");
+  assert.equal(
+    skillTreeEntryOf(join(skills, "own", "back"), repo, true).kind,
+    "skip",
+  );
+  // REFUSED: a dangling link, and a link to something that is not a folder.
+  symlinkSync(join(dir, "nowhere"), join(skills, "dangling"), "dir");
+  assert.equal(
+    skillTreeEntryOf(join(skills, "dangling"), repo, true).kind,
+    "skip",
+  );
+  execFileSync("mkfifo", [join(dir, "fifo")]);
+  symlinkSync(join(dir, "fifo"), join(skills, "pipe"));
+  assert.equal(skillTreeEntryOf(join(skills, "pipe"), repo, true).kind, "skip");
   cleanupTmpDir(dir);
 });

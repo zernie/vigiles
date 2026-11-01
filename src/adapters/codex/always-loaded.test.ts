@@ -4,13 +4,14 @@
  * entry shape. The Claude Code twin is
  * `src/adapters/claude-code/always-loaded.test.ts`.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { weighAlwaysLoaded } from "../../core/always-loaded.js";
 import { sizeIn } from "../../core/harness-unit.js";
 import { cleanupTmpDir, makeTmpDir } from "../../core/test-utils.js";
+import { excludeSet } from "../../exclude.js";
 import { measureAlwaysLoaded, scanPlugin } from "../../scan.js";
 import { scanFiles } from "../../scan-files.js";
 import { codexAdapter } from "./adapter.js";
@@ -237,5 +238,57 @@ describe("Codex walks its skills folder recursively", () => {
         },
       ],
     });
+  });
+});
+
+describe("Codex skill folders linked in", () => {
+  it("the audit's skill count and the listing agree on symlinked skill folders", () => {
+    // The Claude Code twin's fixture, in Codex's layout: one walk classifier
+    // for both readers, and `exclude` as the one stated reason they differ.
+    const tmp = makeTmpDir("always-loaded-codex-link-count");
+    const skill = (dir: string, name: string): void => {
+      mkdirSync(join(tmp, dir), { recursive: true });
+      writeFileSync(
+        join(tmp, dir, "SKILL.md"),
+        `---\nname: ${name}\ndescription: The ${name} skill\n---\n`,
+      );
+    };
+    skill(".agents/skills/own", "own");
+    skill("shared/linked", "linked");
+    skill("shared/vendored", "vendored");
+    symlinkSync(join(tmp, "shared/linked"), join(tmp, ".agents/skills/linked"));
+    symlinkSync(
+      join(tmp, "shared/vendored"),
+      join(tmp, ".agents/skills/vendored"),
+    );
+    // A link back over the skills folder is a cycle: neither walk enters it.
+    symlinkSync(
+      join(tmp, ".agents/skills"),
+      join(tmp, ".agents/skills/own/back"),
+    );
+    writeFileSync(join(tmp, "AGENTS.md"), "# Rules\n");
+    const excludes = excludeSet(tmp, [".agents/skills/vendored"]);
+
+    const audited = scanPlugin(tmp, codexLayout, codexDialect, {
+      excludes,
+    }).skills.map((s) => s.name);
+    const listing = measureAlwaysLoaded(tmp, codexAdapter).alwaysLoaded
+      ?.skillListing;
+    const listed =
+      listing?.kind === "counted" ? listing.files.map((f) => f.path) : [];
+    const withoutExclude = scanPlugin(
+      tmp,
+      codexLayout,
+      codexDialect,
+    ).skills.map((s) => s.name);
+    cleanupTmpDir(tmp);
+
+    expect(listed).toEqual([
+      ".agents/skills/linked/SKILL.md",
+      ".agents/skills/own/SKILL.md",
+      ".agents/skills/vendored/SKILL.md",
+    ]);
+    expect(audited.sort()).toEqual(["linked", "own"]);
+    expect(withoutExclude.sort()).toEqual(["linked", "own", "vendored"]);
   });
 });

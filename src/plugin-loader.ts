@@ -41,7 +41,7 @@ import {
 } from "./core/layout.js";
 import { excludedBy, excludesNothing, type Excluded } from "./exclude.js";
 import type { ExcludeSet } from "./exclude.js";
-import { entryOf, walkableRoot } from "./fs-walk.js";
+import { skillTreeEntryOf, walkableRoot } from "./fs-walk.js";
 import {
   intraRefPattern,
   startsAtSeparator,
@@ -221,6 +221,18 @@ function readPluginHooks(
 }
 
 /**
+ * Whether a {@link readTree} walk may cross a directory link — only a SKILLS
+ * folder's walk may, once per path (`skillTreeEntryOf` in `fs-walk.ts` says why).
+ * Every other surface keeps `entryOf`'s refusal: `mayFollow` is `false` and
+ * `skillTreeEntryOf` then classifies exactly as `entryOf` does.
+ */
+interface LinkHop {
+  readonly scanRoot: string;
+  readonly mayFollow: boolean;
+}
+const NO_DIR_LINKS: LinkHop = { scanRoot: "", mayFollow: false };
+
+/**
  * Recursively collect text files under `dir` as `relativePath → contents`.
  *
  * 🔴 A DIRECTORY SYMLINK IS NOT DESCENDED INTO. `statSync` FOLLOWS a link, so a
@@ -232,7 +244,10 @@ function readPluginHooks(
  * quieter half of the same bug: the loader reads a foreign tree into the file map
  * that the entire report is computed from.
  *
- * The decision is {@link entryOf}, which lives in `fs-walk.ts` rather than here.
+ * The decision is `entryOf`, which lives in `fs-walk.ts` rather than here — asked
+ * through `skillTreeEntryOf`, which answers exactly as `entryOf` does unless the
+ * walk is over a skills folder and may still cross one directory link (a skill
+ * folder `vigiles init` linked in).
  * It was shared with `harnessSurfaceFilesOnDisk` in `scan.ts` — the other walk
  * over the same trees, and exactly the kind of pair this repo has been bitten by
  * fixing on only one side — until that walk was deleted with the foreign-runner
@@ -250,6 +265,7 @@ function readTree(
   dir: string,
   base: string,
   excluded: Excluded = excludesNothing,
+  links: LinkHop = NO_DIR_LINKS,
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const entry of readdirSync(dir)) {
@@ -259,9 +275,19 @@ function readTree(
     // excluded at its own root (`bench`, `vendor/corpus`), which is a descendant
     // of a surface dir, so a check that only guarded the walk's start would let
     // every one of its files into the file map the whole report is computed from.
+    // It is asked of the LINK's path, before anything follows it, so an excluded
+    // linked skill folder is not read either.
     if (excluded(full)) continue;
-    const { kind, size } = entryOf(full);
-    if (kind === "dir") Object.assign(out, readTree(full, base, excluded));
+    const { kind, size, mayFollowBelow } = skillTreeEntryOf(
+      full,
+      links.scanRoot,
+      links.mayFollow,
+    );
+    if (kind === "dir")
+      Object.assign(
+        out,
+        readTree(full, base, excluded, { ...links, mayFollow: mayFollowBelow }),
+      );
     // The cap keeps a stray binary out of the in-memory file map, and the size
     // comes from the SAME stat that classified the entry. Asking a second time
     // needed its own `catch` — reachable only if the file vanished between the two
@@ -488,16 +514,29 @@ function materializeSurfaces(
    * file map the entire report is computed from. It is a DIFFERENT rule from the
    * per-entry one and that function says why; a shared skills dir linked in from
    * outside is still read.
+   *
+   * `links` is set for the SKILLS surface only: a linked skill folder is how
+   * `vigiles init` installs a skill, and the harness lists it.
    */
-  const surfaceTree = (dir: string): Record<string, string> =>
+  const surfaceTree = (
+    dir: string,
+    links: LinkHop = NO_DIR_LINKS,
+  ): Record<string, string> =>
     isDir(dir) && walkableRoot(dir, root) && !excluded(dir)
-      ? readTree(dir, dir, excluded)
+      ? readTree(dir, dir, excluded, links)
       : {};
+  const skillLinks: LinkHop = { scanRoot: root, mayFollow: true };
   /** Every surface tree of one scope, read once, keyed by surface dir. */
   const scopeTrees = (base: string): Map<string, Record<string, string>> => {
     const trees = new Map<string, Record<string, string>>();
     for (const surface of surfaceDirs(layout))
-      trees.set(surface, surfaceTree(join(root, base, surface)));
+      trees.set(
+        surface,
+        surfaceTree(
+          join(root, base, surface),
+          surface === layout.surfaces.skill ? skillLinks : NO_DIR_LINKS,
+        ),
+      );
     return trees;
   };
   const hasLoadable = (trees: ReadonlyMap<string, Record<string, string>>) =>

@@ -31,7 +31,7 @@
  * Symlinks go through the ONE policy (`src/fs-walk.ts`): `walkableRoot` at each
  * surface dir the layout-blind walk opens, `entryOf` for every entry below it.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -53,7 +53,7 @@ import {
   type DiscoveredSurface,
 } from "./core/surface-discovery.js";
 import { excludedBy, type ExcludeSet } from "./exclude.js";
-import { entryOf, walkableRoot } from "./fs-walk.js";
+import { entryOf, skillTreeEntryOf, walkableRoot } from "./fs-walk.js";
 
 /** The shape directory names, as a set — the only dirs the walk descends into. */
 const SHAPE_DIRS = new Set(SURFACE_SHAPES.map((s) => s.dir));
@@ -247,22 +247,6 @@ export function boundedInstructionFiles(
 }
 
 /**
- * What a path POINTS AT, links followed. Unlike {@link entryOf} this enters a
- * symlinked directory: `vigiles init` links shipped skills into the skills
- * folder as directories, and the harness lists them. The walk below is bounded
- * by `maxDepth`, so a link cycle ends there.
- */
-function targetOf(abs: string): "file" | "dir" | "other" {
-  try {
-    const st = statSync(abs);
-    if (st.isFile()) return "file";
-    return st.isDirectory() ? "dir" : "other";
-  } catch {
-    return "other";
-  }
-}
-
-/**
  * The `SKILL.md` paths under the session's skills folder, at the depths the
  * layout's {@link SkillDiscovery} names: directories are entered only while a
  * deeper `SKILL.md` could still be read, and the same {@link sessionSkillDirs}
@@ -273,22 +257,35 @@ function sessionSkillFiles(
   home: string,
   discovery: SkillDiscovery,
 ): readonly string[] {
-  const walk = (rel: string, depth: number): readonly string[] =>
+  // A linked skill folder is entered — `vigiles init` links shipped skills in
+  // as directories, and the harness lists them — through the SAME classifier
+  // the loader's skills walk uses (`skillTreeEntryOf`), so the audit's skill
+  // count and this listing cannot disagree about which folders exist. One
+  // directory link per path; a link back over the tree is refused.
+  const walk = (
+    rel: string,
+    depth: number,
+    mayFollow: boolean,
+  ): readonly string[] =>
     namesIn(join(root, home, rel)).flatMap((name) => {
       const childRel = rel === "" ? name : `${rel}/${name}`;
-      const entry = targetOf(join(root, home, childRel));
-      if (entry === "file") {
+      const entry = skillTreeEntryOf(
+        join(root, home, childRel),
+        root,
+        mayFollow,
+      );
+      if (entry.kind === "file") {
         return sessionSkillDirs(childRel, discovery) === null
           ? []
           : [`${home}/${childRel}`];
       }
       const enter =
-        entry === "dir" &&
+        entry.kind === "dir" &&
         depth < discovery.maxDepth &&
         !(discovery.skipHidden && name.startsWith("."));
-      return enter ? walk(childRel, depth + 1) : [];
+      return enter ? walk(childRel, depth + 1, entry.mayFollowBelow) : [];
     });
-  return walk("", 0);
+  return walk("", 0, true);
 }
 
 /**
