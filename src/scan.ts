@@ -143,6 +143,10 @@ import {
   type LoadedPart,
 } from "./core/always-loaded.js";
 import {
+  checkAlwaysLoadedLimits,
+  describeOver,
+} from "./core/always-loaded-limits.js";
+import {
   blockIneffectiveEventsOf,
   permissionDecisionEventsOf,
 } from "./core/event-capability.js";
@@ -1462,12 +1466,43 @@ function alwaysLoadedLines(f: AlwaysLoadedContext): readonly string[] {
   ];
 }
 
+/**
+ * Each limited part against the harness's own limit — the same detector
+ * `lint`'s context-creep rule reports (`checkAlwaysLoadedLimits`), so the two
+ * never disagree about what is over. A listing over its budget is said as what
+ * it does to the session, not what it costs: descriptions past it are dropped,
+ * so those skills cannot be picked by what they say they are for.
+ */
+function limitLines(
+  w: InstructionWeight,
+  loaded: AlwaysLoadedContext,
+): readonly string[] {
+  const check = checkAlwaysLoadedLimits(w, loaded);
+  const g = (n: number): string => n.toLocaleString("en-US");
+  const row = check.parts
+    .map((p) => `${p.part} ${g(p.size)} of ${g(p.limit)}`)
+    .join(" · ");
+  return [
+    `  limits (${check.unit}): ${row}`,
+    ...check.over.map((p) =>
+      p.part === "skill-listing"
+        ? `  ⚠ the skill listing is over the harness's listing budget by ${g(p.size - p.limit)} ${check.unit}: at session start the harness drops skill descriptions past it, so some skills lose the text they are picked by and may never trigger`
+        : `  ⚠ ${describeOver(p, check.unit)}`,
+    ),
+  ];
+}
+
 /** What the instruction file costs: its always-loaded weight, then any deprecated `keyFiles` inflating it. */
 function instructionCostLines(r: ScanReport): readonly string[] {
   const weight = r.instructionWeight
     ? [
         ...instructionWeightLines(r.instructionWeight),
-        ...(r.alwaysLoaded ? alwaysLoadedLines(r.alwaysLoaded) : []),
+        ...(r.alwaysLoaded
+          ? [
+              ...alwaysLoadedLines(r.alwaysLoaded),
+              ...limitLines(r.instructionWeight, r.alwaysLoaded),
+            ]
+          : []),
         "",
       ]
     : [];

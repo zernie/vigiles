@@ -421,16 +421,18 @@ test("a bad rule value under a preset is still the rule's own error", () => {
 });
 
 // ---------------------------------------------------------------------------
-// context-creep options: the opt-in absolute ceiling
+// context-creep options: per-part limits, and the opt-in absolute ceiling
 // ---------------------------------------------------------------------------
 
-test("context-creep takes a bare severity, or [severity, { max }]", () => {
+test("context-creep takes a bare severity, or [severity, { limits, max }]", () => {
   for (const value of [
     "error",
     "warn",
     false,
     ["error", { max: 40_000 }],
     ["warn", {}],
+    ["error", { limits: { instructions: 50_000, "skill-listing": 9_000 } }],
+    ["error", { limits: {} }],
   ]) {
     assert.deepEqual(
       problems({ rules: { "context-creep": value } }),
@@ -448,22 +450,32 @@ test("context-creep keeps its default when unset", () => {
   assert.equal(vigilesConfigSchema.parse({}).rules?.["context-creep"], "error");
 });
 
-test("context-creep max must be a positive integer — each bad value names `max`", () => {
+test("context-creep max and each limit must be a positive integer — each bad value names its key", () => {
+  const options = (
+    bad: unknown,
+  ): readonly [Record<string, unknown>, RegExp][] => [
+    [{ max: bad }, /\.1\.max/],
+    [{ limits: { instructions: bad } }, /\.1\.limits\.instructions/],
+    [{ limits: { "skill-listing": bad } }, /\.1\.limits\.skill-listing/],
+  ];
   for (const bad of [0, -5, 1.5, "40000", null]) {
-    const lines = problems({
-      rules: { "context-creep": ["error", { max: bad }] },
-    });
-    assert.equal(lines.length, 1, JSON.stringify(bad));
-    assert.match(lines[0] ?? "", /context-creep\.1\.max/, JSON.stringify(bad));
+    for (const [opts, names] of options(bad)) {
+      const lines = problems({ rules: { "context-creep": ["error", opts] } });
+      assert.equal(lines.length, 1, JSON.stringify(opts));
+      assert.match(lines[0] ?? "", names, JSON.stringify(opts));
+    }
   }
 });
 
 test("context-creep options are strict: a misspelt key is refused", () => {
-  const lines = problems({
-    rules: { "context-creep": ["error", { maxx: 40_000 }] },
-  });
-  assert.equal(lines.length, 1);
-  assert.match(lines[0] ?? "", /maxx/);
+  for (const [opts, key] of [
+    [{ maxx: 40_000 }, /maxx/],
+    [{ limits: { listing: 9_000 } }, /listing/],
+  ] as const) {
+    const lines = problems({ rules: { "context-creep": ["error", opts] } });
+    assert.equal(lines.length, 1);
+    assert.match(lines[0] ?? "", key);
+  }
 });
 
 test('[false, { max }] is refused — an "off" rule has no ceiling to hold', () => {
