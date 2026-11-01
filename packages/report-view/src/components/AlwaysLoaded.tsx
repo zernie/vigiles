@@ -130,7 +130,12 @@ function PartRow({
         {counted ? (
           <span className="block text-[15px] text-foreground-soft">
             <span className="tabular-nums">{fmt(p.total)}</span> {unit}
-            {only && <> · {only.path}</>}
+            {only && (
+              <>
+                {" · "}
+                <span className="break-all">{only.path}</span>
+              </>
+            )}
           </span>
         ) : (
           <span className="block text-[15px] text-foreground-soft">

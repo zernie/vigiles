@@ -104,6 +104,40 @@ describe("always-loaded context in the report", () => {
     expect(row("Skill listing")).toContain("Skill listingno skills listed");
   });
 
+  it("wraps a long single-file path inside a phone-width page", () => {
+    // A part with exactly one file prints its path inline beside the size; a
+    // long unbroken path must wrap there, as it does in the file list, instead
+    // of widening the page past the screen.
+    const box = document.createElement("div");
+    box.style.width = "360px";
+    document.body.appendChild(box);
+    const path = `.claude/output-styles/${"a-very-long-output-style-name-".repeat(4)}.md`;
+    render(
+      <Report
+        data={withLoaded({
+          unit: "chars",
+          total: 900,
+          parts: [
+            {
+              part: "instructions",
+              kind: "counted",
+              total: 900,
+              files: [{ path, size: 900 }],
+            },
+            { part: "output-style", kind: "none" },
+            { part: "skill-listing", kind: "none" },
+          ],
+        })}
+      />,
+      { container: box },
+    );
+    const shown = within(section()).getByText(path);
+    expect(shown.getBoundingClientRect().right).toBeLessThanOrEqual(
+      box.getBoundingClientRect().right,
+    );
+    box.remove();
+  });
+
   it("an older report without contextCost renders no section", () => {
     const { contextCost: _drop, ...older } = SAMPLE;
     render(<Report data={older} />);
