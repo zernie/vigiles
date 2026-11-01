@@ -1,6 +1,5 @@
-import { ChevronRight, Layers } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { AlwaysLoadedPart, AlwaysLoadedReport } from "../schema";
-import { Card } from "./ui/card";
 import { cn } from "../lib/utils";
 
 /**
@@ -16,7 +15,8 @@ import { cn } from "../lib/utils";
  * The bar uses the theme's three series colours (`--part-1..3`), not the band
  * colours: a band means good/warn/bad, and the share of one part is not a
  * verdict. Each part keeps its colour whatever its size, and every row names
- * its part, so colour is never the only key.
+ * its part, so colour is never the only key. The share figures are large text
+ * (52px and up), where the series colours pass the 3:1 large-text contrast.
  */
 
 const LABEL: Record<AlwaysLoadedPart["part"], string> = {
@@ -51,6 +51,56 @@ function reason(p: Exclude<AlwaysLoadedPart, { kind: "counted" }>): string {
   }
 }
 
+/** Literal text classes for the share figure, one per part, so the JIT emits them. */
+const INK: Record<AlwaysLoadedPart["part"], string> = {
+  instructions: "text-part-1",
+  "output-style": "text-part-2",
+  "skill-listing": "text-part-3",
+};
+
+/** A part's share of the total, rounded; a non-empty part never reads "0%". */
+function share(part: number, total: number): string {
+  const pct = (part / total) * 100;
+  if (pct > 0 && pct < 0.5) return "<1%";
+  return `${Math.round(pct)}%`;
+}
+
+/** The files behind a counted part: the one file named, or a fold listing them. */
+function Files({
+  files,
+}: {
+  files: Extract<AlwaysLoadedPart, { kind: "counted" }>["files"];
+}) {
+  if (files.length <= 1) return null;
+  return (
+    <details className="group mt-1">
+      <summary className="flex cursor-pointer list-none items-center gap-1 text-[15px] text-foreground-soft hover:text-foreground">
+        <ChevronRight
+          size={15}
+          aria-hidden
+          className="transition-transform group-open:rotate-90"
+        />
+        {files.length} files
+      </summary>
+      <ul className="mt-1.5 space-y-1 border-l border-border pl-3">
+        {files.map((f) => (
+          <li
+            key={f.path}
+            className="flex justify-between gap-3 font-mono text-sm text-foreground-soft"
+          >
+            <span className="min-w-0 break-all">{f.path}</span>
+            <span className="shrink-0 tabular-nums">{fmt(f.size)}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/**
+ * One part: its share as a large figure in the part's series colour, then its
+ * name and size. A part with no size shows the reason instead, and no figure.
+ */
 function PartRow({
   p,
   unit,
@@ -61,55 +111,39 @@ function PartRow({
   total: number;
 }) {
   const counted = p.kind === "counted";
+  const only = counted && p.files.length === 1 ? p.files[0] : undefined;
   return (
-    <li className="py-3">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="flex items-center gap-2.5 text-lg font-semibold">
-          <span
-            aria-hidden
-            className={cn(
-              "inline-block h-3.5 w-3.5 shrink-0 rounded",
-              counted ? SHADE[p.part] : "border border-border",
-            )}
-          />
+    <li className="grid grid-cols-[6.5rem_1fr] items-end gap-x-3 sm:grid-cols-[8.5rem_1fr]">
+      <span
+        className={cn(
+          "font-display text-[52px] font-semibold leading-none tracking-tight tabular-nums sm:text-6xl",
+          counted ? INK[p.part] : "text-muted-foreground",
+        )}
+        aria-hidden={!counted || total === 0}
+      >
+        {counted && total > 0 ? share(p.total, total) : "—"}
+      </span>
+      <div className="min-w-0 pb-1">
+        <span className="block font-display text-[17px] font-semibold leading-snug">
           {LABEL[p.part]}
         </span>
         {counted ? (
-          <span className="text-right font-mono text-lg tabular-nums">
-            <span className="font-bold">{fmt(p.total)}</span>{" "}
-            <span className="text-sm text-muted-foreground">
-              {unit}
-              {total > 0 && ` · ${Math.round((p.total / total) * 100)}%`}
-            </span>
+          <span className="block text-[15px] text-foreground-soft">
+            <span className="tabular-nums">{fmt(p.total)}</span> {unit}
+            {only && (
+              <>
+                {" · "}
+                <span className="break-all">{only.path}</span>
+              </>
+            )}
           </span>
         ) : (
-          <span className="text-right text-sm text-muted-foreground">
+          <span className="block text-[15px] text-foreground-soft">
             {reason(p)}
           </span>
         )}
+        {counted && <Files files={p.files} />}
       </div>
-      {counted && p.files.length > 0 && (
-        <details className="group mt-1 pl-6">
-          <summary className="flex cursor-pointer list-none items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-            <ChevronRight
-              size={14}
-              className="transition-transform group-open:rotate-90"
-            />
-            {p.files.length} file{p.files.length === 1 ? "" : "s"}
-          </summary>
-          <ul className="mt-1.5 space-y-1 border-l border-border pl-3">
-            {p.files.map((f) => (
-              <li
-                key={f.path}
-                className="flex justify-between gap-3 font-mono text-[13px] text-muted-foreground"
-              >
-                <span className="min-w-0 break-all">{f.path}</span>
-                <span className="shrink-0 tabular-nums">{fmt(f.size)}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
     </li>
   );
 }
@@ -120,42 +154,41 @@ export function AlwaysLoaded({ data }: { data: AlwaysLoadedReport }) {
       p.kind === "counted" && p.total > 0,
   );
   return (
-    <Card className="p-5">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <Layers
-          size={20}
-          className="shrink-0 self-center text-muted-foreground"
-          aria-hidden
-        />
-        <span className="text-[2.75rem] leading-none font-bold tracking-tight tabular-nums">
+    <div className="grid gap-8 sm:grid-cols-2 sm:items-start sm:gap-14">
+      <div>
+        <p className="font-display text-[76px] font-semibold leading-[0.95] tracking-[-0.045em] tabular-nums sm:text-[112px]">
           {fmt(data.total)}
-        </span>
-        <span className="text-base text-muted-foreground">
-          {data.unit} loaded before the first message
-        </span>
+        </p>
+        <p className="mt-2 max-w-[52ch] text-[17px] leading-relaxed text-foreground-soft">
+          {data.unit} the harness reads at the start of every session, before
+          any decision: your instruction files, the selected output style and
+          the skill listing. Every request pays for them again.
+        </p>
       </div>
-      {data.total > 0 && counted.length > 0 && (
-        <div
-          className="mt-5 flex h-[18px] gap-[3px] overflow-hidden rounded-full bg-border"
-          role="img"
-          aria-label={counted
-            .map((p) => `${LABEL[p.part]} ${fmt(p.total)} ${data.unit}`)
-            .join(", ")}
-        >
-          {counted.map((p) => (
-            <div
-              key={p.part}
-              className={cn("h-full", SHADE[p.part])}
-              style={{ width: `${(p.total / data.total) * 100}%` }}
-            />
+      <div>
+        {data.total > 0 && counted.length > 0 && (
+          <div
+            className="mb-7 flex h-[22px] gap-[3px]"
+            role="img"
+            aria-label={counted
+              .map((p) => `${LABEL[p.part]} ${fmt(p.total)} ${data.unit}`)
+              .join(", ")}
+          >
+            {counted.map((p) => (
+              <div
+                key={p.part}
+                className={cn("h-full rounded-sm", SHADE[p.part])}
+                style={{ width: `${(p.total / data.total) * 100}%` }}
+              />
+            ))}
+          </div>
+        )}
+        <ul className="grid gap-5">
+          {data.parts.map((p) => (
+            <PartRow key={p.part} p={p} unit={data.unit} total={data.total} />
           ))}
-        </div>
-      )}
-      <ul className="mt-3 divide-y divide-border">
-        {data.parts.map((p) => (
-          <PartRow key={p.part} p={p} unit={data.unit} total={data.total} />
-        ))}
-      </ul>
-    </Card>
+        </ul>
+      </div>
+    </div>
   );
 }

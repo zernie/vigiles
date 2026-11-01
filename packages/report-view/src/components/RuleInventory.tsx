@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { Check, Copy, ChevronRight, Zap, Sparkles } from "lucide-react";
 import type { RuleInventoryItem, RuleRouting, RuleCategory } from "../schema";
-import { Card } from "./ui/card";
 import { TEXT, BG } from "../lib/band";
 import { cn } from "../lib/utils";
 
 const BTN =
-  "inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-left text-xs font-medium hover:border-foreground disabled:opacity-60";
+  "inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-left text-sm font-medium hover:border-foreground disabled:opacity-60";
 
 /**
  * Copy a paste-ready agent prompt to the clipboard. vigiles users live in
@@ -58,7 +57,7 @@ function RuleRow({
   action?: boolean;
 }) {
   return (
-    <Card className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3 text-sm">
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border py-3 text-base">
       {tone === "good" ? (
         <Check size={16} className={TEXT.good} />
       ) : (
@@ -76,12 +75,12 @@ function RuleRow({
         </span>
       )}
       <span className="min-w-[12rem] flex-1">{item.intent}</span>
-      <code className="font-mono text-xs text-muted-foreground">
+      <code className="break-all font-mono text-sm text-foreground-soft">
         {item.rule}
       </code>
       <span
         className={cn(
-          "text-xs",
+          "text-sm",
           tone === "good"
             ? TEXT.good
             : tone === "warn"
@@ -94,7 +93,7 @@ function RuleRow({
         {label}
       </span>
       {action && <CopyPrompt item={item} />}
-    </Card>
+    </li>
   );
 }
 
@@ -113,7 +112,7 @@ function FoldedGroup({
     <details className="group">
       <summary
         className={cn(
-          "flex cursor-pointer list-none items-center gap-1.5 py-1 text-xs font-medium",
+          "flex cursor-pointer list-none items-center gap-1.5 py-1 text-[15px] font-medium",
           tone === "good" ? TEXT.good : "text-muted-foreground",
         )}
       >
@@ -123,7 +122,7 @@ function FoldedGroup({
         />
         {title}
       </summary>
-      <div className="mt-2 space-y-2">{children}</div>
+      <ul className="mt-2">{children}</ul>
     </details>
   );
 }
@@ -208,17 +207,17 @@ function RuleMap({ routing }: { routing?: RuleRouting }) {
   );
 
   return (
-    <div className="rounded-lg border border-dashed border-border p-4">
-      <div className="flex items-center gap-2 text-sm font-semibold">
-        <Sparkles size={15} className="text-muted-foreground" />
+    <div className="mt-10">
+      <h3 className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-display text-xl font-semibold">
+        <Sparkles size={18} className="text-muted-foreground" aria-hidden />
         Your rules, mapped
-        <span className="text-xs font-normal text-muted-foreground">
+        <span className="font-sans text-sm font-normal text-muted-foreground">
           deterministic · no model
         </span>
-      </div>
+      </h3>
       {routing && routing.segmented > 0 ? (
         <>
-          <p className="mt-1.5 text-xs text-muted-foreground">
+          <p className="mt-2 text-[15px] text-foreground-soft">
             We segmented{" "}
             <span className="font-semibold text-foreground">
               {routing.segmented}
@@ -226,7 +225,7 @@ function RuleMap({ routing }: { routing?: RuleRouting }) {
             atomic {routing.segmented === 1 ? "rule" : "rules"} from your
             instructions and routed each one — deterministically, no model:
           </p>
-          <ul className="mt-2 space-y-1.5 text-xs text-muted-foreground">
+          <ul className="mt-3 space-y-2.5 text-[15px] text-foreground-soft">
             {ROUTE_ORDER.filter((cat) => routing.counts[cat] > 0).map((cat) => {
               const ex = exampleFor(cat);
               return (
@@ -242,7 +241,7 @@ function RuleMap({ routing }: { routing?: RuleRouting }) {
                     </span>
                   )}
                   {ex && (
-                    <span className="mt-0.5 block truncate pl-4 italic opacity-80">
+                    <span className="mt-0.5 block truncate pl-4 italic text-muted-foreground">
                       e.g. “{ex}”
                     </span>
                   )}
@@ -253,11 +252,11 @@ function RuleMap({ routing }: { routing?: RuleRouting }) {
           {/* The wow: your instructions NAME these rules, but your linter has
               them turned off — read straight off the live catalog, no model. */}
           {off.length > 0 && (
-            <div className={cn("mt-2.5 rounded-md border p-2.5", "border-l-4")}>
-              <p className={cn("text-xs font-semibold", TEXT.bad)}>
+            <div className="mt-5">
+              <p className={cn("text-[15px] font-semibold", TEXT.bad)}>
                 ⛔ {off.length} documented but OFF
               </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <p className="mt-0.5 text-[15px] text-foreground-soft">
                 Your instructions name{" "}
                 {off.length === 1 ? "this rule" : "these rules"} as enforced,
                 but your linter config has {off.length === 1 ? "it" : "them"}{" "}
@@ -267,14 +266,14 @@ function RuleMap({ routing }: { routing?: RuleRouting }) {
                 {off.slice(0, 6).map((r) => (
                   <li
                     key={r.rule}
-                    className="font-mono text-xs text-muted-foreground"
+                    className="break-all font-mono text-sm text-foreground-soft"
                   >
                     <code className={TEXT.bad}>{r.rule}</code>{" "}
-                    <span className="opacity-70">— {r.text}</span>
+                    <span className="text-muted-foreground">— {r.text}</span>
                   </li>
                 ))}
                 {off.length > 6 && (
-                  <li className="text-xs text-muted-foreground">
+                  <li className="text-sm text-muted-foreground">
                     +{off.length - 6} more
                   </li>
                 )}
@@ -287,11 +286,11 @@ function RuleMap({ routing }: { routing?: RuleRouting }) {
       ) : (
         <>
           <RuleMapTiers routing={routing} />
-          <p className="mt-1.5 text-xs text-muted-foreground">
+          <p className="mt-2 text-[15px] text-foreground-soft">
             Segments your instruction file into atomic rules and routes each one
             — deterministically, no model:
           </p>
-          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+          <ul className="mt-3 space-y-1.5 text-[15px] text-foreground-soft">
             <li>
               <span className="font-mono text-foreground">
                 ✓ enforceable now
@@ -329,10 +328,10 @@ function RuleMapTiers({ routing }: { routing?: RuleRouting }) {
   const byReason: Record<string, number> = {};
   for (const s of skipped) byReason[s.reason] = (byReason[s.reason] ?? 0) + 1;
   return (
-    <div className="mt-2.5 space-y-2">
+    <div className="mt-5 space-y-3">
       {possible.length > 0 && (
-        <div className="rounded-md border border-dashed border-border p-2.5">
-          <p className="text-xs font-semibold text-foreground">
+        <div>
+          <p className="text-[15px] font-semibold text-foreground">
             ? {possible.length} possible — rule-ish, below the confidence bar
             (review)
           </p>
@@ -340,13 +339,13 @@ function RuleMapTiers({ routing }: { routing?: RuleRouting }) {
             {possible.slice(0, 6).map((r, i) => (
               <li
                 key={`${r.lineStart}-${i}`}
-                className="truncate text-xs italic text-muted-foreground opacity-80"
+                className="truncate text-sm italic text-muted-foreground"
               >
                 “{r.text}”
               </li>
             ))}
             {possible.length > 6 && (
-              <li className="text-xs text-muted-foreground">
+              <li className="text-sm text-muted-foreground">
                 +{possible.length - 6} more
               </li>
             )}
@@ -354,7 +353,7 @@ function RuleMapTiers({ routing }: { routing?: RuleRouting }) {
         </div>
       )}
       {skipped.length > 0 && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[15px] text-foreground-soft">
           ⊘ {skipped.length} skipped — not treated as rules (
           {Object.entries(byReason)
             .map(([reason, n]) => `${n} ${reason}`)
@@ -362,7 +361,7 @@ function RuleMapTiers({ routing }: { routing?: RuleRouting }) {
           )
         </p>
       )}
-      <p className="text-xs text-muted-foreground opacity-70">
+      <p className="text-sm text-muted-foreground">
         Detection is a best-effort, precision-first filter — it won’t catch
         every rule. Full per-bullet lists are in the JSON report.
       </p>
@@ -375,21 +374,21 @@ function RuleMapTiers({ routing }: { routing?: RuleRouting }) {
  * reuse is a config line / the strengthen skill; synthesis is a planned skill. */
 function RuleMapNextSteps() {
   return (
-    <div className="mt-2.5 space-y-1 text-xs text-muted-foreground">
+    <div className="mt-5 max-w-[34rem] space-y-2 text-[15px] leading-relaxed text-foreground-soft">
       <p>
         <span className="font-medium text-foreground">Enforceable now</span> —
         enable each in your lint config (one line), or ask your agent to run the{" "}
-        <code className="rounded bg-border px-1 font-mono">strengthen</code>{" "}
+        <code className="rounded-md bg-code px-1.5 font-mono">strengthen</code>{" "}
         skill.
       </p>
       <p>
         <span className="font-medium text-foreground">Hooks</span> — author a
         compiled hook in{" "}
-        <code className="rounded bg-border px-1 font-mono">
+        <code className="rounded-md bg-code px-1.5 font-mono">
           .vigiles/hooks/
         </code>
         , then{" "}
-        <code className="rounded bg-border px-1 font-mono">
+        <code className="rounded-md bg-code px-1.5 font-mono">
           npx vigiles compile
         </code>{" "}
         wires it into your settings.
@@ -436,7 +435,7 @@ export function RuleInventory({
         {/* A tool whose pitch is "your config lies about your rules" must not
             round a maybe up to a yes: `enforced` and `preset-maybe` are counted
             (and coloured) separately. */}
-        <p className="text-sm text-muted-foreground">
+        <p className="text-base text-foreground-soft">
           <span className={cn("font-semibold", TEXT.good)}>
             {enforced.length}
           </span>{" "}
@@ -470,8 +469,8 @@ export function RuleInventory({
           )}
           .
         </p>
-        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-          <Zap size={12} /> deterministic · no model
+        <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+          <Zap size={14} aria-hidden /> deterministic · no model
         </span>
       </div>
 
@@ -485,7 +484,7 @@ export function RuleInventory({
       {/* Contradiction — the "your docs say enforce it, your config turns it off"
           row. Most interesting single finding; shown, never nudged on. */}
       {contradiction.length > 0 && (
-        <div className="space-y-2">
+        <ul>
           {contradiction.map((item) => (
             <RuleRow
               key={item.rule}
@@ -495,12 +494,12 @@ export function RuleInventory({
               action
             />
           ))}
-        </div>
+        </ul>
       )}
 
       {/* One line away — the actionable group, open on top. */}
       {oneLine.length > 0 && (
-        <div className="space-y-2">
+        <ul>
           {oneLine.map((item) => (
             <RuleRow
               key={item.rule}
@@ -510,7 +509,7 @@ export function RuleInventory({
               action
             />
           ))}
-        </div>
+        </ul>
       )}
 
       {enforced.length > 0 && (
