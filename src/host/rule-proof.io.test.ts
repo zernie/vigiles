@@ -293,6 +293,45 @@ describe("prove (eslint)", () => {
 });
 
 describe("prove (eslint): no verdict", () => {
+  it("a pair whose second file cannot be written leaves nothing behind", () => {
+    const dir = eslintRepo({ "src/occupied": "a file, not a directory\n" });
+    const blockedPair = {
+      bad: { path: "src/bad.js", text: "console.log(1);\n" },
+      good: { path: "src/occupied/good.js", text: "export const x = 1;\n" },
+    };
+    expect(
+      proof.prove(installedEslint(dir), consoleReading, blockedPair),
+    ).toMatchObject({
+      kind: "not-run",
+      stage: "pair-path-taken",
+    });
+    expect(existsSync(join(dir, "src/bad.js"))).toBe(false);
+    const firstFails = { bad: blockedPair.good, good: blockedPair.bad };
+    expect(
+      proof.prove(installedEslint(dir), consoleReading, firstFails),
+    ).toMatchObject({
+      stage: "pair-path-taken",
+    });
+    expect(existsSync(join(dir, "src/bad.js"))).toBe(false);
+  });
+});
+
+describe("prove (eslint): a snapshot", () => {
+  it("a proved reading is a snapshot: changing the caller's object later changes nothing", () => {
+    const dir = eslintRepo({ "src/a.js": "console.log(1);\n" });
+    const allow = { allow: ["warn"] };
+    const reading = { ...consoleReading, options: [allow] };
+    const warnPair = {
+      bad: { path: "src/planted/bad.js", text: "console.log(1);\n" },
+      good: { path: "src/planted/good.js", text: "console.warn(1);\n" },
+    };
+    const proved = proof.prove(installedEslint(dir), reading, warnPair);
+    if (proved.kind !== "proved") throw new Error(proved.kind);
+    allow.allow.push("log");
+    expect(proof.flagged(proved.reading)).toMatchObject({
+      flagged: ["src/a.js"],
+    });
+  });
   it("a file already at the scratch config path is never overwritten", () => {
     const dir = eslintRepo({ ".vigiles-rule-proof.config.mjs": "keep me\n" });
     expect(proof.prove(installedEslint(dir), consoleReading, pair)).toEqual({

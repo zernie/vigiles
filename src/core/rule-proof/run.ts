@@ -233,6 +233,44 @@ function plant(host: RuleProofHost, dir: string, file: PlantedFile): string {
   return missing ?? join(dir, file.path);
 }
 
+/** What planting left behind, and why it stopped if it did. */
+interface Planted {
+  readonly created: readonly string[];
+  readonly failed: NotRun | null;
+}
+
+/**
+ * Plant the files one by one, recording each write that happened, so a write
+ * that fails part-way (a path component is a file) still leaves a list of what
+ * to remove.
+ */
+function plantAll(
+  host: RuleProofHost,
+  dir: string,
+  files: readonly PlantedFile[],
+): Planted {
+  return files.reduce<Planted>(
+    (done, file) => {
+      if (done.failed !== null) return done;
+      try {
+        return {
+          created: [...done.created, plant(host, dir, file)],
+          failed: null,
+        };
+      } catch (error) {
+        return {
+          created: done.created,
+          failed: notRun(
+            "pair-path-taken",
+            `${file.path} cannot be written: ${String(error)}`,
+          ),
+        };
+      }
+    },
+    { created: [], failed: null },
+  );
+}
+
 /** Why a pair may not be planted at all. */
 function blocked(
   host: RuleProofHost,
@@ -284,17 +322,21 @@ function prove<R extends BaseReading>(
 ): Proof<R> {
   const stop = blocked(host, pinned.dir, reading, pair);
   if (stop !== null) return stop;
-  const created = [pair.bad, pair.good].map((f) => plant(host, pinned.dir, f));
+  // The proof runs on a snapshot: a caller's object changed after this call
+  // cannot change the reading that passed.
+  const frozen = structuredClone(reading);
+  const planted = plantAll(host, pinned.dir, [pair.bad, pair.good]);
   try {
+    if (planted.failed !== null) return planted.failed;
     const paths = [pair.bad.path, pair.good.path];
-    const reports = pairReports(lint(host, pinned, reading, paths), pair);
+    const reports = pairReports(lint(host, pinned, frozen, paths), pair);
     if (!isPair(reports)) return reports;
     const judged = judgePair(...reports);
     return judged.kind === "proved"
-      ? { kind: "proved", reading: new ProvedReading(pinned, reading) }
+      ? { kind: "proved", reading: new ProvedReading(pinned, frozen) }
       : judged;
   } finally {
-    created.forEach((p) => {
+    planted.created.forEach((p) => {
       host.remove(p);
     });
   }
