@@ -11,6 +11,7 @@ import frameMint from "./eslint-rules/frame-mint.mjs";
 import noHarnessNames from "./eslint-rules/no-harness-names.mjs";
 import noGroupNames from "./eslint-rules/no-group-names.mjs";
 import noRuleIds from "./eslint-rules/no-rule-ids.mjs";
+import noKitNames from "./eslint-rules/no-kit-names.mjs";
 import {
   GROUP_NAMES,
   GROUP_SET_NAMES,
@@ -80,6 +81,7 @@ const local = {
     "no-harness-names": noHarnessNames,
     "no-rule-ids": noRuleIds,
     "no-group-names": noGroupNames,
+    "no-kit-names": noKitNames,
   },
 };
 
@@ -92,8 +94,14 @@ const HARNESS_LITERALS = {
   "claude-code": ["CLAUDE_PLUGIN_ROOT", ".claude", "ANTHROPIC_"],
 };
 
-/** The composition root: the one non-test place that wires a real adapter in. */
-const CLI_ROOT = "src/cli{,-main}.ts";
+/**
+ * The composition roots: the only non-test places that wire a real adapter in.
+ * The CLI, and each package entry in `src/entries/` — an entry is where a
+ * library user's import is assembled, which is the same job.
+ */
+const CLI_ROOT = "src/{cli,cli-main,entries/*}.ts";
+const HOST_AND_HARNESS_ADAPTERS = "src/{adapters/*,host}";
+const IO_FILES = "src/{adapters/*,host}/*.io.ts";
 
 const without = (record, key) =>
   Object.fromEntries(Object.entries(record).filter(([k]) => k !== key));
@@ -212,6 +220,26 @@ const ruleIdFences = [
 ];
 
 /** No generic file names a rule group; the rule layer and tests may. */
+/**
+ * Rule-proof's generic files spell no linter kit; the kits directory is the
+ * list, so a new kit is fenced the day its module lands.
+ */
+const KIT_NAMES = readdirSync("src/core/rule-proof/kits")
+  .filter(
+    (f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "index.ts",
+  )
+  .map((f) => f.slice(0, -".ts".length))
+  .sort();
+
+const kitNameFence = {
+  files: ["src/core/rule-proof/*.ts"],
+  ignores: ["src/**/*.test.ts"],
+  plugins: { local },
+  rules: {
+    "local/no-kit-names": ["error", { names: KIT_NAMES, identifiers: true }],
+  },
+};
+
 const groupNameFence = {
   files: ["src/**/*.ts"],
   ignores: [`${RULES_DIR}/**`, "src/**/*.test.ts"],
@@ -553,11 +581,14 @@ export default [
     files: ["src/**/*.ts"],
     root: import.meta.dirname,
     domain: "src/core",
-    adapters: "src/adapters/*",
+    // `src/host` is the adapter for the machine itself — files and processes no
+    // harness owns (rule-proof runs another repository's linter). It is not a
+    // harness: HARNESS_NAMES and the adapter contract read `src/adapters` only.
+    adapters: HOST_AND_HARNESS_ADAPTERS,
     cliRoot: CLI_ROOT,
     app: "src/*.ts",
     tests: "src/**/*.test.ts",
-    io: "src/adapters/*/*.io.ts",
+    io: IO_FILES,
     rules: `${RULES_DIR}/*.ts`,
     ruleset: RULE_SET_FILES,
     // Parsers the domain legitimately runs. None of them does I/O.
@@ -565,6 +596,8 @@ export default [
       ...PURE_LIBRARIES,
       "typescript",
       "js-yaml",
+      "@iarna/toml",
+      "minimatch",
       "zod",
       "@ast-grep/napi",
       "zlib",
@@ -573,11 +606,12 @@ export default [
   }),
   ioGlobals({
     files: ["src/**/*.ts"],
-    ignores: [CLI_ROOT, "src/adapters/*/*.io.ts", "src/**/*.test.ts"],
+    ignores: [CLI_ROOT, IO_FILES, "src/**/*.test.ts"],
   }),
   ...harnessFences,
   ...ruleIdFences,
   groupNameFence,
+  kitNameFence,
   reportViewFences,
   // Test files: relax promise and duplication rules
   {

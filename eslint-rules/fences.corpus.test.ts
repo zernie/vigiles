@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 const FENCES = new Set([
   "local/no-rule-ids",
   "local/no-group-names",
+  "local/no-kit-names",
   "local/frame-mint",
   "no-restricted-syntax",
 ]);
@@ -154,6 +155,43 @@ describe("boundaries — this repo's config declares the rule layer", () => {
       expect.objectContaining({
         category: "ruleset",
         pattern: "src/rules/{index,groups}.ts",
+      }),
+    );
+  });
+});
+
+describe("local/no-kit-names — rule-proof's generic files spell no linter kit", () => {
+  const BRANCH =
+    'export const pick = (r: { linter: string }) => r.linter === "eslint";\n';
+  const TABLE = "export const ruffKitTable = {};\n";
+
+  it.each([
+    ["the steps", "src/core/rule-proof/run.ts", BRANCH],
+    ["a port", "src/core/rule-proof/port.ts", TABLE],
+  ])("refused in %s", async (_where, path, code) => {
+    expect(await fired(path, code)).toEqual([
+      expect.stringMatching(/^local\/no-kit-names/),
+    ]);
+  });
+
+  it.each([
+    ["the kit itself", "src/core/rule-proof/kits/eslint.ts"],
+    ["the kit set", "src/core/rule-proof/kits/index.ts"],
+    ["the entry root", "src/entries/rule-proof.ts"],
+  ])("allowed in %s", async (_where, path) => {
+    expect(await fired(path, BRANCH)).toEqual([]);
+  });
+});
+
+describe("boundaries — a package entry is a composition root", () => {
+  it("src/entries/*.ts is in the `root` category", async () => {
+    const config = (await eslint.calculateConfigForFile(
+      "src/entries/rule-proof.ts",
+    )) as { settings: Record<string, unknown> };
+    expect(config.settings["boundaries/files"]).toContainEqual(
+      expect.objectContaining({
+        category: "root",
+        pattern: "src/{cli,cli-main,entries/*}.ts",
       }),
     );
   });

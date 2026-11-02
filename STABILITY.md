@@ -173,6 +173,9 @@ merges only with `function` declarations (`experimental_skill` is a `const`).
   `experimental_andThen`, and their helper types (`Supplies`, `Handoff`,
   `KnownAgentName`). The types stay unprefixed: the convention covers callables,
   since a type annotation is not a call site.
+- **`experimental_ruleProof`** in `vigiles/rule-proof` — install a repository's pinned
+  ESLint or Ruff, prove one configuration on a planted pair, list the files it flags
+  (`docs/rule-proof.md`). One consumer so far; the reading shape may change.
 - **`experimental_effect()`** / effect-region (parked).
 - The whole-harness codegen (`generate harness`) and capability lattice.
 - Internal-only research/spike modules (`guards`, `hook-spec`, `evolve`) — not

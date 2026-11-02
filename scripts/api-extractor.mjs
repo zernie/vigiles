@@ -32,6 +32,7 @@ const ENTRIES = [
   { name: "vigiles-spec", dts: "dist/core/spec.d.ts" }, // "./spec"
   { name: "vigiles-eval", dts: "dist/eval-surface.d.ts" }, // "./eval" — spends money
   { name: "vigiles-linting", dts: "dist/linting.d.ts" },
+  { name: "vigiles-rule-proof", dts: "dist/entries/rule-proof.d.ts" },
   { name: "vigiles-hook", dts: "dist/hook.d.ts" },
   { name: "vigiles-claude-code", dts: "dist/claude-code.d.ts" },
   { name: "vigiles-codex", dts: "dist/codex.d.ts" },

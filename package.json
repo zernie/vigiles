@@ -42,6 +42,7 @@
     "./spec": "./dist/core/spec.js",
     "./eval": "./dist/eval-surface.js",
     "./linting": "./dist/linting.js",
+    "./rule-proof": "./dist/entries/rule-proof.js",
     "./hook": "./dist/hook.js",
     "./claude-code": "./dist/claude-code.js",
     "./codex": "./dist/codex.js",

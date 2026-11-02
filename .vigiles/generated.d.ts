@@ -5,7 +5,7 @@
 
 declare module "vigiles/generated" {
 
-  /** 160 enabled eslint rules (via flat config (v9+/v10), plugins: @typescript-eslint, boundaries, functional, local, sonarjs). */
+  /** 161 enabled eslint rules (via flat config (v9+/v10), plugins: @typescript-eslint, boundaries, functional, local, sonarjs). */
   export type EslintRule = 
     | "@typescript-eslint/await-thenable"
     | "@typescript-eslint/ban-ts-comment"
@@ -89,6 +89,7 @@ declare module "vigiles/generated" {
     | "local/frame-mint"
     | "local/no-group-names"
     | "local/no-harness-names"
+    | "local/no-kit-names"
     | "local/no-rule-ids"
     | "max-depth"
     | "max-lines-per-function"
@@ -196,7 +197,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 582 project files. */
+  /** 598 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -515,6 +516,19 @@ declare module "vigiles/generated" {
     | "src/core/role-event-fit.test.ts"
     | "src/core/rule-catalog.test.ts"
     | "src/core/rule-catalog.ts"
+    | "src/core/rule-proof/kits/eslint.test.ts"
+    | "src/core/rule-proof/kits/eslint.ts"
+    | "src/core/rule-proof/kits/index.ts"
+    | "src/core/rule-proof/kits/ruff.test.ts"
+    | "src/core/rule-proof/kits/ruff.ts"
+    | "src/core/rule-proof/node-install.test.ts"
+    | "src/core/rule-proof/node-install.ts"
+    | "src/core/rule-proof/pair.test.ts"
+    | "src/core/rule-proof/pair.ts"
+    | "src/core/rule-proof/port.ts"
+    | "src/core/rule-proof/report.ts"
+    | "src/core/rule-proof/run.ts"
+    | "src/core/rule-proof/types.ts"
     | "src/core/rule-render.test.ts"
     | "src/core/rule.ts"
     | "src/core/run-env.test.ts"
@@ -582,6 +596,7 @@ declare module "vigiles/generated" {
     | "src/egress-proxy.ts"
     | "src/egress.test.ts"
     | "src/egress.ts"
+    | "src/entries/rule-proof.ts"
     | "src/eval-baseline.test.ts"
     | "src/eval-baseline.ts"
     | "src/eval-cache.test.ts"
@@ -639,6 +654,8 @@ declare module "vigiles/generated" {
     | "src/hook-state-store.ts"
     | "src/hook.test.ts"
     | "src/hook.ts"
+    | "src/host/rule-proof.io.test.ts"
+    | "src/host/rule-proof.io.ts"
     | "src/instruction-sources.test.ts"
     | "src/instruction-sources.ts"
     | "src/jest.ts"
@@ -867,6 +884,7 @@ declare module "vigiles/spec" {
       | "local/frame-mint"
       | "local/no-group-names"
       | "local/no-harness-names"
+      | "local/no-kit-names"
       | "local/no-rule-ids"
       | "max-depth"
       | "max-lines-per-function"
@@ -1265,6 +1283,19 @@ declare module "vigiles/spec" {
       | "src/core/role-event-fit.test.ts"
       | "src/core/rule-catalog.test.ts"
       | "src/core/rule-catalog.ts"
+      | "src/core/rule-proof/kits/eslint.test.ts"
+      | "src/core/rule-proof/kits/eslint.ts"
+      | "src/core/rule-proof/kits/index.ts"
+      | "src/core/rule-proof/kits/ruff.test.ts"
+      | "src/core/rule-proof/kits/ruff.ts"
+      | "src/core/rule-proof/node-install.test.ts"
+      | "src/core/rule-proof/node-install.ts"
+      | "src/core/rule-proof/pair.test.ts"
+      | "src/core/rule-proof/pair.ts"
+      | "src/core/rule-proof/port.ts"
+      | "src/core/rule-proof/report.ts"
+      | "src/core/rule-proof/run.ts"
+      | "src/core/rule-proof/types.ts"
       | "src/core/rule-render.test.ts"
       | "src/core/rule.ts"
       | "src/core/run-env.test.ts"
@@ -1332,6 +1363,7 @@ declare module "vigiles/spec" {
       | "src/egress-proxy.ts"
       | "src/egress.test.ts"
       | "src/egress.ts"
+      | "src/entries/rule-proof.ts"
       | "src/eval-baseline.test.ts"
       | "src/eval-baseline.ts"
       | "src/eval-cache.test.ts"
@@ -1389,6 +1421,8 @@ declare module "vigiles/spec" {
       | "src/hook-state-store.ts"
       | "src/hook.test.ts"
       | "src/hook.ts"
+      | "src/host/rule-proof.io.test.ts"
+      | "src/host/rule-proof.io.ts"
       | "src/instruction-sources.test.ts"
       | "src/instruction-sources.ts"
       | "src/jest.ts"

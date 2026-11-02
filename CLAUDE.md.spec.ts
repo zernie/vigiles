@@ -61,7 +61,7 @@ The layers are enforced in \`eslint.config.mjs\` and dogfooded via \`enforce("bo
 
 THE LIBRARY (the one compiled thing):
 
-- \`src/\` — all TypeScript source, compiled to \`dist/\`. The ONLY thing \`eslint src/\` lints, vitest sweeps (\`src/**/*.test.ts\`), and the 100% coverage gate covers. Hexagonal: \`src/core/\` (domain) · \`src/adapters/<harness>/\` (ports) · \`src/*.ts\` (composition root + library). Also \`src/schemas/\` = DEPRECATED mdschema presets, parked (see \`src/schemas/DEPRECATED.md\`). A module's test sits BESIDE it as \`<module>.test.ts\` — found by name, and what it proves is in its own header.
+- \`src/\` — all TypeScript source, compiled to \`dist/\`. The ONLY thing \`eslint src/\` lints, vitest sweeps (\`src/**/*.test.ts\`), and the 100% coverage gate covers. Hexagonal: \`src/core/\` (domain) · \`src/adapters/<harness>/\` (ports) · \`src/host/\` (the adapter for the machine itself — files and processes no harness owns; not a harness, so harness lists skip it) · \`src/entries/\` (package entries that are COMPOSITION ROOTS: each wires core + an adapter for one \`exports\` subpath, e.g. \`vigiles/rule-proof\`) · \`src/*.ts\` (composition root + library). Also \`src/schemas/\` = DEPRECATED mdschema presets, parked (see \`src/schemas/DEPRECATED.md\`). A module's test sits BESIDE it as \`<module>.test.ts\` — found by name, and what it proves is in its own header.
 - \`dist/\` — compiled JS output (gitignored; the published artifact + the audit-report template).
 
 THE SHIPPED PLUGIN (root-level by Claude Code plugin convention — these MUST sit at the repo root beside the manifest; they are markdown/shell consumed verbatim by the harness, never compiled):
