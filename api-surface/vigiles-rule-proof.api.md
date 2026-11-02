@@ -88,7 +88,7 @@ export interface NotRun {
 }
 
 // @public
-export type NotRunStage = "pair-outside-scope" | "pair-path-taken" | "pair-ignored" | "parse" | "config-load" | "timeout";
+export type NotRunStage = "pair-outside-scope" | "pair-path-taken" | "scratch-path-taken" | "pair-ignored" | "parse" | "config-load" | "timeout";
 
 // @public
 export class PinnedLinter<R extends BaseReading> {
