@@ -2095,9 +2095,6 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 4
     },
-    "boundaries/dependencies": {
-      "count": 1
-    },
     "functional/prefer-immutable-types": {
       "count": 2
     }

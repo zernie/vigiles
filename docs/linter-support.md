@@ -32,6 +32,8 @@ Error: Rule "no-console" is disabled in eslint config
 
 The reference format is `<linter>/<rule>` -- e.g., `eslint/no-console`, `ruff/F401`, `clippy/needless_return`.
 
+Enabled is not the same as firing: a rule can be on and still catch nothing (options that allow the case, `files` that miss the directory). To prove a configuration flags a planted violation and passes its twin, see [`rule-proof.md`](rule-proof.md) (`experimental_ruleProof`, ESLint and Ruff).
+
 ## Supported Linters
 
 | Linter        | Detection      | Existence Check                                          | Config Check                                                                         |

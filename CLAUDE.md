@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:62d567fe49a1ef78 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:9ecc8c872d11d722 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -63,7 +63,7 @@ What each ROOT directory is — the per-dir index; what one file does is in that
 
 THE LIBRARY (the one compiled thing):
 
-- `src/` — all TypeScript source, compiled to `dist/`. The ONLY thing `eslint src/` lints, vitest sweeps (`src/**/*.test.ts`), and the 100% coverage gate covers. Hexagonal: `src/core/` (domain) · `src/adapters/<harness>/` (ports) · `src/*.ts` (composition root + library). Also `src/schemas/` = DEPRECATED mdschema presets, parked (see `src/schemas/DEPRECATED.md`). A module's test sits BESIDE it as `<module>.test.ts` — found by name, and what it proves is in its own header.
+- `src/` — all TypeScript source, compiled to `dist/`. The ONLY thing `eslint src/` lints, vitest sweeps (`src/**/*.test.ts`), and the 100% coverage gate covers. Hexagonal: `src/core/` (domain) · `src/adapters/<harness>/` (ports) · `src/host/` (the adapter for the machine itself — files and processes no harness owns; not a harness, so harness lists skip it) · `src/entries/` (package entries that are COMPOSITION ROOTS: each wires core + an adapter for one `exports` subpath, e.g. `vigiles/rule-proof`) · `src/*.ts` (composition root + library). Also `src/schemas/` = DEPRECATED mdschema presets, parked (see `src/schemas/DEPRECATED.md`). A module's test sits BESIDE it as `<module>.test.ts` — found by name, and what it proves is in its own header.
 - `dist/` — compiled JS output (gitignored; the published artifact + the audit-report template).
 
 THE SHIPPED PLUGIN (root-level by Claude Code plugin convention — these MUST sit at the repo root beside the manifest; they are markdown/shell consumed verbatim by the harness, never compiled):

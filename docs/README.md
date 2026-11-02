@@ -53,9 +53,11 @@ The docs are grouped by what you're trying to do:
 - [`testing-api.md`](testing-api.md) — the full harness-testing API: every predicate, assertion, `check`, matcher, and option (`measureTriggerRate` / `runEval` / significance).
 - [`spec-format.md`](spec-format.md) — the typed `.spec.ts` format (target, sections, rules, verified references) — the source of truth.
 - [`linter-support.md`](linter-support.md) — the 11 linters + `generate-types` / `generate-schema`.
+- [`rule-proof.md`](rule-proof.md) — does a linter rule actually FIRE? `experimental_ruleProof` installs a repository's pinned ESLint or Ruff, proves one configuration on a planted pair, then lists the files it flags.
 - [`adapter-api.md`](adapter-api.md) — the adapter API reference: every port field, the conformance functions, the registry API.
 - **Validation rules:** the [full matrix](verifying-instruction-files.md#the-validation-rules--the-full-matrix) lives in the linting guide; each rule has a doc under [`rules/`](rules/).
 - **Library entry points** (grouped by concern so a future harness can sit beside the current one):
+  - `vigiles/rule-proof` — `experimental_ruleProof`: run a linter configuration on a planted pair, then on a repository ([`rule-proof.md`](rule-proof.md)).
   - `vigiles/linting` — what a spec author imports: the builders, verified-reference constructors and their types. Compiling and verifying is the CLI's job (`vigiles compile`, `vigiles lint`).
   - `vigiles/spec` — the spec builders (`claude`, `enforce`, `guidance`, `file`, `cmd`, `symbol`, …) and the module-augmentation target for generated types.
   - `vigiles` (the package root) — the free testing surface: the harness/hook runners, the `check` vocabulary and the runner-agnostic assertions.
