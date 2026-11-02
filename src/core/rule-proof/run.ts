@@ -17,7 +17,7 @@
  * carries the PinnedLinter it was proved on. The classes are nominal (a
  * `private` member), so an object of the same shape is not one.
  */
-import { join, posix } from "node:path";
+import { join, posix, relative } from "node:path";
 import { inScope, judgePair, summarize } from "./pair.js";
 import type { ProofKit, RuleProofHost } from "./port.js";
 import type {
@@ -202,6 +202,12 @@ function lint<R extends BaseReading>(
   const { kit, command, options } = pinned.run;
   const places = { dir: pinned.dir, cacheDir: options.cacheDir };
   const call = kit.invocation(reading, files, places);
+  // A repository file at the scratch path is never overwritten, nor deleted.
+  if (host.exists(call.configPath))
+    return notRun(
+      "scratch-path-taken",
+      `${relative(pinned.dir, call.configPath)} already exists in the repository`,
+    );
   host.write(call.configPath, call.configText);
   try {
     const [bin = "", ...prefix] = command;

@@ -117,13 +117,13 @@ describe("ruffKit", () => {
       dir: "/r",
       cacheDir: "/c",
     });
-    expect(call.configPath).toBe("/c/rule-proof-ruff.toml");
+    expect(call.configPath).toBe("/r/.vigiles-rule-proof.ruff.toml");
     expect(call.configText).toBe("line-length = 100\n");
     expect(call.args.slice(-5)).toEqual([
       "--select",
       "E501",
       "--config",
-      "/c/rule-proof-ruff.toml",
+      "/r/.vigiles-rule-proof.ruff.toml",
       "a.py",
     ]);
     expect(ruffKit.reportCodes).toEqual([0]);

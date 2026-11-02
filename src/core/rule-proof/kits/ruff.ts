@@ -193,13 +193,19 @@ export const ruffKit: ProofKit<RuffReading> = {
     };
   },
   env: (cacheDir) => ({ UV_CACHE_DIR: posix.join(cacheDir, "uv") }),
-  invocation: (reading, files, { cacheDir }) => {
-    const configPath = join(cacheDir, "rule-proof-ruff.toml");
+  // The config sits in the repository, so a relative `extend` in the settings
+  // resolves against the repository as it would in the repository's own file.
+  invocation: (reading, files, { dir }) => {
+    const configPath = join(dir, ".vigiles-rule-proof.ruff.toml");
     return {
       configPath,
       configText: ruffConfigToml(reading.settings),
       args: [
         ...["check", "--no-cache", "--output-format", "json", "--exit-zero"],
+        // A reading's own settings may not change WHAT is measured: with
+        // `force-exclude` an excluded twin vanishes from the report and would
+        // read clean, and with `fix` the planted violation is rewritten away.
+        ...["--no-force-exclude", "--no-fix"],
         ...["--select", reading.rule, "--config", configPath, ...files],
       ],
     };

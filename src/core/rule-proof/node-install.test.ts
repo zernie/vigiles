@@ -136,6 +136,7 @@ describe("nodeCacheEnv", () => {
       COREPACK_HOME: "/w/corepack",
       COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
       BUN_INSTALL_CACHE_DIR: "/w/bun",
+      YARN_NODE_LINKER: "node-modules",
     });
   });
 });

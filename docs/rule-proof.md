@@ -87,6 +87,8 @@ if (installed.kind === "installed") {
   pre-commit hook's `rev`. It runs as `uvx ruff@<version>`. A ranged requirement
   is not a pin, and an unpinned repository is `not-installed: no-pin`.
 - HOME and every package-manager cache live under `cacheDir`.
+- Yarn Berry installs with `YARN_NODE_LINKER=node-modules`. Plug'n'Play leaves no
+  `node_modules`, and the lockfile, not the linker, pins the versions.
 
 ## Safety
 
@@ -104,11 +106,17 @@ runner, when the repository is not yours.
     `@typescript-eslint/parser`.
 - **Ruff reading:** `{ linter: "ruff", rule, settings, scope }`. `settings` are
   written verbatim to the TOML file Ruff reads, so use the pinned version's own
-  keys.
+  keys. A relative `extend` resolves against the repository. Ruff always runs
+  with `--no-force-exclude` and `--no-fix`: a reading's own settings must not
+  hide the twin from the report or rewrite the planted violation away.
 - **Scope:** `{ files, ignores }`, patterns relative to the repository root.
   - Both planted files must be inside the scope, and must not already exist in
     the repository.
   - They are removed afterwards.
+  - The scratch config file (`.vigiles-rule-proof.config.mjs` or
+    `.vigiles-rule-proof.ruff.toml`) is written in the repository root and removed
+    afterwards. If a file already sits at that path, the result is
+    `not-run: scratch-path-taken` and the file is left alone.
   - The `ignores` are given to ESLint as global ignores. Inside the rule's own
     block, an ignored file would still be linted with no rule on, and would read
     as clean.

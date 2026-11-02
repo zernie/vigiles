@@ -293,6 +293,17 @@ describe("prove (eslint)", () => {
 });
 
 describe("prove (eslint): no verdict", () => {
+  it("a file already at the scratch config path is never overwritten", () => {
+    const dir = eslintRepo({ ".vigiles-rule-proof.config.mjs": "keep me\n" });
+    expect(proof.prove(installedEslint(dir), consoleReading, pair)).toEqual({
+      kind: "not-run",
+      stage: "scratch-path-taken",
+      reason: ".vigiles-rule-proof.config.mjs already exists in the repository",
+    });
+    expect(
+      readFileSync(join(dir, ".vigiles-rule-proof.config.mjs"), "utf8"),
+    ).toBe("keep me\n");
+  });
   it("a planted file that does not parse is no verdict", () => {
     const dir = eslintRepo({});
     expect(
@@ -474,23 +485,24 @@ describe("install (ruff)", () => {
   });
 });
 
+const ruffRepo = (files: Readonly<Record<string, string>>): string =>
+  repo({ "requirements.txt": "ruff==0.0.0\n", ...files });
+const ruffPair = {
+  bad: {
+    path: "planted/bad.py",
+    text: "x = 'aaaaaaaaaaaaaaaaaaaaaaaaa'\n",
+  },
+  good: { path: "planted/good.py", text: "x = 1\n" },
+};
+function installedRuff(dir: string) {
+  const installed = proof.install("ruff", dir, { cacheDir: tmp() });
+  if (installed.kind !== "installed") throw new Error(installed.reason);
+  return installed.linter;
+}
+
 describe.skipIf(!hasRuff())(
   "prove + flagged (ruff, gated on a ruff binary)",
   () => {
-    const ruffRepo = (files: Readonly<Record<string, string>>): string =>
-      repo({ "requirements.txt": "ruff==0.0.0\n", ...files });
-    const ruffPair = {
-      bad: {
-        path: "planted/bad.py",
-        text: "x = 'aaaaaaaaaaaaaaaaaaaaaaaaa'\n",
-      },
-      good: { path: "planted/good.py", text: "x = 1\n" },
-    };
-    function installedRuff(dir: string) {
-      const installed = proof.install("ruff", dir, { cacheDir: tmp() });
-      if (installed.kind !== "installed") throw new Error(installed.reason);
-      return installed.linter;
-    }
     it("proved, then the flagged files of the repository", () => {
       const dir = ruffRepo({
         "a.py": "y = 'aaaaaaaaaaaaaaaaaaaaaaaaa'\n",
@@ -516,6 +528,59 @@ describe.skipIf(!hasRuff())(
         badHits: 0,
         goodHits: 0,
       });
+    });
+  },
+);
+
+describe.skipIf(!hasRuff())(
+  "ruff readings cannot change what is measured (gated on a ruff binary)",
+  () => {
+    it("a reading's force-exclude cannot hide the twin (it would read clean)", () => {
+      const dir = ruffRepo({});
+      const hiding = {
+        ...lineReading,
+        settings: {
+          "line-length": 20,
+          "force-exclude": true,
+          exclude: ["planted/good.py"],
+        },
+      };
+      const bothLong = {
+        ...ruffPair,
+        good: { path: "planted/good.py", text: ruffPair.bad.text },
+      };
+      expect(proof.prove(installedRuff(dir), hiding, bothLong)).toEqual({
+        kind: "not-proved",
+        badHits: 1,
+        goodHits: 1,
+      });
+    });
+    it("a reading's fix setting cannot rewrite the planted violation away", () => {
+      const dir = ruffRepo({});
+      const fixing = {
+        ...lineReading,
+        rule: "F401",
+        settings: { fix: true },
+      };
+      const unused = {
+        bad: { path: "planted/bad.py", text: "import os\n" },
+        good: { path: "planted/good.py", text: "x = 1\n" },
+      };
+      expect(proof.prove(installedRuff(dir), fixing, unused).kind).toBe(
+        "proved",
+      );
+    });
+    it("a relative `extend` resolves against the repository", () => {
+      const dir = ruffRepo({
+        "pyproject.toml": "[tool.ruff]\nline-length = 20\n",
+      });
+      const extending = {
+        ...lineReading,
+        settings: { extend: "./pyproject.toml" },
+      };
+      expect(proof.prove(installedRuff(dir), extending, ruffPair).kind).toBe(
+        "proved",
+      );
     });
     it("settings Ruff rejects are config-load", () => {
       const dir = ruffRepo({});

@@ -135,5 +135,9 @@ export function nodeCacheEnv(
     COREPACK_HOME: at("corepack"),
     COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
     BUN_INSTALL_CACHE_DIR: at("bun"),
+    // Yarn Berry's default Plug'n'Play leaves no node_modules, so the linter
+    // and its version could not be found where every other tool puts them.
+    // The lockfile, not the linker, pins the versions.
+    YARN_NODE_LINKER: "node-modules",
   };
 }

@@ -43,6 +43,7 @@ export type LintParse =
 export type NotRunStage =
   | "pair-outside-scope"
   | "pair-path-taken"
+  | "scratch-path-taken"
   | "pair-ignored"
   | "parse"
   | "config-load"
