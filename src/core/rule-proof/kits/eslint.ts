@@ -149,7 +149,13 @@ export const eslintKit: ProofKit<EslintReading> = {
         "the install left no node_modules/eslint: the repository does not depend on it",
     };
   },
-  env: nodeCacheEnv,
+  // ESLint 8 reads a flat config only when this is set; --config alone keeps
+  // it in legacy mode, and the generated config would not load. ESLint 9+
+  // ignores it.
+  env: (cacheDir) => ({
+    ...nodeCacheEnv(cacheDir),
+    ESLINT_USE_FLAT_CONFIG: "true",
+  }),
   // The config sits in the repository, so its plugin imports resolve from the
   // repository's own node_modules.
   invocation: (reading, files, { dir }) => ({

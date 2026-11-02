@@ -181,6 +181,9 @@ describe("eslintKit", () => {
       ],
     });
     expect(eslintKit.reportCodes).toEqual([0, 1]);
-    expect(eslintKit.env("/c")).toMatchObject({ npm_config_cache: "/c/npm" });
+    expect(eslintKit.env("/c")).toMatchObject({
+      npm_config_cache: "/c/npm",
+      ESLINT_USE_FLAT_CONFIG: "true",
+    });
   });
 });
