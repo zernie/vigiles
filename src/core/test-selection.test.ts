@@ -20,14 +20,23 @@ import { spawnSync } from "node:child_process";
 
 import {
   DEFAULT_RUN_ALL_ON,
-  importClosure,
+  formatSelection,
   parseChangedRef,
   selectTests,
+  type ChangedSince,
 } from "./test-selection.js";
+import { harnessReach, type Reach } from "./test-reach.js";
 import { nodeSourceHost } from "../host/changed-files.io.js";
 import { initGitRepo, git, makeTmpDir, cleanupTmpDir } from "./test-utils.js";
 
-const none = (): ReadonlySet<string> => new Set();
+const EMPTY: Reach = { imports: new Set(), effects: [], unresolved: [] };
+const none = (): Reach => EMPTY;
+const SINCE: ChangedSince = {
+  files: ["docs/readme.md"],
+  base: "0123456789abcdef",
+  via: "merge-base",
+  workflowsGlob: ".github/workflows/**",
+};
 
 describe("selectTests — one reason per selected file", () => {
   const files = ["hooks/guard/guard.harness.mjs", "skills/x/x.harness.mjs"];
@@ -37,7 +46,7 @@ describe("selectTests — one reason per selected file", () => {
       files,
       changed: ["hooks/guard/guard.mjs"],
       runAllOn: DEFAULT_RUN_ALL_ON,
-      importClosure: none,
+      reach: none,
     });
     assert.deepEqual(s.selected, [
       {
@@ -53,7 +62,7 @@ describe("selectTests — one reason per selected file", () => {
       files,
       changed: ["skills/x/fixtures/input.json"],
       runAllOn: [],
-      importClosure: none,
+      reach: none,
     });
     assert.deepEqual(
       s.selected.map((x) => x.file),
@@ -66,7 +75,7 @@ describe("selectTests — one reason per selected file", () => {
       files: ["skills/x/x.harness.mjs"],
       changed: ["skills/xy/other.mjs"],
       runAllOn: [],
-      importClosure: none,
+      reach: none,
     });
     assert.deepEqual(s.selected, []);
   });
@@ -76,8 +85,10 @@ describe("selectTests — one reason per selected file", () => {
       files,
       changed: ["lib/util.mjs"],
       runAllOn: [],
-      importClosure: (f) =>
-        new Set(f === "skills/x/x.harness.mjs" ? ["lib/util.mjs"] : []),
+      reach: (f) =>
+        f === "skills/x/x.harness.mjs"
+          ? { ...EMPTY, imports: new Set(["lib/util.mjs"]) }
+          : EMPTY,
     });
     assert.deepEqual(s.selected, [
       {
@@ -85,6 +96,56 @@ describe("selectTests — one reason per selected file", () => {
         reason: { kind: "import", changed: "lib/util.mjs" },
       },
     ]);
+  });
+});
+
+describe("selectTests — effect calls, and failing closed", () => {
+  const files = ["hooks/guard/guard.harness.mjs", "skills/x/x.harness.mjs"];
+  const reads: Reach = {
+    ...EMPTY,
+    effects: [
+      { path: "config/settings.json", prefix: false, call: "readFileSync" },
+    ],
+  };
+
+  test("a changed file an effect call reads selects it, naming the call", () => {
+    const s = selectTests({
+      files,
+      changed: ["config/settings.json"],
+      runAllOn: [],
+      reach: (f) => (f === "skills/x/x.harness.mjs" ? reads : EMPTY),
+    });
+    assert.deepEqual(s.selected, [
+      {
+        file: "skills/x/x.harness.mjs",
+        reason: {
+          kind: "reads",
+          changed: "config/settings.json",
+          call: "readFileSync",
+        },
+      },
+    ]);
+  });
+
+  test("an effect path nobody can evaluate is skipped, and NAMED", () => {
+    const unknown = { call: "spawnSync", file: "lib/run.mjs", line: 9 };
+    const s = selectTests({
+      files,
+      changed: ["docs/readme.md"],
+      runAllOn: [],
+      reach: (f) =>
+        f === "skills/x/x.harness.mjs"
+          ? { ...EMPTY, unresolved: [unknown] }
+          : EMPTY,
+    });
+    assert.deepEqual(s.selected, []);
+    assert.deepEqual(s.unresolved, [
+      { file: "skills/x/x.harness.mjs", at: unknown },
+    ]);
+    assert.match(
+      formatSelection(s, "main", SINCE),
+      /⚠ 1 skipped file\(s\) also make an effect call whose path cannot be evaluated \(first: skills\/x\/x\.harness\.mjs — spawnSync\(\) at lib\/run\.mjs:9\)/,
+    );
   });
 });
 
@@ -96,7 +157,7 @@ describe("selectTests — self, run-all, nothing", () => {
       files,
       changed: ["skills/x/x.harness.mjs"],
       runAllOn: [],
-      importClosure: none,
+      reach: none,
     });
     assert.deepEqual(s.selected, [
       { file: "skills/x/x.harness.mjs", reason: { kind: "self" } },
@@ -109,7 +170,7 @@ describe("selectTests — self, run-all, nothing", () => {
         files,
         changed: ["docs/a.md", trigger],
         runAllOn: DEFAULT_RUN_ALL_ON,
-        importClosure: none,
+        reach: none,
       });
       assert.deepEqual(
         s.selected.map((x) => x.reason),
@@ -127,7 +188,7 @@ describe("selectTests — self, run-all, nothing", () => {
       files,
       changed: ["shared/prompts/base.md"],
       runAllOn: [...DEFAULT_RUN_ALL_ON, "shared/**"],
-      importClosure: none,
+      reach: none,
     });
     assert.equal(s.selected.length, 2);
   });
@@ -137,7 +198,7 @@ describe("selectTests — self, run-all, nothing", () => {
       files,
       changed: ["docs/readme.md"],
       runAllOn: DEFAULT_RUN_ALL_ON,
-      importClosure: none,
+      reach: none,
     });
     assert.deepEqual(s.selected, []);
     assert.deepEqual(s.skipped, files);
@@ -150,14 +211,14 @@ describe("selectTests — a top-level harness", () => {
       files: ["smoke.harness.mjs"],
       changed: ["any/where.mjs"],
       runAllOn: [],
-      importClosure: none,
+      reach: none,
     });
     assert.equal(top.selected.length, 1);
     const outside = selectTests({
       files: ["smoke.harness.mjs"],
       changed: ["../sibling-package/x.mjs"],
       runAllOn: [],
-      importClosure: none,
+      reach: none,
     });
     assert.equal(outside.selected.length, 0);
   });
@@ -174,7 +235,7 @@ describe("parseChangedRef", () => {
   });
 });
 
-describe("importClosure — relative imports, resolved, transitively", () => {
+describe("harnessReach on disk — relative imports, resolved, transitively", () => {
   let dir: string;
   beforeEach(() => {
     dir = makeTmpDir("selection-imports");
@@ -182,6 +243,9 @@ describe("importClosure — relative imports, resolved, transitively", () => {
   afterEach(() => {
     cleanupTmpDir(dir);
   });
+  const imports = (file: string): ReadonlySet<string> =>
+    harnessReach({ cwd: dir, file, host: nodeSourceHost, layout: undefined })
+      .imports;
 
   test("follows import, re-export, require and literal dynamic import; not packages", () => {
     const w = (rel: string, body: string): void => {
@@ -201,19 +265,19 @@ describe("importClosure — relative imports, resolved, transitively", () => {
     w("lib/d.mjs", "export {};\n");
     w("data/x.json", "{}\n");
     w("lib/unused.mjs", "export {};\n");
-    assert.deepEqual(
-      [...importClosure(dir, "t/a.harness.mjs", nodeSourceHost)].sort(),
-      ["data/x.json", "lib/a.ts", "lib/b.mjs", "lib/c.cjs", "lib/d.mjs"],
-    );
+    assert.deepEqual([...imports("t/a.harness.mjs")].sort(), [
+      "data/x.json",
+      "lib/a.ts",
+      "lib/b.mjs",
+      "lib/c.cjs",
+      "lib/d.mjs",
+    ]);
   });
 
   test("an import cycle terminates", () => {
     writeFileSync(join(dir, "a.mjs"), 'import "./b.mjs";\n');
     writeFileSync(join(dir, "b.mjs"), 'import "./a.mjs";\n');
-    assert.deepEqual(
-      [...importClosure(dir, "a.mjs", nodeSourceHost)],
-      ["b.mjs"],
-    );
+    assert.deepEqual([...imports("a.mjs")], ["b.mjs"]);
   });
 });
 

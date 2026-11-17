@@ -197,10 +197,11 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 601 project files. */
+  /** 604 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
+    | "src/action-dogfood.test.ts"
     | "src/action-gate.test.ts"
     | "src/action-gate.ts"
     | "src/action-major-tag.test.ts"
@@ -565,6 +566,8 @@ declare module "vigiles/generated" {
     | "src/core/symbols.ts"
     | "src/core/test-file-ext.test.ts"
     | "src/core/test-file-ext.ts"
+    | "src/core/test-reach.test.ts"
+    | "src/core/test-reach.ts"
     | "src/core/test-selection.test.ts"
     | "src/core/test-selection.ts"
     | "src/core/test-utils.ts"
@@ -971,6 +974,7 @@ declare module "vigiles/spec" {
     files: 
       | "src/CLAUDE.md"
       | "src/CLAUDE.md.spec.ts"
+      | "src/action-dogfood.test.ts"
       | "src/action-gate.test.ts"
       | "src/action-gate.ts"
       | "src/action-major-tag.test.ts"
@@ -1335,6 +1339,8 @@ declare module "vigiles/spec" {
       | "src/core/symbols.ts"
       | "src/core/test-file-ext.test.ts"
       | "src/core/test-file-ext.ts"
+      | "src/core/test-reach.test.ts"
+      | "src/core/test-reach.ts"
       | "src/core/test-selection.test.ts"
       | "src/core/test-selection.ts"
       | "src/core/test-utils.ts"

@@ -10,7 +10,10 @@
  *                `.vigilesrc.json` `test.runAllOn`). Every file is selected.
  * 3. `folder`  — a changed file sits in the harness's own directory or below it.
  * 4. `import`  — a changed file is in the harness's static import closure
- *                (relative specifiers only, resolved, followed transitively).
+ *                (relative specifiers only, resolved, followed transitively;
+ *                a build output read as its source — `./test-reach.ts`).
+ * 5. `reads`   — a changed file is one an effect call in that closure runs,
+ *                reads or copies, wherever it lives.
  *
  * 🔴 WHY THE FOLDER RULE, AND WHY IT COMES BEFORE IMPORTS. The common harness
  * shape spawns the script it tests (`spawnSync("node", ["hook.mjs"])`) or reads
@@ -23,25 +26,33 @@
  * write: the hook and its harness share a folder. So a harness owns its folder,
  * and the import closure adds what lives elsewhere (a shared helper).
  *
- * What it does NOT see, said plainly: a harness that spawns or reads a file
- * OUTSIDE its own folder without importing it. That is what `test.runAllOn` is
- * for, and the full run on the default branch (the Action's push mode) still
- * runs every file, so nothing is unwired for good.
+ * What it does NOT see, said plainly: a file an effect call reaches through a
+ * path nothing is known about (a helper's parameter, a command read from a
+ * file). Selecting such harnesses on every change was measured on a consumer
+ * repository of 155 harnesses: 114 ran on an average narrowed change instead
+ * of 19, which is no selection at all. So they are not selected for it, and the
+ * output NAMES them (`Selection.unresolved`); `test.runAllOn` covers a known
+ * input, and the full run on the default branch runs every file.
  *
  * Paths here are POSIX and relative to the run's cwd; a path outside it starts
  * with `../` and never matches a folder. Pure: the git diff and the file reads
  * arrive through `src/host/changed-files.io.ts`.
  */
-import ts from "typescript";
-import { dirname, relative, resolve, sep } from "node:path";
+import { dirname } from "node:path";
 import { minimatch } from "minimatch";
+import { reachMatch, type Reach, type Unresolved } from "./test-reach.js";
 
 /** Why one harness file was selected. */
 export type SelectionReason =
   | { readonly kind: "self" }
   | { readonly kind: "run-all"; readonly trigger: string }
   | { readonly kind: "folder"; readonly changed: string }
-  | { readonly kind: "import"; readonly changed: string };
+  | { readonly kind: "import"; readonly changed: string }
+  | {
+      readonly kind: "reads";
+      readonly changed: string;
+      readonly call: string;
+    };
 
 export interface SelectedFile {
   readonly file: string;
@@ -51,6 +62,16 @@ export interface SelectedFile {
 export interface Selection {
   readonly selected: readonly SelectedFile[];
   readonly skipped: readonly string[];
+  /**
+   * Skipped files that make an effect call whose path could not be evaluated
+   * (a function parameter, a command read from a file), with the first such
+   * call. Not selected for it — measured, doing so ran most files on every
+   * change — but always NAMED, so the gap is in the output, not hidden.
+   */
+  readonly unresolved: readonly {
+    readonly file: string;
+    readonly at: Unresolved;
+  }[];
 }
 
 /**
@@ -76,8 +97,8 @@ export interface SelectInput {
   readonly changed: readonly string[];
   /** Globs (cwd-relative) whose change selects every file. */
   readonly runAllOn: readonly string[];
-  /** A harness file's import closure; called only when the cheaper rules missed. */
-  readonly importClosure: (file: string) => ReadonlySet<string>;
+  /** What a harness file reaches (`./test-reach.ts`); asked only when the cheaper rules missed. */
+  readonly reach: (file: string) => Reach;
 }
 
 /** Pure: decide which files run, and why. Order of `files` is kept. */
@@ -85,24 +106,32 @@ export function selectTests(input: SelectInput): Selection {
   const trigger = input.changed.find((c) =>
     input.runAllOn.some((g) => minimatch(c, g, { dot: true })),
   );
-  if (trigger !== undefined) {
-    return {
-      selected: input.files.map((file) => ({
-        file,
-        reason: { kind: "run-all", trigger },
-      })),
-      skipped: [],
-    };
-  }
+  if (trigger !== undefined) return runAll(input.files, trigger);
   const decided = input.files.map((file) => ({
     file,
     reason: reasonFor(file, input),
   }));
+  const skipped = decided.flatMap((d) => (d.reason ? [] : [d.file]));
   return {
     selected: decided.flatMap(({ file, reason }) =>
       reason === undefined ? [] : [{ file, reason }],
     ),
-    skipped: decided.filter((d) => d.reason === undefined).map((d) => d.file),
+    skipped,
+    unresolved: skipped.flatMap((file) =>
+      input
+        .reach(file)
+        .unresolved.slice(0, 1)
+        .map((at) => ({ file, at })),
+    ),
+  };
+}
+
+function runAll(files: readonly string[], trigger: string): Selection {
+  const reason = { kind: "run-all", trigger } as const;
+  return {
+    selected: files.map((file) => ({ file, reason })),
+    skipped: [],
+    unresolved: [],
   };
 }
 
@@ -114,11 +143,14 @@ function reasonFor(
   const dir = dirname(file);
   const inFolder = input.changed.find((c) => isUnder(c, dir));
   if (inFolder !== undefined) return { kind: "folder", changed: inFolder };
-  const closure = input.importClosure(file);
-  const imported = input.changed.find((c) => closure.has(c));
-  return imported === undefined
-    ? undefined
-    : { kind: "import", changed: imported };
+  const r = input.reach(file);
+  const hit = input.changed
+    .map((changed) => ({ changed, hit: reachMatch(r, changed) }))
+    .find((h) => h.hit !== undefined);
+  if (hit?.hit === undefined) return undefined;
+  return hit.hit.kind === "reads"
+    ? { kind: "reads", changed: hit.changed, call: hit.hit.call }
+    : { kind: "import", changed: hit.changed };
 }
 
 /** Is `path` in `dir` or below it? A `../` path is outside every folder. */
@@ -139,11 +171,12 @@ export function formatSelection(
       ? `merge-base of ${ref} and HEAD`
       : `${ref} itself — no merge-base in this clone`;
   const head = `--changed=${ref}: ${String(since.files.length)} changed file(s) since ${since.base.slice(0, 12)} (${how}).`;
+  const gap = unresolvedLine(sel);
   if (sel.selected.length === 0) {
     return (
       `${head}\n0 of ${total} test file(s) selected: no changed file is a harness, ` +
-      `in a harness's folder or import closure, or a run-all trigger.\n` +
-      `Nothing ran; ${String(sel.skipped.length)} skipped. Run without --changed to run them all.`
+      `in a harness's folder, import closure or effect calls, or a run-all trigger.\n` +
+      `Nothing ran; ${String(sel.skipped.length)} skipped. Run without --changed to run them all.${gap}`
     );
   }
   const lines = sel.selected.map(
@@ -151,7 +184,19 @@ export function formatSelection(
   );
   return (
     `${head}\nSelected ${String(sel.selected.length)} of ${total} test file(s); ` +
-    `${String(sel.skipped.length)} skipped:\n${lines.join("\n")}`
+    `${String(sel.skipped.length)} skipped:\n${lines.join("\n")}${gap}`
+  );
+}
+
+/** The skipped files whose effect calls could not be evaluated — said, never hidden. */
+function unresolvedLine(sel: Selection): string {
+  const first = sel.unresolved[0];
+  if (first === undefined) return "";
+  const { call, file, line } = first.at;
+  return (
+    `\n⚠ ${String(sel.unresolved.length)} skipped file(s) also make an effect call whose path ` +
+    `cannot be evaluated (first: ${first.file} — ${call}() at ${file}:${String(line)}). ` +
+    `A change they read that way is not seen; the full run (no --changed) covers them.`
   );
 }
 
@@ -165,97 +210,9 @@ function describeReason(r: SelectionReason): string {
       return `folder: ${r.changed} changed`;
     case "import":
       return `import: ${r.changed} changed`;
+    case "reads":
+      return `reads: ${r.changed} changed (${r.call})`;
   }
-}
-
-// ---------------------------------------------------------------------------
-// The import closure — TypeScript's own scanner and resolver
-// ---------------------------------------------------------------------------
-
-/** The reads the import closure needs. Paths are absolute. */
-export interface SourceHost {
-  /** A file's text, or null when it is absent or unreadable. */
-  readonly read: (path: string) => string | null;
-  readonly isFile: (path: string) => boolean;
-}
-
-/**
- * `typescript` is already a runtime dependency, and `preProcessFile` is its
- * import scanner: static `import`/`export … from`, `require("…")` and a literal
- * `import("…")`, in JS and TS alike, without a type-check. Resolution goes
- * through `resolveModuleName` in Bundler mode, so `./x.js` finds `x.ts` the way
- * a NodeNext project writes it, and an extensionless specifier resolves. The
- * literal path is kept too, so `./x.js` beside an `x.ts` counts both.
- */
-const RESOLVE_OPTIONS: Readonly<ts.CompilerOptions> = {
-  allowJs: true,
-  resolveJsonModule: true,
-  module: ts.ModuleKind.ESNext,
-  moduleResolution: ts.ModuleResolutionKind.Bundler,
-};
-
-const CODE_EXT = /\.(?:[cm]?[jt]s|[jt]sx)$/;
-
-/** Absolute paths of the files `abs` imports through a relative specifier. */
-function relativeImportsOf(abs: string, host: SourceHost): readonly string[] {
-  const text = host.read(abs);
-  if (text === null) return [];
-  const resolver = {
-    fileExists: host.isFile,
-    readFile: (p: string) => host.read(p) ?? undefined,
-  };
-  return ts
-    .preProcessFile(text, true, true)
-    .importedFiles.map((i) => i.fileName)
-    .filter((s) => s.startsWith("./") || s.startsWith("../"))
-    .flatMap((spec) => {
-      const literal = resolve(dirname(abs), spec);
-      const viaTs = ts.resolveModuleName(spec, abs, RESOLVE_OPTIONS, resolver)
-        .resolvedModule?.resolvedFileName;
-      return [
-        ...(host.isFile(literal) ? [literal] : []),
-        ...(viaTs === undefined ? [] : [resolve(viaTs)]),
-      ];
-    });
-}
-
-/** Breadth-first over the import graph; `seen` holds every file reached. */
-function walk(
-  frontier: readonly string[],
-  seen: ReadonlySet<string>,
-  host: SourceHost,
-): ReadonlySet<string> {
-  if (frontier.length === 0) return seen;
-  const next = [
-    ...new Set(
-      frontier
-        .filter((f) => CODE_EXT.test(f))
-        .flatMap((f) => relativeImportsOf(f, host)),
-    ),
-  ].filter((d) => !seen.has(d));
-  return walk(next, new Set([...seen, ...next]), host);
-}
-
-/**
- * Every file reachable from `file` by relative imports, cwd-relative and POSIX,
- * not including `file` itself. Only code files are followed; a JSON or text
- * import is a leaf. A file that cannot be read contributes nothing.
- */
-export function importClosure(
-  cwd: string,
-  file: string,
-  host: SourceHost,
-): ReadonlySet<string> {
-  const start = resolve(cwd, file);
-  const reached = walk([start], new Set([start]), host);
-  return new Set(
-    [...reached].filter((p) => p !== start).map((p) => posixRelative(cwd, p)),
-  );
-}
-
-/** `relative`, in POSIX separators. */
-export function posixRelative(from: string, to: string): string {
-  return relative(from, to).split(sep).join("/");
 }
 
 // ---------------------------------------------------------------------------

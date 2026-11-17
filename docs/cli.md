@@ -149,6 +149,7 @@ holds, and the run prints which one, per file:
 | `run-all` | `package.json`, a lockfile, `.vigilesrc.json`, a file under `.github/workflows/`, or a [`test.runAllOn`](configuration.md#test) glob changed — every file runs |
 | `folder`  | a changed file sits in the harness's folder or below it                                                                                                        |
 | `import`  | a changed file is in the harness's import closure (relative `import`, `export … from`, `require`, literal `import()`)                                          |
+| `reads`   | a changed file is one an effect call in the harness or its closure runs, reads or copies (`spawn*`, `exec*`, `readFile*`, `cp*`, `existsSync`, `runHook`…)     |
 
 ```
 --changed=origin/main: 2 changed file(s) since 3f2a9c1e0b7d (merge-base of origin/main and HEAD).
@@ -161,8 +162,31 @@ Selected 1 of 40 test file(s); 39 skipped:
 selector that follows imports alone — Vitest's `--changed`, Jest's `--findRelatedTests` — reports
 "no affected tests" when that script changes, and passes. Keeping a harness beside what it tests is
 what lets `--changed` see it. A harness at the top of the tree owns the whole tree and runs on every
-change. An input a harness reaches from **outside** its folder without importing it is invisible to
-both rules: list it in [`test.runAllOn`](configuration.md#test).
+change.
+
+**Effect calls reach outside the folder.** A call that runs, reads or copies a file names a
+dependency wherever it points: `readFileSync(join(ROOT, ".claude", "settings.json"))`,
+`cpSync(join(ROOT, "scripts/check.py"), tmp)`, `spawnSync("node", [new URL("../lib/run.mjs",
+import.meta.url).pathname])`. The path is evaluated, not matched as text — literals, `join`/`resolve`,
+`__dirname`, `import.meta.url`, `process.cwd()` and the `const` they are bound to. A script a call
+runs is followed like an import. Three rules keep this honest:
+
+- **A known start with an unknown end is a folder.** `readFileSync(join(ROOT, "data", name))` runs
+  the harness on any change under `data/`; `join(ROOT, name)` on any change at all.
+- **Only call arguments count.** A path inside an object — `tool_input.file_path` in a synthetic
+  hook event — is a fixture, not a dependency, and selects nothing.
+- **A path nothing is known about is named, not guessed.** `readFileSync(path)` inside a helper
+  whose `path` is a parameter cannot be evaluated. Selecting such a harness on every change was
+  measured on a repository of 155 harnesses: it ran 114 of them on an average narrowed pull request,
+  against 19 without it. So it is not selected for that alone, and the run says so:
+  `⚠ N skipped file(s) also make an effect call whose path cannot be evaluated (first: …)`. The full
+  run on the default branch covers them; to cover one on every pull request, list what it reads in
+  [`test.runAllOn`](configuration.md#test).
+
+**A build is read as its source.** A harness that imports `dist/x.js` is reached by a change to
+`src/x.ts`: with a `tsconfig.json` whose `outDir` is set, a path in `outDir` is read as its
+`rootDir` counterpart, and the closure continues from the source. The source's own file reads are
+not followed — they read whatever the harness hands them at run time — only its imports.
 
 **Nothing selected is said, not passed silently.** When no file is reached the run prints
 `0 of N test file(s) selected … Nothing ran; N skipped` and exits `0`: a pull request that touches

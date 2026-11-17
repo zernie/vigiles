@@ -6,11 +6,8 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
-import {
-  posixRelative,
-  type ChangedResult,
-  type SourceHost,
-} from "../core/test-selection.js";
+import type { ChangedResult } from "../core/test-selection.js";
+import { posixRelative, type SourceHost } from "../core/test-reach.js";
 
 /** Reads for the import closure, from disk. */
 export const nodeSourceHost: SourceHost = {
