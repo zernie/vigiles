@@ -13,6 +13,7 @@ npx vigiles eject [file]            # Un-manage a compiled file → plain hand-o
 npx vigiles lint [files...]         # Verify references + integrity + symbols + coverage (incl. instruction-file symbol marks)
 npx vigiles lint --preset=experimental  # Also run the experimental rules (warn only, never fail) — a preset on top of your config
 npx vigiles test [files...]         # Run *.harness.{mjs,ts} deterministic harness tests (no API key)
+npx vigiles test --changed=origin/main  # Run only the harness files a change since that ref can reach
 npx vigiles eval [files...]         # Run *.eval.{mjs,ts} real-model harness evals (--trials=N) — local, on your subscription
 npx vigiles eval --all              # Run ALL discovered evals — a bare no-target `eval` asks first (it spends model quota)
 npx vigiles eval --update           # Record each named eval's result to a committed .vigiles/eval-locks/<name>.lock.json (local)
@@ -134,6 +135,46 @@ Each script's output is buffered and printed whole when that script finishes, ra
 live, because concurrent children writing to one terminal interleave into an unreadable mess.
 Results are reported in discovery order regardless of which finished first — a run that reorders
 its own output between invocations reads as flaky even when every result is stable.
+
+### Running only what a change reaches: `--changed`
+
+`vigiles test --changed=<ref>` runs only the harness files that the changes since `<ref>` can
+reach. "Changes" are everything between the merge-base of `<ref>` and `HEAD` and your working
+tree: commits, staged and unstaged edits, and new untracked files. A file runs when any of these
+holds, and the run prints which one, per file:
+
+| reason    | the file runs because                                                                                                                                          |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `self`    | the harness file itself changed                                                                                                                                |
+| `run-all` | `package.json`, a lockfile, `.vigilesrc.json`, a file under `.github/workflows/`, or a [`test.runAllOn`](configuration.md#test) glob changed — every file runs |
+| `folder`  | a changed file sits in the harness's folder or below it                                                                                                        |
+| `import`  | a changed file is in the harness's import closure (relative `import`, `export … from`, `require`, literal `import()`)                                          |
+
+```
+--changed=origin/main: 2 changed file(s) since 3f2a9c1e0b7d (merge-base of origin/main and HEAD).
+Selected 1 of 40 test file(s); 39 skipped:
+  ▸ hooks/guard/guard.harness.mjs — folder: hooks/guard/guard.mjs changed
+```
+
+**Why the folder rule.** A harness usually spawns the script it tests
+(`spawnSync("node", ["guard.mjs"])`) or reads a fixture beside it. Neither is an import, so a
+selector that follows imports alone — Vitest's `--changed`, Jest's `--findRelatedTests` — reports
+"no affected tests" when that script changes, and passes. Keeping a harness beside what it tests is
+what lets `--changed` see it. A harness at the top of the tree owns the whole tree and runs on every
+change. An input a harness reaches from **outside** its folder without importing it is invisible to
+both rules: list it in [`test.runAllOn`](configuration.md#test).
+
+**Nothing selected is said, not passed silently.** When no file is reached the run prints
+`0 of N test file(s) selected … Nothing ran; N skipped` and exits `0`: a pull request that touches
+only docs has nothing to test. Run without `--changed` (as CI does on the default branch) to run
+everything.
+
+**`--min` counts discovery, before `--changed` narrows it.** `--min=150` still fails a run whose glob
+matched 149 files, even on a pull request that selects none of them, so a broken glob cannot pass on
+zero. After the run, every _selected_ file must have loaded.
+
+An unknown `<ref>` exits `2`: in a shallow clone, fetch it first. With no merge-base in the clone
+(a CI checkout of a pull request's merge commit), the ref itself is the base and the output says so.
 
 **Already have vitest or jest? You don't need a second runner for the
 deterministic tier.** The testing API — `runHook`, `runHarnessTest`, the check

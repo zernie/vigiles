@@ -197,7 +197,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 598 project files. */
+  /** 601 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -565,6 +565,8 @@ declare module "vigiles/generated" {
     | "src/core/symbols.ts"
     | "src/core/test-file-ext.test.ts"
     | "src/core/test-file-ext.ts"
+    | "src/core/test-selection.test.ts"
+    | "src/core/test-selection.ts"
     | "src/core/test-utils.ts"
     | "src/core/tmp-root.test.ts"
     | "src/core/tmp-root.ts"
@@ -654,6 +656,7 @@ declare module "vigiles/generated" {
     | "src/hook-state-store.ts"
     | "src/hook.test.ts"
     | "src/hook.ts"
+    | "src/host/changed-files.io.ts"
     | "src/host/rule-proof.io.test.ts"
     | "src/host/rule-proof.io.ts"
     | "src/instruction-sources.test.ts"
@@ -1332,6 +1335,8 @@ declare module "vigiles/spec" {
       | "src/core/symbols.ts"
       | "src/core/test-file-ext.test.ts"
       | "src/core/test-file-ext.ts"
+      | "src/core/test-selection.test.ts"
+      | "src/core/test-selection.ts"
       | "src/core/test-utils.ts"
       | "src/core/tmp-root.test.ts"
       | "src/core/tmp-root.ts"
@@ -1421,6 +1426,7 @@ declare module "vigiles/spec" {
       | "src/hook-state-store.ts"
       | "src/hook.test.ts"
       | "src/hook.ts"
+      | "src/host/changed-files.io.ts"
       | "src/host/rule-proof.io.test.ts"
       | "src/host/rule-proof.io.ts"
       | "src/instruction-sources.test.ts"

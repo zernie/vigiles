@@ -94,7 +94,15 @@ export const COMMAND_FLAGS: Record<Verb, readonly FlagSpec[]> = {
     "--update-baseline",
   ],
   // handleRunScripts (free tier — no lock flags).
-  test: ["--min=", "--all", "--yes", "--no-interactive", "--no-skip"],
+  test: [
+    "--min=",
+    "--all",
+    "--yes",
+    "--no-interactive",
+    "--no-skip",
+    // test-selection.ts: run only what a change since <ref> can reach.
+    "--changed=",
+  ],
   // handleRunScripts + resolveEvalLockEnv + the trials knob.
   eval: [
     "--min=",

@@ -400,6 +400,15 @@ import {
   loadFailed,
   type ScriptRunResult,
 } from "./adapters/claude-code/run-scripts.js";
+import {
+  DEFAULT_RUN_ALL_ON,
+  formatSelection,
+  importClosure,
+  parseChangedRef,
+  posixRelative,
+  selectTests,
+} from "./core/test-selection.js";
+import { changedSince, nodeSourceHost } from "./host/changed-files.io.js";
 
 /**
  * THE RULE SET, WIRED IN — the composition root's one job for rules. Core
@@ -7795,11 +7804,16 @@ async function handleRunScripts(
   const env: NodeJS.ProcessEnv = { ...lockEnv };
   if (trialsFlag) env.VIGILES_TRIALS = trialsFlag.split("=")[1];
 
-  console.log(`Running ${String(files.length)} ${kind} file(s):\n`);
+  // `--changed=<ref>` narrows the set AFTER `--min` has counted discovery, so a
+  // broken glob still fails on a PR that touches nothing (test-selection.ts).
+  const toRun = kind === "test" ? narrowToChanged(cwd, files, args) : files;
+  if (toRun.length === 0) return;
+
+  console.log(`Running ${String(toRun.length)} ${kind} file(s):\n`);
   // An eval file DESCRIBES its eval; `dist/eval-entry.js` is what imports the
   // description and runs what it declares. A harness script is still its own
   // program (it is free, so "import spends money" never applied to it).
-  const results = await runScripts(files, cwd, env, {
+  const results = await runScripts(toRun, cwd, env, {
     ...(kind === "eval" ? { entry: resolve(__dirname, "eval-entry.js") } : {}),
   });
   // Write down WHAT the run exercised, so `lint`/`audit` can answer "tested?"
@@ -7810,11 +7824,14 @@ async function handleRunScripts(
   console.log("\n" + formatScriptSummary(results));
 
   const loadedCount = results.filter((r) => !loadFailed(r)).length;
-  const belowFloor = loadedCount < minRequired;
+  // Under `--changed` the floor was met by discovery; what is left to hold is
+  // that every SELECTED file loaded.
+  const floor = Math.min(minRequired, toRun.length);
+  const belowFloor = loadedCount < floor;
   if (belowFloor) {
     console.error(
       `\n✗ vigiles ${kind}: --min=${String(minRequired)} but only ${String(loadedCount)} of ` +
-        `${String(files.length)} matched ${kind} file(s) loaded.`,
+        `${String(toRun.length)} matched ${kind} file(s) loaded.`,
     );
   }
 
@@ -7882,6 +7899,45 @@ async function handleRunScripts(
     );
     process.exit(1);
   }
+}
+
+/**
+ * Apply `--changed=<ref>` to the discovered harness files: print which run and
+ * why, and return them. Without the flag, every file. An empty return means the
+ * selection was empty and has been said; an unusable ref exits 2, because
+ * running everything or nothing would both misreport what was asked.
+ */
+function narrowToChanged(
+  cwd: string,
+  files: readonly string[],
+  args: readonly string[],
+): readonly string[] {
+  const flag = args.find((a) => a.startsWith("--changed="));
+  if (flag === undefined) return files;
+  const parsed = parseChangedRef(flag.slice("--changed=".length));
+  const changed = parsed.kind === "ok" ? changedSince(cwd, parsed.ref) : parsed;
+  if (changed.kind === "error") {
+    console.error(`✗ vigiles test: ${changed.message}`);
+    process.exit(2);
+  }
+  const ref = parsed.kind === "ok" ? parsed.ref : "";
+  // Real path on every side: git and TypeScript's resolver both report one, and
+  // a symlinked cwd (macOS /tmp) would otherwise match nothing.
+  const real = realpathSync(cwd);
+  const key = (f: string): string => posixRelative(real, resolve(real, f));
+  const byKey = new Map(files.map((f) => [key(f), f]));
+  const sel = selectTests({
+    files: [...byKey.keys()],
+    changed: changed.files,
+    runAllOn: [
+      ...DEFAULT_RUN_ALL_ON,
+      changed.workflowsGlob,
+      ...(loadConfig().test?.runAllOn ?? []),
+    ],
+    importClosure: (f) => importClosure(real, f, nodeSourceHost),
+  });
+  console.log(formatSelection(sel, ref, changed) + "\n");
+  return sel.selected.map((s) => byKey.get(s.file) ?? s.file);
 }
 
 /** Parse the `--harness=<name>` override out of an argv list (the one definition). */
@@ -7970,6 +8026,10 @@ const COMMAND_HELP: Record<Verb, CommandHelp> = {
     // deciding whether to put this in CI needs the cost, not the implementation.
     usage:
       "  vigiles test  [files...]   Against a scripted stand-in model. Free, no API key — every commit.",
+    detail: [
+      "  --changed=<ref>  run only the files a change since <ref> can reach: the file itself,",
+      "  a changed file in its folder or import closure, or a run-all trigger (package.json…).",
+    ],
   },
   eval: {
     usage:

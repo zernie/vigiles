@@ -74,6 +74,7 @@ place and copy the two lines you want:
 
   "audit": { "measure": false },
   "eval": { "apiVersion": 2 },
+  "test": { "runAllOn": ["shared/prompts/**"] },
   "nudge": "dismissed"
 }
 ```
@@ -512,6 +513,17 @@ real model. See [`audit`](cli.md#audit-dir).
 See [testing API](testing-api.md).
 
 > Default: the current version
+
+### `test`
+
+`{ "runAllOn": ["shared/prompts/**"] }` — globs whose change makes
+[`vigiles test --changed`](cli.md#running-only-what-a-change-reaches---changed)
+run **every** harness file. Use it for an input a harness spawns or reads from
+outside its own folder, which neither the folder rule nor the import closure can
+see. Added to the built-in triggers: `package.json`, the lockfiles,
+`.vigilesrc.json` and `.github/workflows/**`.
+
+> Default: only the built-in triggers
 
 ### `nudge`
 

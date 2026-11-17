@@ -208,6 +208,13 @@ const configTailKeys = {
   harnesses: z.record(z.string(), harnessDeclarationSchema).optional(),
   audit: z.object({ measure: z.boolean().optional() }).strict().optional(),
   eval: z.object({ apiVersion: z.number().optional() }).strict().optional(),
+  /**
+   * `vigiles test --changed=<ref>`: globs (relative to where vigiles runs) whose change
+   * runs EVERY harness, on top of the built-in triggers (package.json, the
+   * lockfiles, this file, the CI workflows). For an input a harness spawns or
+   * reads from outside its own folder.
+   */
+  test: z.object({ runAllOn: stringList.optional() }).strict().optional(),
   nudge: z.literal("dismissed").optional(),
 };
 
