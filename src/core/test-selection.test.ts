@@ -281,6 +281,52 @@ describe("harnessReach on disk — relative imports, resolved, transitively", ()
   });
 });
 
+describe("harnessReach on disk — the file probe is total", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = makeTmpDir("selection-probe");
+  });
+  afterEach(() => {
+    cleanupTmpDir(dir);
+  });
+  const imports = (file: string): ReadonlySet<string> =>
+    reachFor({ cwd: dir, host: nodeSourceHost, project: undefined })(file)
+      .imports;
+
+  test("a package whose `main` is a file does not crash the walk (ENOTDIR)", () => {
+    // The resolver probes `<main>/index.ts`; with `main: "toml.js"` that path
+    // runs THROUGH a file, and stat throws ENOTDIR, not ENOENT. Seen in CI on
+    // `@iarna/toml`: `vigiles test --changed` died with exit 2.
+    mkdirSync(join(dir, "node_modules", "pkg"), { recursive: true });
+    writeFileSync(
+      join(dir, "node_modules", "pkg", "package.json"),
+      '{ "name": "pkg", "main": "toml.js" }\n',
+    );
+    writeFileSync(
+      join(dir, "node_modules", "pkg", "toml.js"),
+      "module.exports = 1;\n",
+    );
+    writeFileSync(join(dir, "a.harness.mjs"), 'import "pkg";\n');
+    assert.deepEqual([...imports("a.harness.mjs")], []);
+    assert.equal(
+      nodeSourceHost.isFile(
+        join(dir, "node_modules", "pkg", "toml.js", "index.ts"),
+      ),
+      false,
+    );
+  });
+
+  test("isFile is total: any stat error reads as 'not a file', never a throw", () => {
+    // `throwIfNoEntry: false` swallows ENOENT everywhere and ENOTDIR only on
+    // newer Node (22 here; Node 20 in CI threw it). A name over the length
+    // limit throws ENAMETOOLONG on every version, so it pins the property.
+    assert.equal(
+      nodeSourceHost.isFile(join(dir, `${"a".repeat(300)}.ts`)),
+      false,
+    );
+  });
+});
+
 // __dirname is src/core/ when vitest resolves the .ts source.
 const CLI = resolve(__dirname, "..", "..", "dist", "cli.js");
 
