@@ -76,9 +76,10 @@ With pnpm or Yarn, install in a step before the Action. Because the install come
 `version` then runs the vigiles your `package.json` declares — the same copy your harness files import.
 
 **`changed-only`** maps to [`vigiles test --changed=<PR base sha>`](cli.md#running-only-what-a-change-reaches---changed)
-on `pull_request` events: a harness runs when it changed, when a file in its folder or its import
-closure changed, and all of them run when `package.json`, a lockfile, `.vigilesrc.json` or a
-workflow changed. Every file runs on any other event, so the push to your default branch is still
+on `pull_request` events: a harness runs when it changed, when a file in its folder, its import
+closure (a build read as its source) or a path its effect calls run or read changed, and all of
+them run when `package.json`, a lockfile, `.vigilesrc.json` or a workflow changed. A harness whose
+effect call names a path that cannot be evaluated is listed in the output, not silently dropped. Every file runs on any other event, so the push to your default branch is still
 the full sweep: a harness nobody wired runs there. Each selected file is listed with its reason,
 and a pull request that reaches none says `0 of N test file(s) selected` rather than passing
 silently. The Action fetches the base commit itself; no `fetch-depth: 0` needed.

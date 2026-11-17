@@ -114,6 +114,10 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
+        # The commands the Action accepts — the ONE list, as data:
+        # src/action-dogfood.test.ts reads it and fails unless this repo's CI
+        # runs each through `uses: ./`.
+        VIGILES_COMMANDS: "lint compile test eval-check"
         # Inputs are passed through the environment (never interpolated into
         # the script body) so a value can't break out of the command line.
         VIGILES_COMMAND: ${{ inputs.command }}
@@ -135,6 +139,12 @@ runs:
         set -euo pipefail
 
         cmd="${VIGILES_COMMAND:-lint}"
+        # Anything outside VIGILES_COMMANDS used to pass through and fail as a
+        # CLI error that looked like a vigiles bug.
+        if [[ " ${VIGILES_COMMANDS} " != *" ${cmd} "* ]]; then
+          echo "::error::vigiles: unknown command '${cmd}' (one of: ${VIGILES_COMMANDS})"
+          exit 2
+        fi
         # 'eval-check' is the CI staleness gate — it maps to the real verb
         # `eval --check` (verify committed locks vs current inputs, NO model).
         # Real evals run locally on a subscription (`eval --update`), never in CI.

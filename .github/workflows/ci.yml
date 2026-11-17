@@ -492,10 +492,19 @@ jobs:
       # names whatever failed — which is what the per-step names here used to buy.
       # `node scripts/check.mjs --list` prints the commands without running them.
       #
-      # The two `uses: ./` steps above are NOT in it on purpose: they dogfood this
-      # repo's own composite Action, which has no shell equivalent.
+      # The `uses: ./` steps in this job are NOT in it on purpose: they dogfood
+      # this repo's own composite Action, which has no shell equivalent.
       - name: Check suite (identical to `npm run check` locally)
         run: npm run check
+
+      # The Action's `compile` path (specs → markdown, ~6 s), so every command the
+      # Action accepts runs through it here (src/action-dogfood.test.ts).
+      - name: Dogfood the Action's compile command
+        uses: ./
+        with:
+          command: compile
+          version: local
+          comment: "false"
 
   harness:
     # Dogfood the harness-testing pillar on the in-repo build: the deterministic
@@ -526,12 +535,23 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Run deterministic harness tests
-        # --min is a FLOOR: a run that matches nothing already fails, but a glob
-        # that loses SOME of the harnesses (a rename, a moved directory, a changed
-        # extension) still matches the rest and stays green. Adding harness files
-        # keeps passing; dropping below the floor fails.
-        run: node dist/cli.js test --min=15
+      # Through the in-repo Action (`version: local` runs this checkout's dist/),
+      # so the wrapper path users take runs on every PR. changed-only: a PR runs
+      # the harnesses its diff reaches (the PR base is fetched by the Action), a
+      # push to main runs all of them. `node_modules` exists, so the Action's own
+      # install is skipped. comment: false — the lint step owns the sticky comment.
+      - name: Run deterministic harness tests (dogfood the Action's command test)
+        uses: ./
+        with:
+          command: test
+          version: local
+          changed-only: "true"
+          # --min is a FLOOR on what discovery matched, before changed-only
+          # narrows it: a glob that loses SOME harnesses (a rename, a moved
+          # directory, a changed extension) still matches the rest, and this
+          # fails it on every PR.
+          min: "15"
+          comment: "false"
 
   # The in-browser "grade a repo" demo (site/) runs the SAME compiled engine the
   # CLI runs (`@engine/*` → the built dist/), so its browser-mode vitest suite is a

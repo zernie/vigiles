@@ -29,7 +29,10 @@ const action = load(raw) as {
   runs: {
     using?: string;
     main?: string;
-    steps?: ReadonlyArray<{ readonly run?: string }>;
+    steps?: ReadonlyArray<{
+      readonly run?: string;
+      readonly env?: Readonly<Record<string, string>>;
+    }>;
   };
 };
 
@@ -157,6 +160,9 @@ function resolveRunner(
         NPX_LOG: join(root, "npx.log"),
         GITHUB_OUTPUT: join(root, "out"),
         VIGILES_COMMAND: "lint",
+        // Fixed by action.yml itself (not an input), so taken from the step.
+        VIGILES_COMMANDS:
+          action.runs.steps?.[0]?.env?.["VIGILES_COMMANDS"] ?? "",
         VIGILES_VERSION: version ?? "",
         VIGILES_ACTION_PATH: root,
         ...env,
@@ -367,6 +373,14 @@ describe("action.yml — command: test, changed-only", () => {
         GITHUB_EVENT_NAME: "push",
       }),
       "--no-install vigiles test",
+    );
+  });
+
+  it("refuses a command it does not accept, before running anything", () => {
+    assert.throws(
+      () => resolveRunner(installed, undefined, { VIGILES_COMMAND: "eval" }),
+      (e: { status?: number; stdout?: Buffer }) =>
+        e.status === 2 && String(e.stdout).includes("unknown command 'eval'"),
     );
   });
 
