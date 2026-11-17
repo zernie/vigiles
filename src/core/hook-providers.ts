@@ -285,30 +285,85 @@ export function unsafeProvider(def: RegisteredProvider): boolean {
   return !def.dangerous && !isReadOnlyBash(def.run);
 }
 
+/** One resolved fact: a string, a boolean (built-ins), or a state fact. */
+type Fact = string | boolean | StateFact;
+
 /**
- * Gather the DECLARED facts into a context object (the trusted-host step). Only
- * the names in `needs` are gathered, each at most once; a built-in, inline, or
- * registered provider that can't resolve yields its default ("" / false), never
- * throws. Pure over the injected `io` (CLI passes a real execSync; tests a fake)
- * and the `registry` (the loaded `.vigiles/providers/`, for `provider()` refs).
+ * Resolve ONE declared need — the single resolver behind both {@link lazyContext}
+ * and {@link gatherContext}. TOTAL: an unresolvable need yields its default (""
+ * for a command or a missing registered ref, the built-in's own default, a
+ * never-recorded `state()` fact), never throws.
+ */
+export function resolveNeed(
+  need: NeedSpec,
+  io: ProviderIO,
+  registry: ProviderRegistry = {},
+): Fact {
+  if (isStateNeed(need)) {
+    // The one need that reaches no subprocess: the trusted runtime hands the
+    // stored entry (or null) straight in, and the fact view does the clamping
+    // every shell stamp-reader used to re-implement by hand.
+    return stateFact(io.readState(need.name), io.now);
+  }
+  if (isInline(need)) return tryExec(io, need.run);
+  if (isRef(need)) {
+    const def = registry[need.name];
+    return def ? tryExec(io, def.run) : "";
+  }
+  return BUILTIN_PROVIDERS[need].gather(io);
+}
+
+/** The key a need is exposed under in `e.ctx`. */
+const needKey = (need: NeedSpec): string =>
+  typeof need === "string" ? need : need.name;
+
+/**
+ * The runtime's `e.ctx`: one enumerable, MEMOIZED getter per DECLARED need.
+ * Nothing runs until a key is read, each key resolves at most once per context
+ * (two reads in one decision see one value), and a key never read never runs —
+ * so an unread `dangerously()` provider costs nothing and fires nothing. Getters
+ * never throw ({@link resolveNeed} is total). `io.now` is fixed when the context
+ * is built, so a `state()` age does not depend on when `decide` reads it.
+ */
+export function lazyContext(
+  needs: readonly NeedSpec[],
+  io: ProviderIO,
+  registry: ProviderRegistry = {},
+): Readonly<Record<string, Fact>> {
+  return Object.defineProperties(
+    {},
+    Object.fromEntries(
+      needs.map((need) => [
+        needKey(need),
+        {
+          enumerable: true,
+          configurable: true,
+          // Memoization by self-replacement: the first read resolves the need and
+          // redefines the key as a plain data property holding the result, so a
+          // second read can never run it again and no cache variable exists.
+          get(this: object): Fact {
+            const value = resolveNeed(need, io, registry);
+            Object.defineProperty(this, needKey(need), {
+              value,
+              enumerable: true,
+            });
+            return value;
+          },
+        },
+      ]),
+    ),
+  );
+}
+
+/**
+ * Gather the DECLARED facts eagerly: {@link lazyContext} with every key read
+ * once (the eager twin, same resolver). Kept for callers that want a plain
+ * snapshot object. Pure over the injected `io` and the `registry`.
  */
 export function gatherContext(
   needs: readonly NeedSpec[],
   io: ProviderIO,
   registry: ProviderRegistry = {},
-): Record<string, string | boolean | StateFact> {
-  const ctx: Record<string, string | boolean | StateFact> = {};
-  for (const need of needs) {
-    if (isStateNeed(need)) {
-      // The one need that reaches no subprocess: the trusted runtime hands the
-      // stored entry (or null) straight in, and the fact view does the clamping
-      // every shell stamp-reader used to re-implement by hand.
-      ctx[need.name] = stateFact(io.readState(need.name), io.now);
-    } else if (isInline(need)) ctx[need.name] = tryExec(io, need.run);
-    else if (isRef(need)) {
-      const def = registry[need.name];
-      ctx[need.name] = def ? tryExec(io, def.run) : "";
-    } else ctx[need] = BUILTIN_PROVIDERS[need].gather(io);
-  }
-  return ctx;
+): Readonly<Record<string, Fact>> {
+  return Object.fromEntries(Object.entries(lazyContext(needs, io, registry)));
 }
