@@ -14,10 +14,16 @@ export function admissibleWrites(writes: readonly unknown[]): {
 export const allow: () => Decision;
 
 // @public (undocumented)
-export type AnyHook = HookProgram<ErasedNeeds> | FileGateHook<ErasedNeeds> | PromptGateHook<ErasedNeeds> | StopGateHook<ErasedNeeds> | InjectHook<ErasedNeeds> | ReactHook<ErasedNeeds>;
+export type AnyHook = HookProgram<ErasedNeeds> | FileGateHook<ErasedNeeds> | PromptGateHook<ErasedNeeds> | StopGateHook<ErasedNeeds> | InjectHook<ErasedNeeds> | ReactHook<ErasedNeeds, ErasedTools>;
 
 // @public (undocumented)
 export const ask: (reason: string) => Decision;
+
+// @public
+export interface BashReactEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> extends ToolReactEvent<N> {
+    readonly command: CommandView;
+    readonly tool: "Bash";
+}
 
 // @public
 export interface BashToolEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> {
@@ -157,7 +163,7 @@ export function experimental_defineInject<const N extends readonly NeedSpec[] = 
 export function experimental_definePromptGate<const N extends readonly NeedSpec[] = readonly []>(p: Omit<PromptGateHook<N>, "role">): PromptGateHook<N>;
 
 // @public
-export function experimental_defineReact<const N extends readonly NeedSpec[] = readonly []>(p: Omit<ReactHook<N>, "role">): ReactHook<N>;
+export function experimental_defineReact<const N extends readonly NeedSpec[] = readonly [], const T extends readonly string[] = readonly []>(p: Omit<ReactHook<N, T>, "role">): ReactHook<N, T>;
 
 // @public
 export function experimental_defineStopGate<const N extends readonly NeedSpec[] = readonly []>(p: Omit<StopGateHook<N>, "role">): StopGateHook<N>;
@@ -419,26 +425,17 @@ export interface RawHookEvent {
 }
 
 // @public
-export interface ReactEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> {
-    readonly ctx: HookCtx<N>;
-    // (undocumented)
-    readonly event: string;
-    // (undocumented)
-    readonly path: PathView;
-    readonly response: ResponseView;
-    // (undocumented)
-    readonly tool: string;
-}
+export type ReactEvent<N extends readonly NeedSpec[] = readonly ProviderName[], T extends readonly string[] = readonly string[]> = DeclaresOnlyShell<T> extends true ? BashReactEvent<N> : ToolReactEvent<N>;
 
 // @public (undocumented)
-export interface ReactHook<N extends readonly NeedSpec[] = readonly ProviderName[]> {
+export interface ReactHook<N extends readonly NeedSpec[] = readonly ProviderName[], T extends readonly string[] = readonly string[]> {
     readonly match?: {
-        readonly tools: readonly string[];
+        readonly tools: T;
     };
     readonly needs?: N;
     // (undocumented)
     readonly on: string;
-    readonly react: (e: ReactEvent<N>) => Reaction;
+    readonly react: (e: ReactEvent<N, T>) => Reaction;
     // (undocumented)
     readonly role: "react";
 }
@@ -503,10 +500,11 @@ export function runInject<N extends readonly NeedSpec[]>(hook: InjectHook<N>, ra
 };
 
 // @public
-export function runReact<N extends readonly NeedSpec[]>(hook: ReactHook<N>, raw: {
+export function runReact<N extends readonly NeedSpec[], T extends readonly string[]>(hook: ReactHook<N, T>, raw: {
     tool_name?: string;
     tool_input?: {
         file_path?: unknown;
+        command?: unknown;
     };
     tool_response?: unknown;
     cwd?: unknown;
@@ -598,9 +596,18 @@ export interface StopGateHook<N extends readonly NeedSpec[] = readonly ProviderN
     readonly role: "stop-gate";
 }
 
-// @public (undocumented)
-export const tools: (...names: string[]) => {
-    tools: string[];
+// @public
+export interface ToolReactEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> {
+    readonly ctx: HookCtx<N>;
+    readonly event: string;
+    readonly path: PathView;
+    readonly response: ResponseView;
+    readonly tool: string;
+}
+
+// @public
+export const tools: <const T extends readonly string[]>(...names: T) => {
+    readonly tools: T;
 };
 
 // @public

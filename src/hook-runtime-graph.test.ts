@@ -184,6 +184,68 @@ describe("hook-runtime module graph", () => {
   });
 });
 
+describe("a Bash react and the shell parser (#396 a)", () => {
+  // #396 (a): a react declared for Bash alone now carries `e.command`. That view
+  // must be LAZY, or every Bash react — a "command failed" nudge that reads only
+  // the response — would start paying the parser on every Bash call. The pair
+  // below pins both directions, exactly as the gate pair above does.
+  function bashReactFixture(name: string, body: string): string {
+    const p = join(dir, name);
+    writeFileSync(
+      p,
+      `import { experimental_defineReact, tools, notice, nothing } from ${JSON.stringify(HOOK_DIST)};
+export default experimental_defineReact({
+  on: "PostToolUse",
+  match: tools("Bash"),
+  react: ${body},
+});
+`,
+    );
+    return p;
+  }
+  const BASH_POST = JSON.stringify({
+    hook_event_name: "PostToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "ls -la" },
+    tool_response: { stdout: "", stderr: "", interrupted: false },
+  });
+
+  test("a Bash REACT that never asks about the command does not load the shell parser", () => {
+    const graph = graphOf(
+      [
+        "hook-runtime",
+        "run-program",
+        bashReactFixture(
+          "bash-react-response.mjs",
+          `(e) => (e.response.isError() ? notice("failed") : nothing())`,
+        ),
+      ],
+      BASH_POST,
+    );
+    expect(
+      has(graph, "mvdan-sh"),
+      "a Bash react that reads only e.response pulled mvdan-sh. The react's " +
+        "CommandView must parse on the first predicate call, not when the event " +
+        "is built (core/hook-program.ts commandView).",
+    ).toBe(false);
+  });
+
+  test("a Bash REACT that asks e.command.runs() DOES load it — the absence above is real", () => {
+    const graph = graphOf(
+      [
+        "hook-runtime",
+        "run-program",
+        bashReactFixture(
+          "bash-react-command.mjs",
+          `(e) => (e.command.runs("git push") ? notice("pushed") : nothing())`,
+        ),
+      ],
+      BASH_POST,
+    );
+    expect(has(graph, "mvdan-sh")).toBe(true);
+  });
+});
+
 describe("the rule set's place in the module graph", () => {
   // The rule set (`src/rules/`) is wired in by the composition root, which a
   // decision never loads — and a verb does. The pair keeps both halves honest.

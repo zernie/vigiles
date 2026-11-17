@@ -139,6 +139,12 @@ const EVENT = {
     tool_name: "Edit",
     tool_input: { file_path: "notes/x.md" },
   }),
+  postBash: JSON.stringify({
+    hook_event_name: "PostToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "ls -la" },
+    tool_response: { stdout: "total 0", stderr: "", interrupted: false },
+  }),
 };
 
 /**
@@ -178,6 +184,47 @@ export default experimental_defineReact({
   on: "PostToolUse",
   match: tools("Edit"),
   react: () => nothing(),
+});
+`,
+  },
+  // 🔴 THREE BASH-REACT ROWS, added with #396 (a) BEFORE the change they price
+  // (the lesson of the react row above). A react on Bash spawns on EVERY Bash
+  // call, so what it pays when its own logic returns early is the number that
+  // matters. The command is `ls -la`: the hook is not interested, as on almost
+  // every call.
+  //   - an UNREAD slow provider: a declared fact the decision never reads. A
+  //     0.4 s `sleep` stands in for a network read (`gh pr view`).
+  //   - a react that reads only the RESPONSE: must not pay for the shell parser.
+  //   - a react that asks the COMMAND: pays the parser, which is the work it
+  //     asked for (the same cost a bash gate pays).
+  "bash react, unread 0.4 s provider": {
+    event: EVENT.postBash,
+    source: `import { experimental_defineReact, tools, nothing, dangerously } from __HOOK__;
+export default experimental_defineReact({
+  on: "PostToolUse",
+  match: tools("Bash"),
+  needs: [dangerously("slow", "sleep 0.4")],
+  react: () => nothing(),
+});
+`,
+  },
+  "bash react, reads only the response": {
+    event: EVENT.postBash,
+    source: `import { experimental_defineReact, tools, nothing, notice } from __HOOK__;
+export default experimental_defineReact({
+  on: "PostToolUse",
+  match: tools("Bash"),
+  react: (e) => (e.response.isError() ? notice("failed") : nothing()),
+});
+`,
+  },
+  "bash react, asks e.command.runs()": {
+    event: EVENT.postBash,
+    source: `import { experimental_defineReact, tools, nothing, notice } from __HOOK__;
+export default experimental_defineReact({
+  on: "PostToolUse",
+  match: tools("Bash"),
+  react: (e) => (e.command.runs("git push") ? notice("pushed") : nothing()),
 });
 `,
   },

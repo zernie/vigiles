@@ -1569,7 +1569,7 @@
       "count": 5
     },
     "functional/prefer-immutable-types": {
-      "count": 18
+      "count": 17
     },
     "local/no-rule-ids": {
       "count": 1

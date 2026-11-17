@@ -132,6 +132,8 @@ export type {
   PromptEvent,
   StopEvent,
   ReactEvent,
+  BashReactEvent,
+  ToolReactEvent,
   SessionEvent,
   HookProgram,
   FileGateHook,

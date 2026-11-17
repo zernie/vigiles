@@ -140,6 +140,10 @@ export function matchesTool(tools: readonly string[], name: string): boolean {
 /** Regex metacharacters — an entry containing one is a PATTERN, not a name. */
 const REGEX_META = /[.*+?^${}()|[\]\\]/;
 
+/** The declared entries that are tool NAMES (no regex metacharacter), not patterns. */
+const literalToolNames = (tools: readonly string[]): string[] =>
+  tools.filter((t) => !REGEX_META.test(t));
+
 /** Tool patterns that are not valid regexes — rejected at compile, see {@link matchesTool}. */
 export function invalidToolPatterns(tools: readonly string[]): string[] {
   return tools.filter((t) => {
@@ -734,19 +738,14 @@ const underChdir = (target: string, chdir: string | null): string =>
     ? target
     : resolveRef(chdir, target);
 
-/**
- * An AST-backed view of a Bash command.
- *
- * @param raw - the command line as the tool event carried it.
- * @param root - the project root repo-relative prefixes resolve against, from
- *   the runtime ({@link projectRootOf}: `$CLAUDE_PROJECT_DIR`, else the event's
- *   own `cwd`, never `process.cwd()`). Omitting it does NOT disarm the denylist
- *   matchers — without a root an absolute token is `"undecidable"` rather than
- *   placeable, and {@link CommandView.touches} treats that as a match. It does
- *   cost precision: with a root, `/somewhere-else/notes/x` is provably not this
- *   repo's `notes`; without one it can only be over-blocked.
- */
-export function commandView(raw: string, root?: string): CommandView {
+/** What one parse of a command line yields — computed once per {@link commandView}. */
+interface ParsedCommand {
+  readonly leaves: ReturnType<typeof leafCommands>;
+  readonly normalized: ReturnType<typeof leafCommandsNormalized>;
+  readonly allWriteTargets: readonly string[];
+}
+
+function parseCommand(raw: string): ParsedCommand {
   const leaves = leafCommands(raw);
   // The operation-normalized leaves carry the redirections (and quote-unwrapped,
   // wrapper-resolved argv) that `writesTo` needs; `leafCommands` cannot see them.
@@ -764,11 +763,39 @@ export function commandView(raw: string, root?: string): CommandView {
     // `NormalizedLeaf.chdir` for why the value was being read and discarded.
     ...writeTargetsOf(leaf).map((t) => underChdir(t, leaf.chdir)),
   ]);
+  return { leaves, normalized, allWriteTargets };
+}
+
+/**
+ * An AST-backed view of a Bash command.
+ *
+ * @param raw - the command line as the tool event carried it.
+ * @param root - the project root repo-relative prefixes resolve against, from
+ *   the runtime ({@link projectRootOf}: `$CLAUDE_PROJECT_DIR`, else the event's
+ *   own `cwd`, never `process.cwd()`). Omitting it does NOT disarm the denylist
+ *   matchers — without a root an absolute token is `"undecidable"` rather than
+ *   placeable, and {@link CommandView.touches} treats that as a match. It does
+ *   cost precision: with a root, `/somewhere-else/notes/x` is provably not this
+ *   repo's `notes`; without one it can only be over-blocked.
+ */
+export function commandView(raw: string, root?: string): CommandView {
+  // 🔴 PARSED ON THE FIRST PREDICATE CALL, NOT HERE. Building the view used to
+  // parse at once, which was harmless while only a Bash GATE built one — a gate
+  // exists to ask about the command. Since #396 (a) a react declared for Bash
+  // carries this view too, and most such reacts read only `e.response` ("the
+  // command failed"). An eager parse would make every one of them load the shell
+  // parser (`mvdan-sh`, ~70–140 ms) on every Bash call for a value it never
+  // reads. `src/hook-runtime-graph.test.ts` pins both directions: a Bash react
+  // that never asks does not load the parser; one that asks does. Memoized, so a
+  // view parses at most once however many predicates a decision calls.
+  // eslint-disable-next-line functional/no-let -- the memo cell of a lazy parse; it is written once, on the first predicate call, and never reassigned after
+  let parsed: ParsedCommand | undefined;
+  const parse = (): ParsedCommand => (parsed ??= parseCommand(raw));
   const matchedWriteTargets = (
     prefixes: readonly string[],
   ): readonly string[] => [
     ...new Set(
-      allWriteTargets.filter((t) =>
+      parse().allWriteTargets.filter((t) =>
         prefixes.some((p) => matchesPrefix(prefixVerdict(t, p, root), "match")),
       ),
     ),
@@ -776,6 +803,7 @@ export function commandView(raw: string, root?: string): CommandView {
   return {
     raw,
     runs(program, opts) {
+      const { leaves, normalized } = parse();
       const tokens = program.split(/\s+/).filter(Boolean);
       // 🔴 READS RAW **AND** NORMALIZED ARGV — the same union `touches` already
       // uses, and for the same reason. This matcher read only `leaves` (raw), so
@@ -840,31 +868,38 @@ export function commandView(raw: string, root?: string): CommandView {
     // `writesTo` was already correct precisely because it reads `normalized`;
     // this is the same class as the other siblings this PR keeps finding, so
     // both denylists now read the SAME argv.
-    touches: (prefixes) =>
-      // 🔴 THE UNION IS THE FIX, AND EACH HALF COVERS THE OTHER'S BLIND SPOT.
-      // Raw argv keeps a word exactly as written, so a QUOTED path arrives as
-      // `"papers/x.tex"` and matches nothing — measured end-to-end on a shipped
-      // guard: unquoted exited 2, quoted exited 0. Normalized argv unwraps the
-      // quotes, but `stripWrappers` also CONSUMES wrapper options, so
-      // `env -C secrets cat key` loses `secrets` entirely and a denylist on it
-      // fails open. Reading only one of the two trades one bypass for the other;
-      // that is exactly what the previous commit did, and it earned a P1.
-      // A denylist over-matching costs an argument. Missing costs the write.
-      [...leaves.map((argv) => argv.slice(1)), ...normalized.map((l) => l.args)]
-        .flat()
-        // `--chdir=secrets` is ONE token, so the path is invisible to a whole-token
-        // comparison. Only the tail of an `--opt=value` word can be a path, so the
-        // extra candidate is added rather than replacing the token.
-        .flatMap((tok) =>
-          /^-{1,2}[^=]+=/.test(tok)
-            ? [tok, tok.slice(tok.indexOf("=") + 1)]
-            : [tok],
-        )
-        .some((tok) =>
-          prefixes.some((p) =>
-            matchesPrefix(prefixVerdict(tok, p, root), "match"),
-          ),
-        ),
+    touches: (prefixes) => {
+      const { leaves, normalized } = parse();
+      return (
+        // 🔴 THE UNION IS THE FIX, AND EACH HALF COVERS THE OTHER'S BLIND SPOT.
+        // Raw argv keeps a word exactly as written, so a QUOTED path arrives as
+        // `"papers/x.tex"` and matches nothing — measured end-to-end on a shipped
+        // guard: unquoted exited 2, quoted exited 0. Normalized argv unwraps the
+        // quotes, but `stripWrappers` also CONSUMES wrapper options, so
+        // `env -C secrets cat key` loses `secrets` entirely and a denylist on it
+        // fails open. Reading only one of the two trades one bypass for the other;
+        // that is exactly what the previous commit did, and it earned a P1.
+        // A denylist over-matching costs an argument. Missing costs the write.
+        [
+          ...leaves.map((argv) => argv.slice(1)),
+          ...normalized.map((l) => l.args),
+        ]
+          .flat()
+          // `--chdir=secrets` is ONE token, so the path is invisible to a whole-token
+          // comparison. Only the tail of an `--opt=value` word can be a path, so the
+          // extra candidate is added rather than replacing the token.
+          .flatMap((tok) =>
+            /^-{1,2}[^=]+=/.test(tok)
+              ? [tok, tok.slice(tok.indexOf("=") + 1)]
+              : [tok],
+          )
+          .some((tok) =>
+            prefixes.some((p) =>
+              matchesPrefix(prefixVerdict(tok, p, root), "match"),
+            ),
+          )
+      );
+    },
     // DERIVED, not a second implementation of the same rule. The boolean stays
     // because `writesTo(secrets) ? deny() : allow()` is the common gate shape,
     // but it is a PROJECTION of the list — one code path, so the two can never
@@ -876,10 +911,43 @@ export function commandView(raw: string, root?: string): CommandView {
     // pipe-to-shell, and a raw-only check misses both (`isBareShellLeaf` tests
     // the head literally, and the normalizer is what reduces `/bin/sh`→`sh` and
     // strips the wrapper).
-    pipesToShell: () =>
-      leaves.some(isBareShellLeaf) ||
-      normalized.some((leaf) => isBareShellLeaf(leaf.argv)),
+    pipesToShell: () => {
+      const { leaves, normalized } = parse();
+      return (
+        leaves.some(isBareShellLeaf) ||
+        normalized.some((leaf) => isBareShellLeaf(leaf.argv))
+      );
+    },
   };
+}
+
+/**
+ * The shell tool's name in a hook payload — the one spelling, shared by the Bash
+ * gate and the Bash react. A payload-vocabulary fact rather than a per-harness
+ * one: Claude Code sends `Bash`, and Codex's hooks docs (read 2026-11-17) say its
+ * shell commands, unified exec included, arrive "as `Bash`" too. Not read from
+ * the adapter on purpose: resolving it costs the ~280 ms adapter-registry load
+ * that `hook-runtime.ts` keeps off every gate path. ⚠️ No real Codex payload has
+ * been captured to confirm the docs; the Codex delivery fixture in this repo
+ * spells the tool `shell`, Codex's MODEL-facing name. Revisit with a port field
+ * if a harness's payload diverges.
+ */
+export const SHELL_TOOL = "Bash";
+
+/**
+ * The command of a SHELL event, or `undefined` when the event is not one. Keyed
+ * on the tool name alone; a shell event with no string command reads as `""`, so
+ * every predicate of its view is false (the gate's behaviour since it existed).
+ * Used by both the Bash gate and the Bash react — one decode for "this event's
+ * command".
+ */
+function shellCommandOf(raw: {
+  readonly tool_name?: string;
+  readonly tool_input?: { readonly command?: unknown };
+}): string | undefined {
+  if (raw.tool_name !== SHELL_TOOL) return undefined;
+  const c = raw.tool_input?.command;
+  return typeof c === "string" ? c : "";
 }
 
 /**
@@ -961,14 +1029,11 @@ export function decideProgram<N extends readonly NeedSpec[]>(
   // role routes through `matchesTool`; that runtime/emit disagreement is the
   // one MEASURED and fixed for reacts on 2026-08-12 (see the header), and it
   // survived here on the flagship role. Removed 2026-09-08.
-  if (rawEvent.tool_name !== "Bash") return allow();
-  const command =
-    typeof rawEvent.tool_input?.command === "string"
-      ? rawEvent.tool_input.command
-      : "";
+  const command = shellCommandOf(rawEvent);
+  if (command === undefined) return allow();
   return program.decide({
     event: program.on,
-    tool: "Bash",
+    tool: SHELL_TOOL,
     command: commandView(command, root),
     ctx: ctx as unknown as HookCtx<N>,
   });
@@ -1082,6 +1147,14 @@ export interface CompileHookOptions {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ErasedNeeds = readonly any[];
+/**
+ * The ERASED declared-tools generic, for the same reason: a react's `react` is
+ * contravariant in `T`. With `any`, the union's react event is the widest shape
+ * (the Bash one, which every narrower react event accepts), so a Bash-only, an
+ * Edit-only and a tool-less react all assign.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ErasedTools = readonly any[];
 
 /* eslint-disable @typescript-eslint/no-unnecessary-type-arguments -- ErasedNeeds
    (readonly any[]) is deliberate, NOT the default: the union must accept EVERY
@@ -1094,7 +1167,7 @@ export type AnyHook =
   | PromptGateHook<ErasedNeeds>
   | StopGateHook<ErasedNeeds>
   | InjectHook<ErasedNeeds>
-  | ReactHook<ErasedNeeds>;
+  | ReactHook<ErasedNeeds, ErasedTools>;
 /* eslint-enable @typescript-eslint/no-unnecessary-type-arguments */
 
 /**
@@ -1453,7 +1526,7 @@ export function compileHookProgram(
     // itself (dialect.mcpToolPattern), so a fully-spelled server tool passes on
     // both counts.
     if (opts.dialect) {
-      const literal = hook.match.tools.filter((t) => !REGEX_META.test(t));
+      const literal = literalToolNames(hook.match.tools);
       const badNames = authoringIssues(
         verifyToolContract(literal, opts.dialect),
       );
@@ -1804,7 +1877,14 @@ export interface FileGateHook<
   readonly decide: (e: FileToolEvent<N>) => Decision;
 }
 
-export const tools = (...names: string[]): { tools: string[] } => ({
+/**
+ * Declare the tools a hook matches: `match: tools("Edit", "Write")`. The names
+ * keep their LITERAL types, which is how a react declared with `tools("Bash")`
+ * alone is known to carry `e.command`.
+ */
+export const tools = <const T extends readonly string[]>(
+  ...names: T
+): { readonly tools: T } => ({
   tools: names,
 });
 /**
@@ -2127,18 +2207,68 @@ export function responseView(raw: unknown): ResponseView {
   };
 }
 
-/** The event a react hook reacts over — the tool, the file path, AND its response. */
-export interface ReactEvent<
+/**
+ * The event of a react that is NOT declared for the shell tool alone — other
+ * tools, a mixed list, a pattern, or a tool-less event. It has NO `command`
+ * property at all (not an optional one), so `e.command?.runs(…)`, which would be
+ * silently false forever, cannot be written either.
+ */
+export interface ToolReactEvent<
   N extends readonly NeedSpec[] = readonly ProviderName[],
 > {
+  /** The event the hook is registered on (`PostToolUse`, `Stop`, …). */
   readonly event: string;
+  /** The tool the event is about; `""` on a tool-less event. */
   readonly tool: string;
+  /** The event's `tool_input.file_path`, as a path view (`""` when absent). */
   readonly path: PathView;
   /** The tool's response (PostToolUse) — react only on an error, capture output, … */
   readonly response: ResponseView;
   /** Host-gathered, DECLARED facts — built-ins, inline providers, and `state()` reads. */
   readonly ctx: HookCtx<N>;
 }
+
+/**
+ * The event of a react declared for the shell tool ALONE (`match: tools("Bash")`):
+ * everything a {@link ToolReactEvent} carries, plus the command it reacts to.
+ */
+export interface BashReactEvent<
+  N extends readonly NeedSpec[] = readonly ProviderName[],
+> extends ToolReactEvent<N> {
+  /** Always `"Bash"`: comparing it with another tool name is a type error. */
+  readonly tool: "Bash";
+  /**
+   * The command that ran, as the same AST-backed {@link CommandView} a Bash gate
+   * decides over, built by the same constructor. It parses on the first
+   * predicate call, so a react that never asks costs no parse.
+   */
+  readonly command: CommandView;
+}
+
+/**
+ * Shell-only iff the declared list is non-empty and every entry is exactly the
+ * shell tool's name. A pattern (`"Ba.*"`), a mixed list, an empty or a widened
+ * `string[]` are not: the command is a fact about ONE tool, so a hook that wants
+ * it for Bash and something else is two hooks.
+ */
+type DeclaresOnlyShell<T extends readonly string[]> = [T[number]] extends [
+  never,
+]
+  ? false
+  : [T[number]] extends [typeof SHELL_TOOL]
+    ? true
+    : false;
+
+/**
+ * The event a react hook reacts over — the tool, the file path, its response,
+ * and, for a react declared for Bash alone, the command. `T` is the declared
+ * `match.tools`; the default (`readonly string[]`) is the shape every react had
+ * before the command existed, so `ReactEvent<N>` keeps meaning what it meant.
+ */
+export type ReactEvent<
+  N extends readonly NeedSpec[] = readonly ProviderName[],
+  T extends readonly string[] = readonly string[],
+> = DeclaresOnlyShell<T> extends true ? BashReactEvent<N> : ToolReactEvent<N>;
 
 export interface RunReaction {
   readonly kind: "run";
@@ -2194,6 +2324,7 @@ export const nothing = (...records: readonly StateWrite[]): Reaction => ({
 
 export interface ReactHook<
   N extends readonly NeedSpec[] = readonly ProviderName[],
+  T extends readonly string[] = readonly string[],
 > {
   readonly role: "react";
   readonly on: string;
@@ -2210,11 +2341,14 @@ export interface ReactHook<
    * is the whole reason advisory hooks die unnoticed. Three of the seven hooks
    * this feature was built for are `Stop` nudges.
    */
-  readonly match?: { readonly tools: readonly string[] };
+  readonly match?: { readonly tools: T };
   /** Declared context providers the trusted runtime gathers into `e.ctx`. */
   readonly needs?: N;
-  /** Reacts to a tool that already ran. Returns a Reaction — NO `deny` exists here. */
-  readonly react: (e: ReactEvent<N>) => Reaction;
+  /**
+   * Reacts to a tool call. Returns a Reaction — NO `deny` exists here. Declared
+   * for Bash alone, `e.command` is the command that ran.
+   */
+  readonly react: (e: ReactEvent<N, T>) => Reaction;
 }
 /**
  * @experimental Compiled hooks are provisional — see docs/compiled-hooks.md#status--pending.
@@ -2225,7 +2359,9 @@ export interface ReactHook<
  */
 export function experimental_defineReact<
   const N extends readonly NeedSpec[] = readonly [],
->(p: Omit<ReactHook<N>, "role">): ReactHook<N> {
+  // No `match` → a tool-less event → no command. Inferred from `match: tools(…)`.
+  const T extends readonly string[] = readonly [],
+>(p: Omit<ReactHook<N, T>, "role">): ReactHook<N, T> {
   return { role: "react", ...p };
 }
 
@@ -2237,11 +2373,14 @@ export function experimental_defineReact<
  * trails `ctx` so the argument order matches {@link decideProgram} and
  * {@link decideFileGate} — every decode function reads `(hook, raw, ctx, root)`.
  */
-export function runReact<N extends readonly NeedSpec[]>(
-  hook: ReactHook<N>,
+export function runReact<
+  N extends readonly NeedSpec[],
+  T extends readonly string[],
+>(
+  hook: ReactHook<N, T>,
   raw: {
     tool_name?: string;
-    tool_input?: { file_path?: unknown };
+    tool_input?: { file_path?: unknown; command?: unknown };
     tool_response?: unknown;
     cwd?: unknown;
   },
@@ -2257,13 +2396,28 @@ export function runReact<N extends readonly NeedSpec[]>(
     typeof raw.tool_input?.file_path === "string"
       ? raw.tool_input.file_path
       : "";
-  return hook.react({
+  const base = {
     event: hook.on,
     tool: t,
     path: pathView(fp, root),
     response: responseView(raw.tool_response),
     ctx: ctx as unknown as HookCtx<N>,
-  });
+  };
+  // The command is attached on SHELL events only, keyed on the tool NAME — never
+  // on the presence of `tool_input.command`, which Codex's `apply_patch` also
+  // carries (a patch, not a command line). The type promises it only to a react
+  // declared for Bash alone; at run time it is present on every Bash event, so a
+  // react whose declared tools merely MATCH Bash does not see a different object.
+  const command = shellCommandOf(raw);
+  const event =
+    command === undefined
+      ? base
+      : { ...base, command: commandView(command, root) };
+  // `ReactEvent<N, T>` is a conditional type over a still-generic `T`, which tsc
+  // cannot narrow from a value; the runtime half of the promise is the tool-name
+  // check above, held by the adapter twins' payload tests.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- see the line above
+  return hook.react(event as ReactEvent<N, T>);
 }
 
 // ---------------------------------------------------------------------------

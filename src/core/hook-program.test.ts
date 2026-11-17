@@ -2495,3 +2495,91 @@ test("hookRuntimeMissingExit: PASSES for every nudge — a reminder is never wor
   assert.equal(hookRuntimeMissingExit("inject"), 0);
   assert.equal(hookRuntimeMissingExit("react"), 0);
 });
+
+// ---------------------------------------------------------------------------
+// #396 (a): a react declared for the shell tool ALONE sees the command it reacts
+// to, as a Bash gate does — the same `CommandView`, built by the same
+// constructor. Keyed on the event's TOOL NAME, never on the presence of
+// `tool_input.command`.
+//
+// Harness scope (`test-both-harnesses`): the decode is core and harness-neutral;
+// what differs per harness is the PAYLOAD, so each harness's payload fixtures
+// live in its adapter's twin — src/adapters/claude-code/react-command.test.ts
+// and src/adapters/codex/react-command.test.ts (including Codex's
+// `apply_patch`, whose `tool_input.command` is a patch). What is here needs no
+// payload: the types, and the empty-command fallback.
+// ---------------------------------------------------------------------------
+
+const pushReact = experimental_defineReact({
+  on: "PostToolUse",
+  match: tools("Bash"),
+  react: (e) =>
+    e.command.runs("git push") ? notice(`pushed: ${e.command.raw}`) : nothing(),
+});
+
+test("#396a: a Bash payload with no command string reads as the empty command (as the gate does)", () => {
+  const post = (command: unknown) => ({
+    tool_name: "Bash",
+    tool_input: { command },
+  });
+  assert.equal(runReact(pushReact, post("git push")).kind, "notice");
+  assert.equal(runReact(pushReact, post(undefined)).kind, "none");
+  assert.equal(runReact(pushReact, post(42)).kind, "none");
+  assert.equal(
+    runReact(pushReact, { tool_name: "Bash", tool_input: {} }).kind,
+    "none",
+  );
+});
+
+test("#396a: only a react declared for Bash ALONE gets e.command — in the types AND at run time", () => {
+  const seen: unknown[] = [];
+  const onEdit = experimental_defineReact({
+    on: "PostToolUse",
+    match: tools("Edit"),
+    react: (e) => {
+      // @ts-expect-error — TS2339: `command` does not exist on a react that is
+      // not declared for Bash alone, so even `e.command?.runs(…)` cannot be
+      // written (it would be silently false forever).
+      const c: unknown = e.command;
+      seen.push(c, "command" in e);
+      return nothing();
+    },
+  });
+  runReact(onEdit, { tool_name: "Edit", tool_input: { file_path: "a.ts" } });
+  assert.deepEqual(seen, [undefined, false]);
+
+  experimental_defineReact({
+    on: "PostToolUse",
+    match: tools("Bash", "Edit"),
+    react: (e) => {
+      // @ts-expect-error — a MIXED list cannot read the command: split the hook.
+      const c: unknown = e.command;
+      return c === undefined ? nothing() : notice("x");
+    },
+  });
+  experimental_defineReact({
+    on: "Stop",
+    react: (e) => {
+      // @ts-expect-error — no `match` (a tool-less event): no command either.
+      const c: unknown = e.command;
+      return c === undefined ? nothing() : notice("x");
+    },
+  });
+  experimental_defineReact({
+    on: "PostToolUse",
+    match: tools("Ba.*"),
+    react: (e) => {
+      // @ts-expect-error — a PATTERN is not "Bash alone", even one that matches it.
+      const c: unknown = e.command;
+      return c === undefined ? nothing() : notice("x");
+    },
+  });
+  experimental_defineReact({
+    on: "PostToolUse",
+    match: tools("Bash"),
+    react: (e) =>
+      // @ts-expect-error — `tool` is the literal "Bash" here, so a comparison
+      // with another tool has no overlap: the dead branch is a type error.
+      e.tool === "Edit" ? notice("never") : nothing(),
+  });
+});

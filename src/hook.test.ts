@@ -23,6 +23,7 @@ import {
   mkdirSync,
   symlinkSync,
   existsSync,
+  chmodSync,
 } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -1393,6 +1394,117 @@ test("compile (hook): MERGE preserves a real plugin's existing hooks (superpower
     const again = readSettings(dir);
     assert.equal(again.hooks.PreToolUse.length, 1, "no duplicate on recompile");
     assert.equal(again.hooks.SessionStart.length, 2);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// #396 (a) end to end: a react declared for Bash ALONE reads the command it
+// reacts to, through the REAL runtime. The hook is the push warning written the
+// way docs/compiled-hooks.md shows it: `PostToolUse` (it fires after a push that
+// happened, so the record is a fact, not an attempt), the branch compared, a
+// 20-minute window, and `dangerously` for `gh pr view` — vigiles' read-only
+// classifier does not prove `gh` read-only, so `provide` would not compile.
+//
+// Harness scope (`test-both-harnesses`): ONE run. The command decode is core and
+// harness-neutral (both payload spellings are pinned in
+// src/core/hook-program.test.ts), and this run asserts the runtime plumbing and
+// the Claude Code delivery. Delivery of react output on Codex is NOT confirmed
+// against the real binary — `compile --harness=codex` warns on every react for
+// that reason — so no Codex delivery is claimed here.
+// ---------------------------------------------------------------------------
+
+const PUSH_WARNING = `import {
+  experimental_defineReact, tools, notice, nothing, record, state, dangerously,
+} from "__HOOK__";
+
+const LAST_PUSH = "ready-pr.last-push";
+
+export default experimental_defineReact({
+  on: "PostToolUse",
+  match: tools("Bash"),
+  needs: [
+    state(LAST_PUSH),
+    "git.branch",
+    dangerously("prIsDraft", "gh pr view --json isDraft --jq .isDraft"),
+  ],
+  react: (e) => {
+    if (!e.command.runs("git push")) return nothing();
+    const branch = e.ctx["git.branch"];
+    const prev = e.ctx[LAST_PUSH];
+    const pushed = record(LAST_PUSH, branch);
+    if (!(prev.value === branch && prev.fresherThan("20m"))) return nothing(pushed);
+    return e.ctx.prIsDraft === "false"
+      ? notice(
+          \`\${branch} was pushed \${String(Math.round(prev.ageSeconds / 60))} min ago and its PR is ready: \` +
+            "this push re-runs CI. Batch the fixes, or mark the PR draft while iterating.",
+          pushed,
+        )
+      : nothing(pushed);
+  },
+});
+`;
+
+test("hook-runtime run-program: a Bash-only react reads e.command — the push warning, end to end", () => {
+  const dir = makeTmpDir();
+  try {
+    initGitRepo(dir);
+    // A stub `gh` on PATH: answers isDraft from a file, and logs each call.
+    mkdirSync(resolve(dir, "bin"));
+    writeFileSync(
+      resolve(dir, "bin", "gh"),
+      `#!/bin/sh\necho call >> "${dir}/gh-calls.txt"\ncat "${dir}/is-draft.txt"\n`,
+    );
+    chmodSync(resolve(dir, "bin", "gh"), 0o755);
+    writeFileSync(resolve(dir, "is-draft.txt"), "false\n");
+    const hook = fixture(dir, "push-warning.hook.mjs", PUSH_WARNING);
+    const env = { PATH: `${resolve(dir, "bin")}:${process.env.PATH ?? ""}` };
+    const bash = (command: string) =>
+      runHook(
+        `node ${CLI} hook-runtime run-program ${hook}`,
+        {
+          hook_event_name: "PostToolUse",
+          tool_name: "Bash",
+          tool_input: { command },
+          tool_response: { stdout: "", stderr: "", interrupted: false },
+        },
+        { cwd: dir, env },
+      );
+    const context = (r: ReturnType<typeof bash>): string => {
+      const out: unknown = r.json;
+      const hso =
+        typeof out === "object" && out !== null && "hookSpecificOutput" in out
+          ? out.hookSpecificOutput
+          : undefined;
+      return typeof hso === "object" &&
+        hso !== null &&
+        "additionalContext" in hso &&
+        typeof hso.additionalContext === "string"
+        ? hso.additionalContext
+        : "";
+    };
+
+    // Not a push: silent, and nothing is remembered.
+    const ls = bash("ls -la");
+    assert.equal(ls.exitCode, 0);
+    assert.equal(context(ls), "");
+    assert.equal(existsSync(resolve(dir, ".vigiles/state")), false);
+
+    // First push: nothing to compare against — silent, but recorded.
+    assert.equal(context(bash("git push origin HEAD")), "");
+    // Second push to the same branch inside the window, PR ready: the warning.
+    const second = bash("cd . && git push");
+    assert.equal(second.exitCode, 0);
+    assert.equal(second.blocked, false);
+    assert.match(context(second), /pushed 0 min ago and its PR is ready/);
+    // Draft PR: silent.
+    writeFileSync(resolve(dir, "is-draft.txt"), "true\n");
+    assert.equal(context(bash("git push")), "");
+    // Another branch: the stored push was for a different branch — silent.
+    writeFileSync(resolve(dir, "is-draft.txt"), "false\n");
+    spawnSync("git", ["checkout", "-q", "-b", "other"], { cwd: dir });
+    assert.equal(context(bash("git push -u origin other")), "");
   } finally {
     cleanupTmpDir(dir);
   }
