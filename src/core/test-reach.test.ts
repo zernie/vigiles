@@ -30,7 +30,16 @@ const CWD = "/repo";
 
 function memHost(files: Readonly<Record<string, string>>): SourceHost {
   const abs = new Map(Object.entries(files).map(([k, v]) => [join(CWD, k), v]));
-  return { read: (p) => abs.get(p) ?? null, isFile: (p) => abs.has(p) };
+  return {
+    read: (p) => abs.get(p) ?? null,
+    isFile: (p) => abs.has(p),
+    // Enough of tsc's directory walk for these fixtures: every file under the
+    // root with one of the asked extensions.
+    readDirectory: (root, exts) =>
+      [...abs.keys()].filter(
+        (p) => p.startsWith(root + "/") && exts.some((e) => p.endsWith(e)),
+      ),
+  };
 }
 
 function reach(
@@ -252,6 +261,35 @@ describe("build output → source (tsconfig outDir/rootDir)", () => {
     assert.equal(hits(r, "docs/readme.md"), undefined);
     assert.deepEqual(r.unresolved, []);
   });
+});
+
+describe("build output → source, when the tsconfig sets no rootDir", () => {
+  test("no rootDir: the common folder of the inputs, as tsc computes it", () => {
+    // tsc emits src/helper.ts to dist/helper.js here (measured, TS 5.9).
+    const r = reach({
+      "tsconfig.json": JSON.stringify({
+        compilerOptions: { outDir: "dist" },
+        include: ["src/**/*.ts"],
+      }),
+      "t/x.harness.mjs": 'import { f } from "../dist/helper.js";\n',
+      "src/helper.ts": "export const f = 1;\n",
+      "src/sub/deep.ts": "export const g = 1;\n",
+    });
+    assert.equal(hits(r, "src/helper.ts"), "import");
+  });
+
+  test("composite with no rootDir: the tsconfig's folder", () => {
+    // A composite project emits src/helper.ts to dist/src/helper.js.
+    const r = reach({
+      "tsconfig.json": JSON.stringify({
+        compilerOptions: { outDir: "dist", composite: true },
+        include: ["src/**/*.ts"],
+      }),
+      "t/x.harness.mjs": 'import { f } from "../dist/src/helper.js";\n',
+      "src/helper.ts": "export const f = 1;\n",
+    });
+    assert.equal(hits(r, "src/helper.ts"), "import");
+  });
 
   test("no tsconfig: a dist/ import stays what it is", () => {
     const r = reach({
@@ -259,5 +297,27 @@ describe("build output → source (tsconfig outDir/rootDir)", () => {
       "src/lib.ts": "export const f = 1;\n",
     });
     assert.equal(hits(r, "src/lib.ts"), undefined);
+  });
+});
+
+describe("an import whose target is gone — deleted or renamed", () => {
+  test("a deleted target still reaches the harness", () => {
+    const r = reach({ "t/x.harness.mjs": 'import "../lib/helper.mjs";\n' });
+    assert.equal(hits(r, "lib/helper.mjs"), "import");
+  });
+
+  test("a renamed .ts source behind a .js specifier reaches it under its old name", () => {
+    const r = reach({
+      "t/x.harness.mjs": 'import "../lib/util.js";\n',
+      "lib/renamed.ts": "export {};\n",
+    });
+    assert.equal(hits(r, "lib/util.ts"), "import");
+    assert.equal(hits(r, "lib/util.js"), "import");
+  });
+
+  test("an extensionless specifier reaches each file the resolver would try", () => {
+    const r = reach({ "t/x.harness.mjs": 'import "../lib/x";\n' });
+    assert.equal(hits(r, "lib/x.ts"), "import");
+    assert.equal(hits(r, "lib/x/index.js"), "import");
   });
 });

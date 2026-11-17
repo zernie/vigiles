@@ -43,6 +43,8 @@ export interface SourceHost {
   /** A file's text, or null when it is absent or unreadable. */
   readonly read: (path: string) => string | null;
   readonly isFile: (path: string) => boolean;
+  /** tsc's own directory walk (`ts.sys.readDirectory`), for a tsconfig's inputs. */
+  readonly readDirectory: ts.ParseConfigHost["readDirectory"];
 }
 
 /** Where a TypeScript build writes, and the source it writes from. Absolute. */
@@ -106,21 +108,42 @@ export function outputLayout(
   const readFile = (p: string): string | undefined => host.read(p) ?? undefined;
   const raw = ts.readConfigFile(path, readFile);
   if (raw.error !== undefined) return undefined;
-  const { outDir, rootDir } = ts.parseJsonConfigFileContent(
+  const parsed = ts.parseJsonConfigFileContent(
     raw.config,
     {
       useCaseSensitiveFileNames: true,
-      readDirectory: () => [],
+      readDirectory: host.readDirectory,
       fileExists: host.isFile,
       readFile,
     },
     cwd,
-  ).options;
+  );
+  const { outDir, rootDir, composite } = parsed.options;
   if (outDir === undefined) return undefined;
   return {
     outDir: resolve(cwd, outDir),
-    rootDir: resolve(cwd, rootDir ?? "."),
+    rootDir:
+      rootDir !== undefined || composite === true
+        ? resolve(cwd, rootDir ?? ".")
+        : commonSourceDir(parsed.fileNames, cwd),
   };
+}
+
+const DECLARATION = /\.d\.[cm]?ts$/;
+
+/**
+ * tsc's default `rootDir` without `composite`: the deepest folder holding every
+ * non-declaration input (measured: `include: ["src/**\/*.ts"]` emits
+ * `src/helper.ts` to `dist/helper.js`). No inputs → the tsconfig's folder.
+ */
+function commonSourceDir(files: readonly string[], cwd: string): string {
+  const dirs = files
+    .filter((f) => !DECLARATION.test(f))
+    .map((f) => dirname(resolve(cwd, f)).split(sep));
+  const [first, ...rest] = dirs;
+  if (first === undefined) return cwd;
+  const depth = first.findIndex((part, i) => rest.some((d) => d[i] !== part));
+  return first.slice(0, depth < 0 ? first.length : depth).join(sep) || sep;
 }
 
 /** Output extension → the source extensions that compile to it. */
@@ -706,8 +729,49 @@ function importsIn(at: Visit, text: string, ctx: Ctx): readonly Visit[] {
       ).resolvedModule?.resolvedFileName;
       const resolved =
         viaTs === undefined ? [] : [{ abs: resolve(viaTs), built: at.built }];
-      return [literal, ...resolved].filter((v) => ctx.host.isFile(v.abs));
+      const found = [literal, ...resolved].filter((v) =>
+        ctx.host.isFile(v.abs),
+      );
+      return found.length > 0
+        ? found
+        : candidatesOf(literal.abs).map((abs) => ({ abs, built: at.built }));
     });
+}
+
+const JS_TO_TS: Readonly<Record<string, readonly string[]>> = {
+  ".js": [".ts", ".tsx"],
+  ".jsx": [".tsx"],
+  ".mjs": [".mts"],
+  ".cjs": [".cts"],
+};
+const TRIED_EXTS = [
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".json",
+];
+
+/**
+ * Every file the resolver would have tried for an import that resolves to
+ * nothing: the literal path, its TypeScript twins, and for an extensionless
+ * specifier each extension and `index` file. 🔴 A MISSING TARGET IS STILL A
+ * DEPENDENCY. A change that deletes or renames it is exactly the change that
+ * breaks the harness; dropping the edge skipped the harness and passed green.
+ * The paths are kept for matching and never visited.
+ */
+function candidatesOf(abs: string): readonly string[] {
+  const ext = extname(abs);
+  const stem = abs.slice(0, abs.length - ext.length);
+  const twins = (JS_TO_TS[ext] ?? []).map((e) => stem + e);
+  const bare =
+    TRIED_EXTS.includes(ext) || ext === ".jsx"
+      ? []
+      : TRIED_EXTS.flatMap((e) => [abs + e, join(abs, "index" + e)]);
+  return [abs, ...twins, ...bare];
 }
 
 const NO_FACTS: Facts = { next: [], deps: [], unresolved: [] };

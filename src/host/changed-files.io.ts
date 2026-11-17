@@ -3,6 +3,7 @@
  * and the file reads the import closure needs. The decision is pure and lives
  * in `src/core/test-selection.ts`.
  */
+import ts from "typescript";
 import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -20,6 +21,9 @@ export const nodeSourceHost: SourceHost = {
   },
   isFile: (path) =>
     statSync(path, { throwIfNoEntry: false })?.isFile() === true,
+  // tsc's own walk, so a tsconfig's `include`/`exclude` mean what tsc means.
+  readDirectory: (...args: Readonly<Parameters<typeof ts.sys.readDirectory>>) =>
+    ts.sys.readDirectory(...args),
 };
 
 function git(cwd: string, args: readonly string[]): string | undefined {
