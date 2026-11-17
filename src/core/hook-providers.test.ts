@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 
 import {
   gatherContext,
+  lazyContext,
   unknownProviders,
   unsafeInlineProviders,
   unsafeProvider,
@@ -23,7 +24,7 @@ import {
   type ProviderRegistry,
 } from "./hook-providers.js";
 import { isReadOnlyBash } from "./bash-effects.js";
-import { type StateEntry } from "./hook-state.js";
+import { state, type StateEntry } from "./hook-state.js";
 
 /** A fake IO that answers a fixed map of commands. */
 function fakeIO(
@@ -193,4 +194,59 @@ test("every built-in provider command is provably READ-ONLY", () => {
       `built-in provider "${name}" runs a non-read-only command: ${def.run}`,
     );
   }
+});
+
+/** A fake IO that counts how often each command is exec'd. */
+function countingIO(answers: Record<string, string>) {
+  const calls: string[] = [];
+  const base = fakeIO(answers);
+  const io: ProviderIO = {
+    ...base,
+    exec: (c) => {
+      calls.push(c);
+      return base.exec(c);
+    },
+  };
+  return { io, calls };
+}
+
+test("lazyContext runs NOTHING until a key is read, and unread keys never run", () => {
+  const { io, calls } = countingIO({
+    "git branch --show-current": "main\n",
+    "echo a": "a",
+  });
+  const ctx = lazyContext(["git.branch", provide("a", "echo a")], io);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(Object.keys(ctx), ["git.branch", "a"]); // enumerable, no exec
+  assert.deepEqual(calls, []);
+  assert.equal(ctx.a, "a");
+  assert.deepEqual(calls, ["echo a"]); // only the read key ran
+});
+
+test("lazyContext memoizes: a key read twice runs once (failures included)", () => {
+  const { io, calls } = countingIO({ "echo a": "a" });
+  const ctx = lazyContext(
+    [provide("a", "echo a"), provide("bad", "false-cmd")],
+    io,
+  );
+  assert.equal(ctx.a, "a");
+  assert.equal(ctx.a, "a");
+  assert.equal(ctx.bad, "");
+  assert.equal(ctx.bad, "");
+  assert.deepEqual(calls, ["echo a", "false-cmd"]);
+});
+
+test("lazyContext getters never throw and give today's defaults", () => {
+  const { io } = countingIO({});
+  const ctx = lazyContext(
+    ["git.branch", "git.isDirty", provider("missing"), state("never")],
+    io,
+  );
+  assert.equal(ctx["git.branch"], "");
+  assert.equal(ctx["git.isDirty"], false);
+  assert.equal(ctx.missing, "");
+  const never = ctx.never;
+  assert.ok(typeof never === "object");
+  assert.equal(never.recorded, false);
+  assert.equal(never.ageSeconds, Infinity);
 });

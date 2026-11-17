@@ -197,7 +197,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 606 project files. */
+  /** 609 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -249,6 +249,7 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/output-style.ts"
     | "src/adapters/claude-code/plugin-loader.test.ts"
     | "src/adapters/claude-code/plugin-loader.ts"
+    | "src/adapters/claude-code/react-command.test.ts"
     | "src/adapters/claude-code/refs-hook.test.ts"
     | "src/adapters/claude-code/refs-nudge-hook.test.ts"
     | "src/adapters/claude-code/replies.test.ts"
@@ -291,6 +292,7 @@ declare module "vigiles/generated" {
     | "src/adapters/codex/mock-model.test.ts"
     | "src/adapters/codex/mock-model.ts"
     | "src/adapters/codex/model-mock.ts"
+    | "src/adapters/codex/react-command.test.ts"
     | "src/adapters/codex/runtime.ts"
     | "src/adapters/codex/skill-listing-delivery.test.ts"
     | "src/adapters/codex/skill-listing.test.ts"
@@ -650,6 +652,7 @@ declare module "vigiles/generated" {
     | "src/hook-dogfood.test.ts"
     | "src/hook-install.test.ts"
     | "src/hook-install.ts"
+    | "src/hook-lazy-providers.test.ts"
     | "src/hook-load-wedge.test.ts"
     | "src/hook-matcher-delivery.test.ts"
     | "src/hook-oss-comparison.test.ts"
@@ -1024,6 +1027,7 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/output-style.ts"
       | "src/adapters/claude-code/plugin-loader.test.ts"
       | "src/adapters/claude-code/plugin-loader.ts"
+      | "src/adapters/claude-code/react-command.test.ts"
       | "src/adapters/claude-code/refs-hook.test.ts"
       | "src/adapters/claude-code/refs-nudge-hook.test.ts"
       | "src/adapters/claude-code/replies.test.ts"
@@ -1066,6 +1070,7 @@ declare module "vigiles/spec" {
       | "src/adapters/codex/mock-model.test.ts"
       | "src/adapters/codex/mock-model.ts"
       | "src/adapters/codex/model-mock.ts"
+      | "src/adapters/codex/react-command.test.ts"
       | "src/adapters/codex/runtime.ts"
       | "src/adapters/codex/skill-listing-delivery.test.ts"
       | "src/adapters/codex/skill-listing.test.ts"
@@ -1425,6 +1430,7 @@ declare module "vigiles/spec" {
       | "src/hook-dogfood.test.ts"
       | "src/hook-install.test.ts"
       | "src/hook-install.ts"
+      | "src/hook-lazy-providers.test.ts"
       | "src/hook-load-wedge.test.ts"
       | "src/hook-matcher-delivery.test.ts"
       | "src/hook-oss-comparison.test.ts"

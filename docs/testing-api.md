@@ -158,6 +158,9 @@ assertHookAllows(guard, {
 const warn = await loadHook(".vigiles/hooks/warn-on-failure.hook.mjs");
 assertHookNotices(warn, failedBashEvent, /read the error/); // message matcher optional
 assertHookSilent(warn, successfulBashEvent);
+// A react declared for Bash alone (`match: tools("Bash")`) also reads the
+// command: its event is a `BashReactEvent`, so feed it a Bash payload, and
+// add a non-Bash event to show it stays quiet there.
 
 // the raw primitive: a normalized, role-dispatched outcome
 runHookProgram(guard, event); // → { kind: "decision" | "injection" | "reaction", … }
@@ -166,7 +169,9 @@ runHookProgram(guard, event); // → { kind: "decision" | "injection" | "reactio
 `assertHookBlocked` / `assertHookAllowed` (above) are the sibling assertions over
 a `runHook` **result** (the hook run as a real subprocess); `assertHookDenies` /
 `assertHookAllows` evaluate the typed program **directly** — cheaper, and they
-work for inject/react hooks too via `runHookProgram`.
+work for inject/react hooks too via `runHookProgram`. Which reacts see
+`e.command` (a `BashReactEvent`) and which do not (a `ToolReactEvent`):
+[A react that reads the command](compiled-hooks.md#a-react-that-reads-the-command).
 
 ### Assert a subagent's typed outcome
 

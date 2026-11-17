@@ -27,6 +27,7 @@ vigiles lets you author a hook as a **pure typed function** `(event) => Decision
 - [The roles](#the-roles)
 - [Role and event have to fit](#role-and-event-have-to-fit)
 - [The vocabulary](#the-vocabulary)
+  - [A react that reads the command](#a-react-that-reads-the-command)
 - [Testing a hook that remembers](#testing-a-hook-that-remembers)
 - [Observe mode (shadow rollout)](#observe-mode-shadow-rollout)
 - [Deciding on external state (context providers)](#deciding-on-external-state-context-providers)
@@ -61,7 +62,7 @@ The unifying idea: a hook is a tiny program, and a closed, typed vocabulary shri
 - **`experimental_definePromptGate`** — a **prompt gate** (`UserPromptSubmit`). Sees the prompt **text** (`e.prompt`) and returns a `Decision`. `deny` blocks/erases the prompt — useful as a security filter that refuses a prompt leaking a secret or carrying an injection.
 - **`experimental_defineStopGate`** — a **stop gate** (`Stop` / `SubagentStop`). Returns a `Decision`. `deny` keeps the agent **going** (gate-until-tests-pass; the reason is fed back to the model). Honour `e.stopHookActive` (the loop guard): `allow` when it's set, or you can wedge the agent in a stop→continue loop.
 - **`experimental_defineInject`** — an **inject** (`SessionStart` / `UserPromptSubmit`). Returns an `Injection` (`inject(text)`) — context added to the model. It has **no `deny`**: a no-decision event can't block.
-- **`experimental_defineReact`** — a **react** (`PostToolUse`). Returns a `Reaction` — `run(cmd)`, `notice(msg)`, or `nothing()`. The tool already ran, so it **can't block**. It sees the tool's **response** (`e.response`, e.g. react only on a failure), and `run(cmd)`'s effect is **classified at construction** (read-only / side-effecting), so every reaction is auditable without running it. A `notice(msg)` reaches the agent as injected context — see [Where a notice arrives](#where-a-notice-arrives).
+- **`experimental_defineReact`** — a **react** (`PostToolUse`). Returns a `Reaction` — `run(cmd)`, `notice(msg)`, or `nothing()`. The tool already ran, so it **can't block**. It sees the tool's **response** (`e.response`, e.g. react only on a failure) and, when it is declared for Bash alone (`match: tools("Bash")`), the **command** that ran (`e.command`, the same view a Bash gate gets — see [A react that reads the command](#a-react-that-reads-the-command)). `run(cmd)`'s effect is **classified at construction** (read-only / side-effecting), so every reaction is auditable without running it. A `notice(msg)` reaches the agent as injected context — see [Where a notice arrives](#where-a-notice-arrives).
 
 Every **gate** (tool / prompt / stop) takes an optional `mode` — see [Observe mode](#observe-mode-shadow-rollout).
 
@@ -109,8 +110,10 @@ export default experimental_defineHook({
 
 - **`tools(...names)`** — which tools a file gate or react matches. A bash gate
   needs none: a `BashToolEvent` is Bash by construction, so the matcher is emitted
-  for you and there is no field to get wrong.
-- **`e.command`** (Bash) — an AST-backed `CommandView`:
+  for you and there is no field to get wrong. The names keep their literal types,
+  which is how a react declared with `tools("Bash")` alone is known to carry
+  `e.command`.
+- **`e.command`** (a Bash gate, and a react declared for Bash alone) — an AST-backed `CommandView`. It parses on the first predicate call, so a hook that never asks pays no parse:
   - `runs(program, { force? })` — a leaf runs `program` (e.g. `"git reset --hard"`), optionally forced.
   - `touches(prefixes)` — a leaf **mentions** a path under one of `prefixes` (e.g. `["~/.ssh", ".env"]`) — secret reads.
   - `writesTo(prefixes)` — a leaf **creates or modifies** a file under one of `prefixes`: redirection targets (`cmd > f`, `>>`, `>|`, `&>`) plus the writing argv position of `sed -i`, `cp` / `mv` / `install` (destination), `tee`, `dd of=`, `truncate`, `shred`.
@@ -140,6 +143,82 @@ export default experimental_defineHook({
 - **`allow()` / `deny(reason)` / `ask(reason)`** — the gate decision (every gate role).
 - **`inject(text)`** — inject output. **`run(cmd)` / `notice(msg)` / `nothing()`** — react output.
 - **`state(name)` in `needs`, `record(name, value?)` in a return** — **runtime-owned named memory**, so a hook can remember a fact without reaching for the filesystem. See below.
+
+### A react that reads the command
+
+A react declared for **Bash alone** sees the command it reacts to. Its event is a
+`BashReactEvent`: everything a react sees, plus `e.command` (the `CommandView`
+above). Any other react gets a `ToolReactEvent`, which has **no `command`
+property at all**. That covers other tools, a mixed list (`tools("Bash", "Edit")`),
+a pattern (`tools("Ba.*")`) and a tool-less event. Reading `e.command` on one of
+those is a `tsc` error (TS2339), so `e.command?.runs(…)`, which would be false
+forever, cannot be written either. A hook that wants the command for Bash and
+something else for another tool is two hooks.
+
+The example warns when a branch whose pull request is ready for review is pushed
+twice within 20 minutes, because each push to such a PR re-runs CI:
+
+```ts
+import {
+  experimental_defineReact,
+  tools,
+  notice,
+  nothing,
+  record,
+  state,
+  dangerously,
+} from "vigiles/hook";
+
+const LAST_PUSH = "ready-pr.last-push";
+
+export default experimental_defineReact({
+  on: "PostToolUse", // after the push happened, so the record is a fact
+  match: tools("Bash"), // Bash alone, so e.command exists
+  needs: [
+    state(LAST_PUSH),
+    "git.branch",
+    // `gh` is not provably read-only to vigiles' classifier, so `provide()`
+    // would not compile; `dangerously()` is the acknowledged escape.
+    dangerously("prIsDraft", "gh pr view --json isDraft --jq .isDraft"),
+  ],
+  react: (e) => {
+    if (!e.command.runs("git push")) return nothing();
+    const branch = e.ctx["git.branch"];
+    const prev = e.ctx[LAST_PUSH];
+    const pushed = record(LAST_PUSH, branch);
+    if (!(prev.value === branch && prev.fresherThan("20m")))
+      return nothing(pushed); // first push, another branch, or long ago
+    return e.ctx.prIsDraft === "false"
+      ? notice(
+          `${branch} was pushed ${String(Math.round(prev.ageSeconds / 60))} min ago ` +
+            "and its PR is ready: this push re-runs CI. Batch the fixes, or mark " +
+            "the PR draft while iterating.",
+          pushed,
+        )
+      : nothing(pushed); // a draft, no PR, or the lookup failed
+  },
+});
+```
+
+Four things to know about it:
+
+- **The command is keyed on the tool name, not on the payload's shape.** Codex's
+  `apply_patch` also carries `tool_input.command`, and there it is a patch. A
+  react on `apply_patch` never gets a `CommandView` of a patch, and a Bash-only
+  react does not fire on one.
+- **Codex.** Codex's hooks documentation says shell commands, unified exec
+  included, reach a hook as `Bash`, so the same hook decodes a Codex payload. That
+  is a documented claim: no Codex payload has been captured to confirm the name.
+  React _output_ is not confirmed on Codex either, so `compile --harness=codex`
+  still warns on every react (see [Compile and wire](#compile-and-wire)).
+- **One slot.** The key holds the last push, whichever branch it was. Push A,
+  push B, then push A again within the window: the second push of A is not
+  caught.
+- **`.mjs` authors get no type check.** In a JavaScript hook, `e.command` is
+  `undefined` on any event that is not Bash, and `e.command.runs(…)` throws a
+  `TypeError` inside `react`. The runtime prints it on stderr, but a react is
+  wired with `|| exit 0`, so nothing else shows it. Declare the react for Bash
+  alone, and test it with a non-Bash event as well.
 
 ### Remembering a fact — `state()` and `record()`
 
@@ -313,6 +392,13 @@ export default defineProvider({
 ```
 
 `vigiles compile` validates each provider is read-only (or `dangerous: true`) and that every `provider()` ref resolves to a registered file.
+
+**A provider runs when it is read, at most once per call.** `e.ctx` is not filled in before your decision runs. Each declared fact is fetched the first time the decision reads it, and a second read in the same call returns the same value. A fact the decision never reads is never fetched, so an unread provider costs nothing, and an unread `dangerously()` command never runs. This matters most for a hook on Bash, which spawns on every shell command: in the [push warning](#a-react-that-reads-the-command) above, the `gh pr view` lookup runs only on the second push inside the window, not on every `ls`. Measured on one machine, a Bash react declaring an unread 0.4 s provider went from about 460 ms per call to about 55 ms. Two consequences:
+
+- `needs` is the **upper bound** of what a hook may cause the host to run, not what it runs on every call. Reviewing `needs` still tells you everything the hook can make the host do.
+- A provider with an effect you were relying on as a side job only runs when read. Providers are facts, so that was never part of the contract.
+
+**Every provider command is stopped after 10 seconds.** A provider that is still running then is killed and yields its default (`""`, `false`), exactly as a failed one does, and the decision continues. The limit keeps one hung command (a network call with no answer) from stalling the hook until the harness kills the whole hook process, which would lose the decision. It is not configurable: a fact that takes longer is not a fact a hook should wait for on every call.
 
 **The opt-out ladder** (you're **never trapped**): built-in providers → inline `provide` / `dangerously` → **registered `defineProvider`** (reusable, named) → the **shell lane** (a hand-written `.sh` for arbitrary in-decision logic, verified with the disaster battery). You always know which rung you're on.
 
@@ -716,7 +802,7 @@ Compiled hooks are neither free nor magic. The honest downsides:
 
   Scope of the measurement, stated plainly: it drives `claude -p` (headless). Interactive sessions are unmeasured, and subagent nesting (depth 2) does not occur there at all.
 
-- ⚠️ **Runtime cost.** Every matching event spawns `node` and dynamic-imports your program. Measured on Node 22 (median of 20 spawns, one machine — yours will differ): about **80 ms** for a file gate, an inject or a stop gate, and about **200 ms** for a Bash gate, which additionally parses the command. Roughly 40 ms of either is Node itself starting. Fine for a `PreToolUse` gate. Think twice before a hot-path `PostToolUse` react that fires on every edit. Claude Code's native `if:` prefilter is **not** the way out of this, and [Why the emitted block has a `matcher` and no `if:`](#why-the-emitted-block-has-a-matcher-and-no-if) says why: a prefilter narrower than your predicate silences the guard without a word.
+- ⚠️ **Runtime cost.** Every matching event spawns `node` and dynamic-imports your program. Measured on Node 22 (median of 20 spawns, one machine — yours will differ): about **80 ms** for a file gate, an inject or a stop gate, and about **200 ms** for a Bash gate, which additionally parses the command. Roughly 40 ms of either is Node itself starting. A react declared for Bash pays the parse only if it asks about the command: on 2026-11-17, on a machine where Node starts in about 20 ms, one that reads only `e.response` measured about 55 ms and one that calls `e.command.runs(…)` about 130 ms. A declared provider adds its own run time only on the calls that read it ([providers run when read](#deciding-on-external-state-context-providers)). Fine for a `PreToolUse` gate. Think twice before a hot-path `PostToolUse` react that fires on every edit. Claude Code's native `if:` prefilter is **not** the way out of this, and [Why the emitted block has a `matcher` and no `if:`](#why-the-emitted-block-has-a-matcher-and-no-if) says why: a prefilter narrower than your predicate silences the guard without a word.
 - ⚠️ **Buy-in.** It's a dependency plus a build step, and you author in JS/TS, not a 3-line inline `bash` hook. For a trivial one-liner the compiled path is heavier — the payoff is on the guards that actually have to be _correct_.
 - ⚠️ **A bounded vocabulary is a ceiling, by design** — but be precise about which bound. (1) What a hook can _do_: `checkHookImports` forbids any import but `vigiles/hook` (no `fs`/`net`/`child_process`), so a hook that must _call a service, read a file, or hold cross-invocation state_ to decide can't be expressed. That is the **deliberate** ceiling — it _is_ the safety guarantee, and such hooks stay hand-written (keep a plain shell hook and verify it with the disaster battery). (2) What a hook can _see_: the AST matchers (`runs`/`touches`/`pipesToShell`/`under`) are a **soft, extensible** limit, not a fundamental one — if you need to match a shape they don't expose yet, the fix is a new matcher, not a redesign.
 - ⚠️ **Compiling proves the protocol, not your policy.** A compiled hook can't have the wrong exit code — but it can still `deny` the wrong thing. Compiling is necessary, not sufficient. Test the _logic_ with [guardrail verification](harness-testing.md).

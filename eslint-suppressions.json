@@ -1569,7 +1569,7 @@
       "count": 5
     },
     "functional/prefer-immutable-types": {
-      "count": 18
+      "count": 17
     },
     "local/no-rule-ids": {
       "count": 1
@@ -1599,13 +1599,13 @@
   },
   "src/core/hook-providers.ts": {
     "functional/immutable-data": {
-      "count": 6
-    },
-    "functional/no-loop-statements": {
       "count": 2
     },
+    "functional/no-loop-statements": {
+      "count": 1
+    },
     "functional/prefer-immutable-types": {
-      "count": 5
+      "count": 3
     }
   },
   "src/core/hook-state.test.ts": {

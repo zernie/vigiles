@@ -469,7 +469,8 @@ cmd)`, or a **registered** provider. `compile` also discovers
   **`.vigiles/providers/*.provider.*`** (`export default defineProvider({ name, run })`),
   validates each is read-only (unless `dangerous: true`), and checks every
   `provider()` ref resolves — a dangling ref or an unsafe provider **fails the
-  build**. The trusted runtime gathers the declared facts; the hook does zero I/O.
+  build**. The trusted runtime fetches each declared fact when the hook first reads it
+  (once per call, never if unread); the hook does zero I/O.
   See the [compiled-hooks guide](compiled-hooks.md#deciding-on-external-state-context-providers).
 
 The merged block points at the `hook-runtime run-program` entrypoint (below),

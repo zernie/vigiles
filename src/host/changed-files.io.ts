@@ -25,8 +25,16 @@ export const nodeSourceHost: SourceHost = {
       return null;
     }
   },
-  isFile: (path) =>
-    statSync(path, { throwIfNoEntry: false })?.isFile() === true,
+  // Total: tsc's resolver probes `<main>/index.ts`, a path THROUGH a file when
+  // `main` is a file. Node 20 throws ENOTDIR there despite `throwIfNoEntry`
+  // (newer Node swallows it), and a throw here killed `test --changed`.
+  isFile: (path) => {
+    try {
+      return statSync(path, { throwIfNoEntry: false })?.isFile() === true;
+    } catch {
+      return false;
+    }
+  },
   realpath: (path) => {
     try {
       return realpathSync(path);
