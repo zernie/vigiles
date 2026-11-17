@@ -9,13 +9,15 @@ inputs:
   command:
     description: >
       Which vigiles command to run: 'lint' (verify references + integrity +
-      coverage), 'compile' (specs → markdown), or 'eval-check' (verify committed
+      coverage), 'compile' (specs → markdown), 'test' (run the *.harness.*
+      files against a scripted model — free, no API key; installs the repo's
+      dependencies first, see `install`), or 'eval-check' (verify committed
       eval locks against current inputs — the staleness gate; runs NO model, so
       it is the CI-safe half of evals you produce locally with `vigiles eval --update`).
     required: false
     default: "lint"
   paths:
-    description: "Comma- or space-separated paths to operate on (.md files for lint, .spec.ts files for compile). Auto-discovers when empty."
+    description: "Comma- or space-separated paths or globs to operate on (.md files for lint, .spec.ts files for compile, harness files for test). Auto-discovers when empty."
     required: false
     default: ""
   version:
@@ -46,6 +48,35 @@ inputs:
       none.
     required: false
     default: ""
+  changed-only:
+    description: >
+      test only. On pull_request events, run only the harness files the PR can
+      reach (maps to `--changed=<PR base sha>`): a changed harness, a changed
+      file in its folder or import closure, or every file when package.json, a
+      lockfile, .vigilesrc.json or a workflow changed. On any other event
+      (a push to the default branch) every file runs. 'true' or 'false'.
+    required: false
+    default: "false"
+  min:
+    description: >
+      test and eval-check. Fail unless discovery matched at least this many
+      files (maps to the CLI's --min=). Under changed-only it counts the files
+      discovery matched, before the PR narrows them, so a broken glob still
+      fails. Empty (the default) sets no floor.
+    required: false
+    default: ""
+  no-skip:
+    description: "test and eval-check. Fail when a file reports itself SKIPPED (maps to the CLI's --no-skip). 'true' or 'false'."
+    required: false
+    default: "false"
+  install:
+    description: >
+      test only. Run `npm ci` before the harness files, because they import the
+      repo's own dependencies — only when package-lock.json exists and
+      node_modules does not (an earlier install step wins). Cache it with
+      `actions/setup-node`'s `cache: npm`. 'true' or 'false'.
+    required: false
+    default: "true"
   working-directory:
     description: "Directory to run vigiles in."
     required: false
@@ -95,6 +126,10 @@ runs:
         VIGILES_COMMENT: ${{ inputs.comment }}
         VIGILES_CAPABILITY_DIFF: ${{ inputs.capability-diff }}
         VIGILES_FAIL_ON_WIDEN: ${{ inputs.fail-on-widen }}
+        VIGILES_CHANGED_ONLY: ${{ inputs.changed-only }}
+        VIGILES_MIN: ${{ inputs.min }}
+        VIGILES_NO_SKIP: ${{ inputs.no-skip }}
+        VIGILES_INSTALL: ${{ inputs.install }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         set -euo pipefail
@@ -130,6 +165,46 @@ runs:
         preset="${VIGILES_PRESET:-}"
         if [[ -n "${preset// /}" ]]; then
           args+=("--preset=${preset// /}")
+        fi
+
+        # The count floor and the no-skip gate: the CLI validates both per
+        # verb (an unknown flag exits 2), so they are passed through as written.
+        min="${VIGILES_MIN:-}"
+        if [[ -n "${min// /}" ]]; then
+          args+=("--min=${min// /}")
+        fi
+        if [[ "${VIGILES_NO_SKIP:-false}" == "true" ]]; then
+          args+=("--no-skip")
+        fi
+
+        # changed-only: on a pull_request, narrow `test` to what the PR can
+        # reach, diffed against the PR base. Anywhere else run every file, so
+        # the default branch keeps "a harness nobody wired still runs".
+        if [[ "$cmd" == "test" && "${VIGILES_CHANGED_ONLY:-false}" == "true" ]]; then
+          if [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" ]]; then
+            base_sha="$(jq -r '.pull_request.base.sha // empty' "${GITHUB_EVENT_PATH:-/dev/null}")"
+            if [[ -n "$base_sha" ]]; then
+              # A shallow checkout may not carry the base commit — fetch it.
+              git fetch --no-tags --depth=1 origin "$base_sha" >/dev/null 2>&1 || true
+              args+=("--changed=${base_sha}")
+            else
+              echo "::warning::changed-only: no PR base sha in the event payload — every harness runs"
+            fi
+          else
+            echo "vigiles: changed-only narrows pull_request runs; this is '${GITHUB_EVENT_NAME:-unknown}', so every harness runs"
+          fi
+        fi
+
+        # test runs the repo's harness files, which import its dependencies.
+        # Installed BEFORE the runner is resolved, so the default `version`
+        # then finds the vigiles this repo declares, installed.
+        if [[ "$cmd" == "test" && "${VIGILES_INSTALL:-true}" == "true" && ! -d node_modules ]]; then
+          if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
+            echo "vigiles: npm ci (the harness files import this repo's dependencies)"
+            npm ci --no-audit --no-fund
+          elif [[ -f package.json ]]; then
+            echo "::warning::vigiles test: no package-lock.json and no node_modules — install dependencies in a step before this one"
+          fi
         fi
 
         # Resolve the runner. 'local' runs the action's own build (CI

@@ -138,6 +138,12 @@ function resolveRunner(
       '#!/bin/sh\nprintf "%s\\n" "$*" >> "$NPX_LOG"\n',
       { mode: 0o755 },
     );
+    // `npm ci` (the `test` install) lands in the same log, prefixed.
+    writeFileSync(
+      join(bin, "npm"),
+      '#!/bin/sh\nprintf "npm %s\\n" "$*" >> "$NPX_LOG"\n',
+      { mode: 0o755 },
+    );
     for (const [rel, body] of Object.entries(files)) {
       mkdirSync(dirname(join(repo, rel)), { recursive: true });
       writeFileSync(join(repo, rel), body, { mode: 0o755 });
@@ -254,6 +260,122 @@ describe("action.yml — the preset input", () => {
   it("adds nothing when empty", () => {
     assert.equal(
       resolveRunner(installed, undefined, { VIGILES_PRESET: "" }),
+      "--no-install vigiles lint",
+    );
+  });
+});
+
+/**
+ * `command: test` (#426, #202): the harness tier through the Action. Run for
+ * real against a scratch consumer repo, like the version tests above: which
+ * install runs, which flags reach the CLI, and that `changed-only` narrows a
+ * pull_request to its base and leaves every other event running everything.
+ */
+describe("action.yml — command: test", () => {
+  const installed = {
+    "package.json": declares("^33.3.0"),
+    "node_modules/.bin/vigiles": "#!/bin/sh\n",
+  };
+  const test = (
+    files: Readonly<Record<string, string>>,
+    env: Readonly<Record<string, string>> = {},
+  ): string =>
+    resolveRunner(files, undefined, { VIGILES_COMMAND: "test", ...env });
+
+  it("declares its inputs, off by default", () => {
+    assert.equal(action.inputs["changed-only"]?.default, "false");
+    assert.equal(action.inputs["min"]?.default, "");
+    assert.equal(action.inputs["no-skip"]?.default, "false");
+    assert.equal(action.inputs["install"]?.default, "true");
+  });
+
+  it("runs the repo's installed vigiles and installs nothing when node_modules exists", () => {
+    assert.equal(test(installed), "--no-install vigiles test");
+  });
+
+  it("runs npm ci first when a lockfile exists and nothing is installed", () => {
+    const log = test({
+      "package.json": declares("^33.3.0"),
+      "package-lock.json": JSON.stringify({
+        lockfileVersion: 3,
+        packages: { "node_modules/vigiles": { version: "33.4.1" } },
+      }),
+    }).split("\n");
+    assert.deepEqual(log, [
+      "npm ci --no-audit --no-fund",
+      "--yes vigiles@33.4.1 test",
+    ]);
+  });
+
+  it("install: false skips the install", () => {
+    const log = test(
+      {
+        "package.json": declares("^33.3.0"),
+        "package-lock.json": JSON.stringify({ lockfileVersion: 3 }),
+      },
+      { VIGILES_INSTALL: "false" },
+    );
+    assert.doesNotMatch(log, /npm ci/);
+  });
+
+  it("passes paths, min and no-skip through to the CLI", () => {
+    assert.equal(
+      test(installed, {
+        VIGILES_PATHS: "a.harness.mjs, b/*.harness.mjs",
+        VIGILES_MIN: "150",
+        VIGILES_NO_SKIP: "true",
+      }),
+      "--no-install vigiles test a.harness.mjs b/*.harness.mjs --min=150 --no-skip",
+    );
+  });
+});
+
+describe("action.yml — command: test, changed-only", () => {
+  const installed = {
+    "package.json": declares("^33.3.0"),
+    "node_modules/.bin/vigiles": "#!/bin/sh\n",
+  };
+  const test = (
+    files: Readonly<Record<string, string>>,
+    env: Readonly<Record<string, string>> = {},
+  ): string =>
+    resolveRunner(files, undefined, { VIGILES_COMMAND: "test", ...env });
+
+  it("changed-only on a pull_request narrows to the PR base", () => {
+    assert.equal(
+      test(
+        {
+          ...installed,
+          "event.json": JSON.stringify({
+            pull_request: { number: 7, base: { sha: "abc123" } },
+          }),
+        },
+        {
+          VIGILES_CHANGED_ONLY: "true",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_EVENT_PATH: "event.json",
+        },
+      ),
+      "--no-install vigiles test --changed=abc123",
+    );
+  });
+
+  it("changed-only on a push runs every file", () => {
+    assert.equal(
+      test(installed, {
+        VIGILES_CHANGED_ONLY: "true",
+        GITHUB_EVENT_NAME: "push",
+      }),
+      "--no-install vigiles test",
+    );
+  });
+
+  it("changed-only never narrows another command", () => {
+    assert.equal(
+      resolveRunner(installed, undefined, {
+        VIGILES_CHANGED_ONLY: "true",
+        GITHUB_EVENT_NAME: "pull_request",
+      }),
       "--no-install vigiles lint",
     );
   });

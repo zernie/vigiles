@@ -44,6 +44,48 @@ annotations and fail the job.
     paths: CLAUDE.md.spec.ts # optional; auto-discovers when omitted
 ```
 
+## Run the harness tests
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm # caches the `npm ci` the Action runs
+      - uses: zernie/vigiles@v1
+        with:
+          command: test # → `vigiles test`, after `npm ci`
+          changed-only: "true" # pull_request: only what the PR reaches; push: everything
+          min: "40" # fail if discovery finds fewer harness files
+          no-skip: "true" # fail if a file reports SKIPPED (e.g. no `claude` on the runner)
+```
+
+Harness files import the library and your repo's own packages, so `command: test` runs `npm ci`
+first when there is a `package-lock.json` and no `node_modules`. An install step of your own before
+the Action wins (it finds `node_modules` and installs nothing); set `install: "false"` to skip it.
+With pnpm or Yarn, install in a step before the Action. Because the install comes first, the default
+`version` then runs the vigiles your `package.json` declares — the same copy your harness files import.
+
+**`changed-only`** maps to [`vigiles test --changed=<PR base sha>`](cli.md#running-only-what-a-change-reaches---changed)
+on `pull_request` events: a harness runs when it changed, when a file in its folder or its import
+closure changed, and all of them run when `package.json`, a lockfile, `.vigilesrc.json` or a
+workflow changed. Every file runs on any other event, so the push to your default branch is still
+the full sweep: a harness nobody wired runs there. Each selected file is listed with its reason,
+and a pull request that reaches none says `0 of N test file(s) selected` rather than passing
+silently. The Action fetches the base commit itself; no `fetch-depth: 0` needed.
+
+**`min`** is a floor on what discovery matched, counted **before** `changed-only` narrows it, so a
+glob that broke still fails on every pull request.
+
 ## Check eval results aren't stale (no model)
 
 Real-model evals run locally on your subscription (`vigiles eval --update`, which
@@ -51,8 +93,8 @@ commits a lock). This job verifies those committed results against the current
 inputs **without** a model call — failing if you changed a skill but forgot to
 re-eval. It **fails** until you commit your first lock (`vigiles eval --update`):
 with no recorded result there is nothing to verify, and a pass would mean nothing
-was checked. The Action has no `--min` input; the job `vigiles init` scaffolds is a plain
-`npx vigiles eval --check --min=0` step, which stays green until the first eval file exists.
+was checked. Set `min: "0"` to stay green until the first eval file exists (the job
+`vigiles init` scaffolds is a plain `npx vigiles eval --check --min=0` step for the same reason).
 
 ```yaml
 - uses: zernie/vigiles@v1
@@ -62,48 +104,23 @@ was checked. The Action has no `--min` input; the job `vigiles init` scaffolds i
 
 ## Inputs
 
-| Input               | Default   | Description                                                                                                                                                                                                                         |
-| ------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `command`           | `lint`    | `lint` (verify references + integrity + coverage), `compile` (specs → markdown), or `eval-check` (verify committed eval locks vs current inputs — the staleness gate, no model).                                                    |
-| `paths`             | _(auto)_  | Comma/space-separated paths — `.md` for `lint`, `.spec.ts` for `compile`. Auto-discovers.                                                                                                                                           |
-| `version`           | _(repo)_  | npm version of `vigiles` to run (`34`, `34.1.2`, `latest`). Empty (the default) runs the version **your `package.json` declares** — see [Versioning](#versioning). `local` runs a checked-out build.                                |
-| `max-rules`         | _(unset)_ | Cap rules per spec (maps to `--max-rules`).                                                                                                                                                                                         |
-| `catalog-only`      | `false`   | Only check that linter rules exist; skip config-enabled checks (maps to `--catalog-only`).                                                                                                                                          |
-| `preset`            | _(none)_  | Add a preset for this run, on top of your `.vigilesrc.json` (maps to `--preset=`; `lint` only). `experimental` runs the [experimental rules](configuration.md#experimental-rules) at `warn`, so they report and never fail the run. |
-| `working-directory` | `.`       | Directory to run vigiles in.                                                                                                                                                                                                        |
-| `comment`           | `true`    | On `pull_request` events, post/update a sticky PR comment with the result.                                                                                                                                                          |
-| `capability-diff`   | `false`   | On `pull_request` events, diff the agent's capability surface (subagents' tool/effect blast radius) vs the PR base and fold it into the sticky comment (maps to `--capability-diff`). Needs `fetch-depth: 0` on checkout.           |
-| `fail-on-widen`     | `false`   | With `capability-diff`, fail the run when the PR **widens** the blast radius (maps to `--fail-on-widen`).                                                                                                                           |
-| `github-token`      | _(auto)_  | Token for the PR comment. Defaults to the workflow token (`${{ github.token }}`).                                                                                                                                                   |
-
-### Why there is no `command: test`
-
-`test` and `eval` are missing from that list deliberately, and the omission is worth stating
-because the input is a **pass-through** — nothing validates it, so `command: test` becomes
-`vigiles test` and then fails in a way that looks like a vigiles bug.
-
-It fails because the Action runs `npx vigiles@<version> <cmd>` in your working directory and
-**never runs `npm ci`**. Harness files import the library:
-
-```js
-import { runHarnessTest, skip } from "vigiles";
-```
-
-That import needs repo-local `node_modules`, which the Action does not install. `vigiles init`
-knows this: the workflow it generates wires the Action for the jobs that can use it and writes
-a plain `npx vigiles test` job — with its own `npm ci` — for the harness tier.
-
-So the split is not an oversight to route around:
-
-| tier                            | how it runs in CI          | why                                              |
-| ------------------------------- | -------------------------- | ------------------------------------------------ |
-| `lint`, `compile`, `eval-check` | the Action                 | reads files, needs no repo dependencies          |
-| `test`, `eval`                  | a normal job with `npm ci` | executes your harness, which imports the library |
-
-**Pin `version:` in any job you hand-write.** The `latest` default deliberately ignores your
-`package-lock.json`, so CI can lint with one major while your harnesses run against another —
-a split measured in a real consumer on 2026-08-18 (`npm ls vigiles` → `15.2.1 invalid:
-"^16.1.0"`), which is what led a new harness to import a subpath v16 had removed.
+| Input               | Default   | Description                                                                                                                                                                                                                                       |
+| ------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `command`           | `lint`    | `lint` (verify references + integrity + coverage), `compile` (specs → markdown), `test` (run the harness files; [above](#run-the-harness-tests)), or `eval-check` (verify committed eval locks vs current inputs — the staleness gate, no model). |
+| `paths`             | _(auto)_  | Comma/space-separated paths or globs — `.md` for `lint`, `.spec.ts` for `compile`, harness files for `test`. Auto-discovers.                                                                                                                      |
+| `changed-only`      | `false`   | `test`: on `pull_request` events run only what the PR reaches (maps to `--changed=<base sha>`); every file on any other event.                                                                                                                    |
+| `min`               | _(unset)_ | `test`, `eval-check`: fail unless discovery matched at least this many files (maps to `--min=`). Counted before `changed-only` narrows.                                                                                                           |
+| `no-skip`           | `false`   | `test`, `eval-check`: fail when a file reports itself SKIPPED (maps to `--no-skip`).                                                                                                                                                              |
+| `install`           | `true`    | `test`: run `npm ci` first when `package-lock.json` exists and `node_modules` does not.                                                                                                                                                           |
+| `version`           | _(repo)_  | npm version of `vigiles` to run (`34`, `34.1.2`, `latest`). Empty (the default) runs the version **your `package.json` declares** — see [Versioning](#versioning). `local` runs a checked-out build.                                              |
+| `max-rules`         | _(unset)_ | Cap rules per spec (maps to `--max-rules`).                                                                                                                                                                                                       |
+| `catalog-only`      | `false`   | Only check that linter rules exist; skip config-enabled checks (maps to `--catalog-only`).                                                                                                                                                        |
+| `preset`            | _(none)_  | Add a preset for this run, on top of your `.vigilesrc.json` (maps to `--preset=`; `lint` only). `experimental` runs the [experimental rules](configuration.md#experimental-rules) at `warn`, so they report and never fail the run.               |
+| `working-directory` | `.`       | Directory to run vigiles in.                                                                                                                                                                                                                      |
+| `comment`           | `true`    | On `pull_request` events, post/update a sticky PR comment with the result.                                                                                                                                                                        |
+| `capability-diff`   | `false`   | On `pull_request` events, diff the agent's capability surface (subagents' tool/effect blast radius) vs the PR base and fold it into the sticky comment (maps to `--capability-diff`). Needs `fetch-depth: 0` on checkout.                         |
+| `fail-on-widen`     | `false`   | With `capability-diff`, fail the run when the PR **widens** the blast radius (maps to `--fail-on-widen`).                                                                                                                                         |
+| `github-token`      | _(auto)_  | Token for the PR comment. Defaults to the workflow token (`${{ github.token }}`).                                                                                                                                                                 |
 
 ## Output channels
 
