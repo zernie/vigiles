@@ -13,6 +13,8 @@ npx vigiles eject [file]            # Un-manage a compiled file → plain hand-o
 npx vigiles lint [files...]         # Verify references + integrity + symbols + coverage (incl. instruction-file symbol marks)
 npx vigiles lint --preset=experimental  # Also run the experimental rules (warn only, never fail) — a preset on top of your config
 npx vigiles test [files...]         # Run *.harness.{mjs,ts} deterministic harness tests (no API key)
+npx vigiles test --changed=origin/main  # Run only the harness files a change since that ref can reach
+npx vigiles test --changed          # The same, with the base decided: the PR's base in CI, the default branch locally
 npx vigiles eval [files...]         # Run *.eval.{mjs,ts} real-model harness evals (--trials=N) — local, on your subscription
 npx vigiles eval --all              # Run ALL discovered evals — a bare no-target `eval` asks first (it spends model quota)
 npx vigiles eval --update           # Record each named eval's result to a committed .vigiles/eval-locks/<name>.lock.json (local)
@@ -134,6 +136,83 @@ Each script's output is buffered and printed whole when that script finishes, ra
 live, because concurrent children writing to one terminal interleave into an unreadable mess.
 Results are reported in discovery order regardless of which finished first — a run that reorders
 its own output between invocations reads as flaky even when every result is stable.
+
+### Running only what a change reaches: `--changed`
+
+`vigiles test --changed=<ref>` runs only the harness files that the changes since `<ref>` can
+reach. "Changes" are everything between the merge-base of `<ref>` and `HEAD` and your working
+tree: commits, staged and unstaged edits, and new untracked files. A file runs when any of these
+holds, and the run prints which one, per file:
+
+| reason    | the file runs because                                                                                                                                                                                                                                                            |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `self`    | the harness file itself changed                                                                                                                                                                                                                                                  |
+| `run-all` | `package.json`, a lockfile, `.vigilesrc.json`, a file under `.github/workflows/`, or a [`test.runAllOn`](configuration.md#test) glob changed — every file runs                                                                                                                   |
+| `folder`  | a changed file sits in the harness's folder or below it                                                                                                                                                                                                                          |
+| `import`  | a changed file is in the harness's import closure: relative `import`, `export … from`, `require`, literal `import()`, and a bare specifier that resolves inside the repository (a workspace package, a tsconfig `paths` alias, a `#imports` entry) — never one in `node_modules` |
+| `reads`   | a changed file is one an effect call in the harness or its closure runs, reads or copies (`spawn*`, `exec*`, `readFile*`, `cp*`, `existsSync`, `runHook`…)                                                                                                                       |
+
+```
+--changed=origin/main: 2 changed file(s) since 3f2a9c1e0b7d (merge-base of origin/main and HEAD).
+Selected 1 of 40 test file(s); 39 skipped:
+  ▸ hooks/guard/guard.harness.mjs — folder: hooks/guard/guard.mjs changed
+```
+
+**Why the folder rule.** A harness usually spawns the script it tests
+(`spawnSync("node", ["guard.mjs"])`) or reads a fixture beside it. Neither is an import, so a
+selector that follows imports alone — Vitest's `--changed`, Jest's `--findRelatedTests` — reports
+"no affected tests" when that script changes, and passes. Keeping a harness beside what it tests is
+what lets `--changed` see it. A harness at the top of the tree owns the whole tree and runs on every
+change.
+
+**Effect calls reach outside the folder.** A call that runs, reads or copies a file names a
+dependency wherever it points: `readFileSync(join(ROOT, ".claude", "settings.json"))`,
+`cpSync(join(ROOT, "scripts/check.py"), tmp)`, `spawnSync("node", [new URL("../lib/run.mjs",
+import.meta.url).pathname])`. The path is evaluated, not matched as text — literals, `join`/`resolve`,
+`__dirname`, `import.meta.url`, `process.cwd()` and the `const` they are bound to. A script a call
+runs is followed like an import. Three rules keep this honest:
+
+- **A known start with an unknown end is a folder.** `readFileSync(join(ROOT, "data", name))` runs
+  the harness on any change under `data/`; `join(ROOT, name)` on any change at all.
+- **Only call arguments count.** A path inside an object — `tool_input.file_path` in a synthetic
+  hook event — is a fixture, not a dependency, and selects nothing.
+- **A path nothing is known about is named, not guessed.** `readFileSync(path)` inside a helper
+  whose `path` is a parameter cannot be evaluated. Selecting such a harness on every change was
+  measured on a repository of 155 harnesses: it ran 114 of them on an average narrowed pull request,
+  against 19 without it. So it is not selected for that alone, and the run says so:
+  `⚠ N skipped file(s) also make an effect call whose path cannot be evaluated (first: …)`. The full
+  run on the default branch covers them; to cover one on every pull request, list what it reads in
+  [`test.runAllOn`](configuration.md#test).
+
+**A build is read as its source.** A harness that imports `dist/x.js` is reached by a change to
+`src/x.ts`: with a `tsconfig.json` whose `outDir` is set, a path in `outDir` is read as its
+`rootDir` counterpart, and the closure continues from the source. The source's own file reads are
+not followed — they read whatever the harness hands them at run time — only its imports.
+
+**Nothing selected is said, not passed silently.** When no file is reached the run prints
+`0 of N test file(s) selected … Nothing ran; N skipped` and exits `0`: a pull request that touches
+only docs has nothing to test. Run without `--changed` (as CI does on the default branch) to run
+everything.
+
+**`--min` counts discovery, before `--changed` narrows it.** `--min=150` still fails a run whose glob
+matched 149 files, even on a pull request that selects none of them, so a broken glob cannot pass on
+zero. After the run, every _selected_ file must have loaded.
+
+An unknown `<ref>` exits `2`: in a shallow clone, fetch it first. With no merge-base in the clone
+(a CI checkout of a pull request's merge commit), the ref itself is the base and the output says so.
+
+**A bare `--changed` decides the base**, and prints which one and why (the same shape as
+Turborepo's `--affected`):
+
+| where                                    | the base                                                                                                        |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| GitHub Actions, a `pull_request` event   | the PR's base commit from the event payload (else `GITHUB_BASE_REF`), fetched into a shallow clone when missing |
+| GitHub Actions, any other event (a push) | none — every file runs                                                                                          |
+| another CI (`CI` set)                    | none — every file runs                                                                                          |
+| locally                                  | the merge-base with the default branch: `origin/HEAD`, else `origin/main`, else `origin/master`                 |
+
+When none of those resolves (no default branch, a base that cannot be fetched), every file runs
+and the run says why. A base is never guessed: a wrong one could only narrow the run.
 
 **Already have vitest or jest? You don't need a second runner for the
 deterministic tier.** The testing API — `runHook`, `runHarnessTest`, the check

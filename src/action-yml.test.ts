@@ -29,7 +29,10 @@ const action = load(raw) as {
   runs: {
     using?: string;
     main?: string;
-    steps?: ReadonlyArray<{ readonly run?: string }>;
+    steps?: ReadonlyArray<{
+      readonly run?: string;
+      readonly env?: Readonly<Record<string, string>>;
+    }>;
   };
 };
 
@@ -138,6 +141,12 @@ function resolveRunner(
       '#!/bin/sh\nprintf "%s\\n" "$*" >> "$NPX_LOG"\n',
       { mode: 0o755 },
     );
+    // `npm ci` (the `test` install) lands in the same log, prefixed.
+    writeFileSync(
+      join(bin, "npm"),
+      '#!/bin/sh\nprintf "npm %s\\n" "$*" >> "$NPX_LOG"\n',
+      { mode: 0o755 },
+    );
     for (const [rel, body] of Object.entries(files)) {
       mkdirSync(dirname(join(repo, rel)), { recursive: true });
       writeFileSync(join(repo, rel), body, { mode: 0o755 });
@@ -151,6 +160,9 @@ function resolveRunner(
         NPX_LOG: join(root, "npx.log"),
         GITHUB_OUTPUT: join(root, "out"),
         VIGILES_COMMAND: "lint",
+        // Fixed by action.yml itself (not an input), so taken from the step.
+        VIGILES_COMMANDS:
+          action.runs.steps?.[0]?.env?.["VIGILES_COMMANDS"] ?? "",
         VIGILES_VERSION: version ?? "",
         VIGILES_ACTION_PATH: root,
         ...env,
@@ -254,6 +266,115 @@ describe("action.yml — the preset input", () => {
   it("adds nothing when empty", () => {
     assert.equal(
       resolveRunner(installed, undefined, { VIGILES_PRESET: "" }),
+      "--no-install vigiles lint",
+    );
+  });
+});
+
+/**
+ * `command: test` (#426, #202): the harness tier through the Action. Run for
+ * real against a scratch consumer repo, like the version tests above: which
+ * install runs, which flags reach the CLI, and that `changed-only` narrows a
+ * pull_request to its base and leaves every other event running everything.
+ */
+describe("action.yml — command: test", () => {
+  const installed = {
+    "package.json": declares("^33.3.0"),
+    "node_modules/.bin/vigiles": "#!/bin/sh\n",
+  };
+  const test = (
+    files: Readonly<Record<string, string>>,
+    env: Readonly<Record<string, string>> = {},
+  ): string =>
+    resolveRunner(files, undefined, { VIGILES_COMMAND: "test", ...env });
+
+  it("declares its inputs, off by default", () => {
+    assert.equal(action.inputs["changed-only"]?.default, "false");
+    assert.equal(action.inputs["min"]?.default, "");
+    assert.equal(action.inputs["no-skip"]?.default, "false");
+    assert.equal(action.inputs["install"]?.default, "true");
+  });
+
+  it("runs the repo's installed vigiles and installs nothing when node_modules exists", () => {
+    assert.equal(test(installed), "--no-install vigiles test");
+  });
+
+  it("runs npm ci first when a lockfile exists and nothing is installed", () => {
+    const log = test({
+      "package.json": declares("^33.3.0"),
+      "package-lock.json": JSON.stringify({
+        lockfileVersion: 3,
+        packages: { "node_modules/vigiles": { version: "33.4.1" } },
+      }),
+    }).split("\n");
+    assert.deepEqual(log, [
+      "npm ci --no-audit --no-fund",
+      "--yes vigiles@33.4.1 test",
+    ]);
+  });
+
+  it("install: false skips the install", () => {
+    const log = test(
+      {
+        "package.json": declares("^33.3.0"),
+        "package-lock.json": JSON.stringify({ lockfileVersion: 3 }),
+      },
+      { VIGILES_INSTALL: "false" },
+    );
+    assert.doesNotMatch(log, /npm ci/);
+  });
+
+  it("passes paths, min and no-skip through to the CLI", () => {
+    assert.equal(
+      test(installed, {
+        VIGILES_PATHS: "a.harness.mjs, b/*.harness.mjs",
+        VIGILES_MIN: "150",
+        VIGILES_NO_SKIP: "true",
+      }),
+      "--no-install vigiles test a.harness.mjs b/*.harness.mjs --min=150 --no-skip",
+    );
+  });
+});
+
+describe("action.yml — command: test, changed-only", () => {
+  const installed = {
+    "package.json": declares("^33.3.0"),
+    "node_modules/.bin/vigiles": "#!/bin/sh\n",
+  };
+  const test = (
+    files: Readonly<Record<string, string>>,
+    env: Readonly<Record<string, string>> = {},
+  ): string =>
+    resolveRunner(files, undefined, { VIGILES_COMMAND: "test", ...env });
+
+  // The Action decides nothing: the event, the base and the fetch are the
+  // CLI's (core/changed-base.ts), so changed-only is the bare flag on every event.
+  for (const event of ["pull_request", "push"]) {
+    it(`changed-only maps to a bare --changed on ${event}`, () => {
+      assert.equal(
+        test(installed, {
+          VIGILES_CHANGED_ONLY: "true",
+          GITHUB_EVENT_NAME: event,
+        }),
+        "--no-install vigiles test --changed",
+      );
+    });
+  }
+
+  it("refuses a command it does not accept, before running anything", () => {
+    assert.throws(
+      () => resolveRunner(installed, undefined, { VIGILES_COMMAND: "eval" }),
+      (e: { status?: number; stdout?: Buffer }) =>
+        e.status === 2 && String(e.stdout).includes("unknown command 'eval'"),
+    );
+  });
+
+  it("changed-only never narrows another command", () => {
+    assert.equal(
+      resolveRunner(installed, undefined, {
+        VIGILES_CHANGED_ONLY: "true",
+        GITHUB_EVENT_NAME: "pull_request",
+      }),
       "--no-install vigiles lint",
     );
   });

@@ -400,6 +400,20 @@ import {
   loadFailed,
   type ScriptRunResult,
 } from "./adapters/claude-code/run-scripts.js";
+import {
+  DEFAULT_RUN_ALL_ON,
+  formatSelection,
+  parseChangedRef,
+  selectTests,
+} from "./core/test-selection.js";
+import { posixRelative, reachFor, readProject } from "./core/test-reach.js";
+import {
+  changedSince,
+  ensureBase,
+  nodeSourceHost,
+  readBaseFacts,
+} from "./host/changed-files.io.js";
+import { decideBase } from "./core/changed-base.js";
 
 /**
  * THE RULE SET, WIRED IN — the composition root's one job for rules. Core
@@ -7795,11 +7809,16 @@ async function handleRunScripts(
   const env: NodeJS.ProcessEnv = { ...lockEnv };
   if (trialsFlag) env.VIGILES_TRIALS = trialsFlag.split("=")[1];
 
-  console.log(`Running ${String(files.length)} ${kind} file(s):\n`);
+  // `--changed=<ref>` narrows the set AFTER `--min` has counted discovery, so a
+  // broken glob still fails on a PR that touches nothing (test-selection.ts).
+  const toRun = kind === "test" ? narrowToChanged(cwd, files, args) : files;
+  if (toRun.length === 0) return;
+
+  console.log(`Running ${String(toRun.length)} ${kind} file(s):\n`);
   // An eval file DESCRIBES its eval; `dist/eval-entry.js` is what imports the
   // description and runs what it declares. A harness script is still its own
   // program (it is free, so "import spends money" never applied to it).
-  const results = await runScripts(files, cwd, env, {
+  const results = await runScripts(toRun, cwd, env, {
     ...(kind === "eval" ? { entry: resolve(__dirname, "eval-entry.js") } : {}),
   });
   // Write down WHAT the run exercised, so `lint`/`audit` can answer "tested?"
@@ -7810,11 +7829,14 @@ async function handleRunScripts(
   console.log("\n" + formatScriptSummary(results));
 
   const loadedCount = results.filter((r) => !loadFailed(r)).length;
-  const belowFloor = loadedCount < minRequired;
+  // Under `--changed` the floor was met by discovery; what is left to hold is
+  // that every SELECTED file loaded.
+  const floor = Math.min(minRequired, toRun.length);
+  const belowFloor = loadedCount < floor;
   if (belowFloor) {
     console.error(
       `\n✗ vigiles ${kind}: --min=${String(minRequired)} but only ${String(loadedCount)} of ` +
-        `${String(files.length)} matched ${kind} file(s) loaded.`,
+        `${String(toRun.length)} matched ${kind} file(s) loaded.`,
     );
   }
 
@@ -7882,6 +7904,73 @@ async function handleRunScripts(
     );
     process.exit(1);
   }
+}
+
+/**
+ * The ref `--changed` compares against. `--changed=<ref>` names it, and an
+ * unusable one exits 2. A bare `--changed` decides it (`core/changed-base.ts`):
+ * the pull request's base on GitHub Actions (fetched when the clone lacks it),
+ * the default branch locally — and `undefined`, said out loud, when the answer
+ * is "every file runs".
+ */
+function changedRef(cwd: string, flag: string): string | undefined {
+  if (flag === "--changed") {
+    const d = ensureBase(cwd, decideBase(readBaseFacts(cwd, process.env)));
+    console.log(`--changed: ${d.why}.`);
+    return d.kind === "diff" ? d.ref : undefined;
+  }
+  const parsed = parseChangedRef(flag.slice("--changed=".length));
+  if (parsed.kind === "error") {
+    console.error(`✗ vigiles test: ${parsed.message}`);
+    process.exit(2);
+  }
+  return parsed.ref;
+}
+
+/**
+ * Apply `--changed[=<ref>]` to the discovered harness files: print which run and
+ * why, and return them. Without the flag, every file. An empty return means the
+ * selection was empty and has been said; an unusable explicit ref exits 2,
+ * because running everything or nothing would both misreport what was asked.
+ */
+function narrowToChanged(
+  cwd: string,
+  files: readonly string[],
+  args: readonly string[],
+): readonly string[] {
+  const flag = args.find(
+    (a) => a === "--changed" || a.startsWith("--changed="),
+  );
+  if (flag === undefined) return files;
+  const ref = changedRef(cwd, flag);
+  if (ref === undefined) return files;
+  const changed = changedSince(cwd, ref);
+  if (changed.kind === "error") {
+    console.error(`✗ vigiles test: ${changed.message}`);
+    process.exit(2);
+  }
+  // Real path on every side: git and TypeScript's resolver both report one, and
+  // a symlinked cwd (macOS /tmp) would otherwise match nothing.
+  const real = realpathSync(cwd);
+  const key = (f: string): string => posixRelative(real, resolve(real, f));
+  const byKey = new Map(files.map((f) => [key(f), f]));
+  const reach = reachFor({
+    cwd: real,
+    host: nodeSourceHost,
+    project: readProject(real, nodeSourceHost),
+  });
+  const sel = selectTests({
+    files: [...byKey.keys()],
+    changed: changed.files,
+    runAllOn: [
+      ...DEFAULT_RUN_ALL_ON,
+      changed.workflowsGlob,
+      ...(loadConfig().test?.runAllOn ?? []),
+    ],
+    reach,
+  });
+  console.log(formatSelection(sel, ref, changed) + "\n");
+  return sel.selected.map((s) => byKey.get(s.file) ?? s.file);
 }
 
 /** Parse the `--harness=<name>` override out of an argv list (the one definition). */
@@ -7970,6 +8059,11 @@ const COMMAND_HELP: Record<Verb, CommandHelp> = {
     // deciding whether to put this in CI needs the cost, not the implementation.
     usage:
       "  vigiles test  [files...]   Against a scripted stand-in model. Free, no API key — every commit.",
+    detail: [
+      "  --changed[=<ref>]  run only the files a change since <ref> can reach: the file itself,",
+      "  a changed file in its folder, imports or effect calls, or a run-all trigger (package.json…).",
+      "  Bare, the base is decided: the PR's base in CI, the default branch locally.",
+    ],
   },
   eval: {
     usage:
