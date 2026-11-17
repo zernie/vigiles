@@ -78,7 +78,7 @@ import {
 } from "./core/merge-conflict.js";
 import { discoverProviderFiles } from "./hook-install.js";
 import {
-  gatherContext,
+  lazyContext,
   type ProviderRegistry,
   type RegisteredProvider,
 } from "./core/hook-providers.js";
@@ -184,10 +184,24 @@ function applyHookWrites(
   }
 }
 /**
- * Gather a gate's DECLARED context providers (the trusted-host I/O step). Runs
- * each declared read-only command via execSync in the hook's cwd; a provider
- * that can't resolve yields its default (never throws). The pure registry +
- * decision logic live in core/hook-providers.ts — this only injects the real IO.
+ * Longest a single provider command may run before it is killed and yields the
+ * same default as a failed one. 10 s: the repo's own precedent for a one-shot
+ * probe subprocess is 10_000 ms (`src/cli-main.ts`, the `--version` check), the
+ * slowest legitimate provider is a `git status` on a large tree (a second or
+ * two), and it must stay well under the harness's own hook timeout so a hung
+ * provider is reported as a default rather than as a dead hook. Not
+ * configurable by design (no new key); a provider needing more is not a fact.
+ */
+const PROVIDER_TIMEOUT_MS = 10_000;
+
+/**
+ * Build a gate's DECLARED context (`e.ctx`) — LAZILY. Each declared read-only
+ * command runs via execSync in the hook's cwd only when the hook READS its key,
+ * at most once per call, bounded by {@link PROVIDER_TIMEOUT_MS}; a provider that
+ * can't resolve or times out yields its default (never throws). The pure
+ * registry + resolver live in core/hook-providers.ts — this only injects the
+ * real IO. Loading `.vigiles/providers/` files stays eager (async import), but
+ * only when a `provider()` ref is declared.
  */
 async function gatherHookContext(
   program: AnyHook,
@@ -204,13 +218,14 @@ async function gatherHookContext(
   const { execSync } =
     require("node:child_process") as typeof import("node:child_process");
   const { isCI } = require("ci-info") as { isCI: boolean };
-  return gatherContext(
+  return lazyContext(
     needs,
     {
       exec: (command) =>
         execSync(command, {
           encoding: "utf-8",
           stdio: ["ignore", "pipe", "ignore"],
+          timeout: PROVIDER_TIMEOUT_MS,
         }),
       cwd: root,
       platform: process.platform,
