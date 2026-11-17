@@ -197,7 +197,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 604 project files. */
+  /** 606 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -383,6 +383,8 @@ declare module "vigiles/generated" {
     | "src/core/capability-diff.test.ts"
     | "src/core/capability-diff.ts"
     | "src/core/cedar.test.ts"
+    | "src/core/changed-base.test.ts"
+    | "src/core/changed-base.ts"
     | "src/core/command-files.test.ts"
     | "src/core/command-files.ts"
     | "src/core/compile-generator.test.ts"
@@ -1156,6 +1158,8 @@ declare module "vigiles/spec" {
       | "src/core/capability-diff.test.ts"
       | "src/core/capability-diff.ts"
       | "src/core/cedar.test.ts"
+      | "src/core/changed-base.test.ts"
+      | "src/core/changed-base.ts"
       | "src/core/command-files.test.ts"
       | "src/core/command-files.ts"
       | "src/core/compile-generator.test.ts"

@@ -14,6 +14,7 @@ npx vigiles lint [files...]         # Verify references + integrity + symbols + 
 npx vigiles lint --preset=experimental  # Also run the experimental rules (warn only, never fail) — a preset on top of your config
 npx vigiles test [files...]         # Run *.harness.{mjs,ts} deterministic harness tests (no API key)
 npx vigiles test --changed=origin/main  # Run only the harness files a change since that ref can reach
+npx vigiles test --changed          # The same, with the base decided: the PR's base in CI, the default branch locally
 npx vigiles eval [files...]         # Run *.eval.{mjs,ts} real-model harness evals (--trials=N) — local, on your subscription
 npx vigiles eval --all              # Run ALL discovered evals — a bare no-target `eval` asks first (it spends model quota)
 npx vigiles eval --update           # Record each named eval's result to a committed .vigiles/eval-locks/<name>.lock.json (local)
@@ -199,6 +200,19 @@ zero. After the run, every _selected_ file must have loaded.
 
 An unknown `<ref>` exits `2`: in a shallow clone, fetch it first. With no merge-base in the clone
 (a CI checkout of a pull request's merge commit), the ref itself is the base and the output says so.
+
+**A bare `--changed` decides the base**, and prints which one and why (the same shape as
+Turborepo's `--affected`):
+
+| where                                    | the base                                                                                                        |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| GitHub Actions, a `pull_request` event   | the PR's base commit from the event payload (else `GITHUB_BASE_REF`), fetched into a shallow clone when missing |
+| GitHub Actions, any other event (a push) | none — every file runs                                                                                          |
+| another CI (`CI` set)                    | none — every file runs                                                                                          |
+| locally                                  | the merge-base with the default branch: `origin/HEAD`, else `origin/main`, else `origin/master`                 |
+
+When none of those resolves (no default branch, a base that cannot be fetched), every file runs
+and the run says why. A base is never guessed: a wrong one could only narrow the run.
 
 **Already have vitest or jest? You don't need a second runner for the
 deterministic tier.** The testing API — `runHook`, `runHarnessTest`, the check

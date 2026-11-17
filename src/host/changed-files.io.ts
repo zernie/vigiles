@@ -8,6 +8,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ChangedResult } from "../core/test-selection.js";
+import {
+  prBaseFromEvent,
+  type BaseDecision,
+  type BaseFacts,
+  type CiFacts,
+} from "../core/changed-base.js";
 import { posixRelative, type SourceHost } from "../core/test-reach.js";
 
 /** Reads for the import closure, from disk. */
@@ -113,4 +119,69 @@ export function changedSince(cwd: string, ref: string): ChangedResult {
     files: paths.map(rel).sort(),
     workflowsGlob: `${rel(".github/workflows")}/**`,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Bare `--changed`: the facts `decideBase` needs, and the fetch it may ask for
+// ---------------------------------------------------------------------------
+
+function readEvent(path: string | undefined): unknown {
+  if (path === undefined) return undefined;
+  try {
+    const payload: unknown = JSON.parse(readFileSync(path, "utf-8"));
+    return payload;
+  } catch {
+    return undefined;
+  }
+}
+
+function ciFacts(env: Readonly<NodeJS.ProcessEnv>): CiFacts {
+  if (env["GITHUB_ACTIONS"] === "true") {
+    return {
+      provider: "github",
+      event: env["GITHUB_EVENT_NAME"],
+      prBase: prBaseFromEvent(readEvent(env["GITHUB_EVENT_PATH"])),
+      baseRef: env["GITHUB_BASE_REF"],
+    };
+  }
+  const ci = env["CI"];
+  const onCi = ci !== undefined && ci !== "" && ci !== "false" && ci !== "0";
+  return onCi ? { provider: "other" } : { provider: "none" };
+}
+
+function hasCommit(cwd: string, ref: string): boolean {
+  return (
+    git(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]) !==
+    undefined
+  );
+}
+
+const DEFAULT_BRANCHES = ["origin/HEAD", "origin/main", "origin/master"];
+
+/** Where this run is: the CI provider and event, and the local default branch. */
+export function readBaseFacts(
+  cwd: string,
+  env: Readonly<NodeJS.ProcessEnv>,
+): BaseFacts {
+  return {
+    ci: ciFacts(env),
+    defaultBranch: DEFAULT_BRANCHES.find((b) => hasCommit(cwd, b)),
+  };
+}
+
+/**
+ * Make a decided base present: a shallow CI checkout does not carry the pull
+ * request's base commit, so it is fetched from origin. A base that is still
+ * missing turns the decision into "everything runs", with the reason.
+ */
+export function ensureBase(cwd: string, d: BaseDecision): BaseDecision {
+  if (d.kind === "all" || hasCommit(cwd, d.ref)) return d;
+  if (d.fetch !== undefined)
+    git(cwd, ["fetch", "--no-tags", "--depth=1", "origin", d.fetch]);
+  return hasCommit(cwd, d.ref)
+    ? d
+    : {
+        kind: "all",
+        why: `${d.why}: not in this clone and could not be fetched, so every file runs`,
+      };
 }

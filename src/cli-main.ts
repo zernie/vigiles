@@ -407,7 +407,13 @@ import {
   selectTests,
 } from "./core/test-selection.js";
 import { posixRelative, reachFor, readProject } from "./core/test-reach.js";
-import { changedSince, nodeSourceHost } from "./host/changed-files.io.js";
+import {
+  changedSince,
+  ensureBase,
+  nodeSourceHost,
+  readBaseFacts,
+} from "./host/changed-files.io.js";
+import { decideBase } from "./core/changed-base.js";
 
 /**
  * THE RULE SET, WIRED IN — the composition root's one job for rules. Core
@@ -7901,25 +7907,48 @@ async function handleRunScripts(
 }
 
 /**
- * Apply `--changed=<ref>` to the discovered harness files: print which run and
+ * The ref `--changed` compares against. `--changed=<ref>` names it, and an
+ * unusable one exits 2. A bare `--changed` decides it (`core/changed-base.ts`):
+ * the pull request's base on GitHub Actions (fetched when the clone lacks it),
+ * the default branch locally — and `undefined`, said out loud, when the answer
+ * is "every file runs".
+ */
+function changedRef(cwd: string, flag: string): string | undefined {
+  if (flag === "--changed") {
+    const d = ensureBase(cwd, decideBase(readBaseFacts(cwd, process.env)));
+    console.log(`--changed: ${d.why}.`);
+    return d.kind === "diff" ? d.ref : undefined;
+  }
+  const parsed = parseChangedRef(flag.slice("--changed=".length));
+  if (parsed.kind === "error") {
+    console.error(`✗ vigiles test: ${parsed.message}`);
+    process.exit(2);
+  }
+  return parsed.ref;
+}
+
+/**
+ * Apply `--changed[=<ref>]` to the discovered harness files: print which run and
  * why, and return them. Without the flag, every file. An empty return means the
- * selection was empty and has been said; an unusable ref exits 2, because
- * running everything or nothing would both misreport what was asked.
+ * selection was empty and has been said; an unusable explicit ref exits 2,
+ * because running everything or nothing would both misreport what was asked.
  */
 function narrowToChanged(
   cwd: string,
   files: readonly string[],
   args: readonly string[],
 ): readonly string[] {
-  const flag = args.find((a) => a.startsWith("--changed="));
+  const flag = args.find(
+    (a) => a === "--changed" || a.startsWith("--changed="),
+  );
   if (flag === undefined) return files;
-  const parsed = parseChangedRef(flag.slice("--changed=".length));
-  const changed = parsed.kind === "ok" ? changedSince(cwd, parsed.ref) : parsed;
+  const ref = changedRef(cwd, flag);
+  if (ref === undefined) return files;
+  const changed = changedSince(cwd, ref);
   if (changed.kind === "error") {
     console.error(`✗ vigiles test: ${changed.message}`);
     process.exit(2);
   }
-  const ref = parsed.kind === "ok" ? parsed.ref : "";
   // Real path on every side: git and TypeScript's resolver both report one, and
   // a symlinked cwd (macOS /tmp) would otherwise match nothing.
   const real = realpathSync(cwd);
@@ -8031,8 +8060,9 @@ const COMMAND_HELP: Record<Verb, CommandHelp> = {
     usage:
       "  vigiles test  [files...]   Against a scripted stand-in model. Free, no API key — every commit.",
     detail: [
-      "  --changed=<ref>  run only the files a change since <ref> can reach: the file itself,",
-      "  a changed file in its folder or import closure, or a run-all trigger (package.json…).",
+      "  --changed[=<ref>]  run only the files a change since <ref> can reach: the file itself,",
+      "  a changed file in its folder, imports or effect calls, or a run-all trigger (package.json…).",
+      "  Bare, the base is decided: the PR's base in CI, the default branch locally.",
     ],
   },
   eval: {

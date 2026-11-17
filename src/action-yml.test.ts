@@ -347,34 +347,19 @@ describe("action.yml — command: test, changed-only", () => {
   ): string =>
     resolveRunner(files, undefined, { VIGILES_COMMAND: "test", ...env });
 
-  it("changed-only on a pull_request narrows to the PR base", () => {
-    assert.equal(
-      test(
-        {
-          ...installed,
-          "event.json": JSON.stringify({
-            pull_request: { number: 7, base: { sha: "abc123" } },
-          }),
-        },
-        {
+  // The Action decides nothing: the event, the base and the fetch are the
+  // CLI's (core/changed-base.ts), so changed-only is the bare flag on every event.
+  for (const event of ["pull_request", "push"]) {
+    it(`changed-only maps to a bare --changed on ${event}`, () => {
+      assert.equal(
+        test(installed, {
           VIGILES_CHANGED_ONLY: "true",
-          GITHUB_EVENT_NAME: "pull_request",
-          GITHUB_EVENT_PATH: "event.json",
-        },
-      ),
-      "--no-install vigiles test --changed=abc123",
-    );
-  });
-
-  it("changed-only on a push runs every file", () => {
-    assert.equal(
-      test(installed, {
-        VIGILES_CHANGED_ONLY: "true",
-        GITHUB_EVENT_NAME: "push",
-      }),
-      "--no-install vigiles test",
-    );
-  });
+          GITHUB_EVENT_NAME: event,
+        }),
+        "--no-install vigiles test --changed",
+      );
+    });
+  }
 
   it("refuses a command it does not accept, before running anything", () => {
     assert.throws(

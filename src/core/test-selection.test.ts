@@ -416,3 +416,104 @@ describe("vigiles test --changed — nothing selected, floors, bad refs", () => 
     assert.match(r.err, /no-such-branch/);
   });
 });
+
+/**
+ * Bare `--changed`: the CLI decides the base itself. The environment is built
+ * from scratch, without the runner's own CI variables, so each case is the
+ * situation it names and not wherever the suite happens to run.
+ */
+function runIn(
+  cwd: string,
+  env: Readonly<Record<string, string>>,
+): { code: number | null; out: string; err: string } {
+  const clean = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([k]) => k !== "CI" && !k.startsWith("GITHUB_"),
+    ),
+  );
+  const r = spawnSync("node", [CLI, "test", "--changed"], {
+    cwd,
+    encoding: "utf-8",
+    timeout: 60000,
+    env: { ...clean, ...env },
+  });
+  return { code: r.status, out: r.stdout, err: r.stderr };
+}
+
+let outer: string;
+let base: string;
+
+/** The fixture on its default branch, plus branch `feat` that edits the spawned script. */
+function bareFixture(): void {
+  fixture();
+  base = git(dir, "rev-parse HEAD");
+  git(dir, "checkout -q -b feat");
+  write("hooks/guard/guard.mjs", "process.exit(0); // edited\n");
+  git(dir, "commit -qam edit");
+  git(dir, "checkout -q -");
+  outer = makeTmpDir("selection-bare");
+}
+
+function bareCleanup(): void {
+  cleanupTmpDir(dir);
+  cleanupTmpDir(outer);
+}
+
+describe("vigiles test --changed (bare) — on GitHub Actions", () => {
+  beforeEach(bareFixture);
+  afterEach(bareCleanup);
+
+  test("a pull_request diffs against the payload's base, fetched into a shallow clone", () => {
+    const clone = join(outer, "clone");
+    git(outer, `clone -q --depth 1 --branch feat file://${dir} clone`);
+    const event = join(outer, "event.json");
+    writeFileSync(
+      event,
+      JSON.stringify({ pull_request: { base: { sha: base } } }),
+    );
+    const r = runIn(clone, {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_EVENT_PATH: event,
+    });
+    assert.equal(r.code, 0, r.out + r.err);
+    assert.match(
+      r.out,
+      new RegExp(`pull_request base ${base} from the event payload`),
+    );
+    assert.match(r.out, /folder: hooks\/guard\/guard\.mjs changed/);
+    assert.match(r.out, /Selected 1 of 2 test file\(s\)/);
+  });
+
+  test("a push runs every file and says why", () => {
+    const r = runIn(dir, { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push" });
+    assert.equal(r.code, 0, r.out + r.err);
+    assert.match(r.out, /push event: not a pull request, so every file runs/);
+    assert.match(r.out, /Running 2 test file\(s\)/);
+  });
+});
+
+describe("vigiles test --changed (bare) — locally", () => {
+  beforeEach(bareFixture);
+  afterEach(bareCleanup);
+
+  test("locally: the merge-base with the default branch, named", () => {
+    const clone = join(outer, "clone");
+    git(outer, `clone -q file://${dir} clone`);
+    writeFileSync(
+      join(clone, "hooks/guard/guard.mjs"),
+      "process.exit(0);\n// local\n",
+    );
+    const r = runIn(clone, {});
+    assert.equal(r.code, 0, r.out + r.err);
+    assert.match(r.out, /merge-base with origin\/HEAD, the default branch/);
+    assert.match(r.out, /Selected 1 of 2 test file\(s\)/);
+  });
+
+  test("locally with nothing to compare against: every file runs, loudly", () => {
+    const r = runIn(dir, {});
+    assert.equal(r.code, 0, r.out + r.err);
+    assert.match(r.out, /no default branch found .* so every file runs/);
+    assert.match(r.out, /Running 2 test file\(s\)/);
+  });
+});

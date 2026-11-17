@@ -50,11 +50,10 @@ inputs:
     default: ""
   changed-only:
     description: >
-      test only. On pull_request events, run only the harness files the PR can
-      reach (maps to `--changed=<PR base sha>`): a changed harness, a changed
-      file in its folder or import closure, or every file when package.json, a
-      lockfile, .vigilesrc.json or a workflow changed. On any other event
-      (a push to the default branch) every file runs. 'true' or 'false'.
+      test only. Run only the harness files the change can reach (maps to a
+      bare `--changed`): on pull_request events the CLI diffs against the PR
+      base (fetching it); on any other event every file runs. 'true' or
+      'false'.
     required: false
     default: "false"
   min:
@@ -136,6 +135,10 @@ runs:
         VIGILES_INSTALL: ${{ inputs.install }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
+        # This step maps inputs to CLI flags and reports the result. Any
+        # DECISION — reading the event payload, asking git, choosing what runs —
+        # belongs in the CLI, where it is unit-tested and works locally too (the
+        # prod-grade-gha-cli rule, docs/contributing/rules.md).
         set -euo pipefail
 
         cmd="${VIGILES_COMMAND:-lint}"
@@ -187,22 +190,10 @@ runs:
           args+=("--no-skip")
         fi
 
-        # changed-only: on a pull_request, narrow `test` to what the PR can
-        # reach, diffed against the PR base. Anywhere else run every file, so
-        # the default branch keeps "a harness nobody wired still runs".
+        # changed-only → a bare `--changed`: the CLI picks the base (the PR's on
+        # pull_request, everything on any other event) and fetches it.
         if [[ "$cmd" == "test" && "${VIGILES_CHANGED_ONLY:-false}" == "true" ]]; then
-          if [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" ]]; then
-            base_sha="$(jq -r '.pull_request.base.sha // empty' "${GITHUB_EVENT_PATH:-/dev/null}")"
-            if [[ -n "$base_sha" ]]; then
-              # A shallow checkout may not carry the base commit — fetch it.
-              git fetch --no-tags --depth=1 origin "$base_sha" >/dev/null 2>&1 || true
-              args+=("--changed=${base_sha}")
-            else
-              echo "::warning::changed-only: no PR base sha in the event payload — every harness runs"
-            fi
-          else
-            echo "vigiles: changed-only narrows pull_request runs; this is '${GITHUB_EVENT_NAME:-unknown}', so every harness runs"
-          fi
+          args+=("--changed")
         fi
 
         # test runs the repo's harness files, which import its dependencies.

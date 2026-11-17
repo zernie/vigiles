@@ -100,7 +100,9 @@ export const COMMAND_FLAGS: Record<Verb, readonly FlagSpec[]> = {
     "--yes",
     "--no-interactive",
     "--no-skip",
-    // test-selection.ts: run only what a change since <ref> can reach.
+    // test-selection.ts: run only what a change since <ref> can reach; bare,
+    // the base is decided (core/changed-base.ts).
+    "--changed",
     "--changed=",
   ],
   // handleRunScripts + resolveEvalLockEnv + the trials knob.

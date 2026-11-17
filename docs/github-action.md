@@ -75,14 +75,11 @@ the Action wins (it finds `node_modules` and installs nothing); set `install: "f
 With pnpm or Yarn, install in a step before the Action. Because the install comes first, the default
 `version` then runs the vigiles your `package.json` declares — the same copy your harness files import.
 
-**`changed-only`** maps to [`vigiles test --changed=<PR base sha>`](cli.md#running-only-what-a-change-reaches---changed)
-on `pull_request` events: a harness runs when it changed, when a file in its folder, its import
-closure (a build read as its source) or a path its effect calls run or read changed, and all of
-them run when `package.json`, a lockfile, `.vigilesrc.json` or a workflow changed. A harness whose
-effect call names a path that cannot be evaluated is listed in the output, not silently dropped. Every file runs on any other event, so the push to your default branch is still
-the full sweep: a harness nobody wired runs there. Each selected file is listed with its reason,
-and a pull request that reaches none says `0 of N test file(s) selected` rather than passing
-silently. The Action fetches the base commit itself; no `fetch-depth: 0` needed.
+**`changed-only`** maps to a bare [`vigiles test --changed`](cli.md#running-only-what-a-change-reaches---changed):
+on `pull_request` events the CLI diffs against the PR's base (fetching it into the shallow
+checkout, so no `fetch-depth: 0`), and on any other event every file runs — the push to your
+default branch stays the full sweep. Each selected file is listed with its reason; a pull request
+that reaches none says `0 of N test file(s) selected` rather than passing silently.
 
 **`min`** is a floor on what discovery matched, counted **before** `changed-only` narrows it, so a
 glob that broke still fails on every pull request.
@@ -109,7 +106,7 @@ was checked. Set `min: "0"` to stay green until the first eval file exists (the 
 | ------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `command`           | `lint`    | `lint` (verify references + integrity + coverage), `compile` (specs → markdown), `test` (run the harness files; [above](#run-the-harness-tests)), or `eval-check` (verify committed eval locks vs current inputs — the staleness gate, no model). |
 | `paths`             | _(auto)_  | Comma/space-separated paths or globs — `.md` for `lint`, `.spec.ts` for `compile`, harness files for `test`. Auto-discovers.                                                                                                                      |
-| `changed-only`      | `false`   | `test`: on `pull_request` events run only what the PR reaches (maps to `--changed=<base sha>`); every file on any other event.                                                                                                                    |
+| `changed-only`      | `false`   | `test`: run only what the change reaches (maps to a bare `--changed`): the PR's base on `pull_request`, every file on any other event.                                                                                                            |
 | `min`               | _(unset)_ | `test`, `eval-check`: fail unless discovery matched at least this many files (maps to `--min=`). Counted before `changed-only` narrows.                                                                                                           |
 | `no-skip`           | `false`   | `test`, `eval-check`: fail when a file reports itself SKIPPED (maps to `--no-skip`).                                                                                                                                                              |
 | `install`           | `true`    | `test`: run `npm ci` first when `package-lock.json` exists and `node_modules` does not.                                                                                                                                                           |
