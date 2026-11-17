@@ -45,6 +45,16 @@ export interface SourceHost {
   readonly isFile: (path: string) => boolean;
   /** tsc's own directory walk (`ts.sys.readDirectory`), for a tsconfig's inputs. */
   readonly readDirectory: ts.ParseConfigHost["readDirectory"];
+  /** The real path behind a symlink — a workspace package linked into node_modules. */
+  readonly realpath: (path: string) => string;
+}
+
+/** What `<cwd>/tsconfig.json` says, read by TypeScript itself (`extends` included). */
+export interface Project {
+  /** Where the build writes and the source it writes from; undefined with no `outDir`. */
+  readonly build: OutputLayout | undefined;
+  /** Its compiler options, so `paths`/`baseUrl` apply when a bare specifier is resolved. */
+  readonly options: Readonly<ts.CompilerOptions>;
 }
 
 /** Where a TypeScript build writes, and the source it writes from. Absolute. */
@@ -95,14 +105,14 @@ export function reachMatch(r: Reach, changed: string): ReachHit | undefined {
 // ---------------------------------------------------------------------------
 
 /**
- * The `outDir`/`rootDir` of `<cwd>/tsconfig.json`, read by TypeScript itself
- * (`extends` included). No tsconfig or no `outDir` → undefined, and paths are
- * taken as they are. An unset `rootDir` is taken as the tsconfig's folder.
+ * `<cwd>/tsconfig.json` as TypeScript reads it. No tsconfig → undefined. With
+ * no `outDir`, `build` is undefined and paths are taken as they are; an unset
+ * `rootDir` is tsc's own default (see {@link commonSourceDir}).
  */
-export function outputLayout(
+export function readProject(
   cwd: string,
   host: SourceHost,
-): OutputLayout | undefined {
+): Project | undefined {
   const path = join(cwd, "tsconfig.json");
   if (!host.isFile(path)) return undefined;
   const readFile = (p: string): string | undefined => host.read(p) ?? undefined;
@@ -118,6 +128,13 @@ export function outputLayout(
     },
     cwd,
   );
+  return { build: buildLayout(parsed, cwd), options: parsed.options };
+}
+
+function buildLayout(
+  parsed: Readonly<ts.ParsedCommandLine>,
+  cwd: string,
+): OutputLayout | undefined {
   const { outDir, rootDir, composite } = parsed.options;
   if (outDir === undefined) return undefined;
   return {
@@ -505,6 +522,11 @@ interface Ctx {
   readonly cwd: string;
   readonly host: SourceHost;
   readonly layout: OutputLayout | undefined;
+  /** Module resolution: the fixed options, over the tsconfig's own. */
+  readonly resolveOptions: Readonly<ts.CompilerOptions>;
+  readonly resolver: ts.ModuleResolutionHost;
+  /** One cache per run: every harness resolves the same bare specifiers. */
+  readonly cache: ts.ModuleResolutionCache;
 }
 
 function allNodes(
@@ -568,90 +590,119 @@ function pathDep(
   return { abs: prefix && raw.endsWith(sep) ? abs + sep : abs, prefix, call };
 }
 
-/** Local names bound to `child_process`: whole-module and per-function. */
-interface ChildProcessNames {
-  readonly modules: ReadonlySet<string>;
-  readonly functions: ReadonlySet<string>;
+/**
+ * What a file's imports say about effect calls: each local name bound to a
+ * named import from `fs`/`fs/promises`/`child_process`/`vigiles` (an alias included) and
+ * the original API name it stands for, and the locals bound to the whole
+ * `child_process` module.
+ */
+interface ApiBindings {
+  readonly aliases: ReadonlyMap<string, string>;
+  readonly processModules: ReadonlySet<string>;
 }
 
 const CHILD_PROCESS = new Set(["child_process", "node:child_process"]);
+const EFFECT_MODULES = new Set([
+  ...CHILD_PROCESS,
+  "fs",
+  "node:fs",
+  "fs/promises",
+  "node:fs/promises",
+]);
 
-function importNames(d: Readonly<ts.ImportDeclaration>): ChildProcessNames {
+/** Node's file and process modules, and vigiles (whose `runHook` spawns). */
+function isEffectModule(m: string): boolean {
+  return EFFECT_MODULES.has(m) || m === "vigiles" || m.startsWith("vigiles/");
+}
+
+/** `{ exec as run }` / `{ exec: run }` → [run, exec]. */
+function aliasPairs(
+  els: readonly (ts.ImportSpecifier | ts.BindingElement)[],
+): readonly (readonly [string, string])[] {
+  return els.flatMap((el) => {
+    if (!ts.isIdentifier(el.name)) return [];
+    const original =
+      el.propertyName && ts.isIdentifier(el.propertyName)
+        ? el.propertyName.text
+        : el.name.text;
+    return [[el.name.text, original] as const];
+  });
+}
+
+interface ModuleUse {
+  readonly module: string;
+  readonly aliases: readonly (readonly [string, string])[];
+  readonly whole: readonly string[];
+}
+
+function importUse(d: Readonly<ts.ImportDeclaration>): ModuleUse | undefined {
+  if (!ts.isStringLiteral(d.moduleSpecifier)) return undefined;
   const clause = d.importClause;
   const nb = clause?.namedBindings;
   return {
-    modules: new Set([
+    module: d.moduleSpecifier.text,
+    aliases: nb && ts.isNamedImports(nb) ? aliasPairs(nb.elements) : [],
+    whole: [
       ...(clause?.name ? [clause.name.text] : []),
       ...(nb && ts.isNamespaceImport(nb) ? [nb.name.text] : []),
-    ]),
-    functions: new Set(
-      nb && ts.isNamedImports(nb) ? nb.elements.map((el) => el.name.text) : [],
-    ),
+    ],
   };
 }
 
-function requireNames(d: Readonly<ts.VariableDeclaration>): ChildProcessNames {
-  if (ts.isIdentifier(d.name))
-    return { modules: new Set([d.name.text]), functions: new Set() };
-  const els = ts.isObjectBindingPattern(d.name) ? d.name.elements : [];
-  return {
-    modules: new Set(),
-    functions: new Set(
-      els.flatMap((el) => (ts.isIdentifier(el.name) ? [el.name.text] : [])),
-    ),
-  };
-}
-
-function isChildProcessRequire(n: ts.Node): n is ts.VariableDeclaration {
-  if (!ts.isVariableDeclaration(n) || n.initializer === undefined) return false;
+function requireUse(n: Readonly<ts.Node>): ModuleUse | undefined {
+  if (!ts.isVariableDeclaration(n) || n.initializer === undefined)
+    return undefined;
   const init = n.initializer;
-  return (
-    ts.isCallExpression(init) &&
-    ts.isIdentifier(init.expression) &&
-    init.expression.text === "require" &&
-    init.arguments.some(
-      (a) => ts.isStringLiteralLike(a) && CHILD_PROCESS.has(a.text),
-    )
-  );
+  if (!ts.isCallExpression(init) || !ts.isIdentifier(init.expression))
+    return undefined;
+  const arg = init.arguments[0];
+  if (
+    init.expression.text !== "require" ||
+    !arg ||
+    !ts.isStringLiteralLike(arg)
+  )
+    return undefined;
+  return {
+    module: arg.text,
+    aliases: ts.isObjectBindingPattern(n.name)
+      ? aliasPairs(n.name.elements)
+      : [],
+    whole: ts.isIdentifier(n.name) ? [n.name.text] : [],
+  };
 }
 
-function childProcessBindings(nodes: readonly ts.Node[]): ChildProcessNames {
-  const all = [
-    ...nodes
-      .filter(ts.isImportDeclaration)
-      .filter(
-        (d) =>
-          ts.isStringLiteral(d.moduleSpecifier) &&
-          CHILD_PROCESS.has(d.moduleSpecifier.text),
-      )
-      .map(importNames),
-    ...nodes.filter(isChildProcessRequire).map(requireNames),
-  ];
+function apiBindings(nodes: readonly ts.Node[]): ApiBindings {
+  const uses = [
+    ...nodes.filter(ts.isImportDeclaration).map(importUse),
+    ...nodes.map(requireUse),
+  ].filter((u): u is ModuleUse => u !== undefined && isEffectModule(u.module));
   return {
-    modules: new Set(all.flatMap((n) => [...n.modules])),
-    functions: new Set(all.flatMap((n) => [...n.functions])),
+    aliases: new Map(uses.flatMap((u) => u.aliases)),
+    processModules: new Set(
+      uses.filter((u) => CHILD_PROCESS.has(u.module)).flatMap((u) => u.whole),
+    ),
   };
 }
 
 /**
- * Is this call one that runs, reads or copies a file? `exec` alone is checked
- * against its binding, because `RegExp.prototype.exec` shares the name; every
- * other name is taken as it is (an extra dependency costs a run, not a miss).
+ * The API a call stands for, or "" when it is not one. A bare name imported
+ * from an effect module is read as what it was imported as (`exec as run` →
+ * `exec`). `exec` itself must come from `child_process`, because
+ * `RegExp.prototype.exec` shares the name; every other API name is taken as it
+ * is (an extra dependency costs a run, not a miss).
  */
-function isEffectCall(
-  call: Readonly<ts.CallExpression>,
-  name: string,
-  cp: ChildProcessNames,
-): boolean {
-  if (name !== "exec")
-    return READS.has(name) || SPAWNS.has(name) || SHELLS.has(name);
+function apiName(call: Readonly<ts.CallExpression>, b: ApiBindings): string {
   const c = call.expression;
-  if (ts.isIdentifier(c)) return cp.functions.has(c.text);
-  return (
-    ts.isPropertyAccessExpression(c) &&
-    ts.isIdentifier(c.expression) &&
-    cp.modules.has(c.expression.text)
-  );
+  if (ts.isIdentifier(c))
+    return b.aliases.get(c.text) ?? (c.text === "exec" ? "" : c.text);
+  if (!ts.isPropertyAccessExpression(c)) return "";
+  const onProcess =
+    ts.isIdentifier(c.expression) && b.processModules.has(c.expression.text);
+  return c.name.text === "exec" && !onProcess ? "" : c.name.text;
+}
+
+function isEffectApi(name: string): boolean {
+  return READS.has(name) || SPAWNS.has(name) || SHELLS.has(name);
 }
 
 function effectsIn(
@@ -666,10 +717,10 @@ function effectsIn(
     consts: bindingsOf(nodes),
     visiting: new Set(),
   };
-  const cp = childProcessBindings(nodes);
+  const api = apiBindings(nodes);
   const found = nodes.filter(ts.isCallExpression).flatMap((call) => {
-    const name = calleeName(call);
-    if (!isEffectCall(call, name, cp)) return [];
+    const name = apiName(call, api);
+    if (!isEffectApi(name)) return [];
     const line = sf.getLineAndCharacterOfPosition(call.getStart(sf)).line + 1;
     const at = (a: PathArg) => ({ d: depOf(a, name), name, line });
     return effectArgs(call, name, sc).map(at);
@@ -710,32 +761,61 @@ function viaBuild(p: string, built: boolean, ctx: Ctx): Visit {
   return { abs, built: built || abs !== p };
 }
 
+function isRelative(spec: string): boolean {
+  return spec.startsWith("./") || spec.startsWith("../");
+}
+
+function resolveSpec(spec: string, from: string, ctx: Ctx): string | undefined {
+  const r = ts.resolveModuleName(
+    spec,
+    from,
+    ctx.resolveOptions,
+    ctx.resolver,
+    ctx.cache,
+  ).resolvedModule?.resolvedFileName;
+  return r === undefined ? undefined : resolve(r);
+}
+
+/**
+ * A relative specifier: the literal path and the resolver's answer, both read
+ * through the build mapping (`../dist/lib`, `../dist` resolve to
+ * `dist/lib.js`/`dist/index.js`, whose source is what changes). Nothing found
+ * → every path the resolver would have tried (see {@link candidatesOf}).
+ */
+function relativeImport(at: Visit, spec: string, ctx: Ctx): readonly Visit[] {
+  const literal = viaBuild(resolve(dirname(at.abs), spec), at.built, ctx);
+  const viaTs = resolveSpec(spec, at.abs, ctx);
+  const resolved = viaTs === undefined ? [] : [viaBuild(viaTs, at.built, ctx)];
+  const found = [literal, ...resolved].filter((v) => ctx.host.isFile(v.abs));
+  return found.length > 0
+    ? found
+    : candidatesOf(literal.abs).map((abs) => ({ abs, built: at.built }));
+}
+
+/**
+ * A bare specifier is followed when it resolves INSIDE the run's tree and not
+ * under node_modules: a workspace package (its node_modules link realpathed),
+ * a tsconfig `paths` alias, a package.json `#imports` entry, a package
+ * importing itself. A real dependency stays out — a lockfile or package.json
+ * change already runs everything.
+ */
+function bareImport(at: Visit, spec: string, ctx: Ctx): readonly Visit[] {
+  const r = resolveSpec(spec, at.abs, ctx);
+  if (r === undefined || !isInside(r, ctx.cwd)) return [];
+  return r.split(sep).includes("node_modules")
+    ? []
+    : [viaBuild(r, at.built, ctx)];
+}
+
 function importsIn(at: Visit, text: string, ctx: Ctx): readonly Visit[] {
-  const resolver = {
-    fileExists: ctx.host.isFile,
-    readFile: (p: string) => ctx.host.read(p) ?? undefined,
-  };
   return ts
     .preProcessFile(text, true, true)
     .importedFiles.map((i) => i.fileName)
-    .filter((s) => s.startsWith("./") || s.startsWith("../"))
-    .flatMap((spec) => {
-      const literal = viaBuild(resolve(dirname(at.abs), spec), at.built, ctx);
-      const viaTs = ts.resolveModuleName(
-        spec,
-        at.abs,
-        RESOLVE_OPTIONS,
-        resolver,
-      ).resolvedModule?.resolvedFileName;
-      const resolved =
-        viaTs === undefined ? [] : [{ abs: resolve(viaTs), built: at.built }];
-      const found = [literal, ...resolved].filter((v) =>
-        ctx.host.isFile(v.abs),
-      );
-      return found.length > 0
-        ? found
-        : candidatesOf(literal.abs).map((abs) => ({ abs, built: at.built }));
-    });
+    .flatMap((spec) =>
+      isRelative(spec)
+        ? relativeImport(at, spec, ctx)
+        : bareImport(at, spec, ctx),
+    );
 }
 
 const JS_TO_TS: Readonly<Record<string, readonly string[]>> = {
@@ -843,18 +923,41 @@ function toEffectDep(d: AbsDep, cwd: string): EffectDep {
   };
 }
 
-export interface ReachInput {
+export interface ReachSetup {
   readonly cwd: string;
-  /** The harness file, relative to `cwd`. */
-  readonly file: string;
   readonly host: SourceHost;
-  readonly layout: OutputLayout | undefined;
+  /** `readProject(cwd, host)`, read once per run. */
+  readonly project: Project | undefined;
 }
 
-/** Everything `file` reaches. See the module header for the three edges. */
-export function harnessReach(input: ReachInput): Reach {
-  const ctx: Ctx = { cwd: input.cwd, host: input.host, layout: input.layout };
-  const start = resolve(input.cwd, input.file);
+function ctxOf(input: ReachSetup): Ctx {
+  const { cwd, host, project } = input;
+  return {
+    cwd,
+    host,
+    layout: project?.build,
+    resolveOptions: { ...project?.options, ...RESOLVE_OPTIONS },
+    resolver: {
+      fileExists: host.isFile,
+      readFile: (p) => host.read(p) ?? undefined,
+      realpath: host.realpath,
+    },
+    cache: ts.createModuleResolutionCache(cwd, (f) => f),
+  };
+}
+
+/**
+ * What each harness file reaches, for one run. The resolution cache is shared
+ * by every file the returned function is asked about.
+ */
+export function reachFor(setup: ReachSetup): (file: string) => Reach {
+  const ctx = ctxOf(setup);
+  return (file) => reachOne(ctx, file);
+}
+
+/** Everything `file` (relative to the cwd) reaches. See the module header for the three edges. */
+function reachOne(ctx: Ctx, file: string): Reach {
+  const start = resolve(ctx.cwd, file);
   const w = walk(
     [{ abs: start, built: false }],
     { seen: new Set([start]), deps: [], unresolved: [] },
@@ -864,9 +967,9 @@ export function harnessReach(input: ReachInput): Reach {
     imports: new Set(
       [...w.seen]
         .filter((p) => p !== start)
-        .map((p) => posixRelative(input.cwd, p)),
+        .map((p) => posixRelative(ctx.cwd, p)),
     ),
-    effects: w.deps.map((d) => toEffectDep(d, input.cwd)),
+    effects: w.deps.map((d) => toEffectDep(d, ctx.cwd)),
     unresolved: w.unresolved,
   };
 }

@@ -25,7 +25,7 @@ import {
   selectTests,
   type ChangedSince,
 } from "./test-selection.js";
-import { harnessReach, type Reach } from "./test-reach.js";
+import { reachFor, type Reach } from "./test-reach.js";
 import { nodeSourceHost } from "../host/changed-files.io.js";
 import { initGitRepo, git, makeTmpDir, cleanupTmpDir } from "./test-utils.js";
 
@@ -244,7 +244,7 @@ describe("harnessReach on disk — relative imports, resolved, transitively", ()
     cleanupTmpDir(dir);
   });
   const imports = (file: string): ReadonlySet<string> =>
-    harnessReach({ cwd: dir, file, host: nodeSourceHost, layout: undefined })
+    reachFor({ cwd: dir, host: nodeSourceHost, project: undefined })(file)
       .imports;
 
   test("follows import, re-export, require and literal dynamic import; not packages", () => {

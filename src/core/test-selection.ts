@@ -109,19 +109,17 @@ export function selectTests(input: SelectInput): Selection {
   if (trigger !== undefined) return runAll(input.files, trigger);
   const decided = input.files.map((file) => ({
     file,
-    reason: reasonFor(file, input),
+    ...decide(file, input),
   }));
-  const skipped = decided.flatMap((d) => (d.reason ? [] : [d.file]));
   return {
     selected: decided.flatMap(({ file, reason }) =>
       reason === undefined ? [] : [{ file, reason }],
     ),
-    skipped,
-    unresolved: skipped.flatMap((file) =>
-      input
-        .reach(file)
-        .unresolved.slice(0, 1)
-        .map((at) => ({ file, at })),
+    skipped: decided.flatMap((d) => (d.reason ? [] : [d.file])),
+    unresolved: decided.flatMap(({ file, reason, unknown }) =>
+      reason === undefined && unknown !== undefined
+        ? [{ file, at: unknown }]
+        : [],
     ),
   };
 }
@@ -135,17 +133,32 @@ function runAll(files: readonly string[], trigger: string): Selection {
   };
 }
 
-function reasonFor(
+/**
+ * Why `file` runs, or why not: the first unresolved effect call of a skipped
+ * file rides along, so its reach is computed once.
+ */
+function decide(
   file: string,
   input: SelectInput,
-): SelectionReason | undefined {
-  if (input.changed.includes(file)) return { kind: "self" };
+): {
+  readonly reason: SelectionReason | undefined;
+  readonly unknown?: Unresolved;
+} {
+  if (input.changed.includes(file)) return { reason: { kind: "self" } };
   const dir = dirname(file);
   const inFolder = input.changed.find((c) => isUnder(c, dir));
-  if (inFolder !== undefined) return { kind: "folder", changed: inFolder };
+  if (inFolder !== undefined)
+    return { reason: { kind: "folder", changed: inFolder } };
   const r = input.reach(file);
-  const hit = input.changed
-    .map((changed) => ({ changed, hit: reachMatch(r, changed) }))
+  return { reason: reachReason(r, input.changed), unknown: r.unresolved[0] };
+}
+
+function reachReason(
+  r: Reach,
+  changed: readonly string[],
+): SelectionReason | undefined {
+  const hit = changed
+    .map((c) => ({ changed: c, hit: reachMatch(r, c) }))
     .find((h) => h.hit !== undefined);
   if (hit?.hit === undefined) return undefined;
   return hit.hit.kind === "reads"

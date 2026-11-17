@@ -19,8 +19,8 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 
 import {
-  harnessReach,
-  outputLayout,
+  reachFor,
+  readProject,
   reachMatch,
   type Reach,
   type SourceHost,
@@ -28,11 +28,26 @@ import {
 
 const CWD = "/repo";
 
-function memHost(files: Readonly<Record<string, string>>): SourceHost {
+/** Symlinks, as in a workspace install: link path → target, both repo-relative. */
+type Links = Readonly<Record<string, string>>;
+
+function memHost(
+  files: Readonly<Record<string, string>>,
+  links: Links = {},
+): SourceHost {
   const abs = new Map(Object.entries(files).map(([k, v]) => [join(CWD, k), v]));
+  const real = (p: string): string =>
+    Object.entries(links).reduce(
+      (acc, [from, to]) =>
+        acc === join(CWD, from) || acc.startsWith(join(CWD, from) + "/")
+          ? join(CWD, to) + acc.slice(join(CWD, from).length)
+          : acc,
+      p,
+    );
   return {
-    read: (p) => abs.get(p) ?? null,
-    isFile: (p) => abs.has(p),
+    read: (p) => abs.get(real(p)) ?? null,
+    isFile: (p) => abs.has(real(p)),
+    realpath: real,
     // Enough of tsc's directory walk for these fixtures: every file under the
     // root with one of the asked extensions.
     readDirectory: (root, exts) =>
@@ -45,14 +60,10 @@ function memHost(files: Readonly<Record<string, string>>): SourceHost {
 function reach(
   files: Readonly<Record<string, string>>,
   harness = "t/x.harness.mjs",
+  links: Links = {},
 ): Reach {
-  const host = memHost(files);
-  return harnessReach({
-    cwd: CWD,
-    file: harness,
-    host,
-    layout: outputLayout(CWD, host),
-  });
+  const host = memHost(files, links);
+  return reachFor({ cwd: CWD, host, project: readProject(CWD, host) })(harness);
 }
 
 /** Does a change to `changed` reach the harness, and by which kind? */
@@ -263,6 +274,35 @@ describe("build output → source (tsconfig outDir/rootDir)", () => {
   });
 });
 
+describe("build output → source, through the module resolver", () => {
+  const tsconfig = JSON.stringify({
+    compilerOptions: { outDir: "dist", rootDir: "src" },
+  });
+
+  test("an extensionless dist/ specifier the resolver finds maps to its source", () => {
+    const r = reach({
+      "tsconfig.json": tsconfig,
+      "t/x.harness.mjs": 'import { f } from "../dist/lib";\n',
+      "dist/lib.js": "export const f = 1;\n",
+      "src/lib.ts": "export const f = 1;\n",
+    });
+    assert.equal(hits(r, "src/lib.ts"), "import");
+  });
+
+  test("a dist/ directory specifier maps to the source index", () => {
+    const r = reach(
+      {
+        "tsconfig.json": tsconfig,
+        "t/x.harness.cjs": 'const m = require("../dist");\n',
+        "dist/index.js": "module.exports = 1;\n",
+        "src/index.ts": "export default 1;\n",
+      },
+      "t/x.harness.cjs",
+    );
+    assert.equal(hits(r, "src/index.ts"), "import");
+  });
+});
+
 describe("build output → source, when the tsconfig sets no rootDir", () => {
   test("no rootDir: the common folder of the inputs, as tsc computes it", () => {
     // tsc emits src/helper.ts to dist/helper.js here (measured, TS 5.9).
@@ -319,5 +359,91 @@ describe("an import whose target is gone — deleted or renamed", () => {
     const r = reach({ "t/x.harness.mjs": 'import "../lib/x";\n' });
     assert.equal(hits(r, "lib/x.ts"), "import");
     assert.equal(hits(r, "lib/x/index.js"), "import");
+  });
+});
+
+describe("effect calls under an imported alias", () => {
+  test("aliased exec, spawnSync, readFileSync and runHook each record their path", () => {
+    const r = reach({
+      "t/x.harness.mjs":
+        'import { exec as run, spawnSync as sp } from "node:child_process";\n' +
+        'import { readFileSync as rf } from "fs";\n' +
+        'const { execFileSync: ef } = require("child_process");\n' +
+        'run("node tools/check.mjs");\n' +
+        'sp("node", ["tools/spawned.mjs"]);\n' +
+        'rf("data/rows.json");\n' +
+        'ef("node", ["tools/required.mjs"]);\n' +
+        'import { runHook as hook } from "vigiles";\n' +
+        'hook("node tools/hook.mjs", { tool_name: "Bash" });\n',
+    });
+    assert.equal(hits(r, "tools/hook.mjs"), "reads");
+    assert.equal(hits(r, "tools/check.mjs"), "reads");
+    assert.equal(hits(r, "tools/spawned.mjs"), "reads");
+    assert.equal(hits(r, "data/rows.json"), "reads");
+    assert.equal(hits(r, "tools/required.mjs"), "reads");
+  });
+
+  test("a local function that happens to be called run records nothing", () => {
+    const r = reach({
+      "t/x.harness.mjs":
+        "const run = (cmd) => cmd.length;\n" + 'run("node tools/check.mjs");\n',
+    });
+    assert.equal(hits(r, "tools/check.mjs"), undefined);
+    assert.deepEqual(r.unresolved, []);
+  });
+});
+
+describe("bare specifiers that resolve inside the repository", () => {
+  test("a workspace package, linked into node_modules, reaches its source", () => {
+    const r = reach(
+      {
+        "t/x.harness.mjs": 'import { f } from "@scope/pkg";\n',
+        "packages/pkg/package.json": JSON.stringify({
+          name: "@scope/pkg",
+          main: "src/index.ts",
+        }),
+        "packages/pkg/src/index.ts": 'export { f } from "./f.js";\n',
+        "packages/pkg/src/f.ts": "export const f = 1;\n",
+      },
+      "t/x.harness.mjs",
+      { "node_modules/@scope/pkg": "packages/pkg" },
+    );
+    assert.equal(hits(r, "packages/pkg/src/index.ts"), "import");
+    assert.equal(hits(r, "packages/pkg/src/f.ts"), "import");
+  });
+
+  test("a tsconfig paths alias reaches the file it names", () => {
+    const r = reach({
+      "tsconfig.json": JSON.stringify({
+        compilerOptions: { baseUrl: ".", paths: { "@lib/*": ["lib/*"] } },
+      }),
+      "t/x.harness.mjs": 'import { u } from "@lib/util";\n',
+      "lib/util.ts": "export const u = 1;\n",
+    });
+    assert.equal(hits(r, "lib/util.ts"), "import");
+  });
+
+  test("a package.json #imports specifier reaches the file it maps to", () => {
+    const r = reach({
+      "package.json": JSON.stringify({
+        name: "app",
+        imports: { "#lib/*": "./lib/*.js" },
+      }),
+      "t/x.harness.mjs": 'import { x } from "#lib/x";\n',
+      "lib/x.js": "export const x = 1;\n",
+    });
+    assert.equal(hits(r, "lib/x.js"), "import");
+  });
+
+  test("a real dependency in node_modules is not followed", () => {
+    const r = reach({
+      "t/x.harness.mjs": 'import d from "dep";\n',
+      "node_modules/dep/package.json": JSON.stringify({
+        name: "dep",
+        main: "index.js",
+      }),
+      "node_modules/dep/index.js": "module.exports = 1;\n",
+    });
+    assert.equal(hits(r, "node_modules/dep/index.js"), undefined);
   });
 });

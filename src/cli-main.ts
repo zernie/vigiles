@@ -406,11 +406,7 @@ import {
   parseChangedRef,
   selectTests,
 } from "./core/test-selection.js";
-import {
-  harnessReach,
-  outputLayout,
-  posixRelative,
-} from "./core/test-reach.js";
+import { posixRelative, reachFor, readProject } from "./core/test-reach.js";
 import { changedSince, nodeSourceHost } from "./host/changed-files.io.js";
 
 /**
@@ -7929,7 +7925,11 @@ function narrowToChanged(
   const real = realpathSync(cwd);
   const key = (f: string): string => posixRelative(real, resolve(real, f));
   const byKey = new Map(files.map((f) => [key(f), f]));
-  const layout = outputLayout(real, nodeSourceHost);
+  const reach = reachFor({
+    cwd: real,
+    host: nodeSourceHost,
+    project: readProject(real, nodeSourceHost),
+  });
   const sel = selectTests({
     files: [...byKey.keys()],
     changed: changed.files,
@@ -7938,8 +7938,7 @@ function narrowToChanged(
       changed.workflowsGlob,
       ...(loadConfig().test?.runAllOn ?? []),
     ],
-    reach: (file) =>
-      harnessReach({ cwd: real, file, host: nodeSourceHost, layout }),
+    reach,
   });
   console.log(formatSelection(sel, ref, changed) + "\n");
   return sel.selected.map((s) => byKey.get(s.file) ?? s.file);

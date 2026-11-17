@@ -143,13 +143,13 @@ reach. "Changes" are everything between the merge-base of `<ref>` and `HEAD` and
 tree: commits, staged and unstaged edits, and new untracked files. A file runs when any of these
 holds, and the run prints which one, per file:
 
-| reason    | the file runs because                                                                                                                                          |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `self`    | the harness file itself changed                                                                                                                                |
-| `run-all` | `package.json`, a lockfile, `.vigilesrc.json`, a file under `.github/workflows/`, or a [`test.runAllOn`](configuration.md#test) glob changed — every file runs |
-| `folder`  | a changed file sits in the harness's folder or below it                                                                                                        |
-| `import`  | a changed file is in the harness's import closure (relative `import`, `export … from`, `require`, literal `import()`)                                          |
-| `reads`   | a changed file is one an effect call in the harness or its closure runs, reads or copies (`spawn*`, `exec*`, `readFile*`, `cp*`, `existsSync`, `runHook`…)     |
+| reason    | the file runs because                                                                                                                                                                                                                                                            |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `self`    | the harness file itself changed                                                                                                                                                                                                                                                  |
+| `run-all` | `package.json`, a lockfile, `.vigilesrc.json`, a file under `.github/workflows/`, or a [`test.runAllOn`](configuration.md#test) glob changed — every file runs                                                                                                                   |
+| `folder`  | a changed file sits in the harness's folder or below it                                                                                                                                                                                                                          |
+| `import`  | a changed file is in the harness's import closure: relative `import`, `export … from`, `require`, literal `import()`, and a bare specifier that resolves inside the repository (a workspace package, a tsconfig `paths` alias, a `#imports` entry) — never one in `node_modules` |
+| `reads`   | a changed file is one an effect call in the harness or its closure runs, reads or copies (`spawn*`, `exec*`, `readFile*`, `cp*`, `existsSync`, `runHook`…)                                                                                                                       |
 
 ```
 --changed=origin/main: 2 changed file(s) since 3f2a9c1e0b7d (merge-base of origin/main and HEAD).
