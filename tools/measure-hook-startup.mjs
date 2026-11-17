@@ -75,6 +75,22 @@
  * above sit on a 41 ms baseline and today's on 27 ms, so the two dates' absolute
  * figures are not comparable and a naive diff across them flatters the change.
  *
+ * Measured 2026-11-17, Node 22.23.4, this container, --runs=20, two
+ * interleaved rounds (round 1 / round 2) — #396 (a). BEFORE is 8e6c1fc plus
+ * these rows; AFTER adds `e.command` on Bash-only reacts (lazy `CommandView`)
+ * and lazy providers. Baseline `node -e ''` 21 ms in all four runs:
+ *
+ *   end-to-end run-program                       before        →  after
+ *   bash react, unread 0.4 s provider            463 / 464 ms  →   56 /  53 ms
+ *   bash react, reads only the response           54 /  56 ms  →   59 /  57 ms
+ *   bash react, asks e.command.runs()            (crashes)     →  132 / 130 ms
+ *   bash gate (reference: it parses too)         112 / 108 ms  →  120 / 110 ms
+ *
+ * "crashes": before, a react had no `e.command`, so the fixture exits 2 with
+ * "Cannot read properties of undefined (reading 'runs')". The asking row costs
+ * what a Bash gate costs — the parser, which is the work it asked for — and the
+ * response-only row did not move, because the view parses on first use.
+ *
  * 🔴 THE REACT ROW DID NOT EXIST UNTIL 2026-09-19, and that is the lesson worth
  * keeping. React is the ONLY role that resolves an adapter; a file gate and an
  * inject never do. Measuring only those said "the hook path is cheap" while

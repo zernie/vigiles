@@ -1490,14 +1490,24 @@ test("hook-runtime run-program: a Bash-only react reads e.command — the push w
     assert.equal(ls.exitCode, 0);
     assert.equal(context(ls), "");
     assert.equal(existsSync(resolve(dir, ".vigiles/state")), false);
+    // …and the declared `gh` lookup never ran: providers run when READ, and
+    // this decision returned before reading it.
+    assert.equal(existsSync(resolve(dir, "gh-calls.txt")), false);
 
-    // First push: nothing to compare against — silent, but recorded.
+    // First push: nothing to compare against — silent, but recorded, and still
+    // no `gh` call (the window check returns before the PR is asked about).
     assert.equal(context(bash("git push origin HEAD")), "");
+    assert.equal(existsSync(resolve(dir, "gh-calls.txt")), false);
     // Second push to the same branch inside the window, PR ready: the warning.
     const second = bash("cd . && git push");
     assert.equal(second.exitCode, 0);
     assert.equal(second.blocked, false);
     assert.match(context(second), /pushed 0 min ago and its PR is ready/);
+    assert.equal(
+      readFileSync(resolve(dir, "gh-calls.txt"), "utf-8").trim().split("\n")
+        .length,
+      1,
+    ); // read once, run once
     // Draft PR: silent.
     writeFileSync(resolve(dir, "is-draft.txt"), "true\n");
     assert.equal(context(bash("git push")), "");
