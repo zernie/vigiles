@@ -62,7 +62,7 @@ failed to load on every call for three weeks, and no gate noticed.
 
 A **dependency the scan cannot see** is not reported missing: the browser audit
 reads a GitHub fetch, which never contains `node_modules`, so there a path under
-`node_modules/` is "unresolved". On disk (`vigiles lint`, `vigiles audit`) it is
+`node_modules/` is "not observable" (`?` in the report). On disk (`vigiles lint`, `vigiles audit`) it is
 checked like any other file.
 
 ## Configuration
@@ -94,4 +94,4 @@ worst kind of failure, because the author believes the guard is in place.
 
 - [hand-written-hook](hand-written-hook.md) — every hook line vigiles did not write.
 - [compiled-hooks](../compiled-hooks.md) — writing a hook vigiles can check.
-- [untested-hook](untested-hook.md) — a hook script that ships without a test/eval.
+- [untested-hook](untested-hook.md) — a compiled hook that ships without a test/eval.

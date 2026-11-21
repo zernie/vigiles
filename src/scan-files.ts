@@ -26,7 +26,7 @@
  * not WHAT the harness contains).
  *
  * The six filesystem touchpoints in `scanPlugin` are reimplemented here over the
- * map (never on disk): (1) hook-script resolution — scanHooks/collectHookBlockEntries
+ * map (never on disk): (1) the hook inventory — hookInventory/collectHookBlockEntries
  * take an injected map-backed `exists`; (2) `collectMcpServers`; (3) the `hasSpec`
  * check; (4) `danglingRefs`; (5) `pluginDirLayoutIssues` (map-backed
  * existsSync/isDirectory); (6) `findUntestedSurfaces` (its globs → `Object.keys`
@@ -59,7 +59,12 @@ import {
   resolveImports,
 } from "./core/instruction-chain.js";
 import type { LoadedPlugin } from "./plugin-loader.js";
-import { normalizeHooks, hookEventNames } from "./core/hook-normalize.js";
+import {
+  hookEventNames,
+  normalizeHooks,
+  shadowedBy,
+  type PluginHooks,
+} from "./core/hook-normalize.js";
 import { verifyHookEvents, scoredIssues } from "./core/hook-events.js";
 import { verifyMcpServers } from "./core/mcp-config.js";
 import { agentPluginsMcpSources } from "./core/agent-plugins.js";
@@ -105,6 +110,8 @@ import {
   scanSkills,
   skillRefSources,
   scanHookScripts,
+  hookInventory,
+  type HookInventory,
   hookSourceRefs,
   type HookLineFindings,
   type HookScriptScan,
@@ -293,7 +300,7 @@ function readHooks(
     text === undefined ? undefined : readSettingsHooks(text, layout.settings);
   const plugin = readPluginHooks(files, layout);
   return plugin.declared
-    ? { hooks: plugin.hooks, shadowed: settings() }
+    ? { hooks: plugin.hooks, shadowed: shadowedBy(plugin, layout, settings) }
     : { hooks: settings(), shadowed: undefined };
 }
 
@@ -301,7 +308,7 @@ function readHooks(
 function readPluginHooks(
   files: Readonly<Record<string, string>>,
   layout: PluginLayout,
-): { readonly declared: boolean; readonly hooks: unknown } {
+): PluginHooks {
   const m = readManifest(files, layout);
   if (m) {
     if (typeof m.hooks === "string") {
@@ -310,7 +317,8 @@ function readPluginHooks(
         hooks: readHooksJsonFile(files, m.hooks.replace(/^\.\//, "")),
       };
     }
-    if (m.hooks !== undefined) return { declared: true, hooks: m.hooks };
+    if (m.hooks !== undefined)
+      return { declared: true, hooks: m.hooks, inManifest: true };
   }
   // Optional: a harness whose hooks are in-process code modules has no
   // standalone hooks FILE. Mirrors the disk loader.
@@ -691,40 +699,43 @@ function collectMcpServers(
 // Public API
 // ---------------------------------------------------------------------------
 
-/** The report's hook fields, from what the hook scan found. */
+/** The report's hook fields, from the inventory and what is read off it. */
 function hookReportFields(
-  found: HookLineFindings,
+  found: HookLineFindings & { readonly inventory: HookInventory },
 ): Pick<
   ScanReport,
-  "hooks" | "inlineHooks" | "handWrittenHooks" | "staleHooks"
+  "hooks" | "hookInventory" | "handWrittenHooks" | "staleHooks"
 > {
   return {
     hooks: found.hooks,
-    inlineHooks: found.inline,
+    hookInventory: found.inventory,
     handWrittenHooks: found.handWritten,
     staleHooks: found.stale,
   };
 }
 
-/** The map's hook lines as written, its hook scan, and what that scan finds. */
+/** The map's hook lines as written, its hook scan, its inventory and what that finds. */
 function fileMapHooks(
   files: Readonly<Record<string, string>>,
   loaded: Readonly<LoadedPlugin>,
   layout: Readonly<PluginLayout>,
-): ReturnType<typeof scanHookScripts> & {
+): HookLineFindings & {
   readonly hookScan: HookScriptScan;
   readonly asWritten: readonly HookRegistration[];
+  readonly inventory: HookInventory;
 } {
   const hookScan = fileMapHookScan(files, layout, mapExists(files));
   const asWritten = normalizeHooks(loaded.hooksAsWritten);
+  const inventory = hookInventory(
+    asWritten,
+    normalizeHooks(loaded.shadowedSettingsHooks),
+    hookScan,
+  );
   return {
     hookScan,
     asWritten,
-    ...scanHookScripts(
-      asWritten,
-      normalizeHooks(loaded.shadowedSettingsHooks),
-      hookScan,
-    ),
+    inventory,
+    ...scanHookScripts(inventory, hookScan),
   };
 }
 

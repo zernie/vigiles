@@ -20,7 +20,7 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     skills: [],
     agents: [],
     hooks: [],
-    inlineHooks: 0,
+    hookInventory: [],
     handWrittenHooks: [],
     staleHooks: [],
     commands: 1, // a surface, so it's not the empty machine

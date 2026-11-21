@@ -379,9 +379,9 @@ export function reportDeductions(r: ScanReport): Deduction[] {
  *
  * 🔴 THE ONE PLACE the surface set is enumerated, and every scorer must ask it
  * rather than write the list again. `scoreReport` used to keep its own copy and
- * that copy had dropped `inlineHooks` — so a plugin whose entire contribution is
- * hooks declared inline in `plugin.json` scored 0 / F with "no loadable plugin
- * surface" while the same report printed `inlineHooks: 2` (#199). Measured on a
+ * that copy had dropped the hand-written hook lines — so a plugin whose entire
+ * contribution is hooks declared inline in `plugin.json` scored 0 / F with "no
+ * loadable plugin surface" while the same report printed 2 hooks (#199). Measured on a
  * two-inline-hook fixture: this predicate said `false` and `scoreReport` said
  * `0`, against `auditScore`'s `100` — a 100-point disagreement between two
  * numbers documented to be equal.
@@ -394,16 +394,15 @@ export function reportDeductions(r: ScanReport): Deduction[] {
  * An output style counts too: a repo can ship only a style, and "nothing to
  * audit" for it would hide the untested-output-style finding.
  *
- * Hooks count in BOTH forms: `hooks[]` is the script-backed ones, `inlineHooks`
- * the shell one-liners that carry no script file to path-check. The second is
- * still a gate that runs.
+ * Hooks count as LINES, from the hook inventory: a compiled line, a stale one
+ * and a hand-written one are each a hook that runs, whether or not vigiles can
+ * read what it runs.
  */
 export function isEmptyMachine(r: ScanReport): boolean {
   const surfaces =
     r.skills.length +
     r.agents.length +
-    r.hooks.length +
-    r.inlineHooks +
+    r.hookInventory.length +
     r.commands +
     (typeof r.outputStyles === "number" ? r.outputStyles : 0);
   return surfaces === 0 && !r.mcp;
@@ -446,7 +445,7 @@ export function scoreReport(r: ScanReport): {
   // repo can reasonably ship gates and nothing else — so none of them scores 0.
   //
   // 🔴 Asked of `isEmptyMachine`, never re-enumerated here. The hand-written copy
-  // that used to sit on this line had dropped `inlineHooks`, so a hooks-only
+  // that used to sit on this line had dropped the hand-written hook lines, so a hooks-only
   // plugin scored 0 while `auditScore` — which does ask the predicate — scored the
   // same report 100 (#199). Two lists mean two answers.
   if (isEmptyMachine(r)) {

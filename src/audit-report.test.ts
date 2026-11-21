@@ -29,7 +29,7 @@ function makeReport(over: Partial<ScanReport> = {}): FilteredScan<ScanReport> {
     skills: [],
     agents: [],
     hooks: [],
-    inlineHooks: 0,
+    hookInventory: [],
     handWrittenHooks: [],
     staleHooks: [],
     commands: 1,

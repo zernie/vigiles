@@ -28,6 +28,7 @@
  * `src/adapters/claude-code/plugin-loader.ts` defaults it to `claudeCodeLayout`
  * to preserve `loadPlugin(dir)` ergonomics and the public `vigiles/*` exports).
  */
+import { shadowedBy, type PluginHooks } from "./core/hook-normalize.js";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { resolve, join, relative, basename } from "node:path";
 
@@ -192,15 +193,12 @@ function readHooks(
       : undefined;
   const plugin = readPluginHooks(root, layout);
   return plugin.declared
-    ? { hooks: plugin.hooks, shadowed: settings() }
+    ? { hooks: plugin.hooks, shadowed: shadowedBy(plugin, layout, settings) }
     : { hooks: settings(), shadowed: undefined };
 }
 
 /** Layouts 1–3 of {@link readHooks}: what the PLUGIN declares, and whether it declared anything. */
-function readPluginHooks(
-  root: string,
-  layout: PluginLayout,
-): { readonly declared: boolean; readonly hooks: unknown } {
+function readPluginHooks(root: string, layout: PluginLayout): PluginHooks {
   // A malformed manifest must not crash the loader — fall through to the
   // other layouts (safeReadManifest returns null on a parse error). Format-aware
   // so a Codex `config.toml` manifest's `[hooks]` is read, not skipped.
@@ -208,7 +206,8 @@ function readPluginHooks(
   if (m) {
     if (typeof m.hooks === "string")
       return { declared: true, hooks: readHooksFile(join(root, m.hooks)) };
-    if (m.hooks !== undefined) return { declared: true, hooks: m.hooks };
+    if (m.hooks !== undefined)
+      return { declared: true, hooks: m.hooks, inManifest: true };
   }
   // Optional: a harness whose hooks are in-process code modules has no
   // standalone hooks FILE, so there is nothing to look for here.

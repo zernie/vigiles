@@ -67,6 +67,12 @@ export interface AuditReportMeta {
 export interface AuditInventory {
   readonly skills: number;
   readonly agents: number;
+  /**
+   * Hook LINES the repo registers — compiled, stale and hand-written alike.
+   * Until this was one unit it summed compiled lines' FILES with hand-written
+   * lines, so one compiled hook counted three times. Same type, same field: a
+   * count, not a shape change, so `schemaVersion` stays.
+   */
   readonly hooks: number;
   readonly commands: number;
   /**
@@ -316,10 +322,9 @@ function inventoryOf(report: ScanReport): AuditInventory {
   return {
     skills: report.skills.length,
     agents: report.agents.length,
-    // All hooks, file-backed + inline — matches formatScanReport and the
-    // emptiness/scoring count, so a JSON/HTML "What it ships" never reports 0
-    // hooks for an inline-hook-only harness.
-    hooks: report.hooks.length + report.inlineHooks,
+    // Hook LINES, from the inventory — one unit, matching formatScanReport and
+    // the emptiness test, so a hand-written-only harness never reports 0 hooks.
+    hooks: report.hookInventory.length,
     commands: report.commands,
     ...outputStylesField(report.outputStyles),
     mcp: report.mcp,

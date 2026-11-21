@@ -3722,7 +3722,7 @@
       "count": 1
     },
     "functional/immutable-data": {
-      "count": 43
+      "count": 42
     },
     "functional/no-let": {
       "count": 3
@@ -3731,7 +3731,7 @@
       "count": 6
     },
     "functional/prefer-immutable-types": {
-      "count": 15
+      "count": 14
     },
     "local/no-rule-ids": {
       "count": 32

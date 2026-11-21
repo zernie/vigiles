@@ -19,6 +19,21 @@ import {
 import type { CategoryScore } from "./audit-score.js";
 import type { ScanReport } from "./scan.js";
 
+/** One hand-written hook line, as the inventory records it. */
+const HAND_WRITTEN_LINE = {
+  source: "loaded",
+  event: "Stop",
+  command: "echo done",
+  line: { kind: "hand-written" },
+} as const;
+
+/** A report whose only surface is that line (#199). */
+const HOOKS_ONLY = makeReport({
+  commands: 0,
+  mcp: false,
+  hookInventory: [HAND_WRITTEN_LINE],
+});
+
 /** A clean, loaded report; override fields per test. */
 function makeReport(over: Partial<ScanReport> = {}): ScanReport {
   return {
@@ -35,7 +50,7 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     ] as unknown as ScanReport["skills"],
     agents: [],
     hooks: [],
-    inlineHooks: 0,
+    hookInventory: [],
     handWrittenHooks: [],
     staleHooks: [],
     commands: 1, // a surface, so it's not the empty machine
@@ -698,13 +713,10 @@ describe("auditScore", () => {
     expect(s.categories.every((c) => c.notMeasured)).toBe(false);
   });
 
-  it("an inline-hook-only harness is NOT empty (inline hooks are a real surface)", () => {
-    // A harness that defines only inline hook commands (no script file, no skills
-    // /agents/commands/mcp) has a real loadable hook surface — it must score, not
-    // be graded F/0. Regression: `inlineHooks` was excluded from the surface count.
-    const s = auditScore(
-      makeReport({ commands: 0, mcp: false, inlineHooks: 2 }),
-    );
+  it("a harness whose only hooks are hand-written lines is NOT empty (#199)", () => {
+    // Only hand-written hook lines, no other surface: the inventory says a hook
+    // runs, so it must score, not be graded F/0.
+    const s = auditScore(HOOKS_ONLY);
     expect(s.empty).toBe(false);
   });
 
