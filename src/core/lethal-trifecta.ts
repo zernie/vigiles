@@ -106,6 +106,7 @@ export type SkillFenceState = "none" | "ineffective";
  *   rail, or an `allowed-tools:` that pre-approves a leg tool or an MCP tool.
  *   Reported at its file, charged per unit.
  */
+// TODO(#461): interim — replace with per-unit legs from the session baseline
 export type TrifectaCause = "session" | "fence" | "unit";
 
 /**
