@@ -3,10 +3,7 @@
  *
  * ## The gap this closes
  *
- * `danglingRefs` (plugin-loader.ts) already reports broken intra-plugin
- * references — but it matches PATHS (`${CLAUDE_PLUGIN_ROOT}/scripts/x.sh`) in
- * EXECUTABLE sources, and it skips prose by design (`DOC_SOURCE_RE` → skip). A
- * skill referring to another skill BY NAME, in prose, was checked by nothing.
+ * A skill referring to another skill BY NAME, in prose, was checked by nothing.
  *
  * That is the reference agents actually follow. Skills route to each other
  * constantly — "run `verify-citations` first", "compose with `find-venue`" — and

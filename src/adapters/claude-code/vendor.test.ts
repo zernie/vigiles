@@ -31,8 +31,6 @@ interface PluginCase {
   readonly expectCommands: boolean;
   /** Declares an MCP server (`.mcp.json` / `mcpServers`) — flagged, never wired. */
   readonly expectMcp: boolean;
-  /** Intra-plugin file refs knowingly absent in the snapshot (e.g. a partial vendor). */
-  readonly knownDangling: readonly string[];
 }
 
 const PLUGINS: readonly PluginCase[] = [
@@ -44,8 +42,6 @@ const PLUGINS: readonly PluginCase[] = [
     expectAgents: false,
     expectCommands: false,
     expectMcp: false,
-    // the vendored slice omits skills/using-superpowers/, which SessionStart reads
-    knownDangling: ["skills/using-superpowers/SKILL.md"],
   },
   {
     label: "wshobson/accessibility",
@@ -55,7 +51,6 @@ const PLUGINS: readonly PluginCase[] = [
     expectAgents: true,
     expectCommands: true,
     expectMcp: false,
-    knownDangling: [],
   },
   {
     // The all-surfaces example for docs/harness-testing.md: one plugin that ships
@@ -68,19 +63,11 @@ const PLUGINS: readonly PluginCase[] = [
     expectAgents: true,
     expectCommands: false,
     expectMcp: true,
-    knownDangling: [],
   },
 ];
 
 const hasWarning = (ws: readonly string[], sub: string): boolean =>
   ws.some((w) => w.includes(sub));
-
-/** How many intra-plugin dangling refs the loader flagged (parsed from the warning). */
-const danglingCount = (ws: readonly string[]): number => {
-  const w = ws.find((x) => x.includes("intra-plugin"));
-  const m = w?.match(/references (\d+) intra-plugin/);
-  return m?.[1] ? Number(m[1]) : 0;
-};
 
 const skillCount = (files: Record<string, string>): number =>
   Object.keys(files).filter((f) => /skills\/.*SKILL\.md$/.test(f)).length;
@@ -121,11 +108,5 @@ for (const p of PLUGINS) {
       p.expectCommands,
     );
     assert.equal(hasWarning(loaded.warnings, "MCP server"), p.expectMcp);
-
-    // 5. dangling-ref detector is accurate: exactly the known set, nothing spurious
-    assert.equal(danglingCount(loaded.warnings), p.knownDangling.length);
-    for (const ref of p.knownDangling) {
-      assert.ok(hasWarning(loaded.warnings, ref), `should flag ${ref}`);
-    }
   });
 }

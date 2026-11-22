@@ -41,8 +41,11 @@ import {
  * v3 (2026-11-22): `inventory.hooks` counts hook LINES from the hook inventory,
  * where v2 added the files compiled lines need to hand-written lines. Same name
  * and type, different meaning: a v2 consumer comparing counts would mis-read it.
+ * v4 (2026-11-22): `brokenReferences` is removed (the script-body detector that
+ * filled it is deleted); no new field yet. A v3 consumer reading it gets
+ * `undefined`.
  */
-export const AUDIT_SCHEMA_VERSION = 3;
+export const AUDIT_SCHEMA_VERSION = 4;
 
 export interface AuditReportMeta {
   /** Wire-format version — consumers gate on this. */
@@ -199,14 +202,6 @@ export interface AuditReport {
   /** The deterministic, ranked fixes (the inline recommendations). */
   readonly recommendations: readonly Recommendation[];
   readonly inventory: AuditInventory;
-  /**
-   * The CONCRETE intra-plugin references that don't resolve on disk — the actual
-   * paths behind the Truthfulness category's "N broken intra-plugin reference(s)"
-   * count, so the report can show WHAT is broken (a file path), not just how many.
-   * Present only when at least one dangling ref exists. Additive/optional — schema
-   * version unchanged.
-   */
-  readonly brokenReferences?: readonly string[];
   /**
    * Instruction specs still using the deprecated `keyFiles` (the
    * `deprecated-key-files` rule's findings: path, entry count, compiled
@@ -404,12 +399,9 @@ function contextCostField(report: ScanReport): {
  */
 function scanFindingLists(
   report: FilteredScan<ScanReport>,
-): Pick<AuditReport, "brokenReferences" | "deprecatedKeyFiles" | "ungraded"> {
+): Pick<AuditReport, "deprecatedKeyFiles" | "ungraded"> {
   return {
     ...(report.ungraded.length > 0 ? { ungraded: report.ungraded } : {}),
-    ...(report.danglingRefs.length
-      ? { brokenReferences: report.danglingRefs }
-      : {}),
     ...(report.deprecatedKeyFiles
       ? { deprecatedKeyFiles: report.deprecatedKeyFiles }
       : {}),

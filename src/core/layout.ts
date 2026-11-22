@@ -237,8 +237,7 @@ export function surfaceDirs(layout: PluginLayout): readonly string[] {
 }
 
 /**
- * Dirs whose non-prose files are scanned for intra-plugin references, and
- * checked for misplacement inside the manifest dir: the surfaces plus
+ * Dirs checked for misplacement inside the manifest dir: the surfaces plus
  * {@link PluginLayout.hookScriptsDir}.
  *
  * Equal to the old hand-written `intraRefDirs` as a SET on Claude Code and

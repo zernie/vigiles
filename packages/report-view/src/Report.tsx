@@ -412,13 +412,7 @@ function UngradedBlock({ group }: { group: UngradedGroup }) {
  * nothing). This is the fix for "92 but no errors visible": every category that
  * isn't a clean 100 shows WHY, in context, linked to its explainer. Graded findings
  * lead (they cost points); advisory ones follow, muted; the extras fold. */
-function CategoryRow({
-  c,
-  refs,
-}: {
-  c: CategoryScore;
-  refs?: readonly string[];
-}) {
+function CategoryRow({ c }: { c: CategoryScore }) {
   const b: Tone = c.advisory ? "na" : band(c.score);
   const pct = c.score === null ? 0 : Math.max(0, Math.min(100, c.score));
   // A finding is advisory if the whole category is (untested surfaces) or the
@@ -463,18 +457,6 @@ function CategoryRow({
               />
             )}
             <FindingText text={lead.text} advisory={lead.advisory} />
-            {/* The CONCRETE paths behind a "N broken reference(s)" count — so the
-                report shows WHAT is broken, not just how many. */}
-            {refs && refs.length > 0 && (
-              <ul className="mt-1 space-y-0.5">
-                {refs.map((r) => (
-                  <li key={r} className="font-mono text-[11px] text-na-ink">
-                    ↳ {r}{" "}
-                    <span className="text-muted-foreground">— missing</span>
-                  </li>
-                ))}
-              </ul>
-            )}
             {rest.length > 0 && (
               <details className="group mt-1">
                 <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-muted-foreground/80 hover:text-foreground">
@@ -733,15 +715,7 @@ export function Report({
    *  canonical agent prompt; the demo overrides to add a toast. */
   onUnlock?: () => void;
 }) {
-  const {
-    score,
-    verdict,
-    recommendations,
-    inventory,
-    meta,
-    brokenReferences,
-    ungraded,
-  } = data;
+  const { score, verdict, recommendations, inventory, meta, ungraded } = data;
   const overall = score.empty ? null : score.overall;
 
   useEffect(() => {
@@ -806,11 +780,7 @@ export function Report({
         <h2 className={SECTION_H}>Categories — and what&apos;s flagged</h2>
         <div className="divide-y divide-border/40">
           {score.categories.map((c) => (
-            <CategoryRow
-              key={c.key}
-              c={c}
-              refs={c.key === "Truthfulness" ? brokenReferences : undefined}
-            />
+            <CategoryRow key={c.key} c={c} />
           ))}
         </div>
         {ungraded?.map((g) => (
@@ -871,15 +841,11 @@ function plural(n: number, word: string): string {
 }
 
 function categoriesSection(data: AuditReport, reviewed: ReadonlySet<string>) {
-  const { score, brokenReferences, ungraded } = data;
+  const { score, ungraded } = data;
   return (alt: boolean) => (
     <Band id="report-categories" title="Categories" alt={alt}>
       <CategoryRings categories={score.categories} />
-      <FlaggedList
-        categories={score.categories}
-        brokenReferences={brokenReferences}
-        exclude={reviewed}
-      />
+      <FlaggedList categories={score.categories} exclude={reviewed} />
       {/* Apart from the rings: these findings are not in any category,
           because no category is graded on them. */}
       {ungraded?.map((g) => (

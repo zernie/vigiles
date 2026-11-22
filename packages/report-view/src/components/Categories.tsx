@@ -130,11 +130,9 @@ export function CategoryRings({
  */
 export function FlaggedList({
   categories,
-  brokenReferences,
   exclude,
 }: {
   categories: readonly CategoryScore[];
-  brokenReferences?: readonly string[];
   exclude: ReadonlySet<string>;
 }) {
   const rows = categories
@@ -171,18 +169,6 @@ export function FlaggedList({
                   </li>
                 ))}
               </ul>
-              {c.key === "Truthfulness" &&
-                brokenReferences &&
-                brokenReferences.length > 0 && (
-                  <ul className="mt-1.5 space-y-1 font-mono text-sm text-foreground-soft">
-                    {brokenReferences.map((r) => (
-                      <li key={r} className="break-all">
-                        ↳ {r}{" "}
-                        <span className="text-muted-foreground">— missing</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
             </dd>
           </div>
         ))}

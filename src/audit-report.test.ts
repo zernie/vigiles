@@ -34,7 +34,6 @@ function makeReport(over: Partial<ScanReport> = {}): FilteredScan<ScanReport> {
     staleHooks: [],
     commands: 1,
     mcp: false,
-    danglingRefs: [],
     hookEventIssues: [],
     frontmatterIssues: [],
     frontmatterValueIssues: [],
