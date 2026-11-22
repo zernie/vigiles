@@ -53,6 +53,8 @@ export interface RuleResolver<Id extends string = string> {
    * this, so an override that turns a rule ON for one folder is not dropped.
    */
   mayFire(rule: Id): boolean;
+  /** Whether `rule` fires at `path` — {@link severityAt} is not `false` there. */
+  firesAt(rule: Id, path: string): boolean;
 }
 
 /** Build the resolver once per run, from the parsed `rules` and `overrides`. */
@@ -65,13 +67,15 @@ export function ruleResolver<Id extends string = string>(
     rules: o.rules,
   }));
   const base = (rule: Id): RuleSeverity => ruleSeverity<unknown>(rules[rule]);
+  const severityAt = (rule: Id, path: string | undefined): RuleSeverity =>
+    path === undefined
+      ? base(rule)
+      : compiled
+          .filter((o) => o.covers(path) !== null)
+          .reduce<RuleSeverity>((sev, o) => o.rules[rule] ?? sev, base(rule));
   return {
-    severityAt: (rule, path) =>
-      path === undefined
-        ? base(rule)
-        : compiled
-            .filter((o) => o.covers(path) !== null)
-            .reduce<RuleSeverity>((sev, o) => o.rules[rule] ?? sev, base(rule)),
+    severityAt,
+    firesAt: (rule, path) => severityAt(rule, path) !== false,
     mayFire: (rule) =>
       base(rule) !== false ||
       compiled.some((o) => (o.rules[rule] ?? false) !== false),

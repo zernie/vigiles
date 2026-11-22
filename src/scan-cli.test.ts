@@ -1195,7 +1195,7 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
       const r = run(`audit ${harness}`, makeRepo(skillsDir, true));
       assert.match(
         r.stdout,
-        /ℹ rca: bundled resource "scripts\/leak\.py" \(line 5\) resolves only from the repo root/,
+        /ℹ \S+SKILL\.md:5: rca: bundled resource "scripts\/leak\.py" resolves only from the repo root/,
       );
       assert.match(
         r.stdout,
@@ -1228,7 +1228,7 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
       ]);
       assert.match(
         blocks?.[0]?.findings[0]?.message ?? "",
-        /^bundled resource "scripts\/leak\.py" \(line 5\) resolves only from the repo root/,
+        /^bundled resource "scripts\/leak\.py" resolves only from the repo root/,
       );
     });
 
@@ -1239,7 +1239,7 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
       assert.equal(r.exitCode, 0, r.stdout);
       assert.ok(
         r.stdout.includes(
-          `::notice file=${skillsDir}/rca/SKILL.md::rca: bundled resource "scripts/leak.py" (line 5) resolves only from the repo root`,
+          `::notice file=${skillsDir}/rca/SKILL.md,line=5::rca: bundled resource "scripts/leak.py" resolves only from the repo root`,
         ),
         r.stdout,
       );
@@ -1251,7 +1251,7 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
       assert.notEqual(r.exitCode, 0, r.stdout);
       assert.match(
         r.stdout,
-        /"scripts\/leak\.py" \(line 5\) is referenced but missing/,
+        /SKILL\.md:5: rca: bundled resource "scripts\/leak\.py" is referenced but missing/,
       );
       assert.doesNotMatch(r.stdout, /resolves only from the repo root/);
     });
@@ -1332,7 +1332,7 @@ describe("the experimental rule group (skill-resource-resolves)", () => {
       assert.equal(r.exitCode, 0, r.stdout);
       assert.match(
         r.stdout,
-        /⚠ .*pdf: bundled resource "references\/notes\.md" \(line 5\) is referenced but missing/,
+        /⚠ \S+SKILL\.md:5: pdf: bundled resource "references\/notes\.md" is referenced but missing/,
       );
     });
 
@@ -1342,7 +1342,7 @@ describe("the experimental rule group (skill-resource-resolves)", () => {
       assert.match(text, /Experimental — not graded:/);
       assert.match(
         text,
-        /✗ pdf: bundled resource "references\/notes\.md" \(line 5\) is referenced but missing/,
+        /✗ \S+SKILL\.md:5: pdf: bundled resource "references\/notes\.md" is referenced but missing/,
       );
       const json: unknown = JSON.parse(
         run(`audit ${harness} --json --preset=experimental`, dir).stdout,

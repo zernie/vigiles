@@ -44,6 +44,7 @@ function makeReport(over: Partial<ScanReport> = {}): FilteredScan<ScanReport> {
     descriptionBudgetIssues: [],
     trifectaFindings: [],
     skillFenceIssues: [],
+    instructionImportIssues: [],
     pluginLayoutIssues: [],
     unclaimedSurfaces: [],
     delegationTrifecta: [],
@@ -400,7 +401,7 @@ describe("buildAuditReport — ungraded group findings", () => {
   const groups = { shown: { graded: false, label: "Shown", blurb: "Never." } };
   const scan = makeReport();
   const opts = { harness: "h", vigilesVersion: "1.0.0" };
-  const sw = (on: boolean) => ({ mayFire: () => on });
+  const sw = (on: boolean) => ({ mayFire: () => on, firesAt: () => on });
 
   it("is absent when no rule of the group is on", () => {
     const r = buildAuditReport(

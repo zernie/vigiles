@@ -254,18 +254,26 @@ for (const adapter of ADAPTERS) {
       // when the run turned the rule on, and then in the group's own block.
       assert.doesNotMatch(formatScanReport(shown(r)), /scripts\/gone\.py/);
       const text = formatScanReport(
-        applyRules(RULES, RULE_GROUPS, { mayFire: () => true }, r),
+        applyRules(
+          RULES,
+          RULE_GROUPS,
+          { mayFire: () => true, firesAt: () => true },
+          r,
+        ),
       );
       assert.match(text, /Experimental — not graded:/);
       assert.match(
         text,
-        /✗ rca: bundled resource "scripts\/gone\.py" \(line 7\)/,
+        /✗ \S+SKILL\.md:7: rca: bundled resource "scripts\/gone\.py" is/,
       );
       assert.match(
         text,
-        /ℹ rca: bundled resource "scripts\/leak\.py" \(line 5\) resolves only from the repo root/,
+        /ℹ \S+SKILL\.md:5: rca: bundled resource "scripts\/leak\.py" resolves only from the repo root/,
       );
-      assert.doesNotMatch(text, /✗ rca: bundled resource "scripts\/leak\.py"/);
+      assert.doesNotMatch(
+        text,
+        /✗ \S+: rca: bundled resource "scripts\/leak\.py"/,
+      );
 
       // The note is never scored: a repo whose only ref is repo-root-only
       // scores exactly like the same repo with no ref at all.
@@ -491,7 +499,12 @@ test("scanPlugin lists every hand-written hook (a compiled one, by identity, exc
   // Each one surfaces in the report by name, linking the guide — when the rule
   // that names them is on (it is off by default; every rule is on here).
   const out = formatScanReport(
-    applyRules(RULES, RULE_GROUPS, { mayFire: () => true }, r),
+    applyRules(
+      RULES,
+      RULE_GROUPS,
+      { mayFire: () => true, firesAt: () => true },
+      r,
+    ),
   );
   assert.match(
     out,
@@ -1974,9 +1987,17 @@ test("scanPlugin flags a SKILL.md body referencing a missing bundled resource", 
   assert.equal(pdf.resourceIssues[0].ref, "references/api.md");
   // The printed report carries it when the rule is on.
   const on = formatScanReport(
-    applyRules(RULES, RULE_GROUPS, { mayFire: () => true }, r),
+    applyRules(
+      RULES,
+      RULE_GROUPS,
+      { mayFire: () => true, firesAt: () => true },
+      r,
+    ),
   );
-  assert.match(on, /✗ pdf: bundled resource "references\/api\.md"/);
+  assert.match(
+    on,
+    /✗ \S+SKILL\.md:\d+: pdf: bundled resource "references\/api\.md"/,
+  );
   // Ungraded: never in the structural tally, on or off.
   assert.match(on, /✓ no structural issues found/);
   cleanupTmpDir(dir);

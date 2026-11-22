@@ -25,7 +25,7 @@
  */
 import type { PluginLayout } from "../../core/layout.js";
 import type { InstructionChain } from "../../core/instruction-chain.js";
-import { settingsSourcePaths } from "../../core/instruction-chain.js";
+import { settingsSources } from "../../core/instruction-chain.js";
 import { jsonSettingsCodec } from "../../core/settings-codec.js";
 import { opencodeInstructionChain } from "./instruction-chain.js";
 
@@ -64,7 +64,7 @@ export const opencodeLayout: PluginLayout = {
   instructionChain(files): InstructionChain {
     return opencodeInstructionChain(files, {
       instructionFile: opencodeLayout.instructionFile,
-      settingsPaths: settingsSourcePaths(opencodeLayout),
+      settingsSources: settingsSources(opencodeLayout),
       parseSettings: (text) => opencodeLayout.settings.parse(text),
     });
   },

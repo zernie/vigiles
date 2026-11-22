@@ -61,6 +61,7 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     descriptionBudgetIssues: [],
     trifectaFindings: [],
     skillFenceIssues: [],
+    instructionImportIssues: [],
     pluginLayoutIssues: [],
     unclaimedSurfaces: [],
     delegationTrifecta: [],
@@ -74,6 +75,53 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     ...over,
   };
 }
+
+test("a leaderboard never charges an import seen only on this machine (seenIn: effective)", () => {
+  // A leaderboard ranks a raw scan — it does not go through `applyRules` — so
+  // the committed-view rule has to hold at the scoring boundary itself.
+  const clean: Partial<ScanReport> = {
+    skills: [
+      {
+        name: "s",
+        path: "p",
+        hasDescription: true,
+        userInvoked: false,
+        resourceIssues: [],
+        trifecta: null,
+        fenceIssue: null,
+      },
+    ],
+  };
+  const imp = {
+    path: "docs/gone.md",
+    token: "@docs/gone.md",
+    line: 1,
+    resolution: { kind: "missing" as const },
+  };
+  const local = scoreReport(
+    report({
+      ...clean,
+      instructionImportIssues: [
+        {
+          ...imp,
+          from: "CLAUDE.local.md",
+          fromScope: "local",
+          seenIn: "effective",
+        },
+      ],
+    }),
+  );
+  const committed = scoreReport(
+    report({
+      ...clean,
+      instructionImportIssues: [
+        { ...imp, from: "CLAUDE.md", fromScope: "repo", seenIn: "both" },
+      ],
+    }),
+  );
+  assert.deepEqual(local, scoreReport(report(clean)));
+  assert.ok(committed.score < local.score);
+});
 
 test("a structurally clean plugin scores 100", () => {
   const r = report({

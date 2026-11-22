@@ -20,6 +20,7 @@ describe("skill-resource-resolves", () => {
 
   it("a ref that resolves nowhere is a finding; one that resolves only from the repo root is a note (#382)", () => {
     const found = skillResourceResolves.findings({
+      instructionImportIssues: [],
       skills: [
         {
           ...SKILL,
@@ -47,16 +48,17 @@ describe("skill-resource-resolves", () => {
       ["note", "rca", SKILL.path, 5],
     ]);
     expect(found[0]?.message).toBe(
-      'bundled resource "scripts/gone.py" (line 7) is referenced but missing — the agent reads the instruction and gets nothing.',
+      'bundled resource "scripts/gone.py" is referenced but missing — the agent reads the instruction and gets nothing.',
     );
     expect(found[1]?.message).toMatch(
-      /^bundled resource "scripts\/leak\.py" \(line 5\) resolves only from the repo root/,
+      /^bundled resource "scripts\/leak\.py" resolves only from the repo root/,
     );
   });
 
   it("a skill with no unresolved ref finds nothing", () => {
     expect(
       skillResourceResolves.findings({
+        instructionImportIssues: [],
         skills: [{ ...SKILL, resourceIssues: [] }],
       }),
     ).toEqual([]);

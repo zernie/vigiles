@@ -264,7 +264,7 @@ describe("Claude Code always-loaded context through scanPlugin and scanFiles", (
     });
     // No rules: the weight block is printed whatever rules are on.
     const text = formatScanReport(
-      applyRules([], {}, { mayFire: () => false }, disk),
+      applyRules([], {}, { mayFire: () => false, firesAt: () => false }, disk),
     );
     expect(text).toContain(
       "+ output style:  19 chars  .claude/output-styles/Terse.md",

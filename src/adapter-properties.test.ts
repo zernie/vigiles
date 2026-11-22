@@ -45,6 +45,10 @@ import {
   EMPTY_CHAIN,
   instructionCandidatePaths,
   isInstructionShaped,
+  settingsSources,
+  siblingNamed,
+  type InstructionChain,
+  type InstructionScope,
 } from "./core/instruction-chain.js";
 import { boundedInstructionFiles } from "./surface-discovery-fs.js";
 import { makeTmpDir } from "./core/tmp-root.js";
@@ -56,6 +60,20 @@ const IMPLEMENTATIONS: readonly HarnessAdapter[] = [
   ...ADAPTERS,
   opencodeAdapter,
 ];
+
+/**
+ * The scope a chain gives each file an import can be written in: its `loaded`
+ * entry, or the settings source for a manifest import. `fromScope` keeps one
+ * machine's broken import out of the grade, so it must equal this, not a guess.
+ */
+function importerScopes(
+  layout: PluginLayout,
+  chain: InstructionChain,
+): ReadonlyMap<string, InstructionScope> {
+  return new Map(
+    [...settingsSources(layout), ...chain.loaded].map((e) => [e.path, e.scope]),
+  );
+}
 
 describe.each(IMPLEMENTATIONS.map((a) => [a.name, a] as const))(
   "%s — the discovery bound",
@@ -691,6 +709,61 @@ describe.each(ARBITRARY_LAYOUTS)(
       expect(
         instructionCandidatePaths(Object.keys(RULES_HOMES), layout),
       ).toContain(want);
+    });
+  },
+);
+
+// What a report prints as `from:line` — the reader opens the file there. Built
+// from each layout's own file names, so the fixture names no harness.
+describe.each(IMPLEMENTATIONS.map((a) => [a.name, a.layout] as const))(
+  "%s: an import's line",
+  (_name, layout) => {
+    it("(ii.b) every import's LINE is a line of its file that holds the token", () => {
+      const F: Readonly<Record<string, string>> = {
+        [layout.instructionFile]: "intro\n\nsee @docs/style.md\n",
+        [layout.settingsPath]: JSON.stringify(
+          { instructions: ["docs/style.md"] },
+          null,
+          2,
+        ),
+        "docs/style.md": "x",
+      };
+      for (const { token, from, line } of layout.instructionChain(F).imports)
+        expect(
+          F[from]?.split("\n")[line - 1]?.includes(token),
+          `line ${String(line)} of "${from}" does not hold "${token}"`,
+        ).toBe(true);
+    });
+
+    it("(ii.d) every import's PATH is canonical — no `.` or empty segment", () => {
+      const F: Readonly<Record<string, string>> = {
+        [layout.instructionFile]: "see @./docs/a.md and @docs/./b.md\n",
+        [layout.settingsPath]: JSON.stringify({
+          instructions: ["./docs/c.md", "docs//d.md"],
+        }),
+        "docs/a.md": "a",
+        "docs/b.md": "b",
+        "docs/c.md": "c",
+        "docs/d.md": "d",
+      };
+      for (const { path } of layout.instructionChain(F).imports)
+        expect(
+          path.split("/").every((seg) => seg !== "." && seg !== ""),
+          `"${path}" is not canonical`,
+        ).toBe(true);
+    });
+
+    it("(ii.c) every import carries the scope its chain gives the file it is written in", () => {
+      const F: Readonly<Record<string, string>> = {
+        [layout.instructionFile]: "team @docs/style.md\n",
+        [siblingNamed(layout.instructionFile, "local")]: "mine @docs/own.md\n",
+        [layout.settingsPath]: JSON.stringify({ instructions: ["docs/a.md"] }),
+        "docs/own.md": "@deeper.md",
+      };
+      const chain = layout.instructionChain(F);
+      const scopeOf = importerScopes(layout, chain);
+      for (const { from, fromScope } of chain.imports)
+        expect([from, fromScope]).toEqual([from, scopeOf.get(from)]);
     });
   },
 );

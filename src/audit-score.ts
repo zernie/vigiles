@@ -47,6 +47,7 @@ import {
   W_MISSING_HOOK,
   W_NO_DESCRIPTION,
   W_DANGLING_REF,
+  importDeduction,
   W_OVERLAP,
   W_NO_CONTRACT,
   TRIFECTA_LABEL,
@@ -180,6 +181,7 @@ function truthfulness(r: ScanReport): CategoryScore {
       weight: W_DANGLING_REF,
       label: "skill(s) naming a sibling skill that does not exist",
     },
+    importDeduction(r),
     {
       n: missingHooks,
       weight: W_MISSING_HOOK,

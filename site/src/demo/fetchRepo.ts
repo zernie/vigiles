@@ -52,6 +52,14 @@ import { executableSourceDirs } from "@engine/core/layout";
 import { HOOKS_DIR } from "@engine/core/hook-paths";
 import { claudeCodeLayout } from "@engine/adapters/claude-code/layout";
 import { claudeCodeDialect } from "@engine/adapters/claude-code/dialect";
+import {
+  instructionCandidatePaths,
+  resolveImports,
+} from "@engine/core/instruction-chain";
+import {
+  importResolution,
+  listingOfPaths,
+} from "@engine/core/instruction-imports";
 
 import { normalizeSlug } from "@/lib/deeplink";
 
@@ -307,6 +315,36 @@ export function collectReferencedPaths(files: RepoFiles): Set<string> {
   return out;
 }
 
+/**
+ * The tree paths the instruction chain's `@path` imports point at (#272) —
+ * asked of the ENGINE, never of a regex here: the same candidate set, the same
+ * one-level read and the same chain `scanFiles` runs, so what is fetched is
+ * what the scan will look for. A target spelled in another letter case is
+ * fetched under its real name, so the browser reports the same case mismatch
+ * the CLI does instead of "missing". Called each round of the fetch fixpoint,
+ * so an imported file's own imports (named, never weighed) are fetched too and
+ * read as present, as they do on disk.
+ */
+export function importTargets(
+  files: RepoFiles,
+  tree: readonly string[],
+): string[] {
+  const lay = claudeCodeLayout;
+  const candidates = Object.fromEntries(
+    instructionCandidatePaths(Object.keys(files), lay).map((p) => [
+      p,
+      files[p] ?? "",
+    ]),
+  );
+  const read = resolveImports(lay, candidates, (p) => files[p]);
+  const list = listingOfPaths(tree);
+  return lay.instructionChain(read).imports.flatMap((imp) => {
+    const r = importResolution(imp.path, list);
+    if (r === null) return [imp.path];
+    return r.kind === "case-mismatch" ? [r.actual] : [];
+  });
+}
+
 interface TreeEntry {
   path: string;
   type: string;
@@ -476,6 +514,13 @@ export async function fetchRepo(
       for (const p of inTree) if (isHookPlanInput(p)) referenced.add(p);
       const manifestHooks = manifestHookConfig(files);
       if (manifestHooks !== null) referenced.add(manifestHooks);
+      // An import target over the size cap would read as MISSING here and as
+      // present to the CLI — a wrong graded finding, so bail like any other
+      // required file that cannot be fetched.
+      const imports = importTargets(files, [...inTree]);
+      if (imports.some((p) => (sizeOf.get(p) ?? 0) > MAX_FILE_BYTES))
+        return { kind: "too-large" };
+      for (const p of imports) referenced.add(p);
       const eligible = [...referenced]
         .filter((p) => inTree.has(p) && !(p in files))
         .filter((p) => (sizeOf.get(p) ?? 0) <= MAX_FILE_BYTES);

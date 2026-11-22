@@ -58,14 +58,37 @@ describe("a concrete path is an import, and loads when it is in the map", () => 
     ]);
   });
 
+  it("an absolute or parent-escaping entry is not an import, even after canonicalising", () => {
+    const files = {
+      ...withInstructions("/outside/guide.md", "../other/guide.md"),
+      "outside/guide.md": "a repo file that only shares the name",
+    };
+    expect(chain(files).imports).toEqual([]);
+    expect(chain(files).loaded.map((e) => e.path)).toEqual(["AGENTS.md"]);
+  });
+
   it("reports a named file that is not in the map, rather than dropping it", () => {
     expect(chain(withInstructions("docs/missing.md")).imports).toEqual([
       {
         path: "docs/missing.md",
         token: "docs/missing.md",
         from: "opencode.json",
+        fromScope: "repo",
+        line: 1,
       },
     ]);
+  });
+
+  it("an import carries the line of the manifest its entry is written on", () => {
+    const files = {
+      "AGENTS.md": "root",
+      "opencode.json": JSON.stringify(
+        { $schema: "x", instructions: ["docs/a.md"] },
+        null,
+        2,
+      ),
+    };
+    expect(chain(files).imports.map((i) => i.line)).toEqual([4]);
   });
 
   it("refuses a path that leaves the repository", () => {

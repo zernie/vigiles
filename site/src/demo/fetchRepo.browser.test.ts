@@ -7,6 +7,7 @@ import {
   isTestPath,
   collectReferencedPaths,
 } from "./fetchRepo";
+import { scanFiles } from "@engine/scan-files";
 
 // Pure-helper guards for the two harness-detection bugs the PR review flagged.
 // (These run under the browser-mode project like the rest of site/, but they touch
@@ -257,6 +258,51 @@ describe("fetchRepo — never grades partial data", () => {
             : "A skill.\n",
       }),
     );
+    expect((await fetchRepo("o/r")).kind).toBe("too-large");
+  });
+
+  // #272: the demo never fetched an `@path` import target outside the harness
+  // dirs, so the browser weighed less than the CLI — and, once an unresolved
+  // import became a finding, would report a file the CLI reads as missing. The
+  // parity is on the FILTER: the scan of what was fetched must agree with the
+  // scan of the whole tree.
+  it("fetches every @path import target, by its real spelling, so the scan agrees with the whole tree (#272)", async () => {
+    const whole: Record<string, string> = {
+      "CLAUDE.md": "# P\n\n@docs/style.md\n@docs/Testing.md\n@docs/gone.md\n",
+      "docs/style.md": "see @deeper.md",
+      "docs/deeper.md": "second hop",
+      "docs/testing.md": "t",
+      "docs/unrelated.md": "u",
+    };
+    const tree = Object.keys(whole).map((path) => ({
+      path,
+      type: "blob",
+      size: 10,
+    }));
+    stubGitHub(tree, (path) => resp({ text: async () => whole[path] ?? "" }));
+    const out = await fetchRepo("o/r");
+    expect(out.kind).toBe("ok");
+    if (out.kind !== "ok") return;
+    expect(Object.keys(out.files).sort()).toEqual([
+      "CLAUDE.md",
+      "docs/deeper.md",
+      "docs/style.md",
+      "docs/testing.md",
+    ]);
+    const fetched = scanFiles(out.files);
+    const full = scanFiles(whole);
+    expect(fetched.instructionImportIssues).toEqual(
+      full.instructionImportIssues,
+    );
+    expect(fetched.instructionWeight).toEqual(full.instructionWeight);
+  });
+
+  it("returns too-large when an import target is over the size cap", async () => {
+    const tree = [
+      { path: "CLAUDE.md", type: "blob", size: 10 },
+      { path: "docs/huge.md", type: "blob", size: 10 * 1024 * 1024 },
+    ];
+    stubGitHub(tree, () => resp({ text: async () => "@docs/huge.md\n" }));
     expect((await fetchRepo("o/r")).kind).toBe("too-large");
   });
 

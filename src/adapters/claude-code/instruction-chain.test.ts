@@ -292,7 +292,7 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
     // role would pass every CLAUDE.md case and fail exactly this one.
     const files = { "AGENTS.md": "@docs/style.md", "docs/style.md": "prose" };
     expect(paths(files)).toEqual(["AGENTS.md", "docs/style.md"]);
-    expect(chain(files).imports).toEqual([
+    expect(chain(files).imports).toMatchObject([
       { path: "docs/style.md", token: "@docs/style.md", from: "AGENTS.md" },
     ]);
   });
@@ -359,7 +359,7 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
     // beside the very file it names.
     const files = { "CLAUDE.md": "see @./notes.md", "notes.md": "prose" };
     expect(paths(files)).toEqual(["CLAUDE.md", "notes.md"]);
-    expect(chain(files).imports[0]).toEqual({
+    expect(chain(files).imports[0]).toMatchObject({
       path: "notes.md",
       token: "@./notes.md",
       from: "CLAUDE.md",
@@ -560,7 +560,30 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
 describe("imports: the repo owner names the path, the adapter only finds it", () => {
   it("reports an `@path` token whether or not the file was read", () => {
     expect(chain({ "CLAUDE.md": "see @docs/style.md" }).imports).toEqual([
-      { path: "docs/style.md", token: "@docs/style.md", from: "CLAUDE.md" },
+      {
+        path: "docs/style.md",
+        token: "@docs/style.md",
+        from: "CLAUDE.md",
+        fromScope: "repo",
+        line: 1,
+      },
+    ]);
+  });
+
+  it("an import carries the scope the chain gives its importer — a second hop through a local file is local", () => {
+    // `docs/a.md` is committed, but only `CLAUDE.local.md` pulls it in, so it
+    // does not load for a teammate: the chain makes it `local`, and its own
+    // import is one machine's too.
+    expect(
+      chain({
+        "CLAUDE.md": "root @docs/team.md",
+        "CLAUDE.local.md": "mine @docs/a.md",
+        "docs/a.md": "@b.md",
+      }).imports.map((i) => [i.from, i.path, i.fromScope]),
+    ).toEqual([
+      ["CLAUDE.md", "docs/team.md", "repo"],
+      ["CLAUDE.local.md", "docs/a.md", "local"],
+      ["docs/a.md", "docs/b.md", "local"],
     ]);
   });
 
@@ -773,5 +796,87 @@ describe("rules are anchored to THIS harness's directory, not to the word", () =
     expect(paths({ ".claude/rules/a/b/c.md": "deep" })).toEqual([
       ".claude/rules/a/b/c.md",
     ]);
+  });
+});
+
+describe("an import's line", () => {
+  // The line is the one the token is WRITTEN on, counted in the whole file:
+  // the frontmatter, a code fence and a code span holding the same text come
+  // first, and a table cell (whose inline token has no source map) is found
+  // inside its row.
+  it("each import carries the 1-based line its token is written on", () => {
+    const text = [
+      "---", // 1
+      "paths: x", // 2
+      "---", // 3
+      "```", // 4
+      "@docs/a.md", // 5 — code, not an import
+      "```", // 6
+      "Read `@docs/a.md` first, then", // 7 — code span
+      "@docs/a.md", // 8
+      "", // 9
+      "| what | where |", // 10
+      "|---|---|", // 11
+      "| style | @docs/b.md |", // 12
+    ].join("\n");
+    expect(
+      chain({ "CLAUDE.md": text }).imports.map((i) => [i.path, i.line]),
+    ).toEqual([
+      ["docs/a.md", 8],
+      ["docs/b.md", 12],
+    ]);
+  });
+
+  it("a code span and the prose on the next line of ONE paragraph: the line is the prose one", () => {
+    const text = "Read `@a.md` first, then\n@a.md\n";
+    expect(
+      chain({ "CLAUDE.md": text }).imports.map((i) => [i.path, i.line]),
+    ).toEqual([["a.md", 2]]);
+  });
+
+  // Measured against this repo's markdown-it: link TEXT is a `text` child of
+  // the inline token, so it is prose and an import; a link's URL is the
+  // `link_open` token's `href` attribute, not text, so it is not.
+  it("`@a.md` as a link's text is an import; as its URL it is not", () => {
+    const names = (text: string) =>
+      chain({ "CLAUDE.md": text }).imports.map((i) => i.token);
+    expect(names("See [@a.md](https://x.test/a).")).toEqual(["@a.md"]);
+    expect(names("See [the guide](@a.md).")).toEqual([]);
+  });
+
+  // markdown-it drops the line break inside a code span and inside an inline
+  // HTML comment, so counting breaks put every later import one line too high.
+  it("a code span that crosses a line break does not shift the next import's line", () => {
+    const text = "Run `npm\ntest` first,\nthen @a.md\n";
+    expect(
+      chain({ "CLAUDE.md": text }).imports.map((i) => [i.path, i.line]),
+    ).toEqual([["a.md", 3]]);
+  });
+
+  it("an inline HTML comment that crosses a line break does not shift it either", () => {
+    const text = "text <!-- multi\nline --> then @x.md\n";
+    expect(
+      chain({ "CLAUDE.md": text }).imports.map((i) => [i.path, i.line]),
+    ).toEqual([["x.md", 2]]);
+  });
+
+  // `.md` ends a path only at the end of the word or before closing
+  // punctuation. `#` is kept as an end too: how Claude Code treats a fragment
+  // is not measured, so this keeps what the reader did before.
+  it("`.md` followed by more of a name or by `/` is not the end of a path", () => {
+    const names = (text: string) =>
+      chain({ "CLAUDE.md": text }).imports.map((i) => i.path);
+    expect(names("@docs/README.md.bak")).toEqual([]);
+    expect(names("@docs/dir.md/")).toEqual([]);
+    expect(names("@docs/dir.md/inner.md")).toEqual(["docs/dir.md/inner.md"]);
+    expect(names("See @docs/real.md#anchor.")).toEqual(["docs/real.md"]);
+  });
+
+  it("trailing prose punctuation is not part of the path", () => {
+    expect(
+      chain({
+        "CLAUDE.md": "Read @a.md, then @b.md). Or @c.md; @d.md!",
+      }).imports.map((i) => i.path),
+    ).toEqual(["a.md", "b.md", "c.md", "d.md"]);
   });
 });

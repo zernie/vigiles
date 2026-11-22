@@ -24,6 +24,7 @@
  */
 import type { z } from "zod";
 import type { SkillResourceFinding } from "./skill-resources.js";
+import type { UnresolvedImport } from "./instruction-imports.js";
 
 /**
  * The decidability class of a defect — the single fact that sets its ceiling.
@@ -107,6 +108,8 @@ export interface ScanInput {
     /** Every bundled-resource reference in its body that is not beside it. */
     readonly resourceIssues: readonly SkillResourceFinding[];
   }[];
+  /** Every `@path` import a loaded instruction file names that does not resolve. */
+  readonly instructionImportIssues: readonly UnresolvedImport[];
 }
 
 /**
@@ -158,6 +161,24 @@ export interface RuleSpec {
    * is shown and never scored is declared (see `./apply-rules.ts`).
    */
   readonly legacy?: { readonly scanField: string };
+  /**
+   * For a rule MODULE in a GRADED group: how to narrow the scan fields the
+   * scorers count its findings from (until vigiles#390 moves them onto rule
+   * results) to what the rule fires on. `applyRules` calls it with the config's
+   * per-path answer (`firesAt`: false everywhere when the rule is off, false
+   * under an override that turns it off for a folder), so neither an off rule
+   * nor an overridden path moves the grade. It may narrow by more than the
+   * path (an import written in one machine's file is never scored); what it
+   * drops for that reason still prints, because `findings` reads the scan
+   * before the narrow. `src/rules/index.test.ts` requires it of every graded
+   * module.
+   */
+  readonly scored?: {
+    readonly narrow: (
+      scan: ScanInput,
+      firesAt: (path: string) => boolean,
+    ) => Readonly<Partial<ScanInput>>;
+  };
 }
 
 /**

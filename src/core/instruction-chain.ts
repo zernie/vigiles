@@ -205,6 +205,26 @@ export interface NamedImport {
   readonly token: string;
   /** The loaded file that names it. */
   readonly from: string;
+  /**
+   * The SCOPE of `from`, as this chain assigns it — a loaded file's own
+   * `scope`, or the settings source's for an import named in a manifest.
+   *
+   * 🔴 A FIELD SO NOTHING DOWNSTREAM RE-DERIVES IT FROM THE NAME. An import
+   * that does not resolve is a finding, and `"local"` is linted, never scored
+   * (see {@link InstructionScope}): a broken import in `CLAUDE.local.md` cost
+   * the published grade 8 points, which a teammate's checkout of the same
+   * commit did not lose. The chain already knows which files are one
+   * machine's — including a committed file pulled in ONLY by a local one,
+   * which inherits `"local"` — so the import carries that answer, and an
+   * adapter property holds it equal to `from`'s entry in `loaded`.
+   */
+  readonly fromScope: InstructionScope;
+  /**
+   * The 1-based line of `from` the token is written on — its first occurrence.
+   * A property of every adapter (`adapter-properties.test.ts`): that line of
+   * `from` contains `token`.
+   */
+  readonly line: number;
 }
 
 /** A glob or URL a loaded file names, and the file that names it. */
@@ -487,6 +507,60 @@ export function resolveImportPath(from: string, token: string): string {
 }
 
 /**
+ * The two answers a scan needs about one map: what THIS working copy loads,
+ * and what a teammate's checkout of the same commit loads.
+ */
+export interface InstructionViews {
+  /** This working copy's chain — what `lint` and the findings list print. */
+  readonly effective: InstructionChain;
+  /**
+   * The chain over the map WITHOUT what `effective` says is one machine's — a
+   * per-machine root file (`CLAUDE.local.md`) and a per-machine settings file.
+   * What a teammate and CI load, so the ONE view the grade reads: the
+   * committed weight and the scored import findings both come from it.
+   */
+  readonly committed: InstructionChain;
+}
+
+/**
+ * 🔴 THE COMMITTED VIEW IS A SECOND QUESTION TO THE HARNESS, NOT A FILTER OVER
+ * THE FIRST, because a per-machine file can SUBTRACT. A `CLAUDE.local.md` stops
+ * Claude Code reading `AGENTS.md`; a `claudeMdExcludes` in the gitignored
+ * settings sibling drops a committed rule. The effective chain then never reads
+ * that file, so it never names the file's imports either — no filter over it
+ * can recover them (measured: an `AGENTS.md` holding `@missing.md` lost its
+ * 8-point deduction the moment a `CLAUDE.local.md` appeared). Asking the same
+ * harness about the map without those files gives what a clean checkout loads,
+ * imports included, by the harness's own rules.
+ *
+ * What is removed is read off `effective`'s own classification — a `local`
+ * entry that is not an import, and the layout's `local` settings sources —
+ * never guessed from a name. An import is kept even when `local`: it is a
+ * file a token names, and whether a clean checkout loads it is the committed
+ * chain's answer (a per-machine NAME stays `local` there too).
+ */
+export function instructionViews(
+  layout: PluginLayout,
+  files: Readonly<Record<string, string>>,
+): InstructionViews {
+  const effective = layout.instructionChain(files);
+  const perMachine = new Set([
+    ...[...effective.loaded, ...effective.unloaded]
+      .filter((e) => e.scope === "local" && e.role !== "import")
+      .map((e) => e.path),
+    ...settingsSources(layout)
+      .filter((src) => src.scope === "local")
+      .map((src) => src.path),
+  ]);
+  const present = Object.keys(files).filter((p) => perMachine.has(p));
+  if (present.length === 0) return { effective, committed: effective };
+  const committedFiles = Object.fromEntries(
+    Object.entries(files).filter(([p]) => !perMachine.has(p)),
+  );
+  return { effective, committed: layout.instructionChain(committedFiles) };
+}
+
+/**
  * Read the `@import` paths the loaded files NAME — ONE LEVEL, no recursion.
  * Returns a NEW map: the candidates handed in, plus whatever they named.
  *
@@ -562,7 +636,11 @@ export function resolveImports(
   read: (path: string) => string | undefined,
 ): Record<string, string> {
   const out: Record<string, string> = { ...files };
-  for (const { path } of layout.instructionChain(files).imports) {
+  // BOTH views' imports: a committed file this copy does not load (a local
+  // superseder or exclusion hides it) still loads for a teammate, and its
+  // imports are what the committed weight and the scored findings read.
+  const { effective, committed } = instructionViews(layout, files);
+  for (const { path } of [...effective.imports, ...committed.imports]) {
     if (out[path] !== undefined || !isRepoRootedImport(path)) continue;
     const text = read(path);
     if (text !== undefined) out[path] = text;

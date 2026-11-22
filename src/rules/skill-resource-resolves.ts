@@ -25,7 +25,7 @@ import { repoRootOnlyAdvice } from "../core/skill-resources.js";
 function findings(scan: ScanInput): readonly Finding[] {
   return scan.skills.flatMap((skill) =>
     skill.resourceIssues.map((f): Finding => {
-      const at = `bundled resource "${f.ref}" (line ${String(f.line)})`;
+      const at = `bundled resource "${f.ref}"`;
       const base = { path: skill.path, line: f.line, subject: skill.name };
       return f.resolution === "missing"
         ? {

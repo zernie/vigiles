@@ -292,6 +292,8 @@ never cries wolf:
 - `hook-events` (a typo'd event that never fires), `hook-script-exists` (a file
   a compiled hook needs is gone),
 - `mcp-config` / `mcp-tool-resolves` / `mcp-hook-target-resolves` (broken MCP),
+- `instruction-import-resolves` (an `@path` import naming a file that is not
+  there, reported at its line),
 - `disallowed-tools-contract`, and `description-overlap` (two skills that
   collide in the selector),
 - `require-instructions-spec` (a spec behind every `CLAUDE.md` / `AGENTS.md`,
@@ -737,8 +739,8 @@ the grade or the verdict:
 Experimental — not graded:
   Checks vigiles ships but has not measured as reliable enough to grade you on. They never move the score.
   skill-resource-resolves (2):
-    ℹ release-check: bundled resource "scripts/check-changelog.sh" (line 8) resolves only from the repo root, not from the skill directory — …
-    ✗ release-check: bundled resource "references/release-policy.md" (line 10) is referenced but missing — the agent reads the instruction and gets nothing.
+    ℹ .claude/skills/release-check/SKILL.md:8: release-check: bundled resource "scripts/check-changelog.sh" resolves only from the repo root, not from the skill directory — …
+    ✗ .claude/skills/release-check/SKILL.md:10: release-check: bundled resource "references/release-policy.md" is referenced but missing — the agent reads the instruction and gets nothing.
 ```
 
 `init --strict` is a different switch: it writes the reliable `workflow`

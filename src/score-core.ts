@@ -20,6 +20,7 @@
  * See src/scan-files.ts (BROWSER_ROOT) and research/report-view-and-browser-demo.md.
  */
 import type { ScanReport } from "./scan.js";
+import { isScoredImport } from "./core/instruction-imports.js";
 
 export interface PluginScore {
   readonly dir: string;
@@ -61,6 +62,26 @@ export const W_TRIFECTA_MAX = 30;
  */
 export const TRIFECTA_LABEL =
   'unit(s) can read data, reach the web, and run commands — the "lethal trifecta", so a prompt injection could exfiltrate secrets';
+
+/**
+ * The unresolved-instruction-import deduction — ONE row, which the overall and
+ * the Truthfulness ring both spread, so their weight and label cannot drift.
+ *
+ * 🔴 IT COUNTS THE COMMITTED VIEW ITSELF (`isScoredImport`), and that is the
+ * boundary, not a convenience. A scan reaches scoring by more than one road —
+ * a single-target audit goes through `applyRules`, which already narrows the
+ * field, but a leaderboard ranks a raw `scanPlugin` result — and an import seen
+ * only in this machine's view (`CLAUDE.local.md`) must not cost points on any
+ * of them. Filtering here makes that true for every caller, present or future.
+ */
+export function importDeduction(r: ScanReport): Deduction {
+  return {
+    n: r.instructionImportIssues.filter(isScoredImport).length,
+    weight: W_DANGLING_REF,
+    label:
+      "instruction import(s) naming a file that is not there (missing, or wrong letter case)",
+  };
+}
 
 // Two things are advisory, NOT graded penalties (shown, never scored — see scoreReport):
 //   - untested surfaces — a hardening gap, not breakage.
@@ -244,7 +265,6 @@ export function trifectaExposure(r: ScanReport): TrifectaExposure {
  */
 export function reportDeductions(r: ScanReport): Deduction[] {
   const missingHooks = r.hooks.filter((h) => h.status === "missing").length;
-  const noDesc = r.skills.filter((s) => !s.hasDescription).length;
   const deadTools = r.agents.reduce((n, a) => n + a.toolIssues.length, 0);
   const deadMcpTools = r.agents.reduce((n, a) => n + a.mcpToolIssues.length, 0);
   const deadDisallowed = r.agents.reduce(
@@ -275,8 +295,9 @@ export function reportDeductions(r: ScanReport): Deduction[] {
       weight: W_MISSING_HOOK,
       label: "hook(s) on an unknown event (never fire)",
     },
+    importDeduction(r),
     {
-      n: noDesc,
+      n: r.skills.filter((s) => !s.hasDescription).length,
       weight: W_NO_DESCRIPTION,
       label: "skill(s) with no usable description",
     },

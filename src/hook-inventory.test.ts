@@ -94,7 +94,7 @@ function onDisk<T>(files: Files, body: (dir: string) => T): T {
   }
 }
 
-const allOn = { mayFire: () => true };
+const allOn = { mayFire: () => true, firesAt: () => true };
 
 describe.each(
   ADAPTERS.map((a) => ({ name: a.name, layout: a.layout, dialect: a.dialect })),
