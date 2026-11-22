@@ -235,19 +235,48 @@ export interface TrifectaExposure {
   readonly inherited: number;
   /** Model-invocable units that could hold them (subagents + non-user-invoked skills). */
   readonly assessable: number;
-  /** `min(W_TRIFECTA × exposed, W_TRIFECTA_MAX × exposed/assessable)`. */
+  /** The units' row: `min(W_TRIFECTA × exposed, W_TRIFECTA_MAX × exposed/assessable)`, rounded, within `penalty`. */
   readonly unitPenalty: number;
-  /** `min(W_TRIFECTA, W_TRIFECTA_MAX × inherited/assessable)`, cut so the total stays ≤ `W_TRIFECTA_MAX`. */
+  /** The session's row: `penalty − unitPenalty` (its share is `min(W_TRIFECTA, W_TRIFECTA_MAX × inherited/assessable)`). */
   readonly sessionPenalty: number;
-  /** The graded total, `unitPenalty + sessionPenalty` (never above `W_TRIFECTA_MAX`). */
+  /** The graded total: both shares summed, capped at `W_TRIFECTA_MAX`, rounded once. See {@link trifectaPenalty}. */
   readonly penalty: number;
 }
 
-/** `W_TRIFECTA_MAX × n/assessable`, never rounded away to a free 0. */
-function shareOf(n: number, assessable: number): number {
-  return n === 0
-    ? 0
-    : Math.max(1, Math.round((W_TRIFECTA_MAX * n) / assessable));
+/**
+ * The penalty for `exposed` units that add a leg and `inherited` units that only
+ * hold the session's, out of `assessable`. Rounded ONCE, on the total: rounding the
+ * two shares separately let moving one unit from `exposed` to `inherited` (dropping
+ * a pre-approval, or adding a fence that closes nothing) ADD a point at a rounding
+ * boundary — 12 assessable, 2 + 2 → 5 + 5 = 10, but 1 + 3 → 3 + 8 = 11. Unrounded,
+ * such a move lowers the unit share by `min(W_TRIFECTA, W_TRIFECTA_MAX/assessable)`
+ * and raises the capped session share by at most that much, so the total never
+ * rises; one rounding and one floor of 1 keep that. The two rows split the total.
+ */
+export function trifectaPenalty(
+  exposed: number,
+  inherited: number,
+  assessable: number,
+): Pick<TrifectaExposure, "unitPenalty" | "sessionPenalty" | "penalty"> {
+  if (exposed + inherited === 0 || assessable === 0) {
+    return { unitPenalty: 0, sessionPenalty: 0, penalty: 0 };
+  }
+  const unitRaw = Math.min(
+    W_TRIFECTA * exposed,
+    (W_TRIFECTA_MAX * exposed) / assessable,
+  );
+  const sessionRaw =
+    inherited === 0
+      ? 0
+      : Math.min(W_TRIFECTA, (W_TRIFECTA_MAX * inherited) / assessable);
+  // never rounded away to a free 0: a report with a finding is charged at least 1
+  const penalty = Math.max(
+    1,
+    Math.round(Math.min(W_TRIFECTA_MAX, unitRaw + sessionRaw)),
+  );
+  const unitPenalty =
+    inherited === 0 ? penalty : Math.min(penalty, Math.round(unitRaw));
+  return { unitPenalty, sessionPenalty: penalty - unitPenalty, penalty };
 }
 
 /**
@@ -303,32 +332,11 @@ export function trifectaExposure(r: ScanReport): TrifectaExposure {
     r.agents.length + r.skills.filter((s) => !s.userInvoked).length,
     all,
   );
-  if (all === 0 || assessable === 0) {
-    return {
-      exposed,
-      inherited,
-      assessable,
-      unitPenalty: 0,
-      sessionPenalty: 0,
-      penalty: 0,
-    };
-  }
-  const unitPenalty = Math.min(
-    W_TRIFECTA * exposed,
-    shareOf(exposed, assessable),
-  );
-  const sessionPenalty = Math.min(
-    W_TRIFECTA,
-    shareOf(inherited, assessable),
-    W_TRIFECTA_MAX - unitPenalty,
-  );
   return {
     exposed,
     inherited,
     assessable,
-    unitPenalty,
-    sessionPenalty,
-    penalty: unitPenalty + sessionPenalty,
+    ...trifectaPenalty(exposed, inherited, assessable),
   };
 }
 

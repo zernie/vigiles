@@ -289,7 +289,9 @@ threads that needle with a **capped exposure** penalty:
   (`W_TRIFECTA`, 10), because one cause costs what one exposed unit costs; the
   share term keeps a small inheriting minority from costing more than it would
   per unit. A repo whose 400 skills all inherit loses 10, not 30.
-- The **Safety** ring scores `100 −` the sum of the two, never more than `−30`. It
+- The **Safety** ring scores `100 −` the sum of the two, never more than `−30`.
+  The sum is rounded once, not each part, so moving a unit from "adds a leg" to
+  "inherits" (dropping a pre-approval) never costs a point. It
   is `n/a` only when there's no tool-bearing surface to assess (never a false 0),
   and a clean 100 when surfaces exist but no trifecta.
 - An **inherits-all** unit is never free: it is in the one session charge.

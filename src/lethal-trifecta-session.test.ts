@@ -13,7 +13,8 @@
  *     not even a grouped line, for the inheriting units;
  *   - `audit` states the session cause once; Safety charges it once, a broken
  *     fence with it, so a half-done fence never scores worse than none;
- *   - a harness with no skill fence and no subagents reports none of it.
+ *   - a harness with no skill fence and no subagents reports none of it;
+ *   - moving a unit from "adds a leg" to "inherits" never raises the penalty.
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
@@ -32,7 +33,12 @@ import { skillsHome } from "./core/layout.js";
 import { scanPlugin, formatScanReport, type ScanReport } from "./scan.js";
 import { scanFiles } from "./scan-files.js";
 import { auditScore } from "./audit-score.js";
-import { W_TRIFECTA, W_TRIFECTA_MAX, trifectaExposure } from "./score-core.js";
+import {
+  W_TRIFECTA,
+  W_TRIFECTA_MAX,
+  trifectaExposure,
+  trifectaPenalty,
+} from "./score-core.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 import { ADAPTERS, defaultAdapter } from "./adapter-registry.js";
 import { applyRules } from "./core/apply-rules.js";
@@ -243,4 +249,26 @@ test("lint reports each fence/unit finding at its file, and nothing for the inhe
   assert.ok(!out.includes("inherit the session"), out);
   assert.ok(!out.includes("skill(s) declare no"), out);
   cleanupTmpDir(dir);
+});
+
+test("moving a unit from adds-a-leg to inherits never raises the trifecta penalty (#392)", () => {
+  // The mixed case a reviewer found: 12 assessable units, dropping one
+  // pre-approval took 2 + 2 to 1 + 3, and two separately rounded shares went 10 → 11.
+  assert.ok(
+    trifectaPenalty(1, 3, 12).penalty <= trifectaPenalty(2, 2, 12).penalty,
+  );
+  for (let assessable = 1; assessable <= 60; assessable++)
+    for (let exposed = 1; exposed <= assessable; exposed++)
+      for (let inherited = 0; exposed + inherited <= assessable; inherited++) {
+        const before = trifectaPenalty(exposed, inherited, assessable);
+        const after = trifectaPenalty(exposed - 1, inherited + 1, assessable);
+        const at = `${String(exposed)}+${String(inherited)}/${String(assessable)}`;
+        assert.ok(after.penalty <= before.penalty, at);
+        assert.ok(before.penalty >= 1 && before.penalty <= W_TRIFECTA_MAX, at);
+        assert.equal(
+          before.unitPenalty + before.sessionPenalty,
+          before.penalty,
+          at,
+        );
+      }
 });
