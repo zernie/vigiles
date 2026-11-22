@@ -18,6 +18,7 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
+import { range } from "remeda";
 import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
@@ -251,24 +252,38 @@ test("lint reports each fence/unit finding at its file, and nothing for the inhe
   cleanupTmpDir(dir);
 });
 
+/** Every (exposed ≥ 1, inherited, assessable ≤ 60) split a report can have. */
+const SPLITS = range(1, 61).flatMap((assessable) =>
+  range(1, assessable + 1).flatMap((exposed) =>
+    range(0, assessable - exposed + 1).map(
+      (inherited) => [exposed, inherited, assessable] as const,
+    ),
+  ),
+);
+
+/** Move one unit from "adds a leg" to "inherits": never dearer, rows add up. */
+function checkMove(
+  exposed: number,
+  inherited: number,
+  assessable: number,
+): void {
+  const before = trifectaPenalty(exposed, inherited, assessable);
+  const after = trifectaPenalty(exposed - 1, inherited + 1, assessable);
+  const at = `${String(exposed)}+${String(inherited)}/${String(assessable)}`;
+  assert.ok(after.penalty <= before.penalty, at);
+  assert.ok(before.penalty >= 1 && before.penalty <= W_TRIFECTA_MAX, at);
+  assert.equal(before.unitPenalty + before.sessionPenalty, before.penalty, at);
+  // each row charges only its own kind of unit
+  if (inherited === 0) assert.equal(before.sessionPenalty, 0, at);
+  if (exposed === 1) assert.equal(after.unitPenalty, 0, at);
+}
+
 test("moving a unit from adds-a-leg to inherits never raises the trifecta penalty (#392)", () => {
   // The mixed case a reviewer found: 12 assessable units, dropping one
   // pre-approval took 2 + 2 to 1 + 3, and two separately rounded shares went 10 → 11.
   assert.ok(
     trifectaPenalty(1, 3, 12).penalty <= trifectaPenalty(2, 2, 12).penalty,
   );
-  for (let assessable = 1; assessable <= 60; assessable++)
-    for (let exposed = 1; exposed <= assessable; exposed++)
-      for (let inherited = 0; exposed + inherited <= assessable; inherited++) {
-        const before = trifectaPenalty(exposed, inherited, assessable);
-        const after = trifectaPenalty(exposed - 1, inherited + 1, assessable);
-        const at = `${String(exposed)}+${String(inherited)}/${String(assessable)}`;
-        assert.ok(after.penalty <= before.penalty, at);
-        assert.ok(before.penalty >= 1 && before.penalty <= W_TRIFECTA_MAX, at);
-        assert.equal(
-          before.unitPenalty + before.sessionPenalty,
-          before.penalty,
-          at,
-        );
-      }
+  for (const [exposed, inherited, assessable] of SPLITS)
+    checkMove(exposed, inherited, assessable);
 });

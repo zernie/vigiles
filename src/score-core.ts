@@ -244,38 +244,33 @@ export interface TrifectaExposure {
 }
 
 /**
- * The penalty for `exposed` units that add a leg and `inherited` units that only
- * hold the session's, out of `assessable`. Rounded ONCE, on the total: rounding the
- * two shares separately let moving one unit from `exposed` to `inherited` (dropping
- * a pre-approval, or adding a fence that closes nothing) ADD a point at a rounding
- * boundary — 12 assessable, 2 + 2 → 5 + 5 = 10, but 1 + 3 → 3 + 8 = 11. Unrounded,
- * such a move lowers the unit share by `min(W_TRIFECTA, W_TRIFECTA_MAX/assessable)`
- * and raises the capped session share by at most that much, so the total never
- * rises; one rounding and one floor of 1 keep that. The two rows split the total.
+ * The trifecta penalty, rounded once on the total.
+ *
+ * `exposed` units add a leg in their own file and are charged per unit;
+ * `inherited` units hold only the session's legs and are charged once, at most
+ * `W_TRIFECTA`. Each share is capped against `assessable`. The shares are summed
+ * BEFORE rounding: rounding each one let a safer move cost a point (12 units:
+ * 2 + 2 → 10, but 1 + 3 → 11).
  */
 export function trifectaPenalty(
   exposed: number,
   inherited: number,
   assessable: number,
 ): Pick<TrifectaExposure, "unitPenalty" | "sessionPenalty" | "penalty"> {
-  if (exposed + inherited === 0 || assessable === 0) {
-    return { unitPenalty: 0, sessionPenalty: 0, penalty: 0 };
-  }
-  const unitRaw = Math.min(
-    W_TRIFECTA * exposed,
-    (W_TRIFECTA_MAX * exposed) / assessable,
-  );
-  const sessionRaw =
-    inherited === 0
-      ? 0
-      : Math.min(W_TRIFECTA, (W_TRIFECTA_MAX * inherited) / assessable);
-  // never rounded away to a free 0: a report with a finding is charged at least 1
+  const findings = exposed + inherited;
+  if (findings === 0) return { unitPenalty: 0, sessionPenalty: 0, penalty: 0 };
+  const share = (n: number): number =>
+    (W_TRIFECTA_MAX * n) / Math.max(assessable, findings);
+  const unitShare = Math.min(W_TRIFECTA * exposed, share(exposed));
+  const sessionShare = Math.min(W_TRIFECTA, share(inherited));
+  // a report with a finding is never charged a free 0
   const penalty = Math.max(
     1,
-    Math.round(Math.min(W_TRIFECTA_MAX, unitRaw + sessionRaw)),
+    Math.round(Math.min(W_TRIFECTA_MAX, unitShare + sessionShare)),
   );
+  // the two rows split the total; with no inherited units it is all the units'
   const unitPenalty =
-    inherited === 0 ? penalty : Math.min(penalty, Math.round(unitRaw));
+    inherited === 0 ? penalty : Math.min(penalty, Math.round(unitShare));
   return { unitPenalty, sessionPenalty: penalty - unitPenalty, penalty };
 }
 
