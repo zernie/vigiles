@@ -685,7 +685,11 @@ function isCacheable(v: TerminalView): boolean {
 function settleOutcome(outcome: FetchOutcome, slug: string): TerminalView {
   switch (outcome.kind) {
     case "ok":
-      return { k: "report", slug, audit: runAudit(outcome.files, slug) };
+      return {
+        k: "report",
+        slug,
+        audit: runAudit(outcome.files, slug, outcome.tree),
+      };
     case "no-harness":
       return { k: "empty", slug };
     case "marketplace":

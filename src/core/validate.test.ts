@@ -618,9 +618,14 @@ const SHIPPED_RULE_DEFAULTS = {
   "lethal-trifecta": "warn",
   // Off: the experimental group (measured precision below the bar).
   "skill-resource-resolves": false,
-  // An `@import` naming a missing file: graded; a link or mention: experimental.
-  "reference-resolves": "warn",
-  "instruction-ref-resolves": false,
+  // The reference graph's two rules: an `@import` naming a missing file
+  // (graded, warn) and a link or mention (experimental, off).
+  ...Object.fromEntries(
+    RULES.filter((r) => r.detector === "referenceGraph").map((r) => [
+      r.id,
+      r.defaultSeverity === "off" ? false : r.defaultSeverity,
+    ]),
+  ),
   "skill-missing-fence": "warn",
   "plugin-dir-layout": "warn",
   "delegation-trifecta": "warn",

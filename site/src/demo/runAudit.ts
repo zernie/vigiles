@@ -6,6 +6,7 @@
  * the real artifact, computed client-side (`node:zlib` → pako is the one swap).
  */
 import { scanFiles } from "@engine/scan-files";
+import { repoTreeOf } from "@engine/core/repo-tree";
 import { buildAuditReport } from "@engine/audit-report";
 import { applyRules } from "@engine/core/apply-rules";
 import { defaultSeverities } from "@engine/core/rule";
@@ -22,11 +23,23 @@ const VIGILES_VERSION = "live";
  * `owner/repo` slug so the report header reads as THEIR repo (the engine roots at
  * a synthetic `BROWSER_ROOT`, which would otherwise show as the dir name).
  */
-export function runAudit(files: RepoFiles, slug: string): AuditReport {
+export function runAudit(
+  files: RepoFiles,
+  slug: string,
+  tree?: { paths: readonly string[]; submodules: readonly string[] },
+): AuditReport {
   // Pass the repo name so a nameless root SKILL.md is labeled after the repo (as
   // the CLI does from the dir basename), not the synthetic BROWSER_ROOT.
   const repoName = slug.split("/")[1];
-  const report = scanFiles(files, undefined, undefined, repoName);
+  // References resolve against the whole tree, not the few fetched files —
+  // or every unfetched import would read as missing.
+  const report = scanFiles(
+    files,
+    undefined,
+    undefined,
+    repoName,
+    tree === undefined ? undefined : repoTreeOf(tree.paths, tree.submodules),
+  );
   // A composition root, like the CLI: it hands the shipped rule set to the
   // engine. The browser has no `.vigilesrc.json`, so every rule sits at its
   // shipped default.

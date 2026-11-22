@@ -37,8 +37,6 @@ import { applyRules } from "./core/apply-rules.js";
 import { defaultSeverities, type ScanInput } from "./core/rule.js";
 import { ruleResolver } from "./overrides.js";
 import { RULES, RULE_GROUPS } from "./rules/index.js";
-import { instructionRefResolves } from "./rules/instruction-ref-resolves.js";
-import { referenceResolves } from "./rules/reference-resolves.js";
 import { BROKEN_IMPORTS_LABEL } from "./score-core.js";
 
 /** A scan as `audit` shows it under the shipped defaults (`applyRules`). */
@@ -107,6 +105,7 @@ describe("scanFiles parity with scanPlugin (buildAuditReport byte-identical)", (
       const diskReport = diskScan(abs);
       const map = readDirToMap(abs);
       const fileReport = scanFiles(map);
+      expect(fileReport.references).toEqual(diskReport.references);
 
       // The mandated gate: the SAME AuditReport (modulo the checkout path).
       const diskAudit = normalizeRoot(
@@ -648,6 +647,13 @@ describe("scanFiles parity for INSTRUCTION files (the shape no vendored fixture 
   });
 });
 
+/** The reference graph's rule of a group that is (or is not) graded. */
+const referenceRule = (graded: boolean) =>
+  RULES.find(
+    (r) =>
+      r.detector === "referenceGraph" && RULE_GROUPS[r.group].graded === graded,
+  )?.id ?? "";
+
 /**
  * REFERENCES — both engines resolve them against a path LIST (the disk's from
  * `git ls-files` or a walk, the browser's from its tree), so a fixture with an
@@ -656,55 +662,51 @@ describe("scanFiles parity for INSTRUCTION files (the shape no vendored fixture 
  */
 describe("scanFiles parity for REFERENCES (#442: every one at its file and line)", () => {
   const files = {
-    ".claude-plugin/plugin.json":
-      '{"name":"ref-repo","version":"0.1.0","description":"x"}',
     "CLAUDE.md": [
       "# Repo",
       "@docs/gone.md",
       "See [the agents file](agents.md) and `src/missing.ts`.",
-      "Edit `src/app.ts`.",
+      "Edit `src/app.ts`, then `docs/style/`.",
     ].join("\n"),
     "AGENTS.md": "cross-tool",
     "src/app.ts": "x",
-    "agents/review.md":
-      "---\nname: review\ndescription: Reviews.\n---\nRead `docs/style/` first.",
     "docs/styles/a.md": "y",
   } as const;
   const on = ruleResolver({
     ...defaultSeverities(RULES),
-    [instructionRefResolves.id]: "warn",
+    [referenceRule(false)]: "warn",
   });
-
-  it("gives the same references and brokenReferences on disk and in the browser", () => {
+  const scans = (): readonly [ScanReport, ScanReport] => {
     const abs = join(makeTmpDir("parity-refs"), "ref-repo");
     for (const [rel, body] of Object.entries(files)) {
       mkdirSync(dirname(join(abs, rel)), { recursive: true });
       writeFileSync(join(abs, rel), body);
     }
-    const disk = diskScan(abs);
-    const browser = scanFiles(
-      readDirToMap(abs),
-      undefined,
-      undefined,
-      "ref-repo",
-    );
+    return [diskScan(abs), scanFiles(readDirToMap(abs))];
+  };
+  const audit = (s: ScanReport, resolver = on) =>
+    buildAuditReport(applyRules(RULES, RULE_GROUPS, resolver, s), OPTS);
+  const at = { from: "CLAUDE.md" } as const;
+
+  it("gives the same references and brokenReferences on disk and in the browser", () => {
+    const [disk, browser] = scans();
     expect(disk.references).toEqual(browser.references);
-    const report = (s: ScanReport) =>
-      buildAuditReport(applyRules(RULES, RULE_GROUPS, on, s), OPTS)
-        .brokenReferences;
-    expect(report(disk)).toEqual(report(browser));
-    expect(report(disk)).toEqual([
+    expect(audit(disk).brokenReferences).toEqual(
+      audit(browser).brokenReferences,
+    );
+    const [graded, experimental] = [referenceRule(true), referenceRule(false)];
+    expect(audit(disk).brokenReferences).toEqual([
       {
-        rule: referenceResolves.id,
-        from: "CLAUDE.md",
+        ...at,
+        rule: graded,
         line: 2,
         kind: "import",
         target: "@docs/gone.md",
         resolution: "missing",
       },
       {
-        rule: instructionRefResolves.id,
-        from: "CLAUDE.md",
+        ...at,
+        rule: experimental,
         line: 3,
         kind: "link",
         target: "agents.md",
@@ -712,17 +714,17 @@ describe("scanFiles parity for REFERENCES (#442: every one at its file and line)
         actual: "AGENTS.md",
       },
       {
-        rule: instructionRefResolves.id,
-        from: "CLAUDE.md",
+        ...at,
+        rule: experimental,
         line: 3,
         kind: "mention",
         target: "src/missing.ts",
         resolution: "missing",
       },
       {
-        rule: instructionRefResolves.id,
-        from: "agents/review.md",
-        line: 5,
+        ...at,
+        rule: experimental,
+        line: 4,
         kind: "mention",
         target: "docs/style/",
         resolution: "missing",
@@ -732,20 +734,15 @@ describe("scanFiles parity for REFERENCES (#442: every one at its file and line)
   });
 
   it("a broken import costs the Truthfulness ring, an experimental finding does not", () => {
-    const abs = join(makeTmpDir("parity-refs-score"), "ref-repo");
-    for (const [rel, body] of Object.entries(files)) {
-      mkdirSync(dirname(join(abs, rel)), { recursive: true });
-      writeFileSync(join(abs, rel), body);
-    }
-    const ring = (s: ScanReport, resolver = on) =>
-      buildAuditReport(
-        applyRules(RULES, RULE_GROUPS, resolver, s),
-        OPTS,
-      ).score.categories.find((c) => c.key === "Truthfulness");
-    const scan = diskScan(abs);
-    expect(ring(scan)?.findings).toEqual([`1 ${BROKEN_IMPORTS_LABEL}`]);
-    expect(ring(scan)).toEqual(
-      ring(scan, ruleResolver(defaultSeverities(RULES))),
-    );
+    const [disk] = scans();
+    const ring = (resolver = on) =>
+      audit(disk, resolver).score.categories.find(
+        (c) => c.key === "Truthfulness",
+      );
+    // `scoreFrom` writes the count and singularises the label's `(s)`.
+    expect(ring()?.findings).toEqual([
+      `1 ${BROKEN_IMPORTS_LABEL.replace("(s)", "")}`,
+    ]);
+    expect(ring()).toEqual(ring(ruleResolver(defaultSeverities(RULES))));
   });
 });

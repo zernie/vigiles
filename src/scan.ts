@@ -116,6 +116,7 @@ import {
   scanAgents,
   scanSkills,
   scanReferences,
+  type SurfaceClassifier,
   skillRefSources,
   scanHookScripts,
   type HookInventory,
@@ -772,6 +773,39 @@ function scanInstructions(
   };
 }
 
+/** The disk reads the hook scan does: one value for every scan. */
+const NODE_HOOK_DISK = {
+  exists: existsSync,
+  read: nodeReadFile,
+  list: (p: string) => readdirSync(p),
+};
+
+/** The scan's references on disk; none without a path list (`opts.tree`). */
+function diskReferences(
+  tree: RepoTree | undefined,
+  layout: PluginLayout,
+  at: {
+    readonly dir: string;
+    readonly instructionFiles: Readonly<Record<string, string>>;
+    readonly loaded: {
+      readonly files: Record<string, string>;
+      readonly sources: Record<string, string>;
+    };
+    readonly cls: SurfaceClassifier;
+  },
+): readonly ResolvedReference[] {
+  if (tree === undefined) return [];
+  return scanReferences({
+    chain: layout.instructionChain(at.instructionFiles),
+    instructionFiles: at.instructionFiles,
+    files: at.loaded.files,
+    cls: at.cls,
+    root: resolve(at.dir),
+    sources: at.loaded.sources,
+    tree,
+  });
+}
+
 /** Scan a plugin/repo directory and report its surfaces + structural issues. */
 export function scanPlugin(
   dir: string,
@@ -866,18 +900,13 @@ export function scanPlugin(
   const hookRegs = normalizeHooks(loaded.settings.hooks);
   // As WRITTEN: a line is read by identity with what compile would write.
   const asWritten = normalizeHooks(loaded.hooksAsWritten);
-  const hookDisk = {
-    exists: existsSync,
-    read: nodeReadFile,
-    list: (p: string) => readdirSync(p),
-  };
-  const hookScan = diskHookScan(dir, lay, hookDisk);
+  const hookScan = diskHookScan(dir, lay, NODE_HOOK_DISK);
   // Every declared harness's hooks — not the loader's first-wins choice, which
   // is what a run executes and only that.
   const inventory = diskHookInventory(
     dir,
     declared.map((h) => h.layout),
-    hookDisk,
+    NODE_HOOK_DISK,
   );
   const { hooks, handWritten, stale } = scanHookScripts(inventory, hookScan);
   // Hook-event keys are a CLOSED platform set — an unrecognized one is a dead
@@ -909,6 +938,7 @@ export function scanPlugin(
     instructionHarness.layout,
   );
   const instructions = scanInstructions(dir, loaded.files, instructionFile);
+  const refAt = { dir, instructionFiles, loaded, cls };
   const mcpServers = collectMcpServers(resolve(dir), lay);
   const declaredServers = Object.keys(mcpServers);
   const agents = scanAgents(loaded.files, dialect, declaredServers, cls, {
@@ -984,18 +1014,7 @@ export function scanPlugin(
         sources: loaded.sources,
       }),
     ).map(formatSkillRefIssue),
-    references:
-      opts.tree === undefined
-        ? []
-        : scanReferences({
-            chain: instructionHarness.layout.instructionChain(instructionFiles),
-            instructionFiles,
-            files: loaded.files,
-            cls,
-            root: resolve(dir),
-            sources: loaded.sources,
-            tree: opts.tree,
-          }),
+    references: diskReferences(opts.tree, instructionHarness.layout, refAt),
     hookEventIssues,
     vocabularyNotes: collectVocabularyNotes(allHookEventIssues, agents),
     frontmatterIssues: remap(frontmatterIssuesFor(loaded.files, cls)),
@@ -1678,9 +1697,8 @@ function gradedReportLines(
       "Hook events",
       r.hookEventIssues.map((i) => `  ✗ ${i.message}`),
     ),
+    ...section("Broken references", brokenReferenceLines(results)),
   );
-
-  out.push(...section("Broken references", brokenReferenceLines(results)));
 
   // Advisory, never scored — a name vigiles cannot confirm, or a real one the
   // platform withholds only under a condition it cannot see. Printed with `·`

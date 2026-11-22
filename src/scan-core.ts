@@ -1469,6 +1469,15 @@ function groupAgentToolNotes(agent: ScanAgent): VocabularyNote[] {
   return out;
 }
 
+/** A loaded file's role as a reference source, when it is a body one. */
+function bodyRole(
+  cls: SurfaceClassifier,
+  key: string,
+): "agent" | "command" | undefined {
+  if (cls.isAgent(key)) return "agent";
+  return cls.isCommand(key) ? "command" : undefined;
+}
+
 /**
  * The scan's references — ONE route for both engines (disk and browser), so
  * the pair cannot disagree: the instruction chain's files (loaded or not) and
@@ -1486,18 +1495,14 @@ export function scanReferences(input: {
 }): readonly ResolvedReference[] {
   const { chain, instructionFiles, files, cls } = input;
   const instructions = [...chain.loaded, ...chain.unloaded].flatMap(
-    ({ path }): ReferenceSource[] => {
+    ({ path }): readonly ReferenceSource[] => {
       const text = instructionFiles[path];
       return text === undefined ? [] : [{ path, role: "instruction", text }];
     },
   );
   const bodies = Object.entries(files).flatMap(
-    ([key, text]): ReferenceSource[] => {
-      const role = cls.isAgent(key)
-        ? "agent"
-        : cls.isCommand(key)
-          ? "command"
-          : undefined;
+    ([key, text]): readonly ReferenceSource[] => {
+      const role = bodyRole(cls, key);
       if (role === undefined) return [];
       const path = reportedSurfacePath(key, input.sources?.[key], input.root);
       return [{ path, role, text }];

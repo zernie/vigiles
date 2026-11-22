@@ -36,6 +36,7 @@ import { knownFlagsFor } from "./cli-flag-check.js";
 import { adoptInstructionFileRemedy } from "./core/instruction-remedies.js";
 import { z } from "zod";
 import { RULES, RULE_GROUPS } from "./rules/index.js";
+import { referenceResolves } from "./rules/reference-resolves.js";
 import { AUDIT_SCHEMA_VERSION } from "./audit-report.js";
 
 /** The part of `audit --json` the adoption tests read — parsed, not cast. */
@@ -1773,5 +1774,44 @@ describe("audit → a rule that is off shows nothing", () => {
 
   it("…and not shown when the rule is off", () => {
     expect(withRule("off")).not.toMatch(/vigiles did not write/);
+  });
+});
+
+// #442 through the real binary: a broken reference is one line and one
+// annotation at its own file and line, in `lint` and in `audit`, and the
+// experimental half stays silent until the preset turns it on.
+describe("references at their file and line (#442)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "vig-442-"));
+  writeFileSync(
+    join(dir, "CLAUDE.md"),
+    "# Repo\n@docs/gone.md\nRead `docs/missing.md`.\n",
+  );
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const importLine =
+    "@docs/gone.md: missing — the harness loads nothing for this import.";
+
+  it("lint: one line and one annotation per broken import; mentions only under the preset", () => {
+    const r = run("lint", dir, { GITHUB_ACTIONS: "true" });
+    assert.equal(r.exitCode, 0, r.stdout);
+    assert.ok(r.stdout.includes(`⚠ CLAUDE.md:2: ${importLine}`), r.stdout);
+    assert.ok(
+      r.stdout.includes(`::warning file=CLAUDE.md,line=2::${importLine}`),
+      r.stdout,
+    );
+    assert.doesNotMatch(r.stdout, /docs\/missing\.md/);
+    const on = run("lint --preset=experimental", dir).stdout;
+    assert.ok(on.includes("⚠ CLAUDE.md:3: `docs/missing.md`: missing"), on);
+  });
+
+  it("audit: the broken import is listed before the verdict, with its place", () => {
+    const text = run("audit", dir).stdout;
+    assert.ok(
+      text.includes(
+        `Broken references (1):\n  ✗ CLAUDE.md:2 ${importLine}  [${referenceResolves.id}]`,
+      ),
+      text,
+    );
   });
 });

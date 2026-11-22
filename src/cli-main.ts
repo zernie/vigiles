@@ -2301,7 +2301,10 @@ interface BundleCheck {
 type BundleRun = Pick<
   BundleCheck,
   "config" | "rules" | "silent" | "adapter" | "excludes" | "frame"
->;
+> & {
+  /** Each bundle's path list (`git ls-files`), read once per run. */
+  readonly trees: ReadonlyMap<string, RepoTree>;
+};
 
 /** A finding at the severity its own path gets; `off` findings are dropped. */
 type Graded<F> = F & { readonly sev: "warn" | "error" };
@@ -2361,8 +2364,6 @@ function overBundles<T extends Record<string, number>>(
   const many = bundles.length > 1;
   const ctxFor = (abs: string, i: number): BundleCheck => {
     const bundle = run.frame.bundle(abs);
-    // One `git ls-files` per bundle, however many checks scan it.
-    let tree: RepoTree | undefined;
     const label = (text: string): string =>
       many && i > 0 ? `[${bundle.at}] ${text}` : text;
     return {
@@ -2381,7 +2382,7 @@ function overBundles<T extends Record<string, number>>(
         scanPlugin(bundle.abs, run.adapter.layout, run.adapter.dialect, {
           ...extra,
           excludes: run.excludes,
-          tree: (tree ??= diskRepoTree(bundle.abs)),
+          tree: run.trees.get(abs) ?? diskRepoTree(bundle.abs),
         }),
     };
   };
@@ -2707,7 +2708,16 @@ async function runLint(
     config?.rules ?? DEFAULT_CONFIG.rules,
     config?.overrides,
   );
-  const run: BundleRun = { config, rules, silent, adapter, excludes, frame };
+  const run: BundleRun = {
+    config,
+    rules,
+    silent,
+    adapter,
+    excludes,
+    frame,
+    // One `git ls-files` per bundle, however many checks scan it.
+    trees: new Map(lintRoots.map((b) => [b, diskRepoTree(b)])),
+  };
   if (!silent && nestedBundles.length > 0) {
     const rel = nestedBundles.map((b) => relative(scanRoot, b) || b);
     console.log(

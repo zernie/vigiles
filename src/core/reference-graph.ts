@@ -416,6 +416,12 @@ function resolve(idx: TreeIndex, edge: Edge): Resolution {
     : { status: "missing", didYouMean: edge.dir ? `${near}/` : near };
 }
 
+/** Code-point order, so two engines in two locales sort alike. */
+function compareCodePoints(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
 /**
  * Every reference of these sources and imports, resolved against `tree`, in
  * file-then-line order. `files` holds the text of each import's `from`, to
@@ -434,5 +440,5 @@ export function referenceGraph(input: {
   ];
   return edges
     .map((e) => ({ ...e, resolution: resolve(idx, e) }))
-    .sort((a, b) => a.from.localeCompare(b.from) || a.line - b.line);
+    .sort((a, b) => compareCodePoints(a.from, b.from) || a.line - b.line);
 }

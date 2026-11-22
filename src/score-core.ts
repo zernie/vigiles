@@ -42,6 +42,23 @@ export const W_DANGLING_REF = 8; // a referenced intra-plugin file that's missin
 /** The deduction line for an `@path` import naming a missing file — both scorers. */
 export const BROKEN_IMPORTS_LABEL =
   "instruction import(s) naming a missing file (loads nothing)";
+
+/**
+ * The deduction for `@path` imports naming a missing file — the
+ * `reference-resolves` rule's findings, counted by the same core predicate —
+ * shared by the headline and the Truthfulness ring so they cannot drift.
+ */
+export function brokenImportDeduction(r: Pick<ScanReport, "references">): {
+  readonly n: number;
+  readonly weight: number;
+  readonly label: string;
+} {
+  return {
+    n: brokenImports(r.references).length,
+    weight: W_DANGLING_REF,
+    label: BROKEN_IMPORTS_LABEL,
+  };
+}
 export const W_OVERLAP = 8; // a description collision → the wrong skill fires
 export const W_NO_CONTRACT = 5; // generic small-footgun weight (disallowedTools typo, invalid model/color)
 export const W_TRIFECTA = 10; // per-unit cost of a lethal-trifecta unit (all three legs, explicit OR inherited) → a prompt-injection exfil path. HALF the old 20: a DING, not a fail — a trifecta is a real risk worth surfacing in the grade, but official plugins ship the pattern by design, so it dents the score (e.g. feature-dev's 3-of-3 hard units → −30 → C) without a catastrophic F.
@@ -289,11 +306,7 @@ export function reportDeductions(r: ScanReport): Deduction[] {
       weight: W_OVERLAP,
       label: "near-identical skill description(s) (wrong one fires)",
     },
-    {
-      n: brokenImports(r.references).length,
-      weight: W_DANGLING_REF,
-      label: BROKEN_IMPORTS_LABEL,
-    },
+    brokenImportDeduction(r),
     {
       n: deadTools,
       weight: W_DANGLING_REF,

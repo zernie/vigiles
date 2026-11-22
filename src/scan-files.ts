@@ -107,6 +107,7 @@ import {
   scanAgents,
   scanSkills,
   scanReferences,
+  type SurfaceClassifier,
   skillRefSources,
   scanHookScripts,
   hookInventory,
@@ -716,6 +717,26 @@ function instructionsOf(
   };
 }
 
+/** What the reference graph reads off the browser engine's maps, tree aside. */
+function refInput(
+  lay: PluginLayout,
+  loaded: {
+    readonly files: Record<string, string>;
+    readonly sources: Record<string, string>;
+  },
+  cls: SurfaceClassifier,
+  instructionFiles: Readonly<Record<string, string>>,
+) {
+  return {
+    chain: lay.instructionChain(instructionFiles),
+    instructionFiles,
+    files: loaded.files,
+    cls,
+    root: BROWSER_ROOT,
+    sources: loaded.sources,
+  };
+}
+
 export function scanFiles(
   files: Record<string, string>,
   layout: PluginLayout = claudeCodeLayout,
@@ -806,12 +827,7 @@ export function scanFiles(
       }),
     ).map(formatSkillRefIssue),
     references: scanReferences({
-      chain: lay.instructionChain(instructionFiles),
-      instructionFiles,
-      files: loaded.files,
-      cls,
-      root: BROWSER_ROOT,
-      sources: loaded.sources,
+      ...refInput(lay, loaded, cls, instructionFiles),
       tree,
     }),
     hookEventIssues,

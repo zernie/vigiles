@@ -67,6 +67,11 @@ export type FetchOutcome =
       treeCount: number;
       /** How many harness files were read (the loading counter's denominator). */
       harnessCount: number;
+      /**
+       * Every blob path of the tree, and the submodule roots — what exists,
+       * which references resolve against (a fetch holds only a few files).
+       */
+      tree?: { paths: readonly string[]; submodules: readonly string[] };
     }
   | { kind: "no-harness"; treeCount: number }
   | { kind: "marketplace" }
@@ -519,7 +524,19 @@ export async function fetchRepo(
       }
     }
 
-    return { kind: "ok", files, treeCount, harnessCount: harness.length };
+    return {
+      kind: "ok",
+      files,
+      treeCount,
+      harnessCount: harness.length,
+      tree: {
+        paths: blobs.map((b) => b.path),
+        // A gitlink is a tree entry of type "commit": a submodule's root.
+        submodules: (tree.tree ?? [])
+          .filter((e) => e.type === "commit")
+          .map((e) => e.path),
+      },
+    };
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
       return { kind: "error", message: "aborted" };
