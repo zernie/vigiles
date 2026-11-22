@@ -859,6 +859,27 @@ function unfencedFinding(
 }
 
 /**
+ * The cause of a fence that closes no leg: `"fence"`, unless a pre-approved leg
+ * tool survives it. A fence that denies nothing leaves a skill's pre-approvals
+ * where they were, so `allowed-tools: Bash` plus `disallowed-tools: []` still
+ * adds a leg in its own file and is still charged per unit: otherwise a no-op
+ * line would move it into the once-only session charge and raise its score.
+ */
+function ineffectiveFenceCause(
+  declared: readonly string[],
+  dialect: HarnessDialect,
+  ctx: TrifectaContext,
+): TrifectaCause {
+  const denied = new Set(
+    declared.filter((raw) => restriction(raw) === null).map(baseTool),
+  );
+  const surviving = preApprovedLegTools(ctx.preApproved ?? [], dialect).filter(
+    (raw) => !denied.has(baseTool(raw)),
+  );
+  return surviving.length > 0 ? "unit" : "fence";
+}
+
+/**
  * The lethal-trifecta finding for a MODEL-INVOCABLE SKILL, computed from its
  * `disallowed-tools:` — the only skill frontmatter field measured to remove a
  * tool. `allowed-tools:` is never read as a bound, on purpose: it is a
@@ -922,7 +943,7 @@ export function skillTrifectaIssue(
       severity: "advisory",
       legs,
       fence: "ineffective",
-      cause: "fence",
+      cause: ineffectiveFenceCause(declared, dialect, ctx),
       message:
         "`disallowed-tools:` is declared but EMPTY, so it denies nothing and this " +
         "skill still holds all three lethal-trifecta legs — private-data read is " +
@@ -957,7 +978,7 @@ export function skillTrifectaIssue(
     severity: "advisory",
     legs,
     fence: "ineffective",
-    cause: "fence",
+    cause: ineffectiveFenceCause(declared, dialect, ctx),
     message:
       preamble +
       `Private-data read is still supplied by ${legs.private.join(", ")}, untrusted ` +

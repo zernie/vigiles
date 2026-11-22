@@ -64,6 +64,11 @@ const SKILLS: Record<string, readonly [string, string]> = {
   half: ["disallowed-tools: Read\n", "fence"],
   empty: ["disallowed-tools: []\n", "fence"],
   badyaml: ["allowed-tools: [unclosed\n", "fence"],
+  // a fence that closes no leg leaves a pre-approval where it was
+  shellempty: ["allowed-tools: Read, Bash\ndisallowed-tools: []\n", "unit"],
+  shellhalf: ["allowed-tools: Read, Bash\ndisallowed-tools: Read\n", "unit"],
+  // …unless the fence denies the pre-approved tool itself
+  readdenied: ["allowed-tools: Read\ndisallowed-tools: Read\n", "fence"],
 };
 const AGENTS: Record<string, readonly [string, string]> = {
   broad: ["", "session"],

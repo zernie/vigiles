@@ -84,7 +84,10 @@ is the session, so it is stated once.
 A `fence` finding is reported at its file because the author wrote something
 that does not do what they meant. It is charged with the session, not per unit,
 because the unit can do no more than an unfenced one: charging it per unit would
-make a half-done fence score worse than no fence at all.
+make a half-done fence score worse than no fence at all. The exception is a
+skill whose `allowed-tools:` pre-approves a leg tool the fence does not deny:
+`allowed-tools: Bash` with `disallowed-tools: []` still adds a leg, so it stays
+`unit`. Otherwise a line that denies nothing would lower the charge.
 
 `allowed-tools:` is still **not a fence** (see below). It counts here only as
 evidence that the skill _adds_ something: a pre-approved tool runs without a
