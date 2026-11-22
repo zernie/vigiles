@@ -49,6 +49,45 @@ const NO_BARREL_IMPORTS = {
 const NEVER_PARSE_HOOK_LINES =
   "Never parse a hook command line: a line is compiled only by exact identity with what `compile` would write (src/core/hook-command.ts hookLinePlan); everything else is hand-written. Shell parsing was tried in #359/#361 and removed in #362.";
 
+/** The shell parser and the modules that wrap it — out of reach outside PARSES_SHELL. */
+const NO_SHELL_PARSER = {
+  paths: [{ name: "mvdan-sh", message: NEVER_PARSE_HOOK_LINES }],
+  patterns: [
+    {
+      group: ["**/bash-effects.js", "**/command-files.js", "**/shell-vars.js"],
+      message: NEVER_PARSE_HOOK_LINES,
+    },
+  ],
+};
+
+/**
+ * The modules that legitimately parse shell. None reads a hook LINE to decide
+ * what the hook is; each parses a command for a reason of its own.
+ */
+const PARSES_SHELL = [
+  // The classifier itself: the AGENT's Bash command, for effects and gates.
+  "src/core/bash-effects.ts",
+  // Which env vars a command reads, so the safety battery runs a hook as the harness would.
+  "src/core/shell-vars.ts",
+  // Which files a command hands a program, so the battery does not score a missing guard.
+  "src/core/command-files.ts",
+  // The disaster battery's equivalent spellings of each disaster command.
+  "src/core/bash-equivalents.ts",
+  // A subagent's tool contract: is a granted Bash read-only?
+  "src/core/effects.ts",
+  // Compiled hooks evaluate the agent's tool-input command, never their own line.
+  "src/core/hook-program.ts",
+  "src/core/hook-providers.ts",
+  // The public `vigiles/hook` barrel re-exports the gate vocabulary.
+  "src/hook.ts",
+  // Claude Code's `if` condition is matched against the tool-input command.
+  "src/adapters/claude-code/hook-condition.ts",
+  // Attributes a command a harness EXECUTED to the script it ran (a run, not a config).
+  "src/coverage-probe.ts",
+  // The safety battery runs a hook, so it must know what that line needs.
+  "src/verify-plugin-guards.ts",
+];
+
 /**
  * The harness names `local/no-harness-names` forbids, READ FROM THE ADAPTER
  * DIRECTORY rather than written out here.
@@ -469,32 +508,43 @@ export default [
       ],
     },
   },
-  // NEVER PARSE A HAND-WRITTEN HOOK COMMAND LINE (#361, #362). The hook-line
-  // plan and the scan's hook readers read a line by IDENTITY with what
-  // `compile` writes; two branches taught a reader shell shapes instead and
-  // each shape exposed the next. So these modules cannot reach the shell
-  // parser at all. Restates the two option sets above: flat config replaces a
-  // rule's options instead of merging them.
+  // NEVER PARSE A HAND-WRITTEN HOOK COMMAND LINE (#361, #362). A hook line is
+  // read by IDENTITY with what `compile` writes (the hook inventory,
+  // src/scan-core.ts); everything else is hand-written. Two branches taught a
+  // reader shell shapes and each shape exposed the next; then coverage grew a
+  // regex over the raw manifest in a file the old five-file list did not name
+  // (#283, #443). So the shell parser is out of reach for ALL of src/, and the
+  // modules that legitimately parse shell are named below with their reason.
+  // `require("mvdan-sh")` is not an import: the three modules that load it are
+  // themselves listed patterns, so nothing outside the list can reach them.
+  // Restates the option sets above: flat config replaces a rule's options.
   {
-    files: [
-      "src/core/hook-command.ts",
-      "src/core/hook-paths.ts",
-      "src/scan-core.ts",
-      "src/scan.ts",
-      "src/scan-files.ts",
+    files: ["src/**/*.ts"],
+    ignores: [
+      "src/**/*.test.ts",
+      "src/{linting,test,eval-surface,hook,claude-code,codex,adapter}.ts",
+      ...PARSES_SHELL,
     ],
     rules: {
       "no-restricted-imports": [
         "error",
         {
-          paths: [
-            ...ONE_COLLECTION_LIBRARY,
-            { name: "mvdan-sh", message: NEVER_PARSE_HOOK_LINES },
-          ],
-          patterns: [
-            NO_BARREL_IMPORTS,
-            { group: ["**/bash-effects.js"], message: NEVER_PARSE_HOOK_LINES },
-          ],
+          paths: [...ONE_COLLECTION_LIBRARY, ...NO_SHELL_PARSER.paths],
+          patterns: [NO_BARREL_IMPORTS, ...NO_SHELL_PARSER.patterns],
+        },
+      ],
+    },
+  },
+  // The public barrels: exempt from the barrel rule, not from this one. `hook.ts`
+  // is in PARSES_SHELL, so the glob skips it.
+  {
+    files: ["src/{linting,test,eval-surface,claude-code,codex,adapter}.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [...ONE_COLLECTION_LIBRARY, ...NO_SHELL_PARSER.paths],
+          patterns: NO_SHELL_PARSER.patterns,
         },
       ],
     },
