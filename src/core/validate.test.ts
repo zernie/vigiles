@@ -618,6 +618,9 @@ const SHIPPED_RULE_DEFAULTS = {
   "lethal-trifecta": "warn",
   // Off: the experimental group (measured precision below the bar).
   "skill-resource-resolves": false,
+  // An `@import` naming a missing file: graded; a link or mention: experimental.
+  "reference-resolves": "warn",
+  "instruction-ref-resolves": false,
   "skill-missing-fence": "warn",
   "plugin-dir-layout": "warn",
   "delegation-trifecta": "warn",

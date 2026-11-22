@@ -59,6 +59,12 @@ export type FilteredScan<S extends object> = S & {
   readonly [FILTERED]: true;
   /** Only a renderer reads this (`no-restricted-syntax` in the scorers). */
   readonly ungraded: readonly UngradedGroup[];
+  /**
+   * The graded groups' rule MODULES that are on, and what each found — for a
+   * renderer. A scorer counts the same defects off the scan itself, through
+   * the predicate the rule names in `scoredBy`.
+   */
+  readonly gradedResults: readonly RuleResult[];
 };
 
 /** What a scorer takes: a scan that carries no ungraded findings. */
@@ -111,6 +117,9 @@ export function applyRules<S extends ScanInput>(
   return {
     ...blanked,
     ungraded: ungradedOf(on, groups, scan),
+    gradedResults: on
+      .filter((r) => r.findings !== undefined && groups[r.group]?.graded)
+      .map((r) => ({ rule: r.id, findings: r.findings?.(scan) ?? [] })),
     [FILTERED]: true as const,
   };
 }

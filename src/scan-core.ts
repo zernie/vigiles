@@ -49,6 +49,13 @@ import {
   skillTrifectaIssue,
 } from "./core/lethal-trifecta.js";
 import { skillResourceIssues } from "./core/skill-resources.js";
+import type { InstructionChain } from "./core/instruction-chain.js";
+import {
+  referenceGraph,
+  type ReferenceSource,
+  type ResolvedReference,
+} from "./core/reference-graph.js";
+import type { RepoTree } from "./core/repo-tree.js";
 import {
   commandNamesRef,
   type HookLinePlan,
@@ -1460,4 +1467,46 @@ function groupAgentToolNotes(agent: ScanAgent): VocabularyNote[] {
         `vigiles cannot see that condition from the file, so this is a note, not a defect.`,
     });
   return out;
+}
+
+/**
+ * The scan's references — ONE route for both engines (disk and browser), so
+ * the pair cannot disagree: the instruction chain's files (loaded or not) and
+ * every subagent and command body are the sources, the chain's imports are the
+ * import edges, and `tree` is what exists (`core/reference-graph.ts`).
+ */
+export function scanReferences(input: {
+  readonly chain: InstructionChain;
+  readonly instructionFiles: Readonly<Record<string, string>>;
+  readonly files: Readonly<Record<string, string>>;
+  readonly cls: SurfaceClassifier;
+  readonly root: string;
+  readonly sources?: Record<string, string>;
+  readonly tree: RepoTree;
+}): readonly ResolvedReference[] {
+  const { chain, instructionFiles, files, cls } = input;
+  const instructions = [...chain.loaded, ...chain.unloaded].flatMap(
+    ({ path }): ReferenceSource[] => {
+      const text = instructionFiles[path];
+      return text === undefined ? [] : [{ path, role: "instruction", text }];
+    },
+  );
+  const bodies = Object.entries(files).flatMap(
+    ([key, text]): ReferenceSource[] => {
+      const role = cls.isAgent(key)
+        ? "agent"
+        : cls.isCommand(key)
+          ? "command"
+          : undefined;
+      if (role === undefined) return [];
+      const path = reportedSurfacePath(key, input.sources?.[key], input.root);
+      return [{ path, role, text }];
+    },
+  );
+  return referenceGraph({
+    sources: [...instructions, ...bodies],
+    imports: chain.imports,
+    files: instructionFiles,
+    tree: input.tree,
+  });
 }

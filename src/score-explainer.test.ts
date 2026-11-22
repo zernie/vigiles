@@ -26,6 +26,7 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     staleHooks: [],
     commands: 0,
     mcp: false,
+    references: [],
     hookEventIssues: [],
     frontmatterIssues: [],
     frontmatterValueIssues: [],

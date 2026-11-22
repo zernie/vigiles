@@ -50,11 +50,13 @@ import {
   W_OVERLAP,
   W_NO_CONTRACT,
   TRIFECTA_LABEL,
+  BROKEN_IMPORTS_LABEL,
   trifectaExposure,
   type PluginScore,
 } from "./score-core.js";
 import type { ScanReport } from "./scan.js";
 import type { GradedView } from "./core/apply-rules.js";
+import { brokenImports } from "./core/reference-graph.js";
 
 export type CategoryKey =
   | "Truthfulness"
@@ -173,6 +175,13 @@ function scoreFrom(deductions: readonly Deduction[]): {
 function truthfulness(r: ScanReport): CategoryScore {
   const missingHooks = r.hooks.filter((h) => h.status === "missing").length;
   const { score, findings } = scoreFrom([
+    {
+      // An `@path` import the harness loads, naming a file that is not there
+      // (the `reference-resolves` rule's findings, by the same predicate).
+      n: brokenImports(r.references).length,
+      weight: W_DANGLING_REF,
+      label: BROKEN_IMPORTS_LABEL,
+    },
     {
       // A reference that resolves to nothing: a skill naming a sibling skill
       // that is not there.

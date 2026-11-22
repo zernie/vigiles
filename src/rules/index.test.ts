@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { configFor } from "../core/config-schema.js";
 import { configDefault, initPolicyOf } from "../core/rule.js";
 import * as hookApi from "../hook.js";
+import * as referenceGraphApi from "../core/reference-graph.js";
 import * as specApi from "../core/spec.js";
 import * as testApi from "../test.js";
 import { RULES, RULE_GROUPS } from "./index.js";
@@ -183,14 +184,18 @@ describe("presets and init derive from the groups", () => {
         expect(rule.defaultSeverity, rule.id).not.toBe("off");
   });
 
-  // A rule MODULE reports through `findings`, which today reaches only the
-  // ungraded blocks (`applyRules`). A module in a graded group would need its
-  // findings to reach the scorers too — vigiles#390 wires that; until then this
-  // fails rather than letting a graded rule's findings vanish from the score.
-  it("every rule module is in an ungraded group, until #390", () => {
+  // A rule MODULE reports through `findings`, which reach the report but not
+  // the scorers. A module in a GRADED group therefore names the scorer
+  // predicate that counts the same defects (`scoredBy`), and that predicate
+  // must be a real core export — so a graded rule's findings cannot vanish
+  // from the score. vigiles#390 replaces this with findings that score.
+  it("a rule module in a graded group names the core predicate that scores it", () => {
+    const exported = new Set(Object.keys(referenceGraphApi));
     for (const rule of RULES)
-      if ("findings" in rule)
-        expect(RULE_GROUPS[rule.group].graded, rule.id).toBe(false);
+      if ("findings" in rule && RULE_GROUPS[rule.group].graded)
+        expect("scoredBy" in rule && exported.has(rule.scoredBy), rule.id).toBe(
+          true,
+        );
   });
 });
 

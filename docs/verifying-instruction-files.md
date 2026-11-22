@@ -155,16 +155,16 @@ Beyond the references above, `vigiles lint` runs a set of **deterministic valida
 
 **Not every rule applies to every harness.** A rule is scoped to the _surface_ it checks and runs only where the active harness has that surface. Where the surface doesn't exist, `vigiles lint` reports the rule as **n/a** — loud, never a silent pass or failure. That's what lets one config target Claude Code _and_ Codex without duplicating rules per harness.
 
-| Surface (the gate)          | Rules                                                                                                                                                           | Applies to                                |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Instruction file &amp; docs | `require-instructions-spec`, `integrity`, `coverage`, `unmarked-refs`, `orphan-docs`, `context-creep`, `compile-budget`, `deprecated-key-files`                 | all harnesses                             |
-| Skills                      | `untested-skill`, `skill-frontmatter`, `description-overlap`, `skill-description-budget`, `frontmatter-valid`, `skill-resource-resolves`, `skill-missing-fence` | all with skills                           |
-| Plugin layout               | `plugin-dir-layout`                                                                                                                                             | all with a plugin manifest                |
-| MCP                         | `mcp-config`                                                                                                                                                    | all with MCP                              |
-| Shell hooks                 | `untested-hook`, `hook-script-exists`, `hand-written-hook`, `hook-events`, `hook-matcher`, `hook-block-ineffective`                                             | Claude Code, Codex                        |
-| Subagents                   | `subagent-tool-contract`, `subagent-frontmatter`, `untested-subagent`, `mcp-tool-resolves`                                                                      | Claude Code (n/a on Codex — no subagents) |
-| Output styles               | `untested-output-style`                                                                                                                                         | Claude Code (n/a on Codex — no styles)    |
-| Safety (skills + subagents) | `lethal-trifecta`, `delegation-trifecta`                                                                                                                        | all (subagent half n/a on Codex)          |
+| Surface (the gate)          | Rules                                                                                                                                                                                             | Applies to                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Instruction file &amp; docs | `require-instructions-spec`, `integrity`, `coverage`, `unmarked-refs`, `orphan-docs`, `context-creep`, `compile-budget`, `deprecated-key-files`, `reference-resolves`, `instruction-ref-resolves` | all harnesses                             |
+| Skills                      | `untested-skill`, `skill-frontmatter`, `description-overlap`, `skill-description-budget`, `frontmatter-valid`, `skill-resource-resolves`, `skill-missing-fence`                                   | all with skills                           |
+| Plugin layout               | `plugin-dir-layout`                                                                                                                                                                               | all with a plugin manifest                |
+| MCP                         | `mcp-config`                                                                                                                                                                                      | all with MCP                              |
+| Shell hooks                 | `untested-hook`, `hook-script-exists`, `hand-written-hook`, `hook-events`, `hook-matcher`, `hook-block-ineffective`                                                                               | Claude Code, Codex                        |
+| Subagents                   | `subagent-tool-contract`, `subagent-frontmatter`, `untested-subagent`, `mcp-tool-resolves`                                                                                                        | Claude Code (n/a on Codex — no subagents) |
+| Output styles               | `untested-output-style`                                                                                                                                                                           | Claude Code (n/a on Codex — no styles)    |
+| Safety (skills + subagents) | `lethal-trifecta`, `delegation-trifecta`                                                                                                                                                          | all (subagent half n/a on Codex)          |
 
 The per-family tables below give each rule's default severity and what it checks.
 
@@ -194,9 +194,11 @@ The per-family tables below give each rule's default severity and what it checks
 
 ### Reference marking
 
-| Rule                                      | Default  | What it checks                                                                                                                    |
-| ----------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| [`unmarked-refs`](rules/unmarked-refs.md) | `"warn"` | Code-shaped references are marked (verifiable); drives the [refs-hook nudge](#the-marking-nudge--what-happens-on-every-file-save) |
+| Rule                                                            | Default  | What it checks                                                                                                                                     |
+| --------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`unmarked-refs`](rules/unmarked-refs.md)                       | `"warn"` | Code-shaped references are marked (verifiable); drives the [refs-hook nudge](#the-marking-nudge--what-happens-on-every-file-save)                  |
+| [`reference-resolves`](rules/reference-resolves.md)             | `"warn"` | An `@path` import in an instruction file names a file that exists (graded; `error` under `vigiles:recommended`)                                    |
+| [`instruction-ref-resolves`](rules/instruction-ref-resolves.md) | `false`  | **Experimental** — off, never graded; on with `--preset=experimental`. A link or code-span path in an instruction file, subagent or command exists |
 
 ### Subagent contracts
 

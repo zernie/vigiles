@@ -52,6 +52,7 @@ const GROUPS: RuleGroups = {
   shown: { graded: false, label: "Shown — not graded", blurb: "Never scored." },
 };
 const SCAN = {
+  references: [],
   skills: [
     { name: "alpha", path: "skills/alpha/SKILL.md", resourceIssues: [] },
   ],

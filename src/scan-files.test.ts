@@ -27,6 +27,7 @@ import {
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
 import { scanPlugin, type ScanReport } from "./scan.js";
+import { diskRepoTree } from "./host/repo-tree.io.js";
 import { scanFiles, BROWSER_ROOT } from "./scan-files.js";
 import { buildAuditReport } from "./audit-report.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
@@ -36,6 +37,9 @@ import { applyRules } from "./core/apply-rules.js";
 import { defaultSeverities, type ScanInput } from "./core/rule.js";
 import { ruleResolver } from "./overrides.js";
 import { RULES, RULE_GROUPS } from "./rules/index.js";
+import { instructionRefResolves } from "./rules/instruction-ref-resolves.js";
+import { referenceResolves } from "./rules/reference-resolves.js";
+import { BROKEN_IMPORTS_LABEL } from "./score-core.js";
 
 /** A scan as `audit` shows it under the shipped defaults (`applyRules`). */
 const shown = <S extends ScanInput>(scan: S) =>
@@ -43,9 +47,11 @@ const shown = <S extends ScanInput>(scan: S) =>
 
 const OPTS = { harness: "claude-code", vigilesVersion: "9.9.9-parity-test" };
 
-/** The disk engine over a checkout, under the default harness. */
+/** The disk engine over a checkout, under the default harness, as the root runs it. */
 const diskScan = (abs: string): ScanReport =>
-  scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
+  scanPlugin(abs, claudeCodeLayout, claudeCodeDialect, {
+    tree: diskRepoTree(abs),
+  });
 
 // The vendored plugins scanPlugin can load (see test/dogfood/README.md provenance).
 const PLUGINS = [
@@ -639,5 +645,107 @@ describe("scanFiles parity for INSTRUCTION files (the shape no vendored fixture 
       ]);
     }
     cleanupTmpDir(tmp);
+  });
+});
+
+/**
+ * REFERENCES — both engines resolve them against a path LIST (the disk's from
+ * `git ls-files` or a walk, the browser's from its tree), so a fixture with an
+ * import, a link and mentions must give the same edges, at the same lines,
+ * with the same resolutions, and the same `brokenReferences`.
+ */
+describe("scanFiles parity for REFERENCES (#442: every one at its file and line)", () => {
+  const files = {
+    ".claude-plugin/plugin.json":
+      '{"name":"ref-repo","version":"0.1.0","description":"x"}',
+    "CLAUDE.md": [
+      "# Repo",
+      "@docs/gone.md",
+      "See [the agents file](agents.md) and `src/missing.ts`.",
+      "Edit `src/app.ts`.",
+    ].join("\n"),
+    "AGENTS.md": "cross-tool",
+    "src/app.ts": "x",
+    "agents/review.md":
+      "---\nname: review\ndescription: Reviews.\n---\nRead `docs/style/` first.",
+    "docs/styles/a.md": "y",
+  } as const;
+  const on = ruleResolver({
+    ...defaultSeverities(RULES),
+    [instructionRefResolves.id]: "warn",
+  });
+
+  it("gives the same references and brokenReferences on disk and in the browser", () => {
+    const abs = join(makeTmpDir("parity-refs"), "ref-repo");
+    for (const [rel, body] of Object.entries(files)) {
+      mkdirSync(dirname(join(abs, rel)), { recursive: true });
+      writeFileSync(join(abs, rel), body);
+    }
+    const disk = diskScan(abs);
+    const browser = scanFiles(
+      readDirToMap(abs),
+      undefined,
+      undefined,
+      "ref-repo",
+    );
+    expect(disk.references).toEqual(browser.references);
+    const report = (s: ScanReport) =>
+      buildAuditReport(applyRules(RULES, RULE_GROUPS, on, s), OPTS)
+        .brokenReferences;
+    expect(report(disk)).toEqual(report(browser));
+    expect(report(disk)).toEqual([
+      {
+        rule: referenceResolves.id,
+        from: "CLAUDE.md",
+        line: 2,
+        kind: "import",
+        target: "@docs/gone.md",
+        resolution: "missing",
+      },
+      {
+        rule: instructionRefResolves.id,
+        from: "CLAUDE.md",
+        line: 3,
+        kind: "link",
+        target: "agents.md",
+        resolution: "case-mismatch",
+        actual: "AGENTS.md",
+      },
+      {
+        rule: instructionRefResolves.id,
+        from: "CLAUDE.md",
+        line: 3,
+        kind: "mention",
+        target: "src/missing.ts",
+        resolution: "missing",
+      },
+      {
+        rule: instructionRefResolves.id,
+        from: "agents/review.md",
+        line: 5,
+        kind: "mention",
+        target: "docs/style/",
+        resolution: "missing",
+        didYouMean: "docs/styles/",
+      },
+    ]);
+  });
+
+  it("a broken import costs the Truthfulness ring, an experimental finding does not", () => {
+    const abs = join(makeTmpDir("parity-refs-score"), "ref-repo");
+    for (const [rel, body] of Object.entries(files)) {
+      mkdirSync(dirname(join(abs, rel)), { recursive: true });
+      writeFileSync(join(abs, rel), body);
+    }
+    const ring = (s: ScanReport, resolver = on) =>
+      buildAuditReport(
+        applyRules(RULES, RULE_GROUPS, resolver, s),
+        OPTS,
+      ).score.categories.find((c) => c.key === "Truthfulness");
+    const scan = diskScan(abs);
+    expect(ring(scan)?.findings).toEqual([`1 ${BROKEN_IMPORTS_LABEL}`]);
+    expect(ring(scan)).toEqual(
+      ring(scan, ruleResolver(defaultSeverities(RULES))),
+    );
   });
 });

@@ -23,7 +23,11 @@
  * Harness-agnostic data; no adapter fact.
  */
 import type { z } from "zod";
-import type { EdgeKind, ReportedResolution } from "./reference-graph.js";
+import type {
+  EdgeKind,
+  ReportedResolution,
+  ResolvedReference,
+} from "./reference-graph.js";
 import type { SkillResourceFinding } from "./skill-resources.js";
 
 /**
@@ -117,6 +121,8 @@ export interface ScanInput {
     /** Every bundled-resource reference in its body that is not beside it. */
     readonly resourceIssues: readonly SkillResourceFinding[];
   }[];
+  /** Every reference the scanned files make, resolved (`./reference-graph.ts`). */
+  readonly references: readonly ResolvedReference[];
 }
 
 /**
@@ -162,6 +168,12 @@ export interface RuleSpec {
    * on; `lint` counts what it returns at each finding's own severity.
    */
   readonly findings?: (scan: ScanInput) => readonly Finding[];
+  /**
+   * For a module in a GRADED group: the core predicate the scorers count the
+   * same defects with — so a graded rule's findings cannot vanish from the
+   * score (`src/rules/index.test.ts` holds it, until #390 scores findings).
+   */
+  readonly scoredBy?: string;
   /**
    * For a rule not yet migrated to a module: the scan field its findings sit
    * in, so `applyRules` can blank them when the rule is off. Only a field that

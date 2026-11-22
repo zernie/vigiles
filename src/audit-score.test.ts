@@ -56,6 +56,7 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     staleHooks: [],
     commands: 1, // a surface, so it's not the empty machine
     mcp: false,
+    references: [],
     hookEventIssues: [],
     frontmatterIssues: [],
     frontmatterValueIssues: [],

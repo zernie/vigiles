@@ -35,7 +35,7 @@ import { skillsHome } from "./core/layout.js";
 import { knownFlagsFor } from "./cli-flag-check.js";
 import { adoptInstructionFileRemedy } from "./core/instruction-remedies.js";
 import { z } from "zod";
-import { RULES } from "./rules/index.js";
+import { RULES, RULE_GROUPS } from "./rules/index.js";
 import { AUDIT_SCHEMA_VERSION } from "./audit-report.js";
 
 /** The part of `audit --json` the adoption tests read — parsed, not cast. */
@@ -1239,7 +1239,7 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
       assert.equal(r.exitCode, 0, r.stdout);
       assert.ok(
         r.stdout.includes(
-          `::notice file=${skillsDir}/rca/SKILL.md::rca: bundled resource "scripts/leak.py" (line 5) resolves only from the repo root`,
+          `::notice file=${skillsDir}/rca/SKILL.md,line=5::rca: bundled resource "scripts/leak.py" (line 5) resolves only from the repo root`,
         ),
         r.stdout,
       );
@@ -1351,7 +1351,10 @@ describe("the experimental rule group (skill-resource-resolves)", () => {
         ungradedBlocks
           .parse(json)
           .ungraded?.flatMap((g) => g.rules.map((b) => b.rule)),
-        ["skill-resource-resolves"],
+        // Every ungraded rule module the preset turns on, each its own block.
+        RULES.filter(
+          (r) => "findings" in r && !RULE_GROUPS[r.group].graded,
+        ).map((r) => r.id),
       );
       assert.deepEqual(
         graded.parse(json),

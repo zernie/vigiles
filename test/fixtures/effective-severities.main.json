@@ -1,5 +1,5 @@
 {
-  "_source": "effective severity of every rule on origin/main (2657b30), 2026-10-14 — before PR #387 moved the rule set into src/rules/",
+  "_source": "effective severity of every rule on origin/main (2657b30), 2026-10-14 — before PR #387 moved the rule set into src/rules/; rules added since (reference-resolves, instruction-ref-resolves) at the severity they shipped with",
   "{}": {
     "spec-refs": "error",
     "orphan-docs": "warn",
@@ -29,6 +29,8 @@
     "mcp-hook-target-resolves": "warn",
     "lethal-trifecta": "warn",
     "skill-resource-resolves": "warn",
+    "reference-resolves": "warn",
+    "instruction-ref-resolves": "warn",
     "skill-missing-fence": "warn",
     "plugin-dir-layout": "warn",
     "delegation-trifecta": "warn",
@@ -67,6 +69,8 @@
     "mcp-hook-target-resolves": "error",
     "lethal-trifecta": "warn",
     "skill-resource-resolves": "warn",
+    "reference-resolves": "error",
+    "instruction-ref-resolves": "warn",
     "skill-missing-fence": "warn",
     "plugin-dir-layout": "warn",
     "delegation-trifecta": "warn",

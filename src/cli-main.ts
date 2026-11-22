@@ -163,6 +163,8 @@ import {
 } from "./context-creep-lint.js";
 import { checkAlwaysLoadedLimits } from "./core/always-loaded-limits.js";
 import type { ScanReport, ScanHarness } from "./scan.js";
+import type { RepoTree } from "./core/repo-tree.js";
+import { diskRepoTree } from "./host/repo-tree.io.js";
 import {
   frameAt,
   frameFor,
@@ -2278,7 +2280,12 @@ interface BundleCheck {
    */
   label(text: string): string;
   /** `ghAnnotate`, applying {@link label} when no file is named. */
-  annotate(level: AnnotationLevel, message: string, file?: RepoPath): void;
+  annotate(
+    level: AnnotationLevel,
+    message: string,
+    file?: RepoPath,
+    line?: number,
+  ): void;
   /**
    * `scanPlugin` over THIS bundle, with the repo's `exclude`. One door, so a
    * check cannot scan a different directory or forget the exclude — every
@@ -2354,19 +2361,27 @@ function overBundles<T extends Record<string, number>>(
   const many = bundles.length > 1;
   const ctxFor = (abs: string, i: number): BundleCheck => {
     const bundle = run.frame.bundle(abs);
+    // One `git ls-files` per bundle, however many checks scan it.
+    let tree: RepoTree | undefined;
     const label = (text: string): string =>
       many && i > 0 ? `[${bundle.at}] ${text}` : text;
     return {
       ...run,
       bundle,
       label,
-      annotate: (level, message, file) => {
-        ghAnnotate(level, file === undefined ? label(message) : message, file);
+      annotate: (level, message, file, line) => {
+        ghAnnotate(
+          level,
+          file === undefined ? label(message) : message,
+          file,
+          line,
+        );
       },
       scan: (extra = {}) =>
         scanPlugin(bundle.abs, run.adapter.layout, run.adapter.dialect, {
           ...extra,
           excludes: run.excludes,
+          tree: (tree ??= diskRepoTree(bundle.abs)),
         }),
     };
   };
@@ -6430,14 +6445,16 @@ function checkRuleModule(
   const shown = graded(ctx.rules, rule.id, found, pathOf);
   if (shown.length > 0 && !ctx.silent) {
     console.log(`\n${rule.id}:\n`);
+    // One line and one annotation per finding, at its own file and line.
     for (const f of shown) {
       const { mark, level } =
         f.kind === "note"
           ? { mark: "ℹ", level: "notice" as const }
           : markOf(f.sev);
       const msg = `${f.subject}: ${f.message}`;
-      console.log(`  ${mark} ${pathOf(f)}: ${msg}`);
-      ctx.annotate(level, msg, pathOf(f));
+      const at = f.line === undefined ? "" : `:${String(f.line)}`;
+      console.log(`  ${mark} ${pathOf(f)}${at}: ${msg}`);
+      ctx.annotate(level, msg, pathOf(f), f.line);
     }
   }
   return tally(shown.filter((f) => f.kind === "finding"));
@@ -9713,6 +9730,7 @@ function auditScan(
     // it, so no array order decides which half of the repo is seen.
     // `exclude` still wins over it; the walk drops an excluded path first.
     harnesses: at.harnesses,
+    tree: diskRepoTree(target),
   });
   return applyRules(
     RULES,

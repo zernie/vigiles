@@ -54,6 +54,7 @@ import {
   type AlwaysLoadedContext,
 } from "./core/always-loaded.js";
 import { instructionSpecState } from "./core/integrity-header.js";
+import { repoTreeOf, type RepoTree } from "./core/repo-tree.js";
 import {
   instructionCandidatePaths,
   resolveImports,
@@ -105,6 +106,7 @@ import {
   makeClassifier,
   scanAgents,
   scanSkills,
+  scanReferences,
   skillRefSources,
   scanHookScripts,
   hookInventory,
@@ -719,6 +721,12 @@ export function scanFiles(
   layout: PluginLayout = claudeCodeLayout,
   dialect: HarnessDialect = claudeCodeDialect,
   repoName?: string,
+  /**
+   * The repository's whole path list (the GitHub tree), which references
+   * resolve against. Defaults to the map's own keys — right when the map is
+   * the whole repository (a test), wrong for a fetch of a few files.
+   */
+  tree: RepoTree = repoTreeOf(Object.keys(files)),
 ): ScanReport {
   const lay = layout;
   const cls = makeClassifier(lay);
@@ -797,6 +805,15 @@ export function scanFiles(
         sources: loaded.sources,
       }),
     ).map(formatSkillRefIssue),
+    references: scanReferences({
+      chain: lay.instructionChain(instructionFiles),
+      instructionFiles,
+      files: loaded.files,
+      cls,
+      root: BROWSER_ROOT,
+      sources: loaded.sources,
+      tree,
+    }),
     hookEventIssues,
     vocabularyNotes: collectVocabularyNotes(allHookEventIssues, agents),
     frontmatterIssues: remap(frontmatterIssuesFor(loaded.files, cls)),

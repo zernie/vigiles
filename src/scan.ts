@@ -72,6 +72,8 @@ import {
 } from "./core/merge-conflict.js";
 import type { TrifectaFinding } from "./core/lethal-trifecta.js";
 import type { SkillResourceFinding } from "./core/skill-resources.js";
+import type { ResolvedReference } from "./core/reference-graph.js";
+import type { RepoTree } from "./core/repo-tree.js";
 import type { SkillFenceFinding } from "./core/skill-missing-fence.js";
 import {
   pluginDirLayoutIssues,
@@ -113,6 +115,7 @@ import {
   makeUnionClassifier,
   scanAgents,
   scanSkills,
+  scanReferences,
   skillRefSources,
   scanHookScripts,
   type HookInventory,
@@ -153,7 +156,12 @@ import {
   blockIneffectiveEventsOf,
   permissionDecisionEventsOf,
 } from "./core/event-capability.js";
-import type { FilteredScan, UngradedGroup } from "./core/apply-rules.js";
+import type {
+  FilteredScan,
+  RuleResult,
+  UngradedGroup,
+} from "./core/apply-rules.js";
+import type { Finding } from "./core/rule.js";
 
 // Re-export the pure detectors (and their public types: SurfaceClassifier,
 // SkillScanContext, handWrittenHookMessage, ...) that
@@ -378,6 +386,12 @@ export interface ScanReport {
    * and `assertNoWrite` already draw.
    */
   readonly skillRefIssues?: readonly string[];
+  /**
+   * Every reference the instruction files, subagents and commands make, with
+   * its file, line and resolution (`core/reference-graph.ts`). Empty when the
+   * caller handed no path list (`opts.tree`): nothing was resolved.
+   */
+  readonly references: readonly ResolvedReference[];
   /** Hooks registered under an event name the harness doesn't define (typo / dead). */
   readonly hookEventIssues: readonly HookEventIssue[];
   /**
@@ -811,6 +825,12 @@ export function scanPlugin(
      * positional `layout`/`dialect`, exactly as before.
      */
     harnesses?: readonly ScanHarness[];
+    /**
+     * The scanned directory's exact path list, which references resolve
+     * against (`host/repo-tree.io.ts` builds the disk's). The root passes it;
+     * absent, no reference is resolved and `references` is empty.
+     */
+    tree?: RepoTree;
   } = {},
 ): ScanReport {
   const lay = layout;
@@ -964,6 +984,18 @@ export function scanPlugin(
         sources: loaded.sources,
       }),
     ).map(formatSkillRefIssue),
+    references:
+      opts.tree === undefined
+        ? []
+        : scanReferences({
+            chain: instructionHarness.layout.instructionChain(instructionFiles),
+            instructionFiles,
+            files: loaded.files,
+            cls,
+            root: resolve(dir),
+            sources: loaded.sources,
+            tree: opts.tree,
+          }),
     hookEventIssues,
     vocabularyNotes: collectVocabularyNotes(allHookEventIssues, agents),
     frontmatterIssues: remap(frontmatterIssuesFor(loaded.files, cls)),
@@ -1587,11 +1619,41 @@ export function formatScanReport(
    */
   r: FilteredScan<ScanReport>,
 ): string {
-  return [...gradedReportLines(r), ...ungradedLines(r.ungraded)].join("\n");
+  return [
+    ...gradedReportLines(r, r.gradedResults),
+    ...ungradedLines(r.ungraded),
+  ].join("\n");
+}
+
+/**
+ * One rule finding as a report line. A reference finding leads with its file
+ * and line — the place to edit — since its subject is only the target.
+ */
+function findingLine(f: Finding, indent: string): string {
+  const mark = f.kind === "note" ? "ℹ" : "✗";
+  const at =
+    f.reference === undefined || f.line === undefined
+      ? ""
+      : `${f.path}:${String(f.line)} `;
+  return `${indent}${mark} ${at}${f.subject}: ${f.message}`;
+}
+
+/** The graded rule modules' reference findings, one line each, in place order. */
+function brokenReferenceLines(
+  results: readonly RuleResult[],
+): readonly string[] {
+  return results.flatMap((res) =>
+    res.findings
+      .filter((f) => f.reference !== undefined)
+      .map((f) => `${findingLine(f, "  ")}  [${res.rule}]`),
+  );
 }
 
 /** The report's lines up to and including the verdict — everything graded. */
-function gradedReportLines(r: ScanReport): readonly string[] {
+function gradedReportLines(
+  r: ScanReport,
+  results: readonly RuleResult[],
+): readonly string[] {
   const out: string[] = [`Scan: ${r.dir}`, ""];
 
   if (r.instructions) {
@@ -1617,6 +1679,8 @@ function gradedReportLines(r: ScanReport): readonly string[] {
       r.hookEventIssues.map((i) => `  ✗ ${i.message}`),
     ),
   );
+
+  out.push(...section("Broken references", brokenReferenceLines(results)));
 
   // Advisory, never scored — a name vigiles cannot confirm, or a real one the
   // platform withholds only under a condition it cannot see. Printed with `·`
@@ -1842,10 +1906,7 @@ function ungradedLines(groups: readonly UngradedGroup[]): readonly string[] {
         ? [`  ✓ ${res.rule}: nothing found`]
         : [
             `  ${res.rule} (${String(res.findings.length)}):`,
-            ...res.findings.map(
-              (f) =>
-                `    ${f.kind === "note" ? "ℹ" : "✗"} ${f.subject}: ${f.message}`,
-            ),
+            ...res.findings.map((f) => findingLine(f, "    ")),
           ],
     ),
   ]);

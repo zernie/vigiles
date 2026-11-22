@@ -32,6 +32,7 @@ import {
   type FilteredScan,
   type UngradedGroup,
 } from "./core/apply-rules.js";
+import type { Finding } from "./core/rule.js";
 
 /**
  * The current schema version. Bump only on a BREAKING change to the shape.
@@ -78,6 +79,20 @@ export type BrokenReference = {
   | { readonly resolution: "missing"; readonly didYouMean?: string }
   | { readonly resolution: "case-mismatch"; readonly actual: string }
 );
+
+/**
+ * A reference that resolves, but not where its file looks for it, or not
+ * decidably — never scored, never fails CI. Same location fields as
+ * {@link BrokenReference}.
+ */
+export type ReferenceNote = Omit<
+  BrokenReference,
+  "resolution" | "didYouMean" | "actual"
+> &
+  (
+    | { readonly resolution: "elsewhere"; readonly at: readonly string[] }
+    | { readonly resolution: "in-submodule"; readonly submodule: string }
+  );
 
 export interface AuditReportMeta {
   /** Wire-format version — consumers gate on this. */
@@ -237,9 +252,12 @@ export interface AuditReport {
   /**
    * References that do not resolve, one per place a file names a missing path:
    * the file, the 1-based line, the rule that reported it. Present only when at
-   * least one exists. Nothing fills it yet; the reference graph will.
+   * least one exists. Filled from every reference rule that is ON, graded or
+   * not (its group says whether it scores).
    */
   readonly brokenReferences?: readonly BrokenReference[];
+  /** References noted rather than reported, from the same rules. Never scored. */
+  readonly referenceNotes?: readonly ReferenceNote[];
   /**
    * Instruction specs still using the deprecated `keyFiles` (the
    * `deprecated-key-files` rule's findings: path, entry count, compiled
@@ -431,14 +449,71 @@ function contextCostField(report: ScanReport): {
   };
 }
 
+/** One rule's reference finding in the report's structured form. */
+function referenceEntry(
+  rule: string,
+  f: Finding,
+): BrokenReference | ReferenceNote | undefined {
+  if (f.reference === undefined || f.line === undefined) return undefined;
+  const at = {
+    rule,
+    from: f.path,
+    line: f.line,
+    kind: f.reference.kind,
+    target: f.reference.target,
+  };
+  const res = f.reference.resolution;
+  switch (res.status) {
+    case "missing":
+      return res.didYouMean === undefined
+        ? { ...at, resolution: "missing" }
+        : { ...at, resolution: "missing", didYouMean: res.didYouMean };
+    case "case-mismatch":
+      return { ...at, resolution: "case-mismatch", actual: res.actual };
+    case "elsewhere":
+      return { ...at, resolution: "elsewhere", at: res.at };
+    case "in-submodule":
+      return { ...at, resolution: "in-submodule", submodule: res.submodule };
+  }
+}
+
+/** Every reference finding of every module rule that is on, split. */
+function referencesOf(report: FilteredScan<ScanReport>): {
+  readonly broken: readonly BrokenReference[];
+  readonly notes: readonly ReferenceNote[];
+} {
+  const entries = [
+    ...report.gradedResults,
+    ...report.ungraded.flatMap((g) => g.rules),
+  ].flatMap((res) =>
+    res.findings.flatMap((f) => referenceEntry(res.rule, f) ?? []),
+  );
+  return {
+    broken: entries.filter(
+      (e): e is BrokenReference =>
+        e.resolution === "missing" || e.resolution === "case-mismatch",
+    ),
+    notes: entries.filter(
+      (e): e is ReferenceNote =>
+        e.resolution === "elsewhere" || e.resolution === "in-submodule",
+    ),
+  };
+}
+
 /**
  * The scan's concrete finding lists, each present only when non-empty — and the
  * ungraded groups' blocks, present only when some rule of one is on.
  */
 function scanFindingLists(
   report: FilteredScan<ScanReport>,
-): Pick<AuditReport, "deprecatedKeyFiles" | "ungraded"> {
+): Pick<
+  AuditReport,
+  "brokenReferences" | "referenceNotes" | "deprecatedKeyFiles" | "ungraded"
+> {
+  const { broken, notes } = referencesOf(report);
   return {
+    ...(broken.length > 0 ? { brokenReferences: broken } : {}),
+    ...(notes.length > 0 ? { referenceNotes: notes } : {}),
     ...(report.ungraded.length > 0 ? { ungraded: report.ungraded } : {}),
     ...(report.deprecatedKeyFiles
       ? { deprecatedKeyFiles: report.deprecatedKeyFiles }

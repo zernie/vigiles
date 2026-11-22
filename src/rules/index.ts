@@ -26,6 +26,8 @@ import {
 } from "../core/config-schema.js";
 import { defineRule, type RuleSpec } from "../core/rule.js";
 import { RULE_GROUPS, type RuleGroupName } from "./groups.js";
+import { instructionRefResolves } from "./instruction-ref-resolves.js";
+import { referenceResolves } from "./reference-resolves.js";
 import { skillResourceResolves } from "./skill-resource-resolves.js";
 
 export { RULE_GROUPS };
@@ -408,6 +410,8 @@ export const RULES = [
     detector: "lethalTrifectaIssues",
   }),
   skillResourceResolves,
+  referenceResolves,
+  instructionRefResolves,
   defineRule({
     id: "skill-missing-fence",
     group: "nudge",
