@@ -256,9 +256,6 @@ export interface AuditReport {
   verdict: Verdict;
   recommendations: Recommendation[];
   inventory: AuditInventory;
-  /** The concrete intra-plugin references that don't resolve — the actual paths
-   *  behind the Truthfulness "N broken reference(s)" count. Present only when ≥1. */
-  brokenReferences?: string[];
   /** The ungraded rule groups — checks shipped but not measured reliable
    *  enough to grade on. One block per group with a rule the run turned on;
    *  absent when none. NEVER scored: each shown in a block of its own. */

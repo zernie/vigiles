@@ -9,11 +9,10 @@
  * reads the instruction, gets nothing, and silently continues (a documented top
  * skill pain — one practitioner found 59 broken refs across 192 files). vigiles
  * already verifies file/script refs inside typed specs (core/refs.ts,
- * core/doc-refs.ts) and intra-plugin script refs in the loader
- * (plugin-loader.ts `danglingRefs`); this extends that to the SKILL.md body.
+ * core/doc-refs.ts); this extends that to the SKILL.md body.
  *
  * HIGH-PRECISION / FP-SAFE, by the same don't-cry-wolf discipline the rest of
- * vigiles holds (see `danglingRefs`/`isPluginRooted`): we flag ONLY references
+ * vigiles holds: we flag ONLY references
  * that are UNAMBIGUOUSLY a local bundled resource — a markdown link to a
  * relative path with a file extension, or an explicit `scripts/`/`references/`/
  * `assets/`-prefixed path (the Agent-Skills standard bundle dirs) with an
@@ -278,8 +277,7 @@ function isInlineBundlePath(token: string): boolean {
 // surrounding prose DIRECTS the agent to ACT on the file (read/run/see/…) AND
 // carries no illustrative/hypothetical cue. We bias HARD toward precision
 // here: missing a real dead-ref is far better than a false positive on a
-// teaching skill (the same don't-cry-wolf discipline as the loader's
-// `danglingRefs`). A markdown link is still the HIGHER-confidence shape (it
+// teaching skill (don't cry wolf). A markdown link is still the HIGHER-confidence shape (it
 // requires an explicit `[text](target)`, not just a bare backtick span), but
 // the illustrative-cue skip applies to it too — see `inlinePathIsUsed`.
 

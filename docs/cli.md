@@ -828,8 +828,7 @@ Pass **more than one directory** — or a single **marketplace** root (a
 `audit` expands into its members) — and `audit` switches to a **ranked health
 leaderboard**: a deterministic structural-health score (0–100 + A–F) per plugin,
 worst issues first. Weights: a missing hook script −15 (won't run), a skill with
-no usable description −10 (can't trigger), a broken intra-plugin reference −8
-(partial-vendor / dead path), an agent with no `tools:` contract −5 (inherits
+no usable description −10 (can't trigger), an agent with no `tools:` contract −5 (inherits
 everything), an untested surface −3. Scoring deliberately ignores the loader's
 free-text warnings (they include doc-mention false positives), so the ranking
 stays defensible. A **command-only** plugin (`commands/*.md`), a **hooks-only** one
@@ -1044,7 +1043,7 @@ different contracts** — the classic gate-vs-report split (think `eslint .` /
   battery — through the `vigiles` testing API.
 
 They deliberately **share one implementation** of the few deterministic
-structural detectors they have in common (untested-surface, dangling-ref,
+structural detectors they have in common (untested-surface,
 description-script), per the `one-detector-no-drift` rule, so the two surfaces can
 never disagree. The asymmetry everywhere else is intentional: some checks need
 inputs only the gate has (your linter configs, your compiled output), and the
@@ -1059,7 +1058,7 @@ deterministic + every-commit).
 | Marked file/script ref verification                         |    ✓     |     –     |           –           |
 | Integrity/hash · duplicate-NCD · coverage · orphan docs     |    ✓     |     –     |           –           |
 | Untested surface                                            |  ✓ gate  |  ✓ ring   |           –           |
-| Dangling ref · description-script _(shared detectors)_      |    ✓     |     ✓     |           –           |
+| Description-script _(shared detector)_                      |    ✓     |     ✓     |           –           |
 | Instruction file · tool-contract/inherits-all · hooks · MCP |    –     |     ✓     |           –           |
 | Category rings + weighted health score                      |    –     |     ✓     |           –           |
 | HTML report                                                 |    –     | ✓ default |       ✓ default       |

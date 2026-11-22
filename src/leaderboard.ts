@@ -132,8 +132,8 @@ export function formatLeaderboard(scores: readonly PluginScore[]): string {
   out.push(
     "",
     "Structural health only (no model). Weights: missing hook -15, hard lethal-",
-    "trifecta unit -10, no-description skill -10, broken intra-plugin ref -8, dead",
-    "tool/MCP ref -8. Inherit-all subagents, inherits-all trifecta and untested",
+    "trifecta unit -10, no-description skill -10, dead tool/MCP ref -8.",
+    "Inherit-all subagents, inherits-all trifecta and untested",
     "surfaces are advisory — shown, not scored.",
   );
   return out.join("\n");
@@ -141,7 +141,7 @@ export function formatLeaderboard(scores: readonly PluginScore[]): string {
 
 const LEADERBOARD_METHOD =
   "_Structural health only (deterministic, no model): missing hook −15, hard " +
-  "lethal-trifecta unit −10, no-description skill −10, broken intra-plugin / dead-tool ref −8. " +
+  "lethal-trifecta unit −10, no-description skill −10, dead-tool ref −8. " +
   "Inherit-all subagents, inherits-all trifecta and untested surfaces are advisory " +
   "(shown, not scored). Behavioural columns (trigger-rate, collisions, egress) stack on top._";
 

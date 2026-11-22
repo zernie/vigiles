@@ -56,9 +56,7 @@ function ruleFindings(r: ScanReport): Record<string, number> {
   };
 }
 
-// FP-GUARD — real, well-formed plugins the rules must NOT flag. (superpowers has a
-// known dangling ref, but that's the OLD danglingRefs detector, not a new-rule
-// field — so the new-rule findings must still all be zero.)
+// FP-GUARD — real, well-formed plugins the rules must NOT flag.
 for (const prefix of [
   "oh-my-claudecode",
   "wshobson-accessibility",

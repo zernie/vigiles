@@ -40,7 +40,6 @@ import { resolve, join, relative, basename } from "node:path";
 import { assertNever } from "./core/hash.js";
 import type { SettingsCodec } from "./core/settings-codec.js";
 import {
-  executableSourceDirs,
   materializePrefix,
   surfaceDirs,
   type PluginLayout,
@@ -48,11 +47,6 @@ import {
 import { excludedBy, excludesNothing, type Excluded } from "./exclude.js";
 import type { ExcludeSet } from "./exclude.js";
 import { skillTreeEntryOf, walkableRoot } from "./fs-walk.js";
-import {
-  intraRefPattern,
-  startsAtSeparator,
-  stripFullLineComments,
-} from "./core/source-refs.js";
 import {
   assertDistinctScopeKeys,
   multiScopeWarning,
@@ -754,15 +748,6 @@ function pluginWarnings(
       `plugin declares MCP server(s) (${layout.mcpManifestKey} / ${layout.mcpConfigFile}) — the loader does not wire MCP; bring the server up yourself if your test needs it.`,
     );
   }
-  const dangling = danglingRefs(root, layout);
-  if (dangling.length) {
-    const shown = dangling.slice(0, 5).join(", ");
-    const more =
-      dangling.length > 5 ? `, … (+${String(dangling.length - 5)})` : "";
-    warnings.push(
-      `plugin references ${String(dangling.length)} intra-plugin file(s) that don't exist (broken path / partial vendor): ${shown}${more}`,
-    );
-  }
   if (!hooks && Object.keys(files).length === 0) {
     warnings.push(
       `nothing was loaded (no hooks, CLAUDE.md, skills, agents, or commands) — the deterministic harness would run an effectively empty machine.`,
@@ -777,137 +762,6 @@ function pluginWarnings(
 function hasMcp(root: string, layout: PluginLayout): boolean {
   if (existsSync(join(root, layout.mcpConfigFile))) return true;
   return safeReadManifest(root, layout)?.[layout.mcpManifestKey] !== undefined;
-}
-
-// A plugin-relative path reference to a file under a standard surface dir, with a
-// known extension — e.g. a hook script that `cat`s `skills/using-superpowers/SKILL.md`.
-// The extension vocabulary and BOTH token boundaries live in core/source-refs.ts,
-// so this and its browser twin (scan-files.ts) cannot disagree on them and
-// neither can omit one. See that module for the two boundary defects.
-function intraRefRe(layout: PluginLayout): RegExp {
-  return intraRefPattern(executableSourceDirs(layout));
-}
-
-// Shell vars that root a path OUTSIDE the plugin (the user's project / home), so
-// a `surface/…` after one is NOT a plugin-root ref. Anything else ($ROOT,
-// $PLUGIN_ROOT, ${CLAUDE_PLUGIN_ROOT}, …) is taken as the plugin root.
-const NON_PLUGIN_VARS = new Set([
-  "CLAUDE_PROJECT_DIR",
-  "CLAUDE_PROJECT",
-  "HOME",
-  "PWD",
-  "OLDPWD",
-]);
-
-/**
- * Is a surface-dir match at `idx` actually rooted at the PLUGIN (so checkable
- * under `root`), vs nested under a literal dir or a project/home var? A match
- * preceded by a literal segment (`.claude/hooks/…` — a PROJECT path, the
- * gmickel/flow-next false positive) or a project var (`$CLAUDE_PROJECT_DIR/…`)
- * is NOT a plugin ref. A bare ref (`cat skills/…`) or one after a plugin-root
- * var (`${PLUGIN_ROOT}/skills/…`, obra/superpowers) IS.
- *
- * 🔴 THE FIRST QUESTION IS WHETHER THE MATCH STARTS AT A PATH BOUNDARY AT ALL.
- * "Not preceded by a slash" used to be read as "bare reference", which made
- * `claude-agents/fable-advisor.md` a bare reference to `agents/fable-advisor.md`
- * — a resolving path reported broken (`fcakyon/claude-codex-settings`,
- * 2026-08-17). A preceding path-segment character means the match landed inside
- * a longer name, which is not a reference to anything.
- */
-function isPluginRooted(content: string, idx: number): boolean {
-  // No `idx === 0` case: start-of-content IS a boundary, and that rule belongs
-  // to `startsAtSeparator` (`idx <= 0 → true`), which the next line reaches with
-  // `content[-1] === undefined`. Restating it here would be a second copy of a
-  // boundary this module deliberately does not own.
-  if (content[idx - 1] !== "/") return startsAtSeparator(content, idx);
-  // The path component immediately before the separating slash.
-  const seg = /([^\s"'`(=:/]*)$/.exec(content.slice(0, idx - 1))?.[1] ?? "";
-  const varName = /^\$\{?(\w+)\}?$/.exec(seg)?.[1];
-  if (varName !== undefined) return !NON_PLUGIN_VARS.has(varName); // a var root
-  return false; // a literal dir segment → nested, not a plugin-root ref
-}
-
-// Documentation files (skill bodies, command docs, reference notes) are PROSE —
-// a `skills/foo/SKILL.md` path inside them is almost always an example, a
-// template placeholder (`wc -w skills/path/SKILL.md`), or a "❌ Bad" sample, not
-// a real file operation. Scanning them produced near-100% false positives across
-// real plugins (wshobson/agents, obra/superpowers), so we skip them as SOURCES.
-// A path in an executable hook/helper script (incl. extensionless ones like
-// obra/superpowers' `hooks/session-start`) IS a real file op — those we scan.
-const DOC_SOURCE_RE = /\.(?:md|markdown|mdx|txt|rst)$/i;
-
-/**
- * Intra-plugin file references that don't resolve — the partial-vendor / broken-
- * path class (e.g. obra/superpowers' `hooks/session-start` reads
- * `skills/using-superpowers/SKILL.md`, which a sliced vendor snapshot omits). We
- * scan the plugin's own EXECUTABLE files under the surface dirs (hook/helper
- * scripts — those aren't materialized into `files`) for root-relative path refs
- * and report the ones missing on disk. Documentation sources are deliberately
- * excluded (see `DOC_SOURCE_RE`) — a path in prose is undecidably ref-or-example,
- * the same heuristic-scanning anti-pattern reference verification rejects. A
- * static check that would have caught a bug the dogfood hit twice. Best-effort:
- * a warning, not an error.
- */
-/**
- * Whether ref `ref` (a matched intra-plugin path) resolves under `root` — the
- * direct plugin-relative reading first, then, as a fallback (issue #110), a
- * REPO-CHECKOUT-RELATIVE reading: a usage comment/echo written as it would run
- * from the repo root (`skills/<plugin>/hooks/setup.sh`) echoes the PLUGIN'S OWN
- * containing surface dir + directory name ahead of the real plugin-relative
- * path (`hooks/setup.sh`) — joining that straight onto `root` double-roots it
- * and always misses. When the ref's first two segments are `<surfaceDir>/<name>`
- * and `<name>` is this plugin's own directory name, strip them and retry. BOTH
- * readings must miss before we call it dangling, so a genuinely broken ref is
- * never masked by the fallback.
- */
-function resolvesUnderRoot(ref: string, root: string): boolean {
-  if (existsSync(join(root, ref))) return true;
-  const segs = ref.split("/");
-  if (segs.length > 2 && segs[1] === basename(root)) {
-    const rest = segs.slice(2).join("/");
-    if (rest.length > 0 && existsSync(join(root, rest))) return true;
-  }
-  return false;
-}
-
-/** Path refs in `content` (matched by `re`) that don't resolve under `root`. */
-function missingRefsIn(content: string, re: RegExp, root: string): string[] {
-  const out: string[] = [];
-  for (const m of content.matchAll(re)) {
-    if (m.index !== undefined && !isPluginRooted(content, m.index)) continue;
-    if (!resolvesUnderRoot(m[0], root)) out.push(m[0]);
-  }
-  return out;
-}
-
-/** The plugin's executable (non-prose) source files under the surface dirs. */
-function executableSources(
-  root: string,
-  layout: PluginLayout,
-): Record<string, string> {
-  const sources: Record<string, string> = {};
-  for (const surface of executableSourceDirs(layout)) {
-    const dir = join(root, surface);
-    if (!existsSync(dir) || !statSync(dir).isDirectory()) continue;
-    if (!walkableRoot(dir, root)) continue; // the walk's entry point, see fs-walk
-    for (const [path, content] of Object.entries(readTree(dir, root))) {
-      if (DOC_SOURCE_RE.test(path)) continue; // skip prose
-      // A full-line comment is prose in EVERY language, not only in shell —
-      // both remaining corpus false positives here came out of JSDoc. See
-      // core/source-refs.ts.
-      sources[path] = stripFullLineComments(path, content);
-    }
-  }
-  return sources;
-}
-
-export function danglingRefs(root: string, layout: PluginLayout): string[] {
-  const re = intraRefRe(layout);
-  const missing = new Set<string>();
-  for (const content of Object.values(executableSources(root, layout))) {
-    for (const ref of missingRefsIn(content, re, root)) missing.add(ref);
-  }
-  return [...missing];
 }
 
 type HooksObj = { hooks?: Record<string, unknown[]> };

@@ -43,6 +43,10 @@ const shown = <S extends ScanInput>(scan: S) =>
 
 const OPTS = { harness: "claude-code", vigilesVersion: "9.9.9-parity-test" };
 
+/** The disk engine over a checkout, under the default harness. */
+const diskScan = (abs: string): ScanReport =>
+  scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
+
 // The vendored plugins scanPlugin can load (see test/dogfood/README.md provenance).
 const PLUGINS = [
   "oh-my-claudecode@deee3a4",
@@ -78,7 +82,6 @@ function normalizeRoot<T>(value: T, abs: string): T {
 function stabilize(report: ScanReport): ScanReport {
   return {
     ...report,
-    danglingRefs: [...report.danglingRefs].sort(),
     descriptionOverlaps: [...report.descriptionOverlaps].sort((a, b) =>
       `${a.a}\u0000${a.b}`.localeCompare(`${b.a}\u0000${b.b}`),
     ),
@@ -95,7 +98,7 @@ describe("scanFiles parity with scanPlugin (buildAuditReport byte-identical)", (
       // repo root, where the vendored plugins live.
       const abs = resolve(__dirname, "..", "test/dogfood", name);
 
-      const diskReport = scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
+      const diskReport = diskScan(abs);
       const map = readDirToMap(abs);
       const fileReport = scanFiles(map);
 
@@ -108,7 +111,7 @@ describe("scanFiles parity with scanPlugin (buildAuditReport byte-identical)", (
       expect(fileAudit).toEqual(diskAudit);
 
       // Stronger: the raw ScanReport itself matches field-for-field (only the
-      // fs-walk order of `danglingRefs`/description arrays is normalized away).
+      // fs-walk order of the description arrays is normalized away).
       const diskRaw = stabilize(normalizeRoot(diskReport, abs));
       const fileRaw = stabilize(fileReport);
       expect(fileRaw).toEqual(diskRaw);
@@ -174,7 +177,7 @@ describe("scanFiles parity for a SINGLE-SKILL-AT-ROOT repo (the shape no vendore
       for (const [rel, body] of Object.entries(files))
         writeFileSync(join(abs, rel), body);
 
-      const diskReport = scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
+      const diskReport = diskScan(abs);
       const fileReport = scanFiles(
         readDirToMap(abs),
         undefined,
@@ -238,10 +241,8 @@ describe("scanFiles: only a vigiles test grants coverage (the browser twin asks 
     mkdirSync(abs, { recursive: true });
     for (const [rel, body] of Object.entries(files))
       writeFileSync(join(abs, rel), body);
-    const disk = buildAuditReport(
-      shown(scanPlugin(abs, claudeCodeLayout, claudeCodeDialect)),
-      OPTS,
-    ).inventory.untested;
+    const disk = buildAuditReport(shown(diskScan(abs)), OPTS).inventory
+      .untested;
     const twin = buildAuditReport(
       shown(scanFiles(files, undefined, undefined, "single-skill-repo")),
       OPTS,
@@ -287,7 +288,7 @@ describe("scanFiles parity for NESTED agents (the shape no vendored fixture has)
       writeFileSync(join(abs, rel), body);
     }
 
-    const diskReport = scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
+    const diskReport = diskScan(abs);
     const fileReport = scanFiles(
       readDirToMap(abs),
       undefined,
@@ -318,11 +319,7 @@ describe("scanFiles parity for NESTED agents (the shape no vendored fixture has)
       writeFileSync(join(abs, rel), body);
     }
     const expected = ["review:deep:perf", "review:security", "top"];
-    expect(
-      scanPlugin(abs, claudeCodeLayout, claudeCodeDialect).agents.map(
-        (a) => a.name,
-      ),
-    ).toEqual(expected);
+    expect(diskScan(abs).agents.map((a) => a.name)).toEqual(expected);
     expect(
       scanFiles(
         readDirToMap(abs),
@@ -334,10 +331,7 @@ describe("scanFiles parity for NESTED agents (the shape no vendored fixture has)
     // The untested count is the half that runs through the two SEPARATE
     // coverage discoverers, so pin it too: three agents, no colocated tests.
     expect(
-      buildAuditReport(
-        shown(scanPlugin(abs, claudeCodeLayout, claudeCodeDialect)),
-        OPTS,
-      ).inventory.untested,
+      buildAuditReport(shown(diskScan(abs)), OPTS).inventory.untested,
     ).toBe(3);
     expect(
       buildAuditReport(
@@ -381,7 +375,7 @@ describe("scanFiles parity for a TWO-SCOPE repo (root skills/ AND .claude/skills
       mkdirSync(dirname(join(abs, rel)), { recursive: true });
       writeFileSync(join(abs, rel), body);
     }
-    const diskReport = scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
+    const diskReport = diskScan(abs);
     const fileReport = scanFiles(
       readDirToMap(abs),
       undefined,
@@ -460,117 +454,77 @@ describe("scanFiles — non-plugin and empty inputs", () => {
   });
 });
 
-describe("scanFiles — dangling-ref false positives (issue #110)", () => {
-  const repoName = "my-plugin";
+/**
+ * No path read out of a script or test body is a broken reference (#442).
+ *
+ * The harness never reads a hook script's or a self-test's body as a pointer
+ * to a file, so nothing in one is reported — in either engine. The four bodies
+ * are the shapes of the false findings in #442 (a temp file a self-test
+ * creates, a runner's expected output, a test command line) plus the one true
+ * shape this gives up: a hook script that `cat`s a skill file that is not there.
+ */
+describe("a path in a script or test body is never a broken reference (#442)", () => {
+  const plugin: Record<string, string> = {
+    "hooks/hooks.json": JSON.stringify({
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: "hooks/session-start.sh",
+              },
+            ],
+          },
+        ],
+      },
+    }),
+    // The accepted cost: a hook script naming a skill file that is missing.
+    "hooks/session-start.sh":
+      "#!/usr/bin/env bash\ncat skills/using-x/SKILL.md\n",
+    // A temp file the self-test creates and removes.
+    "hooks/tests/self-test.sh":
+      '#!/usr/bin/env bash\nout=hooks/tests/.out.json\necho "{}" > "$out"\nrm -f "$out"\n',
+    // A runner's expected output.
+    "hooks/tests/run.mjs":
+      'assert.equal(stdout.trim(), "skills/demo/expected.md");\n',
+    // A test command line held in a string.
+    "hooks/tests/cases.sh":
+      '#!/usr/bin/env bash\nrun "npm test -- hooks/fixtures/case-3.json"\n',
+  };
 
-  it("does not read a `#`-comment usage example as a dangling ref", () => {
-    const map = {
-      "hooks/setup.sh": "echo installed\n",
-      "hooks/print-usage.sh": [
-        "#!/usr/bin/env bash",
-        `# Usage: bash skills/${repoName}/hooks/setup.sh`,
-        "echo done",
-      ].join("\n"),
-    };
-    expect(scanFiles(map, undefined, undefined, repoName).danglingRefs).toEqual(
-      [],
+  /** Both engines' audit reports over the same files. */
+  function bothReports() {
+    const abs = makeTmpDir("no-script-refs");
+    try {
+      for (const [rel, content] of Object.entries(plugin)) {
+        mkdirSync(dirname(join(abs, rel)), { recursive: true });
+        writeFileSync(join(abs, rel), content);
+      }
+      const disk = diskScan(abs);
+      return {
+        disk: normalizeRoot(buildAuditReport(shown(disk), OPTS), abs),
+        diskWarnings: disk.warnings,
+        files: buildAuditReport(shown(scanFiles(plugin)), OPTS),
+        filesWarnings: scanFiles(plugin).warnings,
+      };
+    } finally {
+      cleanupTmpDir(abs);
+    }
+  }
+
+  it("reports no broken reference and no warning, in either engine", () => {
+    const r = bothReports();
+    expect(r.files).toEqual(r.disk);
+    expect(r.diskWarnings).toEqual([]);
+    expect(r.filesWarnings).toEqual([]);
+  });
+
+  it("leaves Truthfulness with nothing to deduct", () => {
+    const truth = bothReports().disk.score.categories.find(
+      (c) => c.key === "Truthfulness",
     );
-  });
-
-  it("resolves a repo-checkout-relative echo of the audited root's own name on a non-comment line", () => {
-    const map = {
-      "hooks/setup.sh": "echo installed\n",
-      "hooks/print-usage.sh": `echo "run: bash skills/${repoName}/hooks/setup.sh"\n`,
-    };
-    expect(scanFiles(map, undefined, undefined, repoName).danglingRefs).toEqual(
-      [],
-    );
-  });
-
-  it("still flags a genuinely missing ref shaped like a repo-root echo (no under-detection)", () => {
-    const map = {
-      "hooks/print-usage.sh": `echo "run: bash skills/${repoName}/hooks/really-missing.sh"\n`,
-    };
-    expect(scanFiles(map, undefined, undefined, repoName).danglingRefs).toEqual(
-      [`skills/${repoName}/hooks/really-missing.sh`],
-    );
-  });
-
-  it("comment-stripping in a .sh script still flags a genuine missing ref on a real code line", () => {
-    const map = {
-      "hooks/setup.sh": [
-        "#!/usr/bin/env bash",
-        `# Usage: bash skills/${repoName}/hooks/setup.sh`, // comment — ignored
-        'cat "skills/real-missing/SKILL.md"', // real code line — still flagged
-      ].join("\n"),
-    };
-    const dangling = scanFiles(
-      map,
-      undefined,
-      undefined,
-      repoName,
-    ).danglingRefs;
-    expect(dangling).toEqual(["skills/real-missing/SKILL.md"]);
-  });
-
-  it("reads hooks/hooks.json as .json — not as a missing hooks/.js (dogfood 2026-08-17)", () => {
-    // The browser HALF of the boundary fix. Both twins carried the same
-    // unbounded extension alternation; fixing only the disk one would have left
-    // the demo engine accusing microsoft/power-platform-skills forever.
-    const map = {
-      "hooks/hooks.json": "{}",
-      "hooks/h.js": 'load("./hooks.json"); // registered in hooks/hooks.json\n',
-    };
-    expect(scanFiles(map, undefined, undefined, repoName).danglingRefs).toEqual(
-      [],
-    );
-  });
-
-  it("does not read the tail of `claude-agents/` as a reference to `agents/`", () => {
-    const map = {
-      "agents/real.md": "---\nname: real\ndescription: real\n---\n",
-      "hooks/h.js": 'new URL("../../claude-agents/adv.md", import.meta.url);\n',
-    };
-    expect(scanFiles(map, undefined, undefined, repoName).danglingRefs).toEqual(
-      [],
-    );
-  });
-
-  it("does not read a full-line JSDoc mention as a file operation", () => {
-    const map = {
-      "hooks/h.js": [
-        "/**",
-        " * `git log -- hooks/never-existed.mjs` is refused for a word in a search.",
-        " */",
-        "run();",
-      ].join("\n"),
-    };
-    expect(scanFiles(map, undefined, undefined, repoName).danglingRefs).toEqual(
-      [],
-    );
-  });
-
-  it("still flags a genuinely missing .json ref on a code line, under its REAL name", () => {
-    // The other half of every case above: the boundary and the comment rule
-    // must not have turned the detector off.
-    const map = {
-      "hooks/h.js": 'const p = "hooks/gone.json";\nload(p);\n',
-    };
-    expect(scanFiles(map, undefined, undefined, repoName).danglingRefs).toEqual(
-      ["hooks/gone.json"],
-    );
-  });
-
-  it("without a repoName, falls back to BROWSER_ROOT's basename for the echo check", () => {
-    // Mirrors the single-skill naming fallback (`repoName ?? basename(BROWSER_ROOT)`)
-    // — the parity path (scanFiles(map) with no repoName) must still resolve an
-    // echo of BROWSER_ROOT's own basename, not silently stop checking.
-    const rootBase = basename(BROWSER_ROOT);
-    const map = {
-      "hooks/setup.sh": "echo installed\n",
-      "hooks/print-usage.sh": `echo "run: bash skills/${rootBase}/hooks/setup.sh"\n`,
-    };
-    expect(scanFiles(map).danglingRefs).toEqual([]);
+    expect(truth).toMatchObject({ score: 100, findings: [] });
   });
 });
 
@@ -628,7 +582,7 @@ describe("scanFiles parity for INSTRUCTION files (the shape no vendored fixture 
     const abs = join(tmp, "instruction-repo");
     write(abs);
 
-    const diskReport = scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
+    const diskReport = diskScan(abs);
     const fileReport = scanFiles(
       readDirToMap(abs),
       undefined,
@@ -652,7 +606,7 @@ describe("scanFiles parity for INSTRUCTION files (the shape no vendored fixture 
     const abs = join(tmp, "instruction-repo");
     write(abs);
 
-    const disk = scanPlugin(abs, claudeCodeLayout, claudeCodeDialect);
+    const disk = diskScan(abs);
     const browser = scanFiles(
       readDirToMap(abs),
       undefined,

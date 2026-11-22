@@ -3,7 +3,7 @@ import type { AuditReport } from "./schema";
 /** Dev/fallback fixture — shown by `npm run dev` and if the CLI hasn't injected data. */
 export const SAMPLE: AuditReport = {
   meta: {
-    schemaVersion: 3,
+    schemaVersion: 4,
     tool: "vigiles",
     kind: "audit",
     vigilesVersion: "0.0.0",

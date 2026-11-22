@@ -10,7 +10,7 @@
  * find the skill at all.
  *
  * HIGH-PRECISION / FP-SAFE, by the same don't-cry-wolf discipline as the rest of
- * vigiles (see `danglingRefs`, `confidentToolIssues`): we flag ONLY when the
+ * vigiles (see `confidentToolIssues`): we flag ONLY when the
  * first non-blank, non-comment line matches a KNOWN frontmatter key at column 0
  * from an explicit whitelist (`name`, `description`, `allowed-tools`, `tools`,
  * `model`, `color`, `disable-model-invocation`, `argument-hint`, `version`,

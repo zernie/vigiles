@@ -25,7 +25,6 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     staleHooks: [],
     commands: 1, // a surface, so it's not the empty machine
     mcp: false,
-    danglingRefs: [],
     hookEventIssues: [],
     frontmatterIssues: [],
     frontmatterValueIssues: [],
@@ -85,12 +84,11 @@ describe("computeVerdict", () => {
     // An agent naming an unknown model alias: 100 − 5 = 95 (A), graded but NOT a
     // recommendation. The verdict must not claim clean while the report shows it.
     //
-    // Deliberately NOT a dangling ref any more, which is what this test used
-    // before 2026-08-28: a broken reference is a CONFIDENT BREAKAGE and now caps
-    // the score at 89, so "an A carrying a dangling ref" is a state that can no
-    // longer exist. An invalid model alias is a SILENT FALLBACK — the agent still
-    // registers, it just ignores the value — so it dents without capping, which is
-    // exactly the line the cap is drawn on (score-core.ts::confidentBreakages).
+    // Deliberately not a confident breakage, which caps the score at 89 and so
+    // cannot leave an A. An invalid model alias is a SILENT FALLBACK — the agent
+    // still registers, it just ignores the value — so it dents without capping,
+    // which is exactly the line the cap is drawn on
+    // (score-core.ts::confidentBreakages).
     // (A description overlap was tried first and rejected: it IS a recommendation,
     // which would have changed what this test asserts.)
     const report = makeReport({

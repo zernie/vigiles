@@ -2191,16 +2191,6 @@
       "count": 1
     }
   },
-  "src/core/source-refs.test.ts": {
-    "local/no-harness-names": {
-      "count": 1
-    }
-  },
-  "src/core/source-refs.ts": {
-    "functional/prefer-immutable-types": {
-      "count": 1
-    }
-  },
   "src/core/spec.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 19
@@ -3391,13 +3381,13 @@
       "count": 1
     },
     "functional/immutable-data": {
-      "count": 26
+      "count": 22
     },
     "functional/no-loop-statements": {
-      "count": 18
+      "count": 13
     },
     "functional/prefer-immutable-types": {
-      "count": 30
+      "count": 23
     },
     "no-param-reassign": {
       "count": 2
@@ -3650,7 +3640,7 @@
       "count": 1
     },
     "local/no-harness-names": {
-      "count": 36
+      "count": 20
     }
   },
   "src/scan-files.ts": {
@@ -3661,13 +3651,13 @@
       "count": 2
     },
     "functional/immutable-data": {
-      "count": 19
+      "count": 16
     },
     "functional/no-loop-statements": {
-      "count": 11
+      "count": 7
     },
     "functional/prefer-immutable-types": {
-      "count": 39
+      "count": 32
     },
     "local/no-harness-names": {
       "count": 6
@@ -3705,7 +3695,7 @@
       "count": 1
     },
     "local/no-harness-names": {
-      "count": 308
+      "count": 303
     },
     "local/no-rule-ids": {
       "count": 2
@@ -3719,7 +3709,7 @@
       "count": 1
     },
     "functional/immutable-data": {
-      "count": 42
+      "count": 41
     },
     "functional/no-let": {
       "count": 3

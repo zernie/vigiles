@@ -261,8 +261,8 @@ export function isHookPlanInput(path: string): boolean {
  * Repo-relative paths a harness file references but that the harness-path filter
  * drops — scripts living OUTSIDE the harness dirs. The CLI reads the whole repo, so
  * to stay byte-identical the browser fetches any referenced path present in the
- * tree: the detectors that read script CONTENT (a broken intra-plugin reference
- * inside a hook script) must see the same files. Hook command lines themselves are
+ * tree: the detectors that read script CONTENT (a hook script that cannot block)
+ * must see the same files. Hook command lines themselves are
  * never read for a script (see `hookLinePlan` in the engine). Two forms: (1)
  * plugin-root / project-dir tokens (`${CLAUDE_PLUGIN_ROOT}/scripts/guard.sh`, braced
  * or unbraced); (2) a RELATIVE dir-qualified script path (`scripts/guard.sh`,

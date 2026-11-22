@@ -1,6 +1,6 @@
 {
   "meta": {
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "tool": "vigiles",
     "kind": "audit",
     "vigilesVersion": "live",
@@ -8,14 +8,14 @@
     "dir": "acme/widgets"
   },
   "score": {
-    "overall": 56,
-    "grade": "F",
+    "overall": 64,
+    "grade": "D",
     "categories": [
       {
         "key": "Truthfulness",
-        "score": 92,
+        "score": 100,
         "weight": 1,
-        "findings": ["1 broken intra-plugin reference"]
+        "findings": []
       },
       {
         "key": "Triggering",
@@ -61,9 +61,9 @@
     "instructionsOnly": false
   },
   "verdict": {
-    "sentence": "One fix away from a D.",
-    "grade": "F",
-    "pointsToNextGrade": 4,
+    "sentence": "One fix away from a C.",
+    "grade": "D",
+    "pointsToNextGrade": 6,
     "fixesToNextGrade": 1,
     "perRecommendation": [
       {
@@ -109,7 +109,6 @@
       "configured": 0
     }
   },
-  "brokenReferences": ["hooks/guard.sh"],
   "contextCost": {
     "alwaysLoaded": {
       "unit": "chars",

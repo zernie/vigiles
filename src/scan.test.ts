@@ -1274,66 +1274,6 @@ test("formatScanReport flags the no-description skill", () => {
   cleanupTmpDir(dir);
 });
 
-test("scanPlugin surfaces a dangling ref from a hook script, but ignores prose mentions", () => {
-  const dir = makeTmpDir("scan-dangling");
-  // A hook SCRIPT that reads a sibling skill file which doesn't exist — the
-  // real partial-vendor / broken-path class (obra/superpowers' hooks/session-start
-  // reads skills/using-superpowers/SKILL.md). Executable → a real file op.
-  write(
-    dir,
-    "hooks/session-start.sh",
-    "#!/usr/bin/env bash\ncat skills/missing-helper/SKILL.md\n",
-  );
-  // A SKILL.md that merely MENTIONS a missing path in prose is NOT a real ref
-  // (it's an example / template) and must NOT be flagged — the doc-mention trap.
-  write(
-    dir,
-    "skills/docs/SKILL.md",
-    "---\nname: docs\ndescription: A skill mentioning skills/not-real/SKILL.md as an example here\n---\nSee skills/not-real/SKILL.md\n",
-  );
-  const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
-  assert.deepEqual(r.danglingRefs, ["skills/missing-helper/SKILL.md"]);
-  const text = formatScanReport(shown(r));
-  assert.ok(text.includes("Broken references"));
-  assert.ok(/✗ skills\/missing-helper\/SKILL\.md/.test(text));
-  assert.ok(text.includes("structural issue")); // counted in the verdict
-  // shown once (as a ✗), not duplicated in the free-text Warnings block
-  assert.ok(!text.includes("intra-plugin file(s) that don't exist"));
-  cleanupTmpDir(dir);
-});
-
-test("scanPlugin: the reference extractor does not accuse a file that is present", () => {
-  // The disk half of the boundary + comment fixes (dogfood 2026-08-17). Three
-  // planted false-accusation shapes and one control, in one plugin so the
-  // control proves the detector is still on.
-  const dir = makeTmpDir("scan-refs");
-  write(dir, ".claude-plugin/plugin.json", '{"name":"p","version":"0.1.0"}');
-  write(dir, "hooks/hooks.json", '{"hooks":{}}');
-  // 1. `.json` truncated to `.js` — the file is right there.
-  write(dir, "hooks/a.js", 'load("./hooks.json"); // see hooks/hooks.json\n');
-  // 2. the surface dir matched inside a longer name.
-  write(dir, "claude-agents/adv.md", "---\nname: adv\ndescription: adv\n---\n");
-  write(
-    dir,
-    "hooks/b.js",
-    'new URL("../claude-agents/adv.md", import.meta.url);\n',
-  );
-  // 3. a path named only in a full-line JSDoc comment.
-  write(
-    dir,
-    "hooks/c.js",
-    "/**\n * `git log -- hooks/never-existed.mjs` is refused.\n */\nrun();\n",
-  );
-  // 4. CONTROL — a genuinely missing ref on a real code line, reported under
-  //    the name the author actually wrote.
-  write(dir, "hooks/d.js", 'const p = "hooks/gone.json";\nload(p);\n');
-  assert.deepEqual(
-    scanPlugin(dir, claudeCodeLayout, claudeCodeDialect).danglingRefs,
-    ["hooks/gone.json"],
-  );
-  cleanupTmpDir(dir);
-});
-
 test("scanPlugin: an inline `node -e` hook is not reported as a missing script", () => {
   // ayghri/i-have-adhd + microsoft/power-platform-skills: a character run cut
   // out of the JavaScript payload was reported as the hook's script name, and
@@ -2217,8 +2157,8 @@ test("a surface ROOT that links back over the repo is refused, so the walk stays
   // BOTH root shapes point back at the repo: the user form (`.claude/skills`) and
   // the plugin form (`skills`). Between them they are the entry point of every
   // walk in the codebase — `harnessSurfaceFilesOnDisk`, the loader's root-surface
-  // pass, its user-surface pass, and `executableSources` (which feeds
-  // `danglingRefs`) — and each was reached through `readdirSync` unclassified.
+  // pass and its user-surface pass — and each was reached through `readdirSync`
+  // unclassified.
   symlinkSync(join(dir), join(dir, ".claude", "skills"), "dir");
   symlinkSync(join(dir), join(dir, "skills"), "dir");
 

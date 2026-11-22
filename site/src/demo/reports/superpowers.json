@@ -64,7 +64,6 @@
     "mcp": false,
     "untested": 2
   },
-  "brokenReferences": ["skills/using-superpowers/SKILL.md"],
   "adoptable": {
     "surfaces": [
       {
