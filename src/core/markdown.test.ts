@@ -6,7 +6,12 @@
  * out as a real heading.
  */
 import { describe, it, expect } from "vitest";
-import { fencedLineFlags, markdownRefs, proseLines } from "./markdown.js";
+import {
+  fencedLineFlags,
+  markdownRefs,
+  proseLines,
+  proseLinesAt,
+} from "./markdown.js";
 
 /** Indices (0-based) whose flag is true, for compact assertions. */
 const fencedIndices = (src: string): number[] =>
@@ -183,9 +188,47 @@ describe("markdownRefs", () => {
     ]);
   });
 
+  // The two siblings the reference graph flagged as unverified: both were
+  // emitted before, so "move the example into a code block" did not work for
+  // an indented block, and a commented-out line was still a reference.
+  it("contributes nothing from inside an INDENTED code block", () => {
+    const src = ["Intro.", "", "    See `scripts/z.sh` and [x](a/b.md)", ""];
+    expect(refs(src.join("\n"))).toEqual([]);
+  });
+
+  it("contributes nothing from inside an HTML comment, block or inline", () => {
+    const block = ["<!--", "Read `docs/old.md`", "-->"].join("\n");
+    expect(refs(block)).toEqual([]);
+    expect(refs("Keep <!-- `docs/old.md` --> `docs/new.md`.")).toEqual([
+      "code:docs/new.md@1",
+    ]);
+  });
+
   it("keeps a link with a title, which the regex it replaces could not match", () => {
     expect(refs('Read [a](refs/b.md "the title")')).toEqual([
       "link:refs/b.md@1",
+    ]);
+  });
+});
+
+describe("proseLinesAt", () => {
+  it("numbers each prose line by its source line, frontmatter-free input", () => {
+    const src = [
+      "# Title",
+      "",
+      "one",
+      "two",
+      "",
+      "```",
+      "@x.md",
+      "```",
+      "three",
+    ];
+    expect(proseLinesAt(src.join("\n"))).toEqual([
+      { text: "Title", line: 1 },
+      { text: "one", line: 3 },
+      { text: "two", line: 4 },
+      { text: "three", line: 9 },
     ]);
   });
 });

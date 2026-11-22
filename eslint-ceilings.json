@@ -29,7 +29,7 @@
     "max-lines-per-function": 62
   },
   "src/adapters/claude-code/instruction-chain.test.ts": {
-    "max-lines-per-function": 235
+    "max-lines-per-function": 234
   },
   "src/adapters/claude-code/instruction-chain.ts": {
     "max-lines-per-function": 83,

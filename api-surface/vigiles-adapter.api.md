@@ -243,7 +243,9 @@ export interface ModelRequest {
 // @public
 export interface NamedImport {
     readonly from: string;
+    readonly line?: number;
     readonly path: string;
+    readonly scope?: InstructionScope;
     readonly token: string;
 }
 

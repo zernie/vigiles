@@ -69,6 +69,23 @@ export function frontmatterBody(markdown: string): string {
 }
 
 /** Extract + parse the leading frontmatter block, never throwing. */
+/**
+ * {@link frontmatterBody}, and the 1-based line of the REAL file the body's
+ * first line is — so a reader numbering lines of the body adds `firstLine - 1`
+ * and names a line of the file, not of the slice (#206).
+ */
+export function frontmatterBodyAt(markdown: string): {
+  readonly body: string;
+  readonly firstLine: number;
+} {
+  const m = BLOCK_RE.exec(markdown);
+  if (m === null) return { body: markdown, firstLine: 1 };
+  return {
+    body: markdown.slice(m[0].length),
+    firstLine: m[0].split("\n").length,
+  };
+}
+
 export function readFrontmatter(markdown: string): FrontmatterRead {
   const m = BLOCK_RE.exec(markdown);
   if (!m) return { data: null, block: null, malformed: false };

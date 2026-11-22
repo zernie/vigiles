@@ -148,9 +148,10 @@ import {
 } from "../../core/instruction-chain.js";
 import {
   frontmatterBody,
+  frontmatterBodyAt,
   readFrontmatter,
 } from "../../core/frontmatter-read.js";
-import { proseLines } from "../../core/markdown.js";
+import { proseLines, proseLinesAt } from "../../core/markdown.js";
 
 /**
  * The settings key that removes files from the chain, and the frontmatter key
@@ -325,16 +326,28 @@ function contentLines(text: string): readonly string[] {
   return proseLines(frontmatterBody(text));
 }
 
-/** Every `@import` token in one file, deduplicated, in first-seen order. */
-function importTokens(text: string): readonly string[] {
-  const out: string[] = [];
-  for (const line of contentLines(text)) {
-    for (const m of line.matchAll(IMPORT_TOKEN)) {
+/**
+ * Every `@import` token in one file, deduplicated, in first-seen order, with
+ * the 1-based line of the FILE it is on (frontmatter included in the count).
+ */
+function importTokens(
+  text: string,
+): readonly { readonly token: string; readonly line: number }[] {
+  const { body, firstLine } = frontmatterBodyAt(text);
+  const out: { token: string; line: number }[] = [];
+  for (const prose of proseLinesAt(body)) {
+    for (const m of prose.text.matchAll(IMPORT_TOKEN)) {
       const token = m[1];
-      if (token !== undefined && !out.includes(token)) out.push(token);
+      if (token !== undefined && !out.some((o) => o.token === token))
+        out.push({ token, line: prose.line + firstLine - 1 });
     }
   }
   return out;
+}
+
+/** One machine's import: the importer is, or the target is by name. */
+function importScope(entry: LoadedInstruction, path: string): InstructionScope {
+  return isPerMachineName(path) ? "local" : entry.scope;
 }
 
 /**
@@ -680,12 +693,17 @@ function nameImportsOf(b: Building, entry: LoadedInstruction): void {
   const text = b.files[entry.path];
   if (text === undefined) return;
   const named = importTokens(text)
-    .filter((token) => isRepoRootedImport(token.slice(1)))
-    .map((token) => ({
-      path: resolveImportPath(entry.path, token.slice(1)),
-      token,
-      from: entry.path,
-    }))
+    .filter(({ token }) => isRepoRootedImport(token.slice(1)))
+    .map(({ token, line }) => {
+      const path = resolveImportPath(entry.path, token.slice(1));
+      return {
+        path,
+        token,
+        from: entry.path,
+        line,
+        scope: importScope(entry, path),
+      };
+    })
     .filter(
       (n) => !b.imports.some((m) => m.path === n.path && m.from === n.from),
     );
@@ -697,14 +715,20 @@ function takeImportsOf(b: Building, entry: LoadedInstruction): void {
   const text = b.files[entry.path];
   if (text === undefined) return;
   const known = new Set([...b.loaded, ...b.unloaded].map((e) => e.path));
-  for (const token of importTokens(text)) {
+  for (const { token, line } of importTokens(text)) {
     // The token as WRITTEN carries the `@`; the path is what it resolves to —
     // against the IMPORTING FILE's directory, measured, see `resolveImportPath`.
     const written = token.slice(1);
     if (!isRepoRootedImport(written)) continue;
     const path = resolveImportPath(entry.path, written);
     if (!b.imports.some((n) => n.path === path && n.from === entry.path)) {
-      b.imports.push({ path, token, from: entry.path });
+      b.imports.push({
+        path,
+        token,
+        from: entry.path,
+        line,
+        scope: importScope(entry, path),
+      });
     }
     if (b.files[path] === undefined || known.has(path)) continue;
     // The importer's scope is INHERITED: a committed file pulled in only by
@@ -727,7 +751,7 @@ function takeImportsOf(b: Building, entry: LoadedInstruction): void {
     // either of its answers. See the note there before "simplifying" this.
     take(b, path, {
       role: "import",
-      scope: isPerMachineName(path) ? "local" : entry.scope,
+      scope: importScope(entry, path),
       via: { from: entry.path, token },
     });
   }

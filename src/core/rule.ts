@@ -23,6 +23,7 @@
  * Harness-agnostic data; no adapter fact.
  */
 import type { z } from "zod";
+import type { EdgeKind, ReportedResolution } from "./reference-graph.js";
 import type { SkillResourceFinding } from "./skill-resources.js";
 
 /**
@@ -90,6 +91,15 @@ export interface Finding {
   readonly subject: string;
   /** What is wrong and, for a note, how to cure it — one sentence. */
   readonly message: string;
+  /**
+   * For a finding about a reference: what it names and how it failed, so a
+   * report can carry the structured form (`brokenReferences`) beside the text.
+   */
+  readonly reference?: {
+    readonly kind: EdgeKind;
+    readonly target: string;
+    readonly resolution: ReportedResolution;
+  };
 }
 
 /**

@@ -17,6 +17,14 @@ const chain = (files: Record<string, string>) =>
 const paths = (files: Record<string, string>) =>
   chain(files).loaded.map((e) => e.path);
 
+/** The import `see @docs/style.md` in `CLAUDE.md` yields, line aside. */
+const STYLE_IMPORT = {
+  path: "docs/style.md",
+  token: "@docs/style.md",
+  from: "CLAUDE.md",
+  scope: "repo",
+} as const;
+
 describe("what loads, and in what order", () => {
   it("the root file, the dot-dir file, the rules, then the per-machine file LAST", () => {
     // The one ordering fact the vendor states: "CLAUDE.local.md is appended
@@ -293,7 +301,7 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
     const files = { "AGENTS.md": "@docs/style.md", "docs/style.md": "prose" };
     expect(paths(files)).toEqual(["AGENTS.md", "docs/style.md"]);
     expect(chain(files).imports).toEqual([
-      { path: "docs/style.md", token: "@docs/style.md", from: "AGENTS.md" },
+      { ...STYLE_IMPORT, from: "AGENTS.md", line: 1 },
     ]);
   });
 
@@ -360,9 +368,8 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
     const files = { "CLAUDE.md": "see @./notes.md", "notes.md": "prose" };
     expect(paths(files)).toEqual(["CLAUDE.md", "notes.md"]);
     expect(chain(files).imports[0]).toEqual({
-      path: "notes.md",
-      token: "@./notes.md",
-      from: "CLAUDE.md",
+      ...STYLE_IMPORT,
+      ...{ path: "notes.md", token: "@./notes.md", line: 1 },
     });
   });
 
@@ -560,7 +567,7 @@ describe("AGENTS.md — the cross-family switch (vendor, v2.1.277+, read 2026-09
 describe("imports: the repo owner names the path, the adapter only finds it", () => {
   it("reports an `@path` token whether or not the file was read", () => {
     expect(chain({ "CLAUDE.md": "see @docs/style.md" }).imports).toEqual([
-      { path: "docs/style.md", token: "@docs/style.md", from: "CLAUDE.md" },
+      { ...STYLE_IMPORT, line: 1 },
     ]);
   });
 
@@ -772,6 +779,24 @@ describe("rules are anchored to THIS harness's directory, not to the word", () =
     // subdirectory is read by the loader and has to stay classified.
     expect(paths({ ".claude/rules/a/b/c.md": "deep" })).toEqual([
       ".claude/rules/a/b/c.md",
+    ]);
+  });
+});
+
+describe("an import's line", () => {
+  it("is a line of the real file: frontmatter counted, a fenced token skipped", () => {
+    // The place a finding about a missing import points at (#442).
+    const text = [
+      "---",
+      "a: 1",
+      "---",
+      "```",
+      "@x.md",
+      "```",
+      "see @docs/style.md",
+    ];
+    expect(chain({ "CLAUDE.md": text.join("\n") }).imports).toEqual([
+      { ...STYLE_IMPORT, line: 7 },
     ]);
   });
 });

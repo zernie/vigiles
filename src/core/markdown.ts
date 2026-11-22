@@ -57,7 +57,9 @@ const md = (): MarkdownItParser => (mdCached ??= new (MarkdownIt())());
 let mdRefsCached: MarkdownItParser | null = null;
 const mdRefs = (): MarkdownItParser => {
   if (mdRefsCached === null) {
-    const parser = new (MarkdownIt())();
+    // `html: true` so an inline `<!-- … -->` is one `html_inline` token and a
+    // code span inside it is not emitted as a reference (tested).
+    const parser = new (MarkdownIt())({ html: true });
     parser.normalizeLink = (url: string): string => url;
     parser.validateLink = (): boolean => true;
     mdRefsCached = parser;
@@ -127,29 +129,80 @@ const mdProse = (): MarkdownItParser =>
  * a measurement, not a precaution.
  */
 export function proseLines(src: string): readonly string[] {
-  const out: string[] = [];
-  for (const tok of mdProse().parse(src, {})) {
-    if (tok.type !== "inline") continue;
-    let line = "";
-    for (const child of tok.children ?? []) {
-      if (child.type === "softbreak" || child.type === "hardbreak") {
-        out.push(line);
-        line = "";
-        continue;
-      }
-      // A code span and an inline `<!-- -->` are not the author's prose; the
-      // corpus that motivated this is full of `@dataclass`-shaped text inside
-      // them, and none of it names a file.
-      if (child.type === "code_inline" || child.type === "html_inline")
-        continue;
-      line += child.content;
-    }
-    out.push(line);
-  }
-  return out
-    .map((line) => line.replace(/^\uFEFF/, ""))
-    .filter((line) => line !== "");
+  return proseLinesAt(src).map((p) => p.text);
 }
+
+/** One line of prose and the 1-based source line it sits on. */
+export interface ProseLine {
+  readonly text: string;
+  readonly line: number;
+}
+
+/**
+ * {@link proseLines}, each with its 1-based source line: the inline token's
+ * block line (`map[0]`) plus the line breaks before it in that block. The
+ * number comes from the parse, never from splitting the source by hand.
+ */
+export function proseLinesAt(src: string): readonly ProseLine[] {
+  return mdProse()
+    .parse(src, {})
+    .flatMap((tok) =>
+      tok.type !== "inline" || tok.map === null
+        ? []
+        : inlineProse(tok.children ?? [], tok.map[0] + 1),
+    )
+    .map((p) => ({ ...p, text: p.text.replace(/^\uFEFF/, "") }))
+    .filter((p) => p.text !== "");
+}
+
+/**
+ * One inline token's prose, split at its line breaks — segment `i` sits on
+ * line `first + i`. A code span and an inline `<!-- -->` are not the author's
+ * prose; the corpus that motivated this is full of `@dataclass`-shaped text
+ * inside them, and none of it names a file.
+ */
+function inlineProse(
+  children: readonly { readonly type: string; readonly content: string }[],
+  first: number,
+): readonly ProseLine[] {
+  const segments = children.reduce<readonly string[]>(
+    (acc, c) => {
+      if (c.type === "softbreak" || c.type === "hardbreak") return [...acc, ""];
+      if (c.type === "code_inline" || c.type === "html_inline") return acc;
+      return [...acc.slice(0, -1), `${acc.at(-1) ?? ""}${c.content}`];
+    },
+    [""],
+  );
+  return segments.map((text, i) => ({ text, line: first + i }));
+}
+
+/**
+ * A boolean per source line (0-based): `true` when the line is not prose — a
+ * fenced or INDENTED code block, or a raw HTML block (`<!-- … -->` included).
+ * The parse decides; {@link markdownRefs} reads no reference from such a line.
+ */
+function nonProseLineFlags(src: string): readonly boolean[] {
+  const skipped = new Set(
+    mdProse()
+      .parse(src, {})
+      .flatMap((tok) =>
+        NON_PROSE_BLOCKS.has(tok.type) && tok.map !== null
+          ? Array.from(
+              { length: tok.map[1] - tok.map[0] },
+              (_, k) => (tok.map?.[0] ?? 0) + k,
+            )
+          : [],
+      ),
+  );
+  return src.split("\n").map((_, i) => skipped.has(i));
+}
+
+/** Block tokens whose lines carry no reference: code and raw HTML. */
+const NON_PROSE_BLOCKS: ReadonlySet<string> = new Set([
+  "fence",
+  "code_block",
+  "html_block",
+]);
 
 /** One fenced code block: its BODY (delimiters excluded) and where the body starts. */
 export interface FencedBlock {
@@ -241,8 +294,11 @@ export interface MarkdownRef {
  * returned instead. The bug is not fixed here so much as made unsayable: a
  * caller of this function is never handed link text at all.
  *
- * Fenced and indented code blocks contribute nothing ({@link fencedLineFlags}
- * decides which lines those are, so no caller re-derives it).
+ * Fenced and indented code blocks and raw HTML blocks (`<!-- … -->` on lines
+ * of its own) contribute nothing, and neither does a code span inside an
+ * inline comment. Both were measured emitted before (an indented block was
+ * read line by line; the inline parser had no HTML), so moving an example
+ * into an indented block did not hide it.
  *
  * ⚠️ ONE LINE AT A TIME, and the reason is the line number. Callers report a
  * reference by source line, and markdown-it's inline tokens carry no line
@@ -254,13 +310,13 @@ export interface MarkdownRef {
  */
 export function markdownRefs(src: string): MarkdownRef[] {
   const lines = src.split("\n");
-  const fenced = fencedLineFlags(src);
+  const skipped = nonProseLineFlags(src);
   const out: MarkdownRef[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
     // Cheap reject: no link syntax and no backtick means no reference, and most
     // lines of a real corpus are that.
-    if (fenced[i] || (!line.includes("`") && !line.includes("]("))) continue;
+    if (skipped[i] || (!line.includes("`") && !line.includes("]("))) continue;
     for (const tok of mdRefs().parseInline(line, {})) {
       refsInInline(tok.children ?? [], i + 1, out);
     }

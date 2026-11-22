@@ -205,6 +205,18 @@ export interface NamedImport {
   readonly token: string;
   /** The loaded file that names it. */
   readonly from: string;
+  /**
+   * 1-based line of `from` the token is on. Optional so an adapter written
+   * before it stays valid; a missing one is located from the token by the
+   * reference graph (`./reference-graph.ts`).
+   */
+  readonly line?: number;
+  /**
+   * `"local"` when the import is one machine's — the importer is, or the
+   * target is a per-machine file by name. A missing local import is not a
+   * fact about the commit, so it is never reported. Absent: `"repo"`.
+   */
+  readonly scope?: InstructionScope;
 }
 
 /** A glob or URL a loaded file names, and the file that names it. */
