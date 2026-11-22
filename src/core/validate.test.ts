@@ -607,6 +607,7 @@ const SHIPPED_RULE_DEFAULTS = {
   "skill-frontmatter": "warn",
   "mcp-tool-resolves": "warn",
   "hook-script-exists": "warn",
+  [RULES.find((r) => r.detector === "unresolvedImports")?.id ?? ""]: "warn",
   "hand-written-hook": false,
   "disallowed-tools-contract": "warn",
   "description-overlap": "warn",

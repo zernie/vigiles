@@ -26,6 +26,7 @@ import {
 } from "../core/config-schema.js";
 import { defineRule, type RuleSpec } from "../core/rule.js";
 import { RULE_GROUPS, type RuleGroupName } from "./groups.js";
+import { instructionImportResolves } from "./instruction-import-resolves.js";
 import { skillResourceResolves } from "./skill-resource-resolves.js";
 
 export { RULE_GROUPS };
@@ -307,6 +308,7 @@ export const RULES = [
     upstreamPrevention:
       "a compiled hook is self-contained (no external script)",
   }),
+  instructionImportResolves,
   defineRule({
     id: "hand-written-hook",
     // OFF: its only cure is a compiled hook, an experimental API

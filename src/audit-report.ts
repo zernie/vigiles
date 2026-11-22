@@ -30,6 +30,7 @@ import type { LoadedPart, LoadedPartName } from "./core/always-loaded.js";
 import {
   gradedView,
   type FilteredScan,
+  type RuleResult,
   type UngradedGroup,
 } from "./core/apply-rules.js";
 
@@ -220,6 +221,15 @@ export interface AuditReport {
    */
   readonly ungraded?: readonly UngradedGroup[];
   /**
+   * The located findings of the GRADED rules that report one finding per
+   * place: each rule with what it found, each finding with its `path`, 1-based
+   * `line` and `subject` (`instruction-import-resolves` today). These are the
+   * same findings the rings count (`score`), so a consumer can open the file at
+   * the line. Only rules that found something; absent when none did.
+   * Additive/optional — schema version unchanged.
+   */
+  readonly findings?: readonly RuleResult[];
+  /**
    * The adoption preview — "what would vigiles catch in your repo?" Present only
    * when the model-gated tier ran (behind consent); a deterministic read omits it.
    * Additive/optional, so the schema version is unchanged.
@@ -399,9 +409,11 @@ function contextCostField(report: ScanReport): {
  */
 function scanFindingLists(
   report: FilteredScan<ScanReport>,
-): Pick<AuditReport, "deprecatedKeyFiles" | "ungraded"> {
+): Pick<AuditReport, "deprecatedKeyFiles" | "ungraded" | "findings"> {
+  const found = report.findings.filter((r) => r.findings.length > 0);
   return {
     ...(report.ungraded.length > 0 ? { ungraded: report.ungraded } : {}),
+    ...(found.length > 0 ? { findings: found } : {}),
     ...(report.deprecatedKeyFiles
       ? { deprecatedKeyFiles: report.deprecatedKeyFiles }
       : {}),

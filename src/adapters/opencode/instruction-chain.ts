@@ -28,8 +28,12 @@ import type {
   LoadedInstruction,
   PatternFrom,
   NamedImport,
+  SettingsSource,
 } from "../../core/instruction-chain.js";
-import { isRepoRootedImport } from "../../core/instruction-chain.js";
+import {
+  isRepoRootedImport,
+  resolveImportPath,
+} from "../../core/instruction-chain.js";
 
 /** The manifest key listing extra instruction files, as the design records it. */
 const INSTRUCTIONS_KEY = "instructions";
@@ -43,8 +47,11 @@ function isPattern(value: string): boolean {
 export interface OpencodeChainInput {
   /** `AGENTS.md`. */
   readonly instructionFile: string;
-  /** `opencode.json` — both the manifest and the settings file here. */
-  readonly settingsPaths: readonly string[];
+  /**
+   * `opencode.json` — both the manifest and the settings file here — each with
+   * its scope, which an import named in it carries as `fromScope`.
+   */
+  readonly settingsSources: readonly SettingsSource[];
   /** The layout's own codec — this module does not know the encoding. */
   readonly parseSettings: (text: string) => Record<string, unknown>;
 }
@@ -55,7 +62,7 @@ function declaredInstructions(
   input: OpencodeChainInput,
 ): readonly NamedImport[] {
   const out: NamedImport[] = [];
-  for (const from of input.settingsPaths) {
+  for (const { path: from, scope: fromScope } of input.settingsSources) {
     const text = files[from];
     if (text === undefined) continue;
     let value: Record<string, unknown>;
@@ -69,12 +76,33 @@ function declaredInstructions(
     for (const entry of raw) {
       if (typeof entry === "string" && entry !== "") {
         // The token AS WRITTEN is the manifest string itself — OpenCode names
-        // a path directly rather than prefixing it, so token === path here.
-        out.push({ path: entry, token: entry, from });
+        // a path directly rather than prefixing it. The PATH is that string
+        // made canonical by the one resolver the Claude Code chain uses
+        // (`./docs/a.md`, `docs/./a.md`, `docs//a.md` → `docs/a.md`): the
+        // directory listing and the browser's file map hold canonical keys
+        // only, so a raw `./` would read as a missing file.
+        out.push({
+          path: resolveImportPath("", entry),
+          token: entry,
+          from,
+          fromScope,
+          line: lineOf(text, entry),
+        });
       }
     }
   }
   return out;
+}
+
+/**
+ * The line an `instructions` entry is written on: the first line holding it as
+ * a JSON string, else the first holding it at all. The manifest is parsed by
+ * the layout's codec, which keeps no positions, so the line is found in the text.
+ */
+function lineOf(text: string, entry: string): number {
+  const quoted = JSON.stringify(entry);
+  const needle = text.includes(quoted) ? quoted : entry;
+  return Math.max(1, text.split("\n").findIndex((l) => l.includes(needle)) + 1);
 }
 
 export function opencodeInstructionChain(
@@ -88,18 +116,23 @@ export function opencodeInstructionChain(
     loaded.push({ path: input.instructionFile, role: "root", scope: "repo" });
   }
   for (const entry of declaredInstructions(files, input)) {
-    if (isPattern(entry.path)) {
-      patterns.push({ pattern: entry.path, from: entry.from });
+    // Judged on the entry AS WRITTEN (`token`), never on the canonical `path`:
+    // canonicalising `/outside/guide.md` drops its leading slash, and a path
+    // check after that would accept a file outside the repository.
+    if (isPattern(entry.token)) {
+      patterns.push({ pattern: entry.token, from: entry.from });
       continue;
     }
-    if (!isRepoRootedImport(entry.path)) continue;
+    if (!isRepoRootedImport(entry.token)) continue;
     imports.push(entry);
     if (files[entry.path] === undefined) continue;
     if (loaded.some((e) => e.path === entry.path)) continue;
     loaded.push({
       path: entry.path,
       role: "import",
-      scope: "repo",
+      // Inherited from the manifest that names it, as Claude Code's imported
+      // files inherit their importer's — one statement of the same fact.
+      scope: entry.fromScope,
       via: { from: entry.from, token: entry.token },
     });
   }

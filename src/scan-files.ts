@@ -56,8 +56,13 @@ import {
 import { instructionSpecState } from "./core/integrity-header.js";
 import {
   instructionCandidatePaths,
+  instructionViews,
   resolveImports,
 } from "./core/instruction-chain.js";
+import {
+  listingOfPaths,
+  unresolvedImports,
+} from "./core/instruction-imports.js";
 import type { LoadedPlugin } from "./plugin-loader.js";
 import {
   chosenHooks,
@@ -731,9 +736,8 @@ export function scanFiles(
   const hookEventIssues = scoredIssues(allHookEventIssues);
   const instructions = instructionsOf(files, loaded.files, lay);
   // The BOUNDED candidate set over the map, then the same one-level import pass
-  // the disk walk runs — `resolveImports` lives in the core precisely so these
-  // two cannot drift. An import the fetcher never fetched simply stays unread,
-  // and the weight says so (`unreadImports`) instead of quietly omitting it.
+  // the disk walk runs (core's `resolveImports`, so the two cannot drift); an
+  // import's existence is asked of the map's listing — see fetchRepo.ts.
   const instructionFiles = resolveImports(
     lay,
     Object.fromEntries(
@@ -858,13 +862,43 @@ export function scanFiles(
     // depth-1 dot-directories and nothing else, so handing the whole fetched map
     // over would make the browser weigh files the CLI never opens. Same filter,
     // same import pass, same chain; only the storage differs.
-    ...alwaysLoadedInMap(lay, dialect, instructionFiles, files),
+    ...instructionsInMap(lay, dialect, instructionFiles, files),
     untested: coverage.untested.length,
     untestedHarness: coverage.harness.untested.length,
     unevaluated: coverage.evals.untested.length,
     evaluable: coverage.evals.covered.length + coverage.evals.untested.length,
     coverageEvidence: countEvidence(coverage.decisions),
     puritySummary,
+  };
+}
+
+/** What the scan reports about the instruction files: their weight and their imports. */
+function instructionsInMap(
+  lay: PluginLayout,
+  dialect: HarnessDialect,
+  instructionFiles: Readonly<Record<string, string>>,
+  files: Readonly<Record<string, string>>,
+): ReturnType<typeof alwaysLoadedInMap> &
+  Pick<ScanReport, "instructionImportIssues"> {
+  return {
+    ...alwaysLoadedInMap(lay, dialect, instructionFiles, files),
+    ...importIssuesInMap(lay, instructionFiles, files),
+  };
+}
+
+/** The browser twin of `scan.ts`'s `importsOnDisk`, over the map's own listing. */
+function importIssuesInMap(
+  lay: PluginLayout,
+  instructionFiles: Readonly<Record<string, string>>,
+  files: Readonly<Record<string, string>>,
+): Pick<ScanReport, "instructionImportIssues"> {
+  return {
+    instructionImportIssues: unresolvedImports(
+      instructionViews(lay, instructionFiles),
+      listingOfPaths(Object.keys(files)),
+      // The browser engine reads no `.vigilesrc.json`, so nothing is excluded.
+      () => false,
+    ),
   };
 }
 
@@ -887,9 +921,10 @@ function alwaysLoadedInMap(
   const budget = dialect.instructionBudget;
   if (budget === undefined) return { instructionWeight: null };
   const instructionWeight = weighInstructions(
-    lay.instructionChain(instructionFiles),
+    instructionViews(lay, instructionFiles),
     instructionFiles,
     budget,
+    listingOfPaths(Object.keys(files)),
   );
   return {
     instructionWeight,

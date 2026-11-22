@@ -14,6 +14,7 @@ import type {
   AuditReport,
   CategoryScore,
   Recommendation,
+  RuleResult,
   UngradedGroup,
   Verdict,
 } from "./schema";
@@ -356,6 +357,39 @@ function TodoList({
   );
 }
 
+/** The graded rules' located findings: each where it is written
+ * (`path:line`), so a reader can open the file at the line. These are the
+ * findings the rings above count — not extra ones. */
+function FindingsBlock({ results }: { results: RuleResult[] }) {
+  return (
+    <section className="mt-8" aria-label="Located findings">
+      <p className="font-display text-[15px] font-semibold">Where</p>
+      <ul className="mt-2 space-y-1.5">
+        {results.map((res) => (
+          <li key={res.rule} className="text-sm leading-snug">
+            <span className="break-all font-mono">{res.rule}</span>
+            <ul className="mt-1 space-y-1 pl-3">
+              {res.findings.map((f) => (
+                <li key={`${f.path}:${f.line ?? 0}:${f.subject}`}>
+                  <span aria-hidden className="mr-1">
+                    ✗
+                  </span>
+                  <span className="break-all font-mono">
+                    {f.path}
+                    {f.line === undefined ? "" : `:${f.line}`}
+                  </span>{" "}
+                  <span className="break-all font-mono">{f.subject}</span>{" "}
+                  <span className="text-muted-foreground">— {f.message}</span>
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** An ungraded rule group: every rule of it the run turned on and what it
  * found, in a block of its own — muted, and headed by the group's own label
  * ("not graded"), so a reader does not hunt the rings for points these findings
@@ -394,7 +428,8 @@ function UngradedBlock({ group }: { group: UngradedGroup }) {
                     )}
                     <span className="break-all font-mono">{f.subject}</span>{" "}
                     <span className="text-muted-foreground">
-                      ({f.path}) — {f.message}
+                      ({f.path}
+                      {f.line === undefined ? "" : `:${f.line}`}) — {f.message}
                     </span>
                   </li>
                 ))}
@@ -715,7 +750,15 @@ export function Report({
    *  canonical agent prompt; the demo overrides to add a toast. */
   onUnlock?: () => void;
 }) {
-  const { score, verdict, recommendations, inventory, meta, ungraded } = data;
+  const {
+    score,
+    verdict,
+    recommendations,
+    inventory,
+    meta,
+    ungraded,
+    findings,
+  } = data;
   const overall = score.empty ? null : score.overall;
 
   useEffect(() => {
@@ -783,6 +826,7 @@ export function Report({
             <CategoryRow key={c.key} c={c} />
           ))}
         </div>
+        {findings && <FindingsBlock results={findings} />}
         {ungraded?.map((g) => (
           <UngradedBlock key={g.group} group={g} />
         ))}
@@ -841,11 +885,12 @@ function plural(n: number, word: string): string {
 }
 
 function categoriesSection(data: AuditReport, reviewed: ReadonlySet<string>) {
-  const { score, ungraded } = data;
+  const { score, ungraded, findings } = data;
   return (alt: boolean) => (
     <Band id="report-categories" title="Categories" alt={alt}>
       <CategoryRings categories={score.categories} />
       <FlaggedList categories={score.categories} exclude={reviewed} />
+      {findings && <FindingsBlock results={findings} />}
       {/* Apart from the rings: these findings are not in any category,
           because no category is graded on them. */}
       {ungraded?.map((g) => (

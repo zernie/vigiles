@@ -260,6 +260,10 @@ export interface AuditReport {
    *  enough to grade on. One block per group with a rule the run turned on;
    *  absent when none. NEVER scored: each shown in a block of its own. */
   ungraded?: UngradedGroup[];
+  /** The located findings of the graded rules that report one per place —
+   *  the same findings the rings count, each with its file and line. Only
+   *  rules that found something; absent when none did. */
+  findings?: RuleResult[];
   /** The adoption preview — present only when the model-gated tier ran. */
   adoptability?: AdoptabilityResult;
   /**

@@ -150,7 +150,7 @@ import {
   frontmatterBody,
   readFrontmatter,
 } from "../../core/frontmatter-read.js";
-import { proseLines } from "../../core/markdown.js";
+import { proseLines, proseWords, wordsOf } from "../../core/markdown.js";
 
 /**
  * The settings key that removes files from the chain, and the frontmatter key
@@ -292,49 +292,101 @@ function isNeverRead(path: string): boolean {
  * 198-file corpus of public `CLAUDE.md`s, and a divergence from the real loader
  * is discoverable only by OBSERVING it, never by reading a grammar.
  *
- * The narrowness is measured rather than cautious. A loose `@` pattern over that
- * corpus matches Python decorators, Blade templates, npm scopes and CSS at-rules
- * — all of them inside fenced code blocks, which {@link proseLines} removes
- * before this pattern ever runs. Requiring a `.md` tail on top keeps
- * `email me @ foo` and a prose `@dataclass` out. A token this refuses is simply
- * not reported, which under-reports by that file's size; a token it wrongly
- * accepted would make vigiles open a path the repo did not mean to name, and
- * only one of those two is a safety question.
+ * WHERE A TOKEN CAN BE is the parser's answer, not this module's: only the
+ * `text` children of markdown-it's inline tokens are read ({@link proseWords}),
+ * so a fence, a code span, raw HTML and the frontmatter are out by
+ * construction. A loose `@` over the corpus matches Python decorators, Blade
+ * templates, npm scopes and CSS at-rules — all inside code the parser drops.
+ * WHAT A TOKEN IS — `@` and a path {@link isImportablePath} accepts — is the
+ * one rule left here.
  */
-const IMPORT_TOKEN = /(?:^|\s)(@[A-Za-z0-9_.][^\s]*\.md)\b/g;
-
-/** A prose line that is NOTHING BUT one import token — the redirect shape. */
-const ONLY_IMPORT = /^@[A-Za-z0-9_.][^\s]*\.md$/;
-
-/**
- * The author's own prose, with the frontmatter, the code and the comments gone.
- *
- * Both halves come from the modules that own them — `frontmatterBody` from the
- * frontmatter reader, {@link proseLines} from the ONE markdown-structure helper
- * — rather than from a line-splitting loop here. The helper's own header records
- * why: the hand-rolled fence toggle it replaced had been copy-pasted into five
- * detectors and is wrong on nested and unbalanced fences, which is exactly the
- * `@dataclass`-inside-a-code-block case this has to get right.
- *
- * Indentation, CRLF, trailing whitespace, trailing blank lines and a UTF-8 BOM
- * are all handled THERE, measured; `instruction-chain.test.ts` names each of
- * those spellings as its own case anyway, because they are the ratchet that
- * proves this path still goes through the parser after the next edit.
- */
-function contentLines(text: string): readonly string[] {
-  return proseLines(frontmatterBody(text));
+function importIn(word: string): string | null {
+  return word.startsWith("@")
+    ? importEndingAt(word, word.lastIndexOf(".md"))
+    : null;
 }
 
-/** Every `@import` token in one file, deduplicated, in first-seen order. */
-function importTokens(text: string): readonly string[] {
-  const out: string[] = [];
-  for (const line of contentLines(text)) {
-    for (const m of line.matchAll(IMPORT_TOKEN)) {
-      const token = m[1];
-      if (token !== undefined && !out.includes(token)) out.push(token);
-    }
-  }
-  return out;
+/**
+ * The token `word` holds up to the `.md` at `end`, else at an earlier one.
+ *
+ * The path ends at a `.md` only where the WORD ends — or where nothing but
+ * closing prose punctuation follows (`@AGENTS.md,` · `@AGENTS.md).`). A `.md`
+ * followed by more of a name (`README.md.bak`) or by `/` (`dir.md/`) is inside
+ * a path, not the end of one. A `#` fragment also ends it, as it did before
+ * this was a token walk: how Claude Code treats `@file.md#anchor` is not
+ * measured, so the old reading is kept rather than guessed at.
+ */
+function importEndingAt(word: string, end: number): string | null {
+  if (end <= 0) return null;
+  const rest = word.slice(end + ".md".length);
+  if (!endsPath(rest))
+    return importEndingAt(word, word.lastIndexOf(".md", end - 1));
+  const token = word.slice(0, end + ".md".length);
+  return isImportablePath(token.slice(1)) ? token : null;
+}
+
+/** Closing prose punctuation — what may follow a path's `.md` in a sentence. */
+const CLOSING = new Set([",", ";", ":", "!", "?", ")", "]", "'", '"', "."]);
+
+/** Is `rest` nothing but closing punctuation (or nothing)? */
+const onlyClosing = (rest: string): boolean =>
+  rest === "" || (CLOSING.has(rest.charAt(0)) && onlyClosing(rest.slice(1)));
+
+/** Can `rest` follow the `.md` that ends a path? Nothing, a `#` fragment, or only closing punctuation. */
+const endsPath = (rest: string): boolean =>
+  rest.startsWith("#") || onlyClosing(rest);
+
+/** A letter, digit or `_` — the characters a path's `.md` may not run into. */
+const isWordChar = (c: string): boolean =>
+  (c >= "a" && c <= "z") ||
+  (c >= "A" && c <= "Z") ||
+  (c >= "0" && c <= "9") ||
+  c === "_";
+
+/**
+ * Is `path` (the text after `@`) one this reports as an import?
+ *
+ * 🔴 ONLY A MARKDOWN FILE, AND THAT IS A PRECISION CHOICE, NOT THE LOADER'S
+ * RULE. Claude Code also expands `@package.json` or `@README`; accepting every
+ * `@word` would read `@username` mentions and `@scope/pkg` npm names as files
+ * that do not exist. Refusing a non-`.md` path under-reports — that file's size
+ * is not weighed and a missing one is not flagged — and never over-reports.
+ * The first character must start a path (no `@-` or `@/`). A word has no
+ * whitespace in it, so neither does the path.
+ */
+function isImportablePath(path: string): boolean {
+  const first = path.charAt(0);
+  return (
+    path.length > ".md".length &&
+    path.endsWith(".md") &&
+    (isWordChar(first) || first === ".")
+  );
+}
+
+/** One `@import` token as written, and the 1-based line of the file it is on. */
+interface WrittenToken {
+  readonly token: string;
+  readonly line: number;
+}
+
+/**
+ * Every `@import` token in one file, deduplicated, in first-seen order, each
+ * with the line it is first written on — counted in the WHOLE file, so the
+ * frontmatter the prose reader skips is added back as an offset.
+ */
+function importTokens(text: string): readonly WrittenToken[] {
+  const body = frontmatterBody(text);
+  const offset =
+    text.slice(0, text.length - body.length).split("\n").length - 1;
+  return proseWords(body).reduce<readonly WrittenToken[]>(
+    (out, { word, line }) => {
+      const token = importIn(word);
+      return token === null || out.some((t) => t.token === token)
+        ? out
+        : [...out, { token, line: line + offset }];
+    },
+    [],
+  );
 }
 
 /**
@@ -343,10 +395,21 @@ function importTokens(text: string): readonly string[] {
  * Binary, never a threshold: every prose line is a bare import token, and there
  * is at least one. "Mostly imports" would be a number nobody can defend, and an
  * empty file is empty rather than a redirect.
+ *
+ * The prose comes from {@link proseLines}, the ONE markdown-structure helper:
+ * the frontmatter, the code and the comments gone, and indentation, CRLF,
+ * trailing whitespace and a UTF-8 BOM normalised there (measured;
+ * `instruction-chain.test.ts` names each spelling as its own case).
  */
 function isPureRedirect(text: string): boolean {
-  const lines = contentLines(text);
-  return lines.length > 0 && lines.every((line) => ONLY_IMPORT.test(line));
+  const lines = proseLines(frontmatterBody(text));
+  return (
+    lines.length > 0 &&
+    lines.every((line) => {
+      const words = wordsOf(line);
+      return words.length === 1 && importIn(line) === line;
+    })
+  );
 }
 
 /**
@@ -680,11 +743,13 @@ function nameImportsOf(b: Building, entry: LoadedInstruction): void {
   const text = b.files[entry.path];
   if (text === undefined) return;
   const named = importTokens(text)
-    .filter((token) => isRepoRootedImport(token.slice(1)))
-    .map((token) => ({
+    .filter(({ token }) => isRepoRootedImport(token.slice(1)))
+    .map(({ token, line }) => ({
       path: resolveImportPath(entry.path, token.slice(1)),
       token,
       from: entry.path,
+      fromScope: entry.scope,
+      line,
     }))
     .filter(
       (n) => !b.imports.some((m) => m.path === n.path && m.from === n.from),
@@ -697,14 +762,20 @@ function takeImportsOf(b: Building, entry: LoadedInstruction): void {
   const text = b.files[entry.path];
   if (text === undefined) return;
   const known = new Set([...b.loaded, ...b.unloaded].map((e) => e.path));
-  for (const token of importTokens(text)) {
+  for (const { token, line } of importTokens(text)) {
     // The token as WRITTEN carries the `@`; the path is what it resolves to —
     // against the IMPORTING FILE's directory, measured, see `resolveImportPath`.
     const written = token.slice(1);
     if (!isRepoRootedImport(written)) continue;
     const path = resolveImportPath(entry.path, written);
     if (!b.imports.some((n) => n.path === path && n.from === entry.path)) {
-      b.imports.push({ path, token, from: entry.path });
+      b.imports.push({
+        path,
+        token,
+        from: entry.path,
+        fromScope: entry.scope,
+        line,
+      });
     }
     if (b.files[path] === undefined || known.has(path)) continue;
     // The importer's scope is INHERITED: a committed file pulled in only by

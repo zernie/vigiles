@@ -13,7 +13,13 @@
  */
 
 import { instructionSpecState } from "./core/integrity-header.js";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  type Dirent,
+} from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 // The COMPOSITION-ROOT loader, not the `vigiles/claude-code` wrapper: this
@@ -39,7 +45,7 @@ import {
   materializePrefix,
   type PluginLayout,
 } from "./core/layout.js";
-import type { ExcludeSet } from "./exclude.js";
+import { excludedBy, type ExcludeSet } from "./exclude.js";
 import type { DeprecatedKeyFilesFinding } from "./deprecated-key-files.js";
 import {
   KEYFILES_DOCS_URL,
@@ -72,6 +78,13 @@ import {
 } from "./core/merge-conflict.js";
 import type { TrifectaFinding } from "./core/lethal-trifecta.js";
 import type { SkillResourceFinding } from "./core/skill-resources.js";
+import { instructionViews } from "./core/instruction-chain.js";
+import {
+  unresolvedImports,
+  type DirEntryKind,
+  type DirListing,
+  type UnresolvedImport,
+} from "./core/instruction-imports.js";
 import type { SkillFenceFinding } from "./core/skill-missing-fence.js";
 import {
   pluginDirLayoutIssues,
@@ -153,7 +166,12 @@ import {
   blockIneffectiveEventsOf,
   permissionDecisionEventsOf,
 } from "./core/event-capability.js";
-import type { FilteredScan, UngradedGroup } from "./core/apply-rules.js";
+import type {
+  FilteredScan,
+  RuleResult,
+  UngradedGroup,
+} from "./core/apply-rules.js";
+import type { Finding } from "./core/rule.js";
 
 // Re-export the pure detectors (and their public types: SurfaceClassifier,
 // SkillScanContext, handWrittenHookMessage, ...) that
@@ -378,6 +396,12 @@ export interface ScanReport {
    * and `assertNoWrite` already draw.
    */
   readonly skillRefIssues?: readonly string[];
+  /**
+   * `@path` imports a loaded instruction file names that do not resolve — the
+   * harness tries to load each and gets nothing. Scored in Truthfulness; read by
+   * the instruction-import rule for its located findings.
+   */
+  readonly instructionImportIssues: readonly UnresolvedImport[];
   /** Hooks registered under an event name the harness doesn't define (typo / dead). */
   readonly hookEventIssues: readonly HookEventIssue[];
   /**
@@ -671,6 +695,7 @@ export function measureInstructionWeight(
   return weighBoundedInstructions(
     harness,
     boundedInstructionFiles(resolve(dir), harness.layout),
+    diskListing(resolve(dir)),
   );
 }
 
@@ -707,7 +732,11 @@ function alwaysLoadedOf(
   harness: Pick<ScanHarness, "layout" | "dialect">,
   instructionFiles: Readonly<Record<string, string>>,
 ): AlwaysLoaded {
-  const instructionWeight = weighBoundedInstructions(harness, instructionFiles);
+  const instructionWeight = weighBoundedInstructions(
+    harness,
+    instructionFiles,
+    diskListing(resolve(dir)),
+  );
   if (instructionWeight === null) return { instructionWeight };
   const files = {
     ...instructionFiles,
@@ -727,15 +756,69 @@ function alwaysLoadedOf(
 function weighBoundedInstructions(
   harness: Pick<ScanHarness, "layout" | "dialect">,
   instructionFiles: Readonly<Record<string, string>>,
+  list: DirListing,
 ): InstructionWeight | null {
   const budget = harness.dialect.instructionBudget;
   return budget
     ? weighInstructions(
-        harness.layout.instructionChain(instructionFiles),
+        instructionViews(harness.layout, instructionFiles),
         instructionFiles,
         budget,
+        list,
       )
     : null;
+}
+
+/** The imports the harness's chain names that do not resolve on disk. */
+function importsOnDisk(
+  dir: string,
+  layout: PluginLayout,
+  instructionFiles: Readonly<Record<string, string>>,
+  opts: { readonly excludes?: ExcludeSet },
+): Pick<ScanReport, "instructionImportIssues"> {
+  const excluded = excludedBy(opts.excludes);
+  return {
+    instructionImportIssues: unresolvedImports(
+      instructionViews(layout, instructionFiles),
+      diskListing(resolve(dir)),
+      (from) => excluded(join(resolve(dir), from)),
+    ),
+  };
+}
+
+/**
+ * The entries stored in each directory under `root`, as `readdir` gives them —
+ * the exact spelling even on a case-insensitive file system, which is what lets
+ * `importResolution` tell a case mismatch from a file that opens — each with
+ * what it is, so a directory named `x.md` or a dangling symlink is not taken
+ * for a file. Read only for the directories an import names.
+ */
+function diskListing(root: string): DirListing {
+  return (dir) => {
+    const abs = dir === "" ? root : join(root, dir);
+    try {
+      return readdirSync(abs, { withFileTypes: true }).map((d) => ({
+        name: d.name,
+        kind: entryKind(d, join(abs, d.name)),
+      }));
+    } catch {
+      return [];
+    }
+  };
+}
+
+/** What a `readdir` entry is; a symlink is what it points at, and `other` when that is nothing. */
+function entryKind(d: Readonly<Dirent>, abs: string): DirEntryKind {
+  if (d.isFile()) return "file";
+  if (d.isDirectory()) return "dir";
+  if (!d.isSymbolicLink()) return "other";
+  try {
+    const target = statSync(abs);
+    if (target.isFile()) return "file";
+    return target.isDirectory() ? "dir" : "other";
+  } catch {
+    return "other";
+  }
 }
 
 /** The instruction file this scan found, or `null` when the repo has none. */
@@ -1038,6 +1121,7 @@ export function scanPlugin(
     // meaningful sum across two; reporting the one that owns the file that
     // exists is the only reading that is true of something.
     ...alwaysLoadedOf(dir, instructionHarness, instructionFiles),
+    ...importsOnDisk(dir, instructionHarness.layout, instructionFiles, opts),
     untested: coverage.untested.length,
     untestedHarness: coverage.harness.untested.length,
     unevaluated: coverage.evals.untested.length,
@@ -1355,7 +1439,7 @@ function instructionWeightLines(w: InstructionWeight): string[] {
     // about is the under-report this whole report exists to prevent.
     ...(w.unreadImports.length > 0
       ? [
-          `  + ${String(w.unreadImports.length)} named import(s) not read: ${w.unreadImports.join(", ")}`,
+          `  + ${String(w.unreadImports.length)} import(s) of an imported file, not weighed: ${w.unreadImports.join(", ")}`,
         ]
       : []),
     ...(w.unweighedPatterns.length > 0
@@ -1591,7 +1675,7 @@ export function formatScanReport(
 }
 
 /** The report's lines up to and including the verdict — everything graded. */
-function gradedReportLines(r: ScanReport): readonly string[] {
+function gradedReportLines(r: FilteredScan<ScanReport>): readonly string[] {
   const out: string[] = [`Scan: ${r.dir}`, ""];
 
   if (r.instructions) {
@@ -1772,7 +1856,10 @@ function gradedReportLines(r: ScanReport): readonly string[] {
     );
   }
 
-  out.push(...handWrittenLines(r.handWrittenHooks));
+  out.push(
+    ...handWrittenLines(r.handWrittenHooks),
+    ...ruleFindingLines(r.findings),
+  );
 
   // Malformed-YAML frontmatter is INFORMATIONAL, not a structural defect: js-yaml
   // is stricter than some loaders (a colon/quote/<example> in a one-line
@@ -1785,7 +1872,30 @@ function gradedReportLines(r: ScanReport): readonly string[] {
     );
   }
 
-  const broken =
+  const broken = brokenCount(r);
+  out.push(
+    broken > 0
+      ? `⚠ ${String(broken)} structural issue(s) — see ✗/⚠ above`
+      : // 🔴 "NOTHING WAS FOUND" IS NOT "NOTHING IS WRONG" (#240). With zero
+        // surfaces read, `broken` is zero for want of anything to count, and this
+        // line was the sentence the reporter quoted under an A (100): a repo whose
+        // 37 skills sat in a directory this tool does not know by name.
+        isEmptyMachine(r)
+        ? "⚠ nothing to check — 0 skills, 0 agents, 0 commands were read"
+        : "✓ no structural issues found",
+  );
+  return out;
+}
+
+/**
+ * How many structural issues the verdict line counts — see the note on hard
+ * trifectas. A graded rule MODULE's issues are counted from the findings this
+ * report PRINTS (`r.findings`), not from the scan field it is scored from: the
+ * two differ by design (an import in `CLAUDE.local.md` is printed and never
+ * scored), and the line says "see ✗/⚠ above".
+ */
+function brokenCount(r: FilteredScan<ScanReport>): number {
+  return (
     r.hooks.filter((h) => h.status === "missing").length +
     r.skills.filter((s) => !s.hasDescription).length +
     r.agents.reduce(
@@ -1806,25 +1916,38 @@ function gradedReportLines(r: ScanReport): readonly string[] {
     r.unclaimedSurfaces.length +
     r.hookBlockFindings.length +
     r.hookMatcherFindings.length +
+    r.findings.reduce(
+      (n, res) => n + res.findings.filter((f) => f.kind === "finding").length,
+      0,
+    ) +
     // Only HARD trifectas (✗) count as STRUCTURAL defects here. Both severities are
     // now GRADED (see trifectaExposure — an inherits-all unit holds the three legs
     // implicitly and everything else besides), but this line tallies structural
     // defects, not the safety axis; promoting every idiomatic inherits-all unit to
     // "broken" in the CLI summary is a separate, louder call. The delegation-trifecta
     // ⚠ risk is ungraded and does NOT count either.
-    r.trifectaFindings.filter((t) => t.finding.severity === "hard").length;
-  out.push(
-    broken > 0
-      ? `⚠ ${String(broken)} structural issue(s) — see ✗/⚠ above`
-      : // 🔴 "NOTHING WAS FOUND" IS NOT "NOTHING IS WRONG" (#240). With zero
-        // surfaces read, `broken` is zero for want of anything to count, and this
-        // line was the sentence the reporter quoted under an A (100): a repo whose
-        // 37 skills sat in a directory this tool does not know by name.
-        isEmptyMachine(r)
-        ? "⚠ nothing to check — 0 skills, 0 agents, 0 commands were read"
-        : "✓ no structural issues found",
+    r.trifectaFindings.filter((t) => t.finding.severity === "hard").length
   );
-  return out;
+}
+
+/** One rule finding as a report line: its mark, `path:line`, subject and message — `lint`'s shape. */
+function locatedFinding(f: Finding): string {
+  const at = f.line === undefined ? "" : `:${String(f.line)}`;
+  return `${f.kind === "note" ? "ℹ" : "✗"} ${f.path}${at}: ${f.subject}: ${f.message}`;
+}
+
+/**
+ * The graded rule modules' findings, each where it is written (`path:line`) —
+ * a rule that found nothing prints nothing here; the verdict line says so.
+ */
+function ruleFindingLines(results: readonly RuleResult[]): readonly string[] {
+  return results
+    .filter((res) => res.findings.length > 0)
+    .flatMap((res) => [
+      `${res.rule} (${String(res.findings.length)}):`,
+      ...res.findings.map((f) => `  ${locatedFinding(f)}`),
+      "",
+    ]);
 }
 
 /**
@@ -1842,10 +1965,7 @@ function ungradedLines(groups: readonly UngradedGroup[]): readonly string[] {
         ? [`  ✓ ${res.rule}: nothing found`]
         : [
             `  ${res.rule} (${String(res.findings.length)}):`,
-            ...res.findings.map(
-              (f) =>
-                `    ${f.kind === "note" ? "ℹ" : "✗"} ${f.subject}: ${f.message}`,
-            ),
+            ...res.findings.map((f) => `    ${locatedFinding(f)}`),
           ],
     ),
   ]);

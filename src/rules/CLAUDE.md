@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:4c60cf804aee8709 compiled from src/rules/CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:754ca0df850adec2 compiled from src/rules/CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -14,4 +14,4 @@ Working in `src/rules/`? This is the RULE layer — vigiles' product lint rules 
 
 ### Adding A Rule
 
-**Guidance only** — Adding a rule changes three places and no generic file: the module `<id>.ts` (with `<id>.test.ts` beside it), one entry in `RULES` in `index.ts`, and `docs/rules/<id>.md` plus its row in `docs/verifying-instruction-files.md`. Group membership is the rule's `group` field; presets, `init`'s writes and the audit blocks derive from it. A rule module in a GRADED group needs its findings wired to the scorers first (#390) — `index.test.ts` fails until then.
+**Guidance only** — Adding a rule changes three places and no generic file: the module `<id>.ts` (with `<id>.test.ts` beside it), one entry in `RULES` in `index.ts`, and `docs/rules/<id>.md` plus its row in `docs/verifying-instruction-files.md`. Group membership is the rule's `group` field; presets, `init`'s writes and the audit blocks derive from it. A rule module in a GRADED group also names, in `scored.scanField`, the scan field the scorers count it from (until #390 moves them onto rule results): `applyRules` empties that field when the rule is off, and `index.test.ts` fails without it.

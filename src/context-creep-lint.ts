@@ -134,7 +134,7 @@ function limitCheck(
  */
 function unfollowedNote(weight: InstructionWeight): string {
   return weight.unreadImports.length > 0
-    ? ` (${String(weight.unreadImports.length)} import(s) not followed: ${weight.unreadImports.join(", ")} — their size is not in this number)`
+    ? ` (${String(weight.unreadImports.length)} import(s) of an imported file not followed: ${weight.unreadImports.join(", ")} — their size is not in this number)`
     : "";
 }
 

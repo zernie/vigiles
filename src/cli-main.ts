@@ -2278,7 +2278,12 @@ interface BundleCheck {
    */
   label(text: string): string;
   /** `ghAnnotate`, applying {@link label} when no file is named. */
-  annotate(level: AnnotationLevel, message: string, file?: RepoPath): void;
+  annotate(
+    level: AnnotationLevel,
+    message: string,
+    file?: RepoPath,
+    line?: number,
+  ): void;
   /**
    * `scanPlugin` over THIS bundle, with the repo's `exclude`. One door, so a
    * check cannot scan a different directory or forget the exclude — every
@@ -2360,8 +2365,13 @@ function overBundles<T extends Record<string, number>>(
       ...run,
       bundle,
       label,
-      annotate: (level, message, file) => {
-        ghAnnotate(level, file === undefined ? label(message) : message, file);
+      annotate: (level, message, file, line) => {
+        ghAnnotate(
+          level,
+          file === undefined ? label(message) : message,
+          file,
+          line,
+        );
       },
       scan: (extra = {}) =>
         scanPlugin(bundle.abs, run.adapter.layout, run.adapter.dialect, {
@@ -6436,8 +6446,9 @@ function checkRuleModule(
           ? { mark: "ℹ", level: "notice" as const }
           : markOf(f.sev);
       const msg = `${f.subject}: ${f.message}`;
-      console.log(`  ${mark} ${pathOf(f)}: ${msg}`);
-      ctx.annotate(level, msg, pathOf(f));
+      const at = f.line === undefined ? "" : `:${String(f.line)}`;
+      console.log(`  ${mark} ${pathOf(f)}${at}: ${msg}`);
+      ctx.annotate(level, msg, pathOf(f), f.line);
     }
   }
   return tally(shown.filter((f) => f.kind === "finding"));
@@ -9693,7 +9704,8 @@ function auditScan(
   config: Readonly<VigilesConfig>,
   at: Readonly<{
     root: string;
-    frameRoot: string;
+    /** The frame `lint` uses: `overrides` globs are written against its paths. */
+    frame: Frame;
     excludes: ExcludeSet;
     harnesses: readonly ScanHarness[];
   }>,
@@ -9701,7 +9713,7 @@ function auditScan(
   const scan = scanPlugin(target, adapter.layout, adapter.dialect, {
     deprecatedKeyFiles: specsUsingKeyFiles(at.root, at.excludes.globIgnore),
     sharedDirs: config.sharedDirs,
-    sharedDirsRoot: at.frameRoot,
+    sharedDirsRoot: at.frame.root,
     // `.vigilesrc.json#exclude` reaches surface DISCOVERY, not just the
     // instruction file. Measured 2026-09-21 before this line existed: a repo
     // with `{"exclude": [".claude"]}` and one skill at `.claude/skills/demo`
@@ -9714,12 +9726,15 @@ function auditScan(
     // `exclude` still wins over it; the walk drops an excluded path first.
     harnesses: at.harnesses,
   });
-  return applyRules(
-    RULES,
-    RULE_GROUPS,
-    ruleResolver(config.rules, config.overrides),
-    scan,
-  );
+  const resolver = ruleResolver(config.rules, config.overrides);
+  // Per path, in `lint`'s frame: an override that turns a rule off for a
+  // folder silences `audit` as it silences `lint`.
+  const framed: typeof resolver = {
+    ...resolver,
+    firesAt: (rule, path) =>
+      resolver.firesAt(rule, at.frame.bundle(at.root).scanned(path)),
+  };
+  return applyRules(RULES, RULE_GROUPS, framed, scan);
 }
 
 export async function main(): Promise<void> {
@@ -10066,7 +10081,7 @@ export async function main(): Promise<void> {
         // rule found is gone from everything below (terminal, JSON, HTML).
         const report = auditScan(targets[0], adapter, config, {
           root,
-          frameRoot: frame.root,
+          frame,
           excludes,
           harnesses: scanHarnesses,
         });

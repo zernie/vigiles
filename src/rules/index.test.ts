@@ -183,14 +183,14 @@ describe("presets and init derive from the groups", () => {
         expect(rule.defaultSeverity, rule.id).not.toBe("off");
   });
 
-  // A rule MODULE reports through `findings`, which today reaches only the
-  // ungraded blocks (`applyRules`). A module in a graded group would need its
-  // findings to reach the scorers too — vigiles#390 wires that; until then this
-  // fails rather than letting a graded rule's findings vanish from the score.
-  it("every rule module is in an ungraded group, until #390", () => {
+  // A rule MODULE reports through `findings`, which the scorers do not read
+  // (vigiles#390 moves them there). Until then a module in a graded group names
+  // the scan field it is scored from, so `applyRules` can empty that field when
+  // the rule is off — else an off rule would still move the grade.
+  it("every rule module in a graded group declares the scan field it is scored from, until #390", () => {
     for (const rule of RULES)
-      if ("findings" in rule)
-        expect(RULE_GROUPS[rule.group].graded, rule.id).toBe(false);
+      if ("findings" in rule && RULE_GROUPS[rule.group].graded)
+        expect("scored" in rule, rule.id).toBe(true);
   });
 });
 

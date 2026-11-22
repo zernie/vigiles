@@ -221,8 +221,8 @@ In a list, a later preset wins over an earlier one where they set the same rule
 fire only on a real defect, so a well-formed harness stays green:
 `subagent-tool-contract`, `subagent-frontmatter`, `hook-events`,
 `hook-script-exists`, `mcp-config`, `mcp-tool-resolves`,
-`mcp-hook-target-resolves`, `disallowed-tools-contract` and
-`description-overlap`. [`hand-written-hook`](rules/hand-written-hook.md) is not
+`mcp-hook-target-resolves`, `disallowed-tools-contract`,
+`description-overlap` and `instruction-import-resolves`. [`hand-written-hook`](rules/hand-written-hook.md) is not
 in the preset: its cure is a compiled hook, still an
 [experimental](experimental.md) API. It also gates [`compile-budget`](rules/compile-budget.md):
 a compiled instruction file whose Rules section is over 20,000 characters, or

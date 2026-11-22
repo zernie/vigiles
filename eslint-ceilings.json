@@ -256,7 +256,7 @@
     "max-lines-per-function": 63
   },
   "src/core/instruction-weight.ts": {
-    "max-lines-per-function": 80
+    "max-lines-per-function": 50
   },
   "src/core/lethal-trifecta.test.ts": {
     "complexity": 16
@@ -567,7 +567,7 @@
     "complexity": 11
   },
   "src/scan.ts": {
-    "max-lines-per-function": 173,
+    "max-lines-per-function": 171,
     "sonarjs/cognitive-complexity": 15,
     "complexity": 16
   },

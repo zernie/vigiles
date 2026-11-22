@@ -127,28 +127,161 @@ const mdProse = (): MarkdownItParser =>
  * a measurement, not a precaution.
  */
 export function proseLines(src: string): readonly string[] {
-  const out: string[] = [];
-  for (const tok of mdProse().parse(src, {})) {
-    if (tok.type !== "inline") continue;
-    let line = "";
-    for (const child of tok.children ?? []) {
-      if (child.type === "softbreak" || child.type === "hardbreak") {
-        out.push(line);
-        line = "";
-        continue;
-      }
-      // A code span and an inline `<!-- -->` are not the author's prose; the
-      // corpus that motivated this is full of `@dataclass`-shaped text inside
-      // them, and none of it names a file.
-      if (child.type === "code_inline" || child.type === "html_inline")
-        continue;
-      line += child.content;
-    }
-    out.push(line);
-  }
-  return out
+  return inlineRuns(src)
+    .flatMap((pieces) => {
+      const prose = pieces.filter((p) => !NOT_PROSE.has(p.type));
+      return [...new Set(prose.map((p) => p.row))].map((n) =>
+        prose
+          .filter((p) => p.row === n)
+          .map((p) => p.content)
+          .join(""),
+      );
+    })
     .map((line) => line.replace(/^\uFEFF/, ""))
     .filter((line) => line !== "");
+}
+
+/**
+ * Inline children that are not the author's prose: a code span and an inline
+ * `<!-- -->`. The corpus that motivated {@link proseLines} is full of
+ * `@dataclass`-shaped text inside them, and none of it names a file.
+ */
+const NOT_PROSE: ReadonlySet<string> = new Set(["code_inline", "html_inline"]);
+
+type MdToken = ReturnType<MarkdownItParser["parse"]>[number];
+
+/** One child of an inline token, where it is in the block, and its source line. */
+interface InlinePiece {
+  readonly type: string;
+  readonly content: string;
+  /** The break-separated row of its inline token — what {@link proseLines} groups by. */
+  readonly row: number;
+  /** The 1-based line of `src` the piece starts on, found in the block's own text. */
+  readonly line: number;
+}
+
+/** The 0-based source line range of token `i`: its own map, else the nearest before it. */
+const mapOfToken = (
+  tokens: readonly MdToken[],
+  i: number,
+): readonly [number, number] => {
+  const map = tokens[i]?.map;
+  if (map !== null && map !== undefined) return [map[0], map[1]];
+  return i <= 0 ? [0, 0] : mapOfToken(tokens, i - 1);
+};
+
+/** Where a child sits in its block's source: `[start, end)` offsets, or `null` when not found. */
+function spanOf(
+  block: string,
+  child: Readonly<MdToken>,
+  from: number,
+): readonly [number, number] | null {
+  if (child.type === "code_inline") {
+    // The content has its line breaks turned into spaces, so it cannot be
+    // searched for; its backtick fences can.
+    const open = block.indexOf(child.markup, from);
+    const close =
+      open === -1
+        ? -1
+        : block.indexOf(child.markup, open + child.markup.length);
+    return close === -1 ? null : [open, close + child.markup.length];
+  }
+  if (child.type === "softbreak" || child.type === "hardbreak") {
+    const nl = block.indexOf("\n", from);
+    return nl === -1 ? null : [nl, nl + 1];
+  }
+  if (child.content === "") return null;
+  const at = block.indexOf(child.content, from);
+  return at === -1 ? null : [at, at + child.content.length];
+}
+
+/**
+ * An inline token's children, each with its source line.
+ *
+ * 🔴 THE LINE IS FOUND IN THE BLOCK'S OWN TEXT, NOT COUNTED FROM BREAKS.
+ * markdown-it keeps no position on inline children, and it drops the line
+ * break inside a code span (into a space) and inside an inline `<!-- -->`, so
+ * counting soft and hard breaks put every later line of such a paragraph one
+ * too high. Instead each child, in order, is located in the source lines the
+ * block's `map` covers, from where the previous one ended: a code span by its
+ * backtick fences, everything else by its content. A child that cannot be
+ * located (an escape or entity the parser decoded) takes the line the cursor
+ * is on, and the cursor stays.
+ */
+function inlinePieces(
+  tok: Readonly<MdToken>,
+  [first, last]: readonly [number, number],
+  srcLines: readonly string[],
+): readonly InlinePiece[] {
+  const block = srcLines.slice(first, Math.max(first + 1, last)).join("\n");
+  const lineAt = (offset: number): number =>
+    first + 1 + block.slice(0, offset).split("\n").length - 1;
+  return (tok.children ?? []).reduce<{
+    readonly row: number;
+    readonly cursor: number;
+    readonly out: readonly InlinePiece[];
+  }>(
+    (acc, child) => {
+      const span = spanOf(block, child, acc.cursor);
+      const cursor = span === null ? acc.cursor : span[1];
+      if (child.type === "softbreak" || child.type === "hardbreak")
+        return { ...acc, row: acc.row + 1, cursor };
+      const piece: InlinePiece = {
+        type: child.type,
+        content: child.content,
+        row: acc.row,
+        line: lineAt(span === null ? acc.cursor : span[0]),
+      };
+      return { ...acc, cursor, out: [...acc.out, piece] };
+    },
+    { row: 0, cursor: 0, out: [] },
+  ).out;
+}
+
+/**
+ * Every inline token of `src` (a paragraph, heading, list item or table cell),
+ * as its children with their lines. A table cell's inline token carries no
+ * `map` — only its row does — which is why the range is looked up backwards.
+ */
+function inlineRuns(src: string): readonly (readonly InlinePiece[])[] {
+  const tokens = mdProse().parse(src, {});
+  const srcLines = src.split("\n");
+  return tokens.flatMap((tok, i) =>
+    tok.type === "inline"
+      ? [inlinePieces(tok, mapOfToken(tokens, i), srcLines)]
+      : [],
+  );
+}
+
+/** The whitespace-separated words of one run of prose text. */
+export function wordsOf(text: string): readonly string[] {
+  return text.split(/\s+/).filter((word) => word !== "");
+}
+
+/** A whitespace-separated word of the author's prose, and its 1-based line. */
+export interface ProseWord {
+  readonly word: string;
+  readonly line: number;
+}
+
+/**
+ * The words of `src`'s PROSE — only markdown-it's `text` children, so code
+ * fences, indented code, code spans, raw and inline HTML are excluded by the
+ * parser, never by a heuristic over the line. Link TEXT is text; a link's URL
+ * is an attribute, not a child, so it is not a word. Each word carries the
+ * line of the text it is in, found in the source ({@link inlinePieces}).
+ */
+export function proseWords(src: string): readonly ProseWord[] {
+  return inlineRuns(src).flatMap((pieces) =>
+    pieces
+      .filter((p) => p.type === "text")
+      .flatMap((p) =>
+        wordsOf(p.content.replace(/^\uFEFF/, "")).map((word) => ({
+          word,
+          line: p.line,
+        })),
+      ),
+  );
 }
 
 /** One fenced code block: its BODY (delimiters excluded) and where the body starts. */

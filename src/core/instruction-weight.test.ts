@@ -17,7 +17,9 @@
 import { describe, it, expect } from "vitest";
 import { weighInstructions, sizeIn } from "./instruction-weight.js";
 import type { InstructionBudget } from "./instruction-weight.js";
-import type { InstructionChain } from "./instruction-chain.js";
+import { instructionViews } from "./instruction-chain.js";
+import type { PluginLayout } from "./layout.js";
+import { listingOfPaths } from "./instruction-imports.js";
 import { claudeCodeLayout } from "../adapters/claude-code/layout.js";
 import { codexLayout } from "../adapters/codex/layout.js";
 import { claudeCodeDialect } from "../adapters/claude-code/dialect.js";
@@ -29,13 +31,16 @@ if (!cc || !codex) throw new Error("fixture precondition: both budgets exist");
 
 /** Weigh a map the way the engines do: the harness classifies, the sum follows. */
 function weighThrough(
-  layout: {
-    instructionChain: (f: Readonly<Record<string, string>>) => InstructionChain;
-  },
+  layout: PluginLayout,
   files: Record<string, string>,
   budget: InstructionBudget,
 ): ReturnType<typeof weighInstructions> {
-  return weighInstructions(layout.instructionChain(files), files, budget);
+  return weighInstructions(
+    instructionViews(layout, files),
+    files,
+    budget,
+    listingOfPaths(Object.keys(files)),
+  );
 }
 
 describe("the SUM is what is measured, not the file", () => {
@@ -262,13 +267,20 @@ describe("a PER-MACHINE file can change the MEMBERSHIP of the load, not just its
 });
 
 describe("what could NOT be weighed is printed, not dropped", () => {
-  it("an import the run never read is named", () => {
+  // An import that EXISTS and was not weighed — the second hop — is named here.
+  // One that does not exist is not: that is the instruction-import finding,
+  // printed once, at its line, and repeating it here would print it twice.
+  it("an import of an imported file is named; an import of nothing is not", () => {
     const w = weighThrough(
       claudeCodeLayout,
-      { "CLAUDE.md": "see @docs/style.md for prose" },
+      {
+        "CLAUDE.md": "see @a.md and @docs/gone.md",
+        "a.md": "then @docs/b.md",
+        "docs/b.md": "z",
+      },
       cc,
     );
-    expect(w.unreadImports).toEqual(["docs/style.md"]);
+    expect(w.unreadImports).toEqual(["docs/b.md"]);
   });
 
   it("an import that WAS read is weighed like any other loaded file", () => {

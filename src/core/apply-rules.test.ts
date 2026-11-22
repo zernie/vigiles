@@ -58,9 +58,11 @@ const SCAN = {
   items: ["a", "b"],
   graded: ["x"],
   count: 2,
+  instructionImportIssues: [],
 };
 const switchOf = (on: readonly string[]) => ({
   mayFire: (id: string) => on.includes(id),
+  firesAt: (id: string) => on.includes(id),
 });
 
 describe("applyRules — an off rule's scan field", () => {
@@ -134,5 +136,113 @@ describe("applyRules — ungraded groups", () => {
     const out = applyRules(RULES, GROUPS, switchOf([module.id]), SCAN);
     expect("ungraded" in gradedView(out)).toBe(false);
     expect(gradedView(out).graded).toEqual(["x"]);
+  });
+});
+
+const graded = defineRule({
+  id: "fixture-graded-module",
+  group: "graded",
+  bucket: "external-decidable",
+  surface: ["instruction"],
+  defaultSeverity: "warn",
+  cure: "edit",
+  summary: "a graded rule module scored from a scan field it narrows",
+  detector: "fixture",
+  scored: {
+    narrow: (scan, firesAt) => ({
+      skills: scan.skills.filter((s) => firesAt(s.path)),
+    }),
+  },
+  findings: (scan: ScanInput) =>
+    scan.skills.map((s) => ({
+      kind: "finding" as const,
+      path: s.path,
+      line: 3,
+      subject: s.name,
+      message: "found",
+    })),
+});
+const SET = [graded];
+const TWO = {
+  ...SCAN,
+  skills: [
+    ...SCAN.skills,
+    { name: "beta", path: "legacy/beta/SKILL.md", resourceIssues: [] },
+  ],
+};
+
+describe("applyRules — a rule module in a GRADED group", () => {
+  it("on: its located findings are in `findings`, and the field it is scored from stays", () => {
+    const out = applyRules(SET, GROUPS, switchOf([graded.id]), SCAN);
+    expect(out.findings).toEqual([
+      {
+        rule: graded.id,
+        findings: [
+          expect.objectContaining({ path: "skills/alpha/SKILL.md", line: 3 }),
+        ],
+      },
+    ]);
+    expect(out.skills).toEqual(SCAN.skills);
+    expect(out.ungraded).toEqual([]);
+  });
+
+  it("off: the field it is scored from is emptied and it reports nothing", () => {
+    const out = applyRules(SET, GROUPS, switchOf([]), SCAN);
+    expect(out.skills).toEqual([]);
+    expect(out.findings).toEqual([]);
+  });
+
+  it("an ungraded group's module never lands in `findings`", () => {
+    const out = applyRules(RULES, GROUPS, switchOf([module.id]), SCAN);
+    expect(out.findings).toEqual([]);
+  });
+});
+
+describe("applyRules — what scores is not what prints", () => {
+  // A graded module may narrow its scored field by MORE than the path — the
+  // instruction-import rule drops an import written in one machine's file
+  // (never scored) — and that must not hide the finding: the field scores,
+  // the findings locate, and only the per-path answer silences a finding.
+  const scoresAlphaOnly = defineRule({
+    ...graded,
+    id: "fixture-scores-less-than-it-prints",
+    scored: {
+      narrow: (scan, firesAt) => ({
+        skills: scan.skills.filter(
+          (s) => firesAt(s.path) && s.name === "alpha",
+        ),
+      }),
+    },
+  });
+
+  it("a finding its narrow leaves out of the score is still in `findings`", () => {
+    const out = applyRules(
+      [scoresAlphaOnly],
+      GROUPS,
+      switchOf([scoresAlphaOnly.id]),
+      TWO,
+    );
+    expect(out.skills.map((s) => s.name)).toEqual(["alpha"]);
+    expect(
+      out.findings.flatMap((r) => r.findings.map((f) => f.subject)),
+    ).toEqual(["alpha", "beta"]);
+  });
+});
+
+describe("applyRules — per path", () => {
+  it("off at one path (an override): that path leaves both the scored field and the findings", () => {
+    const out = applyRules(
+      SET,
+      GROUPS,
+      {
+        mayFire: () => true,
+        firesAt: (_rule, path) => !path.startsWith("legacy/"),
+      },
+      TWO,
+    );
+    expect(out.skills.map((s) => s.name)).toEqual(["alpha"]);
+    expect(out.findings.flatMap((r) => r.findings.map((f) => f.path))).toEqual([
+      "skills/alpha/SKILL.md",
+    ]);
   });
 });

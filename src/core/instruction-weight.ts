@@ -38,12 +38,13 @@
  */
 
 import type {
-  InstructionChain,
   InstructionRole,
   InstructionScope,
+  InstructionViews,
   LoadedInstruction,
 } from "./instruction-chain.js";
 import { sizeIn } from "./harness-unit.js";
+import { importResolution, type DirListing } from "./instruction-imports.js";
 
 /** What the harness counts, and what it does when the count is exceeded. */
 export interface InstructionBudget {
@@ -138,10 +139,12 @@ export interface InstructionWeight {
   /** `null` when {@link committedTotal} is within budget; else how far over. */
   readonly overBy: number | null;
   /**
-   * Files the chain NAMED and this run did not read — an import that does not
-   * exist, points outside the repo, or sits past the import depth. Printed, not
-   * dropped: a number missing a file it knows about would be the under-report
-   * this whole module exists to prevent.
+   * Files the chain NAMED that EXIST and this run did not weigh — an import
+   * past the import depth (a second hop). Printed, not dropped: a number
+   * missing a file it knows about would be the under-report this whole module
+   * exists to prevent. An import that does not resolve is NOT here: that is a
+   * finding of its own (`./instruction-imports.ts`), printed once, where it is
+   * written.
    */
   readonly unreadImports: readonly string[];
   /**
@@ -175,55 +178,24 @@ export { sizeIn } from "./harness-unit.js";
  * harness's answer now (`PluginLayout.instructionChain`); this function only
  * adds up what it was told and says what it could not weigh.
  *
+ * Takes BOTH views (`instructionViews`): this copy's chain for what it loads,
+ * the committed one for what a teammate loads — see {@link notLoadedHereOf}.
+ *
  * Takes the map as well as the chain because a chain is a CLASSIFICATION, not
  * a measurement: the sizes live in the bytes, and the same map serves the CLI
  * and the browser engine.
  */
 export function weighInstructions(
-  chain: InstructionChain,
+  views: InstructionViews,
   files: Readonly<Record<string, string>>,
   budget: InstructionBudget,
+  /** The repository's names, to tell an import that exists from one that does not. */
+  list: DirListing,
 ): InstructionWeight {
-  /**
-   * A committed file this working copy does NOT load, only because a
-   * per-machine file supersedes it — so a teammate's total keeps it and ours
-   * does not. Read straight off the chain's own reason rather than re-derived
-   * from the path, which is why `byScope` is on {@link NotLoadedReason}.
-   *
-   * The other superseded entries — the ones a COMMITTED file silenced — are
-   * correctly absent: nobody loads those, so they pay into neither total.
-   */
-  //
-  // 🔴 TWO REASONS, ONE RULE. It used to match `superseded` alone, and the
-  // second reason — a `claudeMdExcludes` pattern read out of the gitignored
-  // settings sibling — reached the same state by a different door and was not
-  // handled: the file left BOTH totals, so a gitignored file lowered the
-  // published score. Measured; the numbers are on `excluded-by-settings` in
-  // `core/instruction-chain.ts`. The rule is about the SCOPE of whatever
-  // removed the file, not about which of the two did.
-  type LocallyRemoved = {
-    readonly entry: LoadedInstruction;
-    readonly by: string;
-    readonly why: "superseded" | "excluded";
-  };
-  const notLoadedHere: readonly LocallyRemoved[] = chain.unloaded.flatMap(
-    (e): LocallyRemoved[] => {
-      if (e.scope !== "repo") return [];
-      if (e.reason.kind === "superseded" && e.reason.byScope === "local") {
-        return [{ entry: e, by: e.reason.by, why: "superseded" as const }];
-      }
-      if (
-        e.reason.kind === "excluded-by-settings" &&
-        e.reason.byScope === "local"
-      ) {
-        return [{ entry: e, by: e.reason.by, why: "excluded" as const }];
-      }
-      return [];
-    },
-  );
+  const chain = views.effective;
   const weighOne = (
     entry: LoadedInstruction,
-    notLoadedHereBy?: { by: string; why: "superseded" | "excluded" },
+    notLoadedHereBy?: NotLoadedHere,
   ): WeighedFile[] => {
     const text = files[entry.path];
     return text === undefined
@@ -243,17 +215,14 @@ export function weighInstructions(
   };
   const weighed = [
     ...chain.loaded.flatMap((e) => weighOne(e)),
-    ...notLoadedHere.flatMap((s) =>
-      weighOne(s.entry, { by: s.by, why: s.why }),
-    ),
+    ...notLoadedHereOf(views).flatMap((s) => weighOne(s.entry, s.marker)),
   ].sort((a, b) => b.size - a.size || a.path.localeCompare(b.path));
   const sum = (of: readonly WeighedFile[]): number =>
     of.reduce((total, f) => total + f.size, 0);
-  // COMMITTED is still "every `repo`-scoped file in the list", unchanged — the
-  // superseded entry is a committed file and joins the list with `scope:
-  // "repo"`, so the formula did not have to learn a second rule. EFFECTIVE is
-  // the one that changed: it was `sum(weighed)`, which was only ever right
-  // while the list held nothing this working copy fails to load.
+  // COMMITTED is "every `repo`-scoped file in the list": the files a teammate
+  // loads that this copy does not join the list from the COMMITTED view with
+  // their own scope, so the formula did not have to learn a second rule.
+  // EFFECTIVE is everything this copy loads.
   const committedTotal = sum(weighed.filter((f) => f.scope === "repo"));
   return {
     unit: budget.unit,
@@ -264,24 +233,95 @@ export function weighInstructions(
     effectiveTotal: sum(weighed.filter((f) => f.notLoadedHere === undefined)),
     overBy:
       committedTotal > budget.limit ? committedTotal - budget.limit : null,
-    // NOT "absent from the map": a second-hop target can be in the map (the
-    // import pass read it because its importer was also a candidate) and still
-    // not be in the chain, because the second hop is named, never taken. What
-    // makes an import unread is that the chain did not classify its target.
-    unreadImports: [
-      ...new Set(
-        chain.imports
-          .map((i) => i.path)
-          .filter(
-            (path) =>
-              !chain.loaded.some((e) => e.path === path) &&
-              !chain.unloaded.some((e) => e.path === path),
-          ),
-      ),
-    ].sort(),
+    unreadImports: unreadImportsOf(views, list),
     unweighedPatterns: [
       ...new Set(chain.patterns.map((p) => p.pattern)),
     ].sort(),
     redirects: chain.redirects,
   };
+}
+
+/** Who stopped this copy loading a committed file, and how. */
+type NotLoadedHere = NonNullable<WeighedFile["notLoadedHere"]>;
+
+/**
+ * The files the COMMITTED view loads and this copy does not — a teammate's
+ * total keeps them, ours does not — each with the per-machine file that did it.
+ *
+ * 🔴 READ OFF THE COMMITTED VIEW (`instructionViews`), NOT OFF THE EFFECTIVE
+ * CHAIN'S REASONS. It used to be "the `repo` entries `unloaded` because a
+ * `local` superseder or a `local` settings exclusion removed them" — right for
+ * the file itself and blind to what that file IMPORTS, because a chain never
+ * names the imports of a file it does not load. Measured: `AGENTS.md` importing
+ * `docs/x.md`, with a `CLAUDE.local.md` beside it, put 112 into
+ * `committedTotal` where a teammate loads 162. The same blindness took a
+ * broken import out of the grade, so both now read the one committed view.
+ *
+ * The marker is the effective chain's own reason for the file (`superseded`,
+ * or `excluded-by-settings`, each with `byScope: "local"`); a file the committed
+ * view took through an import inherits its importer's. Nothing else can make
+ * the two views differ, so a file with neither is not listed.
+ */
+function notLoadedHereOf(views: InstructionViews): readonly {
+  readonly entry: LoadedInstruction;
+  readonly marker: NotLoadedHere;
+}[] {
+  const here = new Set(views.effective.loaded.map((e) => e.path));
+  const committed = new Map(views.committed.loaded.map((e) => [e.path, e]));
+  const reasonOf = new Map(
+    views.effective.unloaded.flatMap((e): [string, NotLoadedHere][] => {
+      if (e.reason.kind === "superseded" && e.reason.byScope === "local")
+        return [[e.path, { by: e.reason.by, why: "superseded" }]];
+      if (
+        e.reason.kind === "excluded-by-settings" &&
+        e.reason.byScope === "local"
+      )
+        return [[e.path, { by: e.reason.by, why: "excluded" }]];
+      return [];
+    }),
+  );
+  const markerOf = (
+    entry: LoadedInstruction | undefined,
+  ): NotLoadedHere | undefined => {
+    if (entry === undefined) return undefined;
+    const own = reasonOf.get(entry.path);
+    if (own !== undefined || entry.via === undefined) return own;
+    return markerOf(committed.get(entry.via.from));
+  };
+  return views.committed.loaded
+    .filter((e) => !here.has(e.path))
+    .flatMap((entry) => {
+      const marker = markerOf(entry);
+      return marker === undefined ? [] : [{ entry, marker }];
+    });
+}
+
+/**
+ * The imports that EXIST and the chain did not classify — sorted, unique.
+ *
+ * NOT "absent from the map": a second-hop target can be in the map (the import
+ * pass read it because its importer was also a candidate) and still not be in
+ * the chain, because the second hop is named, never taken. What makes an import
+ * unread is that the chain did not classify its target; one that does not
+ * resolve at all is the instruction-import finding's, not this list's.
+ */
+function unreadImportsOf(
+  views: InstructionViews,
+  list: DirListing,
+): readonly string[] {
+  const chains = [views.effective, views.committed];
+  const classified = new Set(
+    chains.flatMap((c) => [...c.loaded, ...c.unloaded]).map((e) => e.path),
+  );
+  return [
+    ...new Set(
+      chains
+        .flatMap((c) => c.imports)
+        .map((i) => i.path)
+        .filter(
+          (path) =>
+            !classified.has(path) && importResolution(path, list) === null,
+        ),
+    ),
+  ].sort();
 }

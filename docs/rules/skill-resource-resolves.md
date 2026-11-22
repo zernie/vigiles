@@ -59,8 +59,8 @@ A body reference that is **unambiguously a local bundled resource** but doesn't
 resolve on disk:
 
 ```
-✗ pdf-extract: bundled resource "scripts/extract.py" (line 14) is referenced but
-  missing — the agent reads the instruction and gets nothing.
+✗ skills/pdf-extract/SKILL.md:14: pdf-extract: bundled resource "scripts/extract.py"
+  is referenced but missing — the agent reads the instruction and gets nothing.
 ```
 
 A file that is missing beside the SKILL.md but **exists at the repository root**
@@ -112,8 +112,8 @@ experimental block, after the grade:
 Experimental — not graded:
   Checks vigiles ships but has not measured as reliable enough to grade you on. They never move the score.
   skill-resource-resolves (2):
-    ℹ release-check: bundled resource "scripts/check-changelog.sh" (line 8) resolves only from the repo root, not from the skill directory — it breaks once the skill is installed outside this repository. If repo-root resolution is intended, add "scripts" to sharedDirs in .vigilesrc.json.
-    ✗ release-check: bundled resource "references/release-policy.md" (line 10) is referenced but missing — the agent reads the instruction and gets nothing.
+    ℹ .claude/skills/release-check/SKILL.md:8: release-check: bundled resource "scripts/check-changelog.sh" resolves only from the repo root, not from the skill directory — it breaks once the skill is installed outside this repository. If repo-root resolution is intended, add "scripts" to sharedDirs in .vigilesrc.json.
+    ✗ .claude/skills/release-check/SKILL.md:10: release-check: bundled resource "references/release-policy.md" is referenced but missing — the agent reads the instruction and gets nothing.
 ```
 
 `vigiles lint --preset=experimental` prints the same two lines, in the same
@@ -122,8 +122,8 @@ words:
 ```
 skill-resource-resolves:
 
-  ℹ .claude/skills/release-check/SKILL.md: release-check: bundled resource "scripts/check-changelog.sh" (line 8) resolves only from the repo root, not from the skill directory — it breaks once the skill is installed outside this repository. If repo-root resolution is intended, add "scripts" to sharedDirs in .vigilesrc.json.
-  ⚠ .claude/skills/release-check/SKILL.md: release-check: bundled resource "references/release-policy.md" (line 10) is referenced but missing — the agent reads the instruction and gets nothing.
+  ℹ .claude/skills/release-check/SKILL.md:8: release-check: bundled resource "scripts/check-changelog.sh" resolves only from the repo root, not from the skill directory — it breaks once the skill is installed outside this repository. If repo-root resolution is intended, add "scripts" to sharedDirs in .vigilesrc.json.
+  ⚠ .claude/skills/release-check/SKILL.md:10: release-check: bundled resource "references/release-policy.md" is referenced but missing — the agent reads the instruction and gets nothing.
 ```
 
 What each kind does, once the rule is on:

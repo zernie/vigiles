@@ -217,16 +217,16 @@
       "count": 1
     },
     "functional/immutable-data": {
-      "count": 8
+      "count": 7
     },
     "functional/no-let": {
       "count": 1
     },
     "functional/no-loop-statements": {
-      "count": 9
+      "count": 7
     },
     "functional/prefer-immutable-types": {
-      "count": 6
+      "count": 5
     }
   },
   "src/adapters/claude-code/layout.test.ts": {
@@ -1697,7 +1697,7 @@
   },
   "src/core/instruction-weight.ts": {
     "functional/prefer-immutable-types": {
-      "count": 3
+      "count": 2
     }
   },
   "src/core/integrity-header.ts": {
@@ -1817,16 +1817,16 @@
       "count": 1
     },
     "functional/immutable-data": {
-      "count": 8
+      "count": 6
     },
     "functional/no-let": {
-      "count": 7
+      "count": 6
     },
     "functional/no-loop-statements": {
-      "count": 8
+      "count": 6
     },
     "functional/prefer-immutable-types": {
-      "count": 8
+      "count": 7
     }
   },
   "src/core/mcp-config.test.ts": {
