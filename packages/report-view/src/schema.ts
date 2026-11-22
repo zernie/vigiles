@@ -15,6 +15,34 @@ export type CategoryKey =
   /** REAL-MODEL eval coverage — paid, minutes, scheduled. Does a skill FIRE? */
   | "Evaluated";
 
+/** How a file names another: what the harness does with the reference. */
+export type ReferenceKind = "import" | "link" | "mention" | "script";
+
+/** One reference that does not resolve, at the line that holds it. */
+export type BrokenReference = {
+  rule: string;
+  from: string;
+  line: number;
+  kind: ReferenceKind;
+  target: string;
+} & (
+  | { resolution: "missing"; didYouMean?: string }
+  | { resolution: "case-mismatch"; actual: string }
+);
+
+/** Where a broken reference is and how it failed, on one line. */
+export function brokenReferenceLine(r: BrokenReference): string {
+  const at = `${r.from}:${String(r.line)} → ${r.target}`;
+  switch (r.resolution) {
+    case "missing":
+      return r.didYouMean === undefined
+        ? `${at} — missing`
+        : `${at} — missing; did you mean ${r.didYouMean}?`;
+    case "case-mismatch":
+      return `${at} — wrong case: the file is ${r.actual}`;
+  }
+}
+
 export interface CategoryScore {
   key: CategoryKey;
   score: number | null;
@@ -256,9 +284,9 @@ export interface AuditReport {
   verdict: Verdict;
   recommendations: Recommendation[];
   inventory: AuditInventory;
-  /** The concrete intra-plugin references that don't resolve — the actual paths
-   *  behind the Truthfulness "N broken reference(s)" count. Present only when ≥1. */
-  brokenReferences?: string[];
+  /** References that do not resolve, one per place a file names a missing
+   *  path. Present only when ≥1. */
+  brokenReferences?: BrokenReference[];
   /** The ungraded rule groups — checks shipped but not measured reliable
    *  enough to grade on. One block per group with a rule the run turned on;
    *  absent when none. NEVER scored: each shown in a block of its own. */

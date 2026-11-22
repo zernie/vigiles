@@ -32,7 +32,6 @@ import { diskHookInventory, diskHookScan } from "./hook-inventory.js";
 // to live with. The default belongs to the CALLER: the CLI already resolves an
 // adapter before every one of these calls, and passing it is what removes the
 // import rather than hiding it.
-import { danglingRefs } from "./plugin-loader.js";
 import { isEmptyMachine } from "./score-core.js";
 import { brokenSkillRefs, formatSkillRefIssue } from "./skill-refs.js";
 import {
@@ -370,17 +369,8 @@ export interface ScanReport {
   readonly outputStyles?: number | "not-supported";
   readonly mcp: boolean;
   /**
-   * Intra-plugin file references (hook scripts, skill bodies) pointing at files
-   * that don't exist on disk — the broken-path / partial-vendor class. A
-   * first-class structural finding, not just a free-text warning, so the verdict
-   * and the leaderboard can count it.
-   */
-  readonly danglingRefs: readonly string[];
-  /**
    * Skills naming a sibling skill that does not exist (a near-miss of a real one
-   * — a rename or a typo). Separate from `danglingRefs` because that field holds
-   * PATH tokens from executable sources; these are full sentences about prose.
-   * Both are broken intra-plugin references and score in the same category.
+   * — a rename or a typo). Full sentences about prose; scored in Truthfulness.
    *
    * OPTIONAL because absence is not a claim: a producer that predates this field
    * (or a browser scan that has not been taught it) reports nothing rather than
@@ -748,6 +738,26 @@ function weighBoundedInstructions(
     : null;
 }
 
+/** The instruction file this scan found, or `null` when the repo has none. */
+function scanInstructions(
+  dir: string,
+  files: Readonly<Record<string, string>>,
+  instructionFile: string,
+): ScanInstructions | null {
+  const text = files[instructionFile];
+  if (text === undefined) return null;
+  return {
+    file: instructionFile,
+    // The one answer to "is it hand-written?" (a compiled multi-target
+    // file has no sibling spec and is still spec-managed).
+    hasSpec:
+      instructionSpecState(
+        text,
+        existsSync(join(resolve(dir), `${instructionFile}.spec.ts`)),
+      ) === "spec-managed",
+  };
+}
+
 /** Scan a plugin/repo directory and report its surfaces + structural issues. */
 export function scanPlugin(
   dir: string,
@@ -878,19 +888,7 @@ export function scanPlugin(
     resolve(dir),
     instructionHarness.layout,
   );
-  const instructions: ScanInstructions | null =
-    loaded.files[instructionFile] !== undefined
-      ? {
-          file: instructionFile,
-          // The one answer to "is it hand-written?" (a compiled multi-target
-          // file has no sibling spec and is still spec-managed).
-          hasSpec:
-            instructionSpecState(
-              loaded.files[instructionFile],
-              existsSync(join(resolve(dir), `${instructionFile}.spec.ts`)),
-            ) === "spec-managed",
-        }
-      : null;
+  const instructions = scanInstructions(dir, loaded.files, instructionFile);
   const mcpServers = collectMcpServers(resolve(dir), lay);
   const declaredServers = Object.keys(mcpServers);
   const agents = scanAgents(loaded.files, dialect, declaredServers, cls, {
@@ -956,12 +954,10 @@ export function scanPlugin(
     mcp:
       loaded.warnings.some((w: string) => w.includes("MCP server")) ||
       declaredServers.length > 0,
-    danglingRefs: danglingRefs(resolve(dir), lay),
-    // Skill→skill references BY NAME, which `danglingRefs` structurally cannot
-    // see: it matches PATHS in EXECUTABLE sources and skips prose by design, and
-    // this reference lives in prose. Contents come from the already-loaded file
-    // map by its CANONICAL key — keying by `ScanSkill.path` (the real on-disk
-    // path) missed every skill in a `skills/` plugin. See `skillRefSources`.
+    // Skill→skill references BY NAME, read from prose. Contents come from the
+    // already-loaded file map by its CANONICAL key — keying by `ScanSkill.path`
+    // (the real on-disk path) missed every skill in a `skills/` plugin. See
+    // `skillRefSources`.
     skillRefIssues: brokenSkillRefs(
       skillRefSources(loaded.files, cls, {
         root: resolve(dir),
@@ -1617,13 +1613,6 @@ function gradedReportLines(r: ScanReport): readonly string[] {
 
   out.push(
     ...section(
-      "Broken references",
-      r.danglingRefs.map((ref) => `  ✗ ${ref} (referenced but MISSING)`),
-    ),
-  );
-
-  out.push(
-    ...section(
       "Hook events",
       r.hookEventIssues.map((i) => `  ✗ ${i.message}`),
     ),
@@ -1770,13 +1759,8 @@ function gradedReportLines(r: ScanReport): readonly string[] {
   }
   out.push(...facts, "");
 
-  // The dangling-ref warning is now shown as a first-class ✗ section above, so
-  // drop it from the free-text list to avoid saying the same thing twice.
-  const warnings = r.warnings.filter(
-    (w) => !w.includes("intra-plugin file(s) that don't exist"),
-  );
-  if (warnings.length > 0) {
-    out.push("Warnings:", ...warnings.map((w) => `  - ${w}`), "");
+  if (r.warnings.length > 0) {
+    out.push("Warnings:", ...r.warnings.map((w) => `  - ${w}`), "");
   }
 
   // Skill-metadata is a RECOMMENDATION, not a structural defect (the skill loads
@@ -1812,7 +1796,6 @@ function gradedReportLines(r: ScanReport): readonly string[] {
         a.disallowedToolIssues.length,
       0,
     ) +
-    r.danglingRefs.length +
     r.hookEventIssues.length +
     r.frontmatterIssues.length +
     r.frontmatterValueIssues.length +

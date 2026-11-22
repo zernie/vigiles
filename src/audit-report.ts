@@ -41,8 +41,43 @@ import {
  * v3 (2026-11-22): `inventory.hooks` counts hook LINES from the hook inventory,
  * where v2 added the files compiled lines need to hand-written lines. Same name
  * and type, different meaning: a v2 consumer comparing counts would mis-read it.
+ * v4 (2026-11-22): `brokenReferences` changed from a list of path strings to a
+ * list of {@link BrokenReference} objects — each finding carries its rule, the
+ * file and line that hold the reference, and how it failed to resolve. The
+ * detector that filled the string list read paths out of hook-script and test
+ * bodies, which the harness never reads as references, and was removed.
  */
-export const AUDIT_SCHEMA_VERSION = 3;
+export const AUDIT_SCHEMA_VERSION = 4;
+
+/** How a file names another: what the harness does with the reference. */
+export type ReferenceKind =
+  /** `@path` — the harness loads the file into context. */
+  | "import"
+  /** A markdown link or image destination. */
+  | "link"
+  /** A code span holding one path-shaped token. */
+  | "mention"
+  /** A package-manager script named in a code span (`npm run x`). */
+  | "script";
+
+/**
+ * One reference that does not resolve. `target` is the path exactly as the
+ * author wrote it; `resolution` says how it failed, and a wrong-case target
+ * names the file that does exist, which breaks on a case-sensitive checkout.
+ */
+export type BrokenReference = {
+  /** The id of the rule that reported it. */
+  readonly rule: string;
+  /** The file holding the reference, relative to the scanned directory. */
+  readonly from: string;
+  /** 1-based line in `from`. */
+  readonly line: number;
+  readonly kind: ReferenceKind;
+  readonly target: string;
+} & (
+  | { readonly resolution: "missing"; readonly didYouMean?: string }
+  | { readonly resolution: "case-mismatch"; readonly actual: string }
+);
 
 export interface AuditReportMeta {
   /** Wire-format version — consumers gate on this. */
@@ -200,13 +235,11 @@ export interface AuditReport {
   readonly recommendations: readonly Recommendation[];
   readonly inventory: AuditInventory;
   /**
-   * The CONCRETE intra-plugin references that don't resolve on disk — the actual
-   * paths behind the Truthfulness category's "N broken intra-plugin reference(s)"
-   * count, so the report can show WHAT is broken (a file path), not just how many.
-   * Present only when at least one dangling ref exists. Additive/optional — schema
-   * version unchanged.
+   * References that do not resolve, one per place a file names a missing path:
+   * the file, the 1-based line, the rule that reported it. Present only when at
+   * least one exists. Nothing fills it yet; the reference graph will.
    */
-  readonly brokenReferences?: readonly string[];
+  readonly brokenReferences?: readonly BrokenReference[];
   /**
    * Instruction specs still using the deprecated `keyFiles` (the
    * `deprecated-key-files` rule's findings: path, entry count, compiled
@@ -404,12 +437,9 @@ function contextCostField(report: ScanReport): {
  */
 function scanFindingLists(
   report: FilteredScan<ScanReport>,
-): Pick<AuditReport, "brokenReferences" | "deprecatedKeyFiles" | "ungraded"> {
+): Pick<AuditReport, "deprecatedKeyFiles" | "ungraded"> {
   return {
     ...(report.ungraded.length > 0 ? { ungraded: report.ungraded } : {}),
-    ...(report.danglingRefs.length
-      ? { brokenReferences: report.danglingRefs }
-      : {}),
     ...(report.deprecatedKeyFiles
       ? { deprecatedKeyFiles: report.deprecatedKeyFiles }
       : {}),

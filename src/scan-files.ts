@@ -25,13 +25,13 @@
  * legitimately differs between the two environments (it names WHERE the repo lives,
  * not WHAT the harness contains).
  *
- * The six filesystem touchpoints in `scanPlugin` are reimplemented here over the
+ * The five filesystem touchpoints in `scanPlugin` are reimplemented here over the
  * map (never on disk): (1) the hook inventory — hookInventory/collectHookBlockEntries
  * take an injected map-backed `exists`; (2) `collectMcpServers`; (3) the `hasSpec`
- * check; (4) `danglingRefs`; (5) `pluginDirLayoutIssues` (map-backed
- * existsSync/isDirectory); (6) `findUntestedSurfaces` (its globs → `Object.keys`
- * filters). `verifyLiveMcpTools` (spawns servers) is NOT part of `scanPlugin` and
- * is excluded. See research/report-view-and-browser-demo.md.
+ * check; (4) `pluginDirLayoutIssues` (map-backed existsSync/isDirectory);
+ * (5) `findUntestedSurfaces` (its globs → `Object.keys` filters).
+ * `verifyLiveMcpTools` (spawns servers) is NOT part of `scanPlugin` and is
+ * excluded. See research/report-view-and-browser-demo.md.
  */
 import { basename, dirname, isAbsolute, join, relative } from "./posix-path.js";
 
@@ -101,11 +101,6 @@ import { hookBlockIssues } from "./core/hook-block-ineffective.js";
 import { hookMatcherIssues } from "./core/hook-matcher.js";
 import { findUntestedSurfacesInFiles } from "./test-coverage-files.js";
 import { countEvidence, inventoryCounts } from "./coverage-evidence.js";
-import {
-  intraRefPattern,
-  startsAtSeparator,
-  stripFullLineComments,
-} from "./core/source-refs.js";
 import {
   makeClassifier,
   scanAgents,
@@ -478,97 +473,6 @@ function materializeSurfaces(
 }
 
 // ---------------------------------------------------------------------------
-// Dangling intra-plugin refs (mirrors plugin-loader.ts danglingRefs)
-// ---------------------------------------------------------------------------
-
-// Extensions + BOTH token boundaries live in core/source-refs.ts, so this and
-// its disk twin (plugin-loader.ts) cannot disagree and neither can omit one.
-function intraRefRe(layout: PluginLayout): RegExp {
-  return intraRefPattern(executableSourceDirs(layout));
-}
-
-const NON_PLUGIN_VARS = new Set([
-  "CLAUDE_PROJECT_DIR",
-  "CLAUDE_PROJECT",
-  "HOME",
-  "PWD",
-  "OLDPWD",
-]);
-
-/** Mirror of plugin-loader.ts `isPluginRooted`, including its boundary test:
- *  a match preceded by a path-segment character landed INSIDE a longer name
- *  (`claude-agents/`) and refers to nothing. */
-function isPluginRooted(content: string, idx: number): boolean {
-  // Start-of-content is handled by `startsAtSeparator` itself (`idx <= 0`), not
-  // by a guard here — see the twin in plugin-loader.ts.
-  if (content[idx - 1] !== "/") return startsAtSeparator(content, idx);
-  const seg = /([^\s"'`(=:/]*)$/.exec(content.slice(0, idx - 1))?.[1] ?? "";
-  const varName = /^\$\{?(\w+)\}?$/.exec(seg)?.[1];
-  if (varName !== undefined) return !NON_PLUGIN_VARS.has(varName);
-  return false;
-}
-
-const DOC_SOURCE_RE = /\.(?:md|markdown|mdx|txt|rst)$/i;
-
-/** The plugin's executable (non-prose) source-file CONTENTS under the surface dirs. */
-function executableContents(
-  files: Record<string, string>,
-  layout: PluginLayout,
-): string[] {
-  const out: string[] = [];
-  for (const surface of executableSourceDirs(layout)) {
-    if (!isDirRel(files, surface)) continue;
-    for (const [k, content] of Object.entries(files)) {
-      if (!k.startsWith(`${surface}/`)) continue;
-      if (DOC_SOURCE_RE.test(k)) continue;
-      if (byteLen(content) > MAX_SKILL_FILE_BYTES) continue;
-      // A full-line comment is prose in EVERY language, not only in shell.
-      out.push(stripFullLineComments(k, content));
-    }
-  }
-  return out;
-}
-
-/**
- * Mirror of plugin-loader.ts `resolvesUnderRoot`, over the file map. `rootName`
- * is the audited root's own directory name (the map-backed analog of
- * `basename(root)` on disk — see `scanFiles`'s `repoName` param) — used to
- * detect a REPO-CHECKOUT-RELATIVE echo of the plugin's own containing surface
- * dir + name (`skills/<plugin>/hooks/setup.sh`) ahead of the real
- * plugin-relative path (`hooks/setup.sh`), issue #110.
- */
-function resolvesUnderRoot(
-  files: Record<string, string>,
-  ref: string,
-  rootName: string,
-): boolean {
-  if (hasFile(files, ref)) return true;
-  const segs = ref.split("/");
-  if (segs.length > 2 && segs[1] === rootName) {
-    const rest = segs.slice(2).join("/");
-    if (rest.length > 0 && hasFile(files, rest)) return true;
-  }
-  return false;
-}
-
-/** Mirror of plugin-loader.ts `danglingRefs`, over the file map. */
-function danglingRefs(
-  files: Record<string, string>,
-  layout: PluginLayout,
-  rootName: string,
-): string[] {
-  const re = intraRefRe(layout);
-  const missing = new Set<string>();
-  for (const content of executableContents(files, layout)) {
-    for (const m of content.matchAll(re)) {
-      if (m.index !== undefined && !isPluginRooted(content, m.index)) continue;
-      if (!resolvesUnderRoot(files, m[0], rootName)) missing.add(m[0]);
-    }
-  }
-  return [...missing];
-}
-
-// ---------------------------------------------------------------------------
 // Warnings (mirrors plugin-loader.ts pluginWarnings)
 // ---------------------------------------------------------------------------
 
@@ -578,7 +482,6 @@ function pluginWarnings(
   { counts, harnessCounts, scopes }: MaterializedSurfaces,
   hooks: unknown,
   materialized: Record<string, string>,
-  rootName: string,
 ): string[] {
   const warnings: string[] = [];
   const multiScope = multiScopeWarning(scopes, harnessCounts);
@@ -596,15 +499,6 @@ function pluginWarnings(
   if (hasMcp(files, layout)) {
     warnings.push(
       `plugin declares MCP server(s) (${layout.mcpManifestKey} / ${layout.mcpConfigFile}) — the loader does not wire MCP; bring the server up yourself if your test needs it.`,
-    );
-  }
-  const dangling = danglingRefs(files, layout, rootName);
-  if (dangling.length) {
-    const shown = dangling.slice(0, 5).join(", ");
-    const more =
-      dangling.length > 5 ? `, … (+${String(dangling.length - 5)})` : "";
-    warnings.push(
-      `plugin references ${String(dangling.length)} intra-plugin file(s) that don't exist (broken path / partial vendor): ${shown}${more}`,
     );
   }
   if (!hooks && Object.keys(materialized).length === 0) {
@@ -658,14 +552,7 @@ export function loadPluginFromFiles(
     settings: resolvedHooks ? { hooks: resolvedHooks } : {},
     files: out,
     sources,
-    warnings: pluginWarnings(
-      files,
-      layout,
-      surfaces,
-      resolvedHooks,
-      out,
-      repoName ?? basename(BROWSER_ROOT),
-    ),
+    warnings: pluginWarnings(files, layout, surfaces, resolvedHooks, out),
     ...(shadowed === undefined ? {} : { shadowedSettingsHooks: shadowed }),
     ...(hooks ? { hooksAsWritten: hooks } : {}),
   };
@@ -901,11 +788,9 @@ export function scanFiles(
     mcp:
       loaded.warnings.some((w) => w.includes("MCP server")) ||
       declaredServers.length > 0,
-    danglingRefs: danglingRefs(files, lay, repoName ?? basename(BROWSER_ROOT)),
-    // Kept in step with `scanPlugin`: skill→skill references BY NAME, which
-    // `danglingRefs` structurally cannot see. The parity test is the only thing
-    // holding these two report builders together, and it caught this field
-    // landing in one of them and not the other.
+    // Skill→skill references BY NAME. The parity test is the only thing
+    // holding this report builder and `scanPlugin` together, and it caught this
+    // field landing in one of them and not the other.
     skillRefIssues: brokenSkillRefs(
       skillRefSources(loaded.files, cls, {
         root: BROWSER_ROOT,

@@ -162,7 +162,7 @@ shared — the note says so and suggests shipping it beside the SKILL.md.
 
 ## High-precision (FP-safe)
 
-By the same don't-cry-wolf discipline as the loader's `danglingRefs`, it flags
+By a don't-cry-wolf discipline, it flags
 **only** what is clearly a local resource and **skips** everything ambiguous:
 
 - URLs (`http://…`, `mailto:`), absolute paths (`/etc/x`, `C:\…`),
@@ -269,8 +269,8 @@ ship beside the SKILL.md), then against the repo root — through a declared
 
 A SKILL.md is freeform markdown, so a renamed or un-shipped `scripts/` file rots
 silently — the model just doesn't get the resource it was told to use. vigiles
-already verifies file/script refs inside typed specs and intra-plugin hook refs in
-the loader; this extends that guarantee to the SKILL.md body.
+already verifies file/script refs inside typed specs; this extends that guarantee
+to the SKILL.md body.
 
 ## See also
 

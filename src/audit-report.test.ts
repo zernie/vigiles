@@ -10,6 +10,7 @@ import {
   buildLeaderboardReport,
   buildMarketplaceReport,
   AUDIT_SCHEMA_VERSION,
+  type BrokenReference,
 } from "./audit-report.js";
 import type { ScanReport, MarketplaceInfo } from "./scan.js";
 import type { PluginScore } from "./score-core.js";
@@ -34,7 +35,6 @@ function makeReport(over: Partial<ScanReport> = {}): FilteredScan<ScanReport> {
     staleHooks: [],
     commands: 1,
     mcp: false,
-    danglingRefs: [],
     hookEventIssues: [],
     frontmatterIssues: [],
     frontmatterValueIssues: [],
@@ -57,6 +57,36 @@ function makeReport(over: Partial<ScanReport> = {}): FilteredScan<ScanReport> {
     ...over,
   } as ScanReport);
 }
+
+describe("BrokenReference", () => {
+  it("a broken reference is a located object, never a bare path (#442)", () => {
+    const missing: BrokenReference = {
+      rule: "r",
+      from: "web/AGENTS.md",
+      line: 3,
+      kind: "mention",
+      target: "web/CLAUDE.md",
+      resolution: "missing",
+    };
+    const wrongCase: BrokenReference = {
+      ...missing,
+      target: "../agents.md",
+      resolution: "case-mismatch",
+      actual: "AGENTS.md",
+    };
+    // @ts-expect-error -- a bare path names no file, line or rule
+    const bare: BrokenReference = "hooks/missing.sh";
+    // @ts-expect-error -- a wrong-case finding names the file that does exist
+    const unnamed: BrokenReference = {
+      ...missing,
+      resolution: "case-mismatch",
+    };
+    expect(
+      [missing, wrongCase].map((b) => `${b.from}:${String(b.line)}`),
+    ).toEqual(["web/AGENTS.md:3", "web/AGENTS.md:3"]);
+    expect([typeof bare, typeof unnamed]).toEqual(["string", "object"]);
+  });
+});
 
 describe("buildAuditReport", () => {
   it("stamps a versioned, self-describing meta (no clock in the pure builder)", () => {

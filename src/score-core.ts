@@ -125,7 +125,6 @@ export function confidentBreakages(
       label: "hook script missing",
     },
     { n: r.hookEventIssues.length, label: "hook on an unknown event" },
-    { n: r.danglingRefs.length, label: "broken intra-plugin reference" },
     {
       n: r.agents.reduce((n, a) => n + a.toolIssues.length, 0),
       label: "unavailable agent tool",
@@ -285,11 +284,6 @@ export function reportDeductions(r: ScanReport): Deduction[] {
       n: r.descriptionOverlaps.length,
       weight: W_OVERLAP,
       label: "near-identical skill description(s) (wrong one fires)",
-    },
-    {
-      n: r.danglingRefs.length,
-      weight: W_DANGLING_REF,
-      label: "broken intra-plugin reference(s)",
     },
     {
       n: deadTools,

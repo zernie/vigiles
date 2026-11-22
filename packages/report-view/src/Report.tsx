@@ -12,12 +12,13 @@ import {
 } from "lucide-react";
 import type {
   AuditReport,
+  BrokenReference,
   CategoryScore,
   Recommendation,
   UngradedGroup,
   Verdict,
 } from "./schema";
-import { categoryScoreLabel } from "./schema";
+import { brokenReferenceLine, categoryScoreLabel } from "./schema";
 import { Badge } from "./components/ui/badge";
 import { Band } from "./components/Band";
 import { Hero } from "./components/Hero";
@@ -417,7 +418,7 @@ function CategoryRow({
   refs,
 }: {
   c: CategoryScore;
-  refs?: readonly string[];
+  refs?: readonly BrokenReference[];
 }) {
   const b: Tone = c.advisory ? "na" : band(c.score);
   const pct = c.score === null ? 0 : Math.max(0, Math.min(100, c.score));
@@ -467,12 +468,17 @@ function CategoryRow({
                 report shows WHAT is broken, not just how many. */}
             {refs && refs.length > 0 && (
               <ul className="mt-1 space-y-0.5">
-                {refs.map((r) => (
-                  <li key={r} className="font-mono text-[11px] text-na-ink">
-                    ↳ {r}{" "}
-                    <span className="text-muted-foreground">— missing</span>
-                  </li>
-                ))}
+                {refs.map((r) => {
+                  const line = brokenReferenceLine(r);
+                  return (
+                    <li
+                      key={line}
+                      className="font-mono text-[11px] text-na-ink"
+                    >
+                      ↳ {line}
+                    </li>
+                  );
+                })}
               </ul>
             )}
             {rest.length > 0 && (

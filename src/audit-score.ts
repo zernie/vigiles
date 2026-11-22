@@ -174,15 +174,8 @@ function truthfulness(r: ScanReport): CategoryScore {
   const missingHooks = r.hooks.filter((h) => h.status === "missing").length;
   const { score, findings } = scoreFrom([
     {
-      n: r.danglingRefs.length,
-      weight: W_DANGLING_REF,
-      label: "broken intra-plugin reference(s)",
-    },
-    {
-      // Same weight and same category as the path-shaped one above: both are a
-      // reference that resolves to nothing. Counted separately only because the
-      // labels must read differently — "a path that isn't there" and "a skill
-      // that isn't there" send the reader to different fixes.
+      // A reference that resolves to nothing: a skill naming a sibling skill
+      // that is not there.
       n: r.skillRefIssues?.length ?? 0,
       weight: W_DANGLING_REF,
       label: "skill(s) naming a sibling skill that does not exist",

@@ -51,7 +51,6 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     staleHooks: [],
     commands: 0,
     mcp: false,
-    danglingRefs: [],
     hookEventIssues: [],
     frontmatterIssues: [],
     frontmatterValueIssues: [],
@@ -175,17 +174,6 @@ test("penalties: missing hook -15, no-desc -10; inherit-all + untested advisory 
     ),
     "untested surfaces still surfaced as an advisory note",
   );
-});
-
-test("penalty: broken intra-plugin reference -8 each", () => {
-  const { score, issues } = scoreReport(
-    report({
-      ...wiredHook("ok"),
-      danglingRefs: ["skills/using-x/SKILL.md", "agents/missing.md"],
-    }),
-  );
-  assert.equal(score, 84); // 100 - 2*8
-  assert.ok(issues.some((i) => i.includes("broken intra-plugin reference")));
 });
 
 test("the NEW non-advisory detectors are scored (not ranked A/100 while printing ✗)", () => {
@@ -561,7 +549,7 @@ test("formatLeaderboardMarkdown renders a publishable table", () => {
       name: "demo",
       score: 70,
       grade: "C",
-      issues: ["2 untested surfaces", "1 broken intra-plugin reference"],
+      issues: ["2 untested surfaces", "1 unavailable agent tool"],
       report: report(),
     },
     {

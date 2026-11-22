@@ -55,175 +55,40 @@ test("loadPlugin resolves CLAUDE_PLUGIN_ROOT to the absolute plugin path", () =>
   }
 });
 
-test("loadPlugin warns on dangling intra-plugin file references", () => {
-  const root = makeTmpDir("plugin-dangling");
+test("loadPlugin warns about nothing a hook script's body names (#442)", () => {
+  // The loader used to read paths out of script bodies and warn about the
+  // missing ones. A script names files for many reasons the harness never
+  // reads as references — a temp file it writes, a runner's expected output,
+  // a command it prints — so no path in a script body is a loader warning.
+  const root = makeTmpDir("plugin-script-paths");
   try {
-    // a hook script that reads one skill that exists and one that doesn't
     mkdirSync(join(root, "hooks"), { recursive: true });
     writeFileSync(
       join(root, "hooks", "session-start"),
-      // the missing ref appears twice → exercises the dedup (seen) path
-      'cat "$ROOT/skills/present/SKILL.md"\ncat "$ROOT/skills/missing/SKILL.md"\necho "$ROOT/skills/missing/SKILL.md"\n',
+      'cat "$ROOT/skills/missing/SKILL.md"\n',
     );
-    mkdirSync(join(root, "skills", "present"), { recursive: true });
-    writeFileSync(join(root, "skills", "present", "SKILL.md"), "# present\n");
-
-    const { warnings } = loadPlugin(root);
-    const dangling = warnings.find((w) => w.includes("intra-plugin"));
-    assert.ok(dangling, "expected a dangling-ref warning");
-    assert.ok(
-      dangling.includes("skills/missing/SKILL.md"),
-      "names the missing ref",
-    );
-    assert.ok(
-      !dangling.includes("skills/present/SKILL.md"),
-      "ignores the present ref",
-    );
-  } finally {
-    cleanupTmpDir(root);
-  }
-});
-
-test("loadPlugin does NOT flag a project-rooted ref as dangling (only plugin-rooted)", () => {
-  const root = makeTmpDir("plugin-projref");
-  try {
-    mkdirSync(join(root, "hooks"), { recursive: true });
-    // A smoke-test script (gmickel/flow-next shape) referencing the PROJECT's
-    // .claude/hooks and $CLAUDE_PROJECT_DIR — runtime paths, NOT plugin files —
-    // plus a genuine plugin-rooted missing ref that MUST still be caught.
     writeFileSync(
-      join(root, "hooks", "setup"),
-      [
-        'cat "$CLAUDE_PROJECT_DIR/.claude/hooks/ralph-guard.py"', // project var → skip
-        "run .claude/hooks/other.py", // literal nested dir → skip
-        'cat "$ROOT/skills/real-missing/SKILL.md"', // plugin-rooted → flag
-      ].join("\n"),
+      join(root, "hooks", "self-test.sh"),
+      'out=hooks/.self-test-out.json\necho "{}" > "$out"\nrm -f "$out"\n',
     );
-    const { warnings } = loadPlugin(root);
-    const dangling = warnings.find((w) => w.includes("intra-plugin")) ?? "";
-    assert.ok(
-      !dangling.includes("ralph-guard.py") && !dangling.includes("other.py"),
-      "project-rooted / literal-nested refs are not plugin files",
-    );
-    assert.ok(
-      dangling.includes("skills/real-missing/SKILL.md"),
-      "a genuine plugin-rooted missing ref is still flagged",
-    );
-  } finally {
-    cleanupTmpDir(root);
-  }
-});
-
-test("loadPlugin does not read a `#`-comment usage example as a dangling ref (issue #110)", () => {
-  const root = makeTmpDir("plugin-comment-echo");
-  try {
-    const name = basename(root);
-    mkdirSync(join(root, "hooks"), { recursive: true });
-    writeFileSync(join(root, "hooks", "setup.sh"), "echo installed\n");
-    // A usage comment written as it would be invoked from the REPO CHECKOUT
-    // root — echoes the plugin's own dir name ahead of the real plugin-relative
-    // path. Full-line `#` comment (incl. shebang) — must be scanned as prose,
-    // not code, in a .sh script.
     writeFileSync(
-      join(root, "hooks", "print-usage.sh"),
-      [
-        "#!/usr/bin/env bash",
-        `# Usage: bash skills/${name}/hooks/setup.sh`,
-        "echo done",
-      ].join("\n"),
+      join(root, "hooks", "hooks.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command: "${CLAUDE_PLUGIN_ROOT}/hooks/session-start",
+                },
+              ],
+            },
+          ],
+        },
+      }),
     );
-    const { warnings } = loadPlugin(root);
-    assert.ok(
-      !warnings.some((w) => w.includes("intra-plugin")),
-      "a usage comment must not be read as a real dangling ref",
-    );
-  } finally {
-    cleanupTmpDir(root);
-  }
-});
-
-test("loadPlugin resolves a repo-checkout-relative echo of the plugin's own dir name on a non-comment line (issue #110)", () => {
-  const root = makeTmpDir("plugin-echo-path");
-  try {
-    const name = basename(root);
-    mkdirSync(join(root, "hooks"), { recursive: true });
-    writeFileSync(join(root, "hooks", "setup.sh"), "echo installed\n");
-    // A REAL (non-comment) code line that names the ref using the
-    // repo-checkout path — the plugin's own dir name echoed ahead of the
-    // plugin-relative path, e.g. an install summary a script prints.
-    writeFileSync(
-      join(root, "hooks", "print-usage.sh"),
-      `echo "run: bash skills/${name}/hooks/setup.sh"\n`,
-    );
-    const { warnings } = loadPlugin(root);
-    assert.ok(
-      !warnings.some((w) => w.includes("intra-plugin")),
-      "the repo-root echo of the plugin's own dir name must resolve, not double-root",
-    );
-  } finally {
-    cleanupTmpDir(root);
-  }
-});
-
-test("loadPlugin still flags a genuinely missing ref shaped like a repo-root echo (issue #110 — no under-detection)", () => {
-  const root = makeTmpDir("plugin-echo-missing");
-  try {
-    const name = basename(root);
-    mkdirSync(join(root, "hooks"), { recursive: true });
-    // No `hooks/really-missing.sh` on disk — the echo fallback must NOT mask
-    // a genuinely broken ref just because it echoes the plugin's own name.
-    writeFileSync(
-      join(root, "hooks", "print-usage.sh"),
-      `echo "run: bash skills/${name}/hooks/really-missing.sh"\n`,
-    );
-    const { warnings } = loadPlugin(root);
-    const dangling = warnings.find((w) => w.includes("intra-plugin"));
-    assert.ok(
-      dangling,
-      "expected the genuinely missing ref to still be flagged",
-    );
-    assert.ok(
-      dangling?.includes(`skills/${name}/hooks/really-missing.sh`),
-      "names the missing ref",
-    );
-  } finally {
-    cleanupTmpDir(root);
-  }
-});
-
-test("loadPlugin: comment-stripping in a .sh script still flags a genuine missing ref on a real code line (issue #110)", () => {
-  const root = makeTmpDir("plugin-comment-mixed");
-  try {
-    const name = basename(root);
-    mkdirSync(join(root, "hooks"), { recursive: true });
-    writeFileSync(
-      join(root, "hooks", "setup.sh"),
-      [
-        "#!/usr/bin/env bash",
-        `# Usage: bash skills/${name}/hooks/setup.sh`, // comment — must be ignored
-        'cat "skills/real-missing/SKILL.md"', // real code line — must still flag
-      ].join("\n"),
-    );
-    const { warnings } = loadPlugin(root);
-    const dangling = warnings.find((w) => w.includes("intra-plugin")) ?? "";
-    assert.ok(
-      dangling.includes("skills/real-missing/SKILL.md"),
-      "a genuine broken ref on a real code line must still be caught",
-    );
-    assert.ok(
-      !dangling.includes(`skills/${name}/hooks/setup.sh`),
-      "the usage-comment example must not appear",
-    );
-  } finally {
-    cleanupTmpDir(root);
-  }
-});
-
-test("loadPlugin: a complete plugin has no dangling-ref warning", () => {
-  const root = makePlugin(); // skills/foo/SKILL.md exists, no broken refs
-  try {
-    const { warnings } = loadPlugin(root);
-    assert.ok(!warnings.some((w) => w.includes("intra-plugin")));
+    assert.deepEqual(loadPlugin(root).warnings, []);
   } finally {
     cleanupTmpDir(root);
   }

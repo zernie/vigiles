@@ -1,5 +1,5 @@
-import type { CategoryScore } from "../schema";
-import { categoryScoreLabel } from "../schema";
+import type { BrokenReference, CategoryScore } from "../schema";
+import { brokenReferenceLine, categoryScoreLabel } from "../schema";
 import { band, TEXT, type Band } from "../lib/band";
 import { cn } from "../lib/utils";
 import { Ring } from "./Ring";
@@ -134,7 +134,7 @@ export function FlaggedList({
   exclude,
 }: {
   categories: readonly CategoryScore[];
-  brokenReferences?: readonly string[];
+  brokenReferences?: readonly BrokenReference[];
   exclude: ReadonlySet<string>;
 }) {
   const rows = categories
@@ -175,12 +175,14 @@ export function FlaggedList({
                 brokenReferences &&
                 brokenReferences.length > 0 && (
                   <ul className="mt-1.5 space-y-1 font-mono text-sm text-foreground-soft">
-                    {brokenReferences.map((r) => (
-                      <li key={r} className="break-all">
-                        ↳ {r}{" "}
-                        <span className="text-muted-foreground">— missing</span>
-                      </li>
-                    ))}
+                    {brokenReferences.map((r) => {
+                      const line = brokenReferenceLine(r);
+                      return (
+                        <li key={line} className="break-all">
+                          ↳ {line}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
             </dd>

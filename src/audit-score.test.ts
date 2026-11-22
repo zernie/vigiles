@@ -56,7 +56,6 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     staleHooks: [],
     commands: 1, // a surface, so it's not the empty machine
     mcp: false,
-    danglingRefs: [],
     hookEventIssues: [],
     frontmatterIssues: [],
     frontmatterValueIssues: [],
@@ -116,17 +115,10 @@ describe("auditScore", () => {
     ]);
   });
 
-  it("buckets a dangling ref into Truthfulness; the overall is the summed score, CAPPED because a broken ref is a confident breakage", () => {
-    const s = auditScore(makeReport({ danglingRefs: ["hooks/missing.sh"] }));
+  it("buckets a skill naming a missing sibling into Truthfulness", () => {
+    const s = auditScore(makeReport({ skillRefIssues: ["a names b"] }));
     expect(cat(s, "Truthfulness")?.score).toBe(92); // -8, ring
     expect(cat(s, "Structure")?.score).toBe(100);
-    // headline = 100 - Σ penalties = 92 (NOT the average of the rings), so the
-    // single dangling ref shows up undiluted in the overall.
-    // 100 − 8 (W_DANGLING_REF) = 92 by the sum, but a broken intra-plugin
-    // reference means a path is DEAD, so the confident-breakage cap holds the
-    // headline at 89 — it may not read as the healthy band while something is
-    // definitively broken. See score-core.ts::applyBreakageCap.
-    expect(s.overall).toBe(89);
   });
 
   it("buckets a description overlap + no-description into Triggering; overall summed", () => {
