@@ -14,6 +14,7 @@
  * build, so there is no runtime cycle — `scan.ts` requires `scan-core.js`, never
  * the reverse.
  */
+import { flatMap, identity, pipe, sortBy, unique } from "remeda";
 import { basename, dirname, join, relative, resolve } from "./posix-path.js";
 
 import {
@@ -853,6 +854,44 @@ export function hookInventory(
     ...entries(loaded, "loaded"),
     ...entries(shadowed, "shadowed-settings"),
   ];
+}
+
+/**
+ * The hook sources the repo's hook lines run, repo-relative and once each — the
+ * hook surfaces coverage holds to a test. A compiled line's is the plan's; a
+ * stale line's is the source `compile`'s merge key assigns it to (edited, but
+ * still the author's program). A hand-written line contributes nothing:
+ * vigiles does not read what it runs, so its coverage is not measured.
+ */
+export function hookPrograms(inventory: HookInventory): readonly string[] {
+  return pipe(
+    inventory,
+    flatMap((e) => programOf(e.line)),
+    unique(),
+    sortBy(identity()),
+  );
+}
+
+/** The program one line runs, when vigiles knows it — never a hand-written line's. */
+function programOf(line: HookLine): readonly string[] {
+  switch (line.kind) {
+    case "compiled":
+      return programRun(line.runs);
+    case "stale":
+      return [line.ref];
+    case "hand-written":
+      return [];
+  }
+}
+
+/** An author's program, or nothing for vigiles's own wiring. */
+function programRun(runs: HookLineRuns): readonly string[] {
+  switch (runs.kind) {
+    case "program":
+      return [runs.ref];
+    case "vigiles-wiring":
+      return [];
+  }
 }
 
 /** A word naming a path, as a repo-relative ref when it lies under `root`. */

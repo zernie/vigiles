@@ -41,8 +41,10 @@ hand-written line reads:
   · 2 hand-written hook line(s) (not compiled by vigiles)
 ```
 
-The inventory count (`inventory.hooks` in `audit --json`) is the number of hook
-lines, whatever their kind.
+and the `Tested` facts add that their coverage is **not measured** — vigiles
+does not read what they run, so it never calls them untested
+([`untested-hook`](untested-hook.md#scope)). The inventory count
+(`inventory.hooks` in `audit --json`) is the number of hook lines.
 
 ## What it costs
 

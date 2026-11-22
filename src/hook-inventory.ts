@@ -1,16 +1,24 @@
 /**
  * The disk engine's hook inventory: the {@link HookInventory} of a repository
- * on disk, built from what the plugin loader reads — the one answer `scanPlugin`
- * reads the `Hooks` block, the inventory count and `hook-script-exists` from.
- * The browser twin builds the same inventory from its file map
+ * on disk, built from what the plugin loader reads.
+ *
+ * Two callers need it, and both used to answer "which hooks exist" their own
+ * way: `scanPlugin` (the `Hooks` block, the inventory count, `hook-script-exists`)
+ * and `findUntestedSurfaces` (`untested-hook`). Coverage kept a second reader
+ * that searched the raw manifest JSON for script-shaped strings, over its own
+ * list of files — so it never saw a plugin's hook-convention file (#283) and
+ * guessed a script out of hand-written lines. Both now read this one inventory;
+ * the browser twin builds the same inventory from its file map
  * (`scan-files.ts`), from the same pure parts in `scan-core.ts`.
  */
+import type { AnyNonEmptyArray } from "ts-essentials";
 import { join, resolve } from "node:path";
 import type { PluginLayout } from "./core/layout.js";
 import { hookLinePlan } from "./core/hook-command.js";
 import { HOOKS_DIR } from "./core/hook-paths.js";
 import { normalizeHooks } from "./core/hook-normalize.js";
-import type { LoadedPlugin } from "./plugin-loader.js";
+import type { ExcludeSet } from "./exclude.js";
+import { loadPlugins, type LoadedPlugin } from "./plugin-loader.js";
 import {
   hookInventory,
   hookSourceRefs,
@@ -67,4 +75,23 @@ export function loadedHookInventory(
     normalizeHooks(loaded.shadowedSettingsHooks),
     scan,
   );
+}
+
+/**
+ * The inventory of the repository at `dir`, loaded under every declared
+ * harness layout. The first layout spells the plan's root variables, as in
+ * `scanPlugin`.
+ */
+export function diskHookInventory(
+  dir: string,
+  layouts: Readonly<AnyNonEmptyArray<PluginLayout>>,
+  disk: HookDisk,
+  excludes?: ExcludeSet,
+): HookInventory {
+  const loaded = loadPlugins(
+    dir,
+    layouts.map((layout) => ({ layout, roots: [] })),
+    excludes,
+  );
+  return loadedHookInventory(loaded, diskHookScan(dir, layouts[0], disk));
 }

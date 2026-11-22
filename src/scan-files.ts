@@ -739,6 +739,17 @@ function fileMapHooks(
   };
 }
 
+/** The map's coverage, over the same hook inventory the Hooks block reads. */
+function fileMapCoverage(
+  files: Readonly<Record<string, string>>,
+  layout: Readonly<PluginLayout>,
+  repoName: string | undefined,
+  inventory: HookInventory,
+): Readonly<ReturnType<typeof findUntestedSurfacesInFiles>> {
+  const name = repoName ?? basename(BROWSER_ROOT);
+  return findUntestedSurfacesInFiles(files, layout, name, inventory);
+}
+
 /**
  * The hook scan as the file map can answer it: the lines as written, the plan
  * from the map's own hook sources, stamps and `package.json`, and no
@@ -851,11 +862,7 @@ export function scanFiles(
   ): T[] => remapFindingPaths(findings, loaded.sources, BROWSER_ROOT);
   // ONE discovery pass, read three ways — the union, the free deterministic tier
   // (`Tested`), and the paid real-model tier (`Evaluated`). Mirrors scanPlugin.
-  const coverage = findUntestedSurfacesInFiles(
-    files,
-    lay,
-    repoName ?? basename(BROWSER_ROOT),
-  );
+  const coverage = fileMapCoverage(files, lay, repoName, hk.inventory);
   return {
     dir: BROWSER_ROOT,
     instructions,

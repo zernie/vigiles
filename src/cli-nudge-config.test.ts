@@ -110,7 +110,8 @@ test("…and disabling it for SKILLS only still leaves the other rules alone", (
   // The scoping half: `untested-hook` is untouched, so the nudge must not be
   // silenced by a blanket "any rule off" reading — it is silent for THIS edit
   // because the SKILL kind is off.
-  write("hooks/a.sh", "#!/bin/sh\nexit 0\n");
+  const program = ".vigiles/hooks/a.hook.mjs";
+  write(program, "");
   write(
     ".claude/settings.json",
     JSON.stringify({
@@ -118,7 +119,12 @@ test("…and disabling it for SKILLS only still leaves the other rules alone", (
         PreToolUse: [
           {
             matcher: "Bash",
-            hooks: [{ type: "command", command: "sh hooks/a.sh" }],
+            hooks: [
+              {
+                type: "command",
+                command: `node x hook-runtime run-program ${program}`,
+              },
+            ],
           },
         ],
       },
@@ -128,7 +134,11 @@ test("…and disabling it for SKILLS only still leaves the other rules alone", (
     ".vigilesrc.json",
     JSON.stringify({ rules: { "untested-skill": false } }),
   );
-  assert.match(lint(), /hooks\/a\.sh/, "the hook rule still reports");
+  assert.match(
+    lint(),
+    /hook \.vigiles\/hooks\/a\.hook\.mjs — add/,
+    "the hook rule still reports",
+  );
   assert.equal(nudge(), "", "but an edited SKILL.md is not nudged");
 });
 

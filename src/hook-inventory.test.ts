@@ -1,9 +1,10 @@
 /**
- * ONE HOOK INVENTORY. "Which hooks exist" had owners besides the identity
- * reader — an `inline` count printed as "no script file" (#443), an inventory
- * count that summed files with lines, and the empty-surface test (#199). These
- * pin that each reads the same inventory, on both engines (disk and file map)
- * and both adapters, by asserting typed values — never printed text.
+ * ONE HOOK INVENTORY. "Which hooks exist" had four owners — the identity
+ * reader, an `inline` count printed as "no script file" (#443), a regex over
+ * the raw manifest for coverage that never read a plugin's `hooks/hooks.json`
+ * (#283), and the empty-surface test (#199). These pin that every consumer
+ * reads the same inventory, on both engines (disk and file map) and both
+ * adapters, by asserting typed values — never printed text.
  */
 import { describe, expect, it } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -11,6 +12,7 @@ import { dirname, join } from "node:path";
 
 import { scanPlugin } from "./scan.js";
 import { scanFiles } from "./scan-files.js";
+import { findUntestedSurfaces } from "./test-coverage.js";
 import { buildAuditReport } from "./audit-report.js";
 import { applyRules } from "./core/apply-rules.js";
 import { RULES, RULE_GROUPS } from "./rules/index.js";
@@ -42,6 +44,17 @@ function settings(layout: PluginLayout, ...commands: readonly string[]): Files {
     [layout.instructionFile]: "# x\n",
     [layout.settingsPath]: layout.settings.render(
       hooksBlock("PreToolUse", commands),
+    ),
+  };
+}
+
+/** The layout's hook-convention file registering one PostToolUse line. */
+function pluginHooks(layout: PluginLayout, command: string): Files {
+  if (layout.hooksConventionPath === undefined)
+    throw new Error(`${layout.name} declares no hook-convention file`);
+  return {
+    [layout.hooksConventionPath]: JSON.stringify(
+      hooksBlock("PostToolUse", [command]),
     ),
   };
 }
@@ -102,6 +115,37 @@ describe.each(
       // No file is checked for a line vigiles did not write.
       expect(r.hooks).toEqual([]);
     }
+  });
+
+  it("hand-written lines are not untested surfaces: their coverage is not measured", () => {
+    const report = onDisk(handWritten, (dir) =>
+      findUntestedSurfaces({ basePath: dir, layout: h.layout }),
+    );
+    expect(report.untested.filter((s) => s.kind === "hook")).toEqual([]);
+    expect(report.unmeasuredHookLines).toBe(1);
+    const map = scanFiles(handWritten, h.layout, h.dialect);
+    expect(map.untested).toBe(0);
+  });
+
+  it("a compiled hook declared only in a plugin's hook-convention file is a coverage surface (#283)", () => {
+    const compiled = compiledHook(h.layout);
+    const files = {
+      ...pluginHooks(h.layout, compiled.line),
+      ...compiled.files,
+    };
+    const hooks = (kinds: readonly { kind: string; path: string }[]) =>
+      kinds.filter((s) => s.kind === "hook").map((s) => s.path);
+    const disk = onDisk(files, (dir) => ({
+      coverage: findUntestedSurfaces({ basePath: dir, layout: h.layout }),
+      scan: scanPlugin(dir, h.layout, h.dialect),
+    }));
+    // Exactly the program — not the runtime under node_modules, not the stamp.
+    expect(hooks(disk.coverage.untested)).toEqual([PROGRAM]);
+    expect(disk.coverage.unmeasuredHookLines).toBe(0);
+    expect(disk.scan.untested).toBe(1);
+    const map = scanFiles(files, h.layout, h.dialect);
+    expect(map.hookInventory.map((e) => e.line.kind)).toEqual(["compiled"]);
+    expect(map.untested).toBe(1);
   });
 });
 

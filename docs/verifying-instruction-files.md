@@ -189,7 +189,7 @@ The per-family tables below give each rule's default severity and what it checks
 | --------------------------------------------------------- | -------- | ------------------------------------------------ |
 | [`untested-skill`](rules/untested-skill.md)               | `"warn"` | Every skill (`SKILL.md`) ships with a test/eval  |
 | [`untested-subagent`](rules/untested-subagent.md)         | `"warn"` | Every subagent (`agents/*.md`) ships a test/eval |
-| [`untested-hook`](rules/untested-hook.md)                 | `"warn"` | Every file-backed hook script ships a test/eval  |
+| [`untested-hook`](rules/untested-hook.md)                 | `"warn"` | Every compiled hook program ships a test/eval    |
 | [`untested-output-style`](rules/untested-output-style.md) | `"warn"` | Every output style ships a test/eval             |
 
 ### Reference marking

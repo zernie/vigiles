@@ -105,6 +105,8 @@ import {
 import {
   formatEvidence,
   inventoryCounts,
+  unmeasuredHookLines,
+  unmeasuredHooksNote,
   type EvidenceCounts,
 } from "./coverage-evidence.js";
 import type { PurityLevel, EffectSurface } from "./core/effects.js";
@@ -922,6 +924,8 @@ export function scanPlugin(
     // and a root-relative list globbed from here matched nothing it named —
     // `inventory.skills: 1` beside `untested: 2` (#281, D7).
     excludes: opts.excludes,
+    // The hooks this scan already read: coverage reads the same inventory.
+    hookInventory: inventory,
   });
   const caveats = coverageCaveats(coverage);
   return {
@@ -1511,6 +1515,17 @@ function handWrittenLines(
     : [...hooks.map((h) => `ℹ ${handWrittenHookMessage(h)}`), ""];
 }
 
+/**
+ * The untested count, and the hook lines whose coverage is not measured — the
+ * same count `lint` prints, from the same inventory.
+ */
+function untestedLines(r: ScanReport): readonly string[] {
+  return [
+    `Untested surfaces: ${String(r.untested)}`,
+    ...unmeasuredHooksNote(unmeasuredHookLines(r.hookInventory)),
+  ];
+}
+
 /** The mark and note for a file a compiled hook line needs, per status. */
 const HOOK_FILE_LABEL: Readonly<
   Record<HookStatus, { readonly mark: string; readonly note: string }>
@@ -1719,7 +1734,7 @@ function gradedReportLines(r: ScanReport): readonly string[] {
   const facts: string[] = [];
   facts.push(...inventoryFacts(r));
   facts.push(`MCP servers: ${r.mcp ? "yes" : "no"}`);
-  facts.push(`Untested surfaces: ${String(r.untested)}`);
+  facts.push(...untestedLines(r));
   // The two tiers, named separately — a surface with a deterministic harness and
   // no eval is NOT the same position as one with neither. Shown only when the
   // producer supplied the split (a hand-built report may not have).

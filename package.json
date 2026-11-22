@@ -150,6 +150,7 @@
     "markdown-it": "^14.3.0",
     "minimatch": "^10.0.1",
     "mvdan-sh": "^0.10.1",
+    "remeda": "^2.62.2",
     "ts-essentials": "^10.2.1",
     "typescript": "^5.9.3",
     "zod": "^4.6.5"

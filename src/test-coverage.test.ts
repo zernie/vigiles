@@ -106,17 +106,15 @@ test("surface discovery + hook-token are layout-driven (non-CC harness)", () => 
     ["bar"],
     "agent found at layout.surfaces.agent",
   );
-  assert.deepEqual(
-    byKind("hook"),
-    ["present"],
-    "hook resolved via layout.pluginRootToken (unbraced $MY_PLUGIN_ROOT)",
-  );
+  // The hook line is read from the layout's manifest. It is hand-written, so it
+  // is not a surface: its coverage is not measured, and it is counted as such.
+  assert.deepEqual(byKind("hook"), []);
+  assert.equal(r.unmeasuredHookLines, 1, "hook read via layout.manifestPath");
 
-  // The default Claude Code layout sees none of it (different dirs/token).
-  assert.equal(
-    findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir }).total,
-    0,
-  );
+  // The default Claude Code layout sees none of it (different dirs/manifest).
+  const cc = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
+  assert.equal(cc.total, 0);
+  assert.equal(cc.unmeasuredHookLines, 0);
   cleanupTmpDir(dir);
 });
 
@@ -284,166 +282,6 @@ test("agent is covered by a name-prefixed sibling, flagged otherwise", () => {
   cleanupTmpDir(dir);
 });
 
-test("a hook rooted at the PROJECT var is discovered — not just the PLUGIN var", () => {
-  // 🔴 A WHOLE SURFACE KIND WAS INVISIBLE. Only `${CLAUDE_PLUGIN_ROOT}` was
-  // stripped, so `"$CLAUDE_PROJECT_DIR/.claude/hooks/x.sh"` — Claude Code's
-  // DOCUMENTED spelling for a project hook, used because hooks do not run with a
-  // stable cwd — kept its literal prefix, failed `existsSync`, and was dropped
-  // without a word.
-  //
-  // MEASURED on a real consumer repo, four numbers for the same thing:
-  //   19 hook ENTRIES in settings · 16 inventoried by `audit` (every one printed
-  //   "unresolved var — can't check") · 17 FILES in `.claude/hooks/` (two are not
-  //   hooks) · 0 hook SURFACES. After the fix: 14, which is exactly the
-  //   registered scripts under `.claude/hooks/`.
-  const dir = makeTmpDir("cov-hooks-projvar");
-  const hook = (n: string): void => {
-    write(dir, `.claude/hooks/${n}`, "#!/bin/sh\n");
-  };
-  for (const n of ["a.sh", "b.mjs", "c.hook.ts", "d.sh"]) hook(n);
-  write(dir, "node_modules/vigiles/dist/cli.js", "// the runtime\n");
-  const cmd = (c: string) => ({
-    matcher: "Bash",
-    hooks: [{ type: "command", command: c }],
-  });
-  write(
-    dir,
-    ".claude/settings.json",
-    JSON.stringify({
-      hooks: {
-        PreToolUse: [
-          cmd('"$CLAUDE_PROJECT_DIR/.claude/hooks/a.sh"'),
-          cmd('node "${CLAUDE_PROJECT_DIR}/.claude/hooks/b.mjs" post'),
-          // The compiled-hook shape: the RUNTIME is a dependency, the operand is
-          // the surface. Both are extracted from this one command.
-          cmd(
-            'node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" ' +
-              'hook-runtime run-program "$CLAUDE_PROJECT_DIR/.claude/hooks/c.hook.ts"',
-          ),
-          // No variable at all still works, and so does the plugin root.
-          cmd(".claude/hooks/d.sh"),
-        ],
-      },
-    }),
-  );
-  const names = findUntestedSurfaces({
-    layout: claudeCodeLayout,
-    basePath: dir,
-  })
-    .untested.filter((x) => x.kind === "hook")
-    .map((x) => x.path)
-    .sort();
-  assert.deepEqual(names, [
-    ".claude/hooks/a.sh",
-    ".claude/hooks/b.mjs",
-    ".claude/hooks/c.hook.ts",
-    ".claude/hooks/d.sh",
-  ]);
-  // ⚠️ A DEPENDENCY IS NOT A SURFACE. The same settings name the runtime that
-  // runs the compiled hooks; holding `node_modules/vigiles/dist/cli.js` to
-  // `untested-hook` would ask the author to test their package manager.
-  assert.ok(
-    !names.some((n) => n.includes("node_modules")),
-    "a node_modules path must never be a surface",
-  );
-
-  // QUIET: a path that does not exist is still not a surface — stripping a token
-  // must not turn a typo into a discovery.
-  const dir2 = makeTmpDir("cov-hooks-projvar-missing");
-  write(
-    dir2,
-    ".claude/settings.json",
-    JSON.stringify({
-      hooks: {
-        PreToolUse: [cmd('"$CLAUDE_PROJECT_DIR/.claude/hooks/nope.sh"')],
-      },
-    }),
-  );
-  assert.deepEqual(
-    findUntestedSurfaces({
-      layout: claudeCodeLayout,
-      basePath: dir2,
-    }).untested.filter((x) => x.kind === "hook"),
-    [],
-  );
-  cleanupTmpDir(dir);
-  cleanupTmpDir(dir2);
-});
-
-test("the BROWSER twin reads the PROJECT var too — one settings file, one reader", () => {
-  // 🔴 THE TWIN WAS LEFT BEHIND BY THE FIX ABOVE. The disk detector learned the
-  // project token; `findUntestedSurfacesInFiles` — the engine `scanFiles` runs
-  // against a GitHub file map, with no disk — still stripped only the PLUGIN
-  // token, so the very same settings.json that yields four hook surfaces on disk
-  // yielded ONE in the browser. Same defect, same file, second reader: the audit
-  // under-reported the untested-hook count and therefore the score.
-  //
-  // This is the parity assertion, not a restatement: the two engines are handed
-  // the SAME repo and must name the SAME hooks. It is written as an equality
-  // against the disk result so it cannot pass by agreeing on the wrong answer —
-  // the disk expectation is pinned by the test directly above.
-  const cmd = (c: string) => ({
-    matcher: "Bash",
-    hooks: [{ type: "command", command: c }],
-  });
-  const settings = JSON.stringify({
-    hooks: {
-      PreToolUse: [
-        cmd('"$CLAUDE_PROJECT_DIR/.claude/hooks/a.sh"'),
-        cmd('node "${CLAUDE_PROJECT_DIR}/.claude/hooks/b.mjs" post'),
-        cmd(
-          'node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" ' +
-            'hook-runtime run-program "$CLAUDE_PROJECT_DIR/.claude/hooks/c.hook.ts"',
-        ),
-        cmd(".claude/hooks/d.sh"),
-      ],
-    },
-  });
-  const files: Record<string, string> = {
-    ".claude/settings.json": settings,
-    ".claude/hooks/a.sh": "#!/bin/sh\n",
-    ".claude/hooks/b.mjs": "#!/bin/sh\n",
-    ".claude/hooks/c.hook.ts": "#!/bin/sh\n",
-    ".claude/hooks/d.sh": "#!/bin/sh\n",
-    "node_modules/vigiles/dist/cli.js": "// the runtime\n",
-  };
-  const names = findUntestedSurfacesInFiles(files, claudeCodeLayout, "repo")
-    .untested.filter((x) => x.kind === "hook")
-    .map((x) => x.path)
-    .sort();
-  assert.deepEqual(names, [
-    ".claude/hooks/a.sh",
-    ".claude/hooks/b.mjs",
-    ".claude/hooks/c.hook.ts",
-    ".claude/hooks/d.sh",
-  ]);
-  // ⚠️ A DEPENDENCY IS NOT A SURFACE — the disk detector skips `node_modules/`,
-  // and the twin did not even have that branch. A file map fetched from a repo
-  // that vendors its runtime would have handed the author their package manager
-  // to test.
-  assert.ok(
-    !names.some((n) => n.includes("node_modules")),
-    "a node_modules path must never be a surface",
-  );
-
-  // QUIET: stripping a token must not turn a typo into a discovery. The map has
-  // no such file, so nothing is found — same as the disk twin's quiet half.
-  assert.deepEqual(
-    findUntestedSurfacesInFiles(
-      {
-        ".claude/settings.json": JSON.stringify({
-          hooks: {
-            PreToolUse: [cmd('"$CLAUDE_PROJECT_DIR/.claude/hooks/nope.sh"')],
-          },
-        }),
-      },
-      claudeCodeLayout,
-      "repo",
-    ).untested.filter((x) => x.kind === "hook"),
-    [],
-  );
-});
-
 test("`.eval.` in the MIDDLE of a name is not the paid tier — the runner would never run it", () => {
   // 🔴 THE TIER SPLIT CLAIMED A SURFACE WAS EVAL-COVERED BY A FILE NO RUNNER
   // RUNS. The splitter tested `.eval.` as an INFIX, so a colocated deterministic
@@ -522,63 +360,39 @@ test("the eval-suffix rule is pinned to the extensions the runner really globs",
   assert.ok(!isEvalScript("x.harness.ts"));
 });
 
-test("hook scripts are discovered from plugin.json and matched by path", () => {
+test("hook surfaces are the programs plugin.json wires, never a hand-written line's script", () => {
   const dir = makeTmpDir("tc-hooks");
-  write(dir, "hooks/pre-edit.sh", "#!/usr/bin/env bash\n");
-  write(dir, "hooks/post-edit.sh", "#!/usr/bin/env bash\n");
+  const program = (n: string) => `.vigiles/hooks/${n}.hook.mjs`;
+  for (const n of ["pre-edit", "post-edit"]) write(dir, program(n), "");
+  write(dir, "hooks/guard.sh", "#!/usr/bin/env bash\n");
+  const line = (command: string) => ({
+    matcher: "Edit",
+    hooks: [{ type: "command", command }],
+  });
+  const runs = (n: string) =>
+    line(`node x hook-runtime run-program ${program(n)}`);
   write(
     dir,
     ".claude-plugin/plugin.json",
     JSON.stringify({
       name: "p",
       hooks: {
-        PreToolUse: [
-          {
-            matcher: "Edit",
-            hooks: [
-              {
-                type: "command",
-                command: "bash ${CLAUDE_PLUGIN_ROOT}/hooks/pre-edit.sh",
-              },
-            ],
-          },
-        ],
-        PostToolUse: [
-          {
-            matcher: "Edit",
-            hooks: [
-              {
-                type: "command",
-                command: "bash ${CLAUDE_PLUGIN_ROOT}/hooks/post-edit.sh",
-              },
-            ],
-          },
-        ],
+        PreToolUse: [runs("pre-edit"), line("bash hooks/guard.sh")],
+        PostToolUse: [runs("post-edit")],
       },
     }),
   );
-  // A unit test elsewhere that drives pre-edit BY PATH now covers nothing —
-  // naming a hook is not testing it. This is the exact shape by which the
-  // detector's own suite used to grant coverage to these two hooks.
-  write(dir, "src/hooks.test.ts", 'runHook("hooks/pre-edit.sh", {});\n');
-  let r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
+  // A unit test elsewhere that drives pre-edit BY PATH covers nothing —
+  // naming a hook is not testing it.
+  write(dir, "src/hooks.test.ts", `runHook("${program("pre-edit")}", {});\n`);
+  const r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
   assert.equal(r.total, 2);
-  assert.deepEqual(r.untested.map((s) => s.name).sort(), [
-    "post-edit",
-    "pre-edit",
+  assert.deepEqual(r.untested.map((s) => s.path).sort(), [
+    program("post-edit"),
+    program("pre-edit"),
   ]);
-
-  // A hook is covered by a name-prefixed SIBLING — placement, not mention.
-  write(dir, "hooks/pre-edit.harness.mjs", "assert.ok(true);\n");
-  r = findUntestedSurfaces({ layout: claudeCodeLayout, basePath: dir });
-  assert.deepEqual(
-    r.covered.map((s) => s.name),
-    ["pre-edit"],
-  );
-  assert.deepEqual(
-    r.untested.map((s) => s.name),
-    ["post-edit"],
-  );
+  // The hand-written line names a script on disk and is still not a surface.
+  assert.equal(r.unmeasuredHookLines, 1);
   cleanupTmpDir(dir);
 });
 
@@ -2120,7 +1934,7 @@ test("no skill surface in the layout → a root SKILL.md is not a skill (both en
     "disk: no skill surface declared → no skill reported",
   );
   assert.deepEqual(
-    skillNames(findUntestedSurfacesInFiles(files, agentsOnly, "repo")),
+    skillNames(findUntestedSurfacesInFiles(files, agentsOnly, "repo", [])),
     [],
     "browser: no skill surface declared → no skill reported",
   );
@@ -2132,7 +1946,7 @@ test("no skill surface in the layout → a root SKILL.md is not a skill (both en
     "disk control: with a skill surface the root SKILL.md is found",
   );
   assert.deepEqual(
-    skillNames(findUntestedSurfacesInFiles(files, withSkills, "repo")),
+    skillNames(findUntestedSurfacesInFiles(files, withSkills, "repo", [])),
     ["solo"],
     "browser control: with a skill surface the root SKILL.md is found",
   );
