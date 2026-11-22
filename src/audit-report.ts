@@ -38,8 +38,11 @@ import {
  * v2 (2026-07-15): the rule-map `mechanism` enum value for an unrouted rule
  * changed `"compile"` → `"synthesize"` (a non-additive enum change), so a v1
  * consumer that gated on `meta.schemaVersion` would mis-handle it — hence the bump.
+ * v3 (2026-11-22): `inventory.hooks` counts hook LINES from the hook inventory,
+ * where v2 added the files compiled lines need to hand-written lines. Same name
+ * and type, different meaning: a v2 consumer comparing counts would mis-read it.
  */
-export const AUDIT_SCHEMA_VERSION = 2;
+export const AUDIT_SCHEMA_VERSION = 3;
 
 export interface AuditReportMeta {
   /** Wire-format version — consumers gate on this. */
@@ -67,6 +70,12 @@ export interface AuditReportMeta {
 export interface AuditInventory {
   readonly skills: number;
   readonly agents: number;
+  /**
+   * Hook LINES the repo registers — compiled, stale and hand-written alike.
+   * Until this was one unit it summed compiled lines' FILES with hand-written
+   * lines, so one compiled hook counted three times. Same type and field, but
+   * a different meaning, so it bumped `schemaVersion` to 3.
+   */
   readonly hooks: number;
   readonly commands: number;
   /**
@@ -316,10 +325,9 @@ function inventoryOf(report: ScanReport): AuditInventory {
   return {
     skills: report.skills.length,
     agents: report.agents.length,
-    // All hooks, file-backed + inline — matches formatScanReport and the
-    // emptiness/scoring count, so a JSON/HTML "What it ships" never reports 0
-    // hooks for an inline-hook-only harness.
-    hooks: report.hooks.length + report.inlineHooks,
+    // Hook LINES, from the inventory — one unit, matching formatScanReport and
+    // the emptiness test, so a hand-written-only harness never reports 0 hooks.
+    hooks: report.hookInventory.length,
     commands: report.commands,
     ...outputStylesField(report.outputStyles),
     mcp: report.mcp,

@@ -226,7 +226,18 @@ export interface PlannedHookLine {
   readonly command: string;
   /** Root-anchored (`${TOKEN}/…`) or repo-relative paths. */
   readonly files: readonly string[];
+  readonly runs: HookLineRuns;
 }
+
+/**
+ * What a planned line runs: an author's hook source (repo-relative — the one
+ * file a test of that hook is about), or vigiles's own wiring (the
+ * start-of-session check, the shipped nudges), which runs no program of the
+ * author's.
+ */
+export type HookLineRuns =
+  | { readonly kind: "program"; readonly ref: string }
+  | { readonly kind: "vigiles-wiring" };
 
 /**
  * The lines `compile` and `init` would write in a repo, and the hook sources
@@ -311,13 +322,19 @@ export function plannedHookLines(
     {
       command: sessionCheckCommand(tokens),
       files: [anchored(HOOK_CHECK_REF, tokens)],
+      runs: VIGILES_WIRING,
     },
-    ...Object.values(INIT_NUDGE_COMMANDS).map((command) => ({
-      command,
-      files: [],
-    })),
+    ...Object.values(INIT_NUDGE_COMMANDS).map(
+      (command): PlannedHookLine => ({
+        command,
+        files: [],
+        runs: VIGILES_WIRING,
+      }),
+    ),
   ];
 }
+
+const VIGILES_WIRING: HookLineRuns = { kind: "vigiles-wiring" };
 
 /** The line `compile` writes for one recorded hook source; none without a role. */
 function compiledLine(
@@ -335,7 +352,7 @@ function compiledLine(
   const files = [runtime.path, ref, hookStampRef(ref)].map((f) =>
     anchored(f, tokens),
   );
-  return [{ command, files }];
+  return [{ command, files, runs: { kind: "program", ref } }];
 }
 
 /** `rel` anchored at the harness's project root, as the emitted line spells it. */

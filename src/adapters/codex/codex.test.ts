@@ -262,7 +262,7 @@ test("a codex harness test refuses an output style before running anything", asy
   );
 });
 
-test("hook-script-exists: a compiled hook's relative RUNNER is checked — missing on disk, unresolved in the file map", () => {
+test("hook-script-exists: a compiled hook's relative RUNNER is checked — missing on disk, not observable in the file map", () => {
   // Codex declares no project-root variable, so `compile` emits the RELATIVE
   // spelling, which resolves against the scanned root like any relative path.
   // The Claude Code half (project-root token, plugin + settings) is in
@@ -298,7 +298,7 @@ test("hook-script-exists: a compiled hook's relative RUNNER is checked — missi
       codexLayout,
       codexDialect,
     );
-    assert.equal(statusOf(map.hooks, runner), "unresolved");
+    assert.equal(statusOf(map.hooks, runner), "not-observable");
     assert.equal(statusOf(map.hooks, ".vigiles/hooks/x.hook.mjs"), "ok");
   } finally {
     cleanupTmpDir(dir);

@@ -303,7 +303,7 @@ export const RULES = [
     cure: { cli: "compile" },
     summary:
       "A file a compiled hook line needs (runtime, program, stamp) exists.",
-    detector: "scanHooks over the hook-line plan (status 'missing')",
+    detector: "scanHookScripts over the hook inventory (status 'missing')",
     upstreamPrevention:
       "a compiled hook is self-contained (no external script)",
   }),
@@ -318,7 +318,8 @@ export const RULES = [
     cure: { export: "experimental_defineHook" },
     summary:
       "A hook line vigiles did not write is named: a static reader cannot verify it, so compile it.",
-    detector: "scanHooks (handWritten: no planned line matches)",
+    detector:
+      "scanHookScripts over the hook inventory (handWritten: no planned line matches)",
     upstreamPrevention: "a compiled hook's line is written by compile itself",
     legacy: { scanField: "handWrittenHooks" },
   }),

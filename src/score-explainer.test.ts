@@ -21,7 +21,7 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     skills: [],
     agents: [],
     hooks: [],
-    inlineHooks: 0,
+    hookInventory: [],
     handWrittenHooks: [],
     staleHooks: [],
     commands: 0,

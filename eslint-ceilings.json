@@ -62,7 +62,7 @@
     "max-lines-per-function": 225
   },
   "src/audit-score.test.ts": {
-    "max-lines-per-function": 506
+    "max-lines-per-function": 504
   },
   "src/audit-score.ts": {
     "max-lines-per-function": 101,
@@ -567,9 +567,9 @@
     "complexity": 11
   },
   "src/scan.ts": {
-    "max-lines-per-function": 201,
-    "sonarjs/cognitive-complexity": 16,
-    "complexity": 17
+    "max-lines-per-function": 183,
+    "sonarjs/cognitive-complexity": 15,
+    "complexity": 16
   },
   "src/score-core.ts": {
     "max-lines-per-function": 105

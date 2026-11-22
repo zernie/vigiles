@@ -21,6 +21,7 @@ import { basename, dirname, join, resolve } from "node:path";
 // Claude Code default), and only the generic one takes the `ExcludeSet` that
 // makes `.vigilesrc.json#exclude` reach surface discovery.
 import { loadPlugins } from "./plugin-loader.js";
+import { diskHookScan, loadedHookInventory } from "./hook-inventory.js";
 // 🔴 THIS MODULE NO LONGER IMPORTS AN ADAPTER, and that is the point of the
 // change rather than tidiness. It is listed as a harness-agnostic detector and
 // it used to import `claudeCodeLayout` + `claudeCodeDialect` to DEFAULT five
@@ -113,6 +114,8 @@ import {
   scanSkills,
   skillRefSources,
   scanHookScripts,
+  type HookInventory,
+  type HookLine,
   frontmatterIssuesFor,
   frontmatterValueIssuesFor,
   skillMetaIssuesFor,
@@ -122,7 +125,6 @@ import {
   collectSurfaceFindings,
   collectDelegationTrifecta,
   collectHookBlockEntries,
-  hookSourceRefs,
   collectHookMatchers,
   summarizePurity,
   detectOwnTestSignal,
@@ -150,9 +152,7 @@ import {
   blockIneffectiveEventsOf,
   permissionDecisionEventsOf,
 } from "./core/event-capability.js";
-import { hookLinePlan } from "./core/hook-command.js";
 import type { FilteredScan, UngradedGroup } from "./core/apply-rules.js";
-import { HOOKS_DIR } from "./core/hook-paths.js";
 
 // Re-export the pure detectors (and their public types: SurfaceClassifier,
 // SkillScanContext, handWrittenHookMessage, ...) that
@@ -297,8 +297,13 @@ export interface FrontmatterValueIssue {
   readonly message: string;
 }
 
-/** ok = file present; missing = referenced but absent; unresolved = path still has an unexpanded var, can't check. */
-export type HookStatus = "ok" | "missing" | "unresolved";
+/**
+ * A file a compiled hook line needs: `ok` = on disk; `missing` = absent;
+ * `not-observable` = this engine cannot see the file at all, so absence proves
+ * nothing (a `node_modules` path in the browser file-map engine, which is a
+ * GitHub fetch and never holds dependencies).
+ */
+export type HookStatus = "ok" | "missing" | "not-observable";
 
 export interface ScanHook {
   /** The hook line that names this file, as the config wrote it. */
@@ -334,9 +339,14 @@ export interface ScanReport {
   readonly instructions: ScanInstructions | null;
   readonly skills: readonly ScanSkill[];
   readonly agents: readonly ScanAgent[];
+  /** The files compiled hook lines need, and whether each is on disk. */
   readonly hooks: readonly ScanHook[];
-  /** Hook entries with no script file (inline shell one-liners) — can't be path-checked. */
-  readonly inlineHooks: number;
+  /**
+   * Every hook line the repo registers, each read by identity (compiled,
+   * stale or hand-written). The one answer to "which hooks exist": the
+   * `Hooks` block, the inventory count and the empty-surface test read it.
+   */
+  readonly hookInventory: HookInventory;
   /**
    * The hook lines vigiles did not write (a compiled hook's line is
    * `hook-runtime …`, read by its own template). Each one is a
@@ -824,30 +834,13 @@ export function scanPlugin(
   const hookRegs = normalizeHooks(loaded.settings.hooks);
   // As WRITTEN: a line is read by identity with what compile would write.
   const asWritten = normalizeHooks(loaded.hooksAsWritten);
-  const hookScan = {
-    root: resolve(dir),
-    layout: lay,
+  const hookScan = diskHookScan(dir, lay, {
     exists: existsSync,
-    // On disk a dependency is as observable as any other file.
-    observable: () => true,
-    plan: hookLinePlan(
-      hookSourceRefs(
-        existsSync(join(dir, HOOKS_DIR))
-          ? readdirSync(join(dir, HOOKS_DIR))
-          : [],
-      ),
-      (ref: string) => {
-        const abs = join(dir, ref);
-        return existsSync(abs) ? nodeReadFile(abs) : undefined;
-      },
-      lay.projectRootTokens,
-    ),
-  };
-  const { hooks, inline, handWritten, stale } = scanHookScripts(
-    asWritten,
-    normalizeHooks(loaded.shadowedSettingsHooks),
-    hookScan,
-  );
+    read: nodeReadFile,
+    list: (p) => readdirSync(p),
+  });
+  const inventory = loadedHookInventory(loaded, hookScan);
+  const { hooks, handWritten, stale } = scanHookScripts(inventory, hookScan);
   // Hook-event keys are a CLOSED platform set — an unrecognized one is a dead
   // registration (the hook never fires), so flag every unknown (not just typos).
   // ONLY for the canonical object-keyed-by-event shape: a plugin shipping a
@@ -937,7 +930,7 @@ export function scanPlugin(
     skills,
     agents,
     hooks,
-    inlineHooks: inline,
+    hookInventory: inventory,
     handWrittenHooks: handWritten,
     staleHooks: stale,
     ...inventoryCounts(
@@ -1518,6 +1511,45 @@ function handWrittenLines(
     : [...hooks.map((h) => `ℹ ${handWrittenHookMessage(h)}`), ""];
 }
 
+/** The mark and note for a file a compiled hook line needs, per status. */
+const HOOK_FILE_LABEL: Readonly<
+  Record<HookStatus, { readonly mark: string; readonly note: string }>
+> = {
+  ok: { mark: "✓", note: "" },
+  missing: { mark: "✗", note: " (referenced but MISSING)" },
+  "not-observable": {
+    mark: "?",
+    note: " (not visible to this scan — a file map holds no node_modules)",
+  },
+};
+
+/**
+ * How each kind of hook line is counted in the `Hooks` block. One row per
+ * kind, so a new kind is a tsc error here rather than a line printed under
+ * another kind's words. The hand-written wording is `docs/rules/hand-written-hook.md`'s.
+ */
+const HOOK_LINE_LABEL = {
+  compiled: "compiled hook line(s)",
+  stale: "stale compiled hook line(s) (recompile)",
+  "hand-written": "hand-written hook line(s) (not compiled by vigiles)",
+} as const satisfies Readonly<Record<HookLine["kind"], string>>;
+
+/** The `Hooks` block: each file compiled lines need, then a count per line kind. */
+function hookLines(r: ScanReport): string[] {
+  const count = (kind: string): number =>
+    r.hookInventory.filter((e) => e.line.kind === kind).length;
+  return [
+    ...r.hooks.map(
+      (h) =>
+        `  ${HOOK_FILE_LABEL[h.status].mark} ${h.script}${HOOK_FILE_LABEL[h.status].note}`,
+    ),
+    // In the label table's order; a kind with no row there is a tsc error.
+    ...Object.entries(HOOK_LINE_LABEL).flatMap(([kind, label]) =>
+      count(kind) === 0 ? [] : [`  · ${String(count(kind))} ${label}`],
+    ),
+  ];
+}
+
 /** The commands and output-style lines of a scan's facts; a harness without styles says so. */
 function inventoryFacts(r: ScanReport): readonly string[] {
   const commands = r.commands > 0 ? [`Commands: ${String(r.commands)}`] : [];
@@ -1559,25 +1591,7 @@ function gradedReportLines(r: ScanReport): readonly string[] {
 
   out.push(...section("Agents", r.agents.flatMap(agentLines), r.agents.length));
 
-  const hookMark: Record<HookStatus, string> = {
-    ok: "✓",
-    missing: "✗",
-    unresolved: "?",
-  };
-  const hookNote: Record<HookStatus, string> = {
-    ok: "",
-    missing: " (referenced but MISSING)",
-    unresolved: " (unresolved var — can't check)",
-  };
-  const hookLines = r.hooks.map(
-    (h) => `  ${hookMark[h.status]} ${h.script}${hookNote[h.status]}`,
-  );
-  if (r.inlineHooks > 0) {
-    hookLines.push(
-      `  · ${String(r.inlineHooks)} inline hook(s) (no script file)`,
-    );
-  }
-  out.push(...section("Hooks", hookLines, r.hooks.length + r.inlineHooks));
+  out.push(...section("Hooks", hookLines(r), r.hookInventory.length));
 
   out.push(
     ...section(

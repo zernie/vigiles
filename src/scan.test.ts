@@ -440,7 +440,11 @@ test("scanPlugin treats an existence-guarded hook command as optional, not missi
     !r.hooks.some((h) => h.status === "missing"),
     "a guarded optional hook must not be flagged missing",
   );
-  assert.equal(r.inlineHooks, 1, "counted as a conditional one-liner");
+  assert.deepEqual(
+    r.hookInventory.map((e) => e.line.kind),
+    ["hand-written"],
+    "counted as one hand-written line",
+  );
   cleanupTmpDir(dir);
 });
 
@@ -1245,7 +1249,10 @@ test("scanPlugin reads no hand-written hook line for a script: every one is name
   // present.sh, absent.sh, "$HOME"/weird.sh and `npm test`: four lines vigiles
   // did not write. Whether their scripts exist is a run-time question now.
   assert.deepEqual(r.hooks, []);
-  assert.equal(r.inlineHooks, 4);
+  assert.deepEqual(
+    r.hookInventory.map((e) => e.line.kind),
+    ["hand-written", "hand-written", "hand-written", "hand-written"],
+  );
   assert.equal(r.handWrittenHooks.length, 4);
   cleanupTmpDir(dir);
 });
@@ -1350,7 +1357,11 @@ test("scanPlugin: an inline `node -e` hook is not reported as a missing script",
   );
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   assert.deepEqual(r.hooks, []); // no script token at all…
-  assert.equal(r.inlineHooks, 1); // …it is an inline one-liner, and says so
+  // …it is one hand-written line, and says so
+  assert.deepEqual(
+    r.hookInventory.map((e) => e.line.kind),
+    ["hand-written"],
+  );
   cleanupTmpDir(dir);
 });
 

@@ -32,13 +32,26 @@ removed: each shell shape a parser learned exposed the next one it did not, and
 even a perfect parse answers only "does one path exist", never "does the hook
 work".
 
+## How it is reported
+
+The `Hooks` block of `audit` counts hook **lines**, one row per kind. A
+hand-written line reads:
+
+```
+  · 2 hand-written hook line(s) (not compiled by vigiles)
+```
+
+The inventory count (`inventory.hooks` in `audit --json`) is the number of hook
+lines, whatever their kind.
+
 ## What it costs
 
 A hand-written hook whose script is missing is **no longer detected
 statically**. Compile it, or test it by running it.
 
-In a plugin repo, the hand-written hooks of `.claude/settings.json` are not
-listed: the loader reads the manifest's hooks and shadows the settings file.
+In a plugin repo, the hand-written hooks of `.claude/settings.json` are counted
+in the `Hooks` block but not listed by this rule: the loader reads the
+manifest's hooks and shadows the settings file.
 
 ## Configuration
 

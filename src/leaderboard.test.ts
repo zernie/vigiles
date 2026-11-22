@@ -20,6 +20,24 @@ import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
+/** One compiled hook line — what a report's hook FILES come from. */
+const COMPILED_LINE = {
+  source: "loaded",
+  event: "PreToolUse",
+  command: "bash h",
+  line: { kind: "compiled", files: ["h"], runs: { kind: "program", ref: "h" } },
+} as const;
+
+/** A report's hook fields for that one line, whose file has `status`. */
+function wiredHook(
+  status: "ok" | "missing",
+): Pick<ScanReport, "hooks" | "hookInventory"> {
+  return {
+    hooks: [{ command: "bash h", script: "h", status }],
+    hookInventory: [COMPILED_LINE],
+  };
+}
+
 function report(over: Partial<ScanReport> = {}): ScanReport {
   return {
     dir: "x",
@@ -27,7 +45,7 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     skills: [],
     agents: [],
     hooks: [],
-    inlineHooks: 0,
+    hookInventory: [],
     handWrittenHooks: [],
     staleHooks: [],
     commands: 0,
@@ -81,7 +99,7 @@ test("penalties: missing hook -15, no-desc -10; inherit-all + untested advisory 
   assert.equal(
     scoreReport(
       report({
-        hooks: [{ command: "bash h", script: "h", status: "missing" }],
+        ...wiredHook("missing"),
       }),
     ).score,
     85,
@@ -161,7 +179,7 @@ test("penalties: missing hook -15, no-desc -10; inherit-all + untested advisory 
 test("penalty: broken intra-plugin reference -8 each", () => {
   const { score, issues } = scoreReport(
     report({
-      hooks: [{ command: "bash h.sh", script: "h.sh", status: "ok" }],
+      ...wiredHook("ok"),
       danglingRefs: ["skills/using-x/SKILL.md", "agents/missing.md"],
     }),
   );
@@ -313,32 +331,44 @@ test("score clamps at 0 and an empty machine is not healthy", () => {
 // ─── a hooks-only plugin is a plugin (#199) ───────────────────────────────────
 //
 // 🔴 `scoreReport` kept its OWN copy of the surface list and that copy had
-// dropped `inlineHooks`, so a plugin whose entire contribution is hooks declared
-// inline in `plugin.json` graded 0 / F with "no loadable plugin surface" while
-// the same report printed `inlineHooks: 2`. Measured on that shape before the
+// dropped the hand-written hook lines, so a plugin whose entire contribution is
+// hooks declared inline in `plugin.json` graded 0 / F with "no loadable plugin
+// surface" while the same report counted 2 hooks. Measured on that shape before the
 // fix: `scoreReport` 0 against `auditScore` 100 — two numbers the docs say are
 // equal, disagreeing by the whole scale. The fix is that there is now ONE list
 // (`isEmptyMachine`), not a corrected second one.
 test("a hooks-only plugin is a real surface, not score 0", () => {
-  // inline hooks (shell one-liners, no script file) — the shape from #199.
-  const inlineOnly = scoreReport(report({ inlineHooks: 2 }));
+  // hand-written lines, which vigiles does not read — the shape from #199.
+  const line = (kind: "hand-written" | "compiled") => ({
+    source: "loaded" as const,
+    event: "Stop",
+    command: "echo done",
+    line:
+      kind === "compiled"
+        ? {
+            kind,
+            files: ["g.mjs"],
+            runs: { kind: "program" as const, ref: "g.mjs" },
+          }
+        : { kind },
+  });
+  const handWritten = report({ hookInventory: [line("hand-written")] });
+  const inlineOnly = scoreReport(handWritten);
   assert.equal(inlineOnly.score, 100);
   assert.deepEqual(inlineOnly.issues, []);
 
-  // script-backed hooks, the other half of the same surface.
+  // a compiled line, the other half of the same surface.
   const scriptOnly = scoreReport(
     report({
-      hooks: [{ command: "bash g.sh", script: "g.sh", status: "ok" as const }],
+      hookInventory: [line("compiled")],
+      hooks: [{ command: "echo done", script: "g.mjs", status: "ok" as const }],
     }),
   );
   assert.equal(scriptOnly.score, 100);
 
   // and the headline the audit prints for the same report must not disagree —
   // the invariant a second surface list is exactly what breaks.
-  assert.equal(
-    auditScore(report({ inlineHooks: 2 })).overall,
-    inlineOnly.score,
-  );
+  assert.equal(auditScore(handWritten).overall, inlineOnly.score);
 
   // the negative half: no surface of ANY kind is still 0. Without this the fix
   // is indistinguishable from deleting the empty-machine check.
@@ -386,7 +416,11 @@ test("a real hooks-only plugin dir grades on its hooks, not as empty", () => {
   );
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   // The loader SEES them — that is what made the 0 read as a contradiction.
-  assert.equal(r.inlineHooks, 2, "the hooks are detected");
+  assert.deepEqual(
+    r.hookInventory.map((e) => e.line.kind),
+    ["hand-written", "hand-written"],
+    "the hooks are detected",
+  );
   assert.equal(r.skills.length + r.agents.length + r.commands, 0);
 
   const scored = scoreReport(r);

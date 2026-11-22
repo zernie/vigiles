@@ -174,3 +174,27 @@ export function nonCommandHookActions(raw: unknown): NonCommandHookAction[] {
 export function hookEventNames(raw: unknown): string[] {
   return isRecord(raw) ? Object.keys(raw) : [];
 }
+
+/** What a plugin declares for hooks; `inManifest` when inline in the manifest itself. */
+export interface PluginHooks {
+  readonly declared: boolean;
+  readonly hooks: unknown;
+  readonly inManifest?: true;
+}
+
+/**
+ * The project settings' hooks a plugin declaration shadows — none when the
+ * declaration IS the settings file. A harness whose manifest and settings are
+ * one file (Codex's `config.toml`) otherwise read the same lines twice: once as
+ * the plugin's, once as the shadowed settings, and every hook was counted twice.
+ */
+export function shadowedBy(
+  plugin: PluginHooks,
+  layout: { readonly manifestPath: string; readonly settingsPath: string },
+  settings: () => unknown,
+): unknown {
+  return plugin.inManifest === true &&
+    layout.manifestPath === layout.settingsPath
+    ? undefined
+    : settings();
+}

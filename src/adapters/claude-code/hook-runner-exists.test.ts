@@ -14,7 +14,7 @@
  *
  * 1. The runner under `node_modules/` is a real file the hook needs. On disk it
  *    is checkable; in the file map (a GitHub fetch never includes node_modules)
- *    it is NOT, so there it must read `unresolved`, never `missing`.
+ *    it is NOT, so there it must read `not-observable`, never `missing`.
  * 2. A repo that is a plugin (hooks in its manifest) AND has project settings:
  *    the loader reads only the manifest's hooks, so the project's own wiring was
  *    never path-checked at all. The vigiles repository is exactly this shape.
@@ -137,7 +137,7 @@ test("a compiled hook whose RUNNER is not installed is `missing` on disk; instal
   }
 });
 
-test("the file-map twin cannot see node_modules, so the runner is `unresolved` there, never `missing`", () => {
+test("the file-map twin cannot see node_modules, so the runner is `not-observable` there, never `missing`", () => {
   const dir = makeTmpDir("runner-map");
   try {
     write(dir, ".claude/settings.json", settingsWith(WIRED));
@@ -145,7 +145,7 @@ test("the file-map twin cannot see node_modules, so the runner is `unresolved` t
     const r = scanFiles(fileMap(dir), claudeCodeLayout, claudeCodeDialect);
     // A browser audit of a GitHub repo would otherwise accuse EVERY consumer
     // of a dead hook, because the fetch never includes node_modules.
-    assert.equal(statusOf(r.hooks, RUNNER), "unresolved");
+    assert.equal(statusOf(r.hooks, RUNNER), "not-observable");
     assert.equal(statusOf(r.hooks, ".vigiles/hooks/x.hook.mjs"), "ok");
   } finally {
     cleanupTmpDir(dir);
@@ -165,7 +165,7 @@ test("a PLUGIN repo's own project settings are path-checked too, in both twins",
     assert.equal(statusOf(disk.hooks, RUNNER), "missing");
     assert.equal(statusOf(disk.hooks, ".vigiles/hooks/x.hook.mjs"), "ok");
     const map = scanFiles(fileMap(dir), claudeCodeLayout, claudeCodeDialect);
-    assert.equal(statusOf(map.hooks, RUNNER), "unresolved");
+    assert.equal(statusOf(map.hooks, RUNNER), "not-observable");
     assert.equal(statusOf(map.hooks, ".vigiles/hooks/x.hook.mjs"), "ok");
     // The manifest's hand-written `post.sh` line is not read for a script.
     assert.equal(statusOf(disk.hooks, "hooks/post.sh"), undefined);
