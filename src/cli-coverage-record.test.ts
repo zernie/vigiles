@@ -4,8 +4,8 @@
  *
  * Driven through the REAL built CLI, because the defect this file exists for was
  * not in the merge but in what the caller failed to TELL it. Reproduced
- * 2026-08-11 on the fixture below: a harness repointed from `hooks/a.sh` to
- * `hooks/b.sh` and re-run left records for both, and `vigiles lint` then printed
+ * 2026-08-11 on the fixture below: a harness repointed from `.vigiles/hooks/a.hook.mjs` to
+ * `.vigiles/hooks/b.hook.mjs` and re-run left records for both, and `vigiles lint` then printed
  * "2 MEASURED BY A RUN" — execution-tier coverage for a hook nothing executes.
  * The record never expired either: freshness is keyed to the SURFACE's text, and
  * rewriting the test does not touch the hook.
@@ -39,7 +39,7 @@ let dir: string;
 function harnessExercising(hook: string): string {
   return (
     `import { runHook } from ${JSON.stringify(RUN_HOOK)};\n` +
-    `const r = runHook("sh ${hook}", { hook_event_name: "PreToolUse", ` +
+    `const r = runHook("node ${hook}", { hook_event_name: "PreToolUse", ` +
     `tool_name: "Bash", tool_input: {} });\n` +
     `if (r.exitCode !== 0) process.exit(1);\n`
   );
@@ -87,8 +87,8 @@ function vigilesLint(): string {
 
 beforeEach(() => {
   dir = makeTmpDir("cli-cov-record");
-  write("hooks/a.sh", "#!/bin/sh\nexit 0\n");
-  write("hooks/b.sh", "#!/bin/sh\nexit 0\n");
+  write(".vigiles/hooks/a.hook.mjs", "process.exit(0);\n");
+  write(".vigiles/hooks/b.hook.mjs", "process.exit(0);\n");
   write(
     ".claude/settings.json",
     JSON.stringify({
@@ -96,11 +96,23 @@ beforeEach(() => {
         PreToolUse: [
           {
             matcher: "Bash",
-            hooks: [{ type: "command", command: "sh hooks/a.sh" }],
+            hooks: [
+              {
+                type: "command",
+                command:
+                  "node x hook-runtime run-program .vigiles/hooks/a.hook.mjs",
+              },
+            ],
           },
           {
             matcher: "Edit",
-            hooks: [{ type: "command", command: "sh hooks/b.sh" }],
+            hooks: [
+              {
+                type: "command",
+                command:
+                  "node x hook-runtime run-program .vigiles/hooks/b.hook.mjs",
+              },
+            ],
           },
         ],
       },
@@ -113,15 +125,19 @@ afterEach(() => {
 });
 
 test("a re-run that drops a surface withdraws the coverage it used to claim", () => {
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
-  vigilesTest();
-  assert.deepEqual(recorded(), ["hooks/a.sh"], "first run records what it ran");
-
-  write("t.harness.mjs", harnessExercising("hooks/b.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest();
   assert.deepEqual(
     recorded(),
-    ["hooks/b.sh"],
+    [".vigiles/hooks/a.hook.mjs"],
+    "first run records what it ran",
+  );
+
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/b.hook.mjs"));
+  vigilesTest();
+  assert.deepEqual(
+    recorded(),
+    [".vigiles/hooks/b.hook.mjs"],
     "the abandoned surface must not stay 'measured by a run'",
   );
 });
@@ -129,7 +145,7 @@ test("a re-run that drops a surface withdraws the coverage it used to claim", ()
 test("…and a harness emptied of everything withdraws all of it", () => {
   // No new records at all, so nothing overwrites the old key: the case a merge
   // can never reach on its own, and the one an author reaches by deleting code.
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest();
   write("t.harness.mjs", "// nothing left to run\n");
   vigilesTest();
@@ -137,15 +153,18 @@ test("…and a harness emptied of everything withdraws all of it", () => {
 });
 
 test("…but running ONE test by name leaves the other's records alone", () => {
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
-  write("u.harness.mjs", harnessExercising("hooks/b.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
+  write("u.harness.mjs", harnessExercising(".vigiles/hooks/b.hook.mjs"));
   vigilesTest();
-  assert.deepEqual(recorded(), ["hooks/a.sh", "hooks/b.sh"]);
+  assert.deepEqual(recorded(), [
+    ".vigiles/hooks/a.hook.mjs",
+    ".vigiles/hooks/b.hook.mjs",
+  ]);
 
   vigilesTest("t.harness.mjs");
   assert.deepEqual(
     recorded(),
-    ["hooks/a.sh", "hooks/b.sh"],
+    [".vigiles/hooks/a.hook.mjs", ".vigiles/hooks/b.hook.mjs"],
     "naming one file must not erase the suite",
   );
 });
@@ -156,9 +175,9 @@ test("…and the retraction survives being spelled `./t.harness.mjs`", () => {
   // so nothing was withdrawn and `lint` printed "1 MEASURED BY A RUN" for a hook
   // an emptied harness no longer touches — with no expiry, since freshness is
   // keyed to the SURFACE's text and rewriting the test does not change it.
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest();
-  assert.deepEqual(recorded(), ["hooks/a.sh"]);
+  assert.deepEqual(recorded(), [".vigiles/hooks/a.hook.mjs"]);
 
   write("t.harness.mjs", "// nothing left to run\n");
   vigilesTest("./t.harness.mjs");
@@ -170,7 +189,7 @@ test("…and the retraction survives being spelled `./t.harness.mjs`", () => {
 });
 
 test("…and being spelled as an ABSOLUTE path", () => {
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest();
   write("t.harness.mjs", "// nothing left to run\n");
   vigilesTest(join(dir, "t.harness.mjs"));
@@ -180,7 +199,7 @@ test("…and being spelled as an ABSOLUTE path", () => {
 test("one script run under two spellings holds ONE record", () => {
   // The other half of the same split: without a canonical key the artifact grows
   // an entry per spelling, so `by` stops identifying the script that ran.
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest("./t.harness.mjs");
   vigilesTest();
   const file = join(dir, ".vigiles", "coverage.json");
@@ -199,9 +218,13 @@ test("a DELETED harness stops granting coverage — the case no re-run can withd
   //
   // Driven through `lint` rather than `test`, because that is the whole point:
   // the record survives precisely when nobody re-runs the tier.
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest();
-  assert.deepEqual(recorded(), ["hooks/a.sh"], "precondition: a real record");
+  assert.deepEqual(
+    recorded(),
+    [".vigiles/hooks/a.hook.mjs"],
+    "precondition: a real record",
+  );
   assert.match(
     vigilesLint(),
     /1 MEASURED BY A RUN/,
@@ -211,7 +234,11 @@ test("a DELETED harness stops granting coverage — the case no re-run can withd
   // One change: the harness is gone. The artifact is untouched on purpose — the
   // rule is a read-time judgement about this checkout, not a rewrite.
   rmSync(join(dir, "t.harness.mjs"));
-  assert.deepEqual(recorded(), ["hooks/a.sh"], "the record is still on disk");
+  assert.deepEqual(
+    recorded(),
+    [".vigiles/hooks/a.hook.mjs"],
+    "the record is still on disk",
+  );
   const after = vigilesLint();
   assert.doesNotMatch(
     after,
@@ -224,7 +251,7 @@ test("a DELETED harness stops granting coverage — the case no re-run can withd
 test("…and putting the harness back restores the credit, without re-running it", () => {
   // The QUIET half, and the property that makes this safe for a partial checkout:
   // nothing is deleted, so the answer follows the tree rather than outliving it.
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest();
   const saved = readFileSync(join(dir, "t.harness.mjs"), "utf-8");
   rmSync(join(dir, "t.harness.mjs"));
@@ -304,12 +331,12 @@ test("…but a harness that only LOADS one records nothing", () => {
       `if (typeof h !== "object") process.exit(1);\n` +
       // Something else must run, or the script is vacuous and records nothing
       // for a different reason — this keeps the test about the LOAD.
-      `runHook("sh hooks/a.sh", { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {} });\n`,
+      `runHook("node .vigiles/hooks/a.hook.mjs", { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {} });\n`,
   );
   vigilesTest();
   assert.deepEqual(
     recorded(),
-    ["hooks/a.sh"],
+    [".vigiles/hooks/a.hook.mjs"],
     "the loaded-but-never-evaluated hook must not appear",
   );
 });
@@ -340,17 +367,17 @@ test("a repo whose run exercises nothing still gets NO artifact", () => {
 // line. Hook discovery under the Codex layout is JSON-only and does not read
 // `config.toml`: a separate, documented layout-port gap, not this fix.)
 test("a repo that targets Codex is not credited for a Claude Code hook", () => {
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest();
   assert.deepEqual(
     recorded(),
-    ["hooks/a.sh"],
+    [".vigiles/hooks/a.hook.mjs"],
     "precondition: as a Claude Code repo, the run records the hook",
   );
 
   // One file turns it into a Codex repo. Nothing else changes.
   write(".codex/config.toml", "[mcp_servers]\n");
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest();
   assert.deepEqual(
     recorded(),
@@ -367,11 +394,11 @@ test("a repo that targets Codex is not credited for a Claude Code hook", () => {
 // silent empty set as before: probes matched against another layout's surfaces
 // resolve to nothing and are discarded, and nothing errors.
 test("`--harness=` overrides an auto-detected Claude Code repo for the recorder too", () => {
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest();
   assert.deepEqual(
     recorded(),
-    ["hooks/a.sh"],
+    [".vigiles/hooks/a.hook.mjs"],
     "precondition: nothing on disk says Codex — this repo auto-detects as Claude Code",
   );
 
@@ -389,14 +416,18 @@ test("`--harness=` overrides an auto-detected Claude Code repo for the recorder 
 test("…and the flag is not assumed: the default and an explicit `claude-code` still record", () => {
   // The QUIET half. Without it, the check above passes on any change that merely
   // stops recording — a threading fix that mis-read the flag would look identical.
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest();
-  assert.deepEqual(recorded(), ["hooks/a.sh"], "no flag: unchanged behaviour");
+  assert.deepEqual(
+    recorded(),
+    [".vigiles/hooks/a.hook.mjs"],
+    "no flag: unchanged behaviour",
+  );
 
   vigilesTest("--harness=claude-code");
   assert.deepEqual(
     recorded(),
-    ["hooks/a.sh"],
+    [".vigiles/hooks/a.hook.mjs"],
     "naming the harness this repo already is must change nothing",
   );
 });
@@ -484,9 +515,13 @@ function gitStatusUnderVigiles(): string[] {
 
 test("the coverage artifact `vigiles test` writes is invisible to git", () => {
   initGitRepo(dir);
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   const stderr = vigilesTestStderr();
-  assert.deepEqual(recorded(), ["hooks/a.sh"], "the artifact was written");
+  assert.deepEqual(
+    recorded(),
+    [".vigiles/hooks/a.hook.mjs"],
+    "the artifact was written",
+  );
   assert.deepEqual(gitStatusUnderVigiles(), []);
   assert.doesNotMatch(
     stderr,
@@ -499,7 +534,7 @@ test("…and the warning survives a run that finds no harness at all", () => {
   // Codex review on #274: the check sat after the zero-files early return, so a
   // repo whose harness was deleted kept its stale committed artifact in silence.
   initGitRepo(dir);
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest();
   execFileSync("git", ["add", "-f", ".vigiles/coverage.json"], { cwd: dir });
   rmSync(join(dir, "t.harness.mjs"));
@@ -520,14 +555,14 @@ test("a tracked ignore file this very run edits is reported on that run", () => 
     ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "own"],
     { cwd: dir },
   );
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   const stderr = vigilesTestStderr();
   assert.match(stderr, /\.vigiles\/\.gitignore is tracked by git/);
 });
 
 test("an ALREADY-tracked coverage.json gets one warning line on the next run", () => {
   initGitRepo(dir);
-  write("t.harness.mjs", harnessExercising("hooks/a.sh"));
+  write("t.harness.mjs", harnessExercising(".vigiles/hooks/a.hook.mjs"));
   vigilesTest();
   // A consumer committed it before vigiles ignored it (or forced it past).
   execFileSync("git", ["add", "-f", ".vigiles/coverage.json"], { cwd: dir });
@@ -548,12 +583,12 @@ test("an ALREADY-tracked coverage.json gets one warning line on the next run", (
 
 // #281 (D5) — a NESTED bundle's surfaces are recorded, and read back, in the
 // repo frame. On 2c0ada7 both halves missed: `resolveRecords` discovered the
-// root bundle only, so a run that exercised `plugins/p/hooks/n.sh` recorded
+// root bundle only, so a run that exercised `plugins/p/.vigiles/hooks/n.hook.mjs` recorded
 // nothing; and `lint` looked for the artifact in `plugins/p/.vigiles/`, which
 // nothing ever writes.
 test("under bundles: all, a run over a NESTED bundle's hook is recorded and credited", () => {
   write(".vigilesrc.json", JSON.stringify({ bundles: "all" }));
-  write("plugins/p/hooks/n.sh", "#!/bin/sh\nexit 0\n");
+  write("plugins/p/.vigiles/hooks/n.hook.mjs", "process.exit(0);\n");
   write(
     "plugins/p/.claude-plugin/plugin.json",
     JSON.stringify({
@@ -565,7 +600,8 @@ test("under bundles: all, a run over a NESTED bundle's hook is recorded and cred
             hooks: [
               {
                 type: "command",
-                command: "sh ${CLAUDE_PLUGIN_ROOT}/hooks/n.sh",
+                command:
+                  "node x hook-runtime run-program .vigiles/hooks/n.hook.mjs",
               },
             ],
           },
@@ -574,14 +610,20 @@ test("under bundles: all, a run over a NESTED bundle's hook is recorded and cred
     }),
   );
   // Precondition: before any run, lint names the nested hook, in the repo frame.
-  assert.match(vigilesLint(), /hook plugins\/p\/hooks\/n\.sh — add e\.g\./);
+  assert.match(
+    vigilesLint(),
+    /hook plugins\/p\/\.vigiles\/hooks\/n\.hook\.mjs — add e\.g\./,
+  );
 
-  write("t.harness.mjs", harnessExercising("plugins/p/hooks/n.sh"));
+  write(
+    "t.harness.mjs",
+    harnessExercising("plugins/p/.vigiles/hooks/n.hook.mjs"),
+  );
   vigilesTest();
-  assert.deepEqual(recorded(), ["plugins/p/hooks/n.sh"]);
+  assert.deepEqual(recorded(), ["plugins/p/.vigiles/hooks/n.hook.mjs"]);
   assert.doesNotMatch(
     vigilesLint(),
-    /hook plugins\/p\/hooks\/n\.sh — add e\.g\./,
+    /hook plugins\/p\/\.vigiles\/hooks\/n\.hook\.mjs — add e\.g\./,
     "the record must be READ back for the nested bundle too",
   );
 });

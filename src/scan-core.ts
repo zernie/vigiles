@@ -14,6 +14,15 @@
  * build, so there is no runtime cycle — `scan.ts` requires `scan-core.js`, never
  * the reverse.
  */
+import {
+  flatMap,
+  identity,
+  pick,
+  pipe,
+  sortBy,
+  unique,
+  uniqueBy,
+} from "remeda";
 import { basename, dirname, join, relative, resolve } from "./posix-path.js";
 
 import {
@@ -63,7 +72,12 @@ import {
   type PluginLayout,
 } from "./core/layout.js";
 import type { HarnessDialect } from "./core/dialect.js";
-import type { HookRegistration } from "./core/hook-normalize.js";
+import {
+  normalizeHooks,
+  type HookBlock,
+  type HookOrigin,
+  type HookRegistration,
+} from "./core/hook-normalize.js";
 import type { HookScriptEntry } from "./core/hook-block-ineffective.js";
 import type { HookMatcherEntry } from "./core/hook-matcher.js";
 import type {
@@ -807,16 +821,18 @@ function readHookLine(
 }
 
 /**
- * Where a registration came from: the hooks the loader chose for the repo
- * (a plugin manifest, its hook-convention file, or the project settings), or the
- * project settings a plugin manifest shadowed (`LoadedPlugin.shadowedSettingsHooks`).
- * Both are live — the first for whoever installs the plugin, the second for
- * whoever works in it.
+ * The harness a hook line is registered for: its name, and the root variables
+ * its lines are spelled with — a compiled line names its files through them, so
+ * reading one harness's line with another's would call every file missing.
  */
-export type HookOrigin = "loaded" | "shadowed-settings";
+export type HookHarness = Pick<
+  PluginLayout,
+  "name" | "pluginRootToken" | "projectRootTokens"
+>;
 
-/** One hook registration, and what its line is. */
+/** One hook registration, the harness that reads it, and what its line is. */
 export interface HookInventoryEntry {
+  readonly harness: HookHarness;
   readonly source: HookOrigin;
   readonly event: string;
   readonly command: string;
@@ -824,35 +840,94 @@ export interface HookInventoryEntry {
 }
 
 /**
- * EVERY hook line a repo registers, each read by identity — the one answer to
- * "which hooks exist". The printed `Hooks` block, the inventory count, the
- * empty-surface test and hook coverage are all read from it, so none of them
- * can keep a list of its own.
+ * EVERY hook line a repo registers, for EVERY declared harness, each read by
+ * identity — the one answer to "which hooks exist". The printed `Hooks` block,
+ * the inventory count, the empty-surface test and hook coverage are all read
+ * from it, so none of them can keep a list of its own.
+ *
+ * 🔴 NOT THE LOADER'S CHOICE. `loadPlugins` keeps the first declared harness's
+ * hooks, because that is what a run executes. Built from that, a repo declaring
+ * Codex before Claude Code lost its Claude Code hooks from the block, the count
+ * and coverage, and swapping the declaration order swapped which half vanished.
  */
 export type HookInventory = readonly HookInventoryEntry[];
 
-/** Build the {@link HookInventory} from what the loader read. Blank lines are not hooks. */
+/** One declared harness's hook blocks, and the scan its lines are read with. */
+export interface HarnessHookRead {
+  readonly blocks: readonly HookBlock[];
+  readonly scan: Pick<HookScriptScan, "plan" | "root" | "layout">;
+}
+
+/**
+ * Build the {@link HookInventory} from every declared harness's blocks. The
+ * harnesses are taken in name order, so the inventory is a function of WHICH
+ * harnesses are declared, never of the order they are listed in; a file two of
+ * them read is one block, kept by the first. Blank lines are not hooks.
+ */
 export function hookInventory(
-  loaded: readonly HookRegistration[],
-  shadowed: readonly HookRegistration[],
-  scan: Pick<HookScriptScan, "plan" | "root" | "layout">,
+  reads: readonly HarnessHookRead[],
 ): HookInventory {
-  const entries = (
-    regs: readonly HookRegistration[],
-    source: HookOrigin,
-  ): HookInventory =>
-    regs
-      .filter((r) => r.command.trim() !== "")
-      .map((r) => ({
-        source,
-        event: r.event,
-        command: r.command,
-        line: readHookLine(r.command, scan),
-      }));
-  return [
-    ...entries(loaded, "loaded"),
-    ...entries(shadowed, "shadowed-settings"),
-  ];
+  return pipe(
+    reads,
+    sortBy((r) => r.scan.layout.name),
+    flatMap((r) => r.blocks.map((block) => ({ block, scan: r.scan }))),
+    uniqueBy((b) => b.block.file),
+    flatMap(({ block, scan }) =>
+      normalizeHooks(block.hooks)
+        .filter((r) => r.command.trim() !== "")
+        .map(
+          (r): HookInventoryEntry => ({
+            harness: pick(scan.layout, [
+              "name",
+              "pluginRootToken",
+              "projectRootTokens",
+            ]),
+            source: block.origin,
+            event: r.event,
+            command: r.command,
+            line: readHookLine(r.command, scan),
+          }),
+        ),
+    ),
+  );
+}
+
+/**
+ * The hook sources the repo's hook lines run, repo-relative and once each — the
+ * hook surfaces coverage holds to a test. A compiled line's is the plan's; a
+ * stale line's is the source `compile`'s merge key assigns it to (edited, but
+ * still the author's program). A hand-written line contributes nothing:
+ * vigiles does not read what it runs, so its coverage is not measured.
+ */
+export function hookPrograms(inventory: HookInventory): readonly string[] {
+  return pipe(
+    inventory,
+    flatMap((e) => programOf(e.line)),
+    unique(),
+    sortBy(identity()),
+  );
+}
+
+/** The program one line runs, when vigiles knows it — never a hand-written line's. */
+function programOf(line: HookLine): readonly string[] {
+  switch (line.kind) {
+    case "compiled":
+      return programRun(line.runs);
+    case "stale":
+      return [line.ref];
+    case "hand-written":
+      return [];
+  }
+}
+
+/** An author's program, or nothing for vigiles's own wiring. */
+function programRun(runs: HookLineRuns): readonly string[] {
+  switch (runs.kind) {
+    case "program":
+      return [runs.ref];
+    case "vigiles-wiring":
+      return [];
+  }
 }
 
 /** A word naming a path, as a repo-relative ref when it lies under `root`. */
@@ -925,7 +1000,8 @@ export function staleHookMessage(hook: StaleHook): string {
 export interface HookScriptScan {
   /** The directory every root token and relative path resolves against. */
   readonly root: string;
-  readonly layout: Pick<PluginLayout, "pluginRootToken" | "projectRootTokens">;
+  /** The harness whose lines this scan reads, and whose plan it holds. */
+  readonly layout: HookHarness;
   readonly exists: (path: string) => boolean;
   /** The lines vigiles would write here; see {@link HookLinePlan}. */
   readonly plan: HookLinePlan;
@@ -959,13 +1035,13 @@ export interface HookLineFindings {
  *
  * Files and stale lines are about lines vigiles wrote, so they come from every
  * registration. The hand-written list feeds `hand-written-hook`, and it stays
- * on what the loader chose: in a plugin repo the hand-written hooks of the
- * shadowed project settings are counted in the inventory but not
- * listed — widening that rule is a separate decision.
+ * on the blocks each declared harness reads as its own: in a plugin repo the
+ * hand-written hooks of the shadowed project settings are counted in the
+ * inventory but not listed — widening that rule is a separate decision.
  */
 export function scanHookScripts(
   inventory: HookInventory,
-  scan: Pick<HookScriptScan, "root" | "layout" | "exists" | "observable">,
+  scan: Pick<HookScriptScan, "root" | "exists" | "observable">,
 ): HookLineFindings {
   const status = (script: string): HookStatus => {
     if (scan.exists(script)) return "ok";
@@ -973,7 +1049,7 @@ export function scanHookScripts(
   };
   const scripts = inventory.flatMap((e) =>
     (e.line.kind === "compiled" ? e.line.files : []).map((file): ScanHook => {
-      const script = hookFilePath(file, scan.root, scan.layout);
+      const script = hookFilePath(file, scan.root, e.harness);
       return {
         command: e.command,
         script,
@@ -983,7 +1059,7 @@ export function scanHookScripts(
     }),
   );
   // One entry per file; the first registration that names it keeps its event,
-  // so the loader's own hooks win over the shadowed settings.
+  // so a harness's own hooks win over the settings they shadow.
   const hooks = scripts
     .filter((h, i) => scripts.findIndex((o) => o.script === h.script) === i)
     .sort((a, b) => a.script.localeCompare(b.script));

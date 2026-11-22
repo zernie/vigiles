@@ -61,6 +61,7 @@
  * a per-tier {@link CoverageTier} alongside the (unchanged) union fields.
  */
 
+import type { AnyNonEmptyArray } from "ts-essentials";
 import {
   existsSync,
   lstatSync,
@@ -94,7 +95,9 @@ import {
   declaredSurfaceName,
   evidenceFor,
   formatEvidence,
-  hookScriptRefs,
+  hookSurfaces,
+  unmeasuredHookLines,
+  unmeasuredHooksNote,
   isColocatedTest,
   isEvalScript,
   prepareTest,
@@ -114,6 +117,8 @@ import {
   type CoverageTierName,
   type ExecutedRecord,
 } from "./coverage-artifact.js";
+import type { HookInventory } from "./scan-core.js";
+import { diskHookInventory } from "./hook-inventory.js";
 
 /**
  * The two on-disk locations a surface dir can occupy: the plugin-root form
@@ -198,6 +203,12 @@ export interface UntestedReport {
   readonly untested: readonly Surface[];
   /** Surfaces explicitly opted out via `vigiles:ignore-test`. */
   readonly exempt: number;
+  /**
+   * Hand-written hook lines: hooks whose coverage is NOT measured, because
+   * vigiles does not read what they run. Never counted as untested — a guess
+   * at their script is what this replaced. 0 when hooks are not scanned.
+   */
+  readonly unmeasuredHookLines: number;
   /**
    * The exempt surfaces themselves. The marker waives a surface's test, not its
    * existence, so an inventory counts them (an exempt style still ships).
@@ -284,8 +295,17 @@ export interface TestCoverageOptions {
   readonly skills?: boolean;
   /** Scan subagents under `agents/` and `.claude/agents/`. Default true. */
   readonly agents?: boolean;
-  /** Scan hook scripts referenced from plugin.json / settings.json. Default true. */
+  /**
+   * Scan hooks: the programs compiled hook lines run. Default true. A
+   * hand-written line is not a surface — vigiles does not read what it runs —
+   * and is counted in `unmeasuredHookLines` instead.
+   */
   readonly hooks?: boolean;
+  /**
+   * The hook inventory the caller already read (`scanPlugin` does), so the
+   * loader does not run twice. Absent: read from `basePath` under the layouts.
+   */
+  readonly hookInventory?: HookInventory;
   /**
    * Scan output styles, in every folder the layout's `outputStyles` names.
    * Default true; a layout with no output styles finds none either way.
@@ -578,6 +598,15 @@ function discoverOutputStyles(
       );
 }
 
+/** Every declared harness layout, never empty: `harnessLayouts`, else `[layout]`. */
+function harnessLayoutsOf(
+  layout: PluginLayout,
+  options: TestCoverageOptions,
+): Readonly<AnyNonEmptyArray<PluginLayout>> {
+  const [first, ...rest] = options.harnessLayouts ?? [];
+  return first === undefined ? [layout] : [first, ...rest];
+}
+
 /**
  * Every kind the options switch on, found under the bundle. Discovery gets only
  * the frame-free ignore floor; the repo's exclude is applied later, from
@@ -587,61 +616,58 @@ function discoverSurfaces(
   basePath: string,
   layout: PluginLayout,
   options: TestCoverageOptions,
+  inventory: HookInventory,
 ): readonly Surface[] {
   const on = (flag: boolean | undefined): boolean => flag !== false;
-  const found = (options.harnessLayouts ?? [layout]).flatMap((each) => [
-    ...(on(options.skills)
-      ? discoverSkills(basePath, [...DEFAULT_IGNORE], each)
-      : []),
-    ...(on(options.agents)
-      ? discoverAgents(basePath, [...DEFAULT_IGNORE], each)
-      : []),
-    ...(on(options.hooks) ? discoverHooks(basePath, each) : []),
-    ...(on(options.outputStyles)
-      ? discoverOutputStyles(basePath, DEFAULT_IGNORE, each)
-      : []),
-  ]);
+  const layouts = harnessLayoutsOf(layout, options);
+  const found = [
+    ...layouts.flatMap((each) => [
+      ...(on(options.skills)
+        ? discoverSkills(basePath, [...DEFAULT_IGNORE], each)
+        : []),
+      ...(on(options.agents)
+        ? discoverAgents(basePath, [...DEFAULT_IGNORE], each)
+        : []),
+      ...(on(options.outputStyles)
+        ? discoverOutputStyles(basePath, DEFAULT_IGNORE, each)
+        : []),
+    ]),
+    // One inventory across every declared harness.
+    ...discoverHooks(basePath, inventory),
+  ];
   // Two declared harnesses can read the same file: one surface per file.
   return [...new Map(found.map((s) => [`${s.kind}\0${s.path}`, s])).values()];
 }
 
 /**
- * Hook-script paths referenced from a manifest's `hooks` block (file hooks only).
- *
- * The PARSING lives in `hookScriptRefs` (coverage-evidence.ts), shared with the
- * browser twin — see its header for why. This wrapper supplies only the two
- * disk-specific things: reading the manifest, and what "exists" means here.
+ * The hook surfaces: the programs compiled lines run, read off the hook
+ * inventory (`hookSurfaces`, shared with the browser twin).
  */
-function hookScripts(
+function discoverHooks(
   basePath: string,
-  manifest: string,
-  layout: PluginLayout,
-): string[] {
-  const abs = join(basePath, manifest);
-  if (!existsSync(abs)) return [];
-  return hookScriptRefs(read(abs), layout, (rel) =>
-    existsSync(join(basePath, rel)),
-  );
+  inventory: HookInventory,
+): readonly Surface[] {
+  return hookSurfaces(inventory, (rel) => existsSync(join(basePath, rel)));
 }
 
-function discoverHooks(basePath: string, layout: PluginLayout): Surface[] {
-  const scripts = new Set<string>();
-  // The harness's manifest + settings (and a `.local` settings sibling, a CC
-  // convention that's harmless to probe elsewhere).
-  const localSettings = layout.settingsPath.replace(/(\.[^./]+)$/, ".local$1");
-  const manifests = [
-    ...new Set([layout.manifestPath, layout.settingsPath, localSettings]),
-  ];
-  for (const m of manifests) {
-    for (const s of hookScripts(basePath, m, layout)) scripts.add(s);
-  }
-  return [...scripts].sort().map((path) => ({
-    kind: "hook" as const,
-    path,
-    name: basename(path).replace(/\.[^.]+$/, ""),
-    tokens: [path],
-    ignored: false,
-  }));
+/**
+ * The inventory coverage reads: none when hooks are off, else the caller's,
+ * else the repository's on disk under `basePath`.
+ */
+function hookInventoryOf(
+  basePath: string,
+  layout: PluginLayout,
+  options: TestCoverageOptions,
+): HookInventory {
+  if (options.hooks === false) return [];
+  return (
+    options.hookInventory ??
+    diskHookInventory(basePath, harnessLayoutsOf(layout, options), {
+      exists: existsSync,
+      read,
+      list: (p) => readdirSync(p),
+    })
+  );
 }
 
 function discoverTests(
@@ -853,7 +879,8 @@ export function findUntestedSurfaces(
   // Discovery globs from the BUNDLE, so it gets only the frame-free floor; the
   // repo's exclude carries its own root, so it is applied below, to the
   // root-relative path.
-  const found = discoverSurfaces(basePath, layout, options);
+  const inventory = hookInventoryOf(basePath, layout, options);
+  const found = discoverSurfaces(basePath, layout, options, inventory);
   // Hooks were never subject to `ignore` (a compiled hook lives under the
   // default-ignored `.vigiles/`); keep that, and re-apply exclude to the kinds
   // whose discovery glob used it — now from `root`, where the patterns live.
@@ -889,19 +916,9 @@ export function findUntestedSurfaces(
     covered: union.covered,
     untested: union.untested,
     ...exemptOf(surfaces),
+    unmeasuredHookLines: unmeasuredHookLines(inventory),
     staleRuns: staleRunsFor(considered, runIndex),
-    testExt: testFileExt({
-      configured: options.testExtension,
-      hasTsconfig: existsSync(join(basePath, "tsconfig.json")),
-      packageJson: existsSync(join(basePath, "package.json"))
-        ? read(join(basePath, "package.json"))
-        : undefined,
-      // Measured, not assumed: a `tsconfig.json` says the project IS TypeScript,
-      // never that anything here can RUN a `.ts` script. Without this, a Node 20
-      // repo with no local `tsx` was told to write `foo.harness.ts` and then
-      // `vigiles test` refused to execute it.
-      canRunTypeScript: canRunTypeScript(detectNodeCaps(basePath)),
-    }),
+    testExt: testExtFor(basePath, options),
     legacyCoversFiles: tests
       .map((t) => t.path)
       .filter((path) => read(join(root, path)).includes(LEGACY_COVERS)),
@@ -910,6 +927,22 @@ export function findUntestedSurfaces(
     harness: tierOf(considered, split.harness, runIndex, "harness", globs),
     evals: tierOf(considered, split.evals, runIndex, "eval", globs),
   };
+}
+
+/** Which extension a generated test gets here: configured, else detected. */
+function testExtFor(basePath: string, options: TestCoverageOptions): string {
+  return testFileExt({
+    configured: options.testExtension,
+    hasTsconfig: existsSync(join(basePath, "tsconfig.json")),
+    packageJson: existsSync(join(basePath, "package.json"))
+      ? read(join(basePath, "package.json"))
+      : undefined,
+    // Measured, not assumed: a `tsconfig.json` says the project IS TypeScript,
+    // never that anything here can RUN a `.ts` script. Without this, a Node 20
+    // repo with no local `tsx` was told to write `foo.harness.ts` and then
+    // `vigiles test` refused to execute it.
+    canRunTypeScript: canRunTypeScript(detectNodeCaps(basePath)),
+  });
 }
 
 /**
@@ -1276,7 +1309,10 @@ export function formatUntestedReport(report: UntestedReport): string {
   const provenance = formatEvidence(coverageEvidenceCounts(report));
   if (report.untested.length === 0) {
     const tail = report.exempt > 0 ? ` (${String(report.exempt)} exempt)` : "";
-    const legacy = coverageCaveats(report);
+    const legacy = [
+      ...unmeasuredHooksNote(report.unmeasuredHookLines),
+      ...coverageCaveats(report),
+    ];
     const ok =
       `✓ all ${String(report.total)} surface(s) have a test or eval${tail}` +
       (provenance ? `\n  ${provenance}` : "") +
@@ -1311,6 +1347,7 @@ export function formatUntestedReport(report: UntestedReport): string {
   );
   // What the surfaces that DID pass are resting on.
   if (provenance) lines.push(`  ${provenance}`);
+  lines.push(...unmeasuredHooksNote(report.unmeasuredHookLines));
   lines.push(...coverageCaveats(report));
   // Already testing these another way (a promptfoo suite, a home-grown evals
   // file)? Two shapes are accepted, and the message names BOTH — it used to

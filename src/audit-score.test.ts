@@ -21,6 +21,7 @@ import type { ScanReport } from "./scan.js";
 
 /** One hand-written hook line, as the inventory records it. */
 const HAND_WRITTEN_LINE = {
+  harness: { name: "test-harness", pluginRootToken: "$ROOT" },
   source: "loaded",
   event: "Stop",
   command: "echo done",

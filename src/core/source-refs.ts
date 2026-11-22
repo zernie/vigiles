@@ -106,20 +106,6 @@ export const INTRA_REF_EXTENSIONS = [
 ] as const;
 
 /**
- * Extensions a RUNNABLE script carries. Shared by the hook scanner and the
- * coverage twins, which each declared their own copy before.
- */
-export const SCRIPT_REF_EXTENSIONS = [
-  "sh",
-  "mjs",
-  "cjs",
-  "js",
-  "ts",
-  "py",
-  "rb",
-] as const;
-
-/**
  * A plugin-relative path under one of `dirs`, carrying a known extension — the
  * pattern for scanning a plugin's own SOURCE TEXT.
  *
@@ -134,18 +120,6 @@ export function intraRefPattern(dirs: readonly string[]): RegExp {
     `(?:${dirs.join("|")})/[A-Za-z0-9._/-]+\\.(?:${exts})${ENDS_TOKEN}`,
     "g",
   );
-}
-
-/**
- * A script path appearing anywhere inside a string — for the one caller with no
- * shell parse to hand (the coverage twins scan a serialized settings blob).
- * Carries the right boundary; it cannot carry the left one, and its callers
- * gate every hit on the file existing, so a stray match is dropped rather than
- * reported.
- */
-export function scriptRefPattern(): RegExp {
-  const exts = SCRIPT_REF_EXTENSIONS.join("|");
-  return new RegExp("[\\w./$" + "{}@-]+\\." + `(?:${exts})${ENDS_TOKEN}`, "g");
 }
 
 // ---------------------------------------------------------------------------

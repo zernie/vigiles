@@ -21,7 +21,7 @@ import { basename, dirname, join, resolve } from "node:path";
 // Claude Code default), and only the generic one takes the `ExcludeSet` that
 // makes `.vigilesrc.json#exclude` reach surface discovery.
 import { loadPlugins } from "./plugin-loader.js";
-import { diskHookScan, loadedHookInventory } from "./hook-inventory.js";
+import { diskHookInventory, diskHookScan } from "./hook-inventory.js";
 // 🔴 THIS MODULE NO LONGER IMPORTS AN ADAPTER, and that is the point of the
 // change rather than tidiness. It is listed as a harness-agnostic detector and
 // it used to import `claudeCodeLayout` + `claudeCodeDialect` to DEFAULT five
@@ -105,6 +105,8 @@ import {
 import {
   formatEvidence,
   inventoryCounts,
+  unmeasuredHookLines,
+  unmeasuredHooksNote,
   type EvidenceCounts,
 } from "./coverage-evidence.js";
 import type { PurityLevel, EffectSurface } from "./core/effects.js";
@@ -834,12 +836,19 @@ export function scanPlugin(
   const hookRegs = normalizeHooks(loaded.settings.hooks);
   // As WRITTEN: a line is read by identity with what compile would write.
   const asWritten = normalizeHooks(loaded.hooksAsWritten);
-  const hookScan = diskHookScan(dir, lay, {
+  const hookDisk = {
     exists: existsSync,
     read: nodeReadFile,
-    list: (p) => readdirSync(p),
-  });
-  const inventory = loadedHookInventory(loaded, hookScan);
+    list: (p: string) => readdirSync(p),
+  };
+  const hookScan = diskHookScan(dir, lay, hookDisk);
+  // Every declared harness's hooks — not the loader's first-wins choice, which
+  // is what a run executes and only that.
+  const inventory = diskHookInventory(
+    dir,
+    declared.map((h) => h.layout),
+    hookDisk,
+  );
   const { hooks, handWritten, stale } = scanHookScripts(inventory, hookScan);
   // Hook-event keys are a CLOSED platform set — an unrecognized one is a dead
   // registration (the hook never fires), so flag every unknown (not just typos).
@@ -922,6 +931,8 @@ export function scanPlugin(
     // and a root-relative list globbed from here matched nothing it named —
     // `inventory.skills: 1` beside `untested: 2` (#281, D7).
     excludes: opts.excludes,
+    // The hooks this scan already read: coverage reads the same inventory.
+    hookInventory: inventory,
   });
   const caveats = coverageCaveats(coverage);
   return {
@@ -1511,6 +1522,17 @@ function handWrittenLines(
     : [...hooks.map((h) => `ℹ ${handWrittenHookMessage(h)}`), ""];
 }
 
+/**
+ * The untested count, and the hook lines whose coverage is not measured — the
+ * same count `lint` prints, from the same inventory.
+ */
+function untestedLines(r: ScanReport): readonly string[] {
+  return [
+    `Untested surfaces: ${String(r.untested)}`,
+    ...unmeasuredHooksNote(unmeasuredHookLines(r.hookInventory)),
+  ];
+}
+
 /** The mark and note for a file a compiled hook line needs, per status. */
 const HOOK_FILE_LABEL: Readonly<
   Record<HookStatus, { readonly mark: string; readonly note: string }>
@@ -1719,7 +1741,7 @@ function gradedReportLines(r: ScanReport): readonly string[] {
   const facts: string[] = [];
   facts.push(...inventoryFacts(r));
   facts.push(`MCP servers: ${r.mcp ? "yes" : "no"}`);
-  facts.push(`Untested surfaces: ${String(r.untested)}`);
+  facts.push(...untestedLines(r));
   // The two tiers, named separately — a surface with a deterministic harness and
   // no eval is NOT the same position as one with neither. Shown only when the
   // producer supplied the split (a hand-built report may not have).

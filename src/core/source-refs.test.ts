@@ -10,7 +10,6 @@ import { describe, it, expect } from "vitest";
 
 import {
   intraRefPattern,
-  scriptRefPattern,
   startsAtSeparator,
   stripFullLineComments,
   INTRA_REF_EXTENSIONS,
@@ -67,15 +66,6 @@ describe("startsAtSeparator — the LEFT boundary", () => {
       const idx = src.indexOf("agents/adv.md");
       expect([src, startsAtSeparator(src, idx)]).toEqual([src, true]);
     }
-  });
-});
-
-describe("scriptRefPattern — unanchored, but still right-bounded", () => {
-  it("does not truncate .json to .js", () => {
-    expect("hooks/hooks.json".match(scriptRefPattern())).toBeNull();
-    expect("hooks/hooks.mjs".match(scriptRefPattern())).toEqual([
-      "hooks/hooks.mjs",
-    ]);
   });
 });
 

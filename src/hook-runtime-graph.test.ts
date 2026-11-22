@@ -424,3 +424,46 @@ describe("stub runtime module graph", () => {
     expect(graph.length).toBeLessThanOrEqual(6);
   });
 });
+
+describe("remeda is not on a compiled hook's path", () => {
+  // A collection library is a per-call cost on the hook path, and it is one
+  // top-level `import` in a shared module away from landing there. The scan
+  // and coverage code uses it; no hook role may load it.
+  /** A react that reads nothing — the cheapest role there is. */
+  function react(): string {
+    const p = join(dir, "remeda-react.mjs");
+    writeFileSync(
+      p,
+      `import { experimental_defineReact, tools, nothing } from ${JSON.stringify(HOOK_DIST)};
+export default experimental_defineReact({
+  on: "PostToolUse",
+  match: tools("Edit"),
+  react: () => nothing(),
+});
+`,
+    );
+    return p;
+  }
+  const EDIT_EVENT = JSON.stringify({
+    hook_event_name: "PostToolUse",
+    tool_name: "Edit",
+    tool_input: { file_path: "notes/x.md" },
+  });
+
+  test.each([
+    ["a file gate", () => fileGateFixture(), FILE_EVENT],
+    ["a Bash gate", () => BASH_GATE, BASH_EVENT],
+    ["a react", react, EDIT_EVENT],
+  ])("%s never loads remeda", (_role, fixture, event) => {
+    const graph = graphOf(["hook-runtime", "run-program", fixture()], event);
+    expect(
+      has(graph, "node_modules/remeda"),
+      "a hook decision pulled remeda. Keep it off the modules the hook " +
+        "runtime reaches; see docs/contributing/rules.md#hook-startup-cost-is-watched.",
+    ).toBe(false);
+  });
+
+  test("a verb DOES load it — the absence above is real", () => {
+    expect(has(graphOf(["--help"]), "node_modules/remeda")).toBe(true);
+  });
+});

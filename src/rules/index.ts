@@ -203,7 +203,7 @@ export const RULES = [
     surface: ["hook"],
     defaultSeverity: "warn",
     cure: "edit",
-    summary: "A file-backed hook script ships with a test or eval.",
+    summary: "A compiled hook's program ships with a test or eval.",
     detector: "findUntestedSurfaces",
     options: testCoverageConfig,
   }),

@@ -85,7 +85,8 @@ import { readFrontmatter, frontmatterScalar } from "./core/frontmatter-read.js";
 import { minimatch } from "minimatch";
 import { basename, dirname } from "./posix-path.js";
 
-import { scriptRefPattern } from "./core/source-refs.js";
+import { hookPrograms, type HookInventory } from "./scan-core.js";
+import { filter, map, pipe } from "remeda";
 
 /**
  * How a covered surface was decided to be covered.
@@ -155,7 +156,7 @@ export interface PreparedTest {
  * *"Mirror of test-coverage.ts `isColocated`"*. A mirror is a promise that two
  * bodies stay equal, kept by whoever remembers — and this file already documents
  * three separate occasions where a change landed in one report builder and not
- * the other ({@link declaredSurfaceName}, {@link hookScriptRefs}). The rule now
+ * the other ({@link declaredSurfaceName}, the hook-surface reader {@link hookSurfaces} replaced). The rule now
  * has ONE body and three callers: the disk detector, the browser twin, and the
  * runner that turns an executed script into an execution record
  * (`coverage-artifact.ts`). There is nothing left to mirror wrong.
@@ -175,8 +176,7 @@ export interface PreparedTest {
  * ⚠️ THE COST, STATED: a POSIX file whose NAME literally contains a backslash is
  * now read as a directory boundary. That is not reachable for either input here —
  * a skill directory or a test filename with a `\` in it does not survive the glob
- * patterns that discover it in the first place — and it is the same trade
- * `hookScriptRefs` already makes one function up.
+ * patterns that discover it in the first place.
  */
 export function isColocatedTest(
   surface: Pick<CoverableSurface, "name" | "path">,
@@ -200,20 +200,6 @@ export function prepareTest(path: string): PreparedTest {
   return { path };
 }
 
-/**
- * A path that looks like a script, inside a `command` string. Both twins used to
- * declare this separately; the extension vocabulary and the trailing boundary
- * now live in `core/source-refs.ts`, shared with the hook scanner, so the three
- * cannot drift and none can omit the boundary (without it, `hooks.json` matched
- * as `hooks.js`).
- *
- * ⚠️ This one scans a SERIALIZED settings blob, so it cannot tell an operand
- * from inline program text. It stays a regex because every hit is gated on the file EXISTING before it
- * becomes a surface — a stray match is dropped, never reported — so the failure
- * mode here is under-counting, not accusation.
- */
-const SCRIPT_RE = scriptRefPattern();
-
 // Which runner owns a test file — the paid real-model one or the free one — is
 // answered by the shared source-kind table (`source-kinds.ts`), which this
 // browser-safe module can import because it imports nothing. See `isEvalScript`
@@ -221,70 +207,57 @@ const SCRIPT_RE = scriptRefPattern();
 export { isEvalScript } from "./source-kinds.js";
 
 /**
- * The root variables a hook command may be written against — the structural
- * slice of `PluginLayout` this needs, taken by SHAPE so the browser twin does
- * not have to import the layout module.
+ * The hook surfaces coverage holds to a test: the program of every compiled
+ * or stale line in the inventory that is on disk, named by file like a style. Shared by
+ * both twins, which differ only in what "on disk" means.
+ *
+ * 🔴 THIS REPLACED A REGEX OVER THE MANIFEST. Coverage used to search each
+ * settings file's serialized `hooks` block for script-shaped strings, over its
+ * own list of files: it guessed a script out of hand-written lines (the very
+ * parsing the hook scan had removed), missed a plugin's hook-convention file
+ * (#283), and read a TOML settings file as nothing. The inventory is what the
+ * loader read, line by line, by identity. A hand-written line yields no
+ * surface: vigiles does not read what it runs, so its coverage is not measured
+ * (reported as a count, never as untested).
  */
-export interface RootTokens {
-  readonly pluginRootToken: string;
-  readonly projectRootTokens?: readonly string[];
+export function hookSurfaces(
+  inventory: HookInventory,
+  exists: (rel: string) => boolean,
+): readonly {
+  readonly kind: "hook";
+  readonly path: string;
+  readonly name: string;
+  readonly tokens: readonly string[];
+  readonly ignored: boolean;
+}[] {
+  return pipe(
+    hookPrograms(inventory),
+    filter(exists),
+    map((path) => ({
+      kind: "hook" as const,
+      path,
+      name: basename(path).replace(/\.[^.]+$/, ""),
+      tokens: [path],
+      ignored: false,
+    })),
+  );
+}
+
+/** Hand-written hook lines: hooks whose coverage is not measured. */
+export function unmeasuredHookLines(inventory: HookInventory): number {
+  return inventory.filter((e) => e.line.kind === "hand-written").length;
 }
 
 /**
- * The hook-script paths a manifest's `hooks` block names, repo-relative.
- *
- * 🔴 THIS EXISTS BECAUSE ONE BUG HAD TO BE FIXED TWICE, and the second half was
- * missed. `settings.json` has two readers — the disk detector in
- * test-coverage.ts and the file-map twin in test-coverage-files.ts. While only
- * the PLUGIN token was stripped, `"$CLAUDE_PROJECT_DIR/.claude/hooks/a.sh"` —
- * Claude Code's DOCUMENTED spelling, used because hooks do not run with a stable
- * cwd — kept its literal prefix, failed the existence check, and was dropped
- * without a word. The disk reader was taught the project token; the twin was
- * not, and went on reporting ONE hook surface where disk reported FOUR,
- * under-reporting the untested count and therefore the score.
- *
- * Repairing the twin in place would have left the NEXT token to be added in two
- * places again. So the parsing, the token set, the prefix stripping and the
- * dependency rule live here once, and the callers inject only what genuinely
- * differs: where the manifest text comes from, and what "this file exists" means
- * (disk `existsSync` vs a key in the file map). Neither caller enumerates
- * tokens, so neither can forget one.
+ * The line that says so, or none. Printed by `audit` (Tested) and `lint`
+ * (untested surfaces) from the same count, so neither calls them untested.
  */
-export function hookScriptRefs(
-  manifestText: string | undefined,
-  layout: RootTokens,
-  exists: (rel: string) => boolean,
-): string[] {
-  if (manifestText === undefined) return [];
-  let hooks: unknown;
-  try {
-    hooks = (JSON.parse(manifestText) as { hooks?: unknown }).hooks;
-  } catch {
-    return [];
-  }
-  if (hooks === undefined) return [];
-  // Every token in BOTH spellings: `${CLAUDE_PROJECT_DIR}` and the unbraced
-  // `$CLAUDE_PROJECT_DIR` a settings file is just as likely to use.
-  const tokens = [
-    layout.pluginRootToken,
-    ...(layout.projectRootTokens ?? []),
-  ].flatMap((t) => [t, t.replace(/^\$\{(.+)\}$/, "$$$1")]);
-  const scripts = new Set<string>();
-  for (const m of JSON.stringify(hooks).matchAll(SCRIPT_RE)) {
-    let rel = m[0];
-    for (const t of tokens) rel = rel.replaceAll(t, "");
-    rel = rel.replace(/^\/+/, "").replace(/^\.\//, "");
-    // A DEPENDENCY is not a surface of this repo. The same settings that name a
-    // repo hook also name the runtime that runs the compiled ones
-    // (`node_modules/vigiles/dist/cli.js`); holding that to `untested-hook`
-    // would be asking the author to test their package manager. The compiled
-    // `.hook.ts` it is pointed AT is extracted from the same command and is the
-    // real surface.
-    if (rel.startsWith("node_modules/") || rel.includes("/node_modules/"))
-      continue;
-    if (exists(rel)) scripts.add(rel);
-  }
-  return [...scripts];
+export function unmeasuredHooksNote(n: number): readonly string[] {
+  return n === 0
+    ? []
+    : [
+        `  ${String(n)} hand-written hook line(s): coverage not measured — vigiles does not read what they run`,
+      ];
 }
 
 /**

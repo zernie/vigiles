@@ -132,7 +132,7 @@ describe("the browser twin agrees with the disk detector", () => {
     write(".acme/voices/team/footer.txt", "Footer\nEnd with a block.");
     write(".acme/voices/team/footer.harness.mjs", "// covered\n");
     write(".acme/voices/notes.md", "not a style");
-    const twin = findUntestedSurfacesInFiles(files, acme, "repo")
+    const twin = findUntestedSurfacesInFiles(files, acme, "repo", [])
       .untested.filter((s) => s.kind === "output-style")
       .map((s) => s.path);
     expect(twin).toEqual(styles(acme).map((s) => s.path));

@@ -60,9 +60,11 @@ import {
 } from "./core/instruction-chain.js";
 import type { LoadedPlugin } from "./plugin-loader.js";
 import {
+  chosenHooks,
+  hookBlocks,
   hookEventNames,
   normalizeHooks,
-  shadowedBy,
+  type HookBlock,
   type PluginHooks,
 } from "./core/hook-normalize.js";
 import { verifyHookEvents, scoredIssues } from "./core/hook-events.js";
@@ -295,13 +297,18 @@ function readHooks(
   files: Record<string, string>,
   layout: PluginLayout,
 ): { readonly hooks: unknown; readonly shadowed: unknown } {
+  return chosenHooks(readHookBlocks(files, layout));
+}
+
+/** Mirror of plugin-loader.ts `readHookBlocks`, over the file map. */
+function readHookBlocks(
+  files: Readonly<Record<string, string>>,
+  layout: PluginLayout,
+): readonly HookBlock[] {
   const text = files[layout.settingsPath];
   const settings = (): unknown =>
     text === undefined ? undefined : readSettingsHooks(text, layout.settings);
-  const plugin = readPluginHooks(files, layout);
-  return plugin.declared
-    ? { hooks: plugin.hooks, shadowed: shadowedBy(plugin, layout, settings) }
-    : { hooks: settings(), shadowed: undefined };
+  return hookBlocks(readPluginHooks(files, layout), layout, settings);
 }
 
 /** Mirror of plugin-loader.ts `readPluginHooks`, over the file map. */
@@ -312,13 +319,16 @@ function readPluginHooks(
   const m = readManifest(files, layout);
   if (m) {
     if (typeof m.hooks === "string") {
-      return {
-        declared: true,
-        hooks: readHooksJsonFile(files, m.hooks.replace(/^\.\//, "")),
-      };
+      const file = m.hooks.replace(/^\.\//, "");
+      return { declared: true, hooks: readHooksJsonFile(files, file), file };
     }
     if (m.hooks !== undefined)
-      return { declared: true, hooks: m.hooks, inManifest: true };
+      return {
+        declared: true,
+        hooks: m.hooks,
+        file: layout.manifestPath,
+        inManifest: true,
+      };
   }
   // Optional: a harness whose hooks are in-process code modules has no
   // standalone hooks FILE. Mirrors the disk loader.
@@ -329,9 +339,10 @@ function readPluginHooks(
     return {
       declared: true,
       hooks: readHooksJsonFile(files, layout.hooksConventionPath),
+      file: layout.hooksConventionPath,
     };
   }
-  return { declared: false, hooks: undefined };
+  return { declared: false };
 }
 
 /** Whether the plugin declares any MCP servers (standalone file or manifest key). */
@@ -725,18 +736,42 @@ function fileMapHooks(
   readonly inventory: HookInventory;
 } {
   const hookScan = fileMapHookScan(files, layout, mapExists(files));
-  const asWritten = normalizeHooks(loaded.hooksAsWritten);
-  const inventory = hookInventory(
-    asWritten,
-    normalizeHooks(loaded.shadowedSettingsHooks),
-    hookScan,
-  );
+  const inventory = fileMapHookInventory(files, [layout]);
   return {
     hookScan,
-    asWritten,
+    asWritten: normalizeHooks(loaded.hooksAsWritten),
     inventory,
     ...scanHookScripts(inventory, hookScan),
   };
+}
+
+/**
+ * The file map's hook inventory for every harness in `layouts` — the twin of
+ * `diskHookInventory`, from the same pure parts. `scanFiles` reads a map under
+ * one harness and passes that one.
+ */
+export function fileMapHookInventory(
+  files: Readonly<Record<string, string>>,
+  layouts: readonly PluginLayout[],
+): HookInventory {
+  const exists = mapExists(files);
+  return hookInventory(
+    layouts.map((layout) => ({
+      blocks: readHookBlocks(files, layout),
+      scan: fileMapHookScan(files, layout, exists),
+    })),
+  );
+}
+
+/** The map's coverage, over the same hook inventory the Hooks block reads. */
+function fileMapCoverage(
+  files: Readonly<Record<string, string>>,
+  layout: Readonly<PluginLayout>,
+  repoName: string | undefined,
+  inventory: HookInventory,
+): Readonly<ReturnType<typeof findUntestedSurfacesInFiles>> {
+  const name = repoName ?? basename(BROWSER_ROOT);
+  return findUntestedSurfacesInFiles(files, layout, name, inventory);
 }
 
 /**
@@ -851,11 +886,7 @@ export function scanFiles(
   ): T[] => remapFindingPaths(findings, loaded.sources, BROWSER_ROOT);
   // ONE discovery pass, read three ways — the union, the free deterministic tier
   // (`Tested`), and the paid real-model tier (`Evaluated`). Mirrors scanPlugin.
-  const coverage = findUntestedSurfacesInFiles(
-    files,
-    lay,
-    repoName ?? basename(BROWSER_ROOT),
-  );
+  const coverage = fileMapCoverage(files, lay, repoName, hk.inventory);
   return {
     dir: BROWSER_ROOT,
     instructions,

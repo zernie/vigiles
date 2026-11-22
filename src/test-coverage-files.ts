@@ -40,12 +40,11 @@ import type {
   CoverageDecision,
   CoverageTier,
   Surface,
-  SurfaceKind,
 } from "./test-coverage.js";
 import {
   declaredSurfaceName,
   evidenceFor,
-  hookScriptRefs,
+  hookSurfaces,
   isColocatedTest,
   isEvalScript,
   prepareTest,
@@ -55,6 +54,7 @@ import {
   strongerEvidence,
 } from "./coverage-evidence.js";
 import { findOutputStyles } from "./core/output-style.js";
+import type { HookInventory } from "./scan-core.js";
 import { isVigilesTest } from "./source-kinds.js";
 
 const IGNORE_MARKER = "vigiles:ignore-test";
@@ -186,51 +186,6 @@ function discoverOutputStyles(
       );
 }
 
-/**
- * Hook-script paths referenced from a manifest's `hooks` block (file hooks only).
- *
- * 🔴 THIS USED TO BE A SECOND IMPLEMENTATION, and it was the one that stayed
- * broken: it stripped only the PLUGIN token, so a repo whose settings spell a
- * hook as `$CLAUDE_PROJECT_DIR/.claude/hooks/a.sh` yielded ONE hook surface here
- * where the disk detector yielded FOUR. The parsing now lives in
- * `hookScriptRefs` (coverage-evidence.ts) — one implementation, so the next root
- * token cannot be added to one reader and not the other. This wrapper supplies
- * only what is genuinely browser-specific: the manifest text and existence both
- * come from the file map, not a filesystem.
- */
-function hookScripts(
-  files: Record<string, string>,
-  manifest: string,
-  layout: PluginLayout,
-): string[] {
-  return hookScriptRefs(files[manifest], layout, (rel) =>
-    Object.prototype.hasOwnProperty.call(files, rel),
-  );
-}
-
-function discoverHooks(
-  files: Record<string, string>,
-  layout: PluginLayout,
-): Surface[] {
-  const scripts = new Set<string>();
-  const localSettings = layout.settingsPath.replace(/(\.[^./]+)$/, ".local$1");
-  const manifests = [
-    ...new Set([layout.manifestPath, layout.settingsPath, localSettings]),
-  ];
-  for (const m of manifests) {
-    for (const s of hookScripts(files, m, layout)) {
-      scripts.add(s);
-    }
-  }
-  return [...scripts].sort().map((path) => ({
-    kind: "hook" as SurfaceKind,
-    path,
-    name: basename(path).replace(/\.[^.]+$/, ""),
-    tokens: [path],
-    ignored: false,
-  }));
-}
-
 function discoverTests(files: Record<string, string>): PreparedTest[] {
   const out: PreparedTest[] = [];
   for (const path of Object.keys(files)) {
@@ -305,11 +260,16 @@ function discoverSurfaces(
   files: Record<string, string>,
   layout: PluginLayout,
   repoName: string,
+  inventory: HookInventory,
 ): readonly Surface[] {
   return [
     ...discoverSkills(files, layout, repoName),
     ...discoverAgents(files, layout),
-    ...discoverHooks(files, layout),
+    // The same inventory `scanFiles` read, so coverage and the Hooks block
+    // agree on which hooks exist. A key in the map is "on disk".
+    ...hookSurfaces(inventory, (rel) =>
+      Object.prototype.hasOwnProperty.call(files, rel),
+    ),
     ...discoverOutputStyles(files, layout),
   ];
 }
@@ -329,6 +289,8 @@ export function findUntestedSurfacesInFiles(
    * `name:`. Same value `scanFiles` already threads for the skill inventory.
    */
   repoName: string,
+  /** The hook inventory `scanFiles` built from the same map. */
+  inventory: HookInventory,
 ): {
   untested: Surface[];
   decisions: readonly CoverageDecision[];
@@ -337,7 +299,7 @@ export function findUntestedSurfacesInFiles(
   /** Surfaces opted out via `vigiles:ignore-test`; still part of the inventory. */
   exemptSurfaces: readonly Surface[];
 } {
-  const surfaces = discoverSurfaces(files, layout, repoName);
+  const surfaces = discoverSurfaces(files, layout, repoName, inventory);
   const considered = surfaces.filter((s) => !s.ignored);
   const tests = discoverTests(files);
   // NO configured `{surface}` globs here, and that is a property of this twin

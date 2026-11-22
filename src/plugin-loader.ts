@@ -28,7 +28,12 @@
  * `src/adapters/claude-code/plugin-loader.ts` defaults it to `claudeCodeLayout`
  * to preserve `loadPlugin(dir)` ergonomics and the public `vigiles/*` exports).
  */
-import { shadowedBy, type PluginHooks } from "./core/hook-normalize.js";
+import {
+  chosenHooks,
+  hookBlocks,
+  type HookBlock,
+  type PluginHooks,
+} from "./core/hook-normalize.js";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { resolve, join, relative, basename } from "node:path";
 
@@ -186,15 +191,27 @@ function readHooks(
   root: string,
   layout: PluginLayout,
 ): { readonly hooks: unknown; readonly shadowed: unknown } {
+  return chosenHooks(readHookBlocks(root, layout));
+}
+
+/**
+ * Every `hooks` block ONE harness reads in the repo at `pluginPath`, as
+ * written, each with the file it came from — what the hook inventory is built
+ * from, once per declared harness. {@link loadPlugins} keeps only the first
+ * harness's hooks, because that is what a run executes; an inventory of what
+ * the repo registers has to read every harness, so it reads them here.
+ */
+export function readHookBlocks(
+  pluginPath: string,
+  layout: PluginLayout,
+): readonly HookBlock[] {
+  const root = resolve(pluginPath);
   const settingsPath = join(root, layout.settingsPath);
   const settings = (): unknown =>
     existsSync(settingsPath)
       ? readSettingsHooks(settingsPath, layout.settings)
       : undefined;
-  const plugin = readPluginHooks(root, layout);
-  return plugin.declared
-    ? { hooks: plugin.hooks, shadowed: shadowedBy(plugin, layout, settings) }
-    : { hooks: settings(), shadowed: undefined };
+  return hookBlocks(readPluginHooks(root, layout), layout, settings);
 }
 
 /** Layouts 1–3 of {@link readHooks}: what the PLUGIN declares, and whether it declared anything. */
@@ -204,19 +221,34 @@ function readPluginHooks(root: string, layout: PluginLayout): PluginHooks {
   // so a Codex `config.toml` manifest's `[hooks]` is read, not skipped.
   const m = safeReadManifest(root, layout);
   if (m) {
-    if (typeof m.hooks === "string")
-      return { declared: true, hooks: readHooksFile(join(root, m.hooks)) };
+    if (typeof m.hooks === "string") {
+      const file = join(root, m.hooks);
+      return {
+        declared: true,
+        hooks: readHooksFile(file),
+        file: relative(root, file),
+      };
+    }
     if (m.hooks !== undefined)
-      return { declared: true, hooks: m.hooks, inManifest: true };
+      return {
+        declared: true,
+        hooks: m.hooks,
+        file: layout.manifestPath,
+        inManifest: true,
+      };
   }
   // Optional: a harness whose hooks are in-process code modules has no
   // standalone hooks FILE, so there is nothing to look for here.
   if (layout.hooksConventionPath !== undefined) {
     const conventionPath = join(root, layout.hooksConventionPath);
     if (existsSync(conventionPath))
-      return { declared: true, hooks: readHooksFile(conventionPath) };
+      return {
+        declared: true,
+        hooks: readHooksFile(conventionPath),
+        file: layout.hooksConventionPath,
+      };
   }
-  return { declared: false, hooks: undefined };
+  return { declared: false };
 }
 
 /**

@@ -1,16 +1,21 @@
 /**
  * The disk engine's hook inventory: the {@link HookInventory} of a repository
- * on disk, built from what the plugin loader reads — the one answer `scanPlugin`
- * reads the `Hooks` block, the inventory count and `hook-script-exists` from.
- * The browser twin builds the same inventory from its file map
+ * on disk, built from the hook blocks every declared harness reads.
+ *
+ * Two callers need it, and both used to answer "which hooks exist" their own
+ * way: `scanPlugin` (the `Hooks` block, the inventory count, `hook-script-exists`)
+ * and `findUntestedSurfaces` (`untested-hook`). Coverage kept a second reader
+ * that searched the raw manifest JSON for script-shaped strings, over its own
+ * list of files — so it never saw a plugin's hook-convention file (#283) and
+ * guessed a script out of hand-written lines. Both now read this one inventory;
+ * the browser twin builds the same inventory from its file map
  * (`scan-files.ts`), from the same pure parts in `scan-core.ts`.
  */
 import { join, resolve } from "node:path";
 import type { PluginLayout } from "./core/layout.js";
 import { hookLinePlan } from "./core/hook-command.js";
 import { HOOKS_DIR } from "./core/hook-paths.js";
-import { normalizeHooks } from "./core/hook-normalize.js";
-import type { LoadedPlugin } from "./plugin-loader.js";
+import { readHookBlocks } from "./plugin-loader.js";
 import {
   hookInventory,
   hookSourceRefs,
@@ -33,7 +38,7 @@ export interface HookDisk {
 /** The hook scan as the disk answers it: every file is observable. */
 export function diskHookScan(
   dir: string,
-  layout: Pick<PluginLayout, "pluginRootToken" | "projectRootTokens">,
+  layout: HookScriptScan["layout"],
   disk: HookDisk,
 ): HookScriptScan {
   const read = (ref: string): string | undefined => {
@@ -55,16 +60,21 @@ export function diskHookScan(
   };
 }
 
-/** The inventory of what a loaded plugin registers, read by `scan`. */
-export function loadedHookInventory(
-  loaded: Pick<LoadedPlugin, "hooksAsWritten" | "shadowedSettingsHooks">,
-  scan: Pick<HookScriptScan, "plan" | "root" | "layout">,
+/**
+ * The inventory of the repository at `dir`, for EVERY declared harness layout:
+ * each harness's blocks read under its own layout, each line read by identity
+ * with what `compile` writes for THAT harness. Not built from `loadPlugins`,
+ * which keeps one harness's hooks for a run to execute.
+ */
+export function diskHookInventory(
+  dir: string,
+  layouts: readonly PluginLayout[],
+  disk: HookDisk,
 ): HookInventory {
-  // As WRITTEN: a line is read by identity with what compile would write, so
-  // no root variable may be expanded first.
   return hookInventory(
-    normalizeHooks(loaded.hooksAsWritten),
-    normalizeHooks(loaded.shadowedSettingsHooks),
-    scan,
+    layouts.map((layout) => ({
+      blocks: readHookBlocks(dir, layout),
+      scan: diskHookScan(dir, layout, disk),
+    })),
   );
 }

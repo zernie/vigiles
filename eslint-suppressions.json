@@ -744,7 +744,7 @@
       "count": 3
     },
     "local/no-harness-names": {
-      "count": 16
+      "count": 15
     }
   },
   "src/cli-flag-check.test.ts": {
@@ -2198,7 +2198,7 @@
   },
   "src/core/source-refs.ts": {
     "functional/prefer-immutable-types": {
-      "count": 2
+      "count": 1
     }
   },
   "src/core/spec.test.ts": {
@@ -2456,23 +2456,20 @@
     }
   },
   "src/coverage-evidence.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "boundaries/dependencies": {
       "count": 1
     },
     "functional/immutable-data": {
-      "count": 4
+      "count": 3
     },
     "functional/no-let": {
-      "count": 5
+      "count": 3
     },
     "functional/no-loop-statements": {
-      "count": 3
+      "count": 1
     },
     "functional/prefer-immutable-types": {
-      "count": 3
+      "count": 2
     }
   },
   "src/coverage-probe.test.ts": {
@@ -4060,25 +4057,22 @@
     }
   },
   "src/test-coverage-files.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "functional/immutable-data": {
-      "count": 9
+      "count": 8
     },
     "functional/no-let": {
       "count": 1
     },
     "functional/no-loop-statements": {
-      "count": 9
+      "count": 7
     },
     "functional/prefer-immutable-types": {
-      "count": 23
+      "count": 19
     }
   },
   "src/test-coverage.test.ts": {
     "local/no-harness-names": {
-      "count": 162
+      "count": 128
     }
   },
   "src/test-coverage.ts": {
@@ -4092,10 +4086,10 @@
       "count": 3
     },
     "functional/no-loop-statements": {
-      "count": 12
+      "count": 10
     },
     "functional/prefer-immutable-types": {
-      "count": 25
+      "count": 23
     },
     "local/no-rule-ids": {
       "count": 1
