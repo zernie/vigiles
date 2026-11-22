@@ -541,7 +541,12 @@ export function scanSkills(
     const contractUnreadable = contractIsUnreadable(md);
     const trifecta = userInvoked
       ? null
-      : skillTrifectaIssue(skillFence, ctx.dialect, { contractUnreadable });
+      : skillTrifectaIssue(skillFence, ctx.dialect, {
+          contractUnreadable,
+          // Never a bound — read only to tell whether the skill ADDS a leg tool
+          // itself, which makes the finding the skill's rather than the session's.
+          preApproved: parseAgentToolList(md, "allowed-tools"),
+        });
     out.push({
       name: fm.name ?? skillName(path),
       // Report the real on-disk path, not the synthetic materialize key (E1).

@@ -38,7 +38,7 @@ import { diskHookInventory, diskHookScan } from "./hook-inventory.js";
 // to live with. The default belongs to the CALLER: the CLI already resolves an
 // adapter before every one of these calls, and passing it is what removes the
 // import rather than hiding it.
-import { isEmptyMachine } from "./score-core.js";
+import { isEmptyMachine, sessionTrifectaSummary } from "./score-core.js";
 import { brokenSkillRefs, formatSkillRefIssue } from "./skill-refs.js";
 import {
   executableSourceDirs,
@@ -205,13 +205,14 @@ export interface ScanSkill {
   /**
    * Lethal-trifecta finding when a MODEL-INVOCABLE skill's `disallowed-tools:`
    * fence leaves all three legs standing (read-private + ingest-untrusted +
-   * exfiltrate), else null. Computed by `skillTrifectaIssue()` — NOT from
-   * `allowed-tools:`, which is a pre-approval and bounds nothing (measured
-   * 2026-08-11; see `src/core/lethal-trifecta.ts`). The `fence` field on the
-   * finding says whether the skill declared no fence at all (`"none"` — the
-   * ecosystem default, aggregated in the report) or a fence that closes no leg
-   * (`"ineffective"` — per-skill). A user-invoked skill is excluded (it can't be
-   * selected by attacker content).
+   * exfiltrate), else null. Computed by `skillTrifectaIssue()` — NOT bounded by
+   * `allowed-tools:`, which is a pre-approval (measured 2026-08-11; see
+   * `src/core/lethal-trifecta.ts`); that field only decides whether the skill
+   * ADDS a leg tool itself. `fence` says whether the skill declared no fence
+   * (`"none"`) or one that closes no leg (`"ineffective"`); `cause` says whether
+   * the skill's own file or the session it inherits supplies the legs — only
+   * the latter is reported once for the whole surface. A user-invoked skill is
+   * excluded (it can't be selected by attacker content).
    */
   readonly trifecta: TrifectaFinding | null;
   /**
@@ -1286,45 +1287,30 @@ function skillLine(s: ScanSkill): string {
 /**
  * The lethal-trifecta section's lines.
  *
- * Three shapes, because the three states differ in what a reader can DO:
- *
- * - HARD (a subagent whose `tools:` names all three legs) — keep the full message;
- *   it names the specific tools to drop.
- * - ADVISORY SUBAGENT (inherits-all) — all carry the same boilerplate paragraph,
- *   so collapse each to a one-liner (feedback P2-6).
- * - SKILLS WITH NO FENCE (`fence: "none"`) — ONE AGGREGATE LINE for the whole
- *   surface plus the names. 🔴 This is the ecosystem default: a skill's
- *   `allowed-tools:` pre-approves rather than restricts (measured 2026-08-11), so
- *   every skill without a `disallowed-tools:` line holds all three legs — which is
- *   ~100% of skills in the wild. Printing that N times would make the section a
- *   wall of identical text about a single fact, and a section that always fires on
- *   every repo is muted within a day, taking the hard findings above it along. It
- *   is one fact about the harness, so it gets one line and one fix.
- *   The count in the header still counts UNITS, not lines — the aggregate must not
- *   make the exposure look smaller than it is.
- *
- * An INEFFECTIVE fence keeps its own line: rare, per-skill, and a real mistake.
+ * - HARD (a subagent whose `tools:` names all three legs) — the full message; it
+ *   names the specific tools to drop.
+ * - Any other finding the unit's OWN file makes (`cause: "unit"` — a pre-approved
+ *   leg tool; `cause: "fence"` — a fence that closes nothing, a block that does
+ *   not parse) — its own line, at its path.
+ * - Every unit that only INHERITS the session (`cause: "session"`, #392) — ONE
+ *   line about the cause. 🔴 Measured 2026-11-23: 406 of 409 skills on 77 real
+ *   repos were in this state, so a line per unit was a wall of one fact, and a
+ *   section that always fires is muted within a day, taking the hard findings
+ *   above it along. The header still counts UNITS, so the line hides no exposure.
  */
 function trifectaLines(r: ScanReport): string[] {
-  const unfenced = r.trifectaFindings.filter(
-    (t) => t.kind === "skill" && t.finding.fence === "none",
+  const session = r.trifectaFindings.filter(
+    (t) => t.finding.cause === "session",
   );
-  const rest = r.trifectaFindings.filter((t) => !unfenced.includes(t));
-  const lines = rest.map((t) => {
-    const mark = t.finding.severity === "hard" ? "✗" : "⚠";
-    if (t.finding.severity === "hard")
-      return `  ${mark} ${t.kind} ${t.name} (${t.path}): ${t.finding.message}`;
-    if (t.kind === "skill")
-      return `  ${mark} skill ${t.name} (${t.path}): ${t.finding.message}`;
-    return `  ${mark} ${t.kind} ${t.name} (${t.path}) — inherits-all contract holds all three legs (declare a tools list dropping one)`;
-  });
-  if (unfenced.length > 0) {
-    const assessable = r.skills.filter((s) => !s.userInvoked).length;
-    lines.push(
-      `  ⚠ ${String(unfenced.length)} of ${String(assessable)} model-invocable skill(s) declare no \`disallowed-tools:\` fence — each inherits every tool the session grants, so each holds all three legs. \`allowed-tools:\` does NOT fence a skill (it pre-approves; every tool stays callable), so narrowing it changes nothing here. Fix in one line per skill: \`disallowed-tools:\` naming the built-ins that supply a leg it does not need (private read = Read, Grep, Glob, Bash; untrusted intake / exfiltration = WebFetch, WebSearch, Bash).`,
-      `      ${unfenced.map((t) => t.name).join(", ")}`,
+  const lines = r.trifectaFindings
+    .filter((t) => !session.includes(t))
+    .map(
+      (t) =>
+        `  ${t.finding.severity === "hard" ? "✗" : "⚠"} ${t.kind} ${t.name} (${t.path}): ${t.finding.message}`,
     );
-  }
+  // TODO(#461): interim — replace with per-unit legs from the session baseline
+  if (session.length > 0)
+    lines.push(`  ⚠ ${sessionTrifectaSummary(session.map((t) => t.name))}`);
   return lines;
 }
 
@@ -1752,8 +1738,8 @@ function gradedReportLines(r: FilteredScan<ScanReport>): readonly string[] {
     ...section(
       "Lethal trifecta (prompt-injection exfil risk)",
       trifectaLines(r),
-      // Count UNITS, not lines: the unfenced-skill aggregate collapses many units
-      // into one line, and a header that counted lines would understate exposure.
+      // Count UNITS, not lines: the session line collapses many units into one,
+      // and a header that counted lines would understate exposure.
       r.trifectaFindings.length,
     ),
   );

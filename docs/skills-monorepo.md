@@ -118,10 +118,12 @@ never says which skill a file covers, so it credits nothing.
 ## Which surfaces gate CI
 
 `audit` is a **local report** (like Lighthouse). For CI, use `vigiles lint` — the
-deterministic gate. The lethal-trifecta findings are summarized with a count (one
-line per subagent; skills that declare no `disallowed-tools:` fence collapse into a
-single aggregate line, since that is the default state of nearly every skill —
-see [lethal-trifecta](rules/lethal-trifecta.md#skills-the-fence-is-disallowed-tools)).
+deterministic gate. A unit that only inherits the session's tools — a skill
+with no `disallowed-tools:` fence and nothing it pre-approves, the default state
+of nearly every skill — is one cause, so `audit` states it once and `lint` does
+not report it; every unit that adds a leg itself, or whose fence closes nothing,
+keeps its own finding at its file (see
+[lethal-trifecta](rules/lethal-trifecta.md#where-the-legs-come-from)).
 Gate on "no NEW trifecta" via the `lethal-trifecta` lint rule rather than eyeballing
 the list.
 

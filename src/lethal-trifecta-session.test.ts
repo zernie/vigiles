@@ -1,0 +1,246 @@
+/**
+ * #392 — a unit that only INHERITS the session's tools is one fact about the
+ * session, not a finding about the unit.
+ *
+ * One fixture holds every shape, per registered harness: units that only inherit
+ * (an unfenced skill; one whose `allowed-tools:` supplies no leg; a subagent with
+ * no `tools:` line), units whose fence or contract does not work (a fence that
+ * closes no leg, an empty one, frontmatter that does not parse), and units that
+ * add a leg themselves (a pre-approved `Bash`, a pre-approved MCP tool, an
+ * explicit all-three `tools:`). Pinned through the real engines and the CLI:
+ *   - the finding's `cause` is the same in the disk and the browser engine;
+ *   - `lint` reports each `fence`/`unit` finding at its own file and nothing,
+ *     not even a grouped line, for the inheriting units;
+ *   - `audit` states the session cause once; Safety charges it once, a broken
+ *     fence with it, so a half-done fence never scores worse than none;
+ *   - a harness with no skill fence and no subagents reports none of it.
+ */
+import { test } from "vitest";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import {
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { join, relative, resolve } from "node:path";
+
+import type { HarnessAdapter } from "./core/adapter.js";
+import { skillsHome } from "./core/layout.js";
+import { scanPlugin, formatScanReport, type ScanReport } from "./scan.js";
+import { scanFiles } from "./scan-files.js";
+import { auditScore } from "./audit-score.js";
+import { W_TRIFECTA, W_TRIFECTA_MAX, trifectaExposure } from "./score-core.js";
+import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import { ADAPTERS, defaultAdapter } from "./adapter-registry.js";
+import { applyRules } from "./core/apply-rules.js";
+import { defaultSeverities, type ScanInput } from "./core/rule.js";
+import { ruleResolver } from "./overrides.js";
+import { RULES, RULE_GROUPS } from "./rules/index.js";
+
+const CLI = resolve(__dirname, "..", "dist", "cli.js");
+
+const shown = <S extends ScanInput>(scan: S) =>
+  applyRules(RULES, RULE_GROUPS, ruleResolver(defaultSeverities(RULES)), scan);
+
+const unitMd = (name: string, extra = ""): string =>
+  `---\nname: ${name}\ndescription: A unit used by the session fixture here\n${extra}---\nbody\n`;
+
+/** Skill name → frontmatter lines, and the cause each must carry. */
+const SKILLS: Record<string, readonly [string, string]> = {
+  plain: ["", "session"],
+  edits: ["allowed-tools: Edit, Write, Bash(echo ready:*)\n", "session"],
+  shell: ["allowed-tools: Read, Bash\n", "unit"],
+  query: ["allowed-tools: mcp__acme__run_query\n", "unit"],
+  half: ["disallowed-tools: Read\n", "fence"],
+  empty: ["disallowed-tools: []\n", "fence"],
+  badyaml: ["allowed-tools: [unclosed\n", "fence"],
+};
+const AGENTS: Record<string, readonly [string, string]> = {
+  broad: ["", "session"],
+  triager: ["tools: Read, WebFetch, Bash\n", "unit"],
+  broken: ["tools: [Read\n", "fence"],
+  careful: ["tools: Read, Grep\n", "none"],
+};
+
+/** The harness's agents folder, beside its skills folder; null without subagents. */
+function agentsHome(a: HarnessAdapter): string | null {
+  const agent = a.layout.surfaces.agent;
+  if (!a.subagents || agent === undefined || agent === "") return null;
+  const root = a.layout.userSurfaceRoot;
+  return root === undefined || root === "" ? agent : `${root}/${agent}`;
+}
+
+function fixtureFiles(
+  a: HarnessAdapter,
+  skills = SKILLS,
+): Record<string, string> {
+  const sk = skillsHome(a.layout) ?? "skills";
+  const ag = agentsHome(a);
+  return {
+    ...Object.fromEntries(
+      Object.entries(skills).map(([n, [fm]]) => [
+        `${sk}/${n}/SKILL.md`,
+        unitMd(n, fm),
+      ]),
+    ),
+    ...(ag === null
+      ? {}
+      : Object.fromEntries(
+          Object.entries(AGENTS).map(([n, [fm]]) => [
+            `${ag}/${n}.md`,
+            unitMd(n, fm),
+          ]),
+        )),
+  };
+}
+
+function put(files: Record<string, string>): string {
+  const dir = makeTmpDir("trifecta-session");
+  for (const [rel, body] of Object.entries(files)) {
+    mkdirSync(join(dir, rel, ".."), { recursive: true });
+    writeFileSync(join(dir, rel), body);
+  }
+  return dir;
+}
+
+function readTree(root: string, d = root): Record<string, string> {
+  return Object.fromEntries(
+    readdirSync(d).flatMap((e) => {
+      const abs = join(d, e);
+      return statSync(abs).isDirectory()
+        ? Object.entries(readTree(root, abs))
+        : [[relative(root, abs), readFileSync(abs, "utf-8")]];
+    }),
+  );
+}
+
+const causes = (r: ScanReport): Record<string, string> =>
+  Object.fromEntries(r.trifectaFindings.map((t) => [t.name, t.finding.cause]));
+
+function expectedCauses(a: HarnessAdapter): Record<string, string> {
+  const rows = [
+    ...Object.entries(SKILLS),
+    ...(agentsHome(a) === null ? [] : Object.entries(AGENTS)),
+  ];
+  return Object.fromEntries(
+    rows.flatMap(([n, [, c]]) => (c === "none" ? [] : [[n, c]])),
+  );
+}
+
+/** Whether this harness reads a skill-level `disallowed-tools:` at all. */
+const fenced = (a: HarnessAdapter): boolean =>
+  a.dialect.skillFrontmatterKeys.includes("disallowed-tools");
+
+for (const a of ADAPTERS.filter(fenced)) {
+  const scan = (dir: string): ScanReport =>
+    scanPlugin(dir, a.layout, a.dialect);
+
+  test(`both engines give every finding the same cause (#392, ${a.name})`, () => {
+    const dir = put(fixtureFiles(a));
+    const browser = scanFiles(readTree(dir), a.layout, a.dialect);
+    assert.deepEqual(causes(scan(dir)), expectedCauses(a));
+    assert.deepEqual(causes(browser), expectedCauses(a));
+    cleanupTmpDir(dir);
+  });
+
+  test(`audit states the session cause once and names every other finding (#392, ${a.name})`, () => {
+    const dir = put(fixtureFiles(a));
+    const text = formatScanReport(shown(scan(dir)));
+    const session = text
+      .split("\n")
+      .filter((l) => l.includes("inherit the session's tools"));
+    const inherit = Object.entries(expectedCauses(a)).filter(
+      ([, c]) => c === "session",
+    );
+    assert.equal(session.length, 1, text);
+    assert.ok(session[0]?.includes(`${String(inherit.length)} unit(s)`));
+    for (const [n, c] of Object.entries(expectedCauses(a)))
+      assert.equal(text.includes(` ${n} (`), c !== "session", `${n}: ${text}`);
+    cleanupTmpDir(dir);
+  });
+
+  test(`Safety charges the inheriting units once, however many (#392, ${a.name})`, () => {
+    const safety = (count: number): number | null | undefined => {
+      const sk = skillsHome(a.layout) ?? "skills";
+      const dir = put(
+        Object.fromEntries(
+          Array.from({ length: count }, (_, i) => [
+            `${sk}/s${String(i)}/SKILL.md`,
+            unitMd(`s${String(i)}`),
+          ]),
+        ),
+      );
+      const s = auditScore(scan(dir)).categories.find(
+        (c) => c.key === "Safety",
+      )?.score;
+      cleanupTmpDir(dir);
+      return s;
+    };
+    assert.equal(safety(1), 100 - W_TRIFECTA);
+    assert.equal(safety(60), 100 - W_TRIFECTA);
+  });
+
+  test(`a unit that adds a leg is charged per unit, a broken fence with the session (#392, ${a.name})`, () => {
+    const dir = put(fixtureFiles(a));
+    const e = trifectaExposure(scan(dir));
+    const c = Object.values(expectedCauses(a));
+    assert.equal(e.exposed, c.filter((x) => x === "unit").length);
+    assert.equal(e.inherited, c.filter((x) => x !== "unit").length);
+    assert.ok(e.penalty <= W_TRIFECTA_MAX);
+    cleanupTmpDir(dir);
+  });
+
+  test(`fencing never lowers Safety: none → a fence that closes nothing → one that closes a leg (${a.name})`, () => {
+    const penalty = (fm: string): number => {
+      const dir = put(fixtureFiles(a, { ...SKILLS, plain: [fm, ""] }));
+      const p = trifectaExposure(scan(dir)).penalty;
+      cleanupTmpDir(dir);
+      return p;
+    };
+    const none = penalty("");
+    const broken = penalty("disallowed-tools: WebFetch\n");
+    const closed = penalty("disallowed-tools: WebFetch, WebSearch, Bash\n");
+    assert.ok(broken <= none, `${String(broken)} > ${String(none)}`);
+    assert.ok(closed <= broken);
+  });
+}
+
+for (const a of ADAPTERS.filter((x) => !fenced(x) && !x.subagents)) {
+  test(`a harness with no skill fence and no subagents reports none of it (${a.name})`, () => {
+    const dir = put(fixtureFiles(a));
+    const r = scanPlugin(dir, a.layout, a.dialect);
+    assert.ok(r.skills.length >= 6, "precondition: the skills are read");
+    assert.deepEqual(r.trifectaFindings, []);
+    assert.ok(!formatScanReport(shown(r)).includes("inherit the session"));
+    cleanupTmpDir(dir);
+  });
+}
+
+test("lint reports each fence/unit finding at its file, and nothing for the inheriting units (#392)", () => {
+  const a = defaultAdapter;
+  const dir = put(fixtureFiles(a));
+  const env: NodeJS.ProcessEnv = { ...process.env, GITHUB_ACTIONS: "true" };
+  delete env.GITHUB_STEP_SUMMARY;
+  const out = spawnSync("node", [CLI, "lint"], {
+    cwd: dir,
+    encoding: "utf-8",
+    env,
+  }).stdout;
+  const flagged = [
+    ...out.matchAll(/^::(?:warning|error) file=([^:,]+)::(\w+) (\S+): .*$/gm),
+  ]
+    .filter((m) => /trifecta/i.test(m[0]))
+    .map((m) => m[3] ?? "")
+    .sort();
+  const want = Object.entries(expectedCauses(a))
+    .filter(([, c]) => c !== "session")
+    .map(([n]) => n)
+    .sort();
+  assert.deepEqual(flagged, want, out);
+  assert.ok(!out.includes("inherit the session"), out);
+  assert.ok(!out.includes("skill(s) declare no"), out);
+  cleanupTmpDir(dir);
+});

@@ -1664,7 +1664,12 @@ test("scanPlugin reports an inherits-all subagent trifecta as ADVISORY", () => {
   const r = scanPlugin(dir, claudeCodeLayout, claudeCodeDialect);
   const agent = r.agents.find((a) => a.name === "wide");
   assert.equal(agent?.trifecta?.severity, "advisory");
-  assert.match(formatScanReport(shown(r)), /⚠ subagent wide/);
+  // No `tools:` line adds nothing of its own: the session is the cause (#392).
+  assert.equal(agent?.trifecta?.cause, "session");
+  assert.match(
+    formatScanReport(shown(r)),
+    /⚠ Lethal trifecta: 1 unit\(s\) inherit the session's tools.*: wide\./,
+  );
   cleanupTmpDir(dir);
 });
 
@@ -1699,7 +1704,7 @@ test("a skill with NO disallowed-tools fence holds all three legs; user-invoked 
   const manual = r.skills.find((s) => s.name === "manual");
   assert.equal(leaky?.trifecta?.severity, "advisory");
   assert.equal(leaky?.trifecta?.fence, "none");
-  assert.match(leaky?.trifecta?.message ?? "", /No `disallowed-tools:` line/);
+  assert.match(leaky?.trifecta?.message ?? "", /no `disallowed-tools:` line/i);
   assert.equal(manual?.trifecta, null, "user-invoked skill is excluded");
   assert.ok(
     r.trifectaFindings.some((t) => t.name === "leaky" && t.kind === "skill"),
@@ -1720,7 +1725,7 @@ test("🔴 a NARROW allowed-tools does not reduce the finding (pre-approval, not
     "---\nname: narrow\ndescription: A model-invocable skill declaring a very narrow tool list\nallowed-tools: Read, Grep\n---\n# narrow\n",
   );
   // …and the WIDEST possible `allowed-tools` scores identically, because the field
-  // is not an input at all: same severity, same fence state, same legs.
+  // is not a bound: same severity, same fence state, same legs.
   write(
     dir,
     "skills/wide/SKILL.md",
@@ -1787,9 +1792,10 @@ test("a PARTIAL disallowed-tools closes no leg and names the suppliers still sta
   cleanupTmpDir(dir);
 });
 
-test("the report AGGREGATES unfenced skills into one line but still counts every unit", () => {
+test("the report states the session cause ONCE but still counts every unit", () => {
   // A per-skill line for the ecosystem DEFAULT would print on ~100% of harnesses,
   // and a section that always fires gets muted — taking the hard findings with it.
+  // These skills add nothing of their own: the session is the cause (#392).
   const dir = makeTmpDir("scan-trifecta-aggregate");
   for (const n of ["alpha", "beta", "gamma"]) {
     write(
@@ -1803,10 +1809,11 @@ test("the report AGGREGATES unfenced skills into one line but still counts every
   assert.equal(r.trifectaFindings.length, 3, "every unit is still a finding");
   // The header counts UNITS (3), not the lines the aggregate collapsed them into.
   assert.match(text, /Lethal trifecta \(prompt-injection exfil risk\) \(3\)/);
-  assert.match(text, /3 of 3 model-invocable skill\(s\) declare no/);
-  assert.match(text, /alpha, beta, gamma/);
-  // …and it says WHY narrowing `allowed-tools` is not the fix.
-  assert.match(text, /`allowed-tools:` does NOT fence a skill/);
+  assert.match(
+    text,
+    /3 unit\(s\) inherit the session's tools.*: alpha, beta, gamma\./,
+  );
+  assert.doesNotMatch(text, /skill alpha \(/, "no per-unit line");
   cleanupTmpDir(dir);
 });
 

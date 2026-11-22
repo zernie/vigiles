@@ -86,6 +86,29 @@ export type TrifectaSeverity = "hard" | "advisory";
 export type SkillFenceState = "none" | "ineffective";
 
 /**
+ * WHERE a finding's three legs come from — the distinction #392 turned on. Two
+ * questions hang off it: is there a defect AT THE UNIT'S FILE to report (lint,
+ * the report's per-unit lines), and does the unit hold more than the session
+ * already hands every unit (the score).
+ *
+ * - `"session"` — nothing in the unit's own file: a skill with no
+ *   `disallowed-tools:` line whose `allowed-tools:` (if any) pre-approves no leg
+ *   tool, or a subagent with no `tools:` line. It holds the trifecta only because
+ *   it inherits the session's tools, and every such unit is the SAME fact: stated
+ *   once, charged once, no lint finding. Measured 2026-11-23 on 77 real repos:
+ *   406 of 409 model-invocable skills were in this state.
+ * - `"fence"` — the author wrote a fence or contract that does not work (a
+ *   `disallowed-tools:` that closes no leg, an empty one, a block that does not
+ *   parse). A defect at the file, so it is reported there; but the unit still
+ *   holds only what the session hands it, so it is charged with the session, once.
+ *   Charging it per unit would make a half-done fence score WORSE than none.
+ * - `"unit"` — the unit's own file adds a leg: an explicit all-three `tools:`
+ *   rail, or an `allowed-tools:` that pre-approves a leg tool or an MCP tool.
+ *   Reported at its file, charged per unit.
+ */
+export type TrifectaCause = "session" | "fence" | "unit";
+
+/**
  * A lethal-trifecta finding — emitted ONLY when all three legs are non-empty (or,
  * for the inherits-all case, when the contract inherits all tools). The `legs`
  * field names the specific tools that supplied each leg, so the report can show
@@ -103,6 +126,8 @@ export interface TrifectaFinding {
    * The report reads it to decide aggregate-vs-per-unit presentation.
    */
   readonly fence?: SkillFenceState;
+  /** Whether the unit's own file or the session it inherits supplies the legs ({@link TrifectaCause}). */
+  readonly cause: TrifectaCause;
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +424,34 @@ export interface TrifectaContext {
    * contract at all, i.e. inherits-all, which is the `"advisory"` finding.
    */
   readonly contractUnreadable?: boolean;
+  /**
+   * SKILLS ONLY — the skill's `allowed-tools:` as declared, or null when absent.
+   * Never a bound (it pre-approves, see {@link skillTrifectaIssue}); read only to
+   * tell whether the skill ADDS a leg tool of its own ({@link preApprovedLegTools}).
+   */
+  readonly preApproved?: readonly string[] | null;
+}
+
+/**
+ * The tools in a skill's `allowed-tools:` that ADD something the session's own
+ * defaults may not: a tool that supplies a trifecta leg (the same catalog the
+ * subagent side classifies with, so `Bash(echo ready:*)` adds nothing), or ANY
+ * MCP tool — an MCP server reaches data outside the repository, which is the case
+ * #392 asks the rule to keep, and an unknown server mapping to no leg must not
+ * hide it here. Pre-approval runs these without a permission prompt while the
+ * skill is active.
+ */
+export function preApprovedLegTools(
+  allowed: readonly string[],
+  dialect: HarnessDialect,
+): readonly string[] {
+  return allowed.filter((raw) => {
+    const legs = classifyTrifectaLegs([raw], dialect);
+    return (
+      legs.private.length + legs.untrusted.length + legs.exfil.length > 0 ||
+      mcpParts(baseTool(raw), dialect) !== null
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -542,6 +595,10 @@ export function lethalTrifectaIssues(
     return {
       severity: "advisory",
       legs,
+      // No `tools:` line: the unit adds nothing, it inherits the session. A block
+      // that does not parse is the author's defect, at the author's file — but it
+      // still holds only what the session hands it.
+      cause: ctx.contractUnreadable ? "fence" : "session",
       message: ctx.contractUnreadable
         ? "Frontmatter is not valid YAML, so the declared tool list could not be read — a " +
           "strict loader rejects the block, and a regex salvage of it is a guess, not a " +
@@ -565,6 +622,7 @@ export function lethalTrifectaIssues(
     return {
       severity: "hard",
       legs,
+      cause: "unit",
       message:
         "Lethal trifecta: this unit can read private data " +
         `(${legs.private.join(", ")}), ingest untrusted content ` +
@@ -629,24 +687,23 @@ export function lethalTrifectaIssues(
 //
 // WHY THE SHAPE CHANGED TOO, not just the arithmetic. The naive correction — count
 // every unfenced skill as a per-unit finding — fires on ~100% of every real
-// harness, and a check that fires on the default state of the ecosystem gets muted
-// within a day, taking the true findings with it. So the two states are presented
-// differently, while being GRADED IDENTICALLY (they are the same capability; see
-// `trifectaExposure`):
+// harness (406 of 409 skills on 77 repos, measured 2026-11-23), and a check that
+// fires on the default state of the ecosystem gets muted within a day, taking the
+// true findings with it. So the finding carries its CAUSE ({@link TrifectaCause}):
 //
-//   - `fence: "none"` — the default. One AGGREGATE line for the whole surface
-//     ("N of M skills declare no tool fence") plus the skill names as detail. It
-//     is one fact about the harness, not N facts about N skills, and stating it
-//     once is what a reader can act on.
-//   - `fence: "ineffective"` — a `disallowed-tools:` that closes no leg. Rare,
-//     per-skill, and a genuine mistake (the author believed they had fenced), so
-//     it keeps its own line — the same shape as `disallowed-tools-contract`'s
-//     "this entry blocks nothing".
+//   - `cause: "session"` — no fence, and nothing in the file adds a leg. One fact
+//     about the session: stated once in the report, charged once in Safety, no
+//     per-unit lint finding.
+//   - `cause: "fence"` — a `disallowed-tools:` that closes no leg
+//     (`fence: "ineffective"`, the same shape as `disallowed-tools-contract`'s
+//     "this entry blocks nothing"), or a block that does not parse. Reported at its
+//     file; charged with the session, because it holds no more than the session.
+//   - `cause: "unit"` — an `allowed-tools:` that pre-approves a leg tool or an MCP
+//     tool. Reported at its file, charged per unit.
 //
-// Presentation differs; severity does NOT. Both are `"advisory"` and both count
-// once toward `trifectaExposure`. Making the ineffective-fence case LOUDER would
-// repeat the exact non-monotonicity this file was already fixed for once: an
-// ineffective fence has capability ≤ no fence, so it must never grade worse.
+// Severity does NOT differ: every skill finding is `"advisory"`. An ineffective
+// fence has capability ≤ no fence, so it must never read louder than one — the
+// non-monotonicity this file was already fixed for once.
 
 /**
  * Built-in tools that supply each leg, for the DENY direction — a leg is closed
@@ -752,11 +809,61 @@ export function dialectSupportsSkillFence(dialect: HarnessDialect): boolean {
 }
 
 /**
+ * The finding for a skill with NO readable `disallowed-tools:` line. Its cause is
+ * the session unless the file itself adds something: a pre-approved leg tool
+ * (`"unit"`) or a block that does not parse (`"fence"`).
+ */
+function unfencedFinding(
+  legs: TrifectaLegs,
+  dialect: HarnessDialect,
+  ctx: TrifectaContext,
+): TrifectaFinding {
+  const added = ctx.contractUnreadable
+    ? []
+    : preApprovedLegTools(ctx.preApproved ?? [], dialect);
+  if (added.length > 0) {
+    return {
+      severity: "advisory",
+      legs,
+      fence: "none",
+      cause: "unit",
+      message:
+        `\`allowed-tools:\` pre-approves \`${added.join("`, `")}\` — tools that supply a ` +
+        "lethal trifecta leg — so they run without a permission prompt while this skill " +
+        "is active, and with no `disallowed-tools:` line the skill holds all three legs " +
+        "(read private data, ingest untrusted content, exfiltrate). Drop the " +
+        "pre-approval if the skill does not need it. " +
+        fenceFix(dialect),
+    };
+  }
+  return {
+    severity: "advisory",
+    legs,
+    fence: "none",
+    cause: ctx.contractUnreadable ? "fence" : "session",
+    message: ctx.contractUnreadable
+      ? "Frontmatter is not valid YAML, so this skill declares no readable fence — a " +
+        "strict loader rejects the block, and `disallowed-tools:` inside a block that " +
+        "does not parse denies nothing. The skill inherits every tool the session " +
+        "grants and holds all three lethal-trifecta legs (read private data, ingest " +
+        "untrusted content, exfiltrate). Fix the YAML first, then fence. " +
+        PREAPPROVAL_NOTE
+      : "No `disallowed-tools:` line, so this skill inherits every tool the session " +
+        "grants and holds all three lethal-trifecta legs (read private data, ingest " +
+        "untrusted content, exfiltrate). " +
+        PREAPPROVAL_NOTE +
+        " " +
+        fenceFix(dialect),
+  };
+}
+
+/**
  * The lethal-trifecta finding for a MODEL-INVOCABLE SKILL, computed from its
  * `disallowed-tools:` — the only skill frontmatter field measured to remove a
- * tool. `allowed-tools:` is not an input here, on purpose: it is a pre-approval,
- * and treating it as a bound is the defect this function exists to correct (see
- * the block comment above for the measurement).
+ * tool. `allowed-tools:` is never read as a bound, on purpose: it is a
+ * pre-approval, and treating it as a bound is the defect this function exists to
+ * correct (see the block comment above for the measurement). It only decides
+ * whether the skill ADDS a leg tool itself ({@link TrifectaContext.preApproved}).
  *
  * 🔴 AND IT IS A CLAUDE-CODE MECHANISM, which this applied to every harness. On a
  * Codex repo (`skillFrontmatterKeys: ["name", "description"]` — and our own
@@ -796,26 +903,7 @@ export function skillTrifectaIssue(
   );
   if (open.length < 3) return null; // a whole leg is closed — Rule of Two holds
 
-  if (declared === null) {
-    return {
-      severity: "advisory",
-      legs,
-      fence: "none",
-      message: ctx.contractUnreadable
-        ? "Frontmatter is not valid YAML, so this skill declares no readable fence — a " +
-          "strict loader rejects the block, and `disallowed-tools:` inside a block that " +
-          "does not parse denies nothing. The skill inherits every tool the session " +
-          "grants and holds all three lethal-trifecta legs (read private data, ingest " +
-          "untrusted content, exfiltrate). Fix the YAML first, then fence. " +
-          PREAPPROVAL_NOTE
-        : "No `disallowed-tools:` line, so this skill inherits every tool the session " +
-          "grants and holds all three lethal-trifecta legs (read private data, ingest " +
-          "untrusted content, exfiltrate). " +
-          PREAPPROVAL_NOTE +
-          " " +
-          fenceFix(dialect),
-    };
-  }
+  if (declared === null) return unfencedFinding(legs, dialect, ctx);
   // 🔴 An EXPLICIT empty list is an ATTEMPT, and the doc contract above already
   // said so ("the two are NOT the same … the message should not tell an author who
   // wrote the line that they didn't") — the code then folded it in with the absent
@@ -825,14 +913,15 @@ export function skillTrifectaIssue(
   // heard about it. `disallowed-tools: []` denies nothing, which is exactly what
   // `"ineffective"` means, and that state keeps its own per-skill line.
   //
-  // Grading is untouched: both states are `"advisory"` and both count once toward
-  // `trifectaExposure`. An empty fence has capability equal to no fence, so moving
-  // it must not make it score worse — see the non-monotonicity note above.
+  // Grading: both states are `"advisory"` and both are charged with the session
+  // (`cause: "fence"` beside `"session"`). An empty fence has capability equal to
+  // no fence, so moving it must not make it score worse — see the note above.
   if (declared.length === 0) {
     return {
       severity: "advisory",
       legs,
       fence: "ineffective",
+      cause: "fence",
       message:
         "`disallowed-tools:` is declared but EMPTY, so it denies nothing and this " +
         "skill still holds all three lethal-trifecta legs — private-data read is " +
@@ -867,6 +956,7 @@ export function skillTrifectaIssue(
     severity: "advisory",
     legs,
     fence: "ineffective",
+    cause: "fence",
     message:
       preamble +
       `Private-data read is still supplied by ${legs.private.join(", ")}, untrusted ` +
