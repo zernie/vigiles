@@ -1,6 +1,6 @@
 {
   "meta": {
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "tool": "vigiles",
     "kind": "audit",
     "vigilesVersion": "live",

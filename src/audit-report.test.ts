@@ -482,7 +482,7 @@ describe("buildAuditReport — contextCost", () => {
       }),
       { harness: "h", vigilesVersion: "1.0.0" },
     );
-    expect(r.meta.schemaVersion).toBe(2);
+    expect(r.meta.schemaVersion).toBe(AUDIT_SCHEMA_VERSION);
     expect(r.contextCost).toEqual({
       alwaysLoaded: {
         unit: "bytes",
