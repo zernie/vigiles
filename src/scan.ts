@@ -21,7 +21,7 @@ import { basename, dirname, join, resolve } from "node:path";
 // Claude Code default), and only the generic one takes the `ExcludeSet` that
 // makes `.vigilesrc.json#exclude` reach surface discovery.
 import { loadPlugins } from "./plugin-loader.js";
-import { diskHookScan, loadedHookInventory } from "./hook-inventory.js";
+import { diskHookInventory, diskHookScan } from "./hook-inventory.js";
 // 🔴 THIS MODULE NO LONGER IMPORTS AN ADAPTER, and that is the point of the
 // change rather than tidiness. It is listed as a harness-agnostic detector and
 // it used to import `claudeCodeLayout` + `claudeCodeDialect` to DEFAULT five
@@ -836,12 +836,19 @@ export function scanPlugin(
   const hookRegs = normalizeHooks(loaded.settings.hooks);
   // As WRITTEN: a line is read by identity with what compile would write.
   const asWritten = normalizeHooks(loaded.hooksAsWritten);
-  const hookScan = diskHookScan(dir, lay, {
+  const hookDisk = {
     exists: existsSync,
     read: nodeReadFile,
-    list: (p) => readdirSync(p),
-  });
-  const inventory = loadedHookInventory(loaded, hookScan);
+    list: (p: string) => readdirSync(p),
+  };
+  const hookScan = diskHookScan(dir, lay, hookDisk);
+  // Every declared harness's hooks — not the loader's first-wins choice, which
+  // is what a run executes and only that.
+  const inventory = diskHookInventory(
+    dir,
+    declared.map((h) => h.layout),
+    hookDisk,
+  );
   const { hooks, handWritten, stale } = scanHookScripts(inventory, hookScan);
   // Hook-event keys are a CLOSED platform set — an unrecognized one is a dead
   // registration (the hook never fires), so flag every unknown (not just typos).

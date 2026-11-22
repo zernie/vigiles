@@ -22,6 +22,7 @@ import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 /** One compiled hook line — what a report's hook FILES come from. */
 const COMPILED_LINE = {
+  harness: { name: "test-harness", pluginRootToken: "$ROOT" },
   source: "loaded",
   event: "PreToolUse",
   command: "bash h",
@@ -340,6 +341,7 @@ test("score clamps at 0 and an empty machine is not healthy", () => {
 test("a hooks-only plugin is a real surface, not score 0", () => {
   // hand-written lines, which vigiles does not read — the shape from #199.
   const line = (kind: "hand-written" | "compiled") => ({
+    harness: { name: "test-harness", pluginRootToken: "$ROOT" },
     source: "loaded" as const,
     event: "Stop",
     command: "echo done",

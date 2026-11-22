@@ -55,6 +55,10 @@ In a plugin repo, the hand-written hooks of `.claude/settings.json` are counted
 in the `Hooks` block but not listed by this rule: the loader reads the
 manifest's hooks and shadows the settings file.
 
+In a repo that declares more than one harness in `.vigilesrc.json#harnesses`,
+every declared harness's hooks are read, so this rule lists the hand-written
+lines of each, whatever order the harnesses are declared in.
+
 ## Configuration
 
 **Off by default, and not in `vigiles:recommended`.** The only cure this rule

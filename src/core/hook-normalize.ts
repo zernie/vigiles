@@ -175,11 +175,39 @@ export function hookEventNames(raw: unknown): string[] {
   return isRecord(raw) ? Object.keys(raw) : [];
 }
 
-/** What a plugin declares for hooks; `inManifest` when inline in the manifest itself. */
-export interface PluginHooks {
-  readonly declared: boolean;
+/**
+ * What a plugin declares for hooks: nothing, or a block read from `file` (the
+ * repo-relative path it came from) — `inManifest` when inline in the manifest
+ * itself.
+ */
+export type PluginHooks = { readonly declared: false } | DeclaredPluginHooks;
+
+/** A plugin's own hook declaration, and the file it was read from. */
+export interface DeclaredPluginHooks {
+  readonly declared: true;
   readonly hooks: unknown;
+  readonly file: string;
   readonly inManifest?: true;
+}
+
+/**
+ * Where a registration came from: the hooks the loader chose for the repo
+ * (a plugin manifest, its hook-convention file, or the project settings), or the
+ * project settings a plugin manifest shadowed (`LoadedPlugin.shadowedSettingsHooks`).
+ * Both are live — the first for whoever installs the plugin, the second for
+ * whoever works in it.
+ */
+export type HookOrigin = "loaded" | "shadowed-settings";
+
+/**
+ * One `hooks` block one harness reads, AS WRITTEN (no root variable expanded),
+ * with the repo-relative file it came from. The file is the block's identity:
+ * two harnesses that read one file read one block.
+ */
+export interface HookBlock {
+  readonly origin: HookOrigin;
+  readonly file: string;
+  readonly hooks: unknown;
 }
 
 /**
@@ -189,7 +217,7 @@ export interface PluginHooks {
  * the plugin's, once as the shadowed settings, and every hook was counted twice.
  */
 export function shadowedBy(
-  plugin: PluginHooks,
+  plugin: DeclaredPluginHooks,
   layout: { readonly manifestPath: string; readonly settingsPath: string },
   settings: () => unknown,
 ): unknown {
@@ -197,4 +225,46 @@ export function shadowedBy(
     layout.manifestPath === layout.settingsPath
     ? undefined
     : settings();
+}
+
+/**
+ * The blocks one harness reads: the plugin's declaration and the settings it
+ * shadows, or the settings alone. The one reading both engines (disk and file
+ * map) make, so they cannot disagree about which file a block came from. A
+ * block that is absent is not a block.
+ */
+export function hookBlocks(
+  plugin: PluginHooks,
+  layout: { readonly manifestPath: string; readonly settingsPath: string },
+  settings: () => unknown,
+): readonly HookBlock[] {
+  const at = (
+    origin: HookOrigin,
+    file: string,
+    hooks: unknown,
+  ): readonly HookBlock[] =>
+    hooks === undefined ? [] : [{ origin, file, hooks }];
+  if (!plugin.declared) return at("loaded", layout.settingsPath, settings());
+  return [
+    ...at("loaded", plugin.file, plugin.hooks),
+    ...at(
+      "shadowed-settings",
+      layout.settingsPath,
+      shadowedBy(plugin, layout, settings),
+    ),
+  ];
+}
+
+/**
+ * The two fields the loader reports from a harness's blocks: the hooks it
+ * chose (what a run executes) and the project settings those shadow.
+ */
+export function chosenHooks(blocks: readonly HookBlock[]): {
+  readonly hooks: unknown;
+  readonly shadowed: unknown;
+} {
+  return {
+    hooks: blocks.find((b) => b.origin === "loaded")?.hooks,
+    shadowed: blocks.find((b) => b.origin === "shadowed-settings")?.hooks,
+  };
 }

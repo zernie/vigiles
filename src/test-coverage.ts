@@ -632,7 +632,7 @@ function discoverSurfaces(
         ? discoverOutputStyles(basePath, DEFAULT_IGNORE, each)
         : []),
     ]),
-    // One inventory across every harness: the loader already merged them.
+    // One inventory across every declared harness.
     ...discoverHooks(basePath, inventory),
   ];
   // Two declared harnesses can read the same file: one surface per file.
@@ -662,12 +662,11 @@ function hookInventoryOf(
   if (options.hooks === false) return [];
   return (
     options.hookInventory ??
-    diskHookInventory(
-      basePath,
-      harnessLayoutsOf(layout, options),
-      { exists: existsSync, read, list: (p) => readdirSync(p) },
-      options.excludes,
-    )
+    diskHookInventory(basePath, harnessLayoutsOf(layout, options), {
+      exists: existsSync,
+      read,
+      list: (p) => readdirSync(p),
+    })
   );
 }
 
