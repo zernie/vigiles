@@ -233,29 +233,21 @@ for (const a of ADAPTERS.filter((x) => !fenced(x) && !x.subagents)) {
   });
 }
 
-test("lint reports each fence/unit finding at its file, and nothing for the inheriting units (#392)", () => {
+test("lint still names every unit that holds the trifecta: nothing is silenced (#392)", () => {
+  // #392 changes the score and the audit report, not lint: a unit that only
+  // inherits the session is as exposed as before, so CI must still see it.
   const a = defaultAdapter;
   const dir = put(fixtureFiles(a));
-  const env: NodeJS.ProcessEnv = { ...process.env, GITHUB_ACTIONS: "true" };
-  delete env.GITHUB_STEP_SUMMARY;
   const out = spawnSync("node", [CLI, "lint"], {
     cwd: dir,
     encoding: "utf-8",
-    env,
   }).stdout;
-  const flagged = [
-    ...out.matchAll(/^::(?:warning|error) file=([^:,]+)::(\w+) (\S+): .*$/gm),
-  ]
-    .filter((m) => /trifecta/i.test(m[0]))
-    .map((m) => m[3] ?? "")
-    .sort();
-  const want = Object.entries(expectedCauses(a))
-    .filter(([, c]) => c !== "session")
-    .map(([n]) => n)
-    .sort();
-  assert.deepEqual(flagged, want, out);
-  assert.ok(!out.includes("inherit the session"), out);
-  assert.ok(!out.includes("skill(s) declare no"), out);
+  const start = out.indexOf("trifecta check:");
+  assert.ok(start >= 0, out);
+  const section = out.slice(start).split(/\n\s*\n(?=\S)/)[0] ?? "";
+  for (const [name, cause] of Object.entries(expectedCauses(a)))
+    if (cause !== "none")
+      assert.match(section, new RegExp(`\\b${name}\\b`), `${name}\n${section}`);
   cleanupTmpDir(dir);
 });
 

@@ -65,14 +65,17 @@ the cost follows the finding's **cause**, below.
 
 ### Where the legs come from
 
-Every finding carries a `cause`, and it decides where the finding is reported
-and how it is charged:
+Every finding carries a `cause`, and it decides how the `audit` report shows the
+finding and how the score charges it. `vigiles lint` does not use it: it reports
+every unit that holds the trifecta, exactly as before (skills with no
+`disallowed-tools:` line in one grouped line, every other finding at its file),
+so CI still sees a unit that only inherits the session.
 
-| `cause`   | what the unit's file shows                                                                                                                          | `vigiles lint`        | `audit` report        | Safety and overall     |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | --------------------- | ---------------------- |
-| `session` | nothing: no `disallowed-tools:` line and no leg tool in `allowed-tools:` (skill), or no `tools:` line (subagent)                                    | no finding            | one line for them all | charged once           |
-| `fence`   | a fence or contract that does not work: a `disallowed-tools:` that closes no leg, an empty one, frontmatter that does not parse                     | a finding at its file | its own line          | charged with `session` |
-| `unit`    | the file adds a leg: `allowed-tools:` pre-approves a side-effecting leg tool (`Bash`, `WebFetch`, …) or any `mcp__*` tool, or an all-three `tools:` | a finding at its file | its own line          | charged per unit       |
+| `cause`   | what the unit's file shows                                                                                                                          | `audit` report        | Safety and overall     |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ---------------------- |
+| `session` | nothing: no `disallowed-tools:` line and no leg tool in `allowed-tools:` (skill), or no `tools:` line (subagent)                                    | one line for them all | charged once           |
+| `fence`   | a fence or contract that does not work: a `disallowed-tools:` that closes no leg, an empty one, frontmatter that does not parse                     | its own line          | charged with `session` |
+| `unit`    | the file adds a leg: `allowed-tools:` pre-approves a side-effecting leg tool (`Bash`, `WebFetch`, …) or any `mcp__*` tool, or an all-three `tools:` | its own line          | charged per unit       |
 
 **Why.** Measured on 77 real repositories, 406 of 409 model-invocable skills held
 the trifecta only because they declare no fence and inherit the session's tools.
@@ -245,15 +248,13 @@ severities and the same score.
 ```
 
 - **No fence and nothing added** (`cause: "session"`) is the **ecosystem
-  default**. `audit` prints it as **one line** with the count and the first names;
-  `lint` prints nothing for it.
+  default**. `audit` prints it as **one line** with the count and the first names.
 - **A fence that closes no leg** (`fence: "ineffective"`, `cause: "fence"`) keeps
-  its **own line** and its own lint finding. The author believed they had fenced
+  its **own line**. The author believed they had fenced
   and had not — same shape as
   [disallowed-tools-contract](disallowed-tools-contract.md)'s "this entry blocks
   nothing".
-- **A pre-approved leg tool or MCP tool** (`cause: "unit"`) keeps its own line and
-  its own lint finding.
+- **A pre-approved leg tool or MCP tool** (`cause: "unit"`) keeps its own line.
 
 Every skill finding is `"advisory"`. An ineffective fence has capability ≤ no
 fence, so it never reads louder than one.
@@ -338,11 +339,11 @@ command, so they can't be hijacked by attacker content.
 
 ### Severity
 
-| Value              | Behavior                                                                              |
-| ------------------ | ------------------------------------------------------------------------------------- |
-| `"error"`          | `vigiles lint` exits non-zero (2) on a `unit` or `fence` finding (never on `session`) |
-| `"warn"` (default) | Prints a warning, exits 0 (don't-cry-wolf rollout)                                    |
-| `false`            | Skip the check                                                                        |
+| Value              | Behavior                                                |
+| ------------------ | ------------------------------------------------------- |
+| `"error"`          | `vigiles lint` exits non-zero (2) on a trifecta finding |
+| `"warn"` (default) | Prints a warning, exits 0 (don't-cry-wolf rollout)      |
+| `false`            | Skip the check                                          |
 
 Default is **`warn`** during rollout. Once you've confirmed it's quiet on your own
 units, raise it to `"error"` to gate CI — an explicit all-three contract is a real
