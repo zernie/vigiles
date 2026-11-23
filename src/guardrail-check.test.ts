@@ -9,14 +9,30 @@ import assert from "node:assert/strict";
 import { writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 
+import { spawnSync } from "node:child_process";
+
 import {
   DISASTER_CATALOG,
   verifyGuardrail,
   unblockedDisasters,
+  assertGuardrail,
   assertBlocksDisasters,
   formatGuardrailReport,
 } from "./guardrail-check.js";
+import {
+  allow,
+  deny,
+  experimental_defineHook,
+  experimental_defineInject,
+  inject,
+} from "./core/hook-program.js";
+import { ADAPTERS } from "./adapter-registry.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+
+/** Whether `python3` runs here (the #213 spellings need a real interpreter). */
+function hasPython(): boolean {
+  return spawnSync("python3", ["--version"]).status === 0;
+}
 
 /** A push-guard that blocks `git push` with the given exit code. */
 function writeGuard(dir: string, name: string, exitCode: number): string {
@@ -44,13 +60,19 @@ test("exit 2 guard BLOCKS the force-push battery; exit 1 guard silently allows i
     const real = writeGuard(dir, "real-guard.sh", 2);
     const fake = writeGuard(dir, "fake-guard.sh", 1);
 
-    const realResults = verifyGuardrail(real, { events: PUSH_EVENTS });
+    const realResults = verifyGuardrail(real, {
+      events: PUSH_EVENTS,
+      harmless: [],
+    });
     assert.ok(
       realResults.every((r) => r.blocked),
       "exit 2 should block every push",
     );
 
-    const fakeResults = verifyGuardrail(fake, { events: PUSH_EVENTS });
+    const fakeResults = verifyGuardrail(fake, {
+      events: PUSH_EVENTS,
+      harmless: [],
+    });
     assert.ok(
       fakeResults.every((r) => !r.blocked),
       "exit 1 looks like a block but allows — the false-confidence bug",
@@ -69,15 +91,15 @@ test("assertBlocksDisasters passes the real guard, throws on the fake with the m
 
     // Real guard over the push subset → no throw.
     assert.doesNotThrow(() => {
-      assertBlocksDisasters(real, { events: PUSH_EVENTS });
+      assertBlocksDisasters(real, { events: PUSH_EVENTS, harmless: [] });
     });
 
     // Fake guard → throws, naming the missed actions.
     assert.throws(() => {
-      assertBlocksDisasters(fake, { events: PUSH_EVENTS });
+      assertBlocksDisasters(fake, { events: PUSH_EVENTS, harmless: [] });
     }, /did NOT block/);
     assert.throws(() => {
-      assertBlocksDisasters(fake, { events: PUSH_EVENTS });
+      assertBlocksDisasters(fake, { events: PUSH_EVENTS, harmless: [] });
     }, /false confidence/);
   } finally {
     cleanupTmpDir(dir);
@@ -88,7 +110,7 @@ test("a guard that only handles git misses the rm -rf / secret-read battery", ()
   const dir = makeTmpDir("guardrail-partial");
   try {
     const gitOnly = writeGuard(dir, "git-only.sh", 2);
-    const results = verifyGuardrail(gitOnly); // full catalog
+    const results = verifyGuardrail(gitOnly, { harmless: [] }); // full catalog
     const misses = unblockedDisasters(results);
     // It blocks the git pushes but not rm -rf, no-verify, ssh-read, curl|sh.
     const missedIds = misses.map((m) => m.event.id);
@@ -104,8 +126,15 @@ test("category filter restricts the battery", () => {
   const dir = makeTmpDir("guardrail-cat");
   try {
     const guard = writeGuard(dir, "g.sh", 2);
-    const results = verifyGuardrail(guard, { categories: ["destructive-fs"] });
-    assert.ok(results.every((r) => r.event.category === "destructive-fs"));
+    const results = verifyGuardrail(guard, {
+      categories: ["destructive-fs"],
+      harmless: [],
+    });
+    assert.ok(
+      results.every(
+        (r) => r.expect === "block" && r.event.category === "destructive-fs",
+      ),
+    );
     assert.ok(results.length >= 1);
   } finally {
     cleanupTmpDir(dir);
@@ -118,7 +147,7 @@ test("formatGuardrailReport is NEUTRAL — reports allows without judging intent
     const fake = writeGuard(dir, "fake.sh", 1);
     const report = formatGuardrailReport(
       fake,
-      verifyGuardrail(fake, { events: PUSH_EVENTS }),
+      verifyGuardrail(fake, { events: PUSH_EVENTS, harmless: [] }),
     );
     assert.match(report, /allows/);
     assert.match(report, /blocks 0\/2/);
@@ -137,5 +166,183 @@ test("the catalog is well-formed: unique ids, every entry has a command", () => 
   for (const e of DISASTER_CATALOG) {
     assert.equal(typeof e.input.command, "string");
     assert.ok((e.input.command as string).length > 0);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A compiled hook OBJECT is checked exactly, by calling its decision (#418)
+// ---------------------------------------------------------------------------
+
+/**
+ * The compiled equivalent of a real reporter's force-push guard (#418): a bare
+ * `--force`/`-f` push is denied, every other command allowed. Decided on the
+ * parsed command, so it blocks exactly the two force-push seeds of the catalog.
+ */
+const PUSH_FORCE_GUARD = experimental_defineHook({
+  on: "PreToolUse",
+  decide: (e) =>
+    e.command.runs("git push", { force: true })
+      ? deny("bare --force push is banned")
+      : allow(),
+});
+
+test("a compiled hook object is decided in-process: one decide() call per case, no exit code to read", () => {
+  let calls = 0;
+  const counting = experimental_defineHook({
+    on: "PreToolUse",
+    decide: (e) => {
+      calls += 1;
+      return PUSH_FORCE_GUARD.decide(e);
+    },
+  });
+  const results = verifyGuardrail(counting, { harmless: [] });
+  assert.equal(calls, results.length);
+  assert.ok(results.every((r) => r.run === "ran"));
+  assert.deepEqual(
+    results.filter((r) => r.blocked).map((r) => r.event.id),
+    ["force-push", "force-push-compound"],
+  );
+});
+
+test("assertGuardrail on a compiled hook: passes when it blocks the selection, throws on a miss", () => {
+  const pushes = { events: PUSH_EVENTS, harmless: [] };
+  assert.doesNotThrow(() => {
+    assertGuardrail(PUSH_FORCE_GUARD, pushes);
+  });
+  assert.throws(() => {
+    assertGuardrail(PUSH_FORCE_GUARD, { harmless: [] });
+  });
+});
+
+test("an observe-mode compiled gate blocks nothing: the battery reads the action, not the raw decision", () => {
+  const shadow = experimental_defineHook({
+    on: "PreToolUse",
+    mode: "observe",
+    decide: PUSH_FORCE_GUARD.decide,
+  });
+  const results = verifyGuardrail(shadow, {
+    events: PUSH_EVENTS,
+    harmless: [],
+  });
+  assert.ok(results.every((r) => r.run === "ran" && !r.blocked));
+});
+
+test("a compiled hook that is not a gate is refused, not scored", () => {
+  const nudge = experimental_defineInject({
+    on: "SessionStart",
+    produce: () => inject("hello"),
+  });
+  assert.throws(() => verifyGuardrail(nudge), TypeError);
+});
+
+test("assertBlocksDisasters is the deprecated alias of assertGuardrail", () => {
+  assert.equal(assertBlocksDisasters, assertGuardrail);
+});
+
+// ---------------------------------------------------------------------------
+// A string hook that crashed on every call NEVER RAN (#213, #418)
+// ---------------------------------------------------------------------------
+
+/** A guard that sources a helper library first — run without the library. */
+function writeLibGuard(dir: string): string {
+  const path = join(dir, "lib-guard.sh");
+  writeFileSync(
+    path,
+    `#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/lib/common.sh"
+input=$(cat)
+case "$input" in *"git push"*) echo "blocked" >&2; exit 2 ;; esac
+exit 0
+`,
+  );
+  chmodSync(path, 0o755);
+  return `bash ${path}`;
+}
+
+test("a guard whose library is missing (exit 1 on every call) never ran, on every harness's protocol", () => {
+  const dir = makeTmpDir("guardrail-crash");
+  try {
+    const guard = writeLibGuard(dir);
+    for (const adapter of ADAPTERS) {
+      const results = verifyGuardrail(guard, {
+        protocol: adapter.hookProtocol,
+      });
+      assert.ok(results.length > DISASTER_CATALOG.length);
+      for (const r of results) {
+        assert.equal(r.run, "crashed", `${adapter.name}: ${r.event.id}`);
+        assert.equal(r.ran, false);
+        assert.equal(r.blocked, false);
+      }
+      assert.throws(() => {
+        assertGuardrail(guard, { protocol: adapter.hookProtocol });
+      });
+    }
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+// The #213 spellings of "the interpreter cannot open its script". Python exits
+// 2 — the DENY code — so each of these used to score a perfect 7/7.
+test.skipIf(!hasPython())(
+  "an interpreter that cannot open its script (exit 2 on every call) never ran — every #213 spelling",
+  () => {
+    const dir = makeTmpDir("guardrail-213");
+    try {
+      const missing = join(dir, "missing.py");
+      for (const command of [
+        `python3 ${missing}`,
+        `GUARD=${missing}; python3 "$GUARD"`,
+        `cd ${dir} && python3 missing.py`,
+        `r=$(python3 ${missing})`,
+        `python3 -E ${missing}`,
+        `env python3 ${missing}`,
+      ]) {
+        const results = verifyGuardrail(command, { harmless: [] });
+        assert.ok(
+          results.every((r) => r.run === "crashed" && !r.blocked),
+          command,
+        );
+      }
+    } finally {
+      cleanupTmpDir(dir);
+    }
+  },
+);
+
+test("a real exit-2 guard with an ordinary message is NOT a crash", () => {
+  const dir = makeTmpDir("guardrail-real");
+  try {
+    const real = writeGuard(dir, "real.sh", 2);
+    const results = verifyGuardrail(real, {
+      events: PUSH_EVENTS,
+      harmless: [],
+    });
+    assert.ok(results.every((r) => r.run === "ran" && r.blocked));
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("a structured decision wins over a loader error on stderr", () => {
+  const dir = makeTmpDir("guardrail-decision");
+  try {
+    const path = join(dir, "decides.sh");
+    writeFileSync(
+      path,
+      `#!/usr/bin/env bash
+echo '{"decision":"block","reason":"no"}'
+echo "lib/x.sh: No such file or directory" >&2
+exit 1
+`,
+    );
+    const results = verifyGuardrail(`bash ${path}`, {
+      events: PUSH_EVENTS,
+      harmless: [],
+    });
+    assert.ok(results.every((r) => r.run === "ran" && r.blocked));
+  } finally {
+    cleanupTmpDir(dir);
   }
 });
