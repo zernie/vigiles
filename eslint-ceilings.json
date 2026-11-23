@@ -93,10 +93,10 @@
   },
   "src/cli-main.ts": {
     "max-params": 5,
-    "max-lines-per-function": 475,
+    "max-lines-per-function": 472,
     "complexity": 119,
     "max-depth": 4,
-    "sonarjs/cognitive-complexity": 234
+    "sonarjs/cognitive-complexity": 231
   },
   "src/cli.test.ts": {
     "max-lines-per-function": 524
