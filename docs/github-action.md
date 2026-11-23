@@ -126,6 +126,7 @@ was checked. Set `min: "0"` to stay green until the first eval file exists (the 
 | `working-directory` | `.`            | Directory to run vigiles in.                                                                                                                                                                                                                      |
 | `comment`           | `true`         | On `pull_request` events, post/update a sticky PR comment with the result.                                                                                                                                                                        |
 | `capability-diff`   | `false`        | On `pull_request` events, diff the agent's capability surface (subagents' tool/effect blast radius) vs the PR base and fold it into the sticky comment (maps to `--capability-diff`). Needs `fetch-depth: 0` on checkout.                         |
+| `audit-summary`     | `true`         | Add the audit grade to the job summary and the sticky comment ([below](#audit-grade-in-prs)); on `pull_request`, with each ring's change vs the PR base. Never changes the job's result.                                                          |
 | `fail-on-widen`     | `false`        | With `capability-diff`, fail the run when the PR **widens** the blast radius (maps to `--fail-on-widen`).                                                                                                                                         |
 | `github-token`      | _(auto)_       | Token for the PR comment. Defaults to the workflow token (`${{ github.token }}`).                                                                                                                                                                 |
 
@@ -134,7 +135,7 @@ was checked. Set `min: "0"` to stay green until the first eval file exists (the 
 Beyond the `valid` step output, the Action reports **three** ways:
 
 1. **Inline annotations** — failures appear on the diff (`::error`).
-2. **Job summary** — a markdown result block on the run page (`$GITHUB_STEP_SUMMARY`).
+2. **Job summary** — a markdown result block on the run page (`$GITHUB_STEP_SUMMARY`), with the [audit grade](#audit-grade-in-prs).
 3. **Sticky PR comment** — on `pull_request` events, one comment that is _updated in place_ each run (found by a hidden marker, never duplicated). Requires `pull-requests: write`; set `comment: false` to disable.
 
 ```yaml
@@ -167,6 +168,37 @@ Set `capability-diff: true` to answer one question on every PR: **did this chang
 ```
 
 `fetch-depth: 0` is required because a shallow checkout (the default) doesn't carry the PR base commit the diff compares against.
+
+## Audit grade in PRs
+
+On by default (`audit-summary: true`): the job summary and the sticky comment
+get a short audit section from [`audit --format=md`](cli.md#the-pr-comment-summary--audit---formatmd) —
+the A–F grade and score, the four graded rings, the top three fixes, the rest in
+a collapsed list. On a `pull_request` the Action adds `--compare`, and the CLI
+picks the PR base, fetches it if the checkout lacks it, audits it under its own
+config and shows each ring's change:
+
+```markdown
+### vigiles audit: **B** · 82/100 (base B → B, 81 → 82 ▲)
+
+| Ring                   |   Base → now |
+| :--------------------- | -----------: |
+| Truthfulness           |          100 |
+| Triggering             |          100 |
+| Structure              |          100 |
+| Safety                 |    81 → 82 ▲ |
+| Tested _(advisory)_    |    40 → 37 ▼ |
+| Evaluated _(advisory)_ | not measured |
+```
+
+It is the **headless** audit, and says so: the checks that need your consent
+(starting live MCP servers, measuring skill trigger rate, loading your ESLint
+config) do not run in CI, so a local `npx vigiles audit` can show more. When the
+base cannot be read, the section shows the current grade and says why.
+
+It **never changes the job's result**. An audit that errors, or an older vigiles
+whose `audit --format=md` predates the section, leaves a one-line note instead. Turn it
+off with `audit-summary: "false"`.
 
 ## Versioning
 

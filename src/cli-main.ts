@@ -41,6 +41,7 @@ import {
 } from "node:path";
 import { repoRelative, type RepoRelativePath } from "./core/repo-path.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { isCI } from "ci-info";
 import { globSync } from "glob";
 import { excludeSet, excludedBy, type ExcludeSet } from "./exclude.js";
 import { withIgnored } from "./core/glob-ignore.js";
@@ -203,7 +204,21 @@ import {
 } from "./skill-links.js";
 import { addVigilesDeclaration } from "./plugin-declaration.js";
 import { warnTrackedLocalFiles } from "./local-files-tracked.js";
-import { VIGILES_DIR, ensureLocalFilesIgnored } from "./local-files.js";
+import {
+  LAST_AUDIT_FILE,
+  VIGILES_DIR,
+  ensureLocalFilesIgnored,
+} from "./local-files.js";
+import {
+  parseBaseAudit,
+  renderAuditPrSummary,
+  type BaseAudit,
+} from "./audit-pr-summary.js";
+import {
+  lastAuditLine,
+  lastAuditRecord,
+  parseLastAudit,
+} from "./core/last-audit.js";
 import {
   probePluginTriggers,
   formatBehavioralReport,
@@ -414,6 +429,9 @@ import {
   readBaseFacts,
 } from "./host/changed-files.io.js";
 import { decideBase } from "./core/changed-base.js";
+import { parseAuditFormat, parseCompareRequest } from "./core/audit-flags.js";
+import { auditCopy, copyBaseTree, placeInRepo } from "./host/base-tree.io.js";
+import { cleanupTmpDir } from "./core/tmp-root.js";
 
 /**
  * THE RULE SET, WIRED IN — the composition root's one job for rules. Core
@@ -590,6 +608,106 @@ function refuseSingleOverMany(single: boolean, dirs: readonly string[]): void {
       `Drop --single for a leaderboard, or pass a single directory.`,
   );
   process.exit(2);
+}
+
+/** `--compare` only modifies the md summary; on its own it would be silently ignored. */
+function refuseCompareWithoutMd(args: readonly string[], md: boolean): void {
+  if (md || parseCompareRequest(args).kind === "none") return;
+  console.error(
+    "--compare compares the --format=md summary with a base; pass --format=md with it.",
+  );
+  process.exit(2);
+}
+
+/** `--format=` / `--json` / `--md` as two booleans, or exit 2 on a contradiction. */
+function auditOutput(args: readonly string[]): {
+  readonly json: boolean;
+  readonly md: boolean;
+} {
+  const parsed = parseAuditFormat(args);
+  if (parsed.kind === "refused") {
+    console.error(`✗ vigiles audit: ${parsed.message}`);
+    process.exit(2);
+  }
+  return { json: parsed.format === "json", md: parsed.format === "md" };
+}
+
+/**
+ * The tail of a person's `audit` (not `--json`, not `--md`): the share link,
+ * then the last-audit stamp `lint --summary` reads.
+ */
+function finishHumanAudit(root: string, projectRoot: string): void {
+  // A shareable deep-link for a public GitHub repo: the in-browser demo
+  // re-runs the audit LIVE for whoever opens it, so a local result is
+  // shareable with zero upload/backend (the "can't share from localhost"
+  // gap). Offline + best-effort — read the audited repo's origin remote;
+  // print nothing when it isn't a GitHub repo (self-hosted / no remote /
+  // not a git tree). A suggestion only, never an auto-share, honest about
+  // the public requirement (the non-evil sharing contract).
+  const share = shareLinkForRemote(readOriginRemote(root) ?? "");
+  if (share) {
+    console.log(`\nShare this grade → ${share}`);
+    console.log("  public repos — opens a live re-run for anyone, no upload");
+  }
+  // #475: a person auditing THIS project is what `lint --summary` asks about
+  // at session start; an audit of another directory, or any audit in CI, does
+  // not stamp — see `core/last-audit.ts`.
+  if (root === projectRoot && !isCI) recordAuditRun(projectRoot);
+}
+
+/** A file's text, or `undefined` when it cannot be read (absent, a dir, …). */
+function readTextOrUndefined(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf-8");
+  } catch {
+    return undefined;
+  }
+}
+
+/** Stamp a finished audit for `lint --summary` (#475). Best-effort. */
+function recordAuditRun(projectRoot: string): void {
+  const dir = resolve(projectRoot, VIGILES_DIR);
+  try {
+    mkdirSync(dir, { recursive: true });
+    ensureLocalFilesIgnored(dir);
+    writeFileSync(resolve(dir, LAST_AUDIT_FILE), lastAuditRecord(new Date()));
+  } catch {
+    /* advisory — an unwritable .vigiles/ fails nothing */
+  }
+}
+
+/** `audit --format=md` on one directory: the PR-comment section (#474). */
+function printAuditSummary(
+  report: AuditReport,
+  args: readonly string[],
+  root: string,
+): void {
+  console.log(renderAuditPrSummary(report, compareBase(args, root)).trimEnd());
+}
+
+/**
+ * The `--compare` base: none asked, or the base's own audit, or why there is
+ * none. The CLI decides and copies the base itself, so the GitHub Action
+ * decides nothing: bare `--compare` picks it the way `test --changed` does.
+ */
+function compareBase(args: readonly string[], root: string): BaseAudit {
+  const asked = parseCompareRequest(args);
+  if (asked.kind === "none") return { kind: "none" };
+  const decided =
+    asked.kind === "ref"
+      ? asked
+      : ensureBase(root, decideBase(readBaseFacts(root, process.env)));
+  if (decided.kind === "all")
+    return { kind: "unavailable", why: decided.reason };
+  const copy = copyBaseTree(root, decided.ref);
+  if (copy.kind === "failed") return { kind: "unavailable", why: copy.why };
+  try {
+    return parseBaseAudit(
+      auditCopy(copy.root, placeInRepo(root), process.argv[1] ?? ""),
+    );
+  } finally {
+    cleanupTmpDir(copy.root);
+  }
 }
 
 type AnySpec = ClaudeSpec | SkillSpec | AgentSpec | Railway;
@@ -3185,6 +3303,15 @@ async function runLint(
 
   if (summary) {
     printLintSummary(reported);
+    // #475: the session-start path also says when the local audit is overdue.
+    // Only here — plain `lint` and CI never print it.
+    const auditLine = lastAuditLine(
+      parseLastAudit(
+        readTextOrUndefined(resolve(root, VIGILES_DIR, LAST_AUDIT_FILE)),
+      ),
+      new Date(),
+    );
+    if (auditLine) console.log(auditLine);
   } else if (json) {
     console.log(JSON.stringify(reported, null, 2));
   } else {
@@ -3726,9 +3853,14 @@ function hasPythonSurface(root: string): boolean {
 
 function computeRuleRouting(
   root: string,
-  instructionFile: string,
-  excludes: ExcludeSet,
+  opts: {
+    readonly instructionFile: string;
+    readonly excludes: ExcludeSet;
+    /** THIS run's resolved read-vs-run decision (never the remembered setting). */
+    readonly execute: boolean;
+  },
 ): RuleRouting | undefined {
+  const { instructionFile, excludes, execute } = opts;
   try {
     const files = gatherInstructionFiles(root, instructionFile, excludes);
     if (files.every((f) => !f.text.trim())) return undefined;
@@ -3740,11 +3872,12 @@ function computeRuleRouting(
     // agnostic capability on CC). Each enumerate returns null when its linter
     // doesn't apply, so a repo with neither falls back to the foreign-safe textual
     // routing. Enumerating EXECUTES the linter (plugin code loads), hence own-repo
-    // + consent — same posture for both.
+    // + consent — same posture for both. Consent is THIS run's resolved decision,
+    // not the remembered `audit.measure`: a headless run (`--json`, `--md`, CI)
+    // resolves to skip even when a person once said yes, and must load nothing.
     const ownRepo = resolve(root) === resolve(process.cwd());
-    const consented = loadConfig().audit?.measure === true;
     const availableRules =
-      ownRepo && consented
+      ownRepo && execute
         ? mergeCatalogs(
             enumerateEslintCatalog(root),
             // Only spawn pylint when the repo actually has a Python surface —
@@ -8065,6 +8198,8 @@ const COMMAND_HELP: Record<Verb, CommandHelp> = {
     detail: [
       "  2+ dirs → a leaderboard. Writes vigiles-report.html + .json (auto-gitignored).",
       "  --single                   audit this dir as ONE harness, even if it holds many bundles",
+      "  --format=text|json|md      what stdout carries (--json / --md are aliases)",
+      "  --format=md --compare[=ref]  the PR-comment section, against the base (bare: decided like test --changed)",
       PRESET_HELP,
       "  The executing checks (run your hooks · live MCP · do skills fire?) run only",
       "  interactively — audit asks once and remembers; automation uses the testing API.",
@@ -9922,7 +10057,7 @@ export async function main(): Promise<void> {
         restArgs.length > 0
           ? restArgs.map((d) => noteExplicitOverride(excludes, d, "auditing"))
           : ["."];
-      const json = args.includes("--json");
+      const { json, md } = auditOutput(args);
       // A single dir that's a marketplace (e.g. wshobson/agents' 80+ plugins
       // under one marketplace.json) expands into its members and ranks them.
       // The layout is passed rather than defaulted: `inspectMarketplace` reads
@@ -9996,7 +10131,7 @@ export async function main(): Promise<void> {
               `which produces no per-bundle report. Run audit per directory to write one.`,
           );
         const scores = rankPlugins(targets);
-        const text = args.includes("--md")
+        const text = md
           ? formatLeaderboardMarkdown(scores)
           : formatLeaderboard(scores);
         console.log(
@@ -10013,6 +10148,12 @@ export async function main(): Promise<void> {
         );
       } else {
         const root = resolve(targets[0]);
+        // `--md` on one directory is the GitHub Action's PR-comment section
+        // (#474): a machine read like `--json` — no terminal report, no
+        // artifacts, no prompt — that prints the rendered markdown instead.
+        const summaryMd = md;
+        const quiet = json || summaryMd;
+        refuseCompareWithoutMd(args, summaryMd);
         const harnessFlag = harnessFlagFrom(args);
         // Honor the SAME precedence as lint/compile (dogfood A): --harness= flag,
         // else the `.vigilesrc.json` `harness` key, else auto-detect. Previously
@@ -10090,7 +10231,7 @@ export async function main(): Promise<void> {
           excludes,
           harnesses: scanHarnesses,
         });
-        if (!json) {
+        if (!quiet) {
           console.log(`Detected harness: ${adapter.name}`);
           if (selection.kind === "notice") {
             console.log(`⚠ ${selection.notice}`);
@@ -10165,7 +10306,7 @@ export async function main(): Promise<void> {
             surfaces.triggerableSkills > 0 ||
             surfaces.adoptableRefs,
           isTTY: process.stdout.isTTY && process.stdin.isTTY,
-          json,
+          json: quiet,
           noInteractive:
             args.includes("--no-interactive") || args.includes("--yes"),
           remembered: config.audit?.measure,
@@ -10240,7 +10381,7 @@ export async function main(): Promise<void> {
         // The deterministic READ leads: rings + report + fixes + nudges print
         // BEFORE the consent prompt, so a plain `audit` shows its findings first.
         // (JSON stays silent until the single blob below, after consent.)
-        if (!json) {
+        if (!quiet) {
           // The Lighthouse rings: per-category 0–100 + the weighted overall,
           // shown before the detailed report so the headline signal leads.
           console.log(formatAuditScore(sc));
@@ -10281,23 +10422,23 @@ export async function main(): Promise<void> {
         const { execute, note: execNote } = await resolveExecution(
           surfaces,
           execDecision,
-          json,
+          quiet,
           modelAccess,
         );
-        // Consent is now settled (and remembered via .vigilesrc.json, which
-        // computeRuleRouting re-reads) — route the prose rules, enumerating the
-        // live catalog when consented + own-repo. Feeds the JSON report, the
-        // written artifacts, and the terminal rule-map summary.
-        const ruleRouting = computeRuleRouting(
-          root,
-          adapter.layout.instructionFile,
+        // Consent is settled: route the prose rules; the live catalog loads only
+        // when THIS run executes. Feeds the JSON report, artifacts, the rule map.
+        const ruleRouting = computeRuleRouting(root, {
+          instructionFile: adapter.layout.instructionFile,
           excludes,
-        );
+          execute,
+        });
         const auditReport: AuditReport = ruleRouting
           ? { ...auditReportBase, ruleRouting }
           : auditReportBase;
         if (json) {
           console.log(JSON.stringify(auditReport, null, 2));
+        } else if (summaryMd) {
+          printAuditSummary(auditReport, args, root);
         } else {
           // The rule map — what audit detected in your instruction file and how
           // each rule could be enforced (confident / possible / skipped tiers).
@@ -10377,7 +10518,7 @@ export async function main(): Promise<void> {
           // or set ANTHROPIC_API_KEY" whatever harness the repo was on.
           if (modelAccess.kind !== "none") {
             await runTriggerTier(targets[0], report, adapter, args);
-          } else if (!json) {
+          } else if (!quiet) {
             console.log(
               `\nℹ skill firing not measured — no model access (${modelAccess.fix}).`,
             );
@@ -10415,7 +10556,7 @@ export async function main(): Promise<void> {
                 basePath: root,
                 draft: draftWith((await adapter.liveDriver()).evalDriver),
               });
-              if (!json)
+              if (!quiet)
                 console.log(
                   "\n" +
                     formatAdoptability(
@@ -10425,10 +10566,10 @@ export async function main(): Promise<void> {
                 );
             } catch (e) {
               if (!(e instanceof DraftRunFailed)) throw e;
-              if (!json)
+              if (!quiet)
                 console.log(`\nℹ adoptability not measured — ${e.message}.`);
             }
-          } else if (!json && surfaces.triggerableSkills === 0) {
+          } else if (!quiet && surfaces.triggerableSkills === 0) {
             // Only when the trigger tier didn't already print the same note.
             console.log(
               `\nℹ adoptability not measured — no model access (${modelAccess.kind === "none" ? modelAccess.fix : `${adapter.name} has no executing-tier driver`}).`,
@@ -10456,7 +10597,7 @@ export async function main(): Promise<void> {
         const wroteReports: string[] = [];
         // The versioned JSON artifact — the upload/CI boundary (a hosted dashboard
         // ingests this). Written by default in the human path; --no-json to skip.
-        if (!json && !args.includes("--no-json")) {
+        if (!quiet && !args.includes("--no-json")) {
           writeAuditJson(finalReport, outDir);
           wroteReports.push("vigiles-report.json");
         }
@@ -10468,7 +10609,7 @@ export async function main(): Promise<void> {
         const serveGate = decideServeGate({
           serveFlag: args.includes("--serve"),
           noServeFlag: args.includes("--no-serve"),
-          json,
+          json: quiet,
           isTTY: process.stdout.isTTY && process.stdin.isTTY,
           ownRepo: !isForeign,
           adoptableCount: finalReport.adoptable?.surfaces.length ?? 0,
@@ -10486,7 +10627,7 @@ export async function main(): Promise<void> {
           e instanceof Error ? e.message : String(e);
         if (serveLive) {
           await runAuditServe(finalReport, finalReport.adoptable, errMsg);
-        } else if (!json && !args.includes("--no-html")) {
+        } else if (!quiet && !args.includes("--no-html")) {
           writeAuditHtml(finalReport, outDir, openReport);
           wroteReports.push("vigiles-report.html");
         }
@@ -10512,22 +10653,7 @@ export async function main(): Promise<void> {
             .filter((p): p is RepoRelativePath => p !== null);
           ensureReportGitignored(projectRoot, rel);
         }
-        // A shareable deep-link for a public GitHub repo: the in-browser demo
-        // re-runs the audit LIVE for whoever opens it, so a local result is
-        // shareable with zero upload/backend (the "can't share from localhost"
-        // gap). Offline + best-effort — read the audited repo's origin remote;
-        // print nothing when it isn't a GitHub repo (self-hosted / no remote /
-        // not a git tree). A suggestion only, never an auto-share, honest about
-        // the public requirement (the non-evil sharing contract).
-        if (!json) {
-          const share = shareLinkForRemote(readOriginRemote(root) ?? "");
-          if (share) {
-            console.log(`\nShare this grade → ${share}`);
-            console.log(
-              "  public repos — opens a live re-run for anyone, no upload",
-            );
-          }
-        }
+        if (!quiet) finishHumanAudit(root, projectRoot);
       }
       break;
     }

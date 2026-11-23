@@ -39,7 +39,18 @@ export type BaseDecision =
       readonly fetch: string | undefined;
       readonly why: string;
     }
-  | { readonly kind: "all"; readonly why: string };
+  | {
+      readonly kind: "all";
+      /** Why there is no base, without the consequence — `audit --compare` reuses it. */
+      readonly reason: string;
+      /** The reason with `test --changed`'s consequence: every file runs. */
+      readonly why: string;
+    };
+
+/** No base to diff against: `test --changed` runs every file. */
+export function everythingRuns(reason: string): BaseDecision {
+  return { kind: "all", reason, why: `${reason}, so every file runs` };
+}
 
 const PR_EVENTS: ReadonlySet<string> = new Set([
   "pull_request",
@@ -52,16 +63,12 @@ export function decideBase(f: BaseFacts): BaseDecision {
     case "github":
       return githubBase(f.ci);
     case "other":
-      return {
-        kind: "all",
-        why: "a CI run with no known pull-request base, so every file runs",
-      };
+      return everythingRuns("a CI run with no known pull-request base");
     case "none":
       return f.defaultBranch === undefined
-        ? {
-            kind: "all",
-            why: "no default branch found (origin/HEAD, origin/main, origin/master), so every file runs",
-          }
+        ? everythingRuns(
+            "no default branch found (origin/HEAD, origin/main, origin/master)",
+          )
         : {
             kind: "diff",
             ref: f.defaultBranch,
@@ -76,10 +83,7 @@ function githubBase(
 ): BaseDecision {
   const event = ci.event ?? "unknown";
   if (!PR_EVENTS.has(event)) {
-    return {
-      kind: "all",
-      why: `${event} event: not a pull request, so every file runs`,
-    };
+    return everythingRuns(`${event} event: not a pull request`);
   }
   return prBase(event, ci.prBase, ci.baseRef);
 }
@@ -95,10 +99,9 @@ function prBase(
     return { kind: "diff", ref: sha, fetch: sha, why };
   }
   if (branch === undefined || branch === "") {
-    return {
-      kind: "all",
-      why: `${event} event with no base in the payload or GITHUB_BASE_REF, so every file runs`,
-    };
+    return everythingRuns(
+      `${event} event with no base in the payload or GITHUB_BASE_REF`,
+    );
   }
   return {
     kind: "diff",

@@ -18,8 +18,9 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { load } from "js-yaml";
+import { AUDIT_SUMMARY_MAX_CHARS } from "./audit-pr-summary.js";
 
 const actionPath = resolve(__dirname, "..", "action.yml");
 const raw = readFileSync(actionPath, "utf-8");
@@ -165,6 +166,9 @@ function resolveRunner(
           action.runs.steps?.[0]?.env?.["VIGILES_COMMANDS"] ?? "",
         VIGILES_VERSION: version ?? "",
         VIGILES_ACTION_PATH: root,
+        // These tests read the MAIN command's argv; the audit summary (#474)
+        // is its own npx call with its own suite below.
+        VIGILES_AUDIT_SUMMARY: "false",
         ...env,
       },
     });
@@ -443,5 +447,214 @@ describe("action.yml — command: test, changed-only", () => {
       }),
       "--no-install vigiles lint",
     );
+  });
+});
+
+/** An `npx` that logs its argv and answers by flag (see the suite below). */
+function writeStubNpx(bin: string): void {
+  writeFileSync(
+    join(bin, "npx"),
+    [
+      "#!/bin/bash",
+      'printf "%s\\n" "$*" >> "$NPX_LOG"',
+      'case " $* " in',
+      '  *" --format=md "*) printf "%s" "${STUB_MD:-}"; exit "${STUB_MD_EXIT:-0}" ;;',
+      '  *" --json"*) printf "{}"; exit 0 ;;',
+      "esac",
+      '[[ -n "${STUB_MAIN_BYTES:-}" ]] && head -c "$STUB_MAIN_BYTES" /dev/zero | tr "\\0" x',
+      'exit "${STUB_MAIN_EXIT:-0}"',
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+}
+
+/** A consumer repo that declares and installed vigiles. */
+function writeInstalledConsumer(repo: string): void {
+  writeFileSync(
+    join(repo, "package.json"),
+    JSON.stringify({ name: "c", devDependencies: { vigiles: "^40" } }),
+  );
+  mkdirSync(join(repo, "node_modules", ".bin"), { recursive: true });
+  writeFileSync(join(repo, "node_modules", ".bin", "vigiles"), "", {
+    mode: 0o755,
+  });
+}
+
+const MARKER = "<!-- vigiles-audit-summary -->";
+const SECTION = `${MARKER}\n### Audit: **B** · 85/100\n`;
+
+interface StepRun {
+  readonly status: number;
+  readonly log: string;
+  readonly summary: string;
+  readonly output: string;
+}
+
+function runStep(
+  env: Readonly<Record<string, string>>,
+  prepare: (
+    repo: string,
+    root: string,
+  ) => Readonly<Record<string, string>> = () => ({}),
+): StepRun {
+  const root = mkdtempSync(join(tmpdir(), "vigiles-action-summary-"));
+  try {
+    const bin = join(root, "bin");
+    const repo = join(root, "repo");
+    mkdirSync(bin);
+    mkdirSync(repo);
+    symlinkSync(process.execPath, join(bin, "node"));
+    writeStubNpx(bin);
+    writeInstalledConsumer(repo);
+    const prepared = prepare(repo, root);
+    writeFileSync(join(root, "step.sh"), script);
+    const summary = join(root, "summary.md");
+    const output = join(root, "out");
+    writeFileSync(summary, "");
+    writeFileSync(output, "");
+    const ran = spawnSync("bash", [join(root, "step.sh")], {
+      cwd: repo,
+      stdio: "pipe",
+      env: {
+        PATH: `${bin}:/usr/bin:/bin`,
+        HOME: root,
+        NPX_LOG: join(root, "npx.log"),
+        GITHUB_OUTPUT: output,
+        GITHUB_STEP_SUMMARY: summary,
+        VIGILES_COMMAND: "lint",
+        VIGILES_COMMANDS:
+          action.runs.steps?.[0]?.env?.["VIGILES_COMMANDS"] ?? "",
+        VIGILES_VERSION: "",
+        VIGILES_ACTION_PATH: root,
+        VIGILES_AUDIT_SUMMARY: "true",
+        STUB_MD: SECTION,
+        ...env,
+        ...prepared,
+      },
+    });
+    return {
+      status: ran.status ?? 1,
+      log: readFileSync(join(root, "npx.log"), "utf-8"),
+      summary: readFileSync(summary, "utf-8"),
+      output: readFileSync(output, "utf-8"),
+    };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+const auditCalls = (log: string): string[] =>
+  log.split("\n").filter((l) => l.includes(" audit "));
+
+/**
+ * The audit summary in the sticky comment and the job summary (#474), by
+ * RUNNING the step. `npx` is a stub that logs its argv and answers by flag:
+ * `--format=md` prints `$STUB_MD` and exits `$STUB_MD_EXIT`, `--json` prints a base
+ * report, anything else (the main command) exits `$STUB_MAIN_EXIT`.
+ *
+ * The property held: the section is default-on, one input turns it off, and
+ * NOTHING about it can change the job's result — an audit that errors, or an
+ * older vigiles that prints terminal text for `--format=md`, leaves a one-line note.
+ */
+describe("action.yml — the audit summary", () => {
+  it("is declared, defaulting to on", () => {
+    assert.equal(action.inputs["audit-summary"]?.default, "true");
+    assert.ok(
+      raw.includes("VIGILES_AUDIT_SUMMARY: ${{ inputs.audit-summary }}"),
+    );
+  });
+
+  it("on: runs `audit . --format=md` and puts its section in the job summary", () => {
+    const r = runStep({});
+    assert.equal(r.status, 0);
+    assert.deepEqual(auditCalls(r.log), [
+      "--no-install vigiles audit . --format=md",
+    ]);
+    assert.ok(r.summary.includes(SECTION), r.summary);
+  });
+
+  it("off: runs no audit and adds no section", () => {
+    const r = runStep({ VIGILES_AUDIT_SUMMARY: "false" });
+    assert.equal(r.status, 0);
+    assert.deepEqual(auditCalls(r.log), []);
+    assert.ok(!r.summary.includes(MARKER));
+  });
+
+  it("an audit that errors leaves a one-line note and a passing job", () => {
+    const r = runStep({ STUB_MD: "", STUB_MD_EXIT: "2" });
+    assert.equal(r.status, 0);
+    assert.match(r.output, /valid=true/);
+    assert.ok(!r.summary.includes(MARKER));
+    const note = r.summary.split("\n").filter((l) => /audit summary/i.test(l));
+    assert.equal(note.length, 1, r.summary);
+  });
+
+  it("an older vigiles printing terminal text for --format=md is not pasted in", () => {
+    const r = runStep({ STUB_MD: "Detected harness: x\nrings…\n" });
+    assert.equal(r.status, 0);
+    assert.ok(!r.summary.includes("Detected harness"), r.summary);
+    assert.match(r.summary, /audit summary/i);
+  });
+
+  // Codex on #480: GitHub refuses a comment over 65,536 characters. The audit
+  // section and up to 60 KB of log used to be added up with no shared budget, so
+  // a big repo's sticky comment stopped updating and showed a stale result.
+  it("keeps the whole comment under GitHub's limit, and keeps the result and grade", () => {
+    // The largest section the CLI prints (it caps itself), beside 70 KB of log.
+    const big = `${SECTION}${"- finding\n".repeat(4000)}`.slice(
+      0,
+      AUDIT_SUMMARY_MAX_CHARS,
+    );
+    const r = runStep({ STUB_MD: big, STUB_MAIN_BYTES: "70000" });
+    assert.equal(r.status, 0);
+    assert.ok(r.summary.length < 65536, String(r.summary.length));
+    assert.ok(r.summary.includes("passed"), "the result line");
+    assert.ok(r.summary.includes(SECTION), "the grade");
+  });
+
+  it("never turns a failing command green, nor a passing one red", () => {
+    const failed = runStep({ STUB_MAIN_EXIT: "1" });
+    assert.equal(failed.status, 1);
+    assert.match(failed.output, /valid=false/);
+    assert.ok(failed.summary.includes(SECTION));
+  });
+});
+
+/**
+ * On a pull request the Action asks the CLI to compare, and does nothing else:
+ * which base, fetching it, copying it and auditing it under its own config are
+ * the CLI's (`src/cli-audit-compare.test.ts` holds that behaviour).
+ */
+describe("action.yml — the audit summary on a pull request", () => {
+  it("asks the CLI to compare, and audits no base itself", () => {
+    const r = runStep({ GITHUB_EVENT_NAME: "pull_request" });
+    assert.equal(r.status, 0);
+    assert.deepEqual(auditCalls(r.log), [
+      "--no-install vigiles audit . --format=md --compare",
+    ]);
+  });
+
+  it("on any other event, does not compare", () => {
+    const r = runStep({ GITHUB_EVENT_NAME: "push" });
+    assert.deepEqual(auditCalls(r.log), [
+      "--no-install vigiles audit . --format=md",
+    ]);
+  });
+});
+
+/**
+ * The Action holds no logic: its bash maps inputs to CLI flags and posts what
+ * the CLI printed. A script that grows is a decision being made in bash, where
+ * it is untyped and tested only through stubs (#480 grew a base copy, symlinks
+ * and size arithmetic here before they moved into the CLI). Raise the ceiling
+ * only for a new input's mapping; anything that DECIDES is a CLI feature.
+ */
+describe("action.yml — the step stays a thin wrapper", () => {
+  it("has at most 202 lines of bash, comments and blanks aside", () => {
+    const code = script
+      .split("\n")
+      .filter((l) => l.trim() !== "" && !l.trim().startsWith("#"));
+    assert.ok(code.length <= 202, `${String(code.length)} lines`);
   });
 });

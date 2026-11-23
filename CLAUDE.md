@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:9ecc8c872d11d722 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:c70c76cd4c4921b1 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -323,7 +323,7 @@ BUILD + TOOLING + GENERATED:
 
 ### Prod Grade Gha Cli
 
-**Guidance only** — The CLI and the GitHub Action are production-grade, first-class surfaces — for most users CI is how vigiles actually runs — and must be kept that way, not treated as afterthoughts. [Details](docs/contributing/rules.md#prod-grade-gha-cli)
+**Guidance only** — The CLI and the GitHub Action are production-grade, first-class surfaces — for most users CI is how vigiles actually runs — and must be kept that way, not treated as afterthoughts. The Action holds no logic: its bash maps inputs to CLI flags and posts what the CLI printed. [Details](docs/contributing/rules.md#prod-grade-gha-cli)
 
 ### Cohesive Cli Surface
 

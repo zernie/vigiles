@@ -497,7 +497,7 @@ BUILD + TOOLING + GENERATED:
     ),
 
     "prod-grade-gha-cli": guidance(
-      "The CLI and the GitHub Action are production-grade, first-class surfaces — for most users CI is how vigiles actually runs — and must be kept that way, not treated as afterthoughts.",
+      "The CLI and the GitHub Action are production-grade, first-class surfaces — for most users CI is how vigiles actually runs — and must be kept that way, not treated as afterthoughts. The Action holds no logic: its bash maps inputs to CLI flags and posts what the CLI printed.",
       {
         details: file("docs/contributing/rules.md"),
         anchor: "prod-grade-gha-cli",

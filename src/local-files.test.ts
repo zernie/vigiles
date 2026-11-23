@@ -127,6 +127,12 @@ const WRITERS: Record<string, () => void> = {
     ensureLocalFilesIgnored(vigilesDir());
     writeFileSync(join(vigilesDir(), "hook-observations.jsonl"), "{}\n");
   },
+  // Written by the CLI root after a person's `audit` (`cli-main.ts`); its own
+  // ensure call is driven through the built CLI in `cli-audit-summary.test.ts`.
+  "last-audit.json": () => {
+    ensureLocalFilesIgnored(vigilesDir());
+    writeFileSync(join(vigilesDir(), "last-audit.json"), "{}\n");
+  },
 };
 
 function writeEveryLocalFile(): void {
