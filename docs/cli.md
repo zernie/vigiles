@@ -861,6 +861,43 @@ harness's health — not a build gate. **CI uses [`vigiles lint`](#lint-files)**
 (deterministic, stable exit codes 0/1/2); `audit` is the human-facing read +
 report. (You _can_ pipe `audit --json` somewhere, but it's not a pass/fail gate.)
 
+#### The PR-comment summary — `audit --md`
+
+On **one** directory, `--md` prints a short Markdown section instead of the
+terminal report: the grade and score, the four graded rings (the advisory ones
+marked), the three fixes worth the most points (or, with no fix list, the graded
+rings' own findings), all of them in a collapsed list, and a closing line saying
+this was the headless read. It is what the [GitHub Action](github-action.md#audit-grade-in-prs)
+puts in the job summary and the sticky PR comment. Like `--json`, it writes no
+report files and never asks, so the consent-gated checks do not run.
+
+`--compare=<base.json>` adds each ring's change against another `audit --json`
+report — the Action passes the PR base's: `Safety 90 → 82 ▼`. When that file is
+missing, not a report, from another schema version, or a base with nothing to
+audit, the section still prints and says why there is no comparison, rather than
+showing "no change". `--compare=` without `--md` exits 2.
+
+```bash
+npx vigiles audit ../base --json > base.json   # the PR base, checked out elsewhere
+npx vigiles audit --md --compare=base.json     # the section, with per-ring change
+```
+
+#### When you last ran `audit`
+
+A plain `audit` of your project records when it ran, in `.vigiles/last-audit.json`
+(per checkout, kept out of git like the other local files). `lint --summary` — what
+the plugin's session-start hook runs — prints one line when that is more than 7
+days old, or missing:
+
+```
+vigiles: last audit 9 days ago — run npx vigiles audit
+vigiles: no local audit yet — run npx vigiles audit
+```
+
+Only `--summary` prints it; plain `lint` and CI never do. Machine reads
+(`--json`, `--md`) and an audit of another directory do not count as a run, so
+the Action's audit never resets the reminder.
+
 #### The executing checks — `audit` asks (interactive only)
 
 A plain `audit` is a deterministic **read**. Three checks actually _run_ your
@@ -1148,7 +1185,7 @@ The plugin provides hooks:
 
 - **PreToolUse** (Edit/Write) — blocks direct edits to compiled `.md` files and redirects the agent to the `.spec.ts` source
 - **PostToolUse** (Edit/Write) — auto-runs `generate-types` on linter config changes, `compile` on `.spec.ts` changes; nudges marking unmarked references
-- **SessionStart** — surfaces the project's vigiles state
+- **SessionStart** — surfaces the project's vigiles state (`lint --summary`), including a one-line reminder when the last local `audit` is more than 7 days old or there has been none ([details](#when-you-last-ran-audit))
 
 > Internal vigiles-development skills (`generate-logo`, `pr-to-lint-rule`,
 > `enforce-rules-format`, `audit-feedback-loop`, `audience-check`, `code-quality`)

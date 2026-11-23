@@ -8,7 +8,10 @@
 # (or "vigiles: clean") so the injection costs a handful of tokens. While the
 # always-loaded context is over a harness limit with no baseline recorded, or
 # an old baseline file still needs migrating, it adds one `vigiles: note — …`
-# line naming the command, so the agent runs it.
+# line naming the command, so the agent runs it. When the last local
+# `vigiles audit` is more than 7 days old, or there has been none, it adds
+#   vigiles: last audit 9 days ago — run npx vigiles audit
+# (read from .vigiles/last-audit.json, which a person's `audit` writes).
 #
 # Hook runs on the `startup` and `compact` matchers — the latter is
 # effectively free on token budget because it fires every time
