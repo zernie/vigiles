@@ -321,3 +321,15 @@ test("a condition that selects nothing at all is still not a no-verdict", () => 
   }))
     assert.equal(tag(r.outcome), "not-run/condition");
 });
+
+test("a JSON decision proves the hook launched, so a skipped control does not void it", () => {
+  // A script that never started cannot print a decision; exit 2 alone can come
+  // from an interpreter that could not open its script. The JSON deny counts
+  // with or without an exit 2 beside it.
+  for (const cmd of [DENY_ALL, `${DENY_ALL}; exit 2`]) {
+    const results = verifyGuardrail(cmd, { condition: FORCE_PUSH_IF });
+    const byId = new Map(results.map((r) => [r.event.id, tag(r.outcome)]));
+    assert.equal(byId.get("force-push"), "blocked", cmd);
+    assert.equal(byId.get("rm-rf"), "not-run/condition", cmd);
+  }
+});

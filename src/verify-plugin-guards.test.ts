@@ -362,25 +362,36 @@ describe("the empty cases speak", () => {
 // ---------------------------------------------------------------------------
 
 describe("davila7 force-push-blocker (vendored, MIT) — read from the config", () => {
-  it("reads EACH hook's own `if`, and neither gets a score it has not earned", () => {
-    // The caller supplies a DIRECTORY, and the two hooks get two different
-    // conditions because that is what the file says.
+  it("honours EACH hook's own `if` without the caller passing one", () => {
+    // This is the whole difference from verifyGuardrail: the caller supplies a
+    // DIRECTORY, and the two hooks get two different conditions because that is
+    // what the file says. Neither `if` selects the control `ls`, but the body
+    // prints a JSON deny, which only a hook that launched can do.
     const hooks = experimental_verifyPluginGuards(VENDOR).hooks;
-    expect(hooks.map((h) => h.hook.condition)).toEqual([
-      "Bash(git push *--force*)",
-      "Bash(git push *-f*)",
-    ]);
-    // Both bodies are a bare `echo deny`. Neither `if` selects `ls`, so the
-    // control never runs and no block is evidence — the 7/7 that #211 killed
-    // does not come back, and neither does a 1/7 we cannot vouch for.
-    expect(hooks.map((h) => h.status)).toEqual(["no-verdict", "no-verdict"]);
+    expect(hooks).toHaveLength(2);
+
+    const [first, second] = hooks;
+    if (first?.status !== "measured" || second?.status !== "measured")
+      throw new Error("the vendored guard should be measured");
+
+    expect(first.hook.condition).toBe("Bash(git push *--force*)");
+    expect(first.blocked).toEqual(["force-push"]);
+
+    expect(second.hook.condition).toBe("Bash(git push *-f*)");
+    expect(second.blocked).toEqual(["force-push", "force-push-compound"]);
+
+    // The 7/7 that #211 killed must not come back through this door.
+    for (const h of [first, second])
+      expect(h.blocked.length).toBeLessThan(DISASTER_CATALOG.length);
   });
 
-  it("a control its `if` selects is denied by the bare body: still no verdict", () => {
-    const [first] = experimental_verifyPluginGuards(VENDOR, {
-      control: FIXTURE_CONTROL,
-    }).hooks;
-    expect(first?.status).toBe("no-verdict");
+  it("never reports a not-run event as allowed", () => {
+    const [first] = experimental_verifyPluginGuards(VENDOR).hooks;
+    if (first?.status !== "measured") throw new Error("not measured");
+    // `rm -rf /` is neither blocked nor allowed by this guard — it is not seen.
+    expect(first.allowed).toEqual([]);
+    expect(first.notRun).toContain("rm-rf");
+    expect(first.blocked).not.toContain("rm-rf");
   });
 });
 
@@ -840,6 +851,23 @@ function writeHookScript(at: string, name: string, body: string): void {
 }
 
 describe("a hook whose SCRIPT is missing gets no score at all", () => {
+  it("is measured behind such an `if` when it prints a JSON decision", () => {
+    // The mirror of the case below: a skipped control, but a decision on
+    // stdout, which a script that never started cannot print.
+    const report = sweepFixture([
+      { type: "command", if: "Bash(git push *--force*)", command: DENY },
+      {
+        type: "command",
+        if: "Bash(git push *--force*)",
+        command: `${DENY}; exit 2`,
+      },
+    ]);
+    for (const h of report.hooks) {
+      if (h.status !== "measured") throw new Error(`got ${h.status}`);
+      expect(h.blocked).toEqual(["force-push"]);
+    }
+  });
+
   it("has no verdict behind an `if` that does not select the control", () => {
     // #495 review, P1: `ls` is skipped by the condition, the force push runs
     // `python3 missing.py`, which exits 2. That was reported as blocking.
