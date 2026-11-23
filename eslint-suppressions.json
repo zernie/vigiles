@@ -4140,7 +4140,7 @@
   },
   "src/verify-plugin-guards.test.ts": {
     "local/no-harness-names": {
-      "count": 59
+      "count": 57
     },
     "local/no-rule-ids": {
       "count": 1
@@ -4148,16 +4148,16 @@
   },
   "src/verify-plugin-guards.ts": {
     "boundaries/dependencies": {
-      "count": 2
+      "count": 1
     },
     "functional/immutable-data": {
-      "count": 17
+      "count": 16
     },
     "functional/no-loop-statements": {
-      "count": 8
+      "count": 7
     },
     "functional/prefer-immutable-types": {
-      "count": 15
+      "count": 14
     },
     "local/no-harness-names": {
       "count": 3
@@ -4166,12 +4166,9 @@
       "count": 2
     },
     "no-restricted-globals": {
-      "count": 3
-    },
-    "sonarjs/no-duplicate-string": {
       "count": 1
     },
-    "sonarjs/no-nested-conditional": {
+    "sonarjs/no-duplicate-string": {
       "count": 1
     }
   }

@@ -197,7 +197,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 638 project files. */
+  /** 637 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -287,6 +287,7 @@ declare module "vigiles/generated" {
     | "src/adapters/codex/driver.ts"
     | "src/adapters/codex/eval.test.ts"
     | "src/adapters/codex/eval.ts"
+    | "src/adapters/codex/guard-control.test.ts"
     | "src/adapters/codex/harness-test.test.ts"
     | "src/adapters/codex/hook-delivery.test.ts"
     | "src/adapters/codex/hook-protocol.ts"
@@ -399,8 +400,6 @@ declare module "vigiles/generated" {
     | "src/core/cedar.test.ts"
     | "src/core/changed-base.test.ts"
     | "src/core/changed-base.ts"
-    | "src/core/command-files.test.ts"
-    | "src/core/command-files.ts"
     | "src/core/compile-generator.test.ts"
     | "src/core/compile-generator.ts"
     | "src/core/compile.test.ts"
@@ -1094,6 +1093,7 @@ declare module "vigiles/spec" {
       | "src/adapters/codex/driver.ts"
       | "src/adapters/codex/eval.test.ts"
       | "src/adapters/codex/eval.ts"
+      | "src/adapters/codex/guard-control.test.ts"
       | "src/adapters/codex/harness-test.test.ts"
       | "src/adapters/codex/hook-delivery.test.ts"
       | "src/adapters/codex/hook-protocol.ts"
@@ -1206,8 +1206,6 @@ declare module "vigiles/spec" {
       | "src/core/cedar.test.ts"
       | "src/core/changed-base.test.ts"
       | "src/core/changed-base.ts"
-      | "src/core/command-files.test.ts"
-      | "src/core/command-files.ts"
       | "src/core/compile-generator.test.ts"
       | "src/core/compile-generator.ts"
       | "src/core/compile.test.ts"
