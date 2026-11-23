@@ -429,6 +429,9 @@ import {
   readBaseFacts,
 } from "./host/changed-files.io.js";
 import { decideBase } from "./core/changed-base.js";
+import { parseAuditFormat, parseCompareRequest } from "./core/audit-flags.js";
+import { auditCopy, copyBaseTree, placeInRepo } from "./host/base-tree.io.js";
+import { cleanupTmpDir } from "./core/tmp-root.js";
 
 /**
  * THE RULE SET, WIRED IN — the composition root's one job for rules. Core
@@ -607,13 +610,26 @@ function refuseSingleOverMany(single: boolean, dirs: readonly string[]): void {
   process.exit(2);
 }
 
-/** `--compare=` only modifies `--md`; on its own it would be silently ignored. */
+/** `--compare` only modifies the md summary; on its own it would be silently ignored. */
 function refuseCompareWithoutMd(args: readonly string[], md: boolean): void {
-  if (md || !args.some((a) => a.startsWith("--compare="))) return;
+  if (md || parseCompareRequest(args).kind === "none") return;
   console.error(
-    "--compare=<base.json> compares the --md summary against a base report; pass --md with it.",
+    "--compare compares the --format=md summary with a base; pass --format=md with it.",
   );
   process.exit(2);
+}
+
+/** `--format=` / `--json` / `--md` as two booleans, or exit 2 on a contradiction. */
+function auditOutput(args: readonly string[]): {
+  json: boolean;
+  md: boolean;
+} {
+  const parsed = parseAuditFormat(args);
+  if (parsed.kind === "refused") {
+    console.error(`✗ vigiles audit: ${parsed.message}`);
+    process.exit(2);
+  }
+  return { json: parsed.format === "json", md: parsed.format === "md" };
 }
 
 /**
@@ -660,18 +676,38 @@ function recordAuditRun(projectRoot: string): void {
   }
 }
 
-/** `audit --md` on one directory: the PR-comment section (#474). */
-function printAuditSummary(report: AuditReport, args: readonly string[]): void {
-  console.log(renderAuditPrSummary(report, readCompareBase(args)).trimEnd());
+/** `audit --format=md` on one directory: the PR-comment section (#474). */
+function printAuditSummary(
+  report: AuditReport,
+  args: readonly string[],
+  root: string,
+): void {
+  console.log(renderAuditPrSummary(report, compareBase(args, root)).trimEnd());
 }
 
-/** The `--compare=` base report: none asked, read, or unavailable (with why). */
-function readCompareBase(args: readonly string[]): BaseAudit {
-  const file = args
-    .find((a) => a.startsWith("--compare="))
-    ?.slice("--compare=".length);
-  if (file === undefined) return { kind: "none" };
-  return parseBaseAudit(readTextOrUndefined(resolve(file)));
+/**
+ * The `--compare` base: none asked, or the base's own audit, or why there is
+ * none. The CLI decides and copies the base itself, so the GitHub Action
+ * decides nothing: bare `--compare` picks it the way `test --changed` does.
+ */
+function compareBase(args: readonly string[], root: string): BaseAudit {
+  const asked = parseCompareRequest(args);
+  if (asked.kind === "none") return { kind: "none" };
+  const decided =
+    asked.kind === "ref"
+      ? asked
+      : ensureBase(root, decideBase(readBaseFacts(root, process.env)));
+  if (decided.kind === "all")
+    return { kind: "unavailable", why: decided.reason };
+  const copy = copyBaseTree(root, decided.ref);
+  if (copy.kind === "failed") return { kind: "unavailable", why: copy.why };
+  try {
+    return parseBaseAudit(
+      auditCopy(copy.root, placeInRepo(root), process.argv[1] ?? ""),
+    );
+  } finally {
+    cleanupTmpDir(copy.root);
+  }
 }
 
 type AnySpec = ClaudeSpec | SkillSpec | AgentSpec | Railway;
@@ -8162,6 +8198,8 @@ const COMMAND_HELP: Record<Verb, CommandHelp> = {
     detail: [
       "  2+ dirs → a leaderboard. Writes vigiles-report.html + .json (auto-gitignored).",
       "  --single                   audit this dir as ONE harness, even if it holds many bundles",
+      "  --format=text|json|md      what stdout carries (--json / --md are aliases)",
+      "  --format=md --compare[=ref]  the PR-comment section, against the base (bare: decided like test --changed)",
       PRESET_HELP,
       "  The executing checks (run your hooks · live MCP · do skills fire?) run only",
       "  interactively — audit asks once and remembers; automation uses the testing API.",
@@ -10019,7 +10057,7 @@ export async function main(): Promise<void> {
         restArgs.length > 0
           ? restArgs.map((d) => noteExplicitOverride(excludes, d, "auditing"))
           : ["."];
-      const json = args.includes("--json");
+      const { json, md } = auditOutput(args);
       // A single dir that's a marketplace (e.g. wshobson/agents' 80+ plugins
       // under one marketplace.json) expands into its members and ranks them.
       // The layout is passed rather than defaulted: `inspectMarketplace` reads
@@ -10093,7 +10131,7 @@ export async function main(): Promise<void> {
               `which produces no per-bundle report. Run audit per directory to write one.`,
           );
         const scores = rankPlugins(targets);
-        const text = args.includes("--md")
+        const text = md
           ? formatLeaderboardMarkdown(scores)
           : formatLeaderboard(scores);
         console.log(
@@ -10113,7 +10151,7 @@ export async function main(): Promise<void> {
         // `--md` on one directory is the GitHub Action's PR-comment section
         // (#474): a machine read like `--json` — no terminal report, no
         // artifacts, no prompt — that prints the rendered markdown instead.
-        const summaryMd = args.includes("--md");
+        const summaryMd = md;
         const quiet = json || summaryMd;
         refuseCompareWithoutMd(args, summaryMd);
         const harnessFlag = harnessFlagFrom(args);
@@ -10400,7 +10438,7 @@ export async function main(): Promise<void> {
         if (json) {
           console.log(JSON.stringify(auditReport, null, 2));
         } else if (summaryMd) {
-          printAuditSummary(auditReport, args);
+          printAuditSummary(auditReport, args, root);
         } else {
           // The rule map — what audit detected in your instruction file and how
           // each rule could be enforced (confident / possible / skipped tiers).

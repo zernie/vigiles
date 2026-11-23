@@ -20,11 +20,16 @@ import {
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
+import { z } from "zod";
 import { AUDIT_SUMMARY_MARKER } from "./audit-pr-summary.js";
+import { defaultAdapter } from "./adapter-registry.js";
+import { skillsHome } from "./core/layout.js";
 import { makeTmpDir } from "./core/tmp-root.js";
 import { LAST_AUDIT_FILE, VIGILES_DIR } from "./local-files.js";
 
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const { layout } = defaultAdapter;
+const SKILLS = skillsHome(layout) ?? "skills";
 
 /** A person's terminal: ci-info reads `CI=false` as "not CI", whatever else is set. */
 const LOCAL: NodeJS.ProcessEnv = {
@@ -75,29 +80,28 @@ const skill = (name: string, description?: string): string =>
 
 /**
  * The PR base: a harness whose `.vigilesrc.json` excludes a vendored skill that
- * has no description (it would cost points if counted), and a hook that runs a
- * script under `dist/` — git-ignored build output that exists only in the
- * checkout. Returns the base commit.
+ * has no description (it would cost points if counted), and a hook whose
+ * script is generated and git-ignored, so it exists only in the checkout (the
+ * shape of vigiles' own `dist/cli.js`). Returns the base commit.
  */
 function commitBase(): string {
-  write("CLAUDE.md", "# Project\n\nBe careful.\n");
-  write(".claude/skills/greet/SKILL.md", skill("greet", "Greet on hello."));
-  write(".claude/skills/vendor/odd/SKILL.md", skill("odd"));
+  write(layout.instructionFile, "# Project\n\nBe careful.\n");
+  write(`${SKILLS}/greet/SKILL.md`, skill("greet", "Greet on hello."));
+  write(`${SKILLS}/odd/SKILL.md`, skill("odd"));
+  write(".vigilesrc.json", JSON.stringify({ exclude: [`${SKILLS}/odd`] }));
+  // A hook line vigiles writes, whose script is checked for existence
+  // (`hook-script-exists`). The script itself is generated and git-ignored.
   write(
-    ".vigilesrc.json",
-    JSON.stringify({ exclude: [".claude/skills/vendor"] }),
-  );
-  write(
-    ".claude/settings.json",
+    layout.settingsPath,
     JSON.stringify({
       hooks: {
-        PreToolUse: [
+        SessionStart: [
           {
-            matcher: "Bash",
             hooks: [
               {
                 type: "command",
-                command: 'node "${CLAUDE_PROJECT_DIR}/dist/hook.js"',
+                command:
+                  'sh "${CLAUDE_PROJECT_DIR}/.vigiles/hook-check.sh" || exit 0',
               },
             ],
           },
@@ -105,19 +109,19 @@ function commitBase(): string {
       },
     }),
   );
-  write(".gitignore", "dist/\n");
+  write(".gitignore", ".vigiles/hook-check.sh\n");
   git("init", "-q", "-b", "main");
   git("add", "-A");
   git("-c", "commit.gpgsign=false", "commit", "-qm", "base");
   return git("rev-parse", "HEAD");
 }
 
-/** The PR: touches nothing the audit reads. Then the build runs. */
+/** The PR: touches nothing the audit reads. Then the checkout is set up. */
 function commitHead(): void {
   write("README.md", "# readme\n");
   git("add", "-A");
   git("-c", "commit.gpgsign=false", "commit", "-qm", "head");
-  write("dist/hook.js", "process.exit(0);\n");
+  write(".vigiles/hook-check.sh", "exit 0\n");
 }
 
 /** GitHub Actions on a pull request whose base is `sha`. */
@@ -158,10 +162,10 @@ describe("audit --format", () => {
     const a = run(["audit", "--format=json"], repo);
     const b = run(["audit", "--json"], repo);
     expect(a.exitCode, a.stderr).toBe(0);
-    const strip = (s: string): unknown => {
-      const r: { generatedAt?: unknown } = JSON.parse(s);
-      return { ...r, generatedAt: undefined };
-    };
+    const strip = (s: string): unknown => ({
+      ...z.record(z.string(), z.unknown()).parse(JSON.parse(s)),
+      generatedAt: undefined,
+    });
     expect(strip(a.stdout)).toEqual(strip(b.stdout));
   });
 
@@ -192,15 +196,15 @@ describe("audit --format=md --compare", () => {
     expect(r.exitCode, r.stderr).toBe(0);
     expect(r.stdout.startsWith(AUDIT_SUMMARY_MARKER)).toBe(true);
     // The base is audited under its OWN exclude and sees the checkout's
-    // dist/: either mistake shows here as a change nobody made.
+    // ignored files: either mistake shows here as a change nobody made.
     expect(headline(r.stdout)).toContain("unchanged");
     expect(r.stdout).not.toMatch(/[▲▼]/);
   });
 
   it("a real change shows as one", () => {
     const sha = commitBase();
-    write(".claude/skills/bare/SKILL.md", skill("bare"));
-    write(".claude/skills/bare2/SKILL.md", skill("bare2"));
+    write(`${SKILLS}/bare/SKILL.md`, skill("bare"));
+    write(`${SKILLS}/bare2/SKILL.md`, skill("bare2"));
     commitHead();
     const r = run(["audit", "--format=md", "--compare"], repo, prEnv(sha));
     expect(r.exitCode, r.stderr).toBe(0);
@@ -233,7 +237,9 @@ describe("audit --format=md --compare", () => {
     expect(r.stdout).toContain("No comparison with the PR base");
     expect(r.stdout).toContain("no-such-ref");
   });
+});
 
+describe("audit --compare: what it leaves, and what it refuses", () => {
   it("leaves no trace: no stamp, no report, no temp copy", () => {
     const sha = commitBase();
     commitHead();

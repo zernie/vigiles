@@ -118,9 +118,12 @@ export const COMMAND_FLAGS: Record<Verb, readonly FlagSpec[]> = {
   ],
   audit: [
     "--preset=",
+    // What stdout carries: text | json | md. `--json` / `--md` are its aliases.
+    "--format=",
     "--json",
     "--md",
-    // The PR-comment summary's base report (`audit --json` of the PR base).
+    // The md summary's base: bare = decided like `test --changed`, or a ref.
+    "--compare",
     "--compare=",
     "--single",
     "--out=",
@@ -270,7 +273,8 @@ export const PATH_ARGUMENTS: Readonly<Record<Verb, PathArguments>> = {
   audit: {
     root: "project",
     positionals: "all",
-    flags: ["--out=", "--capability-diff=", "--prompts=", "--compare="],
+    // `--compare=` takes a git REF, not a path: it is not re-anchored.
+    flags: ["--out=", "--capability-diff=", "--prompts="],
   },
   // `generate <kind> [out]`: the kind is a word, the rest are paths.
   generate: { root: "project", positionals: "after-first", flags: [] },

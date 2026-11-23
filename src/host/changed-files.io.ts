@@ -9,6 +9,7 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ChangedResult } from "../core/test-selection.js";
 import {
+  everythingRuns,
   prBaseFromEvent,
   type BaseDecision,
   type BaseFacts,
@@ -188,8 +189,5 @@ export function ensureBase(cwd: string, d: BaseDecision): BaseDecision {
     git(cwd, ["fetch", "--no-tags", "--depth=1", "origin", d.fetch]);
   return hasCommit(cwd, d.ref)
     ? d
-    : {
-        kind: "all",
-        why: `${d.why}: not in this clone and could not be fetched, so every file runs`,
-      };
+    : everythingRuns(`${d.why}: not in this clone and could not be fetched`);
 }

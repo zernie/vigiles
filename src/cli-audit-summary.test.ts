@@ -21,7 +21,6 @@ import {
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { z } from "zod";
 import { AUDIT_SUMMARY_MARKER } from "./audit-pr-summary.js";
 import { defaultAdapter } from "./adapter-registry.js";
 import { skillsHome } from "./core/layout.js";
@@ -50,19 +49,6 @@ function run(
   });
   return { stdout: r.stdout, stderr: r.stderr, exitCode: r.status ?? 1 };
 }
-
-/** The part of `audit --json` the base edit touches — parsed, not cast. */
-const ringsOnly = z
-  .object({
-    score: z
-      .object({
-        categories: z.array(
-          z.object({ key: z.string(), score: z.number().nullable() }).loose(),
-        ),
-      })
-      .loose(),
-  })
-  .loose();
 
 let dir = "";
 beforeEach(() => {
@@ -99,42 +85,6 @@ describe("audit --md (one directory)", () => {
     expect(r.stdout).not.toContain("Detected harness");
     expect(existsSync(join(dir, "vigiles-report.html"))).toBe(false);
     expect(existsSync(join(dir, "vigiles-report.json"))).toBe(false);
-  });
-
-  it("--compare= shows each ring's change against the base report", () => {
-    const json = run(["audit", "--json"], dir);
-    expect(json.exitCode, json.stderr).toBe(0);
-    const base = ringsOnly.parse(JSON.parse(json.stdout));
-    // The base differs from the head in exactly one ring.
-    const edited = {
-      ...base,
-      score: {
-        ...base.score,
-        categories: base.score.categories.map((c) =>
-          c.key === "Structure" ? { ...c, score: 13 } : c,
-        ),
-      },
-    };
-    writeFileSync(join(dir, "base.json"), JSON.stringify(edited));
-    const r = run(["audit", "--md", "--compare=base.json"], dir);
-    expect(r.exitCode, r.stderr).toBe(0);
-    const structure =
-      r.stdout.split("\n").find((l) => l.includes("Structure")) ?? "";
-    expect(structure).toMatch(/13 → \d+ ▲/);
-  });
-
-  it("--compare= naming no file still prints the section, with a note", () => {
-    const r = run(["audit", "--md", "--compare=missing.json"], dir);
-    expect(r.exitCode, r.stderr).toBe(0);
-    expect(r.stdout.startsWith(AUDIT_SUMMARY_MARKER)).toBe(true);
-    expect(r.stdout).toMatch(/base/i);
-    expect(r.stdout).not.toMatch(/[▲▼]/);
-  });
-
-  it("--compare= without --md is refused, not ignored", () => {
-    const r = run(["audit", "--compare=base.json"], dir);
-    expect(r.exitCode).toBe(2);
-    expect(r.stderr).toContain("--md");
   });
 });
 
