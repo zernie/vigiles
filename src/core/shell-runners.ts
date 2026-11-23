@@ -55,10 +55,15 @@ export type UnseenReason =
 type Options = readonly string[];
 type OpaqueString = "dynamic-eval" | "dynamic-command-string";
 const DYNAMIC = "dynamic-command-string" as const;
+type Otherwise =
+  | { readonly kind: "none" }
+  | { readonly kind: "stdin" }
+  | { readonly kind: "argv-tail"; readonly positionals: number };
+
 /** HOW a program carries the command it runs — one row of {@link RUNNERS}. */
 export type Runner =
-  /** Resolved in place by `stripWrappers` (`env`, `sudo`, …). */
-  | { readonly mode: "wrapper" }
+  /** Resolved in place by `stripWrappers`; `env -S STR` splits STR into the command. */
+  | { readonly mode: "wrapper"; readonly split: Options }
   /** The rest of argv after its options and N positionals is the command. */
   | {
       readonly mode: "argv-tail";
@@ -69,12 +74,31 @@ export type Runner =
   | { readonly mode: "argv-segment"; readonly starts: Options }
   /** `-c STRING`, else a script operand, else stdin (heredoc, here-string, a pipe). */
   | { readonly mode: "shell" }
-  /** The arguments joined by spaces are a shell string (`eval A B C`). */
+  /** `su -c STRING`; without the option, `otherwise` says what runs. */
+  | {
+      readonly mode: "string-option";
+      readonly options: Options;
+      readonly valueOpts: Options;
+      readonly otherwise: Otherwise;
+    }
+  /** The arguments joined by spaces are a shell string (`eval`, `watch` → `sh -c`). */
   | {
       readonly mode: "joined-args";
+      readonly valueOpts: Options | null;
+      readonly until: Options;
       readonly opaque: OpaqueString;
     }
-  | { readonly mode: "script-file" };
+  | { readonly mode: "script-file" }
+  /** Code in another language: marked, never parsed. */
+  | {
+      readonly mode: "foreign-interpreter";
+      /** Words that hand it code (`--eval`, `-Command`, `eval`). */
+      readonly code: Options;
+      /** Short option letters that hand it code, alone or in a cluster (`-lne`). */
+      readonly cluster: Options;
+    }
+  /** The command runs on another machine or in another root. */
+  | { readonly mode: "other-context"; readonly subcommand: string | null };
 
 export type RunnerMode = Runner["mode"];
 
@@ -86,12 +110,24 @@ export interface Carrier {
   readonly by: string;
 }
 
+/** What the statement's stdin is, for a program that would read code from it. */
+export type StdinFeed =
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "body";
+      readonly by: "<<" | "<<<";
+      readonly word: TemplateWord;
+    }
+  | { readonly kind: "file"; readonly path: string | null };
+
 /** What a row hands back for one command: a string to parse, an argv slice, or a reason. */
 export type Carry =
   | {
       readonly kind: "string";
       readonly text: string;
       readonly holes: boolean;
+      /** `$0 $1 …` of the string, when the carrier binds them (`bash -c S a0 a1`). */
+      readonly args: readonly TemplateWord[];
       readonly carrier: Carrier;
     }
   | {
@@ -113,19 +149,46 @@ const rows = (
 ): readonly (readonly [string, Runner])[] =>
   heads.map((h) => [h, runner] as const);
 
+const wrapper = (split: Options): Runner => ({ mode: "wrapper", split });
 const tail = (valueOpts: Options, positionals = 0): Runner => ({
   mode: "argv-tail",
   valueOpts,
   positionals,
 });
+const COMMAND: Options = ["-c", "--command"];
 const EVAL = "eval";
 const SCRIPT_FILE = "script-file" as const;
+const STDIN: Otherwise = { kind: "stdin" };
+const stringOption = (
+  valueOpts: Options,
+  otherwise: Otherwise,
+  options = COMMAND,
+): Runner => ({ mode: "string-option", options, valueOpts, otherwise });
+const joined = (
+  valueOpts: Options | null,
+  until: Options,
+  opaque: OpaqueString = DYNAMIC,
+): Runner => ({ mode: "joined-args", valueOpts, until, opaque });
+const foreignRow = (code: Options, cluster: Options = []): Runner => ({
+  mode: "foreign-interpreter",
+  code,
+  cluster,
+});
+const elsewhere = (subcommand: string | null): Runner => ({
+  mode: "other-context",
+  subcommand,
+});
 
-/** The table, keyed by the head's basename. */
+/**
+ * The table, keyed by the head's basename. `ssh` and `docker exec` stay
+ * `other-context` until a descent that tracks the context exists.
+ */
 export const RUNNERS: ReadonlyMap<string, Runner> = new Map([
-  ...rows(["env", "command", "nice", "timeout", "sudo", "xargs", "nohup"], {
-    mode: "wrapper",
-  }),
+  ...rows(
+    ["command", "nice", "timeout", "sudo", "xargs", "nohup"],
+    wrapper([]),
+  ),
+  ...rows(["env"], wrapper(["-S", "--split-string"])),
   ...rows(["exec"], tail(["-a"])),
   ...rows(["builtin", "setsid"], tail([])),
   ...rows(
@@ -143,14 +206,55 @@ export const RUNNERS: ReadonlyMap<string, Runner> = new Map([
   ...rows(["sh", "bash", "dash", "zsh", "ksh", "mksh", "ash"], {
     mode: "shell",
   }),
-  ...rows([EVAL], { mode: "joined-args", opaque: "dynamic-eval" }),
+  ...rows(
+    ["su", "runuser"],
+    stringOption(["-s", "--shell", "-g", "-G", "-u", "--user"], STDIN),
+  ),
+  ...rows(
+    ["flock"],
+    stringOption(["-w", "--wait", "--timeout", "-E"], {
+      kind: "argv-tail",
+      positionals: 1,
+    }),
+  ),
+  ...rows(
+    ["script"],
+    stringOption(["-E", "--echo", "-I", "-O", "-B", "-T", "-m"], STDIN),
+  ),
+  ...rows(
+    ["npx"],
+    stringOption(["-p", "--package"], { kind: "none" }, ["-c", "--call"]),
+  ),
+  ...rows([EVAL], joined(null, [], "dynamic-eval")),
+  ...rows(["watch"], joined(["-n", "--interval", "-q", "--equexit"], [])),
+  ...rows(
+    ["parallel"],
+    joined(
+      ["-j", "--jobs", "-n", "--max-args"],
+      [":::", "::::", ":::+", "::::+"],
+    ),
+  ),
   ...rows(["source", "."], { mode: SCRIPT_FILE }),
+  ...rows(["python", "python3"], foreignRow([], ["c"])),
+  ...rows(["node", "bun"], foreignRow(["--eval", "--print", EVAL], ["e", "p"])),
+  ...rows(["perl", "ruby", "lua"], foreignRow([], ["e", "E"])),
+  ...rows(["php"], foreignRow([], ["r"])),
+  ...rows(["deno"], foreignRow([EVAL])),
+  ...rows(["osascript"], foreignRow(["-e"])),
+  ...rows(
+    ["pwsh", "powershell"],
+    foreignRow(["-c", "-Command", "-EncodedCommand", "-e"]),
+  ),
+  ...rows(["fish"], foreignRow(["--command"], ["c"])),
+  ...rows(["ssh", "nsenter", "chroot"], elsewhere(null)),
+  ...rows(["docker", "podman", "kubectl", "lxc"], elsewhere("exec")),
 ]);
 
-/** The program's head and its words (index 0 is the head). */
+/** The program's head, its words (index 0 is the head) and its stdin. */
 export interface RunnerCall {
   readonly head: string;
   readonly words: readonly TemplateWord[];
+  readonly stdin: StdinFeed;
 }
 
 type Row<M extends RunnerMode> = Extract<Runner, { mode: M }>;
@@ -171,9 +275,17 @@ const textOf = (w: Readonly<TemplateWord>): string | null => {
   return s.kind === "text" ? s.text : null;
 };
 
+/** The tail of a word after `n` literal characters (`--command=STR` → `STR`). */
+function sliceWord(w: Readonly<TemplateWord>, n: number): TemplateWord {
+  const template = w.template.slice(n);
+  const opaque = w.holes > 0 && template.split(HOLE).join("") === "";
+  return { ...w, template, opaque };
+}
+
 /** A string the carrier hands to a shell: read it, or say why it cannot be read. */
 function stringCarry(
   w: Readonly<TemplateWord>,
+  args: readonly TemplateWord[],
   by: Carrier,
   opaque: OpaqueString = DYNAMIC,
 ): Carry {
@@ -183,6 +295,7 @@ function stringCarry(
     kind: "string",
     text: w.template,
     holes: w.holes > 0,
+    args,
     carrier: by,
   };
 }
@@ -285,20 +398,113 @@ function shell(c: RunnerCall): readonly Carry[] {
   const scan = scanShell(c.words);
   if (scan.dynamic) return [unseen({ kind: DYNAMIC }, carrier(c, "shell"))];
   const operands = c.words.slice(scan.at ?? c.words.length);
-  const [first] = operands;
+  const [first, ...rest] = operands;
   if (scan.c)
-    return first ? [stringCarry(first, carrier(c, "shell", "-c"))] : [];
+    return first ? [stringCarry(first, rest, carrier(c, "shell", "-c"))] : [];
   if (first && !scan.s)
     return [
       unseen({ kind: SCRIPT_FILE, path: textOf(first) }, carrier(c, "shell")),
     ];
-  // Heredoc and here-string bodies are read in a later step (#460); until then
-  // a shell fed on stdin is unseen, never silent.
-  return [unseen({ kind: "stdin-fed-shell" }, carrier(c, "shell", "|"))];
+  return [shellStdin(c, operands)];
+}
+
+/** A shell with no `-c` and no script reads its commands from stdin. */
+function shellStdin(c: RunnerCall, operands: readonly TemplateWord[]): Carry {
+  switch (c.stdin.kind) {
+    case "none":
+      return unseen({ kind: "stdin-fed-shell" }, carrier(c, "shell", "|"));
+    case "file":
+      return unseen(
+        { kind: SCRIPT_FILE, path: c.stdin.path },
+        carrier(c, "shell", "<"),
+      );
+    case "body": {
+      const args = [c.words[0], ...operands].filter((w) => w !== undefined);
+      return stringCarry(c.stdin.word, args, carrier(c, "shell", c.stdin.by));
+    }
+  }
+}
+
+interface OptionScan {
+  readonly found: TemplateWord | null;
+  readonly take: boolean;
+  readonly skip: boolean;
+  readonly left: number;
+  readonly at: number | null;
+}
+
+/** `-c STR`, `-qc STR`, `-cSTR`, `--command=STR` — or null when `w` is none of them. */
+function commandOption(
+  r: Row<"string-option">,
+  w: Readonly<TemplateWord>,
+): Readonly<Partial<OptionScan>> | null {
+  const t = w.template;
+  if (r.options.includes(t)) return { take: true };
+  const long = r.options.find(
+    (o) => o.startsWith("--") && t.startsWith(`${o}=`),
+  );
+  if (long) return { found: sliceWord(w, long.length + 1) };
+  if (!t.startsWith("-") || t.startsWith("--")) return null;
+  const letters = r.options
+    .filter((o) => o.length === 2)
+    .map((o) => o.slice(1));
+  const at = Math.min(
+    ...letters.map((l) => t.indexOf(l, 1)).filter((i) => i > 0),
+  );
+  if (!Number.isFinite(at)) return null;
+  return at === t.length - 1 ? { take: true } : { found: sliceWord(w, at + 1) };
+}
+
+function optionStep(
+  r: Row<"string-option">,
+  s: OptionScan,
+  w: Readonly<TemplateWord>,
+  i: number,
+): OptionScan {
+  if (s.take) return { ...s, take: false, found: w };
+  if (s.skip) return { ...s, skip: false };
+  const cmd = w.holes > 0 ? null : commandOption(r, w);
+  if (cmd) return { ...s, ...cmd };
+  if (w.holes === 0 && isOption(w.template))
+    return { ...s, skip: r.valueOpts.includes(w.template) };
+  if (r.otherwise.kind === "stdin") return s;
+  return s.left > 0 ? { ...s, left: s.left - 1 } : { ...s, at: i };
+}
+
+function stringOptionCarry(
+  r: Row<"string-option">,
+  c: RunnerCall,
+): readonly Carry[] {
+  const left = r.otherwise.kind === "argv-tail" ? r.otherwise.positionals : 0;
+  const scan = c.words.reduce<OptionScan>(
+    (s, w, i) =>
+      i === 0 || s.found || s.at !== null ? s : optionStep(r, s, w, i),
+    { found: null, take: false, skip: false, left, at: null },
+  );
+  const by = carrier(c, r.mode, r.options[0]);
+  if (scan.found) return [stringCarry(scan.found, [], by)];
+  switch (r.otherwise.kind) {
+    case "none":
+      return [];
+    case "stdin":
+      return [unseen({ kind: "stdin-fed-shell" }, by)];
+    case "argv-tail":
+      return scan.at === null
+        ? []
+        : argvCarry(scan.at, c.words.length, carrier(c, r.mode));
+  }
 }
 
 function joinedArgs(r: Row<"joined-args">, c: RunnerCall): readonly Carry[] {
-  const parts = c.words.slice(c.words[1]?.template === "--" ? 2 : 1);
+  const skipDashes = c.words[1]?.template === "--" ? 2 : 1;
+  const start =
+    r.valueOpts === null
+      ? skipDashes
+      : (operandStart(c.words, r.valueOpts, 0) ?? c.words.length);
+  const end = c.words.findIndex(
+    (w, i) => i >= start && r.until.includes(w.template),
+  );
+  const parts = c.words.slice(start, end < 0 ? c.words.length : end);
   if (parts.length === 0) return [];
   const joinedWord: TemplateWord = {
     template: parts.map((w) => w.template).join(" "),
@@ -306,7 +512,37 @@ function joinedArgs(r: Row<"joined-args">, c: RunnerCall): readonly Carry[] {
     opaque: parts.every((w) => w.opaque),
     undecodable: parts.some((w) => w.undecodable),
   };
-  return [stringCarry(joinedWord, carrier(c, r.mode), r.opaque)];
+  return [stringCarry(joinedWord, [], carrier(c, r.mode), r.opaque)];
+}
+
+/** Does this word hand the interpreter code? */
+function handsCode(r: Row<"foreign-interpreter">, t: string): boolean {
+  if (t === "-" || r.code.some((o) => t === o || t.startsWith(`${o}=`)))
+    return true;
+  const cluster = t.startsWith("-") && !t.startsWith("--");
+  return cluster && r.cluster.some((l) => t.indexOf(l, 1) > 0);
+}
+
+function foreign(
+  r: Row<"foreign-interpreter">,
+  c: RunnerCall,
+): readonly Carry[] {
+  const code = c.words.slice(1).some((w) => handsCode(r, w.template));
+  if (!code && c.stdin.kind !== "body") return [];
+  return [
+    unseen(
+      { kind: "foreign-interpreter", interpreter: c.head },
+      carrier(c, r.mode),
+    ),
+  ];
+}
+
+function wrapperSplit(r: Row<"wrapper">, c: RunnerCall): readonly Carry[] {
+  const i = c.words.findIndex((w) => r.split.includes(w.template));
+  const value = i > 0 ? c.words[i + 1] : undefined;
+  return value
+    ? [stringCarry(value, [], carrier(c, r.mode, c.words[i]?.template))]
+    : [];
 }
 
 function scriptFile(r: Row<"script-file">, c: RunnerCall): readonly Carry[] {
@@ -316,26 +552,107 @@ function scriptFile(r: Row<"script-file">, c: RunnerCall): readonly Carry[] {
     : [];
 }
 
-/** What one row hands on for one command. */
-function readable(r: Runner, c: RunnerCall): readonly Carry[] {
+function otherContext(
+  r: Row<"other-context">,
+  c: RunnerCall,
+): readonly Carry[] {
+  const runs =
+    r.subcommand === null
+      ? c.words.length > 1
+      : c.words.some((w) => w.template === r.subcommand);
+  return runs
+    ? [unseen({ kind: "other-context", runner: c.head }, carrier(c, r.mode))]
+    : [];
+}
+
+/** The rows whose command is an argv slice or a string the descent reads. */
+function readable(r: Runner, c: RunnerCall): readonly Carry[] | null {
   switch (r.mode) {
     case "wrapper":
-      return []; // `stripWrappers` already resolved it in place
+      return wrapperSplit(r, c);
     case "argv-tail":
       return argvTail(r, c);
     case "argv-segment":
       return argvSegments(r, c);
     case "shell":
       return shell(c);
+    case "string-option":
+      return stringOptionCarry(r, c);
     case "joined-args":
       return joinedArgs(r, c);
+    default:
+      return null;
+  }
+}
+
+/** The rows whose command the descent cannot read, only name. */
+function opaque(r: Runner, c: RunnerCall): readonly Carry[] {
+  switch (r.mode) {
     case SCRIPT_FILE:
       return scriptFile(r, c);
+    case "foreign-interpreter":
+      return foreign(r, c);
+    case "other-context":
+      return otherContext(r, c);
+    default:
+      return [];
   }
 }
 
 /** What `call.head`'s row hands on: strings to parse, argv slices, or reasons. */
 export function carriesOf(call: RunnerCall): readonly Carry[] {
   const r = RUNNERS.get(call.head);
-  return r ? readable(r, call) : [];
+  return r ? (readable(r, call) ?? opaque(r, call)) : [];
+}
+
+const ANSI_C_ESCAPES: ReadonlyMap<string, string> = new Map([
+  ["a", "\x07"],
+  ["b", "\b"],
+  ["e", "\x1b"],
+  ["E", "\x1b"],
+  ["f", "\f"],
+  ["n", "\n"],
+  ["r", "\r"],
+  ["t", "\t"],
+  ["v", "\v"],
+  ["\\", "\\"],
+  ["'", "'"],
+  ['"', '"'],
+  ["?", "?"],
+]);
+
+/** One escape or one run of plain text — the whole (regular) grammar of `$'…'`. */
+const ANSI_C_TOKEN =
+  /\\(?:([0-7]{1,3})|x([0-9A-Fa-f]{1,2})|u([0-9A-Fa-f]{1,4})|U([0-9A-Fa-f]{1,8})|c(.)|(.)|$)|[^\\]+/gs;
+
+/** A numeric escape (`\101`, `\x41`, `\u0041`, `\U00000041`), or undefined. */
+function numericEscape(
+  oct: string | undefined,
+  hex: string | undefined,
+  wide: string | undefined,
+): string | null | undefined {
+  if (oct) return String.fromCharCode(parseInt(oct, 8) & 0xff);
+  if (hex) return String.fromCharCode(parseInt(hex, 16));
+  if (!wide) return undefined;
+  const cp = parseInt(wide, 16);
+  return cp <= 0x10ffff ? String.fromCodePoint(cp) : null;
+}
+
+function ansiCToken(m: readonly (string | undefined)[]): string | null {
+  const [all = "", oct, hex, u4, u8, ctl, one] = m;
+  if (!all.startsWith("\\")) return all;
+  const n = numericEscape(oct, hex, u4 ?? u8);
+  if (n !== undefined) return n;
+  if (ctl) return String.fromCharCode(ctl.charCodeAt(0) & 0x1f);
+  return ANSI_C_ESCAPES.get(one ?? "") ?? null;
+}
+
+/**
+ * The text bash hands a program for `$'raw'` — ANSI-C quoting, which mvdan-sh
+ * keeps undecoded. `null` for an escape this does not know: no guess (bash keeps
+ * those as written, and a guard should not bet on which bash).
+ */
+export function decodeAnsiC(raw: string): string | null {
+  const parts = Array.from(raw.matchAll(ANSI_C_TOKEN), (m) => ansiCToken(m));
+  return parts.every((p) => p !== null) ? parts.join("") : null;
 }

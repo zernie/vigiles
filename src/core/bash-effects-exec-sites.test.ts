@@ -51,6 +51,7 @@ const FOUND = [
   `bash --norc -c 'git push -f'`,
   `bash -o pipefail -c "git push -f"`,
   `bash -c 'git push -f "$@"' -- origin main`,
+  `bash -c 'git push "$1"' _ -f`,
   `sudo -u x bash -c "git push -f"`,
   `timeout 5 sh -c "git push -f"`,
   `ls | xargs -I{} sh -c "cd {} && git push -f"`,
@@ -59,9 +60,19 @@ const FOUND = [
   `bash -c "sh -c 'git push -f'"`,
   `cd x && bash -c "git push -f"`,
   `bash -c "git pu""sh -f"`,
+  `bash -c $'git push\\t-f'`,
   `eval "git push -f"`,
   `builtin eval "git push -f"`,
+  `bash <<< "git push -f"`,
+  `bash <<EOF\ngit push -f\nEOF`,
+  `bash <<'EOF'\ngit push $x -f\nEOF`,
+  `bash <<-EOF\n\tgit push -f\n\tEOF`,
+  `sh -s <<EOF\ngit push -f\nEOF`,
   `exec sh -c "git push -f"`,
+  `script -qc "git push -f" /dev/null`,
+  `flock /tmp/l -c "git push -f"`,
+  `su -c "git push -f" me`,
+  `watch -n1 "git push -f"`,
 ];
 
 describe("a literal nested command is an exec site", () => {
@@ -82,8 +93,9 @@ describe("a literal nested command is an exec site", () => {
     );
   });
 
-  test("find's {} is a dynamic word", () => {
-    const sites = execSites(`find . -exec git push {} \\;`);
+  test("find's {} is a dynamic word, and so is a positional bound to it", () => {
+    const sites = execSites(`find . -exec sh -c 'git push "$1"' _ {} \\;`);
+    assert.ok(!sites.some(forcePush));
     const git = sites.find((s) => s.kind === "exec" && s.leaf.head === "git");
     assert.deepEqual(git?.kind === "exec" ? git.argv[2] : null, {
       kind: "dynamic",
@@ -103,13 +115,18 @@ describe("what the descent cannot read is unseen, with its reason", () => {
   test.each([
     [`bash -c "$CMD"`, "dynamic-command-string"],
     [`bash $OPTS -c "git push -f"`, "dynamic-command-string"],
+    [`bash <<< "$X"`, "dynamic-command-string"],
     [`eval "$X"`, "dynamic-eval"],
     [`echo 'git push -f' | bash`, "stdin-fed-shell"],
     [`printf 'git push -f\\n' | sh`, "stdin-fed-shell"],
     [`source x.sh`, "script-file"],
     [`bash script.sh`, "script-file"],
+    [`bash < x.sh`, "script-file"],
     [`$(echo git) push -f`, "dynamic-head"],
     [`G=git; $G push -f`, "dynamic-head"],
+    [`ssh host 'git push -f'`, "other-context"],
+    [`kubectl exec p -- sh -c "git push -f"`, "other-context"],
+    [`python -c "import os; os.system('git push -f')"`, "foreign-interpreter"],
     [`bash -c $'git push \\q'`, "parse-error"],
     [`bash -c "if then"`, "parse-error"],
   ])("%s → %s", (cmd, reason) => {

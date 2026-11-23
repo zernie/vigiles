@@ -27,10 +27,12 @@ import {
   HOLE,
   RUNNERS,
   carriesOf,
+  decodeAnsiC,
   shellWord,
   type Carrier,
   type Carry,
   type ShellWord,
+  type StdinFeed,
   type TemplateWord,
   type UnseenReason,
 } from "./shell-runners.js";
@@ -111,6 +113,8 @@ interface MvdanRedirect extends MvdanNode {
   N?: MvdanNode;
   /** The redirection target word (`> f` → the word `f`). */
   Word?: MvdanWord;
+  /** A heredoc's body (`<<EOF … EOF`); the delimiter is {@link Word}. */
+  Hdoc?: MvdanWord;
 }
 
 interface MvdanWord extends MvdanNode {
@@ -731,6 +735,7 @@ function normalizeParts(
   parts: readonly MvdanNode[] | undefined,
   inDoubleQuotes = false,
   unescape = false,
+  positional: readonly ShellWord[] = [],
 ): string | null {
   if (!parts) return null;
   let out = "";
@@ -743,12 +748,20 @@ function normalizeParts(
     } else if (t === "SglQuoted") {
       out += p.Value ?? "";
     } else if (t === "DblQuoted") {
-      const inner = normalizeParts((p as MvdanWord).Parts, true, unescape);
+      const inner = normalizeParts(
+        (p as MvdanWord).Parts,
+        true,
+        unescape,
+        positional,
+      );
       if (inner === null) return null;
       out += inner;
     } else if (t === "ParamExp") {
-      // Canonicalize the home directory; any other parameter is dynamic.
+      // Canonicalize the home directory; a positional bound by a nested
+      // shell's literal arguments is its value; any other parameter is dynamic.
+      const bound = positionalText(p, positional, inDoubleQuotes);
       if (p.Param?.Value === "HOME") out += "~";
+      else if (bound !== null) out += bound;
       else return null;
     } else {
       return null; // CmdSubst / ArithmExp / ProcSubst / … → dynamic
@@ -1087,6 +1100,8 @@ interface DescentEnv {
   readonly depth: number;
   readonly via: readonly Carrier[];
   readonly context: ExecContext;
+  /** `$0 $1 …` bound by the carrier (`bash -c S a0 a1`); unbound → dynamic. */
+  readonly positional: readonly ShellWord[];
   /** A word the runner fills in at run time (`find`'s `{}`). */
   readonly fill: string | null;
 }
@@ -1095,6 +1110,7 @@ const TOP: DescentEnv = {
   depth: 0,
   via: [],
   context: "local",
+  positional: [],
   fill: null,
 };
 
@@ -1141,7 +1157,7 @@ function sitesOfCall(
   const assigns = assignsOf
     ? collectAssigns(assignsOf)
     : new Map<string, null>();
-  const leaf = normalizeArgs(args, assigns, redirs);
+  const leaf = normalizeArgs(args, assigns, redirs, env.positional);
   if (leaf === null) return [unseenSite({ kind: "dynamic-head" }, null, env)];
   const words = args.map((w) => wordTemplate(w.Parts, env, "plain"));
   const drop = wrapperDrop(words);
@@ -1157,7 +1173,12 @@ function sitesOfCall(
   };
   if (head?.kind !== "text")
     return [own, unseenSite({ kind: "dynamic-head" }, null, env)];
-  const carries = carriesOf({ head: normalizeHead(head.text), words: cmd });
+  const stdin = stdinFeed(redirs, env);
+  const carries = carriesOf({
+    head: normalizeHead(head.text),
+    words: cmd,
+    stdin,
+  });
   const rest = args.slice(drop);
   return [own, ...carries.flatMap((c) => follow(c, rest, redirs, env))];
 }
@@ -1200,7 +1221,12 @@ function nestedString(
   const hole = c.holes
     ? [unseenSite({ kind: "hole-in-command-string" }, head, env)]
     : [];
-  const inner = { ...env, depth: env.depth + 1, fill: null };
+  const inner = {
+    ...env,
+    depth: env.depth + 1,
+    positional: c.args.map(shellWord),
+    fill: null,
+  };
   return [...hole, ...sitesOfText(c.text, inner)];
 }
 
@@ -1218,7 +1244,7 @@ function wrapperDrop(words: readonly TemplateWord[]): number {
 }
 
 /** Which quoting rules a run of literal text is under. */
-type QuoteMode = "plain" | "dq";
+type QuoteMode = "plain" | "dq" | "heredoc";
 
 interface Piece {
   readonly text: string;
@@ -1273,16 +1299,17 @@ function partPiece(
       return { ...NO_PIECE, text, literal: text !== "" };
     }
     case "SglQuoted": {
-      // `$'…'` escapes are decoded in a later step (#460): until then an escape
-      // makes the word untrusted rather than guessed.
-      const text = p.Value ?? "";
-      const escaped = p.Dollar === true && text.includes("\\");
-      return escaped ? { ...NO_PIECE, bad: true } : textPiece(text);
+      const text = p.Dollar ? decodeAnsiC(p.Value ?? "") : (p.Value ?? "");
+      return text === null ? { ...NO_PIECE, bad: true } : textPiece(text);
     }
     case "DblQuoted": {
       // `""` is an empty argument: literal. `"$X"` is nothing but its hole.
       const inner = wordPieces(p.Parts, env);
       return { ...inner, literal: inner.literal || inner.holes === 0 };
+    }
+    case "ParamExp": {
+      const text = positionalText(p, env.positional, mode !== "plain");
+      return text === null ? HOLE_PIECE : textPiece(text);
     }
     default:
       return HOLE_PIECE; // $(…), $((…)), <(…), an unbound or operator expansion
@@ -1299,8 +1326,85 @@ function wordPieces(
 }
 
 /** Backslash removal: everywhere outside quotes, only before `$ \` " \\` inside them. */
-const unescapeIn = (raw: string, mode: QuoteMode): string =>
-  unescapeLit(raw, mode === "dq");
+function unescapeIn(raw: string, mode: QuoteMode): string {
+  if (mode !== "heredoc") return unescapeLit(raw, mode === "dq");
+  return raw.replace(/\\\n/g, "").replace(/\\([$`\\])/g, "$1");
+}
+
+/**
+ * A `$N` / `$@` / `$*` bound to a literal argument of the carrier, or `null`.
+ * Unquoted, a value with blanks or glob characters splits or expands: dynamic.
+ */
+function positionalText(
+  p: Readonly<MvdanNode>,
+  positional: readonly ShellWord[],
+  quoted: boolean,
+): string | null {
+  const name = p.Param?.Value ?? "";
+  const operator = [
+    p.Excl,
+    p.Length,
+    p.Width,
+    p.Index,
+    p.Slice,
+    p.Repl,
+    p.Names,
+    p.Exp,
+  ];
+  if (operator.some(Boolean)) return null;
+  const w = positional[positionalIndex(name, positional.length)];
+  if (w?.kind !== "text") return null;
+  return quoted || !/[\s*?[\]]/.test(w.text) ? w.text : null;
+}
+
+/** `$3` → 3; `$@`/`$*` → 1 when exactly one argument follows `$0`; else -1. */
+function positionalIndex(name: string, bound: number): number {
+  if (name === "@" || name === "*") return bound === 2 ? 1 : -1;
+  return /^\d+$/.test(name) ? Number(name) : -1;
+}
+
+const STDIN_OPS: ReadonlySet<number> = new Set([56, 61, 62, 63]);
+
+/** The statement's stdin, as a shell would read code from it (bash takes the last). */
+function stdinFeed(
+  redirs: readonly MvdanRedirect[],
+  env: DescentEnv,
+): StdinFeed {
+  const r = redirs
+    .filter((x) => STDIN_OPS.has(x.Op) && (x.N?.Value ?? "0") === "0")
+    .at(-1);
+  if (!r) return { kind: "none" };
+  const word = wordTemplate(r.Word?.Parts, env, "plain");
+  if (r.Op === 56) {
+    const path = shellWord(word);
+    return { kind: "file", path: path.kind === "text" ? path.text : null };
+  }
+  if (r.Op === 63) return { kind: "body", by: "<<<", word };
+  return { kind: "body", by: "<<", word: heredocBody(r, env) };
+}
+
+/** A heredoc body: as written under a quoted delimiter, else expanded like `"…"`. */
+function heredocBody(
+  r: Readonly<MvdanRedirect>,
+  env: DescentEnv,
+): TemplateWord {
+  const delimiter = r.Word?.Parts ?? [];
+  const quoted = delimiter.some(
+    (p) => sh().syntax.NodeType(p) !== "Lit" || (p.Value ?? "").includes("\\"),
+  );
+  const body: TemplateWord = quoted
+    ? {
+        template: (r.Hdoc?.Parts ?? []).map((p) => p.Value ?? "").join(""),
+        holes: 0,
+        opaque: false,
+        undecodable: false,
+      }
+    : wordTemplate(r.Hdoc?.Parts, env, "heredoc");
+  // `<<-` strips leading tabs from every line.
+  return r.Op === 62
+    ? { ...body, template: body.template.replace(/^\t+/gm, "") }
+    : body;
+}
 
 /**
  * Reconstruct a Word's SOURCE-level text: quotes unwrapped, parameter references
@@ -1566,12 +1670,17 @@ const PIPE_OP = 12;
 const PIPE_ALL_OP = 13;
 
 /** Normalize a Stmt's redirections into {@link LeafRedirect}s (source order). */
-function normalizeRedirects(redirs: readonly MvdanRedirect[]): LeafRedirect[] {
+function normalizeRedirects(
+  redirs: readonly MvdanRedirect[],
+  positional: readonly ShellWord[],
+): LeafRedirect[] {
   return redirs.map((r) => {
     const fd = Number(r.N?.Value);
     return {
       op: REDIR_OP_NAMES.get(r.Op) ?? String(r.Op),
-      target: r.Word ? normalizeParts(r.Word.Parts) : null,
+      target: r.Word
+        ? normalizeParts(r.Word.Parts, false, false, positional)
+        : null,
       fd: Number.isInteger(fd) ? fd : null,
       writes: WRITE_REDIR_OPS.has(r.Op),
     };
@@ -1601,20 +1710,21 @@ function normalizeCallExpr(
 ): NormalizedLeaf | null {
   if (sh().syntax.NodeType(node) !== "CallExpr" || !node.Args?.length)
     return null;
-  return normalizeArgs(node.Args, collectAssigns(node), redirs);
+  return normalizeArgs(node.Args, collectAssigns(node), redirs, []);
 }
 
 /**
  * Normalize one command's words — a CallExpr's, or an argv slice a runner hands
- * on (`exec git push`).
+ * on (`exec git push`) — with `positional` bound by a nested shell's arguments.
  */
 function normalizeArgs(
   words: readonly MvdanWord[],
   baseAssigns: ReadonlyMap<string, string | null>,
   redirs: readonly MvdanRedirect[],
+  positional: readonly ShellWord[],
 ): NormalizedLeaf | null {
   const norm = (w: Readonly<MvdanWord>, unescape: boolean): string | null =>
-    normalizeParts(w.Parts, false, unescape);
+    normalizeParts(w.Parts, false, unescape, positional);
   const first = words[0];
   const headRaw = first ? norm(first, true) : null;
   if (headRaw === null) return null; // dynamic head → not normalizable
@@ -1654,7 +1764,7 @@ function normalizeArgs(
     hasFlag: (...names) => names.some((n) => flags.has(n)),
     assigns,
     hasAssign: (...names) => names.some((n) => assigns.has(n)),
-    redirects: normalizeRedirects(redirs),
+    redirects: normalizeRedirects(redirs, positional),
     chdir: stripped.chdir,
   };
 }

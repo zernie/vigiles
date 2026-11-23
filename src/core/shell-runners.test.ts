@@ -10,7 +10,7 @@ import { describe, test } from "vitest";
 import assert from "node:assert/strict";
 
 import { execSites, type ExecSite } from "./bash-effects.js";
-import { RUNNERS, type RunnerMode } from "./shell-runners.js";
+import { RUNNERS, decodeAnsiC, type RunnerMode } from "./shell-runners.js";
 
 /** One command per row that hands that row `git push -f` (or an opaque payload). */
 const INSTANCES: Readonly<Record<string, string>> = {
@@ -37,13 +37,44 @@ const INSTANCES: Readonly<Record<string, string>> = {
   ksh: "ksh -c 'git push -f'",
   mksh: "mksh -c 'git push -f'",
   ash: "ash -c 'git push -f'",
+  su: "su -c 'git push -f' me",
+  runuser: "runuser me --command='git push -f'",
+  flock: "flock /tmp/l -c 'git push -f'",
+  script: "script -qc 'git push -f' /dev/null",
+  npx: "npx -c 'git push -f'",
   eval: "eval git push -f",
+  watch: "watch -n1 'git push -f'",
+  parallel: "parallel -j2 'git push -f' ::: a",
   source: "source x.sh",
   ".": ". x.sh",
+  python: "python -c 'import os'",
+  python3: "python3 - <<'EOF'\nimport os\nEOF",
+  node: "node --eval=1",
+  perl: "perl -E 1",
+  ruby: "ruby -e 1",
+  php: "php -r 1",
+  deno: "deno eval 1",
+  bun: "bun -e 1",
+  osascript: "osascript -e 1",
+  pwsh: "pwsh -c 1",
+  powershell: "powershell -Command 1",
+  lua: "lua -e 1",
+  fish: "fish -c 'git push -f'",
+  ssh: "ssh -p 22 host 'git push -f'",
+  docker: "docker exec c sh -c 'git push -f'",
+  podman: "podman exec c sh",
+  kubectl: "kubectl exec p -- sh",
+  lxc: "lxc exec c -- sh",
+  nsenter: "nsenter -t 1 sh",
+  chroot: "chroot /x sh",
 };
 
 /** The modes whose command the descent cannot read: they must say so. */
-const OPAQUE: ReadonlySet<RunnerMode> = new Set(["script-file"]);
+const OPAQUE: ReadonlySet<RunnerMode> = new Set([
+  "script-file",
+  "foreign-interpreter",
+  "other-context",
+]);
 
 const forcePush = (s: ExecSite): boolean =>
   s.kind === "exec" &&
@@ -68,5 +99,34 @@ describe("every RUNNERS row is parsed or opaque, never silent", () => {
     // A wrapper is resolved IN PLACE (today's leaf); every other row nests.
     const nested = sites.some((s) => forcePush(s) && s.via.length > 0);
     assert.equal(nested, row.mode !== "wrapper", head);
+  });
+
+  test("env -S splits its string into the command", () => {
+    assert.ok(execSites("env -S 'git push -f'").some(forcePush));
+  });
+});
+
+describe("decodeAnsiC: what bash hands the program for $'…'", () => {
+  const codes = Array.from({ length: 128 }, (_, i) => i);
+
+  test("every ASCII code round-trips through \\xHH and \\NNN", () => {
+    for (const c of codes) {
+      const ch = String.fromCharCode(c);
+      assert.equal(decodeAnsiC(`\\x${c.toString(16)}`), ch);
+      assert.equal(decodeAnsiC(`\\${c.toString(8).padStart(3, "0")}`), ch);
+      assert.equal(decodeAnsiC(`\\u${c.toString(16).padStart(4, "0")}`), ch);
+    }
+  });
+
+  test("named escapes, quotes and control characters", () => {
+    assert.equal(decodeAnsiC("git push\\t-f"), "git push\t-f");
+    assert.equal(decodeAnsiC("a\\'b\\\\c\\\"d"), "a'b\\c\"d");
+    assert.equal(decodeAnsiC("\\cA\\e"), "\u0001\u001b");
+    assert.equal(decodeAnsiC("\\U0001F600"), "\u{1F600}");
+  });
+
+  test("an escape it does not know is not guessed", () => {
+    for (const raw of ["\\q", "tail\\", "\\x", "\\u"])
+      assert.equal(decodeAnsiC(raw), null, raw);
   });
 });
