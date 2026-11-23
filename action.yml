@@ -333,6 +333,18 @@ runs:
             # light and can't trip a required filter (e.g. git-crypt) the runner
             # lacks. The agent surface (unencrypted) lands as plaintext to diff.
             if git archive "$base_sha" 2>/dev/null | tar -x -C "$base_dir" 2>/dev/null; then
+              # Hold the ENVIRONMENT constant, so only the PR's tracked content
+              # differs: what this checkout has but git ignores (installed deps,
+              # build output) is linked into the base copy too. Without it a hook
+              # running `dist/cli.js` or a bin in node_modules is "missing" in the
+              # base only, and the comment shows a score change nobody made.
+              top="$(git rev-parse --show-toplevel)"
+              while IFS= read -r -d '' ignored; do
+                ignored="${ignored%/}"
+                [[ -e "$base_dir/$ignored" || -L "$base_dir/$ignored" ]] && continue
+                mkdir -p "$(dirname "$base_dir/$ignored")"
+                ln -s "$top/$ignored" "$base_dir/$ignored"
+              done < <(git -C "$top" ls-files -z --others --ignored --exclude-standard --directory 2>/dev/null)
               # The SAME relative dir in both trees (support a subdir working-directory).
               rel="$(git rev-parse --show-prefix 2>/dev/null || echo '')"
               before="${base_dir%/}/${rel}"; before="${before%/}"

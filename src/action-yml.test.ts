@@ -458,7 +458,7 @@ function writeStubNpx(bin: string): void {
       'printf "%s\\n" "$*" >> "$NPX_LOG"',
       // Where each call ran, and whether that folder is the PR base's copy (the
       // base commit carries `base-only.txt`; the head deletes it).
-      '[[ -n "${NPX_WHERE_LOG:-}" ]] && printf "%s|%s\\n" "$([[ -e base-only.txt ]] && echo base || echo head)" "$*" >> "$NPX_WHERE_LOG"',
+      '[[ -n "${NPX_WHERE_LOG:-}" ]] && printf "%s|%s|%s\\n" "$([[ -e base-only.txt ]] && echo base || echo head)" "$([[ -e dist/built.js ]] && echo built || echo unbuilt)" "$*" >> "$NPX_WHERE_LOG"',
       'case " $* " in',
       '  *" --md "*) printf "%s" "${STUB_MD:-}"; exit "${STUB_MD_EXIT:-0}" ;;',
       '  *" --json"*) printf "{}"; exit 0 ;;',
@@ -684,9 +684,37 @@ describe("action.yml — the audit summary on a pull request", () => {
     assert.equal(r.status, 0);
     const base = calls.filter((l) => l.includes(" --json"));
     assert.equal(base.length, 1, calls.join("\n"));
-    assert.match(base[0] ?? "", /^base\|.* audit \. --json$/);
+    assert.match(base[0] ?? "", /^base\|[a-z]+\|.* audit \. --json$/);
     const head = calls.filter((l) => l.includes(" --md"));
     assert.match(head[0] ?? "", /^head\|/);
+  });
+
+  // Found dogfooding #480: the Action's comment on its own PR read "base D → B,
+  // Truthfulness 85 → 100" for a PR that touched no hook. The base copy (`git
+  // archive`) had no `dist/`, so a hook running `dist/cli.js` was "missing" in the
+  // base only. What the checkout has but git ignores (installed deps, build
+  // output) is the environment, not the PR: both sides must see it.
+  it("gives the base copy the checkout's git-ignored files, so only tracked content differs", () => {
+    const where = join(mkdtempSync(join(tmpdir(), "vigiles-where-")), "log");
+    writeFileSync(where, "");
+    const r = runStep(
+      { GITHUB_EVENT_NAME: "pull_request", NPX_WHERE_LOG: where },
+      prBase(
+        (head) => {
+          mkdirSync(join(head, "dist"));
+          writeFileSync(join(head, "dist", "built.js"), "");
+        },
+        (base) => {
+          writeFileSync(join(base, ".gitignore"), "dist/\n");
+        },
+      ),
+    );
+    const calls = readFileSync(where, "utf-8").split("\n");
+    rmSync(dirname(where), { recursive: true, force: true });
+    assert.equal(r.status, 0);
+    const base = calls.filter((l) => l.includes(" --json"));
+    assert.equal(base.length, 1, calls.join("\n"));
+    assert.match(base[0] ?? "", /^[a-z]+\|built\|/);
   });
 
   it("on a pull request with no base to read, still compares, so the CLI says why", () => {
