@@ -5,6 +5,7 @@
  * hard-coding them; a Codex adapter defines `codexRuntime` and its runner uses it.
  */
 import type { HarnessRuntime, RunEnvPolicy } from "../../core/runtime.js";
+import { claudeCodeRequestCapture } from "./request-capture.io.js";
 
 /**
  * What a child `claude` run may inherit from its caller. The runners apply it
@@ -112,6 +113,7 @@ export const claudeCodeRuntime: HarnessRuntime = {
     return m ? `${m[1]}.${m[2]}` : raw.trim();
   },
   runEnv: claudeCodeRunEnv,
+  requestCapture: claudeCodeRequestCapture,
 };
 
 /**

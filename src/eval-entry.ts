@@ -61,6 +61,7 @@ import {
   type EvalDriver,
   type TriggerRateSpec,
   unansweredInReport,
+  contextInReport,
 } from "./eval.js";
 import { parseToolStubs } from "./core/eval-spec-parse.js";
 import {
@@ -158,6 +159,14 @@ export function runFailure(
   report: AnyReport,
   spec: unknown,
 ): { readonly code: number; readonly message: string } | undefined {
+  // Checked before the zero-runs line: a run whose every trial missed its
+  // instruction files has zero scored runs, and this is the reason why.
+  const context = isEvalReport(report) ? contextInReport(report) : undefined;
+  if (context !== undefined)
+    return {
+      code: 1,
+      message: `✗ ${file}: an instruction file missed the model's request — those trials are not scored.\n${context}`,
+    };
   if (runsIn(report) === 0)
     return {
       code: 1,

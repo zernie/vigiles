@@ -426,6 +426,29 @@ report) — [what each passes into the run](measuring-skills.md#where-a-trial-ru
 returns, makes `vigiles eval` exit `2` (the file itself exits `78`) and refuses to write a lock — see
 [Stubbing a CLI](measuring-skills.md#stubbing-a-cli-the-agent-calls--experimental_stub).
 
+**Every trial checks that its instruction files reached the model.** A file
+sitting in the trial's directory is not proof it loaded: a settings flag, an
+env var or a `CLAUDE.md` beside an unimported `AGENTS.md` can drop it, and the
+run still exits 0. So each trial reads the model's first request and looks
+for the files the harness should load from that trial's world — `CLAUDE.md`,
+a lone `AGENTS.md`, each `@`-import. You declare nothing; the harness's own
+loading rules decide what is expected. One line per arm says what was found:
+
+```
+  skill      ✓ context: CLAUDE.md delivered in 5 of 5 trials
+  skill      ✗ context: AGENTS.md missing from the model's request in 2 of 5 trials — not scored
+  skill      ⚠ context not checked: this harness has no request-body channel in 5 of 5 trials
+```
+
+A trial with a missing file is **not scored**: it is left out of `runs`,
+`metrics` and `stats` (its cost stays in `usage`), the lock is not written and
+the eval fails. "Not checked" is never a pass. Per-trial results are in
+`report.arms[a].context`. The request bodies are written to a temporary
+directory with every telemetry exporter off, read once and deleted; only file
+names reach the report and the cache. Codex trials say "not checked" — no
+request channel is read there yet. `experimental_contextCheck: false` turns the
+check off.
+
 The `measure` ctx is a full `Trace`, so a metric reads the agent's **actions**
 (`ctx.toolCalls`), its **final answer** (`ctx.output`), and the **filesystem**
 (`ctx.file`, `ctx.sh`) — reuse the bare predicates to compute them.

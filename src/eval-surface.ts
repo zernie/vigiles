@@ -143,6 +143,11 @@ export type { Trace } from "./harness-test.js";
 // so a spec typed against this door needs no second import for them.
 export type { HomeFiles, HomeSeed, RunEnv } from "./core/run-env.js";
 export type { StubCall, StubOutcome, ToolStub } from "./core/stub-rules.js";
+// The element type of `ArmReport.context` (vigiles#416).
+export type {
+  ContextEvidence,
+  UnobservableWhy,
+} from "./core/context-evidence.js";
 
 // Report shapes, deliberately re-exported from BOTH barrels (see the module doc):
 // the free analysis helpers on `vigiles` are typed over these, and a caller of
