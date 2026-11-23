@@ -27,6 +27,7 @@ import {
   inject,
 } from "./core/hook-program.js";
 import { ADAPTERS } from "./adapter-registry.js";
+import { loadHook } from "./load-hook.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 /** Whether `python3` runs here (the #213 spellings need a real interpreter). */
@@ -345,4 +346,102 @@ exit 1
   } finally {
     cleanupTmpDir(dir);
   }
+});
+
+// ---------------------------------------------------------------------------
+// The "must allow" half: harmless look-alikes are on by default (#418)
+// ---------------------------------------------------------------------------
+
+const SAFE_BASH_GUARD = join(
+  __dirname,
+  "..",
+  "examples",
+  "harness",
+  "safe-bash-guard.hook.mjs",
+);
+
+/** The over-blocking shape from #418: it greps the RAW input for the text. */
+function writeTextGuard(dir: string): string {
+  const path = join(dir, "text-guard.sh");
+  writeFileSync(
+    path,
+    `#!/usr/bin/env bash
+input=$(cat)
+echo "$input" | grep -qE 'git push (--force|-f)|rm -rf /|--no-verify|\\.ssh/id_|curl .*\\| *sh|reset --hard' \\
+  && { echo "blocked" >&2; exit 2; }
+exit 0
+`,
+  );
+  return `bash ${path}`;
+}
+
+test("a guard that matches the raw text blocks a look-alike of every form, and assertGuardrail fails it", () => {
+  const dir = makeTmpDir("guardrail-text");
+  try {
+    const guard = writeTextGuard(dir);
+    const results = verifyGuardrail(guard);
+    assert.deepEqual(unblockedDisasters(results), []);
+    const overBlocked = results.filter(
+      (r) => r.expect === "allow" && r.blocked,
+    );
+    const forms = new Set(
+      overBlocked.map((r) => (r.expect === "allow" ? r.event.form : "")),
+    );
+    for (const form of ["commit-message", "heredoc", "echo", "grep-pattern"])
+      assert.ok(forms.has(form), form);
+    assert.throws(() => {
+      assertGuardrail(guard);
+    });
+    assert.doesNotThrow(() => {
+      assertGuardrail(guard, { harmless: [] });
+    });
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("a compiled guard deciding on the parsed command blocks every disaster and no look-alike", async () => {
+  const guard = await loadHook(SAFE_BASH_GUARD);
+  const results = verifyGuardrail(guard);
+  assert.ok(results.some((r) => r.expect === "allow"));
+  for (const r of results)
+    assert.equal(r.blocked, r.expect === "block", r.event.id);
+  assert.doesNotThrow(() => {
+    assertGuardrail(guard);
+  });
+});
+
+test("harmless: [] runs no look-alike; a custom battery gets look-alikes of its own cases", () => {
+  const off = verifyGuardrail(PUSH_FORCE_GUARD, { harmless: [] });
+  assert.ok(off.every((r) => r.expect === "block"));
+
+  const mine = verifyGuardrail(PUSH_FORCE_GUARD, { events: PUSH_EVENTS });
+  const seeds = new Set(PUSH_EVENTS.map((e) => e.id));
+  const twins = mine.filter((r) => r.expect === "allow");
+  assert.ok(twins.length > 0);
+  for (const r of twins)
+    assert.ok(r.expect === "allow" && seeds.has(r.event.of ?? ""), r.event.id);
+});
+
+test("a custom harmless case is checked as must-allow", () => {
+  // A commit message from the #418 report: the reporter's own text guard
+  // denied it; a guard on the parsed command lets it through.
+  const results = verifyGuardrail(PUSH_FORCE_GUARD, {
+    events: PUSH_EVENTS,
+    harmless: [
+      {
+        id: "docs-commit",
+        label: "commit whose message quotes a force push",
+        form: "custom",
+        tool: "Bash",
+        input: {
+          command: 'git commit -m "docs: never git push --force to main"',
+        },
+      },
+    ],
+  });
+  const row = results.find((r) => r.event.id === "docs-commit");
+  assert.ok(row);
+  assert.equal(row.expect, "allow");
+  assert.equal(row.blocked, false);
 });
