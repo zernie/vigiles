@@ -369,6 +369,28 @@ describe("action.yml — command: test installs the agent CLI and floors at one 
     );
   });
 
+  // Codex on #477: `version: local` runs `node` directly, so a copy only in
+  // node_modules/.bin was "found" but invisible to the harness files' lookup.
+  it("puts a repo-local CLI on PATH for the run, whatever runs vigiles", () => {
+    // `version: local` runs `node <action>/dist/cli.js`; this stand-in records
+    // whether the harness files would find `claude` on PATH.
+    const probe =
+      'const { spawnSync } = require("node:child_process");\n' +
+      'const found = spawnSync("sh", ["-c", "command -v claude"]).status === 0;\n' +
+      'require("node:fs").appendFileSync(process.env.NPX_LOG, `on-path=${found}\\n`);\n';
+    const log = resolveRunner(
+      {
+        ...installed,
+        "node_modules/.bin/claude": "#!/bin/sh\n",
+        "dist/cli.js": probe,
+      },
+      "local",
+      { VIGILES_COMMAND: "test", VIGILES_ACTION_PATH: "." },
+    );
+    assert.equal(installsCli(log), false);
+    assert.match(log, /on-path=true/);
+  });
+
   it("an explicit min wins over the floor of one, and lint gets neither", () => {
     assert.match(test(installed, { VIGILES_MIN: "0" }), /test --min=0$/);
     const lint = resolveRunner(installed, undefined, {

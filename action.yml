@@ -228,8 +228,13 @@ runs:
         # test drives the real `claude` binary against a scripted model (no API
         # key). Without it every harness file skips, and `0 passed, N skipped`
         # was a green run that tested nothing.
+        # A repo-local copy only counts once it is on PATH: harness files look up
+        # the bare `claude`, and `version: local` runs `node` without npx's PATH.
+        if [[ "$cmd" == "test" && -x node_modules/.bin/claude ]] && ! command -v claude >/dev/null 2>&1; then
+          export PATH="$PWD/node_modules/.bin:$PATH"
+        fi
         if [[ "$cmd" == "test" && "${VIGILES_INSTALL_CLAUDE:-true}" == "true" ]] \
-          && ! command -v claude >/dev/null 2>&1 && [[ ! -x node_modules/.bin/claude ]]; then
+          && ! command -v claude >/dev/null 2>&1; then
           echo "vigiles: npm install -g @anthropic-ai/claude-code (harness files drive the claude CLI; no API key)"
           npm install -g --no-audit --no-fund @anthropic-ai/claude-code
         fi
