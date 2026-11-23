@@ -17,6 +17,7 @@ import {
   unblockedDisasters,
   assertGuardrail,
   assertBlocksDisasters,
+  experimental_harmlessTwins,
   formatGuardrailReport,
 } from "./guardrail-check.js";
 import {
@@ -572,20 +573,41 @@ test("a hook that answered no harmless case is not reported as allowing them", (
   }
 });
 
-test("assertGuardrail fails when a harmless case got no answer", () => {
+test("a harmless case the hook's condition does not select is allowed: the harness never spawns it", () => {
   // Blocks the selected force push; its condition selects none of the
-  // look-alikes, so none of them was answered — not a pass.
+  // look-alikes, so the harness lets each of them through unasked.
   const opts = {
     events: PUSH_EVENTS.filter((e) => e.id === "force-push"),
     condition: "Bash(git push *)",
   };
   const hook = `echo '{"decision":"block","reason":"x"}'`;
+  const results = verifyGuardrail(hook, opts);
   assert.ok(
-    verifyGuardrail(hook, opts).some(
-      (r) => r.expect === "allow" && r.run === "not-selected",
-    ),
+    results.some((r) => r.expect === "allow" && r.run === "not-selected"),
   );
-  assert.throws(() => {
+  assert.doesNotThrow(() => {
     assertGuardrail(hook, opts);
   });
+  assert.match(
+    formatGuardrailReport(hook, results),
+    /✅ allows .*\(not selected\)/,
+  );
+});
+
+test("assertGuardrail fails when a harmless case crashed", () => {
+  const dir = makeTmpDir("guardrail-harmless-crash");
+  try {
+    // No disaster rows, so only the harmless rows can carry the failure.
+    const opts = {
+      events: [],
+      harmless: experimental_harmlessTwins(PUSH_EVENTS),
+    };
+    const guard = writeLibGuard(dir);
+    assert.ok(verifyGuardrail(guard, opts).every((r) => r.run === "crashed"));
+    assert.throws(() => {
+      assertGuardrail(guard, opts);
+    });
+  } finally {
+    cleanupTmpDir(dir);
+  }
 });
