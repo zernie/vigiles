@@ -2280,33 +2280,36 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       const tooFew = run("eval --min=2 a.eval.mjs", dir);
       assert.equal(tooFew.exitCode, 1);
       assert.match(tooFew.stderr, /--min=2 but only 1/);
-      // enough present → passes the guard (the one script runs and exits 0)
-      const ok = run("eval --min=1 a.eval.mjs", dir);
-      assert.equal(ok.exitCode, 0);
+      // enough matched, but the one file declared a skip: nothing ran, so the
+      // floor is not met (#256). The passing side is held for both kinds by the
+      // `--min counts scripts that RAN` test, which shares this code path.
+      const skippedOnly = run("eval --min=1 a.eval.mjs", dir);
+      assert.equal(skippedOnly.exitCode, 1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("--min counts scripts that LOADED, not files matched (#243)", () => {
-    const dir = mkdtempSync(join(tmpdir(), "vigiles-min-loaded-"));
+  it("--min counts scripts that RAN: not files matched (#243), not declared skips (#256)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-min-ran-"));
     try {
       writeFileSync(join(dir, "a.harness.mjs"), "process.exit(0);\n");
       writeFileSync(join(dir, "b.harness.mjs"), "process.exit(77);\n");
-      // Matches the glob, never links: counted as matched, not as loaded.
+      // Matches the glob, never links: counted as matched, not as run.
       writeFileSync(
         join(dir, "c.harness.mjs"),
         'import "definitely-not-installed-pkg-xyz";\n',
       );
-      const r = run("test --min=3", dir);
-      assert.equal(r.exitCode, 1);
-      assert.match(
-        r.stderr,
-        /--min=3 but only 2 of 3 matched test file\(s\) loaded/,
-        "3 matched, 1 never loaded — the floor must see 2",
+      assert.equal(run("test --min=3", dir).exitCode, 1);
+      // #256's acceptance, word for word: a file that only skips is not a run.
+      assert.equal(run("test --min=1 b.harness.mjs", dir).exitCode, 1);
+      // One run and one declared skip do not reach a floor of two…
+      assert.equal(
+        run("test --min=2 a.harness.mjs b.harness.mjs", dir).exitCode,
+        1,
       );
-      // A declared skip DID load, so it counts toward the floor.
-      const ok = run("test --min=2 a.harness.mjs b.harness.mjs", dir);
+      // …and do reach a floor of one: the skip itself stays green.
+      const ok = run("test --min=1 a.harness.mjs b.harness.mjs", dir);
       assert.equal(ok.exitCode, 0, ok.stdout + ok.stderr);
     } finally {
       rmSync(dir, { recursive: true, force: true });

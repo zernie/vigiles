@@ -101,8 +101,9 @@ that script's previous coverage is kept: it proved nothing either way. The runne
 decides this from Node's module link phase, not from what the script printed, so
 a harness that prints a loader error as evidence and then fails an assertion is a
 plain failure. A CommonJS script cannot be marked this way, so any non-zero exit
-from one is a failure. `--min=N` counts scripts that **loaded** (a declared skip
-counts; a file that matched and never loaded does not).
+from one is a failure. `--min=N` counts scripts that **ran**: neither a file that matched and never
+loaded nor a declared skip counts. A declared skip still leaves the run green on
+its own; with `--min=1`, a suite in which every file skipped fails.
 
 **A file that verified nothing says so: `∅ … 0 CHECKS`.** Exit codes answer "did
 it fail?", never "did it do anything?", so a script that ran NOTHING used to print

@@ -293,10 +293,7 @@ describe("action.yml — command: test", () => {
     assert.equal(action.inputs["min"]?.default, "");
     assert.equal(action.inputs["no-skip"]?.default, "false");
     assert.equal(action.inputs["install"]?.default, "true");
-  });
-
-  it("runs the repo's installed vigiles and installs nothing when node_modules exists", () => {
-    assert.equal(test(installed), "--no-install vigiles test");
+    assert.equal(action.inputs["install-claude"]?.default, "true");
   });
 
   it("runs npm ci first when a lockfile exists and nothing is installed", () => {
@@ -307,10 +304,11 @@ describe("action.yml — command: test", () => {
         packages: { "node_modules/vigiles": { version: "33.4.1" } },
       }),
     }).split("\n");
-    assert.deepEqual(log, [
-      "npm ci --no-audit --no-fund",
-      "--yes vigiles@33.4.1 test",
-    ]);
+    // dependencies first, then the agent CLI, then the run with its floor
+    assert.equal(log.length, 3);
+    assert.equal(log[0], "npm ci --no-audit --no-fund");
+    assert.ok(log[1]?.startsWith(GLOBAL_INSTALL), log[1]);
+    assert.equal(log[2], "--yes vigiles@33.4.1 test --min=1");
   });
 
   it("install: false skips the install", () => {
@@ -330,9 +328,76 @@ describe("action.yml — command: test", () => {
         VIGILES_PATHS: "a.harness.mjs, b/*.harness.mjs",
         VIGILES_MIN: "150",
         VIGILES_NO_SKIP: "true",
+        VIGILES_INSTALL_CLAUDE: "false",
       }),
       "--no-install vigiles test a.harness.mjs b/*.harness.mjs --min=150 --no-skip",
     );
+  });
+});
+
+/** The Action installs the agent CLI globally; the package is the Action's business. */
+const GLOBAL_INSTALL = "npm install -g ";
+const installsCli = (log: string): boolean =>
+  log.split("\n").some((l) => l.startsWith(GLOBAL_INSTALL));
+
+// Without the `claude` binary every harness file skips, and `0 passed, N skipped`
+// used to be a green run in which nothing was tested.
+describe("action.yml — command: test installs the agent CLI and floors at one run", () => {
+  const installed = {
+    "package.json": declares("^33.3.0"),
+    "node_modules/.bin/vigiles": "#!/bin/sh\n",
+  };
+  const test = (
+    files: Readonly<Record<string, string>>,
+    env: Readonly<Record<string, string>> = {},
+  ): string =>
+    resolveRunner(files, undefined, { VIGILES_COMMAND: "test", ...env });
+
+  it("installs the CLI, then runs with a floor of one run", () => {
+    const log = test(installed).split("\n");
+    assert.equal(log.length, 2);
+    assert.ok(log[0]?.startsWith(GLOBAL_INSTALL), log[0]);
+    assert.equal(log[1], "--no-install vigiles test --min=1");
+  });
+
+  it("installs the CLI only when the runner has none", () => {
+    const withCli = { ...installed, "node_modules/.bin/claude": "#!/bin/sh\n" };
+    assert.equal(installsCli(test(withCli)), false);
+    assert.equal(
+      installsCli(test(installed, { VIGILES_INSTALL_CLAUDE: "false" })),
+      false,
+    );
+  });
+
+  // Codex on #477: `version: local` runs `node` directly, so a copy only in
+  // node_modules/.bin was "found" but invisible to the harness files' lookup.
+  it("puts a repo-local CLI on PATH for the run, whatever runs vigiles", () => {
+    // `version: local` runs `node <action>/dist/cli.js`; this stand-in records
+    // whether the harness files would find `claude` on PATH.
+    const probe =
+      'const { spawnSync } = require("node:child_process");\n' +
+      'const found = spawnSync("sh", ["-c", "command -v claude"]).status === 0;\n' +
+      'require("node:fs").appendFileSync(process.env.NPX_LOG, `on-path=${found}\\n`);\n';
+    const log = resolveRunner(
+      {
+        ...installed,
+        "node_modules/.bin/claude": "#!/bin/sh\n",
+        "dist/cli.js": probe,
+      },
+      "local",
+      { VIGILES_COMMAND: "test", VIGILES_ACTION_PATH: "." },
+    );
+    assert.equal(installsCli(log), false);
+    assert.match(log, /on-path=true/);
+  });
+
+  it("an explicit min wins over the floor of one, and lint gets neither", () => {
+    assert.match(test(installed, { VIGILES_MIN: "0" }), /test --min=0$/);
+    const lint = resolveRunner(installed, undefined, {
+      VIGILES_COMMAND: "lint",
+    });
+    assert.equal(installsCli(lint), false);
+    assert.doesNotMatch(lint, /--min/);
   });
 });
 
@@ -355,8 +420,9 @@ describe("action.yml — command: test, changed-only", () => {
         test(installed, {
           VIGILES_CHANGED_ONLY: "true",
           GITHUB_EVENT_NAME: event,
+          VIGILES_INSTALL_CLAUDE: "false",
         }),
-        "--no-install vigiles test --changed",
+        "--no-install vigiles test --min=1 --changed",
       );
     });
   }
