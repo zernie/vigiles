@@ -20,6 +20,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
 import { load } from "js-yaml";
+import { AUDIT_SUMMARY_MAX_CHARS } from "./audit-pr-summary.js";
 
 const actionPath = resolve(__dirname, "..", "action.yml");
 const raw = readFileSync(actionPath, "utf-8");
@@ -456,11 +457,8 @@ function writeStubNpx(bin: string): void {
     [
       "#!/bin/bash",
       'printf "%s\\n" "$*" >> "$NPX_LOG"',
-      // Where each call ran, and whether that folder is the PR base's copy (the
-      // base commit carries `base-only.txt`; the head deletes it).
-      '[[ -n "${NPX_WHERE_LOG:-}" ]] && printf "%s|%s|%s\\n" "$([[ -e base-only.txt ]] && echo base || echo head)" "$([[ -e dist/built.js ]] && echo built || echo unbuilt)" "$*" >> "$NPX_WHERE_LOG"',
       'case " $* " in',
-      '  *" --md "*) printf "%s" "${STUB_MD:-}"; exit "${STUB_MD_EXIT:-0}" ;;',
+      '  *" --format=md "*) printf "%s" "${STUB_MD:-}"; exit "${STUB_MD_EXIT:-0}" ;;',
       '  *" --json"*) printf "{}"; exit 0 ;;',
       "esac",
       '[[ -n "${STUB_MAIN_BYTES:-}" ]] && head -c "$STUB_MAIN_BYTES" /dev/zero | tr "\\0" x',
@@ -552,12 +550,12 @@ const auditCalls = (log: string): string[] =>
 /**
  * The audit summary in the sticky comment and the job summary (#474), by
  * RUNNING the step. `npx` is a stub that logs its argv and answers by flag:
- * `--md` prints `$STUB_MD` and exits `$STUB_MD_EXIT`, `--json` prints a base
+ * `--format=md` prints `$STUB_MD` and exits `$STUB_MD_EXIT`, `--json` prints a base
  * report, anything else (the main command) exits `$STUB_MAIN_EXIT`.
  *
  * The property held: the section is default-on, one input turns it off, and
  * NOTHING about it can change the job's result — an audit that errors, or an
- * older vigiles that prints terminal text for `--md`, leaves a one-line note.
+ * older vigiles that prints terminal text for `--format=md`, leaves a one-line note.
  */
 describe("action.yml — the audit summary", () => {
   it("is declared, defaulting to on", () => {
@@ -567,10 +565,12 @@ describe("action.yml — the audit summary", () => {
     );
   });
 
-  it("on: runs `audit . --md` and puts its section in the job summary", () => {
+  it("on: runs `audit . --format=md` and puts its section in the job summary", () => {
     const r = runStep({});
     assert.equal(r.status, 0);
-    assert.deepEqual(auditCalls(r.log), ["--no-install vigiles audit . --md"]);
+    assert.deepEqual(auditCalls(r.log), [
+      "--no-install vigiles audit . --format=md",
+    ]);
     assert.ok(r.summary.includes(SECTION), r.summary);
   });
 
@@ -590,7 +590,7 @@ describe("action.yml — the audit summary", () => {
     assert.equal(note.length, 1, r.summary);
   });
 
-  it("an older vigiles printing terminal text for --md is not pasted in", () => {
+  it("an older vigiles printing terminal text for --format=md is not pasted in", () => {
     const r = runStep({ STUB_MD: "Detected harness: x\nrings…\n" });
     assert.equal(r.status, 0);
     assert.ok(!r.summary.includes("Detected harness"), r.summary);
@@ -601,7 +601,11 @@ describe("action.yml — the audit summary", () => {
   // section and up to 60 KB of log used to be added up with no shared budget, so
   // a big repo's sticky comment stopped updating and showed a stale result.
   it("keeps the whole comment under GitHub's limit, and keeps the result and grade", () => {
-    const big = `${SECTION}${"- finding\n".repeat(4000)}`;
+    // The largest section the CLI prints (it caps itself), beside 70 KB of log.
+    const big = `${SECTION}${"- finding\n".repeat(4000)}`.slice(
+      0,
+      AUDIT_SUMMARY_MAX_CHARS,
+    );
     const r = runStep({ STUB_MD: big, STUB_MAIN_BYTES: "70000" });
     assert.equal(r.status, 0);
     assert.ok(r.summary.length < 65536, String(r.summary.length));
@@ -618,126 +622,39 @@ describe("action.yml — the audit summary", () => {
 });
 
 /**
- * A `prepare` for {@link runStep}: apply `toBase`, commit the repo as the PR
- * base, apply `toHead` as the PR's change, and point the event payload at the
- * base sha.
+ * On a pull request the Action asks the CLI to compare, and does nothing else:
+ * which base, fetching it, copying it and auditing it under its own config are
+ * the CLI's (`src/cli-audit-compare.test.ts` holds that behaviour).
  */
-function prBase(
-  toHead: (repo: string) => void,
-  toBase: (repo: string) => void = () => undefined,
-): (repo: string, root: string) => Readonly<Record<string, string>> {
-  return (repo, root) => {
-    toBase(repo);
-    const git = (...a: string[]): void => {
-      execFileSync("git", a, {
-        cwd: repo,
-        stdio: "pipe",
-        env: {
-          PATH: "/usr/bin:/bin",
-          HOME: root,
-          GIT_AUTHOR_NAME: "t",
-          GIT_AUTHOR_EMAIL: "t@example.com",
-          GIT_COMMITTER_NAME: "t",
-          GIT_COMMITTER_EMAIL: "t@example.com",
-        },
-      });
-    };
-    git("init", "-q");
-    git("add", "-A");
-    git("-c", "commit.gpgsign=false", "commit", "-qm", "base");
-    const sha = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: repo,
-      encoding: "utf-8",
-    }).trim();
-    toHead(repo);
-    writeFileSync(
-      join(root, "event.json"),
-      JSON.stringify({ pull_request: { number: 7, base: { sha } } }),
-    );
-    return { GITHUB_EVENT_PATH: join(root, "event.json") };
-  };
-}
-
 describe("action.yml — the audit summary on a pull request", () => {
-  it("audits the base and passes it as --compare=", () => {
-    const r = runStep(
-      { GITHUB_EVENT_NAME: "pull_request" },
-      prBase((repo) => {
-        writeFileSync(join(repo, "CLAUDE.md"), "# head\n");
-      }),
-    );
+  it("asks the CLI to compare, and audits no base itself", () => {
+    const r = runStep({ GITHUB_EVENT_NAME: "pull_request" });
     assert.equal(r.status, 0);
-    const calls = auditCalls(r.log);
-    assert.equal(calls.length, 2, r.log);
-    assert.match(calls[0] ?? "", /audit \S+ --json$/);
-    assert.match(calls[1] ?? "", /audit \. --md --compare=\S+$/);
+    assert.deepEqual(auditCalls(r.log), [
+      "--no-install vigiles audit . --format=md --compare",
+    ]);
   });
 
-  // Codex on #480: the base audit must read the BASE's config. Run from the
-  // head checkout, the head's `.vigilesrc.json#exclude` is rooted at the head,
-  // never matches the base copy's paths, and an excluded skill counts in the
-  // base only — a fake score change on an unchanged harness.
-  it("audits the base from inside the base copy, so its own config applies", () => {
-    const where = join(mkdtempSync(join(tmpdir(), "vigiles-where-")), "log");
-    writeFileSync(where, "");
-    const r = runStep(
-      { GITHUB_EVENT_NAME: "pull_request", NPX_WHERE_LOG: where },
-      // The base commit carries `base-only.txt`; the head deletes it.
-      prBase(
-        (head) => {
-          rmSync(join(head, "base-only.txt"));
-        },
-        (base) => {
-          writeFileSync(join(base, "base-only.txt"), "");
-        },
-      ),
-    );
-    const calls = readFileSync(where, "utf-8").split("\n");
-    rmSync(dirname(where), { recursive: true, force: true });
-    assert.equal(r.status, 0);
-    const base = calls.filter((l) => l.includes(" --json"));
-    assert.equal(base.length, 1, calls.join("\n"));
-    assert.match(base[0] ?? "", /^base\|[a-z]+\|.* audit \. --json$/);
-    const head = calls.filter((l) => l.includes(" --md"));
-    assert.match(head[0] ?? "", /^head\|/);
+  it("on any other event, does not compare", () => {
+    const r = runStep({ GITHUB_EVENT_NAME: "push" });
+    assert.deepEqual(auditCalls(r.log), [
+      "--no-install vigiles audit . --format=md",
+    ]);
   });
+});
 
-  // Found dogfooding #480: the Action's comment on its own PR read "base D → B,
-  // Truthfulness 85 → 100" for a PR that touched no hook. The base copy (`git
-  // archive`) had no `dist/`, so a hook running `dist/cli.js` was "missing" in the
-  // base only. What the checkout has but git ignores (installed deps, build
-  // output) is the environment, not the PR: both sides must see it.
-  it("gives the base copy the checkout's git-ignored files, so only tracked content differs", () => {
-    const where = join(mkdtempSync(join(tmpdir(), "vigiles-where-")), "log");
-    writeFileSync(where, "");
-    const r = runStep(
-      { GITHUB_EVENT_NAME: "pull_request", NPX_WHERE_LOG: where },
-      prBase(
-        (head) => {
-          mkdirSync(join(head, "dist"));
-          writeFileSync(join(head, "dist", "built.js"), "");
-        },
-        (base) => {
-          writeFileSync(join(base, ".gitignore"), "dist/\n");
-        },
-      ),
-    );
-    const calls = readFileSync(where, "utf-8").split("\n");
-    rmSync(dirname(where), { recursive: true, force: true });
-    assert.equal(r.status, 0);
-    const base = calls.filter((l) => l.includes(" --json"));
-    assert.equal(base.length, 1, calls.join("\n"));
-    assert.match(base[0] ?? "", /^[a-z]+\|built\|/);
-  });
-
-  it("on a pull request with no base to read, still compares, so the CLI says why", () => {
-    const r = runStep({
-      GITHUB_EVENT_NAME: "pull_request",
-      GITHUB_EVENT_PATH: "/dev/null",
-    });
-    assert.equal(r.status, 0);
-    const calls = auditCalls(r.log);
-    assert.equal(calls.length, 1, r.log);
-    assert.match(calls[0] ?? "", /audit \. --md --compare=\S+$/);
+/**
+ * The Action holds no logic: its bash maps inputs to CLI flags and posts what
+ * the CLI printed. A script that grows is a decision being made in bash, where
+ * it is untyped and tested only through stubs (#480 grew a base copy, symlinks
+ * and size arithmetic here before they moved into the CLI). Raise the ceiling
+ * only for a new input's mapping; anything that DECIDES is a CLI feature.
+ */
+describe("action.yml — the step stays a thin wrapper", () => {
+  it("has at most 202 lines of bash, comments and blanks aside", () => {
+    const code = script
+      .split("\n")
+      .filter((l) => l.trim() !== "" && !l.trim().startsWith("#"));
+    assert.ok(code.length <= 202, `${String(code.length)} lines`);
   });
 });
