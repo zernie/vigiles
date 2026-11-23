@@ -12,7 +12,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import { leafCommandsNormalized } from "./bash-effects.js";
+import { leafCommandsNormalized, shellEffects } from "./bash-effects.js";
 
 const one = (cmd: string) => {
   const [leaf] = leafCommandsNormalized(cmd);
@@ -340,4 +340,31 @@ test("a dynamic head is STILL refused after unescaping: \\$CMD is literal, $CMD 
   // `\$CMD` is the literal string "$CMD" — a real (if useless) head, not git.
   assert.equal(one("\\$CMD push").head, "$CMD");
   assert.deepEqual(leafCommandsNormalized("$CMD push --force"), []);
+});
+
+// --- every redirection is an effect, wherever bash attached it (#470) --------
+
+test("shellEffects: each redirection is its own effect, on any statement shape", () => {
+  const writes = (cmd: string) =>
+    shellEffects(cmd).flatMap((e) =>
+      e.kind === "redirect" && e.redirect.writes ? [e.redirect.target] : [],
+    );
+  assert.deepEqual(writes("{ echo a; } > f1; ( echo b ) >> f2; > f3"), [
+    "f1",
+    "f2",
+    "f3",
+  ]);
+  // inside a command substitution, and on a function body
+  assert.deepEqual(writes("echo $(echo a > f4)"), ["f4"]);
+  assert.deepEqual(writes("g() { :; } > f5"), ["f5"]);
+  // input and here-documents are effects too, but not writes
+  assert.deepEqual(writes("cat < in <<EOF\nx\nEOF"), []);
+  // a quoted `>` is text, not a redirection
+  assert.deepEqual(writes('echo "> f6"'), []);
+  // source order: the leaf, then its own redirection
+  assert.deepEqual(
+    shellEffects("echo x > f7").map((e) => e.kind),
+    ["leaf", "redirect"],
+  );
+  assert.deepEqual(shellEffects("echo 'unclosed"), []);
 });

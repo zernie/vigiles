@@ -994,17 +994,49 @@ export function stripWrappers(argv: readonly string[]): {
  * failure → []. A leaf with a dynamic head is skipped (can't be normalized).
  */
 export function leafCommandsNormalized(command: string): NormalizedLeaf[] {
+  return shellEffects(command).flatMap((e) =>
+    e.kind === "leaf" ? [e.leaf] : [],
+  );
+}
+
+/** One thing a command does that a gate reads: a simple command, or a redirection. */
+export type ShellEffect =
+  | { readonly kind: "leaf"; readonly leaf: NormalizedLeaf }
+  | { readonly kind: "redirect"; readonly redirect: LeafRedirect };
+
+/**
+ * The simple commands AND every redirection of a command line, from one parse
+ * (vigiles#470).
+ *
+ * Bash attaches a redirection to a STATEMENT, and a statement can be a group
+ * (`{ …; } > f`), a subshell, a loop, an `if`, a function definition, a
+ * declaration (`export X=1 > f`), a test (`[[ … ]] > f`) or nothing at all
+ * (`> f`, which still creates the file). A leaf carries only the redirections of
+ * its own statement, so reading writes off the leaves dropped every one of those
+ * shapes. Here every statement's redirections are effects of their own, whatever
+ * its command is — mvdan keeps each redirection on a `Stmt`, so no shape is
+ * enumerated and a construct bash adds later is covered too. Order: statements
+ * as the walk meets them, each one's leaf before its redirections. Parse
+ * failure → `[]`.
+ */
+export function shellEffects(command: string): readonly ShellEffect[] {
   let file: MvdanNode;
   try {
     file = sh().syntax.NewParser().Parse(command, "cmd.sh");
   } catch {
     return [];
   }
-  const out: NormalizedLeaf[] = [];
+  const out: ShellEffect[] = [];
   sh().syntax.Walk(file, (node) => {
-    if (sh().syntax.NodeType(node) !== "Stmt" || !node.Cmd) return true;
-    const leaf = normalizeCallExpr(node.Cmd, node.Redirs ?? []);
-    if (leaf) out.push(leaf);
+    if (sh().syntax.NodeType(node) !== "Stmt") return true;
+    const redirs = node.Redirs ?? [];
+    const leaf = node.Cmd ? normalizeCallExpr(node.Cmd, redirs) : null;
+    out.push(
+      ...(leaf ? [{ kind: "leaf", leaf } as const] : []),
+      ...normalizeRedirects(redirs).map(
+        (redirect) => ({ kind: "redirect", redirect }) as const,
+      ),
+    );
     return true;
   });
   return out;

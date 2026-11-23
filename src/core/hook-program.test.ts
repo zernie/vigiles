@@ -588,6 +588,32 @@ test("parseShellCommand.writesTo: file-writing programs, at the position that wr
 // where the guard's `runs()` conjunct read raw leaves while `writesTo` read
 // normalized ones and the two disagreed.
 // ---------------------------------------------------------------------------
+// vigiles#470: bash attaches a redirection to a STATEMENT, and a statement can
+// be a group, a loop, a function or empty. Bash writes the file in every shape
+// below; a gate asking writesTo/writeTargets must see each write.
+const COMPOUND_WRITES = [
+  "{ echo a; echo b; } > papers/a/paper.tex",
+  "( echo a ) > papers/a/paper.tex",
+  "for i in 1; do echo $i; done > papers/a/paper.tex",
+  "if true; then echo a; fi > papers/a/paper.tex",
+  "while false; do :; done >> papers/a/paper.tex",
+  "f() { echo a; } > papers/a/paper.tex; f",
+  "> papers/a/paper.tex",
+  "export X=1 > papers/a/paper.tex",
+  "[[ -f x ]] > papers/a/paper.tex",
+];
+
+test("a redirection on a compound command, or with no command at all, is a write (#470)", () => {
+  assert.deepEqual(
+    COMPOUND_WRITES.map((cmd) => [
+      cmd,
+      parseShellCommand(cmd).writesTo(["papers"]),
+      parseShellCommand(cmd).writeTargets(["papers"]),
+    ]),
+    COMPOUND_WRITES.map((cmd) => [cmd, true, ["papers/a/paper.tex"]]),
+  );
+});
+
 test("parseShellCommand.writeTargets: names the file, from both write sources", () => {
   // Redirection target.
   assert.deepEqual(
