@@ -291,9 +291,9 @@ test("a skipped control is not evidence: a conditional missing script has no ver
   // `python3 missing.py` exits 2 on it. Without this rule that read as a block.
   const cmd = "python3 missing-guard-xyz.py";
   const results = verifyGuardrail(cmd, { condition: FORCE_PUSH_IF });
-  assert.ok(results.length > 0);
-  for (const r of results)
-    assert.equal(tag(r.outcome), "not-run/control-not-selected", r.event.id);
+  const byId = new Map(results.map((r) => [r.event.id, tag(r.outcome)]));
+  assert.equal(byId.get("force-push"), "not-run/control-not-selected");
+  assert.equal(byId.get("rm-rf"), "not-run/condition");
   assert.throws(() => {
     assertBlocksDisasters(cmd, { condition: FORCE_PUSH_IF });
   });
@@ -332,4 +332,20 @@ test("a JSON decision proves the hook launched, so a skipped control does not vo
     assert.equal(byId.get("force-push"), "blocked", cmd);
     assert.equal(byId.get("rm-rf"), "not-run/condition", cmd);
   }
+});
+
+/**
+ * #495 review, second P1: a decision for `--force`, a missing script for every
+ * other git command, behind an `if` that skips the control.
+ */
+const HALF_MISSING = `case "$(cat)" in *--force*) echo '{"decision":"block"}';; *) python3 missing-guard-xyz.py;; esac`;
+
+test("launch evidence is per case: one case's JSON decision does not vouch for another's exit 2", () => {
+  const results = verifyGuardrail(HALF_MISSING, { condition: "Bash(git *)" });
+  const byId = new Map(results.map((r) => [r.event.id, tag(r.outcome)]));
+  assert.equal(byId.get("force-push"), "blocked");
+  assert.equal(byId.get("reset-hard"), "not-run/control-not-selected");
+  assert.throws(() => {
+    assertBlocksDisasters(HALF_MISSING, { condition: "Bash(git *)" });
+  });
 });

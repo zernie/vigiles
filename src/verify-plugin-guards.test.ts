@@ -868,6 +868,25 @@ describe("a hook whose SCRIPT is missing gets no score at all", () => {
     }
   });
 
+  it("judges launch per case behind such an `if`", () => {
+    // #495 review, second P1: the force push prints a decision; reset-hard runs
+    // a missing script and exits 2. The first must not vouch for the second.
+    const [only] = sweepFixture([
+      {
+        type: "command",
+        if: "Bash(git *)",
+        command: `case "$(cat)" in *--force*) echo '{"decision":"block"}';; *) python3 missing-guard-xyz.py;; esac`,
+      },
+    ]).hooks;
+    if (only?.status !== "measured") throw new Error(`got ${only?.status}`);
+    expect(only.blocked).toContain("force-push");
+    expect(only.blocked).not.toContain("reset-hard");
+    const reset = only.results.find((r) => r.event.id === "reset-hard");
+    expect(reset?.outcome.kind === "not-run" && reset.outcome.why).toBe(
+      "control-not-selected",
+    );
+  });
+
   it("has no verdict behind an `if` that does not select the control", () => {
     // #495 review, P1: `ls` is skipped by the condition, the force push runs
     // `python3 missing.py`, which exits 2. That was reported as blocking.
