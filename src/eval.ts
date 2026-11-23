@@ -120,7 +120,8 @@ import {
   type EvalLockOptions,
 } from "./eval-lock.js";
 import type { Check, CheckJSON } from "./check.js";
-import { welchTTest, type Comparison } from "./stats.js";
+import { experimental_verdict, welchTTest, type Comparison } from "./stats.js";
+import { describeVerdict, proportionVerdict } from "./core/evidence.js";
 import { recordCheck } from "./check-count.js";
 import { probeTrace } from "./coverage-probe.js";
 import {
@@ -366,6 +367,14 @@ export interface MetricStat {
   readonly se: number;
   /** Number of runs the metric was observed in. */
   readonly n: number;
+  /**
+   * How many trials scored 1 — set only when EVERY observed value was 0 or 1
+   * (a boolean counts as 0/1). Its presence is what makes the metric a pass/fail
+   * tally, judged by Wilson intervals (`experimental_verdict`). Absent for any
+   * other metric, and in reports written before this field existed: those are
+   * judged by Welch's test.
+   */
+  readonly successes?: number;
   /**
    * pass^k (τ-bench): 1 if the metric succeeded on EVERY trial, else 0. The
    * reliability question a non-deterministic harness needs — "worked every time"
@@ -1005,7 +1014,8 @@ export async function measureArms(
 /**
  * Welch significance on one check's rate between two arms (`arm` vs `baseline`),
  * by index in `perCheck`. So "the gated arm resolves the skill significantly more
- * than vanilla" is a p-value, not a vibe. Reuses `welchTTest` from stats.ts.
+ * than vanilla" is a verdict, not a vibe: `significant` is the disjoint-Wilson
+ * verdict on the k/n pass tally, the numbers are Welch's from stats.ts.
  */
 export function compareCheck(
   report: ArmsCheckReport,
@@ -1020,11 +1030,24 @@ export function compareCheck(
       `compareCheck: unknown arm or check index (baseline="${baseline}", arm="${arm}", i=${String(checkIndex)})`,
     );
   }
-  return welchTTest(
-    { mean: a.rate, se: a.se, n: a.n },
-    { mean: b.rate, se: b.se, n: b.n },
-  );
+  // A check passes or fails per trial, so its rate is a k/n tally: the
+  // decision is the Wilson verdict, the numbers stay Welch's.
+  const kind = proportionVerdict(tallyOf(a), tallyOf(b)).kind;
+  return {
+    ...welchTTest(
+      { mean: a.rate, se: a.se, n: a.n },
+      { mean: b.rate, se: b.se, n: b.n },
+    ),
+    significant: kind === "better" || kind === "worse",
+  };
 }
+
+const tallyOf = (
+  r: Readonly<CheckRate>,
+): { readonly k: number; readonly n: number } => ({
+  k: Math.round(r.rate * r.n),
+  n: r.n,
+});
 
 /** A readable label for a check from its serialized form, e.g. `tool(Bash)`. */
 function checkLabel(json: CheckJSON): string {
@@ -1374,21 +1397,33 @@ export function aggregateStats(
   for (const r of rows) for (const k of Object.keys(r)) keys.add(k);
   const out: Record<string, MetricStat> = {};
   for (const k of keys) {
-    const values: number[] = [];
-    for (const r of rows) {
-      const v = numeric(r[k]);
-      if (v !== null) values.push(v);
-    }
-    const n = values.length;
-    const mean = n > 0 ? values.reduce((a, b) => a + b, 0) / n : 0;
-    const std =
-      n > 1
-        ? Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1))
-        : 0;
-    const passK = n > 0 && values.every((v) => v > 0) ? 1 : 0;
-    out[k] = { mean, std, se: n > 0 ? std / Math.sqrt(n) : 0, n, passK };
+    out[k] = statOf(
+      rows.map((r) => numeric(r[k])).filter((v): v is number => v !== null),
+    );
   }
   return out;
+}
+
+/** One metric's {@link MetricStat} from the values its trials reported. */
+function statOf(values: readonly number[]): MetricStat {
+  const n = values.length;
+  const mean = n > 0 ? values.reduce((a, b) => a + b, 0) / n : 0;
+  const std =
+    n > 1
+      ? Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1))
+      : 0;
+  const passK = n > 0 && values.every((v) => v > 0) ? 1 : 0;
+  // Recorded from the observations, never inferred from mean and spread: a
+  // sample like [-0.6, 0.4, 0.4, 0.4, 0.4] has the moments of 1 success in 5.
+  const binary = n > 0 && values.every((v) => v === 0 || v === 1);
+  return {
+    mean,
+    std,
+    se: n > 0 ? std / Math.sqrt(n) : 0,
+    n,
+    passK,
+    ...(binary ? { successes: values.filter((v) => v === 1).length } : {}),
+  };
 }
 
 /** Aggregate per-run usage into an arm's cost / latency / token totals + means. */
@@ -2588,8 +2623,32 @@ function formatUsage(u: ArmUsage): string {
   return `  ($${u.totalCostUsd.toFixed(4)} · ${(u.meanDurationMs / 1000).toFixed(1)}s/run · ${tok} tok)`;
 }
 
-/** Format an eval report as a compact table for the console (mean ± se, pass^k). */
-export function formatEvalReport(report: EvalReport): string {
+/** One `verdict` line per arm × metric against `baseline`; none without one. */
+function verdictLines(
+  report: EvalReport,
+  baseline: string | undefined,
+): readonly string[] {
+  const base = baseline === undefined ? undefined : report.arms[baseline];
+  if (baseline === undefined || base === undefined) return [];
+  return Object.entries(report.arms)
+    .filter(([arm]) => arm !== baseline)
+    .flatMap(([arm, r]) =>
+      Object.keys(r.stats).map(
+        (metric) =>
+          `  verdict    ${arm} vs ${baseline} on ${metric}: ${describeVerdict(experimental_verdict(report, baseline, arm, metric))}`,
+      ),
+    );
+}
+
+/**
+ * Format an eval report as a compact table for the console (mean ± se, pass^k).
+ * Name the `baseline` arm to add one verdict line per other arm and metric —
+ * `BETTER` / `WORSE` / `NO SIGNAL`, the same verdict `assertSignificant` reads.
+ */
+export function formatEvalReport(
+  report: EvalReport,
+  opts: { readonly baseline?: string } = {},
+): string {
   const header =
     report.totalCostUsd > 0
       ? `${report.name} (${String(report.trials)} trials/arm) — $${report.totalCostUsd.toFixed(4)} total`
@@ -2607,9 +2666,11 @@ export function formatEvalReport(report: EvalReport): string {
         `  ⚠ ${arm}: ${String(r.unansweredStubCalls.length)} stub call(s) went unanswered — the report is not a measurement`,
       );
   }
-  if (report.env?.kind === "inherit")
-    lines.push(inheritLine(report.env.reason));
-  return lines.join("\n");
+  const inherit =
+    report.env?.kind === "inherit" ? [inheritLine(report.env.reason)] : [];
+  return [...lines, ...verdictLines(report, opts.baseline), ...inherit].join(
+    "\n",
+  );
 }
 
 // --- trigger-rate: does a skill/behaviour actually FIRE across varied prompts ---

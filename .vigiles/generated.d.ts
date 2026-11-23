@@ -197,7 +197,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 616 project files. */
+  /** 618 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -424,6 +424,8 @@ declare module "vigiles/generated" {
     | "src/core/eval-spec-parse.ts"
     | "src/core/event-capability.test.ts"
     | "src/core/event-capability.ts"
+    | "src/core/evidence.test.ts"
+    | "src/core/evidence.ts"
     | "src/core/evolve.ts"
     | "src/core/foreign-runner.test.ts"
     | "src/core/foreign-runner.ts"
@@ -1209,6 +1211,8 @@ declare module "vigiles/spec" {
       | "src/core/eval-spec-parse.ts"
       | "src/core/event-capability.test.ts"
       | "src/core/event-capability.ts"
+      | "src/core/evidence.test.ts"
+      | "src/core/evidence.ts"
       | "src/core/evolve.ts"
       | "src/core/foreign-runner.test.ts"
       | "src/core/foreign-runner.ts"

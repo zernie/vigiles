@@ -249,6 +249,7 @@ export interface MetricStat {
     readonly passK: number;
     readonly se: number;
     readonly std: number;
+    readonly successes?: number;
 }
 
 // @public (undocumented)

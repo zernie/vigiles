@@ -102,6 +102,22 @@ test("diffReports flags a significant drop as a regression", () => {
   assert.ok((diff.regressions[0]?.comparison.delta ?? 0) < 0);
 });
 
+// vigiles#416: every trial agreeing gave se = 0 and the gate read 3/3 → 0/3 as
+// an exact drop. On a 0/1 metric the decision is the Wilson verdict.
+test("diffReports: 3/3 → 0/3 on a 0/1 metric is unchanged, 10/10 → 0/10 regresses", () => {
+  const tally = (k: number, n: number): MetricStat => ({
+    ...stat(k / n, 0, n),
+    successes: k,
+  });
+  const diffOf = (n: number) =>
+    diffReports(
+      toBaselineFile([mkReport("e", { gated: { pass: tally(n, n) } })]),
+      [mkReport("e", { gated: { pass: tally(0, n) } })],
+    );
+  assert.equal(diffOf(3).regressions.length, 0);
+  assert.equal(diffOf(10).regressions.length, 1);
+});
+
 test("diffReports flags a significant gain as an improvement, not a regression", () => {
   const base = toBaselineFile([
     mkReport("e", { gated: { caught: stat(0.4, 0.03, 20) } }),

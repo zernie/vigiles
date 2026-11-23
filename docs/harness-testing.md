@@ -722,7 +722,7 @@ nudge as `additionalContext` (Claude Code and Codex both honor it). See the per-
 These ride on the eval tier — reach for them when the basic measure isn't enough.
 Each has its full API in the [reference](testing-api.md).
 
-- **[Significance](testing-api.md#significance--regression-gating)** — `assertSignificant` runs a Welch t-test over two arms and throws unless the gap clears the (computed) noise floor. An insignificant gap means raise `trials`.
+- **[Significance](testing-api.md#significance--regression-gating)** — `assertSignificant` throws unless the gap clears the (computed) noise floor: disjoint Wilson intervals for a 0/1 metric, Welch's t-test for any other. A `no-signal` verdict means raise `trials`.
 - **[Regression gating](testing-api.md#significance--regression-gating)** — record a committed baseline, then fail CI when an arm×metric moves significantly in the bad direction (`assertNoRegression`). Jest snapshots for agent behaviour, with a real noise floor.
 - **Cost / caching / concurrency** — `concurrency`, `maxCostUsd`, and `cache: "readwrite"` (record/replay: editing your `measure` re-scores for free). See [reference](testing-api.md#runeval-measure-measurearms).
 - **LLM-as-judge** — when the metric isn't a regex, grade it with a model inside `measure` via `judge({ output, rubric })`. Deliberately thin; for dashboards use Braintrust/DeepEval.

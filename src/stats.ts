@@ -7,12 +7,14 @@
  * n) — no raw rows needed — yields a two-sided p-value and a significance verdict.
  * Pure + model-free, so it's fully unit-tested against known t-table values.
  *
- * For 0/1 (proportion) metrics this is the t approximation to the two-proportion
- * test — close at the trial counts evals use, and one code path for any metric.
- * The numerics (log-gamma, incomplete beta) are specialized to the argument range
+ * A 0/1 metric is not judged here by the t-test: `verdictOf` sends it to the
+ * Wilson interval (`core/evidence.ts`), because with every trial agreeing both
+ * arms have zero spread and the t-test has nothing to divide by (vigiles#416).
+ * Welch's test stays the verdict for every other metric. The numerics (log-gamma, incomplete beta) are specialized to the argument range
  * these tests produce (a, b ≥ 0.5; x ∈ (0,1)); they are not a general library.
  */
-import type { EvalReport } from "./eval.js";
+import type { EvalReport, MetricStat } from "./eval.js";
+import { proportionVerdict, type Verdict } from "./core/evidence.js";
 
 // Lanczos coefficients (g = 7) for log-gamma; sufficient for the beta args here.
 const LANCZOS = [
@@ -127,8 +129,13 @@ export function welchTTest(
   const va = arm.se ** 2;
   const vb = baseline.se ** 2;
   const seDelta = Math.sqrt(va + vb);
+  if (Math.min(arm.n, baseline.n) < 2) {
+    // One trial on a side has no spread to measure: nothing here is evidence.
+    return { delta, seDelta, t: 0, df: 0, pValue: 1, significant: false };
+  }
   if (seDelta === 0) {
-    // Both arms are deterministic: significant iff they differ at all.
+    // Both arms repeated one value over n ≥ 2 trials: the difference, if any,
+    // is exact. (A 0/1 metric never reaches here through `verdictOf`.)
     const significant = delta !== 0;
     return {
       delta,
@@ -160,5 +167,71 @@ export function compareArms(
   const a = report.arms[arm]?.stats[metric];
   const b = report.arms[baseline]?.stats[metric];
   if (!a || !b) return null;
-  return welchTTest(a, b, alpha);
+  return compareStats(a, b, alpha);
+}
+
+/**
+ * Welch's numbers for two summaries, with `significant` taken from
+ * {@link verdictOf} — so a `Comparison` never calls a difference significant
+ * that the verdict calls `no-signal` (3/3 against 0/3 on a 0/1 metric). For a
+ * 0/1 metric the decision is the Wilson verdict; `pValue` stays Welch's.
+ */
+export function compareStats(
+  arm: MetricStat,
+  baseline: MetricStat,
+  alpha = 0.05,
+): Comparison {
+  const kind = verdictOf(arm, baseline, alpha).kind;
+  return {
+    ...welchTTest(arm, baseline, alpha),
+    significant: kind === "better" || kind === "worse",
+  };
+}
+
+/**
+ * The verdict for one arm against a baseline on one metric's summary: disjoint
+ * Wilson intervals for a metric whose every trial scored 0 or 1 (it carries
+ * `successes`), Welch's test at `alpha` for any other.
+ */
+export function verdictOf(
+  arm: MetricStat,
+  baseline: MetricStat,
+  alpha = 0.05,
+): Verdict {
+  if (arm.n === 0 || baseline.n === 0) {
+    return { kind: "unmeasured", why: "no-trials" };
+  }
+  if (arm.successes !== undefined && baseline.successes !== undefined) {
+    return proportionVerdict(
+      { k: arm.successes, n: arm.n },
+      { k: baseline.successes, n: baseline.n },
+      alpha,
+    );
+  }
+  const c = welchTTest(arm, baseline, alpha);
+  const welch = { test: "welch", delta: c.delta, pValue: c.pValue } as const;
+  if (!c.significant) return { kind: "no-signal", ...welch };
+  return { kind: c.delta > 0 ? "better" : "worse", ...welch };
+}
+
+/**
+ * **Experimental.** Where `arm` stands against `baseline` on `metric` in an eval
+ * report: `better`, `worse`, `no-signal` (more trials needed), or `unmeasured`
+ * when either arm never reported the metric. A 0/1 metric is judged by disjoint
+ * Wilson intervals, so 3/3 against 0/3 is `no-signal`; any other metric by
+ * Welch's t-test. `assertSignificant` and `significantlyBeats` read this verdict.
+ *
+ * @experimental The verdict shape (`Verdict`) is days old; see docs/experimental.md.
+ */
+export function experimental_verdict(
+  report: EvalReport,
+  baseline: string,
+  arm: string,
+  metric: string,
+  alpha = 0.05,
+): Verdict {
+  const a = report.arms[arm]?.stats[metric];
+  const b = report.arms[baseline]?.stats[metric];
+  if (!a || !b) return { kind: "unmeasured", why: "metric-missing" };
+  return verdictOf(a, b, alpha);
 }

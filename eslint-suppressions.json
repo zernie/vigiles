@@ -2769,16 +2769,16 @@
       "count": 7
     },
     "functional/immutable-data": {
-      "count": 30
+      "count": 28
     },
     "functional/no-let": {
       "count": 17
     },
     "functional/no-loop-statements": {
-      "count": 33
+      "count": 32
     },
     "functional/prefer-immutable-types": {
-      "count": 53
+      "count": 52
     },
     "local/no-harness-names": {
       "count": 20
