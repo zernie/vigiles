@@ -423,9 +423,6 @@
     "sonarjs/cognitive-complexity": 14,
     "complexity": 18
   },
-  "src/guardrail-check.ts": {
-    "max-lines-per-function": 34
-  },
   "src/harness-assert.test.ts": {
     "max-lines-per-function": 75
   },
