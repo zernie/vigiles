@@ -25,14 +25,16 @@
 import { equivalentCommands } from "./core/bash-equivalents.js";
 import { lookalikeCommands } from "./core/bash-lookalikes.js";
 import {
+  allow,
   decisionExitCode,
   dispatchKind,
   gateAction,
   hookMode,
   hookSource,
+  runHookProgram,
   type AnyHook,
 } from "./core/hook-program.js";
-import { runCountedHookProgram } from "./counted-hook-run.js";
+import { recordCheck, recordSurfaceProbe } from "./check-count.js";
 import { runHook, type RunHookOptions } from "./run-hook.js";
 import { shellNeverLaunched } from "./run-script.js";
 
@@ -372,21 +374,25 @@ function decideCases(
       "`condition` describes a command-string hook's `if`; a compiled hook routes itself",
     );
   return cases.map((c) => {
-    const outcome = runCountedHookProgram(hook, {
+    // Counted and attributed like `assertHookDenies` (see harness-assert.ts
+    // `runCountedHookProgram`): an in-process decision is a check.
+    recordCheck();
+    const source = hookSource(hook);
+    if (source !== undefined) recordSurfaceProbe("command", source);
+    const outcome = runHookProgram(hook, {
       tool_name: c.event.tool,
       tool_input: c.event.input,
       ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }),
     });
-    // A gate always yields a decision; the dispatch check above guarantees it.
-    if (outcome.kind !== "decision") throw new TypeError("not a gate");
-    const action = gateAction(outcome.decision, hookMode(hook));
-    const blocked = action.kind === "block";
+    // A gate always yields a decision (the dispatch check above).
+    const decision = outcome.kind === "decision" ? outcome.decision : allow();
+    const blocked = gateAction(decision, hookMode(hook)).kind === "block";
     return row(c, {
       blocked,
-      exitCode: blocked ? decisionExitCode(outcome.decision) : 0,
+      exitCode: blocked ? decisionExitCode(decision) : 0,
       run: "ran",
       ran: true,
-      reason: `decide() returned ${outcome.decision.kind}`,
+      reason: `decide() returned ${decision.kind}`,
     });
   });
 }

@@ -22,13 +22,14 @@ import {
 } from "./harness-test.js";
 import type { EvalReport, TriggerRateReport } from "./eval.js";
 import type { HookRunResult, EgressAttempt } from "./run-hook.js";
+import { hookSource, runHookProgram } from "./core/hook-program.js";
 import type {
   AnyHook,
   RawHookEvent,
   HookProgramOutcome,
 } from "./core/hook-program.js";
 import { evalChecks, type Check } from "./check.js";
-import { runCountedHookProgram } from "./counted-hook-run.js";
+import { recordCheck, recordSurfaceProbe } from "./check-count.js";
 import type { OutputContract } from "./core/spec.js";
 import {
   parseAgentResult,
@@ -185,6 +186,57 @@ export function assertDelivered(r: HookRunResult): void {
         `delivery cannot be judged: ${d.why}. Pass the adapter's capability table as runHook's \`capabilities\` option.`,
       );
   }
+}
+
+/**
+ * `runHookProgram`, counted AND attributed. An in-process hook decision is an
+ * observation the CLI runner can see — without it, a `*.harness.*` file that only
+ * tests compiled hooks would look like it did nothing at all. See check-count.ts.
+ *
+ * 🔴 THE PROBE BELONGS HERE, AND NOWHERE EARLIER OR LATER. The documented
+ * in-process path — `loadHook(file)` then `assertHookDenies(hook, event)` — used
+ * to record a check and no SURFACE, so the child exited a non-vacuous pass with
+ * an empty `surfaces` list, `runsFromResults` discarded it, and a harness that
+ * genuinely executed a compiled hook produced NO execution record. The hook then
+ * showed as untested unless filename colocation happened to cover it. Unlike
+ * every other coverage finding in this review that is a false NEGATIVE — real
+ * execution going unrecorded — which is why the bar for what gets recorded here
+ * is the high one, not the cheap one.
+ *
+ * Not at LOAD: `loadHook` only remembers the path. Someone loading a hook to
+ * inspect its shape has not run it, and crediting that would be the "an empty
+ * file counts" substitution the execution tier exists to remove.
+ *
+ * Not in `runHookProgram`: that is the PURE evaluator, and it is what the CLI's
+ * `hook-runtime run-program` calls on every live event in production. Recording
+ * there would make the pure decision impure and would fire outside any test.
+ *
+ * This function is the only place that has both facts — the hook is about to be
+ * evaluated, and (when it came from `loadHook`) we know its file. Four public
+ * assertions funnel through it, so none of them can be added without inheriting
+ * the attribution.
+ *
+ * ⚠️ WHAT THIS DELIBERATELY DOES NOT ATTRIBUTE — run, not asserted. A hook built
+ * in-process rather than loaded from disk has no file to name, so nothing is
+ * recorded and nothing is invented:
+ *
+ *     const h = experimental_defineHook({…}); assertHookDenies(h, e);  → surfacesRecorded() === []
+ *
+ * …and a direct `runHookProgram(hook, event)` call (the pure evaluator, public
+ * via `vigiles/hook`) records nothing either, for the reason above. Both cost a
+ * missed record, never a false one.
+ */
+function runCountedHookProgram(
+  hook: AnyHook,
+  event: RawHookEvent,
+): HookProgramOutcome {
+  recordCheck();
+  // `command`, the same shape a parsed hook ref gets — but note the provenance
+  // differs: that one is inferred from a command string and is best-effort; this
+  // one is the path `loadHook` resolved, so it is exact by construction.
+  const source = hookSource(hook);
+  if (source !== undefined) recordSurfaceProbe("command", source);
+  return runHookProgram(hook, event);
 }
 
 /** Render a {@link HookProgramOutcome} for an assertion message. */
