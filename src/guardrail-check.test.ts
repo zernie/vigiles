@@ -302,7 +302,8 @@ test.skipIf(!hasPython())(
         `python3 -E ${missing}`,
         `env python3 ${missing}`,
       ]) {
-        const results = verifyGuardrail(command, { harmless: [] });
+        // With the look-alikes on: they fail too, so exit 2 cannot be a policy.
+        const results = verifyGuardrail(command);
         assert.ok(
           results.every((r) => r.run === "crashed" && !r.blocked),
           command,

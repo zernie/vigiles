@@ -243,15 +243,20 @@ assertGuardrail(await loadHook(".vigiles/hooks/safety-guard.hook.mjs"));
 assertGuardrail("bash hooks/safety-guard.sh");
 ```
 
-It works on **any** hook. A compiled one is checked exactly; a gate that
-declares `needs` decides on the facts you pass (`ctx: { "git.branch": "main" }`),
-and the battery refuses it if one is missing rather than decide on nothing. A command string
-is driven the way the harness drives it, and only the block/allow decision is
-read — so a hook that never started, or one that branches on the input, can
-look like it works. One case is caught: a string hook that exits non-zero on
-**every** call, with no structured decision and an interpreter or loader error
-on stderr (a missing script, a missing `lib/common.sh`), reads as `crashed` —
-never ran — with the stderr tail, not as a score. That rule is best-effort.
+It takes a compiled **`PreToolUse` gate** (a Bash or file gate) or any hook
+**command string**; a compiled hook that cannot block a tool call — a Stop or
+prompt gate, a `PostToolUse` gate, an inject or react — is refused. A compiled
+gate is checked exactly; one that declares `needs` decides on the facts you pass
+(`ctx: { "git.branch": "main" }`), and is refused if one is missing rather than
+decided on nothing. A command string is driven the way the harness drives it,
+and only the block/allow decision is read — so a hook that never started, or
+one that branches on the input, can look like it works. One case is caught: a
+string hook that exits non-zero on **every** call, with no structured decision
+and an interpreter or loader error on stderr (a missing script, a missing
+`lib/common.sh`), reads as `crashed` — never ran — with the stderr tail, not as
+a score, when that cannot be a working guard: some exit was not 2, or a harmless
+look-alike failed too. Exit 2 on every disaster with `harmless: []` stays scored.
+That rule is best-effort.
 
 **It also checks the other way: the guard must let the same text through when
 it is only data.** For each disaster the battery adds harmless look-alikes — the

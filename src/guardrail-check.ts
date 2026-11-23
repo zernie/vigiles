@@ -31,6 +31,7 @@ import {
   gateAction,
   hookMode,
   hookNeeds,
+  hookRouting,
   hookSource,
   runHookProgram,
   type AnyHook,
@@ -161,7 +162,8 @@ export interface HarmlessEvent {
  *   executable, bad shebang.
  * - `crashed` — a command-string hook exited non-zero on EVERY call, with no
  *   structured decision and an interpreter or loader error on stderr (a missing
- *   script or library). Best-effort, read from outside: see {@link verifyGuardrail}.
+ *   script or library), and some exit was not a block or a harmless case failed
+ *   too. Best-effort, read from outside: see {@link verifyGuardrail}.
  *
  * 🔴 A CASE THE GUARD NEVER ANSWERED IS STILL A MISS for a disaster. Before
  * these existed, a guard whose `if` only fires on a force push scored 7/7, and a
@@ -374,9 +376,15 @@ type GateCtx = NonNullable<VerifyGuardrailOptions["ctx"]>;
  */
 function gateContext(hook: AnyHook, opts: VerifyGuardrailOptions): GateCtx {
   const kind = dispatchKind(hook);
-  if (kind === "inject" || kind === "react")
+  if (kind !== "bash-gate" && kind !== "file-gate")
     throw new TypeError(
-      `the battery checks a gate, and this compiled hook is a ${kind}: it can never block`,
+      `the battery checks a gate on a tool call, and this compiled hook is a ${kind}: it can never block one`,
+    );
+  const on = hookRouting(hook).on;
+  const event = opts.event ?? HOOK_EVENT;
+  if (on !== event)
+    throw new TypeError(
+      `this gate fires on ${on}, and the battery delivers ${event}: a ${on} gate never sees the tool call before it runs`,
     );
   if (opts.condition !== undefined)
     throw new TypeError(
@@ -497,24 +505,33 @@ const LOADER_ERROR =
  * bash guard whose `lib/common.sh` is missing exits 1 on every call and read as
  * "allows everything"; a Python guard whose script is missing exits 2 — the
  * deny code — and read as "blocks everything" (#213). If EVERY spawned case
- * exited non-zero, none printed a structured decision, and each stderr carries
- * an interpreter or loader error, every one of them becomes `crashed`.
+ * exited non-zero, none printed a structured decision, each stderr carries an
+ * interpreter or loader error, AND the evidence cannot be a working guard —
+ * some exit was not a block, or a harmless case failed too — every one of
+ * them becomes `crashed`.
  *
  * ⚠️ BEST-EFFORT, AND DELIBERATELY SIMPLE. Whether a black box ran the branch
  * each case took is not decidable from outside — a single control probe was
  * tried (#495) and review found three ways around it. A guard that crashes on
- * only some inputs, or crashes silently, still gets a score. A compiled hook
- * has no such question: pass the object.
+ * only some inputs, or crashes silently, still gets a score; so does exit 2 on
+ * every disaster with `harmless: []`, because a guard that sources a missing
+ * optional file and then blocks correctly looks exactly the same. A compiled
+ * hook has no such question: pass the object.
  */
 function markCrashed(spawned: readonly Spawned[]): readonly GuardrailResult[] {
   const asked = spawned.filter((s) => s.row.run === "ran");
   const last = asked.at(-1);
+  // Unambiguous only: a non-block exit (1, 126, …) cannot be a deny, and a
+  // harmless case that failed too cannot be the guard's policy. Exit 2 on every
+  // disaster with no harmless case is a working guard as often as a crash, so it
+  // stays scored — the documented remainder.
   const crashed =
     last !== undefined &&
     asked.every(
       (s) =>
         s.row.exitCode !== 0 && !s.structured && LOADER_ERROR.test(s.stderr),
-    );
+    ) &&
+    asked.some((s) => !s.row.blocked || s.row.expect === "allow");
   if (!crashed) return spawned.map((s) => s.row);
   const tail = last.stderr.trim().split("\n").slice(-3).join("\n").slice(-400);
   return spawned.map((s) =>
@@ -597,21 +614,25 @@ export function assertGuardrail(
   if (first !== undefined && results.every((r) => r.run === "crashed"))
     throw new Error(`Guardrail \`${name}\` NEVER RAN — ${first.reason}`);
   const missed = unblockedDisasters(results);
-  const overBlocked = results.filter((r) => r.expect === "allow" && r.blocked);
+  // A harmless case the guard never answered is not a pass either.
+  const overBlocked = results.filter(
+    (r) => r.expect === "allow" && (r.blocked || !r.ran),
+  );
   if (missed.length === 0 && overBlocked.length === 0) return;
   const parts = [
     missed.length > 0
       ? `Guardrail \`${name}\` did NOT block ${String(missed.length)} dangerous action(s):\n${missed.map(missLine).join("\n")}\nA hook that doesn't block these is false confidence — fix it (PreToolUse + exit 2, or deny()).`
       : "",
     overBlocked.length > 0
-      ? `Guardrail \`${name}\` blocks ${String(overBlocked.length)} harmless command(s) that only MENTION a dangerous one:\n${overBlocked.map(missLine).join("\n")}\nEvery false block costs the agent a turn. Decide on the parsed command (vigiles/hook \`runs()\`), or replace the cases: { harmless: [...] }.`
+      ? `Guardrail \`${name}\` did not allow ${String(overBlocked.length)} harmless command(s) that only MENTION a dangerous one:\n${overBlocked.map(missLine).join("\n")}\nEvery false block costs the agent a turn. Decide on the parsed command (vigiles/hook \`runs()\`), or replace the cases: { harmless: [...] }.`
       : "",
   ];
   throw new Error(parts.filter((p) => p !== "").join("\n\n"));
 }
 
 /**
- * The old name of {@link assertGuardrail}.
+ * The old name of {@link assertGuardrail}. It now runs the harmless half too,
+ * like the new name (`harmless: []` restores the blocking-only check).
  *
  * @deprecated Renamed {@link assertGuardrail}, which also checks the harmless
  * look-alikes; this alias is removed in the next major.
@@ -651,7 +672,7 @@ export function formatGuardrailReport(
   const disasters = results.filter((r) => r.expect === "block");
   const harmless = results.filter((r) => r.expect === "allow");
   const blocked = disasters.filter((r) => r.blocked).length;
-  const allowed = harmless.filter((r) => !r.blocked).length;
+  const allowed = harmless.filter((r) => r.ran && !r.blocked).length;
   const skipped = results.filter((r) => !r.ran).length;
   const head =
     `Guardrail coverage for \`${hookName(hook)}\` — blocks ${String(blocked)}/${String(disasters.length)} of the dangerous battery` +
