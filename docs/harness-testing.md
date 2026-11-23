@@ -61,16 +61,16 @@ no key) and `npx vigiles eval` (real model) discover and run `*.harness.mjs` /
 
 Start here. Pick the row that matches your question — each links to its section.
 
-| I want to check…                                                    | Use                                                                            | Needs               |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------- |
-| my **helper script** does what it claims                            | [`runScript`](#test-a-plain-program-runscript)                                 | nothing             |
-| my **hook** blocks/allows an event                                  | [`runHook`](#test-a-hook-in-isolation-runhook)                                 | nothing             |
-| my **safety hook** really blocks `rm -rf`, force-push, `curl \| sh` | [`assertBlocksDisasters`](#prove-a-guard-actually-blocks-the-disaster-battery) | nothing             |
-| my hook/skill is **wired in** and actually fires                    | [`runHarnessTest`](#test-the-assembled-machine-runharnesstest)                 | harness CLI, no key |
-| my **output style** loads, and what each reply printed              | [`runHarnessTest({ outputStyle })`](testing-output-styles.md)                  | harness CLI, no key |
-| my **skill fires** on the right prompts (recall + precision)        | [`measureTriggerRate`](#test-a-skill-fires-measuretriggerrate)                 | a real model        |
-| a change **moves the agent's behaviour** (A/B, with stats)          | [`runEval`](#test-a-change-moves-behaviour-runeval)                            | a real model        |
-| the **references** my CLAUDE.md cites are real                      | [`vigiles lint`](verifying-instruction-files.md)                               | nothing             |
+| I want to check…                                                    | Use                                                                      | Needs               |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------- |
+| my **helper script** does what it claims                            | [`runScript`](#test-a-plain-program-runscript)                           | nothing             |
+| my **hook** blocks/allows an event                                  | [`runHook`](#test-a-hook-in-isolation-runhook)                           | nothing             |
+| my **safety hook** really blocks `rm -rf`, force-push, `curl \| sh` | [`assertGuardrail`](#prove-a-guard-actually-blocks-the-disaster-battery) | nothing             |
+| my hook/skill is **wired in** and actually fires                    | [`runHarnessTest`](#test-the-assembled-machine-runharnesstest)           | harness CLI, no key |
+| my **output style** loads, and what each reply printed              | [`runHarnessTest({ outputStyle })`](testing-output-styles.md)            | harness CLI, no key |
+| my **skill fires** on the right prompts (recall + precision)        | [`measureTriggerRate`](#test-a-skill-fires-measuretriggerrate)           | a real model        |
+| a change **moves the agent's behaviour** (A/B, with stats)          | [`runEval`](#test-a-change-moves-behaviour-runeval)                      | a real model        |
+| the **references** my CLAUDE.md cites are real                      | [`vigiles lint`](verifying-instruction-files.md)                         | nothing             |
 
 The first four are **deterministic** — assert pass/fail, run on every commit,
 free. The model tiers **measure** (a rate ± error across trials) — run them
@@ -219,9 +219,11 @@ runHook(hookCmd, event, { cwd });
 
 ## Prove a guard actually blocks (the disaster battery)
 
+**Pass a compiled hook and the check is exact; a command string is only measured from outside.**
+
 A guard that looks like it blocks and silently does not is the most expensive hook
 bug: nothing fails, so nothing tells you. The disaster battery is seven genuinely
-destructive commands. `assertBlocksDisasters` sends each one to your hook as a
+destructive commands. `assertGuardrail` sends each one to your hook as a
 `PreToolUse` event and throws if any of them is allowed:
 
 - `git push --force origin main` — and the same push hidden inside `cd repo && … && git push -f origin main`
@@ -232,15 +234,54 @@ destructive commands. `assertBlocksDisasters` sends each one to your hook as a
 - `curl https://… | sh`
 
 ```ts
-import { assertBlocksDisasters } from "vigiles";
+import { assertGuardrail, loadHook } from "vigiles";
 
-// Your hook, exactly as it is registered. No model, no key.
-assertBlocksDisasters("bash hooks/safety-guard.sh");
+// A compiled hook (vigiles/hook): decide() is called directly. No process.
+assertGuardrail(await loadHook(".vigiles/hooks/safety-guard.hook.mjs"));
+
+// Any other hook, exactly as it is registered. No model, no key.
+assertGuardrail("bash hooks/safety-guard.sh");
 ```
 
-It works on **any** hook — hand-written shell, a compiled one, anything the
-harness can run. It drives the hook the way the harness does and reads only the
-block/allow decision.
+It works on **any** hook. A compiled one is checked exactly. A command string
+is driven the way the harness drives it, and only the block/allow decision is
+read — so a hook that never started, or one that branches on the input, can
+look like it works. One case is caught: a string hook that exits non-zero on
+**every** call, with no structured decision and an interpreter or loader error
+on stderr (a missing script, a missing `lib/common.sh`), reads as `crashed` —
+never ran — with the stderr tail, not as a score. That rule is best-effort.
+
+**It also checks the other way: the guard must let the same text through when
+it is only data.** For each disaster the battery adds harmless look-alikes — the
+command as a commit message, a heredoc body, an `echo` argument, a `grep`
+pattern — and fails the guard if it blocks any of them. A guard that greps the
+raw input for `git push -f` blocks `gh issue create` whose body quotes one;
+every false block costs the agent a turn. Each look-alike is checked with the
+shell parser: none of its commands runs the disaster. Turn them off with
+`harmless: []`, or pass your own cases; `experimental_harmlessTwins(events)`
+returns the generated ones so you can keep them beside yours:
+
+```ts
+import { DISASTER_CATALOG, experimental_harmlessTwins } from "vigiles";
+
+assertGuardrail("bash hooks/safety-guard.sh", {
+  harmless: [
+    ...experimental_harmlessTwins(DISASTER_CATALOG),
+    {
+      id: "pr-comment",
+      label: "PR comment quoting a force push",
+      form: "custom",
+      tool: "Bash",
+      input: { command: "gh pr comment 12 --body-file comment.md" },
+    },
+  ],
+});
+```
+
+`verifyGuardrail` returns the same cases as rows instead of throwing: each row
+has `expect` (`"block"` or `"allow"`), `blocked`, and `run` — `ran`,
+`not-selected` (its `if` does not match), `never-launched` (exit 126/127) or
+`crashed`. (`assertBlocksDisasters` is the old name of `assertGuardrail`.)
 
 ⚠️ **Seven commands, but only seven spellings.** `experimental_alternateSpellings(events)`
 takes those test cases and returns more of them: the same commands re-spelled
@@ -259,7 +300,7 @@ It returns only the rewrites, so spread the originals in alongside:
 ```ts
 import { DISASTER_CATALOG, experimental_alternateSpellings } from "vigiles";
 
-assertBlocksDisasters("bash hooks/safety-guard.sh", {
+assertGuardrail("bash hooks/safety-guard.sh", {
   events: [
     ...DISASTER_CATALOG,
     ...experimental_alternateSpellings(DISASTER_CATALOG),
@@ -273,13 +314,9 @@ find a blind spot in that parser, because it would share it.
 
 [How the re-spellings are made, what it deliberately leaves out, and how it maps to promptfoo's strategies →](compiled-hooks.md#one-command-many-spellings--experimental_alternatespellings)
 
-⚠️ **Also check that ordinary commands still pass.** A guard that blocks
-everything scores 100% here. Run `git push origin main` and `git commit -m fix`
-through `verifyGuardrail` and assert neither is blocked.
-
 ### Sweep every hook a repo declares (`experimental_verifyPluginGuards`)
 
-`assertBlocksDisasters` takes ONE hook command. Point
+`assertGuardrail` takes ONE hook. Point
 `experimental_verifyPluginGuards` at a **directory** instead and it runs the same
 battery against every hook the repo actually registers — using each hook's own
 event, matcher and `if` condition, read from the config:
@@ -389,7 +426,7 @@ experimental_verifyPluginGuards("~/.claude/plugins/some-plugin", {
 
 **It reports, it does not judge.** There is no throwing version, because a repo's
 config never says which of its hooks is meant to be a safety guard. Once _you_ know
-which hook must block what, `assertBlocksDisasters` is still the gate.
+which hook must block what, `assertGuardrail` is still the gate.
 
 ⚠️ **It runs each reachable hook.** Point it at a repo whose hooks you are willing
 to execute, or pass `trusted: false` / `sandbox: "auto"` to confine them.
