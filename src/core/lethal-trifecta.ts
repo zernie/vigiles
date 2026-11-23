@@ -435,23 +435,34 @@ export interface TrifectaContext {
 
 /**
  * The tools in a skill's `allowed-tools:` that ADD something the session's own
- * defaults may not: a tool that supplies a trifecta leg (the same catalog the
- * subagent side classifies with, so `Bash(echo ready:*)` adds nothing), or ANY
- * MCP tool — an MCP server reaches data outside the repository, which is the case
- * #392 asks the rule to keep, and an unknown server mapping to no leg must not
- * hide it here. Pre-approval runs these without a permission prompt while the
- * skill is active.
+ * defaults may not: a side-effecting tool that supplies a trifecta leg (the same
+ * catalog the subagent side classifies with, so `Bash(echo ready:*)` adds
+ * nothing), or ANY MCP tool — an MCP server reaches data outside the repository,
+ * which is the case #392 asks the rule to keep, and an unknown server mapping to
+ * no leg must not hide it here. Pre-approval runs these without a permission
+ * prompt while the skill is active.
+ *
+ * A READ-ONLY tool (`Read`, `Grep`, `Glob`: the dialect's built-ins outside
+ * `sideEffectingTools`) adds nothing: the harness runs it without a prompt
+ * anyway, so pre-approving it changes nothing, and counting `Read` but not
+ * `Grep` let swapping one for the other move the charge. A dialect that lists no
+ * side-effecting tools keeps every leg tool.
  */
 export function preApprovedLegTools(
   allowed: readonly string[],
   dialect: HarnessDialect,
 ): readonly string[] {
+  // TODO(#461): interim — the session baseline decides what a pre-approval adds
+  const sideEffecting =
+    dialect.sideEffectingTools === undefined
+      ? null
+      : new Set(dialect.sideEffectingTools);
   return allowed.filter((raw) => {
+    if (mcpParts(baseTool(raw), dialect) !== null) return true;
+    if (sideEffecting !== null && !sideEffecting.has(baseTool(raw)))
+      return false;
     const legs = classifyTrifectaLegs([raw], dialect);
-    return (
-      legs.private.length + legs.untrusted.length + legs.exfil.length > 0 ||
-      mcpParts(baseTool(raw), dialect) !== null
-    );
+    return legs.private.length + legs.untrusted.length + legs.exfil.length > 0;
   });
 }
 

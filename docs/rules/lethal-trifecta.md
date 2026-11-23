@@ -68,11 +68,11 @@ the cost follows the finding's **cause**, below.
 Every finding carries a `cause`, and it decides where the finding is reported
 and how it is charged:
 
-| `cause`   | what the unit's file shows                                                                                                                   | `vigiles lint`        | `audit` report        | Safety and overall     |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | --------------------- | ---------------------- |
-| `session` | nothing: no `disallowed-tools:` line and no leg tool in `allowed-tools:` (skill), or no `tools:` line (subagent)                             | no finding            | one line for them all | charged once           |
-| `fence`   | a fence or contract that does not work: a `disallowed-tools:` that closes no leg, an empty one, frontmatter that does not parse              | a finding at its file | its own line          | charged with `session` |
-| `unit`    | the file adds a leg: `allowed-tools:` pre-approves a leg tool (`Read`, `Bash`, `WebFetch`, …) or any `mcp__*` tool, or an all-three `tools:` | a finding at its file | its own line          | charged per unit       |
+| `cause`   | what the unit's file shows                                                                                                                          | `vigiles lint`        | `audit` report        | Safety and overall     |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | --------------------- | ---------------------- |
+| `session` | nothing: no `disallowed-tools:` line and no leg tool in `allowed-tools:` (skill), or no `tools:` line (subagent)                                    | no finding            | one line for them all | charged once           |
+| `fence`   | a fence or contract that does not work: a `disallowed-tools:` that closes no leg, an empty one, frontmatter that does not parse                     | a finding at its file | its own line          | charged with `session` |
+| `unit`    | the file adds a leg: `allowed-tools:` pre-approves a side-effecting leg tool (`Bash`, `WebFetch`, …) or any `mcp__*` tool, or an all-three `tools:` | a finding at its file | its own line          | charged per unit       |
 
 **Why.** Measured on 77 real repositories, 406 of 409 model-invocable skills held
 the trifecta only because they declare no fence and inherit the session's tools.
@@ -92,7 +92,9 @@ skill whose `allowed-tools:` pre-approves a leg tool the fence does not deny:
 `allowed-tools:` is still **not a fence** (see below). It counts here only as
 evidence that the skill _adds_ something: a pre-approved tool runs without a
 permission prompt while the skill is active, and an MCP tool reaches data outside
-the repository.
+the repository. A read-only tool (`Read`, `Grep`, `Glob`) adds nothing: the harness runs
+it without a prompt anyway, so pre-approving it changes nothing. This is an
+interim rule; reading what the session itself allows is #461.
 
 ### A contract that doesn't parse is not a contract
 

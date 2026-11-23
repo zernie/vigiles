@@ -59,6 +59,8 @@ const unitMd = (name: string, extra = ""): string =>
 const SKILLS: Record<string, readonly [string, string]> = {
   plain: ["", "session"],
   edits: ["allowed-tools: Edit, Write, Bash(echo ready:*)\n", "session"],
+  // read-only tools run without a prompt, so pre-approving them adds nothing
+  readers: ["allowed-tools: Read, Grep, Glob\n", "session"],
   shell: ["allowed-tools: Read, Bash\n", "unit"],
   query: ["allowed-tools: mcp__acme__run_query\n", "unit"],
   half: ["disallowed-tools: Read\n", "fence"],
