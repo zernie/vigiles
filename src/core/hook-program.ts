@@ -36,6 +36,7 @@
 import {
   leafCommands,
   leafCommandsNormalized,
+  shellEffects,
   classifyBashCommand,
   type BashEffect,
   type NormalizedLeaf,
@@ -769,20 +770,28 @@ function parseCommand(raw: string): ParsedCommand {
   const leaves = leafCommands(raw);
   // The operation-normalized leaves carry the redirections (and quote-unwrapped,
   // wrapper-resolved argv) that `writesTo` needs; `leafCommands` cannot see them.
-  const normalized = leafCommandsNormalized(raw);
-  const allWriteTargets = normalized.flatMap((leaf) => [
-    // 🔴 A REDIRECTION IS NOT JOINED ONTO THE LEAF'S CHDIR, AND THAT IS THE
+  const effects = shellEffects(raw);
+  const normalized = effects.flatMap((e) =>
+    e.kind === "leaf" ? [e.leaf] : [],
+  );
+  // In source order. A redirection is its own effect, not a field of a leaf:
+  // bash attaches it to a statement, which may be a group, a loop or nothing at
+  // all (`> f`) — see `shellEffects` (vigiles#470).
+  const allWriteTargets = effects.flatMap((e) => {
+    // 🔴 A REDIRECTION IS NOT JOINED ONTO A LEAF'S CHDIR, AND THAT IS THE
     // SHELL'S RULE, NOT A SHORTCUT. `env -C dir cmd > out.txt` opens `out.txt`
     // in the SHELL's directory — the redirection happens before `env` ever runs
     // and `-C` only moves the process `env` execs. Joining here would report a
     // file the command never writes.
-    ...leaf.redirects.flatMap((r) =>
-      r.writes && r.target !== null ? [r.target] : [],
-    ),
+    if (e.kind === "redirect") {
+      return e.redirect.writes && e.redirect.target !== null
+        ? [e.redirect.target]
+        : [];
+    }
     // The wrapped program's own operands DO resolve against it — see
     // `NormalizedLeaf.chdir` for why the value was being read and discarded.
-    ...writeTargetsOf(leaf).map((t) => underChdir(t, leaf.chdir)),
-  ]);
+    return writeTargetsOf(e.leaf).map((t) => underChdir(t, e.leaf.chdir));
+  });
   return { leaves, normalized, allWriteTargets };
 }
 
