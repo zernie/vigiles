@@ -644,7 +644,7 @@
   },
   "src/verify-plugin-guards.ts": {
     "max-params": 5,
-    "max-lines-per-function": 105,
+    "max-lines-per-function": 99,
     "complexity": 17,
     "sonarjs/cognitive-complexity": 15
   }
