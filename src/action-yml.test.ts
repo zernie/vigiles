@@ -165,6 +165,9 @@ function resolveRunner(
           action.runs.steps?.[0]?.env?.["VIGILES_COMMANDS"] ?? "",
         VIGILES_VERSION: version ?? "",
         VIGILES_ACTION_PATH: root,
+        // These tests read the MAIN command's argv; the audit summary (#474)
+        // is its own npx call with its own suite below.
+        VIGILES_AUDIT_SUMMARY: "false",
         ...env,
       },
     });
@@ -443,5 +446,200 @@ describe("action.yml — command: test, changed-only", () => {
       }),
       "--no-install vigiles lint",
     );
+  });
+});
+
+/**
+ * The audit summary in the sticky comment and the job summary (#474), by
+ * RUNNING the step. `npx` is a stub that logs its argv and answers by flag:
+ * `--md` prints `$STUB_MD` and exits `$STUB_MD_EXIT`, `--json` prints a base
+ * report, anything else (the main command) exits `$STUB_MAIN_EXIT`.
+ *
+ * The property held: the section is default-on, one input turns it off, and
+ * NOTHING about it can change the job's result — an audit that errors, or an
+ * older vigiles that prints terminal text for `--md`, leaves a one-line note.
+ */
+describe("action.yml — the audit summary", () => {
+  const MARKER = "<!-- vigiles-audit-summary -->";
+  const SECTION = `${MARKER}\n### Audit: **B** · 85/100\n`;
+
+  interface StepRun {
+    readonly status: number;
+    readonly log: string;
+    readonly summary: string;
+    readonly output: string;
+  }
+
+  function runStep(
+    env: Readonly<Record<string, string>>,
+    prepare: (
+      repo: string,
+      root: string,
+    ) => Readonly<Record<string, string>> = () => ({}),
+  ): StepRun {
+    const root = mkdtempSync(join(tmpdir(), "vigiles-action-summary-"));
+    try {
+      const bin = join(root, "bin");
+      const repo = join(root, "repo");
+      mkdirSync(bin);
+      mkdirSync(repo);
+      symlinkSync(process.execPath, join(bin, "node"));
+      writeFileSync(
+        join(bin, "npx"),
+        [
+          "#!/bin/bash",
+          'printf "%s\\n" "$*" >> "$NPX_LOG"',
+          'case " $* " in',
+          '  *" --md "*) printf "%s" "${STUB_MD:-}"; exit "${STUB_MD_EXIT:-0}" ;;',
+          '  *" --json"*) printf "{}"; exit 0 ;;',
+          "esac",
+          'exit "${STUB_MAIN_EXIT:-0}"',
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      writeFileSync(
+        join(repo, "package.json"),
+        JSON.stringify({ name: "c", devDependencies: { vigiles: "^40" } }),
+      );
+      mkdirSync(join(repo, "node_modules", ".bin"), { recursive: true });
+      writeFileSync(join(repo, "node_modules", ".bin", "vigiles"), "", {
+        mode: 0o755,
+      });
+      const prepared = prepare(repo, root);
+      writeFileSync(join(root, "step.sh"), script);
+      const summary = join(root, "summary.md");
+      const output = join(root, "out");
+      writeFileSync(summary, "");
+      writeFileSync(output, "");
+      let status = 0;
+      try {
+        execFileSync("bash", [join(root, "step.sh")], {
+          cwd: repo,
+          stdio: "pipe",
+          env: {
+            PATH: `${bin}:/usr/bin:/bin`,
+            HOME: root,
+            NPX_LOG: join(root, "npx.log"),
+            GITHUB_OUTPUT: output,
+            GITHUB_STEP_SUMMARY: summary,
+            VIGILES_COMMAND: "lint",
+            VIGILES_COMMANDS:
+              action.runs.steps?.[0]?.env?.["VIGILES_COMMANDS"] ?? "",
+            VIGILES_VERSION: "",
+            VIGILES_ACTION_PATH: root,
+            VIGILES_AUDIT_SUMMARY: "true",
+            STUB_MD: SECTION,
+            ...env,
+            ...prepared,
+          },
+        });
+      } catch (e: unknown) {
+        status = (e as { status?: number }).status ?? 1;
+      }
+      return {
+        status,
+        log: readFileSync(join(root, "npx.log"), "utf-8"),
+        summary: readFileSync(summary, "utf-8"),
+        output: readFileSync(output, "utf-8"),
+      };
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  const auditCalls = (log: string): string[] =>
+    log.split("\n").filter((l) => l.includes(" audit "));
+
+  it("is declared, defaulting to on", () => {
+    assert.equal(action.inputs["audit-summary"]?.default, "true");
+    assert.ok(
+      raw.includes("VIGILES_AUDIT_SUMMARY: ${{ inputs.audit-summary }}"),
+    );
+  });
+
+  it("on: runs `audit . --md` and puts its section in the job summary", () => {
+    const r = runStep({});
+    assert.equal(r.status, 0);
+    assert.deepEqual(auditCalls(r.log), ["--no-install vigiles audit . --md"]);
+    assert.ok(r.summary.includes(SECTION), r.summary);
+  });
+
+  it("off: runs no audit and adds no section", () => {
+    const r = runStep({ VIGILES_AUDIT_SUMMARY: "false" });
+    assert.equal(r.status, 0);
+    assert.deepEqual(auditCalls(r.log), []);
+    assert.ok(!r.summary.includes(MARKER));
+  });
+
+  it("an audit that errors leaves a one-line note and a passing job", () => {
+    const r = runStep({ STUB_MD: "", STUB_MD_EXIT: "2" });
+    assert.equal(r.status, 0);
+    assert.match(r.output, /valid=true/);
+    assert.ok(!r.summary.includes(MARKER));
+    const note = r.summary.split("\n").filter((l) => /audit summary/i.test(l));
+    assert.equal(note.length, 1, r.summary);
+  });
+
+  it("an older vigiles printing terminal text for --md is not pasted in", () => {
+    const r = runStep({ STUB_MD: "Detected harness: claude-code\nrings…\n" });
+    assert.equal(r.status, 0);
+    assert.ok(!r.summary.includes("Detected harness"), r.summary);
+    assert.match(r.summary, /audit summary/i);
+  });
+
+  it("never turns a failing command green, nor a passing one red", () => {
+    const failed = runStep({ STUB_MAIN_EXIT: "1" });
+    assert.equal(failed.status, 1);
+    assert.match(failed.output, /valid=false/);
+    assert.ok(failed.summary.includes(SECTION));
+  });
+
+  it("on a pull request, audits the base and passes it as --compare=", () => {
+    const r = runStep({ GITHUB_EVENT_NAME: "pull_request" }, (repo, root) => {
+      const git = (...a: string[]): void => {
+        execFileSync("git", a, {
+          cwd: repo,
+          stdio: "pipe",
+          env: {
+            PATH: "/usr/bin:/bin",
+            HOME: root,
+            GIT_AUTHOR_NAME: "t",
+            GIT_AUTHOR_EMAIL: "t@example.com",
+            GIT_COMMITTER_NAME: "t",
+            GIT_COMMITTER_EMAIL: "t@example.com",
+          },
+        });
+      };
+      git("init", "-q");
+      git("add", "-A");
+      git("-c", "commit.gpgsign=false", "commit", "-qm", "base");
+      const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: repo,
+        encoding: "utf-8",
+      }).trim();
+      writeFileSync(join(repo, "CLAUDE.md"), "# head\n");
+      writeFileSync(
+        join(root, "event.json"),
+        JSON.stringify({ pull_request: { number: 7, base: { sha } } }),
+      );
+      return { GITHUB_EVENT_PATH: join(root, "event.json") };
+    });
+    assert.equal(r.status, 0);
+    const calls = auditCalls(r.log);
+    assert.equal(calls.length, 2, r.log);
+    assert.match(calls[0] ?? "", /audit \S+ --json$/);
+    assert.match(calls[1] ?? "", /audit \. --md --compare=\S+$/);
+  });
+
+  it("on a pull request with no base to read, still compares, so the CLI says why", () => {
+    const r = runStep({
+      GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_EVENT_PATH: "/dev/null",
+    });
+    assert.equal(r.status, 0);
+    const calls = auditCalls(r.log);
+    assert.equal(calls.length, 1, r.log);
+    assert.match(calls[0] ?? "", /audit \. --md --compare=\S+$/);
   });
 });
