@@ -30,11 +30,14 @@ import {
   dispatchKind,
   gateAction,
   hookMode,
+  hookNeeds,
   hookSource,
   runHookProgram,
   type AnyHook,
 } from "./core/hook-program.js";
 import { recordCheck, recordSurfaceProbe } from "./check-count.js";
+import { needKey } from "./core/hook-providers.js";
+import type { StateFact } from "./core/hook-state.js";
 import { runHook, type RunHookOptions } from "./run-hook.js";
 import { shellNeverLaunched } from "./run-script.js";
 
@@ -211,6 +214,14 @@ export interface VerifyGuardrailOptions extends RunHookOptions {
    * ones beside yours).
    */
   readonly harmless?: readonly HarmlessEvent[];
+  /**
+   * The facts a compiled gate declared in `needs` (`{ "git.branch": "main" }`),
+   * keyed as `e.ctx` reads them. The battery never gathers them itself — that
+   * would run git or a provider command inside a test — so a gate whose `needs`
+   * this does not cover is refused with a `TypeError` naming the missing facts,
+   * rather than decided on an empty context. Ignored for a command string.
+   */
+  readonly ctx?: Readonly<Record<string, string | boolean | StateFact>>;
 }
 // `condition` + `protocol` are inherited from RunHookOptions — pass the hook's
 // declared `if` here and the battery measures the guard the harness would
@@ -354,16 +365,14 @@ function hookName(hook: string | AnyHook): string {
   return hookSource(hook) ?? "compiled hook";
 }
 
+/** A compiled gate's facts, checked before any case: what `decide()` will read. */
+type GateCtx = NonNullable<VerifyGuardrailOptions["ctx"]>;
+
 /**
- * A compiled hook decides each case IN-PROCESS: its `decide()` is called, the
- * hook's mode applied, and the verdict is exact — no process, no exit code, no
- * question of whether it started.
+ * Refuse what cannot be decided exactly — a non-gate, a `condition`, a declared
+ * need `ctx` does not supply — and return the context the gate decides on.
  */
-function decideCases(
-  hook: AnyHook,
-  cases: readonly BatteryCase[],
-  opts: VerifyGuardrailOptions,
-): readonly GuardrailResult[] {
+function gateContext(hook: AnyHook, opts: VerifyGuardrailOptions): GateCtx {
   const kind = dispatchKind(hook);
   if (kind === "inject" || kind === "react")
     throw new TypeError(
@@ -373,17 +382,43 @@ function decideCases(
     throw new TypeError(
       "`condition` describes a command-string hook's `if`; a compiled hook routes itself",
     );
+  const ctx = opts.ctx ?? {};
+  const missing = hookNeeds(hook)
+    .map(needKey)
+    .filter((k) => !Object.hasOwn(ctx, k));
+  if (missing.length > 0)
+    throw new TypeError(
+      `this gate needs ${missing.join(", ")}, and \`ctx\` does not supply it: the battery does not gather facts, so pass them (ctx: { "${missing[0] ?? ""}": … })`,
+    );
+  return ctx;
+}
+
+/**
+ * A compiled hook decides each case IN-PROCESS: its `decide()` is called on the
+ * facts from `ctx`, the hook's mode applied, and the verdict is exact — no
+ * process, no exit code, no question of whether it started.
+ */
+function decideCases(
+  hook: AnyHook,
+  cases: readonly BatteryCase[],
+  opts: VerifyGuardrailOptions,
+): readonly GuardrailResult[] {
+  const ctx = gateContext(hook, opts);
   return cases.map((c) => {
     // Counted and attributed like `assertHookDenies` (see harness-assert.ts
     // `runCountedHookProgram`): an in-process decision is a check.
     recordCheck();
     const source = hookSource(hook);
     if (source !== undefined) recordSurfaceProbe("command", source);
-    const outcome = runHookProgram(hook, {
-      tool_name: c.event.tool,
-      tool_input: c.event.input,
-      ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }),
-    });
+    const outcome = runHookProgram(
+      hook,
+      {
+        tool_name: c.event.tool,
+        tool_input: c.event.input,
+        ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }),
+      },
+      { ...ctx },
+    );
     // A gate always yields a decision (the dispatch check above).
     const decision = outcome.kind === "decision" ? outcome.decision : allow();
     const blocked = gateAction(decision, hookMode(hook)).kind === "block";
@@ -502,7 +537,8 @@ function markCrashed(spawned: readonly Spawned[]): readonly GuardrailResult[] {
  * caller reads `blocked` against `expect`.
  *
  * Pass a compiled hook (`vigiles/hook`): it is checked exactly, by calling
- * `decide()`, with no process. A shell command string is only measured from
+ * `decide()`, with no process. A gate that declares `needs` decides on the
+ * facts you pass in `ctx`; one whose needs `ctx` leaves out is refused. A shell command string is only measured from
  * outside: a hook that never started, or one that branches on the input, can
  * look like it works. A string hook that exited non-zero on every call with an
  * interpreter or loader error reads `run: "crashed"`, never a score — a
@@ -543,7 +579,8 @@ function missLine(r: GuardrailResult): string {
  * fails the build instead of failing in production.
  *
  * Pass a compiled hook (`vigiles/hook`): it is checked exactly, by calling
- * `decide()`, with no process. A shell command string is only measured from
+ * `decide()`, with no process. A gate that declares `needs` decides on the
+ * facts you pass in `ctx`; one whose needs `ctx` leaves out is refused. A shell command string is only measured from
  * outside: a hook that never started, or one that branches on the input, can
  * look like it works. Write guards as compiled hooks.
  *

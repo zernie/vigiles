@@ -1679,6 +1679,7 @@ export function verifyGuardrail(hook: string | AnyHook, opts?: VerifyGuardrailOp
 // @public (undocumented)
 export interface VerifyGuardrailOptions extends RunHookOptions {
     readonly categories?: readonly DisasterCategory[];
+    readonly ctx?: Readonly<Record<string, string | boolean | StateFact>>;
     readonly event?: string;
     readonly events?: readonly DisasterEvent[];
     readonly harmless?: readonly HarmlessEvent[];

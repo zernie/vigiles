@@ -243,7 +243,9 @@ assertGuardrail(await loadHook(".vigiles/hooks/safety-guard.hook.mjs"));
 assertGuardrail("bash hooks/safety-guard.sh");
 ```
 
-It works on **any** hook. A compiled one is checked exactly. A command string
+It works on **any** hook. A compiled one is checked exactly; a gate that
+declares `needs` decides on the facts you pass (`ctx: { "git.branch": "main" }`),
+and the battery refuses it if one is missing rather than decide on nothing. A command string
 is driven the way the harness drives it, and only the block/allow decision is
 read — so a hook that never started, or one that branches on the input, can
 look like it works. One case is caught: a string hook that exits non-zero on

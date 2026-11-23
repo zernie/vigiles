@@ -314,7 +314,7 @@ export function resolveNeed(
 }
 
 /** The key a need is exposed under in `e.ctx`. */
-const needKey = (need: NeedSpec): string =>
+export const needKey = (need: NeedSpec): string =>
   typeof need === "string" ? need : need.name;
 
 /**
