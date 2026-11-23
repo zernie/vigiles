@@ -14,7 +14,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildAgentArgs,
@@ -22,6 +22,7 @@ import {
   contextInReport,
   formatEvalReport,
   resolveSpawnEnv,
+  runEvalReporting,
   runEvalWith,
   type AgentRunner,
   type EvalReport,
@@ -252,6 +253,45 @@ describe("the Claude Code request channel, from a client without an index", () =
       expect(firstClaudeRequest(dir)).toContain("FIRST");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runEval's own warning, without the binary", () => {
+  it("prints the missing instruction file to stderr, not only into the report", async () => {
+    // A stand-in client: writes a first request that lacks CLAUDE.md where the
+    // channel's env points, as a client that dropped the file would.
+    const runner: AgentRunner = (a) => {
+      const target = a.env?.["OTEL_LOG_RAW_API_BODIES"] ?? "";
+      const dir = target.slice("file:".length);
+      writeFileSync(
+        join(dir, "r.request.json"),
+        JSON.stringify({ tools: [{ name: "Bash" }], system: "no file here" }),
+      );
+      return Promise.resolve({ code: 0, stdout: "" });
+    };
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const report = await runEvalReporting(
+        {
+          name: "context",
+          arms: { skill: { files: { "CLAUDE.md": "Always answer X.\n" } } },
+          task: "say ok",
+          measure: () => ({ ran: true }),
+          trials: 1,
+          spacingSec: 0,
+          env: { kind: "ephemeral" },
+        },
+        runner,
+      );
+      expect(report.arms["skill"]?.context?.map((e) => e.kind)).toEqual([
+        "missing",
+      ]);
+      const printed = err.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(printed).toContain("⚠ runEval:");
+      expect(printed).toContain("CLAUDE.md");
+    } finally {
+      err.mockRestore();
     }
   });
 });
