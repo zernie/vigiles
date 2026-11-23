@@ -132,13 +132,15 @@ describe("the per-trial context check, on the real binary", () => {
     },
     120_000,
   );
+});
 
+describe("what the context check expects, on the real binary", () => {
   gate(
     "a BOM and an HTML comment, which the client strips, are not a false missing",
     async () => {
       const { report } = await evalIn({
         "CLAUDE.md":
-          "﻿First line CONTEXT_SENTINEL_D.\r\n<!-- a note for humans -->\r\nLast line.\r\n",
+          "\uFEFFFirst line CONTEXT_SENTINEL_D.\r\n<!-- a note for humans -->\r\nLast line.\r\n",
       });
       expect(report.arms["skill"]?.context?.map((e) => e.kind)).toEqual([
         "delivered",

@@ -15,6 +15,7 @@
  * a stdout-only cache would silently mis-score on replay. We snapshot the cwd's
  * text files after the run and restore them into a fresh dir before re-scoring.
  */
+import type { ContextEvidence } from "./core/context-evidence.js";
 import {
   readFileSync,
   writeFileSync,
@@ -108,6 +109,12 @@ export interface CacheRecord {
    * unanswered ones included. Absent when the run had no stubs.
    */
   readonly stubCalls?: readonly StubCall[];
+  /**
+   * Whether the run's instruction files reached the model (vigiles#416) — the
+   * evidence only, never the request body. Absent on a record made before the
+   * check existed; a replay of one says "not checked".
+   */
+  readonly context?: ContextEvidence;
 }
 
 const MAX_SNAPSHOT_FILE_BYTES = 1024 * 1024;

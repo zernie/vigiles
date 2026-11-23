@@ -10,6 +10,8 @@
  * The Claude Code implementation is `claudeCodeRuntime` in
  * `src/adapters/claude-code/runtime.ts`.
  */
+import type { PluginLayout } from "./layout.js";
+
 export interface HarnessRuntime {
   /** Stable identifier, e.g. "claude-code". */
   readonly name: string;
@@ -60,6 +62,35 @@ export interface HarnessRuntime {
    * and nothing is removed from an inherited env.
    */
   readonly runEnv?: RunEnvPolicy;
+  /**
+   * How to read what the harness actually SENT the model — the channel the
+   * eval's per-trial context check reads (vigiles#416). Absent: the harness has
+   * no such channel, and the check says "not checked" rather than passing.
+   */
+  readonly requestCapture?: RequestCapture;
+}
+
+/**
+ * A harness's request-body channel: make a run write its model requests
+ * somewhere WITHOUT exporting anything, then read the first agent-loop request.
+ */
+export interface RequestCapture {
+  /** The layout whose instruction chain says what the first request must carry. */
+  readonly layout: PluginLayout;
+  /** Open a channel for one run; the caller must `close` it. */
+  open(): RequestChannel;
+}
+
+/** One run's request-body channel. */
+export interface RequestChannel {
+  /** Env that makes the run write its request bodies here, and export nothing. */
+  readonly env: Readonly<Record<string, string>>;
+  /** Drop what an earlier attempt wrote, so a retried run reads its own request. */
+  reset(): void;
+  /** The text of the first agent-loop request written so far, or undefined. */
+  firstRequest(): string | undefined;
+  /** Delete every request body. Safe to call twice. */
+  close(): void;
 }
 
 /**

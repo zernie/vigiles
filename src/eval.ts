@@ -146,6 +146,12 @@ import {
 } from "./core/stub-rules.js";
 import { parseRunEnv, parseToolStubs } from "./core/eval-spec-parse.js";
 import { makeTmpDir } from "./core/tmp-root.js";
+import {
+  contextFailure,
+  contextSummaryLines,
+  type ContextEvidence,
+} from "./core/context-evidence.js";
+import { startContextCapture } from "./eval-context.js";
 import { editDistance } from "./core/edit-distance.js";
 
 /**
@@ -362,6 +368,16 @@ export interface EvalSpec<M extends Metrics> {
    * lock engages only when `name` is set (it keys the lock file).
    */
   readonly lock?: EvalLockOptions;
+  /**
+   * The per-trial context check (vigiles#416), on by default: every trial
+   * checks that the instruction files the harness should load from the trial's
+   * world (`CLAUDE.md`, `AGENTS.md`, their `@`-imports) reached the model's
+   * first request. A trial where one did not is NOT scored and the eval fails.
+   * `false` turns the check off; the report then says "not checked".
+   *
+   * @experimental
+   */
+  readonly experimental_contextCheck?: false;
 }
 
 /** Per-metric summary statistics across an arm's runs. */
@@ -416,6 +432,12 @@ export interface ArmReport {
    * it and `--update` refuses to record the lock. Empty when the eval has no stubs.
    */
   readonly unansweredStubCalls: readonly StubCall[];
+  /**
+   * One entry per trial run: did the instruction files reach the model? A
+   * `missing` trial is not in `runs`/`metrics`/`stats` (its cost still is in
+   * `usage`). Absent on a report recorded before the check existed.
+   */
+  readonly context?: readonly ContextEvidence[];
 }
 
 export interface EvalReport {
@@ -1582,14 +1604,11 @@ async function runWithCache(
   },
   runner: AgentRunner,
   cfg: RunConfig,
-  collectStubCalls: () => readonly StubCall[] | undefined,
-): Promise<{
-  readonly out: RunOut;
-  readonly stubCalls: readonly StubCall[] | undefined;
-}> {
+  collect: () => TrialObservations,
+): Promise<TrialObservations & { readonly out: RunOut }> {
   if (cfg.cache === "off") {
     const out = await runner(runArgs);
-    return { out, stubCalls: collectStubCalls() };
+    return { out, ...collect() };
   }
   const key = cacheKey({
     task: runArgs.task,
@@ -1619,19 +1638,35 @@ async function runWithCache(
   if (hit && startFailure(hit.out) === null) {
     restoreDir(runArgs.cwd, hit.files);
     // The stub log lives beside the work dir, so the record carries it: a
-    // replayed trial reports the same calls, unanswered ones included.
-    return { out: hit.out, stubCalls: hit.stubCalls };
+    // replayed trial reports the same calls, unanswered ones included. The
+    // context evidence likewise; a record without it was never checked.
+    return {
+      out: hit.out,
+      stubCalls: hit.stubCalls,
+      context: hit.context ?? {
+        kind: "unobservable",
+        why: "replayed-without-evidence",
+        files: [],
+      },
+    };
   }
   const out = await runner(runArgs);
-  const stubCalls = collectStubCalls();
+  const seen = collect();
   if (cfg.cache === "readwrite") {
     writeCache(cfg.cacheDir, key, {
       out,
       files: snapshotDir(runArgs.cwd),
-      ...(stubCalls === undefined ? {} : { stubCalls }),
+      ...(seen.stubCalls === undefined ? {} : { stubCalls: seen.stubCalls }),
+      context: seen.context,
     });
   }
-  return { out, stubCalls };
+  return { out, ...seen };
+}
+
+/** What a trial observed besides its output: stub calls and context evidence. */
+interface TrialObservations {
+  readonly stubCalls: readonly StubCall[] | undefined;
+  readonly context: ContextEvidence;
 }
 
 /**
@@ -1934,6 +1969,8 @@ interface TrialOutcome<M extends Metrics> {
   readonly unanswered: readonly StubCall[];
   /** False when the run reported no cost (see `ParsedModelRun.costObserved`). */
   readonly costObserved: boolean;
+  /** Did the instruction files reach the model? `missing` → not scored. */
+  readonly context: ContextEvidence;
 }
 
 /** Execute one trial in a fresh sandbox; returns its metric row + usage. */
@@ -1945,6 +1982,19 @@ async function executeTrial<M extends Metrics>(
   cfg: RunConfig,
 ): Promise<TrialOutcome<M>> {
   const { index: trialIndex, maxBudgetUsd } = trial;
+  // Resolved before any temp dir exists, so a bad plugin leaves nothing behind.
+  const resolved = resolveHarness({
+    plugin: arm.plugin,
+    settings: arm.settings,
+    files: { ...spec.fixture, ...arm.files },
+  });
+  const { files } = resolved;
+  // The trial's world decides what its first request must carry (vigiles#416).
+  const observed = startContextCapture({
+    runtime: EVAL_RUNTIME,
+    world: files,
+    enabled: spec.experimental_contextCheck !== false,
+  });
   const cwd = makeTmpDir("eval");
   // The ephemeral env's HOME: beside the work dir, so `snapshotDir(cwd)` (the
   // cache record) never sees the credentials file or the seed, and the agent's
@@ -1956,12 +2006,6 @@ async function executeTrial<M extends Metrics>(
   const stubDir =
     stubs.length > 0 ? writeStubDir(stubs, STUB_LAUNCHER) : undefined;
   try {
-    const resolved = resolveHarness({
-      plugin: arm.plugin,
-      settings: arm.settings,
-      files: { ...spec.fixture, ...arm.files },
-    });
-    const { files } = resolved;
     const intercepts = arm.interceptTools ?? [];
     const settings = withInterceptToolHook(resolved.settings, intercepts);
     // The eval-injected overlay (VIGILES_INTERCEPT_TOOLS), if any.
@@ -1978,7 +2022,7 @@ async function executeTrial<M extends Metrics>(
         JSON.stringify(settings, null, 2).replaceAll("{cwd}", cwd),
       );
     }
-    const { out, stubCalls } = await runWithCache(
+    const { out, stubCalls, context } = await runWithCache(
       {
         task: spec.task,
         cwd,
@@ -1990,7 +2034,12 @@ async function executeTrial<M extends Metrics>(
         pluginDir: arm.pluginDir,
         timeoutMs: cfg.timeoutMs,
         ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
-        env: run.env,
+        // The request-body channel is added here, not in `run`: it is an
+        // observation, not an input, so it stays out of the cache key.
+        env:
+          Object.keys(observed.env).length === 0
+            ? run.env
+            : { ...run.env, ...observed.env },
         replaceEnv: run.replaceEnv,
       },
       {
@@ -2004,15 +2053,15 @@ async function executeTrial<M extends Metrics>(
       // A rate-limited attempt is discarded and retried; its stub calls must
       // go with it, or the retry inherits a used-up `inOrder` answer and the
       // report counts calls from a run nobody scores.
-      retrying(
-        stubDir === undefined
-          ? undefined
-          : () => {
-              resetStubCalls(stubDir);
-            },
-      ),
+      retrying(() => {
+        observed.reset();
+        if (stubDir !== undefined) resetStubCalls(stubDir);
+      }),
       cfg,
-      () => (stubDir === undefined ? undefined : readStubCalls(stubDir)),
+      () => ({
+        stubCalls: stubDir === undefined ? undefined : readStubCalls(stubDir),
+        context: observed.finish(),
+      }),
     );
     const { ctx: base, costObserved } = makeTrialContext(cwd, out);
     const ctx: RunContext =
@@ -2021,23 +2070,34 @@ async function executeTrial<M extends Metrics>(
       row: spec.measure(ctx),
       usage: ctx.usage,
       costObserved,
-      unanswered: [
-        ...(stubCalls ?? []),
-        // A stub that could not write its log still printed its neutral line
-        // into the agent's tool results: count those too, or a confined shell
-        // would leave the report clean.
-        ...unloggedMisses(
-          ctx.toolCalls.map((c) => c.resultText),
-          stubCalls ?? [],
-          stubs.map((s) => s.name),
-        ),
-      ].filter((c) => isUnanswered(c.outcome)),
+      unanswered: unansweredCalls(ctx, stubCalls, stubs),
+      context,
     };
   } finally {
+    observed.dispose();
     rmSync(cwd, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
     if (stubDir !== undefined) removeStubDir(stubDir);
   }
+}
+
+/** The stub calls nobody answered in one trial. */
+function unansweredCalls(
+  ctx: RunContext,
+  stubCalls: readonly StubCall[] | undefined,
+  stubs: readonly ToolStub[],
+): readonly StubCall[] {
+  return [
+    ...(stubCalls ?? []),
+    // A stub that could not write its log still printed its neutral line
+    // into the agent's tool results: count those too, or a confined shell
+    // would leave the report clean.
+    ...unloggedMisses(
+      ctx.toolCalls.map((c) => c.resultText),
+      stubCalls ?? [],
+      stubs.map((s) => s.name),
+    ),
+  ].filter((c) => isUnanswered(c.outcome));
 }
 
 // A signal in the captured streams that the model call was rate-limited /
@@ -2144,6 +2204,8 @@ type DoneResult<M extends Metrics> = {
   readonly unanswered: readonly StubCall[];
   /** False when the run reported no cost; absent on results built elsewhere. */
   readonly costObserved?: boolean;
+  /** The trial's context evidence; absent on results built elsewhere. */
+  readonly context?: ContextEvidence;
 };
 type UnitResult<M extends Metrics> =
   | DoneResult<M>
@@ -2160,7 +2222,14 @@ function aggregateArms<M extends Metrics>(
     const done = results.filter(
       (r): r is DoneResult<M> => !r.skipped && r.armName === armName,
     );
-    const rows = done.map((d) => d.row);
+    // A trial whose instruction files never reached the model is not a sample
+    // of this arm: it ran and it cost, but it is not scored (vigiles#416).
+    const rows = done
+      .filter((d) => d.context?.kind !== "missing")
+      .map((d) => d.row);
+    const context = done.flatMap((d) =>
+      d.context === undefined ? [] : [d.context],
+    );
     const usage = aggregateUsage(done.map((d) => d.usage));
     totalCostUsd += usage.totalCostUsd;
     arms[armName] = {
@@ -2169,6 +2238,7 @@ function aggregateArms<M extends Metrics>(
       stats: aggregateStats(rows),
       usage,
       unansweredStubCalls: done.flatMap((d) => d.unanswered),
+      ...(context.length === 0 ? {} : { context }),
     };
   }
   return { arms, totalCostUsd };
@@ -2425,6 +2495,7 @@ const EVAL_SPEC_KEYS = {
   env: true,
   stubs: true,
   lock: true,
+  experimental_contextCheck: true,
 } satisfies Record<keyof EvalSpec<Metrics>, true>;
 
 const MEASURE_SPEC_KEYS = {
@@ -2555,6 +2626,20 @@ export function unansweredInReport(
 }
 
 /**
+ * The author-facing failure for a report where an instruction file missed the
+ * model's request in some trial, or undefined (vigiles#416). One owner, like
+ * {@link unansweredInReport}: the lock's refusal and `vigiles eval` read it.
+ */
+export function contextInReport(
+  report: Pick<EvalReport, "arms">,
+): string | undefined {
+  const lines = contextFailure(report.arms);
+  return lines === undefined
+    ? undefined
+    : `${lines}\n  Those trials are not scored: no lock is written, and the eval fails.`;
+}
+
+/**
  * `runEval` with its author-facing output, over any runner — so the real one and
  * a test's fake share one path. Besides the run it prints, to stderr, what the
  * caller must not miss: a skill arm that never activates, a stub call no rule
@@ -2574,6 +2659,8 @@ export async function runEvalReporting<M extends Metrics>(
     parseToolStubs(spec.stubs, "runEval"),
   );
   if (unanswered !== undefined) console.error(`⚠ runEval: ${unanswered}`);
+  const context = contextInReport(report);
+  if (context !== undefined) console.error(`⚠ runEval: ${context}`);
   // Surface what the run spent — tokens + API-equivalent $, and a LOUD warning if
   // it was billed to a metered API key instead of the subscription. See eval-cost.ts.
   emitCostSummary(costFromEvalReport(report));
@@ -2680,16 +2767,17 @@ async function runResolvedEval<M extends Metrics>(
     // turn and reports its cost; a run killed first is charged the cap.
     const cap =
       spec.maxCostUsd === undefined ? undefined : spec.maxCostUsd - charged;
-    const { row, usage, unanswered, costObserved } = await executeTrial(
-      spec,
-      unit.arm,
-      {
-        index: unit.trialIndex,
-        ...(cap === undefined ? {} : { maxBudgetUsd: cap }),
-      },
-      retrying,
-      cfg,
-    );
+    const { row, usage, unanswered, costObserved, context } =
+      await executeTrial(
+        spec,
+        unit.arm,
+        {
+          index: unit.trialIndex,
+          ...(cap === undefined ? {} : { maxBudgetUsd: cap }),
+        },
+        retrying,
+        cfg,
+      );
     charged += costObserved ? usage.costUsd : (cap ?? 0);
     if (spec.maxCostUsd !== undefined && charged >= spec.maxCostUsd)
       stopped = "budget";
@@ -2702,6 +2790,7 @@ async function runResolvedEval<M extends Metrics>(
       usage,
       unanswered,
       costObserved,
+      context,
     };
   };
 
@@ -2717,7 +2806,8 @@ async function runResolvedEval<M extends Metrics>(
       model: cfg.model,
       effort: cfg.effort,
       lock,
-      refuse: (report: EvalReport) => unansweredInReport(report, spec.stubs),
+      refuse: (report: EvalReport) =>
+        unansweredInReport(report, spec.stubs) ?? contextInReport(report),
     },
     async (): Promise<EvalReport> => {
       const results = await runPool(units, concurrency, worker);
@@ -2821,7 +2911,12 @@ export function formatEvalReport(
     const parts = Object.entries(r.metrics)
       .map(([k, v]) => formatMetric(k, v, r.stats[k]))
       .join("  ");
-    lines.push(`  ${arm.padEnd(10)} ${parts}${formatUsage(r.usage)}`);
+    lines.push(
+      `  ${arm.padEnd(10)} ${parts}${formatUsage(r.usage)}`,
+      ...contextSummaryLines(r.context ?? []).map(
+        (line) => `  ${arm.padEnd(10)} ${line}`,
+      ),
+    );
     // One line: the calls themselves are printed once, by `runEval`
     // (`unansweredInReport`), not again under every arm of the table.
     if (r.unansweredStubCalls.length > 0)
