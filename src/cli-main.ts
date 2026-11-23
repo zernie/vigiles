@@ -621,8 +621,8 @@ function refuseCompareWithoutMd(args: readonly string[], md: boolean): void {
 
 /** `--format=` / `--json` / `--md` as two booleans, or exit 2 on a contradiction. */
 function auditOutput(args: readonly string[]): {
-  json: boolean;
-  md: boolean;
+  readonly json: boolean;
+  readonly md: boolean;
 } {
   const parsed = parseAuditFormat(args);
   if (parsed.kind === "refused") {

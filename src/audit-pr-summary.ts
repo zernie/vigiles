@@ -66,8 +66,8 @@ export type BaseAudit =
 const unavailable = (why: string): BaseAudit => ({ kind: "unavailable", why });
 
 /**
- * Read `audit --json` output of the PR base. `undefined` is a file that was
- * never written (the base could not be materialized or audited).
+ * Read `audit --format=json` output of the base. `undefined` is output that
+ * never came (the audit of the base copy printed nothing).
  */
 export function parseBaseAudit(text: string | undefined): BaseAudit {
   if (text === undefined)

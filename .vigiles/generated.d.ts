@@ -197,7 +197,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 625 project files. */
+  /** 628 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -334,6 +334,7 @@ declare module "vigiles/generated" {
     | "src/ci-path-filter.test.ts"
     | "src/claude-code.ts"
     | "src/cli-adopter-reports.test.ts"
+    | "src/cli-audit-compare.test.ts"
     | "src/cli-audit-summary.test.ts"
     | "src/cli-commands.ts"
     | "src/cli-compile-gate.test.ts"
@@ -380,6 +381,7 @@ declare module "vigiles/generated" {
     | "src/core/apply-rules.test.ts"
     | "src/core/apply-rules.ts"
     | "src/core/assert-never.ts"
+    | "src/core/audit-flags.ts"
     | "src/core/audit-snapshot.ts"
     | "src/core/baseline-store.test.ts"
     | "src/core/baseline-store.ts"
@@ -677,6 +679,7 @@ declare module "vigiles/generated" {
     | "src/hook-state-store.ts"
     | "src/hook.test.ts"
     | "src/hook.ts"
+    | "src/host/base-tree.io.ts"
     | "src/host/changed-files.io.ts"
     | "src/host/rule-proof.io.test.ts"
     | "src/host/rule-proof.io.ts"
@@ -1128,6 +1131,7 @@ declare module "vigiles/spec" {
       | "src/ci-path-filter.test.ts"
       | "src/claude-code.ts"
       | "src/cli-adopter-reports.test.ts"
+      | "src/cli-audit-compare.test.ts"
       | "src/cli-audit-summary.test.ts"
       | "src/cli-commands.ts"
       | "src/cli-compile-gate.test.ts"
@@ -1174,6 +1178,7 @@ declare module "vigiles/spec" {
       | "src/core/apply-rules.test.ts"
       | "src/core/apply-rules.ts"
       | "src/core/assert-never.ts"
+      | "src/core/audit-flags.ts"
       | "src/core/audit-snapshot.ts"
       | "src/core/baseline-store.test.ts"
       | "src/core/baseline-store.ts"
@@ -1471,6 +1476,7 @@ declare module "vigiles/spec" {
       | "src/hook-state-store.ts"
       | "src/hook.test.ts"
       | "src/hook.ts"
+      | "src/host/base-tree.io.ts"
       | "src/host/changed-files.io.ts"
       | "src/host/rule-proof.io.test.ts"
       | "src/host/rule-proof.io.ts"

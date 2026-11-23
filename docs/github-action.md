@@ -172,10 +172,11 @@ Set `capability-diff: true` to answer one question on every PR: **did this chang
 ## Audit grade in PRs
 
 On by default (`audit-summary: true`): the job summary and the sticky comment
-get a short audit section from [`audit --md`](cli.md#the-pr-comment-summary--audit---md) —
-the A–F grade and score, the four graded rings, the top three fixes, every fix in
-a collapsed list. On a `pull_request` the Action also audits the PR base (the same
-base the capability diff uses, materialized once) and shows each ring's change:
+get a short audit section from [`audit --format=md`](cli.md#the-pr-comment-summary--audit---formatmd) —
+the A–F grade and score, the four graded rings, the top three fixes, the rest in
+a collapsed list. On a `pull_request` the Action adds `--compare`, and the CLI
+picks the PR base, fetches it if the checkout lacks it, audits it under its own
+config and shows each ring's change:
 
 ```markdown
 ### vigiles audit: **B** · 82/100 (base B → B, 81 → 82 ▲)
@@ -192,11 +193,11 @@ base the capability diff uses, materialized once) and shows each ring's change:
 
 It is the **headless** audit, and says so: the checks that need your consent
 (starting live MCP servers, measuring skill trigger rate, loading your ESLint
-config) do not run in CI, so a local `npx vigiles audit` can show more. The base
-needs `fetch-depth: 0`; without it the section shows the current grade and a note.
+config) do not run in CI, so a local `npx vigiles audit` can show more. When the
+base cannot be read, the section shows the current grade and says why.
 
 It **never changes the job's result**. An audit that errors, or an older vigiles
-whose `audit --md` predates the section, leaves a one-line note instead. Turn it
+whose `audit --format=md` predates the section, leaves a one-line note instead. Turn it
 off with `audit-summary: "false"`.
 
 ## Versioning

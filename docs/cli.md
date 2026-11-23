@@ -861,25 +861,42 @@ harness's health — not a build gate. **CI uses [`vigiles lint`](#lint-files)**
 (deterministic, stable exit codes 0/1/2); `audit` is the human-facing read +
 report. (You _can_ pipe `audit --json` somewhere, but it's not a pass/fail gate.)
 
-#### The PR-comment summary — `audit --md`
+#### What `audit` prints — `--format=text|json|md`
 
-On **one** directory, `--md` prints a short Markdown section instead of the
+`--format=` picks what goes to stdout: `text` (the terminal report, the default),
+`json` (the versioned `AuditReport`, for a
+script) or `md` (Markdown: the PR-comment section below on one directory, the
+leaderboard table on several). `--json` and `--md` are its aliases. Asking for two
+at once (`--json --md`, or `--format=json --md`) exits 2 instead of picking one.
+The HTML report is a file `audit` writes beside whatever stdout carries, not a
+format (`--no-html` skips it).
+
+#### The PR-comment summary — `audit --format=md`
+
+On **one** directory, `--format=md` prints a short Markdown section instead of the
 terminal report: the grade and score, the four graded rings (the advisory ones
 marked), the three fixes worth the most points (or, with no fix list, the graded
-rings' own findings), all of them in a collapsed list, and a closing line saying
-this was the headless read. It is what the [GitHub Action](github-action.md#audit-grade-in-prs)
+rings' own findings), the rest in a collapsed list, and a closing line saying this
+was the headless read. It is what the [GitHub Action](github-action.md#audit-grade-in-prs)
 puts in the job summary and the sticky PR comment. Like `--json`, it writes no
-report files and never asks, so the consent-gated checks do not run.
+report files and never asks, so the consent-gated checks do not run. A repo with
+thousands of findings still fits a comment: the collapsed list stops at 20,000
+characters and says how many more there are.
 
-`--compare=<base.json>` adds each ring's change against another `audit --json`
-report — the Action passes the PR base's: `Safety 90 → 82 ▼`. When that file is
-missing, not a report, from another schema version, or a base with nothing to
-audit, the section still prints and says why there is no comparison, rather than
-showing "no change". `--compare=` without `--md` exits 2.
+`--compare` adds each ring's change against a base: `Safety 90 → 82 ▼`. Bare, it
+picks the base the way [`test --changed`](#running-only-what-a-change-reaches---changed)
+does — on a GitHub pull request the base the event names (fetched if the checkout
+lacks it), locally your default branch; `--compare=<ref>` names one. vigiles copies
+that commit out of git, links your checkout's git-ignored files (installed
+packages, build output) into the copy so only tracked content differs, and audits
+the copy under **its own** `.vigilesrc.json`. When there is no base, the ref is
+unknown, or the base has nothing to audit, the section still prints and says why
+there is no comparison, rather than showing "no change". `--compare` without
+`--format=md` exits 2.
 
 ```bash
-npx vigiles audit ../base --json > base.json   # the PR base, checked out elsewhere
-npx vigiles audit --md --compare=base.json     # the section, with per-ring change
+npx vigiles audit --format=md --compare        # vs your default branch, or the PR base in CI
+npx vigiles audit --format=md --compare=v1.2.0 # vs a tag
 ```
 
 #### When you last ran `audit`

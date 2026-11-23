@@ -1,8 +1,8 @@
 /**
  * The few fields of a saved `audit --json` report that a comparison reads —
- * parsed with a schema, never cast. Used by `audit --md --compare=<base.json>`
- * (#474), where the base report comes from another process (the GitHub Action
- * audits the PR base and hands the file over).
+ * parsed with a schema, never cast. Used by `audit --format=md --compare`
+ * (#474), where the base report comes from another process: the CLI audits a
+ * copy of the base inside the copy (`src/host/base-tree.io.ts`).
  *
  * Harness- and version-agnostic on purpose: which schema version and which ring
  * names count is the caller's decision (`src/audit-pr-summary.ts`), so this
