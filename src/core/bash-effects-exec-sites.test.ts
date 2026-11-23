@@ -149,6 +149,38 @@ describe("what the descent cannot read is unseen, with its reason", () => {
   });
 });
 
+describe("env -S splits its string into arguments, not shell code", () => {
+  test("the operands after the string are appended to the command", () => {
+    assert.ok(pushes(`env -S 'git push -f' origin main`));
+    assert.ok(pushes(`env -i -S 'FOO=1 git push "-f"'`));
+  });
+
+  test("a separator inside the string is an argument, not a second command", () => {
+    const sites = execSites(`env -S 'echo harmless; git push -f'`);
+    assert.ok(!sites.some(forcePush));
+    const echo = sites.find((s) => s.kind === "exec" && s.leaf.head === "echo");
+    assert.deepEqual(echo?.kind === "exec" ? echo.leaf.args : null, [
+      "harmless;",
+      "git",
+      "push",
+      "-f",
+    ]);
+  });
+
+  test("splitting it does not model is unseen, not guessed", () => {
+    assert.ok(reasons("env -S 'git push ${F}'").includes("parse-error"));
+    assert.ok(reasons(`env -S "$CMD"`).includes("dynamic-command-string"));
+  });
+});
+
+describe("stdin is followed in source order", () => {
+  test("a later <&N replaces the here-string: unseen, not the earlier body", () => {
+    const cmd = `bash <<< ':' 3<<< 'git push -f' <&3`;
+    assert.ok(reasons(cmd).includes("stdin-fed-shell"));
+    assert.ok(pushes(`bash 3<<< ':' <<< 'git push -f'`));
+  });
+});
+
 describe("the caps end in unseen, never in an empty list", () => {
   test("depth 4 is read; depth 5 is too-deep", () => {
     assert.ok(pushes(nest(4)));

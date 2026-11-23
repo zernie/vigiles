@@ -29,6 +29,7 @@ import {
   carriesOf,
   decodeAnsiC,
   shellWord,
+  splitOption,
   type Carrier,
   type Carry,
   type ShellWord,
@@ -1240,7 +1241,11 @@ function wrapperDrop(words: readonly TemplateWord[]): number {
   const probe = words.map((w) => (w.holes > 0 ? "\u0000" : w.template));
   const [head = ""] = probe;
   const stripped = stripWrappers([normalizeHead(head), ...probe.slice(1)]);
-  return probe.length - stripped.argv.length;
+  const drop = probe.length - stripped.argv.length;
+  // `env -S STR` hands its command over in STR: resolving past it would make
+  // an operand the head, so the descent stops at that `env`.
+  const split = words.findIndex((_w, i) => i < drop && splitOption(words, i));
+  return split < 0 ? drop : split;
 }
 
 /** Which quoting rules a run of literal text is under. */
@@ -1363,24 +1368,46 @@ function positionalIndex(name: string, bound: number): number {
   return /^\d+$/.test(name) ? Number(name) : -1;
 }
 
-const STDIN_OPS: ReadonlySet<number> = new Set([56, 61, 62, 63]);
+/** Operators whose fd defaults to 0 when none is written (`<`, `<>`, `<&`, `<<`, `<<-`, `<<<`). */
+const INPUT_OPS: ReadonlySet<number> = new Set([56, 57, 58, 61, 62, 63]);
 
-/** The statement's stdin, as a shell would read code from it (bash takes the last). */
+/**
+ * The statement's stdin, as a shell would read code from it: every operation on
+ * fd 0 in source order, the last one wins. A duplication or a close (`<&3`,
+ * `0<&-`, `0>f`) is not followed — it is `moved`, which reads as unseen.
+ */
 function stdinFeed(
   redirs: readonly MvdanRedirect[],
   env: DescentEnv,
 ): StdinFeed {
-  const r = redirs
-    .filter((x) => STDIN_OPS.has(x.Op) && (x.N?.Value ?? "0") === "0")
-    .at(-1);
-  if (!r) return { kind: "none" };
+  return redirs.reduce<StdinFeed>(
+    (feed, r) => {
+      const fd = r.N?.Value ?? (INPUT_OPS.has(r.Op) ? "0" : "1");
+      return fd === "0" ? stdinOperation(r, env) : feed;
+    },
+    { kind: "none" },
+  );
+}
+
+function stdinOperation(
+  r: Readonly<MvdanRedirect>,
+  env: DescentEnv,
+): StdinFeed {
   const word = wordTemplate(r.Word?.Parts, env, "plain");
-  if (r.Op === 56) {
-    const path = shellWord(word);
-    return { kind: "file", path: path.kind === "text" ? path.text : null };
+  switch (r.Op) {
+    case 56:
+    case 57: {
+      const path = shellWord(word);
+      return { kind: "file", path: path.kind === "text" ? path.text : null };
+    }
+    case 63:
+      return { kind: "body", by: "<<<", word };
+    case 61:
+    case 62:
+      return { kind: "body", by: "<<", word: heredocBody(r, env) };
+    default:
+      return { kind: "moved" };
   }
-  if (r.Op === 63) return { kind: "body", by: "<<<", word };
-  return { kind: "body", by: "<<", word: heredocBody(r, env) };
 }
 
 /** A heredoc body: as written under a quoted delimiter, else expanded like `"…"`. */

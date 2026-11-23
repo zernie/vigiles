@@ -63,7 +63,11 @@ type Otherwise =
 /** HOW a program carries the command it runs — one row of {@link RUNNERS}. */
 export type Runner =
   /** Resolved in place by `stripWrappers`; `env -S STR` splits STR into the command. */
-  | { readonly mode: "wrapper"; readonly split: Options }
+  | {
+      readonly mode: "wrapper";
+      readonly split: Options;
+      readonly valueOpts: Options;
+    }
   /** The rest of argv after its options and N positionals is the command. */
   | {
       readonly mode: "argv-tail";
@@ -118,7 +122,9 @@ export type StdinFeed =
       readonly by: "<<" | "<<<";
       readonly word: TemplateWord;
     }
-  | { readonly kind: "file"; readonly path: string | null };
+  | { readonly kind: "file"; readonly path: string | null }
+  /** `<&3`, `0<&-`, `0>f`: stdin was moved or closed — not followed. */
+  | { readonly kind: "moved" };
 
 /** What a row hands back for one command: a string to parse, an argv slice, or a reason. */
 export type Carry =
@@ -149,7 +155,11 @@ const rows = (
 ): readonly (readonly [string, Runner])[] =>
   heads.map((h) => [h, runner] as const);
 
-const wrapper = (split: Options): Runner => ({ mode: "wrapper", split });
+const wrapper = (split: Options, valueOpts: Options = []): Runner => ({
+  mode: "wrapper",
+  split,
+  valueOpts,
+});
 const tail = (valueOpts: Options, positionals = 0): Runner => ({
   mode: "argv-tail",
   valueOpts,
@@ -188,7 +198,10 @@ export const RUNNERS: ReadonlyMap<string, Runner> = new Map([
     ["command", "nice", "timeout", "sudo", "xargs", "nohup"],
     wrapper([]),
   ),
-  ...rows(["env"], wrapper(["-S", "--split-string"])),
+  ...rows(
+    ["env"],
+    wrapper(["-S", "--split-string"], ["-u", "--unset", "-C", "--chdir"]),
+  ),
   ...rows(["exec"], tail(["-a"])),
   ...rows(["builtin", "setsid"], tail([])),
   ...rows(
@@ -418,6 +431,8 @@ function shellStdin(c: RunnerCall, operands: readonly TemplateWord[]): Carry {
         { kind: SCRIPT_FILE, path: c.stdin.path },
         carrier(c, "shell", "<"),
       );
+    case "moved":
+      return unseen({ kind: "stdin-fed-shell" }, carrier(c, "shell", "<&"));
     case "body": {
       const args = [c.words[0], ...operands].filter((w) => w !== undefined);
       return stringCarry(c.stdin.word, args, carrier(c, "shell", c.stdin.by));
@@ -537,13 +552,150 @@ function foreign(
   ];
 }
 
-function wrapperSplit(r: Row<"wrapper">, c: RunnerCall): readonly Carry[] {
-  const i = c.words.findIndex((w) => r.split.includes(w.template));
-  const value = i > 0 ? c.words[i + 1] : undefined;
-  return value
-    ? [stringCarry(value, [], carrier(c, r.mode, c.words[i]?.template))]
-    : [];
+interface SplitScan {
+  readonly found: {
+    readonly value: TemplateWord;
+    readonly rest: number;
+  } | null;
+  readonly done: boolean;
+  readonly skip: boolean;
 }
+
+/** Where the value starts in `--split-string=STR` / `-SSTR`, or 0. */
+function attachedAt(split: Options, t: string): number {
+  const long = split.find((o) => o.startsWith("--") && t.startsWith(`${o}=`));
+  if (long) return long.length + 1;
+  return split.find((o) => !o.startsWith("--") && t.startsWith(o))?.length ?? 0;
+}
+
+/** The split option among one wrapper's own options: `-S STR`, `-SSTR`, `--split-string=STR`. */
+function splitStep(
+  r: Row<"wrapper">,
+  s: SplitScan,
+  words: readonly TemplateWord[],
+  i: number,
+): SplitScan {
+  const w = words[i];
+  if (!w || s.skip) return { ...s, skip: false };
+  const t = w.template;
+  const next = words[i + 1];
+  if (r.split.includes(t))
+    return {
+      ...s,
+      done: true,
+      found: next ? { value: next, rest: i + 2 } : null,
+    };
+  const at = attachedAt(r.split, t);
+  if (at > 0)
+    return {
+      ...s,
+      done: true,
+      found: { value: sliceWord(w, at), rest: i + 1 },
+    };
+  const option = isOption(t) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(t);
+  return option
+    ? { ...s, skip: r.valueOpts.includes(t) }
+    : { ...s, done: true };
+}
+
+/**
+ * Does the wrapper at `words[at]` split a string into its command (`env -S`)?
+ * Read by the descent before it resolves wrappers, so the string is not lost.
+ */
+export function splitOption(
+  words: readonly TemplateWord[],
+  at: number,
+): SplitScan["found"] {
+  const head = words[at]?.template.split("/").at(-1) ?? "";
+  const r = RUNNERS.get(head);
+  if (r?.mode !== "wrapper" || r.split.length === 0) return null;
+  return words.reduce<SplitScan>(
+    (s, _w, i) => (i <= at || s.done ? s : splitStep(r, s, words, i)),
+    { found: null, done: false, skip: false },
+  ).found;
+}
+
+/** One token of GNU `env -S`: blanks, quotes, the escapes it knows, plain text. */
+const ENV_S_TOKEN =
+  /\s+|'(?:[^'\\]|\\[\\'])*'|"(?:[^"\\$]|\\["\\])*"|\\[\\"'_tnrfv#$]|[^\s'"\\$#]+/gy;
+const ENV_S_ESCAPES: ReadonlyMap<string, string> = new Map([
+  ["_", " "],
+  ["t", "\t"],
+  ["n", "\n"],
+  ["r", "\r"],
+  ["f", "\f"],
+  ["v", "\v"],
+]);
+
+function envSToken(t: string): string | null {
+  if (/^\s/.test(t)) return null;
+  if (t.startsWith("'") || t.startsWith('"'))
+    return t.slice(1, -1).replace(/\\(.)/g, "$1");
+  if (t.startsWith("\\")) return ENV_S_ESCAPES.get(t[1] ?? "") ?? t.slice(1);
+  return t;
+}
+
+/**
+ * GNU `env -S STR` splits STR into ARGUMENTS — quotes and backslash escapes, no
+ * `;`, `&&` or pipes. `null` for what this does not model (`${VAR}`, `#`, `\c`,
+ * an unclosed quote): the caller reports it unseen rather than guessing.
+ */
+export function splitEnvString(raw: string): readonly string[] | null {
+  const tokens = Array.from(raw.matchAll(ENV_S_TOKEN), (m) => m[0]);
+  if (tokens.join("").length !== raw.length) return null;
+  const end = tokens.reduce<{
+    readonly words: readonly string[];
+    readonly cur: string | null;
+  }>(
+    (s, t) => {
+      const text = envSToken(t);
+      if (text === null)
+        return s.cur === null ? s : { words: [...s.words, s.cur], cur: null };
+      return { ...s, cur: (s.cur ?? "") + text };
+    },
+    { words: [], cur: null },
+  );
+  return end.cur === null ? end.words : [...end.words, end.cur];
+}
+
+const quoteWord = (w: Readonly<TemplateWord>): string =>
+  w.holes > 0 || w.undecodable
+    ? HOLE
+    : `'${w.template.replaceAll("'", `'\\''`)}'`;
+
+/**
+ * `env -S STR ARGS…` runs `env SPLIT(STR) ARGS…`: rebuilt as quoted words, so
+ * the inner parse sees arguments only and resolves `env` as usual.
+ */
+function wrapperSplit(r: Row<"wrapper">, c: RunnerCall): readonly Carry[] {
+  const split = splitOption(c.words, 0);
+  if (!split) return [];
+  const by = carrier(c, r.mode, "-S");
+  if (split.value.holes > 0) return [unseen({ kind: DYNAMIC }, by)];
+  const parts = splitEnvString(split.value.template);
+  if (parts === null) return [unseen({ kind: "parse-error" }, by)];
+  const text = [
+    c.head,
+    ...parts.map((t) => quoteWord(textWord(t))),
+    ...c.words.slice(split.rest).map(quoteWord),
+  ];
+  return [
+    {
+      kind: "string",
+      text: text.join(" "),
+      holes: false,
+      args: [],
+      carrier: by,
+    },
+  ];
+}
+
+const textWord = (template: string): TemplateWord => ({
+  template,
+  holes: 0,
+  opaque: false,
+  undecodable: false,
+});
 
 function scriptFile(r: Row<"script-file">, c: RunnerCall): readonly Carry[] {
   const path = c.words[1];

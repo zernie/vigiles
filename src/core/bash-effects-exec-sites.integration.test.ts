@@ -79,6 +79,8 @@ const FORMS = [
   `flock lock -c "git push -f"`,
   `flock lock git push -f`,
   `env -S 'git push -f'`,
+  `env -S 'git push -f' origin main`,
+  `bash <<< ':' 3<<< 'git push -f' <&3`,
   `timeout 5 setsid git push -f`,
   `ls | xargs -I{} sh -c "cd {} && git push -f"`,
 ];
