@@ -12,6 +12,7 @@ export interface AgentRunArgs {
     readonly env?: Record<string, string>;
     // (undocumented)
     readonly hasSettings: boolean;
+    readonly maxBudgetUsd?: number;
     // (undocumented)
     readonly model: string;
     // (undocumented)
@@ -575,6 +576,7 @@ export interface EvalReport {
     readonly aborted: boolean;
     // (undocumented)
     readonly arms: Record<string, ArmReport>;
+    readonly chargedUsd?: number;
     readonly env?: {
         readonly kind: "ephemeral";
     } | {
@@ -586,6 +588,7 @@ export interface EvalReport {
     readonly totalCostUsd: number;
     // (undocumented)
     readonly trials: number;
+    readonly unknownCostRuns?: number;
 }
 
 // @public
@@ -733,7 +736,7 @@ export function formatCheckReport(report: CheckReport): string;
 // @public
 export function formatContainment(v: ContainmentVerdict): string;
 
-// @public
+// @public (undocumented)
 export function formatEvalReport(report: EvalReport, opts?: {
     readonly baseline?: string;
 }): string;
@@ -1068,6 +1071,7 @@ export function parseClaudeRun(out: RunOut): ParsedModelRun;
 
 // @public
 export interface ParsedModelRun {
+    readonly costObserved?: boolean;
     // (undocumented)
     readonly hooks: HookFire[];
     // (undocumented)
@@ -1159,11 +1163,11 @@ export function requestContains(trace: Trace, needle: string | RegExp): boolean;
 export interface RunContext extends Trace {
     // (undocumented)
     readonly cwd: string;
-    // (undocumented)
     readonly exitCode: number;
     sh(command: string): string;
     // (undocumented)
     readonly stdout: string;
+    readonly timedOut: boolean;
     readonly toolCalls: readonly ToolCall[];
     readonly turns: number;
     readonly usage: EvalUsage;
@@ -1203,11 +1207,12 @@ export type RunHookOptions = Omit<RunScriptOptions, "stdin"> & {
 
 // @public
 export interface RunOut {
-    // (undocumented)
     code: number;
+    signal?: string;
     stderr?: string;
     // (undocumented)
     stdout: string;
+    timedOut?: boolean;
 }
 
 // @public
