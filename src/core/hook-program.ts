@@ -281,7 +281,15 @@ export function noticeDelivery(
     : { kind: "undeliverable", message: reaction.message };
 }
 
-/** An AST-backed view of a Bash command — the author never writes a regex. */
+/**
+ * An AST-backed view of a Bash command — the author never writes a regex.
+ *
+ * Every predicate reads THROUGH the plain nested forms — `<shell> -c
+ * '<literal>'` and `eval '<literal>'` answer about the inner command as if it
+ * were typed — and a Bash gate's `allow` becomes an `ask` when the command
+ * hands a command to a program it cannot read into (`find -exec`, `bash -c
+ * "$X"`, …). See {@link decideProgram} and vigiles#460.
+ */
 export interface ShellCommand {
   /** The command line exactly as the tool event carried it, before parsing. */
   readonly raw: string;
