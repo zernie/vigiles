@@ -26,11 +26,14 @@
  *
  * WHERE IT STOPS, and why the boundary is not a policy choice. The transform
  * families are exactly the ones the normalizer collapses. `eval`, `sh -c`, a
- * `$VAR` head, base64 — the normalizer returns null for those, so a variant
- * built from them CANNOT pass the self-check and is never emitted. That is the
- * correct boundary: a guard built on `runs()` genuinely cannot see through
- * `eval "$(echo … | base64 -d)"`, so emitting it would call a correct guard
- * broken — the crying-wolf failure that gets a check switched off.
+ * `$VAR` head, base64 — the one-level normalizer does not collapse those, so a
+ * variant built from them CANNOT pass the self-check and is never emitted. For
+ * the dynamic ones that is the correct boundary: a guard built on `runs()`
+ * genuinely cannot see through `eval "$(echo … | base64 -d)"` (the gate asks on
+ * it, vigiles#460), so emitting it would call a correct guard broken — the
+ * crying-wolf failure that gets a check switched off. A LITERAL `sh -c '…'` or
+ * `eval '…'` is read by the gate since #460, so it would be a fair variant; it
+ * is not emitted only because this self-check compares one level.
  */
 import {
   leafCommandsNormalized,

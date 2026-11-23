@@ -89,6 +89,8 @@ interface MvdanNode {
   Exp?: unknown;
   // Stmt fields
   Negated?: boolean;
+  /** `$'…'` on a SglQuoted (ANSI-C), `$"…"` on a DblQuoted. */
+  Dollar?: boolean;
 }
 
 interface MvdanRedirect extends MvdanNode {
@@ -1020,26 +1022,372 @@ export type ShellEffect =
  * failure → `[]`.
  */
 export function shellEffects(command: string): readonly ShellEffect[] {
-  let file: MvdanNode;
+  const file = parseOrNull(command);
+  return file ? statements(file).flatMap(stmtEffects) : [];
+}
+
+/** The command parsed, or `null` — mvdan-sh throws a Go error object on bad input. */
+function parseOrNull(src: string): MvdanNode | null {
   try {
-    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
+    return sh().syntax.NewParser().Parse(src, "cmd.sh");
   } catch {
-    return [];
+    return null;
   }
-  const out: ShellEffect[] = [];
+}
+
+/** Every statement of a parsed command, in walk order. */
+function statements(file: Readonly<MvdanNode>): readonly MvdanNode[] {
+  const out: MvdanNode[] = [];
   sh().syntax.Walk(file, (node) => {
-    if (sh().syntax.NodeType(node) !== "Stmt") return true;
-    const redirs = node.Redirs ?? [];
-    const leaf = node.Cmd ? normalizeCallExpr(node.Cmd, redirs) : null;
-    out.push(
-      ...(leaf ? [{ kind: "leaf", leaf } as const] : []),
-      ...normalizeRedirects(redirs).map(
-        (redirect) => ({ kind: "redirect", redirect }) as const,
-      ),
-    );
+    if (sh().syntax.NodeType(node) === "Stmt") out.push(node);
     return true;
   });
   return out;
+}
+
+/** One statement's effects: its simple command, then its redirections. */
+function stmtEffects(stmt: Readonly<MvdanNode>): readonly ShellEffect[] {
+  const redirs = stmt.Redirs ?? [];
+  const leaf = stmt.Cmd ? normalizeCallExpr(stmt.Cmd, redirs) : null;
+  return [
+    ...(leaf ? [{ kind: "leaf", leaf } as const] : []),
+    ...normalizeRedirects(redirs).map(
+      (redirect) => ({ kind: "redirect", redirect }) as const,
+    ),
+  ];
+}
+
+// ===========================================================================
+// A COMMAND HANDED TO ANOTHER PROGRAM (vigiles#460). `bash -c "git push -f"`
+// parses as ONE simple command, `bash`, whose third word is a string: to the
+// grammar that string is data, and only the program `bash` makes it code. So a
+// gate keyed on the leaf saw `bash` and allowed the push it was written to
+// block (measured against real bash: 53 of the 61 pushing forms were allowed).
+//
+// Two answers, and deliberately nothing in between:
+//
+//  - READ. `<shell> -c '<literal>'` with nothing else on the shell, and
+//    `eval '<literal>' …`. The string is parsed again by the same parser and
+//    its effects join the command's, as if typed directly. Literal means the
+//    parser knows every byte: no `$VAR`, no `$(…)`, no `$'…'`.
+//  - HIDDEN. Every other way a program in {@link SHELL_HEADS} or
+//    {@link RUNNER_HEADS} is handed a command — options on the shell, a
+//    dynamic string, a shell reading stdin, `find -exec`, `su`, `env -S`,
+//    `xargs` adding words from stdin, … — is reported with the program's name.
+//    The gate runtime turns a gate's `allow` into an `ask` on it.
+//
+// Reading only the plain forms is the point: learning every option grammar of
+// every runner is unbounded, and what is not read is asked about, never
+// allowed in silence. A CLOSED world, said out loud: a program not in these two
+// tables (a script file, `python -c`, `make`, `npx`, `ssh`) is not looked into.
+// ===========================================================================
+
+/** The shells whose `-c '<literal>'` is read. One grammar parses all of them. */
+const SHELL_HEADS: ReadonlySet<string> = new Set([
+  "sh",
+  "bash",
+  "dash",
+  "zsh",
+  "ksh",
+  "mksh",
+  "ash",
+]);
+
+/**
+ * Programs that run a command handed to them in their argv — and are NOT in
+ * {@link WRAPPER_HEADS}, whose tail is already resolved in place. `su` and
+ * `runuser` start a shell even with no argument; the rest need one.
+ */
+const RUNNER_HEADS: ReadonlySet<string> = new Set([
+  "exec",
+  "builtin",
+  "setsid",
+  "stdbuf",
+  "ionice",
+  "chrt",
+  "taskset",
+  "flock",
+  "script",
+  "watch",
+  "parallel",
+  "su",
+  "runuser",
+  "sg",
+  "chroot",
+  "unshare",
+  "nsenter",
+  "doas",
+  "pkexec",
+]);
+
+/** `find` actions that run a command. */
+const FIND_EXEC: ReadonlySet<string> = new Set([
+  "-exec",
+  "-execdir",
+  "-ok",
+  "-okdir",
+]);
+
+/** How deep strings are re-parsed: real agent commands nest at most once. */
+const MAX_NESTED_DEPTH = 4;
+/** The largest nested string that is re-parsed, in UTF-16 units. */
+const MAX_NESTED_LENGTH = 256 * 1024;
+
+/** Why a handed-on command could not be read. */
+export type HiddenReason =
+  /** `bash -c "$CMD"`, `eval "$X"`, `bash -c $'…'`: the string is not literal. */
+  | "dynamic-command-string"
+  /** A shell with options or arguments beyond a bare `-c '<literal>'`. */
+  | "shell-options"
+  /** A shell with no `-c` and no script: it runs whatever arrives on stdin. */
+  | "stdin-fed-shell"
+  /** A program that runs a command it is handed (`find -exec`, `su`, `env -S`, …). */
+  | "runner"
+  /** Nested deeper than {@link MAX_NESTED_DEPTH}. */
+  | "too-deep"
+  /** A nested string longer than {@link MAX_NESTED_LENGTH}. */
+  | "too-large"
+  /** A literal nested string the parser rejects. */
+  | "parse-error";
+
+/** One place a command was handed on and could not be read. */
+export interface HiddenCommand {
+  /** The program that was handed it: `bash`, `find`, `env`, … */
+  readonly runner: string;
+  readonly reason: HiddenReason;
+}
+
+/** What a command line does, read through the plain nested forms. */
+export interface ShellReading {
+  /** {@link shellEffects} of the line, then of every string read inside it. */
+  readonly effects: readonly ShellEffect[];
+  /** Every nested command string that was read, outermost first. */
+  readonly inner: readonly string[];
+  /** Every place a command was handed on and not read. */
+  readonly hidden: readonly HiddenCommand[];
+}
+
+/** What one simple command hands on. */
+type Carried =
+  | { readonly kind: "none" }
+  | { readonly kind: "read"; readonly runner: string; readonly text: string }
+  | { readonly kind: "hidden"; readonly hidden: HiddenCommand };
+
+const NONE: Carried = { kind: "none" };
+const hiddenBy = (runner: string, reason: HiddenReason): Carried => ({
+  kind: "hidden",
+  hidden: { runner, reason },
+});
+
+/**
+ * {@link shellEffects}, followed into the commands the line hands to a shell or
+ * to `eval` in the plain form, and a {@link HiddenCommand} for every other
+ * hand-off. A command line without a shell, `eval` or runner is parsed once.
+ *
+ * @internal — the reading behind the Bash gate's words (`runs`, `writesTo`, …)
+ * and its ask-on-hidden rule.
+ */
+export function readShell(command: string): ShellReading {
+  const file = parseOrNull(command);
+  return file ? readFile(file, 0) : EMPTY_READING;
+}
+
+const EMPTY_READING: ShellReading = { effects: [], inner: [], hidden: [] };
+
+function readFile(file: Readonly<MvdanNode>, depth: number): ShellReading {
+  const stmts = statements(file);
+  const nested = stmts.map((st) => followCarried(st, depth));
+  return {
+    effects: [
+      ...stmts.flatMap(stmtEffects),
+      ...nested.flatMap((r) => r.effects),
+    ],
+    inner: nested.flatMap((r) => r.inner),
+    hidden: nested.flatMap((r) => r.hidden),
+  };
+}
+
+/** Read one statement's hand-off: parse a literal string, or say why not. */
+function followCarried(stmt: Readonly<MvdanNode>, depth: number): ShellReading {
+  const call = stmt.Cmd;
+  const c =
+    call && sh().syntax.NodeType(call) === "CallExpr" ? carriedBy(call) : NONE;
+  if (c.kind === "none") return EMPTY_READING;
+  if (c.kind === "hidden") return { ...EMPTY_READING, hidden: [c.hidden] };
+  const hide = (reason: HiddenReason): ShellReading => ({
+    ...EMPTY_READING,
+    hidden: [{ runner: c.runner, reason }],
+  });
+  if (depth + 1 > MAX_NESTED_DEPTH) return hide("too-deep");
+  if (c.text.length > MAX_NESTED_LENGTH) return hide("too-large");
+  const file = parseOrNull(c.text);
+  if (file === null) return hide("parse-error");
+  const inner = readFile(file, depth + 1);
+  // The inner command starts where the outer program was moved to
+  // (`env -C dir sh -c '…'`); a `cd` inside it stays inside it.
+  const dir = call ? (normalizeCallExpr(call, [])?.chdir ?? null) : null;
+  return {
+    effects: inner.effects.map((e) => underDirectory(e, dir)),
+    inner: [c.text, ...inner.inner],
+    hidden: inner.hidden,
+  };
+}
+
+/** An effect of a nested command, placed under the directory its shell started in. */
+function underDirectory(e: ShellEffect, dir: string | null): ShellEffect {
+  if (dir === null) return e;
+  if (e.kind === "leaf")
+    return {
+      kind: "leaf",
+      leaf: { ...e.leaf, chdir: nestChdir(dir, e.leaf.chdir ?? undefined) },
+    };
+  const t = e.redirect.target;
+  if (t === null || t.startsWith("~") || !e.redirect.writes) return e;
+  return {
+    kind: "redirect",
+    redirect: { ...e.redirect, target: nestChdir(dir, t) },
+  };
+}
+
+/**
+ * What a simple command hands on, decided on its words after the wrapper table
+ * resolved them — so `sudo sh -c '…'` reads like `sh -c '…'`. A dynamic program
+ * name (`$G push`) is not in either table: closed world, `NONE`.
+ */
+function carriedBy(call: Readonly<MvdanNode>): Carried {
+  const words = call.Args ?? [];
+  // A dynamic word stays in place as a NUL so the wrapper table, which drops
+  // words only off the FRONT, keeps the positions of the AST words.
+  const probe = words.map((w, i) => {
+    const t = normalizeParts(w.Parts, false, true) ?? "\u0000";
+    return i === 0 ? normalizeHead(t) : t;
+  });
+  const resolved = stripWrappers(probe).argv;
+  const at = probe.length - resolved.length;
+  const wrapped = wrapperHides(probe, at);
+  if (wrapped !== null) return hiddenBy(wrapped, "runner");
+  const head = normalizeHead(resolved[0] ?? "");
+  const args = resolved.slice(1);
+  const argWords = words.slice(at + 1);
+  if (SHELL_HEADS.has(head)) return shellCarries(head, args, argWords);
+  if (head === "eval") return evalCarries(args, argWords);
+  if (head === "find")
+    return args.some((a) => FIND_EXEC.has(a))
+      ? hiddenBy("find", "runner")
+      : NONE;
+  return RUNNER_HEADS.has(head) && (args.length > 0 || SHELL_STARTERS.has(head))
+    ? hiddenBy(head, "runner")
+    : NONE;
+}
+
+/**
+ * Runners that start a shell reading stdin even with no argument. Measured on
+ * util-linux: `printf 'echo X' | unshare` (and `nsenter`, `script`) prints X;
+ * `setsid`, `chroot` and `flock` refuse to run without one.
+ */
+const SHELL_STARTERS: ReadonlySet<string> = new Set([
+  "su",
+  "runuser",
+  "unshare",
+  "nsenter",
+  "script",
+]);
+
+/**
+ * The wrappers that hand on MORE than the argv the wrapper table resolves:
+ * `xargs` appends words it reads from stdin, `env -S STR` splits a string into
+ * a command, `sudo -s`/`-i` runs one through a shell. `at` is how many words
+ * the table dropped; when it dropped none the head is itself a wrapper with no
+ * command after it, and its options are all its words.
+ */
+function wrapperHides(probe: readonly string[], at: number): string | null {
+  const region = at > 0 ? probe.slice(0, at) : probe;
+  const optionsAfter = (name: string): readonly string[] => {
+    const i = region.indexOf(name);
+    return i < 0 ? [] : region.slice(i + 1).filter((w) => w.startsWith("-"));
+  };
+  if (at > 0 && region.includes("xargs")) return "xargs";
+  if (
+    optionsAfter("env").some(
+      (o) => /^-[^-]*S/.test(o) || o.startsWith("--split-string"),
+    )
+  )
+    return "env";
+  return optionsAfter("sudo").some(
+    (o) => /^-[a-zA-Z]*[si]/.test(o) || o === "--shell" || o === "--login",
+  )
+    ? "sudo"
+    : null;
+}
+
+/** `<shell> -c '<literal>'` is read; a script operand is out of scope; the rest hides. */
+function shellCarries(
+  shell: string,
+  args: readonly string[],
+  argWords: readonly Readonly<MvdanWord>[],
+): Carried {
+  if (args.length === 2 && args[0] === "-c") {
+    const text = literalText(argWords[1]);
+    return text === null
+      ? hiddenBy(shell, "dynamic-command-string")
+      : { kind: "read", runner: shell, text };
+  }
+  const first = args[0];
+  // An argument the parser could not resolve (`"$FLAG"`) may be `-c`: hidden.
+  if (first !== undefined && first.includes("\u0000"))
+    return hiddenBy(shell, "dynamic-command-string");
+  if (first !== undefined && !first.startsWith("-") && !first.startsWith("+"))
+    return NONE; // `bash deploy.sh`: a literal script file, not looked into
+  return hiddenBy(
+    shell,
+    args.some((a) => /^-[a-zA-Z]*c/.test(a))
+      ? "shell-options"
+      : "stdin-fed-shell",
+  );
+}
+
+/** `eval A B …` runs its literal arguments joined by spaces. */
+function evalCarries(
+  args: readonly string[],
+  argWords: readonly Readonly<MvdanWord>[],
+): Carried {
+  if (args.length === 0) return NONE;
+  if (args[0]?.startsWith("-")) return hiddenBy("eval", "shell-options");
+  const texts = argWords.map(literalText);
+  return texts.every((t): t is string => t !== null)
+    ? { kind: "read", runner: "eval", text: texts.join(" ") }
+    : hiddenBy("eval", "dynamic-command-string");
+}
+
+/**
+ * A word exactly as the program receives it, or `null` when any byte depends on
+ * the run: an expansion, a substitution, `$'…'` or `$"…"`. Not
+ * {@link normalizeParts}, which keeps path backslashes and turns `$HOME` into
+ * `~` on purpose — a string re-parsed as CODE needs the bytes the inner shell
+ * reads.
+ */
+function literalText(word: Readonly<MvdanWord> | undefined): string | null {
+  const parts = (word?.Parts ?? []).map((p) => literalPart(p, false));
+  return word && parts.every((t): t is string => t !== null)
+    ? parts.join("")
+    : null;
+}
+
+function literalPart(p: Readonly<MvdanNode>, inDq: boolean): string | null {
+  switch (sh().syntax.NodeType(p)) {
+    case "Lit":
+      return unescapeLit(p.Value ?? "", inDq);
+    case "SglQuoted":
+      return p.Dollar ? null : (p.Value ?? "");
+    case "DblQuoted": {
+      const inner = (p.Parts ?? []).map((q) => literalPart(q, true));
+      return !p.Dollar && inner.every((t): t is string => t !== null)
+        ? inner.join("")
+        : null;
+    }
+    default:
+      return null;
+  }
 }
 
 /**
