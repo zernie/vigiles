@@ -280,6 +280,7 @@ runs:
           case "$declared" in
             installed)
               runner=(npx --no-install vigiles)
+              local_prefix="$PWD"
               from="this repo's installed vigiles" ;;
             "lock "*)
               runner=(npx --yes "vigiles@${declared#lock }")
@@ -294,6 +295,11 @@ runs:
         fi
 
         echo "vigiles: ${runner[*]} ${args[*]}  (version from ${from})"
+        # The same vigiles, runnable from ANY folder: the base audit below runs
+        # inside the base copy, where a repo-local install is found only by
+        # `--prefix` (npx then still runs it in the current folder).
+        base_runner=("${runner[@]}")
+        [[ -n "${local_prefix:-}" ]] && base_runner=(npx --prefix "$local_prefix" --no-install vigiles)
 
         # Run, streaming to the log AND capturing for the summary/comment.
         out="$(mktemp)"
@@ -371,8 +377,12 @@ runs:
           if [[ "$is_pr" == true ]]; then
             basejson="$(mktemp -u)"
             if [[ -n "$before" ]]; then
+              # From INSIDE the base copy, so the CLI reads the base's own
+              # .vigilesrc.json and roots its `exclude` there. Run from here, the
+              # head's excludes never match the base's paths, and an excluded
+              # skill counts in the base only: a fake change on an unchanged harness.
               set +e
-              "${runner[@]}" audit "$before" --json > "$basejson" 2>/dev/null
+              ( cd "$before" && "${base_runner[@]}" audit . --json ) > "$basejson" 2>/dev/null
               set -e
             fi
             # Passed even when no base report was written: the CLI then says

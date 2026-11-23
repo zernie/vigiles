@@ -456,6 +456,9 @@ function writeStubNpx(bin: string): void {
     [
       "#!/bin/bash",
       'printf "%s\\n" "$*" >> "$NPX_LOG"',
+      // Where each call ran, and whether that folder is the PR base's copy (the
+      // base commit carries `base-only.txt`; the head deletes it).
+      '[[ -n "${NPX_WHERE_LOG:-}" ]] && printf "%s|%s\\n" "$([[ -e base-only.txt ]] && echo base || echo head)" "$*" >> "$NPX_WHERE_LOG"',
       'case " $* " in',
       '  *" --md "*) printf "%s" "${STUB_MD:-}"; exit "${STUB_MD_EXIT:-0}" ;;',
       '  *" --json"*) printf "{}"; exit 0 ;;',
@@ -601,42 +604,89 @@ describe("action.yml — the audit summary", () => {
   });
 });
 
+/**
+ * A `prepare` for {@link runStep}: apply `toBase`, commit the repo as the PR
+ * base, apply `toHead` as the PR's change, and point the event payload at the
+ * base sha.
+ */
+function prBase(
+  toHead: (repo: string) => void,
+  toBase: (repo: string) => void = () => undefined,
+): (repo: string, root: string) => Readonly<Record<string, string>> {
+  return (repo, root) => {
+    toBase(repo);
+    const git = (...a: string[]): void => {
+      execFileSync("git", a, {
+        cwd: repo,
+        stdio: "pipe",
+        env: {
+          PATH: "/usr/bin:/bin",
+          HOME: root,
+          GIT_AUTHOR_NAME: "t",
+          GIT_AUTHOR_EMAIL: "t@example.com",
+          GIT_COMMITTER_NAME: "t",
+          GIT_COMMITTER_EMAIL: "t@example.com",
+        },
+      });
+    };
+    git("init", "-q");
+    git("add", "-A");
+    git("-c", "commit.gpgsign=false", "commit", "-qm", "base");
+    const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repo,
+      encoding: "utf-8",
+    }).trim();
+    toHead(repo);
+    writeFileSync(
+      join(root, "event.json"),
+      JSON.stringify({ pull_request: { number: 7, base: { sha } } }),
+    );
+    return { GITHUB_EVENT_PATH: join(root, "event.json") };
+  };
+}
+
 describe("action.yml — the audit summary on a pull request", () => {
   it("audits the base and passes it as --compare=", () => {
-    const r = runStep({ GITHUB_EVENT_NAME: "pull_request" }, (repo, root) => {
-      const git = (...a: string[]): void => {
-        execFileSync("git", a, {
-          cwd: repo,
-          stdio: "pipe",
-          env: {
-            PATH: "/usr/bin:/bin",
-            HOME: root,
-            GIT_AUTHOR_NAME: "t",
-            GIT_AUTHOR_EMAIL: "t@example.com",
-            GIT_COMMITTER_NAME: "t",
-            GIT_COMMITTER_EMAIL: "t@example.com",
-          },
-        });
-      };
-      git("init", "-q");
-      git("add", "-A");
-      git("-c", "commit.gpgsign=false", "commit", "-qm", "base");
-      const sha = execFileSync("git", ["rev-parse", "HEAD"], {
-        cwd: repo,
-        encoding: "utf-8",
-      }).trim();
-      writeFileSync(join(repo, "CLAUDE.md"), "# head\n");
-      writeFileSync(
-        join(root, "event.json"),
-        JSON.stringify({ pull_request: { number: 7, base: { sha } } }),
-      );
-      return { GITHUB_EVENT_PATH: join(root, "event.json") };
-    });
+    const r = runStep(
+      { GITHUB_EVENT_NAME: "pull_request" },
+      prBase((repo) => {
+        writeFileSync(join(repo, "CLAUDE.md"), "# head\n");
+      }),
+    );
     assert.equal(r.status, 0);
     const calls = auditCalls(r.log);
     assert.equal(calls.length, 2, r.log);
     assert.match(calls[0] ?? "", /audit \S+ --json$/);
     assert.match(calls[1] ?? "", /audit \. --md --compare=\S+$/);
+  });
+
+  // Codex on #480: the base audit must read the BASE's config. Run from the
+  // head checkout, the head's `.vigilesrc.json#exclude` is rooted at the head,
+  // never matches the base copy's paths, and an excluded skill counts in the
+  // base only — a fake score change on an unchanged harness.
+  it("audits the base from inside the base copy, so its own config applies", () => {
+    const where = join(mkdtempSync(join(tmpdir(), "vigiles-where-")), "log");
+    writeFileSync(where, "");
+    const r = runStep(
+      { GITHUB_EVENT_NAME: "pull_request", NPX_WHERE_LOG: where },
+      // The base commit carries `base-only.txt`; the head deletes it.
+      prBase(
+        (head) => {
+          rmSync(join(head, "base-only.txt"));
+        },
+        (base) => {
+          writeFileSync(join(base, "base-only.txt"), "");
+        },
+      ),
+    );
+    const calls = readFileSync(where, "utf-8").split("\n");
+    rmSync(dirname(where), { recursive: true, force: true });
+    assert.equal(r.status, 0);
+    const base = calls.filter((l) => l.includes(" --json"));
+    assert.equal(base.length, 1, calls.join("\n"));
+    assert.match(base[0] ?? "", /^base\|.* audit \. --json$/);
+    const head = calls.filter((l) => l.includes(" --md"));
+    assert.match(head[0] ?? "", /^head\|/);
   });
 
   it("on a pull request with no base to read, still compares, so the CLI says why", () => {
