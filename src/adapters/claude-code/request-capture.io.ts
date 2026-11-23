@@ -20,8 +20,10 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,10 +52,26 @@ function parseJson(text: string): unknown {
 const readJson = (path: string): unknown =>
   existsSync(path) ? parseJson(readFileSync(path, "utf-8")) : undefined;
 
-/** The request files `index.jsonl` lists, in the order the client sent them. */
+const REQUEST_SUFFIX = ".request.json";
+
+/** `<id>.request.json` under `dir`, oldest write first (name breaks a tie). */
+function unindexedRequestFiles(dir: string): readonly string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(REQUEST_SUFFIX))
+    .map((f) => ({ f, at: statSync(join(dir, f)).mtimeMs }))
+    .sort((a, b) => a.at - b.at || a.f.localeCompare(b.f))
+    .map((e) => e.f);
+}
+
+/**
+ * The request files in the order the client sent them. A client that keeps an
+ * `index.jsonl` (2.1.330) lists them there; an older one (2.1.187, the CI pin)
+ * writes only `<id>.request.json`, so the write time orders them.
+ */
 function requestFiles(dir: string): readonly string[] {
   const index = join(dir, "index.jsonl");
-  if (!existsSync(index)) return [];
+  if (!existsSync(index)) return unindexedRequestFiles(dir);
   return readFileSync(index, "utf-8")
     .split("\n")
     .filter((l) => l.trim() !== "")

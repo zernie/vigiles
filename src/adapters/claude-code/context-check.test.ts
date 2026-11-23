@@ -11,7 +11,7 @@
  * unscored.
  */
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -93,6 +93,14 @@ async function evalIn(
 }
 
 const gate = onPathClaudeVersion() ? it : it.skip;
+
+/** Does the `claude` on PATH read a lone `AGENTS.md` (v2.1.277 and later)? */
+function readsAgentsMd(): boolean {
+  const [major = 0, minor = 0, patch = 0] = (onPathClaudeVersion() ?? "0.0.0")
+    .split(".")
+    .map(Number);
+  return major * 1e6 + minor * 1e3 + patch >= 2_001_277;
+}
 if (!onPathClaudeVersion())
   it.skip("context check skipped — the claude binary is not on PATH", () => {
     /* gated above */
@@ -133,15 +141,18 @@ describe("the per-trial context check, on the real binary", () => {
   );
 
   gate(
-    "a lone AGENTS.md is expected and delivered",
+    "a lone AGENTS.md is expected; delivered from v2.1.277, missing before",
     async () => {
       const { report } = await evalIn({
         "AGENTS.md": "Always answer CONTEXT_SENTINEL_C.\n",
       });
-      expect(report.arms["skill"]?.context).toEqual([
-        { kind: "delivered", files: ["AGENTS.md"] },
-        { kind: "delivered", files: ["AGENTS.md"] },
-      ]);
+      // "Reading `AGENTS.md` directly requires Claude Code v2.1.277 or later"
+      // (instruction-chain.ts). An older client (the CI pin) drops it, and the
+      // check must say so instead of scoring the trial.
+      const trial = readsAgentsMd()
+        ? { kind: "delivered", files: ["AGENTS.md"] }
+        : { kind: "missing", files: ["AGENTS.md"], delivered: [] };
+      expect(report.arms["skill"]?.context).toEqual([trial, trial]);
     },
     120_000,
   );
@@ -182,6 +193,7 @@ describe("the Claude Code request channel, without the binary", () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-requests-test-"));
     try {
       expect(firstClaudeRequest(dir)).toBeUndefined();
+      expect(firstClaudeRequest(join(dir, "gone"))).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -211,6 +223,33 @@ describe("the Claude Code request channel, without the binary", () => {
       const body = firstClaudeRequest(dir);
       expect(body).toContain("MAIN_LOOP");
       expect(body).not.toContain("classifier");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the Claude Code request channel, from a client without an index", () => {
+  it("orders the request files by when they were written", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-requests-test-"));
+    try {
+      // 2.1.187 (the CI pin) writes `<id>.request.json` and no index.jsonl.
+      const write = (name: string, body: unknown, at: number): void => {
+        writeFileSync(join(dir, name), JSON.stringify(body));
+        utimesSync(join(dir, name), at, at);
+      };
+      write(
+        "b.request.json",
+        { tools: [{ name: "Bash" }], system: "SECOND" },
+        2,
+      );
+      write(
+        "z.request.json",
+        { tools: [{ name: "Bash" }], system: "FIRST" },
+        1,
+      );
+      write("a.response.json", { content: "not a request" }, 0);
+      expect(firstClaudeRequest(dir)).toContain("FIRST");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
