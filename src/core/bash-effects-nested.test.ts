@@ -153,6 +153,9 @@ describe("neither: out of the closed set, or nothing handed on", () => {
     `"$HOME/bin/tool" x`,
     `git push $F`,
     `cp "$SRC" dst`,
+    // a declaration's words are assignments, not argument words
+    `declare -a A=(1)`,
+    `export A=1 B=2`,
     `find . -name x`,
     `exec > log`,
     `xargs`,

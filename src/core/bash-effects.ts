@@ -1061,9 +1061,17 @@ function statements(file: Readonly<MvdanNode>): readonly MvdanNode[] {
 function stmtEffects(stmt: Readonly<MvdanNode>): readonly ShellEffect[] {
   const redirs = stmt.Redirs ?? [];
   const leaf = stmt.Cmd ? normalizeCallExpr(stmt.Cmd, redirs) : null;
-  const unknownWords = (stmt.Cmd?.Args ?? []).slice(1).some(splitsWords);
   return [
-    ...(leaf ? [{ kind: "leaf", leaf, unknownWords } as const] : []),
+    ...(leaf
+      ? [
+          {
+            kind: "leaf",
+            leaf,
+            // A leaf exists only for a CallExpr, whose `Args` are words.
+            unknownWords: (stmt.Cmd?.Args ?? []).slice(1).some(splitsWords),
+          } as const,
+        ]
+      : []),
     ...normalizeRedirects(redirs).map(
       (redirect) => ({ kind: "redirect", redirect }) as const,
     ),
@@ -1083,7 +1091,7 @@ function stmtEffects(stmt: Readonly<MvdanNode>): readonly ShellEffect[] {
  * normalizer, and `$((…))` yields digits, so neither counts.
  */
 function splitsWords(word: Readonly<MvdanWord>): boolean {
-  return word.Parts.some((p) => {
+  return (word.Parts ?? []).some((p) => {
     const t = sh().syntax.NodeType(p);
     if (t === "CmdSubst") return true;
     if (t === "ParamExp") return p.Param?.Value !== "HOME";
