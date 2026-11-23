@@ -899,14 +899,53 @@ const WRAPPER_SKIP_POSITIONALS: Readonly<Record<string, number>> = {
 };
 
 /** True iff a normalized word is a `NAME=value` env-assignment (used by `env`). */
+/** The slot of a word {@link normalizeParts} cannot reduce, until wrappers are resolved. */
+const DYNAMIC_WORD = "\u0000";
+const isKnown = (w: string): boolean => !w.includes(DYNAMIC_WORD);
+
+/**
+ * The placeholder for a word whose bytes depend on the run. An assignment with
+ * a dynamic value (`TOKEN="$TOKEN"`) keeps its literal `NAME=`: `env`'s grammar
+ * is `[NAME=VALUE]… [COMMAND [ARG]…]`, so the word is still an assignment the
+ * wrapper table consumes, not an unknown command (Codex on #497).
+ */
+function dynamicSlot(word: Readonly<MvdanWord>): string {
+  const first = word.Parts[0];
+  const lit =
+    first && sh().syntax.NodeType(first) === "Lit" ? (first.Value ?? "") : "";
+  const name = /^[A-Za-z_][A-Za-z0-9_]*=/.exec(lit);
+  return name ? `${name[0]}${DYNAMIC_WORD}` : DYNAMIC_WORD;
+}
+
+/**
+ * A simple command's words, each a placeholder where dynamic, resolved through
+ * the wrapper table. `at` is how many words the table dropped off the front,
+ * so `words[at]` is the program and `words.slice(at + 1)` its own arguments.
+ */
+function resolveWords(words: readonly Readonly<MvdanWord>[]): {
+  readonly probe: readonly string[];
+  readonly resolved: readonly string[];
+  readonly at: number;
+} {
+  // A dynamic word stays in place so the wrapper table, which drops words
+  // only off the FRONT, keeps the positions of the AST words.
+  const probe = words.map((w, i) => {
+    const t = normalizeParts(w.Parts, false, true) ?? dynamicSlot(w);
+    return i === 0 ? normalizeHead(t) : t;
+  });
+  const resolved = stripWrappers(probe).argv;
+  return { probe, resolved, at: probe.length - resolved.length };
+}
+
 function isAssignmentWord(word: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*=/.test(word);
 }
 
 /** Split a `NAME=value` word into its name and value. */
-function splitAssignmentWord(word: string): [string, string] {
+function splitAssignmentWord(word: string): [string, string | null] {
   const eq = word.indexOf("=");
-  return [word.slice(0, eq), word.slice(eq + 1)];
+  const value = word.slice(eq + 1);
+  return [word.slice(0, eq), isKnown(value) ? value : null];
 }
 
 /**
@@ -1067,8 +1106,7 @@ function stmtEffects(stmt: Readonly<MvdanNode>): readonly ShellEffect[] {
           {
             kind: "leaf",
             leaf,
-            // A leaf exists only for a CallExpr, whose `Args` are words.
-            unknownWords: (stmt.Cmd?.Args ?? []).slice(1).some(splitsWords),
+            unknownWords: programArgs(stmt.Cmd?.Args ?? []).some(splitsWords),
           } as const,
         ]
       : []),
@@ -1097,6 +1135,17 @@ function splitsWords(word: Readonly<MvdanWord>): boolean {
     if (t === "ParamExp") return p.Param?.Value !== "HOME";
     return t === "DblQuoted" && (p.Parts ?? []).some(expandsToMany);
   });
+}
+
+/**
+ * The words the program itself receives, past any wrapper: `env A="$X" git
+ * push` gives git `push`, and the wrapper's own words are not its arguments.
+ * A leaf exists only for a CallExpr, whose `Args` are words.
+ */
+function programArgs(
+  words: readonly Readonly<MvdanWord>[],
+): readonly Readonly<MvdanWord>[] {
+  return words.slice(resolveWords(words).at + 1);
 }
 
 /** `$@` or `${a[@]}`: one word per element, quoted or not. */
@@ -1321,17 +1370,10 @@ function underDirectory(e: ShellEffect, dir: string | null): ShellEffect {
  */
 function carriedBy(call: Readonly<MvdanNode>): Carried {
   const words = call.Args ?? [];
-  // A dynamic word stays in place as a NUL so the wrapper table, which drops
-  // words only off the FRONT, keeps the positions of the AST words.
-  const probe = words.map((w, i) => {
-    const t = normalizeParts(w.Parts, false, true) ?? "\u0000";
-    return i === 0 ? normalizeHead(t) : t;
-  });
-  const resolved = stripWrappers(probe).argv;
-  const at = probe.length - resolved.length;
+  const { probe, resolved, at } = resolveWords(words);
   const wrapped = wrapperHides(probe, at);
   if (wrapped !== null) return hiddenBy(wrapped, "runner");
-  if (resolved[0]?.includes("\u0000"))
+  if (resolved[0]?.includes(DYNAMIC_WORD))
     return hiddenBy(sourceParts(words[at]?.Parts) ?? "$(…)", "dynamic-program");
   const head = normalizeHead(resolved[0] ?? "");
   const args = resolved.slice(1);
@@ -1750,9 +1792,6 @@ function collectAssigns(node: MvdanNode): Map<string, string | null> {
  * Normalize a single CallExpr node (plus the redirections of the `Stmt` that
  * wraps it) to a {@link NormalizedLeaf}, or null if it isn't one / has a dynamic head.
  */
-/** The slot of a word {@link normalizeParts} cannot reduce, until wrappers are resolved. */
-const DYNAMIC_WORD = "\u0000";
-
 function normalizeCallExpr(
   node: MvdanNode,
   redirs: readonly MvdanRedirect[],
@@ -1774,7 +1813,7 @@ function normalizeCallExpr(
   // option took `git` as its value, and the leaf became `push -f`.
   const rawArgs = node.Args.slice(1).map((w) => {
     const raw = normalizeParts(w.Parts);
-    if (raw === null) return DYNAMIC_WORD;
+    if (raw === null) return dynamicSlot(w);
     if (!raw.startsWith("-")) return raw;
     return normalizeParts(w.Parts, false, true) ?? raw;
   });
@@ -1786,12 +1825,11 @@ function normalizeCallExpr(
   // before, with the word dropped: the gate then answers about the words it
   // can see, and `readShell` reports the program as hidden.
   const placed = stripWrappers([rawHead, ...rawArgs]);
-  const stripped =
-    placed.argv[0] === DYNAMIC_WORD
-      ? stripWrappers([rawHead, ...rawArgs.filter((w) => w !== DYNAMIC_WORD)])
-      : placed;
+  const stripped = placed.argv[0]?.includes(DYNAMIC_WORD)
+    ? stripWrappers([rawHead, ...rawArgs.filter(isKnown)])
+    : placed;
   const head = normalizeHead(stripped.argv[0] ?? rawHead);
-  const args = stripped.argv.slice(1).filter((w) => w !== DYNAMIC_WORD);
+  const args = stripped.argv.slice(1).filter(isKnown);
 
   // Command-level assignments: mvdan leading `CallExpr.Assigns` plus any
   // `NAME=value` words an `env` wrapper consumed on the way to the real command.
