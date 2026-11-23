@@ -194,7 +194,7 @@ describe("an unquoted expansion in an argument is marked on its leaf", () => {
     [`git push $F origin`, [true]],
     [`git push \${F}`, [true]],
     [`git push --opt=$F`, [true]],
-    [`git push $(echo -f)`, [true]],
+    [`git push $(echo -f)`, [true, false]],
     [`git push "$@"`, [true]],
     [`git push "\${refs[@]}"`, [true]],
     [`git push "$F"`, [false]],

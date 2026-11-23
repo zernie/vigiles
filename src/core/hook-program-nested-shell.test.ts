@@ -220,7 +220,9 @@ describe("a program or a flag held in a variable: allow becomes ask", () => {
     assert.ok(flag.kind === "ask" && flag.reason.includes("`git`"));
     assert.ok(flag.kind === "ask" && !flag.reason.includes("hands a command"));
   });
+});
 
+describe("a word held in a variable that the gate's question does not depend on", () => {
   test.each([
     // a quoted expansion is one word, passed as data: not asked about
     `git push origin "$BRANCH"`,

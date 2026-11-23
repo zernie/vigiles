@@ -82,7 +82,8 @@ interface MvdanNode {
   Excl?: boolean;
   Length?: boolean;
   Width?: boolean;
-  Index?: unknown;
+  /** The subscript of `${a[…]}`: a word, `@` for every element. */
+  Index?: MvdanNode;
   Slice?: unknown;
   Repl?: unknown;
   Names?: unknown;
@@ -1003,7 +1004,18 @@ export function leafCommandsNormalized(command: string): NormalizedLeaf[] {
 
 /** One thing a command does that a gate reads: a simple command, or a redirection. */
 export type ShellEffect =
-  | { readonly kind: "leaf"; readonly leaf: NormalizedLeaf }
+  | {
+      readonly kind: "leaf";
+      readonly leaf: NormalizedLeaf;
+      /**
+       * An argument word whose value bash splits into words the parser cannot
+       * know: an unquoted `$F`, `${F}` or `$(…)`, or a quoted `"$@"` /
+       * `"${a[@]}"`. The leaf's `args` omit it, so any of those words may be a
+       * flag the leaf does not show. A quoted `"$F"` is one word, passed as
+       * data, and does not count — see {@link splitsWords}.
+       */
+      readonly unknownWords: boolean;
+    }
   | { readonly kind: "redirect"; readonly redirect: LeafRedirect };
 
 /**
@@ -1049,12 +1061,43 @@ function statements(file: Readonly<MvdanNode>): readonly MvdanNode[] {
 function stmtEffects(stmt: Readonly<MvdanNode>): readonly ShellEffect[] {
   const redirs = stmt.Redirs ?? [];
   const leaf = stmt.Cmd ? normalizeCallExpr(stmt.Cmd, redirs) : null;
+  const unknownWords = (stmt.Cmd?.Args ?? []).slice(1).some(splitsWords);
   return [
-    ...(leaf ? [{ kind: "leaf", leaf } as const] : []),
+    ...(leaf ? [{ kind: "leaf", leaf, unknownWords } as const] : []),
     ...normalizeRedirects(redirs).map(
       (redirect) => ({ kind: "redirect", redirect }) as const,
     ),
   ];
+}
+
+/**
+ * Does bash turn this argument word into words the parser cannot know?
+ *
+ * Unquoted, a parameter expansion or a command substitution is split on
+ * whitespace after it is expanded: `F=-f; git push $F` hands git `-f`, and
+ * `F="-f origin"` hands it two words. Inside double quotes the value is ONE
+ * word, and it is not split — `"$F"` is how a script passes a path, a message
+ * or a branch as data, so it is not counted (else every `cp "$SRC" "$DST"`
+ * would count). The exception is `"$@"` and `"${a[@]}"`, which expand to one
+ * word per element even when quoted. `$HOME` is canonicalized to `~` by the
+ * normalizer, and `$((…))` yields digits, so neither counts.
+ */
+function splitsWords(word: Readonly<MvdanWord>): boolean {
+  return word.Parts.some((p) => {
+    const t = sh().syntax.NodeType(p);
+    if (t === "CmdSubst") return true;
+    if (t === "ParamExp") return p.Param?.Value !== "HOME";
+    return t === "DblQuoted" && (p.Parts ?? []).some(expandsToMany);
+  });
+}
+
+/** `$@` or `${a[@]}`: one word per element, quoted or not. */
+function expandsToMany(p: Readonly<MvdanNode>): boolean {
+  if (sh().syntax.NodeType(p) !== "ParamExp") return false;
+  const index = p.Index?.Parts ?? [];
+  return (
+    p.Param?.Value === "@" || (index.length === 1 && index[0]?.Value === "@")
+  );
 }
 
 // ===========================================================================
@@ -1137,6 +1180,15 @@ const MAX_NESTED_LENGTH = 256 * 1024;
 export type HiddenReason =
   /** `bash -c "$CMD"`, `eval "$X"`, `bash -c $'…'`: the string is not literal. */
   | "dynamic-command-string"
+  /** `$CMD`, `$G push -f`, `$(which git) push`: the program itself is not literal. */
+  | "dynamic-program"
+  /**
+   * `git push $F`: the program the gate asked about gets words from an
+   * unquoted expansion, which may be the flag it asked about. Reported by the
+   * gate runtime, not by {@link readShell} — whether it matters depends on the
+   * question (see the leaf's `unknownWords`).
+   */
+  | "dynamic-argument"
   /** A shell with options or arguments beyond a bare `-c '<literal>'`. */
   | "shell-options"
   /** A shell with no `-c` and no script: it runs whatever arrives on stdin. */
@@ -1152,7 +1204,11 @@ export type HiddenReason =
 
 /** One place a command was handed on and could not be read. */
 export interface HiddenCommand {
-  /** The program that was handed it: `bash`, `find`, `env`, … */
+  /**
+   * The program that was handed it: `bash`, `find`, `env`, …; for
+   * `dynamic-program`, the word that stands for the program as written
+   * (`$CMD`, `$DIR/git`, or `$(…)` for a command substitution).
+   */
   readonly runner: string;
   readonly reason: HiddenReason;
 }
@@ -1238,7 +1294,7 @@ function underDirectory(e: ShellEffect, dir: string | null): ShellEffect {
   if (dir === null) return e;
   if (e.kind === "leaf")
     return {
-      kind: "leaf",
+      ...e,
       leaf: { ...e.leaf, chdir: nestChdir(dir, e.leaf.chdir ?? undefined) },
     };
   const t = e.redirect.target;
@@ -1252,7 +1308,8 @@ function underDirectory(e: ShellEffect, dir: string | null): ShellEffect {
 /**
  * What a simple command hands on, decided on its words after the wrapper table
  * resolved them — so `sudo sh -c '…'` reads like `sh -c '…'`. A dynamic program
- * name (`$G push`) is not in either table: closed world, `NONE`.
+ * (`$G push`, `sudo $CMD`) names no program at all, so it is hidden: whatever it
+ * holds could be the command the gate was written to block.
  */
 function carriedBy(call: Readonly<MvdanNode>): Carried {
   const words = call.Args ?? [];
@@ -1266,6 +1323,8 @@ function carriedBy(call: Readonly<MvdanNode>): Carried {
   const at = probe.length - resolved.length;
   const wrapped = wrapperHides(probe, at);
   if (wrapped !== null) return hiddenBy(wrapped, "runner");
+  if (resolved[0]?.includes("\u0000"))
+    return hiddenBy(sourceParts(words[at]?.Parts) ?? "$(…)", "dynamic-program");
   const head = normalizeHead(resolved[0] ?? "");
   const args = resolved.slice(1);
   const argWords = words.slice(at + 1);
@@ -1683,6 +1742,9 @@ function collectAssigns(node: MvdanNode): Map<string, string | null> {
  * Normalize a single CallExpr node (plus the redirections of the `Stmt` that
  * wraps it) to a {@link NormalizedLeaf}, or null if it isn't one / has a dynamic head.
  */
+/** The slot of a word {@link normalizeParts} cannot reduce, until wrappers are resolved. */
+const DYNAMIC_WORD = "\u0000";
+
 function normalizeCallExpr(
   node: MvdanNode,
   redirs: readonly MvdanRedirect[],
@@ -1699,19 +1761,29 @@ function normalizeCallExpr(
   // Windows UNC path whose backslashes a denylist must keep, or the write it
   // names stops matching `secrets` and the guard allows it. A word starting `-`
   // is never a path, so the split is decidable per word rather than guessed.
-  const rawArgs = node.Args.slice(1)
-    .map((w) => {
-      const raw = normalizeParts(w.Parts);
-      if (raw === null || !raw.startsWith("-")) return raw;
-      return normalizeParts(w.Parts, false, true) ?? raw;
-    })
-    .filter((w): w is string => w !== null);
+  // A dynamic word keeps its slot as a NUL until the wrapper table has run:
+  // dropped first, `sudo -u $U git push -f` read as `sudo -u git push -f`, the
+  // option took `git` as its value, and the leaf became `push -f`.
+  const rawArgs = node.Args.slice(1).map((w) => {
+    const raw = normalizeParts(w.Parts);
+    if (raw === null) return DYNAMIC_WORD;
+    if (!raw.startsWith("-")) return raw;
+    return normalizeParts(w.Parts, false, true) ?? raw;
+  });
 
   // Resolve through any command-wrapper (`env`/`command`/`sudo`/`timeout`/…) so
   // the leaf reflects the REAL operation, not the wrapper head.
-  const stripped = stripWrappers([rawHead, ...rawArgs]);
+  // When the dynamic word lands where the program would be (`sudo $CMD`,
+  // `env $X git push -f`) the slot cannot be resolved, and the leaf is read as
+  // before, with the word dropped: the gate then answers about the words it
+  // can see, and `readShell` reports the program as hidden.
+  const placed = stripWrappers([rawHead, ...rawArgs]);
+  const stripped =
+    placed.argv[0] === DYNAMIC_WORD
+      ? stripWrappers([rawHead, ...rawArgs.filter((w) => w !== DYNAMIC_WORD)])
+      : placed;
   const head = normalizeHead(stripped.argv[0] ?? rawHead);
-  const args = stripped.argv.slice(1);
+  const args = stripped.argv.slice(1).filter((w) => w !== DYNAMIC_WORD);
 
   // Command-level assignments: mvdan leading `CallExpr.Assigns` plus any
   // `NAME=value` words an `env` wrapper consumed on the way to the real command.
