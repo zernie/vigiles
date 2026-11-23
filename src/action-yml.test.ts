@@ -296,35 +296,6 @@ describe("action.yml — command: test", () => {
     assert.equal(action.inputs["install-claude"]?.default, "true");
   });
 
-  it("runs the repo's installed vigiles, installing only the claude CLI, with a floor of one run", () => {
-    assert.deepEqual(test(installed).split("\n"), [
-      "npm install -g --no-audit --no-fund @anthropic-ai/claude-code",
-      "--no-install vigiles test --min=1",
-    ]);
-  });
-
-  // Without `claude` every harness file skips, and `0 passed, N skipped` used to
-  // be a green run in which nothing was tested.
-  it("installs the claude CLI only when the runner has none", () => {
-    const withClaude = {
-      ...installed,
-      "node_modules/.bin/claude": "#!/bin/sh\n",
-    };
-    assert.doesNotMatch(test(withClaude), /claude-code/);
-    assert.doesNotMatch(
-      test(installed, { VIGILES_INSTALL_CLAUDE: "false" }),
-      /claude-code/,
-    );
-  });
-
-  it("an explicit min wins over the floor of one, and lint gets neither", () => {
-    assert.match(test(installed, { VIGILES_MIN: "0" }), /test --min=0$/);
-    const lint = resolveRunner(installed, undefined, {
-      VIGILES_COMMAND: "lint",
-    });
-    assert.doesNotMatch(lint, /claude-code|--min/);
-  });
-
   it("runs npm ci first when a lockfile exists and nothing is installed", () => {
     const log = test({
       "package.json": declares("^33.3.0"),
@@ -333,12 +304,11 @@ describe("action.yml — command: test", () => {
         packages: { "node_modules/vigiles": { version: "33.4.1" } },
       }),
     }).split("\n");
-    // dependencies first, then the claude CLI, then the run with its floor
-    assert.deepEqual(log, [
-      "npm ci --no-audit --no-fund",
-      "npm install -g --no-audit --no-fund @anthropic-ai/claude-code",
-      "--yes vigiles@33.4.1 test --min=1",
-    ]);
+    // dependencies first, then the agent CLI, then the run with its floor
+    assert.equal(log.length, 3);
+    assert.equal(log[0], "npm ci --no-audit --no-fund");
+    assert.ok(log[1]?.startsWith(GLOBAL_INSTALL), log[1]);
+    assert.equal(log[2], "--yes vigiles@33.4.1 test --min=1");
   });
 
   it("install: false skips the install", () => {
@@ -362,6 +332,50 @@ describe("action.yml — command: test", () => {
       }),
       "--no-install vigiles test a.harness.mjs b/*.harness.mjs --min=150 --no-skip",
     );
+  });
+});
+
+/** The Action installs the agent CLI globally; the package is the Action's business. */
+const GLOBAL_INSTALL = "npm install -g ";
+const installsCli = (log: string): boolean =>
+  log.split("\n").some((l) => l.startsWith(GLOBAL_INSTALL));
+
+// Without the `claude` binary every harness file skips, and `0 passed, N skipped`
+// used to be a green run in which nothing was tested.
+describe("action.yml — command: test installs the agent CLI and floors at one run", () => {
+  const installed = {
+    "package.json": declares("^33.3.0"),
+    "node_modules/.bin/vigiles": "#!/bin/sh\n",
+  };
+  const test = (
+    files: Readonly<Record<string, string>>,
+    env: Readonly<Record<string, string>> = {},
+  ): string =>
+    resolveRunner(files, undefined, { VIGILES_COMMAND: "test", ...env });
+
+  it("installs the CLI, then runs with a floor of one run", () => {
+    const log = test(installed).split("\n");
+    assert.equal(log.length, 2);
+    assert.ok(log[0]?.startsWith(GLOBAL_INSTALL), log[0]);
+    assert.equal(log[1], "--no-install vigiles test --min=1");
+  });
+
+  it("installs the CLI only when the runner has none", () => {
+    const withCli = { ...installed, "node_modules/.bin/claude": "#!/bin/sh\n" };
+    assert.equal(installsCli(test(withCli)), false);
+    assert.equal(
+      installsCli(test(installed, { VIGILES_INSTALL_CLAUDE: "false" })),
+      false,
+    );
+  });
+
+  it("an explicit min wins over the floor of one, and lint gets neither", () => {
+    assert.match(test(installed, { VIGILES_MIN: "0" }), /test --min=0$/);
+    const lint = resolveRunner(installed, undefined, {
+      VIGILES_COMMAND: "lint",
+    });
+    assert.equal(installsCli(lint), false);
+    assert.doesNotMatch(lint, /--min/);
   });
 });
 
