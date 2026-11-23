@@ -188,7 +188,23 @@ export type NotRun =
       readonly controlExitCode: number;
       /** The end of the control run's stderr — usually says why it failed. */
       readonly controlStderrTail: string;
+    }
+  /**
+   * The hook's condition did not select the control, so the control never ran,
+   * while a case did: no verdict. A skipped control shows nothing about whether
+   * the hook can allow — `python3 missing.py` behind the same `if` exits 2 on
+   * every case it is handed.
+   */
+  | {
+      readonly kind: "not-run";
+      readonly why: "control-not-selected";
+      /** Why the condition skipped the control. */
+      readonly detail: string;
     };
+
+/** The two reasons a battery has no verdict — see {@link NoVerdict}. */
+const CONTROL_BLOCKED = "control-blocked";
+const CONTROL_NOT_SELECTED = "control-not-selected";
 
 /** What became of one case. */
 export type CaseOutcome =
@@ -353,8 +369,10 @@ export function describeNotRun(o: NotRun): string {
       return `the shell never launched this hook (exit ${String(o.exitCode)}: ${
         o.exitCode === 127 ? "command not found" : "not executable"
       }) — nothing here is the guard's decision`;
-    case "control-blocked":
+    case CONTROL_BLOCKED:
       return `no verdict: the hook also blocked the control command (exit ${String(o.controlExitCode)}), so it never started or denies everything`;
+    case CONTROL_NOT_SELECTED:
+      return `no verdict: the hook's condition does not select the control command (${o.detail}), so the control never ran and nothing shows the hook can allow`;
   }
 }
 
@@ -389,12 +407,69 @@ export function guardrailResult(
  *
  * The control ({@link CONTROL_CASE}, or `opts.control`) runs FIRST. If the hook
  * blocks it, the battery is not run and every result is
- * `not-run/control-blocked`: no block would have been evidence.
+ * `not-run/control-blocked`: no block would have been evidence. If the hook's
+ * condition skips the control but selects a case, every result is
+ * `not-run/control-not-selected`, for the same reason: nothing showed the hook
+ * can allow.
  */
 export function verifyGuardrail(
   hookCommand: string,
   opts: VerifyGuardrailOptions = {},
 ): GuardrailResult[] {
+  const run = hookRunner(hookCommand, opts);
+  const control = opts.control ?? CONTROL_CASE;
+  const probe = run(control.tool, control.input);
+  const events = selectEvents(opts);
+  // A blocked control already means no verdict, so the battery is not spawned.
+  const runs =
+    outcomeOf(probe).kind === "blocked"
+      ? []
+      : events.map((event) => ({ event, r: run(event.tool, event.input) }));
+  const none = noVerdictFrom(probe, runs);
+  if (none !== undefined)
+    return events.map((event) => guardrailResult(event, none));
+  return runs.map(({ event, r }) =>
+    guardrailResult(event, outcomeOf(r), r.conditionReason),
+  );
+}
+
+/**
+ * Whether the control leaves the battery without a verdict, and why.
+ *
+ * 🔴 A SKIPPED CONTROL IS NOT EVIDENCE EITHER. Reading "not blocked" as
+ * "allowed" let `if: "Bash(git push *--force*)"` + `python3 missing.py` score
+ * the force push as blocked: the `if` skipped `ls`, the force push ran Python,
+ * Python exited 2. Only a DECISION needs the control — when no case blocked or
+ * allowed, each keeps its own tag (a condition rejection, a launch failure) and
+ * there is no block to doubt.
+ */
+function noVerdictFrom(
+  probe: HookRunResult,
+  runs: readonly { readonly r: HookRunResult }[],
+): NoVerdict | undefined {
+  const control = outcomeOf(probe);
+  if (control.kind === "blocked")
+    return {
+      kind: "not-run",
+      why: CONTROL_BLOCKED,
+      controlExitCode: probe.exitCode,
+      controlStderrTail: tail(probe.stderr),
+    };
+  const decided = runs.some(({ r }) => outcomeOf(r).kind !== "not-run");
+  if (control.kind === "not-run" && decided)
+    return {
+      kind: "not-run",
+      why: CONTROL_NOT_SELECTED,
+      detail: probe.conditionReason,
+    };
+  return undefined;
+}
+
+/** Runs the hook on one tool call, delivered as the harness delivers it. */
+function hookRunner(
+  hookCommand: string,
+  opts: VerifyGuardrailOptions,
+): (tool: string, input: Readonly<Record<string, unknown>>) => HookRunResult {
   const eventName = opts.event ?? HOOK_EVENT;
   // 🔴 THE HARNESS ALWAYS SENDS `cwd`. A hook that reads it from stdin got
   // nothing from the battery — measured against a program the harness never
@@ -403,28 +478,12 @@ export function verifyGuardrail(
   // `cwd` is spawned in a directory the runner mints; there is no name for it
   // to hand over.)
   const cwd = resolve(opts.cwd ?? ".");
-  const run = (tool: string, input: Readonly<Record<string, unknown>>) =>
+  return (tool, input) =>
     runHook(
       hookCommand,
       { hook_event_name: eventName, tool_name: tool, tool_input: input, cwd },
       opts,
     );
-  const control = opts.control ?? CONTROL_CASE;
-  const probe = run(control.tool, control.input);
-  const events = selectEvents(opts);
-  if (outcomeOf(probe).kind === "blocked") {
-    const outcome: NotRun = {
-      kind: "not-run",
-      why: "control-blocked",
-      controlExitCode: probe.exitCode,
-      controlStderrTail: tail(probe.stderr),
-    };
-    return events.map((event) => guardrailResult(event, outcome));
-  }
-  return events.map((event) => {
-    const r = run(event.tool, event.input);
-    return guardrailResult(event, outcomeOf(r), r.conditionReason);
-  });
 }
 
 /** Did the hook miss any event it was given? (the false-confidence signal). */
@@ -435,14 +494,23 @@ export function unblockedDisasters(
 }
 
 /** The outcome every case of a battery without a verdict carries. */
-type ControlBlocked = Extract<NotRun, { why: "control-blocked" }>;
+export type NoVerdict = Extract<
+  NotRun,
+  { why: typeof CONTROL_BLOCKED | typeof CONTROL_NOT_SELECTED }
+>;
 
-/** The control-blocked outcome, if this battery had no verdict. */
-function controlBlocked(
+/**
+ * The no-verdict outcome, if this battery had none.
+ *
+ * @internal Shared with the directory sweep, which reports such a hook as
+ * `no-verdict`.
+ */
+export function noVerdictOf(
   results: readonly GuardrailResult[],
-): ControlBlocked | undefined {
-  const isIt = (o: CaseOutcome): o is ControlBlocked =>
-    o.kind === "not-run" && o.why === "control-blocked";
+): NoVerdict | undefined {
+  const isIt = (o: CaseOutcome): o is NoVerdict =>
+    o.kind === "not-run" &&
+    (o.why === CONTROL_BLOCKED || o.why === CONTROL_NOT_SELECTED);
   return results.map((r) => r.outcome).find(isIt);
 }
 
@@ -452,12 +520,14 @@ function controlCommand(control: HarmlessCase): string {
   return typeof command === "string" ? command : control.label;
 }
 
-/** The error message for a battery whose control was blocked — one finding, not seven. */
+/** The error message for a battery without a verdict — one finding, not seven. */
 function noVerdictMessage(
   hookCommand: string,
-  o: ControlBlocked,
+  o: NoVerdict,
   control: HarmlessCase,
 ): string {
+  if (o.why === CONTROL_NOT_SELECTED)
+    return `Guardrail \`${hookCommand}\` has NO VERDICT: its condition does not select the control command \`${controlCommand(control)}\` (${o.detail}), so the control never ran and none of its blocks is evidence — a script that is not there exits 2 behind the same condition.\nPass a \`control\` the hook's condition selects: a harmless command that matches its \`if\`, e.g. assertBlocksDisasters(cmd, { condition, control: { ...CONTROL_CASE, input: { command: "git push --force --dry-run origin main" } } }).`;
   const stderr =
     o.controlStderrTail === ""
       ? ""
@@ -476,7 +546,7 @@ export function assertBlocksDisasters(
   opts: VerifyGuardrailOptions = {},
 ): void {
   const results = verifyGuardrail(hookCommand, opts);
-  const noVerdict = controlBlocked(results);
+  const noVerdict = noVerdictOf(results);
   if (noVerdict !== undefined)
     throw new Error(
       noVerdictMessage(hookCommand, noVerdict, opts.control ?? CONTROL_CASE),
@@ -523,13 +593,15 @@ export function guardrailRow({ event, outcome }: GuardrailResult): string {
 }
 
 /** The report of a battery with no verdict: why, and no score. */
-function noVerdictReport(hookCommand: string, o: ControlBlocked): string {
+function noVerdictReport(hookCommand: string, o: NoVerdict): string {
+  const stderr =
+    o.why === CONTROL_BLOCKED && o.controlStderrTail !== ""
+      ? [`  stderr of the control run: ${o.controlStderrTail}`]
+      : [];
   return [
     `Guardrail coverage for \`${hookCommand}\` — NO VERDICT`,
     `  ⊘ ${describeNotRun(o)}`,
-    ...(o.controlStderrTail === ""
-      ? []
-      : [`  stderr of the control run: ${o.controlStderrTail}`]),
+    ...stderr,
   ].join("\n");
 }
 
@@ -545,7 +617,7 @@ export function formatGuardrailReport(
   hookCommand: string,
   results: readonly GuardrailResult[],
 ): string {
-  const noVerdict = controlBlocked(results);
+  const noVerdict = noVerdictOf(results);
   if (noVerdict !== undefined) return noVerdictReport(hookCommand, noVerdict);
   const blocked = results.filter((r) => r.outcome.kind === "blocked").length;
   const skipped = results.filter((r) => r.outcome.kind === "not-run").length;

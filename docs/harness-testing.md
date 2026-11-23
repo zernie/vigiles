@@ -264,9 +264,17 @@ assertBlocksDisasters("bash hooks/allowlist-guard.sh", {
 `verifyGuardrail` returns the same facts as data. Each result's `outcome` is
 `blocked`, `allowed`, or `not-run` with a `why`: `condition` (the hook's `if`
 does not select the call), `never-launched` (the shell answered 126/127),
-`control-blocked` (no verdict), or `matcher` (in the directory sweep below). The
-control runs under the hook's `if` like any call, so a condition that does not
-select `ls` gives no control evidence — pass a `control` it selects.
+`control-blocked` or `control-not-selected` (both: no verdict), or `matcher` (in
+the directory sweep below).
+
+**A control that never ran is not evidence either.** The control runs under the
+hook's `if` like any call. If the `if` skips `ls` but selects a disaster, nothing
+showed the hook can allow — `python3 missing.py` behind
+`if: "Bash(git push *--force*)"` exits 2 on the force push exactly like a real
+block — so the battery has no verdict (`control-not-selected`). Pass a `control`
+the hook's condition selects: a harmless command that matches its `if`, such as
+`git push --force --dry-run origin main`. A guard whose body denies everything it
+is handed denies that too, so it has no verdict whatever the control.
 
 ⚠️ **Seven commands, but only seven spellings.** `experimental_alternateSpellings(events)`
 takes those test cases and returns more of them: the same commands re-spelled
@@ -375,12 +383,12 @@ two cannot be paired wrongly.
 statuses, so a hook the battery could not score can never be read as `0/7` or
 `7/7`:
 
-| status           | what it means                                                                                                                                                                   | what to do                                                |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `measured`       | the battery reached it; `results` holds one entry per event                                                                                                                     | read `blocked` / `allowed` / `notRun`                     |
-| `not-applicable` | the harness would never spawn it here: another event; a matcher that selects none of the battery's tools, or that it cannot compile; or an `if` condition matching none of them | nothing — it is not a Bash guard, or it cannot run at all |
-| `no-verdict`     | it also blocked the control (`ls`): it never started, or it denies everything; `controlStderrTail` holds the end of the control run's stderr                                    | make it start, or pass a `control` it allows              |
-| `unresolved`     | the sweep could not run the guard as the harness would — see the two causes below                                                                                               | fix the cause it names, then re-run                       |
+| status           | what it means                                                                                                                                                                   | what to do                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `measured`       | the battery reached it; `results` holds one entry per event                                                                                                                     | read `blocked` / `allowed` / `notRun`                             |
+| `not-applicable` | the harness would never spawn it here: another event; a matcher that selects none of the battery's tools, or that it cannot compile; or an `if` condition matching none of them | nothing — it is not a Bash guard, or it cannot run at all         |
+| `no-verdict`     | it also blocked the control (`ls`): it never started, or it denies everything; `controlStderrTail` holds the end of the control run's stderr. Or its `if` skipped the control   | make it start, or pass a `control` its `if` selects and it allows |
+| `unresolved`     | the sweep could not run the guard as the harness would — see the two causes below                                                                                               | fix the cause it names, then re-run                               |
 
 A repo with no hooks reports zero of everything **and says so in `notes`** — "this
 is not a clean bill of health, it is an absence of guards."

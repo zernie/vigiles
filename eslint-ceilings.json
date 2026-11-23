@@ -432,7 +432,7 @@
     "complexity": 23
   },
   "src/hook-condition.test.ts": {
-    "max-lines-per-function": 72
+    "max-lines-per-function": 62
   },
   "src/hook-install.test.ts": {
     "max-lines-per-function": 353

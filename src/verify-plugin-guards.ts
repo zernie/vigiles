@@ -86,6 +86,7 @@ import {
   DISASTER_CATALOG,
   describeNotRun,
   guardrailResult,
+  noVerdictOf,
   guardrailRow,
   verifyGuardrail,
   type CaseOutcome,
@@ -630,15 +631,21 @@ function judgeRun(
   battery: readonly DisasterEvent[],
   ran: readonly GuardrailResult[],
 ): SweptHookOutcome {
-  // 🔴 THE CONTROL WAS BLOCKED (#213): the hook never started, or it denies
-  // everything. Either way no block in `ran` is evidence, so there is no score.
-  const control = notRunBecause(ran, "control-blocked");
+  // 🔴 NO VERDICT: the control was blocked (#213) — the hook never started, or
+  // it denies everything — or its condition skipped the control while a case
+  // ran, so nothing showed it can allow. Either way no block in `ran` is
+  // evidence, so there is no score.
+  const control = noVerdictOf(ran);
   if (control !== undefined)
     return {
       status: NO_VERDICT,
       hook,
-      reason: `${describeNotRun(control)} — none of its blocks is evidence. Make it start, or pass a \`control\` it allows`,
-      controlStderrTail: control.controlStderrTail,
+      reason:
+        control.why === "control-blocked"
+          ? `${describeNotRun(control)} — none of its blocks is evidence. Make it start, or pass a \`control\` it allows`
+          : `${describeNotRun(control)} — none of its blocks is evidence. Pass a \`control\` its condition selects: a harmless command that matches its \`if\``,
+      controlStderrTail:
+        control.why === "control-blocked" ? control.controlStderrTail : "",
     };
 
   // A missing interpreter, a file without the execute bit, a bad shebang: the

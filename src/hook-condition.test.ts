@@ -323,7 +323,9 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
         "control-not-selected",
       );
   });
+});
 
+describe("the vendored conditions on a body that can allow", () => {
   it("WITH the condition only the force push reaches it", () => {
     // The vendored conditions on a body that lets a dry run through, so a
     // control the `if` selects can show the hook allows.

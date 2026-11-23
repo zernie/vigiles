@@ -1122,6 +1122,17 @@ export type NotRun =
     readonly why: "control-blocked";
     readonly controlExitCode: number;
     readonly controlStderrTail: string;
+}
+/**
+* The hook's condition did not select the control, so the control never ran,
+* while a case did: no verdict. A skipped control shows nothing about whether
+* the hook can allow — `python3 missing.py` behind the same `if` exits 2 on
+* every case it is handed.
+*/
+| {
+    readonly kind: "not-run";
+    readonly why: "control-not-selected";
+    readonly detail: string;
 };
 
 // @public

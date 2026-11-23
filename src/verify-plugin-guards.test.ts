@@ -115,8 +115,9 @@ afterAll(() => {
 });
 
 /** The outcomes, in config order — the order the report promises. */
-const sweep = () =>
-  experimental_verifyPluginGuards(dir, { control: FIXTURE_CONTROL }).hooks;
+const sweepShared = () =>
+  experimental_verifyPluginGuards(dir, { control: FIXTURE_CONTROL });
+const sweep = () => sweepShared().hooks;
 
 describe("experimental_verifyPluginGuards — the per-hook verdicts differ", () => {
   it("reads four hooks in config order and gives each its own status", () => {
@@ -675,9 +676,7 @@ describe("experimental_formatPluginGuardReport", () => {
   it("renders the MIXED case: numbers for measured, reasons for the rest", () => {
     // The mixed report is where a formatter usually leaks a misleading total —
     // one number summed over hooks that were never asked the question.
-    const out = rendered(
-      experimental_verifyPluginGuards(dir, { control: FIXTURE_CONTROL }),
-    );
+    const out = rendered(sweepShared());
 
     // The census is a census, not a score: no `n/m` on it.
     expect(out).toContain(
@@ -702,9 +701,7 @@ describe("experimental_formatPluginGuardReport", () => {
   });
 
   it("gives each unmeasured hook its own index, so two are told apart", () => {
-    const out = rendered(
-      experimental_verifyPluginGuards(dir, { control: FIXTURE_CONTROL }),
-    );
+    const out = rendered(sweepShared());
     // The fixture's two n/a hooks share nothing but their status; the index is
     // what a reader follows back to the config.
     expect(out).toContain("#3  `echo watching`");
@@ -712,9 +709,7 @@ describe("experimental_formatPluginGuardReport", () => {
   });
 
   it("names the selection facts the sweep actually read", () => {
-    const out = rendered(
-      experimental_verifyPluginGuards(dir, { control: FIXTURE_CONTROL }),
-    );
+    const out = rendered(sweepShared());
     // The conditional guard's `if` is the whole reason its score is 1/7 — a
     // report showing the number without the condition invites the wrong reading.
     expect(out).toContain(
@@ -818,9 +813,7 @@ describe("experimental_formatPluginGuardReport", () => {
   });
 
   it("a long or multi-line command is elided to one line", () => {
-    const out = rendered(
-      experimental_verifyPluginGuards(dir, { control: FIXTURE_CONTROL }),
-    );
+    const out = rendered(sweepShared());
     expect(out).toContain("…`");
     // No rendered command spills a newline into the layout.
     for (const line of out.split("\n")) expect(line).not.toContain(DENY_GUARD);
