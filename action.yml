@@ -430,7 +430,12 @@ runs:
           echo "::error::vigiles ${cmd} failed (exit ${status})"
         fi
 
-        # Build a markdown report (cap the log tail so a huge run stays sane).
+        # Build a markdown report. GitHub refuses a comment over 65,536
+        # characters, and a refused update leaves the OLD result on the PR, so
+        # the log gets what the other parts leave of one shared budget (the
+        # audit section caps itself at 20,000 characters).
+        logcap=$(( 60000 - ${#auditmd} - ${#capdiff} ))
+        (( logcap < 4000 )) && logcap=4000
         report="$(mktemp)"
         {
           echo "## vigiles"
@@ -452,7 +457,7 @@ runs:
           echo '<details><summary>Output</summary>'
           echo
           echo '```'
-          tail -c 60000 "$out"
+          tail -c "$logcap" "$out"
           echo '```'
           echo
           echo '</details>'

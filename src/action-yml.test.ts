@@ -463,6 +463,7 @@ function writeStubNpx(bin: string): void {
       '  *" --md "*) printf "%s" "${STUB_MD:-}"; exit "${STUB_MD_EXIT:-0}" ;;',
       '  *" --json"*) printf "{}"; exit 0 ;;',
       "esac",
+      '[[ -n "${STUB_MAIN_BYTES:-}" ]] && head -c "$STUB_MAIN_BYTES" /dev/zero | tr "\\0" x',
       'exit "${STUB_MAIN_EXIT:-0}"',
       "",
     ].join("\n"),
@@ -594,6 +595,18 @@ describe("action.yml — the audit summary", () => {
     assert.equal(r.status, 0);
     assert.ok(!r.summary.includes("Detected harness"), r.summary);
     assert.match(r.summary, /audit summary/i);
+  });
+
+  // Codex on #480: GitHub refuses a comment over 65,536 characters. The audit
+  // section and up to 60 KB of log used to be added up with no shared budget, so
+  // a big repo's sticky comment stopped updating and showed a stale result.
+  it("keeps the whole comment under GitHub's limit, and keeps the result and grade", () => {
+    const big = `${SECTION}${"- finding\n".repeat(4000)}`;
+    const r = runStep({ STUB_MD: big, STUB_MAIN_BYTES: "70000" });
+    assert.equal(r.status, 0);
+    assert.ok(r.summary.length < 65536, String(r.summary.length));
+    assert.ok(r.summary.includes("passed"), "the result line");
+    assert.ok(r.summary.includes(SECTION), "the grade");
   });
 
   it("never turns a failing command green, nor a passing one red", () => {

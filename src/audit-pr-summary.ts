@@ -36,6 +36,17 @@ const TOP = 3;
 /** How long a top-list line may get before it is cut. */
 const LINE_MAX = 240;
 
+/**
+ * The most characters the section may take. It shares the Action's sticky
+ * comment with the command's log, and GitHub refuses a comment over 65,536
+ * characters, so a repo with thousands of findings would otherwise lose the
+ * whole comment (and keep showing a stale result).
+ */
+export const AUDIT_SUMMARY_MAX_CHARS = 20_000;
+
+/** Room kept for everything but the collapsed list: headline, table, top items. */
+const FRAME_CHARS = 4_000;
+
 /** The part of a base report the comparison reads. */
 export type BaseScore = Pick<
   AuditSnapshot["score"],
@@ -172,7 +183,26 @@ function gradedFindings(report: AuditReport): readonly string[] {
   ).flatMap((c) => c.findings.map((f) => `**${c.key}:** ${flat(f)}`));
 }
 
-/** The top items numbered, then all of them collapsed. */
+/**
+ * The collapsed lines that fit in `budget` characters, best first, and a last
+ * line naming how many did not.
+ */
+function fitted(items: readonly string[], budget: number): readonly string[] {
+  const lines = items.map((f) => `- ${f}`);
+  const ends = lines.reduce<readonly number[]>(
+    (acc, l) => [...acc, (acc.at(-1) ?? 0) + l.length + 1],
+    [],
+  );
+  const kept = ends.filter((end) => end <= budget).length;
+  return kept === lines.length
+    ? lines
+    : [
+        ...lines.slice(0, kept),
+        `- … and ${String(lines.length - kept)} more — run \`npx vigiles audit\` locally for the full list`,
+      ];
+}
+
+/** The top items numbered, then as many as fit collapsed. */
 function listed(
   noun: "fixes" | "findings",
   items: readonly string[],
@@ -184,7 +214,7 @@ function listed(
     "",
     `<details><summary>All ${String(items.length)} ${noun}</summary>`,
     "",
-    ...items.map((f) => `- ${f}`),
+    ...fitted(items, AUDIT_SUMMARY_MAX_CHARS - FRAME_CHARS),
     "",
     "</details>",
     "",

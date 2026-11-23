@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import {
   AUDIT_SUMMARY_MARKER,
+  AUDIT_SUMMARY_MAX_CHARS,
   parseBaseAudit,
   renderAuditPrSummary,
   type BaseAudit,
@@ -271,5 +272,35 @@ describe("parseBaseAudit", () => {
     const base = parseBaseAudit(JSON.stringify(empty));
     expect(base.kind).toBe("unavailable");
     expect(base.kind === "unavailable" ? base.why : "").toMatch(/harness/);
+  });
+});
+
+describe("renderAuditPrSummary — size", () => {
+  // Codex on #480: GitHub refuses a comment over 65,536 characters, and this
+  // section shares the sticky comment with the command's log. A repo with
+  // thousands of findings must still get its grade on the PR.
+  it("stays within its budget however many findings, and says how many it left out", () => {
+    const head = headReport();
+    const many = Array.from({ length: 2000 }, (_, i) =>
+      rec(`skills/s${String(i)}`, `fix ${"x".repeat(400)} ${String(i)}`),
+    );
+    const md = renderAuditPrSummary(
+      {
+        ...head,
+        recommendations: many,
+        verdict: {
+          ...head.verdict,
+          perRecommendation: many.map((_, index) => ({
+            index,
+            pointsIfFixed: 1,
+          })),
+        },
+      },
+      { kind: "none" },
+    );
+    expect(md.length).toBeLessThanOrEqual(AUDIT_SUMMARY_MAX_CHARS);
+    expect(md).toContain("**C**");
+    expect(md).toContain("headless audit");
+    expect(md).toMatch(/and \d+ more/);
   });
 });
