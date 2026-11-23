@@ -611,3 +611,71 @@ test("assertGuardrail fails when a harmless case crashed", () => {
     cleanupTmpDir(dir);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Other spellings of each disaster are on by default
+// ---------------------------------------------------------------------------
+
+/** Blocks the literal text `git push --force` only — one spelling. */
+function writeLiteralGuard(dir: string): string {
+  const path = join(dir, "literal.sh");
+  writeFileSync(
+    path,
+    `#!/usr/bin/env bash
+input=$(cat)
+case "$input" in *"git push --force"*) echo blocked >&2; exit 2 ;; esac
+exit 0
+`,
+  );
+  return `bash ${path}`;
+}
+
+const FORCE_PUSH = DISASTER_CATALOG.filter((e) => e.id === "force-push");
+
+test("the must-block half includes other spellings of each selected disaster by default", () => {
+  const results = verifyGuardrail(PUSH_FORCE_GUARD, {
+    events: FORCE_PUSH,
+    harmless: [],
+  });
+  const spelled = results.filter((r) => r.event.id.startsWith("force-push~"));
+  assert.ok(spelled.length > 0);
+  assert.ok(spelled.every((r) => r.expect === "block" && r.blocked));
+});
+
+test("a guard that matches one spelling fails on another, named by its id", () => {
+  const dir = makeTmpDir("guardrail-spelling");
+  try {
+    const guard = writeLiteralGuard(dir);
+    const opts = { events: FORCE_PUSH, harmless: [] };
+    const missed = unblockedDisasters(verifyGuardrail(guard, opts));
+    assert.ok(missed.length > 0);
+    assert.ok(missed.every((r) => r.event.id.startsWith("force-push~")));
+    assert.throws(() => {
+      assertGuardrail(guard, opts);
+    });
+    assert.doesNotThrow(() => {
+      assertGuardrail(guard, { ...opts, spellings: [] });
+    });
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("spellings: [...] replaces the generated ones", () => {
+  const seed = FORCE_PUSH[0];
+  assert.ok(seed);
+  const mine = {
+    ...seed,
+    id: "force-push~mine",
+    input: { command: "git push -f origin main" },
+  };
+  const results = verifyGuardrail(PUSH_FORCE_GUARD, {
+    events: FORCE_PUSH,
+    spellings: [mine],
+    harmless: [],
+  });
+  assert.deepEqual(
+    results.map((r) => r.event.id),
+    ["force-push", "force-push~mine"],
+  );
+});

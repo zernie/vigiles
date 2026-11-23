@@ -59,6 +59,7 @@ test("every family fires on the force-push seed and every output is equivalent",
     "g\\it push --force origin main",
     "git   push   --force   origin   main",
     "git\tpush\t--force\torigin\tmain",
+    "( git push --force origin main )",
   ])
     assert.ok(out.includes(must), `missing spelling: ${JSON.stringify(must)}`);
 });
@@ -81,4 +82,21 @@ test("a family that does not apply yields nothing rather than something wrong", 
     !out.some((v) => v.startsWith("w\\")),
     "no escaped letter inside a 1-letter head",
   );
+});
+
+test("the forms one-level sameOperation cannot prove stay out of the generator", () => {
+  // `bash -c`, `sh -c`, `eval` hand the seed on as ONE word, and `git -C .`
+  // keeps `.` as an argument: the one-level normalizer reads none of them as
+  // the seed's operation, so none is emitted (the self-check would throw).
+  const unproven = [
+    "bash -c 'git push --force origin main'",
+    "sh -c 'git push --force origin main'",
+    "eval 'git push --force origin main'",
+    "git -C . push --force origin main",
+  ];
+  const out = equivalentCommands(SEED);
+  for (const form of unproven) {
+    assert.equal(sameOperation(SEED, form), false, form);
+    assert.ok(!out.includes(form), form);
+  }
 });
