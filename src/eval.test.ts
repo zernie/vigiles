@@ -2830,8 +2830,15 @@ test("parseClaudeRun: with no result event, usage is the stream's floor, one cou
         usage: { input_tokens: input, cache_creation_input_tokens: 5 },
       },
     });
-  // Two events of one response share its id: counted once.
-  const stdout = [event("a", 10), event("a", 10), event("b", 20)].join("\n");
+  // Two events of one response share its id: counted once; an event with no
+  // id cannot be told apart from another response, so it is not counted.
+  const noId = JSON.stringify({
+    type: "assistant",
+    message: { content: [], usage: { input_tokens: 99 } },
+  });
+  const stdout = [event("a", 10), event("a", 10), event("b", 20), noId].join(
+    "\n",
+  );
   const run = parseClaudeRun({ code: -1, stdout });
   assert.equal(run.costObserved, false);
   assert.equal(run.usage.costUsd, 0);
@@ -2890,6 +2897,58 @@ test("each run's cap is the budget not yet charged", async () => {
     },
   );
   assert.deepEqual(free, [undefined]);
+});
+
+test("with no ceiling, a killed run is counted as unknown and charged nothing", async () => {
+  const killed = JSON.stringify({ type: "system", subtype: "init" });
+  const report = await runEvalWith(
+    {
+      env: INHERIT,
+      arms: { only: {} },
+      task: "t",
+      trials: 2,
+      spacingSec: 0,
+      measure: () => ({ ok: true }),
+    },
+    () =>
+      Promise.resolve({
+        code: -1,
+        signal: "SIGKILL",
+        timedOut: true,
+        stdout: killed,
+      }),
+  );
+  assert.equal(report.unknownCostRuns, 2);
+  assert.equal(report.chargedUsd, 0);
+  assert.equal(report.aborted, false);
+});
+
+test("formatEvalReport never shows a run that reported no cost as $0", () => {
+  const base = {
+    name: "e",
+    trials: 1,
+    arms: {},
+    aborted: false,
+  };
+  const head = (r: Parameters<typeof formatEvalReport>[0]) =>
+    formatEvalReport(r).split("\n")[0] ?? "";
+  // reported cost only: the total
+  assert.ok(head({ ...base, totalCostUsd: 0.2 }).includes("0.2000"));
+  // nothing reported, nothing charged: no amount at all
+  assert.ok(!head({ ...base, totalCostUsd: 0 }).includes("$"));
+  // a killed run charged its cap: the charge, not the $0 reported
+  const charged = head({
+    ...base,
+    totalCostUsd: 0,
+    chargedUsd: 0.5,
+    unknownCostRuns: 1,
+  });
+  assert.ok(charged.includes("0.5000"));
+  assert.ok(!charged.includes("$0.0000"));
+  // a killed run with no ceiling to charge against: still not "$0"
+  const unknown = head({ ...base, totalCostUsd: 0, unknownCostRuns: 1 });
+  assert.ok(!unknown.includes("$"));
+  assert.notEqual(unknown, head({ ...base, totalCostUsd: 0 }));
 });
 
 test("assertTriggerRate gates on the minimum rate", () => {
