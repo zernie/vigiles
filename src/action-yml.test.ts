@@ -293,10 +293,36 @@ describe("action.yml — command: test", () => {
     assert.equal(action.inputs["min"]?.default, "");
     assert.equal(action.inputs["no-skip"]?.default, "false");
     assert.equal(action.inputs["install"]?.default, "true");
+    assert.equal(action.inputs["install-claude"]?.default, "true");
   });
 
-  it("runs the repo's installed vigiles and installs nothing when node_modules exists", () => {
-    assert.equal(test(installed), "--no-install vigiles test");
+  it("runs the repo's installed vigiles, installing only the claude CLI, with a floor of one run", () => {
+    assert.deepEqual(test(installed).split("\n"), [
+      "npm install -g --no-audit --no-fund @anthropic-ai/claude-code",
+      "--no-install vigiles test --min=1",
+    ]);
+  });
+
+  // Without `claude` every harness file skips, and `0 passed, N skipped` used to
+  // be a green run in which nothing was tested.
+  it("installs the claude CLI only when the runner has none", () => {
+    const withClaude = {
+      ...installed,
+      "node_modules/.bin/claude": "#!/bin/sh\n",
+    };
+    assert.doesNotMatch(test(withClaude), /claude-code/);
+    assert.doesNotMatch(
+      test(installed, { VIGILES_INSTALL_CLAUDE: "false" }),
+      /claude-code/,
+    );
+  });
+
+  it("an explicit min wins over the floor of one, and lint gets neither", () => {
+    assert.match(test(installed, { VIGILES_MIN: "0" }), /test --min=0$/);
+    const lint = resolveRunner(installed, undefined, {
+      VIGILES_COMMAND: "lint",
+    });
+    assert.doesNotMatch(lint, /claude-code|--min/);
   });
 
   it("runs npm ci first when a lockfile exists and nothing is installed", () => {
