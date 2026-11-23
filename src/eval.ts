@@ -937,6 +937,10 @@ export async function measureWith(
       // measure / measureArms have no `env` field (yet): they run with your
       // HOME and environment, as before — said here, not defaulted silently.
       env: INHERITED_BY_MEASURE,
+      // The per-trial context check reports through `runEval`'s lines and
+      // failure; a `CheckReport` has no place to say a trial was dropped, so
+      // here it would only shrink `n` silently. Off until it does (#416).
+      experimental_contextCheck: false,
       measure: (ctx) =>
         Object.fromEntries(keyed.map(([k, c]) => [k, c.eval(ctx).pass])),
     },
@@ -1051,6 +1055,10 @@ export async function measureArmsWith(
       // measure / measureArms have no `env` field (yet): they run with your
       // HOME and environment, as before — said here, not defaulted silently.
       env: INHERITED_BY_MEASURE,
+      // The per-trial context check reports through `runEval`'s lines and
+      // failure; a `CheckReport` has no place to say a trial was dropped, so
+      // here it would only shrink `n` silently. Off until it does (#416).
+      experimental_contextCheck: false,
       measure: (ctx) =>
         Object.fromEntries(keyed.map(([k, c]) => [k, c.eval(ctx).pass])),
     },
