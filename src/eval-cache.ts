@@ -136,8 +136,12 @@ export function canonical(value: unknown): unknown {
  * entries become *unreachable* rather than deserializing into a stale shape (no
  * brittle read-time version gate needed). A major bump means orphaned files on
  * disk; reclaim them by deleting the cache dir.
+ *
+ * 4: a run the timeout killed used to be recorded as `code: 0` (`code ?? 0`);
+ * it is now `-1` with `timedOut`, so a replayed old record would bring the clean
+ * exit back (vigiles#416).
  */
-export const CACHE_FORMAT_VERSION = 3;
+export const CACHE_FORMAT_VERSION = 4;
 
 /**
  * Per-run env keys that are PURE NOISE for the cache key — a fresh random path
