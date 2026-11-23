@@ -368,6 +368,14 @@ export interface MetricStat {
   /** Number of runs the metric was observed in. */
   readonly n: number;
   /**
+   * How many trials scored 1 — set only when EVERY observed value was 0 or 1
+   * (a boolean counts as 0/1). Its presence is what makes the metric a pass/fail
+   * tally, judged by Wilson intervals (`experimental_verdict`). Absent for any
+   * other metric, and in reports written before this field existed: those are
+   * judged by Welch's test.
+   */
+  readonly successes?: number;
+  /**
    * pass^k (τ-bench): 1 if the metric succeeded on EVERY trial, else 0. The
    * reliability question a non-deterministic harness needs — "worked every time"
    * is not "worked on average". A trial counts as a success when its value is
@@ -1389,21 +1397,33 @@ export function aggregateStats(
   for (const r of rows) for (const k of Object.keys(r)) keys.add(k);
   const out: Record<string, MetricStat> = {};
   for (const k of keys) {
-    const values: number[] = [];
-    for (const r of rows) {
-      const v = numeric(r[k]);
-      if (v !== null) values.push(v);
-    }
-    const n = values.length;
-    const mean = n > 0 ? values.reduce((a, b) => a + b, 0) / n : 0;
-    const std =
-      n > 1
-        ? Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1))
-        : 0;
-    const passK = n > 0 && values.every((v) => v > 0) ? 1 : 0;
-    out[k] = { mean, std, se: n > 0 ? std / Math.sqrt(n) : 0, n, passK };
+    out[k] = statOf(
+      rows.map((r) => numeric(r[k])).filter((v): v is number => v !== null),
+    );
   }
   return out;
+}
+
+/** One metric's {@link MetricStat} from the values its trials reported. */
+function statOf(values: readonly number[]): MetricStat {
+  const n = values.length;
+  const mean = n > 0 ? values.reduce((a, b) => a + b, 0) / n : 0;
+  const std =
+    n > 1
+      ? Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1))
+      : 0;
+  const passK = n > 0 && values.every((v) => v > 0) ? 1 : 0;
+  // Recorded from the observations, never inferred from mean and spread: a
+  // sample like [-0.6, 0.4, 0.4, 0.4, 0.4] has the moments of 1 success in 5.
+  const binary = n > 0 && values.every((v) => v === 0 || v === 1);
+  return {
+    mean,
+    std,
+    se: n > 0 ? std / Math.sqrt(n) : 0,
+    n,
+    passK,
+    ...(binary ? { successes: values.filter((v) => v === 1).length } : {}),
+  };
 }
 
 /** Aggregate per-run usage into an arm's cost / latency / token totals + means. */

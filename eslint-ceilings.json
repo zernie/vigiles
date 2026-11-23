@@ -404,7 +404,7 @@
   "src/eval.ts": {
     "max-params": 5,
     "max-lines-per-function": 96,
-    "sonarjs/cognitive-complexity": 18,
+    "sonarjs/cognitive-complexity": 12,
     "complexity": 14
   },
   "src/example-imports.test.ts": {

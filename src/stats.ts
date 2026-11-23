@@ -188,24 +188,10 @@ export function compareStats(
   };
 }
 
-// Values of a 0/1 metric sum to an integer k, and among all [0, 1]-valued samples
-// with that mean only the 0/1 one reaches the Bernoulli spread — so the summary
-// identifies a 0/1 metric exactly when its values stay in [0, 1].
-const EPS = 1e-9;
-
-/** The success count of a metric whose every trial scored 0 or 1, else null. */
-export function bernoulliCount(stat: MetricStat): number | null {
-  const { mean, std, n } = stat;
-  if (n < 1 || mean < 0 || mean > 1) return null;
-  const k = Math.round(mean * n);
-  if (Math.abs(mean * n - k) > EPS) return null;
-  const spread = n > 1 ? Math.sqrt((k * (n - k)) / (n * (n - 1))) : 0;
-  return Math.abs(std - spread) <= EPS ? k : null;
-}
-
 /**
  * The verdict for one arm against a baseline on one metric's summary: disjoint
- * Wilson intervals for a 0/1 metric, Welch's test at `alpha` for any other.
+ * Wilson intervals for a metric whose every trial scored 0 or 1 (it carries
+ * `successes`), Welch's test at `alpha` for any other.
  */
 export function verdictOf(
   arm: MetricStat,
@@ -215,12 +201,10 @@ export function verdictOf(
   if (arm.n === 0 || baseline.n === 0) {
     return { kind: "unmeasured", why: "no-trials" };
   }
-  const ka = bernoulliCount(arm);
-  const kb = bernoulliCount(baseline);
-  if (ka !== null && kb !== null) {
+  if (arm.successes !== undefined && baseline.successes !== undefined) {
     return proportionVerdict(
-      { k: ka, n: arm.n },
-      { k: kb, n: baseline.n },
+      { k: arm.successes, n: arm.n },
+      { k: baseline.successes, n: baseline.n },
       alpha,
     );
   }

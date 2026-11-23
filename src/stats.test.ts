@@ -11,7 +11,6 @@ import {
   tPValueTwoSided,
   welchTTest,
   compareArms,
-  bernoulliCount,
   verdictOf,
   experimental_verdict,
 } from "./stats.js";
@@ -159,26 +158,26 @@ const reportOf = (arms: Record<string, MetricStat>): EvalReport => ({
   ),
 });
 
-test("bernoulliCount: a 0/1 metric is recognized from its summary alone", () => {
-  assert.equal(bernoulliCount(binary(3, 3)), 3);
-  assert.equal(bernoulliCount(binary(0, 3)), 0);
-  assert.equal(bernoulliCount(binary(7, 12)), 7);
-  assert.equal(bernoulliCount(binary(1, 1)), 1);
-  // continuous values in [0, 1] fall short of the Bernoulli spread
-  const graded = aggregateStats([{ s: 0.5 }, { s: 0.5 }, { s: 1 }]).s;
-  assert.ok(graded !== undefined && bernoulliCount(graded) === null);
-  // a mean that no whole number of successes produces
-  const fractional = aggregateStats([{ s: 0.2 }, { s: 0.3 }]).s;
-  assert.ok(fractional !== undefined && bernoulliCount(fractional) === null);
-  // counts outside [0, 1], either side
-  const negative = aggregateStats([{ c: -1 }, { c: -1 }]).c;
-  assert.ok(negative !== undefined && bernoulliCount(negative) === null);
-  const counts = aggregateStats([{ c: 2 }, { c: 4 }]).c;
-  assert.ok(counts !== undefined && bernoulliCount(counts) === null);
-  assert.equal(
-    bernoulliCount({ mean: 0, std: 0, se: 0, n: 0, passK: 0 }),
-    null,
-  );
+test("aggregateStats records successes only when every value was 0 or 1", () => {
+  assert.equal(binary(3, 3).successes, 3);
+  assert.equal(binary(0, 3).successes, 0);
+  assert.equal(aggregateStats([{ s: 1 }, { s: 0 }]).s?.successes, 1);
+  // graded, out-of-range and count values carry no tally
+  assert.equal(aggregateStats([{ s: 0.5 }, { s: 1 }]).s?.successes, undefined);
+  assert.equal(aggregateStats([{ c: 2 }, { c: 4 }]).c?.successes, undefined);
+});
+
+// Codex on #471: these moments equal 1 success in 5, but the values are not 0/1.
+// Inferring the tally from the summary hid a real regression from the gate.
+test("verdictOf: a non-0/1 sample with 0/1-looking moments stays on Welch", () => {
+  const looksBinary = aggregateStats(
+    [-0.6, 0.4, 0.4, 0.4, 0.4].map((v) => ({ m: v })),
+  ).m;
+  const ones = aggregateStats([1, 1, 1, 1, 1].map((v) => ({ m: v }))).m;
+  assert.ok(looksBinary !== undefined && ones !== undefined);
+  const v = verdictOf(looksBinary, ones);
+  assert.equal(v.kind, "worse");
+  assert.ok(v.kind === "worse" && v.test === "welch");
 });
 
 // vigiles#416: on a 0/1 metric every trial agreeing gave se = 0 on both arms,

@@ -480,7 +480,10 @@ arm beats the baseline by a margin the trials can actually show — the noise fl
 is **computed**, not hand-fed. The test depends on the metric:
 
 - **A 0/1 metric** (pass/fail, `true`/`false`): each arm gets a 95% Wilson
-  interval, and the arm wins only when the two intervals do not overlap.
+  interval, and the arm wins only when the two intervals do not overlap. A
+  metric counts as 0/1 when every trial reported 0 or 1; the report records the
+  tally as `stats[metric].successes`. A report saved before that field existed
+  has no tally, so it is judged by Welch's test.
 - **Any other metric**: Welch's t-test at `alpha` (default 0.05).
 
 ```ts
@@ -501,7 +504,8 @@ experimental_verdict(report, "vanilla", "gated", "marked");
 // → { kind: "better" | "worse" | "no-signal", test: "wilson", arm, baseline }
 //   or { kind, test: "welch", delta, pValue } · { kind: "unmeasured", why }
 const c = compareArms(report, "vanilla", "gated", "marked");
-// → { delta, seDelta, t, df, pValue, significant }  (Welch only, reads mean/se/n)
+// → { delta, seDelta, t, df, pValue, significant }  (Welch's numbers;
+//   `significant` is the verdict above, so it is false on 3/3 vs 0/3)
 ```
 
 **Why 0/1 metrics are not t-tested.** When every trial agrees — 3 of 3 against
