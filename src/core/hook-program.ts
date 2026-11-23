@@ -777,6 +777,8 @@ interface ParsedCommand {
   readonly inner: readonly string[];
   /** Where a command was handed on and could not be read, vigiles#460. */
   readonly hidden: readonly HiddenCommand[];
+  /** The leaves given words from an unquoted expansion (`git push $F`). */
+  readonly unknownWordLeaves: ReturnType<typeof leafCommandsNormalized>;
 }
 
 function parseCommand(raw: string): ParsedCommand {
@@ -816,6 +818,9 @@ function parseCommand(raw: string): ParsedCommand {
     allWriteTargets,
     inner: reading.inner,
     hidden: reading.hidden,
+    unknownWordLeaves: effects.flatMap((e) =>
+      e.kind === "leaf" && e.unknownWords ? [e.leaf] : [],
+    ),
   };
 }
 
@@ -864,6 +869,8 @@ function inspectShellCommand(raw: string, root?: string): InspectedCommand {
   const parse = (): ParsedCommand => (parsed ??= parseCommand(raw));
   // eslint-disable-next-line functional/no-let -- set by the first predicate call
   let asked = false;
+  // eslint-disable-next-line functional/no-let -- appended by `runs` when a flag question meets a word it cannot read; only ever replaced by a longer copy
+  let unreadFlags: readonly HiddenCommand[] = [];
   const tracked =
     <A extends readonly unknown[], R>(f: (...a: A) => R): ((...a: A) => R) =>
     (...a) => {
@@ -925,12 +932,35 @@ function inspectShellCommand(raw: string, root?: string): InspectedCommand {
       // nobody noticed, since nobody wrote the short form down by hand.
       const flagTokens = tokens.filter((t) => t.startsWith("-"));
       const plainTokens = tokens.filter((t) => !t.startsWith("-"));
-      return normalized.some(
+      const hit = normalized.some(
         (leaf) =>
           runsSeq(leaf.argv, plainTokens) &&
           flagTokens.every((t) => leaf.hasFlag(t.replace(/^-+/, ""))) &&
           (opts?.force ? leaf.hasFlag("force", "f") : true),
       );
+      // 🔴 A FLAG QUESTION OVER A WORD THE PARSER CANNOT READ. `F=-f; git push
+      // $F` reaches the leaf as `git push`: bash splits `$F` into words after
+      // expansion, and the parser drops a word it cannot know. Asked whether
+      // this is a FORCE push, the honest answer is "cannot tell", so the gate's
+      // `allow` becomes an `ask` (`askOnHidden`). Narrow on purpose: only a
+      // question about flags, only a leaf that already IS the program asked
+      // about — `cp $SRC dst` and `git log $RANGE` are not second-guessed by a
+      // force-push gate — and a quoted `"$F"` is one word of data, not counted
+      // (`splitsWords` in bash-effects says why).
+      const asksFlags = opts?.force === true || flagTokens.length > 0;
+      if (!hit && asksFlags)
+        unreadFlags = [
+          ...unreadFlags,
+          ...parse()
+            .unknownWordLeaves.filter((leaf) => runsSeq(leaf.argv, plainTokens))
+            .map(
+              (leaf): HiddenCommand => ({
+                runner: leaf.head,
+                reason: "dynamic-argument",
+              }),
+            ),
+        ];
+      return hit;
     }),
     // The classifier answers `undecidable` for `sh -c "rm -rf x"` — it does not
     // descend — so each nested string read is classified in its own right.
@@ -1009,7 +1039,7 @@ function inspectShellCommand(raw: string, root?: string): InspectedCommand {
   return {
     view,
     asked: () => asked,
-    hidden: () => (asked ? parse().hidden : []),
+    hidden: () => (asked ? [...parse().hidden, ...unreadFlags] : []),
   };
 }
 
@@ -1030,10 +1060,22 @@ function askOnHidden(decision: Decision, cmd: InspectedCommand): Decision {
   if (decision.kind !== "allow" || !cmd.asked()) return decision;
   const hidden = cmd.hidden();
   if (hidden.length === 0) return decision;
-  const runners = [...new Set(hidden.map((h) => `\`${h.runner}\``))];
+  const named = (pick: (h: HiddenCommand) => boolean): string =>
+    [...new Set(hidden.filter(pick).map((h) => `\`${h.runner}\``))].join(", ");
+  const program = named((h) => h.reason === "dynamic-program");
+  const argument = named((h) => h.reason === "dynamic-argument");
+  const handed = named(
+    (h) => h.reason !== "dynamic-program" && h.reason !== "dynamic-argument",
+  );
+  const why = [
+    handed && `it hands a command to ${handed}`,
+    program && `the program it runs is held in ${program}`,
+    argument &&
+      `${argument} gets words from an unquoted variable, which may be flags`,
+  ].filter(Boolean);
   return ask(
-    `vigiles: this command hands a command to ${runners.join(", ")}, and the hook cannot see what that command does. ` +
-      `Run it as a plain command (or as \`bash -c '<literal command>'\`) so the hook can check it.`,
+    `vigiles: the hook cannot see what this command does: ${why.join("; ")}. ` +
+      `Run it as a plain command, with the program and its flags spelled out (or as \`bash -c '<literal command>'\`), so the hook can check it.`,
   );
 }
 

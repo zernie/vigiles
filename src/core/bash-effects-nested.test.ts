@@ -149,7 +149,15 @@ describe("neither: out of the closed set, or nothing handed on", () => {
     `bash deploy.sh`,
     `source x.sh`,
     `python3 -c 'import os'`,
-    `$G push -f`,
+    `~/bin/tool x`,
+    `"$HOME/bin/tool" x`,
+    `git push $F`,
+    `cp "$SRC" dst`,
+    `env TOKEN="$TOKEN" git status`,
+    `sudo env X="$Y" git status`,
+    // a declaration's words are assignments, not argument words
+    `declare -a A=(1)`,
+    `export A=1 B=2`,
     `find . -name x`,
     `exec > log`,
     `xargs`,
@@ -160,5 +168,52 @@ describe("neither: out of the closed set, or nothing handed on", () => {
   ])("%s", (c) => {
     assert.deepEqual(readShell(c).hidden, []);
     assert.deepEqual(readShell(c).inner, []);
+  });
+});
+
+// A program held in a variable: the command line names no program at all.
+describe("hidden: the program is held in a variable", () => {
+  test.each([
+    [`$CMD`, "$CMD"],
+    [`\${CMD}`, "$CMD"],
+    [`$G push -f`, "$G"],
+    [`"$G" push -f`, "$G"],
+    [`$DIR/git push -f`, "$DIR/git"],
+    [`sudo $CMD`, "$CMD"],
+    [`env X="$Y" $CMD`, "$CMD"],
+    [`CMD="git push -f"; $CMD`, "$CMD"],
+    [`$(echo git) push -f`, "$(…)"],
+    [`bash -c 'G=git; $G push -f'`, "$G"],
+  ])("%s → %s (dynamic-program)", (c, runner) => {
+    assert.deepEqual(hidden(c), [{ runner, reason: "dynamic-program" }]);
+  });
+});
+
+// An argument bash splits into words the parser cannot know. Not hidden by
+// itself: whether it matters depends on what the gate asks (hook-program).
+describe("an unquoted expansion in an argument is marked on its leaf", () => {
+  const marks = (c: string): readonly boolean[] =>
+    readShell(c).effects.flatMap((e) =>
+      e.kind === "leaf" ? [e.unknownWords] : [],
+    );
+  test.each([
+    [`git push $F origin`, [true]],
+    [`git push \${F}`, [true]],
+    [`git push --opt=$F`, [true]],
+    [`git push $(echo -f)`, [true, false]],
+    [`git push "$@"`, [true]],
+    [`git push "\${refs[@]}"`, [true]],
+    [`git push "$F"`, [false]],
+    [`git push "\${refs[*]}"`, [false]],
+    [`cp "$SRC" "$DST"`, [false]],
+    [`cat ~/x $HOME/y`, [false]],
+    [`echo $((1 + 2))`, [false]],
+    [`git push origin main`, [false]],
+    [`sh -c 'git push $F'`, [false, true]],
+    // the wrapper's own words are not the program's arguments
+    [`env A=$X B="$Y" git push origin main`, [false]],
+    [`env A="$X" git push $F`, [true]],
+  ])("%s", (c, want) => {
+    assert.deepEqual(marks(c), want);
   });
 });
