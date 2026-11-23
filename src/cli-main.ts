@@ -41,6 +41,7 @@ import {
 } from "node:path";
 import { repoRelative, type RepoRelativePath } from "./core/repo-path.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { isCI } from "ci-info";
 import { globSync } from "glob";
 import { excludeSet, excludedBy, type ExcludeSet } from "./exclude.js";
 import { withIgnored } from "./core/glob-ignore.js";
@@ -633,9 +634,9 @@ function finishHumanAudit(root: string, projectRoot: string): void {
     console.log("  public repos — opens a live re-run for anyone, no upload");
   }
   // #475: a person auditing THIS project is what `lint --summary` asks about
-  // at session start; an audit of another directory does not stamp — see
-  // `core/last-audit.ts`.
-  if (root === projectRoot) recordAuditRun(projectRoot);
+  // at session start; an audit of another directory, or any audit in CI, does
+  // not stamp — see `core/last-audit.ts`.
+  if (root === projectRoot && !isCI) recordAuditRun(projectRoot);
 }
 
 /** A file's text, or `undefined` when it cannot be read (absent, a dir, …). */

@@ -9,10 +9,14 @@
  * than {@link LAST_AUDIT_STALE_DAYS} days, or when there has been none.
  *
  * WHO STAMPS: only a person's `audit` of this project — not `--json`, not
- * `--md`, not an audit of another directory. The line asks "have you looked at
- * the full report lately"; a machine read in CI is not that and runs none of
- * the consent-gated checks. CI therefore never stamps, by construction: the
- * Action runs `audit --md` and `audit --json`.
+ * `--md`, not an audit of another directory, and nothing that runs in CI
+ * (ci-info), whatever its flags. The line asks "have you looked at the full
+ * report lately"; a machine read in CI is not that and runs none of the
+ * consent-gated checks. (The Action's capability diff is a plain `audit`, and
+ * it stamped until CI was checked by name rather than by flag.)
+ *
+ * The record is written in prettier's own JSON shape: it sits in the user's
+ * tree, and `prettier --check .` does not read the nested `.vigiles/.gitignore`.
  *
  * Pure. The CLI root reads and writes `.vigiles/last-audit.json` (a per-checkout
  * file, kept out of git with the others in `local-files.ts`).
@@ -36,7 +40,7 @@ const recordSchema = z.object({ at: z.iso.datetime() });
 
 /** The file's content for an audit that finished at `now`. */
 export function lastAuditRecord(now: Readonly<Date>): string {
-  return JSON.stringify({ at: now.toISOString() }) + "\n";
+  return JSON.stringify({ at: now.toISOString() }, null, 2) + "\n";
 }
 
 /** Read the record; `undefined` is a file that does not exist. */

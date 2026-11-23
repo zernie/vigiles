@@ -4,6 +4,7 @@
  * line when it is old or missing. Pure over (record text, now); the CLI's read
  * and write are covered in `src/cli-audit-summary.test.ts`.
  */
+import { format } from "prettier";
 import { describe, it, expect } from "vitest";
 import {
   LAST_AUDIT_STALE_DAYS,
@@ -49,6 +50,14 @@ describe("lastAuditLine", () => {
 });
 
 describe("lastAuditRecord / parseLastAudit", () => {
+  // The record sits in the user's tree, where `prettier --check .` reads it
+  // (prettier ignores the nested `.vigiles/.gitignore`): it must already be in
+  // prettier's shape, or a local audit turns the user's format check red.
+  it("is written exactly as prettier formats it", async () => {
+    const text = lastAuditRecord(ago(2));
+    expect(await format(text, { parser: "json" })).toBe(text);
+  });
+
   it("reads back what it wrote", () => {
     expect(parseLastAudit(lastAuditRecord(ago(2)))).toEqual({
       kind: "at",

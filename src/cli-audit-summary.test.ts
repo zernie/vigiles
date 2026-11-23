@@ -31,12 +31,20 @@ import { LAST_AUDIT_FILE, VIGILES_DIR } from "./local-files.js";
 
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
 
+/**
+ * The environment of a person's terminal. ci-info treats `CI=false` as "not CI"
+ * whatever else is set, so a test of the human path passes inside CI and out.
+ */
+const human = (): NodeJS.ProcessEnv => ({ ...process.env, CI: "false" });
+
 function run(
   args: readonly string[],
   cwd: string,
+  env: NodeJS.ProcessEnv = human(),
 ): { stdout: string; stderr: string; exitCode: number } {
   const r = spawnSync("node", [CLI, ...args], {
     cwd,
+    env,
     encoding: "utf-8",
     timeout: 60000,
   });
@@ -144,6 +152,21 @@ describe("the last-audit stamp", () => {
   it("machine runs (--json, --md) do not", () => {
     run(["audit", "--json"], dir);
     run(["audit", "--md"], dir);
+    expect(existsSync(stamp())).toBe(false);
+  });
+
+  // Found on #480's own CI: the Action's capability diff runs a PLAIN `audit`
+  // (`--capability-diff=… --no-html --no-json`), which stamped, and the record
+  // then failed `prettier --check .`. A run in CI is never a person's, whatever
+  // its flags.
+  it("no audit in CI does, whatever its flags", () => {
+    const ci = { ...process.env, CI: "true" };
+    run(["audit", "--no-open"], dir, ci);
+    run(
+      ["audit", `--capability-diff=${dir}`, "--no-html", "--no-json"],
+      dir,
+      ci,
+    );
     expect(existsSync(stamp())).toBe(false);
   });
 });
