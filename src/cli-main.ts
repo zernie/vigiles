@@ -3816,9 +3816,14 @@ function hasPythonSurface(root: string): boolean {
 
 function computeRuleRouting(
   root: string,
-  instructionFile: string,
-  excludes: ExcludeSet,
+  opts: {
+    readonly instructionFile: string;
+    readonly excludes: ExcludeSet;
+    /** THIS run's resolved read-vs-run decision (never the remembered setting). */
+    readonly execute: boolean;
+  },
 ): RuleRouting | undefined {
+  const { instructionFile, excludes, execute } = opts;
   try {
     const files = gatherInstructionFiles(root, instructionFile, excludes);
     if (files.every((f) => !f.text.trim())) return undefined;
@@ -3830,11 +3835,12 @@ function computeRuleRouting(
     // agnostic capability on CC). Each enumerate returns null when its linter
     // doesn't apply, so a repo with neither falls back to the foreign-safe textual
     // routing. Enumerating EXECUTES the linter (plugin code loads), hence own-repo
-    // + consent — same posture for both.
+    // + consent — same posture for both. Consent is THIS run's resolved decision,
+    // not the remembered `audit.measure`: a headless run (`--json`, `--md`, CI)
+    // resolves to skip even when a person once said yes, and must load nothing.
     const ownRepo = resolve(root) === resolve(process.cwd());
-    const consented = loadConfig().audit?.measure === true;
     const availableRules =
-      ownRepo && consented
+      ownRepo && execute
         ? mergeCatalogs(
             enumerateEslintCatalog(root),
             // Only spawn pylint when the repo actually has a Python surface —
@@ -10380,15 +10386,13 @@ export async function main(): Promise<void> {
           quiet,
           modelAccess,
         );
-        // Consent is now settled (and remembered via .vigilesrc.json, which
-        // computeRuleRouting re-reads) — route the prose rules, enumerating the
-        // live catalog when consented + own-repo. Feeds the JSON report, the
-        // written artifacts, and the terminal rule-map summary.
-        const ruleRouting = computeRuleRouting(
-          root,
-          adapter.layout.instructionFile,
+        // Consent is settled: route the prose rules; the live catalog loads only
+        // when THIS run executes. Feeds the JSON report, artifacts, the rule map.
+        const ruleRouting = computeRuleRouting(root, {
+          instructionFile: adapter.layout.instructionFile,
           excludes,
-        );
+          execute,
+        });
         const auditReport: AuditReport = ruleRouting
           ? { ...auditReportBase, ruleRouting }
           : auditReportBase;

@@ -26,6 +26,7 @@ import { AUDIT_SUMMARY_MARKER } from "./audit-pr-summary.js";
 import { defaultAdapter } from "./adapter-registry.js";
 import { skillsHome } from "./core/layout.js";
 import { lastAuditRecord } from "./core/last-audit.js";
+import { enumerateEslintCatalog } from "./core/rule-catalog.js";
 import { LAST_AUDIT_FILE, VIGILES_DIR } from "./local-files.js";
 
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
@@ -144,6 +145,41 @@ describe("the last-audit stamp", () => {
     run(["audit", "--json"], dir);
     run(["audit", "--md"], dir);
     expect(existsSync(stamp())).toBe(false);
+  });
+});
+
+// Codex on #480: a remembered `audit.measure: true` (a person's yes, committed in
+// `.vigilesrc.json`) must not make a headless run load the repo's linter. The
+// Action runs `audit --md` on every PR, so loading it there runs the PR's code.
+describe("a headless audit never loads the repo's linter", () => {
+  /** A stand-in `eslint` package that leaves a marker when anything loads it. */
+  function plantEslint(): string {
+    const marker = join(dir, "eslint-was-loaded");
+    const pkg = join(dir, "node_modules", "eslint");
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(
+      join(pkg, "package.json"),
+      '{"name":"eslint","main":"index.js"}',
+    );
+    writeFileSync(
+      join(pkg, "index.js"),
+      `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "loaded");\n`,
+    );
+    writeFileSync(join(dir, ".vigilesrc.json"), '{"audit":{"measure":true}}');
+    return marker;
+  }
+
+  it("the stand-in is reachable: the catalog loader does load it", () => {
+    const marker = plantEslint();
+    enumerateEslintCatalog(dir);
+    expect(existsSync(marker)).toBe(true);
+  });
+
+  it.each([["--md"], ["--json"]])("audit %s with a remembered yes", (flag) => {
+    const marker = plantEslint();
+    const r = run(["audit", flag], dir);
+    expect(r.exitCode, r.stderr).toBe(0);
+    expect(existsSync(marker)).toBe(false);
   });
 });
 
