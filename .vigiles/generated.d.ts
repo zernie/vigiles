@@ -197,7 +197,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 628 project files. */
+  /** 632 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -385,6 +385,7 @@ declare module "vigiles/generated" {
     | "src/core/audit-snapshot.ts"
     | "src/core/baseline-store.test.ts"
     | "src/core/baseline-store.ts"
+    | "src/core/bash-effects-nested.test.ts"
     | "src/core/bash-effects-normalized.test.ts"
     | "src/core/bash-effects.test.ts"
     | "src/core/bash-effects.ts"
@@ -466,6 +467,7 @@ declare module "vigiles/generated" {
     | "src/core/hook-normalize.test.ts"
     | "src/core/hook-normalize.ts"
     | "src/core/hook-paths.ts"
+    | "src/core/hook-program-nested-shell.test.ts"
     | "src/core/hook-program.test.ts"
     | "src/core/hook-program.ts"
     | "src/core/hook-protocol.ts"
@@ -670,6 +672,8 @@ declare module "vigiles/generated" {
     | "src/hook-lazy-providers.test.ts"
     | "src/hook-load-wedge.test.ts"
     | "src/hook-matcher-delivery.test.ts"
+    | "src/hook-nested-shell-oracle.test.ts"
+    | "src/hook-nested-shell.test.ts"
     | "src/hook-oss-comparison.test.ts"
     | "src/hook-runtime-graph.test.ts"
     | "src/hook-runtime-roots.test.ts"
@@ -1182,6 +1186,7 @@ declare module "vigiles/spec" {
       | "src/core/audit-snapshot.ts"
       | "src/core/baseline-store.test.ts"
       | "src/core/baseline-store.ts"
+      | "src/core/bash-effects-nested.test.ts"
       | "src/core/bash-effects-normalized.test.ts"
       | "src/core/bash-effects.test.ts"
       | "src/core/bash-effects.ts"
@@ -1263,6 +1268,7 @@ declare module "vigiles/spec" {
       | "src/core/hook-normalize.test.ts"
       | "src/core/hook-normalize.ts"
       | "src/core/hook-paths.ts"
+      | "src/core/hook-program-nested-shell.test.ts"
       | "src/core/hook-program.test.ts"
       | "src/core/hook-program.ts"
       | "src/core/hook-protocol.ts"
@@ -1467,6 +1473,8 @@ declare module "vigiles/spec" {
       | "src/hook-lazy-providers.test.ts"
       | "src/hook-load-wedge.test.ts"
       | "src/hook-matcher-delivery.test.ts"
+      | "src/hook-nested-shell-oracle.test.ts"
+      | "src/hook-nested-shell.test.ts"
       | "src/hook-oss-comparison.test.ts"
       | "src/hook-runtime-graph.test.ts"
       | "src/hook-runtime-roots.test.ts"
