@@ -65,8 +65,8 @@ jobs:
         with:
           command: test # → `vigiles test`, after `npm ci`
           changed-only: "true" # pull_request: only what the PR reaches; push: everything
-          min: "40" # fail if discovery finds fewer harness files
-          no-skip: "true" # fail if a file reports SKIPPED (e.g. no `claude` on the runner)
+          min: "40" # fail if fewer than 40 harness files ran (default: 1)
+          no-skip: "true" # fail if any file reports SKIPPED
 ```
 
 Harness files import the library and your repo's own packages, so `command: test` runs `npm ci`
@@ -75,14 +75,22 @@ the Action wins (it finds `node_modules` and installs nothing); set `install: "f
 With pnpm or Yarn, install in a step before the Action. Because the install comes first, the default
 `version` then runs the vigiles your `package.json` declares — the same copy your harness files import.
 
+Harness files drive the real `claude` binary against a scripted model (no API key), and a file
+without it skips. So `command: test` installs the CLI (`npm install -g @anthropic-ai/claude-code`)
+when the runner has none on `PATH` or in `node_modules/.bin`; set `install-claude: "false"` to skip
+that. And because a run in which every file skipped tested nothing, `test` fails unless at least one
+file **ran**: `min` defaults to `1` for `test`, a declared skip does not count toward it, and
+`min: "0"` turns the floor off.
+
 **`changed-only`** maps to a bare [`vigiles test --changed`](cli.md#running-only-what-a-change-reaches---changed):
 on `pull_request` events the CLI diffs against the PR's base (fetching it into the shallow
 checkout, so no `fetch-depth: 0`), and on any other event every file runs — the push to your
 default branch stays the full sweep. Each selected file is listed with its reason; a pull request
 that reaches none says `0 of N test file(s) selected` rather than passing silently.
 
-**`min`** is a floor on what discovery matched, counted **before** `changed-only` narrows it, so a
-glob that broke still fails on every pull request.
+**`min`** is a floor on the files that **ran** — a file that declared a skip or never loaded did not.
+Discovery is checked against it **before** `changed-only` narrows the set, so a glob that broke
+still fails on every pull request.
 
 ## Check eval results aren't stale (no model)
 
@@ -102,23 +110,24 @@ was checked. Set `min: "0"` to stay green until the first eval file exists (the 
 
 ## Inputs
 
-| Input               | Default   | Description                                                                                                                                                                                                                                       |
-| ------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `command`           | `lint`    | `lint` (verify references + integrity + coverage), `compile` (specs → markdown), `test` (run the harness files; [above](#run-the-harness-tests)), or `eval-check` (verify committed eval locks vs current inputs — the staleness gate, no model). |
-| `paths`             | _(auto)_  | Comma/space-separated paths or globs — `.md` for `lint`, `.spec.ts` for `compile`, harness files for `test`. Auto-discovers.                                                                                                                      |
-| `changed-only`      | `false`   | `test`: run only what the change reaches (maps to a bare `--changed`): the PR's base on `pull_request`, every file on any other event.                                                                                                            |
-| `min`               | _(unset)_ | `test`, `eval-check`: fail unless discovery matched at least this many files (maps to `--min=`). Counted before `changed-only` narrows.                                                                                                           |
-| `no-skip`           | `false`   | `test`, `eval-check`: fail when a file reports itself SKIPPED (maps to `--no-skip`).                                                                                                                                                              |
-| `install`           | `true`    | `test`: run `npm ci` first when `package-lock.json` exists and `node_modules` does not.                                                                                                                                                           |
-| `version`           | _(repo)_  | npm version of `vigiles` to run (`34`, `34.1.2`, `latest`). Empty (the default) runs the version **your `package.json` declares** — see [Versioning](#versioning). `local` runs a checked-out build.                                              |
-| `max-rules`         | _(unset)_ | Cap rules per spec (maps to `--max-rules`).                                                                                                                                                                                                       |
-| `catalog-only`      | `false`   | Only check that linter rules exist; skip config-enabled checks (maps to `--catalog-only`).                                                                                                                                                        |
-| `preset`            | _(none)_  | Add a preset for this run, on top of your `.vigilesrc.json` (maps to `--preset=`; `lint` only). `experimental` runs the [experimental rules](configuration.md#experimental-rules) at `warn`, so they report and never fail the run.               |
-| `working-directory` | `.`       | Directory to run vigiles in.                                                                                                                                                                                                                      |
-| `comment`           | `true`    | On `pull_request` events, post/update a sticky PR comment with the result.                                                                                                                                                                        |
-| `capability-diff`   | `false`   | On `pull_request` events, diff the agent's capability surface (subagents' tool/effect blast radius) vs the PR base and fold it into the sticky comment (maps to `--capability-diff`). Needs `fetch-depth: 0` on checkout.                         |
-| `fail-on-widen`     | `false`   | With `capability-diff`, fail the run when the PR **widens** the blast radius (maps to `--fail-on-widen`).                                                                                                                                         |
-| `github-token`      | _(auto)_  | Token for the PR comment. Defaults to the workflow token (`${{ github.token }}`).                                                                                                                                                                 |
+| Input               | Default        | Description                                                                                                                                                                                                                                       |
+| ------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `command`           | `lint`         | `lint` (verify references + integrity + coverage), `compile` (specs → markdown), `test` (run the harness files; [above](#run-the-harness-tests)), or `eval-check` (verify committed eval locks vs current inputs — the staleness gate, no model). |
+| `paths`             | _(auto)_       | Comma/space-separated paths or globs — `.md` for `lint`, `.spec.ts` for `compile`, harness files for `test`. Auto-discovers.                                                                                                                      |
+| `changed-only`      | `false`        | `test`: run only what the change reaches (maps to a bare `--changed`): the PR's base on `pull_request`, every file on any other event.                                                                                                            |
+| `min`               | `1` for `test` | `test`, `eval-check`: fail unless at least this many files ran (maps to `--min=`); a declared skip does not count. Checked against discovery before `changed-only` narrows. `0` turns the `test` floor off; `eval-check` has no floor by default. |
+| `no-skip`           | `false`        | `test`, `eval-check`: fail when a file reports itself SKIPPED (maps to `--no-skip`).                                                                                                                                                              |
+| `install`           | `true`         | `test`: run `npm ci` first when `package-lock.json` exists and `node_modules` does not.                                                                                                                                                           |
+| `install-claude`    | `true`         | `test`: install the `claude` CLI when the runner has none on `PATH` or in `node_modules/.bin`; harness files skip without it.                                                                                                                     |
+| `version`           | _(repo)_       | npm version of `vigiles` to run (`34`, `34.1.2`, `latest`). Empty (the default) runs the version **your `package.json` declares** — see [Versioning](#versioning). `local` runs a checked-out build.                                              |
+| `max-rules`         | _(unset)_      | Cap rules per spec (maps to `--max-rules`).                                                                                                                                                                                                       |
+| `catalog-only`      | `false`        | Only check that linter rules exist; skip config-enabled checks (maps to `--catalog-only`).                                                                                                                                                        |
+| `preset`            | _(none)_       | Add a preset for this run, on top of your `.vigilesrc.json` (maps to `--preset=`; `lint` only). `experimental` runs the [experimental rules](configuration.md#experimental-rules) at `warn`, so they report and never fail the run.               |
+| `working-directory` | `.`            | Directory to run vigiles in.                                                                                                                                                                                                                      |
+| `comment`           | `true`         | On `pull_request` events, post/update a sticky PR comment with the result.                                                                                                                                                                        |
+| `capability-diff`   | `false`        | On `pull_request` events, diff the agent's capability surface (subagents' tool/effect blast radius) vs the PR base and fold it into the sticky comment (maps to `--capability-diff`). Needs `fetch-depth: 0` on checkout.                         |
+| `fail-on-widen`     | `false`        | With `capability-diff`, fail the run when the PR **widens** the blast radius (maps to `--fail-on-widen`).                                                                                                                                         |
+| `github-token`      | _(auto)_       | Token for the PR comment. Defaults to the workflow token (`${{ github.token }}`).                                                                                                                                                                 |
 
 ## Output channels
 

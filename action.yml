@@ -58,10 +58,12 @@ inputs:
     default: "false"
   min:
     description: >
-      test and eval-check. Fail unless discovery matched at least this many
-      files (maps to the CLI's --min=). Under changed-only it counts the files
-      discovery matched, before the PR narrows them, so a broken glob still
-      fails. Empty (the default) sets no floor.
+      test and eval-check. Fail unless at least this many files ran (maps to
+      the CLI's --min=); a file that declared a skip or never loaded did not
+      run. Under changed-only it counts the files discovery matched, before the
+      PR narrows them, so a broken glob still fails. Empty (the default) means
+      1 for test, so a suite in which every file skipped fails, and no floor for
+      eval-check. '0' turns the test floor off.
     required: false
     default: ""
   no-skip:
@@ -74,6 +76,15 @@ inputs:
       repo's own dependencies — only when package-lock.json exists and
       node_modules does not (an earlier install step wins). Cache it with
       `actions/setup-node`'s `cache: npm`. 'true' or 'false'.
+    required: false
+    default: "true"
+  install-claude:
+    description: >
+      test only. Install the `claude` CLI (`npm install -g
+      @anthropic-ai/claude-code`) when the runner has none, because harness
+      files drive the real binary against a scripted model (no API key) and
+      skip without it. Skipped when `claude` is on PATH or in
+      node_modules/.bin. 'true' or 'false'.
     required: false
     default: "true"
   working-directory:
@@ -133,6 +144,7 @@ runs:
         VIGILES_MIN: ${{ inputs.min }}
         VIGILES_NO_SKIP: ${{ inputs.no-skip }}
         VIGILES_INSTALL: ${{ inputs.install }}
+        VIGILES_INSTALL_CLAUDE: ${{ inputs.install-claude }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         # This step maps inputs to CLI flags and reports the result. Any
@@ -183,6 +195,11 @@ runs:
         # The count floor and the no-skip gate: the CLI validates both per
         # verb (an unknown flag exits 2), so they are passed through as written.
         min="${VIGILES_MIN:-}"
+        # test: a run in which every file skipped tested nothing, so it is not
+        # a pass. An explicit value (even 0) wins.
+        if [[ "$cmd" == "test" && -z "${min// /}" ]]; then
+          min="1"
+        fi
         if [[ -n "${min// /}" ]]; then
           args+=("--min=${min// /}")
         fi
@@ -206,6 +223,15 @@ runs:
           elif [[ -f package.json ]]; then
             echo "::warning::vigiles test: no package-lock.json and no node_modules — install dependencies in a step before this one"
           fi
+        fi
+
+        # test drives the real `claude` binary against a scripted model (no API
+        # key). Without it every harness file skips, and `0 passed, N skipped`
+        # was a green run that tested nothing.
+        if [[ "$cmd" == "test" && "${VIGILES_INSTALL_CLAUDE:-true}" == "true" ]] \
+          && ! command -v claude >/dev/null 2>&1 && [[ ! -x node_modules/.bin/claude ]]; then
+          echo "vigiles: npm install -g @anthropic-ai/claude-code (harness files drive the claude CLI; no API key)"
+          npm install -g --no-audit --no-fund @anthropic-ai/claude-code
         fi
 
         # Resolve the runner. 'local' runs the action's own build (CI

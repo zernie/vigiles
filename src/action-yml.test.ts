@@ -333,9 +333,11 @@ describe("action.yml — command: test", () => {
         packages: { "node_modules/vigiles": { version: "33.4.1" } },
       }),
     }).split("\n");
+    // dependencies first, then the claude CLI, then the run with its floor
     assert.deepEqual(log, [
       "npm ci --no-audit --no-fund",
-      "--yes vigiles@33.4.1 test",
+      "npm install -g --no-audit --no-fund @anthropic-ai/claude-code",
+      "--yes vigiles@33.4.1 test --min=1",
     ]);
   });
 
@@ -356,6 +358,7 @@ describe("action.yml — command: test", () => {
         VIGILES_PATHS: "a.harness.mjs, b/*.harness.mjs",
         VIGILES_MIN: "150",
         VIGILES_NO_SKIP: "true",
+        VIGILES_INSTALL_CLAUDE: "false",
       }),
       "--no-install vigiles test a.harness.mjs b/*.harness.mjs --min=150 --no-skip",
     );
@@ -381,8 +384,9 @@ describe("action.yml — command: test, changed-only", () => {
         test(installed, {
           VIGILES_CHANGED_ONLY: "true",
           GITHUB_EVENT_NAME: event,
+          VIGILES_INSTALL_CLAUDE: "false",
         }),
-        "--no-install vigiles test --changed",
+        "--no-install vigiles test --min=1 --changed",
       );
     });
   }

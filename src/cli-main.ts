@@ -7721,13 +7721,15 @@ async function handleRunScripts(
     excludes.globIgnore,
   );
 
-  // `--min=N`: a CI gate asserts at least N scripts actually LOADED — so a bad
-  // path, a renamed file, a glob that matched nothing, or a file that matched and
-  // never linked fails LOUD instead of passing green with nothing executed.
-  // Checked twice: here against files MATCHED (cheap, before anything runs), and
-  // after the run against scripts that LOADED — a matched file that could not be
-  // evaluated is not a script that ran (#243). A declared skip (exit 77) did
-  // load, so it counts. Default 0 (off) keeps local runs ergonomic.
+  // `--min=N`: a CI gate asserts at least N scripts actually RAN — so a bad
+  // path, a renamed file, a glob that matched nothing, a file that matched and
+  // never linked, or a suite where every file skipped itself fails LOUD instead of
+  // passing green with nothing executed. Checked twice: here against files MATCHED
+  // (cheap, before anything runs), and after the run against scripts that RAN — a
+  // matched file that could not be evaluated did not run (#243), and neither did
+  // one that declared a skip (exit 77): the author said this machine cannot run
+  // it (#256). A declared skip still keeps the run green on its own; it just does
+  // not count toward the floor. Default 0 (off) keeps local runs ergonomic.
   const minFlag = args.find((a) => a.startsWith("--min="));
   const minRequired = minFlag
     ? Math.max(0, Number.parseInt(minFlag.split("=")[1] ?? "", 10) || 0)
@@ -7839,15 +7841,18 @@ async function handleRunScripts(
   recordRunCoverage(cwd, results, kind, harnessFlagFrom(args));
   console.log("\n" + formatScriptSummary(results));
 
-  const loadedCount = results.filter((r) => !loadFailed(r)).length;
+  // A skip of either kind — declared (exit 77) or a file that never loaded — is
+  // not a run, so it does not count toward the floor.
+  const ranCount = results.filter((r) => r.status !== "skip").length;
+  const skipped = results.length - ranCount;
   // Under `--changed` the floor was met by discovery; what is left to hold is
-  // that every SELECTED file loaded.
+  // that every SELECTED file ran.
   const floor = Math.min(minRequired, toRun.length);
-  const belowFloor = loadedCount < floor;
+  const belowFloor = ranCount < floor;
   if (belowFloor) {
     console.error(
-      `\n✗ vigiles ${kind}: --min=${String(minRequired)} but only ${String(loadedCount)} of ` +
-        `${String(toRun.length)} matched ${kind} file(s) loaded.`,
+      `\n✗ vigiles ${kind}: --min=${String(minRequired)} but only ${String(ranCount)} of ` +
+        `${String(toRun.length)} matched ${kind} file(s) ran — ${String(skipped)} skipped or never loaded.`,
     );
   }
 

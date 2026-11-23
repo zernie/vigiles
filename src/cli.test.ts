@@ -2280,9 +2280,11 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       const tooFew = run("eval --min=2 a.eval.mjs", dir);
       assert.equal(tooFew.exitCode, 1);
       assert.match(tooFew.stderr, /--min=2 but only 1/);
-      // enough present → passes the guard (the one script runs and exits 0)
-      const ok = run("eval --min=1 a.eval.mjs", dir);
-      assert.equal(ok.exitCode, 0);
+      // enough matched, but the one file declared a skip: nothing ran, so the
+      // floor is not met (#256). The passing side is held for both kinds by the
+      // `--min counts scripts that RAN` test, which shares this code path.
+      const skippedOnly = run("eval --min=1 a.eval.mjs", dir);
+      assert.equal(skippedOnly.exitCode, 1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
