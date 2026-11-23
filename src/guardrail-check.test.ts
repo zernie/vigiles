@@ -456,3 +456,35 @@ test("a custom harmless case is checked as must-allow", () => {
   assert.equal(row.expect, "allow");
   assert.equal(row.blocked, false);
 });
+
+// ---------------------------------------------------------------------------
+// A gate's declared `needs` come from `ctx`, never from an empty context
+// ---------------------------------------------------------------------------
+
+/** The documented `git.branch` guard: no push while on `main`. */
+const MAIN_PUSH_GUARD = experimental_defineHook({
+  on: "PreToolUse",
+  needs: ["git.branch"],
+  decide: (e) =>
+    e.ctx["git.branch"] === "main" && e.command.runs("git push")
+      ? deny("no push from main")
+      : allow(),
+});
+
+test("a gate with needs decides on the facts passed in ctx", () => {
+  const results = verifyGuardrail(MAIN_PUSH_GUARD, {
+    events: PUSH_EVENTS,
+    harmless: [],
+    ctx: { "git.branch": "main" },
+  });
+  assert.ok(results.every((r) => r.run === "ran" && r.blocked));
+});
+
+test("a gate whose needs ctx does not supply is refused, naming the missing fact", () => {
+  for (const ctx of [undefined, { "git.isDirty": true }])
+    assert.throws(
+      () => verifyGuardrail(MAIN_PUSH_GUARD, { events: PUSH_EVENTS, ctx }),
+      (e: unknown) =>
+        e instanceof TypeError && e.message.includes("git.branch"),
+    );
+});
