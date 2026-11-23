@@ -372,7 +372,7 @@ export function describeNotRun(o: NotRun): string {
     case CONTROL_BLOCKED:
       return `no verdict: the hook also blocked the control command (exit ${String(o.controlExitCode)}), so it never started or denies everything`;
     case CONTROL_NOT_SELECTED:
-      return `no verdict: the hook's condition does not select the control command (${o.detail}), so the control never ran and nothing shows the hook can allow`;
+      return `no evidence: it blocked by exit code alone, and the hook's condition does not select the control command (${o.detail}) — a script that cannot start exits 2 too`;
   }
 }
 
@@ -420,17 +420,21 @@ export function verifyGuardrail(
   const control = opts.control ?? CONTROL_CASE;
   const probe = run(control.tool, control.input);
   const events = selectEvents(opts);
-  // A blocked control already means no verdict, so the battery is not spawned.
-  const runs =
-    outcomeOf(probe).kind === "blocked"
-      ? []
-      : events.map((event) => ({ event, r: run(event.tool, event.input) }));
-  const none = noVerdictFrom(probe, runs);
-  if (none !== undefined)
+  // 🔴 A BLOCKED CONTROL means no verdict, so the battery is not spawned.
+  if (outcomeOf(probe).kind === "blocked") {
+    const none: NoVerdict = {
+      kind: "not-run",
+      why: CONTROL_BLOCKED,
+      controlExitCode: probe.exitCode,
+      controlStderrTail: tail(probe.stderr),
+    };
     return events.map((event) => guardrailResult(event, none));
-  return runs.map(({ event, r }) =>
-    guardrailResult(event, outcomeOf(r), r.conditionReason),
-  );
+  }
+  const skipped = outcomeOf(probe).kind === "not-run" ? probe : null;
+  return events.map((event) => {
+    const r = run(event.tool, event.input);
+    return guardrailResult(event, caseOutcome(r, skipped), r.conditionReason);
+  });
 }
 
 /** Did this run block by a decision printed on stdout, not by exit code alone? */
@@ -439,41 +443,30 @@ function printedDecision(r: HookRunResult): boolean {
 }
 
 /**
- * Whether the control leaves the battery without a verdict, and why.
+ * One case's outcome, given whether the control ran.
  *
- * 🔴 A SKIPPED CONTROL IS NOT EVIDENCE EITHER. Reading "not blocked" as
- * "allowed" let `if: "Bash(git push *--force*)"` + `python3 missing.py` score
- * the force push as blocked: the `if` skipped `ls`, the force push ran Python,
- * Python exited 2. Only a DECISION needs the control — when no case blocked or
- * allowed, each keeps its own tag (a condition rejection, a launch failure) and
- * there is no block to doubt.
- *
- * The control only ever proves that the hook LAUNCHED, and a structured
- * decision on stdout (a deny or a halt) proves the same: a script that never
- * started cannot print one. So a skipped control voids the verdict only when no
- * blocked case carried one — a bare exit 2 is what a missing script looks like.
+ * 🔴 A SKIPPED CONTROL PROVES NOTHING, AND LAUNCH EVIDENCE IS PER CASE. The
+ * control only ever proves that the hook LAUNCHED. When the hook's `if` skips
+ * it, each block has to prove that by itself: a structured decision on stdout
+ * (a deny or a halt) does, because a script that never started cannot print
+ * one; a bare exit 2 does not, because that is what `python3 missing.py`
+ * produces. So a bare exit-2 block becomes `not-run/control-not-selected` for
+ * THAT case, and no sibling's decision can vouch for it — a command may print
+ * a decision for `--force` and run a missing script for everything else.
+ * Allows, launch failures and condition rejections keep their own tags.
  */
-function noVerdictFrom(
-  probe: HookRunResult,
-  runs: readonly { readonly r: HookRunResult }[],
-): NoVerdict | undefined {
-  const control = outcomeOf(probe);
-  if (control.kind === "blocked")
-    return {
-      kind: "not-run",
-      why: CONTROL_BLOCKED,
-      controlExitCode: probe.exitCode,
-      controlStderrTail: tail(probe.stderr),
-    };
-  const decided = runs.some(({ r }) => outcomeOf(r).kind !== "not-run");
-  const launched = runs.some(({ r }) => r.blocked && printedDecision(r));
-  if (control.kind === "not-run" && decided && !launched)
-    return {
-      kind: "not-run",
-      why: CONTROL_NOT_SELECTED,
-      detail: probe.conditionReason,
-    };
-  return undefined;
+function caseOutcome(
+  r: HookRunResult,
+  skipped: HookRunResult | null,
+): CaseOutcome {
+  const outcome = outcomeOf(r);
+  if (skipped === null || outcome.kind !== "blocked" || printedDecision(r))
+    return outcome;
+  return {
+    kind: "not-run",
+    why: CONTROL_NOT_SELECTED,
+    detail: skipped.conditionReason,
+  };
 }
 
 /** Runs the hook on one tool call, delivered as the harness delivers it. */
@@ -504,7 +497,7 @@ export function unblockedDisasters(
   return results.filter((r) => r.outcome.kind !== "blocked");
 }
 
-/** The outcome every case of a battery without a verdict carries. */
+/** The outcome that leaves a battery without a verdict. */
 export type NoVerdict = Extract<
   NotRun,
   { why: typeof CONTROL_BLOCKED | typeof CONTROL_NOT_SELECTED }
@@ -512,6 +505,12 @@ export type NoVerdict = Extract<
 
 /**
  * The no-verdict outcome, if this battery had none.
+ *
+ * The battery has no verdict when the control was blocked (every case carries
+ * that tag), or when the control was skipped and NO case produced evidence:
+ * nothing blocked with a printed decision and nothing allowed, and at least one
+ * case blocked by a bare exit 2. With one case of evidence the battery is
+ * measured, and each bare exit-2 case stays a `not-run` without evidence.
  *
  * @internal Shared with the directory sweep, which reports such a hook as
  * `no-verdict`.
@@ -522,7 +521,10 @@ export function noVerdictOf(
   const isIt = (o: CaseOutcome): o is NoVerdict =>
     o.kind === "not-run" &&
     (o.why === CONTROL_BLOCKED || o.why === CONTROL_NOT_SELECTED);
-  return results.map((r) => r.outcome).find(isIt);
+  const found = results.map((r) => r.outcome).find(isIt);
+  if (found?.why !== CONTROL_NOT_SELECTED) return found;
+  const evidence = results.some((r) => r.outcome.kind !== "not-run");
+  return evidence ? undefined : found;
 }
 
 /** The control's command as the report names it. */

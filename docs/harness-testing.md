@@ -271,10 +271,12 @@ the directory sweep below).
 hook's `if` like any call, and all it has to prove is that the hook launched. A
 structured decision, or an allowed control, proves the hook launched: a script
 that never started cannot print `permissionDecision` / `decision` JSON. So when
-the `if` skips `ls`, a guard that blocks with a JSON deny is still measured, and
-one whose blocks are a bare exit 2 has no verdict (`control-not-selected`) —
-`python3 missing.py` behind `if: "Bash(git push *--force*)"` exits 2 on the force
-push exactly like a real block. To measure such a guard, pass a `control` the
+the `if` skips `ls`, the evidence is **per case**: a case that blocks with a
+JSON deny counts as blocked, and a case whose block is a bare exit 2 is `not-run`
+with `control-not-selected` — `python3 missing.py` behind
+`if: "Bash(git push *--force*)"` exits 2 on the force push exactly like a real
+block — and no other case's decision vouches for it. The battery has no verdict
+only when no case has evidence at all. To measure such a guard, pass a `control` the
 hook's condition selects and the guard allows, such as
 `git push --force --dry-run origin main`.
 

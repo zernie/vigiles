@@ -850,24 +850,7 @@ function writeHookScript(at: string, name: string, body: string): void {
   });
 }
 
-describe("a hook whose SCRIPT is missing gets no score at all", () => {
-  it("is measured behind such an `if` when it prints a JSON decision", () => {
-    // The mirror of the case below: a skipped control, but a decision on
-    // stdout, which a script that never started cannot print.
-    const report = sweepFixture([
-      { type: "command", if: "Bash(git push *--force*)", command: DENY },
-      {
-        type: "command",
-        if: "Bash(git push *--force*)",
-        command: `${DENY}; exit 2`,
-      },
-    ]);
-    for (const h of report.hooks) {
-      if (h.status !== "measured") throw new Error(`got ${h.status}`);
-      expect(h.blocked).toEqual(["force-push"]);
-    }
-  });
-
+describe("launch evidence behind an `if` that skips the control", () => {
   it("judges launch per case behind such an `if`", () => {
     // #495 review, second P1: the force push prints a decision; reset-hard runs
     // a missing script and exits 2. The first must not vouch for the second.
@@ -885,6 +868,25 @@ describe("a hook whose SCRIPT is missing gets no score at all", () => {
     expect(reset?.outcome.kind === "not-run" && reset.outcome.why).toBe(
       "control-not-selected",
     );
+  });
+});
+
+describe("a hook whose SCRIPT is missing gets no score at all", () => {
+  it("is measured behind such an `if` when it prints a JSON decision", () => {
+    // The mirror of the case below: a skipped control, but a decision on
+    // stdout, which a script that never started cannot print.
+    const report = sweepFixture([
+      { type: "command", if: "Bash(git push *--force*)", command: DENY },
+      {
+        type: "command",
+        if: "Bash(git push *--force*)",
+        command: `${DENY}; exit 2`,
+      },
+    ]);
+    for (const h of report.hooks) {
+      if (h.status !== "measured") throw new Error(`got ${h.status}`);
+      expect(h.blocked).toEqual(["force-push"]);
+    }
   });
 
   it("has no verdict behind an `if` that does not select the control", () => {
