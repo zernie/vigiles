@@ -96,6 +96,8 @@ describe("hidden", () => {
     [`bash -c $"git push"`, "bash", "dynamic-command-string"],
     [`bash -c "git $X"`, "bash", "dynamic-command-string"],
     [`eval "$X"`, "eval", "dynamic-command-string"],
+    // Codex on #483 (P1): an unknown first argument may be `-c`, not a script.
+    [`bash "$FLAG" 'git push -f'`, "bash", "dynamic-command-string"],
     [`eval -- 'ls'`, "eval", "shell-options"],
     [`bash -lc 'ls'`, "bash", "shell-options"],
     [`bash -c 'ls' arg0`, "bash", "shell-options"],

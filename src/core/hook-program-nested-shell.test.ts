@@ -115,8 +115,6 @@ describe("everything else that hides a command is CAN'T SEE: allow becomes ask",
     `bash <<< 'git push -f'`,
     `bash <<'EOF'\ngit push -f\nEOF`,
     `su -c 'git push -f' me`,
-    `printf 'git push -f\\n' | unshare`,
-    `printf 'git push -f\\n' | nsenter`,
     `sudo -s 'git push -f'`,
     `env -S 'git push -f'`,
     `watch -n1 'git push -f'`,
@@ -166,5 +164,18 @@ describe("everything else that hides a command is CAN'T SEE: allow becomes ask",
   test("a command with nothing hidden is decided exactly as before", () => {
     for (const c of ["git status", "ls | grep x", "npm test", "bash x.sh"])
       assert.equal(kind(c), "allow", c);
+  });
+});
+
+// Found in review on #483 (Codex, P1): each was a silent allow.
+describe("review-found hand-offs also ask", () => {
+  test.each([
+    // with no argument these start a shell that runs stdin
+    `printf 'git push -f\\n' | unshare`,
+    `printf 'git push -f\\n' | nsenter`,
+    // an unknown first argument may be `-c`, not a script file
+    `FLAG=-c; bash "$FLAG" 'git push -f'`,
+  ])("%s asks", (command) => {
+    assert.equal(kind(command), "ask");
   });
 });
