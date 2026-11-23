@@ -57,7 +57,7 @@
 export {
   // ── the six ENTRY POINTS carry the experimental marking ─────────────────────
   // Same shape as `experimental_skill`, and for the same stated reason: every
-  // other name in this file — `allow`, `deny`, `tool`, `pathView`, `state`,
+  // other name in this file — `allow`, `deny`, `tool`, `parseFilePath`, `state`,
   // `record` — is reachable ONLY from inside a `define*` call, so prefixing the
   // entry points makes the marking structural for the whole vocabulary. A
   // per-name prefix could not guarantee that; a chokepoint can.
@@ -83,7 +83,11 @@ export {
   allow,
   deny,
   ask,
+  parseShellCommand,
+  parseFilePath,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the pre-#465 alias, kept for one major
   commandView,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the pre-#465 alias, kept for one major
   pathView,
   gateAction,
   hookMode,
@@ -124,7 +128,11 @@ export type {
   Decision,
   HookMode,
   GateAction,
+  ShellCommand,
+  FilePath,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the pre-#465 alias, kept for one major
   CommandView,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the pre-#465 alias, kept for one major
   PathView,
   ResponseView,
   BashToolEvent,

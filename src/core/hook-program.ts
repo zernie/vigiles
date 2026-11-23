@@ -280,7 +280,8 @@ export function noticeDelivery(
 }
 
 /** An AST-backed view of a Bash command — the author never writes a regex. */
-export interface CommandView {
+export interface ShellCommand {
+  /** The command line exactly as the tool event carried it, before parsing. */
   readonly raw: string;
   /** True iff a leaf command runs `program` (e.g. "git push"), optionally with --force/-f. */
   runs(program: string, opts?: { readonly force?: boolean }): boolean;
@@ -299,7 +300,7 @@ export interface CommandView {
    * directory, use {@link writesTo}; conflating the two is the trap.
    *
    * OVER-INCLUSIVE ON PURPOSE, AND THE OPPOSITE WAY ROUND FROM {@link
-   * PathView.under}. This is a DENYLIST primitive — every caller spells
+   * FilePath.under}. This is a DENYLIST primitive — every caller spells
    * `touches(secret) ? deny() : allow()` — so a miss is an ALLOW, not silence. An
    * unprovable answer is therefore reported as a MATCH: a token that could name
    * something under the prefix under some root or some `cd` matches, and the gate
@@ -384,14 +385,14 @@ function runsSeq(argv: readonly string[], tokens: readonly string[]): boolean {
 // Prefix matching — ONE rule, THREE answers, and the bias named at every call
 //
 // 🔴 THE TWO PRIMITIVES BUILT ON THIS WANT OPPOSITE DEFAULTS, AND ONE OF THEM
-// FAILS OPEN WHEN IT GUESSES WRONG. `PathView.under` is an ALLOWLIST (confinement,
+// FAILS OPEN WHEN IT GUESSES WRONG. `FilePath.under` is an ALLOWLIST (confinement,
 // coverage): an unprovable answer must be a MISS, so a gate fails closed and a
-// nudge stays quiet. `CommandView.touches` / `CommandView.writesTo` are DENYLISTS:
+// nudge stays quiet. `ShellCommand.touches` / `ShellCommand.writesTo` are DENYLISTS:
 // an unprovable answer must be a MATCH, or the gate waves the command through.
 //
 // MEASURED 2026-08-12, the reason this exists. `touches` compared a repo-relative
 // prefix against a raw bash token, with no project root anywhere in `decideProgram`
-// — exactly the root-blindness `pathView` had just been fixed for, except a miss
+// — exactly the root-blindness `parseFilePath` had just been fixed for, except a miss
 // here is an ALLOW. Against a real shipped guard (`paper-edit-guard.hook.ts` in a
 // consumer repo, `CLAUDE_PROJECT_DIR` set, exit 2 = blocked):
 //
@@ -738,7 +739,7 @@ const underChdir = (target: string, chdir: string | null): string =>
     ? target
     : resolveRef(chdir, target);
 
-/** What one parse of a command line yields — computed once per {@link commandView}. */
+/** What one parse of a command line yields — computed once per {@link parseShellCommand}. */
 interface ParsedCommand {
   readonly leaves: ReturnType<typeof leafCommands>;
   readonly normalized: ReturnType<typeof leafCommandsNormalized>;
@@ -774,11 +775,11 @@ function parseCommand(raw: string): ParsedCommand {
  *   the runtime ({@link projectRootOf}: `$CLAUDE_PROJECT_DIR`, else the event's
  *   own `cwd`, never `process.cwd()`). Omitting it does NOT disarm the denylist
  *   matchers — without a root an absolute token is `"undecidable"` rather than
- *   placeable, and {@link CommandView.touches} treats that as a match. It does
+ *   placeable, and {@link ShellCommand.touches} treats that as a match. It does
  *   cost precision: with a root, `/somewhere-else/notes/x` is provably not this
  *   repo's `notes`; without one it can only be over-blocked.
  */
-export function commandView(raw: string, root?: string): CommandView {
+export function parseShellCommand(raw: string, root?: string): ShellCommand {
   // 🔴 PARSED ON THE FIRST PREDICATE CALL, NOT HERE. Building the view used to
   // parse at once, which was harmless while only a Bash GATE built one — a gate
   // exists to ask about the command. Since #396 (a) a react declared for Bash
@@ -961,7 +962,7 @@ export interface BashToolEvent<
 > {
   readonly event: string;
   readonly tool: "Bash";
-  readonly command: CommandView;
+  readonly command: ShellCommand;
   /** Host-gathered, DECLARED read-only facts (git branch, …) — see `needs`. */
   readonly ctx: HookCtx<N>;
 }
@@ -1003,7 +1004,7 @@ export function experimental_defineHook<
  * to the event's OWN `cwd` (a payload field, so this stays pure and reads no
  * environment); the CLI passes {@link projectRootOf}, which prefers
  * `$CLAUDE_PROJECT_DIR`. Until 2026-08-12 no root reached here at all, and the
- * denylist matchers on {@link CommandView} were bypassable by spelling a path
+ * denylist matchers on {@link ShellCommand} were bypassable by spelling a path
  * absolutely — see the block above {@link PrefixVerdict} for the measurement.
  */
 export function decideProgram<N extends readonly NeedSpec[]>(
@@ -1022,7 +1023,7 @@ export function decideProgram<N extends readonly NeedSpec[]>(
   // "Bash" and every one of the 34 call sites in both repos wrote
   // `match: tool("Bash")`. The field carried no information and one real risk:
   // `match: tool("Edit")` type-checked, compiled, wired a PreToolUse matcher
-  // `Edit`, fired on edits, built `commandView("")` from a missing
+  // `Edit`, fired on edits, built `parseShellCommand("")` from a missing
   // `tool_input.command`, found every predicate false and returned allow() — a
   // silently dead guard, which is the exact class the header above says this
   // subsystem eliminates. Worse, the comparison was `!==` while every sibling
@@ -1034,7 +1035,7 @@ export function decideProgram<N extends readonly NeedSpec[]>(
   return program.decide({
     event: program.on,
     tool: SHELL_TOOL,
-    command: commandView(command, root),
+    command: parseShellCommand(command, root),
     ctx: ctx as unknown as HookCtx<N>,
   });
 }
@@ -1639,7 +1640,8 @@ export function verifyHookStamp(source: string, stamp: SHA256Hash): boolean {
 // --- A second GATE shape: Edit/Write path confinement (a different tool/field/matcher) ---
 
 /** An AST-free view of a file path — the matching primitive for file tools. */
-export interface PathView {
+export interface FilePath {
+  /** The path exactly as the tool event carried it, in any spelling. */
   readonly raw: string;
   /**
    * True iff the path sits under at least one allowed prefix (e.g. "src/**").
@@ -1647,7 +1649,7 @@ export interface PathView {
    * A prefix is matched in ITS OWN spelling: a repo-relative prefix (`"src"`,
    * `"drafts/papers/"`) is compared against the path made repo-relative, an
    * absolute prefix (`"/etc"`) against the path made absolute. Which of those is
-   * available depends on the project root — see {@link pathView}.
+   * available depends on the project root — see {@link parseFilePath}.
    */
   under(prefixes: readonly string[]): boolean;
   /**
@@ -1661,7 +1663,7 @@ export interface PathView {
 }
 
 /**
- * A view of a file path, matched against prefixes by {@link PathView.under}.
+ * A view of a file path, matched against prefixes by {@link FilePath.under}.
  *
  * 🔴 `root` IS NOT OPTIONAL IN PRACTICE — WITHOUT IT THIS IS DEAD FOR EVERY REAL
  * EVENT. Claude Code's Edit/Write/MultiEdit tools always send an ABSOLUTE
@@ -1693,9 +1695,9 @@ export interface PathView {
  * ⚠️ THE ASYMMETRY INVERTS FOR A DENYLIST, AND `under` DOES NOT SERVE THAT CASE.
  * A gate written `under(["secrets"]) ? deny() : allow()` reads an unprovable
  * `false` as ALLOW — a false grant. The Bash-side counterpart {@link
- * CommandView.touches} exists precisely for that direction and takes the
+ * ShellCommand.touches} exists precisely for that direction and takes the
  * opposite bias from the SAME rule ({@link prefixVerdict}), which is why the
- * resolver {@link matchesPrefix} makes each caller name its own. `PathView` has
+ * resolver {@link matchesPrefix} makes each caller name its own. `FilePath` has
  * no such counterpart; a file-side denylist inherits the allowlist bias.
  * Reported, not papered over.
  *
@@ -1706,7 +1708,7 @@ export interface PathView {
  *   checkout from the one the harness resolved the hook out of, and that exact
  *   mismatch already wedged a repo once.
  */
-export function pathView(raw: string, root?: string): PathView {
+export function parseFilePath(raw: string, root?: string): FilePath {
   const slashed = raw.replace(/\\/g, "/");
   return {
     raw,
@@ -1715,7 +1717,7 @@ export function pathView(raw: string, root?: string): PathView {
     // be produced in that spelling is a miss — never a silent fallback to the
     // other one. `"miss"` is the ALLOWLIST bias, named here rather than
     // inherited: `matchesPrefix` has no default, so the denylist matchers on
-    // `CommandView` cannot pick this one up by accident (and did not, for the
+    // `ShellCommand` cannot pick this one up by accident (and did not, for the
     // whole time they shared a single boolean helper with it).
     under: (prefixes) =>
       prefixes.some((p) =>
@@ -1723,6 +1725,37 @@ export function pathView(raw: string, root?: string): PathView {
       ),
   };
 }
+
+// ---------------------------------------------------------------------------
+// The names these had before #465. Kept for one major so a hook compiled
+// against them still compiles; each points at the new one, so there is one
+// implementation, not two.
+// ---------------------------------------------------------------------------
+
+/**
+ * The name {@link parseShellCommand} had before #465.
+ *
+ * @deprecated Use {@link parseShellCommand}; this alias is removed in the next major.
+ */
+export const commandView = parseShellCommand;
+/**
+ * The name {@link ShellCommand} had before #465.
+ *
+ * @deprecated Use {@link ShellCommand}; this alias is removed in the next major.
+ */
+export type CommandView = ShellCommand;
+/**
+ * The name {@link parseFilePath} had before #465.
+ *
+ * @deprecated Use {@link parseFilePath}; this alias is removed in the next major.
+ */
+export const pathView = parseFilePath;
+/**
+ * The name {@link FilePath} had before #465.
+ *
+ * @deprecated Use {@link FilePath}; this alias is removed in the next major.
+ */
+export type PathView = FilePath;
 
 /** The path as an absolute reference, or `undefined` when it cannot be one. */
 /**
@@ -1755,7 +1788,7 @@ function relativeSpelling(path: string, root?: string): string | undefined {
   if (r !== undefined) return relativeToRoot(r, path);
   // No usable root: an absolute path is UNKNOWABLE — this is the case that used
   // to be every real event, and the miss is chosen to cost silence (see
-  // `pathView`).
+  // `parseFilePath`).
   return isAbsoluteRef(path) ? undefined : path.replace(/^\.\//, "");
 }
 
@@ -1803,7 +1836,7 @@ function relativeToRoot(root: string, raw: string): string | undefined {
  * checkout than the one the harness is driving, and a root from the wrong
  * checkout turns every repo-relative prefix into a non-match — the same silent
  * death this whole function exists to end. When NEITHER source is present the
- * answer is `undefined` and the miss errs toward silence (see {@link pathView}).
+ * answer is `undefined` and the miss errs toward silence (see {@link parseFilePath}).
  */
 export function projectRootOf(
   event: { readonly cwd?: unknown },
@@ -1825,7 +1858,7 @@ export function projectRootOf(
 }
 
 /**
- * The one case {@link pathView} cannot answer and must not answer silently: an
+ * The one case {@link parseFilePath} cannot answer and must not answer silently: an
  * ABSOLUTE `file_path` with no project root in sight. Every repo-relative prefix
  * in the hook returns `false`, so a gate waves everything through and a nudge
  * never fires — indistinguishable, from the outside, from a hook with nothing to
@@ -1859,7 +1892,7 @@ export interface FileToolEvent<
 > {
   readonly event: string;
   readonly tool: string;
-  readonly path: PathView;
+  readonly path: FilePath;
   /** Host-gathered, DECLARED read-only facts — see `needs`. */
   readonly ctx: HookCtx<N>;
 }
@@ -1907,7 +1940,7 @@ export function experimental_defineFileGate<
  * falls back to the event's OWN `cwd` (a payload field — this stays pure and
  * reads no environment). The CLI passes {@link projectRootOf} instead, which
  * prefers `$CLAUDE_PROJECT_DIR`. Without either, an absolute `file_path` matches
- * no relative prefix — see {@link pathView} for why that direction was chosen.
+ * no relative prefix — see {@link parseFilePath} for why that direction was chosen.
  */
 export function decideFileGate<N extends readonly NeedSpec[]>(
   hook: FileGateHook<N>,
@@ -1929,7 +1962,7 @@ export function decideFileGate<N extends readonly NeedSpec[]>(
   return hook.decide({
     event: hook.on,
     tool: t,
-    path: pathView(fp, root),
+    path: parseFilePath(fp, root),
     ctx: ctx as unknown as HookCtx<N>,
   });
 }
@@ -2221,7 +2254,7 @@ export interface ToolReactEvent<
   /** The tool the event is about; `""` on a tool-less event. */
   readonly tool: string;
   /** The event's `tool_input.file_path`, as a path view (`""` when absent). */
-  readonly path: PathView;
+  readonly path: FilePath;
   /** The tool's response (PostToolUse) — react only on an error, capture output, … */
   readonly response: ResponseView;
   /** Host-gathered, DECLARED facts — built-ins, inline providers, and `state()` reads. */
@@ -2238,11 +2271,11 @@ export interface BashReactEvent<
   /** Always `"Bash"`: comparing it with another tool name is a type error. */
   readonly tool: "Bash";
   /**
-   * The command that ran, as the same AST-backed {@link CommandView} a Bash gate
+   * The command that ran, as the same AST-backed {@link ShellCommand} a Bash gate
    * decides over, built by the same constructor. It parses on the first
    * predicate call, so a react that never asks costs no parse.
    */
-  readonly command: CommandView;
+  readonly command: ShellCommand;
 }
 
 /**
@@ -2399,7 +2432,7 @@ export function runReact<
   const base = {
     event: hook.on,
     tool: t,
-    path: pathView(fp, root),
+    path: parseFilePath(fp, root),
     response: responseView(raw.tool_response),
     ctx: ctx as unknown as HookCtx<N>,
   };
@@ -2412,7 +2445,7 @@ export function runReact<
   const event =
     command === undefined
       ? base
-      : { ...base, command: commandView(command, root) };
+      : { ...base, command: parseShellCommand(command, root) };
   // `ReactEvent<N, T>` is a conditional type over a still-generic `T`, which tsc
   // cannot narrow from a value; the runtime half of the promise is the tool-name
   // check above, held by the adapter twins' payload tests.

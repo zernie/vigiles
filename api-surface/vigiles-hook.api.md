@@ -21,14 +21,14 @@ export const ask: (reason: string) => Decision;
 
 // @public
 export interface BashReactEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> extends ToolReactEvent<N> {
-    readonly command: CommandView;
+    readonly command: ShellCommand;
     readonly tool: "Bash";
 }
 
 // @public
 export interface BashToolEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> {
     // (undocumented)
-    readonly command: CommandView;
+    readonly command: ShellCommand;
     readonly ctx: HookCtx<N>;
     // (undocumented)
     readonly event: string;
@@ -39,22 +39,11 @@ export interface BashToolEvent<N extends readonly NeedSpec[] = readonly Provider
 // @public
 export function checkHookImports(source: string): string[];
 
-// @public
-export interface CommandView {
-    isSideEffecting(): boolean;
-    pipesToShell(): boolean;
-    // (undocumented)
-    readonly raw: string;
-    runs(program: string, opts?: {
-        readonly force?: boolean;
-    }): boolean;
-    touches(prefixes: readonly string[]): boolean;
-    writesTo(prefixes: readonly string[]): boolean;
-    writeTargets(prefixes: readonly string[]): readonly string[];
-}
+// @public @deprecated
+export type CommandView = ShellCommand;
 
-// @public
-export function commandView(raw: string, root?: string): CommandView;
+// @public @deprecated
+export const commandView: typeof parseShellCommand;
 
 // @public
 export interface CompiledHookProgram {
@@ -185,12 +174,19 @@ export interface FileGateHook<N extends readonly NeedSpec[] = readonly ProviderN
 }
 
 // @public
+export interface FilePath {
+    readonly raw: string;
+    readonly rel: string | undefined;
+    under(prefixes: readonly string[]): boolean;
+}
+
+// @public
 export interface FileToolEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> {
     readonly ctx: HookCtx<N>;
     // (undocumented)
     readonly event: string;
     // (undocumented)
-    readonly path: PathView;
+    readonly path: FilePath;
     // (undocumented)
     readonly tool: string;
 }
@@ -358,15 +354,16 @@ export function outcomeWrites(outcome: HookProgramOutcome): {
 };
 
 // @public
-export interface PathView {
-    // (undocumented)
-    readonly raw: string;
-    readonly rel: string | undefined;
-    under(prefixes: readonly string[]): boolean;
-}
+export function parseFilePath(raw: string, root?: string): FilePath;
 
 // @public
-export function pathView(raw: string, root?: string): PathView;
+export function parseShellCommand(raw: string, root?: string): ShellCommand;
+
+// @public @deprecated
+export type PathView = FilePath;
+
+// @public @deprecated
+export const pathView: typeof parseFilePath;
 
 // @public
 export interface PromptEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> {
@@ -532,6 +529,19 @@ export interface SessionEvent<N extends readonly NeedSpec[] = readonly ProviderN
 }
 
 // @public
+export interface ShellCommand {
+    isSideEffecting(): boolean;
+    pipesToShell(): boolean;
+    readonly raw: string;
+    runs(program: string, opts?: {
+        readonly force?: boolean;
+    }): boolean;
+    touches(prefixes: readonly string[]): boolean;
+    writesTo(prefixes: readonly string[]): boolean;
+    writeTargets(prefixes: readonly string[]): readonly string[];
+}
+
+// @public
 export function stampHook(source: string): SHA256Hash;
 
 // @public
@@ -600,7 +610,7 @@ export interface StopGateHook<N extends readonly NeedSpec[] = readonly ProviderN
 export interface ToolReactEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> {
     readonly ctx: HookCtx<N>;
     readonly event: string;
-    readonly path: PathView;
+    readonly path: FilePath;
     readonly response: ResponseView;
     readonly tool: string;
 }

@@ -77,7 +77,7 @@
  *
  * Measured 2026-11-17, Node 22.23.4, this container, --runs=20, two
  * interleaved rounds (round 1 / round 2) — #396 (a). BEFORE is 8e6c1fc plus
- * these rows; AFTER adds `e.command` on Bash-only reacts (lazy `CommandView`)
+ * these rows; AFTER adds `e.command` on Bash-only reacts (lazy `ShellCommand`)
  * and lazy providers. Baseline `node -e ''` 21 ms in all four runs:
  *
  *   end-to-end run-program                       before        →  after
