@@ -62,6 +62,7 @@ import {
   resolveSpawnEnv,
   type AgentRunArgs,
   type AgentRunner,
+  type RunOut,
   type ParsedModelRun,
   type ModelOutputParser,
   unregisteredSkillFiles,
@@ -2717,6 +2718,65 @@ test("runEvalWith aborts when maxCostUsd is exceeded", async () => {
   assert.equal(calls, 2); // stopped early
   assert.equal(report.arms.only?.runs, 2); // only completed trials counted
   assert.ok(Math.abs(report.totalCostUsd - 0.2) < 1e-9);
+});
+
+// vigiles#416 (the timeout-cost note): a run the timeout killed has no `result`
+// event, so it read as $0 — a stuck case never moved the ceiling and every trial
+// launched — and `code ?? 0` turned the SIGKILL into a clean exit.
+test("a run killed by the timeout is charged, stops new trials and is not a clean exit (#416)", async () => {
+  const killed = [
+    JSON.stringify({ type: "system", subtype: "init" }),
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg_1",
+        content: [{ type: "text", text: "working" }],
+        usage: {
+          input_tokens: 100,
+          cache_read_input_tokens: 50,
+          output_tokens: 1,
+        },
+      },
+    }),
+  ].join("\n");
+  const seen: AgentRunArgs[] = [];
+  const runner = (a: AgentRunArgs): Promise<RunOut> => {
+    seen.push(a);
+    return Promise.resolve({
+      code: -1,
+      signal: "SIGKILL",
+      timedOut: true,
+      stdout: killed,
+    });
+  };
+  const ended: (readonly [number, boolean])[] = [];
+  const report = await runEvalWith(
+    {
+      env: INHERIT,
+      arms: { stuck: {} },
+      task: "t",
+      trials: 4,
+      spacingSec: 0,
+      maxCostUsd: 0.5,
+      measure: (ctx) => {
+        ended.push([ctx.exitCode, ctx.timedOut]);
+        return { ok: true };
+      },
+    },
+    runner,
+  );
+  // The run got the remaining budget as its own cap, and once killed it is
+  // charged that cap: nothing proves it spent less.
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]?.maxBudgetUsd, 0.5);
+  assert.equal(report.aborted, true);
+  assert.equal(report.totalCostUsd, 0, "known spend stays what was reported");
+  assert.equal(report.chargedUsd, 0.5);
+  assert.equal(report.unknownCostRuns, 1);
+  assert.deepEqual(ended, [[-1, true]]);
+  // The stream's tokens are the run's floor: input and cache are exact.
+  assert.equal(report.arms.stuck?.usage.totalInputTokens, 100);
+  assert.equal(report.arms.stuck?.usage.totalCacheReadTokens, 50);
 });
 
 test("assertTriggerRate gates on the minimum rate", () => {
