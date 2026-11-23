@@ -1280,8 +1280,18 @@ function carriedBy(call: Readonly<MvdanNode>): Carried {
     : NONE;
 }
 
-/** Runners that start a shell reading stdin even with no argument. */
-const SHELL_STARTERS: ReadonlySet<string> = new Set(["su", "runuser"]);
+/**
+ * Runners that start a shell reading stdin even with no argument. Measured on
+ * util-linux: `printf 'echo X' | unshare` (and `nsenter`, `script`) prints X;
+ * `setsid`, `chroot` and `flock` refuse to run without one.
+ */
+const SHELL_STARTERS: ReadonlySet<string> = new Set([
+  "su",
+  "runuser",
+  "unshare",
+  "nsenter",
+  "script",
+]);
 
 /**
  * The wrappers that hand on MORE than the argv the wrapper table resolves:
