@@ -153,6 +153,8 @@ describe("neither: out of the closed set, or nothing handed on", () => {
     `"$HOME/bin/tool" x`,
     `git push $F`,
     `cp "$SRC" dst`,
+    `env TOKEN="$TOKEN" git status`,
+    `sudo env X="$Y" git status`,
     // a declaration's words are assignments, not argument words
     `declare -a A=(1)`,
     `export A=1 B=2`,
@@ -178,6 +180,7 @@ describe("hidden: the program is held in a variable", () => {
     [`"$G" push -f`, "$G"],
     [`$DIR/git push -f`, "$DIR/git"],
     [`sudo $CMD`, "$CMD"],
+    [`env X="$Y" $CMD`, "$CMD"],
     [`CMD="git push -f"; $CMD`, "$CMD"],
     [`$(echo git) push -f`, "$(…)"],
     [`bash -c 'G=git; $G push -f'`, "$G"],
@@ -207,6 +210,9 @@ describe("an unquoted expansion in an argument is marked on its leaf", () => {
     [`echo $((1 + 2))`, [false]],
     [`git push origin main`, [false]],
     [`sh -c 'git push $F'`, [false, true]],
+    // the wrapper's own words are not the program's arguments
+    [`env A=$X B="$Y" git push origin main`, [false]],
+    [`env A="$X" git push $F`, [true]],
   ])("%s", (c, want) => {
     assert.deepEqual(marks(c), want);
   });

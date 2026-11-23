@@ -277,3 +277,21 @@ describe("a word held in a variable that the gate's question does not depend on"
     assert.equal(kind(`git push $F`, denyAll), "deny");
   });
 });
+
+// Codex on #497 (P1): `env NAME=VALUE … COMMAND` — an unknown VALUE is not an
+// unknown program.
+describe("an assignment with a dynamic value in front of a literal program", () => {
+  test.each([
+    `env TOKEN="$TOKEN" git status`,
+    `env A=$X B="$Y" git push origin main`,
+    `sudo env X="$Y" git status`,
+    `TOKEN="$T" git status`,
+  ])("%s stays allowed", (command) => {
+    assert.equal(kind(command), "allow");
+  });
+
+  test("the program after it is still judged, and a dynamic one still asks", () => {
+    assert.equal(kind(`env X="$Y" git push -f`), "deny");
+    assert.equal(kind(`env X=1 $CMD`), "ask");
+  });
+});
