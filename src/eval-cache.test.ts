@@ -43,6 +43,11 @@ test("cacheKey is stable and order-independent for object inputs", () => {
 });
 
 test("cacheKey changes when ANY key part changes (every field + version axes)", () => {
+  // Codex on #479: the per-run cap ends a turn early, so it is a model input.
+  assert.notEqual(
+    cacheKey(baseKey),
+    cacheKey({ ...baseKey, maxBudgetUsd: 0.5 }),
+  );
   const base = cacheKey(baseKey);
   // one assertion per CacheKeyInput field — a regression that drops a field from
   // the key surfaces here.

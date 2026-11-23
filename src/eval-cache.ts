@@ -48,6 +48,12 @@ export interface CacheKeyInput {
    * hash via JSON, so entries recorded before effort existed stay valid.
    */
   readonly effort?: string | number;
+  /**
+   * The run's `--max-budget-usd`. Keyed because the cap can end a turn early, so
+   * a replay across caps would serve a truncated run as the one asked for.
+   * `undefined` drops out of the hash, so entries recorded without a cap stay valid.
+   */
+  readonly maxBudgetUsd?: number;
   readonly tools: readonly string[];
   /** The resolved fixture + arm + plugin files written before the run. */
   readonly files: Record<string, string>;

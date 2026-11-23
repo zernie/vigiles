@@ -460,7 +460,9 @@ The `measure` ctx is a full `Trace`, so a metric reads the agent's **actions**
 `report.arms[a].usage` aggregates per arm; `report.totalCostUsd` sums the reported
 cost of the run. `report.chargedUsd` is what counted against `maxCostUsd` (the reported
 cost plus each killed run's cap), and `report.unknownCostRuns` counts the runs that
-reported no cost; the printed report shows `≥ $X` for those, never `$0`.
+reported no cost. A killed run's cap is the most it could have spent, not what it
+spent, so the printed report names it as a charge to the budget — never as `$0`, and
+never as a floor on spend.
 
 **LLM-as-judge** — grade with a model inside `measure` (synchronous, shells out via
 the harness CLI):

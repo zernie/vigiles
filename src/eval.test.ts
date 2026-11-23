@@ -68,6 +68,7 @@ import {
   unregisteredSkillFiles,
   spawnAgent,
   closedRun,
+  startFailure,
   buildAgentArgs,
   parseClaudeRun,
 } from "./eval.js";
@@ -2923,6 +2924,14 @@ test("with no ceiling, a killed run is counted as unknown and charged nothing", 
   assert.equal(report.aborted, false);
 });
 
+// Codex on #479: a run the timeout killed before its first response is a
+// scored, charged outcome, not a command that never started.
+test("startFailure lets a timed-out run through, and still stops one that never started", () => {
+  const silent = { code: -1, stdout: "", stderr: "" };
+  assert.equal(startFailure({ ...silent, timedOut: true }), null);
+  assert.notEqual(startFailure({ ...silent, code: 2 }), null);
+});
+
 test("formatEvalReport never shows a run that reported no cost as $0", () => {
   const base = {
     name: "e",
@@ -2945,6 +2954,8 @@ test("formatEvalReport never shows a run that reported no cost as $0", () => {
   });
   assert.ok(charged.includes("0.5000"));
   assert.ok(!charged.includes("$0.0000"));
+  // the cap is a charge, never printed as a floor on what was spent (Codex, #479)
+  assert.ok(!charged.includes("≥"));
   // a killed run with no ceiling to charge against: still not "$0"
   const unknown = head({ ...base, totalCostUsd: 0, unknownCostRuns: 1 });
   assert.ok(!unknown.includes("$"));

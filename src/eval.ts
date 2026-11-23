@@ -612,6 +612,9 @@ export function buildAgentArgs(a: AgentRunArgs): string[] {
  */
 export function startFailure(out: Readonly<RunOut>): string | null {
   if (out.code === 0 || parseResultEvent(out.stdout) !== null) return null;
+  // The timeout killed it, possibly while its first request was in flight. That
+  // is a scored, charged outcome (vigiles#416), not a command that never started.
+  if (out.timedOut === true) return null;
   if (reachedModel(out.stdout) || isRateLimited(out)) return null;
   const said = (out.stderr ?? "").trim().split("\n").slice(-5).join("\n");
   return `the harness exited ${String(out.code)} before calling the model: ${said || "(no stderr)"}`;
@@ -1605,6 +1608,9 @@ async function runWithCache(
     // replay otherwise serves a result from a different system prompt).
     harnessVersion: harnessVersion(),
     trialIndex: keyParts.trialIndex,
+    // The per-run budget cap ends a turn early: a trial recorded under one cap
+    // is not the trial another cap asks for.
+    maxBudgetUsd: runArgs.maxBudgetUsd,
   });
   const hit = readCache(cfg.cacheDir, key);
   // A run that never reached the model is not replayed: the real runner now
@@ -2366,6 +2372,9 @@ function evalArmsInputs<M extends Metrics>(
     arms,
     stubs,
     env: runEnvKeyView(spec.env),
+    // Each run's `--max-budget-usd` is derived from it, and a cap can end a turn
+    // early, so a lock recorded under another ceiling measured another setup.
+    maxCostUsd: spec.maxCostUsd,
   };
 }
 
@@ -2782,8 +2791,10 @@ function verdictLines(
  * `BETTER` / `WORSE` / `NO SIGNAL`, the same verdict `assertSignificant` reads.
  */
 /**
- * The header's cost: the reported total, or — when a run reported none (killed
- * by the timeout) — the charge as a floor, never a bare $0 (vigiles#416).
+ * The header's cost: the reported total, and — when a run reported none (killed
+ * by the timeout) — what was charged against the budget for it, named as a
+ * charge: a killed run's cap is the most it could have spent, not what it did
+ * spend, so it is never printed as a floor on spend (vigiles#416).
  */
 function costLabel(report: EvalReport): string {
   const unknown = report.unknownCostRuns ?? 0;
@@ -2792,7 +2803,11 @@ function costLabel(report: EvalReport): string {
     return report.totalCostUsd > 0 ? `${usd(report.totalCostUsd)} total` : "";
   const runs = `${String(unknown)} run(s) reported no cost`;
   const charged = report.chargedUsd ?? report.totalCostUsd;
-  return charged > 0 ? `≥ ${usd(charged)} (${runs})` : `cost unknown (${runs})`;
+  const reported =
+    report.totalCostUsd > 0 ? `${usd(report.totalCostUsd)} reported, ` : "";
+  return charged > report.totalCostUsd
+    ? `${reported}${usd(charged)} charged to the budget (${runs})`
+    : `${reported}${runs}`;
 }
 
 export function formatEvalReport(
