@@ -239,8 +239,34 @@ assertBlocksDisasters("bash hooks/safety-guard.sh");
 ```
 
 It works on **any** hook — hand-written shell, a compiled one, anything the
-harness can run. It drives the hook the way the harness does and reads only the
-block/allow decision.
+harness can run. It drives the hook the way the harness does (each event carries
+`cwd`, as Claude Code's do) and reads only the block/allow decision.
+
+**A block is only evidence if the hook can also allow.** A block is read from
+exit code 2, and an interpreter that cannot open its script exits 2 as well —
+`python3 hooks/guard.py` with the file missing, a syntax error under `sh`, a
+relative path in a confined run's empty directory. So before the battery, the
+hook gets one harmless command, the **control** (`ls`). If it blocks that too,
+the hook either never started or denies everything, and the battery has **no
+verdict**: `assertBlocksDisasters` throws and says so, with the end of the
+control run's stderr, which usually names the missing file. The control cannot
+be switched off. An allowlist guard denies `ls` on purpose, so give it a
+command it allows:
+
+```ts
+import { assertBlocksDisasters, CONTROL_CASE } from "vigiles";
+
+assertBlocksDisasters("bash hooks/allowlist-guard.sh", {
+  control: { ...CONTROL_CASE, input: { command: "npm test" } },
+});
+```
+
+`verifyGuardrail` returns the same facts as data. Each result's `outcome` is
+`blocked`, `allowed`, or `not-run` with a `why`: `condition` (the hook's `if`
+does not select the call), `never-launched` (the shell answered 126/127),
+`control-blocked` (no verdict), or `matcher` (in the directory sweep below). The
+control runs under the hook's `if` like any call, so a condition that does not
+select `ls` gives no control evidence — pass a `control` it selects.
 
 ⚠️ **Seven commands, but only seven spellings.** `experimental_alternateSpellings(events)`
 takes those test cases and returns more of them: the same commands re-spelled
@@ -273,9 +299,10 @@ find a blind spot in that parser, because it would share it.
 
 [How the re-spellings are made, what it deliberately leaves out, and how it maps to promptfoo's strategies →](compiled-hooks.md#one-command-many-spellings--experimental_alternatespellings)
 
-⚠️ **Also check that ordinary commands still pass.** A guard that blocks
-everything scores 100% here. Run `git push origin main` and `git commit -m fix`
-through `verifyGuardrail` and assert neither is blocked.
+⚠️ **Also check that ordinary commands still pass.** The control catches a
+guard that blocks everything, not one that blocks too much. Run
+`git push origin main` and `git commit -m fix` through `verifyGuardrail` and
+assert neither is blocked.
 
 ### Sweep every hook a repo declares (`experimental_verifyPluginGuards`)
 
@@ -339,40 +366,40 @@ for (const note of report.notes) console.log(note);
 condition — a permission-rule pattern like `"Bash(git commit *--no-verify*)"` —
 and the harness only spawns the hook when a call matches it. Many real guards are
 written that way: an unconditional deny in the body, with the `if` doing the
-selecting. Hand that body to `verifyGuardrail` without its condition and it blocks
-all seven disasters, so a narrow guard is certified as stopping `rm -rf /`.
-Reading the condition off the same registration as the command means the two
-cannot be paired wrongly.
+selecting. Hand that body to `verifyGuardrail` without its condition and it
+blocks the control too, so it has no verdict where it should have scored one of
+seven. Reading the condition off the same registration as the command means the
+two cannot be paired wrongly.
 
-**Three things that are NOT a score.** Each hook comes back as one of three
-statuses, so a hook the battery never reached can never be read as `0/7`:
+**Statuses that are NOT a score.** Each hook comes back as one of four
+statuses, so a hook the battery could not score can never be read as `0/7` or
+`7/7`:
 
 | status           | what it means                                                                                                                                                                   | what to do                                                |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | `measured`       | the battery reached it; `results` holds one entry per event                                                                                                                     | read `blocked` / `allowed` / `notRun`                     |
 | `not-applicable` | the harness would never spawn it here: another event; a matcher that selects none of the battery's tools, or that it cannot compile; or an `if` condition matching none of them | nothing — it is not a Bash guard, or it cannot run at all |
-| `unresolved`     | the sweep could not get the guard's own verdict — see the four causes below                                                                                                     | fix the cause it names, then re-run                       |
+| `no-verdict`     | it also blocked the control (`ls`): it never started, or it denies everything; `controlStderrTail` holds the end of the control run's stderr                                    | make it start, or pass a `control` it allows              |
+| `unresolved`     | the sweep could not run the guard as the harness would — see the two causes below                                                                                               | fix the cause it names, then re-run                       |
 
 A repo with no hooks reports zero of everything **and says so in `notes`** — "this
 is not a clean bill of health, it is an absence of guards."
 
-**Why `unresolved` exists, and its four causes.** `sh` exits **2** for a syntax
-error and for an interpreter that cannot open its script — and 2 is Claude Code's
-DENY code. So a hook that never ran is indistinguishable, after the fact, from a
-guard that legitimately blocked. Every one of these would otherwise have been
-scored as a perfect `7/7`:
+**Why `no-verdict` exists.** `sh` exits **2** for a syntax error and for an
+interpreter that cannot open its script — and 2 is Claude Code's DENY code. So a
+hook that never ran is indistinguishable, after the fact, from a guard that
+legitimately blocked, and each of these used to score a perfect `7/7`: a script
+that is not on disk, a command that does not parse, a relative script path in a
+**confined** run (with `trusted: false` or `sandbox: "auto"` the hook starts in a
+throwaway directory, so pass `cwd`). The control sees the same exit 2 on `ls`,
+whatever the spelling, so all of them read `no-verdict`.
 
-| the reason says                  | the cause                                          | what to do                                     |
-| -------------------------------- | -------------------------------------------------- | ---------------------------------------------- |
-| names `$FOO`, which nothing sets | the command reads a variable the run has not got   | pass `env` so the real program runs            |
-| is not valid shell               | the command does not parse — `sh` would exit 2 too | fix the command; no `env` would have helped    |
-| is not on disk here              | the script the config names is not there           | the guard does not exist — that is the finding |
-| by a RELATIVE path … fresh empty | a **confined** run starts in a new empty directory | pass `cwd` (the project the hook runs against) |
+**`unresolved` has two causes**, both decided without reading a verdict:
 
-That last one is the one to know about up front: with `trusted: false` or
-`sandbox: "auto"`, the hook is chdir'd into a throwaway directory, so a relative
-script path means nothing there however present it is in your repo. Pass `cwd`
-and both the check and the run resolve it the same way.
+| the reason says                  | the cause                                        | what to do                          |
+| -------------------------------- | ------------------------------------------------ | ----------------------------------- |
+| names `$FOO`, which nothing sets | the command reads a variable the run has not got | pass `env` so the real program runs |
+| the shell never launched it      | exit 126/127: not executable, or not found       | fix the command or the interpreter  |
 
 **`dir` and `cwd` are two different roots.** `dir` is where hooks are READ from
 and becomes `$CLAUDE_PLUGIN_ROOT`; `cwd` is the project they RUN against and

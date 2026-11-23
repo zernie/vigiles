@@ -113,7 +113,7 @@ assertToolCalls(r, (calls) => /* any custom rule over the list */ true);
 
 assertHookBlocked(r); // exit 2 / decision:"block" / permissionDecision:"deny"
 assertDelivered(r); // a runHook result's text REACHED the model (not just stderr) — see harness-testing.md
-assertBlocksDisasters("bash hooks/guard.sh"); // the hook denies every disaster (force-push, rm -rf, curl|sh …)
+assertBlocksDisasters("bash hooks/guard.sh"); // the hook denies every disaster (force-push, rm -rf, curl|sh …) and allows the control (`ls`)
 assertHookFired(r, "UserPromptSubmit");
 assertOutputContains(r, /on it/);
 assertCreated(r, "DONE"); // a file was created

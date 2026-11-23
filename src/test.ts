@@ -209,12 +209,21 @@ export {
   assertBlocksDisasters,
   formatGuardrailReport,
   experimental_alternateSpellings,
+  // The command every run sends first; spread it to pass a `control` an
+  // allowlist guard allows.
+  CONTROL_CASE,
 } from "./guardrail-check.js";
 export type {
   DisasterEvent,
   DisasterCategory,
   GuardrailResult,
   VerifyGuardrailOptions,
+  // `GuardrailResult.outcome` is a tagged union; a caller switching on it has to
+  // be able to name its members.
+  CaseOutcome,
+  NotRun,
+  HarmlessCase,
+  HarmlessForm,
 } from "./guardrail-check.js";
 
 // The same battery, pointed at a DIRECTORY instead of one command string. It

@@ -165,7 +165,7 @@ export type SweptHookOutcome =
        * denies everything. None of its blocks is evidence, so it has no score.
        * The fix: make it start, or pass a `control` it allows.
        */
-      readonly status: typeof NO_VERDICT;
+      readonly status: "no-verdict";
       readonly hook: SweptHook;
       /** One line saying what the control run showed. */
       readonly reason: string;

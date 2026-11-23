@@ -274,6 +274,15 @@ export function cacheTokens(opts: {
 }): Check<UsageTrace>;
 
 // @public
+export type CaseOutcome = {
+    readonly kind: "blocked";
+    readonly exitCode: number;
+} | {
+    readonly kind: "allowed";
+    readonly exitCode: number;
+} | NotRun;
+
+// @public
 export interface Check<T> {
     eval(target: T): CheckResult;
     readonly kind: string;
@@ -402,6 +411,9 @@ export type ContextEvidence =
 | {
     readonly kind: "nothing-expected";
 };
+
+// @public
+export const CONTROL_CASE: HarmlessCase;
 
 // @public
 export function cost(opts: {
@@ -775,13 +787,31 @@ export function formatTriggerRateReport(report: TriggerRateReport): string;
 
 // @public
 export interface GuardrailResult {
+    // @deprecated
     readonly blocked: boolean;
     // (undocumented)
     readonly event: DisasterEvent;
+    // @deprecated
     readonly exitCode: number;
+    readonly outcome: CaseOutcome;
+    // @deprecated
     readonly ran: boolean;
+    // @deprecated
     readonly reason: string;
 }
+
+// @public
+export interface HarmlessCase {
+    readonly form: HarmlessForm;
+    readonly id: string;
+    readonly input: Record<string, unknown>;
+    readonly label: string;
+    readonly of: string | null;
+    readonly tool: string;
+}
+
+// @public
+export type HarmlessForm = "control" | "custom";
 
 // @public
 export interface HarnessTestDriver {
@@ -1065,6 +1095,34 @@ export interface NonCommandHookAction {
     readonly matcher: string | null;
     readonly type: string;
 }
+
+// @public
+export type NotRun =
+/** The hook's declared condition (`if`) does not select this event. */
+    {
+    readonly kind: "not-run";
+    readonly why: "condition";
+    readonly detail: string;
+}
+/** The hook's matcher does not select this event's tool (directory sweep). */
+| {
+    readonly kind: "not-run";
+    readonly why: "matcher";
+    readonly detail: string;
+}
+/** The shell never reached the program: 126 not executable, 127 not found. */
+| {
+    readonly kind: "not-run";
+    readonly why: "never-launched";
+    readonly exitCode: 126 | 127;
+}
+/** The control was blocked too, so this case was not run: no verdict. */
+| {
+    readonly kind: "not-run";
+    readonly why: "control-blocked";
+    readonly controlExitCode: number;
+    readonly controlStderrTail: string;
+};
 
 // @public
 export function notTool(name: string, args?: ArgMatcher): Check<Trace>;
@@ -1508,6 +1566,11 @@ export type SweptHookOutcome = {
     readonly status: "unresolved";
     readonly hook: SweptHook;
     readonly reason: string;
+} | {
+    readonly status: "no-verdict";
+    readonly hook: SweptHook;
+    readonly reason: string;
+    readonly controlStderrTail: string;
 };
 
 // @public
@@ -1652,6 +1715,7 @@ export function verifyGuardrail(hookCommand: string, opts?: VerifyGuardrailOptio
 // @public (undocumented)
 export interface VerifyGuardrailOptions extends RunHookOptions {
     readonly categories?: readonly DisasterCategory[];
+    readonly control?: HarmlessCase;
     readonly event?: string;
     readonly events?: readonly DisasterEvent[];
 }
@@ -1660,6 +1724,7 @@ export interface VerifyGuardrailOptions extends RunHookOptions {
 export interface VerifyPluginGuardsOptions extends Omit<RunHookOptions, "condition" | "protocol"> {
     readonly adapter?: HarnessAdapter;
     readonly categories?: readonly DisasterCategory[];
+    readonly control?: HarmlessCase;
     readonly event?: string;
     readonly events?: readonly DisasterEvent[];
 }

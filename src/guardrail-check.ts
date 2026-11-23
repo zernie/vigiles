@@ -127,6 +127,7 @@ export interface HarmlessCase {
   readonly label: string;
   /** The dangerous case it mirrors; `null` for the control and custom cases. */
   readonly of: string | null;
+  /** How it was made — the control, or written by the caller. */
   readonly form: HarmlessForm;
   /** The tool the event names. */
   readonly tool: string;
