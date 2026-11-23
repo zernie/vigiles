@@ -32,7 +32,7 @@ The docs are grouped by what you're trying to do:
 ### Author & ship
 
 - [`skills.md`](skills.md) — authoring a SKILL.md across the three on-ramps; the prose-vs-gates split.
-- [`compiled-hooks.md`](compiled-hooks.md) — author a hook as a pure typed function against the closed `vigiles/hook` vocabulary and compile it, making whole classes of hook bugs unrepresentable (false confidence, matcher bypass, capability creep).
+- [`compiled-hooks.md`](compiled-hooks.md) — author a hook as a pure typed function against the closed `vigiles/hook` vocabulary and compile it, making whole classes of hook bugs unrepresentable (false confidence, matcher bypass, capability creep). A Bash gate reads the command as a `ShellCommand` and a file gate the path as a `FilePath`, built by `parseShellCommand` and `parseFilePath` ([the vocabulary](compiled-hooks.md#the-vocabulary)).
 - [`railway-subagents.md`](railway-subagents.md) — the typed `Result` subagent contract: declare a typed outcome, compose flat workers, and assert the outcome deterministically (no model judge).
 - [`for-plugin-authors.md`](for-plugin-authors.md) — the plugin-author journey end to end: scan a draft, fix what it flags, make your skills fire, rank against a marketplace, gate it in CI.
 - [`github-action.md`](github-action.md) — run vigiles in CI: the composite Action, every input, the sticky PR comment, versioning.

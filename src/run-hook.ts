@@ -200,7 +200,7 @@ export interface FileToolEventOptions {
  * reach built `{ tool_input: { file_path: "drafts/papers/x.tex" } }` by
  * hand — repo-relative, because that is how the hook's own prefixes are written.
  * Claude Code's Edit/Write/MultiEdit tools send an ABSOLUTE `file_path`,
- * `PathView.under` had no project root to reconcile the two, and so three
+ * `FilePath.under` had no project root to reconcile the two, and so three
  * shipped react hooks matched nothing in a real session while their tests stayed
  * green. The tests were not weak; they reproduced the author's assumption
  * instead of the runtime's behaviour.

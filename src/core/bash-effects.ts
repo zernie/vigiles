@@ -23,21 +23,6 @@
  * See `research/bash-effect-classification.md` for the full design rationale.
  */
 
-import {
-  HOLE,
-  RUNNERS,
-  carriesOf,
-  decodeAnsiC,
-  shellWord,
-  walkWrappers,
-  type Carrier,
-  type Carry,
-  type ShellWord,
-  type StdinFeed,
-  type TemplateWord,
-  type UnseenReason,
-} from "./shell-runners.js";
-
 // mvdan-sh is a CJS package (GopherJS build) with no bundled TypeScript types.
 // The project compiles to CommonJS (Node16, no "type":"module"), so plain
 // require() works and is the idiomatic pattern here (see linters.ts).
@@ -57,7 +42,7 @@ interface MvdanSyntax {
  * bare Node start. This module sits in the import graph of `core/hook-program.ts`
  * (and `core/hook-providers.ts`), which the compiled-hook RUNTIME loads on EVERY
  * matching tool call. Only a BASH predicate ever parses: `decideProgram` returns
- * `allow()` before building a `commandView` when the tool is not Bash, so a file
+ * `allow()` before building a `parseShellCommand` when the tool is not Bash, so a file
  * gate, an inject, a react or a stop gate never reaches this file's functions at
  * all — and used to pay ~100 ms per tool call for a parser it never called.
  *
@@ -104,8 +89,6 @@ interface MvdanNode {
   Exp?: unknown;
   // Stmt fields
   Negated?: boolean;
-  /** `$'…'` on a SglQuoted (ANSI-C), `$"…"` on a DblQuoted. */
-  Dollar?: boolean;
 }
 
 interface MvdanRedirect extends MvdanNode {
@@ -114,8 +97,6 @@ interface MvdanRedirect extends MvdanNode {
   N?: MvdanNode;
   /** The redirection target word (`> f` → the word `f`). */
   Word?: MvdanWord;
-  /** A heredoc's body (`<<EOF … EOF`); the delimiter is {@link Word}. */
-  Hdoc?: MvdanWord;
 }
 
 interface MvdanWord extends MvdanNode {
@@ -556,46 +537,22 @@ export function isReadOnlyBash(command: string): boolean {
  * This is the matching primitive a typed hook's `command.runs("git push")` is
  * built on: it sees the real `git push` leaf however it's wrapped, which the
  * native `Bash(git:*)` glob (issue #30519) and a hand-written `grep` both miss.
- *
- * ONE LEVEL, on purpose: `bash -c "git push"` yields `[bash, -c]`. The nested
- * command is a site of {@link execSites}, and both read the same statement walk.
  */
 export function leafCommands(command: string): string[][] {
-  const file = parseOrNull(command);
-  return (file ? stmtLeaves(file) : []).flatMap(({ call }) => {
-    const argv = (call.Args ?? [])
-      .map((w) => getLiteral(w))
-      .filter((s): s is string => s !== null);
-    return argv.length > 0 ? [argv] : [];
-  });
-}
-
-/** The command parsed, or `null` — mvdan-sh throws a Go error object, not an Error. */
-function parseOrNull(src: string): MvdanNode | null {
+  let file: MvdanNode;
   try {
-    return sh().syntax.NewParser().Parse(src, "cmd.sh");
+    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
   } catch {
-    return null;
+    return [];
   }
-}
-
-/** A simple command and the statement that carries its redirections. */
-interface StmtLeaf {
-  readonly stmt: MvdanNode;
-  readonly call: MvdanNode;
-}
-
-/**
- * Every statement whose command is a simple command, in walk order — the one
- * traversal behind {@link leafCommands}, {@link leafCommandsNormalized} and
- * {@link execSites}. Every CallExpr in the mvdan AST IS a `Stmt.Cmd`.
- */
-function stmtLeaves(file: Readonly<MvdanNode>): readonly StmtLeaf[] {
-  const out: StmtLeaf[] = [];
+  const out: string[][] = [];
   sh().syntax.Walk(file, (node) => {
-    const call = sh().syntax.NodeType(node) === "Stmt" ? node.Cmd : undefined;
-    if (call && sh().syntax.NodeType(call) === "CallExpr")
-      out.push({ stmt: node, call });
+    if (sh().syntax.NodeType(node) === "CallExpr" && node.Args) {
+      const argv = node.Args.map((w) => getLiteral(w)).filter(
+        (s): s is string => s !== null,
+      );
+      if (argv.length > 0) out.push(argv);
+    }
     return true;
   });
   return out;
@@ -736,7 +693,6 @@ function normalizeParts(
   parts: readonly MvdanNode[] | undefined,
   inDoubleQuotes = false,
   unescape = false,
-  positional: readonly ShellWord[] = [],
 ): string | null {
   if (!parts) return null;
   let out = "";
@@ -749,20 +705,12 @@ function normalizeParts(
     } else if (t === "SglQuoted") {
       out += p.Value ?? "";
     } else if (t === "DblQuoted") {
-      const inner = normalizeParts(
-        (p as MvdanWord).Parts,
-        true,
-        unescape,
-        positional,
-      );
+      const inner = normalizeParts((p as MvdanWord).Parts, true, unescape);
       if (inner === null) return null;
       out += inner;
     } else if (t === "ParamExp") {
-      // Canonicalize the home directory; a positional bound by a nested
-      // shell's literal arguments is its value; any other parameter is dynamic.
-      const bound = positionalText(p, positional, inDoubleQuotes);
+      // Canonicalize the home directory; any other parameter is dynamic.
       if (p.Param?.Value === "HOME") out += "~";
-      else if (bound !== null) out += bound;
       else return null;
     } else {
       return null; // CmdSubst / ArithmExp / ProcSubst / … → dynamic
@@ -835,15 +783,16 @@ function buildFlags(args: readonly string[]): Set<string> {
 // (bare `env`, `env -i`) is preserved as-is, so the env-dump predicate still fires.
 // ---------------------------------------------------------------------------
 
-/**
- * The `wrapper` rows of `RUNNERS` (shell-runners.ts) — one table of programs
- * that run a command, of which these resolve IN PLACE.
- *
- * @internal — read by `bash-equivalents.ts` to generate shell-equivalent variants.
- */
-export const WRAPPER_HEADS: ReadonlySet<string> = new Set(
-  [...RUNNERS].flatMap(([head, r]) => (r.mode === "wrapper" ? [head] : [])),
-);
+/** @internal — read by `bash-equivalents.ts` to generate shell-equivalent variants. */
+export const WRAPPER_HEADS = new Set([
+  "env",
+  "command",
+  "nice",
+  "timeout",
+  "sudo",
+  "xargs",
+  "nohup",
+]);
 
 /**
  * Per-wrapper short/long options that consume a SEPARATE following token as their
@@ -1043,386 +992,22 @@ export function stripWrappers(argv: readonly string[]): {
  *
  * Purely additive: reuses the same mvdan-sh parse, changes nothing above. Parse
  * failure → []. A leaf with a dynamic head is skipped (can't be normalized).
- *
- * ONE LEVEL, on purpose (vigiles#460, F3-A): this is the depth-0 projection of
- * {@link execSites} — its exec sites with an empty `via`, in the same order. The
- * Claude Code `if:` emulation compares this list's length with
- * {@link leafCommands}', so nested leaves must not appear here.
  */
 export function leafCommandsNormalized(command: string): NormalizedLeaf[] {
-  const file = parseOrNull(command);
-  return (file ? stmtLeaves(file) : []).flatMap(({ stmt, call }) => {
-    const leaf = normalizeCallExpr(call, stmt.Redirs ?? []);
-    return leaf ? [leaf] : [];
+  let file: MvdanNode;
+  try {
+    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
+  } catch {
+    return [];
+  }
+  const out: NormalizedLeaf[] = [];
+  sh().syntax.Walk(file, (node) => {
+    if (sh().syntax.NodeType(node) !== "Stmt" || !node.Cmd) return true;
+    const leaf = normalizeCallExpr(node.Cmd, node.Redirs ?? []);
+    if (leaf) out.push(leaf);
+    return true;
   });
-}
-
-// ===========================================================================
-// THE NESTED DESCENT (vigiles#460). A leaf whose program RUNS a command it was
-// handed — `bash -c STR`, `eval A B`, `find -exec CMD ;`, `exec CMD` — hands that
-// command on; to the grammar it is only data. `RUNNERS` (shell-runners.ts) says
-// how each program carries it; a literal string is parsed again by the same
-// parser. What cannot be read is an `unseen` site with its reason, never `[]`.
-// ===========================================================================
-
-/** Where a site runs. One value in v1; the field exists so v2 does not change the type. */
-export type ExecContext = "local";
-
-/** One command the agent's command runs, or one place the descent could not see into. */
-export type ExecSite =
-  | {
-      readonly kind: "exec";
-      /** The same normalized leaf `leafCommandsNormalized` gives at depth 0. */
-      readonly leaf: NormalizedLeaf;
-      /** The words the program receives, wrappers stripped, quotes removed exactly. */
-      readonly argv: readonly ShellWord[];
-      /** The runners it was handed through, outermost first; `[]` at the top. */
-      readonly via: readonly Carrier[];
-      /** How many strings were re-parsed to reach it. */
-      readonly depth: number;
-      readonly context: ExecContext;
-    }
-  | {
-      readonly kind: "unseen";
-      readonly reason: UnseenReason;
-      /** The runner that hid it (`bash`, `python3`, `ssh`), `null` for a dynamic head. */
-      readonly head: string | null;
-      readonly via: readonly Carrier[];
-      readonly depth: number;
-    };
-
-/** How deep strings are re-parsed: real agent commands nest at most once (754 of 754). */
-const MAX_NESTED_DEPTH = 4;
-/** The largest nested string that is re-parsed. */
-const MAX_NESTED_BYTES = 256 * 1024;
-
-/** The record the descent carries down. target-dir adds its start directory here. */
-interface DescentEnv {
-  readonly depth: number;
-  readonly via: readonly Carrier[];
-  readonly context: ExecContext;
-  /** `$0 $1 …` bound by the carrier (`bash -c S a0 a1`); unbound → dynamic. */
-  readonly positional: readonly ShellWord[];
-  /** A word the runner fills in at run time (`find`'s `{}`). */
-  readonly fill: string | null;
-}
-
-const TOP: DescentEnv = {
-  depth: 0,
-  via: [],
-  context: "local",
-  positional: [],
-  fill: null,
-};
-
-/**
- * Every command `command` runs, as far down as `RUNNERS` reaches: exec sites for
- * what is proven, `unseen` sites for what is not. The top-level exec sites are
- * exactly {@link leafCommandsNormalized}. A string is re-parsed only under a
- * runner head, so a command without one is parsed once.
- *
- * @internal — the foundation the hook vocabulary will read (#460 PR 2).
- */
-export function execSites(command: string): readonly ExecSite[] {
-  return sitesOfText(command, TOP);
-}
-
-function sitesOfText(text: string, env: DescentEnv): readonly ExecSite[] {
-  const file = parseOrNull(text);
-  if (file === null) return [unseenSite({ kind: "parse-error" }, null, env)];
-  return stmtLeaves(file).flatMap(({ stmt, call }) =>
-    sitesOfCall(call.Args ?? [], call, stmt.Redirs ?? [], env),
-  );
-}
-
-const unseenSite = (
-  reason: UnseenReason,
-  head: string | null,
-  env: DescentEnv,
-): ExecSite => ({
-  kind: "unseen",
-  reason,
-  head,
-  via: env.via,
-  depth: env.depth,
-});
-
-/** One simple command (or an argv slice a runner handed on) and what it runs. */
-function sitesOfCall(
-  args: readonly MvdanWord[],
-  assignsOf: Readonly<MvdanNode> | null,
-  redirs: readonly MvdanRedirect[],
-  env: DescentEnv,
-): readonly ExecSite[] {
-  if (args.length === 0) return [];
-  const assigns = assignsOf
-    ? collectAssigns(assignsOf)
-    : new Map<string, null>();
-  const leaf = normalizeArgs(args, assigns, redirs, env.positional);
-  if (leaf === null) return [unseenSite({ kind: "dynamic-head" }, null, env)];
-  const words = args.map((w) => wordTemplate(w.Parts, env, "plain"));
-  const walk = walkWrappers(words);
-  const cmd = words.slice(walk.at);
-  const head = cmd[0] ? shellWord(cmd[0]) : undefined;
-  const own: ExecSite = {
-    kind: "exec",
-    leaf,
-    argv: cmd.map(shellWord),
-    via: env.via,
-    depth: env.depth,
-    context: env.context,
-  };
-  if (head?.kind !== "text")
-    return [own, unseenSite({ kind: "dynamic-head" }, null, env)];
-  const name = normalizeHead(head.text);
-  if (walk.kind === "unknown") {
-    const reason = {
-      kind: "runner-options",
-      runner: name,
-      token: walk.token,
-    } as const;
-    return [own, unseenSite(reason, name, env)];
-  }
-  const call = { head: name, words: cmd, stdin: stdinFeed(redirs, env) };
-  const rest = args.slice(walk.at);
-  return [own, ...carriesOf(call).flatMap((c) => follow(c, rest, redirs, env))];
-}
-
-/** Follow one carry: a nested argv, a nested string, or the reason it cannot be read. */
-function follow(
-  c: Carry,
-  args: readonly MvdanWord[],
-  redirs: readonly MvdanRedirect[],
-  outer: DescentEnv,
-): readonly ExecSite[] {
-  const env = { ...outer, via: [...outer.via, c.carrier] };
-  switch (c.kind) {
-    case "unseen":
-      return [unseenSite(c.reason, c.carrier.head, env)];
-    case "argv": {
-      // A tail inherits the runner's file descriptors; a `find -exec` segment does not.
-      const own = c.carrier.mode === "argv-tail" ? redirs : [];
-      return sitesOfCall(args.slice(c.from, c.to), null, own, {
-        ...env,
-        fill: c.fill,
-      });
-    }
-    case "string":
-      return nestedString(c, env);
-  }
-}
-
-function nestedString(
-  c: Extract<Carry, { kind: "string" }>,
-  env: DescentEnv,
-): readonly ExecSite[] {
-  const head = c.carrier.head;
-  if (env.depth + 1 > MAX_NESTED_DEPTH)
-    return [unseenSite({ kind: "too-deep" }, head, env)];
-  if (byteLength(c.text) > MAX_NESTED_BYTES)
-    return [unseenSite({ kind: "too-large" }, head, env)];
-  // The outer shell's expansion becomes the inner shell's CODE: the leaves
-  // around a hole are still read, and the hole is reported.
-  const hole = c.holes
-    ? [unseenSite({ kind: "hole-in-command-string" }, head, env)]
-    : [];
-  const inner = {
-    ...env,
-    depth: env.depth + 1,
-    positional: c.args.map(shellWord),
-    fill: null,
-  };
-  return [...hole, ...sitesOfText(c.text, inner)];
-}
-
-const byteLength = (s: string): number =>
-  s.length * 3 <= MAX_NESTED_BYTES
-    ? s.length
-    : new TextEncoder().encode(s).length;
-
-/** Which quoting rules a run of literal text is under. */
-type QuoteMode = "plain" | "dq" | "heredoc";
-
-interface Piece {
-  readonly text: string;
-  readonly holes: number;
-  readonly literal: boolean;
-  readonly bad: boolean;
-}
-
-const NO_PIECE: Piece = { text: "", holes: 0, literal: false, bad: false };
-const HOLE_PIECE: Piece = { ...NO_PIECE, text: HOLE, holes: 1 };
-const textPiece = (text: string): Piece => ({
-  ...NO_PIECE,
-  text,
-  literal: true,
-});
-
-/**
- * A word exactly as the program receives it — what `normalizeParts` is NOT: that
- * one keeps backslashes in path operands and turns `$HOME` into `~` on purpose.
- * A string re-parsed as code needs the bytes the inner shell reads.
- */
-function wordTemplate(
-  parts: readonly MvdanNode[] | undefined,
-  env: DescentEnv,
-  mode: QuoteMode,
-): TemplateWord {
-  const p = (parts ?? [])
-    .map((part) => partPiece(part, env, mode))
-    .reduce(
-      (a: Piece, b: Piece): Piece => ({
-        text: a.text + b.text,
-        holes: a.holes + b.holes,
-        literal: a.literal || b.literal,
-        bad: a.bad || b.bad,
-      }),
-      NO_PIECE,
-    );
-  if (env.fill !== null && p.holes === 0 && p.text === env.fill)
-    return { template: HOLE, holes: 1, opaque: true, undecodable: false };
-  const opaque = p.holes > 0 && !p.literal;
-  return { template: p.text, holes: p.holes, opaque, undecodable: p.bad };
-}
-
-function partPiece(
-  p: Readonly<MvdanNode>,
-  env: DescentEnv,
-  mode: QuoteMode,
-): Piece {
-  switch (sh().syntax.NodeType(p)) {
-    case "Lit": {
-      const text = unescapeIn(p.Value ?? "", mode);
-      return { ...NO_PIECE, text, literal: text !== "" };
-    }
-    case "SglQuoted": {
-      const text = p.Dollar ? decodeAnsiC(p.Value ?? "") : (p.Value ?? "");
-      return text === null ? { ...NO_PIECE, bad: true } : textPiece(text);
-    }
-    case "DblQuoted": {
-      // `""` is an empty argument: literal. `"$X"` is nothing but its hole.
-      const inner = wordPieces(p.Parts, env);
-      return { ...inner, literal: inner.literal || inner.holes === 0 };
-    }
-    case "ParamExp": {
-      const text = positionalText(p, env.positional, mode !== "plain");
-      return text === null ? HOLE_PIECE : textPiece(text);
-    }
-    default:
-      return HOLE_PIECE; // $(…), $((…)), <(…), an unbound or operator expansion
-  }
-}
-
-function wordPieces(
-  parts: readonly MvdanNode[] | undefined,
-  env: DescentEnv,
-): Piece {
-  const w = wordTemplate(parts, { ...env, fill: null }, "dq");
-  const literal = w.template.split(HOLE).join("") !== "";
-  return { text: w.template, holes: w.holes, literal, bad: w.undecodable };
-}
-
-/** Backslash removal: everywhere outside quotes, only before `$ \` " \\` inside them. */
-function unescapeIn(raw: string, mode: QuoteMode): string {
-  if (mode !== "heredoc") return unescapeLit(raw, mode === "dq");
-  return raw.replace(/\\\n/g, "").replace(/\\([$`\\])/g, "$1");
-}
-
-/**
- * A `$N` / `$@` / `$*` bound to a literal argument of the carrier, or `null`.
- * Unquoted, a value with blanks or glob characters splits or expands: dynamic.
- */
-function positionalText(
-  p: Readonly<MvdanNode>,
-  positional: readonly ShellWord[],
-  quoted: boolean,
-): string | null {
-  const name = p.Param?.Value ?? "";
-  const operator = [
-    p.Excl,
-    p.Length,
-    p.Width,
-    p.Index,
-    p.Slice,
-    p.Repl,
-    p.Names,
-    p.Exp,
-  ];
-  if (operator.some(Boolean)) return null;
-  const w = positional[positionalIndex(name, positional.length)];
-  if (w?.kind !== "text") return null;
-  return quoted || !/[\s*?[\]]/.test(w.text) ? w.text : null;
-}
-
-/** `$3` → 3; `$@`/`$*` → 1 when exactly one argument follows `$0`; else -1. */
-function positionalIndex(name: string, bound: number): number {
-  if (name === "@" || name === "*") return bound === 2 ? 1 : -1;
-  return /^\d+$/.test(name) ? Number(name) : -1;
-}
-
-/** Operators whose fd defaults to 0 when none is written (`<`, `<>`, `<&`, `<<`, `<<-`, `<<<`). */
-const INPUT_OPS: ReadonlySet<number> = new Set([56, 57, 58, 61, 62, 63]);
-
-/**
- * The statement's stdin, as a shell would read code from it: every operation on
- * fd 0 in source order, the last one wins. A duplication or a close (`<&3`,
- * `0<&-`, `0>f`) is not followed — it is `moved`, which reads as unseen.
- */
-function stdinFeed(
-  redirs: readonly MvdanRedirect[],
-  env: DescentEnv,
-): StdinFeed {
-  return redirs.reduce<StdinFeed>(
-    (feed, r) => {
-      const fd = r.N?.Value ?? (INPUT_OPS.has(r.Op) ? "0" : "1");
-      return fd === "0" ? stdinOperation(r, env) : feed;
-    },
-    { kind: "none" },
-  );
-}
-
-function stdinOperation(
-  r: Readonly<MvdanRedirect>,
-  env: DescentEnv,
-): StdinFeed {
-  const word = wordTemplate(r.Word?.Parts, env, "plain");
-  switch (r.Op) {
-    case 56:
-    case 57: {
-      const path = shellWord(word);
-      return { kind: "file", path: path.kind === "text" ? path.text : null };
-    }
-    case 63:
-      return { kind: "body", by: "<<<", word };
-    case 61:
-    case 62:
-      return { kind: "body", by: "<<", word: heredocBody(r, env) };
-    default:
-      return { kind: "moved" };
-  }
-}
-
-/** A heredoc body: as written under a quoted delimiter, else expanded like `"…"`. */
-function heredocBody(
-  r: Readonly<MvdanRedirect>,
-  env: DescentEnv,
-): TemplateWord {
-  const delimiter = r.Word?.Parts ?? [];
-  const quoted = delimiter.some(
-    (p) => sh().syntax.NodeType(p) !== "Lit" || (p.Value ?? "").includes("\\"),
-  );
-  const body: TemplateWord = quoted
-    ? {
-        template: (r.Hdoc?.Parts ?? []).map((p) => p.Value ?? "").join(""),
-        holes: 0,
-        opaque: false,
-        undecodable: false,
-      }
-    : wordTemplate(r.Hdoc?.Parts, env, "heredoc");
-  // `<<-` strips leading tabs from every line.
-  return r.Op === 62
-    ? { ...body, template: body.template.replace(/^\t+/gm, "") }
-    : body;
+  return out;
 }
 
 /**
@@ -1689,17 +1274,12 @@ const PIPE_OP = 12;
 const PIPE_ALL_OP = 13;
 
 /** Normalize a Stmt's redirections into {@link LeafRedirect}s (source order). */
-function normalizeRedirects(
-  redirs: readonly MvdanRedirect[],
-  positional: readonly ShellWord[],
-): LeafRedirect[] {
+function normalizeRedirects(redirs: readonly MvdanRedirect[]): LeafRedirect[] {
   return redirs.map((r) => {
     const fd = Number(r.N?.Value);
     return {
       op: REDIR_OP_NAMES.get(r.Op) ?? String(r.Op),
-      target: r.Word
-        ? normalizeParts(r.Word.Parts, false, false, positional)
-        : null,
+      target: r.Word ? normalizeParts(r.Word.Parts) : null,
       fd: Number.isInteger(fd) ? fd : null,
       writes: WRITE_REDIR_OPS.has(r.Op),
     };
@@ -1729,23 +1309,7 @@ function normalizeCallExpr(
 ): NormalizedLeaf | null {
   if (sh().syntax.NodeType(node) !== "CallExpr" || !node.Args?.length)
     return null;
-  return normalizeArgs(node.Args, collectAssigns(node), redirs, []);
-}
-
-/**
- * Normalize one command's words — a CallExpr's, or an argv slice a runner hands
- * on (`exec git push`) — with `positional` bound by a nested shell's arguments.
- */
-function normalizeArgs(
-  words: readonly MvdanWord[],
-  baseAssigns: ReadonlyMap<string, string | null>,
-  redirs: readonly MvdanRedirect[],
-  positional: readonly ShellWord[],
-): NormalizedLeaf | null {
-  const norm = (w: Readonly<MvdanWord>, unescape: boolean): string | null =>
-    normalizeParts(w.Parts, false, unescape, positional);
-  const first = words[0];
-  const headRaw = first ? norm(first, true) : null;
+  const headRaw = normalizeParts(node.Args[0]?.Parts, false, true);
   if (headRaw === null) return null; // dynamic head → not normalizable
   const rawHead = normalizeHead(headRaw);
   // Backslash resolution answers "what OPERATION is this" — the head and its
@@ -1755,12 +1319,11 @@ function normalizeArgs(
   // Windows UNC path whose backslashes a denylist must keep, or the write it
   // names stops matching `secrets` and the guard allows it. A word starting `-`
   // is never a path, so the split is decidable per word rather than guessed.
-  const rawArgs = words
-    .slice(1)
+  const rawArgs = node.Args.slice(1)
     .map((w) => {
-      const raw = norm(w, false);
+      const raw = normalizeParts(w.Parts);
       if (raw === null || !raw.startsWith("-")) return raw;
-      return norm(w, true) ?? raw;
+      return normalizeParts(w.Parts, false, true) ?? raw;
     })
     .filter((w): w is string => w !== null);
 
@@ -1772,7 +1335,8 @@ function normalizeArgs(
 
   // Command-level assignments: mvdan leading `CallExpr.Assigns` plus any
   // `NAME=value` words an `env` wrapper consumed on the way to the real command.
-  const assigns = new Map([...baseAssigns, ...stripped.envAssigns]);
+  const assigns = collectAssigns(node);
+  for (const [k, v] of stripped.envAssigns) assigns.set(k, v);
 
   const flags = buildFlags(args);
   return {
@@ -1783,7 +1347,7 @@ function normalizeArgs(
     hasFlag: (...names) => names.some((n) => flags.has(n)),
     assigns,
     hasAssign: (...names) => names.some((n) => assigns.has(n)),
-    redirects: normalizeRedirects(redirs, positional),
+    redirects: normalizeRedirects(redirs),
     chdir: stripped.chdir,
   };
 }

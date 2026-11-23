@@ -197,7 +197,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 620 project files. */
+  /** 616 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -379,8 +379,6 @@ declare module "vigiles/generated" {
     | "src/core/assert-never.ts"
     | "src/core/baseline-store.test.ts"
     | "src/core/baseline-store.ts"
-    | "src/core/bash-effects-exec-sites.integration.test.ts"
-    | "src/core/bash-effects-exec-sites.test.ts"
     | "src/core/bash-effects-normalized.test.ts"
     | "src/core/bash-effects.test.ts"
     | "src/core/bash-effects.ts"
@@ -549,8 +547,6 @@ declare module "vigiles/generated" {
     | "src/core/session.test.ts"
     | "src/core/session.ts"
     | "src/core/settings-codec.ts"
-    | "src/core/shell-runners.test.ts"
-    | "src/core/shell-runners.ts"
     | "src/core/shell-vars.test.ts"
     | "src/core/shell-vars.ts"
     | "src/core/sidecar.test.ts"
@@ -1168,8 +1164,6 @@ declare module "vigiles/spec" {
       | "src/core/assert-never.ts"
       | "src/core/baseline-store.test.ts"
       | "src/core/baseline-store.ts"
-      | "src/core/bash-effects-exec-sites.integration.test.ts"
-      | "src/core/bash-effects-exec-sites.test.ts"
       | "src/core/bash-effects-normalized.test.ts"
       | "src/core/bash-effects.test.ts"
       | "src/core/bash-effects.ts"
@@ -1338,8 +1332,6 @@ declare module "vigiles/spec" {
       | "src/core/session.test.ts"
       | "src/core/session.ts"
       | "src/core/settings-codec.ts"
-      | "src/core/shell-runners.test.ts"
-      | "src/core/shell-runners.ts"
       | "src/core/shell-vars.test.ts"
       | "src/core/shell-vars.ts"
       | "src/core/sidecar.test.ts"

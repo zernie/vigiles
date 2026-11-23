@@ -48,7 +48,7 @@ test("a Bash-only react sees e.command on a Codex shell payload (unified exec ar
   assert.equal(runReact(pushNotice, post("Bash", "git log -1")).kind, "none");
 });
 
-test("apply_patch carries tool_input.command, and it is NOT given a CommandView", () => {
+test("apply_patch carries tool_input.command, and it is NOT given a ShellCommand", () => {
   const patch =
     "*** Begin Patch\n*** Update File: a.txt\n@@\n-git push\n+git push --force\n*** End Patch";
   const seen: boolean[] = [];

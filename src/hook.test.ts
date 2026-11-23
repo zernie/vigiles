@@ -727,7 +727,7 @@ export default experimental_defineHook({
 // just the synthetic unit fixtures in hook-install.test.ts. The seed is the
 // REAL superpowers hooks.json (a SessionStart hook), vendored under
 // test/dogfood/ (MIT, SHA-pinned).
-// E2E dogfood — the FILE-GATE role (experimental_defineFileGate + PathView.under): block a
+// E2E dogfood — the FILE-GATE role (experimental_defineFileGate + FilePath.under): block a
 // Write/Edit under a protected path, allow elsewhere. Mirrors the bash-gate
 // E2E; closes the file-gate dogfood gap (was unit-only in hook-program.test.ts).
 // Harness scope (test-both-harnesses): the deny→exit 2 path is byte-identical on

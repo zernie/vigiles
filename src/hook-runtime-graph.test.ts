@@ -225,8 +225,8 @@ export default experimental_defineReact({
     expect(
       has(graph, "mvdan-sh"),
       "a Bash react that reads only e.response pulled mvdan-sh. The react's " +
-        "CommandView must parse on the first predicate call, not when the event " +
-        "is built (core/hook-program.ts commandView).",
+        "ShellCommand must parse on the first predicate call, not when the event " +
+        "is built (core/hook-program.ts parseShellCommand).",
     ).toBe(false);
   });
 

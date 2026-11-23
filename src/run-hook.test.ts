@@ -33,7 +33,7 @@ import {
   surfacesRecorded,
 } from "./check-count.js";
 import { sandboxAvailable } from "./sandbox.js";
-import { pathView, projectRootOf } from "./core/hook-program.js";
+import { parseFilePath, projectRootOf } from "./core/hook-program.js";
 
 test("propertyHook: holds for a correct guard, finds a counterexample for a buggy one", () => {
   const CMDS = ["ls", "rm -rf /", "rm -rf foo", "git status", "cat x"];
@@ -770,7 +770,7 @@ test("…and 126/127 is distinguished from an ordinary failing exit code", () =>
 // ---------------------------------------------------------------------------
 // fileToolEvents — the helper that exists because its absence hid a dead hook.
 // Hand-built events carried the RELATIVE spelling; the harness sends the
-// ABSOLUTE one; `PathView.under` matched only the first. Returning BOTH is the
+// ABSOLUTE one; `FilePath.under` matched only the first. Returning BOTH is the
 // point, so the singular convenience is deliberately not offered.
 // ---------------------------------------------------------------------------
 
@@ -846,7 +846,7 @@ test("fileToolEvents: with no explicit root it uses $CLAUDE_PROJECT_DIR, then th
 // existed and the hook still ran — a test asserting a hook does NOT fire would
 // pass on an event that could never have made it fire.
 //
-// So this asserts the RUNTIME's own verdict (`pathView` + `projectRootOf`, the
+// So this asserts the RUNTIME's own verdict (`parseFilePath` + `projectRootOf`, the
 // pair a compiled hook uses), not the string shape — the string is what looked
 // fine while the verdict was wrong.
 // ---------------------------------------------------------------------------
@@ -855,7 +855,7 @@ test("fileToolEvents: a filesystem root stays usable — BOTH spellings still de
     const events = fileToolEvents("docs/x.md", { root });
     return events.map((e) => {
       const fp = (e.tool_input as { file_path: string }).file_path;
-      return pathView(fp, projectRootOf({ cwd: e.cwd })).under(["docs"]);
+      return parseFilePath(fp, projectRootOf({ cwd: e.cwd })).under(["docs"]);
     }) as [boolean, boolean];
   };
   for (const root of ["/", "C:\\", "C:/", "C:", "//"]) {

@@ -16,7 +16,11 @@ import {
   allow,
   deny,
   ask,
+  parseShellCommand,
   commandView,
+  pathView,
+  type CommandView,
+  type PathView,
   decideProgram,
   decisionExitCode,
   compileHookProgram,
@@ -47,7 +51,7 @@ import {
   responseView,
   isStampRepairEvent,
   isLoadPathRepairEvent,
-  pathView,
+  parseFilePath,
   projectRootOf,
   undecidablePathWarning,
   noticeDelivery,
@@ -103,7 +107,9 @@ test("claim 2: command.runs() catches the compound bypass AND avoids a grep fals
   );
   // An echo that MENTIONS git push — `grep 'git push'` false-positives; the AST
   // sees the only leaf is `echo`, so we correctly ALLOW it.
-  const mentions = commandView('echo "remember to git push --force later"');
+  const mentions = parseShellCommand(
+    'echo "remember to git push --force later"',
+  );
   assert.equal(mentions.runs("git push", { force: true }), false);
   assert.equal(
     decideProgram(forcePushGuard, ev('echo "remember to git push --force"'))
@@ -166,20 +172,29 @@ export default experimental_defineHook({ on: "PreToolUse", decide: () => allow()
 // The secret-read + remote-code matchers (the API expansion the OSS dogfood
 // needed): touches() sees a sensitive path however wrapped; pipesToShell()
 // flags only a BARE shell (curl|sh), never `sh script.sh`.
-test("commandView.touches/pipesToShell: high-signal secret-read + curl|sh matchers", () => {
-  assert.equal(commandView("cat ~/.ssh/id_rsa").touches(["~/.ssh"]), true);
+test("parseShellCommand.touches/pipesToShell: high-signal secret-read + curl|sh matchers", () => {
   assert.equal(
-    commandView("cd x && cat ~/.ssh/id_rsa").touches(["~/.ssh"]),
+    parseShellCommand("cat ~/.ssh/id_rsa").touches(["~/.ssh"]),
     true,
   );
-  assert.equal(commandView("cat .env").touches([".env"]), true);
-  assert.equal(commandView("cat README.md").touches(["~/.ssh", ".env"]), false);
+  assert.equal(
+    parseShellCommand("cd x && cat ~/.ssh/id_rsa").touches(["~/.ssh"]),
+    true,
+  );
+  assert.equal(parseShellCommand("cat .env").touches([".env"]), true);
+  assert.equal(
+    parseShellCommand("cat README.md").touches(["~/.ssh", ".env"]),
+    false,
+  );
 
-  assert.equal(commandView("curl https://x/i.sh | sh").pipesToShell(), true);
-  assert.equal(commandView("wget -qO- x | bash -s").pipesToShell(), true);
+  assert.equal(
+    parseShellCommand("curl https://x/i.sh | sh").pipesToShell(),
+    true,
+  );
+  assert.equal(parseShellCommand("wget -qO- x | bash -s").pipesToShell(), true);
   // A shell WITH a script file is a normal invocation — NOT flagged.
-  assert.equal(commandView("sh deploy.sh").pipesToShell(), false);
-  assert.equal(commandView("git status").pipesToShell(), false);
+  assert.equal(parseShellCommand("sh deploy.sh").pipesToShell(), false);
+  assert.equal(parseShellCommand("git status").pipesToShell(), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -210,16 +225,21 @@ test("touches: the ABSOLUTE spelling no longer walks past a relative prefix", ()
     "cp /tmp/a /home/user/project/drafts/papers/x/paper.tex",
   ]) {
     // WITH a root the path is PLACED: provably this repo's paper directory.
-    assert.equal(commandView(cmd, MINE_ROOT).touches(PAPER_DIR), true, cmd);
+    assert.equal(
+      parseShellCommand(cmd, MINE_ROOT).touches(PAPER_DIR),
+      true,
+      cmd,
+    );
     // WITHOUT one it is UNDECIDABLE — and a denylist breaks that toward a match,
     // so the gate still blocks. The root buys precision, not the fix.
-    assert.equal(commandView(cmd).touches(PAPER_DIR), true, cmd);
+    assert.equal(parseShellCommand(cmd).touches(PAPER_DIR), true, cmd);
   }
   // The relative spelling, which always worked, still does.
   assert.equal(
-    commandView("sed -i s/a/b/ drafts/papers/x/paper.tex", MINE_ROOT).touches(
-      PAPER_DIR,
-    ),
+    parseShellCommand(
+      "sed -i s/a/b/ drafts/papers/x/paper.tex",
+      MINE_ROOT,
+    ).touches(PAPER_DIR),
     true,
   );
 });
@@ -229,10 +249,16 @@ test("touches: over-blocking is BOUNDED — an unrelated command is still a miss
   // the prefix's segments actually occurring in the token, so ordinary work is
   // untouched with or without a root.
   for (const root of [MINE_ROOT, undefined]) {
-    assert.equal(commandView("git status", root).touches(PAPER_DIR), false);
-    assert.equal(commandView("cat README.md", root).touches(PAPER_DIR), false);
     assert.equal(
-      commandView("cp /tmp/a /home/user/project/src/x.ts", root).touches(
+      parseShellCommand("git status", root).touches(PAPER_DIR),
+      false,
+    );
+    assert.equal(
+      parseShellCommand("cat README.md", root).touches(PAPER_DIR),
+      false,
+    );
+    assert.equal(
+      parseShellCommand("cp /tmp/a /home/user/project/src/x.ts", root).touches(
         PAPER_DIR,
       ),
       false,
@@ -240,7 +266,7 @@ test("touches: over-blocking is BOUNDED — an unrelated command is still a miss
     // Same repo, adjacent directory — the near miss a sloppy `includes` would
     // swallow.
     assert.equal(
-      commandView(
+      parseShellCommand(
         "sed -i s/a/b/ /home/user/project/drafts/README.md",
         root,
       ).touches(PAPER_DIR),
@@ -254,16 +280,46 @@ test("touches vs under: ONE rule, OPPOSITE biases, on the same input", () => {
   // place it inside THIS repo, and they must disagree about what to do with that:
   // the allowlist stays quiet, the denylist blocks.
   const foreign = "/somewhere/else/drafts/papers/x/paper.tex";
-  assert.equal(pathView(foreign, MINE_ROOT).under(PAPER_DIR), false);
+  assert.equal(parseFilePath(foreign, MINE_ROOT).under(PAPER_DIR), false);
   assert.equal(
-    commandView(`sed -i s/a/b/ ${foreign}`, MINE_ROOT).touches(PAPER_DIR),
+    parseShellCommand(`sed -i s/a/b/ ${foreign}`, MINE_ROOT).touches(PAPER_DIR),
     true,
   );
   // And with no root at all, where nothing can be placed.
-  assert.equal(pathView(foreign).under(PAPER_DIR), false);
+  assert.equal(parseFilePath(foreign).under(PAPER_DIR), false);
   assert.equal(
-    commandView(`sed -i s/a/b/ ${foreign}`).touches(PAPER_DIR),
+    parseShellCommand(`sed -i s/a/b/ ${foreign}`).touches(PAPER_DIR),
     true,
+  );
+});
+
+test("a prefix means one directory however it is spelled: ./, doubled and trailing slashes, . segments", () => {
+  const spellings = [
+    "papers",
+    "./papers",
+    ".//papers//",
+    "papers/./",
+    "././papers",
+  ];
+  const inside = "papers/alpha/paper.tex";
+  const outside = "notes/alpha.tex";
+  assert.deepEqual(
+    spellings.map((p) => [
+      parseFilePath(`${MINE_ROOT}/${inside}`, MINE_ROOT).under([p]),
+      parseFilePath(`${MINE_ROOT}/${outside}`, MINE_ROOT).under([p]),
+      parseShellCommand(`echo x > ${inside}`, MINE_ROOT).writesTo([p]),
+      parseShellCommand(`echo x > ${outside}`, MINE_ROOT).writesTo([p]),
+      parseShellCommand(`cat ${inside}`, MINE_ROOT).touches([p]),
+    ]),
+    spellings.map(() => [true, false, true, false, true]),
+  );
+  // A prefix of only `.` segments keeps the meaning it had (it matches nothing):
+  // tidying a spelling must not widen it into a catch-all.
+  assert.deepEqual(
+    [".", "./"].map((p) =>
+      parseFilePath(`${MINE_ROOT}/${inside}`, MINE_ROOT).under([p]),
+    ),
+    [false, false],
   );
 });
 
@@ -271,24 +327,30 @@ test("under is UNCHANGED by the shared rule — the allowlist keeps its bias", (
   // Regression guard: `under` accepts the "under" verdict only, so widening the
   // undecidable bucket for the denylists cannot leak a grant into it.
   assert.equal(
-    pathView("/home/user/project/src/x.ts", MINE_ROOT).under(["src"]),
+    parseFilePath("/home/user/project/src/x.ts", MINE_ROOT).under(["src"]),
     true,
   );
-  assert.equal(pathView("src/x.ts").under(["src"]), true);
-  assert.equal(pathView("/home/user/project/src/x.ts").under(["src"]), false);
-  assert.equal(pathView("/etc/passwd", MINE_ROOT).under(["etc"]), false);
-  assert.equal(pathView("/etc/passwd", MINE_ROOT).under(["/etc"]), true);
+  assert.equal(parseFilePath("src/x.ts").under(["src"]), true);
+  assert.equal(
+    parseFilePath("/home/user/project/src/x.ts").under(["src"]),
+    false,
+  );
+  assert.equal(parseFilePath("/etc/passwd", MINE_ROOT).under(["etc"]), false);
+  assert.equal(parseFilePath("/etc/passwd", MINE_ROOT).under(["/etc"]), true);
   // A path INSIDE the root but not under the prefix, whose name nonetheless
   // contains the prefix's segments — `undecidable` for a denylist, still a flat
   // miss here.
   assert.equal(
-    pathView("/home/user/project/vendor/src/x.ts", MINE_ROOT).under(["src"]),
+    parseFilePath("/home/user/project/vendor/src/x.ts", MINE_ROOT).under([
+      "src",
+    ]),
     false,
   );
   assert.equal(
-    commandView("cat /home/user/project/vendor/src/x.ts", MINE_ROOT).touches([
-      "src",
-    ]),
+    parseShellCommand(
+      "cat /home/user/project/vendor/src/x.ts",
+      MINE_ROOT,
+    ).touches(["src"]),
     true,
   );
 });
@@ -296,19 +358,22 @@ test("under is UNCHANGED by the shared rule — the allowlist keeps its bias", (
 test("writesTo: the same denylist bias, because it has the same job", () => {
   const abs = "/home/user/project/drafts/papers/x/paper.tex";
   assert.equal(
-    commandView(`echo x > ${abs}`, MINE_ROOT).writesTo(PAPER_DIR),
+    parseShellCommand(`echo x > ${abs}`, MINE_ROOT).writesTo(PAPER_DIR),
     true,
   );
   assert.equal(
-    commandView(`sed -i s/a/b/ ${abs}`, MINE_ROOT).writesTo(PAPER_DIR),
+    parseShellCommand(`sed -i s/a/b/ ${abs}`, MINE_ROOT).writesTo(PAPER_DIR),
     true,
   );
-  assert.equal(commandView(`echo x > ${abs}`).writesTo(PAPER_DIR), true);
+  assert.equal(parseShellCommand(`echo x > ${abs}`).writesTo(PAPER_DIR), true);
   // Still a WRITE matcher: reading the same absolute path is not one.
-  assert.equal(commandView(`cat ${abs}`, MINE_ROOT).writesTo(PAPER_DIR), false);
+  assert.equal(
+    parseShellCommand(`cat ${abs}`, MINE_ROOT).writesTo(PAPER_DIR),
+    false,
+  );
   // Still not a guess: an unresolvable target matches nothing.
   assert.equal(
-    commandView('echo x > "$OUT"', MINE_ROOT).writesTo(PAPER_DIR),
+    parseShellCommand('echo x > "$OUT"', MINE_ROOT).writesTo(PAPER_DIR),
     false,
   );
 });
@@ -317,12 +382,15 @@ test("touches: a TRAILING SLASH in the prefix no longer matches nothing", () => 
   // `tokenUnder` tested `startsWith(prefix + "/")`, so "papers/" became
   // "papers//" and a guard written that way silently matched NOTHING — a trap
   // recorded in a shipped guard's own header after it shipped.
-  assert.equal(commandView("cat papers/x/paper.md").touches(["papers/"]), true);
   assert.equal(
-    commandView("cat papers/x/paper.md").touches(["papers/**"]),
+    parseShellCommand("cat papers/x/paper.md").touches(["papers/"]),
     true,
   );
-  assert.equal(commandView("cat other/x.md").touches(["papers/"]), false);
+  assert.equal(
+    parseShellCommand("cat papers/x/paper.md").touches(["papers/**"]),
+    true,
+  );
+  assert.equal(parseShellCommand("cat other/x.md").touches(["papers/"]), false);
 });
 
 test("decideProgram threads the root, so a gate sees both spellings alike", () => {
@@ -394,32 +462,43 @@ test("decideProgram threads the root, so a gate sees both spellings alike", () =
 // `grep -c x notes/S.md 2>/dev/null` classified side-effecting, touches()
 // matched, and a plain READ got blocked. That happened twice within an hour.
 // ---------------------------------------------------------------------------
-test("commandView.writesTo: a redirection target is a write, wherever it hides", () => {
+test("parseShellCommand.writesTo: a redirection target is a write, wherever it hides", () => {
   assert.equal(
-    commandView("echo x > papers/x/paper.md").writesTo(["papers"]),
+    parseShellCommand("echo x > papers/x/paper.md").writesTo(["papers"]),
     true,
   );
   assert.equal(
-    commandView("echo x >> papers/x/paper.md").writesTo(["papers"]),
+    parseShellCommand("echo x >> papers/x/paper.md").writesTo(["papers"]),
     true,
   );
-  assert.equal(commandView("echo x >| papers/p.md").writesTo(["papers"]), true);
-  assert.equal(commandView("cmd &> papers/p.md").writesTo(["papers"]), true);
+  assert.equal(
+    parseShellCommand("echo x >| papers/p.md").writesTo(["papers"]),
+    true,
+  );
+  assert.equal(
+    parseShellCommand("cmd &> papers/p.md").writesTo(["papers"]),
+    true,
+  );
   // Nested in a compound command / pipeline, exactly like runs().
   assert.equal(
-    commandView("cd x && echo hi > papers/n.md").writesTo(["papers"]),
+    parseShellCommand("cd x && echo hi > papers/n.md").writesTo(["papers"]),
     true,
   );
   assert.equal(
-    commandView("curl -s http://x | tee papers/n.md").writesTo(["papers"]),
+    parseShellCommand("curl -s http://x | tee papers/n.md").writesTo([
+      "papers",
+    ]),
     true,
   );
   // A dynamic target is unresolvable — reported as no match, never guessed.
-  assert.equal(commandView('echo x > "$OUT"').writesTo(["papers"]), false);
+  assert.equal(
+    parseShellCommand('echo x > "$OUT"').writesTo(["papers"]),
+    false,
+  );
 });
 
-test("commandView.writesTo: a READ is never a write (the false-block regression)", () => {
-  const read = commandView("grep -c x notes/S.md 2>/dev/null");
+test("parseShellCommand.writesTo: a READ is never a write (the false-block regression)", () => {
+  const read = parseShellCommand("grep -c x notes/S.md 2>/dev/null");
   // touches() matches (the path IS mentioned) and the whole line classifies
   // side-effecting because of the redirection — the exact pair that blocked real
   // reads. writesTo() separates them.
@@ -427,58 +506,76 @@ test("commandView.writesTo: a READ is never a write (the false-block regression)
   assert.equal(read.isSideEffecting(), true);
   assert.equal(read.writesTo(["notes"]), false);
 
-  assert.equal(commandView("cat notes/S.md").writesTo(["notes"]), false);
-  assert.equal(commandView("cat < notes/S.md").writesTo(["notes"]), false);
-  assert.equal(commandView("ls notes 2>&1").writesTo(["notes"]), false);
+  assert.equal(parseShellCommand("cat notes/S.md").writesTo(["notes"]), false);
+  assert.equal(
+    parseShellCommand("cat < notes/S.md").writesTo(["notes"]),
+    false,
+  );
+  assert.equal(parseShellCommand("ls notes 2>&1").writesTo(["notes"]), false);
   // An fd-dup's "target" is an fd, not a path.
-  assert.equal(commandView("cmd 2>&1 > /tmp/o").writesTo(["notes"]), false);
+  assert.equal(
+    parseShellCommand("cmd 2>&1 > /tmp/o").writesTo(["notes"]),
+    false,
+  );
 });
 
-test("commandView.writesTo: quoting is handled by the PARSER, not a regex", () => {
+test("parseShellCommand.writesTo: quoting is handled by the PARSER, not a regex", () => {
   // The real target is /tmp/note.txt; the `> a/paper.md` inside the quoted word
   // is data, not a redirection. A regex over the raw string gets this wrong.
-  const v = commandView("echo 'echo y > a/paper.md' > /tmp/note.txt");
+  const v = parseShellCommand("echo 'echo y > a/paper.md' > /tmp/note.txt");
   assert.equal(v.writesTo(["a"]), false);
   assert.equal(v.writesTo(["/tmp"]), true);
 });
 
-test("commandView.writesTo: file-writing programs, at the position that writes", () => {
+test("parseShellCommand.writesTo: file-writing programs, at the position that writes", () => {
   // sed edits in place ONLY with -i; the script operand is not a file.
-  const sed = commandView("sed -i s/a/b/ papers/x.md");
+  const sed = parseShellCommand("sed -i s/a/b/ papers/x.md");
   assert.equal(sed.writesTo(["papers"]), true);
-  assert.equal(commandView("sed s/a/b/ papers/x.md").writesTo(["papers"]), false); // prettier-ignore
+  assert.equal(parseShellCommand("sed s/a/b/ papers/x.md").writesTo(["papers"]), false); // prettier-ignore
   assert.equal(
-    commandView("sed -i -e s/a/b/ papers/x.md").writesTo(["papers"]),
+    parseShellCommand("sed -i -e s/a/b/ papers/x.md").writesTo(["papers"]),
     true,
   );
   // cp/mv/install write the DESTINATION; the sources are read.
-  assert.equal(commandView("cp /tmp/y papers/x.md").writesTo(["papers"]), true);
   assert.equal(
-    commandView("cp papers/x.md /tmp/y").writesTo(["papers"]),
+    parseShellCommand("cp /tmp/y papers/x.md").writesTo(["papers"]),
+    true,
+  );
+  assert.equal(
+    parseShellCommand("cp papers/x.md /tmp/y").writesTo(["papers"]),
     false,
   );
-  assert.equal(commandView("mv /tmp/y papers/x.md").writesTo(["papers"]), true);
   assert.equal(
-    commandView("install -m 644 src/a papers/a").writesTo(["papers"]),
+    parseShellCommand("mv /tmp/y papers/x.md").writesTo(["papers"]),
+    true,
+  );
+  assert.equal(
+    parseShellCommand("install -m 644 src/a papers/a").writesTo(["papers"]),
     true,
   );
   // tee / truncate / shred write every operand; dd writes only `of=`.
-  assert.equal(commandView("sudo tee papers/n.md").writesTo(["papers"]), true);
   assert.equal(
-    commandView("truncate -s 0 papers/x.md").writesTo(["papers"]),
-    true,
-  );
-  assert.equal(commandView("shred papers/a").writesTo(["papers"]), true);
-  assert.equal(
-    commandView("dd if=/dev/zero of=papers/x.md").writesTo(["papers"]),
+    parseShellCommand("sudo tee papers/n.md").writesTo(["papers"]),
     true,
   );
   assert.equal(
-    commandView("dd if=papers/x.md of=/tmp/o").writesTo(["papers"]),
+    parseShellCommand("truncate -s 0 papers/x.md").writesTo(["papers"]),
+    true,
+  );
+  assert.equal(parseShellCommand("shred papers/a").writesTo(["papers"]), true);
+  assert.equal(
+    parseShellCommand("dd if=/dev/zero of=papers/x.md").writesTo(["papers"]),
+    true,
+  );
+  assert.equal(
+    parseShellCommand("dd if=papers/x.md of=/tmp/o").writesTo(["papers"]),
     false,
   );
   // An unlisted head contributes no write target — no guessing.
-  assert.equal(commandView("wc -l papers/x.md").writesTo(["papers"]), false);
+  assert.equal(
+    parseShellCommand("wc -l papers/x.md").writesTo(["papers"]),
+    false,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -491,26 +588,30 @@ test("commandView.writesTo: file-writing programs, at the position that writes",
 // where the guard's `runs()` conjunct read raw leaves while `writesTo` read
 // normalized ones and the two disagreed.
 // ---------------------------------------------------------------------------
-test("commandView.writeTargets: names the file, from both write sources", () => {
+test("parseShellCommand.writeTargets: names the file, from both write sources", () => {
   // Redirection target.
   assert.deepEqual(
-    commandView("echo x > papers/x/paper.md").writeTargets(["papers"]),
+    parseShellCommand("echo x > papers/x/paper.md").writeTargets(["papers"]),
     ["papers/x/paper.md"],
   );
   // File-writing program, at the argv position that writes.
   assert.deepEqual(
-    commandView("sed -i s/a/b/ papers/x/paper.tex").writeTargets(["papers"]),
+    parseShellCommand("sed -i s/a/b/ papers/x/paper.tex").writeTargets([
+      "papers",
+    ]),
     ["papers/x/paper.tex"],
   );
   // cp/mv report the DESTINATION only — the source is read, and the list is
   // where that distinction becomes visible rather than merely true.
   assert.deepEqual(
-    commandView("cp papers/draft.md papers/final.md").writeTargets(["papers"]),
+    parseShellCommand("cp papers/draft.md papers/final.md").writeTargets([
+      "papers",
+    ]),
     ["papers/final.md"],
   );
   // Several leaves, in order of appearance, exact duplicates collapsed.
   assert.deepEqual(
-    commandView(
+    parseShellCommand(
       "sed -i s/a/b/ papers/b.md && echo x > papers/a.md && tee papers/b.md",
     ).writeTargets(["papers"]),
     ["papers/b.md", "papers/a.md"],
@@ -518,44 +619,57 @@ test("commandView.writeTargets: names the file, from both write sources", () => 
   // Spelling is as-written after normalization: the parser removed the quotes,
   // so the consumer never sees them and never needs an `unquote` of its own.
   assert.deepEqual(
-    commandView('sed -i s/a/b/ "papers/x/paper.tex"').writeTargets(["papers"]),
+    parseShellCommand('sed -i s/a/b/ "papers/x/paper.tex"').writeTargets([
+      "papers",
+    ]),
     ["papers/x/paper.tex"],
   );
 });
 
-test("commandView.writeTargets: empty on a read, a quoted mention, or a path outside the prefixes", () => {
+test("parseShellCommand.writeTargets: empty on a read, a quoted mention, or a path outside the prefixes", () => {
   // A READ is not a write — the false-block regression, asked the other way.
-  assert.deepEqual(commandView("cat papers/x.md").writeTargets(["papers"]), []);
   assert.deepEqual(
-    commandView("grep -c x papers/x.md 2>/dev/null").writeTargets(["papers"]),
+    parseShellCommand("cat papers/x.md").writeTargets(["papers"]),
     [],
   );
   assert.deepEqual(
-    commandView("cp papers/x.md /tmp/y").writeTargets(["papers"]),
+    parseShellCommand("grep -c x papers/x.md 2>/dev/null").writeTargets([
+      "papers",
+    ]),
+    [],
+  );
+  assert.deepEqual(
+    parseShellCommand("cp papers/x.md /tmp/y").writeTargets(["papers"]),
     [],
   );
   // A write QUOTED inside another command is data, not a redirection.
-  const quoted = commandView("echo 'echo y > papers/x.md' > /tmp/note.txt");
+  const quoted = parseShellCommand(
+    "echo 'echo y > papers/x.md' > /tmp/note.txt",
+  );
   assert.deepEqual(quoted.writeTargets(["papers"]), []);
   assert.deepEqual(quoted.writeTargets(["/tmp"]), ["/tmp/note.txt"]);
   // A real write, outside the prefixes asked about: the filter is the API, and
   // handing back the unfiltered list is what this signature refuses to do.
   assert.deepEqual(
-    commandView("sed -i s/a/b/ src/x.ts", MINE_ROOT).writeTargets(["papers"]),
+    parseShellCommand("sed -i s/a/b/ src/x.ts", MINE_ROOT).writeTargets([
+      "papers",
+    ]),
     [],
   );
   assert.deepEqual(
-    commandView("echo x > /etc/hosts", MINE_ROOT).writeTargets(["papers"]),
+    parseShellCommand("echo x > /etc/hosts", MINE_ROOT).writeTargets([
+      "papers",
+    ]),
     [],
   );
   // An unresolvable target is never guessed at, so it cannot appear.
   assert.deepEqual(
-    commandView('echo x > "$OUT"', MINE_ROOT).writeTargets(["papers"]),
+    parseShellCommand('echo x > "$OUT"', MINE_ROOT).writeTargets(["papers"]),
     [],
   );
 });
 
-test("commandView.writeTargets: a leaf's own chdir wrapper resolves; a preceding `cd` does NOT", () => {
+test("parseShellCommand.writeTargets: a leaf's own chdir wrapper resolves; a preceding `cd` does NOT", () => {
   // MEASURED before this change (root set, prefix `drafts/papers`):
   //   sed -i s/a/b/ drafts/papers/x/paper.tex          → true
   //   env -C drafts sed -i s/a/b/ papers/x/paper.tex   → FALSE, silently
@@ -570,15 +684,19 @@ test("commandView.writeTargets: a leaf's own chdir wrapper resolves; a preceding
     "env -C drafts/papers/x sed -i s/a/b/ paper.tex",
   ]) {
     assert.deepEqual(
-      commandView(cmd, MINE_ROOT).writeTargets(PAPER_DIR),
+      parseShellCommand(cmd, MINE_ROOT).writeTargets(PAPER_DIR),
       ["drafts/papers/x/paper.tex"],
       cmd,
     );
-    assert.equal(commandView(cmd, MINE_ROOT).writesTo(PAPER_DIR), true, cmd);
+    assert.equal(
+      parseShellCommand(cmd, MINE_ROOT).writesTo(PAPER_DIR),
+      true,
+      cmd,
+    );
   }
   // Nested wrappers layer, rather than the innermost one winning.
   assert.deepEqual(
-    commandView(
+    parseShellCommand(
       "sudo -D drafts env -C papers sed -i s/a/b/ x/paper.tex",
       MINE_ROOT,
     ).writeTargets(PAPER_DIR),
@@ -588,7 +706,7 @@ test("commandView.writeTargets: a leaf's own chdir wrapper resolves; a preceding
   // table is keyed by head. Read as one shared set, this reports `5/papers/x.tex`
   // — a directory that does not exist, from a file descriptor.
   assert.deepEqual(
-    commandView("sudo -C 5 sed -i s/a/b/ papers/x.tex").writeTargets([
+    parseShellCommand("sudo -C 5 sed -i s/a/b/ papers/x.tex").writeTargets([
       "papers",
     ]),
     ["papers/x.tex"],
@@ -596,16 +714,16 @@ test("commandView.writeTargets: a leaf's own chdir wrapper resolves; a preceding
   // A REDIRECTION is opened by the SHELL, in the shell's directory — `-C` moves
   // only the process `env` execs. Joining it would name a file nothing writes.
   assert.deepEqual(
-    commandView(
+    parseShellCommand(
       "env -C drafts echo hi > papers/x/paper.md",
       MINE_ROOT,
     ).writeTargets(PAPER_DIR),
     [],
   );
   assert.deepEqual(
-    commandView("env -C drafts echo hi > papers/x/paper.md").writeTargets([
-      "papers",
-    ]),
+    parseShellCommand("env -C drafts echo hi > papers/x/paper.md").writeTargets(
+      ["papers"],
+    ),
     ["papers/x/paper.md"],
   );
   // ⚠️ CHARACTERIZATION, NOT AN ENDORSEMENT. A cwd changed by a PRECEDING
@@ -615,7 +733,7 @@ test("commandView.writeTargets: a leaf's own chdir wrapper resolves; a preceding
   // direction is ALLOW, which is the wrong one for a denylist, so it is pinned
   // here to make the day it closes loud instead of silent.
   assert.deepEqual(
-    commandView(
+    parseShellCommand(
       "cd drafts && sed -i s/a/b/ papers/x/paper.tex",
       MINE_ROOT,
     ).writeTargets(PAPER_DIR),
@@ -623,7 +741,7 @@ test("commandView.writeTargets: a leaf's own chdir wrapper resolves; a preceding
   );
 });
 
-test("commandView.writesTo is DERIVED from writeTargets — one code path, no drift", () => {
+test("parseShellCommand.writesTo is DERIVED from writeTargets — one code path, no drift", () => {
   // The boolean is `writeTargets(p).length > 0` and nothing else. Two
   // implementations of one rule is how `runs()` (raw leaves) and `writesTo`
   // (normalized leaves) came to disagree inside a single gate, so the agreement
@@ -650,7 +768,7 @@ test("commandView.writesTo is DERIVED from writeTargets — one code path, no dr
     "git status",
   ]) {
     for (const root of [MINE_ROOT, undefined]) {
-      const v = commandView(cmd, root);
+      const v = parseShellCommand(cmd, root);
       assert.equal(
         v.writesTo(PAPER_DIR),
         v.writeTargets(PAPER_DIR).length > 0,
@@ -662,7 +780,9 @@ test("commandView.writesTo is DERIVED from writeTargets — one code path, no dr
   // so a sibling checkout's copy comes back as a target rather than as silence.
   const foreign = "/somewhere/else/drafts/papers/x/paper.tex";
   assert.deepEqual(
-    commandView(`sed -i s/a/b/ ${foreign}`, MINE_ROOT).writeTargets(PAPER_DIR),
+    parseShellCommand(`sed -i s/a/b/ ${foreign}`, MINE_ROOT).writeTargets(
+      PAPER_DIR,
+    ),
     [foreign],
   );
 });
@@ -1527,7 +1647,7 @@ test("isLoadPathRepairEvent: NO Bash command is a repair — the git escape is g
 });
 
 // ===========================================================================
-// pathView + the PROJECT MINE — the defect that made every file-tool hook dead
+// parseFilePath + the PROJECT MINE — the defect that made every file-tool hook dead
 // for the only spelling the real harness ever sends.
 //
 // MEASURED 2026-08-12 on the live runtime, one compiled react hook, two
@@ -1546,51 +1666,60 @@ test("isLoadPathRepairEvent: NO Bash command is a repair — the git escape is g
 
 const MINE = "/home/user/project";
 
-test("pathView: an ABSOLUTE path under the root matches a repo-relative prefix", () => {
-  const p = pathView(`${MINE}/drafts/papers/x/main.tex`, MINE);
+test("parseFilePath: an ABSOLUTE path under the root matches a repo-relative prefix", () => {
+  const p = parseFilePath(`${MINE}/drafts/papers/x/main.tex`, MINE);
   assert.equal(p.under(["drafts/papers/"]), true);
   assert.equal(p.rel, "drafts/papers/x/main.tex");
   // The pre-fix behaviour, kept visible: with NO root the same path is a miss.
   assert.equal(
-    pathView(`${MINE}/drafts/papers/x/main.tex`).under(["drafts/papers/"]),
+    parseFilePath(`${MINE}/drafts/papers/x/main.tex`).under(["drafts/papers/"]),
     false,
   );
 });
 
-test("pathView: the RELATIVE spelling keeps matching, root or no root", () => {
+test("parseFilePath: the RELATIVE spelling keeps matching, root or no root", () => {
   for (const root of [MINE, undefined]) {
-    const p = pathView("drafts/papers/x/main.tex", root);
+    const p = parseFilePath("drafts/papers/x/main.tex", root);
     assert.equal(p.under(["drafts/papers/"]), true, `root=${String(root)}`);
-    assert.equal(p.under(["./drafts/papers"]), false); // a prefix is not a path
+    // A leading `./` on the PREFIX names the same directory. This line used to
+    // assert `false`, and that was the bug: a denylist handed `./drafts/papers`
+    // from a config file then guarded nothing, while looking installed.
+    assert.equal(p.under(["./drafts/papers"]), true);
     assert.equal(p.under(["health"]), false);
   }
   // `./` on the PATH is stripped in both modes.
-  assert.equal(pathView("./src/x.ts").under(["src"]), true);
-  assert.equal(pathView("./src/x.ts", MINE).under(["src"]), true);
+  assert.equal(parseFilePath("./src/x.ts").under(["src"]), true);
+  assert.equal(parseFilePath("./src/x.ts", MINE).under(["src"]), true);
 });
 
-test("pathView: a SIBLING checkout never matches — the resolveRef lesson, again", () => {
+test("parseFilePath: a SIBLING checkout never matches — the resolveRef lesson, again", () => {
   // Same tail, different repo. A suffix comparison would hand this a grant
   // meant for THIS repo; `resolveRef` already paid for that hole once.
-  const other = pathView("/home/user/other/drafts/papers/x/main.tex", MINE);
+  const other = parseFilePath(
+    "/home/user/other/drafts/papers/x/main.tex",
+    MINE,
+  );
   assert.equal(other.under(["drafts/papers/"]), false);
   assert.equal(other.rel, undefined);
   // And a path outside the root entirely.
-  const outside = pathView("/etc/passwd", MINE);
+  const outside = parseFilePath("/etc/passwd", MINE);
   assert.equal(outside.under(["etc"]), false);
   assert.equal(outside.rel, undefined);
 });
 
-test("pathView: an ABSOLUTE prefix matches the absolute path — in BOTH spellings", () => {
-  assert.equal(pathView("/etc/passwd").under(["/etc"]), true); // no root needed
-  assert.equal(pathView("/etc/passwd", MINE).under(["/etc"]), true);
+test("parseFilePath: an ABSOLUTE prefix matches the absolute path — in BOTH spellings", () => {
+  assert.equal(parseFilePath("/etc/passwd").under(["/etc"]), true); // no root needed
+  assert.equal(parseFilePath("/etc/passwd", MINE).under(["/etc"]), true);
   // With a root, a relative PATH resolves and can match an absolute PREFIX.
-  assert.equal(pathView("drafts/x.md", MINE).under([`${MINE}/drafts`]), true);
-  assert.equal(pathView("drafts/x.md").under([`${MINE}/drafts`]), false);
+  assert.equal(
+    parseFilePath("drafts/x.md", MINE).under([`${MINE}/drafts`]),
+    true,
+  );
+  assert.equal(parseFilePath("drafts/x.md").under([`${MINE}/drafts`]), false);
 });
 
-test("pathView: prefix spellings — trailing slash, glob tail, catch-all", () => {
-  const p = pathView(`${MINE}/src/x.ts`, MINE);
+test("parseFilePath: prefix spellings — trailing slash, glob tail, catch-all", () => {
+  const p = parseFilePath(`${MINE}/src/x.ts`, MINE);
   for (const prefix of ["src", "src/", "src/**", "src/*"]) {
     assert.equal(p.under([prefix]), true, prefix);
   }
@@ -1600,42 +1729,48 @@ test("pathView: prefix spellings — trailing slash, glob tail, catch-all", () =
   assert.equal(p.under([]), false);
 });
 
-test("pathView: dot segments and a root with a trailing slash normalize", () => {
+test("parseFilePath: dot segments and a root with a trailing slash normalize", () => {
   assert.equal(
-    pathView(`${MINE}/drafts/./papers/x.tex`, `${MINE}/`).under([
+    parseFilePath(`${MINE}/drafts/./papers/x.tex`, `${MINE}/`).under([
       "drafts/papers",
     ]),
     true,
   );
   assert.equal(
-    pathView(`${MINE}/drafts/../health/x.md`, MINE).under(["drafts"]),
+    parseFilePath(`${MINE}/drafts/../health/x.md`, MINE).under(["drafts"]),
     false,
   );
   // The root itself is `""` relative — under a catch-all, under nothing named.
-  assert.equal(pathView(MINE, MINE).rel, "");
+  assert.equal(parseFilePath(MINE, MINE).rel, "");
 });
 
-test("pathView: a RELATIVE root is no root — it must not turn /etc/passwd into etc/passwd", () => {
+test("parseFilePath: a RELATIVE root is no root — it must not turn /etc/passwd into etc/passwd", () => {
   // `resolveRef(".", ".")` collapses to `""`, so a naive implementation strips
   // the leading slash and reports an absolute system path as repo-relative — a
   // FALSE GRANT for a confinement gate, on an input Claude Code never sends but
   // a test or a hand-rolled runner easily can.
   for (const root of [".", "", "repo", "./repo"]) {
-    const p = pathView("/etc/passwd", root);
+    const p = parseFilePath("/etc/passwd", root);
     assert.equal(p.rel, undefined, `root=${JSON.stringify(root)}`);
     assert.equal(p.under(["etc"]), false, `root=${JSON.stringify(root)}`);
     assert.equal(p.under(["/etc"]), true); // the absolute prefix still works
   }
   // A relative PATH with a relative root keeps behaving as if there were none.
-  assert.equal(pathView("src/x.ts", ".").under(["src"]), true);
+  assert.equal(parseFilePath("src/x.ts", ".").under(["src"]), true);
 });
 
-test("pathView: a Windows drive root relates the two spellings the same way", () => {
-  const p = pathView("C:/repo/src/x.ts", "C:/repo");
+test("parseFilePath: a Windows drive root relates the two spellings the same way", () => {
+  const p = parseFilePath("C:/repo/src/x.ts", "C:/repo");
   assert.equal(p.rel, "src/x.ts");
   assert.equal(p.under(["src"]), true);
-  assert.equal(pathView("C:\\repo\\src\\x.ts", "C:/repo").under(["src"]), true);
-  assert.equal(pathView("C:/other/src/x.ts", "C:/repo").under(["src"]), false);
+  assert.equal(
+    parseFilePath("C:\\repo\\src\\x.ts", "C:/repo").under(["src"]),
+    true,
+  );
+  assert.equal(
+    parseFilePath("C:/other/src/x.ts", "C:/repo").under(["src"]),
+    false,
+  );
 });
 
 test("projectRootOf: $CLAUDE_PROJECT_DIR wins, the event's cwd is the fallback, cwd() is never asked", () => {
@@ -1773,20 +1908,20 @@ test("runHookProgram: the dispatcher threads the root to both file roles", () =>
 // everything and a react hook that never fires both look like decisions.
 // ---------------------------------------------------------------------------
 test("under: a drive-root prefix still matches (the separator IS the path)", () => {
-  assert.equal(pathView("C:/repo/x", "C:/repo").under(["C:/"]), true);
-  assert.equal(pathView("C:/repo/x", "C:/repo").under(["C:\\"]), true);
+  assert.equal(parseFilePath("C:/repo/x", "C:/repo").under(["C:/"]), true);
+  assert.equal(parseFilePath("C:/repo/x", "C:/repo").under(["C:\\"]), true);
   // and the POSIX twin
-  assert.equal(pathView("/repo/x", "/repo").under(["/"]), true);
+  assert.equal(parseFilePath("/repo/x", "/repo").under(["/"]), true);
 });
 
 test("under: a drive root does not swallow a DIFFERENT drive", () => {
-  assert.equal(pathView("D:/repo/x", "D:/repo").under(["C:/"]), false);
+  assert.equal(parseFilePath("D:/repo/x", "D:/repo").under(["C:/"]), false);
 });
 
 test("under: an ordinary trailing slash is still trimmed", () => {
-  assert.equal(pathView("/repo/src/a.ts", "/repo").under(["src/"]), true);
-  assert.equal(pathView("/repo/src/a.ts", "/repo").under(["src"]), true);
-  assert.equal(pathView("/repo/srcx/a.ts", "/repo").under(["src"]), false);
+  assert.equal(parseFilePath("/repo/src/a.ts", "/repo").under(["src/"]), true);
+  assert.equal(parseFilePath("/repo/src/a.ts", "/repo").under(["src"]), true);
+  assert.equal(parseFilePath("/repo/srcx/a.ts", "/repo").under(["src"]), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -1799,28 +1934,28 @@ test("under: an ordinary trailing slash is still trimmed", () => {
 test("under: a catch-all matches a RELATIVE path with no root", () => {
   for (const prefix of ["**", "*", "/"]) {
     assert.equal(
-      pathView("src/x.ts").under([prefix]),
+      parseFilePath("src/x.ts").under([prefix]),
       true,
       `${prefix} must match a relative path with no root`,
     );
     assert.equal(
-      pathView("anything/at/all.md").under([prefix]),
+      parseFilePath("anything/at/all.md").under([prefix]),
       true,
       `${prefix} must match ANY relative path with no root`,
     );
   }
   // A non-catch-all prefix is unaffected: still matched on its own terms.
-  assert.equal(pathView("src/x.ts").under(["src/**"]), true);
-  assert.equal(pathView("other/x.ts").under(["src/**"]), false);
+  assert.equal(parseFilePath("src/x.ts").under(["src/**"]), true);
+  assert.equal(parseFilePath("other/x.ts").under(["src/**"]), false);
 });
 
 test("under: a catch-all still matches when a root IS known", () => {
-  assert.equal(pathView("/repo/src/x.ts", "/repo").under(["**"]), true);
-  assert.equal(pathView("C:/repo/x", "C:/repo").under(["**"]), true);
+  assert.equal(parseFilePath("/repo/src/x.ts", "/repo").under(["**"]), true);
+  assert.equal(parseFilePath("C:/repo/x", "C:/repo").under(["**"]), true);
 });
 
 test("under: a drive root is NOT a catch-all — a different drive stays outside", () => {
-  assert.equal(pathView("D:/repo/x", "D:/repo").under(["C:/"]), false);
+  assert.equal(parseFilePath("D:/repo/x", "D:/repo").under(["C:/"]), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -1830,8 +1965,14 @@ test("under: a drive root is NOT a catch-all — a different drive stays outside
 // fold is drive-rooted-only, and both halves are pinned here.
 // ---------------------------------------------------------------------------
 test("under: a drive-rooted path matches its root case-insensitively", () => {
-  assert.equal(pathView("c:/repo/src/x.ts", "C:/Repo").under(["src"]), true);
-  assert.equal(pathView("C:/REPO/src/x.ts", "c:/repo").under(["src"]), true);
+  assert.equal(
+    parseFilePath("c:/repo/src/x.ts", "C:/Repo").under(["src"]),
+    true,
+  );
+  assert.equal(
+    parseFilePath("C:/REPO/src/x.ts", "c:/repo").under(["src"]),
+    true,
+  );
 });
 
 test("under: POSIX stays case-SENSITIVE — folding there would invent a match", () => {
@@ -1839,10 +1980,13 @@ test("under: POSIX stays case-SENSITIVE — folding there would invent a match",
   // On Linux `/REPO` and `/repo` are two different directories, so a file in one
   // is not in the other. Fold here and an allowlist gate would accept a path
   // from a DIFFERENT tree — a false grant, the direction we never take.
-  assert.equal(pathView("/repo/src/x.ts", "/REPO").under(["src"]), false);
-  assert.equal(pathView("/repo/src/x.ts", "/repo").under(["src"]), true);
+  assert.equal(parseFilePath("/repo/src/x.ts", "/REPO").under(["src"]), false);
+  assert.equal(parseFilePath("/repo/src/x.ts", "/repo").under(["src"]), true);
   // A weaker sibling: prefix comparison keeps the path's own casing either way.
-  assert.equal(pathView("/repo/Secrets/x", "/repo").under(["secrets"]), false);
+  assert.equal(
+    parseFilePath("/repo/Secrets/x", "/repo").under(["secrets"]),
+    false,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1854,22 +1998,22 @@ test("under: POSIX stays case-SENSITIVE — folding there would invent a match",
 // ---------------------------------------------------------------------------
 test("under: an ABSOLUTE drive-rooted prefix folds case too", () => {
   assert.equal(
-    pathView("c:/repo/secrets/x", "C:/repo").under(["C:/Repo/Secrets"]),
+    parseFilePath("c:/repo/secrets/x", "C:/repo").under(["C:/Repo/Secrets"]),
     true,
   );
   assert.equal(
-    pathView("C:/REPO/SECRETS/x", "c:/repo").under(["c:/repo/secrets"]),
+    parseFilePath("C:/REPO/SECRETS/x", "c:/repo").under(["c:/repo/secrets"]),
     true,
   );
 });
 
 test("under: an absolute POSIX prefix stays case-SENSITIVE", () => {
   assert.equal(
-    pathView("/repo/secrets/x", "/repo").under(["/repo/Secrets"]),
+    parseFilePath("/repo/secrets/x", "/repo").under(["/repo/Secrets"]),
     false,
   );
   assert.equal(
-    pathView("/repo/secrets/x", "/repo").under(["/repo/secrets"]),
+    parseFilePath("/repo/secrets/x", "/repo").under(["/repo/secrets"]),
     true,
   );
 });
@@ -1877,7 +2021,7 @@ test("under: an absolute POSIX prefix stays case-SENSITIVE", () => {
 test("touches: the denylist fallback folds on a drive-rooted prefix", () => {
   // No root known — the answer must be `undecidable`, which a denylist reads as
   // a match. Case-sensitive, this missed and the write went through.
-  const v = commandView('cp /tmp/a "C:/Repo/Secrets/x.txt"');
+  const v = parseShellCommand('cp /tmp/a "C:/Repo/Secrets/x.txt"');
   assert.equal(v.touches(["C:/repo/secrets"]), true);
 });
 
@@ -1897,16 +2041,19 @@ test("touches: a QUOTED path does not walk through the denylist", () => {
     'sed -i s/a/b/ "papers/x.tex"',
     "cp /tmp/a papers/x.tex",
   ]) {
-    assert.equal(commandView(cmd).touches(["papers"]), true, cmd);
+    assert.equal(parseShellCommand(cmd).touches(["papers"]), true, cmd);
   }
 });
 
 test("touches: quoting does not make an unrelated path match either", () => {
   assert.equal(
-    commandView('cp /tmp/a "other/x.tex"').touches(["papers"]),
+    parseShellCommand('cp /tmp/a "other/x.tex"').touches(["papers"]),
     false,
   );
-  assert.equal(commandView("cp /tmp/a other/x.tex").touches(["papers"]), false);
+  assert.equal(
+    parseShellCommand("cp /tmp/a other/x.tex").touches(["papers"]),
+    false,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1918,11 +2065,11 @@ test("touches: quoting does not make an unrelated path match either", () => {
 // ---------------------------------------------------------------------------
 test("touches: a WRAPPER-consumed path is still seen", () => {
   assert.equal(
-    commandView("env -C secrets cat key").touches(["secrets"]),
+    parseShellCommand("env -C secrets cat key").touches(["secrets"]),
     true,
   );
   assert.equal(
-    commandView("env --chdir=secrets cat key").touches(["secrets"]),
+    parseShellCommand("env --chdir=secrets cat key").touches(["secrets"]),
     true,
   );
 });
@@ -1930,17 +2077,20 @@ test("touches: a WRAPPER-consumed path is still seen", () => {
 test("touches: both halves of the union hold at once", () => {
   // quoted (needs normalized) and wrapper-consumed (needs raw), one command
   assert.equal(
-    commandView('env -C secrets cat "key/x.txt"').touches(["secrets"]),
+    parseShellCommand('env -C secrets cat "key/x.txt"').touches(["secrets"]),
     true,
   );
 });
 
 test("touches: an option VALUE that is not a path still does not match", () => {
   assert.equal(
-    commandView("grep --color=always x file").touches(["papers"]),
+    parseShellCommand("grep --color=always x file").touches(["papers"]),
     false,
   );
-  assert.equal(commandView("cp /tmp/a other/x").touches(["papers"]), false);
+  assert.equal(
+    parseShellCommand("cp /tmp/a other/x").touches(["papers"]),
+    false,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1951,17 +2101,17 @@ test("touches: an option VALUE that is not a path still does not match", () => {
 // ---------------------------------------------------------------------------
 test("a Windows ROOT folds a repo-RELATIVE prefix too", () => {
   assert.equal(
-    pathView("C:/REPO/SECRETS/x", "C:/repo").under(["secrets"]),
+    parseFilePath("C:/REPO/SECRETS/x", "C:/repo").under(["secrets"]),
     true,
   );
   assert.equal(
-    commandView("sed -i s/a/b/ C:/REPO/SECRETS/x", "C:/repo").writesTo([
+    parseShellCommand("sed -i s/a/b/ C:/REPO/SECRETS/x", "C:/repo").writesTo([
       "secrets",
     ]),
     true,
   );
   assert.equal(
-    commandView("sed -i s/a/b/ C:/REPO/SECRETS/x", "C:/repo").touches([
+    parseShellCommand("sed -i s/a/b/ C:/REPO/SECRETS/x", "C:/repo").touches([
       "secrets",
     ]),
     true,
@@ -1969,13 +2119,19 @@ test("a Windows ROOT folds a repo-RELATIVE prefix too", () => {
 });
 
 test("a POSIX root does NOT fold a repo-relative prefix", () => {
-  assert.equal(pathView("/repo/SECRETS/x", "/repo").under(["secrets"]), false);
-  assert.equal(pathView("/repo/secrets/x", "/repo").under(["secrets"]), true);
+  assert.equal(
+    parseFilePath("/repo/SECRETS/x", "/repo").under(["secrets"]),
+    false,
+  );
+  assert.equal(
+    parseFilePath("/repo/secrets/x", "/repo").under(["secrets"]),
+    true,
+  );
 });
 
 test("folding never invents a match under a Windows root", () => {
   assert.equal(
-    pathView("C:/repo/other/x", "C:/repo").under(["secrets"]),
+    parseFilePath("C:/repo/other/x", "C:/repo").under(["secrets"]),
     false,
   );
 });
@@ -1995,10 +2151,10 @@ test("folding never invents a match under a Windows root", () => {
 test("a UNC root folds case for the DENYLIST side", () => {
   const unc = "//Server/Share/Repo";
   const cmd = "sed -i s/a/b/ //server/share/repo/SECRETS/x";
-  assert.equal(commandView(cmd, unc).writesTo(["secrets"]), true);
-  assert.equal(commandView(cmd, unc).touches(["secrets"]), true);
+  assert.equal(parseShellCommand(cmd, unc).writesTo(["secrets"]), true);
+  assert.equal(parseShellCommand(cmd, unc).touches(["secrets"]), true);
   assert.equal(
-    commandView(
+    parseShellCommand(
       String.raw`sed -i s/a/b/ \\SERVER\SHARE\repo\SECRETS\x`,
       String.raw`\\server\share\repo`,
     ).writesTo(["secrets"]),
@@ -2009,13 +2165,16 @@ test("a UNC root folds case for the DENYLIST side", () => {
 test("folding under a UNC root does not invent a match", () => {
   const unc = "//Server/Share/Repo";
   assert.equal(
-    commandView("sed -i s/a/b/ //server/share/repo/other/x", unc).writesTo([
-      "secrets",
-    ]),
+    parseShellCommand(
+      "sed -i s/a/b/ //server/share/repo/other/x",
+      unc,
+    ).writesTo(["secrets"]),
     false,
   );
   assert.equal(
-    commandView("sed -i s/a/b/ /repo/SECRETS/x", "/repo").writesTo(["secrets"]),
+    parseShellCommand("sed -i s/a/b/ /repo/SECRETS/x", "/repo").writesTo([
+      "secrets",
+    ]),
     false,
   );
 });
@@ -2032,13 +2191,13 @@ test("a UNC path RESOLVES, so the allowlist can match it", () => {
   // fail toward SILENCE for an allowlist, so the cost of guessing wrong is a
   // quiet miss, never a grant. The next case pins the POSIX half.
   assert.equal(
-    pathView("//server/share/repo/src/x.ts", "//server/share/repo").under([
+    parseFilePath("//server/share/repo/src/x.ts", "//server/share/repo").under([
       "//server/share/repo/src",
     ]),
     true,
   );
   assert.equal(
-    pathView("//server/share/repo/other/x", "//server/share/repo").under([
+    parseFilePath("//server/share/repo/other/x", "//server/share/repo").under([
       "//server/share/repo/src",
     ]),
     false,
@@ -2046,14 +2205,20 @@ test("a UNC path RESOLVES, so the allowlist can match it", () => {
 });
 
 test("preserving the UNC leader leaves POSIX resolution untouched", () => {
-  assert.equal(pathView("/repo/src/x", "/repo").under(["src"]), true);
-  assert.equal(pathView("/repo/src/x", "/repo").under(["/repo/src"]), true);
-  assert.equal(pathView("/repo/other/x", "/repo").under(["/repo/src"]), false);
+  assert.equal(parseFilePath("/repo/src/x", "/repo").under(["src"]), true);
+  assert.equal(
+    parseFilePath("/repo/src/x", "/repo").under(["/repo/src"]),
+    true,
+  );
+  assert.equal(
+    parseFilePath("/repo/other/x", "/repo").under(["/repo/src"]),
+    false,
+  );
   // Round 37: keeping the pair unconditionally broke exactly this — on Linux a
   // doubled slash is a stutter, not a share, and the path stopped resolving
   // against a POSIX root. The ROOT decides, as it does for the case fold.
-  assert.equal(pathView("//repo/src/x.ts", "/repo").under(["src"]), true);
-  assert.equal(pathView("//repo/src/x.ts").under(["/repo/src"]), true);
+  assert.equal(parseFilePath("//repo/src/x.ts", "/repo").under(["src"]), true);
+  assert.equal(parseFilePath("//repo/src/x.ts").under(["/repo/src"]), true);
 });
 
 // ---------------------------------------------------------------------------
@@ -2100,30 +2265,37 @@ test("`..` clamps at a DRIVE root — the drive letter is not poppable", () => {
   // `C:/../repo/src/x.ts` IS `C:/repo/src/x.ts`: on Windows `..` at a drive root
   // stays at the drive root. Both spellings of the prefix must see it, because
   // each takes a different arm of `prefixVerdict`.
-  assert.equal(pathView("C:/../repo/src/x.ts", "C:/repo").under(["src"]), true);
   assert.equal(
-    pathView("C:/../repo/src/x.ts", "C:/repo").under(["C:/repo/src"]),
+    parseFilePath("C:/../repo/src/x.ts", "C:/repo").under(["src"]),
+    true,
+  );
+  assert.equal(
+    parseFilePath("C:/../repo/src/x.ts", "C:/repo").under(["C:/repo/src"]),
     true,
   );
   // Two of them, and a `.` in the way, still land on the same place.
   assert.equal(
-    pathView("C:/../../repo/./src/x.ts", "C:/repo").under(["src"]),
+    parseFilePath("C:/../../repo/./src/x.ts", "C:/repo").under(["src"]),
     true,
   );
   // Clamping is not "everything absolute is inside": a path that really is
   // elsewhere on the same drive stays outside.
   assert.equal(
-    pathView("C:/../other/src/x.ts", "C:/repo").under(["C:/repo/src"]),
+    parseFilePath("C:/../other/src/x.ts", "C:/repo").under(["C:/repo/src"]),
     false,
   );
   // The ROOT is resolved by the same helper (`relativeToRoot` resolves it
   // against `"."` to get the comparison base), so a `..` in the ROOT ate the
   // drive too — leaving the base `repo`, which nothing absolute starts with.
-  assert.equal(pathView("C:/repo/src/x.ts", "C:/../repo").under(["src"]), true);
   assert.equal(
-    pathView("//server/share/repo/src/x.ts", "//server/share/../repo").under([
-      "src",
-    ]),
+    parseFilePath("C:/repo/src/x.ts", "C:/../repo").under(["src"]),
+    true,
+  );
+  assert.equal(
+    parseFilePath(
+      "//server/share/repo/src/x.ts",
+      "//server/share/../repo",
+    ).under(["src"]),
     true,
   );
 });
@@ -2131,16 +2303,16 @@ test("`..` clamps at a DRIVE root — the drive letter is not poppable", () => {
 test("`..` clamps at a UNC SHARE — it eats neither the share nor the server", () => {
   const root = "//server/share/repo";
   assert.equal(
-    pathView("//server/share/../repo/src/x.ts", root).under(["src"]),
+    parseFilePath("//server/share/../repo/src/x.ts", root).under(["src"]),
     true,
   );
   // The second `..` is the one that used to eat `server`, leaving `//repo/…`.
   assert.equal(
-    pathView("//server/share/../../repo/src/x.ts", root).under(["src"]),
+    parseFilePath("//server/share/../../repo/src/x.ts", root).under(["src"]),
     true,
   );
   assert.equal(
-    pathView("//server/share/../../repo/src/x.ts", root).under([
+    parseFilePath("//server/share/../../repo/src/x.ts", root).under([
       "//server/share/repo/src",
     ]),
     true,
@@ -2148,12 +2320,12 @@ test("`..` clamps at a UNC SHARE — it eats neither the share nor the server", 
   // Backslashes are a spelling of the same path, and the root's own spelling
   // must not change the answer.
   assert.equal(
-    pathView(String.raw`\\server\share\..\repo\src\x.ts`, String.raw`\\server\share\repo`).under(["src"]), // prettier-ignore
+    parseFilePath(String.raw`\\server\share\..\repo\src\x.ts`, String.raw`\\server\share\repo`).under(["src"]), // prettier-ignore
     true,
   );
   // Still not a licence: a DIFFERENT share on the same server is outside.
   assert.equal(
-    pathView("//server/other/../other/repo/src/x.ts", root).under(["src"]),
+    parseFilePath("//server/other/../other/repo/src/x.ts", root).under(["src"]),
     false,
   );
 });
@@ -2162,21 +2334,31 @@ test("the clamp leaves ORDINARY `..` collapsing, on every root", () => {
   // The quiet half, and the one a too-large floor would break: `..` in the
   // middle of a path is not a root `..` and must still remove a segment.
   assert.equal(
-    pathView("C:/repo/a/b/../c/x.ts", "C:/repo").under(["a/c"]),
+    parseFilePath("C:/repo/a/b/../c/x.ts", "C:/repo").under(["a/c"]),
     true,
   );
-  assert.equal(pathView("C:/repo/a/b/../c/x.ts", "C:/repo").under(["a/b"]), false); // prettier-ignore
+  assert.equal(parseFilePath("C:/repo/a/b/../c/x.ts", "C:/repo").under(["a/b"]), false); // prettier-ignore
   assert.equal(
-    pathView("//server/share/repo/a/b/../c/x.ts", "//server/share/repo").under([
-      "a/c",
-    ]),
+    parseFilePath(
+      "//server/share/repo/a/b/../c/x.ts",
+      "//server/share/repo",
+    ).under(["a/c"]),
     true,
   );
-  assert.equal(pathView("/repo/a/b/../c/x.ts", "/repo").under(["a/c"]), true);
+  assert.equal(
+    parseFilePath("/repo/a/b/../c/x.ts", "/repo").under(["a/c"]),
+    true,
+  );
   // POSIX `/..` behaves as it always did — the leader lives outside the segment
   // list, so there was never anything there to pop.
-  assert.equal(pathView("/../repo/src/x.ts", "/repo").under(["src"]), true);
-  assert.equal(pathView("/../../repo/src/x.ts", "/repo").under(["src"]), true);
+  assert.equal(
+    parseFilePath("/../repo/src/x.ts", "/repo").under(["src"]),
+    true,
+  );
+  assert.equal(
+    parseFilePath("/../../repo/src/x.ts", "/repo").under(["src"]),
+    true,
+  );
 });
 
 test("whether a `//` leader is a SHARE is the ROOT's answer, not the path's", () => {
@@ -2184,12 +2366,21 @@ test("whether a `//` leader is a SHARE is the ROOT's answer, not the path's", ()
   // `//repo/a/../src/x.ts` looks share-rooted (`//repo/a`), so a floor taken
   // from the string would refuse to pop `a` and resolve to `/repo/a/src/x.ts`.
   // Under a POSIX root that doubled slash is a stutter: the `..` must collapse.
-  assert.equal(pathView("//repo/a/../src/x.ts", "/repo").under(["src"]), true);
-  assert.equal(pathView("//repo/a/../src/x.ts", "/repo").under(["a"]), false);
+  assert.equal(
+    parseFilePath("//repo/a/../src/x.ts", "/repo").under(["src"]),
+    true,
+  );
+  assert.equal(
+    parseFilePath("//repo/a/../src/x.ts", "/repo").under(["a"]),
+    false,
+  );
   // And the converse arm: a POSIX-absolute ref under a WINDOWS root has no
   // Windows root of its own to clamp at, and is simply not in the repo.
-  assert.equal(pathView("/etc/passwd", "C:/repo").under(["etc"]), false);
-  assert.equal(pathView("/../etc/passwd", "C:/repo").under(["etc"]), false);
+  assert.equal(parseFilePath("/etc/passwd", "C:/repo").under(["etc"]), false);
+  assert.equal(
+    parseFilePath("/../etc/passwd", "C:/repo").under(["etc"]),
+    false,
+  );
 });
 
 test("a DRIVE clamps with NO root at all — the sibling call site", () => {
@@ -2199,13 +2390,16 @@ test("a DRIVE clamps with NO root at all — the sibling call site", () => {
   // anyway. A drive letter names its filesystem by itself — `C:/x` has no POSIX
   // reading — which is why `isAtOrUnder` already folds case on a drive-rooted
   // BASE with no root in hand.
-  assert.equal(pathView("C:/../repo/src/x.ts").under(["C:/repo/src"]), true);
-  assert.equal(pathView("C:/../other/x.ts").under(["C:/repo/src"]), false);
+  assert.equal(
+    parseFilePath("C:/../repo/src/x.ts").under(["C:/repo/src"]),
+    true,
+  );
+  assert.equal(parseFilePath("C:/../other/x.ts").under(["C:/repo/src"]), false);
   // The `//` half stays gated, because `//a/b` DOES have a POSIX reading and
   // only a root settles it (round 37). Rootless it resolves as POSIX, which is
   // a quiet miss for an allowlist — never a grant.
   assert.equal(
-    pathView("//server/share/../repo/src/x.ts").under([
+    parseFilePath("//server/share/../repo/src/x.ts").under([
       "//server/share/repo/src",
     ]),
     false,
@@ -2214,15 +2408,16 @@ test("a DRIVE clamps with NO root at all — the sibling call site", () => {
 
 test("a UNC path with no `..` resolves exactly as it did before", () => {
   assert.equal(
-    pathView("//server/share/repo/src/x.ts", "//server/share/repo").under([
+    parseFilePath("//server/share/repo/src/x.ts", "//server/share/repo").under([
       "src",
     ]),
     true,
   );
   assert.equal(
-    pathView("//server/share/repo/other/x.ts", "//server/share/repo").under([
-      "src",
-    ]),
+    parseFilePath(
+      "//server/share/repo/other/x.ts",
+      "//server/share/repo",
+    ).under(["src"]),
     false,
   );
 });
@@ -2498,7 +2693,7 @@ test("hookRuntimeMissingExit: PASSES for every nudge — a reminder is never wor
 
 // ---------------------------------------------------------------------------
 // #396 (a): a react declared for the shell tool ALONE sees the command it reacts
-// to, as a Bash gate does — the same `CommandView`, built by the same
+// to, as a Bash gate does — the same `ShellCommand`, built by the same
 // constructor. Keyed on the event's TOOL NAME, never on the presence of
 // `tool_input.command`.
 //
@@ -2582,4 +2777,16 @@ test("#396a: only a react declared for Bash ALONE gets e.command — in the type
       // with another tool has no overlap: the dead branch is a type error.
       e.tool === "Edit" ? notice("never") : nothing(),
   });
+});
+
+test("the names before #465 are the same functions, not copies", () => {
+  /* eslint-disable @typescript-eslint/no-deprecated -- this test exists to call the deprecated aliases */
+  assert.equal(commandView, parseShellCommand);
+  assert.equal(pathView, parseFilePath);
+  // A hook still written against the old names keeps working.
+  const old: CommandView = commandView("echo x > papers/a.tex", MINE_ROOT);
+  const oldPath: PathView = pathView(`${MINE_ROOT}/papers/a.tex`, MINE_ROOT);
+  /* eslint-enable @typescript-eslint/no-deprecated */
+  assert.equal(old.writesTo(["papers"]), true);
+  assert.equal(oldPath.under(["papers"]), true);
 });
