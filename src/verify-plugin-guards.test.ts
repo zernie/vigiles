@@ -37,8 +37,18 @@ import { hookMatcherReach } from "./core/hook-matcher.js";
 import { codexAdapter } from "./adapters/codex/adapter.js";
 import { opencodeAdapter } from "./adapters/opencode/adapter.js";
 
-/** Denies every call it is spawned for — the unconditional-guard shape. */
-const DENY_ALL = `echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"}}'`;
+/** The deny decision on stdout. */
+const DENY = `echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"}}'`;
+/**
+ * Denies every call it is spawned for EXCEPT the battery's control (`ls`) — the
+ * unconditional-guard shape. A guard that denied the control too would have no
+ * verdict (#213), so a guard meant to score lets the control through.
+ */
+const DENY_GUARD = `case "$(cat)" in *'"command":"ls"'*) exit 0;; esac; ${DENY}`;
+/** Denies EVERYTHING, the control included — no verdict. */
+const DENY_EVERYTHING = DENY;
+/** The same guard as a script body: exit 2 on everything but the control. */
+const GUARD_SCRIPT = `case "$(cat)" in *'"command":"ls"'*) exit 0;; esac\nexit 2\n`;
 /** Runs and allows — an ordinary observing hook, not a guard. */
 const ALLOW_ALL = `echo watching`;
 
@@ -67,10 +77,10 @@ beforeAll(() => {
               {
                 type: "command",
                 if: "Bash(git push *--force*)",
-                command: DENY_ALL,
+                command: DENY_GUARD,
               },
               // (b) unconditional — blocks the whole battery.
-              { type: "command", command: DENY_ALL },
+              { type: "command", command: DENY_GUARD },
               // (c3) irrelevant by an UNSET variable in the command.
               { type: "command", command: '"$SOME_UNSET_GUARD_HOME"/guard.sh' },
             ],
@@ -209,7 +219,7 @@ function sweepFixture(
 describe("a condition that selects NOTHING is not a score of zero", () => {
   it("🔴 is `not-applicable`, and the reason names the condition", () => {
     const [only] = sweepFixture([
-      { type: "command", if: NEVER_MATCHES, command: DENY_ALL },
+      { type: "command", if: NEVER_MATCHES, command: DENY_GUARD },
     ]).hooks;
     // Before the fix this was `measured` with blocked: [] — `blocks 0/7`.
     expect(only?.status).toBe("not-applicable");
@@ -227,7 +237,7 @@ describe("a condition that selects NOTHING is not a score of zero", () => {
     // `measured` now measures nothing, so `notes` must find its voice rather
     // than the report going quiet with an empty score.
     const report = sweepFixture([
-      { type: "command", if: NEVER_MATCHES, command: DENY_ALL },
+      { type: "command", if: NEVER_MATCHES, command: DENY_GUARD },
     ]);
     expect(report.hooks.every((h) => h.status !== "measured")).toBe(true);
     expect(report.notes.join(" ")).toContain("none of them reachable");
@@ -243,8 +253,8 @@ describe("a condition that selects NOTHING is not a score of zero", () => {
     // something was measured — which is still true with a not-applicable beside
     // it (a matcher-excluded hook has always been in that position).
     const report = sweepFixture([
-      { type: "command", if: NEVER_MATCHES, command: DENY_ALL },
-      { type: "command", command: DENY_ALL },
+      { type: "command", if: NEVER_MATCHES, command: DENY_GUARD },
+      { type: "command", command: DENY_GUARD },
     ]);
     expect(report.hooks.map((h) => h.status)).toEqual([
       "not-applicable",
@@ -261,7 +271,7 @@ describe("a condition that selects NOTHING is not a score of zero", () => {
     // the shared fixture's conditional hook in miniature — one event reaches it,
     // six do not, and it is a real 1/7 rather than a non-verdict.
     const [partial] = sweepFixture([
-      { type: "command", if: "Bash(git push *--force*)", command: DENY_ALL },
+      { type: "command", if: "Bash(git push *--force*)", command: DENY_GUARD },
     ]).hooks;
     expect(partial?.status).toBe("measured");
     if (partial?.status !== "measured") throw new Error("not measured");
@@ -370,7 +380,7 @@ describe("the sweep is harness-agnostic", () => {
       [
         "[[hooks.PreToolUse]]",
         'matcher = "Bash"',
-        `command = ${JSON.stringify(DENY_ALL)}`,
+        `command = ${JSON.stringify(DENY_GUARD)}`,
         "",
         "[[hooks.Stop]]",
         `command = ${JSON.stringify(ALLOW_ALL)}`,
@@ -453,6 +463,19 @@ function ccRepo(hooks: unknown): string {
   return at;
 }
 
+/**
+ * Every spelling of "run a script that is not there" the old preflight missed or
+ * caught (#213). Run in a repo that has a `hooks/` directory and nothing in it.
+ */
+const MISSING_SCRIPT = [
+  'GUARD=missing.py; python3 "$GUARD"',
+  "cd hooks && python3 g.py",
+  "r=$(python3 missing.py)",
+  "python3 -E missing.py",
+  "env python3 missing.py",
+  "python3 missing.py",
+];
+
 /** A throwaway Codex repo: flat TOML `[[hooks.<event>]]` entries. */
 function codexRepo(lines: readonly string[]): string {
   const at = mkdtempSync(join(tmpdir(), "vigiles-sweep-codex-finding-"));
@@ -469,7 +492,7 @@ describe("an UNCOMPILABLE matcher gets no score (the false 7/7, second door)", (
     // `Bash(` either, never spawns it once.
     const at = ccRepo({
       PreToolUse: [
-        { matcher: "Bash(", hooks: [{ type: "command", command: DENY_ALL }] },
+        { matcher: "Bash(", hooks: [{ type: "command", command: DENY_GUARD }] },
       ],
     });
     try {
@@ -499,7 +522,7 @@ describe("a Codex matcher is read with Codex's semantics", () => {
     const at = codexRepo([
       "[[hooks.PreToolUse]]",
       'matcher = "ash"',
-      `command = ${JSON.stringify(DENY_ALL)}`,
+      `command = ${JSON.stringify(DENY_GUARD)}`,
       "",
     ]);
     try {
@@ -517,7 +540,7 @@ describe("a Codex matcher is read with Codex's semantics", () => {
   it("still applies Claude Code's equality rule on Claude Code", () => {
     const at = ccRepo({
       PreToolUse: [
-        { matcher: "ash", hooks: [{ type: "command", command: DENY_ALL }] },
+        { matcher: "ash", hooks: [{ type: "command", command: DENY_GUARD }] },
       ],
     });
     try {
@@ -739,7 +762,7 @@ describe("experimental_formatPluginGuardReport", () => {
           PreToolUse: [
             {
               matcher: "Bash",
-              hooks: [{ type: "command", command: DENY_ALL }],
+              hooks: [{ type: "command", command: DENY_GUARD }],
             },
           ],
           Stop: Array.from({ length: 12 }, (_, i) => ({
@@ -774,7 +797,7 @@ describe("experimental_formatPluginGuardReport", () => {
     const out = rendered(experimental_verifyPluginGuards(dir));
     expect(out).toContain("…`");
     // No rendered command spills a newline into the layout.
-    for (const line of out.split("\n")) expect(line).not.toContain(DENY_ALL);
+    for (const line of out.split("\n")) expect(line).not.toContain(DENY_GUARD);
   });
 });
 
@@ -798,45 +821,42 @@ function writeHookScript(at: string, name: string, body: string): void {
 }
 
 describe("a hook whose SCRIPT is missing gets no score at all", () => {
-  it("is unresolved, not a perfect 7/7", () => {
+  it("has NO VERDICT in every spelling, never a perfect 7/7", () => {
     // 🔴 THE LOUDEST LIE. `python3 <missing>` exits 2, and 2 is Claude Code's
     // DENY code — so a guard that never existed was certified as stopping every
-    // disaster in the battery. Measured on the unfixed build:
-    //   MEASURED blocks=7/7 exits=2,2,2,2,2,2,2
-    // No malformed config is needed to reach it: a relative script path is the
-    // commonest hook shape there is.
-    const at = ccRepo({
-      PreToolUse: [
-        {
-          matcher: "Bash",
-          hooks: [
-            { type: "command", command: "python3 .claude/hooks/guard.py" },
-          ],
-        },
-      ],
-    });
-    try {
-      const report = experimental_verifyPluginGuards(at, { cwd: at });
-      const [only] = report.hooks;
-      // The load-bearing assertion: NO SCORE EXISTS. Not a 0, not a 7 — the
-      // union must not even carry a `results` array for this hook.
-      if (only?.status === "measured")
-        throw new Error(
-          `a hook whose script is missing must not be measured (got ${only.blocked.length}/${only.results.length})`,
+    // disaster in the battery. The control probe (#213) sees the same exit 2 on
+    // `ls`, so no block is evidence — whatever the spelling, without reading it.
+    for (const command of MISSING_SCRIPT) {
+      const at = ccRepo({
+        PreToolUse: [
+          { matcher: "Bash", hooks: [{ type: "command", command }] },
+        ],
+      });
+      try {
+        mkdirSync(join(at, "hooks"));
+        const report = experimental_verifyPluginGuards(at, { cwd: at });
+        const [only] = report.hooks;
+        // The load-bearing assertion: NO SCORE EXISTS for this hook.
+        expect(only?.status, command).toBe("no-verdict");
+        if (only?.status !== "no-verdict") throw new Error("unreachable");
+        expect(typeof only.controlStderrTail).toBe("string");
+        // And the renderer prints no number for it either.
+        const out = experimental_formatPluginGuardReport(report).replaceAll(
+          report.dir,
+          "<dir>",
         );
-      expect(only?.status).toBe("unresolved");
-      if (only?.status !== "unresolved") throw new Error("unreachable");
-      expect(only.reason).toContain(".claude/hooks/guard.py");
-      // And the renderer prints no number for it either.
-      const out = experimental_formatPluginGuardReport(report).replaceAll(
-        report.dir,
-        "<dir>",
-      );
-      expect(out).not.toMatch(SCORE_SHAPED);
-      expect(out).toContain("Nothing was measured");
-    } finally {
-      rmSync(at, { recursive: true, force: true });
+        expect(out, command).not.toMatch(SCORE_SHAPED);
+      } finally {
+        rmSync(at, { recursive: true, force: true });
+      }
     }
+  });
+
+  it("a hook that denies EVERYTHING has no verdict either", () => {
+    const report = sweepFixture([
+      { type: "command", command: DENY_EVERYTHING },
+    ]);
+    expect(report.hooks.map((h) => h.status)).toEqual(["no-verdict"]);
   });
 
   it("MEASURES the same hook once the script is on disk", () => {
@@ -851,7 +871,7 @@ describe("a hook whose SCRIPT is missing gets no score at all", () => {
       ],
     });
     try {
-      writeHookScript(at, "guard.sh", "exit 2\n");
+      writeHookScript(at, "guard.sh", GUARD_SCRIPT);
       const [only] = experimental_verifyPluginGuards(at, { cwd: at }).hooks;
       if (only?.status !== "measured")
         throw new Error(`expected measured, got ${only?.status ?? "none"}`);
@@ -962,7 +982,7 @@ describe("the harness's own project-root variables are supplied", () => {
       ],
     });
     try {
-      writeHookScript(at, "guard.sh", "exit 2\n");
+      writeHookScript(at, "guard.sh", GUARD_SCRIPT);
       const [only] = experimental_verifyPluginGuards(at, { cwd: at }).hooks;
       if (only?.status !== "measured")
         throw new Error(`expected measured, got ${only?.status ?? "none"}`);
@@ -974,91 +994,48 @@ describe("the harness's own project-root variables are supplied", () => {
 });
 
 describe("a command the SHELL PARSER rejects gets no score (the false 7/7, third door)", () => {
-  it("is unresolved, and the reason names the syntax error, not a variable", () => {
-    // 🔴 MEASURED ON THE UNFIXED BUILD, and it is the same signature as the
-    // missing-script lie with no missing script involved:
-    //   `echo "unterminated`  →  MEASURED blocks=7/7 exits=2,2,2,2,2,2,2
-    // `sh` exits 2 for a syntax error and 2 is this harness's DENY code, so the
-    // battery certified a command that never ran. The file pre-flight went
-    // QUIET on it (`commandFileRefs` returns `{ parsed: false, refs: [] }`,
-    // which reads exactly like a clean command) because the caller dropped
-    // `parsed` on the floor.
-    const at = ccRepo({
-      PreToolUse: [
-        {
-          matcher: "Bash",
-          hooks: [{ type: "command", command: 'echo "unterminated' }],
-        },
-      ],
-    });
-    try {
-      const [only] = experimental_verifyPluginGuards(at).hooks;
-      expect(only?.status).toBe("unresolved");
-      if (only?.status !== "unresolved") throw new Error("expected unresolved");
-      expect(only.reason).toMatch(/not valid shell/);
-    } finally {
-      rmSync(at, { recursive: true, force: true });
-    }
+  it("has no verdict: `sh` exits 2 on the control too", () => {
+    // `echo "unterminated` → `sh` exits 2 for a syntax error, and 2 is this
+    // harness's DENY code. It used to be certified 7/7; the control sees the
+    // same exit 2 on `ls`.
+    const report = sweepFixture([
+      { type: "command", command: 'echo "unterminated' },
+    ]);
+    expect(report.hooks.map((h) => h.status)).toEqual(["no-verdict"]);
   });
 
-  it("blames the SYNTAX, not the variable its regex fallback still sees", () => {
-    // `shellVarReads` falls back to a regex when the parse fails, so it reports
-    // `FOO` here — and the variable check ran first, telling the caller to pass
-    // `env` for a command that could never run whatever `env` contained. The
-    // parse verdict has to come first for either reason to be true.
-    const at = ccRepo({
-      PreToolUse: [
-        {
-          matcher: "Bash",
-          hooks: [{ type: "command", command: 'echo "$UNSET_ON_PURPOSE' }],
-        },
-      ],
-    });
-    try {
-      const [only] = experimental_verifyPluginGuards(at).hooks;
-      if (only?.status !== "unresolved") throw new Error("expected unresolved");
-      expect(only.reason).toMatch(/not valid shell/);
-      expect(only.reason).not.toMatch(/UNSET_ON_PURPOSE/);
-    } finally {
-      rmSync(at, { recursive: true, force: true });
-    }
+  it("blames neither a variable nor a score when the command does not parse", () => {
+    // `shellVarReads` falls back to a regex when the parse fails, so it still
+    // sees `UNSET_ON_PURPOSE` — but no `env` could make this command run, so the
+    // variable check stands aside and the control decides.
+    const report = sweepFixture([
+      { type: "command", command: 'echo "$UNSET_ON_PURPOSE' },
+    ]);
+    const [only] = report.hooks;
+    expect(only?.status).toBe("no-verdict");
+    if (only?.status !== "no-verdict") throw new Error("unreachable");
+    expect(only.reason).not.toMatch(/UNSET_ON_PURPOSE/);
   });
 
   it("still measures a command that merely LOOKS exotic but parses", () => {
     // The other direction, or the gate is just "refuse everything": a compound
     // command with quoting and a pipeline is valid shell and stays measurable.
-    const at = ccRepo({
-      PreToolUse: [
-        {
-          matcher: "Bash",
-          hooks: [
-            {
-              type: "command",
-              command: `echo 'x' | grep -q x && ${DENY_ALL} || true`,
-            },
-          ],
-        },
-      ],
-    });
-    try {
-      const [only] = experimental_verifyPluginGuards(at).hooks;
-      expect(only?.status).toBe("measured");
-    } finally {
-      rmSync(at, { recursive: true, force: true });
-    }
+    const report = sweepFixture([
+      {
+        type: "command",
+        command: `echo 'x' | grep -q x && ${DENY_GUARD} || true`,
+      },
+    ]);
+    expect(report.hooks.map((h) => h.status)).toEqual(["measured"]);
   });
 });
 
-describe("a CONFINED run resolves relative paths where it will actually run", () => {
-  it("does not score a relative script it can only see from THIS cwd", () => {
-    // 🔴 THE PRE-FLIGHT AND THE RUNNER DISAGREED. `sandboxedSpawn` chdirs into a
-    // `work/` directory it has just created and left empty when no `cwd` is
-    // given, while this check resolved against `process.cwd()`. Measured with
-    // the same guard, the same command, two directories:
-    //   project dir      → exit 0   (the guard's real verdict: allow)
-    //   fresh empty dir  → exit 2   (cannot open its script = DENY = a block)
-    // So a guard that allows was reported as blocking, out of nothing but the
-    // directory mismatch — the false 7/7 through a fourth door.
+describe("a CONFINED run is scored where it actually runs", () => {
+  it("has no verdict for a relative script it can only see from THIS cwd", () => {
+    // 🔴 A confined run with no `cwd` starts in a fresh empty directory, where
+    // `sh .claude/hooks/guard.sh` cannot open its script and exits 2 — DENY. The
+    // guard allows; scoring it as a block was the false 7/7 through a fourth
+    // door. The control is run in the same directory and is blocked the same way.
     const at = ccRepo({
       PreToolUse: [
         {
@@ -1070,54 +1047,22 @@ describe("a CONFINED run resolves relative paths where it will actually run", ()
     const was = process.cwd();
     try {
       writeHookScript(at, "guard.sh", "exit 0\n");
-      // The script IS present relative to this process — the only thing that
-      // made the old check pass. It will not be present in the sandbox's dir.
+      // The script IS present relative to this process. It will not be present
+      // in the sandbox's directory.
       process.chdir(at);
       const [only] = experimental_verifyPluginGuards(at, {
         trusted: false,
       }).hooks;
-      if (only?.status !== "unresolved")
-        throw new Error(`expected unresolved, got ${only?.status ?? "none"}`);
-      expect(only.reason).toMatch(/RELATIVE path/);
-      expect(only.reason).toMatch(/fresh empty directory/);
+      expect(only?.status).toBe("no-verdict");
     } finally {
       process.chdir(was);
       rmSync(at, { recursive: true, force: true });
     }
   });
 
-  it("an ABSOLUTE path keeps its ORDINARY verdict under confinement", () => {
-    // The narrowing matters as much as the refusal: confinement changes the
-    // working directory, it does not hide the filesystem (`--ro-bind / /`), so
-    // an absolute script is still tested on disk and gets the plain reason —
-    // refusing every path under confinement would trade one wrong answer for
-    // another. Asserted on a MISSING absolute path so the decision is made by
-    // the pre-flight and nothing is ever spawned.
-    const at = ccRepo({
-      PreToolUse: [
-        {
-          matcher: "Bash",
-          hooks: [
-            { type: "command", command: "sh /nonexistent/vigiles/guard.sh" },
-          ],
-        },
-      ],
-    });
-    try {
-      const [only] = experimental_verifyPluginGuards(at, {
-        trusted: false,
-      }).hooks;
-      if (only?.status !== "unresolved") throw new Error("expected unresolved");
-      expect(only.reason).toMatch(/not on disk here/);
-      expect(only.reason).not.toMatch(/RELATIVE path/);
-    } finally {
-      rmSync(at, { recursive: true, force: true });
-    }
-  });
-
   it("an UNCONFINED run still resolves against this process's cwd", () => {
     // The default path is unchanged: no `trusted: false`, no sandbox, so the
-    // runner really does inherit `process.cwd()` and the check follows it.
+    // runner really does inherit `process.cwd()`.
     const at = ccRepo({
       PreToolUse: [
         {
@@ -1128,7 +1073,7 @@ describe("a CONFINED run resolves relative paths where it will actually run", ()
     });
     const was = process.cwd();
     try {
-      writeHookScript(at, "guard.sh", "exit 2\n");
+      writeHookScript(at, "guard.sh", GUARD_SCRIPT);
       process.chdir(at);
       const [only] = experimental_verifyPluginGuards(at).hooks;
       expect(only?.status).toBe("measured");
@@ -1163,9 +1108,13 @@ describe("the PROJECT root is the project, not the plugin", () => {
     const project = mkdtempSync(join(tmpdir(), "vigiles-sweep-project-"));
     try {
       mkdirSync(join(project, "hooks"), { recursive: true });
-      writeFileSync(join(project, "hooks", "guard.sh"), "#!/bin/sh\nexit 2\n", {
-        mode: 0o755,
-      });
+      writeFileSync(
+        join(project, "hooks", "guard.sh"),
+        `#!/bin/sh\n${GUARD_SCRIPT}`,
+        {
+          mode: 0o755,
+        },
+      );
       const [only] = experimental_verifyPluginGuards(plugin, {
         cwd: project,
       }).hooks;
@@ -1199,7 +1148,7 @@ describe("the PROJECT root is the project, not the plugin", () => {
     });
     const project = mkdtempSync(join(tmpdir(), "vigiles-sweep-project-"));
     try {
-      writeHookScript(plugin, "guard.sh", "exit 2\n");
+      writeHookScript(plugin, "guard.sh", GUARD_SCRIPT);
       const [only] = experimental_verifyPluginGuards(plugin, {
         cwd: project,
       }).hooks;
@@ -1219,13 +1168,13 @@ describe("the PROJECT root is the project, not the plugin", () => {
 // The two Codex round-2 findings that land on the report itself.
 // ---------------------------------------------------------------------------
 
-/** A repo whose only hook runs a RELATIVE script with the given exit code. */
-function repoWithRelativeGuard(label: string, exitCode: number): string {
+/** A repo whose only hook runs a RELATIVE script with the given body. */
+function repoWithRelativeGuard(label: string, body: string): string {
   const root = mkdtempSync(join(tmpdir(), `vigiles-sweep-${label}-`));
   mkdirSync(join(root, ".claude", "vg-hooks"), { recursive: true });
   writeFileSync(
     join(root, ".claude", "vg-hooks", "relguard.sh"),
-    `#!/bin/sh\nexit ${exitCode}\n`,
+    `#!/bin/sh\n${body}`,
   );
   writeFileSync(
     join(root, ".claude", "settings.json"),
@@ -1263,8 +1212,8 @@ describe("a relative hook path resolves against the SWEPT repo", () => {
     // were flipped. An ALLOWING guard makes the right answer 0/7, so the false
     // 7/7 this whole file exists to prevent is the one thing it cannot be
     // confused with.
-    swept = repoWithRelativeGuard("swept", 0); // 0 = allow  → correct run: 0/7
-    decoy = repoWithRelativeGuard("decoy", 2); // 2 = deny   → wrong tree: 7/7
+    swept = repoWithRelativeGuard("swept", "exit 0\n"); // allow → correct run: 0/7
+    decoy = repoWithRelativeGuard("decoy", GUARD_SCRIPT); // deny → wrong tree: 7/7
   });
   afterAll(() => {
     for (const d of [swept, decoy]) rmSync(d, { recursive: true, force: true });
@@ -1282,22 +1231,19 @@ describe("a relative hook path resolves against the SWEPT repo", () => {
     // does NOT reach: the sweep must ASK the runner's router rather than keep
     // its own copy of the mode expression. The copy knew `trusted`/`sandbox`
     // and not `recordEgress` — which the runner has always confined for — so a
-    // recordEgress sweep pre-flighted this relative script against the host,
-    // accepted it, then ran it in a fresh empty directory where `sh` cannot
-    // open it and exits 2: this harness's DENY code, scored as a block.
+    // recordEgress sweep ran this relative script in a fresh empty directory
+    // where `sh` cannot open it and exits 2: this harness's DENY code, scored
+    // as a block. The control probe now sees the same exit 2 on `ls`.
     const [hook] = experimental_verifyPluginGuards(swept, {
       recordEgress: true,
     }).hooks;
-    expect(hook?.status).toBe("unresolved");
-    expect(hook?.status === "unresolved" && hook.reason).toContain(
-      "fresh empty directory",
-    );
+    expect(hook?.status).toBe("no-verdict");
     // The same shape under the option the copy DID know, so the assertion above
     // is about recordEgress and not about relative paths in general.
     const [confined] = experimental_verifyPluginGuards(swept, {
       trusted: false,
     }).hooks;
-    expect(confined?.status).toBe("unresolved");
+    expect(confined?.status).toBe("no-verdict");
     // …and unconfined it is measured, or the test proves only that something
     // always refuses.
     expect(experimental_verifyPluginGuards(swept).hooks[0]?.status).toBe(
@@ -1384,7 +1330,7 @@ describe("declared actions that are not commands", () => {
         {
           matcher: "Bash",
           hooks: [
-            { type: "command", command: DENY_ALL },
+            { type: "command", command: DENY_GUARD },
             { type: "prompt", prompt: "safe?" },
           ],
         },
