@@ -288,7 +288,9 @@ assertGuardrail("bash hooks/safety-guard.sh", {
 `verifyGuardrail` returns the same cases as rows instead of throwing: each row
 has `expect` (`"block"` or `"allow"`), `blocked`, and `run` — `ran`,
 `not-selected` (its `if` does not match), `never-launched` (exit 126/127) or
-`crashed`. (`assertBlocksDisasters` is the old name of `assertGuardrail`.)
+`crashed`. A harmless case the `if` does not select passes — the harness never
+spawns the hook, so the command goes through; a disaster it does not select is
+a miss. (`assertBlocksDisasters` is the old name of `assertGuardrail`.)
 
 ⚠️ **Seven commands, but only seven spellings.** `experimental_alternateSpellings(events)`
 takes those test cases and returns more of them: the same commands re-spelled

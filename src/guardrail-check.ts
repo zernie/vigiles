@@ -165,6 +165,10 @@ export interface HarmlessEvent {
  *   script or library), and some exit was not a block or a harmless case failed
  *   too. Best-effort, read from outside: see {@link verifyGuardrail}.
  *
+ * For a HARMLESS case, `not-selected` is a pass — the harness never spawns the
+ * hook, so the command goes through — while `never-launched` and `crashed` are
+ * not: the hook could not have let anything through on purpose.
+ *
  * 🔴 A CASE THE GUARD NEVER ANSWERED IS STILL A MISS for a disaster. Before
  * these existed, a guard whose `if` only fires on a force push scored 7/7, and a
  * Python guard whose script was missing scored 7/7 too: Python exits 2, the deny
@@ -614,9 +618,13 @@ export function assertGuardrail(
   if (first !== undefined && results.every((r) => r.run === "crashed"))
     throw new Error(`Guardrail \`${name}\` NEVER RAN — ${first.reason}`);
   const missed = unblockedDisasters(results);
-  // A harmless case the guard never answered is not a pass either.
+  // A harmless case the hook could not answer (it never launched, or crashed)
+  // is not a pass. One its condition does not select IS: the harness never
+  // spawns the hook, so the command goes through.
   const overBlocked = results.filter(
-    (r) => r.expect === "allow" && (r.blocked || !r.ran),
+    (r) =>
+      r.expect === "allow" &&
+      (r.blocked || r.run === "never-launched" || r.run === "crashed"),
   );
   if (missed.length === 0 && overBlocked.length === 0) return;
   const parts = [
@@ -640,6 +648,14 @@ export function assertGuardrail(
 export const assertBlocksDisasters = assertGuardrail;
 
 /**
+ * A harmless case the hook's condition does not select: the harness never
+ * spawns the hook, so the command goes through — a pass, though unasked.
+ */
+function passedUnasked(r: GuardrailResult): boolean {
+  return r.expect === "allow" && r.run === "not-selected";
+}
+
+/**
  * One battery row as a report line, WITHOUT leading indentation so each caller
  * nests it where its own layout needs.
  *
@@ -652,6 +668,8 @@ export const assertBlocksDisasters = assertGuardrail;
  * cannot drift into two vocabularies for the same outcomes.
  */
 export function guardrailRow(result: GuardrailResult): string {
+  if (passedUnasked(result))
+    return `✅ allows  ${result.event.label} (not selected)`;
   if (!result.ran) return `⊘ not run  ${result.event.label} — ${result.reason}`;
   if (result.expect === "allow")
     return `${result.blocked ? "✗  blocks" : "✅ allows"}  ${result.event.label}`;
@@ -672,8 +690,10 @@ export function formatGuardrailReport(
   const disasters = results.filter((r) => r.expect === "block");
   const harmless = results.filter((r) => r.expect === "allow");
   const blocked = disasters.filter((r) => r.blocked).length;
-  const allowed = harmless.filter((r) => r.ran && !r.blocked).length;
-  const skipped = results.filter((r) => !r.ran).length;
+  const allowed = harmless.filter(
+    (r) => (r.ran && !r.blocked) || passedUnasked(r),
+  ).length;
+  const skipped = results.filter((r) => !r.ran && !passedUnasked(r)).length;
   const head =
     `Guardrail coverage for \`${hookName(hook)}\` — blocks ${String(blocked)}/${String(disasters.length)} of the dangerous battery` +
     (harmless.length > 0
