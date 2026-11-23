@@ -113,7 +113,7 @@ export default experimental_defineHook({
   for you and there is no field to get wrong. The names keep their literal types,
   which is how a react declared with `tools("Bash")` alone is known to carry
   `e.command`.
-- **`e.command`** (a Bash gate, and a react declared for Bash alone) — an AST-backed `CommandView`. It parses on the first predicate call, so a hook that never asks pays no parse:
+- **`e.command`** (a Bash gate, and a react declared for Bash alone) — an AST-backed `ShellCommand`. It parses on the first predicate call, so a hook that never asks pays no parse:
   - `runs(program, { force? })` — a leaf runs `program` (e.g. `"git reset --hard"`), optionally forced.
   - `touches(prefixes)` — a leaf **mentions** a path under one of `prefixes` (e.g. `["~/.ssh", ".env"]`) — secret reads.
   - `writesTo(prefixes)` — a leaf **creates or modifies** a file under one of `prefixes`: redirection targets (`cmd > f`, `>>`, `>|`, `&>`) plus the writing argv position of `sed -i`, `cp` / `mv` / `install` (destination), `tee`, `dd of=`, `truncate`, `shred`.
@@ -129,7 +129,9 @@ export default experimental_defineHook({
   >
   > Until 2026-08-12 this bias did not exist: `touches` compared a repo-relative prefix against a raw token with no root anywhere in `decideProgram`, so **spelling a path absolutely walked straight past any gate written with a relative prefix.** Measured against a real shipped guard, `sed -i s/a/b/ <abs>/paper.tex` and `cp /tmp/a <abs>/paper.tex` both exited 0 while their relative spellings exited 2.
 
-- **`e.path`** (Edit/Write) — a `PathView` with `under(prefixes)` for path confinement, plus `raw` (the path as the tool sent it) and `rel` (the same path repo-relative, or `undefined` — see below).
+- **`e.path`** (Edit/Write) — a `FilePath` with `under(prefixes)` for path confinement, plus `raw` (the path as the tool sent it) and `rel` (the same path repo-relative, or `undefined` — see below).
+
+  The two types and the functions that build them, `parseShellCommand(raw, root)` and `parseFilePath(raw, root)`, were called `CommandView`/`PathView` and `commandView`/`pathView` before #465. The old names still work, marked deprecated, until the next major release.
 
   > **Write your prefixes repo-relative; the runtime handles the rest.** Claude Code's Edit/Write/MultiEdit tools send an **absolute** `file_path`, so `under(["src"])` has to reconcile the two. It does that with the project root — `$CLAUDE_PROJECT_DIR`, else the event's own `cwd`, never the hook process's working directory (under a git worktree that can be a different checkout). An absolute prefix (`under(["/etc"])`) is matched against the absolute path instead, so both spellings work.
   >
@@ -147,7 +149,7 @@ export default experimental_defineHook({
 ### A react that reads the command
 
 A react declared for **Bash alone** sees the command it reacts to. Its event is a
-`BashReactEvent`: everything a react sees, plus `e.command` (the `CommandView`
+`BashReactEvent`: everything a react sees, plus `e.command` (the `ShellCommand`
 above). Any other react gets a `ToolReactEvent`, which has **no `command`
 property at all**. That covers other tools, a mixed list (`tools("Bash", "Edit")`),
 a pattern (`tools("Ba.*")`) and a tool-less event. Reading `e.command` on one of
@@ -204,7 +206,7 @@ Four things to know about it:
 
 - **The command is keyed on the tool name, not on the payload's shape.** Codex's
   `apply_patch` also carries `tool_input.command`, and there it is a patch. A
-  react on `apply_patch` never gets a `CommandView` of a patch, and a Bash-only
+  react on `apply_patch` never gets a `ShellCommand` of a patch, and a Bash-only
   react does not fire on one.
 - **Codex.** Codex's hooks documentation says shell commands, unified exec
   included, reach a hook as `Bash`, so the same hook decodes a Codex payload. That
@@ -820,8 +822,8 @@ They are `experimental_defineHook`, `experimental_defineFileGate`,
 has been about.
 
 Only the entry points carry the prefix, and that placement is the whole point:
-every other name in `vigiles/hook` — `allow`, `deny`, `tools`, `pathView`,
-`commandView`, `state`, `record`, `notice`, `run` — is reachable ONLY from inside
+every other name in `vigiles/hook` — `allow`, `deny`, `tools`, `parseFilePath`,
+`parseShellCommand`, `state`, `record`, `notice`, `run` — is reachable ONLY from inside
 a `define*` call. Prefixing the chokepoint makes the marking structural for the
 whole vocabulary; prefixing thirty names could not, because nothing would stop
 the thirty-first from shipping unmarked. Same reasoning as

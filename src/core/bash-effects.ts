@@ -42,7 +42,7 @@ interface MvdanSyntax {
  * bare Node start. This module sits in the import graph of `core/hook-program.ts`
  * (and `core/hook-providers.ts`), which the compiled-hook RUNTIME loads on EVERY
  * matching tool call. Only a BASH predicate ever parses: `decideProgram` returns
- * `allow()` before building a `commandView` when the tool is not Bash, so a file
+ * `allow()` before building a `parseShellCommand` when the tool is not Bash, so a file
  * gate, an inject, a react or a stop gate never reaches this file's functions at
  * all — and used to pay ~100 ms per tool call for a parser it never called.
  *

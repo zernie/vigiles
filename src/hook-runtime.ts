@@ -552,7 +552,7 @@ export async function runHookProgramCommand(
   const event = resolveHookEvent(payload, process.env, process.cwd());
   const root = event.root;
   // ⚠️ THE DECISION LAYER MUST NOT SEE THE FALLBACK, and this is not a detail.
-  // `pathView` treats an undefined root as "I cannot place this path" and errs
+  // `parseFilePath` treats an undefined root as "I cannot place this path" and errs
   // toward SILENCE. Handing it `process.cwd()` instead would turn that silence
   // into confident decisions measured against a directory nobody declared —
   // quietly widening what gates fire on. IO paths need a usable root; verdicts
