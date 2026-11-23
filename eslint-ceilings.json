@@ -132,11 +132,6 @@
   "src/core/cedar.test.ts": {
     "max-lines-per-function": 97
   },
-  "src/core/command-files.ts": {
-    "max-lines-per-function": 42,
-    "sonarjs/cognitive-complexity": 21,
-    "complexity": 22
-  },
   "src/core/compile-generator.ts": {
     "max-lines-per-function": 57,
     "complexity": 13

@@ -46,7 +46,7 @@ function shellGuard(dir: string, name: string, body: string): string {
 const blockedIds = (cmd: string, opts = {}): Set<string> =>
   new Set(
     verifyGuardrail(cmd, opts)
-      .filter((r) => r.blocked)
+      .filter((r) => r.outcome.kind === "blocked")
       .map((r) => r.event.id),
   );
 

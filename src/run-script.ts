@@ -254,7 +254,9 @@ export interface RunScriptDeps {
  * program, so nothing the exit code says is the program's opinion. Not part of
  * the public API.
  */
-export function shellNeverLaunched(status: number | null | undefined): boolean {
+export function shellNeverLaunched(
+  status: number | null | undefined,
+): status is 126 | 127 {
   return status === 126 || status === 127;
 }
 

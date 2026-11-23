@@ -917,13 +917,9 @@ function splitAssignmentWord(word: string): [string, string] {
  * unchanged with an empty assignment set.
  *
  * @internal — the SINGLE answer to "which word is the real command head". Read
- * by `bash-equivalents.ts` (to generate wrapper-prefixed spellings) and by
- * `core/command-files.ts` (to find the interpreter behind a wrapper, so
- * `env python3 guard` names its script). That second reader had its own idea of
- * what a wrapper was — namely none — so it reported no script at all for the
- * wrapped form, and a missing script that is never named is a hook that runs,
- * exits 2, and is scored as a block. One list, or the next wrapper is missed in
- * whichever copy nobody remembered.
+ * by `bash-equivalents.ts` (to generate wrapper-prefixed spellings) and by this
+ * module's own classifier. One list, or the next wrapper is missed in whichever
+ * copy nobody remembered.
  */
 export function stripWrappers(argv: readonly string[]): {
   argv: readonly string[];

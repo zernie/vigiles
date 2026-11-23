@@ -1001,31 +1001,6 @@
       "count": 2
     }
   },
-  "src/core/command-files.test.ts": {
-    "local/no-harness-names": {
-      "count": 13
-    }
-  },
-  "src/core/command-files.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 2
-    },
-    "boundaries/dependencies": {
-      "count": 1
-    },
-    "functional/immutable-data": {
-      "count": 2
-    },
-    "functional/no-let": {
-      "count": 4
-    },
-    "functional/no-loop-statements": {
-      "count": 2
-    },
-    "functional/prefer-immutable-types": {
-      "count": 7
-    }
-  },
   "src/core/compile-generator.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 4

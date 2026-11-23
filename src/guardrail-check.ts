@@ -22,8 +22,13 @@
  * the scaffold-test generator emits a test that calls these, and the same engine
  * backs an informational coverage report.
  */
+import { resolve } from "node:path";
 import { equivalentCommands } from "./core/bash-equivalents.js";
-import { runHook, type RunHookOptions } from "./run-hook.js";
+import {
+  runHook,
+  type HookRunResult,
+  type RunHookOptions,
+} from "./run-hook.js";
 import { shellNeverLaunched } from "./run-script.js";
 
 /** A category of dangerous action a guard might be meant to block. */
@@ -108,26 +113,118 @@ export const DISASTER_CATALOG: readonly DisasterEvent[] = [
   },
 ];
 
+/**
+ * How a harmless case was made. `control` is the probe every run carries;
+ * `custom` is one the caller wrote.
+ */
+export type HarmlessForm = "control" | "custom";
+
+/** A tool event the guard must ALLOW. */
+export interface HarmlessCase {
+  /** Stable id, e.g. `"control"`. */
+  readonly id: string;
+  /** One-line human label for the report. */
+  readonly label: string;
+  /** The dangerous case it mirrors; `null` for the control and custom cases. */
+  readonly of: string | null;
+  readonly form: HarmlessForm;
+  /** The tool the event names. */
+  readonly tool: string;
+  /** The `tool_input` payload. */
+  readonly input: Record<string, unknown>;
+}
+
+/**
+ * The default control: a command no guard of any category has a reason to deny.
+ *
+ * 🔴 WHY EVERY RUN CARRIES ONE (#213). A block is read from exit code 2, and an
+ * interpreter that cannot open its script ALSO exits 2 — `python3 missing.py`,
+ * `GUARD=x; python3 "$GUARD"`, a syntax error under `sh`. So "blocked" alone
+ * never proves the guard ran. The control runs first: if it is blocked too, the
+ * hook either never started or denies everything, and no block in the battery is
+ * evidence. That observes BEHAVIOUR, so it catches every spelling of the class
+ * without reading the command — reading it was tried, and each fix bought one
+ * spelling. An allowlist guard denies `ls` legitimately; pass it a command it
+ * allows as {@link VerifyGuardrailOptions.control}.
+ */
+export const CONTROL_CASE: HarmlessCase = {
+  id: "control",
+  label: "list the working directory",
+  of: null,
+  form: "control",
+  tool: "Bash",
+  input: { command: "ls" },
+};
+
+/**
+ * Why a case produced no decision of the guard. Each reason is its own tag
+ * because each asks for a different fix, and a string `reason` could not be
+ * switched on (`make-the-distinction-a-type`).
+ */
+export type NotRun =
+  /** The hook's declared condition (`if`) does not select this event. */
+  | {
+      readonly kind: "not-run";
+      readonly why: "condition";
+      readonly detail: string;
+    }
+  /** The hook's matcher does not select this event's tool (directory sweep). */
+  | {
+      readonly kind: "not-run";
+      readonly why: "matcher";
+      readonly detail: string;
+    }
+  /** The shell never reached the program: 126 not executable, 127 not found. */
+  | {
+      readonly kind: "not-run";
+      readonly why: "never-launched";
+      readonly exitCode: 126 | 127;
+    }
+  /** The control was blocked too, so this case was not run: no verdict. */
+  | {
+      readonly kind: "not-run";
+      readonly why: "control-blocked";
+      readonly controlExitCode: number;
+      /** The end of the control run's stderr — usually says why it failed. */
+      readonly controlStderrTail: string;
+    };
+
+/** What became of one case. */
+export type CaseOutcome =
+  | { readonly kind: "blocked"; readonly exitCode: number }
+  | { readonly kind: "allowed"; readonly exitCode: number }
+  | NotRun;
+
 /** The result of feeding one disaster event to a hook. */
 export interface GuardrailResult {
   readonly event: DisasterEvent;
-  /** True iff the hook denied the call (exit 2 / decision:block / permissionDecision:deny). */
+  /**
+   * What happened, as a tag: `blocked`, `allowed`, or `not-run` with its reason.
+   * 🔴 A NOT-RUN EVENT IS STILL A MISS for `assertBlocksDisasters` — what the tag
+   * adds is WHY, so a report never prints "allows" for a hook that never saw
+   * the call.
+   */
+  readonly outcome: CaseOutcome;
+  /**
+   * True iff `outcome.kind === "blocked"`.
+   * @deprecated Read `outcome`; derived from it, removed next major.
+   */
   readonly blocked: boolean;
-  /** The hook process exit code (1 ≠ block — the classic false-confidence bug). */
+  /**
+   * The hook process exit code (1 ≠ block — the classic false-confidence bug);
+   * 0 for a case that was never spawned.
+   * @deprecated Read `outcome`; derived from it, removed next major.
+   */
   readonly exitCode: number;
   /**
-   * Whether the hook was RUN for this event at all — false when its declared
-   * condition ({@link VerifyGuardrailOptions.condition}) does not match, so the
-   * harness would never spawn it here.
-   *
-   * 🔴 A NOT-RUN EVENT IS A MISS, and separating it out is the point. Before this
-   * existed the battery could only ask "did it block?", so a real guard whose body
-   * is an unconditional deny but whose `if` only fires on a force push scored
-   * 7/7 — certified as stopping `rm -rf /` and `cat ~/.ssh/id_rsa`. It still
-   * counts as unblocked; what changed is that the report can now say WHY.
+   * False when `outcome.kind === "not-run"`.
+   * @deprecated Read `outcome`; derived from it, removed next major.
    */
   readonly ran: boolean;
-  /** Why the hook ran or did not — the condition verdict, always present. */
+  /**
+   * The outcome as one line of prose.
+   * @deprecated Switch on `outcome` instead; removed next major.
+   */
   readonly reason: string;
 }
 
@@ -138,10 +235,18 @@ export interface VerifyGuardrailOptions extends RunHookOptions {
   readonly events?: readonly DisasterEvent[];
   /** The PreToolUse event name to wrap each disaster in (default "PreToolUse"). */
   readonly event?: string;
+  /**
+   * Replaces the control (default {@link CONTROL_CASE}). There is no way to
+   * switch it off: without it a block is not evidence. An allowlist guard passes
+   * a command it allows.
+   */
+  readonly control?: HarmlessCase;
 }
 // `condition` + `protocol` are inherited from RunHookOptions — pass the hook's
 // declared `if` here and the battery measures the guard the harness would
-// actually run, not an unconditional stand-in for it.
+// actually run, not an unconditional stand-in for it. The control runs under the
+// same condition, so a condition that does not select it leaves the battery with
+// no control evidence — pass a `control` the condition selects.
 
 const HOOK_EVENT = "PreToolUse";
 
@@ -211,57 +316,113 @@ export function experimental_alternateSpellings(
   });
 }
 
+/** How much of the control run's stderr a report carries — enough for one error line. */
+const STDERR_TAIL = 300;
+
+/** The last {@link STDERR_TAIL} characters of a stream, trimmed. */
+function tail(stream: string): string {
+  return stream.trim().slice(-STDERR_TAIL);
+}
+
+/**
+ * One finished run as an outcome.
+ *
+ * 🔴 A PROGRAM THE SHELL NEVER LAUNCHED HAS NO OPINION. 126 ("found, not
+ * executable") and 127 ("not found") are the SHELL's own codes, so they are
+ * `never-launched`, not `allowed` — but ONLY WHEN NOTHING BLOCKED: `echo
+ * '{"…deny…}'; ./missing` exits 127 with a real deny on stdout, and the exit
+ * code loses to the decision, never the reverse.
+ */
+function outcomeOf(r: HookRunResult): CaseOutcome {
+  if (!r.ran)
+    return { kind: "not-run", why: "condition", detail: r.conditionReason };
+  if (r.blocked) return { kind: "blocked", exitCode: r.exitCode };
+  if (shellNeverLaunched(r.exitCode))
+    return { kind: "not-run", why: "never-launched", exitCode: r.exitCode };
+  return { kind: "allowed", exitCode: r.exitCode };
+}
+
+/** One sentence for a not-run outcome — the deprecated `reason`, and the report row. */
+export function describeNotRun(o: NotRun): string {
+  switch (o.why) {
+    case "condition":
+    case "matcher":
+      return o.detail;
+    case "never-launched":
+      return `the shell never launched this hook (exit ${String(o.exitCode)}: ${
+        o.exitCode === 127 ? "command not found" : "not executable"
+      }) — nothing here is the guard's decision`;
+    case "control-blocked":
+      return `no verdict: the hook also blocked the control command (exit ${String(o.controlExitCode)}), so it never started or denies everything`;
+  }
+}
+
+/**
+ * A result from its outcome, with the deprecated fields derived from it so the
+ * two can never disagree.
+ *
+ * @internal Shared with the directory sweep, which folds matcher-excluded
+ * events back in as `not-run` results.
+ */
+export function guardrailResult(
+  event: DisasterEvent,
+  outcome: CaseOutcome,
+  ranReason = "",
+): GuardrailResult {
+  const ran = outcome.kind !== "not-run";
+  return {
+    event,
+    outcome,
+    blocked: outcome.kind === "blocked",
+    ran,
+    exitCode: ran || outcome.why === "never-launched" ? outcome.exitCode : 0,
+    reason: ran ? ranReason : describeNotRun(outcome),
+  };
+}
+
 /**
  * Run a hook command against the disaster battery and report which events it blocks.
  * `hookCommand` is the exact shell the hook registers (e.g. `bash hooks/guard.sh` or
  * `npx vigiles hook-runtime guard`); it receives each disaster as a PreToolUse event on stdin,
- * exactly as Claude Code would deliver it.
+ * exactly as Claude Code would deliver it — `cwd` included.
+ *
+ * The control ({@link CONTROL_CASE}, or `opts.control`) runs FIRST. If the hook
+ * blocks it, the battery is not run and every result is
+ * `not-run/control-blocked`: no block would have been evidence.
  */
 export function verifyGuardrail(
   hookCommand: string,
   opts: VerifyGuardrailOptions = {},
 ): GuardrailResult[] {
   const eventName = opts.event ?? HOOK_EVENT;
-  return selectEvents(opts).map((event) => {
-    const r = runHook(
+  // 🔴 THE HARNESS ALWAYS SENDS `cwd`. A hook that reads it from stdin got
+  // nothing from the battery — measured against a program the harness never
+  // runs. It names the directory the hook is spawned in: `opts.cwd`, else the
+  // inherited one, which is what `resolve(".")` names. (A confined run with no
+  // `cwd` is spawned in a directory the runner mints; there is no name for it
+  // to hand over.)
+  const cwd = resolve(opts.cwd ?? ".");
+  const run = (tool: string, input: Readonly<Record<string, unknown>>) =>
+    runHook(
       hookCommand,
-      {
-        hook_event_name: eventName,
-        tool_name: event.tool,
-        tool_input: event.input,
-      },
+      { hook_event_name: eventName, tool_name: tool, tool_input: input, cwd },
       opts,
     );
-    // 🔴 A PROGRAM THE SHELL NEVER LAUNCHED HAS NO OPINION, so it must not be
-    // reported as one. 126 ("found, not executable") and 127 ("not found") are
-    // the SHELL's own codes — not a language's exit convention and not a guess
-    // about stderr text — and they arrive when the interpreter is missing, the
-    // file is not executable, or the shebang is wrong. Left alone, they read as
-    // `ran and allowed`, which accuses a guard of letting a disaster through
-    // when it was never asked. Folding them into the existing not-run channel
-    // means `assertBlocksDisasters` and both renderers say WHY for free, and the
-    // verdict is unchanged: a guard that cannot start still protects nothing.
-    //
-    // ⚠️ ONLY WHEN NOTHING BLOCKED. `echo '{"…deny…}'; ./missing` exits 127 with
-    // a real deny on stdout; reclassifying that would hide a decision the hook
-    // genuinely made. The exit code loses to the decision, never the reverse.
-    if (!r.blocked && r.ran && shellNeverLaunched(r.exitCode))
-      return {
-        event,
-        blocked: false,
-        exitCode: r.exitCode,
-        ran: false,
-        reason: `the shell never launched this hook (exit ${String(r.exitCode)}: ${
-          r.exitCode === 127 ? "command not found" : "not executable"
-        }) — nothing here is the guard's decision`,
-      };
-    return {
-      event,
-      blocked: r.blocked,
-      exitCode: r.exitCode,
-      ran: r.ran,
-      reason: r.conditionReason,
+  const control = opts.control ?? CONTROL_CASE;
+  const probe = run(control.tool, control.input);
+  const events = selectEvents(opts);
+  if (outcomeOf(probe).kind === "blocked") {
+    const outcome: NotRun = {
+      kind: "not-run",
+      why: "control-blocked",
+      controlExitCode: probe.exitCode,
+      controlStderrTail: tail(probe.stderr),
     };
+    return events.map((event) => guardrailResult(event, outcome));
+  }
+  return events.map((event) => {
+    const r = run(event.tool, event.input);
+    return guardrailResult(event, outcomeOf(r), r.conditionReason);
   });
 }
 
@@ -269,27 +430,64 @@ export function verifyGuardrail(
 export function unblockedDisasters(
   results: readonly GuardrailResult[],
 ): GuardrailResult[] {
-  return results.filter((r) => !r.blocked);
+  return results.filter((r) => r.outcome.kind !== "blocked");
+}
+
+/** The outcome every case of a battery without a verdict carries. */
+type ControlBlocked = Extract<NotRun, { why: "control-blocked" }>;
+
+/** The control-blocked outcome, if this battery had no verdict. */
+function controlBlocked(
+  results: readonly GuardrailResult[],
+): ControlBlocked | undefined {
+  const isIt = (o: CaseOutcome): o is ControlBlocked =>
+    o.kind === "not-run" && o.why === "control-blocked";
+  return results.map((r) => r.outcome).find(isIt);
+}
+
+/** The control's command as the report names it. */
+function controlCommand(control: HarmlessCase): string {
+  const command = control.input["command"];
+  return typeof command === "string" ? command : control.label;
+}
+
+/** The error message for a battery whose control was blocked — one finding, not seven. */
+function noVerdictMessage(
+  hookCommand: string,
+  o: ControlBlocked,
+  control: HarmlessCase,
+): string {
+  const stderr =
+    o.controlStderrTail === ""
+      ? ""
+      : `\n  stderr of the control run: ${o.controlStderrTail}`;
+  return `Guardrail \`${hookCommand}\` has NO VERDICT: it also blocked the control command \`${controlCommand(control)}\` (exit ${String(o.controlExitCode)}), so none of its blocks is evidence.${stderr}\nEither the hook never started (an interpreter that cannot open its script exits 2 — the same code as a deny), or it denies every command. If it is an allowlist guard, pass a command it allows: assertBlocksDisasters(cmd, { control: { ...CONTROL_CASE, input: { command: "npm test" } } }).`;
 }
 
 /**
  * Assert a hook blocks every disaster in the (selected) battery — the CI gate.
  * Throws with the misses listed, so a guardrail that's secretly a no-op fails the
- * build instead of failing in production.
+ * build instead of failing in production. A hook that also blocks the control
+ * throws too: it has no verdict.
  */
 export function assertBlocksDisasters(
   hookCommand: string,
   opts: VerifyGuardrailOptions = {},
 ): void {
-  const misses = unblockedDisasters(verifyGuardrail(hookCommand, opts));
+  const results = verifyGuardrail(hookCommand, opts);
+  const noVerdict = controlBlocked(results);
+  if (noVerdict !== undefined)
+    throw new Error(
+      noVerdictMessage(hookCommand, noVerdict, opts.control ?? CONTROL_CASE),
+    );
+  const misses = unblockedDisasters(results);
   if (misses.length === 0) return;
-  // A never-run event names the CONDITION rather than an exit code: "exit 0" on a
-  // hook that was never spawned reads as "the guard looked and allowed it", which
-  // is exactly the confusion this whole change removes.
-  const lines = misses.map((m) =>
-    m.ran
-      ? `  ✗ ${m.event.label} (exit ${m.exitCode})`
-      : `  ⊘ ${m.event.label} — NOT RUN: ${m.reason}`,
+  // A never-run event names its reason rather than an exit code: "exit 0" on a
+  // hook that was never spawned reads as "the guard looked and allowed it".
+  const lines = misses.map(({ event, outcome }) =>
+    outcome.kind === "not-run"
+      ? `  ⊘ ${event.label} — NOT RUN: ${describeNotRun(outcome)}`
+      : `  ✗ ${event.label} (exit ${outcome.exitCode})`,
   );
   throw new Error(
     `Guardrail \`${hookCommand}\` did NOT block ${misses.length} dangerous action(s):\n${lines.join(
@@ -312,9 +510,26 @@ export function assertBlocksDisasters(
  * cannot drift into two vocabularies for the same three outcomes. Not part of the
  * public API — a caller wanting these lines wants one of the two reports.
  */
-export function guardrailRow(result: GuardrailResult): string {
-  if (!result.ran) return `⊘ not run  ${result.event.label} — ${result.reason}`;
-  return `${result.blocked ? "✅ blocks" : "·  allows"}  ${result.event.label}`;
+export function guardrailRow({ event, outcome }: GuardrailResult): string {
+  switch (outcome.kind) {
+    case "blocked":
+      return `✅ blocks  ${event.label}`;
+    case "allowed":
+      return `·  allows  ${event.label}`;
+    case "not-run":
+      return `⊘ not run  ${event.label} — ${describeNotRun(outcome)}`;
+  }
+}
+
+/** The report of a battery with no verdict: why, and no score. */
+function noVerdictReport(hookCommand: string, o: ControlBlocked): string {
+  return [
+    `Guardrail coverage for \`${hookCommand}\` — NO VERDICT`,
+    `  ⊘ ${describeNotRun(o)}`,
+    ...(o.controlStderrTail === ""
+      ? []
+      : [`  stderr of the control run: ${o.controlStderrTail}`]),
+  ].join("\n");
 }
 
 /**
@@ -322,14 +537,17 @@ export function guardrailRow(result: GuardrailResult): string {
  * hook blocks WITHOUT judging it: a hook that allows these may simply not be a
  * bash-safety guard (our own pre-edit.sh blocks .md edits, not `rm -rf`). The
  * "false confidence" verdict only applies once intent is DECLARED — see
- * {@link assertBlocksDisasters}.
+ * {@link assertBlocksDisasters}. A battery whose control was blocked prints no
+ * score at all.
  */
 export function formatGuardrailReport(
   hookCommand: string,
   results: readonly GuardrailResult[],
 ): string {
-  const blocked = results.filter((r) => r.blocked).length;
-  const skipped = results.filter((r) => !r.ran).length;
+  const noVerdict = controlBlocked(results);
+  if (noVerdict !== undefined) return noVerdictReport(hookCommand, noVerdict);
+  const blocked = results.filter((r) => r.outcome.kind === "blocked").length;
+  const skipped = results.filter((r) => r.outcome.kind === "not-run").length;
   const head = `Guardrail coverage for \`${hookCommand}\` — blocks ${blocked}/${results.length} of the dangerous battery`;
   const rows = results.map((r) => `  ${guardrailRow(r)}`);
   const foot = [

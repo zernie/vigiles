@@ -127,8 +127,11 @@ describe("experimental_verifyPluginGuards — the per-hook verdicts differ", () 
     expect(conditional.notRun).toHaveLength(DISASTER_CATALOG.length - 1);
     // Every entry is still present — a hook reporting 1/1 would be the lie.
     expect(conditional.results).toHaveLength(DISASTER_CATALOG.length);
-    for (const r of conditional.results.filter((x) => !x.ran))
-      expect(r.reason).toContain("does not match");
+    for (const { outcome } of conditional.results)
+      if (outcome.kind === "not-run")
+        expect(outcome.why === "condition" && outcome.detail).toContain(
+          "does not match",
+        );
   });
 
   it("the UNCONDITIONAL guard blocks the whole battery", () => {

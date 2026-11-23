@@ -106,9 +106,12 @@ test("the COMPILED hook blocks all 7 disasters by construction (closes the gaps)
  * failed the build over a working guard. The tool whose stated job is catching
  * "a guard that looks fine and silently does nothing" said exactly that about a
  * guard that does not.
+ *
+ * It lets the battery's control (`ls`) through, as a real write-guard does: a
+ * guard that halts on EVERY call has no verdict (#213).
  */
 const HALTING_GUARD = `#!/usr/bin/env bash
-cat > /dev/null
+case "$(cat)" in *'"command":"ls"'*) exit 0;; esac
 printf '%s' '{"continue": false, "stopReason": "blocked by policy"}'
 exit 0
 `;
@@ -137,7 +140,9 @@ test("a guard that halts the turn is credited with blocking (#174)", () => {
     );
     // Every result exits 0 — so the verdict cannot be coming from the exit code.
     assert.ok(
-      results.every((r) => r.exitCode === 0),
+      results.every(
+        (r) => r.outcome.kind === "blocked" && r.outcome.exitCode === 0,
+      ),
       "the guard blocks by field, not by exit code",
     );
     // The gate itself must now pass on it.
@@ -260,7 +265,7 @@ test("the guard did not become a blunt blocker", () => {
     `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
     { cwd: REPO_ROOT, events: benign },
   )
-    .filter((r) => r.blocked)
+    .filter((r) => r.outcome.kind === "blocked")
     .map((r) => r.event.label);
   assert.deepEqual(blocked, [], "a benign command must still pass");
 });

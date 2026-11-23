@@ -22,7 +22,7 @@
  * tells you which hooks are even in the conversation. Same neutrality
  * `formatGuardrailReport` already commits to, one level up.
  *
- * FOUR THINGS THAT ARE NOT A VERDICT, and each has its own shape rather than a
+ * FIVE THINGS THAT ARE NOT A VERDICT, and each has its own shape rather than a
  * quietly-zero score — the whole lesson of #211 is that a missing RUN must never
  * be readable as a finding:
  *
@@ -32,7 +32,9 @@
  *   - a hook whose CONDITION rejects every event its matcher did select — the
  *     harness spawns it for none of them, so there is no program to score;
  *   - a hook whose COMMAND still names a variable nobody has set cannot be run as
- *     the harness runs it, so running it would measure a different program.
+ *     the harness runs it, so running it would measure a different program;
+ *   - a hook that also blocks the CONTROL command (`no-verdict`, #213) either
+ *     never started or denies everything, so none of its blocks is evidence.
  *
  * 🔴 THE THIRD WAS MISSED AND WAS COUNTED, which is why the list says FOUR. The
  * other three are settled before a spawn; the condition is settled per event
@@ -44,42 +46,13 @@
  * A plugin with no hooks reports zero of everything and says so in `notes`. None
  * of these is "safe" and none is "blocks nothing".
  *
- * 🔴 KNOWN REMAINDER, and it is one class rather than a list of spellings
- * (zernie/vigiles#213). `blocked` is decided by exit code 2, and an interpreter
- * that cannot start its script ALSO exits 2 — so a guard that never ran and a
- * guard that denied are the same observation. The preflight below is a PROXY for
- * "did it run": it resolves the script and reports `unresolved` when the file is
- * absent. Review has defeated that proxy five times; two are fixed here (a
- * wrapper hiding the interpreter, a wrong execution cwd) and three are NOT:
- *
- *   - a command-local assignment — `GUARD=missing.py; python3 "$GUARD"`;
- *   - a dominating `cd` — `cd hooks && python3 guard.py`;
- *   - a command substitution that really executes — `result=$(python3 missing.py)`.
- *
- * AND TWO IN THE OPPOSITE DIRECTION, named here because the fix for them is the
- * same "resolve harder" reflex and it is the same mistake. These do not
- * manufacture a score — they REFUSE one a real guard had earned, so a hook that
- * exists reads as `unresolved`. Both UNDER-report, which is why they are
- * remainder rather than defect:
- *
- *   - a TILDE — `python3 ~/.claude/hooks/guard.py`. Tilde expansion is the
- *     shell's, not the parser's, so the ref stays literal and `resolve(cwd, ref)`
- *     probes `<cwd>/~/.claude/…`. Measured: a guard present at
- *     `$HOME/.claude/hooks/` is reported as not on disk.
- *   - `$PWD` UNDER CONFINEMENT — it is absent from the confined name set below
- *     (`HOME`, `TMPDIR`, `PATH`), because `bwrapArgs` does not set it; but
- *     `/bin/sh` initializes `PWD` itself after bubblewrap's `--chdir`, so the
- *     variable IS set by the time the hook reads it. Measured: the same command
- *     scores 7/7 unconfined and reads `unresolved` confined.
- *
- * Do not "fix" these by resolving harder. Extracting a script path from an
- * arbitrary shell command is the same undecidable problem `bash-effects.ts`
- * documents for itself, where `eval`, a `$VAR` head and `sh -c` normalize to
- * `null` BY CONSTRUCTION. Each patch buys one spelling and leaves the class open.
- * What closes it is a CONTROL PROBE: one benign command the guard must ALLOW,
- * run beside the battery — blocked too ⇒ the program is not blocking, it is
- * failing to start, and the hook is `unmeasurable` rather than scored. The same
- * in-run-control shape `src/subagent-delivery.test.ts` already relies on.
+ * 🔴 "DID IT RUN" IS OBSERVED, NOT GUESSED (zernie/vigiles#213). `blocked` is
+ * decided by exit code 2, and an interpreter that cannot start its script ALSO
+ * exits 2 — so a missing script, a syntax error under `sh`, or a relative path
+ * in a confined run's empty directory all read as a deny. Resolving the script
+ * from the command was a proxy for "did it run", and review defeated it once
+ * per spelling. The battery's control probe ({@link CONTROL_CASE}) answers the
+ * class instead: a hook that also blocks the control reads `no-verdict`.
  *
  * HARNESS-AGNOSTIC, with Claude Code as the default — the same shape as
  * {@link runHarnessTest}. Every piece it composes already takes its harness by
@@ -91,8 +64,7 @@
  * shell processes (`capabilities.shellHooks === false`, e.g. OpenCode) reports
  * n/a in `notes` rather than an empty success.
  */
-import { resolve, isAbsolute } from "node:path";
-import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { loadPlugin } from "./plugin-loader.js";
 import {
   normalizeHooks,
@@ -105,19 +77,22 @@ import {
 export type { NonCommandHookAction } from "./core/hook-normalize.js";
 import { hookMatcherReach } from "./core/hook-matcher.js";
 import { shellVarReads } from "./core/shell-vars.js";
-import { commandFileRefs } from "./core/command-files.js";
 import { claudeCodeAdapter } from "./adapters/claude-code/adapter.js";
 import { sandboxAvailable } from "./sandbox.js";
 import { egressAvailable } from "./egress.js";
-import { routeScriptRun, shellNeverLaunched } from "./run-script.js";
+import { routeScriptRun } from "./run-script.js";
 import type { HarnessAdapter } from "./core/adapter.js";
 import {
   DISASTER_CATALOG,
+  describeNotRun,
+  guardrailResult,
   guardrailRow,
   verifyGuardrail,
+  type CaseOutcome,
   type DisasterCategory,
   type DisasterEvent,
   type GuardrailResult,
+  type HarmlessCase,
 } from "./guardrail-check.js";
 import type { RunHookOptions } from "./run-hook.js";
 
@@ -138,6 +113,9 @@ export interface SweptHook {
    */
   readonly index: number;
 }
+
+/** The status of a hook whose control was blocked — see {@link SweptHookOutcome}. */
+const NO_VERDICT = "no-verdict";
 
 /**
  * What happened to one hook. A DISCRIMINATED UNION, not a result list plus three
@@ -177,8 +155,22 @@ export type SweptHookOutcome =
        */
       readonly status: "unresolved";
       readonly hook: SweptHook;
-      /** One line naming the unset variables. */
+      /** One line naming the unset variables, or the launch failure. */
       readonly reason: string;
+    }
+  | {
+      /**
+       * The hook also blocked the CONTROL command, so it either never started
+       * (an interpreter that cannot open its script exits 2, the DENY code) or
+       * denies everything. None of its blocks is evidence, so it has no score.
+       * The fix: make it start, or pass a `control` it allows.
+       */
+      readonly status: typeof NO_VERDICT;
+      readonly hook: SweptHook;
+      /** One line saying what the control run showed. */
+      readonly reason: string;
+      /** The end of the control run's stderr — usually names the missing file. */
+      readonly controlStderrTail: string;
     };
 
 /** The whole sweep. */
@@ -240,6 +232,11 @@ export interface VerifyPluginGuardsOptions extends Omit<
   readonly events?: readonly DisasterEvent[];
   /** The event each disaster is delivered as (default `"PreToolUse"`). */
   readonly event?: string;
+  /**
+   * Replaces the control every hook is probed with (default `ls`). An
+   * allowlist guard denies `ls` legitimately; pass a command it allows.
+   */
+  readonly control?: HarmlessCase;
 }
 // `condition` and `protocol` are deliberately NOT accepted: the condition is read
 // per hook from the config, and the protocol comes from the adapter. Letting a
@@ -260,39 +257,12 @@ const DEFAULT_EVENT = "PreToolUse";
  * rather than read from `process.env` here.
  */
 function unsetVariables(command: string, names: ReadonlySet<string>): string[] {
-  return shellVarReads(command).reads.filter((name) => !names.has(name));
-}
-
-/**
- * Files the command hands to a program to run, that are not there.
- *
- * 🔴 THIS IS THE ONE THE EXIT CODE CANNOT ANSWER, and it was the sweep's loudest
- * lie. `python3 <missing>.py` exits **2**, which is Claude Code's DENY code, so
- * a hook whose script does not exist was reported as blocking every disaster in
- * the battery — a perfect score for a guard that does not exist. Measured on the
- * unfixed build: `blocks=7/7 exits=2,2,2,2,2,2,2`. Unlike the uncompilable
- * matcher, no malformed config is needed to reach it: a relative script path is
- * the commonest hook shape there is.
- *
- * Resolution is against the cwd the hook will actually run in, because that is
- * the only directory a relative path means anything against. See
- * `core/command-files.ts` for what counts as a file reference and the corpus
- * measurement behind that narrowing.
- */
-function missingFiles(
-  command: string,
-  cwd: EffectiveCwd,
-  values: Readonly<Record<string, string>>,
-): string[] {
-  return commandFileRefs(command, values).refs.filter((ref) => {
-    // 🔴 A RELATIVE PATH IS MISSING BY CONSTRUCTION IN A FRESH EMPTY DIRECTORY.
-    // A confined run with no `cwd` is chdir'd into a directory `sandboxedSpawn`
-    // just created, so nothing relative can be there — while the host's `/` is
-    // ro-bound, which is why an ABSOLUTE ref is still tested on disk.
-    if (!isAbsolute(ref))
-      return cwd.kind === "fresh-empty" || !existsSync(resolve(cwd.dir, ref));
-    return !existsSync(ref);
-  });
+  const { reads, parsed } = shellVarReads(command);
+  // A command the parser rejects cannot run under any `env`: `sh` exits 2 on
+  // it, and the control probe reports that as `no-verdict`. Naming a variable
+  // the regex fallback still sees would send the caller to fix the wrong thing.
+  if (!parsed) return [];
+  return reads.filter((name) => !names.has(name));
 }
 
 /** The battery, after `categories` / `events` narrowing. */
@@ -381,8 +351,7 @@ function tokenName(token: string): string | null {
 
 /**
  * The environment a swept hook is run with, and — separately — what the hook
- * will FIND set and what we can RESOLVE. Three fields because they answer three
- * different questions and conflating them is what produced two of these bugs.
+ * will FIND set. Two fields because they answer two different questions.
  */
 interface HookEnvironment {
   /** Handed to `runHook` as `env`. */
@@ -392,12 +361,6 @@ interface HookEnvironment {
    * chosen. Not the same as `keys(pass)`, and not `process.env` either.
    */
   readonly names: ReadonlySet<string>;
-  /**
-   * The subset whose VALUE is known here, for resolving a path the command
-   * names. A confined run sets `HOME`/`TMPDIR` to directories that do not exist
-   * yet, so they are `names` without being `values` — present, not resolvable.
-   */
-  readonly values: Readonly<Record<string, string>>;
 }
 
 /**
@@ -544,24 +507,16 @@ function hookEnvironment(
     if (value !== undefined) derived[name] = value;
   }
   const pass = { ...derived, ...opts.env };
-  if (!willBeConfined(opts)) {
-    const values: Record<string, string> = {};
-    for (const [name, value] of Object.entries(process.env))
-      if (value !== undefined) values[name] = value;
+  if (!willBeConfined(opts))
     return {
       pass,
       names: new Set([...Object.keys(process.env), ...Object.keys(pass)]),
-      values: { ...values, ...pass },
     };
-  }
   // Confined: exactly what `bwrapArgs` sets back after `--clearenv`, plus what
-  // `setenvArgs` restores. HOME and TMPDIR are set to sandbox-internal temp
-  // directories, so they are present without being resolvable HERE — a path
-  // built from them is left alone rather than tested against the host's copy.
+  // `setenvArgs` restores.
   return {
     pass,
     names: new Set(["HOME", "TMPDIR", "PATH", ...Object.keys(pass)]),
-    values: { PATH: process.env["PATH"] ?? "", ...pass },
   };
 }
 
@@ -629,22 +584,6 @@ function sweepHook(
       reason: `matcher \`${reg.matcher ?? ""}\` selects none of the tools this battery calls (${toolsOf(battery).join(", ")}) — the harness never spawns it here`,
     };
 
-  // 🔴 BEFORE EITHER ANALYSIS, BECAUSE A REJECTED COMMAND DEFEATS BOTH. `sh`
-  // exits 2 on a syntax error — this harness's DENY code — so a hook whose
-  // command does not parse was run and scored as blocking, which is the same
-  // false 7/7 the file check above prevents, reached without a missing file.
-  // The file half went quiet rather than loud on it (`{ parsed: false,
-  // refs: [] }` reads exactly like a clean command), and the variable half is
-  // worse than quiet: its regex fallback still names `$FOO` in `echo "$FOO`, so
-  // the sweep would have blamed an unset variable for a syntax error and told
-  // the caller to pass `env`. Deciding this first makes both accurate.
-  if (!commandFileRefs(reg.command).parsed)
-    return {
-      status: "unresolved",
-      hook,
-      reason: `the command is not valid shell — the parser rejects it, and so does \`sh\`, which exits 2 for a syntax error. That is this harness's DENY code, so running it anyway would report the syntax error as a block`,
-    };
-
   const missingVars = unsetVariables(reg.command, env.names);
   if (missingVars.length > 0)
     return {
@@ -653,30 +592,11 @@ function sweepHook(
       reason: `the command names ${missingVars.map((v) => `\`$${v}\``).join(", ")}, which nothing sets here — running it would measure a different program than the harness runs. Pass \`env\` to resolve it`,
     };
 
-  // The file half of the same question, and it has to be asked BEFORE the run:
-  // a missing script makes the interpreter exit 2, which is indistinguishable
-  // from a deny once it has happened.
-  const absent = missingFiles(reg.command, ctx.cwd, env.values);
-  if (absent.length > 0) {
-    const named = absent.map((f) => `\`${f}\``).join(", ");
-    const relative = absent.some((f) => !isAbsolute(f));
-    return {
-      status: "unresolved",
-      hook,
-      reason:
-        ctx.cwd.kind === "fresh-empty" && relative
-          ? `the command runs ${named} by a RELATIVE path, and a confined run starts in a fresh empty directory — the script cannot be there, whatever is on disk here. Pass \`cwd\` (the project the hook runs against) so the path means something, or an absolute path (an interpreter that cannot open its script exits 2, which is this harness's DENY code, so running it anyway would report a perfect score for a guard that never ran)`
-          : `the command runs ${named}, which ${absent.length === 1 ? "is" : "are"} not on disk here — the guard the config names does not exist, so there is nothing to measure (an interpreter that cannot open its script exits 2, which is this harness's DENY code, so running it anyway would report a perfect score for a guard that never ran)`,
-    };
-  }
-
   const ran = verifyGuardrail(reg.command, {
     ...opts,
-    // 🔴 THE SAME ANSWER THE PRE-FLIGHT USED, not `opts.cwd` again. The checks
-    // above tested this hook's files against {@link SweepContext.cwd}; handing
-    // the runner a different directory would make every one of those checks a
-    // statement about a tree the hook never ran in. `fresh-empty` passes nothing
-    // through, because that directory is the runner's to mint.
+    // The same directory the project-root variables name — see
+    // {@link SweepContext.cwd}. `fresh-empty` passes nothing through, because
+    // that directory is the runner's to mint.
     cwd: ctx.cwd.kind === "path" ? ctx.cwd.dir : undefined,
     env: env.pass,
     events: reachable,
@@ -684,74 +604,101 @@ function sweepHook(
     condition: reg.condition ?? undefined,
     protocol,
   });
+  return judgeRun(hook, reg, battery, ran);
+}
 
-  // 🔴 AND AFTER THE RUN, THE HALF THE PRE-FLIGHT CANNOT SEE. A missing
-  // interpreter, a file without the execute bit, a bad shebang: the shell
-  // answers 127/126 and the program never had an opinion. That is a property of
-  // the COMMAND, not of one battery event — the same command runs for all of
-  // them — so one such result disqualifies the hook rather than one row. Erring
-  // toward refusal is deliberate: a hook that fails to launch on only some
-  // inputs is still a hook whose score would be part fiction.
-  const stillborn = ran.find(
-    (r) => !r.ran && shellNeverLaunched(r.exitCode) && !r.blocked,
-  );
+type NotRunOutcome = Extract<CaseOutcome, { kind: "not-run" }>;
+
+/** The first result whose outcome is a not-run for `why`, if any. */
+function notRunBecause<W extends NotRunOutcome["why"]>(
+  ran: readonly GuardrailResult[],
+  why: W,
+): Extract<NotRunOutcome, { why: W }> | undefined {
+  const isIt = (o: CaseOutcome): o is Extract<NotRunOutcome, { why: W }> =>
+    o.kind === "not-run" && o.why === why;
+  return ran.map((r) => r.outcome).find(isIt);
+}
+
+/**
+ * Turn one hook's battery run into its outcome. Three non-verdicts are only
+ * visible AFTER the run, and each is read off the runner's own tag rather than
+ * re-decided here — the second copy is the one that drifts.
+ */
+function judgeRun(
+  hook: SweptHook,
+  reg: HookRegistration,
+  battery: readonly DisasterEvent[],
+  ran: readonly GuardrailResult[],
+): SweptHookOutcome {
+  // 🔴 THE CONTROL WAS BLOCKED (#213): the hook never started, or it denies
+  // everything. Either way no block in `ran` is evidence, so there is no score.
+  const control = notRunBecause(ran, "control-blocked");
+  if (control !== undefined)
+    return {
+      status: NO_VERDICT,
+      hook,
+      reason: `${describeNotRun(control)} — none of its blocks is evidence. Make it start, or pass a \`control\` it allows`,
+      controlStderrTail: control.controlStderrTail,
+    };
+
+  // A missing interpreter, a file without the execute bit, a bad shebang: the
+  // shell answers 127/126 and the program never had an opinion. That is a
+  // property of the COMMAND, not of one event, so one such result disqualifies
+  // the hook rather than one row.
+  const stillborn = notRunBecause(ran, "never-launched");
   if (stillborn !== undefined)
     return {
       status: "unresolved",
       hook,
-      reason: `${stillborn.reason}. Nothing here is the guard's verdict, so it is not scored`,
+      reason: `${describeNotRun(stillborn)}. Nothing here is the guard's verdict, so it is not scored`,
     };
 
-  // 🔴 THE FOURTH NON-VERDICT, and it arrives through the one gate the other
-  // three do not pass through. The event, the matcher and the command are all
-  // settled before a spawn; the CONDITION is settled per event INSIDE the run,
-  // by `decideHookCondition` — so a hook whose `if` rejects every event its
-  // matcher selected (matcher `Bash`, `if: "Bash(terraform apply*)"`) reached
-  // this line with a full `ran` list of `ran: false` and was returned as
-  // `measured`. The renderer then printed `blocks 0/7` and `sweepNotes` saw a
-  // measured hook and stayed silent — a guard the harness never spawned,
-  // reported as a guard that blocks nothing. That is the same false verdict as
-  // the other three, in the unsafe direction, so it gets the same shape: its own
-  // `not-applicable` reason, no score.
-  //
-  // ASKED AFTER THE RUN, NOT BEFORE, and deliberately: `ran: false` here IS the
-  // runner's own condition verdict, so this reads the decision the harness would
-  // make rather than re-deciding it beside `decideHookCondition` — the second
-  // copy is the one that drifts. It costs nothing, because a rejected condition
-  // never spawns a process either. `ran` is non-empty (an empty `reachable`
-  // already returned above) and a launch failure already returned as
-  // `unresolved`, so every `ran: false` left here is a condition rejection.
-  if (ran.every((r) => !r.ran))
+  // 🔴 THE CONDITION is settled per event INSIDE the run, so a hook whose `if`
+  // rejects every event its matcher selected (matcher `Bash`, `if:
+  // "Bash(terraform apply*)"`) comes back with every row not-run. Returned as
+  // `measured`, it printed `blocks 0/7` for a hook the harness never spawned.
+  // Every not-run left here is a condition rejection: the two above returned.
+  if (ran.every((r) => r.outcome.kind === "not-run"))
     return {
       status: "not-applicable",
       hook,
       reason: `condition \`${reg.condition ?? ""}\` selects none of the ${plural(ran.length, "battery event")} its matcher reaches — the harness never spawns this hook for any of them, so there is nothing to measure`,
     };
 
-  // The events the matcher excluded are folded back in as NOT-RUN entries, in
-  // catalog order, so `results` always answers for the whole battery. Dropping
-  // them would leave a hook reporting "1/1 blocked" for a battery of seven.
+  return measured(hook, reg, battery, ran);
+}
+
+/**
+ * A measured hook. The events the matcher excluded are folded back in as
+ * NOT-RUN entries, in catalog order, so `results` always answers for the whole
+ * battery. Dropping them would leave a hook reporting "1/1 blocked" for a
+ * battery of seven.
+ */
+function measured(
+  hook: SweptHook,
+  reg: HookRegistration,
+  battery: readonly DisasterEvent[],
+  ran: readonly GuardrailResult[],
+): SweptHookOutcome {
   const byId = new Map(ran.map((r) => [r.event.id, r]));
   const results = battery.map(
     (event) =>
-      byId.get(event.id) ?? {
-        event,
-        blocked: false,
-        exitCode: 0,
-        ran: false,
-        reason: `matcher \`${reg.matcher ?? ""}\` does not select ${event.tool} — the harness never spawns this hook for it`,
-      },
+      byId.get(event.id) ??
+      guardrailResult(event, {
+        kind: "not-run",
+        why: "matcher",
+        detail: `matcher \`${reg.matcher ?? ""}\` does not select ${event.tool} — the harness never spawns this hook for it`,
+      }),
   );
-
-  const ids = (pick: (r: GuardrailResult) => boolean): string[] =>
-    results.filter(pick).map((r) => r.event.id);
+  const ids = (kind: CaseOutcome["kind"]): string[] =>
+    results.filter((r) => r.outcome.kind === kind).map((r) => r.event.id);
   return {
     status: "measured",
     hook,
     results,
-    blocked: ids((r) => r.blocked),
-    allowed: ids((r) => r.ran && !r.blocked),
-    notRun: ids((r) => !r.ran),
+    blocked: ids("blocked"),
+    allowed: ids("allowed"),
+    notRun: ids("not-run"),
   };
 }
 
@@ -783,8 +730,13 @@ function sweepNotes(
         : `No COMMAND hooks are declared in ${dir}. Nothing was measured here — but hooks ARE declared, so this is not an absence of guards either.`,
       ...notDrivable,
     ];
+  // "Reachable" only when it is true of every hook: one that ran and had no
+  // verdict WAS reached, it just could not be scored.
+  const reach = outcomes.every((o) => o.status === "not-applicable")
+    ? "reachable"
+    : "scored";
   return [
-    `${regs.length} hook(s) declared, none of them reachable by this battery on ${eventName}. Nothing was measured — read each hook's reason below rather than the (empty) score.`,
+    `${regs.length} hook(s) declared, none of them ${reach} by this battery on ${eventName}. Nothing was measured — read each hook's reason below rather than the (empty) score.`,
     ...notDrivable,
   ];
 }
@@ -953,14 +905,24 @@ function measuredBlock(outcome: MeasuredOutcome): string[] {
 /** The distinct reasons in a set of unmeasured hooks, each with the hooks it covers. */
 function byReason(
   outcomes: readonly UnmeasuredOutcome[],
-): { reason: string; hooks: SweptHook[] }[] {
-  const groups = new Map<string, SweptHook[]>();
+): { reason: string; outcomes: UnmeasuredOutcome[] }[] {
+  const groups = new Map<string, UnmeasuredOutcome[]>();
   for (const o of outcomes) {
-    const hooks = groups.get(o.reason) ?? [];
-    hooks.push(o.hook);
-    groups.set(o.reason, hooks);
+    const group = groups.get(o.reason) ?? [];
+    group.push(o);
+    groups.set(o.reason, group);
   }
-  return [...groups].map(([reason, hooks]) => ({ reason, hooks }));
+  return [...groups].map(([reason, group]) => ({ reason, outcomes: group }));
+}
+
+/**
+ * One unmeasured hook's lines. A hook with no verdict also carries the end of
+ * its control run's stderr — usually the one line that names the missing file.
+ */
+function unmeasuredHookLines(o: UnmeasuredOutcome): string[] {
+  const head = `       #${o.hook.index}  \`${oneLine(o.hook.command, 56)}\``;
+  if (o.status !== NO_VERDICT || o.controlStderrTail === "") return [head];
+  return [head, `         stderr: ${oneLine(o.controlStderrTail, 56)}`];
 }
 
 /**
@@ -980,9 +942,9 @@ function unmeasuredSection(
   const lines = [`  ⊘ ${label} — ${plural(outcomes.length, "hook")}`];
   for (const group of byReason(outcomes)) {
     lines.push(`     ${group.reason}`);
-    for (const hook of group.hooks.slice(0, HOOKS_PER_REASON))
-      lines.push(`       #${hook.index}  \`${oneLine(hook.command, 56)}\``);
-    const rest = group.hooks.length - HOOKS_PER_REASON;
+    for (const o of group.outcomes.slice(0, HOOKS_PER_REASON))
+      lines.push(...unmeasuredHookLines(o));
+    const rest = group.outcomes.length - HOOKS_PER_REASON;
     if (rest > 0)
       lines.push(`       …and ${plural(rest, "more hook")} for this reason`);
   }
@@ -1008,8 +970,13 @@ function censusLine(report: PluginGuardReport): string[] {
     report.unmeasurable.length === 0
       ? ""
       : ` ${report.unmeasurable.length} further action(s) declared are not commands and cannot be driven here.`;
+  // Named only when present: the commonest sweep has none, and a standing
+  // "0 without a verdict" is a scoreboard column, not news.
+  const withoutVerdict = count(NO_VERDICT);
+  const noVerdict =
+    withoutVerdict === 0 ? "" : ` ${withoutVerdict} without a verdict,`;
   return [
-    `${plural(report.hooks.length, "hook")} declared: ${count("measured")} measured, ${count("unresolved")} unresolved, ${count("not-applicable")} not applicable.${notDrivable}`,
+    `${plural(report.hooks.length, "hook")} declared: ${count("measured")} measured,${noVerdict} ${count("unresolved")} unresolved, ${count("not-applicable")} not applicable.${notDrivable}`,
   ];
 }
 
@@ -1120,6 +1087,7 @@ export function experimental_formatPluginGuardReport(
     lines.push("", "MEASURED", ...measured.flatMap(measuredBlock));
 
   const notMeasured = [
+    ...unmeasuredSection("no verdict", unmeasured(NO_VERDICT)),
     ...unmeasuredSection("unresolved", unmeasured("unresolved")),
     ...unmeasuredSection("not applicable", unmeasured("not-applicable")),
     ...unmeasurableSection(report.unmeasurable),

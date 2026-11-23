@@ -23,8 +23,17 @@ import {
   assertBlocksDisasters,
   formatGuardrailReport,
   DISASTER_CATALOG,
+  type CaseOutcome,
+  type GuardrailResult,
 } from "./guardrail-check.js";
 import { runHook } from "./run-hook.js";
+
+/** The ids of the battery events whose outcome is `kind`, in catalog order. */
+const idsWhere = (
+  results: readonly GuardrailResult[],
+  kind: CaseOutcome["kind"],
+): string[] =>
+  results.filter((r) => r.outcome.kind === kind).map((r) => r.event.id);
 
 const bash = (command: string) => ({
   event: "PreToolUse",
@@ -276,16 +285,15 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     expect(first?.command.startsWith("echo ")).toBe(true);
   });
 
-  it("WITHOUT the condition it is certified as blocking all 7 — the defect", () => {
-    // The exact behaviour measured before this change. Kept as a test because it
-    // is the thing that must never come back: drop the condition and the battery
-    // hands a bare `echo deny` a perfect score against rm -rf / and ~/.ssh reads.
+  it("WITHOUT the condition a bare `echo deny` has NO VERDICT, never 7/7", () => {
+    // The defect measured before #211: drop the condition and the battery handed
+    // a bare `echo deny` a perfect score against rm -rf / and ~/.ssh reads. The
+    // control probe (#213) now sees it deny `ls` too, so no block is evidence.
     const [first] = vendoredHooks();
     const results = verifyGuardrail(first?.command ?? "");
-    expect(results.filter((r) => r.blocked)).toHaveLength(
-      DISASTER_CATALOG.length,
-    );
-    expect(unblockedDisasters(results)).toHaveLength(0);
+    for (const { outcome } of results)
+      expect(outcome.kind === "not-run" && outcome.why).toBe("control-blocked");
+    expect(unblockedDisasters(results)).toHaveLength(DISASTER_CATALOG.length);
   });
 
   it("WITH the condition only the force push reaches it", () => {
@@ -294,13 +302,11 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
       condition: first?.condition ?? undefined,
     });
 
-    const blocked = results.filter((r) => r.blocked).map((r) => r.event.id);
-    expect(blocked).toEqual(["force-push"]);
+    expect(idsWhere(results, "blocked")).toEqual(["force-push"]);
 
     // Everything else is NOT RUN — a different fact from "allowed", and the one
     // the report has to be able to state.
-    const notRun = results.filter((r) => !r.ran).map((r) => r.event.id);
-    expect(notRun).toEqual([
+    expect(idsWhere(results, "not-run")).toEqual([
       "force-push-compound",
       "reset-hard",
       "rm-rf",
@@ -308,8 +314,11 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
       "read-ssh-key",
       "curl-pipe-sh",
     ]);
-    for (const r of results.filter((x) => !x.ran))
-      expect(r.reason).toContain("does not match");
+    for (const { outcome } of results)
+      if (outcome.kind === "not-run")
+        expect(outcome.why === "condition" && outcome.detail).toContain(
+          "does not match",
+        );
   });
 
   it("its second action catches the compound force push its first misses", () => {
@@ -319,7 +328,7 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     const results = verifyGuardrail(second?.command ?? "", {
       condition: second?.condition ?? undefined,
     });
-    expect(results.filter((r) => r.blocked).map((r) => r.event.id)).toEqual([
+    expect(idsWhere(results, "blocked")).toEqual([
       "force-push",
       "force-push-compound",
     ]);

@@ -48,16 +48,16 @@ test("exit 2 guard BLOCKS the force-push battery; exit 1 guard silently allows i
 
     const realResults = verifyGuardrail(real, { events: PUSH_EVENTS });
     assert.ok(
-      realResults.every((r) => r.blocked),
+      realResults.every((r) => r.outcome.kind === "blocked"),
       "exit 2 should block every push",
     );
 
     const fakeResults = verifyGuardrail(fake, { events: PUSH_EVENTS });
     assert.ok(
-      fakeResults.every((r) => !r.blocked),
+      fakeResults.every((r) => r.outcome.kind === "allowed"),
       "exit 1 looks like a block but allows — the false-confidence bug",
     );
-    assert.equal(fakeResults[0].exitCode, 1);
+    assert.deepEqual(fakeResults[0].outcome, { kind: "allowed", exitCode: 1 });
   } finally {
     cleanupTmpDir(dir);
   }
@@ -196,7 +196,9 @@ test("a guard that denies everything has no verdict either", () => {
   for (const r of results) {
     assert.equal(tag(r.outcome), "not-run/control-blocked");
     // The old fields follow the tag: nothing here was a block.
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- asserts the deprecated field is derived from the tag
     assert.equal(r.blocked, false);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- asserts the deprecated field is derived from the tag
     assert.equal(r.ran, false);
   }
   // A report of a battery without a verdict carries no score.
@@ -255,17 +257,20 @@ test("every event carries `cwd`, the directory the hook runs in", () => {
         cwd: dir,
       },
     );
-    const events = readFileSync(log, "utf8")
+    const events: unknown[] = readFileSync(log, "utf8")
       .split("\n")
       .filter((l) => l.trim() !== "")
-      .map((l) => JSON.parse(l) as { cwd?: unknown; tool_input?: unknown });
+      .map((l): unknown => JSON.parse(l));
+    const field = (e: unknown, key: string): unknown =>
+      typeof e === "object" && e !== null ? Reflect.get(e, key) : undefined;
     assert.ok(events.length > 0);
-    for (const e of events) assert.equal(e.cwd, dir);
+    for (const e of events) assert.equal(field(e, "cwd"), dir);
     // The control is one of them, delivered like any other event.
     assert.ok(
       events.some(
         (e) =>
-          JSON.stringify(e.tool_input) === JSON.stringify(CONTROL_CASE.input),
+          JSON.stringify(field(e, "tool_input")) ===
+          JSON.stringify(CONTROL_CASE.input),
       ),
     );
   } finally {

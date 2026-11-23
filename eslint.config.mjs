@@ -54,7 +54,7 @@ const NO_SHELL_PARSER = {
   paths: [{ name: "mvdan-sh", message: NEVER_PARSE_HOOK_LINES }],
   patterns: [
     {
-      group: ["**/bash-effects.js", "**/command-files.js", "**/shell-vars.js"],
+      group: ["**/bash-effects.js", "**/shell-vars.js"],
       message: NEVER_PARSE_HOOK_LINES,
     },
   ],
@@ -69,8 +69,6 @@ const PARSES_SHELL = [
   "src/core/bash-effects.ts",
   // Which env vars a command reads, so the safety battery runs a hook as the harness would.
   "src/core/shell-vars.ts",
-  // Which files a command hands a program, so the battery does not score a missing guard.
-  "src/core/command-files.ts",
   // The disaster battery's equivalent spellings of each disaster command.
   "src/core/bash-equivalents.ts",
   // A subagent's tool contract: is a granted Bash read-only?
