@@ -121,7 +121,7 @@ import {
   assertHookAllowed,
   verifyGuardrail,
   formatGuardrailReport,
-  // assertBlocksDisasters, // uncomment to gate CI on the battery (see below)
+  // assertGuardrail, // uncomment to gate CI on the battery (see below)
 } from "vigiles";
 
 const cmd = ${JSON.stringify(cmd)};
@@ -137,14 +137,15 @@ assertHookAllowed(runHook(cmd, benign));
 console.log("✓ ${input.name}: allowed the benign event");
 
 // 2) SAFETY: if this is a guard, PROVE it blocks the dangerous battery (the #1 hook
-//    pain is a guard that silently doesn't — exit 1 instead of 2, wrong jq path, …).
+//    pain is a guard that silently doesn't — exit 1 instead of 2, wrong jq path, …)
+//    and lets the same text through when it is only data (a commit message, …).
 //    This prints a coverage map; it does NOT fail by default (your hook may not be
 //    meant to block all of these).
 console.log(formatGuardrailReport(cmd, verifyGuardrail(cmd)));
 
 // 3) To GATE CI: declare what this guard MUST block, then assert it. Uncomment +
 //    pick the categories your hook is responsible for:
-// assertBlocksDisasters(cmd, { categories: ["destructive-git"] });
+// assertGuardrail(cmd, { categories: ["destructive-git"] });
 `;
 }
 

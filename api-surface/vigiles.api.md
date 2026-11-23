@@ -114,8 +114,8 @@ export function assertAgentOk(output: string, contract?: OutputContract): Record
 // @public
 export function assertAgentResult(output: string, predicate: (r: ParsedAgentResult) => boolean, contract?: OutputContract): void;
 
-// @public
-export function assertBlocksDisasters(hookCommand: string, opts?: VerifyGuardrailOptions): void;
+// @public @deprecated
+export const assertBlocksDisasters: typeof assertGuardrail;
 
 // @public
 export function assertChecks<T>(target: T, checks: readonly Check<T>[]): void;
@@ -128,6 +128,9 @@ export function assertDelivered(r: HookRunResult): void;
 
 // @public
 export function assertEgressOnly(r: HasEgress, allowed: ReadonlyArray<string | RegExp>): void;
+
+// @public
+export function assertGuardrail(hook: string | AnyHook, opts?: VerifyGuardrailOptions): void;
 
 // @public
 export function assertHookAllowed(r: HookRunResult): void;
@@ -691,6 +694,9 @@ export function experimental_emitTool(contract: OutputContract, options?: {
 export function experimental_formatPluginGuardReport(report: PluginGuardReport): string;
 
 // @public
+export function experimental_harmlessTwins(events: readonly DisasterEvent[]): readonly HarmlessEvent[];
+
+// @public
 export function experimental_hookState(hookFile: string, opts?: {
     readonly cwd?: string;
 }): HookStateHandle;
@@ -768,20 +774,41 @@ export function formatEvalReport(report: EvalReport, opts?: {
 }): string;
 
 // @public
-export function formatGuardrailReport(hookCommand: string, results: readonly GuardrailResult[]): string;
+export function formatGuardrailReport(hook: string | AnyHook, results: readonly GuardrailResult[]): string;
 
 // @public
 export function formatTriggerRateReport(report: TriggerRateReport): string;
 
 // @public
-export interface GuardrailResult {
+export type GuardrailResult = GuardrailRow<"block", DisasterEvent> | GuardrailRow<"allow", HarmlessEvent>;
+
+// @public
+export interface GuardrailRow<E extends "block" | "allow", V extends DisasterEvent | HarmlessEvent> {
     readonly blocked: boolean;
     // (undocumented)
-    readonly event: DisasterEvent;
+    readonly event: V;
     readonly exitCode: number;
+    readonly expect: E;
     readonly ran: boolean;
     readonly reason: string;
+    readonly run: GuardrailRun;
 }
+
+// @public
+export type GuardrailRun = "ran" | "not-selected" | "never-launched" | "crashed";
+
+// @public
+export interface HarmlessEvent {
+    readonly form: HarmlessForm;
+    readonly id: string;
+    readonly input: Record<string, unknown>;
+    readonly label: string;
+    readonly of?: string;
+    readonly tool: string;
+}
+
+// @public
+export type HarmlessForm = "commit-message" | "heredoc" | "echo" | "grep-pattern" | "custom";
 
 // @public
 export interface HarnessTestDriver {
@@ -1608,7 +1635,7 @@ export function turns(opts: {
 }): Check<Trace>;
 
 // @public
-export function unblockedDisasters(results: readonly GuardrailResult[]): GuardrailResult[];
+export function unblockedDisasters(results: readonly GuardrailResult[]): readonly GuardrailResult[];
 
 // @public
 export type UnobservableWhy =
@@ -1647,13 +1674,14 @@ export type Verdict =
 };
 
 // @public
-export function verifyGuardrail(hookCommand: string, opts?: VerifyGuardrailOptions): GuardrailResult[];
+export function verifyGuardrail(hook: string | AnyHook, opts?: VerifyGuardrailOptions): readonly GuardrailResult[];
 
 // @public (undocumented)
 export interface VerifyGuardrailOptions extends RunHookOptions {
     readonly categories?: readonly DisasterCategory[];
     readonly event?: string;
     readonly events?: readonly DisasterEvent[];
+    readonly harmless?: readonly HarmlessEvent[];
 }
 
 // @public

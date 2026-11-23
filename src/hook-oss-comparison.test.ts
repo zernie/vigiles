@@ -19,12 +19,22 @@ import { writeFileSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
+  DISASTER_CATALOG,
   verifyGuardrail,
   unblockedDisasters,
-  assertBlocksDisasters,
+  assertGuardrail,
+  experimental_harmlessTwins,
 } from "./guardrail-check.js";
 import { runHook } from "./run-hook.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+
+// The shipped guard's secret rule is `touches(["~/.ssh", …])`, a MENTION
+// matcher by design (an over-inclusive denylist), so it also blocks
+// `echo 'cat ~/.ssh/id_rsa'`. Its look-alikes are left out; every other one
+// must pass.
+const SAFE_GUARD_HARMLESS = experimental_harmlessTwins(DISASTER_CATALOG).filter(
+  (t) => t.of !== "read-ssh-key",
+);
 
 const REPO_ROOT = resolve(__dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
@@ -45,7 +55,7 @@ function shellGuard(dir: string, name: string, body: string): string {
 
 const blockedIds = (cmd: string, opts = {}): Set<string> =>
   new Set(
-    verifyGuardrail(cmd, opts)
+    verifyGuardrail(cmd, { harmless: [], ...opts })
       .filter((r) => r.blocked)
       .map((r) => r.event.id),
   );
@@ -172,7 +182,10 @@ exit 0
     );
     assert.deepEqual([...got].sort(), ["force-push", "rm-rf"]);
     // The compiled guard blocks every disaster in the battery (no throw).
-    assertBlocksDisasters(COMPILED, { cwd: REPO_ROOT });
+    assertGuardrail(COMPILED, {
+      cwd: REPO_ROOT,
+      harmless: SAFE_GUARD_HARMLESS,
+    });
   } finally {
     cleanupTmpDir(dir);
   }

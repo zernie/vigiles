@@ -73,6 +73,8 @@ const PARSES_SHELL = [
   "src/core/command-files.ts",
   // The disaster battery's equivalent spellings of each disaster command.
   "src/core/bash-equivalents.ts",
+  // The disaster battery's harmless look-alikes: the same text carried as data.
+  "src/core/bash-lookalikes.ts",
   // A subagent's tool contract: is a granted Bash read-only?
   "src/core/effects.ts",
   // Compiled hooks evaluate the agent's tool-input command, never their own line.

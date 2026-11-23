@@ -17,7 +17,7 @@
  * WHAT IT IS NOT. It reports; it does not judge. There is deliberately no
  * throwing `assertPluginGuards`, because intent is DECLARED PER HOOK and a repo's
  * config declares none of it — we do not know which of a plugin's five hooks is
- * meant to be a bash-safety guard. `assertBlocksDisasters` remains the gate you
+ * meant to be a bash-safety guard. `assertGuardrail` remains the gate you
  * reach for once YOU have said which hook must block what; this is the sweep that
  * tells you which hooks are even in the conversation. Same neutrality
  * `formatGuardrailReport` already commits to, one level up.
@@ -109,7 +109,7 @@ import { commandFileRefs } from "./core/command-files.js";
 import { claudeCodeAdapter } from "./adapters/claude-code/adapter.js";
 import { sandboxAvailable } from "./sandbox.js";
 import { egressAvailable } from "./egress.js";
-import { routeScriptRun, shellNeverLaunched } from "./run-script.js";
+import { routeScriptRun } from "./run-script.js";
 import type { HarnessAdapter } from "./core/adapter.js";
 import {
   DISASTER_CATALOG,
@@ -680,20 +680,18 @@ function sweepHook(
     cwd: ctx.cwd.kind === "path" ? ctx.cwd.dir : undefined,
     env: env.pass,
     events: reachable,
+    harmless: [], // the disaster half only: `blocked` here reads as coverage
     event: eventName,
     condition: reg.condition ?? undefined,
     protocol,
   });
 
-  // 🔴 AND AFTER THE RUN, THE HALF THE PRE-FLIGHT CANNOT SEE. A missing
-  // interpreter, a file without the execute bit, a bad shebang: the shell
-  // answers 127/126 and the program never had an opinion. That is a property of
-  // the COMMAND, not of one battery event — the same command runs for all of
-  // them — so one such result disqualifies the hook rather than one row. Erring
-  // toward refusal is deliberate: a hook that fails to launch on only some
-  // inputs is still a hook whose score would be part fiction.
+  // 🔴 AND AFTER THE RUN, THE HALF THE PRE-FLIGHT CANNOT SEE: the shell answered
+  // 127/126, or every call crashed with a loader error (a sourced library that
+  // is not there). No opinion, and it is a property of the COMMAND, so one such
+  // row disqualifies the hook: a partly fictional score is still fiction.
   const stillborn = ran.find(
-    (r) => !r.ran && shellNeverLaunched(r.exitCode) && !r.blocked,
+    (r) => r.run === "never-launched" || r.run === "crashed",
   );
   if (stillborn !== undefined)
     return {
@@ -733,14 +731,7 @@ function sweepHook(
   // them would leave a hook reporting "1/1 blocked" for a battery of seven.
   const byId = new Map(ran.map((r) => [r.event.id, r]));
   const results = battery.map(
-    (event) =>
-      byId.get(event.id) ?? {
-        event,
-        blocked: false,
-        exitCode: 0,
-        ran: false,
-        reason: `matcher \`${reg.matcher ?? ""}\` does not select ${event.tool} — the harness never spawns this hook for it`,
-      },
+    (event) => byId.get(event.id) ?? matcherExcluded(event, reg),
   );
 
   const ids = (pick: (r: GuardrailResult) => boolean): string[] =>
@@ -752,6 +743,22 @@ function sweepHook(
     blocked: ids((r) => r.blocked),
     allowed: ids((r) => r.ran && !r.blocked),
     notRun: ids((r) => !r.ran),
+  };
+}
+
+/** The row for a battery event the hook's matcher never hands it. */
+function matcherExcluded(
+  event: DisasterEvent,
+  reg: HookRegistration,
+): GuardrailResult {
+  return {
+    expect: "block",
+    event,
+    blocked: false,
+    exitCode: 0,
+    run: "not-selected",
+    ran: false,
+    reason: `matcher \`${reg.matcher ?? ""}\` does not select ${event.tool} — the harness never spawns this hook for it`,
   };
 }
 
@@ -1047,7 +1054,7 @@ function footer(measured: readonly MeasuredOutcome[]): string[] {
     lines.push(
       "",
       "Allows ≠ a bug unless a guard is MEANT to block them — gate intent with",
-      "assertBlocksDisasters(cmd, { categories: [...] }).",
+      "assertGuardrail(cmd, { categories: [...] }).",
     );
   if (measured.some((m) => m.notRun.length > 0))
     lines.push(

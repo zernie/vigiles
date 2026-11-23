@@ -11,11 +11,8 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 
 import { leafCommandsNormalized } from "./bash-effects.js";
-import {
-  LOOKALIKE_TEMPLATES,
-  lookalikeCommands,
-  sharesOperation,
-} from "./bash-lookalikes.js";
+import { sharesOperation } from "./bash-equivalents.js";
+import { LOOKALIKE_TEMPLATES, lookalikeCommands } from "./bash-lookalikes.js";
 
 const SEEDS = [
   "git push --force origin main",

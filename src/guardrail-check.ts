@@ -23,6 +23,16 @@
  * backs an informational coverage report.
  */
 import { equivalentCommands } from "./core/bash-equivalents.js";
+import { lookalikeCommands } from "./core/bash-lookalikes.js";
+import {
+  decisionExitCode,
+  dispatchKind,
+  gateAction,
+  hookMode,
+  hookSource,
+  type AnyHook,
+} from "./core/hook-program.js";
+import { runCountedHookProgram } from "./counted-hook-run.js";
 import { runHook, type RunHookOptions } from "./run-hook.js";
 import { shellNeverLaunched } from "./run-script.js";
 
@@ -108,28 +118,81 @@ export const DISASTER_CATALOG: readonly DisasterEvent[] = [
   },
 ];
 
-/** The result of feeding one disaster event to a hook. */
-export interface GuardrailResult {
-  readonly event: DisasterEvent;
-  /** True iff the hook denied the call (exit 2 / decision:block / permissionDecision:deny). */
+/**
+ * How a harmless case carries a disaster's text: a generated look-alike form, or
+ * `custom` for a case you wrote yourself.
+ */
+export type HarmlessForm =
+  | "commit-message"
+  | "heredoc"
+  | "echo"
+  | "grep-pattern"
+  | "custom";
+
+/** One tool event a guard is expected to ALLOW — the "must allow" half (#418). */
+export interface HarmlessEvent {
+  /** Stable id; a generated look-alike is `<disaster id>#<form>`. */
+  readonly id: string;
+  /** One-line human label for the report. */
+  readonly label: string;
+  /** How the case carries the disaster's text (`custom` when you wrote it). */
+  readonly form: HarmlessForm;
+  /** The id of the disaster a generated look-alike mirrors; absent on a custom case. */
+  readonly of?: string;
+  /** The Claude Code tool the event names. */
+  readonly tool: string;
+  /** The `tool_input` payload (what the hook inspects). */
+  readonly input: Record<string, unknown>;
+}
+
+/**
+ * Whether the guard was asked a case, and if not, why — four facts, not a
+ * boolean, because each reason reads differently and none of them is a decision.
+ *
+ * - `ran` — the guard answered; `blocked` is its answer.
+ * - `not-selected` — its declared condition (or the sweep's matcher) does not
+ *   select the case, so the harness would never spawn it there.
+ * - `never-launched` — the shell answered 126/127: interpreter missing, file not
+ *   executable, bad shebang.
+ * - `crashed` — a command-string hook exited non-zero on EVERY call, with no
+ *   structured decision and an interpreter or loader error on stderr (a missing
+ *   script or library). Best-effort, read from outside: see {@link verifyGuardrail}.
+ *
+ * 🔴 A CASE THE GUARD NEVER ANSWERED IS STILL A MISS for a disaster. Before
+ * these existed, a guard whose `if` only fires on a force push scored 7/7, and a
+ * Python guard whose script was missing scored 7/7 too: Python exits 2, the deny
+ * code, when it cannot open its script (#213).
+ */
+export type GuardrailRun =
+  | "ran"
+  | "not-selected"
+  | "never-launched"
+  | "crashed";
+
+/** One case of the battery and what the guard did with it. */
+export interface GuardrailRow<
+  E extends "block" | "allow",
+  V extends DisasterEvent | HarmlessEvent,
+> {
+  /** What a working guard does here: block a disaster, allow a harmless case. */
+  readonly expect: E;
+  readonly event: V;
+  /** True iff the call was denied (exit 2 / decision:block / permissionDecision:deny / halt). */
   readonly blocked: boolean;
-  /** The hook process exit code (1 ≠ block — the classic false-confidence bug). */
+  /** The exit code (1 ≠ block — the classic false-confidence bug). A compiled hook reports the code its runtime would. */
   readonly exitCode: number;
-  /**
-   * Whether the hook was RUN for this event at all — false when its declared
-   * condition ({@link VerifyGuardrailOptions.condition}) does not match, so the
-   * harness would never spawn it here.
-   *
-   * 🔴 A NOT-RUN EVENT IS A MISS, and separating it out is the point. Before this
-   * existed the battery could only ask "did it block?", so a real guard whose body
-   * is an unconditional deny but whose `if` only fires on a force push scored
-   * 7/7 — certified as stopping `rm -rf /` and `cat ~/.ssh/id_rsa`. It still
-   * counts as unblocked; what changed is that the report can now say WHY.
-   */
+  /** Whether the guard answered this case, and if not, why. */
+  readonly run: GuardrailRun;
+  /** `run === "ran"`, kept for callers that read the boolean. */
   readonly ran: boolean;
-  /** Why the hook ran or did not — the condition verdict, always present. */
+  /** Why the guard ran or did not — always present. */
   readonly reason: string;
 }
+
+/** A disaster row (`expect: "block"`) or a harmless row (`expect: "allow"`). */
+export type GuardrailResult =
+  | GuardrailRow<"block", DisasterEvent>
+  | GuardrailRow<"allow", HarmlessEvent>;
 
 export interface VerifyGuardrailOptions extends RunHookOptions {
   /** Restrict the battery to these categories (default: the whole catalog). */
@@ -138,6 +201,14 @@ export interface VerifyGuardrailOptions extends RunHookOptions {
   readonly events?: readonly DisasterEvent[];
   /** The PreToolUse event name to wrap each disaster in (default "PreToolUse"). */
   readonly event?: string;
+  /**
+   * The cases the guard must ALLOW. Default: the harmless look-alikes of every
+   * selected disaster ({@link experimental_harmlessTwins}), so a custom `events`
+   * battery gets its own. `[]` turns the half off; pass your own cases to
+   * replace it (spread `experimental_harmlessTwins(...)` to keep the generated
+   * ones beside yours).
+   */
+  readonly harmless?: readonly HarmlessEvent[];
 }
 // `condition` + `protocol` are inherited from RunHookOptions — pass the hook's
 // declared `if` here and the battery measures the guard the harness would
@@ -162,10 +233,10 @@ function selectEvents(opts: VerifyGuardrailOptions): readonly DisasterEvent[] {
  * every command re-spelled with a quoted flag (`git push "--force"`), the short
  * form of a flag (`-f`), an absolute or escaped head (`/usr/bin/git`, `\git`), or a
  * pass-through wrapper (`sudo …`, `env …`). The shell runs each rewrite exactly as
- * it runs the original. Feed them to `assertBlocksDisasters` alongside the
+ * it runs the original. Feed them to `assertGuardrail` alongside the
  * originals:
  *
- *     assertBlocksDisasters(hook, {
+ *     assertGuardrail(hook, {
  *       events: [...DISASTER_CATALOG, ...experimental_alternateSpellings(DISASTER_CATALOG)],
  *     });
  *
@@ -212,108 +283,314 @@ export function experimental_alternateSpellings(
 }
 
 /**
- * Run a hook command against the disaster battery and report which events it blocks.
- * `hookCommand` is the exact shell the hook registers (e.g. `bash hooks/guard.sh` or
- * `npx vigiles hook-runtime guard`); it receives each disaster as a PreToolUse event on stdin,
- * exactly as Claude Code would deliver it.
+ * Harmless LOOK-ALIKES of each disaster: the same text carried as DATA — a
+ * commit message, a heredoc body, an `echo` argument, a `grep` pattern. A guard
+ * must ALLOW every one; {@link verifyGuardrail} adds them by default.
+ *
+ * WHAT BREAKS WITHOUT IT. A guard whose rule is "the input contains
+ * `git push -f`" blocks every force push and also blocks
+ * `gh issue create --body-file -` whose heredoc QUOTES one. That is #418's
+ * report, measured on a real harness: hooks denied 7.5% of 20,790 Bash calls,
+ * and banned text carried as data was the leading cause. Each false block costs
+ * the agent a turn, and it retries in another form.
+ *
+ * WHY THE OUTPUT IS TRUSTWORTHY. "Harmless" is decided by the shell parser the
+ * gate itself uses: every look-alike must parse, and none of its leaves may
+ * perform an operation of its seed. A template that fails that check throws
+ * rather than being emitted, so the set can never quietly turn dangerous.
+ *
+ * Returns ONLY the look-alikes, never the originals. Each takes its seed's id
+ * with the form as suffix (`force-push#echo`) and names the seed in `of`.
+ * Events whose input has no string `command` get none.
+ *
+ * @experimental The set of forms and the id shape are the parts most likely to
+ * move.
  */
-export function verifyGuardrail(
-  hookCommand: string,
-  opts: VerifyGuardrailOptions = {},
-): GuardrailResult[] {
-  const eventName = opts.event ?? HOOK_EVENT;
-  return selectEvents(opts).map((event) => {
-    const r = runHook(
-      hookCommand,
-      {
-        hook_event_name: eventName,
-        tool_name: event.tool,
-        tool_input: event.input,
-      },
-      opts,
-    );
-    // 🔴 A PROGRAM THE SHELL NEVER LAUNCHED HAS NO OPINION, so it must not be
-    // reported as one. 126 ("found, not executable") and 127 ("not found") are
-    // the SHELL's own codes — not a language's exit convention and not a guess
-    // about stderr text — and they arrive when the interpreter is missing, the
-    // file is not executable, or the shebang is wrong. Left alone, they read as
-    // `ran and allowed`, which accuses a guard of letting a disaster through
-    // when it was never asked. Folding them into the existing not-run channel
-    // means `assertBlocksDisasters` and both renderers say WHY for free, and the
-    // verdict is unchanged: a guard that cannot start still protects nothing.
-    //
-    // ⚠️ ONLY WHEN NOTHING BLOCKED. `echo '{"…deny…}'; ./missing` exits 127 with
-    // a real deny on stdout; reclassifying that would hide a decision the hook
-    // genuinely made. The exit code loses to the decision, never the reverse.
-    if (!r.blocked && r.ran && shellNeverLaunched(r.exitCode))
-      return {
-        event,
-        blocked: false,
-        exitCode: r.exitCode,
-        ran: false,
-        reason: `the shell never launched this hook (exit ${String(r.exitCode)}: ${
-          r.exitCode === 127 ? "command not found" : "not executable"
-        }) — nothing here is the guard's decision`,
-      };
-    return {
-      event,
-      blocked: r.blocked,
-      exitCode: r.exitCode,
-      ran: r.ran,
-      reason: r.conditionReason,
-    };
+export function experimental_harmlessTwins(
+  events: readonly DisasterEvent[],
+): readonly HarmlessEvent[] {
+  return events.flatMap((event) => {
+    const command = event.input["command"];
+    if (typeof command !== "string") return [];
+    return lookalikeCommands(command).map(({ form, command: twin }) => ({
+      id: `${event.id}#${form}`,
+      label: `${event.label} — only as ${form} data`,
+      form,
+      of: event.id,
+      tool: event.tool,
+      input: { ...event.input, command: twin },
+    }));
   });
 }
 
-/** Did the hook miss any event it was given? (the false-confidence signal). */
+/** A case of the battery before the guard has seen it. */
+type BatteryCase =
+  | { readonly expect: "block"; readonly event: DisasterEvent }
+  | { readonly expect: "allow"; readonly event: HarmlessEvent };
+
+function selectCases(opts: VerifyGuardrailOptions): readonly BatteryCase[] {
+  const events = selectEvents(opts);
+  const harmless = opts.harmless ?? experimental_harmlessTwins(events);
+  return [
+    ...events.map((event) => ({ expect: "block" as const, event })),
+    ...harmless.map((event) => ({ expect: "allow" as const, event })),
+  ];
+}
+
+/** The fields of a row besides the case it answers. */
+type Verdict = Omit<GuardrailRow<"block", DisasterEvent>, "expect" | "event">;
+
+function row(c: BatteryCase, v: Verdict): GuardrailResult {
+  return c.expect === "block"
+    ? { ...v, expect: "block", event: c.event }
+    : { ...v, expect: "allow", event: c.event };
+}
+
+/** The display name of a hook in a report: its command, or its source file. */
+function hookName(hook: string | AnyHook): string {
+  if (typeof hook === "string") return hook;
+  return hookSource(hook) ?? "compiled hook";
+}
+
+/**
+ * A compiled hook decides each case IN-PROCESS: its `decide()` is called, the
+ * hook's mode applied, and the verdict is exact — no process, no exit code, no
+ * question of whether it started.
+ */
+function decideCases(
+  hook: AnyHook,
+  cases: readonly BatteryCase[],
+  opts: VerifyGuardrailOptions,
+): readonly GuardrailResult[] {
+  const kind = dispatchKind(hook);
+  if (kind === "inject" || kind === "react")
+    throw new TypeError(
+      `the battery checks a gate, and this compiled hook is a ${kind}: it can never block`,
+    );
+  if (opts.condition !== undefined)
+    throw new TypeError(
+      "`condition` describes a command-string hook's `if`; a compiled hook routes itself",
+    );
+  return cases.map((c) => {
+    const outcome = runCountedHookProgram(hook, {
+      tool_name: c.event.tool,
+      tool_input: c.event.input,
+      ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }),
+    });
+    // A gate always yields a decision; the dispatch check above guarantees it.
+    if (outcome.kind !== "decision") throw new TypeError("not a gate");
+    const action = gateAction(outcome.decision, hookMode(hook));
+    const blocked = action.kind === "block";
+    return row(c, {
+      blocked,
+      exitCode: blocked ? decisionExitCode(outcome.decision) : 0,
+      run: "ran",
+      ran: true,
+      reason: `decide() returned ${outcome.decision.kind}`,
+    });
+  });
+}
+
+/** A spawned case with what the crash rule reads besides the row. */
+interface Spawned {
+  readonly row: GuardrailResult;
+  readonly stderr: string;
+  readonly structured: boolean;
+}
+
+function neverLaunched(c: BatteryCase, exitCode: number): GuardrailResult {
+  return row(c, {
+    blocked: false,
+    exitCode,
+    run: "never-launched",
+    ran: false,
+    reason: `the shell never launched this hook (exit ${String(exitCode)}: ${
+      exitCode === 127 ? "command not found" : "not executable"
+    }) — nothing here is the guard's decision`,
+  });
+}
+
+function runCase(
+  hookCommand: string,
+  c: BatteryCase,
+  opts: VerifyGuardrailOptions,
+): Spawned {
+  const r = runHook(
+    hookCommand,
+    {
+      hook_event_name: opts.event ?? HOOK_EVENT,
+      tool_name: c.event.tool,
+      tool_input: c.event.input,
+    },
+    opts,
+  );
+  const spawned = { stderr: r.stderr, structured: r.json !== null };
+  // 🔴 A PROGRAM THE SHELL NEVER LAUNCHED HAS NO OPINION (126/127 are the
+  // SHELL's codes). ⚠️ ONLY WHEN NOTHING BLOCKED: `echo '{"…deny…}'; ./missing`
+  // exits 127 with a real deny on stdout, and the decision wins.
+  if (!r.blocked && r.ran && shellNeverLaunched(r.exitCode))
+    return { ...spawned, row: neverLaunched(c, r.exitCode) };
+  return {
+    ...spawned,
+    row: row(c, {
+      blocked: r.blocked,
+      exitCode: r.exitCode,
+      run: r.ran ? "ran" : "not-selected",
+      ran: r.ran,
+      reason: r.conditionReason,
+    }),
+  };
+}
+
+/**
+ * What an interpreter or loader prints when the program never got going: a
+ * missing script or library, a module that does not resolve, a syntax error, an
+ * uncaught exception. A heuristic over stderr — and it is only ever read
+ * together with "every call exited non-zero with no structured decision".
+ */
+const LOADER_ERROR =
+  /No such file or directory|can't open file|cannot open|Cannot find module|ERR_MODULE_NOT_FOUND|ModuleNotFoundError|ImportError|command not found|SyntaxError|syntax error|Traceback \(most recent call last\)/;
+
+/**
+ * 🔴 A HOOK THAT CRASHED ON EVERY CALL NEVER RAN, so it must not be scored. A
+ * bash guard whose `lib/common.sh` is missing exits 1 on every call and read as
+ * "allows everything"; a Python guard whose script is missing exits 2 — the
+ * deny code — and read as "blocks everything" (#213). If EVERY spawned case
+ * exited non-zero, none printed a structured decision, and each stderr carries
+ * an interpreter or loader error, every one of them becomes `crashed`.
+ *
+ * ⚠️ BEST-EFFORT, AND DELIBERATELY SIMPLE. Whether a black box ran the branch
+ * each case took is not decidable from outside — a single control probe was
+ * tried (#495) and review found three ways around it. A guard that crashes on
+ * only some inputs, or crashes silently, still gets a score. A compiled hook
+ * has no such question: pass the object.
+ */
+function markCrashed(spawned: readonly Spawned[]): readonly GuardrailResult[] {
+  const asked = spawned.filter((s) => s.row.run === "ran");
+  const last = asked.at(-1);
+  const crashed =
+    last !== undefined &&
+    asked.every(
+      (s) =>
+        s.row.exitCode !== 0 && !s.structured && LOADER_ERROR.test(s.stderr),
+    );
+  if (!crashed) return spawned.map((s) => s.row);
+  const tail = last.stderr.trim().split("\n").slice(-3).join("\n").slice(-400);
+  return spawned.map((s) =>
+    s.row.run === "ran"
+      ? {
+          ...s.row,
+          blocked: false,
+          run: "crashed",
+          ran: false,
+          reason: `never ran: every call exited non-zero with an interpreter or loader error, so no answer here is the guard's — stderr: ${tail}`,
+        }
+      : s.row,
+  );
+}
+
+/**
+ * Proves a guard hook works both ways: blocks every disaster, lets through the
+ * same text when it is only data. Returns one row per case — the disasters
+ * (`expect: "block"`) then the harmless look-alikes (`expect: "allow"`) — so the
+ * caller reads `blocked` against `expect`.
+ *
+ * Pass a compiled hook (`vigiles/hook`): it is checked exactly, by calling
+ * `decide()`, with no process. A shell command string is only measured from
+ * outside: a hook that never started, or one that branches on the input, can
+ * look like it works. A string hook that exited non-zero on every call with an
+ * interpreter or loader error reads `run: "crashed"`, never a score — a
+ * best-effort rule, see {@link GuardrailRun}. Write guards as compiled hooks.
+ *
+ * A string is the exact shell the hook registers (e.g. `bash hooks/guard.sh`);
+ * it receives each case as a PreToolUse event on stdin, as Claude Code delivers
+ * it.
+ */
+export function verifyGuardrail(
+  hook: string | AnyHook,
+  opts: VerifyGuardrailOptions = {},
+): readonly GuardrailResult[] {
+  const cases = selectCases(opts);
+  if (typeof hook !== "string") return decideCases(hook, cases, opts);
+  return markCrashed(cases.map((c) => runCase(hook, c, opts)));
+}
+
+/** Did the hook let through any disaster it was given? (the false-confidence signal). */
 export function unblockedDisasters(
   results: readonly GuardrailResult[],
-): GuardrailResult[] {
-  return results.filter((r) => !r.blocked);
+): readonly GuardrailResult[] {
+  return results.filter((r) => r.expect === "block" && !r.blocked);
+}
+
+/** One failed case as an assertion line. */
+function missLine(r: GuardrailResult): string {
+  if (!r.ran) return `  ⊘ ${r.event.label} — NOT RUN: ${r.reason}`;
+  return r.expect === "block"
+    ? `  ✗ did not block ${r.event.label} (exit ${String(r.exitCode)})`
+    : `  ✗ blocked harmless ${r.event.label}`;
 }
 
 /**
- * Assert a hook blocks every disaster in the (selected) battery — the CI gate.
- * Throws with the misses listed, so a guardrail that's secretly a no-op fails the
- * build instead of failing in production.
+ * Proves a guard hook works both ways: blocks every disaster, lets through the
+ * same text when it is only data. Throws, listing every failed case, so a guard
+ * that is secretly a no-op — or one that blocks the text wherever it appears —
+ * fails the build instead of failing in production.
+ *
+ * Pass a compiled hook (`vigiles/hook`): it is checked exactly, by calling
+ * `decide()`, with no process. A shell command string is only measured from
+ * outside: a hook that never started, or one that branches on the input, can
+ * look like it works. Write guards as compiled hooks.
+ *
+ * The harmless half is on by default; turn it off with `harmless: []`, or pass
+ * your own cases.
  */
-export function assertBlocksDisasters(
-  hookCommand: string,
+export function assertGuardrail(
+  hook: string | AnyHook,
   opts: VerifyGuardrailOptions = {},
 ): void {
-  const misses = unblockedDisasters(verifyGuardrail(hookCommand, opts));
-  if (misses.length === 0) return;
-  // A never-run event names the CONDITION rather than an exit code: "exit 0" on a
-  // hook that was never spawned reads as "the guard looked and allowed it", which
-  // is exactly the confusion this whole change removes.
-  const lines = misses.map((m) =>
-    m.ran
-      ? `  ✗ ${m.event.label} (exit ${m.exitCode})`
-      : `  ⊘ ${m.event.label} — NOT RUN: ${m.reason}`,
-  );
-  throw new Error(
-    `Guardrail \`${hookCommand}\` did NOT block ${misses.length} dangerous action(s):\n${lines.join(
-      "\n",
-    )}\nA hook that doesn't block these is false confidence — fix it (PreToolUse + exit 2).`,
-  );
+  const results = verifyGuardrail(hook, opts);
+  const name = hookName(hook);
+  const first = results[0];
+  if (first !== undefined && results.every((r) => r.run === "crashed"))
+    throw new Error(`Guardrail \`${name}\` NEVER RAN — ${first.reason}`);
+  const missed = unblockedDisasters(results);
+  const overBlocked = results.filter((r) => r.expect === "allow" && r.blocked);
+  if (missed.length === 0 && overBlocked.length === 0) return;
+  const parts = [
+    missed.length > 0
+      ? `Guardrail \`${name}\` did NOT block ${String(missed.length)} dangerous action(s):\n${missed.map(missLine).join("\n")}\nA hook that doesn't block these is false confidence — fix it (PreToolUse + exit 2, or deny()).`
+      : "",
+    overBlocked.length > 0
+      ? `Guardrail \`${name}\` blocks ${String(overBlocked.length)} harmless command(s) that only MENTION a dangerous one:\n${overBlocked.map(missLine).join("\n")}\nEvery false block costs the agent a turn. Decide on the parsed command (vigiles/hook \`runs()\`), or replace the cases: { harmless: [...] }.`
+      : "",
+  ];
+  throw new Error(parts.filter((p) => p !== "").join("\n\n"));
 }
 
 /**
- * One battery event as a report line, WITHOUT leading indentation so each caller
+ * The old name of {@link assertGuardrail}.
+ *
+ * @deprecated Renamed {@link assertGuardrail}, which also checks the harmless
+ * look-alikes; this alias is removed in the next major.
+ */
+export const assertBlocksDisasters = assertGuardrail;
+
+/**
+ * One battery row as a report line, WITHOUT leading indentation so each caller
  * nests it where its own layout needs.
  *
- * THREE outcomes, not two. "never run" is not a weaker "allows": the harness
- * would not invoke this hook for that call at all, so the guard has no opinion
- * to report. Printing it as `allows` is what made a conditional guard look like
- * it had considered — and permitted — commands it can never see.
+ * "never run" is not a weaker "allows": the guard has no opinion to report.
+ * Printing it as `allows` is what made a conditional guard look like it had
+ * considered — and permitted — commands it can never see.
  *
  * @internal Shared by {@link formatGuardrailReport} and the directory-level
  * sweep's formatter (`experimental_formatPluginGuardReport`), so the two renderers
- * cannot drift into two vocabularies for the same three outcomes. Not part of the
- * public API — a caller wanting these lines wants one of the two reports.
+ * cannot drift into two vocabularies for the same outcomes.
  */
 export function guardrailRow(result: GuardrailResult): string {
   if (!result.ran) return `⊘ not run  ${result.event.label} — ${result.reason}`;
+  if (result.expect === "allow")
+    return `${result.blocked ? "✗  blocks" : "✅ allows"}  ${result.event.label}`;
   return `${result.blocked ? "✅ blocks" : "·  allows"}  ${result.event.label}`;
 }
 
@@ -322,22 +599,32 @@ export function guardrailRow(result: GuardrailResult): string {
  * hook blocks WITHOUT judging it: a hook that allows these may simply not be a
  * bash-safety guard (our own pre-edit.sh blocks .md edits, not `rm -rf`). The
  * "false confidence" verdict only applies once intent is DECLARED — see
- * {@link assertBlocksDisasters}.
+ * {@link assertGuardrail}.
  */
 export function formatGuardrailReport(
-  hookCommand: string,
+  hook: string | AnyHook,
   results: readonly GuardrailResult[],
 ): string {
-  const blocked = results.filter((r) => r.blocked).length;
+  const disasters = results.filter((r) => r.expect === "block");
+  const harmless = results.filter((r) => r.expect === "allow");
+  const blocked = disasters.filter((r) => r.blocked).length;
+  const allowed = harmless.filter((r) => !r.blocked).length;
   const skipped = results.filter((r) => !r.ran).length;
-  const head = `Guardrail coverage for \`${hookCommand}\` — blocks ${blocked}/${results.length} of the dangerous battery`;
+  const head =
+    `Guardrail coverage for \`${hookName(hook)}\` — blocks ${String(blocked)}/${String(disasters.length)} of the dangerous battery` +
+    (harmless.length > 0
+      ? ` · allows ${String(allowed)}/${String(harmless.length)} harmless look-alikes`
+      : "");
   const rows = results.map((r) => `  ${guardrailRow(r)}`);
   const foot = [
-    blocked < results.length
-      ? "\nAllows ≠ a bug unless this guard is MEANT to block them — gate intent with\nassertBlocksDisasters(cmd, { categories: [...] })."
+    blocked < disasters.length
+      ? "\nAllows ≠ a bug unless this guard is MEANT to block them — gate intent with\nassertGuardrail(hook, { categories: [...] })."
+      : "",
+    allowed < harmless.length
+      ? "\nA blocked look-alike is a false block: the text was data, not a command."
       : "",
     skipped > 0
-      ? `\n⊘ ${skipped} event(s) never reached this hook: its condition does not match them,\nso it cannot protect you there however its body is written.`
+      ? `\n⊘ ${String(skipped)} case(s) got no answer from this hook (see each reason),\nso it cannot protect you there however its body is written.`
       : "",
   ].join("");
   return [head, ...rows].join("\n") + foot;

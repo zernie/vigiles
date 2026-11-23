@@ -20,7 +20,7 @@ import { normalizeHooks } from "./core/hook-normalize.js";
 import {
   verifyGuardrail,
   unblockedDisasters,
-  assertBlocksDisasters,
+  assertGuardrail,
   formatGuardrailReport,
   DISASTER_CATALOG,
 } from "./guardrail-check.js";
@@ -281,7 +281,7 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     // is the thing that must never come back: drop the condition and the battery
     // hands a bare `echo deny` a perfect score against rm -rf / and ~/.ssh reads.
     const [first] = vendoredHooks();
-    const results = verifyGuardrail(first?.command ?? "");
+    const results = verifyGuardrail(first?.command ?? "", { harmless: [] });
     expect(results.filter((r) => r.blocked)).toHaveLength(
       DISASTER_CATALOG.length,
     );
@@ -292,6 +292,7 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     const [first] = vendoredHooks();
     const results = verifyGuardrail(first?.command ?? "", {
       condition: first?.condition ?? undefined,
+      harmless: [],
     });
 
     const blocked = results.filter((r) => r.blocked).map((r) => r.event.id);
@@ -325,11 +326,11 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     ]);
   });
 
-  it("assertBlocksDisasters FAILS and says NOT RUN, not `exit 0`", () => {
+  it("assertGuardrail FAILS and says NOT RUN, not `exit 0`", () => {
     const [first] = vendoredHooks();
     let message = "";
     try {
-      assertBlocksDisasters(first?.command ?? "", {
+      assertGuardrail(first?.command ?? "", {
         condition: first?.condition ?? undefined,
       });
     } catch (e) {
@@ -351,7 +352,6 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
       }),
     );
     expect(report).toContain("⊘ not run");
-    expect(report).toContain("never reached this hook");
     expect(report).toContain("blocks 1/7");
   });
 });
