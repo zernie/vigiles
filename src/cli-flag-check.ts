@@ -120,6 +120,8 @@ export const COMMAND_FLAGS: Record<Verb, readonly FlagSpec[]> = {
     "--preset=",
     "--json",
     "--md",
+    // The PR-comment summary's base report (`audit --json` of the PR base).
+    "--compare=",
     "--single",
     "--out=",
     "--no-html",
@@ -268,7 +270,7 @@ export const PATH_ARGUMENTS: Readonly<Record<Verb, PathArguments>> = {
   audit: {
     root: "project",
     positionals: "all",
-    flags: ["--out=", "--capability-diff=", "--prompts="],
+    flags: ["--out=", "--capability-diff=", "--prompts=", "--compare="],
   },
   // `generate <kind> [out]`: the kind is a word, the rest are paths.
   generate: { root: "project", positionals: "after-first", flags: [] },

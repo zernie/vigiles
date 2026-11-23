@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { load } from "js-yaml";
 
 const actionPath = resolve(__dirname, "..", "action.yml");
@@ -449,6 +449,102 @@ describe("action.yml — command: test, changed-only", () => {
   });
 });
 
+/** An `npx` that logs its argv and answers by flag (see the suite below). */
+function writeStubNpx(bin: string): void {
+  writeFileSync(
+    join(bin, "npx"),
+    [
+      "#!/bin/bash",
+      'printf "%s\\n" "$*" >> "$NPX_LOG"',
+      'case " $* " in',
+      '  *" --md "*) printf "%s" "${STUB_MD:-}"; exit "${STUB_MD_EXIT:-0}" ;;',
+      '  *" --json"*) printf "{}"; exit 0 ;;',
+      "esac",
+      'exit "${STUB_MAIN_EXIT:-0}"',
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+}
+
+/** A consumer repo that declares and installed vigiles. */
+function writeInstalledConsumer(repo: string): void {
+  writeFileSync(
+    join(repo, "package.json"),
+    JSON.stringify({ name: "c", devDependencies: { vigiles: "^40" } }),
+  );
+  mkdirSync(join(repo, "node_modules", ".bin"), { recursive: true });
+  writeFileSync(join(repo, "node_modules", ".bin", "vigiles"), "", {
+    mode: 0o755,
+  });
+}
+
+const MARKER = "<!-- vigiles-audit-summary -->";
+const SECTION = `${MARKER}\n### Audit: **B** · 85/100\n`;
+
+interface StepRun {
+  readonly status: number;
+  readonly log: string;
+  readonly summary: string;
+  readonly output: string;
+}
+
+function runStep(
+  env: Readonly<Record<string, string>>,
+  prepare: (
+    repo: string,
+    root: string,
+  ) => Readonly<Record<string, string>> = () => ({}),
+): StepRun {
+  const root = mkdtempSync(join(tmpdir(), "vigiles-action-summary-"));
+  try {
+    const bin = join(root, "bin");
+    const repo = join(root, "repo");
+    mkdirSync(bin);
+    mkdirSync(repo);
+    symlinkSync(process.execPath, join(bin, "node"));
+    writeStubNpx(bin);
+    writeInstalledConsumer(repo);
+    const prepared = prepare(repo, root);
+    writeFileSync(join(root, "step.sh"), script);
+    const summary = join(root, "summary.md");
+    const output = join(root, "out");
+    writeFileSync(summary, "");
+    writeFileSync(output, "");
+    const ran = spawnSync("bash", [join(root, "step.sh")], {
+      cwd: repo,
+      stdio: "pipe",
+      env: {
+        PATH: `${bin}:/usr/bin:/bin`,
+        HOME: root,
+        NPX_LOG: join(root, "npx.log"),
+        GITHUB_OUTPUT: output,
+        GITHUB_STEP_SUMMARY: summary,
+        VIGILES_COMMAND: "lint",
+        VIGILES_COMMANDS:
+          action.runs.steps?.[0]?.env?.["VIGILES_COMMANDS"] ?? "",
+        VIGILES_VERSION: "",
+        VIGILES_ACTION_PATH: root,
+        VIGILES_AUDIT_SUMMARY: "true",
+        STUB_MD: SECTION,
+        ...env,
+        ...prepared,
+      },
+    });
+    return {
+      status: ran.status ?? 1,
+      log: readFileSync(join(root, "npx.log"), "utf-8"),
+      summary: readFileSync(summary, "utf-8"),
+      output: readFileSync(output, "utf-8"),
+    };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+const auditCalls = (log: string): string[] =>
+  log.split("\n").filter((l) => l.includes(" audit "));
+
 /**
  * The audit summary in the sticky comment and the job summary (#474), by
  * RUNNING the step. `npx` is a stub that logs its argv and answers by flag:
@@ -460,97 +556,6 @@ describe("action.yml — command: test, changed-only", () => {
  * older vigiles that prints terminal text for `--md`, leaves a one-line note.
  */
 describe("action.yml — the audit summary", () => {
-  const MARKER = "<!-- vigiles-audit-summary -->";
-  const SECTION = `${MARKER}\n### Audit: **B** · 85/100\n`;
-
-  interface StepRun {
-    readonly status: number;
-    readonly log: string;
-    readonly summary: string;
-    readonly output: string;
-  }
-
-  function runStep(
-    env: Readonly<Record<string, string>>,
-    prepare: (
-      repo: string,
-      root: string,
-    ) => Readonly<Record<string, string>> = () => ({}),
-  ): StepRun {
-    const root = mkdtempSync(join(tmpdir(), "vigiles-action-summary-"));
-    try {
-      const bin = join(root, "bin");
-      const repo = join(root, "repo");
-      mkdirSync(bin);
-      mkdirSync(repo);
-      symlinkSync(process.execPath, join(bin, "node"));
-      writeFileSync(
-        join(bin, "npx"),
-        [
-          "#!/bin/bash",
-          'printf "%s\\n" "$*" >> "$NPX_LOG"',
-          'case " $* " in',
-          '  *" --md "*) printf "%s" "${STUB_MD:-}"; exit "${STUB_MD_EXIT:-0}" ;;',
-          '  *" --json"*) printf "{}"; exit 0 ;;',
-          "esac",
-          'exit "${STUB_MAIN_EXIT:-0}"',
-          "",
-        ].join("\n"),
-        { mode: 0o755 },
-      );
-      writeFileSync(
-        join(repo, "package.json"),
-        JSON.stringify({ name: "c", devDependencies: { vigiles: "^40" } }),
-      );
-      mkdirSync(join(repo, "node_modules", ".bin"), { recursive: true });
-      writeFileSync(join(repo, "node_modules", ".bin", "vigiles"), "", {
-        mode: 0o755,
-      });
-      const prepared = prepare(repo, root);
-      writeFileSync(join(root, "step.sh"), script);
-      const summary = join(root, "summary.md");
-      const output = join(root, "out");
-      writeFileSync(summary, "");
-      writeFileSync(output, "");
-      let status = 0;
-      try {
-        execFileSync("bash", [join(root, "step.sh")], {
-          cwd: repo,
-          stdio: "pipe",
-          env: {
-            PATH: `${bin}:/usr/bin:/bin`,
-            HOME: root,
-            NPX_LOG: join(root, "npx.log"),
-            GITHUB_OUTPUT: output,
-            GITHUB_STEP_SUMMARY: summary,
-            VIGILES_COMMAND: "lint",
-            VIGILES_COMMANDS:
-              action.runs.steps?.[0]?.env?.["VIGILES_COMMANDS"] ?? "",
-            VIGILES_VERSION: "",
-            VIGILES_ACTION_PATH: root,
-            VIGILES_AUDIT_SUMMARY: "true",
-            STUB_MD: SECTION,
-            ...env,
-            ...prepared,
-          },
-        });
-      } catch (e: unknown) {
-        status = (e as { status?: number }).status ?? 1;
-      }
-      return {
-        status,
-        log: readFileSync(join(root, "npx.log"), "utf-8"),
-        summary: readFileSync(summary, "utf-8"),
-        output: readFileSync(output, "utf-8"),
-      };
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  }
-
-  const auditCalls = (log: string): string[] =>
-    log.split("\n").filter((l) => l.includes(" audit "));
-
   it("is declared, defaulting to on", () => {
     assert.equal(action.inputs["audit-summary"]?.default, "true");
     assert.ok(
@@ -582,7 +587,7 @@ describe("action.yml — the audit summary", () => {
   });
 
   it("an older vigiles printing terminal text for --md is not pasted in", () => {
-    const r = runStep({ STUB_MD: "Detected harness: claude-code\nrings…\n" });
+    const r = runStep({ STUB_MD: "Detected harness: x\nrings…\n" });
     assert.equal(r.status, 0);
     assert.ok(!r.summary.includes("Detected harness"), r.summary);
     assert.match(r.summary, /audit summary/i);
@@ -594,8 +599,10 @@ describe("action.yml — the audit summary", () => {
     assert.match(failed.output, /valid=false/);
     assert.ok(failed.summary.includes(SECTION));
   });
+});
 
-  it("on a pull request, audits the base and passes it as --compare=", () => {
+describe("action.yml — the audit summary on a pull request", () => {
+  it("audits the base and passes it as --compare=", () => {
     const r = runStep({ GITHUB_EVENT_NAME: "pull_request" }, (repo, root) => {
       const git = (...a: string[]): void => {
         execFileSync("git", a, {

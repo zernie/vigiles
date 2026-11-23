@@ -103,6 +103,17 @@ inputs:
       `fetch-depth: 0` on checkout so the base commit is present. 'true' or 'false'.
     required: false
     default: "false"
+  audit-summary:
+    description: >
+      Add the audit grade to the job summary and the sticky PR comment: the
+      A–F grade, the four graded rings, the top fixes, and on pull_request
+      each ring's change against the PR base (maps to `audit --md`, and
+      `--compare=` with an `audit --json` of the base). It is the headless
+      read — the consent-gated checks do not run — and it never changes the
+      job's result: an audit that errors leaves a one-line note. The base
+      needs `fetch-depth: 0` on checkout. 'true' or 'false'.
+    required: false
+    default: "true"
   fail-on-widen:
     description: "With capability-diff, fail the run when the PR WIDENS the blast radius (maps to the CLI's --fail-on-widen). 'true' or 'false'."
     required: false
@@ -140,6 +151,7 @@ runs:
         VIGILES_COMMENT: ${{ inputs.comment }}
         VIGILES_CAPABILITY_DIFF: ${{ inputs.capability-diff }}
         VIGILES_FAIL_ON_WIDEN: ${{ inputs.fail-on-widen }}
+        VIGILES_AUDIT_SUMMARY: ${{ inputs.audit-summary }}
         VIGILES_CHANGED_ONLY: ${{ inputs.changed-only }}
         VIGILES_MIN: ${{ inputs.min }}
         VIGILES_NO_SKIP: ${{ inputs.no-skip }}
@@ -290,17 +302,21 @@ runs:
         status="${PIPESTATUS[0]}"
         set -e
 
-        # Capability diff (moat #2): did this PR WIDEN the agent's blast radius?
-        # Runs orthogonally to the main command — it's an additive PR-comment
-        # section, so it works whatever `command` gated above. The BEFORE tree is
-        # a detached worktree of the PR base; the AFTER tree is this checkout.
-        capdiff=""       # markdown appended to the sticky comment
-        capstatus=0
-        if [[ "${VIGILES_CAPABILITY_DIFF:-false}" == "true" \
-              && "${GITHUB_EVENT_NAME:-}" == "pull_request" ]]; then
-          base_sha="$(jq -r '.pull_request.base.sha // empty' "${GITHUB_EVENT_PATH:-/dev/null}")"
+        # The PR base, materialized ONCE for the two sections that compare
+        # against it (the capability diff and the audit summary). Sets
+        # `before` to the base copy of this directory, or leaves it empty and
+        # says why.
+        before=""
+        base_dir=""
+        is_pr=false; [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" ]] && is_pr=true
+        want_capdiff=false
+        [[ "${VIGILES_CAPABILITY_DIFF:-false}" == "true" && "$is_pr" == true ]] && want_capdiff=true
+        want_audit=false
+        [[ "${VIGILES_AUDIT_SUMMARY:-true}" == "true" ]] && want_audit=true
+        if [[ "$is_pr" == true && ( "$want_capdiff" == true || "$want_audit" == true ) ]]; then
+          base_sha="$(jq -r '.pull_request.base.sha // empty' "${GITHUB_EVENT_PATH:-/dev/null}" 2>/dev/null || true)"
           if [[ -z "$base_sha" ]]; then
-            echo "::warning::capability-diff: no PR base sha in the event payload"
+            echo "::warning::vigiles: no PR base sha in the event payload"
           else
             # A shallow checkout may not carry the base commit — fetch it first.
             git fetch --no-tags --depth=1 origin "$base_sha" >/dev/null 2>&1 \
@@ -311,29 +327,71 @@ runs:
             # light and can't trip a required filter (e.g. git-crypt) the runner
             # lacks. The agent surface (unencrypted) lands as plaintext to diff.
             if git archive "$base_sha" 2>/dev/null | tar -x -C "$base_dir" 2>/dev/null; then
-              # Diff the SAME relative dir in both trees (support a subdir working-directory).
+              # The SAME relative dir in both trees (support a subdir working-directory).
               rel="$(git rev-parse --show-prefix 2>/dev/null || echo '')"
               before="${base_dir%/}/${rel}"; before="${before%/}"
-              capout="$(mktemp)"
-              fail_flag=(); [[ "${VIGILES_FAIL_ON_WIDEN:-false}" == "true" ]] && fail_flag=(--fail-on-widen)
-              # --no-html --no-json: this run is for the diff only, so skip the
-              # report artifacts. The full audit still streams to the CI log; only
-              # the capability-diff paragraph is extracted for the sticky comment.
-              set +e
-              "${runner[@]}" audit . --capability-diff="$before" --no-html --no-json "${fail_flag[@]}" 2>&1 | tee "$capout"
-              capstatus="${PIPESTATUS[0]}"
-              set -e
-              # Pull out just the "Capability surface …" paragraph (a self-contained
-              # block with no internal blank lines), then drop the no-change case
-              # so a PR that touches nothing capability-relevant gets no section.
-              capdiff="$(awk '/Capability surface/{f=1} f&&NF{print} f&&!NF{exit}' "$capout")"
-              case "$capdiff" in *"unchanged"*) capdiff="" ;; esac
             else
-              echo "::warning::capability-diff: could not materialize PR base ${base_sha} (need fetch-depth: 0?)"
+              echo "::warning::vigiles: could not materialize PR base ${base_sha} (need fetch-depth: 0?)"
             fi
-            rm -rf "$base_dir" 2>/dev/null || true
           fi
         fi
+
+        # Capability diff (moat #2): did this PR WIDEN the agent's blast radius?
+        # Runs orthogonally to the main command — it's an additive PR-comment
+        # section, so it works whatever `command` gated above. The BEFORE tree is
+        # the base materialized above; the AFTER tree is this checkout.
+        capdiff=""       # markdown appended to the sticky comment
+        capstatus=0
+        if [[ "$want_capdiff" == true && -n "$before" ]]; then
+          capout="$(mktemp)"
+          fail_flag=(); [[ "${VIGILES_FAIL_ON_WIDEN:-false}" == "true" ]] && fail_flag=(--fail-on-widen)
+          # --no-html --no-json: this run is for the diff only, so skip the
+          # report artifacts. The full audit still streams to the CI log; only
+          # the capability-diff paragraph is extracted for the sticky comment.
+          set +e
+          "${runner[@]}" audit . --capability-diff="$before" --no-html --no-json "${fail_flag[@]}" 2>&1 | tee "$capout"
+          capstatus="${PIPESTATUS[0]}"
+          set -e
+          # Pull out just the "Capability surface …" paragraph (a self-contained
+          # block with no internal blank lines), then drop the no-change case
+          # so a PR that touches nothing capability-relevant gets no section.
+          capdiff="$(awk '/Capability surface/{f=1} f&&NF{print} f&&!NF{exit}' "$capout")"
+          case "$capdiff" in *"unchanged"*) capdiff="" ;; esac
+        fi
+
+        # Audit summary (#474): the grade, the rings, the top fixes, and on a
+        # PR the change against the base — rendered by the CLI from the
+        # AuditReport (`audit --md`). It NEVER touches `status`: whatever
+        # happens here, the job's result is the main command's. The output is
+        # used only when it carries the CLI's marker, so an older vigiles (or
+        # an audit that errored) becomes a one-line note, never a pasted dump.
+        auditmd=""
+        if [[ "$want_audit" == true ]]; then
+          compare=()
+          if [[ "$is_pr" == true ]]; then
+            basejson="$(mktemp -u)"
+            if [[ -n "$before" ]]; then
+              set +e
+              "${runner[@]}" audit "$before" --json > "$basejson" 2>/dev/null
+              set -e
+            fi
+            # Passed even when no base report was written: the CLI then says
+            # in the section that there is no comparison, and why.
+            compare=(--compare="$basejson")
+          fi
+          auditout="$(mktemp)"
+          set +e
+          "${runner[@]}" audit . --md "${compare[@]}" > "$auditout" 2>&1
+          auditstatus=$?
+          set -e
+          if [[ "$(head -n 1 "$auditout")" == "<!-- vigiles-audit-summary -->" ]]; then
+            auditmd="$(cat "$auditout")"
+          else
+            auditmd="_vigiles audit summary unavailable (\`audit --md\` exit ${auditstatus}); run \`npx vigiles audit\` locally for the grade._"
+            echo "::warning::vigiles: audit summary unavailable (audit --md exit ${auditstatus})"
+          fi
+        fi
+        [[ -n "$base_dir" ]] && rm -rf "$base_dir" 2>/dev/null || true
 
         # A capability WIDENING (fail-on-widen → exit 1) flips an otherwise-green
         # run to failed, so the gate is visible in the output + PR comment.
@@ -357,6 +415,10 @@ runs:
           echo
           echo "$headline"
           echo
+          if [[ -n "$auditmd" ]]; then
+            echo "$auditmd"
+            echo
+          fi
           if [[ -n "$capdiff" ]]; then
             echo "### Capability diff"
             echo

@@ -203,7 +203,21 @@ import {
 } from "./skill-links.js";
 import { addVigilesDeclaration } from "./plugin-declaration.js";
 import { warnTrackedLocalFiles } from "./local-files-tracked.js";
-import { VIGILES_DIR, ensureLocalFilesIgnored } from "./local-files.js";
+import {
+  LAST_AUDIT_FILE,
+  VIGILES_DIR,
+  ensureLocalFilesIgnored,
+} from "./local-files.js";
+import {
+  parseBaseAudit,
+  renderAuditPrSummary,
+  type BaseAudit,
+} from "./audit-pr-summary.js";
+import {
+  lastAuditLine,
+  lastAuditRecord,
+  parseLastAudit,
+} from "./core/last-audit.js";
 import {
   probePluginTriggers,
   formatBehavioralReport,
@@ -590,6 +604,73 @@ function refuseSingleOverMany(single: boolean, dirs: readonly string[]): void {
       `Drop --single for a leaderboard, or pass a single directory.`,
   );
   process.exit(2);
+}
+
+/** `--compare=` only modifies `--md`; on its own it would be silently ignored. */
+function refuseCompareWithoutMd(args: readonly string[], md: boolean): void {
+  if (md || !args.some((a) => a.startsWith("--compare="))) return;
+  console.error(
+    "--compare=<base.json> compares the --md summary against a base report; pass --md with it.",
+  );
+  process.exit(2);
+}
+
+/**
+ * The tail of a person's `audit` (not `--json`, not `--md`): the share link,
+ * then the last-audit stamp `lint --summary` reads.
+ */
+function finishHumanAudit(root: string, projectRoot: string): void {
+  // A shareable deep-link for a public GitHub repo: the in-browser demo
+  // re-runs the audit LIVE for whoever opens it, so a local result is
+  // shareable with zero upload/backend (the "can't share from localhost"
+  // gap). Offline + best-effort — read the audited repo's origin remote;
+  // print nothing when it isn't a GitHub repo (self-hosted / no remote /
+  // not a git tree). A suggestion only, never an auto-share, honest about
+  // the public requirement (the non-evil sharing contract).
+  const share = shareLinkForRemote(readOriginRemote(root) ?? "");
+  if (share) {
+    console.log(`\nShare this grade → ${share}`);
+    console.log("  public repos — opens a live re-run for anyone, no upload");
+  }
+  // #475: a person auditing THIS project is what `lint --summary` asks about
+  // at session start; an audit of another directory does not stamp — see
+  // `core/last-audit.ts`.
+  if (root === projectRoot) recordAuditRun(projectRoot);
+}
+
+/** A file's text, or `undefined` when it cannot be read (absent, a dir, …). */
+function readTextOrUndefined(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf-8");
+  } catch {
+    return undefined;
+  }
+}
+
+/** Stamp a finished audit for `lint --summary` (#475). Best-effort. */
+function recordAuditRun(projectRoot: string): void {
+  const dir = resolve(projectRoot, VIGILES_DIR);
+  try {
+    mkdirSync(dir, { recursive: true });
+    ensureLocalFilesIgnored(dir);
+    writeFileSync(resolve(dir, LAST_AUDIT_FILE), lastAuditRecord(new Date()));
+  } catch {
+    /* advisory — an unwritable .vigiles/ fails nothing */
+  }
+}
+
+/** `audit --md` on one directory: the PR-comment section (#474). */
+function printAuditSummary(report: AuditReport, args: readonly string[]): void {
+  console.log(renderAuditPrSummary(report, readCompareBase(args)).trimEnd());
+}
+
+/** The `--compare=` base report: none asked, read, or unavailable (with why). */
+function readCompareBase(args: readonly string[]): BaseAudit {
+  const file = args
+    .find((a) => a.startsWith("--compare="))
+    ?.slice("--compare=".length);
+  if (file === undefined) return { kind: "none" };
+  return parseBaseAudit(readTextOrUndefined(resolve(file)));
 }
 
 type AnySpec = ClaudeSpec | SkillSpec | AgentSpec | Railway;
@@ -3185,6 +3266,15 @@ async function runLint(
 
   if (summary) {
     printLintSummary(reported);
+    // #475: the session-start path also says when the local audit is overdue.
+    // Only here — plain `lint` and CI never print it.
+    const auditLine = lastAuditLine(
+      parseLastAudit(
+        readTextOrUndefined(resolve(root, VIGILES_DIR, LAST_AUDIT_FILE)),
+      ),
+      new Date(),
+    );
+    if (auditLine) console.log(auditLine);
   } else if (json) {
     console.log(JSON.stringify(reported, null, 2));
   } else {
@@ -10013,6 +10103,12 @@ export async function main(): Promise<void> {
         );
       } else {
         const root = resolve(targets[0]);
+        // `--md` on one directory is the GitHub Action's PR-comment section
+        // (#474): a machine read like `--json` — no terminal report, no
+        // artifacts, no prompt — that prints the rendered markdown instead.
+        const summaryMd = args.includes("--md");
+        const quiet = json || summaryMd;
+        refuseCompareWithoutMd(args, summaryMd);
         const harnessFlag = harnessFlagFrom(args);
         // Honor the SAME precedence as lint/compile (dogfood A): --harness= flag,
         // else the `.vigilesrc.json` `harness` key, else auto-detect. Previously
@@ -10090,7 +10186,7 @@ export async function main(): Promise<void> {
           excludes,
           harnesses: scanHarnesses,
         });
-        if (!json) {
+        if (!quiet) {
           console.log(`Detected harness: ${adapter.name}`);
           if (selection.kind === "notice") {
             console.log(`⚠ ${selection.notice}`);
@@ -10165,7 +10261,7 @@ export async function main(): Promise<void> {
             surfaces.triggerableSkills > 0 ||
             surfaces.adoptableRefs,
           isTTY: process.stdout.isTTY && process.stdin.isTTY,
-          json,
+          json: quiet,
           noInteractive:
             args.includes("--no-interactive") || args.includes("--yes"),
           remembered: config.audit?.measure,
@@ -10240,7 +10336,7 @@ export async function main(): Promise<void> {
         // The deterministic READ leads: rings + report + fixes + nudges print
         // BEFORE the consent prompt, so a plain `audit` shows its findings first.
         // (JSON stays silent until the single blob below, after consent.)
-        if (!json) {
+        if (!quiet) {
           // The Lighthouse rings: per-category 0–100 + the weighted overall,
           // shown before the detailed report so the headline signal leads.
           console.log(formatAuditScore(sc));
@@ -10281,7 +10377,7 @@ export async function main(): Promise<void> {
         const { execute, note: execNote } = await resolveExecution(
           surfaces,
           execDecision,
-          json,
+          quiet,
           modelAccess,
         );
         // Consent is now settled (and remembered via .vigilesrc.json, which
@@ -10298,6 +10394,8 @@ export async function main(): Promise<void> {
           : auditReportBase;
         if (json) {
           console.log(JSON.stringify(auditReport, null, 2));
+        } else if (summaryMd) {
+          printAuditSummary(auditReport, args);
         } else {
           // The rule map — what audit detected in your instruction file and how
           // each rule could be enforced (confident / possible / skipped tiers).
@@ -10377,7 +10475,7 @@ export async function main(): Promise<void> {
           // or set ANTHROPIC_API_KEY" whatever harness the repo was on.
           if (modelAccess.kind !== "none") {
             await runTriggerTier(targets[0], report, adapter, args);
-          } else if (!json) {
+          } else if (!quiet) {
             console.log(
               `\nℹ skill firing not measured — no model access (${modelAccess.fix}).`,
             );
@@ -10415,7 +10513,7 @@ export async function main(): Promise<void> {
                 basePath: root,
                 draft: draftWith((await adapter.liveDriver()).evalDriver),
               });
-              if (!json)
+              if (!quiet)
                 console.log(
                   "\n" +
                     formatAdoptability(
@@ -10425,10 +10523,10 @@ export async function main(): Promise<void> {
                 );
             } catch (e) {
               if (!(e instanceof DraftRunFailed)) throw e;
-              if (!json)
+              if (!quiet)
                 console.log(`\nℹ adoptability not measured — ${e.message}.`);
             }
-          } else if (!json && surfaces.triggerableSkills === 0) {
+          } else if (!quiet && surfaces.triggerableSkills === 0) {
             // Only when the trigger tier didn't already print the same note.
             console.log(
               `\nℹ adoptability not measured — no model access (${modelAccess.kind === "none" ? modelAccess.fix : `${adapter.name} has no executing-tier driver`}).`,
@@ -10456,7 +10554,7 @@ export async function main(): Promise<void> {
         const wroteReports: string[] = [];
         // The versioned JSON artifact — the upload/CI boundary (a hosted dashboard
         // ingests this). Written by default in the human path; --no-json to skip.
-        if (!json && !args.includes("--no-json")) {
+        if (!quiet && !args.includes("--no-json")) {
           writeAuditJson(finalReport, outDir);
           wroteReports.push("vigiles-report.json");
         }
@@ -10468,7 +10566,7 @@ export async function main(): Promise<void> {
         const serveGate = decideServeGate({
           serveFlag: args.includes("--serve"),
           noServeFlag: args.includes("--no-serve"),
-          json,
+          json: quiet,
           isTTY: process.stdout.isTTY && process.stdin.isTTY,
           ownRepo: !isForeign,
           adoptableCount: finalReport.adoptable?.surfaces.length ?? 0,
@@ -10486,7 +10584,7 @@ export async function main(): Promise<void> {
           e instanceof Error ? e.message : String(e);
         if (serveLive) {
           await runAuditServe(finalReport, finalReport.adoptable, errMsg);
-        } else if (!json && !args.includes("--no-html")) {
+        } else if (!quiet && !args.includes("--no-html")) {
           writeAuditHtml(finalReport, outDir, openReport);
           wroteReports.push("vigiles-report.html");
         }
@@ -10512,22 +10610,7 @@ export async function main(): Promise<void> {
             .filter((p): p is RepoRelativePath => p !== null);
           ensureReportGitignored(projectRoot, rel);
         }
-        // A shareable deep-link for a public GitHub repo: the in-browser demo
-        // re-runs the audit LIVE for whoever opens it, so a local result is
-        // shareable with zero upload/backend (the "can't share from localhost"
-        // gap). Offline + best-effort — read the audited repo's origin remote;
-        // print nothing when it isn't a GitHub repo (self-hosted / no remote /
-        // not a git tree). A suggestion only, never an auto-share, honest about
-        // the public requirement (the non-evil sharing contract).
-        if (!json) {
-          const share = shareLinkForRemote(readOriginRemote(root) ?? "");
-          if (share) {
-            console.log(`\nShare this grade → ${share}`);
-            console.log(
-              "  public repos — opens a live re-run for anyone, no upload",
-            );
-          }
-        }
+        if (!quiet) finishHumanAudit(root, projectRoot);
       }
       break;
     }

@@ -21,55 +21,33 @@ import {
 } from "./audit-report.js";
 import type { CategoryScore } from "./audit-score.js";
 import type { Recommendation } from "./optimize.js";
-import type { ScanReport } from "./scan.js";
+import { scanPlugin } from "./scan.js";
+import { defaultAdapter } from "./adapter-registry.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { applyRules } from "./core/apply-rules.js";
 import { defaultSeverities } from "./core/rule.js";
 import { ruleResolver } from "./overrides.js";
 import { RULES, RULE_GROUPS } from "./rules/index.js";
 
-/** A real report off a clean scan; the tests then set the parts they read. */
+/** A real report off a real scan of an empty directory; tests set what they read. */
 function cleanReport(): AuditReport {
-  const scan = {
-    dir: "/x/demo",
-    instructions: null,
-    skills: [],
-    agents: [],
-    hooks: [],
-    hookInventory: [],
-    handWrittenHooks: [],
-    staleHooks: [],
-    commands: 1,
-    mcp: false,
-    hookEventIssues: [],
-    frontmatterIssues: [],
-    frontmatterValueIssues: [],
-    skillMetaIssues: [],
-    mcpIssues: [],
-    mcpHookIssues: [],
-    descriptionOverlaps: [],
-    descriptionBudgetIssues: [],
-    trifectaFindings: [],
-    skillFenceIssues: [],
-    instructionImportIssues: [],
-    pluginLayoutIssues: [],
-    unclaimedSurfaces: [],
-    delegationTrifecta: [],
-    hookBlockFindings: [],
-    hookMatcherFindings: [],
-    malformedFrontmatter: [],
-    warnings: [],
-    untested: 0,
-    puritySummary: { pure: 0, bounded: 0, unrestricted: 0 },
-  } as ScanReport;
-  return buildAuditReport(
-    applyRules(
-      RULES,
-      RULE_GROUPS,
-      ruleResolver(defaultSeverities(RULES)),
-      scan,
-    ),
-    { harness: "claude-code", vigilesVersion: "0.0.0-test" },
-  );
+  const dir = mkdtempSync(join(tmpdir(), "vigiles-pr-summary-"));
+  try {
+    const { layout, dialect } = defaultAdapter;
+    return buildAuditReport(
+      applyRules(
+        RULES,
+        RULE_GROUPS,
+        ruleResolver(defaultSeverities(RULES)),
+        scanPlugin(dir, layout, dialect),
+      ),
+      { harness: layout.name, vigilesVersion: "0.0.0-test" },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 const ring = (
@@ -84,7 +62,7 @@ const rec = (surface: string, fix: string): Recommendation => ({
   rationale: `${surface} is broken`,
   fix,
   detector: "broken-ref",
-  confidence: "high",
+  confidence: "likely",
 });
 
 /** Head: C · 74, Safety 82, four fixes worth 2 / 9 / 5 / 1 points. */
@@ -196,7 +174,9 @@ describe("renderAuditPrSummary", () => {
     expect(md).toMatch(/trigger rate/i);
     expect(md).toMatch(/ESLint/);
   });
+});
 
+describe("renderAuditPrSummary — the PR base", () => {
   it("with no base, says nothing about one", () => {
     const md = renderAuditPrSummary(headReport(), { kind: "none" });
     expect(md).not.toMatch(/\bbase\b/i);
@@ -221,6 +201,37 @@ describe("renderAuditPrSummary", () => {
     expect(md).toContain("the PR base has no harness to audit");
     expect(md).not.toMatch(/[▲▼]/);
   });
+});
+
+describe("renderAuditPrSummary — what to fix", () => {
+  it("with no fix list, lists the graded rings' own findings, worst ring first", () => {
+    const head = headReport();
+    const md = renderAuditPrSummary(
+      {
+        ...head,
+        recommendations: [],
+        verdict: { ...head.verdict, perRecommendation: [] },
+        score: {
+          ...head.score,
+          categories: [
+            ring("Structure", 90, { findings: ["structure finding"] }),
+            ring("Safety", 60, { findings: ["safety finding"] }),
+            ring("Tested", 10, {
+              advisory: true,
+              findings: ["advisory finding"],
+            }),
+          ],
+        },
+      },
+      { kind: "none" },
+    );
+    const top = md.slice(0, md.indexOf("<details>"));
+    expect(top.indexOf("safety finding")).toBeGreaterThan(-1);
+    expect(top.indexOf("safety finding")).toBeLessThan(
+      top.indexOf("structure finding"),
+    );
+    expect(md).not.toContain("advisory finding");
+  });
 
   it("a clean report says there is nothing to fix", () => {
     const clean = cleanReport();
@@ -231,11 +242,11 @@ describe("renderAuditPrSummary", () => {
 });
 
 describe("parseBaseAudit", () => {
-  const valid = JSON.stringify(cleanReport());
+  const report = cleanReport();
+  const graded = { ...report, score: { ...report.score, empty: false } };
 
   it("reads a real audit --json report as the base", () => {
-    const base = parseBaseAudit(valid);
-    expect(base.kind).toBe("report");
+    expect(parseBaseAudit(JSON.stringify(graded)).kind).toBe("report");
   });
 
   it("a missing file is a base that could not be audited, not an error", () => {
@@ -243,21 +254,20 @@ describe("parseBaseAudit", () => {
   });
 
   it("text that is not JSON is unavailable, with a reason", () => {
-    const base = parseBaseAudit("Detected harness: claude-code\n");
+    const base = parseBaseAudit("Detected harness: x\n");
     expect(base).toMatchObject({ kind: "unavailable" });
   });
 
   it("a report from another schema version is not compared", () => {
-    const other = JSON.parse(valid) as {
-      meta: { schemaVersion: number };
+    const other = {
+      ...graded,
+      meta: { ...graded.meta, schemaVersion: AUDIT_SCHEMA_VERSION + 1 },
     };
-    other.meta.schemaVersion = AUDIT_SCHEMA_VERSION + 1;
     expect(parseBaseAudit(JSON.stringify(other)).kind).toBe("unavailable");
   });
 
   it("a base with nothing to audit is unavailable, and says so", () => {
-    const empty = JSON.parse(valid) as { score: { empty: boolean } };
-    empty.score.empty = true;
+    const empty = { ...graded, score: { ...graded.score, empty: true } };
     const base = parseBaseAudit(JSON.stringify(empty));
     expect(base.kind).toBe("unavailable");
     expect(base.kind === "unavailable" ? base.why : "").toMatch(/harness/);

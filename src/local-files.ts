@@ -81,6 +81,8 @@ export const GUARD_LEDGER_FILE = "guard-ledger.json";
 export const HOOK_OBSERVATIONS_FILE = "hook-observations.jsonl";
 /** Recorded model runs for eval replay, the default `cacheDir` (`eval.ts`). */
 export const EVAL_CACHE_DIR = "eval-cache";
+/** When `audit` last ran on this checkout, read by `lint --summary` (`last-audit.ts`). */
+export const LAST_AUDIT_FILE = "last-audit.json";
 
 /** One per-checkout path under `.vigiles/`. */
 export interface LocalFile {
@@ -101,6 +103,7 @@ export const LOCAL_FILES: readonly LocalFile[] = [
   { name: GUARD_LEDGER_FILE, dir: false },
   { name: HOOK_OBSERVATIONS_FILE, dir: false },
   { name: EVAL_CACHE_DIR, dir: true },
+  { name: LAST_AUDIT_FILE, dir: false },
 ];
 
 /**

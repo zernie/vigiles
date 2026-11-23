@@ -20,10 +20,12 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { z } from "zod";
 import { AUDIT_SUMMARY_MARKER } from "./audit-pr-summary.js";
-import { recordAuditRun } from "./last-audit.js";
+import { defaultAdapter } from "./adapter-registry.js";
+import { skillsHome } from "./core/layout.js";
+import { lastAuditRecord } from "./core/last-audit.js";
 import { LAST_AUDIT_FILE, VIGILES_DIR } from "./local-files.js";
 
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
@@ -32,22 +34,12 @@ function run(
   args: readonly string[],
   cwd: string,
 ): { stdout: string; stderr: string; exitCode: number } {
-  try {
-    const stdout = execFileSync("node", [CLI, ...args], {
-      cwd,
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 60000,
-    });
-    return { stdout, stderr: "", exitCode: 0 };
-  } catch (e: unknown) {
-    const err = e as { stdout?: string; stderr?: string; status?: number };
-    return {
-      stdout: err.stdout ?? "",
-      stderr: err.stderr ?? "",
-      exitCode: err.status ?? 1,
-    };
-  }
+  const r = spawnSync("node", [CLI, ...args], {
+    cwd,
+    encoding: "utf-8",
+    timeout: 60000,
+  });
+  return { stdout: r.stdout, stderr: r.stderr, exitCode: r.status ?? 1 };
 }
 
 /** The part of `audit --json` the base edit touches — parsed, not cast. */
@@ -66,10 +58,15 @@ const ringsOnly = z
 let dir = "";
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "vigiles-audit-summary-"));
-  writeFileSync(join(dir, "CLAUDE.md"), "# Project\n\nBe careful.\n");
-  mkdirSync(join(dir, ".claude", "skills", "greet"), { recursive: true });
+  const { layout } = defaultAdapter;
   writeFileSync(
-    join(dir, ".claude", "skills", "greet", "SKILL.md"),
+    join(dir, layout.instructionFile),
+    "# Project\n\nBe careful.\n",
+  );
+  const skill = join(dir, skillsHome(layout) ?? "skills", "greet");
+  mkdirSync(skill, { recursive: true });
+  writeFileSync(
+    join(skill, "SKILL.md"),
     "---\nname: greet\ndescription: Greet the user when they say hello.\n---\n\nSay hello back.\n",
   );
 });
@@ -78,6 +75,12 @@ afterEach(() => {
 });
 
 const stamp = (): string => join(dir, VIGILES_DIR, LAST_AUDIT_FILE);
+
+/** Write the record `audit` would have written at `at`. */
+function recordAuditRun(at: Date): void {
+  mkdirSync(join(dir, VIGILES_DIR), { recursive: true });
+  writeFileSync(stamp(), lastAuditRecord(at));
+}
 
 describe("audit --md (one directory)", () => {
   it("prints the PR-comment section, and writes no report files", () => {
@@ -132,6 +135,9 @@ describe("the last-audit stamp", () => {
     expect(r.exitCode, r.stderr).toBe(0);
     expect(existsSync(stamp())).toBe(true);
     expect(readFileSync(stamp(), "utf-8")).toContain('"at"');
+    // A per-checkout record: kept out of git with the other local files.
+    const ignore = readFileSync(join(dir, VIGILES_DIR, ".gitignore"), "utf-8");
+    expect(ignore.split("\n")).toContain(`/${LAST_AUDIT_FILE}`);
   });
 
   it("machine runs (--json, --md) do not", () => {
@@ -152,7 +158,7 @@ describe("lint --summary: the last-audit line", () => {
   });
 
   it("a record 9 days old → 'last audit 9 days ago'", () => {
-    recordAuditRun(dir, new Date(Date.now() - 9 * DAY - 60_000));
+    recordAuditRun(new Date(Date.now() - 9 * DAY - 60_000));
     const r = run(["lint", "--summary"], dir);
     expect(r.stdout).toContain(
       "vigiles: last audit 9 days ago — run npx vigiles audit",
@@ -160,7 +166,7 @@ describe("lint --summary: the last-audit line", () => {
   });
 
   it("a recent record → no line", () => {
-    recordAuditRun(dir, new Date(Date.now() - DAY));
+    recordAuditRun(new Date(Date.now() - DAY));
     const r = run(["lint", "--summary"], dir);
     expect(r.stdout).not.toContain("last audit");
     expect(r.stdout).not.toContain("no local audit yet");

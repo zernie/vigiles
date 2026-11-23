@@ -1,26 +1,16 @@
 /**
  * The "last audit N days ago" record (#475): `audit` stamps a local file under
  * `.vigiles/`, and `lint --summary` (the session-start path) turns it into one
- * line when it is old or missing. The decision is pure over (record, now); the
- * read and write are exercised against a temp directory.
+ * line when it is old or missing. Pure over (record text, now); the CLI's read
+ * and write are covered in `src/cli-audit-summary.test.ts`.
  */
-import { describe, it, expect, afterEach } from "vitest";
-import {
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { describe, it, expect } from "vitest";
 import {
   LAST_AUDIT_STALE_DAYS,
   lastAuditLine,
-  readLastAudit,
-  recordAuditRun,
+  lastAuditRecord,
+  parseLastAudit,
 } from "./last-audit.js";
-import { LAST_AUDIT_FILE, VIGILES_DIR } from "./local-files.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = new Date("2026-11-23T12:00:00Z");
@@ -58,35 +48,19 @@ describe("lastAuditLine", () => {
   });
 });
 
-describe("recordAuditRun / readLastAudit", () => {
-  let dir = "";
-  afterEach(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
-  });
-
+describe("lastAuditRecord / parseLastAudit", () => {
   it("reads back what it wrote", () => {
-    dir = mkdtempSync(join(tmpdir(), "vigiles-last-audit-"));
-    recordAuditRun(dir, ago(2));
-    expect(readLastAudit(dir)).toEqual({ kind: "at", at: ago(2) });
-  });
-
-  it("keeps the record out of git", () => {
-    dir = mkdtempSync(join(tmpdir(), "vigiles-last-audit-"));
-    recordAuditRun(dir, NOW);
-    const ignore = readFileSync(join(dir, VIGILES_DIR, ".gitignore"), "utf-8");
-    expect(ignore.split("\n")).toContain(`/${LAST_AUDIT_FILE}`);
+    expect(parseLastAudit(lastAuditRecord(ago(2)))).toEqual({
+      kind: "at",
+      at: ago(2),
+    });
   });
 
   it("no file is 'never'; a broken file is 'unreadable'", () => {
-    dir = mkdtempSync(join(tmpdir(), "vigiles-last-audit-"));
-    expect(readLastAudit(dir)).toEqual({ kind: "never" });
-    mkdirSync(join(dir, VIGILES_DIR), { recursive: true });
-    writeFileSync(join(dir, VIGILES_DIR, LAST_AUDIT_FILE), "{ not json");
-    expect(readLastAudit(dir)).toEqual({ kind: "unreadable" });
-    writeFileSync(
-      join(dir, VIGILES_DIR, LAST_AUDIT_FILE),
-      JSON.stringify({ at: "not a date" }),
-    );
-    expect(readLastAudit(dir)).toEqual({ kind: "unreadable" });
+    expect(parseLastAudit(undefined)).toEqual({ kind: "never" });
+    expect(parseLastAudit("{ not json")).toEqual({ kind: "unreadable" });
+    expect(parseLastAudit(JSON.stringify({ at: "not a date" }))).toEqual({
+      kind: "unreadable",
+    });
   });
 });
