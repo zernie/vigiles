@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 
 import {
   improvement,
+  compareArms,
   assertImproves,
   significantlyBeats,
   assertSignificant,
@@ -203,6 +204,13 @@ test("assertSignificant on a 0/1 metric needs disjoint Wilson intervals (P10)", 
     significantlyBeats(passReport(10, 0, 10), "base", "skill", "pass"),
     true,
   );
+});
+
+test("compareArms agrees with the verdict on a 0/1 metric", () => {
+  const sig = (r: EvalReport) =>
+    compareArms(r, "base", "skill", "pass")?.significant;
+  assert.equal(sig(passReport(3, 0, 3)), false);
+  assert.equal(sig(passReport(10, 0, 10)), true);
 });
 
 test("assertImproves passes on a positive gap and throws otherwise", () => {

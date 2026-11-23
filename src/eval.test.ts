@@ -1361,6 +1361,34 @@ test("measureArmsWith scores checks per arm; compareCheck reads significance", a
   assert.throws(() => compareCheck(report, "nope", "gated", 0));
 });
 
+test("compareCheck: 3/3 against 0/3 is not significant (disjoint Wilson needed)", async () => {
+  const fired = JSON.stringify({
+    type: "assistant",
+    message: {
+      content: [{ type: "tool_use", id: "t1", name: "Skill", input: {} }],
+    },
+  });
+  const done = JSON.stringify({ type: "result", num_turns: 1 });
+  const runner = (a: AgentRunArgs): Promise<{ code: number; stdout: string }> =>
+    Promise.resolve({
+      code: 0,
+      stdout: a.hasSettings ? `${fired}\n${done}` : done,
+    });
+  const report = await measureArmsWith(
+    {
+      task: "do it",
+      arms: { vanilla: {}, gated: { settings: { hooks: {} } } },
+      checks: [tool("Skill")],
+      trials: 3,
+      spacingSec: 0,
+    },
+    runner,
+  );
+  const cmp = compareCheck(report, "vanilla", "gated", 0);
+  assert.equal(cmp.delta, 1);
+  assert.equal(cmp.significant, false);
+});
+
 test("measureArmsWith stubSkillBodies stubs each arm's pluginDir (and cleans up)", async () => {
   const dir = makeTmpDir("arms-stub");
   // Two arms, each a plugin dir with the same skill but a different description.

@@ -121,7 +121,7 @@ import {
 } from "./eval-lock.js";
 import type { Check, CheckJSON } from "./check.js";
 import { experimental_verdict, welchTTest, type Comparison } from "./stats.js";
-import { describeVerdict } from "./core/evidence.js";
+import { describeVerdict, proportionVerdict } from "./core/evidence.js";
 import { recordCheck } from "./check-count.js";
 import { probeTrace } from "./coverage-probe.js";
 import {
@@ -1006,7 +1006,8 @@ export async function measureArms(
 /**
  * Welch significance on one check's rate between two arms (`arm` vs `baseline`),
  * by index in `perCheck`. So "the gated arm resolves the skill significantly more
- * than vanilla" is a p-value, not a vibe. Reuses `welchTTest` from stats.ts.
+ * than vanilla" is a verdict, not a vibe: `significant` is the disjoint-Wilson
+ * verdict on the k/n pass tally, the numbers are Welch's from stats.ts.
  */
 export function compareCheck(
   report: ArmsCheckReport,
@@ -1021,11 +1022,22 @@ export function compareCheck(
       `compareCheck: unknown arm or check index (baseline="${baseline}", arm="${arm}", i=${String(checkIndex)})`,
     );
   }
-  return welchTTest(
-    { mean: a.rate, se: a.se, n: a.n },
-    { mean: b.rate, se: b.se, n: b.n },
-  );
+  // A check passes or fails per trial, so its rate is a k/n tally: the
+  // decision is the Wilson verdict, the numbers stay Welch's.
+  const kind = proportionVerdict(tallyOf(a), tallyOf(b)).kind;
+  return {
+    ...welchTTest(
+      { mean: a.rate, se: a.se, n: a.n },
+      { mean: b.rate, se: b.se, n: b.n },
+    ),
+    significant: kind === "better" || kind === "worse",
+  };
 }
+
+const tallyOf = (r: CheckRate): { k: number; n: number } => ({
+  k: Math.round(r.rate * r.n),
+  n: r.n,
+});
 
 /** A readable label for a check from its serialized form, e.g. `tool(Bash)`. */
 function checkLabel(json: CheckJSON): string {

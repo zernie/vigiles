@@ -167,7 +167,25 @@ export function compareArms(
   const a = report.arms[arm]?.stats[metric];
   const b = report.arms[baseline]?.stats[metric];
   if (!a || !b) return null;
-  return welchTTest(a, b, alpha);
+  return compareStats(a, b, alpha);
+}
+
+/**
+ * Welch's numbers for two summaries, with `significant` taken from
+ * {@link verdictOf} — so a `Comparison` never calls a difference significant
+ * that the verdict calls `no-signal` (3/3 against 0/3 on a 0/1 metric). For a
+ * 0/1 metric the decision is the Wilson verdict; `pValue` stays Welch's.
+ */
+export function compareStats(
+  arm: MetricStat,
+  baseline: MetricStat,
+  alpha = 0.05,
+): Comparison {
+  const kind = verdictOf(arm, baseline, alpha).kind;
+  return {
+    ...welchTTest(arm, baseline, alpha),
+    significant: kind === "better" || kind === "worse",
+  };
 }
 
 // Values of a 0/1 metric sum to an integer k, and among all [0, 1]-valued samples

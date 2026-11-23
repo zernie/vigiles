@@ -11,14 +11,14 @@
  *
  * Pure + model-free (the diff/serialize/JUnit are fully unit-tested); the only
  * side effects are the two small fs helpers (`readBaseline` / `writeBaseline`).
- * Reuses `welchTTest` from `src/stats.ts` — the current run is the "arm", the
+ * Reuses `compareStats` from `src/stats.ts` — the current run is the "arm", the
  * baseline is the "baseline", so `delta = current − baseline`.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 
 import type { EvalReport } from "./eval.js";
-import { welchTTest, type Comparison } from "./stats.js";
+import { compareStats, type Comparison } from "./stats.js";
 
 /** Bumped only on a breaking change to the on-disk shape. */
 export const BASELINE_VERSION = 1;
@@ -126,7 +126,7 @@ function collectReportDiffs(
     for (const [metric, curStat] of Object.entries(curArm.stats)) {
       const baseStat = baseArm.stats[metric];
       if (!baseStat) continue;
-      const comparison = welchTTest(curStat, baseStat, cfg.alpha);
+      const comparison = compareStats(curStat, baseStat, cfg.alpha);
       out.push({
         report: current.name,
         arm,
