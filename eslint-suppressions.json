@@ -955,16 +955,16 @@
       "count": 1
     },
     "functional/immutable-data": {
-      "count": 10
+      "count": 8
     },
     "functional/no-let": {
-      "count": 17
+      "count": 15
     },
     "functional/no-loop-statements": {
-      "count": 16
+      "count": 15
     },
     "functional/prefer-immutable-types": {
-      "count": 40
+      "count": 38
     },
     "no-restricted-syntax": {
       "count": 1

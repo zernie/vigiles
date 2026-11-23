@@ -23,6 +23,18 @@
  * See `research/bash-effect-classification.md` for the full design rationale.
  */
 
+import {
+  HOLE,
+  RUNNERS,
+  carriesOf,
+  shellWord,
+  type Carrier,
+  type Carry,
+  type ShellWord,
+  type TemplateWord,
+  type UnseenReason,
+} from "./shell-runners.js";
+
 // mvdan-sh is a CJS package (GopherJS build) with no bundled TypeScript types.
 // The project compiles to CommonJS (Node16, no "type":"module"), so plain
 // require() works and is the idiomatic pattern here (see linters.ts).
@@ -89,6 +101,8 @@ interface MvdanNode {
   Exp?: unknown;
   // Stmt fields
   Negated?: boolean;
+  /** `$'…'` on a SglQuoted (ANSI-C), `$"…"` on a DblQuoted. */
+  Dollar?: boolean;
 }
 
 interface MvdanRedirect extends MvdanNode {
@@ -537,22 +551,46 @@ export function isReadOnlyBash(command: string): boolean {
  * This is the matching primitive a typed hook's `command.runs("git push")` is
  * built on: it sees the real `git push` leaf however it's wrapped, which the
  * native `Bash(git:*)` glob (issue #30519) and a hand-written `grep` both miss.
+ *
+ * ONE LEVEL, on purpose: `bash -c "git push"` yields `[bash, -c]`. The nested
+ * command is a site of {@link execSites}, and both read the same statement walk.
  */
 export function leafCommands(command: string): string[][] {
-  let file: MvdanNode;
+  const file = parseOrNull(command);
+  return (file ? stmtLeaves(file) : []).flatMap(({ call }) => {
+    const argv = (call.Args ?? [])
+      .map((w) => getLiteral(w))
+      .filter((s): s is string => s !== null);
+    return argv.length > 0 ? [argv] : [];
+  });
+}
+
+/** The command parsed, or `null` — mvdan-sh throws a Go error object, not an Error. */
+function parseOrNull(src: string): MvdanNode | null {
   try {
-    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
+    return sh().syntax.NewParser().Parse(src, "cmd.sh");
   } catch {
-    return [];
+    return null;
   }
-  const out: string[][] = [];
+}
+
+/** A simple command and the statement that carries its redirections. */
+interface StmtLeaf {
+  readonly stmt: MvdanNode;
+  readonly call: MvdanNode;
+}
+
+/**
+ * Every statement whose command is a simple command, in walk order — the one
+ * traversal behind {@link leafCommands}, {@link leafCommandsNormalized} and
+ * {@link execSites}. Every CallExpr in the mvdan AST IS a `Stmt.Cmd`.
+ */
+function stmtLeaves(file: Readonly<MvdanNode>): readonly StmtLeaf[] {
+  const out: StmtLeaf[] = [];
   sh().syntax.Walk(file, (node) => {
-    if (sh().syntax.NodeType(node) === "CallExpr" && node.Args) {
-      const argv = node.Args.map((w) => getLiteral(w)).filter(
-        (s): s is string => s !== null,
-      );
-      if (argv.length > 0) out.push(argv);
-    }
+    const call = sh().syntax.NodeType(node) === "Stmt" ? node.Cmd : undefined;
+    if (call && sh().syntax.NodeType(call) === "CallExpr")
+      out.push({ stmt: node, call });
     return true;
   });
   return out;
@@ -783,16 +821,15 @@ function buildFlags(args: readonly string[]): Set<string> {
 // (bare `env`, `env -i`) is preserved as-is, so the env-dump predicate still fires.
 // ---------------------------------------------------------------------------
 
-/** @internal — read by `bash-equivalents.ts` to generate shell-equivalent variants. */
-export const WRAPPER_HEADS = new Set([
-  "env",
-  "command",
-  "nice",
-  "timeout",
-  "sudo",
-  "xargs",
-  "nohup",
-]);
+/**
+ * The `wrapper` rows of `RUNNERS` (shell-runners.ts) — one table of programs
+ * that run a command, of which these resolve IN PLACE.
+ *
+ * @internal — read by `bash-equivalents.ts` to generate shell-equivalent variants.
+ */
+export const WRAPPER_HEADS: ReadonlySet<string> = new Set(
+  [...RUNNERS].flatMap(([head, r]) => (r.mode === "wrapper" ? [head] : [])),
+);
 
 /**
  * Per-wrapper short/long options that consume a SEPARATE following token as their
@@ -992,23 +1029,278 @@ export function stripWrappers(argv: readonly string[]): {
  *
  * Purely additive: reuses the same mvdan-sh parse, changes nothing above. Parse
  * failure → []. A leaf with a dynamic head is skipped (can't be normalized).
+ *
+ * ONE LEVEL, on purpose (vigiles#460, F3-A): this is the depth-0 projection of
+ * {@link execSites} — its exec sites with an empty `via`, in the same order. The
+ * Claude Code `if:` emulation compares this list's length with
+ * {@link leafCommands}', so nested leaves must not appear here.
  */
 export function leafCommandsNormalized(command: string): NormalizedLeaf[] {
-  let file: MvdanNode;
-  try {
-    file = sh().syntax.NewParser().Parse(command, "cmd.sh");
-  } catch {
-    return [];
-  }
-  const out: NormalizedLeaf[] = [];
-  sh().syntax.Walk(file, (node) => {
-    if (sh().syntax.NodeType(node) !== "Stmt" || !node.Cmd) return true;
-    const leaf = normalizeCallExpr(node.Cmd, node.Redirs ?? []);
-    if (leaf) out.push(leaf);
-    return true;
+  const file = parseOrNull(command);
+  return (file ? stmtLeaves(file) : []).flatMap(({ stmt, call }) => {
+    const leaf = normalizeCallExpr(call, stmt.Redirs ?? []);
+    return leaf ? [leaf] : [];
   });
-  return out;
 }
+
+// ===========================================================================
+// THE NESTED DESCENT (vigiles#460). A leaf whose program RUNS a command it was
+// handed — `bash -c STR`, `eval A B`, `find -exec CMD ;`, `exec CMD` — hands that
+// command on; to the grammar it is only data. `RUNNERS` (shell-runners.ts) says
+// how each program carries it; a literal string is parsed again by the same
+// parser. What cannot be read is an `unseen` site with its reason, never `[]`.
+// ===========================================================================
+
+/** Where a site runs. One value in v1; the field exists so v2 does not change the type. */
+export type ExecContext = "local";
+
+/** One command the agent's command runs, or one place the descent could not see into. */
+export type ExecSite =
+  | {
+      readonly kind: "exec";
+      /** The same normalized leaf `leafCommandsNormalized` gives at depth 0. */
+      readonly leaf: NormalizedLeaf;
+      /** The words the program receives, wrappers stripped, quotes removed exactly. */
+      readonly argv: readonly ShellWord[];
+      /** The runners it was handed through, outermost first; `[]` at the top. */
+      readonly via: readonly Carrier[];
+      /** How many strings were re-parsed to reach it. */
+      readonly depth: number;
+      readonly context: ExecContext;
+    }
+  | {
+      readonly kind: "unseen";
+      readonly reason: UnseenReason;
+      /** The runner that hid it (`bash`, `python3`, `ssh`), `null` for a dynamic head. */
+      readonly head: string | null;
+      readonly via: readonly Carrier[];
+      readonly depth: number;
+    };
+
+/** How deep strings are re-parsed: real agent commands nest at most once (754 of 754). */
+const MAX_NESTED_DEPTH = 4;
+/** The largest nested string that is re-parsed. */
+const MAX_NESTED_BYTES = 256 * 1024;
+
+/** The record the descent carries down. target-dir adds its start directory here. */
+interface DescentEnv {
+  readonly depth: number;
+  readonly via: readonly Carrier[];
+  readonly context: ExecContext;
+  /** A word the runner fills in at run time (`find`'s `{}`). */
+  readonly fill: string | null;
+}
+
+const TOP: DescentEnv = {
+  depth: 0,
+  via: [],
+  context: "local",
+  fill: null,
+};
+
+/**
+ * Every command `command` runs, as far down as `RUNNERS` reaches: exec sites for
+ * what is proven, `unseen` sites for what is not. The top-level exec sites are
+ * exactly {@link leafCommandsNormalized}. A string is re-parsed only under a
+ * runner head, so a command without one is parsed once.
+ *
+ * @internal — the foundation the hook vocabulary will read (#460 PR 2).
+ */
+export function execSites(command: string): readonly ExecSite[] {
+  return sitesOfText(command, TOP);
+}
+
+function sitesOfText(text: string, env: DescentEnv): readonly ExecSite[] {
+  const file = parseOrNull(text);
+  if (file === null) return [unseenSite({ kind: "parse-error" }, null, env)];
+  return stmtLeaves(file).flatMap(({ stmt, call }) =>
+    sitesOfCall(call.Args ?? [], call, stmt.Redirs ?? [], env),
+  );
+}
+
+const unseenSite = (
+  reason: UnseenReason,
+  head: string | null,
+  env: DescentEnv,
+): ExecSite => ({
+  kind: "unseen",
+  reason,
+  head,
+  via: env.via,
+  depth: env.depth,
+});
+
+/** One simple command (or an argv slice a runner handed on) and what it runs. */
+function sitesOfCall(
+  args: readonly MvdanWord[],
+  assignsOf: Readonly<MvdanNode> | null,
+  redirs: readonly MvdanRedirect[],
+  env: DescentEnv,
+): readonly ExecSite[] {
+  if (args.length === 0) return [];
+  const assigns = assignsOf
+    ? collectAssigns(assignsOf)
+    : new Map<string, null>();
+  const leaf = normalizeArgs(args, assigns, redirs);
+  if (leaf === null) return [unseenSite({ kind: "dynamic-head" }, null, env)];
+  const words = args.map((w) => wordTemplate(w.Parts, env, "plain"));
+  const drop = wrapperDrop(words);
+  const cmd = words.slice(drop);
+  const head = cmd[0] ? shellWord(cmd[0]) : undefined;
+  const own: ExecSite = {
+    kind: "exec",
+    leaf,
+    argv: cmd.map(shellWord),
+    via: env.via,
+    depth: env.depth,
+    context: env.context,
+  };
+  if (head?.kind !== "text")
+    return [own, unseenSite({ kind: "dynamic-head" }, null, env)];
+  const carries = carriesOf({ head: normalizeHead(head.text), words: cmd });
+  const rest = args.slice(drop);
+  return [own, ...carries.flatMap((c) => follow(c, rest, redirs, env))];
+}
+
+/** Follow one carry: a nested argv, a nested string, or the reason it cannot be read. */
+function follow(
+  c: Carry,
+  args: readonly MvdanWord[],
+  redirs: readonly MvdanRedirect[],
+  outer: DescentEnv,
+): readonly ExecSite[] {
+  const env = { ...outer, via: [...outer.via, c.carrier] };
+  switch (c.kind) {
+    case "unseen":
+      return [unseenSite(c.reason, c.carrier.head, env)];
+    case "argv": {
+      // A tail inherits the runner's file descriptors; a `find -exec` segment does not.
+      const own = c.carrier.mode === "argv-tail" ? redirs : [];
+      return sitesOfCall(args.slice(c.from, c.to), null, own, {
+        ...env,
+        fill: c.fill,
+      });
+    }
+    case "string":
+      return nestedString(c, env);
+  }
+}
+
+function nestedString(
+  c: Extract<Carry, { kind: "string" }>,
+  env: DescentEnv,
+): readonly ExecSite[] {
+  const head = c.carrier.head;
+  if (env.depth + 1 > MAX_NESTED_DEPTH)
+    return [unseenSite({ kind: "too-deep" }, head, env)];
+  if (byteLength(c.text) > MAX_NESTED_BYTES)
+    return [unseenSite({ kind: "too-large" }, head, env)];
+  // The outer shell's expansion becomes the inner shell's CODE: the leaves
+  // around a hole are still read, and the hole is reported.
+  const hole = c.holes
+    ? [unseenSite({ kind: "hole-in-command-string" }, head, env)]
+    : [];
+  const inner = { ...env, depth: env.depth + 1, fill: null };
+  return [...hole, ...sitesOfText(c.text, inner)];
+}
+
+const byteLength = (s: string): number =>
+  s.length * 3 <= MAX_NESTED_BYTES
+    ? s.length
+    : new TextEncoder().encode(s).length;
+
+/** How many leading words are wrappers `stripWrappers` resolves through. */
+function wrapperDrop(words: readonly TemplateWord[]): number {
+  const probe = words.map((w) => (w.holes > 0 ? "\u0000" : w.template));
+  const [head = ""] = probe;
+  const stripped = stripWrappers([normalizeHead(head), ...probe.slice(1)]);
+  return probe.length - stripped.argv.length;
+}
+
+/** Which quoting rules a run of literal text is under. */
+type QuoteMode = "plain" | "dq";
+
+interface Piece {
+  readonly text: string;
+  readonly holes: number;
+  readonly literal: boolean;
+  readonly bad: boolean;
+}
+
+const NO_PIECE: Piece = { text: "", holes: 0, literal: false, bad: false };
+const HOLE_PIECE: Piece = { ...NO_PIECE, text: HOLE, holes: 1 };
+const textPiece = (text: string): Piece => ({
+  ...NO_PIECE,
+  text,
+  literal: true,
+});
+
+/**
+ * A word exactly as the program receives it — what `normalizeParts` is NOT: that
+ * one keeps backslashes in path operands and turns `$HOME` into `~` on purpose.
+ * A string re-parsed as code needs the bytes the inner shell reads.
+ */
+function wordTemplate(
+  parts: readonly MvdanNode[] | undefined,
+  env: DescentEnv,
+  mode: QuoteMode,
+): TemplateWord {
+  const p = (parts ?? [])
+    .map((part) => partPiece(part, env, mode))
+    .reduce(
+      (a: Piece, b: Piece): Piece => ({
+        text: a.text + b.text,
+        holes: a.holes + b.holes,
+        literal: a.literal || b.literal,
+        bad: a.bad || b.bad,
+      }),
+      NO_PIECE,
+    );
+  if (env.fill !== null && p.holes === 0 && p.text === env.fill)
+    return { template: HOLE, holes: 1, opaque: true, undecodable: false };
+  const opaque = p.holes > 0 && !p.literal;
+  return { template: p.text, holes: p.holes, opaque, undecodable: p.bad };
+}
+
+function partPiece(
+  p: Readonly<MvdanNode>,
+  env: DescentEnv,
+  mode: QuoteMode,
+): Piece {
+  switch (sh().syntax.NodeType(p)) {
+    case "Lit": {
+      const text = unescapeIn(p.Value ?? "", mode);
+      return { ...NO_PIECE, text, literal: text !== "" };
+    }
+    case "SglQuoted": {
+      // `$'…'` escapes are decoded in a later step (#460): until then an escape
+      // makes the word untrusted rather than guessed.
+      const text = p.Value ?? "";
+      const escaped = p.Dollar === true && text.includes("\\");
+      return escaped ? { ...NO_PIECE, bad: true } : textPiece(text);
+    }
+    case "DblQuoted": {
+      // `""` is an empty argument: literal. `"$X"` is nothing but its hole.
+      const inner = wordPieces(p.Parts, env);
+      return { ...inner, literal: inner.literal || inner.holes === 0 };
+    }
+    default:
+      return HOLE_PIECE; // $(…), $((…)), <(…), an unbound or operator expansion
+  }
+}
+
+function wordPieces(
+  parts: readonly MvdanNode[] | undefined,
+  env: DescentEnv,
+): Piece {
+  const w = wordTemplate(parts, { ...env, fill: null }, "dq");
+  const literal = w.template.split(HOLE).join("") !== "";
+  return { text: w.template, holes: w.holes, literal, bad: w.undecodable };
+}
+
+/** Backslash removal: everywhere outside quotes, only before `$ \` " \\` inside them. */
+const unescapeIn = (raw: string, mode: QuoteMode): string =>
+  unescapeLit(raw, mode === "dq");
 
 /**
  * Reconstruct a Word's SOURCE-level text: quotes unwrapped, parameter references
@@ -1309,7 +1601,22 @@ function normalizeCallExpr(
 ): NormalizedLeaf | null {
   if (sh().syntax.NodeType(node) !== "CallExpr" || !node.Args?.length)
     return null;
-  const headRaw = normalizeParts(node.Args[0]?.Parts, false, true);
+  return normalizeArgs(node.Args, collectAssigns(node), redirs);
+}
+
+/**
+ * Normalize one command's words — a CallExpr's, or an argv slice a runner hands
+ * on (`exec git push`).
+ */
+function normalizeArgs(
+  words: readonly MvdanWord[],
+  baseAssigns: ReadonlyMap<string, string | null>,
+  redirs: readonly MvdanRedirect[],
+): NormalizedLeaf | null {
+  const norm = (w: Readonly<MvdanWord>, unescape: boolean): string | null =>
+    normalizeParts(w.Parts, false, unescape);
+  const first = words[0];
+  const headRaw = first ? norm(first, true) : null;
   if (headRaw === null) return null; // dynamic head → not normalizable
   const rawHead = normalizeHead(headRaw);
   // Backslash resolution answers "what OPERATION is this" — the head and its
@@ -1319,11 +1626,12 @@ function normalizeCallExpr(
   // Windows UNC path whose backslashes a denylist must keep, or the write it
   // names stops matching `secrets` and the guard allows it. A word starting `-`
   // is never a path, so the split is decidable per word rather than guessed.
-  const rawArgs = node.Args.slice(1)
+  const rawArgs = words
+    .slice(1)
     .map((w) => {
-      const raw = normalizeParts(w.Parts);
+      const raw = norm(w, false);
       if (raw === null || !raw.startsWith("-")) return raw;
-      return normalizeParts(w.Parts, false, true) ?? raw;
+      return norm(w, true) ?? raw;
     })
     .filter((w): w is string => w !== null);
 
@@ -1335,8 +1643,7 @@ function normalizeCallExpr(
 
   // Command-level assignments: mvdan leading `CallExpr.Assigns` plus any
   // `NAME=value` words an `env` wrapper consumed on the way to the real command.
-  const assigns = collectAssigns(node);
-  for (const [k, v] of stripped.envAssigns) assigns.set(k, v);
+  const assigns = new Map([...baseAssigns, ...stripped.envAssigns]);
 
   const flags = buildFlags(args);
   return {
