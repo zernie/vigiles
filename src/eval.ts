@@ -1034,7 +1034,9 @@ export function compareCheck(
   };
 }
 
-const tallyOf = (r: CheckRate): { k: number; n: number } => ({
+const tallyOf = (
+  r: Readonly<CheckRate>,
+): { readonly k: number; readonly n: number } => ({
   k: Math.round(r.rate * r.n),
   n: r.n,
 });
