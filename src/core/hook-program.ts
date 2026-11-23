@@ -36,8 +36,9 @@
 import {
   leafCommands,
   leafCommandsNormalized,
-  shellEffects,
+  readShell,
   classifyBashCommand,
+  type HiddenCommand,
   type BashEffect,
   type NormalizedLeaf,
 } from "./bash-effects.js";
@@ -764,13 +765,22 @@ interface ParsedCommand {
   readonly leaves: ReturnType<typeof leafCommands>;
   readonly normalized: ReturnType<typeof leafCommandsNormalized>;
   readonly allWriteTargets: readonly string[];
+  /** The nested command strings read (`bash -c '…'`, `eval '…'`), vigiles#460. */
+  readonly inner: readonly string[];
+  /** Where a command was handed on and could not be read, vigiles#460. */
+  readonly hidden: readonly HiddenCommand[];
 }
 
 function parseCommand(raw: string): ParsedCommand {
-  const leaves = leafCommands(raw);
+  // 🔴 THROUGH THE PLAIN NESTED FORMS (vigiles#460). `bash -c "git push -f"` is
+  // one leaf, `bash`, to the grammar; `readShell` parses the literal string
+  // again, so every word below judges the inner command as if typed. What it
+  // cannot read is in `hidden`, and `decideProgram` asks on it.
+  const reading = readShell(raw);
+  const leaves = [raw, ...reading.inner].flatMap((c) => leafCommands(c));
   // The operation-normalized leaves carry the redirections (and quote-unwrapped,
   // wrapper-resolved argv) that `writesTo` needs; `leafCommands` cannot see them.
-  const effects = shellEffects(raw);
+  const effects = reading.effects;
   const normalized = effects.flatMap((e) =>
     e.kind === "leaf" ? [e.leaf] : [],
   );
@@ -792,7 +802,13 @@ function parseCommand(raw: string): ParsedCommand {
     // `NormalizedLeaf.chdir` for why the value was being read and discarded.
     return writeTargetsOf(e.leaf).map((t) => underChdir(t, e.leaf.chdir));
   });
-  return { leaves, normalized, allWriteTargets };
+  return {
+    leaves,
+    normalized,
+    allWriteTargets,
+    inner: reading.inner,
+    hidden: reading.hidden,
+  };
 }
 
 /**
@@ -808,6 +824,24 @@ function parseCommand(raw: string): ParsedCommand {
  *   repo's `notes`; without one it can only be over-blocked.
  */
 export function parseShellCommand(raw: string, root?: string): ShellCommand {
+  return inspectShellCommand(raw, root).view;
+}
+
+/**
+ * A {@link ShellCommand} plus what the gate runtime needs to keep a `deny` from
+ * being lost inside a command it cannot read (vigiles#460): whether the decision
+ * asked the view anything, and where a command was handed on unread. Both read
+ * the same lazy parse, so asking costs nothing a predicate did not already pay.
+ */
+interface InspectedCommand {
+  readonly view: ShellCommand;
+  /** True once any predicate of {@link view} was called. */
+  readonly asked: () => boolean;
+  /** The hand-offs not read; parses only if a predicate already did. */
+  readonly hidden: () => readonly HiddenCommand[];
+}
+
+function inspectShellCommand(raw: string, root?: string): InspectedCommand {
   // 🔴 PARSED ON THE FIRST PREDICATE CALL, NOT HERE. Building the view used to
   // parse at once, which was harmless while only a Bash GATE built one — a gate
   // exists to ask about the command. Since #396 (a) a react declared for Bash
@@ -820,6 +854,14 @@ export function parseShellCommand(raw: string, root?: string): ShellCommand {
   // eslint-disable-next-line functional/no-let -- the memo cell of a lazy parse; it is written once, on the first predicate call, and never reassigned after
   let parsed: ParsedCommand | undefined;
   const parse = (): ParsedCommand => (parsed ??= parseCommand(raw));
+  // eslint-disable-next-line functional/no-let -- set by the first predicate call
+  let asked = false;
+  const tracked =
+    <A extends readonly unknown[], R>(f: (...a: A) => R): ((...a: A) => R) =>
+    (...a) => {
+      asked = true;
+      return f(...a);
+    };
   const matchedWriteTargets = (
     prefixes: readonly string[],
   ): readonly string[] => [
@@ -829,9 +871,9 @@ export function parseShellCommand(raw: string, root?: string): ShellCommand {
       ),
     ),
   ];
-  return {
+  const view: ShellCommand = {
     raw,
-    runs(program, opts) {
+    runs: tracked((program: string, opts?: { readonly force?: boolean }) => {
       const { leaves, normalized } = parse();
       const tokens = program.split(/\s+/).filter(Boolean);
       // 🔴 READS RAW **AND** NORMALIZED ARGV — the same union `touches` already
@@ -881,8 +923,14 @@ export function parseShellCommand(raw: string, root?: string): ShellCommand {
           flagTokens.every((t) => leaf.hasFlag(t.replace(/^-+/, ""))) &&
           (opts?.force ? leaf.hasFlag("force", "f") : true),
       );
-    },
-    isSideEffecting: () => classifyBashCommand(raw) === "side-effecting",
+    }),
+    // The classifier answers `undecidable` for `sh -c "rm -rf x"` — it does not
+    // descend — so each nested string read is classified in its own right.
+    isSideEffecting: tracked(() =>
+      [raw, ...parse().inner].some(
+        (c) => classifyBashCommand(c) === "side-effecting",
+      ),
+    ),
     // Both of these are DENYLIST matchers, so both break an undecidable verdict
     // toward "match" — see the block above `PrefixVerdict` for the measurement
     // that made the opposite default a security hole.
@@ -897,7 +945,7 @@ export function parseShellCommand(raw: string, root?: string): ShellCommand {
     // `writesTo` was already correct precisely because it reads `normalized`;
     // this is the same class as the other siblings this PR keeps finding, so
     // both denylists now read the SAME argv.
-    touches: (prefixes) => {
+    touches: tracked((prefixes: readonly string[]) => {
       const { leaves, normalized } = parse();
       return (
         // 🔴 THE UNION IS THE FIX, AND EACH HALF COVERS THE OTHER'S BLIND SPOT.
@@ -928,26 +976,57 @@ export function parseShellCommand(raw: string, root?: string): ShellCommand {
             ),
           )
       );
-    },
+    }),
     // DERIVED, not a second implementation of the same rule. The boolean stays
     // because `writesTo(secrets) ? deny() : allow()` is the common gate shape,
     // but it is a PROJECTION of the list — one code path, so the two can never
     // drift the way `runs()` and `writesTo` did (one reads raw leaves, the other
     // normalized ones, and a gate built on both had a silent hole).
-    writesTo: (prefixes) => matchedWriteTargets(prefixes).length > 0,
-    writeTargets: matchedWriteTargets,
+    writesTo: tracked(
+      (prefixes: readonly string[]) => matchedWriteTargets(prefixes).length > 0,
+    ),
+    writeTargets: tracked(matchedWriteTargets),
     // Same union, same reason: `curl … | /bin/sh` and `curl … | sudo sh` are a
     // pipe-to-shell, and a raw-only check misses both (`isBareShellLeaf` tests
     // the head literally, and the normalizer is what reduces `/bin/sh`→`sh` and
     // strips the wrapper).
-    pipesToShell: () => {
+    pipesToShell: tracked(() => {
       const { leaves, normalized } = parse();
       return (
         leaves.some(isBareShellLeaf) ||
         normalized.some((leaf) => isBareShellLeaf(leaf.argv))
       );
-    },
+    }),
   };
+  return {
+    view,
+    asked: () => asked,
+    hidden: () => (asked ? parse().hidden : []),
+  };
+}
+
+/**
+ * The gate's decision, unless it ALLOWED a command it could not fully read
+ * (vigiles#460): then an `ask` that names the program the command was handed
+ * to. Only when the gate asked about the command at all — a gate keyed on the
+ * branch alone is not second-guessed — and never over the gate's own `deny` or
+ * `ask`, which are final.
+ *
+ * `bash -c "$CMD"`, `find . -exec …`, `su -c …`: whatever is inside could be
+ * the very command the gate was written to block, and an `allow` there would
+ * be the silent kind. The reason carries the cure, because a harness running
+ * without a human turns an `ask` into a refusal and the agent reads only this
+ * text.
+ */
+function askOnHidden(decision: Decision, cmd: InspectedCommand): Decision {
+  if (decision.kind !== "allow" || !cmd.asked()) return decision;
+  const hidden = cmd.hidden();
+  if (hidden.length === 0) return decision;
+  const runners = [...new Set(hidden.map((h) => `\`${h.runner}\``))];
+  return ask(
+    `vigiles: this command hands a command to ${runners.join(", ")}, and the hook cannot see what that command does. ` +
+      `Run it as a plain command (or as \`bash -c '<literal command>'\`) so the hook can check it.`,
+  );
 }
 
 /**
@@ -1060,12 +1139,16 @@ export function decideProgram<N extends readonly NeedSpec[]>(
   // survived here on the flagship role. Removed 2026-09-08.
   const command = shellCommandOf(rawEvent);
   if (command === undefined) return allow();
-  return program.decide({
-    event: program.on,
-    tool: SHELL_TOOL,
-    command: parseShellCommand(command, root),
-    ctx: ctx as unknown as HookCtx<N>,
-  });
+  const inspected = inspectShellCommand(command, root);
+  return askOnHidden(
+    program.decide({
+      event: program.on,
+      tool: SHELL_TOOL,
+      command: inspected.view,
+      ctx: ctx as unknown as HookCtx<N>,
+    }),
+    inspected,
+  );
 }
 
 /** Map a Decision to the CC hook exit code — the protocol the author never writes. */
