@@ -24,6 +24,8 @@ import {
   deny,
   experimental_defineHook,
   experimental_defineInject,
+  experimental_definePromptGate,
+  experimental_defineStopGate,
   inject,
 } from "./core/hook-program.js";
 import { ADAPTERS } from "./adapter-registry.js";
@@ -487,4 +489,102 @@ test("a gate whose needs ctx does not supply is refused, naming the missing fact
       (e: unknown) =>
         e instanceof TypeError && e.message.includes("git.branch"),
     );
+});
+
+// ---------------------------------------------------------------------------
+// Only a gate that can block a tool call is in scope; no false green
+// ---------------------------------------------------------------------------
+
+test("a compiled gate that can never block a tool call is refused", () => {
+  const gates = [
+    experimental_defineStopGate({ on: "Stop", decide: () => deny("x") }),
+    experimental_definePromptGate({
+      on: "UserPromptSubmit",
+      decide: () => deny("x"),
+    }),
+    experimental_defineHook({ on: "PostToolUse", decide: () => deny("x") }),
+  ];
+  for (const gate of gates)
+    assert.throws(() => verifyGuardrail(gate, { harmless: [] }), TypeError);
+});
+
+/** A working guard that first sources an OPTIONAL rc file that is not there. */
+function writeOptionalRcGuard(dir: string): string {
+  const path = join(dir, "rc-guard.sh");
+  writeFileSync(
+    path,
+    `#!/usr/bin/env bash
+source "${dir}/no-such-guardrc" || true
+input=$(cat)
+echo "$input" | grep -qE 'git push (--force|-f)|rm -rf /|--no-verify|\\.ssh/id_|curl .*\\| *sh|reset --hard' \\
+  && { echo "blocked" >&2; exit 2; }
+exit 0
+`,
+  );
+  return `bash ${path}`;
+}
+
+test("exit 2 on every disaster with a loader-ish stderr and no allow-expected case is scored, not crashed", () => {
+  const dir = makeTmpDir("guardrail-rc");
+  try {
+    const results = verifyGuardrail(writeOptionalRcGuard(dir), {
+      harmless: [],
+    });
+    assert.ok(results.every((r) => r.run === "ran" && r.blocked));
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("a crash that cannot be a block (exit 1) is crashed even with no allow-expected case", () => {
+  const dir = makeTmpDir("guardrail-crash1");
+  try {
+    const results = verifyGuardrail(writeLibGuard(dir), { harmless: [] });
+    assert.ok(results.every((r) => r.run === "crashed"));
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test.skipIf(!hasPython())(
+  "a missing script (exit 2) is crashed when the look-alikes fail too",
+  () => {
+    const dir = makeTmpDir("guardrail-213-twins");
+    try {
+      const results = verifyGuardrail(`python3 ${join(dir, "missing.py")}`);
+      assert.ok(results.some((r) => r.expect === "allow"));
+      assert.ok(results.every((r) => r.run === "crashed" && !r.blocked));
+    } finally {
+      cleanupTmpDir(dir);
+    }
+  },
+);
+
+test("a hook that answered no harmless case is not reported as allowing them", () => {
+  const dir = makeTmpDir("guardrail-report-crash");
+  try {
+    const guard = writeLibGuard(dir);
+    const report = formatGuardrailReport(guard, verifyGuardrail(guard));
+    assert.doesNotMatch(report, /allows [1-9]/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("assertGuardrail fails when a harmless case got no answer", () => {
+  // Blocks the selected force push; its condition selects none of the
+  // look-alikes, so none of them was answered — not a pass.
+  const opts = {
+    events: PUSH_EVENTS.filter((e) => e.id === "force-push"),
+    condition: "Bash(git push *)",
+  };
+  const hook = `echo '{"decision":"block","reason":"x"}'`;
+  assert.ok(
+    verifyGuardrail(hook, opts).some(
+      (r) => r.expect === "allow" && r.run === "not-selected",
+    ),
+  );
+  assert.throws(() => {
+    assertGuardrail(hook, opts);
+  });
 });
