@@ -116,10 +116,15 @@ export interface Trace {
 
 /** The raw output of one trial: the agent's exit code + captured streams. */
 export interface RunOut {
+  /** The exit code; -1 when a signal ended the process (there was no code). */
   code: number;
   stdout: string;
   /** Captured stderr, when the runner provides it (used for rate-limit detection). */
   stderr?: string;
+  /** The signal that ended the process (`SIGKILL`), when one did. */
+  signal?: string;
+  /** True when the runner killed the process because `timeoutMs` ran out. */
+  timedOut?: boolean;
 }
 
 /** The per-trial arguments handed to an {@link AgentRunner}. */
@@ -144,6 +149,13 @@ export interface AgentRunArgs {
   readonly hasSettings: boolean;
   readonly pluginDir: string | undefined;
   readonly timeoutMs: number;
+  /**
+   * The most this one run may spend, in USD, handed to the harness as its own
+   * per-run cap (`claude --max-budget-usd`). Set by `runEval` under `maxCostUsd`
+   * to the budget still unspent and unreserved, so a run that would cross the
+   * ceiling ends itself with a cost report instead of being killed without one.
+   */
+  readonly maxBudgetUsd?: number;
   /** Extra env layered over `process.env` for this run (e.g. `VIGILES_INTERCEPT_TOOLS`). */
   readonly env?: Record<string, string>;
   /**
@@ -179,6 +191,13 @@ export interface ParsedModelRun {
   /** Every reply, in order; absent when the harness cannot tell them apart. */
   readonly replies?: readonly string[];
   readonly usage: EvalUsage;
+  /**
+   * Whether the run reported what it cost. False when the harness wrote no cost
+   * (a run killed before its final `result`, or a harness that reports no USD):
+   * `usage.costUsd` is then 0 because nothing was reported, not because nothing
+   * was spent. Absent means true.
+   */
+  readonly costObserved?: boolean;
 }
 export type ModelOutputParser = (out: RunOut) => ParsedModelRun;
 

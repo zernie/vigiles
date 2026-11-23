@@ -137,6 +137,8 @@ export function parseCodexEvalRun(out: { stdout: string }): ParsedModelRun {
     hooks: [],
     subagents: [],
     usage,
+    // `codex exec` reports tokens, never USD: the 0 above is "not reported".
+    costObserved: false,
   };
 }
 

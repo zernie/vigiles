@@ -650,6 +650,8 @@ test("COMPLETENESS: every model-facing runEval input changes the lock hash", asy
         ...s,
         env: { kind: "ephemeral", home: { kind: "files", files: { a: "b" } } },
       }),
+      // each run's --max-budget-usd derives from it, and a cap can end a turn
+      maxCostUsd: (s) => ({ ...s, maxCostUsd: 0.5 }),
     };
     for (const [field, mut] of Object.entries(variants)) {
       const h = await evalHash(root, mut);

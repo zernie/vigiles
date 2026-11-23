@@ -443,14 +443,26 @@ The `measure` ctx is a full `Trace`, so a metric reads the agent's **actions**
 
 - `concurrency: N` — run N trials at once (default 1). Rate-limit responses back
   off and retry automatically (`rateLimitRetries`, `retryBackoffMs`).
-- `maxCostUsd: N` — stop launching once measured cost crosses the cap; in-flight
-  trials finish and `report.aborted` is set.
+- `maxCostUsd: N` — stop launching once the charged cost crosses the cap; in-flight
+  trials finish and `report.aborted` is set. Each run is started with the budget not
+  yet charged as its own cap (`claude --max-budget-usd`), so a run that would cross
+  the ceiling ends itself and still reports its cost.
+- **A run killed by `timeoutMs`** reports no cost (the harness never wrote its final
+  `result`). It is charged its cap toward `maxCostUsd`, since nothing proves it spent
+  less; `ctx.timedOut` is `true` and `ctx.exitCode` is `-1`, not `0`. Its metrics are
+  still computed from what the agent did before the kill, and its `usage` is a floor
+  read from the stream: input and cache tokens are exact, output tokens are not.
 - `cache: "readwrite"` — **record/replay**. Each trial's output _and_ post-run
   filesystem are recorded; a matching re-run replays without calling the model. The
   key excludes `measure`, so **editing your metric and re-running re-scores for
   free** — the model is re-called only when a model-affecting input changes.
 
-`report.arms[a].usage` aggregates per arm; `report.totalCostUsd` sums the run.
+`report.arms[a].usage` aggregates per arm; `report.totalCostUsd` sums the reported
+cost of the run. `report.chargedUsd` is what counted against `maxCostUsd` (the reported
+cost plus each killed run's cap), and `report.unknownCostRuns` counts the runs that
+reported no cost. A killed run's cap is the most it could have spent, not what it
+spent, so the printed report names it as a charge to the budget — never as `$0`, and
+never as a floor on spend.
 
 **LLM-as-judge** — grade with a model inside `measure` (synchronous, shells out via
 the harness CLI):

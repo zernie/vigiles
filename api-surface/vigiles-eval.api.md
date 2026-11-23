@@ -12,6 +12,7 @@ export interface AgentRunArgs {
     readonly env?: Record<string, string>;
     // (undocumented)
     readonly hasSettings: boolean;
+    readonly maxBudgetUsd?: number;
     // (undocumented)
     readonly model: string;
     // (undocumented)
@@ -148,6 +149,7 @@ export interface EvalReport {
     readonly aborted: boolean;
     // (undocumented)
     readonly arms: Record<string, ArmReport>;
+    readonly chargedUsd?: number;
     readonly env?: {
         readonly kind: "ephemeral";
     } | {
@@ -159,6 +161,7 @@ export interface EvalReport {
     readonly totalCostUsd: number;
     // (undocumented)
     readonly trials: number;
+    readonly unknownCostRuns?: number;
 }
 
 // @public (undocumented)
@@ -283,6 +286,7 @@ export function paid_runEval<M extends Metrics>(spec: EvalSpec<M>): Promise<Eval
 
 // @public
 export interface ParsedModelRun {
+    readonly costObserved?: boolean;
     // (undocumented)
     readonly hooks: HookFire[];
     // (undocumented)
@@ -321,11 +325,11 @@ export interface PromptTriggerStat {
 export interface RunContext extends Trace {
     // (undocumented)
     readonly cwd: string;
-    // (undocumented)
     readonly exitCode: number;
     sh(command: string): string;
     // (undocumented)
     readonly stdout: string;
+    readonly timedOut: boolean;
     readonly toolCalls: readonly ToolCall[];
     readonly turns: number;
     readonly usage: EvalUsage;
@@ -342,11 +346,12 @@ export type RunEnv = {
 
 // @public
 export interface RunOut {
-    // (undocumented)
     code: number;
+    signal?: string;
     stderr?: string;
     // (undocumented)
     stdout: string;
+    timedOut?: boolean;
 }
 
 // @public

@@ -62,10 +62,15 @@ import {
   resolveSpawnEnv,
   type AgentRunArgs,
   type AgentRunner,
+  type RunOut,
   type ParsedModelRun,
   type ModelOutputParser,
   unregisteredSkillFiles,
   spawnAgent,
+  closedRun,
+  startFailure,
+  buildAgentArgs,
+  parseClaudeRun,
 } from "./eval.js";
 import {
   usedTool,
@@ -2717,6 +2722,244 @@ test("runEvalWith aborts when maxCostUsd is exceeded", async () => {
   assert.equal(calls, 2); // stopped early
   assert.equal(report.arms.only?.runs, 2); // only completed trials counted
   assert.ok(Math.abs(report.totalCostUsd - 0.2) < 1e-9);
+});
+
+// vigiles#416 (the timeout-cost note): a run the timeout killed has no `result`
+// event, so it read as $0 — a stuck case never moved the ceiling and every trial
+// launched — and `code ?? 0` turned the SIGKILL into a clean exit.
+test("a run killed by the timeout is charged, stops new trials and is not a clean exit (#416)", async () => {
+  const killed = [
+    JSON.stringify({ type: "system", subtype: "init" }),
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg_1",
+        content: [{ type: "text", text: "working" }],
+        usage: {
+          input_tokens: 100,
+          cache_read_input_tokens: 50,
+          output_tokens: 1,
+        },
+      },
+    }),
+  ].join("\n");
+  const seen: AgentRunArgs[] = [];
+  const runner = (a: AgentRunArgs): Promise<RunOut> => {
+    seen.push(a);
+    return Promise.resolve({
+      code: -1,
+      signal: "SIGKILL",
+      timedOut: true,
+      stdout: killed,
+    });
+  };
+  const ended: (readonly [number, boolean])[] = [];
+  const report = await runEvalWith(
+    {
+      env: INHERIT,
+      arms: { stuck: {} },
+      task: "t",
+      trials: 4,
+      spacingSec: 0,
+      maxCostUsd: 0.5,
+      measure: (ctx) => {
+        ended.push([ctx.exitCode, ctx.timedOut]);
+        return { ok: true };
+      },
+    },
+    runner,
+  );
+  // The run got the remaining budget as its own cap, and once killed it is
+  // charged that cap: nothing proves it spent less.
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]?.maxBudgetUsd, 0.5);
+  assert.equal(report.aborted, true);
+  assert.equal(report.totalCostUsd, 0, "known spend stays what was reported");
+  assert.equal(report.chargedUsd, 0.5);
+  assert.equal(report.unknownCostRuns, 1);
+  assert.deepEqual(ended, [[-1, true]]);
+  // The stream's tokens are the run's floor: input and cache are exact.
+  assert.equal(report.arms.stuck?.usage.totalInputTokens, 100);
+  assert.equal(report.arms.stuck?.usage.totalCacheReadTokens, 50);
+});
+
+test("closedRun: a signal is not a clean exit, and the timeout is named", () => {
+  const killed = closedRun({
+    code: null,
+    signal: "SIGKILL",
+    timedOut: true,
+    stdout: "",
+    stderr: "",
+  });
+  assert.equal(killed.code, -1);
+  assert.equal(killed.signal, "SIGKILL");
+  assert.equal(killed.timedOut, true);
+  const exited = closedRun({
+    code: 0,
+    signal: null,
+    timedOut: false,
+    stdout: "",
+    stderr: "",
+  });
+  assert.equal(exited.code, 0);
+  assert.equal(exited.signal, undefined);
+  assert.equal(exited.timedOut, undefined);
+});
+
+test("buildAgentArgs hands the per-run cap to the CLI only when there is one", () => {
+  const base = {
+    task: "t",
+    cwd: "/tmp/x",
+    model: "haiku",
+    tools: [],
+    hasSettings: false,
+    pluginDir: undefined,
+    timeoutMs: 1000,
+  };
+  const args = buildAgentArgs({ ...base, maxBudgetUsd: 0.25 });
+  assert.equal(args[args.indexOf("--max-budget-usd") + 1], "0.25");
+  assert.equal(buildAgentArgs(base).includes("--max-budget-usd"), false);
+});
+
+test("parseClaudeRun: with no result event, usage is the stream's floor, one count per response", () => {
+  const event = (id: string, input: number) =>
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        id,
+        content: [],
+        usage: { input_tokens: input, cache_creation_input_tokens: 5 },
+      },
+    });
+  // Two events of one response share its id: counted once; an event with no
+  // id cannot be told apart from another response, so it is not counted.
+  const noId = JSON.stringify({
+    type: "assistant",
+    message: { content: [], usage: { input_tokens: 99 } },
+  });
+  const stdout = [event("a", 10), event("a", 10), event("b", 20), noId].join(
+    "\n",
+  );
+  const run = parseClaudeRun({ code: -1, stdout });
+  assert.equal(run.costObserved, false);
+  assert.equal(run.usage.costUsd, 0);
+  assert.equal(run.usage.inputTokens, 30);
+  assert.equal(run.usage.cacheCreationTokens, 10);
+  const done = parseClaudeRun({
+    code: 0,
+    stdout: JSON.stringify({ type: "result", total_cost_usd: 0.2 }),
+  });
+  assert.equal(done.costObserved, true);
+  assert.equal(done.usage.costUsd, 0.2);
+});
+
+test("each run's cap is the budget not yet charged", async () => {
+  const paid = JSON.stringify({
+    type: "result",
+    num_turns: 1,
+    result: "ok",
+    total_cost_usd: 0.1,
+  });
+  const caps: (number | undefined)[] = [];
+  const runner = (a: AgentRunArgs): Promise<RunOut> => {
+    caps.push(a.maxBudgetUsd);
+    return Promise.resolve({ code: 0, stdout: paid });
+  };
+  const report = await runEvalWith(
+    {
+      env: INHERIT,
+      arms: { only: {} },
+      task: "t",
+      trials: 2,
+      spacingSec: 0,
+      maxCostUsd: 0.5,
+      measure: () => ({ ok: true }),
+    },
+    runner,
+  );
+  assert.equal(caps.length, 2);
+  assert.ok(Math.abs((caps[0] ?? 0) - 0.5) < 1e-9);
+  assert.ok(Math.abs((caps[1] ?? 0) - 0.4) < 1e-9);
+  assert.equal(report.unknownCostRuns, 0);
+  // With no ceiling there is no cap to hand over.
+  const free: (number | undefined)[] = [];
+  await runEvalWith(
+    {
+      env: INHERIT,
+      arms: { only: {} },
+      task: "t",
+      trials: 1,
+      spacingSec: 0,
+      measure: () => ({ ok: true }),
+    },
+    (a) => {
+      free.push(a.maxBudgetUsd);
+      return Promise.resolve({ code: 0, stdout: paid });
+    },
+  );
+  assert.deepEqual(free, [undefined]);
+});
+
+test("with no ceiling, a killed run is counted as unknown and charged nothing", async () => {
+  const killed = JSON.stringify({ type: "system", subtype: "init" });
+  const report = await runEvalWith(
+    {
+      env: INHERIT,
+      arms: { only: {} },
+      task: "t",
+      trials: 2,
+      spacingSec: 0,
+      measure: () => ({ ok: true }),
+    },
+    () =>
+      Promise.resolve({
+        code: -1,
+        signal: "SIGKILL",
+        timedOut: true,
+        stdout: killed,
+      }),
+  );
+  assert.equal(report.unknownCostRuns, 2);
+  assert.equal(report.chargedUsd, 0);
+  assert.equal(report.aborted, false);
+});
+
+// Codex on #479: a run the timeout killed before its first response is a
+// scored, charged outcome, not a command that never started.
+test("startFailure lets a timed-out run through, and still stops one that never started", () => {
+  const silent = { code: -1, stdout: "", stderr: "" };
+  assert.equal(startFailure({ ...silent, timedOut: true }), null);
+  assert.notEqual(startFailure({ ...silent, code: 2 }), null);
+});
+
+test("formatEvalReport never shows a run that reported no cost as $0", () => {
+  const base = {
+    name: "e",
+    trials: 1,
+    arms: {},
+    aborted: false,
+  };
+  const head = (r: Parameters<typeof formatEvalReport>[0]) =>
+    formatEvalReport(r).split("\n")[0] ?? "";
+  // reported cost only: the total
+  assert.ok(head({ ...base, totalCostUsd: 0.2 }).includes("0.2000"));
+  // nothing reported, nothing charged: no amount at all
+  assert.ok(!head({ ...base, totalCostUsd: 0 }).includes("$"));
+  // a killed run charged its cap: the charge, not the $0 reported
+  const charged = head({
+    ...base,
+    totalCostUsd: 0,
+    chargedUsd: 0.5,
+    unknownCostRuns: 1,
+  });
+  assert.ok(charged.includes("0.5000"));
+  assert.ok(!charged.includes("$0.0000"));
+  // the cap is a charge, never printed as a floor on what was spent (Codex, #479)
+  assert.ok(!charged.includes("≥"));
+  // a killed run with no ceiling to charge against: still not "$0"
+  const unknown = head({ ...base, totalCostUsd: 0, unknownCostRuns: 1 });
+  assert.ok(!unknown.includes("$"));
+  assert.notEqual(unknown, head({ ...base, totalCostUsd: 0 }));
 });
 
 test("assertTriggerRate gates on the minimum rate", () => {
