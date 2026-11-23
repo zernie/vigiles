@@ -277,3 +277,47 @@ test("every event carries `cwd`, the directory the hook runs in", () => {
     cleanupTmpDir(dir);
   }
 });
+
+// ---------------------------------------------------------------------------
+// A control the hook's condition does not select never runs, so it shows
+// nothing about whether the hook can allow (#495 review, P1).
+// ---------------------------------------------------------------------------
+
+/** The condition a force-push guard declares. */
+const FORCE_PUSH_IF = "Bash(git push *--force*)";
+
+test("a skipped control is not evidence: a conditional missing script has no verdict", () => {
+  // `ls` is not selected by the `if`, so it never runs; the force push is, and
+  // `python3 missing.py` exits 2 on it. Without this rule that read as a block.
+  const cmd = "python3 missing-guard-xyz.py";
+  const results = verifyGuardrail(cmd, { condition: FORCE_PUSH_IF });
+  assert.ok(results.length > 0);
+  for (const r of results)
+    assert.equal(tag(r.outcome), "not-run/control-not-selected", r.event.id);
+  assert.throws(() => {
+    assertBlocksDisasters(cmd, { condition: FORCE_PUSH_IF });
+  });
+  assert.doesNotMatch(formatGuardrailReport(cmd, results), /\d+\/\d+/);
+});
+
+test("a control the condition selects and the guard allows restores the verdict", () => {
+  const guard = `case "$(cat)" in *--dry-run*) exit 0;; esac; exit 2`;
+  const control = {
+    ...CONTROL_CASE,
+    label: "dry-run force push",
+    input: { command: "git push --force --dry-run origin main" },
+  };
+  const results = verifyGuardrail(guard, { condition: FORCE_PUSH_IF, control });
+  const byId = new Map(results.map((r) => [r.event.id, tag(r.outcome)]));
+  assert.equal(byId.get("force-push"), "blocked");
+  assert.equal(byId.get("rm-rf"), "not-run/condition");
+});
+
+test("a condition that selects nothing at all is still not a no-verdict", () => {
+  // Nothing ran, so there is no block to doubt: every case is a plain
+  // condition rejection, and the sweep calls that hook not-applicable.
+  for (const r of verifyGuardrail("python3 missing-guard-xyz.py", {
+    condition: "Bash(terraform apply*)",
+  }))
+    assert.equal(tag(r.outcome), "not-run/condition");
+});

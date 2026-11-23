@@ -23,10 +23,24 @@ import {
   assertBlocksDisasters,
   formatGuardrailReport,
   DISASTER_CATALOG,
+  CONTROL_CASE,
   type CaseOutcome,
   type GuardrailResult,
 } from "./guardrail-check.js";
 import { runHook } from "./run-hook.js";
+
+/**
+ * The vendored guard's shape — deny in the body, selection in the `if` — but
+ * letting a dry run through, so a control its `if` selects can show it allows.
+ */
+const DRY_RUN_OK = `case "$(cat)" in *--dry-run*) exit 0;; esac; echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"}}'`;
+
+/** Harmless, and selected by both vendored conditions. */
+const DRY_RUN_CONTROL = {
+  ...CONTROL_CASE,
+  label: "dry-run force push",
+  input: { command: "git push --force --dry-run origin main" },
+};
 
 /** The ids of the battery events whose outcome is `kind`, in catalog order. */
 const idsWhere = (
@@ -296,10 +310,27 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     expect(unblockedDisasters(results)).toHaveLength(DISASTER_CATALOG.length);
   });
 
-  it("WITH the condition only the force push reaches it", () => {
+  it("WITH the condition the bare body still has no verdict", () => {
+    // Neither `if` selects the control `ls`, so it never runs, and a skipped
+    // control is not evidence (#495 review): `python3 missing.py` behind the
+    // same `if` would block the force push identically.
     const [first] = vendoredHooks();
     const results = verifyGuardrail(first?.command ?? "", {
       condition: first?.condition ?? undefined,
+    });
+    for (const { outcome } of results)
+      expect(outcome.kind === "not-run" && outcome.why).toBe(
+        "control-not-selected",
+      );
+  });
+
+  it("WITH the condition only the force push reaches it", () => {
+    // The vendored conditions on a body that lets a dry run through, so a
+    // control the `if` selects can show the hook allows.
+    const [first] = vendoredHooks();
+    const results = verifyGuardrail(DRY_RUN_OK, {
+      condition: first?.condition ?? undefined,
+      control: DRY_RUN_CONTROL,
     });
 
     expect(idsWhere(results, "blocked")).toEqual(["force-push"]);
@@ -325,8 +356,9 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     // `git push -f` hidden behind `cd repo && git commit … &&` — the AST-backed
     // leaf walk is what sees it, and the -f pattern is what admits it.
     const [, second] = vendoredHooks();
-    const results = verifyGuardrail(second?.command ?? "", {
+    const results = verifyGuardrail(DRY_RUN_OK, {
       condition: second?.condition ?? undefined,
+      control: DRY_RUN_CONTROL,
     });
     expect(idsWhere(results, "blocked")).toEqual([
       "force-push",
@@ -338,8 +370,9 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     const [first] = vendoredHooks();
     let message = "";
     try {
-      assertBlocksDisasters(first?.command ?? "", {
+      assertBlocksDisasters(DRY_RUN_OK, {
         condition: first?.condition ?? undefined,
+        control: DRY_RUN_CONTROL,
       });
     } catch (e) {
       message = (e as Error).message;
@@ -354,9 +387,10 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
   it("the coverage report distinguishes not-run from allows", () => {
     const [first] = vendoredHooks();
     const report = formatGuardrailReport(
-      first?.command ?? "",
-      verifyGuardrail(first?.command ?? "", {
+      DRY_RUN_OK,
+      verifyGuardrail(DRY_RUN_OK, {
         condition: first?.condition ?? undefined,
+        control: DRY_RUN_CONTROL,
       }),
     );
     expect(report).toContain("⊘ not run");

@@ -31,8 +31,9 @@ import {
   experimental_verifyPluginGuards,
   experimental_formatPluginGuardReport,
   type PluginGuardReport,
+  type VerifyPluginGuardsOptions,
 } from "./verify-plugin-guards.js";
-import { DISASTER_CATALOG } from "./guardrail-check.js";
+import { CONTROL_CASE, DISASTER_CATALOG } from "./guardrail-check.js";
 import { hookMatcherReach } from "./core/hook-matcher.js";
 import { codexAdapter } from "./adapters/codex/adapter.js";
 import { opencodeAdapter } from "./adapters/opencode/adapter.js";
@@ -44,7 +45,18 @@ const DENY = `echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permiss
  * unconditional-guard shape. A guard that denied the control too would have no
  * verdict (#213), so a guard meant to score lets the control through.
  */
-const DENY_GUARD = `case "$(cat)" in *'"command":"ls"'*) exit 0;; esac; ${DENY}`;
+const DENY_GUARD = `case "$(cat)" in *'"command":"ls"'*|*--dry-run*) exit 0;; esac; ${DENY}`;
+/**
+ * The control a CONDITIONAL guard needs: harmless, selected by its
+ * `Bash(git push *--force*)` condition, and let through by {@link DENY_GUARD}.
+ * `ls` is not selected by that `if`, and a control that never runs is not
+ * evidence (#495 review).
+ */
+const FIXTURE_CONTROL = {
+  ...CONTROL_CASE,
+  label: "dry-run force push",
+  input: { command: "git push --force --dry-run origin main" },
+};
 /** Denies EVERYTHING, the control included — no verdict. */
 const DENY_EVERYTHING = DENY;
 /** The same guard as a script body: exit 2 on everything but the control. */
@@ -103,7 +115,8 @@ afterAll(() => {
 });
 
 /** The outcomes, in config order — the order the report promises. */
-const sweep = () => experimental_verifyPluginGuards(dir).hooks;
+const sweep = () =>
+  experimental_verifyPluginGuards(dir, { control: FIXTURE_CONTROL }).hooks;
 
 describe("experimental_verifyPluginGuards — the per-hook verdicts differ", () => {
   it("reads four hooks in config order and gives each its own status", () => {
@@ -170,11 +183,14 @@ describe("experimental_verifyPluginGuards — the per-hook verdicts differ", () 
   it("says nothing in `notes` when something WAS measured", () => {
     // The empty case has a voice (below); the measured case must not, or the
     // note stops meaning anything.
-    expect(experimental_verifyPluginGuards(dir).notes).toEqual([]);
+    expect(
+      experimental_verifyPluginGuards(dir, { control: FIXTURE_CONTROL }).notes,
+    ).toEqual([]);
   });
 
   it("carries the battery + delivery event it measured against", () => {
     const report = experimental_verifyPluginGuards(dir, {
+      control: FIXTURE_CONTROL,
       categories: ["destructive-git"],
     });
     expect(report.event).toBe("PreToolUse");
@@ -205,6 +221,7 @@ const NEVER_MATCHES = "Bash(terraform apply*)";
 /** A repo whose hooks are exactly `hooks`, swept and thrown away. */
 function sweepFixture(
   hooks: readonly Record<string, unknown>[],
+  opts: VerifyPluginGuardsOptions = {},
 ): PluginGuardReport {
   const tmp = mkdtempSync(join(tmpdir(), "vigiles-sweep-cond-"));
   mkdirSync(join(tmp, ".claude"), { recursive: true });
@@ -213,7 +230,7 @@ function sweepFixture(
     JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks }] } }),
   );
   try {
-    return experimental_verifyPluginGuards(tmp);
+    return experimental_verifyPluginGuards(tmp, opts);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -273,9 +290,17 @@ describe("a condition that selects NOTHING is not a score of zero", () => {
     // The guard on the fix: `every(!ran)` must not become `some(!ran)`. This is
     // the shared fixture's conditional hook in miniature — one event reaches it,
     // six do not, and it is a real 1/7 rather than a non-verdict.
-    const [partial] = sweepFixture([
-      { type: "command", if: "Bash(git push *--force*)", command: DENY_GUARD },
-    ]).hooks;
+    const [partial] = sweepFixture(
+      [
+        {
+          type: "command",
+          if: "Bash(git push *--force*)",
+          command: DENY_GUARD,
+        },
+      ],
+      { control: FIXTURE_CONTROL },
+    ).hooks;
+    expect(partial?.status).toBe("measured");
     expect(partial?.status).toBe("measured");
     if (partial?.status !== "measured") throw new Error("not measured");
     expect(partial.blocked).toEqual(["force-push"]);
@@ -336,35 +361,25 @@ describe("the empty cases speak", () => {
 // ---------------------------------------------------------------------------
 
 describe("davila7 force-push-blocker (vendored, MIT) — read from the config", () => {
-  it("honours EACH hook's own `if` without the caller passing one", () => {
-    // This is the whole difference from verifyGuardrail: the caller supplies a
-    // DIRECTORY, and the two hooks get two different conditions because that is
-    // what the file says. Passing one condition for both is unrepresentable here.
+  it("reads EACH hook's own `if`, and neither gets a score it has not earned", () => {
+    // The caller supplies a DIRECTORY, and the two hooks get two different
+    // conditions because that is what the file says.
     const hooks = experimental_verifyPluginGuards(VENDOR).hooks;
-    expect(hooks).toHaveLength(2);
-
-    const [first, second] = hooks;
-    if (first?.status !== "measured" || second?.status !== "measured")
-      throw new Error("the vendored guard should be measured");
-
-    expect(first.hook.condition).toBe("Bash(git push *--force*)");
-    expect(first.blocked).toEqual(["force-push"]);
-
-    expect(second.hook.condition).toBe("Bash(git push *-f*)");
-    expect(second.blocked).toEqual(["force-push", "force-push-compound"]);
-
-    // The 7/7 that #211 killed must not come back through this door.
-    for (const h of [first, second])
-      expect(h.blocked.length).toBeLessThan(DISASTER_CATALOG.length);
+    expect(hooks.map((h) => h.hook.condition)).toEqual([
+      "Bash(git push *--force*)",
+      "Bash(git push *-f*)",
+    ]);
+    // Both bodies are a bare `echo deny`. Neither `if` selects `ls`, so the
+    // control never runs and no block is evidence — the 7/7 that #211 killed
+    // does not come back, and neither does a 1/7 we cannot vouch for.
+    expect(hooks.map((h) => h.status)).toEqual(["no-verdict", "no-verdict"]);
   });
 
-  it("never reports a not-run event as allowed", () => {
-    const [first] = experimental_verifyPluginGuards(VENDOR).hooks;
-    if (first?.status !== "measured") throw new Error("not measured");
-    // `rm -rf /` is neither blocked nor allowed by this guard — it is not seen.
-    expect(first.allowed).toEqual([]);
-    expect(first.notRun).toContain("rm-rf");
-    expect(first.blocked).not.toContain("rm-rf");
+  it("a control its `if` selects is denied by the bare body: still no verdict", () => {
+    const [first] = experimental_verifyPluginGuards(VENDOR, {
+      control: FIXTURE_CONTROL,
+    }).hooks;
+    expect(first?.status).toBe("no-verdict");
   });
 });
 
@@ -660,7 +675,9 @@ describe("experimental_formatPluginGuardReport", () => {
   it("renders the MIXED case: numbers for measured, reasons for the rest", () => {
     // The mixed report is where a formatter usually leaks a misleading total —
     // one number summed over hooks that were never asked the question.
-    const out = rendered(experimental_verifyPluginGuards(dir));
+    const out = rendered(
+      experimental_verifyPluginGuards(dir, { control: FIXTURE_CONTROL }),
+    );
 
     // The census is a census, not a score: no `n/m` on it.
     expect(out).toContain(
@@ -685,7 +702,9 @@ describe("experimental_formatPluginGuardReport", () => {
   });
 
   it("gives each unmeasured hook its own index, so two are told apart", () => {
-    const out = rendered(experimental_verifyPluginGuards(dir));
+    const out = rendered(
+      experimental_verifyPluginGuards(dir, { control: FIXTURE_CONTROL }),
+    );
     // The fixture's two n/a hooks share nothing but their status; the index is
     // what a reader follows back to the config.
     expect(out).toContain("#3  `echo watching`");
@@ -693,7 +712,9 @@ describe("experimental_formatPluginGuardReport", () => {
   });
 
   it("names the selection facts the sweep actually read", () => {
-    const out = rendered(experimental_verifyPluginGuards(dir));
+    const out = rendered(
+      experimental_verifyPluginGuards(dir, { control: FIXTURE_CONTROL }),
+    );
     // The conditional guard's `if` is the whole reason its score is 1/7 — a
     // report showing the number without the condition invites the wrong reading.
     expect(out).toContain(
@@ -797,7 +818,9 @@ describe("experimental_formatPluginGuardReport", () => {
   });
 
   it("a long or multi-line command is elided to one line", () => {
-    const out = rendered(experimental_verifyPluginGuards(dir));
+    const out = rendered(
+      experimental_verifyPluginGuards(dir, { control: FIXTURE_CONTROL }),
+    );
     expect(out).toContain("…`");
     // No rendered command spills a newline into the layout.
     for (const line of out.split("\n")) expect(line).not.toContain(DENY_GUARD);
@@ -824,6 +847,19 @@ function writeHookScript(at: string, name: string, body: string): void {
 }
 
 describe("a hook whose SCRIPT is missing gets no score at all", () => {
+  it("has no verdict behind an `if` that does not select the control", () => {
+    // #495 review, P1: `ls` is skipped by the condition, the force push runs
+    // `python3 missing.py`, which exits 2. That was reported as blocking.
+    const report = sweepFixture([
+      {
+        type: "command",
+        if: "Bash(git push *--force*)",
+        command: "python3 missing-guard-xyz.py",
+      },
+    ]);
+    expect(report.hooks.map((h) => h.status)).toEqual(["no-verdict"]);
+  });
+
   it("has NO VERDICT in every spelling, never a perfect 7/7", () => {
     // 🔴 THE LOUDEST LIE. `python3 <missing>` exits 2, and 2 is Claude Code's
     // DENY code — so a guard that never existed was certified as stopping every
