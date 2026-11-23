@@ -596,7 +596,7 @@
   },
   "src/audit-score.ts": {
     "functional/immutable-data": {
-      "count": 10
+      "count": 9
     },
     "functional/no-let": {
       "count": 1

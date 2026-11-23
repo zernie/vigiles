@@ -527,7 +527,7 @@ describe("auditScore", () => {
             toolIssues: [],
             mcpToolIssues: [],
             disallowedToolIssues: [],
-            trifecta: { severity: "advisory" },
+            trifecta: { severity: "advisory", cause: "session" },
           },
         ] as unknown as ScanReport["agents"],
         trifectaFindings: [
@@ -535,7 +535,7 @@ describe("auditScore", () => {
             path: "agents/broad.md",
             kind: "subagent",
             name: "broad",
-            finding: { severity: "advisory" },
+            finding: { severity: "advisory", cause: "session" },
           },
         ] as unknown as ScanReport["trifectaFindings"],
       }),
@@ -545,7 +545,9 @@ describe("auditScore", () => {
     // cheaper of the two.
     expect(cat(s, "Safety")?.score).toBe(90);
     expect(
-      cat(s, "Safety")?.findings.some((f) => f.includes("inherits all tools")),
+      cat(s, "Safety")?.findings.some((f) =>
+        f.includes("inherit the session's tools"),
+      ),
     ).toBe(true);
     expect(s.overall).toBe(90);
   });
@@ -620,20 +622,20 @@ describe("auditScore", () => {
     );
   });
 
-  it("unfenced skills are ONE Safety finding, not one per skill — but still count", () => {
+  it("skills that only inherit the session are ONE Safety finding, charged ONCE (#392)", () => {
     // 🔴 A skill's `allowed-tools:` pre-approves rather than restricts, so EVERY
     // skill without a `disallowed-tools:` fence is exposed — i.e. ~100% of every
     // real corpus. Naming 35 of them one at a time would bury the subagent
     // findings under a list as long as the skill directory, and a ring that always
-    // reads like a wall of identical text stops being read. The SCORE is untouched
-    // by the collapse: exposure counts units, presentation counts lines.
+    // reads like a wall of identical text stops being read. And it is one cause —
+    // the session's tools — so it is charged once, not 35 times.
     const skills = Array.from({ length: 35 }, (_, i) => ({
       name: `skill-${String(i)}`,
       path: `skills/skill-${String(i)}/SKILL.md`,
       hasDescription: true,
       userInvoked: false,
       resourceIssues: [],
-      trifecta: { severity: "advisory", fence: "none" },
+      trifecta: { severity: "advisory", fence: "none", cause: "session" },
     })) as unknown as ScanReport["skills"];
     const s = auditScore(
       makeReport({
@@ -642,19 +644,17 @@ describe("auditScore", () => {
           path: k.path,
           kind: "skill",
           name: k.name,
-          finding: { severity: "advisory", fence: "none" },
+          finding: { severity: "advisory", fence: "none", cause: "session" },
         })) as unknown as ScanReport["trifectaFindings"],
       }),
     );
     const findings = cat(s, "Safety")?.findings ?? [];
-    // One headline ("35 of 35 …") + one aggregate line. Never 35 named lines.
-    expect(findings.length).toBe(2);
-    expect(findings.some((f) => f.includes("35 skill(s) declare no"))).toBe(
-      true,
-    );
+    // One line about the cause. Never 35 named lines.
+    expect(findings.length).toBe(1);
+    expect(findings[0]).toContain("35 unit(s) inherit the session's tools");
     expect(findings.some((f) => f.includes("skill-7"))).toBe(false);
-    // …and the collapse cost the score nothing: 35/35 exposed → capped −30.
-    expect(cat(s, "Safety")?.score).toBe(70);
+    // One cause, charged once: W_TRIFECTA, not the −30 cap 35 units used to hit.
+    expect(cat(s, "Safety")?.score).toBe(90);
   });
 
   it("Safety is n/a when there's no tool-bearing surface (no agents, no model-invocable skills)", () => {

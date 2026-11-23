@@ -197,7 +197,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 615 project files. */
+  /** 616 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -680,6 +680,7 @@ declare module "vigiles/generated" {
     | "src/layout-registry.ts"
     | "src/leaderboard.test.ts"
     | "src/leaderboard.ts"
+    | "src/lethal-trifecta-session.test.ts"
     | "src/lint-bundle-frames.test.ts"
     | "src/lint-contract.test.ts"
     | "src/linting.ts"
@@ -1464,6 +1465,7 @@ declare module "vigiles/spec" {
       | "src/layout-registry.ts"
       | "src/leaderboard.test.ts"
       | "src/leaderboard.ts"
+      | "src/lethal-trifecta-session.test.ts"
       | "src/lint-bundle-frames.test.ts"
       | "src/lint-contract.test.ts"
       | "src/linting.ts"

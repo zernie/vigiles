@@ -476,7 +476,10 @@ export function trimTrailingSeparators(path: string): string {
  *
  * The trailing slash is not cosmetic: a prefix of `"papers/"` used to compare
  * against `"papers//"` and match NOTHING, a trap a shipped guard's own header
- * records having fallen into.
+ * records having fallen into. The same holds for a leading `./`, a doubled
+ * separator inside, and a `.` segment: `"./papers"` and `".//papers//"` used to
+ * match nothing while the path side, resolved by {@link resolveRef}, had already
+ * lost them, so a guard handed a prefix from a config file stopped guarding.
  */
 const normalizePrefix = (prefix: string): string => {
   const stripped = prefix.replace(/\\/g, "/").replace(/\/?\*+$/, "");
@@ -495,7 +498,23 @@ const normalizePrefix = (prefix: string): string => {
   // catch-all, it is a real absolute root that must keep its separator to stay
   // absolute. Same helper, and only the empty case differs.
   if (/^[/\\]*$/.test(stripped)) return "";
-  return trimTrailingSeparators(stripped);
+  // A prefix of only `.` segments (`"."`, `"./"`) keeps its old spelling: what
+  // it should mean is a separate question, and this change does not widen it.
+  const tidy = dropDotSegments(stripped);
+  return trimTrailingSeparators(tidy === "" ? stripped : tidy);
+};
+
+/**
+ * `p` without empty and `.` segments, its leading separators kept as they were
+ * (one for a POSIX root, two for a UNC share). Segments, not a pattern: the
+ * same walk {@link resolveRef} does, minus the root it needs for `..`, so a
+ * `..` is left in place rather than guessed at.
+ */
+const dropDotSegments = (p: string): string => {
+  const parts = p.split("/");
+  const leader = parts.findIndex((seg) => seg !== "");
+  const kept = parts.filter((seg) => seg !== "" && seg !== ".");
+  return "/".repeat(Math.min(Math.max(leader, 0), 2)) + kept.join("/");
 };
 
 /**

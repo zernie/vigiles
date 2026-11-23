@@ -8,8 +8,8 @@
     "dir": "acme/widgets"
   },
   "score": {
-    "overall": 64,
-    "grade": "D",
+    "overall": 74,
+    "grade": "C",
     "categories": [
       {
         "key": "Truthfulness",
@@ -31,11 +31,10 @@
       },
       {
         "key": "Safety",
-        "score": 80,
+        "score": 90,
         "weight": 1,
         "findings": [
-          "2 of 3 units can read data, reach the web, and run commands — the \"lethal trifecta\", so a prompt injection could exfiltrate secrets",
-          "2 skill(s) declare no `disallowed-tools:` fence, so each inherits every tool the session grants — reads data, reaches the web, runs commands. `allowed-tools:` pre-approves, it does not restrict, so narrowing it does not reduce this; one `disallowed-tools:` line per skill drops a leg."
+          "Lethal trifecta: 2 unit(s) inherit the session's tools, and the session can read files, reach the web and run commands — one cause, counted once. One `disallowed-tools:` line per skill (a `tools:` line per subagent) that drops a leg closes it: deploy, release."
         ]
       },
       {
@@ -61,8 +60,8 @@
     "instructionsOnly": false
   },
   "verdict": {
-    "sentence": "One fix away from a C.",
-    "grade": "D",
+    "sentence": "One fix away from a B.",
+    "grade": "C",
     "pointsToNextGrade": 6,
     "fixesToNextGrade": 1,
     "perRecommendation": [

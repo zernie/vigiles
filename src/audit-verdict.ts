@@ -269,7 +269,7 @@ function overallWithout(
 }
 
 /**
- * The single largest blocking deduction (max `n × weight`, `n > 0`), for the
+ * The single largest blocking deduction (max cost — `points`, else `n × weight`), for the
  * issue-forward verdict when the fix list can't close the grade gap. Tie-break by
  * heavier per-item weight, then the report's own deduction order.
  */
@@ -280,7 +280,8 @@ function dominantDeduction(
     null;
   for (const d of reportDeductions(report)) {
     if (d.n <= 0) continue;
-    const cost = d.n * d.weight;
+    // A capped deduction (the trifecta rows) costs its `points`, not `n × weight`.
+    const cost = d.points ?? d.n * d.weight;
     if (
       best === null ||
       cost > best.cost ||

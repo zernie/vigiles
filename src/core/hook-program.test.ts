@@ -293,6 +293,36 @@ test("touches vs under: ONE rule, OPPOSITE biases, on the same input", () => {
   );
 });
 
+test("a prefix means one directory however it is spelled: ./, doubled and trailing slashes, . segments", () => {
+  const spellings = [
+    "papers",
+    "./papers",
+    ".//papers//",
+    "papers/./",
+    "././papers",
+  ];
+  const inside = "papers/alpha/paper.tex";
+  const outside = "notes/alpha.tex";
+  assert.deepEqual(
+    spellings.map((p) => [
+      pathView(`${MINE_ROOT}/${inside}`, MINE_ROOT).under([p]),
+      pathView(`${MINE_ROOT}/${outside}`, MINE_ROOT).under([p]),
+      commandView(`echo x > ${inside}`, MINE_ROOT).writesTo([p]),
+      commandView(`echo x > ${outside}`, MINE_ROOT).writesTo([p]),
+      commandView(`cat ${inside}`, MINE_ROOT).touches([p]),
+    ]),
+    spellings.map(() => [true, false, true, false, true]),
+  );
+  // A prefix of only `.` segments keeps the meaning it had (it matches nothing):
+  // tidying a spelling must not widen it into a catch-all.
+  assert.deepEqual(
+    [".", "./"].map((p) =>
+      pathView(`${MINE_ROOT}/${inside}`, MINE_ROOT).under([p]),
+    ),
+    [false, false],
+  );
+});
+
 test("under is UNCHANGED by the shared rule — the allowlist keeps its bias", () => {
   // Regression guard: `under` accepts the "under" verdict only, so widening the
   // undecidable bucket for the denylists cannot leak a grant into it.
@@ -1651,7 +1681,10 @@ test("parseFilePath: the RELATIVE spelling keeps matching, root or no root", () 
   for (const root of [MINE, undefined]) {
     const p = parseFilePath("drafts/papers/x/main.tex", root);
     assert.equal(p.under(["drafts/papers/"]), true, `root=${String(root)}`);
-    assert.equal(p.under(["./drafts/papers"]), false); // a prefix is not a path
+    // A leading `./` on the PREFIX names the same directory. This line used to
+    // assert `false`, and that was the bug: a denylist handed `./drafts/papers`
+    // from a config file then guarded nothing, while looking installed.
+    assert.equal(p.under(["./drafts/papers"]), true);
     assert.equal(p.under(["health"]), false);
   }
   // `./` on the PATH is stripped in both modes.

@@ -52,6 +52,7 @@ import {
   W_NO_CONTRACT,
   TRIFECTA_LABEL,
   trifectaExposure,
+  sessionTrifectaSummary,
   type PluginScore,
 } from "./score-core.js";
 import type { ScanReport } from "./scan.js";
@@ -347,7 +348,8 @@ function structure(r: ScanReport): CategoryScore {
 
 /**
  * SAFETY — fed by the STATIC lethal-trifecta check (`report.trifectaFindings`), a
- * GRADED ring. EVERY unit holding all three capability legs counts, whether a
+ * GRADED ring. EVERY unit holding all three capability legs counts — the ones
+ * that only inherit the session once, as one cause (#392) — whether a
  * subagent's `tools:` NAMED them (`"hard"`) or the unit INHERITED them
  * (`"advisory"` — a subagent with no `tools:` line, or a skill with no
  * `disallowed-tools:` fence, which is every skill by default: `allowed-tools:` is
@@ -381,59 +383,58 @@ function safety(r: ScanReport): CategoryScore {
         pluralizeLabel(exposure.exposed, TRIFECTA_LABEL),
     );
   }
-  // NAME the inherited ones: they're both the worst (every capability, not just
-  // the three legs) and the cheapest to fix — declare a contract that drops a leg.
-  //
-  // EXCEPT the unfenced skills, which collapse into ONE line. A skill's
-  // `allowed-tools:` pre-approves rather than restricts (measured 2026-08-11), so
-  // EVERY skill without a `disallowed-tools:` line is in this state — naming them
-  // one at a time would bury the subagent findings under a list as long as the
-  // skill corpus. Same reasoning as the report section; see `trifectaLines`.
-  const unfenced = r.trifectaFindings.filter(
-    (f) => f.kind === "skill" && f.finding.fence === "none",
+  // 🔴 #392: every unit that only INHERITS the session (`cause: "session"`) is the
+  // same fact, so it is ONE line — and charged once (see trifectaExposure). The
+  // units whose own file supplies the legs keep their own lines below.
+  const session = r.trifectaFindings.filter(
+    (f) => f.finding.cause === "session",
   );
-  // An INEFFECTIVE fence (`disallowed-tools:` that closes no leg) keeps its own
-  // line while there are FEW of them — that is the documented intent in
-  // core/lethal-trifecta.ts: it is a genuine mistake, the author believed they had
-  // fenced, so naming the skill is what a reader acts on.
+  // A unit-made skill finding keeps its own line while there are FEW of each kind:
+  // it is the author's mistake, so naming the skill is what a reader acts on.
   //
-  // MEASURED 2026-08-28 that the premise behind that shape — "Rare" — does not
-  // hold: a fixture where every skill carried a naive `disallowed-tools: WebFetch`
-  // put ALL of them in this state, and the ring printed the same ~450-character
-  // paragraph ten times, ~4,500 characters into the terminal report. Past the
-  // threshold it stops being N facts about N skills and becomes one fact about the
-  // harness — exactly the reasoning the `fence: "none"` aggregate already uses.
-  // Names are kept as detail, so nothing is lost, only repetition.
-  const ineffective = r.trifectaFindings.filter(
-    (f) =>
-      f.finding.severity === "advisory" &&
-      !unfenced.includes(f) &&
-      f.kind === "skill" &&
-      f.finding.fence === "ineffective",
+  // MEASURED 2026-08-28 that "few" does not always hold: a fixture where every
+  // skill carried a naive `disallowed-tools: WebFetch` printed the same
+  // ~450-character paragraph ten times. Past the threshold it stops being N facts
+  // about N skills and becomes one fact about the harness, so it collapses into
+  // one line that keeps every name. The same holds for unfenced skills that each
+  // pre-approve a leg tool (`fence: "none"`, `cause: "unit"`) or have a block
+  // that does not parse.
+  const skillKind = (fence: "none" | "ineffective") =>
+    r.trifectaFindings.filter(
+      (f) =>
+        f.finding.severity === "advisory" &&
+        f.finding.cause !== "session" &&
+        f.kind === "skill" &&
+        f.finding.fence === fence,
+    );
+  const ineffective = skillKind("ineffective");
+  const ownLeg = skillKind("none");
+  const collapsed = [ineffective, ownLeg].filter(
+    (g) => g.length > MAX_NAMED_INEFFECTIVE_FENCES,
   );
-  const collapseIneffective = ineffective.length > MAX_NAMED_INEFFECTIVE_FENCES;
   for (const f of r.trifectaFindings) {
     if (f.finding.severity !== "advisory") continue;
-    if (unfenced.includes(f)) continue;
-    if (collapseIneffective && ineffective.includes(f)) continue;
-    findings.push(
-      f.kind === "skill"
-        ? `${f.name}: ${f.finding.message}`
-        : `${f.name} inherits all tools — the "lethal trifecta" (reads data, reaches the web, runs commands) plus every other capability, so a prompt injection could exfiltrate secrets`,
-    );
+    if (session.includes(f)) continue;
+    if (collapsed.some((g) => g.includes(f))) continue;
+    findings.push(`${f.name}: ${f.finding.message}`);
   }
-  if (collapseIneffective) {
-    findings.push(
-      `${String(ineffective.length)} skill(s) declare a \`disallowed-tools:\` that closes no lethal-trifecta leg — a leg is closed only when EVERY built-in supplying it is denied: ` +
-        `${ineffective.map((f) => f.name).join(", ")}. ` +
-        `Name every supplier of the leg you mean to close — private-data read = Read, Grep, Glob, Bash; untrusted intake = WebFetch, WebSearch, Bash; exfiltration = WebFetch, WebSearch, Bash.`,
-    );
-  }
-  if (unfenced.length > 0) {
-    findings.push(
-      `${String(unfenced.length)} skill(s) declare no \`disallowed-tools:\` fence, so each inherits every tool the session grants — reads data, reaches the web, runs commands. \`allowed-tools:\` pre-approves, it does not restrict, so narrowing it does not reduce this; one \`disallowed-tools:\` line per skill drops a leg.`,
-    );
-  }
+  findings.push(
+    ...[
+      collapsed.includes(ineffective)
+        ? `${String(ineffective.length)} skill(s) declare a \`disallowed-tools:\` that closes no lethal-trifecta leg — a leg is closed only when EVERY built-in supplying it is denied: ` +
+          `${ineffective.map((f) => f.name).join(", ")}. ` +
+          `Name every supplier of the leg you mean to close — private-data read = Read, Grep, Glob, Bash; untrusted intake = WebFetch, WebSearch, Bash; exfiltration = WebFetch, WebSearch, Bash.`
+        : null,
+      collapsed.includes(ownLeg)
+        ? `${String(ownLeg.length)} skill(s) supply a trifecta leg from their own frontmatter (a leg tool or MCP tool pre-approved in \`allowed-tools:\`, or a block that does not parse) and declare no \`disallowed-tools:\` fence: ` +
+          `${ownLeg.map((f) => f.name).join(", ")}. Drop the pre-approval, or add a \`disallowed-tools:\` line that closes a leg.`
+        : null,
+      // TODO(#461): interim — replace with per-unit legs from the session baseline
+      session.length > 0
+        ? sessionTrifectaSummary(session.map((f) => f.name))
+        : null,
+    ].filter((line): line is string => line !== null),
+  );
   return {
     key: "Safety",
     score: Math.max(0, 100 - exposure.penalty),

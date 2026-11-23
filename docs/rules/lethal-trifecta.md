@@ -11,6 +11,14 @@ any single tool's effect. (A claim that no other plugin linter does this stood h
 until 2026-09-08. Nobody had run one; it is removed rather than reworded so it is
 not reintroduced.)
 
+> **Today a unit that only inherits the session is reported once, as a cause —
+> not once per unit.** A skill with no `disallowed-tools:` line (or a subagent
+> with no `tools:` line) holds the three legs because the _session_ hands them to
+> every unit, so that is one fact about the session. vigiles does not yet read
+> the session's permissions, mode or MCP settings; that work is tracked in
+> [#461](https://github.com/zernie/vigiles/issues/461). See
+> [Where the legs come from](#where-the-legs-come-from).
+
 > ⚠️ **Subagents and skills are read from DIFFERENT fields, because they are
 > different mechanisms.** A subagent's `tools:` really does bound the unit. A
 > skill's `allowed-tools:` does **not** — it is a pre-approval, and the only skill
@@ -52,9 +60,44 @@ leg(s) it supplies and fires only when all three legs are non-empty.
   everything: a subagent with no `tools:` line, or a skill with no effective
   `disallowed-tools:` fence. A maximal blast radius. Reported with `⚠`.
 
-The two severities describe **how the unit got there**, not how much it costs: an
-inherits-all unit is graded exactly like an explicit one (see below), because it
-is strictly the worse of the two.
+The two severities describe **how the unit got there**, not how much it costs;
+the cost follows the finding's **cause**, below.
+
+### Where the legs come from
+
+Every finding carries a `cause`, and it decides how the `audit` report shows the
+finding and how the score charges it. `vigiles lint` does not use it: it reports
+every unit that holds the trifecta, exactly as before (skills with no
+`disallowed-tools:` line in one grouped line, every other finding at its file),
+so CI still sees a unit that only inherits the session.
+
+| `cause`   | what the unit's file shows                                                                                                                          | `audit` report        | Safety and overall     |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ---------------------- |
+| `session` | nothing: no `disallowed-tools:` line and no leg tool in `allowed-tools:` (skill), or no `tools:` line (subagent)                                    | one line for them all | charged once           |
+| `fence`   | a fence or contract that does not work: a `disallowed-tools:` that closes no leg, an empty one, frontmatter that does not parse                     | its own line          | charged with `session` |
+| `unit`    | the file adds a leg: `allowed-tools:` pre-approves a side-effecting leg tool (`Bash`, `WebFetch`, …) or any `mcp__*` tool, or an all-three `tools:` | its own line          | charged per unit       |
+
+**Why.** Measured on 77 real repositories, 406 of 409 model-invocable skills held
+the trifecta only because they declare no fence and inherit the session's tools.
+A finding on each of them said the same thing 406 times: a reader learns to skip
+it, and the finding that matters — a skill that pre-approves a production client,
+a subagent whose `tools:` names all three legs — is lost in the noise. The cause
+is the session, so it is stated once.
+
+A `fence` finding is reported at its file because the author wrote something
+that does not do what they meant. It is charged with the session, not per unit,
+because the unit can do no more than an unfenced one: charging it per unit would
+make a half-done fence score worse than no fence at all. The exception is a
+skill whose `allowed-tools:` pre-approves a leg tool the fence does not deny:
+`allowed-tools: Bash` with `disallowed-tools: []` still adds a leg, so it stays
+`unit`. Otherwise a line that denies nothing would lower the charge.
+
+`allowed-tools:` is still **not a fence** (see below). It counts here only as
+evidence that the skill _adds_ something: a pre-approved tool runs without a
+permission prompt while the skill is active, and an MCP tool reaches data outside
+the repository. A read-only tool (`Read`, `Grep`, `Glob`) adds nothing: the harness runs
+it without a prompt anyway, so pre-approving it changes nothing. This is an
+interim rule; reading what the session itself allows is #461.
 
 ### A contract that doesn't parse is not a contract
 
@@ -108,7 +151,8 @@ dangerous direction.** It reported "18 of 38 units hold the trifecta" on a corpu
 where all 38 did, and it credited a narrow `allowed-tools` list with a risk
 reduction that does not exist. That is this tool's own thesis — _a declaration
 present is not a rule enforced_ — violated by this tool. `allowed-tools` is no
-longer an input to this check at all.
+longer read as a bound; it only decides whether the skill adds a leg of its own
+(see [Where the legs come from](#where-the-legs-come-from)).
 
 ### `disallowed-tools:` does restrict — measured
 
@@ -188,34 +232,32 @@ actually runs. So the remedy now names the cause:
 Grading is untouched by all of this: the same units are found, with the same
 severities and the same score.
 
-### Two states, one grade, two presentations
+### How skill findings read
 
 ```
-⚠ 34 of 38 model-invocable skill(s) declare no `disallowed-tools:` fence — each
-  inherits every tool the session grants, so each holds all three legs.
-  `allowed-tools:` does NOT fence a skill (it pre-approves; every tool stays
-  callable), so narrowing it changes nothing here. …
-      food-log-entry, handoff, render-paper, …
+⚠ Lethal trifecta: 34 unit(s) inherit the session's tools, and the session can
+  read files, reach the web and run commands — one cause, counted once. One
+  `disallowed-tools:` line per skill (a `tools:` line per subagent) that drops a
+  leg closes it: food-log-entry, handoff, render-paper, review, ship +29 more.
 
 ⚠ skill half (skills/half/SKILL.md): `disallowed-tools: Read` closes no
   lethal-trifecta leg — private-data read is still supplied by Grep, Glob, Bash …
+
+⚠ skill deploy (skills/deploy/SKILL.md): `allowed-tools:` pre-approves `Bash` —
+  tools that supply a lethal trifecta leg — so they run without a permission prompt …
 ```
 
-- **No fence at all** (`fence: "none"`) is the **ecosystem default** — near enough
-  100% of skills in the wild. Printed once, as **one aggregate line plus the
-  names**. It is one fact about the harness, not N facts about N skills; a section
-  that fires on every repo with a wall of identical text gets muted within a day,
-  and takes the hard findings above it along.
-- **A fence that closes no leg** (`fence: "ineffective"`) keeps its **own line**.
-  It is rare, per-skill, and a real mistake — the author believed they had fenced
-  and had not. Same shape as
+- **No fence and nothing added** (`cause: "session"`) is the **ecosystem
+  default**. `audit` prints it as **one line** with the count and the first names.
+- **A fence that closes no leg** (`fence: "ineffective"`, `cause: "fence"`) keeps
+  its **own line**. The author believed they had fenced
+  and had not — same shape as
   [disallowed-tools-contract](disallowed-tools-contract.md)'s "this entry blocks
   nothing".
+- **A pre-approved leg tool or MCP tool** (`cause: "unit"`) keeps its own line.
 
-**Presentation differs; severity and grade do not.** Both are `"advisory"` and
-both count once toward the exposure penalty below. An ineffective fence has
-capability ≤ no fence, so grading it _harder_ would re-create exactly the
-non-monotonicity this rule was already fixed for once.
+Every skill finding is `"advisory"`. An ineffective fence has capability ≤ no
+fence, so it never reads louder than one.
 
 ### The one-line fix
 
@@ -241,33 +283,36 @@ the `feature-dev` plugin's `code-reviewer` subagent lists `Read, WebFetch,
 WebSearch`), so fail-grading such a plugin to **F** would cry wolf. `vigiles audit`
 threads that needle with a **capped exposure** penalty:
 
-- **SHOWS** every trifecta unit (hard _and_ inherits-all) in the **Safety** ring
-  and the report — a real, useful heads-up. Unfenced skills are shown as **one
-  aggregate line plus their names**, not one line each; the exposure count below
-  still counts **units**, so collapsing the presentation never shrinks the
-  penalty.
-- **DEDUCTS −10 per exposed unit, capped at −30 × the SHARE of the surface
-  exposed** — so a trifecta dents the score without a catastrophic F. The
-  **Safety** ring scores `100 − min(10 × exposed, 30 × exposed/assessable)`, is
-  `n/a` only when there's no tool-bearing surface to assess (never a false 0), and
-  is a clean 100 when surfaces exist but no trifecta. The `feature-dev` plugin's 3
-  hard units → `−30` → **C (70/100)**, not F and not A.
-- An **inherits-all (`"advisory"`)** unit is graded **exactly like an explicit
-  one**. It holds all three legs implicitly _and every other capability besides_,
-  so it cannot cost less than a declared all-three contract. Grading only the
-  explicit case made the score non-monotone in risk: **declaring** a tool contract
-  — a genuine risk reduction — could only ever LOWER the score. Measured on a real
-  35-skill repo (2026-08-03): Safety read **70** while 35/35 units inherited
-  everything (only the 3 declared units counted), and dropped toward **0** after
-  contracts were added everywhere and exposure fell to **17/35**. The tool called
-  the safer configuration strictly worse. Under the capped-exposure model the same
-  two states read **70 → 85**.
+- **SHOWS** every trifecta unit in the **Safety** ring and the report — a real,
+  useful heads-up. Units that only inherit the session are shown as **one line**
+  (see [Where the legs come from](#where-the-legs-come-from)).
+- **DEDUCTS −10 per unit that adds a leg (`cause: "unit"`), capped at −30 × the
+  SHARE of the surface exposed** — so a trifecta dents the score without a
+  catastrophic F. The `feature-dev` plugin's 3 hard units → `−30` → **C
+  (70/100)**, not F and not A.
+- **Units that hold only the session's legs (`session` and `fence`) are ONE
+  cause, charged ONCE**: `min(10, 30 × their share)`. The weight is one unit's
+  (`W_TRIFECTA`, 10), because one cause costs what one exposed unit costs; the
+  share term keeps a small inheriting minority from costing more than it would
+  per unit. A repo whose 400 skills all inherit loses 10, not 30.
+- The **Safety** ring scores `100 −` the sum of the two, never more than `−30`.
+  The sum is rounded once, not each part, so moving a unit from "adds a leg" to
+  "inherits" (dropping a pre-approval) never costs a point. It
+  is `n/a` only when there's no tool-bearing surface to assess (never a false 0),
+  and a clean 100 when surfaces exist but no trifecta.
+- An **inherits-all** unit is never free: it is in the one session charge.
+  Declaring a contract that drops a leg clears it; declaring one that still names
+  all three makes the finding the unit's own (`cause: "unit"`), charged per unit,
+  because the contract now _declares_ the exfiltration path. The share cap stays:
+  grading only the explicit case once made hardening a 35-skill repo read
+  **70 → 0** (2026-08-03); under the capped model the same two states read
+  **70 → 85**.
 - The **only** thing that moves a **skill** out of the exposed set is a
-  `disallowed-tools:` fence that closes a whole leg. Adding or narrowing
-  `allowed-tools:` moves the score by exactly **zero**, because it changes what the
-  skill can do by exactly zero. (Regression-tested: a skill declaring
-  `allowed-tools: Read, Grep` and one declaring every tool in the catalog produce
-  byte-identical findings.)
+  `disallowed-tools:` fence that closes a whole leg. Narrowing `allowed-tools:`
+  never does: a narrow list and the widest one hold the same legs. What
+  `allowed-tools:` decides is the **cause** — pre-approving a leg tool makes the
+  finding the skill's own, charged per unit; dropping that pre-approval moves it
+  back into the one session charge.
 
 The deduction lives on the single shared `reportDeductions` → `computeIntegrityScore`
 path, so the audit overall and the plugin-health leaderboard read the SAME number.
@@ -279,9 +324,9 @@ still raise `lethal-trifecta` to `"error"` to gate CI on it independently.
 On the **subagent** side, only **well-known, high-signal tools** map to a leg — an
 unknown tool maps to nothing, so a bare unrecognized `mcp__*` never cries wolf. A
 `Tool(restriction)` suffix is stripped to its base name. On the **skill** side the
-FP control is the presentation, not the catalog: the unfenced default is true of
-almost every skill, so it is stated once per harness rather than once per skill
-(see [Two states, one grade, two presentations](#two-states-one-grade-two-presentations)).
+FP control is the cause, not the catalog: the unfenced default is true of almost
+every skill, so it is stated once per harness rather than once per skill (see
+[Where the legs come from](#where-the-legs-come-from)).
 **User-invoked** skills
 (`disable-model-invocation: true`) are excluded — they're picked by an explicit
 command, so they can't be hijacked by attacker content.
