@@ -1333,8 +1333,11 @@ function shellCarries(
       : { kind: "read", runner: shell, text };
   }
   const first = args[0];
+  // An argument the parser could not resolve (`"$FLAG"`) may be `-c`: hidden.
+  if (first !== undefined && first.includes("\u0000"))
+    return hiddenBy(shell, "dynamic-command-string");
   if (first !== undefined && !first.startsWith("-") && !first.startsWith("+"))
-    return NONE; // `bash deploy.sh`: a script file, not looked into
+    return NONE; // `bash deploy.sh`: a literal script file, not looked into
   return hiddenBy(
     shell,
     args.some((a) => /^-[a-zA-Z]*c/.test(a))
