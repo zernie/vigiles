@@ -698,6 +698,9 @@ export const experimental_stub: typeof stubOf & {
 };
 
 // @public
+export function experimental_verdict(report: EvalReport, baseline: string, arm: string, metric: string, alpha?: number): Verdict;
+
+// @public
 export function experimental_verifyPluginGuards(dir: string, opts?: VerifyPluginGuardsOptions): PluginGuardReport;
 
 // @public
@@ -731,7 +734,9 @@ export function formatCheckReport(report: CheckReport): string;
 export function formatContainment(v: ContainmentVerdict): string;
 
 // @public
-export function formatEvalReport(report: EvalReport): string;
+export function formatEvalReport(report: EvalReport, opts?: {
+    readonly baseline?: string;
+}): string;
 
 // @public
 export function formatGuardrailReport(hookCommand: string, results: readonly GuardrailResult[]): string;
@@ -918,6 +923,14 @@ export function improvement(report: EvalReport, baseline: string, arm: string, m
 export function inputTokens(opts: {
     max: number;
 }): Check<UsageTrace>;
+
+// @public
+export interface Interval {
+    readonly hi: number;
+    readonly k: number;
+    readonly lo: number;
+    readonly n: number;
+}
 
 // @public
 export type JudgeFn = (opts: {
@@ -1567,6 +1580,28 @@ export function unblockedDisasters(results: readonly GuardrailResult[]): Guardra
 
 // @public
 export function usedTool(trace: Trace, name: string | RegExp): boolean;
+
+// @public
+export type Verdict =
+/** A 0/1 metric: `better`/`worse` only when the two intervals are disjoint. */
+    {
+    readonly kind: "better" | "worse" | "no-signal";
+    readonly test: "wilson";
+    readonly arm: Interval;
+    readonly baseline: Interval;
+}
+/** Any other metric: `better`/`worse` when Welch's p-value is below α. */
+| {
+    readonly kind: "better" | "worse" | "no-signal";
+    readonly test: "welch";
+    readonly delta: number;
+    readonly pValue: number;
+}
+/** Nothing to compare: an arm has no trials, or never reported the metric. */
+| {
+    readonly kind: "unmeasured";
+    readonly why: "no-trials" | "metric-missing";
+};
 
 // @public
 export function verifyGuardrail(hookCommand: string, opts?: VerifyGuardrailOptions): GuardrailResult[];

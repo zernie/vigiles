@@ -120,7 +120,8 @@ import {
   type EvalLockOptions,
 } from "./eval-lock.js";
 import type { Check, CheckJSON } from "./check.js";
-import { welchTTest, type Comparison } from "./stats.js";
+import { experimental_verdict, welchTTest, type Comparison } from "./stats.js";
+import { describeVerdict } from "./core/evidence.js";
 import { recordCheck } from "./check-count.js";
 import { probeTrace } from "./coverage-probe.js";
 import {
@@ -2588,8 +2589,32 @@ function formatUsage(u: ArmUsage): string {
   return `  ($${u.totalCostUsd.toFixed(4)} · ${(u.meanDurationMs / 1000).toFixed(1)}s/run · ${tok} tok)`;
 }
 
-/** Format an eval report as a compact table for the console (mean ± se, pass^k). */
-export function formatEvalReport(report: EvalReport): string {
+/** One `verdict` line per arm × metric against `baseline`; none without one. */
+function verdictLines(
+  report: EvalReport,
+  baseline: string | undefined,
+): readonly string[] {
+  const base = baseline === undefined ? undefined : report.arms[baseline];
+  if (baseline === undefined || base === undefined) return [];
+  return Object.entries(report.arms)
+    .filter(([arm]) => arm !== baseline)
+    .flatMap(([arm, r]) =>
+      Object.keys(r.stats).map(
+        (metric) =>
+          `  verdict    ${arm} vs ${baseline} on ${metric}: ${describeVerdict(experimental_verdict(report, baseline, arm, metric))}`,
+      ),
+    );
+}
+
+/**
+ * Format an eval report as a compact table for the console (mean ± se, pass^k).
+ * Name the `baseline` arm to add one verdict line per other arm and metric —
+ * `BETTER` / `WORSE` / `NO SIGNAL`, the same verdict `assertSignificant` reads.
+ */
+export function formatEvalReport(
+  report: EvalReport,
+  opts: { readonly baseline?: string } = {},
+): string {
   const header =
     report.totalCostUsd > 0
       ? `${report.name} (${String(report.trials)} trials/arm) — $${report.totalCostUsd.toFixed(4)} total`
@@ -2607,9 +2632,11 @@ export function formatEvalReport(report: EvalReport): string {
         `  ⚠ ${arm}: ${String(r.unansweredStubCalls.length)} stub call(s) went unanswered — the report is not a measurement`,
       );
   }
-  if (report.env?.kind === "inherit")
-    lines.push(inheritLine(report.env.reason));
-  return lines.join("\n");
+  const inherit =
+    report.env?.kind === "inherit" ? [inheritLine(report.env.reason)] : [];
+  return [...lines, ...verdictLines(report, opts.baseline), ...inherit].join(
+    "\n",
+  );
 }
 
 // --- trigger-rate: does a skill/behaviour actually FIRE across varied prompts ---

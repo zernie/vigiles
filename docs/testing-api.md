@@ -475,12 +475,21 @@ platform.
 
 ## Significance &amp; regression gating
 
-**Significance.** `se` gives the spread; `assertSignificant` runs a Welch's t-test
-over two arms' summary stats and throws unless the arm beats the baseline at
-`alpha` (default 0.05) — the noise floor is **computed**, not hand-fed:
+**Significance.** `se` gives the spread; `assertSignificant` throws unless the
+arm beats the baseline by a margin the trials can actually show — the noise floor
+is **computed**, not hand-fed. The test depends on the metric:
+
+- **A 0/1 metric** (pass/fail, `true`/`false`): each arm gets a 95% Wilson
+  interval, and the arm wins only when the two intervals do not overlap.
+- **Any other metric**: Welch's t-test at `alpha` (default 0.05).
 
 ```ts
-import { assertSignificant, significantlyBeats, compareArms } from "vigiles";
+import {
+  assertSignificant,
+  significantlyBeats,
+  compareArms,
+  experimental_verdict,
+} from "vigiles";
 
 assertSignificant(report, {
   baseline: "vanilla",
@@ -488,14 +497,27 @@ assertSignificant(report, {
   metric: "marked",
 });
 significantlyBeats(report, "vanilla", "gated", "marked"); // bare predicate
+experimental_verdict(report, "vanilla", "gated", "marked");
+// → { kind: "better" | "worse" | "no-signal", test: "wilson", arm, baseline }
+//   or { kind, test: "welch", delta, pValue } · { kind: "unmeasured", why }
 const c = compareArms(report, "vanilla", "gated", "marked");
-// → { delta, seDelta, t, df, pValue, significant }  (reads mean/se/n, no raw rows)
+// → { delta, seDelta, t, df, pValue, significant }  (Welch only, reads mean/se/n)
 ```
 
-For 0/1 metrics this is the t approximation to the two-proportion test — close at
-eval trial counts. An insignificant gap means **raise `trials`** until the noise
-floor drops below it. `assertReliable(report, { arm, metric })` is the stricter
-bar: the metric succeeded on **every** trial (pass^k = 1).
+**Why 0/1 metrics are not t-tested.** When every trial agrees — 3 of 3 against
+0 of 3 — both arms have zero spread, and a t-test has nothing to divide by. Read
+literally that says "no noise, so any gap is real", and one trial per arm came out
+significant. Fisher's exact test puts 3/3 against 0/3 at p = 0.10. A Wilson
+interval never shrinks to a point at 0 or 1, so 3/3 still admits a true rate near
+0.44 and the verdict is `no-signal`; it takes about 10/10 against 0/10 to separate.
+`no-signal` means **raise `trials`**, not "no effect". Requiring disjoint
+intervals is stricter than a two-proportion test at the same level: a cautious
+verdict costs a re-run, an eager one costs a shipped regression.
+
+`formatEvalReport(report, { baseline: "vanilla" })` prints the same verdict, one
+line per other arm and metric. `improvement` throws when an arm never reported the
+metric, instead of reading it as 0. `assertReliable(report, { arm, metric })` is the
+stricter bar: the metric succeeded on **every** trial (pass^k = 1).
 
 **Regression gating** compares one run against a **committed baseline** — "jest
 snapshots for agent behaviour, with a real noise floor":

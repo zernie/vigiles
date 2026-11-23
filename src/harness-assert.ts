@@ -35,7 +35,8 @@ import {
   parseAgentResult,
   type ParsedAgentResult,
 } from "./adapters/claude-code/agent-result.js";
-import { compareArms } from "./stats.js";
+import { experimental_verdict } from "./stats.js";
+import { describeVerdict } from "./core/evidence.js";
 import {
   diffReports,
   type BaselineFile,
@@ -45,7 +46,8 @@ import {
 // Re-export the significance primitives so the whole eval-analysis surface lives
 // re-exported from the `vigiles` root (there is no `vigiles/harness-assert` entry
 // point — it was advertised in this very comment and never existed).
-export { compareArms } from "./stats.js";
+export { compareArms, experimental_verdict } from "./stats.js";
+export type { Verdict, Interval } from "./core/evidence.js";
 export type { Comparison } from "./stats.js";
 export {
   diffReports,
@@ -832,23 +834,29 @@ export function assertReliable(
   }
 }
 
-/** The gap on `metric` between two arms (arm − baseline). */
+/**
+ * The gap on `metric` between two arms (arm − baseline). Throws when either arm
+ * never reported the metric: an unmeasured arm is not an arm that scored 0.
+ */
 export function improvement(
   report: EvalReport,
   baseline: string,
   arm: string,
   metric: string,
 ): number {
-  const a = report.arms[arm]?.metrics[metric] ?? 0;
-  const b = report.arms[baseline]?.metrics[metric] ?? 0;
+  const a = report.arms[arm]?.metrics[metric];
+  const b = report.arms[baseline]?.metrics[metric];
+  if (a === undefined || b === undefined) {
+    fail(`no data to compare ${arm} vs ${baseline} on ${metric}`);
+  }
   return a - b;
 }
 
 /**
- * Did `arm` *significantly* beat `baseline` on `metric` — a positive gap whose
- * two-sided Welch t-test p-value is below `alpha` (default 0.05)? The grounded
- * upgrade over `improvement`: the noise floor is computed from the arms' spread,
- * not hand-fed. False when either arm/metric is missing. See `src/stats.ts`.
+ * Did `arm` *significantly* beat `baseline` on `metric`? True only when the
+ * verdict is `better`: disjoint Wilson intervals for a 0/1 metric, Welch's
+ * t-test at `alpha` (default 0.05) for any other. False when either arm/metric
+ * is missing. See `experimental_verdict` in `src/stats.ts`.
  */
 // eslint-disable-next-line max-params -- positional predicate mirrors `improvement` + alpha
 export function significantlyBeats(
@@ -858,36 +866,38 @@ export function significantlyBeats(
   metric: string,
   alpha = 0.05,
 ): boolean {
-  const c = compareArms(report, baseline, arm, metric, alpha);
-  return c !== null && c.delta > 0 && c.significant;
+  return (
+    experimental_verdict(report, baseline, arm, metric, alpha).kind === "better"
+  );
 }
 
 /**
- * Assert `arm` significantly beats `baseline` on `metric` (positive gap, p < α).
- * The statistical gate for a non-deterministic A/B — "the gap clears the noise",
- * with the noise floor computed, not supplied. The honest version of
+ * Assert `arm` significantly beats `baseline` on `metric`: the verdict must be
+ * `better`. A 0/1 metric needs disjoint Wilson intervals (3/3 against 0/3 is
+ * not enough — raise `trials`); any other metric a Welch gap at `alpha`. The
+ * noise floor is computed, not supplied — the honest version of
  * `assertImproves(..., { by: se })`.
  */
 export function assertSignificant(
   report: EvalReport,
   opts: { baseline: string; arm: string; metric: string; alpha?: number },
 ): void {
-  const c = compareArms(
+  const alpha = opts.alpha ?? 0.05;
+  const v = experimental_verdict(
     report,
     opts.baseline,
     opts.arm,
     opts.metric,
-    opts.alpha,
+    alpha,
   );
-  if (c === null) {
+  if (v.kind === "unmeasured") {
     fail(
       `no data to compare ${opts.arm} vs ${opts.baseline} on ${opts.metric}`,
     );
   }
-  const alpha = opts.alpha ?? 0.05;
-  if (!(c.delta > 0 && c.significant)) {
+  if (v.kind !== "better") {
     fail(
-      `expected ${opts.arm} to significantly beat ${opts.baseline} on ${opts.metric} (α=${String(alpha)}); Δ=${c.delta.toFixed(3)}, p=${c.pValue.toFixed(3)}`,
+      `expected ${opts.arm} to significantly beat ${opts.baseline} on ${opts.metric} (α=${String(alpha)}); ${describeVerdict(v)}`,
     );
   }
 }
@@ -895,7 +905,8 @@ export function assertSignificant(
 /**
  * Assert `arm` beats `baseline` on `metric`. By default just a positive gap > `by`
  * (pass the combined se to clear the noise floor by hand). Pass `{ significant:
- * true }` to demand a Welch t-test at `alpha` instead — the computed noise floor.
+ * true }` to demand the `assertSignificant` verdict instead — the computed noise
+ * floor.
  */
 export function assertImproves(
   report: EvalReport,

@@ -66,7 +66,7 @@ import {
   tools,
 } from "./core/hook-program.js";
 import type { Check } from "./check.js";
-import type { EvalReport } from "./eval.js";
+import { aggregateStats, type EvalReport } from "./eval.js";
 import type { HarnessTestResult, HookFire } from "./harness-test.js";
 import type { HookRunResult } from "./run-hook.js";
 
@@ -151,6 +151,58 @@ function fakeResult(
 test("improvement returns the arm − baseline gap", () => {
   assert.equal(improvement(report, "vanilla", "gated", "caught"), 0.5);
   assert.equal(improvement(report, "gated", "vanilla", "caught"), -0.5);
+});
+
+test("improvement throws on a metric an arm never reported, never reads it as 0", () => {
+  assert.throws(
+    () => improvement(report, "vanilla", "gated", "missing"),
+    /no data to compare/,
+  );
+  assert.throws(
+    () => improvement(report, "nobody", "gated", "caught"),
+    /no data to compare/,
+  );
+});
+
+/** A two-arm report whose 0/1 metric `pass` went `k` of `n` per arm. */
+function passReport(kArm: number, kBase: number, n: number): EvalReport {
+  const arm = (k: number) => {
+    const stats = aggregateStats(
+      Array.from({ length: n }, (_, i) => ({ pass: i < k })),
+    );
+    return {
+      runs: n,
+      metrics: { pass: k / n },
+      stats,
+      ...NO_MISSES,
+    };
+  };
+  return {
+    name: "p10",
+    trials: n,
+    totalCostUsd: 0,
+    aborted: false,
+    arms: { base: arm(kBase), skill: arm(kArm) },
+  };
+}
+
+// vigiles#416 point 3: every trial agreeing gave both arms se = 0, and the
+// t-test read it as p = 0 — 1/1 against 0/1 passed assertSignificant.
+test("assertSignificant on a 0/1 metric needs disjoint Wilson intervals (P10)", () => {
+  const sig = (r: EvalReport) => () => {
+    assertSignificant(r, { baseline: "base", arm: "skill", metric: "pass" });
+  };
+  assert.throws(sig(passReport(1, 0, 1)), /NO SIGNAL/);
+  assert.throws(sig(passReport(3, 0, 3)), /NO SIGNAL/);
+  assert.doesNotThrow(sig(passReport(10, 0, 10)));
+  assert.equal(
+    significantlyBeats(passReport(3, 0, 3), "base", "skill", "pass"),
+    false,
+  );
+  assert.equal(
+    significantlyBeats(passReport(10, 0, 10), "base", "skill", "pass"),
+    true,
+  );
 });
 
 test("assertImproves passes on a positive gap and throws otherwise", () => {

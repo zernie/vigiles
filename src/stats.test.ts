@@ -11,8 +11,11 @@ import {
   tPValueTwoSided,
   welchTTest,
   compareArms,
+  bernoulliCount,
+  verdictOf,
+  experimental_verdict,
 } from "./stats.js";
-import type { EvalReport, MetricStat } from "./eval.js";
+import { aggregateStats, type EvalReport, type MetricStat } from "./eval.js";
 
 const close = (a: number, b: number, tol = 1e-3): boolean =>
   Math.abs(a - b) < tol;
@@ -50,6 +53,16 @@ test("welchTTest: clearly-significant vs clearly-noise gaps", () => {
     { mean: 0.4, se: 0.2, n: 5 },
   );
   assert.ok(!noise.significant && noise.pValue > 0.1);
+});
+
+test("welchTTest: one trial on a side is never significant", () => {
+  const one = welchTTest({ mean: 1, se: 0, n: 1 }, { mean: 0, se: 0, n: 1 });
+  assert.ok(!one.significant && one.pValue === 1);
+  const lopsided = welchTTest(
+    { mean: 5, se: 0, n: 1 },
+    { mean: 1, se: 0.1, n: 9 },
+  );
+  assert.ok(!lopsided.significant);
 });
 
 test("welchTTest: deterministic arms (se = 0) decide by exact difference", () => {
@@ -109,4 +122,100 @@ test("compareArms reads arm stats from a report, or null if absent", () => {
   assert.ok(c && c.delta > 0 && c.significant);
   assert.equal(compareArms(report, "base", "arm", "missing"), null); // metric absent
   assert.equal(compareArms(report, "nope", "arm", "caught"), null); // arm absent
+});
+
+/** An arm's stats as `runEval` builds them, from per-trial 0/1 rows. */
+const binary = (k: number, n: number): MetricStat => {
+  const rows = Array.from({ length: n }, (_, i) => ({ pass: i < k }));
+  const stat = aggregateStats(rows).pass;
+  if (stat === undefined) throw new Error("no stat");
+  return stat;
+};
+
+const reportOf = (arms: Record<string, MetricStat>): EvalReport => ({
+  name: "verdict",
+  trials: 0,
+  totalCostUsd: 0,
+  aborted: false,
+  arms: Object.fromEntries(
+    Object.entries(arms).map(([name, stat]) => [
+      name,
+      {
+        runs: stat.n,
+        metrics: { pass: stat.mean },
+        stats: { pass: stat },
+        usage: {
+          totalCostUsd: 0,
+          meanCostUsd: 0,
+          meanDurationMs: 0,
+          totalInputTokens: 0,
+          totalOutputTokens: 0,
+          totalCacheCreationTokens: 0,
+          totalCacheReadTokens: 0,
+        },
+        unansweredStubCalls: [],
+      },
+    ]),
+  ),
+});
+
+test("bernoulliCount: a 0/1 metric is recognized from its summary alone", () => {
+  assert.equal(bernoulliCount(binary(3, 3)), 3);
+  assert.equal(bernoulliCount(binary(0, 3)), 0);
+  assert.equal(bernoulliCount(binary(7, 12)), 7);
+  assert.equal(bernoulliCount(binary(1, 1)), 1);
+  // continuous values in [0, 1] fall short of the Bernoulli spread
+  const graded = aggregateStats([{ s: 0.5 }, { s: 0.5 }, { s: 1 }]).s;
+  assert.ok(graded !== undefined && bernoulliCount(graded) === null);
+  // counts outside [0, 1]
+  const counts = aggregateStats([{ c: 2 }, { c: 4 }]).c;
+  assert.ok(counts !== undefined && bernoulliCount(counts) === null);
+  assert.equal(
+    bernoulliCount({ mean: 0, std: 0, se: 0, n: 0, passK: 0 }),
+    null,
+  );
+});
+
+// vigiles#416: on a 0/1 metric every trial agreeing gave se = 0 on both arms,
+// and the t-test read that as p = 0 — "significant" on a single trial.
+test("verdictOf: a 0/1 metric is judged by Wilson, not by se = 0", () => {
+  assert.equal(verdictOf(binary(1, 1), binary(0, 1)).kind, "no-signal");
+  assert.equal(verdictOf(binary(3, 3), binary(0, 3)).kind, "no-signal");
+  const v = verdictOf(binary(10, 10), binary(0, 10));
+  assert.ok(v.kind === "better" && v.test === "wilson");
+  assert.equal(verdictOf(binary(0, 10), binary(10, 10)).kind, "worse");
+  assert.deepEqual(
+    verdictOf({ mean: 0, std: 0, se: 0, n: 0, passK: 0 }, binary(1, 1)),
+    { kind: "unmeasured", why: "no-trials" },
+  );
+});
+
+test("verdictOf: any other metric is judged by Welch", () => {
+  const tight = (mean: number): MetricStat => ({
+    mean,
+    se: 0.05,
+    std: 0.05 * Math.sqrt(20),
+    n: 20,
+    passK: 0,
+  });
+  const v = verdictOf(tight(3.6), tight(3.1));
+  assert.ok(v.kind === "better" && v.test === "welch" && v.pValue < 0.01);
+  assert.equal(verdictOf(tight(3.1), tight(3.6)).kind, "worse");
+  assert.equal(verdictOf(tight(3.1), tight(3.11)).kind, "no-signal");
+});
+
+test("experimental_verdict reads the report, unmeasured when a metric is absent", () => {
+  const report = reportOf({ base: binary(0, 3), skill: binary(3, 3) });
+  assert.equal(
+    experimental_verdict(report, "base", "skill", "pass").kind,
+    "no-signal",
+  );
+  assert.deepEqual(experimental_verdict(report, "base", "skill", "nope"), {
+    kind: "unmeasured",
+    why: "metric-missing",
+  });
+  assert.equal(
+    experimental_verdict(report, "gone", "skill", "pass").kind,
+    "unmeasured",
+  );
 });
