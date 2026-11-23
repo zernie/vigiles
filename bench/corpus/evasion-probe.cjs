@@ -119,7 +119,7 @@ for (const [id, [seed, vars]] of Object.entries(VARIANTS)) {
     ];
     const row = [];
     for (const [name, cmd] of Object.entries(guards)) {
-      const [r] = verifyGuardrail(cmd, { events, cwd: ROOT });
+      const [r] = verifyGuardrail(cmd, { events, cwd: ROOT, harmless: [] });
       row.push(`${name}:${r.blocked ? "BLOCK" : "allow"}`);
     }
     console.log(`  ${sameOp(seed, v) ? "≡" : "≠"} ${row.join("  ")}   ${v}`);

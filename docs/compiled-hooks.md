@@ -708,7 +708,7 @@ Runnable end to end: [`examples/harness/compiled-hook-inprocess.harness.mjs`](..
 
 `runHookProgram(hook, event)` is the underlying primitive — it returns a normalized outcome (`{ kind: "decision" | "injection" | "reaction", … }`) dispatched by role, so an inject or react hook is just as testable as a gate.
 
-**2. Through the real runtime.** `runHook("node … hook-runtime run-program guard.hook.mjs", event)` drives the actual compiled CLI (stamp check + dispatch) — proves the wired artifact behaves, still no model. Pair it with the disaster battery: `assertBlocksDisasters("node … hook-runtime run-program guard.mjs")` proves the gate blocks every textbook disaster.
+**2. Through the real runtime.** `runHook("node … hook-runtime run-program guard.hook.mjs", event)` drives the actual compiled CLI (stamp check + dispatch) — proves the wired artifact behaves, still no model. Pair it with the disaster battery: `assertGuardrail(hook)` with the loaded hook object checks the gate exactly — `decide()` per case, no process — that it blocks every textbook disaster and lets the same text through as data; `assertGuardrail("node … hook-runtime run-program guard.mjs")` runs the same cases through the wired runtime.
 
 **3. Does it fire in the assembled harness?** `runHarnessTest` (a scripted mock model emits the tool call; assert the hook blocked) — the delivery question, key-free, and capped by [how the harness delivers events to hooks](#limitations--trade-offs-the-cons).
 
@@ -754,11 +754,11 @@ It returns **only the rewrites**, never the originals — so spread both into th
 import {
   DISASTER_CATALOG,
   experimental_alternateSpellings,
-  assertBlocksDisasters,
+  assertGuardrail,
 } from "vigiles";
 
 const guard = "node … hook-runtime run-program guard.hook.mjs";
-assertBlocksDisasters(guard, {
+assertGuardrail(guard, {
   events: [
     ...DISASTER_CATALOG,
     ...experimental_alternateSpellings(DISASTER_CATALOG),
@@ -793,7 +793,22 @@ If a rewrite fails the second check, the generator throws instead of quietly dro
 
 **What it deliberately does not generate.** `eval "$(…)"`, `sh -c "$X"`, a command name held in a variable (`$CMD push --force`), a command decoded from base64. The parser cannot tell what those will run, so they are never emitted. That is on purpose: a guard built on `runs()` genuinely cannot see through `eval "$(echo … | base64 -d)"` either — the gate [asks on it](#the-vocabulary) rather than allowing it, and an ask is not a block. Emitting such cases would mark a correct guard as broken, and a check that flags correct guards gets switched off. A _literal_ `sh -c '…'` or `eval '…'` is a different case: the gate reads it, but the generator does not emit it yet, because its "same command" check compares one level of the command line.
 
-⚠️ **Also check that ordinary commands still pass.** This measures blocking only, so a guard that denies everything scores 100%. Run a few everyday commands (`git push origin main`, `git commit -m fix`, `cat README.md`) through `verifyGuardrail` and assert none is blocked. The dogfood test does both halves.
+### The other direction — harmless look-alikes
+
+A guard that denies everything would score 100% on blocking alone, so `assertGuardrail` also checks the other way, by default. For each disaster it adds four harmless look-alikes that carry the same text as **data**, and the guard must allow each one:
+
+```text
+git commit -m 'docs: never run git push --force origin main'   # commit message
+cat > NOTES.md <<'EOF' … git push --force origin main … EOF    # heredoc body
+echo 'git push --force origin main'                            # echo argument
+grep -rn 'git push --force origin main' docs/                  # grep pattern
+```
+
+This is the over-blocking a real harness measured (#418): hooks denied 7.5% of 20,790 Bash calls, mostly because a hook matched the raw text and the text was data. Each false block costs the agent a turn, and it retries in another form. A guard on `runs()` allows all four; a guard that greps the input blocks them.
+
+Like the re-spellings, nothing new is judged: each look-alike is checked with the same parser — it must parse, and none of its commands may perform an operation of the disaster it mirrors. A template that fails that check makes the generator throw. `experimental_harmlessTwins(events)` returns them; `harmless: []` turns them off; `harmless: [...]` replaces them with your own cases.
+
+What it proves is narrow: the guard does not block a **mention**. It does not prove the guard allows every harmless command. A policy that legitimately bans the carrier (every `git commit`) fails that form — replace the set. And the shipped guard above fails three of them: its secret rule is `touches(["~/.ssh", …])`, which matches any mention of the path by design (a denylist that errs toward blocking), so it also blocks `echo 'cat ~/.ssh/id_rsa'`. Its dogfood tests leave those three out and say why.
 
 Beyond the headline number, the **structural** wins over hand-written guards are each isolated in their own CI test ([`src/hook-oss-comparison.test.ts`](../src/hook-oss-comparison.test.ts)), so the headline is not the only evidence:
 
@@ -900,7 +915,7 @@ unrepresentable.
 
 ## See also
 
-- [Testing your harness](harness-testing.md) — the test tiers; `runHook` unit-tests a hook's decision, and `assertBlocksDisasters` proves a guardrail blocks.
+- [Testing your harness](harness-testing.md) — the test tiers; `runHook` unit-tests a hook's decision, and `assertGuardrail` proves a guardrail blocks every disaster and allows its harmless look-alikes.
 - [Verifying your instruction files](verifying-instruction-files.md) — the linting layer (references are _true_); compiled hooks are the **gate** instrument beside it.
 - [CLI & GitHub Action](cli.md) — `compile` / `hook-runtime` reference.
 - [API reference (generated)](https://zernie.github.io/vigiles/api/) — every `vigiles/hook` symbol (`experimental_defineHook`, `provide`/`dangerously`/`defineProvider`, the `Decision`/`Reaction` types, …).

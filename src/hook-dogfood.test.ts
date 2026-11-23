@@ -22,12 +22,21 @@ import {
   DISASTER_CATALOG,
   verifyGuardrail,
   unblockedDisasters,
-  assertBlocksDisasters,
+  assertGuardrail,
+  experimental_harmlessTwins,
   experimental_alternateSpellings,
   type DisasterEvent,
   type DisasterCategory,
 } from "./guardrail-check.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+
+// The shipped guard's secret rule is `touches(["~/.ssh", …])`, a MENTION
+// matcher by design (an over-inclusive denylist), so it also blocks
+// `echo 'cat ~/.ssh/id_rsa'`. Its look-alikes are left out; every other one
+// must pass.
+const SAFE_GUARD_HARMLESS = experimental_harmlessTwins(DISASTER_CATALOG).filter(
+  (t) => t.of !== "read-ssh-key",
+);
 
 const REPO_ROOT = resolve(__dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
@@ -81,12 +90,10 @@ test("a hand-written substring guard has the documented blind spots (the bug cla
 test("the COMPILED hook blocks all 7 disasters by construction (closes the gaps)", () => {
   // cwd = repo root so the example's `../../dist/hook.js` import resolves.
   // No throw ⇒ every disaster in the battery is denied (exit 2).
-  assertBlocksDisasters(
-    `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
-    {
-      cwd: REPO_ROOT,
-    },
-  );
+  assertGuardrail(`node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`, {
+    cwd: REPO_ROOT,
+    harmless: SAFE_GUARD_HARMLESS,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -127,7 +134,7 @@ test("a guard that halts the turn is credited with blocking (#174)", () => {
     writeFileSync(guard, HALTING_GUARD);
     chmodSync(guard, 0o755);
 
-    const results = verifyGuardrail(`bash ${guard}`);
+    const results = verifyGuardrail(`bash ${guard}`, { harmless: [] });
     const missed = unblockedDisasters(results).map((m) => m.event.id);
 
     assert.deepEqual(
@@ -142,7 +149,7 @@ test("a guard that halts the turn is credited with blocking (#174)", () => {
     );
     // The gate itself must now pass on it.
     assert.doesNotThrow(() => {
-      assertBlocksDisasters(`bash ${guard}`);
+      assertGuardrail(`bash ${guard}`, { harmless: [] });
     });
   } finally {
     cleanupTmpDir(dir);
@@ -161,7 +168,7 @@ test("a guard that only says continue:true still fails the battery", () => {
 
     assert.throws(
       () => {
-        assertBlocksDisasters(`bash ${guard}`);
+        assertGuardrail(`bash ${guard}`);
       },
       /did NOT block/,
       "a permissive guard must still be reported as false confidence",
@@ -205,6 +212,7 @@ test("every shell-equivalent rewrite of the battery is still blocked", () => {
     verifyGuardrail(`node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`, {
       cwd: REPO_ROOT,
       events,
+      harmless: [],
     }),
   ).map((m) => String(m.event.input["command"]));
   assert.deepEqual(
@@ -234,6 +242,7 @@ test("g\\it push --force is blocked (a spelling the battery could not have found
           input: { command: "g\\it push --force origin main" },
         },
       ],
+      harmless: [],
     }),
   );
   assert.deepEqual(missed, []);
@@ -258,7 +267,7 @@ test("the guard did not become a blunt blocker", () => {
   }));
   const blocked = verifyGuardrail(
     `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
-    { cwd: REPO_ROOT, events: benign },
+    { cwd: REPO_ROOT, events: benign, harmless: [] },
   )
     .filter((r) => r.blocked)
     .map((r) => r.event.label);

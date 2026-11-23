@@ -2852,11 +2852,6 @@
       "count": 1
     }
   },
-  "src/guardrail-check.ts": {
-    "functional/prefer-immutable-types": {
-      "count": 2
-    }
-  },
   "src/harness-assert.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 3

@@ -66,6 +66,19 @@ export function sameOperation(seed: string, variant: string): boolean {
   return a.every((leaf) => keys.has(operationKey(leaf)));
 }
 
+/**
+ * Does `other` perform ANY operation `seed` performs? Stricter than
+ * {@link sameOperation}, which asks for all of them: a harmless look-alike
+ * (`bash-lookalikes.ts`) must run none of its seed, so one shared leaf of a
+ * compound seed is enough to disqualify it.
+ */
+export function sharesOperation(seed: string, other: string): boolean {
+  const keys = new Set(leafCommandsNormalized(seed).map(operationKey));
+  return leafCommandsNormalized(other).some((leaf) =>
+    keys.has(operationKey(leaf)),
+  );
+}
+
 /** Wrappers that pass a command through unchanged, one representative form each. */
 const WRAPPER_PREFIXES: readonly string[] = [...WRAPPER_HEADS]
   .filter((w) => w !== "xargs" && w !== "nohup")

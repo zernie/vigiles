@@ -543,7 +543,7 @@ capability check over a unit's declared tool-set. (The **executing** "do your
 hooks actually block?" disaster-battery is NOT a ring: running arbitrary hooks
 safely needs cross-platform confinement that isn't shipped yet — so it lives in
 the [`vigiles` testing API](harness-testing.md) via `guardrail-check` /
-`assertBlocksDisasters`, where you opt in explicitly.)
+`assertGuardrail`, where you opt in explicitly.)
 
 **Tested and Evaluated are two rings, not one number.** A harness
 (`*.harness.*`) is free, runs in milliseconds on every push, and
@@ -624,7 +624,7 @@ they actually **block** (the #1 verified hook pain: a guard that _looks_ like it
 blocks and silently doesn't). Because running arbitrary hooks safely needs
 cross-platform confinement that isn't shipped yet, it's **not** part of the
 zero-config report; you run it where you opt in explicitly — `guardrail-check` /
-`assertBlocksDisasters` from `vigiles`, or via the `test-harness` skill.
+`assertGuardrail` from `vigiles`, or via the `test-harness` skill.
 
 Each deterministic finding carries its **fix inline** under the report — the
 cross-reference cause + a one-line correction (`FIX` a dead-end, `DIFFERENTIATE` a
@@ -1140,7 +1140,7 @@ then verifies every reference deterministically. Claude Code only in v1; never w
 anything to the repo. Runs on your subscription ($0 metered).
 ⁵ The safety battery (run your hooks against the disaster catalog) is **not** an
 `audit` check — it needs cross-platform confinement that isn't shipped, so it lives
-in the `vigiles` testing API (`guardrail-check`/`assertBlocksDisasters`).
+in the `vigiles` testing API (`guardrail-check`/`assertGuardrail`).
 
 **Where each runs:**
 

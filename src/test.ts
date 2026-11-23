@@ -201,19 +201,27 @@ export type {
   JudgeFn,
 } from "./check.js";
 
-// Guardrail verification — "prove your safety hook actually blocks" (over runHook).
+// Guardrail verification — "prove your guard blocks every disaster and lets the
+// same text through as data" (a compiled hook in-process, a command string over runHook).
 export {
   DISASTER_CATALOG,
   verifyGuardrail,
   unblockedDisasters,
+  assertGuardrail,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the alias stays exported for one major
   assertBlocksDisasters,
   formatGuardrailReport,
   experimental_alternateSpellings,
+  experimental_harmlessTwins,
 } from "./guardrail-check.js";
 export type {
   DisasterEvent,
   DisasterCategory,
   GuardrailResult,
+  GuardrailRow,
+  GuardrailRun,
+  HarmlessEvent,
+  HarmlessForm,
   VerifyGuardrailOptions,
 } from "./guardrail-check.js";
 
