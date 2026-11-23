@@ -2660,7 +2660,7 @@ async function runResolvedEval<M extends Metrics>(
   // Why no NEW trial starts: the budget cap, or a stub call nobody scripted —
   // the report will be refused, so later trials would only spend. In-flight
   // trials finish either way.
-  // TODO: with `concurrency` > 1 every in-flight trial gets the same remaining
+  // TODO(#478): with `concurrency` > 1 every in-flight trial gets the same remaining
   // budget as its cap, so together they can pass the ceiling by up to
   // `concurrency` caps. Reserving each cap at start would hold the line but
   // serialize the pool behind the first trial; needs its own design.
