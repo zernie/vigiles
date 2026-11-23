@@ -106,6 +106,33 @@ describe("every RUNNERS row is parsed or opaque, never silent", () => {
   });
 });
 
+/** An exec site the runner handed on: it must not exist past an undeclared option. */
+const cameThrough = (s: ExecSite, head: string): boolean =>
+  s.kind === "exec" && s.via.some((c) => c.head === head);
+
+/** `cmd` with `token` inserted right after the row's head, before its command. */
+const withOption = (cmd: string, head: string, token: string): string => {
+  const at = cmd.indexOf(`${head} `);
+  return `${cmd.slice(0, at + head.length)} ${token}${cmd.slice(at + head.length)}`;
+};
+
+describe("an option a row does not declare is unseen, never a guessed argv", () => {
+  test.each([...RUNNERS.entries()])("%s --zz-unknown", (head, row) => {
+    const cmd = withOption(INSTANCES[head] ?? "", head, "--zz-unknown");
+    const sites = execSites(cmd);
+    const named = sites.filter((s) => s.kind === "unseen" && s.head === head);
+    assert.ok(named.length > 0, `${cmd}: ${JSON.stringify(sites)}`);
+    if (OPAQUE.has(row.mode)) return;
+    assert.ok(
+      named.some(
+        (s) => s.kind === "unseen" && s.reason.kind === "runner-options",
+      ),
+      cmd,
+    );
+    assert.ok(!sites.some((s) => cameThrough(s, head)), cmd);
+  });
+});
+
 describe("decodeAnsiC: what bash hands the program for $'…'", () => {
   const codes = Array.from({ length: 128 }, (_, i) => i);
 

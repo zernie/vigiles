@@ -29,7 +29,7 @@ import {
   carriesOf,
   decodeAnsiC,
   shellWord,
-  splitOption,
+  walkWrappers,
   type Carrier,
   type Carry,
   type ShellWord,
@@ -1161,8 +1161,8 @@ function sitesOfCall(
   const leaf = normalizeArgs(args, assigns, redirs, env.positional);
   if (leaf === null) return [unseenSite({ kind: "dynamic-head" }, null, env)];
   const words = args.map((w) => wordTemplate(w.Parts, env, "plain"));
-  const drop = wrapperDrop(words);
-  const cmd = words.slice(drop);
+  const walk = walkWrappers(words);
+  const cmd = words.slice(walk.at);
   const head = cmd[0] ? shellWord(cmd[0]) : undefined;
   const own: ExecSite = {
     kind: "exec",
@@ -1174,14 +1174,18 @@ function sitesOfCall(
   };
   if (head?.kind !== "text")
     return [own, unseenSite({ kind: "dynamic-head" }, null, env)];
-  const stdin = stdinFeed(redirs, env);
-  const carries = carriesOf({
-    head: normalizeHead(head.text),
-    words: cmd,
-    stdin,
-  });
-  const rest = args.slice(drop);
-  return [own, ...carries.flatMap((c) => follow(c, rest, redirs, env))];
+  const name = normalizeHead(head.text);
+  if (walk.kind === "unknown") {
+    const reason = {
+      kind: "runner-options",
+      runner: name,
+      token: walk.token,
+    } as const;
+    return [own, unseenSite(reason, name, env)];
+  }
+  const call = { head: name, words: cmd, stdin: stdinFeed(redirs, env) };
+  const rest = args.slice(walk.at);
+  return [own, ...carriesOf(call).flatMap((c) => follow(c, rest, redirs, env))];
 }
 
 /** Follow one carry: a nested argv, a nested string, or the reason it cannot be read. */
@@ -1235,18 +1239,6 @@ const byteLength = (s: string): number =>
   s.length * 3 <= MAX_NESTED_BYTES
     ? s.length
     : new TextEncoder().encode(s).length;
-
-/** How many leading words are wrappers `stripWrappers` resolves through. */
-function wrapperDrop(words: readonly TemplateWord[]): number {
-  const probe = words.map((w) => (w.holes > 0 ? "\u0000" : w.template));
-  const [head = ""] = probe;
-  const stripped = stripWrappers([normalizeHead(head), ...probe.slice(1)]);
-  const drop = probe.length - stripped.argv.length;
-  // `env -S STR` hands its command over in STR: resolving past it would make
-  // an operand the head, so the descent stops at that `env`.
-  const split = words.findIndex((_w, i) => i < drop && splitOption(words, i));
-  return split < 0 ? drop : split;
-}
 
 /** Which quoting rules a run of literal text is under. */
 type QuoteMode = "plain" | "dq" | "heredoc";

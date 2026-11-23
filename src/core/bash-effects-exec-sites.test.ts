@@ -173,6 +173,26 @@ describe("env -S splits its string into arguments, not shell code", () => {
   });
 });
 
+describe("a runner's argv is read by its own option grammar", () => {
+  test("env -S: an unquoted \\_ separates arguments", () => {
+    assert.ok(pushes(String.raw`env -S 'git\_push\_-f'`));
+  });
+
+  test("taskset/chrt: the required operand still comes after --", () => {
+    assert.ok(pushes("taskset -c -- 0 git push -f"));
+    assert.ok(pushes("chrt -b -- 0 git push -f"));
+  });
+
+  test("watch -x runs its argv directly, not through sh -c", () => {
+    const sites = execSites(`watch -x echo 'harmless; git push -f'`);
+    assert.ok(!sites.some(forcePush));
+    const echo = sites.find((s) => s.kind === "exec" && s.leaf.head === "echo");
+    assert.deepEqual(echo?.kind === "exec" ? echo.leaf.args : null, [
+      "harmless; git push -f",
+    ]);
+  });
+});
+
 describe("stdin is followed in source order", () => {
   test("a later <&N replaces the here-string: unseen, not the earlier body", () => {
     const cmd = `bash <<< ':' 3<<< 'git push -f' <&3`;
