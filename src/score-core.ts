@@ -62,6 +62,37 @@ export const W_TRIFECTA_MAX = 30;
  */
 export const TRIFECTA_LABEL =
   'unit(s) can read data, reach the web, and run commands — the "lethal trifecta", so a prompt injection could exfiltrate secrets';
+/**
+ * The label for the units that hold the trifecta only by INHERITING the session
+ * (`cause: "session"`, #392) — one cause, so one deduction however many units
+ * inherit it. Shared by the overall deduction and the Safety ring.
+ */
+/** How many unit names a one-line summary spells out before it says "+N more". */
+const SUMMARY_NAMES = 5;
+
+/**
+ * The ONE line for every `cause: "session"` trifecta finding (#392) — shared by
+ * the audit report and the Safety ring so the two cannot drift. It names the
+ * cause (the session's tools) once instead of repeating it per unit, and the
+ * edit that closes it per unit. A settings-level deny would close it too, but
+ * the check does not read settings, so the line offers no remedy it cannot see.
+ */
+// TODO(#461): interim — replace with per-unit legs from the session baseline
+export function sessionTrifectaSummary(names: readonly string[]): string {
+  const rest = names.length - SUMMARY_NAMES;
+  const listed =
+    names.slice(0, SUMMARY_NAMES).join(", ") +
+    (rest > 0 ? ` +${String(rest)} more` : "");
+  return (
+    `Lethal trifecta: ${String(names.length)} unit(s) inherit the session's tools, and the ` +
+    "session can read files, reach the web and run commands — one cause, counted once. " +
+    "One `disallowed-tools:` line per skill (a `tools:` line per subagent) that drops a " +
+    `leg closes it: ${listed}.`
+  );
+}
+
+export const SESSION_TRIFECTA_LABEL =
+  'unit(s) inherit the session\'s tools, which can read files, reach the web and run commands — the "lethal trifecta", one cause, charged once';
 
 /**
  * The unresolved-instruction-import deduction — ONE row, which the overall and
@@ -198,12 +229,49 @@ export interface Deduction {
 
 /** The graded lethal-trifecta exposure of a report. */
 export interface TrifectaExposure {
-  /** Units holding all three legs — EXPLICIT (`hard`) and INHERITED alike. */
+  /** Units whose OWN file adds a leg (`cause: "unit"`), charged per unit. */
   readonly exposed: number;
+  /** Units that hold only what the session hands them (`cause: "session"` or `"fence"`), charged once. */
+  readonly inherited: number;
   /** Model-invocable units that could hold them (subagents + non-user-invoked skills). */
   readonly assessable: number;
-  /** The graded penalty, `min(W_TRIFECTA × exposed, W_TRIFECTA_MAX × exposed/assessable)`. */
+  /** The units' row: `min(W_TRIFECTA × exposed, W_TRIFECTA_MAX × exposed/assessable)`, rounded, within `penalty`. */
+  readonly unitPenalty: number;
+  /** The session's row: `penalty − unitPenalty` (its share is `min(W_TRIFECTA, W_TRIFECTA_MAX × inherited/assessable)`). */
+  readonly sessionPenalty: number;
+  /** The graded total: both shares summed, capped at `W_TRIFECTA_MAX`, rounded once. See {@link trifectaPenalty}. */
   readonly penalty: number;
+}
+
+/**
+ * The trifecta penalty, rounded once on the total.
+ *
+ * `exposed` units add a leg in their own file and are charged per unit;
+ * `inherited` units hold only the session's legs and are charged once, at most
+ * `W_TRIFECTA`. Each share is capped against `assessable`. The shares are summed
+ * BEFORE rounding: rounding each one let a safer move cost a point (12 units:
+ * 2 + 2 → 10, but 1 + 3 → 11).
+ */
+export function trifectaPenalty(
+  exposed: number,
+  inherited: number,
+  assessable: number,
+): Pick<TrifectaExposure, "unitPenalty" | "sessionPenalty" | "penalty"> {
+  const findings = exposed + inherited;
+  if (findings === 0) return { unitPenalty: 0, sessionPenalty: 0, penalty: 0 };
+  const share = (n: number): number =>
+    (W_TRIFECTA_MAX * n) / Math.max(assessable, findings);
+  const unitShare = Math.min(W_TRIFECTA * exposed, share(exposed));
+  const sessionShare = Math.min(W_TRIFECTA, share(inherited));
+  // a report with a finding is never charged a free 0
+  const penalty = Math.max(
+    1,
+    Math.round(Math.min(W_TRIFECTA_MAX, unitShare + sessionShare)),
+  );
+  // the two rows split the total; with no inherited units it is all the units'
+  const unitPenalty =
+    inherited === 0 ? penalty : Math.min(penalty, Math.round(unitShare));
+  return { unitPenalty, sessionPenalty: penalty - unitPenalty, penalty };
 }
 
 /**
@@ -234,7 +302,22 @@ export interface TrifectaExposure {
  * giving a large harness real resolution (34/35 → −29, 17/35 → −15).
  */
 export function trifectaExposure(r: ScanReport): TrifectaExposure {
-  const exposed = r.trifectaFindings.length;
+  // 🔴 #392: a unit that only INHERITS the session's tools is one fact about the
+  // session, not one per unit — measured 2026-11-23, 406 of 409 skills on 77 real
+  // repos were in that state, so per-unit charging graded the session's defaults
+  // against every skill directory. Those units are charged ONCE: at most
+  // W_TRIFECTA (one cause costs what one exposed unit costs), and never more than
+  // their share would have cost before, so a small inheriting minority is not
+  // charged more than it was. A fence that closes nothing (`cause: "fence"`) holds
+  // no more than the session, so it joins that charge: charging it per unit would
+  // make a half-done fence score worse than none. Units whose own file adds a leg
+  // keep the per-unit model below. The total stays within W_TRIFECTA_MAX, a ding not a fail.
+  // TODO(#461): interim — replace with per-unit legs from the session baseline
+  const inherited = r.trifectaFindings.filter(
+    (t) => t.finding.cause === "session" || t.finding.cause === "fence",
+  ).length;
+  const all = r.trifectaFindings.length;
+  const exposed = all - inherited;
   // The assessable surface mirrors the Safety ring's own n/a rule: subagents plus
   // model-invocable skills (a user-invoked skill can't be hijacked by attacker
   // content, so it is neither exposed nor assessable). Never below the exposed
@@ -242,18 +325,33 @@ export function trifectaExposure(r: ScanReport): TrifectaExposure {
   // without the units (a hand-built fixture) still charges for them.
   const assessable = Math.max(
     r.agents.length + r.skills.filter((s) => !s.userInvoked).length,
+    all,
+  );
+  return {
     exposed,
-  );
-  if (exposed === 0 || assessable === 0) {
-    return { exposed, assessable, penalty: 0 };
-  }
-  const perUnit = W_TRIFECTA * exposed;
-  // Never round a real finding away to a free 0 on a very large harness.
-  const share = Math.max(
-    1,
-    Math.round((W_TRIFECTA_MAX * exposed) / assessable),
-  );
-  return { exposed, assessable, penalty: Math.min(perUnit, share) };
+    inherited,
+    assessable,
+    ...trifectaPenalty(exposed, inherited, assessable),
+  };
+}
+
+/** The two trifecta rows: units that add a leg (per unit) and the session (once). */
+function trifectaDeductions(r: ScanReport): readonly Deduction[] {
+  const trifecta = trifectaExposure(r);
+  return [
+    {
+      n: trifecta.exposed,
+      weight: W_TRIFECTA,
+      points: trifecta.unitPenalty,
+      label: TRIFECTA_LABEL,
+    },
+    {
+      n: trifecta.inherited,
+      weight: W_TRIFECTA,
+      points: trifecta.sessionPenalty,
+      label: SESSION_TRIFECTA_LABEL,
+    },
+  ];
 }
 
 /**
@@ -271,20 +369,11 @@ export function reportDeductions(r: ScanReport): Deduction[] {
     (n, a) => n + a.disallowedToolIssues.length,
     0,
   );
-  // Lethal-trifecta EXPOSURE — every unit holding all three legs, whether it
-  // declared them (`hard`) or inherited them (an inherits-all contract holds them
-  // implicitly AND everything else, so it can't be the cheaper of the two). Capped
-  // against the share of the surface affected so the model stays monotone in risk
-  // and doesn't saturate — see trifectaExposure for the measured failure this fixes.
-  const trifecta = trifectaExposure(r);
-
+  // Lethal-trifecta EXPOSURE — capped against the share of the surface affected
+  // so the model stays monotone in risk and doesn't saturate; the units that only
+  // inherit the session are one row, charged once. See trifectaExposure.
   return [
-    {
-      n: trifecta.exposed,
-      weight: W_TRIFECTA,
-      points: trifecta.penalty,
-      label: TRIFECTA_LABEL,
-    },
+    ...trifectaDeductions(r),
     {
       n: missingHooks,
       weight: W_MISSING_HOOK,

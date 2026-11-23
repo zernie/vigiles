@@ -368,7 +368,7 @@ describe("exclude e2e — `audit` and a vendored skill inside the surface dir", 
     );
     w(
       ".claude/skills/vendored/SKILL.md",
-      "---\nname: vendored\ndescription: somebody else's skill, copied in verbatim\n---\n\nBody.\n",
+      "---\nname: vendored\ndescription: somebody else's skill, copied in verbatim\nallowed-tools: Bash\n---\n\nBody.\n",
     );
     return d;
   }
@@ -392,7 +392,8 @@ describe("exclude e2e — `audit` and a vendored skill inside the surface dir", 
       "an excluded surface must not be read into the graded machine",
     );
     // The GRADE moves with it, which is the half a user feels: the vendored
-    // skill's missing `disallowed-tools:` fence is no longer charged to this repo.
+    // skill's pre-approved `Bash` (a trifecta finding of its own, charged per
+    // unit) is no longer charged to this repo.
     assert.match(r.out, /Harness health: A \(90\/100\)/);
   });
 

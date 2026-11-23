@@ -66,8 +66,7 @@
   },
   "src/audit-score.ts": {
     "max-lines-per-function": 101,
-    "sonarjs/cognitive-complexity": 14,
-    "complexity": 11
+    "sonarjs/cognitive-complexity": 12
   },
   "src/audit-serve.ts": {
     "max-lines-per-function": 61,
@@ -262,7 +261,7 @@
     "complexity": 16
   },
   "src/core/lethal-trifecta.ts": {
-    "max-lines-per-function": 69,
+    "max-lines-per-function": 57,
     "complexity": 15,
     "sonarjs/cognitive-complexity": 25
   },
@@ -572,7 +571,7 @@
     "complexity": 16
   },
   "src/score-core.ts": {
-    "max-lines-per-function": 100
+    "max-lines-per-function": 94
   },
   "src/segment.test.ts": {
     "max-nested-callbacks": 4
