@@ -167,7 +167,12 @@ test("bernoulliCount: a 0/1 metric is recognized from its summary alone", () => 
   // continuous values in [0, 1] fall short of the Bernoulli spread
   const graded = aggregateStats([{ s: 0.5 }, { s: 0.5 }, { s: 1 }]).s;
   assert.ok(graded !== undefined && bernoulliCount(graded) === null);
-  // counts outside [0, 1]
+  // a mean that no whole number of successes produces
+  const fractional = aggregateStats([{ s: 0.2 }, { s: 0.3 }]).s;
+  assert.ok(fractional !== undefined && bernoulliCount(fractional) === null);
+  // counts outside [0, 1], either side
+  const negative = aggregateStats([{ c: -1 }, { c: -1 }]).c;
+  assert.ok(negative !== undefined && bernoulliCount(negative) === null);
   const counts = aggregateStats([{ c: 2 }, { c: 4 }]).c;
   assert.ok(counts !== undefined && bernoulliCount(counts) === null);
   assert.equal(
