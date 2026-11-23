@@ -53,7 +53,9 @@ describe("read", () => {
   test("a wrapper in front is resolved first", () => {
     assert.deepEqual(readShell(`sudo -u x sh -c 'ls'`).inner, ["ls"]);
   });
+});
 
+describe("read: where it runs, and what is not read", () => {
   test("the inner command starts in the directory its shell was moved to", () => {
     const r = readShell(
       `env -C d sh -c 'echo x > k; cat < in; echo y > ~/h; cd e && sed -i s/a/b/ f'`,
