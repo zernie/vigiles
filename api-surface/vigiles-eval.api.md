@@ -31,6 +31,7 @@ export type AgentRunner = (args: AgentRunArgs) => Promise<RunOut>;
 
 // @public (undocumented)
 export interface ArmReport {
+    readonly context?: readonly ContextEvidence[];
     readonly metrics: Record<string, number>;
     // (undocumented)
     readonly runs: number;
@@ -121,6 +122,30 @@ export interface CheckResult {
 }
 
 // @public
+export type ContextEvidence =
+/** Every expected file is in the model's first request. */
+    {
+    readonly kind: "delivered";
+    readonly files: readonly string[];
+}
+/** At least one expected file is absent: the trial is not scored. */
+| {
+    readonly kind: "missing";
+    readonly files: readonly string[];
+    readonly delivered: readonly string[];
+}
+/** Expected files exist, but nothing could be observed. Never a pass. */
+| {
+    readonly kind: "unobservable";
+    readonly why: UnobservableWhy;
+    readonly files: readonly string[];
+}
+/** The trial's world holds no instruction file the harness loads. */
+| {
+    readonly kind: "nothing-expected";
+};
+
+// @public
 export interface EvalArm {
     readonly effort?: string | number;
     readonly files?: Record<string, string>;
@@ -173,6 +198,7 @@ export interface EvalSpec<M extends Metrics> {
     readonly concurrency?: number;
     readonly effort?: string | number;
     readonly env: RunEnv;
+    readonly experimental_contextCheck?: false;
     readonly fixture?: Record<string, string>;
     readonly lock?: EvalLockOptions;
     readonly maxCostUsd?: number;
@@ -452,6 +478,17 @@ export interface TriggerRateSpec {
     readonly timeoutMs?: number;
     readonly trials?: number;
 }
+
+// @public
+export type UnobservableWhy =
+/** The harness has a channel, but this run wrote no request body to read. */
+"no-request-body"
+/** The harness has no request-body channel vigiles can read. */
+| "harness-has-no-channel"
+/** The eval spec set `experimental_contextCheck: false`. */
+| "opted-out"
+/** A cache entry recorded before this check existed was replayed. */
+| "replayed-without-evidence";
 
 // (No @packageDocumentation comment for this package)
 

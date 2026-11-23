@@ -1,3 +1,5 @@
+import type { PluginLayout } from "./layout.js";
+
 /**
  * HarnessRuntime — the runtime/transport PORT (hexagonal transport axis). The
  * facts the test tiers need to actually drive a harness: the agent binary to
@@ -10,8 +12,6 @@
  * The Claude Code implementation is `claudeCodeRuntime` in
  * `src/adapters/claude-code/runtime.ts`.
  */
-import type { PluginLayout } from "./layout.js";
-
 export interface HarnessRuntime {
   /** Stable identifier, e.g. "claude-code". */
   readonly name: string;

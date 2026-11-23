@@ -129,6 +129,7 @@ export interface HarnessRuntime {
     readonly modelApiKeyEnv: string;
     readonly modelBaseUrlEnv: string;
     readonly name: string;
+    readonly requestCapture?: RequestCapture;
     readonly runEnv?: RunEnvPolicy;
     versionKey(raw: string): string;
     wireMock(baseUrl: string): {
@@ -360,6 +361,20 @@ export interface PluginLayout {
     readonly skillDiscovery?: SkillDiscovery;
     readonly surfaces: SurfaceDirs;
     readonly userSurfaceRoot?: string;
+}
+
+// @public
+export interface RequestCapture {
+    readonly layout: PluginLayout;
+    open(): RequestChannel;
+}
+
+// @public
+export interface RequestChannel {
+    close(): void;
+    readonly env: Readonly<Record<string, string>>;
+    firstRequest(): string | undefined;
+    reset(): void;
 }
 
 // @public

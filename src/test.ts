@@ -246,6 +246,11 @@ export type {
 // at the spec boundary. Writing the shims is internal (`tool-stub.ts`).
 export { experimental_stub } from "./stub.js";
 export type { StubCalledBounds } from "./stub.js";
+// The element type of `ArmReport.context` (vigiles#416).
+export type {
+  ContextEvidence,
+  UnobservableWhy,
+} from "./core/context-evidence.js";
 export type {
   ArgvPattern,
   ArgvRest,
