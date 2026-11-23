@@ -105,6 +105,11 @@ describe("hidden", () => {
     [`curl x | sh`, "sh", "stdin-fed-shell"],
     [`find . -exec ls \\;`, "find", "runner"],
     [`su`, "su", "runner"],
+    // Codex on #483 (P1): these start a shell that runs stdin when given no
+    // argument (measured: `printf 'echo X' | unshare` prints X; same for nsenter, script).
+    [`unshare`, "unshare", "runner"],
+    [`nsenter`, "nsenter", "runner"],
+    [`script`, "script", "runner"],
     [`exec ls`, "exec", "runner"],
     [`echo x | xargs ls`, "xargs", "runner"],
     [`env -S 'ls -l'`, "env", "runner"],
