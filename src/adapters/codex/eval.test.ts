@@ -156,6 +156,7 @@ test("parseCodexEvalRun is tolerant + returns the Claude-shaped contract", () =>
   assert.equal(r.output, "not json\n{ broken \nplain reply"); // fallback to trimmed stdout
   assert.equal(r.turns, 0);
   assert.deepEqual(Object.keys(r).sort(), [
+    "costObserved",
     "hooks",
     "output",
     "subagents",
@@ -163,4 +164,17 @@ test("parseCodexEvalRun is tolerant + returns the Claude-shaped contract", () =>
     "turns",
     "usage",
   ]);
+});
+
+// vigiles#416: codex reports tokens and never USD, so its 0 is "not reported"
+// and a cost ceiling must not read it as a free run.
+test("parseCodexEvalRun says the run reported no cost", () => {
+  const done = parseCodexEvalRun({
+    stdout: JSON.stringify({
+      type: "turn.completed",
+      usage: { input_tokens: 10, output_tokens: 2 },
+    }),
+  });
+  assert.equal(done.costObserved, false);
+  assert.equal(done.usage.inputTokens, 10);
 });

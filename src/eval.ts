@@ -227,7 +227,14 @@ export interface EvalArm {
  */
 export interface RunContext extends Trace {
   readonly cwd: string;
+  /** The harness's exit code; -1 when a signal ended it (see {@link timedOut}). */
   readonly exitCode: number;
+  /**
+   * True when `timeoutMs` ran out and the run was killed. Its metrics are still
+   * computed from what the agent did before the kill; its cost was not reported,
+   * so `usage` is a floor (see `EvalReport.chargedUsd`).
+   */
+  readonly timedOut: boolean;
   readonly stdout: string;
   /** `num_turns` reported by claude, or 0. */
   readonly turns: number;
@@ -417,6 +424,15 @@ export interface EvalReport {
   readonly arms: Record<string, ArmReport>;
   /** Total measured cost across every arm × trial (0 when usage wasn't reported). */
   readonly totalCostUsd: number;
+  /**
+   * What the run counted against `maxCostUsd`: every reported cost, plus, for a
+   * run that reported none (killed by the timeout), the per-run cap it was given
+   * — nothing proves it spent less. At least `totalCostUsd`. Absent on a report
+   * recorded before this field existed.
+   */
+  readonly chargedUsd?: number;
+  /** Runs that reported no cost, so `totalCostUsd` is a floor. Absent on older reports. */
+  readonly unknownCostRuns?: number;
   /** True if a `maxCostUsd` budget cap stopped the run before all trials ran. */
   readonly aborted: boolean;
   /**
@@ -569,6 +585,11 @@ export function buildAgentArgs(a: AgentRunArgs): string[] {
     "--model",
     a.model,
     ...(a.effort !== undefined ? ["--effort", String(a.effort)] : []),
+    // The run's own share of `maxCostUsd`: past it the CLI ends the turn and
+    // still reports `total_cost_usd`, which a run killed by the timeout cannot.
+    ...(a.maxBudgetUsd !== undefined
+      ? ["--max-budget-usd", String(a.maxBudgetUsd)]
+      : []),
     "--permission-mode",
     "acceptEdits",
     ...(a.pluginDir !== undefined
@@ -643,12 +664,37 @@ function spawnAgentRaw(a: AgentRunArgs): Promise<RunOut> {
     child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
     child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
     const timer = setTimeout(() => child.kill("SIGKILL"), a.timeoutMs);
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       clearTimeout(timer);
-      resolvePromise({ code: code ?? 0, stdout, stderr });
+      // The only kill is the timer's, so `killed` says the timeout fired.
+      const timedOut = child.killed;
+      resolvePromise(closedRun({ code, signal, timedOut, stdout, stderr }));
     });
   });
 }
+/* v8 ignore stop */
+
+/**
+ * The {@link RunOut} of a finished child process. A process a signal ended has
+ * no exit code: it reads as -1 with the signal named, never as 0 — `code ?? 0`
+ * once turned every run the timeout killed into a clean exit (vigiles#416).
+ */
+export function closedRun(c: {
+  readonly code: number | null;
+  readonly signal: string | null;
+  readonly timedOut: boolean;
+  readonly stdout: string;
+  readonly stderr: string;
+}): Readonly<RunOut> {
+  return {
+    code: c.code ?? -1,
+    stdout: c.stdout,
+    stderr: c.stderr,
+    ...(c.signal === null ? {} : { signal: c.signal }),
+    ...(c.timedOut ? { timedOut: true } : {}),
+  };
+}
+/* v8 ignore start -- the rest of the real-model runtime, as above */
 
 /**
  * Run the eval: every arm × every trial against the real `claude` CLI, with the
@@ -1242,9 +1288,55 @@ export function parseUsage(stdout: string): EvalUsage {
   return usageFrom(parseResultEvent(stdout));
 }
 
+/** An `assistant` event's message id and usage, or null for any other line. */
+function assistantUsage(
+  line: string,
+): readonly [string, Readonly<Record<string, unknown>>] | null {
+  try {
+    const evt: unknown = JSON.parse(line);
+    if (!isRecord(evt) || evt.type !== "assistant" || !isRecord(evt.message))
+      return null;
+    const { id, usage } = evt.message;
+    return typeof id === "string" && isRecord(usage) ? [id, usage] : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What a run with no `result` event had spent, read from its `assistant`
+ * events: a FLOOR, not a measurement. Each API response is counted once (the
+ * events of one response share its message id). Input and cache tokens are
+ * exact; `output_tokens` is the count at `message_start`, a placeholder far
+ * below the real one, and no USD is reported at all — Claude Code's cost
+ * tracking docs say the same of this recovery path.
+ */
+function streamUsage(stdout: string): EvalUsage {
+  const byId = Object.fromEntries(
+    stdout
+      .split("\n")
+      .map(assistantUsage)
+      .filter((e) => e !== null),
+  );
+  const sum = (key: string): number =>
+    Object.values(byId).reduce(
+      (acc, u) => acc + (typeof u[key] === "number" ? u[key] : 0),
+      0,
+    );
+  return {
+    costUsd: 0,
+    durationMs: 0,
+    inputTokens: sum("input_tokens"),
+    outputTokens: sum("output_tokens"),
+    cacheCreationTokens: sum("cache_creation_input_tokens"),
+    cacheReadTokens: sum("cache_read_input_tokens"),
+  };
+}
+
 /** Parse Claude Code's stream-json stdout into the common trace fields. */
 export function parseClaudeRun(out: RunOut): ParsedModelRun {
   const result = parseResultEvent(out.stdout);
+  const costObserved = typeof result?.total_cost_usd === "number";
   return {
     turns: typeof result?.num_turns === "number" ? result.num_turns : 0,
     output: typeof result?.result === "string" ? result.result : "",
@@ -1252,7 +1344,9 @@ export function parseClaudeRun(out: RunOut): ParsedModelRun {
     hooks: parseHooks(out.stdout),
     subagents: parseSubagents(out.stdout),
     replies: parseReplies(out.stdout),
-    usage: usageFrom(result),
+    // No `result` (a run killed by the timeout): the stream's floor, not zeros.
+    usage: result === null ? streamUsage(out.stdout) : usageFrom(result),
+    costObserved,
   };
 }
 
@@ -1261,6 +1355,15 @@ function makeContext(
   out: RunOut,
   parse: ModelOutputParser = parseClaudeRun,
 ): RunContext {
+  return makeTrialContext(cwd, out, parse).ctx;
+}
+
+/** {@link makeContext}, plus whether the run reported its cost. */
+function makeTrialContext(
+  cwd: string,
+  out: Readonly<RunOut>,
+  parse: ModelOutputParser = parseClaudeRun,
+): { readonly ctx: RunContext; readonly costObserved: boolean } {
   const p = parse(out);
   // The one place every real-model trial's trace is assembled — `runEval`,
   // `measureTriggerRate` and the selection runs all pass through here — so the
@@ -1268,9 +1371,10 @@ function makeContext(
   // competing skills on purpose (`installSet`); crediting the install set would
   // credit a skill for LOSING selection. See coverage-probe.ts.
   probeTrace({ toolCalls: p.toolCalls, hooks: p.hooks });
-  return {
+  const ctx: RunContext = {
     cwd,
     exitCode: out.code,
+    timedOut: out.timedOut === true,
     stdout: out.stdout,
     turns: p.turns,
     toolCalls: p.toolCalls,
@@ -1301,6 +1405,7 @@ function makeContext(
       }
     },
   };
+  return { ctx, costObserved: p.costObserved !== false };
 }
 
 /**
@@ -1821,16 +1926,19 @@ interface TrialOutcome<M extends Metrics> {
   readonly row: M;
   readonly usage: EvalUsage;
   readonly unanswered: readonly StubCall[];
+  /** False when the run reported no cost (see `ParsedModelRun.costObserved`). */
+  readonly costObserved: boolean;
 }
 
 /** Execute one trial in a fresh sandbox; returns its metric row + usage. */
 async function executeTrial<M extends Metrics>(
   spec: ParsedEvalSpec<M>,
   arm: EvalArm,
-  trialIndex: number,
+  trial: { readonly index: number; readonly maxBudgetUsd?: number },
   retrying: RetryingRunner,
   cfg: RunConfig,
 ): Promise<TrialOutcome<M>> {
+  const { index: trialIndex, maxBudgetUsd } = trial;
   const cwd = makeTmpDir("eval");
   // The ephemeral env's HOME: beside the work dir, so `snapshotDir(cwd)` (the
   // cache record) never sees the credentials file or the seed, and the agent's
@@ -1875,6 +1983,7 @@ async function executeTrial<M extends Metrics>(
         hasSettings,
         pluginDir: arm.pluginDir,
         timeoutMs: cfg.timeoutMs,
+        ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
         env: run.env,
         replaceEnv: run.replaceEnv,
       },
@@ -1899,12 +2008,13 @@ async function executeTrial<M extends Metrics>(
       cfg,
       () => (stubDir === undefined ? undefined : readStubCalls(stubDir)),
     );
-    const base = makeContext(cwd, out);
+    const { ctx: base, costObserved } = makeTrialContext(cwd, out);
     const ctx: RunContext =
       stubCalls === undefined ? base : { ...base, stubCalls };
     return {
       row: spec.measure(ctx),
       usage: ctx.usage,
+      costObserved,
       unanswered: [
         ...(stubCalls ?? []),
         // A stub that could not write its log still printed its neutral line
@@ -2026,6 +2136,8 @@ type DoneResult<M extends Metrics> = {
   readonly row: M;
   readonly usage: EvalUsage;
   readonly unanswered: readonly StubCall[];
+  /** False when the run reported no cost; absent on results built elsewhere. */
+  readonly costObserved?: boolean;
 };
 type UnitResult<M extends Metrics> =
   | DoneResult<M>
@@ -2542,26 +2654,46 @@ async function runResolvedEval<M extends Metrics>(
     runWithRetry(a, runner, retries, backoffMs, beforeAttempt);
 
   const units = buildUnits(spec.arms, trials);
-  let spent = 0;
+  // What counts against `maxCostUsd`: a reported cost, or — for a run that
+  // reported none, killed by the timeout — the cap it was given (vigiles#416).
+  let charged = 0;
   // Why no NEW trial starts: the budget cap, or a stub call nobody scripted —
   // the report will be refused, so later trials would only spend. In-flight
   // trials finish either way.
+  // TODO: with `concurrency` > 1 every in-flight trial gets the same remaining
+  // budget as its cap, so together they can pass the ceiling by up to
+  // `concurrency` caps. Reserving each cap at start would hold the line but
+  // serialize the pool behind the first trial; needs its own design.
   let stopped: "budget" | "unanswered" | undefined;
   const worker = async (unit: Unit): Promise<UnitResult<M>> => {
     if (stopped !== undefined) return { armName: unit.armName, skipped: true };
-    const { row, usage, unanswered } = await executeTrial(
+    // The run's own cap: the budget not yet charged. Past it the CLI ends the
+    // turn and reports its cost; a run killed first is charged the cap.
+    const cap =
+      spec.maxCostUsd === undefined ? undefined : spec.maxCostUsd - charged;
+    const { row, usage, unanswered, costObserved } = await executeTrial(
       spec,
       unit.arm,
-      unit.trialIndex,
+      {
+        index: unit.trialIndex,
+        ...(cap === undefined ? {} : { maxBudgetUsd: cap }),
+      },
       retrying,
       cfg,
     );
-    spent += usage.costUsd;
-    if (spec.maxCostUsd !== undefined && spent >= spec.maxCostUsd)
+    charged += costObserved ? usage.costUsd : (cap ?? 0);
+    if (spec.maxCostUsd !== undefined && charged >= spec.maxCostUsd)
       stopped = "budget";
     else if (unanswered.length > 0) stopped = stopped ?? "unanswered";
     if (spacing > 0) await sleep(spacing);
-    return { armName: unit.armName, skipped: false, row, usage, unanswered };
+    return {
+      armName: unit.armName,
+      skipped: false,
+      row,
+      usage,
+      unanswered,
+      costObserved,
+    };
   };
 
   const lock = resolveLock(spec.lock);
@@ -2589,6 +2721,10 @@ async function runResolvedEval<M extends Metrics>(
         trials,
         arms,
         totalCostUsd,
+        chargedUsd: Math.max(charged, totalCostUsd),
+        unknownCostRuns: results.filter(
+          (r) => !r.skipped && r.costObserved === false,
+        ).length,
         aborted: stopped === "budget",
         env: runEnvReportView(spec.env),
       };
@@ -2645,15 +2781,27 @@ function verdictLines(
  * Name the `baseline` arm to add one verdict line per other arm and metric —
  * `BETTER` / `WORSE` / `NO SIGNAL`, the same verdict `assertSignificant` reads.
  */
+/**
+ * The header's cost: the reported total, or — when a run reported none (killed
+ * by the timeout) — the charge as a floor, never a bare $0 (vigiles#416).
+ */
+function costLabel(report: EvalReport): string {
+  const unknown = report.unknownCostRuns ?? 0;
+  const usd = (n: number): string => `$${n.toFixed(4)}`;
+  if (unknown === 0)
+    return report.totalCostUsd > 0 ? `${usd(report.totalCostUsd)} total` : "";
+  const runs = `${String(unknown)} run(s) reported no cost`;
+  const charged = report.chargedUsd ?? report.totalCostUsd;
+  return charged > 0 ? `≥ ${usd(charged)} (${runs})` : `cost unknown (${runs})`;
+}
+
 export function formatEvalReport(
   report: EvalReport,
   opts: { readonly baseline?: string } = {},
 ): string {
-  const header =
-    report.totalCostUsd > 0
-      ? `${report.name} (${String(report.trials)} trials/arm) — $${report.totalCostUsd.toFixed(4)} total`
-      : `${report.name} (${String(report.trials)} trials/arm)`;
-  const lines = [header];
+  const head = `${report.name} (${String(report.trials)} trials/arm)`;
+  const cost = costLabel(report);
+  const lines = [cost === "" ? head : `${head} — ${cost}`];
   for (const [arm, r] of Object.entries(report.arms)) {
     const parts = Object.entries(r.metrics)
       .map(([k, v]) => formatMetric(k, v, r.stats[k]))

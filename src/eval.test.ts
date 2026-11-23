@@ -67,6 +67,9 @@ import {
   type ModelOutputParser,
   unregisteredSkillFiles,
   spawnAgent,
+  closedRun,
+  buildAgentArgs,
+  parseClaudeRun,
 } from "./eval.js";
 import {
   usedTool,
@@ -2777,6 +2780,116 @@ test("a run killed by the timeout is charged, stops new trials and is not a clea
   // The stream's tokens are the run's floor: input and cache are exact.
   assert.equal(report.arms.stuck?.usage.totalInputTokens, 100);
   assert.equal(report.arms.stuck?.usage.totalCacheReadTokens, 50);
+});
+
+test("closedRun: a signal is not a clean exit, and the timeout is named", () => {
+  const killed = closedRun({
+    code: null,
+    signal: "SIGKILL",
+    timedOut: true,
+    stdout: "",
+    stderr: "",
+  });
+  assert.equal(killed.code, -1);
+  assert.equal(killed.signal, "SIGKILL");
+  assert.equal(killed.timedOut, true);
+  const exited = closedRun({
+    code: 0,
+    signal: null,
+    timedOut: false,
+    stdout: "",
+    stderr: "",
+  });
+  assert.equal(exited.code, 0);
+  assert.equal(exited.signal, undefined);
+  assert.equal(exited.timedOut, undefined);
+});
+
+test("buildAgentArgs hands the per-run cap to the CLI only when there is one", () => {
+  const base = {
+    task: "t",
+    cwd: "/tmp/x",
+    model: "haiku",
+    tools: [],
+    hasSettings: false,
+    pluginDir: undefined,
+    timeoutMs: 1000,
+  };
+  const args = buildAgentArgs({ ...base, maxBudgetUsd: 0.25 });
+  assert.equal(args[args.indexOf("--max-budget-usd") + 1], "0.25");
+  assert.equal(buildAgentArgs(base).includes("--max-budget-usd"), false);
+});
+
+test("parseClaudeRun: with no result event, usage is the stream's floor, one count per response", () => {
+  const event = (id: string, input: number) =>
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        id,
+        content: [],
+        usage: { input_tokens: input, cache_creation_input_tokens: 5 },
+      },
+    });
+  // Two events of one response share its id: counted once.
+  const stdout = [event("a", 10), event("a", 10), event("b", 20)].join("\n");
+  const run = parseClaudeRun({ code: -1, stdout });
+  assert.equal(run.costObserved, false);
+  assert.equal(run.usage.costUsd, 0);
+  assert.equal(run.usage.inputTokens, 30);
+  assert.equal(run.usage.cacheCreationTokens, 10);
+  const done = parseClaudeRun({
+    code: 0,
+    stdout: JSON.stringify({ type: "result", total_cost_usd: 0.2 }),
+  });
+  assert.equal(done.costObserved, true);
+  assert.equal(done.usage.costUsd, 0.2);
+});
+
+test("each run's cap is the budget not yet charged", async () => {
+  const paid = JSON.stringify({
+    type: "result",
+    num_turns: 1,
+    result: "ok",
+    total_cost_usd: 0.1,
+  });
+  const caps: (number | undefined)[] = [];
+  const runner = (a: AgentRunArgs): Promise<RunOut> => {
+    caps.push(a.maxBudgetUsd);
+    return Promise.resolve({ code: 0, stdout: paid });
+  };
+  const report = await runEvalWith(
+    {
+      env: INHERIT,
+      arms: { only: {} },
+      task: "t",
+      trials: 2,
+      spacingSec: 0,
+      maxCostUsd: 0.5,
+      measure: () => ({ ok: true }),
+    },
+    runner,
+  );
+  assert.equal(caps.length, 2);
+  assert.ok(Math.abs((caps[0] ?? 0) - 0.5) < 1e-9);
+  assert.ok(Math.abs((caps[1] ?? 0) - 0.4) < 1e-9);
+  assert.equal(report.unknownCostRuns, 0);
+  // With no ceiling there is no cap to hand over.
+  const free: (number | undefined)[] = [];
+  await runEvalWith(
+    {
+      env: INHERIT,
+      arms: { only: {} },
+      task: "t",
+      trials: 1,
+      spacingSec: 0,
+      measure: () => ({ ok: true }),
+    },
+    (a) => {
+      free.push(a.maxBudgetUsd);
+      return Promise.resolve({ code: 0, stdout: paid });
+    },
+  );
+  assert.deepEqual(free, [undefined]);
 });
 
 test("assertTriggerRate gates on the minimum rate", () => {
