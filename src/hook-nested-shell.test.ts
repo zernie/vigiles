@@ -75,7 +75,12 @@ describe.each(protocols)("%s", (_name, protocol) => {
   });
 
   test("a command the hook cannot see into is asked about, not allowed", () => {
-    for (const c of [`find . -exec git push -f \\;`, `bash -c "$CMD"`]) {
+    for (const c of [
+      `find . -exec git push -f \\;`,
+      `bash -c "$CMD"`,
+      `CMD="git push --force origin main"; $CMD`,
+      `F=-f; git push $F origin main`,
+    ]) {
       const r = run(c);
       assert.equal(r.blocked, false, c);
       assert.equal(r.decision, "ask", c);

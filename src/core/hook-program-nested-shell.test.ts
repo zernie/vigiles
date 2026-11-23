@@ -179,3 +179,99 @@ describe("review-found hand-offs also ask", () => {
     assert.equal(kind(command), "ask");
   });
 });
+
+// The same class as #460: a word held in a variable is one the parser cannot
+// read. In head position the program itself is unknown; in an argument of the
+// program the gate asked about, an unquoted expansion may be the very flag.
+describe("a program or a flag held in a variable: allow becomes ask", () => {
+  test.each([
+    `CMD="git push --force origin main"; $CMD`,
+    `$CMD`,
+    `\${CMD}`,
+    `$G push -f`,
+    `G=git; $G push -f`,
+    `"$G" push -f`,
+    `$DIR/git push -f`,
+    `sudo $CMD`,
+    `$(echo git) push -f`,
+    `F=-f; git push $F origin main`,
+    `git push $F`,
+    `git push origin \${REF}`,
+    `git push $(echo -f)`,
+    `git push "$@"`,
+    `sh -c 'git push $F'`,
+    `eval 'git push $F'`,
+  ])("%s asks", (command) => {
+    assert.equal(kind(command), "ask");
+  });
+
+  test("eval of a dynamic string still asks", () => {
+    assert.equal(kind(`CMD="git push -f"; eval "$CMD"`), "ask");
+  });
+
+  test("a value consumed by a wrapper option does not shift the program", () => {
+    assert.equal(kind(`sudo -u $U git push -f`), "deny");
+  });
+
+  test("the ask names why: a program in a variable, or a word that may be a flag", () => {
+    const program = decideProgram(forcePushGuard, ev(`$G push -f`));
+    assert.ok(program.kind === "ask" && program.reason.includes("`$G`"));
+    const flag = decideProgram(forcePushGuard, ev(`git push $F`));
+    assert.ok(flag.kind === "ask" && flag.reason.includes("`git`"));
+    assert.ok(flag.kind === "ask" && !flag.reason.includes("hands a command"));
+  });
+
+  test.each([
+    // a quoted expansion is one word, passed as data: not asked about
+    `git push origin "$BRANCH"`,
+    `cp "$SRC" "$DST"`,
+    // an unquoted expansion on a program the gate did not ask about
+    `cp $SRC dst`,
+    `echo $PATH`,
+    `ls $DIR`,
+    // the gate asks about `git push`, not about `git log`
+    `git log $RANGE`,
+    `git checkout $BRANCH`,
+    // $HOME is canonicalized, not unknown
+    `$HOME/bin/tool x`,
+  ])("%s stays allowed", (command) => {
+    assert.equal(kind(command), "allow");
+  });
+
+  test("a gate whose question names no flag does not ask on an argument", () => {
+    const pushAtAll = experimental_defineHook({
+      on: "PreToolUse",
+      decide: (e) => (e.command.runs("git push") ? deny("push") : allow()),
+    });
+    assert.equal(kind(`git push $F`, pushAtAll), "deny");
+    assert.equal(kind(`git commit $F`, pushAtAll), "allow");
+  });
+
+  test("a flag named in the pattern is a flag question too", () => {
+    const noVerify = experimental_defineHook({
+      on: "PreToolUse",
+      decide: (e) =>
+        e.command.runs("git commit --no-verify") ? deny("nv") : allow(),
+    });
+    assert.equal(kind(`git commit $ARGS -m x`, noVerify), "ask");
+    assert.equal(kind(`git commit -m "$MSG"`, noVerify), "allow");
+  });
+
+  test("a gate that never asked about the command is not second-guessed", () => {
+    const branchOnly = experimental_defineHook({
+      on: "PreToolUse",
+      decide: () => allow(),
+    });
+    assert.equal(kind(`$CMD`, branchOnly), "allow");
+    assert.equal(kind(`git push $F`, branchOnly), "allow");
+  });
+
+  test("the gate's own deny and ask are final", () => {
+    const denyAll = experimental_defineHook({
+      on: "PreToolUse",
+      decide: (e) => (e.command.runs("ls") ? allow() : deny("no")),
+    });
+    assert.equal(kind(`$CMD`, denyAll), "deny");
+    assert.equal(kind(`git push $F`, denyAll), "deny");
+  });
+});

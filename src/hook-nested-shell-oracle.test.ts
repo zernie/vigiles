@@ -6,9 +6,8 @@
  * `PATH` that logs its argv; `sudo`, `su`, `ssh`, `docker` and `kubectl` are
  * stubbed to run nothing (so "no push" in those rows means "not here", not
  * "safe"). The one forbidden outcome: the stub logged a force push and the
- * gate said `allow`. A form outside what the gate claims to see — a dynamic
- * program name, a script file, another language's interpreter, a flag held in
- * a variable — is named in {@link OUT_OF_SCOPE}, so the set that still slips
+ * gate said `allow`. A form outside what the gate claims to see — a script
+ * file, another language's interpreter — is named in {@link OUT_OF_SCOPE}, so the set that still slips
  * through is pinned exactly: a regression adds a row, an improvement removes
  * one, and both fail this test until the list is edited on purpose.
  *
@@ -94,6 +93,9 @@ const FORMS: readonly string[] = [
   `$(echo git) push -f`,
   `G=git; $G push -f`,
   `F=-f; git push $F`,
+  `$CMD`,
+  `CMD="git push --force origin main"; $CMD`,
+  `F=-f; git push $F origin main`,
   `exec git push -f`,
   `exec sh -c "git push -f"`,
   `time git push -f`,
@@ -129,9 +131,6 @@ const OUT_OF_SCOPE: readonly string[] = [
   `source x.sh`,
   `. ./x.sh`,
   `bash x.sh`,
-  `$(echo git) push -f`,
-  `G=git; $G push -f`,
-  `F=-f; git push $F`,
   `node -e "require('child_process').execSync('git push -f')"`,
   `python3 -c "import os; os.system('git push -f')"`,
   `perl -e 'system("git push -f")'`,
