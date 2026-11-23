@@ -305,11 +305,11 @@ test("a prefix means one directory however it is spelled: ./, doubled and traili
   const outside = "notes/alpha.tex";
   assert.deepEqual(
     spellings.map((p) => [
-      pathView(`${MINE_ROOT}/${inside}`, MINE_ROOT).under([p]),
-      pathView(`${MINE_ROOT}/${outside}`, MINE_ROOT).under([p]),
-      commandView(`echo x > ${inside}`, MINE_ROOT).writesTo([p]),
-      commandView(`echo x > ${outside}`, MINE_ROOT).writesTo([p]),
-      commandView(`cat ${inside}`, MINE_ROOT).touches([p]),
+      parseFilePath(`${MINE_ROOT}/${inside}`, MINE_ROOT).under([p]),
+      parseFilePath(`${MINE_ROOT}/${outside}`, MINE_ROOT).under([p]),
+      parseShellCommand(`echo x > ${inside}`, MINE_ROOT).writesTo([p]),
+      parseShellCommand(`echo x > ${outside}`, MINE_ROOT).writesTo([p]),
+      parseShellCommand(`cat ${inside}`, MINE_ROOT).touches([p]),
     ]),
     spellings.map(() => [true, false, true, false, true]),
   );
@@ -317,7 +317,7 @@ test("a prefix means one directory however it is spelled: ./, doubled and traili
   // tidying a spelling must not widen it into a catch-all.
   assert.deepEqual(
     [".", "./"].map((p) =>
-      pathView(`${MINE_ROOT}/${inside}`, MINE_ROOT).under([p]),
+      parseFilePath(`${MINE_ROOT}/${inside}`, MINE_ROOT).under([p]),
     ),
     [false, false],
   );
