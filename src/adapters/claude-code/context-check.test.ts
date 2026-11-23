@@ -11,18 +11,31 @@
  * unscored.
  */
 import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
   buildAgentArgs,
   closedRun,
+  contextInReport,
   formatEvalReport,
   resolveSpawnEnv,
   runEvalWith,
   type AgentRunner,
+  type EvalReport,
   type RunOut,
 } from "../../eval.js";
+import {
+  expectedInstructions,
+  type ContextEvidence,
+} from "../../core/context-evidence.js";
+import { runFailure } from "../../eval-entry.js";
+import { startContextCapture } from "../../eval-context.js";
+import { claudeCodeLayout } from "./layout.js";
 import { startMock } from "../../mock-model.js";
+import { firstClaudeRequest } from "./request-capture.io.js";
 import { onPathClaudeVersion } from "./dialect-drift.js";
 import { claudeCodeRuntime } from "./runtime.js";
 
@@ -162,4 +175,125 @@ describe("what the context check expects, on the real binary", () => {
     },
     120_000,
   );
+});
+
+describe("the Claude Code request channel, without the binary", () => {
+  it("reads nothing from a directory the run never wrote to", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-requests-test-"));
+    try {
+      expect(firstClaudeRequest(dir)).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips a broken index line and a side-channel request for the agent loop's", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vigiles-requests-test-"));
+    try {
+      writeFileSync(
+        join(dir, "index.jsonl"),
+        [
+          "not json",
+          JSON.stringify({ request_file: "side.request.json" }),
+          JSON.stringify({ request_file: "gone.request.json" }),
+          JSON.stringify({ request_file: "main.request.json" }),
+          JSON.stringify({ other: 1 }),
+        ].join("\n"),
+      );
+      writeFileSync(
+        join(dir, "side.request.json"),
+        JSON.stringify({ system: "classifier" }),
+      );
+      writeFileSync(
+        join(dir, "main.request.json"),
+        JSON.stringify({ tools: [{ name: "Bash" }], system: ["MAIN_LOOP", 1] }),
+      );
+      const body = firstClaudeRequest(dir);
+      expect(body).toContain("MAIN_LOOP");
+      expect(body).not.toContain("classifier");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("what a trial expects, without the binary", () => {
+  it("expects an @-import as a file of its own, from the chain, not the author", () => {
+    expect(
+      expectedInstructions(claudeCodeLayout, {
+        "CLAUDE.md": "@docs/style.md\nRules.\n",
+        "docs/style.md": "Use tabs.\n",
+        "src/a.ts": "x",
+      }).map((e) => e.path),
+    ).toEqual(["CLAUDE.md", "docs/style.md"]);
+  });
+
+  it("an opted-out trial is not checked and opens no channel", () => {
+    const capture = startContextCapture({
+      runtime: claudeCodeRuntime,
+      world: { "CLAUDE.md": "x" },
+      enabled: false,
+    });
+    expect(capture.env).toEqual({});
+    capture.reset();
+    expect(capture.finish()).toEqual({
+      kind: "unobservable",
+      why: "opted-out",
+      files: ["CLAUDE.md"],
+    });
+    capture.dispose();
+  });
+});
+
+describe("a missing instruction file fails the eval", () => {
+  const usage = {
+    totalCostUsd: 0,
+    meanCostUsd: 0,
+    meanDurationMs: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCacheCreationTokens: 0,
+    totalCacheReadTokens: 0,
+  };
+  const report = (context: readonly ContextEvidence[]): EvalReport => ({
+    name: "e",
+    trials: 1,
+    arms: {
+      skill: {
+        runs: 0,
+        metrics: {},
+        stats: {},
+        usage,
+        unansweredStubCalls: [],
+        context,
+      },
+    },
+    totalCostUsd: 0,
+    aborted: false,
+  });
+  const missing: ContextEvidence = {
+    kind: "missing",
+    files: ["AGENTS.md"],
+    delivered: [],
+  };
+
+  it("names the arm and the file, before the zero-runs line", () => {
+    expect(contextInReport(report([missing]))).toContain(
+      "skill: ✗ context: AGENTS.md missing from the model's request in 1 of 1 trials — not scored",
+    );
+    expect(
+      runFailure("x.eval.mjs", "runEval", report([missing]), {}),
+    ).toMatchObject({ code: 1 });
+    expect(
+      runFailure("x.eval.mjs", "runEval", report([missing]), {})?.message,
+    ).toContain("not scored");
+  });
+
+  it("a not-checked trial does not fail it", () => {
+    expect(
+      contextInReport(
+        report([{ kind: "unobservable", why: "no-request-body", files: [] }]),
+      ),
+    ).toBeUndefined();
+  });
 });

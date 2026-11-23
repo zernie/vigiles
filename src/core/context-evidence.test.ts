@@ -28,6 +28,7 @@ describe("deliveredIn", () => {
     expect(deliveredIn("A\n<!--c-->\nB", "pre A\nB post")).toBe(true);
     expect(deliveredIn("A\n<!--c-->\nB", "B then A")).toBe(false);
     expect(deliveredIn("A", "nothing")).toBe(false);
+    expect(deliveredIn("A\n<!--c-->\nB", "only B")).toBe(false);
   });
 });
 
