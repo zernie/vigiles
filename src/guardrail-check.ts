@@ -433,6 +433,11 @@ export function verifyGuardrail(
   );
 }
 
+/** Did this run block by a decision printed on stdout, not by exit code alone? */
+function printedDecision(r: HookRunResult): boolean {
+  return r.blockedBy.some((how) => how !== "exit-code");
+}
+
 /**
  * Whether the control leaves the battery without a verdict, and why.
  *
@@ -442,6 +447,11 @@ export function verifyGuardrail(
  * Python exited 2. Only a DECISION needs the control — when no case blocked or
  * allowed, each keeps its own tag (a condition rejection, a launch failure) and
  * there is no block to doubt.
+ *
+ * The control only ever proves that the hook LAUNCHED, and a structured
+ * decision on stdout (a deny or a halt) proves the same: a script that never
+ * started cannot print one. So a skipped control voids the verdict only when no
+ * blocked case carried one — a bare exit 2 is what a missing script looks like.
  */
 function noVerdictFrom(
   probe: HookRunResult,
@@ -456,7 +466,8 @@ function noVerdictFrom(
       controlStderrTail: tail(probe.stderr),
     };
   const decided = runs.some(({ r }) => outcomeOf(r).kind !== "not-run");
-  if (control.kind === "not-run" && decided)
+  const launched = runs.some(({ r }) => r.blocked && printedDecision(r));
+  if (control.kind === "not-run" && decided && !launched)
     return {
       kind: "not-run",
       why: CONTROL_NOT_SELECTED,

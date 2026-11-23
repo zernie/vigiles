@@ -268,13 +268,15 @@ does not select the call), `never-launched` (the shell answered 126/127),
 the directory sweep below).
 
 **A control that never ran is not evidence either.** The control runs under the
-hook's `if` like any call. If the `if` skips `ls` but selects a disaster, nothing
-showed the hook can allow — `python3 missing.py` behind
-`if: "Bash(git push *--force*)"` exits 2 on the force push exactly like a real
-block — so the battery has no verdict (`control-not-selected`). Pass a `control`
-the hook's condition selects: a harmless command that matches its `if`, such as
-`git push --force --dry-run origin main`. A guard whose body denies everything it
-is handed denies that too, so it has no verdict whatever the control.
+hook's `if` like any call, and all it has to prove is that the hook launched. A
+structured decision, or an allowed control, proves the hook launched: a script
+that never started cannot print `permissionDecision` / `decision` JSON. So when
+the `if` skips `ls`, a guard that blocks with a JSON deny is still measured, and
+one whose blocks are a bare exit 2 has no verdict (`control-not-selected`) —
+`python3 missing.py` behind `if: "Bash(git push *--force*)"` exits 2 on the force
+push exactly like a real block. To measure such a guard, pass a `control` the
+hook's condition selects and the guard allows, such as
+`git push --force --dry-run origin main`.
 
 ⚠️ **Seven commands, but only seven spellings.** `experimental_alternateSpellings(events)`
 takes those test cases and returns more of them: the same commands re-spelled
