@@ -360,7 +360,7 @@ export type GuardrailCases = DisasterCases | CrossRepoCases;
 /**
  * What {@link runGuardrail} returns: one row per case of the set it ran, and
  * the hook's display name for messages. `kind` says which set, so the rows
- * narrow to it. Assert on it with `guardrailHolds()`.
+ * narrow to it. Assert on it with `guardrail()`.
  *
  * @public
  */
@@ -772,8 +772,8 @@ function decideCases(
 ): readonly AnyRow[] {
   const ctx = gateContext(hook, opts, cases.some(isTargetCase));
   return cases.map((c) => {
-    // Counted and attributed like `experimental_assertHookDenies` (see hook-assertions.ts
-    // `runCountedHookProgram`): an in-process decision is a check.
+    // Counted and attributed like the testing `runHookProgram` (see
+    // hook-assertions.ts): an in-process decision is a check.
     recordCheck();
     const source = hookSource(hook);
     if (source !== undefined) recordSurfaceProbe("command", source);
@@ -914,13 +914,13 @@ function markCrashed(spawned: readonly Spawned[]): readonly AnyRow[] {
    no-redeclare rule, unlike @typescript-eslint/no-redeclare, flags them) */
 /**
  * Runs a guard hook over a case set and returns one row per case — it never
- * throws on a miss. Assert on the result with `guardrailHolds()`:
+ * throws on a miss. Assert on the result with `guardrail()`:
  *
  * ```ts
  * import { assertChecks } from "vigiles";
- * import { runGuardrail, guardrailHolds } from "vigiles/hook/testing";
+ * import { runGuardrail, guardrail } from "vigiles/hook/testing";
  *
- * assertChecks(runGuardrail("bash hooks/guard.sh"), [guardrailHolds()]);
+ * assertChecks(runGuardrail("bash hooks/guard.sh"), [guardrail()]);
  * ```
  *
  * With no set it runs `disasters()`: every disaster blocked, its other
@@ -1178,8 +1178,8 @@ const fail = (message: string): CheckResult => ({
  * every case answered for the repository the command targets.
  *
  * ```ts
- * assertChecks(runGuardrail("bash hooks/guard.sh"), [guardrailHolds()]);
- * expect(runGuardrail(guard)).toPass(guardrailHolds()); // vigiles/vitest
+ * assertChecks(runGuardrail("bash hooks/guard.sh"), [guardrail()]);
+ * expect(runGuardrail(guard)).toPass(guardrail()); // vigiles/vitest
  * ```
  *
  * It FAILS, each in its own words, when the guard never answered: a hook that
@@ -1191,7 +1191,7 @@ const fail = (message: string): CheckResult => ({
  *
  * @public
  */
-export function guardrailHolds(): Check<GuardrailRunResult> {
+export function guardrail(): Check<GuardrailRunResult> {
   return {
     kind: "guardrail",
     eval: (r) => {
@@ -1398,7 +1398,7 @@ function reportFoot(
  * hook blocks WITHOUT judging it: a hook that allows these may simply not be a
  * bash-safety guard (our own pre-edit.sh blocks .md edits, not `rm -rf`). The
  * "false confidence" verdict only applies once intent is DECLARED — see
- * {@link guardrailHolds}.
+ * {@link guardrail}.
  */
 export function formatGuardrailReport(
   hook: string | AnyHook,

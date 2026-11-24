@@ -2943,8 +2943,8 @@ export function hookSource(hook: AnyHook): string | undefined {
 /**
  * Evaluate a compiled hook against a raw event, in-process, dispatching by role:
  * a gate → its `Decision`, an inject → the injected context text, a react → its
- * (effect-classified) `Reaction`. Pure — no subprocess, no model. The ergonomic
- * base for testing a compiled hook (see `experimental_assertHookDenies` / `experimental_assertHookAllows`).
+ * (effect-classified) `Reaction`. Pure — no subprocess, no model. Tests reach it
+ * through the counted runner of the same name on `vigiles/hook/testing`.
  *
  * @public
  */

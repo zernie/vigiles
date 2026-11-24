@@ -102,7 +102,7 @@ export const check: typeof customCheck & {
     skill: typeof skill;
     output: typeof output;
     received: typeof received;
-    hookFired: typeof hookFiredCheck;
+    hook: typeof hookFiredCheck;
     turns: typeof turns;
     writes: typeof writes;
     subagent: typeof subagent;
@@ -111,8 +111,7 @@ export const check: typeof customCheck & {
     latency: typeof latency;
     tokens: typeof tokens;
     delivered: typeof delivered;
-    egressOnly: typeof egressOnly;
-    skillContract: typeof skillContract;
+    egress: typeof egress;
     experimental_agentResult: typeof experimental_agentResult;
 };
 
@@ -607,6 +606,9 @@ export interface PromptTriggerStat {
     // (undocumented)
     readonly trials: number;
 }
+
+// @public
+export function readSkillContract(skillDir: string, options?: SkillContractOptions): SkillContract;
 
 // @public
 export function recordCheck(n?: number): void;

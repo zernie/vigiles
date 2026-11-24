@@ -4,7 +4,7 @@
  * assertions (`assertDelivered`, `assertEgressOnly`); as checks they evaluate
  * inside `assertChecks`, `toPass` and a scored `measure`, like every other
  * assertion about a run. Reached as `check.delivered()`,
- * `check.egressOnly([…])` (src/check.ts). What a run WROTE is `check.writes`,
+ * `check.egress({ only: […] })` (src/check.ts). What a run WROTE is `check.writes`,
  * in src/check.ts, because it reads an agent run too.
  *
  * Each reads a field the run result already carries (`delivery`, `egress`),
@@ -39,7 +39,7 @@ type HasDelivery = Pick<
  * - `undelivered` — text went to a stream this event does not deliver (stderr at
  *   exit 0 on `PostToolUse`, measured). Names the stream, the bytes, the cure.
  * - `silent` — nothing addressed to the model, or the hook never ran.
- * - `blocked` — a veto, which is not a nudge; check that with `check.hookFired(event, { blocked: true })`.
+ * - `blocked` — a veto, which is not a nudge; check that with `check.hook(event, { blocked: true })`.
  * - `unknown` — the event has no row in the harness's capability table, so
  *   delivery cannot be judged. FAILS rather than passes (`no-silent-skips`).
  */
@@ -71,7 +71,7 @@ function deliveryVerdict(r: HasDelivery): CheckResult {
       );
     case "blocked":
       return no(
-        `expected a delivered nudge, but the hook BLOCKED the action (exit ${String(r.exitCode)}) — a block is not a nudge; check it with check.hookFired(event, { blocked: true })`,
+        `expected a delivered nudge, but the hook BLOCKED the action (exit ${String(r.exitCode)}) — a block is not a nudge; check it with check.hook(event, { blocked: true })`,
       );
     case "unknown":
       return no(
@@ -91,13 +91,24 @@ const serializePattern = (p: string | RegExp): string =>
   typeof p === "string" ? p : String(p);
 
 /**
- * Every egress attempt went to an allowed host. `allowed` matches a host (exact
- * string or RegExp) or a `host:port`; `[]` means "no egress at all". The failure
- * names every offender — exfil / unexpected-registry detection.
+ * The options of `check.egress`: `only` the hosts every attempt must go to, or
+ * `none: true` for no egress at all (the same as `only: []`).
+ *
+ * @public
  */
-export function egressOnly(
-  allowed: ReadonlyArray<string | RegExp>,
-): Check<HasEgress> {
+export type EgressOptions =
+  | { readonly only: ReadonlyArray<string | RegExp> }
+  | { readonly none: true };
+
+/**
+ * `check.egress`: what the run reached over the network. With `only`, every
+ * egress attempt went to an allowed host — a host (exact string or RegExp) or a
+ * `host:port`; with `none: true` (or `only: []`), there was no egress at all.
+ * The failure names every offender — exfil / unexpected-registry detection.
+ * The constraint is an option, as in `check.writes({ only, none })`.
+ */
+export function egress(opts: EgressOptions): Check<HasEgress> {
+  const allowed = "only" in opts ? opts.only : [];
   const allows = (e: EgressAttempt): boolean =>
     allowed.some((a) =>
       typeof a === "string"
@@ -105,7 +116,7 @@ export function egressOnly(
         : a.test(e.host) || a.test(hostPort(e)),
     );
   return {
-    kind: "egressOnly",
+    kind: "egress",
     eval: (r) => {
       const bad = r.egress.filter((e) => !allows(e));
       if (bad.length === 0) {
@@ -120,8 +131,8 @@ export function egressOnly(
       );
     },
     toJSON: () => ({
-      kind: "egressOnly",
-      allowed: allowed.map(serializePattern),
+      kind: "egress",
+      only: allowed.map(serializePattern),
     }),
   };
 }

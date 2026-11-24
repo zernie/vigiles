@@ -21,32 +21,34 @@
  * `vigiles/hook/testing` (v51), which served the same person.
  *
  *   import { experimental_defineHook } from "vigiles/hook";      // in the hook
- *   import { experimental_loadHook, experimental_assertHookDenies, runGuardrail,
- *     guardrailHolds } from "vigiles/hook/testing";               // in its test
+ *   import { experimental_loadHook, runHookProgram, experimental_decision,
+ *     runGuardrail, guardrail } from "vigiles/hook/testing";     // in its test
+ *
+ * Names say the role (v53): `run…` runs and returns a result, a check is named
+ * after what it observes, case sets are nouns, and `assertChecks` / `toPass`
+ * are the one place that throws.
  */
 
-// --- in-process: load a compiled hook, run it, assert the decision ---
+// --- in-process: load a compiled hook, run it, check the decision ---
 // Load a hook the way the runtime does (the runtime calls the same loader).
 export { experimental_loadHook } from "../../load-hook.js";
 
-// The pure evaluator: one raw event in, the hook's outcome out, dispatched by role.
-export { runHookProgram } from "../../core/hook-program.js";
+// The runner: one raw event in, the hook's outcome out, dispatched by role —
+// the pure evaluator, counted and attributed for the test runner. And the check
+// over that outcome (v53: one check replaces four throwing assertions).
+export {
+  runHookProgram,
+  experimental_decision,
+} from "../../hook-assertions.js";
+export type { ExpectedDecision } from "../../hook-assertions.js";
 export type {
   RawHookEvent,
   HookProgramOutcome,
 } from "../../core/hook-program.js";
 
-// The assertions over one decision, counted and attributed like every check.
-export {
-  experimental_assertHookDenies,
-  experimental_assertHookAllows,
-  experimental_assertHookNotices,
-  experimental_assertHookSilent,
-} from "../../hook-assertions.js";
-
 // --- the guard battery: every disaster blocked, every harmless twin allowed ---
 // One runner, case sets as values, one check (v53). `runGuardrail` returns the
-// rows and never throws; `guardrailHolds()` is the check over them, so it goes
+// rows and never throws; `guardrail()` is the check over them, so it goes
 // through `assertChecks` / `expect(r).toPass(...)` like every other check. The
 // check lives HERE, not as `check.guardrail` on the root: its only input is
 // this entry's runner result, and its reader is this entry's (a hook author
@@ -58,7 +60,7 @@ export {
   disasters,
   experimental_crossRepo,
   runGuardrail,
-  guardrailHolds,
+  guardrail,
 } from "../../guardrail-check.js";
 export type {
   DisasterCases,
@@ -89,7 +91,7 @@ export type {
 // The same battery pointed at a DIRECTORY: each hook's event, matcher, command
 // and condition are read off its own registration, so the pairing mistake a
 // hand-built `runGuardrail` call can make cannot be made.
-export { experimental_verifyPluginGuards } from "../../verify-plugin-guards.js";
+export { experimental_runPluginGuards } from "../../verify-plugin-guards.js";
 export type {
   PluginGuardReport,
   SweptHook,
@@ -97,7 +99,7 @@ export type {
   // What the sweep found DECLARED but cannot drive — a `prompt`/`http`/
   // `mcp_tool`/`agent` action. Named here so `report.unmeasurable` is foldable.
   NonCommandHookAction,
-  VerifyPluginGuardsOptions,
+  RunPluginGuardsOptions,
 } from "../../verify-plugin-guards.js";
 
 // Seed + read a compiled hook's NAMED STATE from a test. A throttled guard only

@@ -324,7 +324,7 @@ export interface HookOutput {
 export interface HookRunResult extends ScriptRunResult {
   /**
    * The event the hook was run for — the input's `hook_event_name` — or
-   * undefined when the input named none. `check.hookFired(event)` matches it.
+   * undefined when the input named none. `check.hook(event)` matches it.
    */
   readonly event?: string;
   /** Parsed stdout JSON if the hook emitted a JSON decision, else null. */

@@ -358,7 +358,7 @@ test("vigiles/harness/codex: the adapter and its helpers, the ports reached thro
     "codexAdapter",
     "parseCodexRun",
     "startCodexMock",
-    "codexEvalDriver",
+    "paid_codexEvalDriver",
     "codexLiveDriver",
   ]) {
     assert.ok(name in door, `vigiles/harness/codex exports ${name}`);

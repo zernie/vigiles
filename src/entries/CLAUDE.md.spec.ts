@@ -39,6 +39,10 @@ export default instructionFile({
       { details: RULES, anchor: "public-exports-are-opt-in" },
     ),
 
+    "name-says-the-role": guidance(
+      'A public name says its role (v53): an ACTION is a verb, and a runner is `run<What>()` returning a result it never throws on; a VALUE (an input, a case set, a fixture handle) is a noun; a CHECK is named after what it OBSERVES, with the constraint in its options (`check.tool(name, { max: 0 })`, `check.egress({ only })`), never in its name; and `assertChecks` / `expect(r).toPass(...)` are the one place that throws. A function that reads a file and returns a structure is a reader (`readSkillContract`), not a check. Three exceptions, named rather than tolerated: a GATE over an aggregate report throws by design (`assertRates`, `assertImproves`, `assertNoRegression`, `assertNoCollision`, `assertAdapterConformance`); an assertion that NARROWS a type throws so the value after it is narrowed (`experimental_assertAgentOk`, `experimental_assertEmittedOk`, `assertAdapterLoadsHooks`); and the AUTHORING vocabularies `vigiles/spec` and `vigiles/hook` name what they declare (`deny("…")`, `file("…")`), so the hook and the spec read as text.',
+    ),
+
     "renaming-an-entry-is-breaking": guidance(
       "Renaming or moving an entry is a BREAKING release (`feat!:` with a `BREAKING CHANGE:` footer listing old → new paths, plus a row in the migration table of `docs/testing-api.md`); aliases are not kept.",
     ),

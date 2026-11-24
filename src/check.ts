@@ -27,8 +27,7 @@ import type { SkillFacts } from "./core/harness-driver.js";
 import { parseShellCommand } from "./core/hook-program.js";
 import { judge as runJudge } from "./judge.js";
 import { recordCheck } from "./check-count.js";
-import { delivered, egressOnly } from "./effect-checks.js";
-import { skillContract } from "./skill-contract.js";
+import { delivered, egress } from "./effect-checks.js";
 import {
   parseAgentResult,
   type ParsedAgentResult,
@@ -413,7 +412,7 @@ function toolSequence(
  * the test author thought of, and the set of undeclared tools is unbounded — so "this
  * skill stayed inside the tools it declares" was not expressible, which is
  * exactly the claim a `SKILL.md` frontmatter makes in prose. See
- * `skillContract`, which builds this check from that declaration.
+ * `readSkillContract`, which builds this check from that declaration.
  *
  * **Fails closed on an empty trace.** A `Trace` records tool calls only when the
  * run captured the stream (`transcript: true` on the harness tier; always on the
@@ -423,7 +422,7 @@ function toolSequence(
  * clean".
  *
  * 🔴 A `Tool(restriction)` DECLARATION IS MATCHED BY ITS BASE NAME. `allowed-tools:
- * Bash(git:*)` is the ordinary way to write a narrow grant, and `skillContract`
+ * Bash(git:*)` is the ordinary way to write a narrow grant, and `readSkillContract`
  * hands that literal string here — while a trace only ever carries the base name
  * `Bash`, because that is the tool the harness reports. Set membership therefore
  * missed, and every legitimate `Bash` call was reported as outside the declared
@@ -449,7 +448,7 @@ function toolSequence(
  * nested calls the parser folds into the same flat list — and reporting those as
  * a violation is an accusation about the wrong code.
  *
- * `skillContract` therefore does NOT use this directly: it wraps it in a window
+ * `readSkillContract` therefore does NOT use this directly: it wraps it in a window
  * bounded by its own `Skill` activation (see `duringSkill` in
  * `src/skill-contract.ts`). If you are checking one skill, prefer the contract;
  * reach for this when the claim really is about the whole run.
@@ -615,7 +614,7 @@ function eachReply(matcher: string | Readonly<RegExp>): Check<Trace> {
 
 /**
  * A hook fired for this event (`"PreToolUse"`, `"Stop"`) or with this label
- * (`"PreToolUse:Edit"`). `check.hookFired` also takes a RegExp and
+ * (`"PreToolUse:Edit"`). `check.hook` also takes a RegExp and
  * `{ blocked }`.
  */
 export function hookFired(event: string): Check<Trace> {
@@ -624,12 +623,12 @@ export function hookFired(event: string): Check<Trace> {
 
 /**
  * The one run of a hook a `runHook` result describes — the fields
- * `check.hookFired` reads from it.
+ * `check.hook` reads from it.
  */
 type HookRun = Pick<HookRunResult, "ran" | "blocked" | "exitCode" | "event"> &
   Partial<Pick<HookRunResult, "decision">>;
 
-/** What `check.hookFired` judges: an agent run's hooks, or one hook run. */
+/** What `check.hook` judges: an agent run's hooks, or one hook run. */
 type HookTarget = Pick<Trace, "hooks"> | HookRun;
 
 /** The hooks a run fired, by label, with the hint an empty list needs. */
@@ -639,7 +638,7 @@ const hooksSeen = (t: Pick<Trace, "hooks">): string =>
     : "none (did you set transcript: true?)";
 
 /**
- * The options of `check.hookFired`.
+ * The options of `check.hook`.
  *
  * @public
  */
@@ -653,7 +652,7 @@ export interface HookFiredOptions {
 }
 
 /**
- * `check.hookFired`: a hook fired for this event (`"PreToolUse"`) or with this
+ * `check.hook`: a hook fired for this event (`"PreToolUse"`) or with this
  * label (`"PreToolUse:Edit"`, `Event:Matcher`); a RegExp is tested against
  * both. With `{ blocked: true }` a matching hook must also have blocked; with
  * `{ blocked: false }` none of them may have.
@@ -670,13 +669,13 @@ function hookFiredCheck(
 ): Check<HookTarget> {
   const label = typeof event === "string" ? event : show(event);
   return {
-    kind: "hookFired",
+    kind: "hook",
     eval: (t) =>
       "hooks" in t
         ? firedInRun(t, event, label, opts)
         : firedAlone(t, event, label, opts),
     toJSON: () => ({
-      kind: "hookFired",
+      kind: "hook",
       event: label,
       ...(typeof event !== "string" && { regex: true }),
       ...(opts.blocked !== undefined && { blocked: opts.blocked }),
@@ -690,7 +689,7 @@ function verdictText(opts: HookFiredOptions): string {
   return opts.blocked ? " and blocked" : " and allowed";
 }
 
-/** `check.hookFired` over an agent run: any matching hook among `hooks`. */
+/** `check.hook` over an agent run: any matching hook among `hooks`. */
 function firedInRun(
   t: Pick<Trace, "hooks">,
   event: string | Readonly<RegExp>,
@@ -716,7 +715,7 @@ function firedInRun(
   return ok(`hook for ${label} fired${verdictText(opts)}`);
 }
 
-/** `check.hookFired` over one `runHook` result: it ran, for this event, and decided so. */
+/** `check.hook` over one `runHook` result: it ran, for this event, and decided so. */
 function firedAlone(
   r: HookRun,
   event: string | Readonly<RegExp>,
@@ -1495,7 +1494,7 @@ export const check = Object.assign(customCheck, {
   skill,
   output,
   received,
-  hookFired: hookFiredCheck,
+  hook: hookFiredCheck,
   turns,
   writes,
   subagent,
@@ -1505,9 +1504,7 @@ export const check = Object.assign(customCheck, {
   tokens,
   // what a hook or script run did beyond its decision (src/effect-checks.ts)
   delivered,
-  egressOnly,
-  // a SKILL.md's own declaration, read back as checks (src/skill-contract.ts)
-  skillContract,
+  egress,
   // a subagent's railway result block, read as a check
   experimental_agentResult,
 });

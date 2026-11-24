@@ -20,7 +20,7 @@ import { normalizeHooks } from "./core/hook-normalize.js";
 import {
   disasters,
   runGuardrail,
-  guardrailHolds,
+  guardrail,
   unblockedDisasters,
   formatGuardrailReport,
   DISASTER_CATALOG,
@@ -340,9 +340,9 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     ]);
   });
 
-  it("guardrailHolds FAILS and says NOT RUN, not `exit 0`", () => {
+  it("guardrail FAILS and says NOT RUN, not `exit 0`", () => {
     const [first] = vendoredHooks();
-    const verdict = guardrailHolds().eval(
+    const verdict = guardrail().eval(
       runGuardrail(first?.command ?? "", disasters(), withIf(first)),
     );
     expect(verdict.pass).toBe(false);

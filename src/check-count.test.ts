@@ -3,6 +3,8 @@
  * `vigiles test` can tell "ran nothing" from "ran and passed". Pure: the
  * process bits (env, exit hook, file write) are injected.
  */
+import { experimental_decision, runHookProgram } from "./hook-assertions.js";
+import { assertChecks } from "./check.js";
 import { test, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 
@@ -21,7 +23,6 @@ import { writeFileSync } from "node:fs";
 
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 import { runHook } from "./run-hook.js";
-import { experimental_assertHookAllows as assertHookAllows } from "./hook-assertions.js";
 import { experimental_defineHook, allow } from "./entries/hook.js";
 
 /** Capture what an armed report would write, without touching the disk. */
@@ -130,7 +131,10 @@ test("an in-process compiled-hook assertion counts as a check", () => {
     on: "PreToolUse",
     decide: () => allow(),
   });
-  assertHookAllows(gate, { tool_name: "Bash", tool_input: { command: "ls" } });
+  assertChecks(
+    runHookProgram(gate, { tool_name: "Bash", tool_input: { command: "ls" } }),
+    [experimental_decision("allow")],
+  );
   assert.equal(checksRecorded(), 1);
 });
 

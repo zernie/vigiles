@@ -1,5 +1,5 @@
 /**
- * `skillContract` + `onlyTools` — the declaration-to-checks wiring.
+ * `readSkillContract` + `onlyTools` — the declaration-to-checks wiring.
  *
  * Pure and filesystem-driven: write a tiny skill into a tmp dir, read its
  * contract back, and evaluate the checks against synthesized traces. No model,
@@ -16,7 +16,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { onlyTools } from "./check.js";
-import { skillContract } from "./skill-contract.js";
+import { readSkillContract } from "./skill-contract.js";
 import type { Trace } from "./harness-test.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
@@ -93,9 +93,9 @@ test("onlyTools FAILS on a trace that recorded nothing (we didn't look != it was
   assert.match(r.message, /transcript: true/);
 });
 
-// --- skillContract --------------------------------------------------------
+// --- readSkillContract --------------------------------------------------------
 
-test("skillContract reads allowed-tools and builds a surface that catches an undeclared call", () => {
+test("readSkillContract reads allowed-tools and builds a surface that catches an undeclared call", () => {
   const dir = makeTmpDir("sc-declared");
   writeFileSync(
     join(dir, "plugin.json"),
@@ -103,7 +103,7 @@ test("skillContract reads allowed-tools and builds a surface that catches an und
   );
   const skillDir = writeSkill(dir, "foo", "allowed-tools: Read, Write\n");
 
-  const c = skillContract(skillDir);
+  const c = readSkillContract(skillDir);
   assert.equal(c.name, "foo");
   assert.equal(c.id, "myplug:foo"); // namespaced from the enclosing manifest
   assert.deepEqual([...c.declared], ["Read", "Write"]);
@@ -121,7 +121,7 @@ test("skillContract reads allowed-tools and builds a surface that catches an und
   cleanupTmpDir(dir);
 });
 
-test("skillContract: a skill declaring `Bash(git:*)` is not failed by its own git call", () => {
+test("readSkillContract: a skill declaring `Bash(git:*)` is not failed by its own git call", () => {
   // The whole path, from the frontmatter a real skill ships to the verdict:
   // `allowed-tools: Bash(git:*)` reaches `onlyTools` as that literal string, and
   // the trace says `Bash`. Reproduced 2026-08-11 on this fixture before the fix —
@@ -134,7 +134,7 @@ test("skillContract: a skill declaring `Bash(git:*)` is not failed by its own gi
     "gitty",
     "allowed-tools: Bash(git:*), Read\n",
   );
-  const c = skillContract(skillDir);
+  const c = readSkillContract(skillDir);
   assert.deepEqual([...c.declared], ["Bash(git:*)", "Read"]);
   assert.equal(
     c.surface[0].eval(trace(["Skill", "Bash", "Read"], c.id)).pass,
@@ -148,25 +148,25 @@ test("skillContract: a skill declaring `Bash(git:*)` is not failed by its own gi
   cleanupTmpDir(dir);
 });
 
-test("skillContract exempts the Skill activation call itself", () => {
+test("readSkillContract exempts the Skill activation call itself", () => {
   // The call that LOADS the skill under test is the harness's mechanism, not a
   // capability the skill exercised — counting it would fail every contract on
   // every run.
   const dir = makeTmpDir("sc-activation");
   const skillDir = writeSkill(dir, "foo", "allowed-tools: Read\n");
   assert.equal(
-    skillContract(skillDir).surface[0].eval(
-      trace(["Skill", "Read"], skillContract(skillDir).id),
+    readSkillContract(skillDir).surface[0].eval(
+      trace(["Skill", "Read"], readSkillContract(skillDir).id),
     ).pass,
     true,
   );
   cleanupTmpDir(dir);
 });
 
-test("skillContract: an UNDECLARED skill is a finding, not an empty contract", () => {
+test("readSkillContract: an UNDECLARED skill is a finding, not an empty contract", () => {
   const dir = makeTmpDir("sc-undeclared");
   const skillDir = writeSkill(dir, "foo", "");
-  const c = skillContract(skillDir);
+  const c = readSkillContract(skillDir);
 
   assert.equal(c.undeclared, true);
   assert.deepEqual([...c.declared], []);
@@ -193,7 +193,7 @@ test("the contract is scoped to THIS skill's activation window", () => {
     join(dir, "plugin.json"),
     JSON.stringify({ name: "myplug", version: "0.0.0" }),
   );
-  const surface = skillContract(skillDir).surface[0];
+  const surface = readSkillContract(skillDir).surface[0];
   const call = (name: string, input: unknown = {}) => ({
     name,
     input,
@@ -250,7 +250,7 @@ test("the contract is scoped to THIS skill's activation window", () => {
   cleanupTmpDir(dir);
 });
 
-test("skillContract: MALFORMED frontmatter is unverifiable, not unrestricted", () => {
+test("readSkillContract: MALFORMED frontmatter is unverifiable, not unrestricted", () => {
   // Observed live (2026-08-10): one unquoted `: ` inside a description silently
   // voided a skill's whole tool contract. A declaration that does not parse is
   // not an enforcement — and it must not read as "declares nothing", either.
@@ -262,7 +262,7 @@ test("skillContract: MALFORMED frontmatter is unverifiable, not unrestricted", (
     `---\nname: foo\nallowed-tools: Read\ndescription: broken here: like this\n  and: [unclosed\n---\n\n# foo\n`,
   );
 
-  const c = skillContract(skillDir);
+  const c = readSkillContract(skillDir);
   assert.equal(c.malformed, true);
   const r = c.surface[0].eval(trace(["Read"]));
   assert.equal(r.pass, false);
@@ -270,7 +270,7 @@ test("skillContract: MALFORMED frontmatter is unverifiable, not unrestricted", (
   cleanupTmpDir(dir);
 });
 
-test("skillContract: activation asserts the real namespaced id", () => {
+test("readSkillContract: activation asserts the real namespaced id", () => {
   const dir = makeTmpDir("sc-activation-id");
   mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
   writeFileSync(
@@ -279,7 +279,7 @@ test("skillContract: activation asserts the real namespaced id", () => {
   );
   const skillDir = writeSkill(dir, "test-harness", "allowed-tools: Read\n");
 
-  const c = skillContract(skillDir);
+  const c = readSkillContract(skillDir);
   assert.equal(c.id, "vigiles:test-harness");
 
   // `skill()` matches on the Skill call's `skill` input, so synthesize that.
@@ -297,19 +297,19 @@ test("skillContract: activation asserts the real namespaced id", () => {
 
   // An explicit override wins over the manifest.
   assert.equal(
-    skillContract(skillDir, { plugin: "other" }).id,
+    readSkillContract(skillDir, { plugin: "other" }).id,
     "other:test-harness",
   );
   cleanupTmpDir(dir);
 });
 
-test("skillContract falls back to the directory name with no plugin manifest", () => {
+test("readSkillContract falls back to the directory name with no plugin manifest", () => {
   const dir = makeTmpDir("sc-bare");
   const skillDir = join(dir, "skills", "bare");
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(join(skillDir, "SKILL.md"), `# no frontmatter at all\n`);
 
-  const c = skillContract(skillDir);
+  const c = readSkillContract(skillDir);
   assert.equal(c.name, "bare");
   assert.equal(c.id, "bare"); // unnamespaced — nothing to namespace it with
   assert.equal(c.undeclared, true);

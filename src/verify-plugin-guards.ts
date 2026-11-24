@@ -17,7 +17,7 @@
  * WHAT IT IS NOT. It reports; it does not judge. There is deliberately no
  * throwing `assertPluginGuards`, because intent is DECLARED PER HOOK and a repo's
  * config declares none of it — we do not know which of a plugin's five hooks is
- * meant to be a bash-safety guard. `runGuardrail` + `guardrailHolds()` remain the gate you
+ * meant to be a bash-safety guard. `runGuardrail` + `guardrail()` remain the gate you
  * reach for once YOU have said which hook must block what; this is the sweep that
  * tells you which hooks are even in the conversation. Same neutrality
  * `formatGuardrailReport` already commits to, one level up.
@@ -234,11 +234,11 @@ export interface PluginGuardReport {
 }
 
 /**
- * Options for {@link experimental_verifyPluginGuards}.
+ * Options for {@link experimental_runPluginGuards}.
  *
  * @public
  */
-export interface VerifyPluginGuardsOptions extends Omit<
+export interface RunPluginGuardsOptions extends Omit<
   RunHookOptions,
   "condition" | "protocol"
 > {
@@ -317,9 +317,7 @@ function missingFiles(
 }
 
 /** The battery, after `categories` / `events` narrowing. */
-function selectEvents(
-  opts: VerifyPluginGuardsOptions,
-): readonly DisasterEvent[] {
+function selectEvents(opts: RunPluginGuardsOptions): readonly DisasterEvent[] {
   if (opts.events) return opts.events;
   if (opts.categories) {
     const set = new Set(opts.categories);
@@ -441,7 +439,7 @@ interface HookEnvironment {
  * environment a run WOULD have, and the environment it would have refused to run
  * unconfined in is the confined one.
  */
-function willBeConfined(opts: VerifyPluginGuardsOptions): boolean {
+function willBeConfined(opts: RunPluginGuardsOptions): boolean {
   return (
     routeScriptRun(opts, {
       sandbox: sandboxAvailable(),
@@ -491,7 +489,7 @@ type EffectiveCwd =
  * @param root - the swept repository, already resolved.
  */
 function effectiveCwd(
-  opts: VerifyPluginGuardsOptions,
+  opts: RunPluginGuardsOptions,
   root: string,
 ): EffectiveCwd {
   if (opts.cwd !== undefined) return { kind: "path", dir: resolve(opts.cwd) };
@@ -547,7 +545,7 @@ function hookEnvironment(
   root: string,
   project: string,
   event: string,
-  opts: VerifyPluginGuardsOptions,
+  opts: RunPluginGuardsOptions,
 ): HookEnvironment {
   const derived: Record<string, string> = {};
   const rootVar = tokenName(adapter.layout.pluginRootToken);
@@ -590,7 +588,7 @@ function hookEnvironment(
 interface SweepContext {
   readonly battery: readonly DisasterEvent[];
   readonly eventName: string;
-  readonly opts: VerifyPluginGuardsOptions;
+  readonly opts: RunPluginGuardsOptions;
   readonly protocol: NonNullable<HarnessAdapter["hookProtocol"]>;
   /** What the run will pass, find set, and be able to resolve. */
   readonly env: HookEnvironment;
@@ -821,9 +819,9 @@ function sweepNotes(
  * each hook's OWN event, matcher and condition, and report per hook.
  *
  * ```ts
- * import { experimental_verifyPluginGuards } from "vigiles/hook/testing";
+ * import { experimental_runPluginGuards } from "vigiles/hook/testing";
  *
- * const report = experimental_verifyPluginGuards(".");
+ * const report = experimental_runPluginGuards(".");
  * for (const h of report.hooks) {
  *   if (h.status === "measured")
  *     console.log(`${h.blocked.length}/${h.results.length}  ${h.hook.command}`);
@@ -853,9 +851,9 @@ function sweepNotes(
  *
  * @beta
  */
-export function experimental_verifyPluginGuards(
+export function experimental_runPluginGuards(
   dir: string,
-  opts: VerifyPluginGuardsOptions = {},
+  opts: RunPluginGuardsOptions = {},
 ): PluginGuardReport {
   const adapter = opts.adapter ?? claudeCodeAdapter;
   const root = resolve(dir);

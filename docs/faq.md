@@ -84,7 +84,7 @@ To back out: `vigiles eject <file>` returns the file to plain markdown and remov
 
 ## Testing guards
 
-These are about `runGuardrail` and its check `guardrailHolds()`, the disaster battery. The full page is
+These are about `runGuardrail` and its check `guardrail()`, the disaster battery. The full page is
 [Prove a guard actually blocks](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery).
 
 ### How do I add my own cases, or replace the defaults?
@@ -99,7 +99,7 @@ import { assertChecks } from "vigiles";
 import {
   DISASTER_CATALOG,
   disasters,
-  guardrailHolds,
+  guardrail,
   runGuardrail,
 } from "vigiles/hook/testing";
 
@@ -111,12 +111,10 @@ const mine = {
   input: { command: "git push origin main" },
 };
 const guard = "bash hooks/guard.sh";
-assertChecks(runGuardrail(guard, disasters({ events: [mine] })), [
-  guardrailHolds(),
-]); // replace
+assertChecks(runGuardrail(guard, disasters({ events: [mine] })), [guardrail()]); // replace
 assertChecks(
   runGuardrail(guard, disasters({ events: [...DISASTER_CATALOG, mine] })),
-  [guardrailHolds()],
+  [guardrail()],
 ); // add
 ```
 

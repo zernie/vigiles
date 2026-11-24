@@ -61,7 +61,7 @@ const CASES = [
       check.tool("Skill", { with: { skill: "demo:greet" } }),
       check.skill("demo:greet"),
       check.output(/done/),
-      check.hookFired("PreToolUse:Edit", { blocked: true }),
+      check.hook("PreToolUse:Edit", { blocked: true }),
       check.runs("git push", { force: true }),
       check("read before edit", (t) => t.toolCalls[0].name === "Read"),
     ],
@@ -70,13 +70,13 @@ const CASES = [
   {
     name: "one hook run: it ran for the event and blocked",
     target: { event: "PreToolUse", ran: true, blocked: true, exitCode: 2 },
-    checks: [check.hookFired("PreToolUse", { blocked: true })],
+    checks: [check.hook("PreToolUse", { blocked: true })],
     pass: true,
   },
   {
     name: "a hook that never ran did not allow anything",
     target: { event: "PreToolUse", ran: false, blocked: false, exitCode: 0 },
-    checks: [check.hookFired("PreToolUse", { blocked: false })],
+    checks: [check.hook("PreToolUse", { blocked: false })],
     pass: false,
   },
   {

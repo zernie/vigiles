@@ -15,7 +15,7 @@ anything; every one of them ships today.
 | Which tools did it call, and with what arguments?                       | `trace.toolCalls` · `check.tool` / `check.tool(name, { with })` · `parseToolCalls` (`vigiles/harness/claude-code`)                                                                          |
 | Did it call a tool it must not?                                         | `check.tool(name, { max: 0 })`                                                                                                                                                              |
 | Did it call **only** tools from a known set?                            | `check.onlyTools([...])` — the white-list, symmetric to `check.writes({ only })`                                                                                                            |
-| Did it stay inside the `allowed-tools` its own frontmatter declares?    | `check.skillContract(dir).surface` — builds that check FROM the declaration                                                                                                                 |
+| Did it stay inside the `allowed-tools` its own frontmatter declares?    | `readSkillContract(dir).surface` — builds that check FROM the declaration                                                                                                                   |
 | What files did the run write?                                           | `filesWritten` · `check.writes({ include: [path] })` / `check.writes({ none: [path] })` · `r.file(path)`                                                                                    |
 | Did it write **only** where it was supposed to?                         | `check.writes({ only: [...] })` / `check.writes({ none: [p] })` — needs `{ sandbox: "auto" }`                                                                                               |
 | Run a tool call but **don't let it execute** — capture the args instead | the `interceptTools` option on `measure` / `runEval` (a `ToolIntercept[]`)                                                                                                                  |
@@ -30,14 +30,14 @@ hook while still recording the call and its arguments into the trace. That is
 how you test a skill that would otherwise mutate a real external service — a
 calendar, an upload — without mocking anything yourself.
 
-**Verify a skill against its own declaration** with `check.skillContract` — it reads
+**Verify a skill against its own declaration** with `readSkillContract` — it reads
 the `allowed-tools:` the skill already claims and hands back ready checks, so
 the claim is verified instead of restated:
 
 ```ts
-import { assertChecks, check } from "vigiles";
+import { assertChecks, readSkillContract } from "vigiles";
 
-const c = check.skillContract(".claude/skills/my-skill");
+const c = readSkillContract(".claude/skills/my-skill");
 assertChecks(trace, [c.activation, ...c.surface]);
 ```
 

@@ -22,7 +22,7 @@ import {
   DISASTER_CATALOG,
   disasters,
   runGuardrail,
-  guardrailHolds,
+  guardrail,
   unblockedDisasters,
   type DisasterEvent,
   type DisasterCategory,
@@ -100,7 +100,7 @@ test("the COMPILED hook blocks all 7 disasters by construction (closes the gaps)
       disasters({ harmless: SAFE_GUARD_HARMLESS }),
       { cwd: REPO_ROOT },
     ),
-    [guardrailHolds()],
+    [guardrail()],
   );
 }, 240_000);
 
@@ -161,7 +161,7 @@ test("a guard that halts the turn is credited with blocking (#174)", () => {
     // The gate itself must now pass on it.
     assert.doesNotThrow(() => {
       assertChecks(runGuardrail(`bash ${guard}`, disasters({ harmless: [] })), [
-        guardrailHolds(),
+        guardrail(),
       ]);
     });
   } finally {
@@ -181,7 +181,7 @@ test("a guard that only says continue:true still fails the battery", () => {
 
     assert.throws(
       () => {
-        assertChecks(runGuardrail(`bash ${guard}`), [guardrailHolds()]);
+        assertChecks(runGuardrail(`bash ${guard}`), [guardrail()]);
       },
       /did NOT block/,
       "a permissive guard must still be reported as false confidence",

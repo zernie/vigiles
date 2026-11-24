@@ -85,19 +85,13 @@ export type DisasterRow = GuardrailRow<"block", DisasterEvent> | GuardrailRow<"a
 export function disasters(opts?: DisasterCasesOptions): DisasterCases;
 
 // @beta
-export function experimental_assertHookAllows(hook: AnyHook, event: RawHookEvent): void;
-
-// @beta
-export function experimental_assertHookDenies(hook: AnyHook, event: RawHookEvent): void;
-
-// @beta
-export function experimental_assertHookNotices(hook: AnyHook, event: RawHookEvent, matcher?: string | RegExp): void;
-
-// @beta
-export function experimental_assertHookSilent(hook: AnyHook, event: RawHookEvent): void;
+export type ExpectedDecision = "deny" | "allow" | "notice" | "silent";
 
 // @beta
 export function experimental_crossRepo(setup: CrossRepoSetup): CrossRepoCases;
+
+// @beta
+export function experimental_decision(expect: ExpectedDecision, matcher?: string | Readonly<RegExp>): Check<HookProgramOutcome>;
 
 // @beta
 export function experimental_hookState(hookFile: string, opts?: {
@@ -108,13 +102,13 @@ export function experimental_hookState(hookFile: string, opts?: {
 export function experimental_loadHook(file: string, root?: string): Promise<AnyHook>;
 
 // @beta
-export function experimental_verifyPluginGuards(dir: string, opts?: VerifyPluginGuardsOptions): PluginGuardReport;
+export function experimental_runPluginGuards(dir: string, opts?: RunPluginGuardsOptions): PluginGuardReport;
+
+// @public
+export function guardrail(): Check<GuardrailRunResult>;
 
 // @public
 export type GuardrailCases = DisasterCases | CrossRepoCases;
-
-// @public
-export function guardrailHolds(): Check<GuardrailRunResult>;
 
 // @public
 export interface GuardrailRow<E extends "block" | "allow", V extends DisasterEvent | HarmlessEvent | CrossRepoEvent> {
@@ -230,7 +224,15 @@ export interface RunGuardrailOptions extends RunHookOptions {
 }
 
 // @public
-export function runHookProgram(hook: AnyHook, event: RawHookEvent, ctx?: RawCtx, root?: string | undefined): HookProgramOutcome;
+export function runHookProgram(hook: AnyHook, event: RawHookEvent, ctx?: Readonly<Record<string, string | boolean | StateFact>>, root?: string): HookProgramOutcome;
+
+// @public
+export interface RunPluginGuardsOptions extends Omit<RunHookOptions, "condition" | "protocol"> {
+    readonly adapter?: HarnessAdapter;
+    readonly categories?: readonly DisasterCategory[];
+    readonly event?: string;
+    readonly events?: readonly DisasterEvent[];
+}
 
 // @public
 export type SeedStateOptions =
@@ -279,14 +281,6 @@ export type SweptHookOutcome = {
     readonly hook: SweptHook;
     readonly reason: string;
 };
-
-// @public
-export interface VerifyPluginGuardsOptions extends Omit<RunHookOptions, "condition" | "protocol"> {
-    readonly adapter?: HarnessAdapter;
-    readonly categories?: readonly DisasterCategory[];
-    readonly event?: string;
-    readonly events?: readonly DisasterEvent[];
-}
 
 // (No @packageDocumentation comment for this package)
 

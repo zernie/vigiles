@@ -15,14 +15,14 @@ const r = runHook(hookCommand, {
   tool_name: "Bash",
   tool_input: { command: "git commit --no-verify" },
 });
-assertChecks(r, [check.hookFired("PreToolUse", { blocked: true })]); // exit 2 / decision:"block" / permissionDecision:"deny"
+assertChecks(r, [check.hook("PreToolUse", { blocked: true })]); // exit 2 / decision:"block" / permissionDecision:"deny"
 ```
 
 Testing a hook you didn't write (a vendored third-party script)? Mark it
 `{ trusted: false }` and it runs confined under bubblewrap by default (read-only
 host, cleared env, no network egress). Add `{ recordEgress: true }` to also
-**record** what it tries to reach — `r.egress` plus `check.egressOnly([])`
-(nothing at all) / `check.egressOnly([...])` — the supply-chain check for "what does this skill
+**record** what it tries to reach — `r.egress` plus `check.egress({ none: true })`
+(nothing at all) / `check.egress({ only: [...] })` — the supply-chain check for "what does this skill
 phone home to / install from?". When the hook's setup needs a _real_ install,
 `{ egress: { allow: ["registry.npmjs.org"] } }` lets it reach only that
 allowlist (a packet-layer `nft` wall, so a raw socket off-list is dropped too) →
@@ -46,7 +46,7 @@ const r = await runHarnessTest({
   model: scriptModel([{ text: "ok" }]),
 });
 assertChecks(r, [
-  check.hookFired("SessionStart"),
+  check.hook("SessionStart"),
   check.received("expected injected text"), // did it actually land?
 ]);
 ```

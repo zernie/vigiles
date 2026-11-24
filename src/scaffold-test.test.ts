@@ -46,16 +46,14 @@ describe("scaffoldTest — hook (unit tier)", () => {
     expect(content).toContain('from "vigiles"');
     expect(content).toContain("runHook(");
     expect(content).toContain('"bash hooks/pre-edit.sh"');
-    expect(content).toContain(
-      'check.hookFired("PreToolUse", { blocked: false })',
-    );
+    expect(content).toContain('check.hook("PreToolUse", { blocked: false })');
     expect(content).not.toContain("assertHookAllowed");
   });
 
   it("takes the guard battery from vigiles/hook/testing, and prints no hidden formatter", () => {
     const { content } = scaffoldTest(input);
     expect(content).toContain(
-      'import { runGuardrail, disasters, guardrailHolds } from "vigiles/hook/testing"',
+      'import { runGuardrail, disasters, guardrail } from "vigiles/hook/testing"',
     );
     expect(content).not.toContain("formatGuardrailReport");
   });

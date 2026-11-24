@@ -37,7 +37,7 @@ const r = runHook(
   { env: { GUARD: guardPath } },
 );
 
-assertChecks(r, [check.hookFired("PreToolUse", { blocked: true })]); // exit 2 / decision:"block" / permissionDecision:"deny"
+assertChecks(r, [check.hook("PreToolUse", { blocked: true })]); // exit 2 / decision:"block" / permissionDecision:"deny"
 ```
 
 A red ✗ means your guard silently lets `--no-verify` through. That's the whole
@@ -129,7 +129,7 @@ const r = runHook(hookCmd, {
   tool_name: "Edit",
   tool_input: { file_path: "README.md" },
 });
-assertChecks(r, [check.hookFired("PreToolUse", { blocked: false })]); // ran, and let it through
+assertChecks(r, [check.hook("PreToolUse", { blocked: false })]); // ran, and let it through
 ```
 
 ### Assert a nudge reaches the model (`check.delivered`)
@@ -168,7 +168,7 @@ assertChecks(r, [check.delivered()]);
 | ------------- | ---------------------------------------------------------------------------------------------------------- |
 | `delivered`   | text reached the model — `via` lists how (`additional-context`, `plain-stdout`, `exit-code-feedback`, …)   |
 | `undelivered` | text was printed, none reached the model — `stranded` names each stream, its bytes, and the cure           |
-| `blocked`     | the hook vetoed the action; a block is not a nudge — use `check.hookFired(event, { blocked: true })`       |
+| `blocked`     | the hook vetoed the action; a block is not a nudge — use `check.hook(event, { blocked: true })`            |
 | `silent`      | nothing addressed to the model (or the hook never ran — see `r.ran`)                                       |
 | `unknown`     | the harness's capability table has no row for this event, so delivery is not judged — and the assert fails |
 
@@ -234,7 +234,7 @@ destructive commands:
 
 The battery has its own door, `vigiles/hook/testing`. For each disaster,
 `runGuardrail` sends your hook three kinds of `PreToolUse` event and returns one
-row per case; the check `guardrailHolds()` fails, naming every case that went
+row per case; the check `guardrail()` fails, naming every case that went
 the wrong way:
 
 1. **the disaster** — it must block;
@@ -268,7 +268,7 @@ it. Each row has `expect` (`"block"` or `"allow"`), `blocked`, and `run`.
 `options` says HOW to run (`protocol`, `condition`, `sandbox`, `env`, `cwd`, and
 `ctx` for a compiled gate's facts), never which cases.
 
-**`guardrailHolds()`** — the check over that result: every disaster blocked,
+**`guardrail()`** — the check over that result: every disaster blocked,
 every harmless case allowed, no cross-repository case failed. A hook that never
 ran, a case it never answered, and a cross-repository case with no verdict each
 FAIL it, in their own words ("NEVER RAN", "NOT RUN", "NOT A VERDICT").
@@ -277,7 +277,7 @@ FAIL it, in their own words ("NEVER RAN", "NOT RUN", "NOT A VERDICT").
 import { assertChecks } from "vigiles";
 import {
   experimental_loadHook,
-  guardrailHolds,
+  guardrail,
   runGuardrail,
 } from "vigiles/hook/testing";
 
@@ -285,12 +285,12 @@ assertChecks(
   runGuardrail(
     await experimental_loadHook(".vigiles/hooks/safety-guard.hook.mjs"),
   ),
-  [guardrailHolds()],
+  [guardrail()],
 );
 
 const r = runGuardrail("bash hooks/safety-guard.sh");
 const wrong = r.rows.filter((row) => row.blocked !== (row.expect === "block"));
-assertChecks(r, [guardrailHolds()]);
+assertChecks(r, [guardrail()]);
 ```
 
 **`disasters(options?)`** — the disaster case set, and the default when you
@@ -330,7 +330,7 @@ import { assertChecks } from "vigiles";
 import {
   DISASTER_CATALOG,
   disasters,
-  guardrailHolds,
+  guardrail,
   runGuardrail,
 } from "vigiles/hook/testing";
 
@@ -353,9 +353,7 @@ const cases = disasters({
   events: [...DISASTER_CATALOG, mine], // add a disaster; its spellings and look-alikes come with it
   harmless: [quoted], // replace the look-alikes with your own case
 });
-assertChecks(runGuardrail("bash hooks/safety-guard.sh", cases), [
-  guardrailHolds(),
-]);
+assertChecks(runGuardrail("bash hooks/safety-guard.sh", cases), [guardrail()]);
 ```
 
 ### What each half catches
@@ -416,7 +414,7 @@ import { resolve } from "node:path";
 import { assertChecks } from "vigiles";
 import {
   experimental_crossRepo,
-  guardrailHolds,
+  guardrail,
   runGuardrail,
 } from "vigiles/hook/testing";
 
@@ -428,7 +426,7 @@ const cases = experimental_crossRepo({
   blockIn: (repo) => repo.branch("main"), // the push must be blocked here
   allowIn: (repo) => repo.branch("feature/x"), // ...and allowed here
 });
-assertChecks(runGuardrail(`bash '${guard}'`, cases), [guardrailHolds()]);
+assertChecks(runGuardrail(`bash '${guard}'`, cases), [guardrail()]);
 ```
 
 vigiles builds real git repositories in a temp directory (each with one
@@ -485,7 +483,7 @@ command at the start repository itself. If one gets the wrong answer, your
 setup does not create the state this hook reads (or the hook reads no
 repository state at all). That form's crossings then read
 `run: "control-failed"`: the hook's answer is recorded, but it is neither a pass
-nor a miss, and `guardrailHolds()` fails with "NOT A VERDICT". A guard that
+nor a miss, and `guardrail()` fails with "NOT A VERDICT". A guard that
 always blocks would otherwise "catch" every crossing that must be blocked.
 
 **Only the cross-repository cases run.** A runner call runs one case set, and
@@ -507,17 +505,17 @@ pull request. A hook that asks GitHub (`gh pr view`) needs a fake `gh` first on
 `stubDir` that answers by its working directory. vigiles does not build that
 stub for you.
 
-### Sweep every hook a repo declares (`experimental_verifyPluginGuards`)
+### Sweep every hook a repo declares (`experimental_runPluginGuards`)
 
 `runGuardrail` takes ONE hook. Point
-`experimental_verifyPluginGuards` at a **directory** instead and it runs the same
+`experimental_runPluginGuards` at a **directory** instead and it runs the same
 battery against every hook the repo actually registers — using each hook's own
 event, matcher and `if` condition, read from the config:
 
 ```ts
-import { experimental_verifyPluginGuards } from "vigiles/hook/testing";
+import { experimental_runPluginGuards } from "vigiles/hook/testing";
 
-const report = experimental_verifyPluginGuards(".");
+const report = experimental_runPluginGuards(".");
 ```
 
 `report.hooks` has one entry per declared hook: `status: "measured"` with what
@@ -585,14 +583,14 @@ pass both — or a hook reading `$CLAUDE_PROJECT_DIR` is pointed at the plugin
 instead of your project.
 
 ```ts
-experimental_verifyPluginGuards("~/.claude/plugins/some-plugin", {
+experimental_runPluginGuards("~/.claude/plugins/some-plugin", {
   cwd: process.cwd(), // the project its hooks run against
 });
 ```
 
 **It reports, it does not judge.** There is no throwing version, because a repo's
 config never says which of its hooks is meant to be a safety guard. Once _you_ know
-which hook must block what, `runGuardrail` with `guardrailHolds()` is still the gate.
+which hook must block what, `runGuardrail` with `guardrail()` is still the gate.
 
 ⚠️ **It runs each reachable hook.** Point it at a repo whose hooks you are willing
 to execute, or pass `trusted: false` / `sandbox: "auto"` to confine them.
@@ -619,7 +617,7 @@ const r = await runHarnessTest({
 });
 
 assertChecks(r, [
-  check.hookFired("UserPromptSubmit"), // it actually fired
+  check.hook("UserPromptSubmit"), // it actually fired
   check.output(/on it/), // …and the run completed
 ]);
 ```
@@ -973,7 +971,7 @@ export default defineEval({
 ```
 
 Exactly one measurement — `runEval` · `measure` · `measureArms` ·
-`measureTriggerRate` · `measureSelectionMatrix`, keyed by the runner's own name —
+`measureTriggerRate` · `paid_measureSelectionMatrix`, keyed by the runner's own name —
 plus two optional hooks: `skipIf()` returns a reason to skip (a loud `⊘ SKIPPED`,
 never a silent green) and `assert(report)` says what the report has to show.
 `vigiles eval` runs the measurement, prints the report with the right formatter,
@@ -1019,8 +1017,8 @@ export default defineEval({
 — dropping the `vigiles/eval` import, the trials line, the `format…` print and
 the `report.n === 0` check, because the runner now does all four. The key is the
 runner's own name (`runEval` · `measure` · `measureArms` · `measureTriggerRate` ·
-`measureSelectionMatrix`); declare exactly one. A capability probe that used to
-sit at the top of the file becomes `skipIf()`. `measureSelectionMatrix`'s
+`paid_measureSelectionMatrix`); declare exactly one. A capability probe that used to
+sit at the top of the file becomes `skipIf()`. `paid_measureSelectionMatrix`'s
 directory argument becomes a `pluginDir` field, and
 `measureTriggerRate(spec, { evalDriver })`'s second argument becomes a top-level
 `evalDriver` key. Run with `vigiles eval x.eval.mjs`; a file left on the old

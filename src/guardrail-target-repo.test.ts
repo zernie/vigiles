@@ -15,7 +15,7 @@ import { join } from "node:path";
 import {
   experimental_crossRepo,
   formatGuardrailReport,
-  guardrailHolds,
+  guardrail,
   runGuardrail,
   type CrossRepoRow,
 } from "./guardrail-check.js";
@@ -140,7 +140,7 @@ test("a guard that reads its own folder's branch: controls pass, every crossing 
       () => {
         assertChecks(
           runGuardrail(guard, experimental_crossRepo(FORCE_PUSH_ON_MAIN)),
-          [guardrailHolds()],
+          [guardrail()],
         );
       },
       (e: unknown) =>
@@ -177,7 +177,7 @@ test("a guard that resolves the target passes every row of every form, on every 
           runGuardrail(guard, experimental_crossRepo(FORCE_PUSH_ON_MAIN), {
             protocol: adapter.hookProtocol,
           }),
-          [guardrailHolds()],
+          [guardrail()],
         );
       });
     }
@@ -204,7 +204,7 @@ test("a guard that ignores the repository fails a control, so its crossings are 
         () => {
           assertChecks(
             runGuardrail(guard, experimental_crossRepo(FORCE_PUSH_ON_MAIN)),
-            [guardrailHolds()],
+            [guardrail()],
           );
         },
         (e: unknown) =>
@@ -249,7 +249,7 @@ test("a compiled gate decides on facts gathered in the start repository", () => 
   assert.throws(() => {
     assertChecks(
       runGuardrail(MAIN_PUSH_GATE, experimental_crossRepo(FORCE_PUSH_ON_MAIN)),
-      [guardrailHolds()],
+      [guardrail()],
     );
   }, /judged the start folder/);
 });
@@ -435,7 +435,7 @@ test("a hook the shell never launched is reported as not run on every case, not 
             guard,
             experimental_crossRepo({ ...FORCE_PUSH_ON_MAIN, forms: ["cd"] }),
           ),
-          [guardrailHolds()],
+          [guardrail()],
         );
       },
       (e: unknown) =>

@@ -1,27 +1,30 @@
 /**
- * Testing a COMPILED hook in-process — the assertions behind `vigiles/hook/testing`.
+ * Testing a COMPILED hook in-process — the runner and the check behind `vigiles/hook/testing`.
  *
- * `experimental_loadHook(file)` loads the hook the way the runtime does, and these assert its
- * decision on a raw event: no subprocess, no model. They are NOT on `vigiles/hook`:
+ * `experimental_loadHook(file)` loads the hook the way the runtime does,
+ * `runHookProgram(hook, event)` runs it on a raw event, and the check
+ * `experimental_decision(...)` asserts on the outcome through `assertChecks` /
+ * `toPass`: no subprocess, no model. They are NOT on `vigiles/hook`:
  * that entry is the only import a compiled hook may have, so anything on it is
  * reachable from inside every hook (src/hook-entry-effects.test.ts). This module
  * still stays small, because the CLI runner loads it beside the hook under test:
  * it imports the pure evaluator and the check counter, never the harness runner
  * or the eval tier.
  */
-import { hookSource, runHookProgram } from "./core/hook-program.js";
+import {
+  hookSource,
+  runHookProgram as evaluateHookProgram,
+} from "./core/hook-program.js";
 import type {
   AnyHook,
   RawHookEvent,
   HookProgramOutcome,
 } from "./core/hook-program.js";
+import type { Check, CheckResult } from "./check.js";
+import type { StateFact } from "./core/hook-state.js";
 import { recordCheck, recordSurfaceProbe } from "./check-count.js";
 
-function fail(message: string): never {
-  throw new Error(message);
-}
-
-/** Render a {@link HookProgramOutcome} for an assertion message. */
+/** Render a {@link HookProgramOutcome} for a check message. */
 function describeOutcome(o: HookProgramOutcome): string {
   if (o.kind === "decision") return `${o.decision.kind} (a gate decision)`;
   if (o.kind === "injection") return `an injection`;
@@ -29,156 +32,154 @@ function describeOutcome(o: HookProgramOutcome): string {
 }
 
 /**
- * `runHookProgram`, counted AND attributed. An in-process hook decision is an
- * observation the CLI runner can see — without it, a `*.harness.*` file that only
- * tests compiled hooks would look like it did nothing at all. See check-count.ts.
+ * Run a COMPILED hook (a `vigiles/hook` program) on one raw event, in-process —
+ * no subprocess, no model — and return its outcome, dispatched by role
+ * (`{ kind: "decision" | "injection" | "reaction", … }`). Assert on it with
+ * `experimental_decision(...)`:
  *
- * 🔴 THE PROBE BELONGS HERE, AND NOWHERE EARLIER OR LATER. The documented
- * in-process path — `experimental_loadHook(file)` then `experimental_assertHookDenies(hook, event)` — used
- * to record a check and no SURFACE, so the child exited a non-vacuous pass with
- * an empty `surfaces` list, `runsFromResults` discarded it, and a harness that
- * genuinely executed a compiled hook produced NO execution record. The hook then
- * showed as untested unless filename colocation happened to cover it. Unlike
- * every other coverage finding in this review that is a false NEGATIVE — real
- * execution going unrecorded — which is why the bar for what gets recorded here
- * is the high one, not the cheap one.
+ * ```ts
+ * import { assertChecks } from "vigiles";
+ * import { experimental_decision, experimental_loadHook, runHookProgram }
+ *   from "vigiles/hook/testing";
  *
- * Not at LOAD: `experimental_loadHook` only remembers the path. Someone loading a hook to
- * inspect its shape has not run it, and crediting that would be the "an empty
- * file counts" substitution the execution tier exists to remove.
+ * const hook = await experimental_loadHook(".vigiles/hooks/guard.hook.mjs");
+ * assertChecks(runHookProgram(hook, event), [experimental_decision("deny")]);
+ * ```
  *
- * Not in `runHookProgram`: that is the PURE evaluator, and it is what the CLI's
- * `hook-runtime run-program` calls on every live event in production. Recording
- * there would make the pure decision impure and would fire outside any test.
+ * It is the pure evaluator the runtime uses — with the same optional `ctx` (the
+ * facts a gate's `needs` read) and project `root` — counted AND attributed: an
+ * in-process hook decision is an observation the CLI runner can see — without
+ * it, a `*.harness.*` file that only tests compiled hooks would look like it
+ * did nothing at all (see check-count.ts).
  *
- * This function is the only place that has both facts — the hook is about to be
- * evaluated, and (when it came from `experimental_loadHook`) we know its file. Four public
- * assertions funnel through it, so none of them can be added without inheriting
- * the attribution.
+ * 🔴 THE PROBE BELONGS HERE, AND NOWHERE EARLIER OR LATER. Not at LOAD:
+ * `experimental_loadHook` only remembers the path, and someone loading a hook
+ * to inspect its shape has not run it. Not in the core evaluator: that is what
+ * the CLI's `hook-runtime run-program` calls on every live event in production,
+ * and recording there would fire outside any test. This runner is the only
+ * place that has both facts — the hook is about to be evaluated, and (when it
+ * came from `experimental_loadHook`) we know its file. A compiled hook cannot
+ * import `vigiles/hook/testing`, so it never runs in production.
  *
- * ⚠️ WHAT THIS DELIBERATELY DOES NOT ATTRIBUTE — run, not asserted. A hook built
- * in-process rather than loaded from disk has no file to name, so nothing is
- * recorded and nothing is invented:
+ * ⚠️ A hook built in-process rather than loaded from disk has no file to name,
+ * so nothing is attributed and nothing is invented — a missed record, never a
+ * false one.
  *
- *     const h = experimental_defineHook({…}); experimental_assertHookDenies(h, e);  → surfacesRecorded() === []
- *
- * …and a direct `runHookProgram(hook, event)` call (the pure evaluator, public
- * via `vigiles/hook`) records nothing either, for the reason above. Both cost a
- * missed record, never a false one.
+ * @public
  */
-function runCountedHookProgram(
+export function runHookProgram(
   hook: AnyHook,
   event: RawHookEvent,
+  ctx?: Readonly<Record<string, string | boolean | StateFact>>,
+  root?: string,
 ): HookProgramOutcome {
   recordCheck();
-  // `command`, the same shape a parsed hook ref gets — but note the provenance
-  // differs: that one is inferred from a command string and is best-effort; this
-  // one is the path `experimental_loadHook` resolved, so it is exact by construction.
+  // The path `experimental_loadHook` resolved: exact by construction.
   const source = hookSource(hook);
   if (source !== undefined) recordSurfaceProbe("command", source);
-  return runHookProgram(hook, event);
+  return evaluateHookProgram(hook, event, { ...ctx }, root ?? event.cwd);
 }
 
 /**
- * Assert a COMPILED hook (a `vigiles/hook` program) denies an event — evaluated
- * in-process, no subprocess, no model. The cheapest way to test a gate's logic:
- * pass the hook's default export and a raw event. (For the wired-into-the-real-CLI
- * check, use `check.hookFired(event, { blocked: true })` over a `runHook` result.)
- *
- * @experimental Tests the experimental compiled-hook vocabulary
- * (`experimental_define*`), so it moves with it.
+ * What a hook's outcome must be, for {@link experimental_decision}: a gate
+ * decision (`deny`, `allow`), a react hook's `notice(…)`, or a react hook that
+ * stays `silent` (`nothing()`).
  *
  * @beta
  */
-export function experimental_assertHookDenies(
-  hook: AnyHook,
-  event: RawHookEvent,
-): void {
-  const o = runCountedHookProgram(hook, event);
-  if (o.kind !== "decision" || o.decision.kind !== "deny") {
-    fail(`expected the hook to deny, got ${describeOutcome(o)}`);
+export type ExpectedDecision = "deny" | "allow" | "notice" | "silent";
+
+const pass = (message: string): CheckResult => ({
+  pass: true,
+  score: 1,
+  message,
+});
+const fail = (message: string): CheckResult => ({
+  pass: false,
+  score: 0,
+  message,
+});
+
+/** A matcher as a message shows it: the string, or `/source/flags`. */
+const show = (m: string | Readonly<RegExp>): string =>
+  typeof m === "string" ? m : `/${m.source}/${m.flags}`;
+
+/** Did the notice's message match? A string is a substring; a RegExp is tested. */
+function matches(message: string, matcher: string | Readonly<RegExp>): boolean {
+  return typeof matcher === "string"
+    ? message.includes(matcher)
+    : matcher.test(message);
+}
+
+/** The verdict of one expectation over one outcome. */
+function decide(
+  o: HookProgramOutcome,
+  expect: ExpectedDecision,
+  matcher: string | Readonly<RegExp> | undefined,
+): CheckResult {
+  switch (expect) {
+    case "deny":
+    case "allow":
+      return o.kind === "decision" && o.decision.kind === expect
+        ? pass(`the hook decided ${expect}`)
+        : fail(`expected the hook to ${expect}, got ${describeOutcome(o)}`);
+    case "silent":
+      if (o.kind !== "reaction")
+        return fail(`expected a react hook, got ${describeOutcome(o)}`);
+      return o.reaction.kind === "none"
+        ? pass("the hook stayed silent")
+        : fail(`expected the hook to stay silent, got ${describeOutcome(o)}`);
+    case "notice":
+      return noticed(o, matcher);
   }
 }
 
-/** Assert a COMPILED hook allows an event (in-process). The twin of {@link experimental_assertHookDenies}. *
- * @experimental Tests the experimental compiled-hook vocabulary
- * (`experimental_define*`), so it moves with it.
- *
- * @beta
- */
-export function experimental_assertHookAllows(
-  hook: AnyHook,
-  event: RawHookEvent,
-): void {
-  const o = runCountedHookProgram(hook, event);
-  if (o.kind !== "decision" || o.decision.kind !== "allow") {
-    fail(`expected the hook to allow, got ${describeOutcome(o)}`);
-  }
-}
-
-/**
- * Assert a COMPILED **react** hook emits a `notice(…)` for an event, optionally
- * matching its message — the react-tier twin of {@link experimental_assertHookDenies}.
- *
- * A react hook can't block, so the gate assertions don't apply to it, and there
- * was no assertion that did. That left `notice()` a live trap: a probe built on
- * `execFileSync` (which returns stdout only) reported a perfectly healthy react
- * hook as DEAD — measured against three real hooks on 2026-08-03. Reading the
- * reaction in-process means no stream enters into it, which is why this
- * assertion did not change when delivery did: since 2026-09-07 a notice also
- * goes to stdout as `additionalContext` on an event the harness injects (see
- * `noticeDelivery`), so WHICH stream carries it now depends on the event — a
- * stream probe is even less answerable than before, and this one is unaffected.
- *
- * @experimental Tests the experimental compiled-hook vocabulary
- * (`experimental_define*`), so it moves with it.
- *
- * @beta
- */
-export function experimental_assertHookNotices(
-  hook: AnyHook,
-  event: RawHookEvent,
-  matcher?: string | RegExp,
-): void {
-  const o = runCountedHookProgram(hook, event);
-  if (o.kind !== "reaction" || o.reaction.kind !== "notice") {
-    fail(`expected the hook to notice, got ${describeOutcome(o)}`);
-  }
-  if (matcher === undefined) return;
+/** The `notice` expectation: a notice reaction, its message matching `matcher` if given. */
+function noticed(
+  o: HookProgramOutcome,
+  matcher: string | Readonly<RegExp> | undefined,
+): CheckResult {
+  if (o.kind !== "reaction" || o.reaction.kind !== "notice")
+    return fail(`expected the hook to notice, got ${describeOutcome(o)}`);
   const { message } = o.reaction;
-  const matched =
-    typeof matcher === "string"
-      ? message.includes(matcher)
-      : matcher.test(message);
-  if (!matched) {
-    fail(
-      `expected the notice to match ${String(matcher)}, got ${JSON.stringify(message)}`,
-    );
-  }
+  if (matcher === undefined || matches(message, matcher))
+    return pass("the hook noticed");
+  return fail(
+    `expected the notice to match ${show(matcher)}, got ${JSON.stringify(message)}`,
+  );
 }
 
 /**
- * Assert a COMPILED **react** hook stays silent for an event — it returns
- * `nothing()` (a `"none"` reaction). The twin of {@link experimental_assertHookNotices}: together they pin both
- * halves of a react hook's behaviour — it fires when it should, and (the half
- * that actually regresses) it does NOT fire when it shouldn't.
+ * The check over a compiled hook's outcome ({@link runHookProgram}): it
+ * decided `deny` or `allow` (a gate), or reacted with a `notice` — whose message
+ * contains `matcher` (a string) or matches it (a RegExp), when given — or stayed
+ * `silent` (a react hook returning `nothing()`; a `run(…)` reaction is not
+ * silent, the hook still reacted). The silent half is the one that regresses:
+ * together `notice` and `silent` pin a react hook firing when it should and
+ * NOT firing when it shouldn't.
  *
- * A `run(…)` reaction is not silent for this purpose: the hook still reacted.
+ * Reading the outcome in-process means no stream enters into it: a probe built
+ * on stdout alone once reported a healthy react hook as dead (measured against
+ * three real hooks on 2026-08-03), and which stream carries a notice now
+ * depends on the event. For the hook wired into the real CLI, use
+ * `check.hook(event, { blocked })` over a `runHook` result.
  *
  * @experimental Tests the experimental compiled-hook vocabulary
  * (`experimental_define*`), so it moves with it.
  *
  * @beta
  */
-export function experimental_assertHookSilent(
-  hook: AnyHook,
-  event: RawHookEvent,
-): void {
-  const o = runCountedHookProgram(hook, event);
-  if (o.kind !== "reaction") {
-    fail(`expected a react hook, got ${describeOutcome(o)}`);
-  }
-  if (o.reaction.kind !== "none") {
-    fail(`expected the hook to stay silent, got ${describeOutcome(o)}`);
-  }
+export function experimental_decision(
+  expect: ExpectedDecision,
+  matcher?: string | Readonly<RegExp>,
+): Check<HookProgramOutcome> {
+  return {
+    kind: "decision",
+    eval: (o) => decide(o, expect, matcher),
+    toJSON: () => ({
+      kind: "decision",
+      expect,
+      ...(matcher !== undefined && { matcher: show(matcher) }),
+    }),
+  };
 }

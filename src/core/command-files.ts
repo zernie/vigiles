@@ -6,7 +6,7 @@
  * registered as `python3 .claude/hooks/guard.py` whose script is not there does
  * not fail in a way anyone can see: `python3` exits **2** on a file it cannot
  * open, and 2 is Claude Code's DENY code. So `decideHook` reads a block, and
- * `experimental_verifyPluginGuards` reports the hook as blocking every disaster
+ * `experimental_runPluginGuards` reports the hook as blocking every disaster
  * in the battery — a perfect score for a guard that does not exist. Measured on
  * this repo's own build:
  *

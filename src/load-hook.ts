@@ -1,8 +1,8 @@
 /**
  * `experimental_loadHook` — load a compiled-hook program from a FILE.
  *
- * The in-process assertions (`experimental_assertHookDenies` / `experimental_assertHookAllows` /
- * `experimental_assertHookNotices` / `experimental_assertHookSilent`) take the hook OBJECT, but a
+ * The in-process runner (`runHookProgram`, checked with `experimental_decision`)
+ * takes the hook OBJECT, but a
  * `.harness.mjs` test only has the hook's PATH — and the loader that turns one
  * into the other lived privately inside `cli.ts`. So the intended in-process test
  * path was unreachable from the file format `vigiles test` actually runs, and
@@ -53,16 +53,16 @@ function isTypeScriptRuntimeError(e: unknown): boolean {
  * reported as itself.
  *
  * ```js
+ * import { assertChecks } from "vigiles";
  * import {
+ *   experimental_decision,
  *   experimental_loadHook,
- *   experimental_assertHookDenies,
+ *   runHookProgram,
  * } from "vigiles/hook/testing";
  *
  * const guard = await experimental_loadHook(".vigiles/hooks/guard.hook.mjs");
- * experimental_assertHookDenies(guard, {
- *   tool_name: "Bash",
- *   tool_input: { command: "git push --force" },
- * });
+ * const event = { tool_name: "Bash", tool_input: { command: "git push --force" } };
+ * assertChecks(runHookProgram(guard, event), [experimental_decision("deny")]);
  * ```
  *
  * @throws {HookCompileError} when the file can't be imported, or has no

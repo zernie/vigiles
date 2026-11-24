@@ -33,9 +33,9 @@
  *   - reading an eval REPORT (`compare`, `assertRates`, `assertImproves`,
  *     `assertNoRegression`) → `vigiles/eval`, beside the `paid_*` runners that produce the report.
  *     `paid_`, not the door, marks a call that can bill you.
- *   - the guard battery (`runGuardrail`, `guardrailHolds`, …) →
+ *   - the guard battery (`runGuardrail`, `guardrail`, …) →
  *     `vigiles/hook/testing`.
- *   - testing a compiled hook in-process (`experimental_loadHook`, `experimental_assertHookDenies`, …) →
+ *   - testing a compiled hook in-process (`experimental_loadHook`, `runHookProgram`, `experimental_decision`, …) →
  *     `vigiles/hook/testing` (never `vigiles/hook`, a compiled hook's only import).
  *   - a subagent's outcome as a value (`experimental_assertAgentOk`, which
  *     throws so the result narrows) → `vigiles/spec`; as a check,
@@ -137,7 +137,7 @@ export {
 
 // --- the declarative check vocabulary: ONE callable object ---
 // Every assertion about a run is a member of `check` — `check.tool("Bash")`,
-// `check.hookFired("PreToolUse", { blocked: true })`, `check.delivered()`,
+// `check.hook("PreToolUse", { blocked: true })`, `check.delivered()`,
 // `check("name", fn)` — and `assertChecks` throws listing every one that
 // failed. There are no flat check functions here (v50): one name for the whole
 // vocabulary keeps the root to its verbs, and an editor completes `check.` to
@@ -217,8 +217,9 @@ export type {
 // Named in `Trace.skills`: which skills fired, as the harness's adapter tells.
 export type { SkillFire, SkillFacts } from "../core/harness-driver.js";
 
-// A skill's own `allowed-tools:` frontmatter, read back as checks: reached as
-// `check.skillContract(dir)`, since what it builds is checks.
+// A skill's own `allowed-tools:` frontmatter, read back as checks. A READER, so
+// a root function and not a member of `check` (v53; it was `check.skillContract`).
+export { readSkillContract } from "../skill-contract.js";
 export type { SkillContract, SkillContractOptions } from "../skill-contract.js";
 
 // --- declaring an eval (free: a description cannot spend) ---

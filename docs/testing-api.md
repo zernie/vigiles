@@ -87,7 +87,7 @@ assertChecks(r, [
   check.tool("Write", { max: 1 }), // budget — no runaway writes
   check.tool("Edit", { with: { file_path: "src/billing.ts" } }), // argument
   check.tool("Bash", { with: { command: /git push/ }, max: 0 }), // never pushed
-  check.hookFired("UserPromptSubmit"),
+  check.hook("UserPromptSubmit"),
   check.output(/on it/),
   check.writes({ include: ["DONE"] }), // a file was created
   check(
@@ -96,7 +96,7 @@ assertChecks(r, [
   ),
 ]);
 
-assertChecks(hookResult, [check.hookFired("PreToolUse", { blocked: true })]); // exit 2 / decision:"block" / permissionDecision:"deny"
+assertChecks(hookResult, [check.hook("PreToolUse", { blocked: true })]); // exit 2 / decision:"block" / permissionDecision:"deny"
 ```
 
 Want a boolean instead of a throw — in a `measure`, say? A check's verdict is
@@ -105,7 +105,7 @@ Want a boolean instead of a throw — in a `measure`, say? A check's verdict is
 What a hook or script run did beyond its decision is a check too:
 `check.delivered()` (its text REACHED the model, not just stderr — see
 [harness-testing.md](harness-testing.md#assert-a-nudge-reaches-the-model-checkdelivered)),
-`check.egressOnly([...])` over a confined run's egress, and
+`check.egress({ only: [...] })` over a confined run's egress, and
 `check.writes({ only, none, include })` over its file writes.
 
 **`check.writes` reads both kinds of run, and refuses what one cannot answer.**
@@ -128,7 +128,7 @@ scope, even when an assertion throws.
 
 To prove a guard blocks every disaster and allows the same text as data, use the
 battery on [`vigiles/hook/testing`](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery):
-`assertChecks(runGuardrail("bash hooks/guard.sh"), [guardrailHolds()])`.
+`assertChecks(runGuardrail("bash hooks/guard.sh"), [guardrail()])`.
 
 ### Test a compiled hook in-process (no subprocess)
 
@@ -139,12 +139,10 @@ not on `vigiles/hook`: a compiled hook may import only `vigiles/hook`, so a
 loader there would be callable from inside every hook.
 
 ```ts
+import { assertChecks } from "vigiles";
 import {
+  experimental_decision,
   experimental_loadHook,
-  experimental_assertHookDenies,
-  experimental_assertHookAllows,
-  experimental_assertHookNotices,
-  experimental_assertHookSilent,
   runHookProgram,
 } from "vigiles/hook/testing";
 
@@ -153,37 +151,46 @@ import {
 // >= 23.6. Already holding the object (a static import)? Pass it directly.
 const guard = await experimental_loadHook(".vigiles/hooks/guard.hook.mjs");
 
-experimental_assertHookDenies(guard, {
-  tool_name: "Bash",
-  tool_input: { command: "git push -f" },
-});
-experimental_assertHookAllows(guard, {
-  tool_name: "Bash",
-  tool_input: { command: "git status" },
-});
+assertChecks(
+  runHookProgram(guard, {
+    tool_name: "Bash",
+    tool_input: { command: "git push -f" },
+  }),
+  [experimental_decision("deny")],
+);
+assertChecks(
+  runHookProgram(guard, {
+    tool_name: "Bash",
+    tool_input: { command: "git status" },
+  }),
+  [experimental_decision("allow")],
+);
 
-// A REACT hook can't block, so it gets its own pair. Which STREAM carries a
+// A REACT hook can't block, so it gets its own two expectations. Which STREAM carries a
 // `notice()` depends on the event (additionalContext on stdout where the event
 // injects, stderr only where it cannot), so these read the reaction itself.
 const warn = await experimental_loadHook(
   ".vigiles/hooks/warn-on-failure.hook.mjs",
 );
-experimental_assertHookNotices(warn, failedBashEvent, /read the error/); // message matcher optional
-experimental_assertHookSilent(warn, successfulBashEvent);
+assertChecks(runHookProgram(warn, failedBashEvent), [
+  experimental_decision("notice", /read the error/),
+]); // message matcher optional
+assertChecks(runHookProgram(warn, successfulBashEvent), [
+  experimental_decision("silent"),
+]);
 // A react declared for Bash alone (`match: tools("Bash")`) also reads the
 // command: its event is a `BashReactEvent`, so feed it a Bash payload, and
 // add a non-Bash event to show it stays quiet there.
 
-// the raw primitive: a normalized, role-dispatched outcome
+// the runner alone: a normalized, role-dispatched outcome
 runHookProgram(guard, event); // → { kind: "decision" | "injection" | "reaction", … }
 ```
 
-`check.hookFired(event, { blocked })` (above) is the sibling check over a
+`check.hook(event, { blocked })` (above) is the sibling check over a
 `runHook` **result** (the hook run as a real subprocess) — it reads the result's
 `event`, `ran` and `blocked`, so a hook whose condition never matched fails both
-`blocked: true` and `blocked: false`; `experimental_assertHookDenies` /
-`experimental_assertHookAllows` evaluate the typed program **directly** — cheaper, and they
-work for inject/react hooks too via `runHookProgram`. Which reacts see
+`blocked: true` and `blocked: false`; `runHookProgram` + `experimental_decision`
+evaluate the typed program **directly** — cheaper, and they work for react hooks too. Which reacts see
 `e.command` (a `BashReactEvent`) and which do not (a `ToolReactEvent`):
 [A react that reads the command](compiled-hooks.md#a-react-that-reads-the-command).
 
@@ -241,7 +248,7 @@ assertChecks(await runHarnessTest(spec), [
   check.output(/done/),
 ]);
 assertChecks(runHook(cmd, event), [
-  check.hookFired("PreToolUse", { blocked: true }),
+  check.hook("PreToolUse", { blocked: true }),
 ]);
 
 // SCORED (eval): the SAME checks, as a rate ± se across trials.
@@ -281,7 +288,7 @@ on `vigiles/eval`.
 | `check.subagent(name, [checks])`                       | the `Task` subagent ran + passed nested checks                                            | Trace (nested)            |
 | `check.output(str \| /re/)`                            | the final answer contains/matches (`{ eachReply: true }`: every reply does)               | Trace                     |
 | `check.received(str \| /re/)`                          | text reached the model (slash-command / injected)                                         | Trace (mock)              |
-| `check.hookFired(event \| /re/, { blocked? })`         | a hook fired for that event or label (and blocked / allowed)                              | Trace or `runHook` result |
+| `check.hook(event \| /re/, { blocked? })`              | a hook fired for that event or label (and blocked / allowed)                              | Trace or `runHook` result |
 | `check.turns({ min, max, matching? })`                 | the agent took N turns (with `matching`: N replies matched)                               | Trace                     |
 | `check.writes({ include, none })`                      | a file is / is not at each exact path in the work dir                                     | Trace or confined run     |
 | `check.experimental_agentResult(expect, contract?)`    | the output ends with a result block on the `"ok"` / `"err"` track, or meets a predicate   | Trace                     |
@@ -289,9 +296,12 @@ on `vigiles/eval`.
 | `check.cost({ maxUsd })` / `check.latency({ maxMs })`  | the run stayed under budget                                                               | run usage (eval)          |
 | `check.tokens({ max, maxInput, maxOutput, maxCache })` | each given token class stayed under its cap (total, fresh input, output, prompt cache)    | run usage (eval)          |
 | `check.delivered()`                                    | the hook's text reached the model (not just stderr)                                       | `runHook` result          |
-| `check.egressOnly([...])`                              | every egress attempt went to an allowed host (`[]` = none at all)                         | confined run              |
+| `check.egress({ only: [...] })` / `({ none: true })`   | every egress attempt went to an allowed host; `none` = no egress at all                   | confined run              |
 | `check.writes({ only, none, include })`                | every write is in `only`; none in `none`; each of `include` written (fails if unrecorded) | confined run              |
-| `check.skillContract(dir)`                             | builds `activation` + `surface` checks from a SKILL.md's `allowed-tools:`                 | (a builder)               |
+
+A skill's own `allowed-tools:` is read back as checks by the root reader
+`readSkillContract(dir)` → `{ activation, surface, … }`, then
+`assertChecks(trace, [c.activation, ...c.surface])`.
 
 `paid_measureArms({ arms, checks })` scores the same checks per arm (a hook/skill/rule
 **on vs off**): `report.arms[name].perCheck[i]` lines up across arms. It takes
@@ -334,7 +344,7 @@ shorthands.
 | `expect(r).toBlock()`                    | the hook blocked                         | `runHook` result |
 | `expect(report).toBeatBaseline(b, a, m)` | arm `a` beats baseline `b` on metric `m` | eval report      |
 
-So `toPass(check.tool("Bash"))`, `toPass(check.skill("x:y"))`, `toPass(check.hookFired("PreToolUse", { blocked: true }))`,
+So `toPass(check.tool("Bash"))`, `toPass(check.skill("x:y"))`, `toPass(check.hook("PreToolUse", { blocked: true }))`,
 `toPass(check.cost({ maxUsd: 0.05 }))` all work with one matcher. vitest and jest are
 **optional peer dependencies** — only the entry you import pulls one in; the seam
 is tested under both runners in [`test/runners/`](../test/runners/).
@@ -415,17 +425,17 @@ assertRates(report, { min: 0.8, maxFalsePositive: 0.1 }); // recall, precision s
 
 Per-skill trigger-rate asks each skill in isolation. It can't catch the failure
 that breaks a _multi-skill_ plugin: one skill hijacking a **sibling's** prompt.
-`measureSelectionMatrix` runs each skill's own prompts against the whole installed
+`paid_measureSelectionMatrix` runs each skill's own prompts against the whole installed
 set and records which skill fired — an N×N matrix whose diagonal is recall and
 whose off-diagonal mass is collision.
 
 ```ts
 import {
-  measureSelectionMatrix,
+  paid_measureSelectionMatrix,
   assertNoCollision,
 } from "vigiles/harness/claude-code";
 
-const report = await measureSelectionMatrix("./my-plugin", {
+const report = await paid_measureSelectionMatrix("./my-plugin", {
   // prompts auto-derived from each skill's description (zero setup);
   // pass `prompts` (a { skill: { prompts: [...] } } map) for a curated set.
   trials: 1,
@@ -637,13 +647,13 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 
 **One door per reader** — every name lives behind exactly one of these:
 
-| Reader                | Import                 | What it holds                                                                                                                                                                                                                                                                                                                                                                                          |
-| --------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Test your harness     | `vigiles`              | the runners, every check and assertion over a run, the matchers, tool stubs, `defineEval`, and the report types — everything that costs nothing to run                                                                                                                                                                                                                                                 |
-| Measure with a model  | `vigiles/eval`         | the `paid_*` runners, and the free readers of their report: `compare`, `assertRates`, `assertImproves`, `assertNoRegression` (with its `baseline` file)                                                                                                                                                                                                                                                |
-| Write a compiled hook | `vigiles/hook`         | the hook vocabulary — the only import a compiled hook may have                                                                                                                                                                                                                                                                                                                                         |
-| Test a hook           | `vigiles/hook/testing` | `experimental_loadHook`, `runHookProgram`, `experimental_assertHookDenies` / `experimental_assertHookAllows` / `experimental_assertHookNotices` / `experimental_assertHookSilent`, and the guard battery: the runner `runGuardrail`, its check `guardrailHolds`, the case sets `disasters` / `experimental_crossRepo`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState` |
-| Author a spec         | `vigiles/spec`         | the spec builders and their types, and `experimental_assertAgentOk` (compiling is `vigiles compile` / `vigiles lint`)                                                                                                                                                                                                                                                                                  |
+| Reader                | Import                 | What it holds                                                                                                                                                                                                                                                                   |
+| --------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Test your harness     | `vigiles`              | the runners, every check and assertion over a run, the matchers, tool stubs, `defineEval`, and the report types — everything that costs nothing to run                                                                                                                          |
+| Measure with a model  | `vigiles/eval`         | the `paid_*` runners, and the free readers of their report: `compare`, `assertRates`, `assertImproves`, `assertNoRegression` (with its `baseline` file)                                                                                                                         |
+| Write a compiled hook | `vigiles/hook`         | the hook vocabulary — the only import a compiled hook may have                                                                                                                                                                                                                  |
+| Test a hook           | `vigiles/hook/testing` | `experimental_loadHook`, `runHookProgram`, `experimental_decision`, and the guard battery: the runner `runGuardrail`, its check `guardrail`, the case sets `disasters` / `experimental_crossRepo`, `DISASTER_CATALOG`, `experimental_runPluginGuards`, `experimental_hookState` |
+| Author a spec         | `vigiles/spec`         | the spec builders and their types, and `experimental_assertAgentOk` (compiling is `vigiles compile` / `vigiles lint`)                                                                                                                                                           |
 
 **In a `*.eval.mjs` file the runners below are DECLARED, not called** —
 `export default defineEval({ measure: spec })` — because importing a file that
@@ -687,7 +697,7 @@ The remaining entry points are deliberate surfaces, not aliases:
   in `vigiles/harness/claude-code`, not on the root surface. Its ports (`layout`,
   `dialect`, `harnessTestDriver()`, …) and tool catalog (`builtinAgentTools`,
   `sideEffectingTools`) are fields of `claudeCodeAdapter`.
-- **CC-only measurement** — `measureSelectionMatrix` / `assertNoCollision` live in
+- **CC-only measurement** — `paid_measureSelectionMatrix` / `assertNoCollision` live in
   `vigiles/harness/claude-code` too. They read which skill the selector chose (Codex has no
   such event), so they can't sit on the agnostic surface. Everything else measured
   (`paid_measureTriggerRate`, `paid_measure`, `paid_runEval`) is on `vigiles/eval`.
@@ -712,23 +722,37 @@ adapter/import model and the capability matrix, see
 
 ## Migrating to v53
 
-v53 gives the guard battery the shape of the rest of the API (#418, #518): a
-runner returns a result, a check asserts on it, and WHICH cases run is a value
-you pass. All on `vigiles/hook/testing` unless noted. There are no aliases.
+v53 makes every public name say its role (#418, #518): a runner is
+`run<What>()` and returns a result, a value (an input, a case set) is a noun, a
+check is named after what it observes with the constraint in its options, and
+`assertChecks` / `toPass` are the one place that throws. The exceptions: a gate
+over an aggregate report (`assertRates`, …), an assertion that narrows a type
+(`experimental_assertAgentOk`, …), and the authoring vocabularies
+`vigiles/spec` / `vigiles/hook`. The guard battery got the same shape: WHICH
+cases run is a value you pass. On `vigiles/hook/testing` unless noted. There
+are no aliases.
 
-| Removed in v53                                                                                                               | Write instead                                                                                                                                            |
-| ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `verifyGuardrail(hook, opts)`                                                                                                | `runGuardrail(hook, cases?, opts?).rows` — the result is `{ kind, hook, rows }`                                                                          |
-| `assertGuardrail(hook, opts)`                                                                                                | `assertChecks(runGuardrail(hook, cases?, opts?), [guardrailHolds()])` (`assertChecks` from `vigiles`)                                                    |
-| options `events` / `categories` / `spellings` / `harmless`                                                                   | `runGuardrail(hook, disasters({ events, categories, spellings, harmless }))`                                                                             |
-| option `experimental_targetRepo: { command, blocked, allowed, forms }`                                                       | `runGuardrail(hook, experimental_crossRepo({ command, blockIn, allowIn, forms }))`                                                                       |
-| `experimental_alternateSpellings(events)`                                                                                    | `disasters({ events }).spellings`                                                                                                                        |
-| `experimental_harmlessTwins(events)`                                                                                         | `disasters({ events }).harmless`                                                                                                                         |
-| `[...experimental_alternateSpellings(DISASTER_CATALOG), mine]`                                                               | `const d = disasters(); runGuardrail(hook, { ...d, spellings: [...d.spellings, mine] })`                                                                 |
-| type `VerifyGuardrailOptions`                                                                                                | `RunGuardrailOptions` (how to run) + `DisasterCasesOptions` (which disasters)                                                                            |
-| type `GuardrailResult` (a row)                                                                                               | `DisasterRow`; the runner's result is `GuardrailRunResult`                                                                                               |
-| types `TargetRepoResult` / `TargetRepoCases` / `TargetRepoEvent` / `TargetRepoFixture` / `TargetRepoForm` / `TargetRepoSide` | `CrossRepoRow` / `CrossRepoSetup` (input; `CrossRepoCases` is the built set) / `CrossRepoEvent` / `CrossRepoFixture` / `CrossRepoForm` / `CrossRepoSide` |
-| `parseShellCommand`, `parseFilePath`, `leafCommandsNormalized` (`vigiles/hook`)                                              | none: internal. A hook reads `e.command` / `e.path`, which the runtime already parsed; an `e.command` method (`runs`, `touches`, …) is the vocabulary    |
+| Removed in v53                                                                                                               | Write instead                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verifyGuardrail(hook, opts)`                                                                                                | `runGuardrail(hook, cases?, opts?).rows` — the result is `{ kind, hook, rows }`                                                                                         |
+| `assertGuardrail(hook, opts)`                                                                                                | `assertChecks(runGuardrail(hook, cases?, opts?), [guardrail()])` (`assertChecks` from `vigiles`)                                                                        |
+| options `events` / `categories` / `spellings` / `harmless`                                                                   | `runGuardrail(hook, disasters({ events, categories, spellings, harmless }))`                                                                                            |
+| option `experimental_targetRepo: { command, blocked, allowed, forms }`                                                       | `runGuardrail(hook, experimental_crossRepo({ command, blockIn, allowIn, forms }))`                                                                                      |
+| `experimental_alternateSpellings(events)`                                                                                    | `disasters({ events }).spellings`                                                                                                                                       |
+| `experimental_harmlessTwins(events)`                                                                                         | `disasters({ events }).harmless`                                                                                                                                        |
+| `[...experimental_alternateSpellings(DISASTER_CATALOG), mine]`                                                               | `const d = disasters(); runGuardrail(hook, { ...d, spellings: [...d.spellings, mine] })`                                                                                |
+| type `VerifyGuardrailOptions`                                                                                                | `RunGuardrailOptions` (how to run) + `DisasterCasesOptions` (which disasters)                                                                                           |
+| type `GuardrailResult` (a row)                                                                                               | `DisasterRow`; the runner's result is `GuardrailRunResult`                                                                                                              |
+| types `TargetRepoResult` / `TargetRepoCases` / `TargetRepoEvent` / `TargetRepoFixture` / `TargetRepoForm` / `TargetRepoSide` | `CrossRepoRow` / `CrossRepoSetup` (input; `CrossRepoCases` is the built set) / `CrossRepoEvent` / `CrossRepoFixture` / `CrossRepoForm` / `CrossRepoSide`                |
+| `experimental_assertHookDenies(h, e)` / `…Allows` / `…Notices(h, e, m?)` / `…Silent`                                         | `assertChecks(runHookProgram(h, e), [experimental_decision("deny" \| "allow" \| "notice" \| "silent", m?)])` — `runHookProgram` on this entry is now the counted runner |
+| `experimental_verifyPluginGuards(dir, opts)` (type `VerifyPluginGuardsOptions`)                                              | `experimental_runPluginGuards(dir, opts)` (type `RunPluginGuardsOptions`)                                                                                               |
+| `check.hookFired(event, { blocked })` (`vigiles`)                                                                            | `check.hook(event, { blocked })` — the serialized `kind` is now `hook`                                                                                                  |
+| `check.egressOnly(hosts)` / `check.egressOnly([])` (`vigiles`)                                                               | `check.egress({ only: hosts })` / `check.egress({ none: true })` — `kind` is now `egress`                                                                               |
+| `check.skillContract(dir)` (`vigiles`)                                                                                       | `readSkillContract(dir)` (`vigiles`) — a reader, not a check                                                                                                            |
+| `measureSelectionMatrix` (`vigiles/harness/claude-code`)                                                                     | `paid_measureSelectionMatrix` — it calls a model; the `defineEval` key stays `measureSelectionMatrix`                                                                   |
+| `codexEvalDriver` (`vigiles/harness/codex`)                                                                                  | `paid_codexEvalDriver` — it drives a real `codex exec` turn                                                                                                             |
+| `checkAdapterConformance` (`vigiles/harness/kit`)                                                                            | `runAdapterConformance` — a runner returning `ConformanceResult`                                                                                                        |
+| `parseShellCommand`, `parseFilePath`, `leafCommandsNormalized` (`vigiles/hook`)                                              | none: internal. A hook reads `e.command` / `e.path`, which the runtime already parsed; an `e.command` method (`runs`, `touches`, …) is the vocabulary                   |
 
 The check fails, each in its own words, where the old assertion threw: a hook
 that never ran ("NEVER RAN"), a case it never answered ("NOT RUN"), and a
@@ -749,8 +773,8 @@ fed. There are no aliases: the old names are gone.
 | `check.didNotWrite(p)`                                          | `check.writes({ none: [p] })`                                                             |
 | `check.noWrite(p)`                                              | `check.writes({ none: [p] })` — a string is now an EXACT path; use a RegExp for a pattern |
 | `check.wroteOnly(list)`                                         | `check.writes({ only: list })` — the same, exact strings or RegExps                       |
-| `check.blocked()`                                               | `check.hookFired(event, { blocked: true })` — the input must name `hook_event_name`       |
-| `check.allowed()`                                               | `check.hookFired(event, { blocked: false })` — now FAILS on a hook that never ran         |
+| `check.blocked()`                                               | `check.hook(event, { blocked: true })` — the input must name `hook_event_name`            |
+| `check.allowed()`                                               | `check.hook(event, { blocked: false })` — now FAILS on a hook that never ran              |
 | `check.toolWith(n, args)`                                       | `check.tool(n, { with: args })`                                                           |
 | `check.notTool(n)` / `check.notTool(n, args)`                   | `check.tool(n, { max: 0 })` / `check.tool(n, { with: args, max: 0 })`                     |
 | `experimental_replyCount(m, { min, max })` (`vigiles`)          | `check.turns({ matching: m, min, max })`                                                  |
@@ -799,16 +823,16 @@ keeps its entry, so only the import path changes.
 | `assertSkillResolved(r, id)` / `skillResolved`                                                                                                                                                                  | `check.skill(id)` — and `fired: check.skill(id)`                             |
 | `assertOutputContains(r, x)` / `outputContains`                                                                                                                                                                 | `check.output(x)`                                                            |
 | `assertRequestContains(r, x)` / `requestContains`                                                                                                                                                               | `check.received(x)`                                                          |
-| `assertHookFired(r, e, { blocked })` / `hookBlocked`                                                                                                                                                            | `check.hookFired(e, { blocked })`                                            |
+| `assertHookFired(r, e, { blocked })` / `hookBlocked`                                                                                                                                                            | `check.hook(e, { blocked })`                                                 |
 | `assertCreated(r, p)` / `assertNotCreated(r, p)`                                                                                                                                                                | `check.writes({ include: [p] })` / `check.writes({ none: [p] })`             |
-| `assertHookBlocked(r)` / `assertHookAllowed(r)`                                                                                                                                                                 | `check.hookFired(event, { blocked: true })` / `{ blocked: false }`           |
+| `assertHookBlocked(r)` / `assertHookAllowed(r)`                                                                                                                                                                 | `check.hook(event, { blocked: true })` / `{ blocked: false }`                |
 | `assertDelivered(r)`                                                                                                                                                                                            | `check.delivered()`                                                          |
-| `assertEgressOnly(r, list)`                                                                                                                                                                                     | `check.egressOnly(list)` (`[]` = no egress)                                  |
+| `assertEgressOnly(r, list)`                                                                                                                                                                                     | `check.egress({ only: list })` (`[]` = no egress)                            |
 | `assertNoWrite(r, p)` / `assertWroteOnly(r, list)`                                                                                                                                                              | `check.writes({ none: [p] })` / `check.writes({ only: list })`               |
 | a flat check — `tool(…)`, `toolWith`, `notTool`, `onlyTools`, `skill`, `output`, `received`, `hookFired`, `blocked`, `allowed`, `wrote`, `didNotWrite`, `mcp`, `subagent`, `turns`, `cost`, `latency`, `tokens` | the same name on `check`: `check.tool(…)` (the v52 table below folds some)   |
 | `inputTokens({ max })` / `outputTokens({ max })`                                                                                                                                                                | `check.tokens({ maxInput })` / `check.tokens({ maxOutput })`                 |
 | `cacheTokens({ maxCreation, maxRead })`                                                                                                                                                                         | `check.tokens({ maxCache })` (written + served)                              |
-| `skillContract(dir)`                                                                                                                                                                                            | `check.skillContract(dir)`                                                   |
+| `skillContract(dir)`                                                                                                                                                                                            | `readSkillContract(dir)` (v53)                                               |
 | `fileToolEvents(path)` from `vigiles`                                                                                                                                                                           | `fileToolEvents(path)` from `vigiles/claude-code`                            |
 | `experimental_stub` from `vigiles`                                                                                                                                                                              | `experimental_stub` from `vigiles/fixtures`                                  |
 | `experimental_startServices`, `experimental_dockerRuntime` from `vigiles`                                                                                                                                       | the same names from `vigiles/fixtures`                                       |

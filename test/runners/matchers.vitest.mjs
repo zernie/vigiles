@@ -57,7 +57,7 @@ test("the check veneer (toPass / toPassAll) works under vitest", () => {
     ran: true,
     blocked: true,
     exitCode: 2,
-  }).toPass(check.hookFired("PreToolUse", { blocked: true }));
+  }).toPass(check.hook("PreToolUse", { blocked: true }));
 });
 
 test("plain helpers work under vitest", () => {

@@ -124,9 +124,6 @@ export interface LoadedPlugin {
 // @public
 export function loadPlugin(pluginPath: string, layout?: PluginLayout): ReturnType<typeof loadPlugin_2>;
 
-// @public
-export function measureSelectionMatrix(dir: string, opts?: SelectionMatrixOptions): Promise<SelectionReport>;
-
 // @public (undocumented)
 export interface MockHandle {
     // (undocumented)
@@ -137,6 +134,9 @@ export interface MockHandle {
     // (undocumented)
     readonly url: string;
 }
+
+// @public
+export function paid_measureSelectionMatrix(dir: string, opts?: SelectionMatrixOptions): Promise<SelectionReport>;
 
 // @public
 export function parseClaudeRun(out: RunOut): ParsedModelRun;

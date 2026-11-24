@@ -331,7 +331,7 @@ test.skipIf(!sandboxRunnable)(
     }
     try {
       assertChecks(r, [
-        check.hookFired("SessionStart"),
+        check.hook("SessionStart"),
         check.received(marker), // the injected context landed in the model's request
       ]);
     } finally {
@@ -359,7 +359,7 @@ test.skipIf(!sandboxRunnable)(
       timeoutMs: 120000,
     });
     try {
-      assertChecks(r, [check.hookFired("SessionStart")]); // the real third-party hook ran, confined
+      assertChecks(r, [check.hook("SessionStart")]); // the real third-party hook ran, confined
       const ctx = r.hooks.find((h) => h.event === "SessionStart")?.output ?? "";
       assert.ok(
         ctx.includes("You have superpowers"),

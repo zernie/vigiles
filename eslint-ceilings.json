@@ -423,9 +423,6 @@
     "sonarjs/cognitive-complexity": 14,
     "complexity": 18
   },
-  "src/harness-assert.test.ts": {
-    "max-lines-per-function": 61
-  },
   "src/harness-test.ts": {
     "max-params": 5,
     "max-lines-per-function": 70,

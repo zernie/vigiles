@@ -42,10 +42,11 @@ their exit codes. Most of the churn is in the library API underneath it.
     `writeBaseline` into `assertNoRegression`'s `baseline` option in v52 (see the
     [migration table](docs/testing-api.md#migrating-to-v52)).
   - `vigiles/hook/testing` — everything for testing a hook: prove a guard
-    blocks (`runGuardrail` with its check `guardrailHolds`, the case sets
+    blocks (`runGuardrail` with its check `guardrail`, the case sets
     `disasters` / `experimental_crossRepo`, `DISASTER_CATALOG`; v53, see the
     [migration table](docs/testing-api.md#migrating-to-v53)) and test a
-    compiled hook in process (`experimental_loadHook`, `experimental_assertHook*`).
+    compiled hook in process (`experimental_loadHook`, `runHookProgram`,
+    `experimental_decision`).
     The `experimental_*` names are not stable. Two earlier entries merged into this
     one in v51 (see the [migration table](docs/testing-api.md#migrating-to-v51)).
   - `vigiles/fixtures` — what a test runs against: `experimental_stub` (tool
@@ -123,8 +124,8 @@ no promise at all) or `internal` (published for our own tooling, not for you).
   internal modules under `dist/core/…` reached by deep import) may change in a
   minor release. Import from the published subpaths, not deep paths.
 - **`vigiles/hook`** (compiled hooks) and **`vigiles/hook/testing`** (since v51, the
-  in-process hook tests `experimental_loadHook` / `experimental_assertHookDenies`
-  & co., on their own entry because a compiled hook may import only
+  in-process hook tests `experimental_loadHook` / `runHookProgram` /
+  `experimental_decision`,, on their own entry because a compiled hook may import only
   `vigiles/hook`) are exported and usable but **not yet
   frozen**. Its long-standing delivery caveat
   ([#34692](https://github.com/anthropics/claude-code/issues/34692) — a subagent's

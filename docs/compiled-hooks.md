@@ -664,27 +664,34 @@ It **only prints and always exits `0`**. A check that could fail at session star
 
 **Because the decision is a pure function, you test it deterministically** — no model, and (cheapest) no subprocess. Three levels, by cost:
 
-**1. In-process (cheapest).** Load the hook FILE with `experimental_loadHook(path)` and pass it plus a raw event to the assertions — no `node` spawn, no CLI, milliseconds:
+**1. In-process (cheapest).** Load the hook FILE with `experimental_loadHook(path)`, run it on a raw event with `runHookProgram`, and check the outcome with `experimental_decision` — no `node` spawn, no CLI, milliseconds:
 
 ```ts
 import { it } from "vitest";
+import { assertChecks } from "vigiles";
 import {
+  experimental_decision,
   experimental_loadHook,
-  experimental_assertHookDenies,
-  experimental_assertHookAllows,
+  runHookProgram,
 } from "vigiles/hook/testing";
 
 const guard = await experimental_loadHook(".vigiles/hooks/guard.hook.mjs");
 
 it("blocks a force-push, even hidden in a compound command", () => {
-  experimental_assertHookDenies(guard, {
-    tool_name: "Bash",
-    tool_input: { command: "cd x && git push -f" },
-  });
-  experimental_assertHookAllows(guard, {
-    tool_name: "Bash",
-    tool_input: { command: "git status" },
-  });
+  assertChecks(
+    runHookProgram(guard, {
+      tool_name: "Bash",
+      tool_input: { command: "cd x && git push -f" },
+    }),
+    [experimental_decision("deny")],
+  );
+  assertChecks(
+    runHookProgram(guard, {
+      tool_name: "Bash",
+      tool_input: { command: "git status" },
+    }),
+    [experimental_decision("allow")],
+  );
 });
 ```
 
@@ -692,12 +699,14 @@ it("blocks a force-push, even hidden in a compound command", () => {
 
 The test functions are on their own entry, `vigiles/hook/testing`, and never on `vigiles/hook`. A compiled hook may import only `vigiles/hook`, so anything that entry exports is callable from inside every hook — and a loader there would let a hook run a second module that the import check never reads and the stamp never covers. A hook that imports `vigiles/hook/testing` does not compile.
 
-**React hooks get their own pair.** A react can't block, so the gate assertions don't apply; use `experimental_assertHookNotices(hook, event, matcher?)` and `experimental_assertHookSilent(hook, event)`:
+**React hooks use the same check.** A react can't block, so `deny` / `allow` don't apply; check `experimental_decision("notice", matcher?)` and `experimental_decision("silent")`:
 
 ```ts
+import { assertChecks } from "vigiles";
 import {
-  experimental_assertHookNotices,
-  experimental_assertHookSilent,
+  experimental_decision,
+  experimental_loadHook,
+  runHookProgram,
 } from "vigiles/hook/testing";
 
 const warn = await experimental_loadHook(
@@ -709,8 +718,12 @@ const after = (isError) => ({
   tool_response: isError ? { error: "boom" } : { stdout: "ok" },
 });
 
-experimental_assertHookNotices(warn, after(true), /read the error/);
-experimental_assertHookSilent(warn, after(false));
+assertChecks(runHookProgram(warn, after(true)), [
+  experimental_decision("notice", /read the error/),
+]);
+assertChecks(runHookProgram(warn, after(false)), [
+  experimental_decision("silent"),
+]);
 ```
 
 ### Where a notice arrives
@@ -734,7 +747,7 @@ Runnable end to end: [`examples/harness/compiled-hook-inprocess.harness.mjs`](..
 
 `runHookProgram(hook, event)` is the underlying primitive — it returns a normalized outcome (`{ kind: "decision" | "injection" | "reaction", … }`) dispatched by role, so an inject or react hook is just as testable as a gate.
 
-**2. Through the real runtime.** `runHook("node … hook-runtime run-program guard.hook.mjs", event)` drives the actual compiled CLI (stamp check + dispatch) — proves the wired artifact behaves, still no model. Pair it with the disaster battery: `assertChecks(runGuardrail(hook), [guardrailHolds()])` with the loaded hook object checks the gate exactly — `decide()` per case, no process — that it blocks every textbook disaster and lets the same text through as data; `runGuardrail("node … hook-runtime run-program guard.mjs")` runs the same cases through the wired runtime.
+**2. Through the real runtime.** `runHook("node … hook-runtime run-program guard.hook.mjs", event)` drives the actual compiled CLI (stamp check + dispatch) — proves the wired artifact behaves, still no model. Pair it with the disaster battery: `assertChecks(runGuardrail(hook), [guardrail()])` with the loaded hook object checks the gate exactly — `decide()` per case, no process — that it blocks every textbook disaster and lets the same text through as data; `runGuardrail("node … hook-runtime run-program guard.mjs")` runs the same cases through the wired runtime.
 
 **3. Does it fire in the assembled harness?** `runHarnessTest` (a scripted mock model emits the tool call; assert the hook blocked) — the delivery question, key-free, and capped by [how the harness delivers events to hooks](#limitations--trade-offs-the-cons).
 
@@ -784,7 +797,7 @@ import { assertChecks } from "vigiles";
 import {
   DISASTER_CATALOG,
   disasters,
-  guardrailHolds,
+  guardrail,
   runGuardrail,
 } from "vigiles/hook/testing";
 
@@ -796,7 +809,7 @@ const mine = {
   input: { command: "git push origin +main" },
 };
 assertChecks(runGuardrail(guard, { ...d, spellings: [...d.spellings, mine] }), [
-  guardrailHolds(),
+  guardrail(),
 ]);
 ```
 
@@ -950,7 +963,7 @@ unrepresentable.
 
 ## See also
 
-- [Testing your harness](harness-testing.md) — the test tiers; `runHook` unit-tests a hook's decision, and `runGuardrail` with the `guardrailHolds()` check proves a guardrail blocks every disaster and allows its harmless look-alikes.
+- [Testing your harness](harness-testing.md) — the test tiers; `runHook` unit-tests a hook's decision, and `runGuardrail` with the `guardrail()` check proves a guardrail blocks every disaster and allows its harmless look-alikes.
 - [Verifying your instruction files](verifying-instruction-files.md) — the linting layer (references are _true_); compiled hooks are the **gate** instrument beside it.
 - [CLI & GitHub Action](cli.md) — `compile` / `hook-runtime` reference.
 - [API reference (generated)](https://zernie.github.io/vigiles/api/) — every `vigiles/hook` symbol (`experimental_defineHook`, `provide`/`dangerously`/`defineProvider`, the `Decision`/`Reaction` types, …).

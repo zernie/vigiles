@@ -21,7 +21,7 @@ import { resolve } from "node:path";
 import {
   disasters,
   runGuardrail,
-  guardrailHolds,
+  guardrail,
   unblockedDisasters,
   type RunGuardrailOptions,
 } from "./guardrail-check.js";
@@ -187,7 +187,7 @@ exit 0
       runGuardrail(COMPILED, disasters({ harmless: SAFE_GUARD_HARMLESS }), {
         cwd: REPO_ROOT,
       }),
-      [guardrailHolds()],
+      [guardrail()],
     );
   } finally {
     cleanupTmpDir(dir);

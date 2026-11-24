@@ -48,7 +48,7 @@ export {
 } from "../../adapters/claude-code/typed-spec.js";
 // The skill-selection matrix: which of your skills a real model picks.
 export {
-  measureSelectionMatrix,
+  paid_measureSelectionMatrix,
   assertNoCollision,
 } from "../../scan-behavioral.js";
 export type {

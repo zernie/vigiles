@@ -28,7 +28,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  experimental_verifyPluginGuards,
+  experimental_runPluginGuards,
   type PluginGuardReport,
 } from "./verify-plugin-guards.js";
 import { DISASTER_CATALOG } from "./guardrail-check.js";
@@ -92,9 +92,9 @@ afterAll(() => {
 });
 
 /** The outcomes, in config order — the order the report promises. */
-const sweep = () => experimental_verifyPluginGuards(dir).hooks;
+const sweep = () => experimental_runPluginGuards(dir).hooks;
 
-describe("experimental_verifyPluginGuards — the per-hook verdicts differ", () => {
+describe("experimental_runPluginGuards — the per-hook verdicts differ", () => {
   it("reads four hooks in config order and gives each its own status", () => {
     const hooks = sweep();
     expect(hooks.map((h) => h.status)).toEqual([
@@ -156,11 +156,11 @@ describe("experimental_verifyPluginGuards — the per-hook verdicts differ", () 
   it("says nothing in `notes` when something WAS measured", () => {
     // The empty case has a voice (below); the measured case must not, or the
     // note stops meaning anything.
-    expect(experimental_verifyPluginGuards(dir).notes).toEqual([]);
+    expect(experimental_runPluginGuards(dir).notes).toEqual([]);
   });
 
   it("carries the battery + delivery event it measured against", () => {
-    const report = experimental_verifyPluginGuards(dir, {
+    const report = experimental_runPluginGuards(dir, {
       categories: ["destructive-git"],
     });
     expect(report.event).toBe("PreToolUse");
@@ -199,7 +199,7 @@ function sweepFixture(
     JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks }] } }),
   );
   try {
-    return experimental_verifyPluginGuards(tmp);
+    return experimental_runPluginGuards(tmp);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -275,7 +275,7 @@ describe("the empty cases speak", () => {
     const empty = mkdtempSync(join(tmpdir(), "vigiles-sweep-empty-"));
     writeFileSync(join(empty, "CLAUDE.md"), "# nothing here\n");
     try {
-      const report = experimental_verifyPluginGuards(empty);
+      const report = experimental_runPluginGuards(empty);
       expect(report.hooks).toEqual([]);
       expect(report.notes.join(" ")).toContain("not a clean bill of health");
     } finally {
@@ -293,7 +293,7 @@ describe("the empty cases speak", () => {
       }),
     );
     try {
-      const report = experimental_verifyPluginGuards(stopOnly);
+      const report = experimental_runPluginGuards(stopOnly);
       expect(report.hooks).toHaveLength(1);
       expect(report.notes.join(" ")).toContain("none of them reachable");
       expect(report.notes.join(" ")).toContain("rather than the (empty) score");
@@ -304,7 +304,7 @@ describe("the empty cases speak", () => {
 
   it("a harness with no shell hooks reports n/a, never an empty success", () => {
     // opencode's hooks are in-process TS modules; the battery cannot drive them.
-    const report = experimental_verifyPluginGuards(dir, {
+    const report = experimental_runPluginGuards(dir, {
       adapter: opencodeAdapter,
     });
     expect(report.harness).toBe("opencode");
@@ -323,7 +323,7 @@ describe("davila7 force-push-blocker (vendored, MIT) — read from the config", 
     // This is the whole difference from runGuardrail: the caller supplies a
     // DIRECTORY, and the two hooks get two different conditions because that is
     // what the file says. Passing one condition for both is unrepresentable here.
-    const hooks = experimental_verifyPluginGuards(VENDOR).hooks;
+    const hooks = experimental_runPluginGuards(VENDOR).hooks;
     expect(hooks).toHaveLength(2);
 
     const [first, second] = hooks;
@@ -342,7 +342,7 @@ describe("davila7 force-push-blocker (vendored, MIT) — read from the config", 
   });
 
   it("never reports a not-run event as allowed", () => {
-    const [first] = experimental_verifyPluginGuards(VENDOR).hooks;
+    const [first] = experimental_runPluginGuards(VENDOR).hooks;
     if (first?.status !== "measured") throw new Error("not measured");
     // `rm -rf /` is neither blocked nor allowed by this guard — it is not seen.
     expect(first.allowed).toEqual([]);
@@ -374,7 +374,7 @@ describe("the sweep is harness-agnostic", () => {
       ].join("\n"),
     );
     try {
-      const report = experimental_verifyPluginGuards(codex, {
+      const report = experimental_runPluginGuards(codex, {
         adapter: codexAdapter,
       });
       expect(report.harness).toBe("codex");
@@ -469,7 +469,7 @@ describe("an UNCOMPILABLE matcher gets no score (the false 7/7, second door)", (
       ],
     });
     try {
-      const report = experimental_verifyPluginGuards(at);
+      const report = experimental_runPluginGuards(at);
       const [only] = report.hooks;
       if (only?.status === "measured")
         throw new Error("an uncompilable matcher must not be measured");
@@ -492,7 +492,7 @@ describe("a Codex matcher is read with Codex's semantics", () => {
       "",
     ]);
     try {
-      const [only] = experimental_verifyPluginGuards(at, {
+      const [only] = experimental_runPluginGuards(at, {
         adapter: codexAdapter,
       }).hooks;
       if (only?.status !== "measured")
@@ -510,7 +510,7 @@ describe("a Codex matcher is read with Codex's semantics", () => {
       ],
     });
     try {
-      const [only] = experimental_verifyPluginGuards(at).hooks;
+      const [only] = experimental_runPluginGuards(at).hooks;
       expect(only?.status).toBe("not-applicable");
     } finally {
       rmSync(at, { recursive: true, force: true });
@@ -534,7 +534,7 @@ describe("a variable the command itself sets is not a missing variable", () => {
       ],
     });
     try {
-      const statuses = experimental_verifyPluginGuards(at).hooks.map(
+      const statuses = experimental_runPluginGuards(at).hooks.map(
         (h) => h.status,
       );
       expect(statuses).toEqual(["measured", "measured"]);
@@ -553,7 +553,7 @@ describe("a variable the command itself sets is not a missing variable", () => {
       ],
     });
     try {
-      const [only] = experimental_verifyPluginGuards(at).hooks;
+      const [only] = experimental_runPluginGuards(at).hooks;
       expect(only?.status).toBe("unresolved");
     } finally {
       rmSync(at, { recursive: true, force: true });
@@ -570,7 +570,7 @@ describe("the harness's own event variables are supplied", () => {
       "",
     ]);
     try {
-      const [only] = experimental_verifyPluginGuards(at, {
+      const [only] = experimental_runPluginGuards(at, {
         adapter: codexAdapter,
       }).hooks;
       if (only?.status !== "measured")
@@ -591,7 +591,7 @@ describe("the harness's own event variables are supplied", () => {
       "",
     ]);
     try {
-      const [only] = experimental_verifyPluginGuards(at, {
+      const [only] = experimental_runPluginGuards(at, {
         adapter: codexAdapter,
       }).hooks;
       expect(only?.status).toBe("unresolved");
@@ -653,7 +653,7 @@ describe("a hook whose SCRIPT is missing gets no score at all", () => {
       ],
     });
     try {
-      const report = experimental_verifyPluginGuards(at, { cwd: at });
+      const report = experimental_runPluginGuards(at, { cwd: at });
       const [only] = report.hooks;
       // The load-bearing assertion: NO SCORE EXISTS. Not a 0, not a 7 — the
       // union must not even carry a `results` array for this hook.
@@ -682,7 +682,7 @@ describe("a hook whose SCRIPT is missing gets no score at all", () => {
     });
     try {
       writeHookScript(at, "guard.sh", "exit 2\n");
-      const [only] = experimental_verifyPluginGuards(at, { cwd: at }).hooks;
+      const [only] = experimental_runPluginGuards(at, { cwd: at }).hooks;
       if (only?.status !== "measured")
         throw new Error(`expected measured, got ${only?.status ?? "none"}`);
       expect(only.blocked).toHaveLength(DISASTER_CATALOG.length);
@@ -707,7 +707,7 @@ describe("a hook whose SCRIPT is missing gets no score at all", () => {
       ],
     });
     try {
-      const [only] = experimental_verifyPluginGuards(at, { cwd: at }).hooks;
+      const [only] = experimental_runPluginGuards(at, { cwd: at }).hooks;
       if (only?.status === "measured")
         throw new Error("a program that never launched must not be measured");
       expect(only?.status).toBe("unresolved");
@@ -737,7 +737,7 @@ describe("the variables checked are the ones the RUN will actually have", () => 
       ],
     });
     try {
-      const [only] = experimental_verifyPluginGuards(at, {
+      const [only] = experimental_runPluginGuards(at, {
         trusted: false,
         cwd: at,
       }).hooks;
@@ -764,7 +764,7 @@ describe("the variables checked are the ones the RUN will actually have", () => 
       ],
     });
     try {
-      const [only] = experimental_verifyPluginGuards(at, { cwd: at }).hooks;
+      const [only] = experimental_runPluginGuards(at, { cwd: at }).hooks;
       expect(only?.status).toBe("measured");
     } finally {
       delete process.env["VIGILES_AMBIENT_PROBE"];
@@ -793,7 +793,7 @@ describe("the harness's own project-root variables are supplied", () => {
     });
     try {
       writeHookScript(at, "guard.sh", "exit 2\n");
-      const [only] = experimental_verifyPluginGuards(at, { cwd: at }).hooks;
+      const [only] = experimental_runPluginGuards(at, { cwd: at }).hooks;
       if (only?.status !== "measured")
         throw new Error(`expected measured, got ${only?.status ?? "none"}`);
       expect(only.blocked).toHaveLength(DISASTER_CATALOG.length);
@@ -822,7 +822,7 @@ describe("a command the SHELL PARSER rejects gets no score (the false 7/7, third
       ],
     });
     try {
-      const [only] = experimental_verifyPluginGuards(at).hooks;
+      const [only] = experimental_runPluginGuards(at).hooks;
       expect(only?.status).toBe("unresolved");
       if (only?.status !== "unresolved") throw new Error("expected unresolved");
       expect(only.reason).toMatch(/not valid shell/);
@@ -845,7 +845,7 @@ describe("a command the SHELL PARSER rejects gets no score (the false 7/7, third
       ],
     });
     try {
-      const [only] = experimental_verifyPluginGuards(at).hooks;
+      const [only] = experimental_runPluginGuards(at).hooks;
       if (only?.status !== "unresolved") throw new Error("expected unresolved");
       expect(only.reason).toMatch(/not valid shell/);
       expect(only.reason).not.toMatch(/UNSET_ON_PURPOSE/);
@@ -871,7 +871,7 @@ describe("a command the SHELL PARSER rejects gets no score (the false 7/7, third
       ],
     });
     try {
-      const [only] = experimental_verifyPluginGuards(at).hooks;
+      const [only] = experimental_runPluginGuards(at).hooks;
       expect(only?.status).toBe("measured");
     } finally {
       rmSync(at, { recursive: true, force: true });
@@ -903,7 +903,7 @@ describe("a CONFINED run resolves relative paths where it will actually run", ()
       // The script IS present relative to this process — the only thing that
       // made the old check pass. It will not be present in the sandbox's dir.
       process.chdir(at);
-      const [only] = experimental_verifyPluginGuards(at, {
+      const [only] = experimental_runPluginGuards(at, {
         trusted: false,
       }).hooks;
       if (only?.status !== "unresolved")
@@ -934,7 +934,7 @@ describe("a CONFINED run resolves relative paths where it will actually run", ()
       ],
     });
     try {
-      const [only] = experimental_verifyPluginGuards(at, {
+      const [only] = experimental_runPluginGuards(at, {
         trusted: false,
       }).hooks;
       if (only?.status !== "unresolved") throw new Error("expected unresolved");
@@ -960,7 +960,7 @@ describe("a CONFINED run resolves relative paths where it will actually run", ()
     try {
       writeHookScript(at, "guard.sh", "exit 2\n");
       process.chdir(at);
-      const [only] = experimental_verifyPluginGuards(at).hooks;
+      const [only] = experimental_runPluginGuards(at).hooks;
       expect(only?.status).toBe("measured");
     } finally {
       process.chdir(was);
@@ -996,7 +996,7 @@ describe("the PROJECT root is the project, not the plugin", () => {
       writeFileSync(join(project, "hooks", "guard.sh"), "#!/bin/sh\nexit 2\n", {
         mode: 0o755,
       });
-      const [only] = experimental_verifyPluginGuards(plugin, {
+      const [only] = experimental_runPluginGuards(plugin, {
         cwd: project,
       }).hooks;
       if (only?.status !== "measured")
@@ -1030,7 +1030,7 @@ describe("the PROJECT root is the project, not the plugin", () => {
     const project = mkdtempSync(join(tmpdir(), "vigiles-sweep-project-"));
     try {
       writeHookScript(plugin, "guard.sh", "exit 2\n");
-      const [only] = experimental_verifyPluginGuards(plugin, {
+      const [only] = experimental_runPluginGuards(plugin, {
         cwd: project,
       }).hooks;
       if (only?.status !== "measured")
@@ -1103,7 +1103,7 @@ describe("a relative hook path resolves against the SWEPT repo", () => {
   it("measures it, instead of reporting a present guard as missing", () => {
     // The test process's cwd is this repository, which has no such file — so
     // before the fix this was `unresolved: not on disk here`.
-    const [hook] = experimental_verifyPluginGuards(swept).hooks;
+    const [hook] = experimental_runPluginGuards(swept).hooks;
     expect(hook?.status).toBe("measured");
   });
 
@@ -1115,7 +1115,7 @@ describe("a relative hook path resolves against the SWEPT repo", () => {
     // recordEgress sweep pre-flighted this relative script against the host,
     // accepted it, then ran it in a fresh empty directory where `sh` cannot
     // open it and exits 2: this harness's DENY code, scored as a block.
-    const [hook] = experimental_verifyPluginGuards(swept, {
+    const [hook] = experimental_runPluginGuards(swept, {
       recordEgress: true,
     }).hooks;
     expect(hook?.status).toBe("unresolved");
@@ -1124,13 +1124,13 @@ describe("a relative hook path resolves against the SWEPT repo", () => {
     );
     // The same shape under the option the copy DID know, so the assertion above
     // is about recordEgress and not about relative paths in general.
-    const [confined] = experimental_verifyPluginGuards(swept, {
+    const [confined] = experimental_runPluginGuards(swept, {
       trusted: false,
     }).hooks;
     expect(confined?.status).toBe("unresolved");
     // …and unconfined it is measured, or the test proves only that something
     // always refuses.
-    expect(experimental_verifyPluginGuards(swept).hooks[0]?.status).toBe(
+    expect(experimental_runPluginGuards(swept).hooks[0]?.status).toBe(
       "measured",
     );
   });
@@ -1139,12 +1139,12 @@ describe("a relative hook path resolves against the SWEPT repo", () => {
     // The two guards are byte-different on purpose (deny vs allow), so the
     // score itself says which file ran. Without that the assertion above would
     // pass while measuring the wrong tree.
-    const mine = experimental_verifyPluginGuards(swept).hooks[0];
+    const mine = experimental_runPluginGuards(swept).hooks[0];
     expect(mine?.status).toBe("measured");
     expect(mine?.status === "measured" && mine.blocked.length).toBe(0);
     // …and an explicit `cwd` still overrides, which is the installed-plugin
     // case: hooks READ from the plugin, RUN against a project elsewhere.
-    const elsewhere = experimental_verifyPluginGuards(swept, {
+    const elsewhere = experimental_runPluginGuards(swept, {
       cwd: decoy,
     }).hooks[0];
     expect(elsewhere?.status === "measured" && elsewhere.blocked.length).toBe(
@@ -1183,7 +1183,7 @@ describe("declared actions that are not commands", () => {
       ],
     });
     try {
-      const report = experimental_verifyPluginGuards(root);
+      const report = experimental_runPluginGuards(root);
       expect(report.unmeasurable).toHaveLength(4);
       expect(report.unmeasurable.map((a) => a.type).sort()).toEqual([
         "agent",
@@ -1217,7 +1217,7 @@ describe("declared actions that are not commands", () => {
       ],
     });
     try {
-      const report = experimental_verifyPluginGuards(root);
+      const report = experimental_runPluginGuards(root);
       expect(report.hooks).toHaveLength(1);
       expect(report.hooks[0]?.status).toBe("measured");
       expect(report.unmeasurable).toHaveLength(1);
@@ -1231,7 +1231,7 @@ describe("declared actions that are not commands", () => {
   });
 
   it("stays silent for a repo whose hooks are all commands", () => {
-    const report = experimental_verifyPluginGuards(dir);
+    const report = experimental_runPluginGuards(dir);
     expect(report.unmeasurable).toEqual([]);
   });
 });

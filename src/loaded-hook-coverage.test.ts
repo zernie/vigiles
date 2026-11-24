@@ -1,8 +1,7 @@
 /**
  * THE IN-PROCESS TIER ATTRIBUTES WHAT IT EVALUATES.
  *
- * The documented cheapest path — `loadHook(file)` then `assertHookDenies(hook,
- * event)` — recorded a check and no SURFACE. The child exited a non-vacuous pass
+ * The documented cheapest path — `loadHook(file)` then `assertChecks(runHookProgram(hook, event), [experimental_decision("deny")])` — recorded a check and no SURFACE. The child exited a non-vacuous pass
  * with an empty `surfaces` list, `runsFromResults` discarded it, and a harness
  * that genuinely executed a compiled hook produced no execution record; the hook
  * showed as untested unless filename colocation happened to cover it.
@@ -14,19 +13,15 @@
  * assertions below pin the line at EVALUATION, and the quiet halves are the ones
  * that matter.
  */
+import { experimental_decision, runHookProgram } from "./hook-assertions.js";
+import { assertChecks } from "./check.js";
 import { test, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { experimental_loadHook as loadHook } from "./load-hook.js";
-import {
-  experimental_assertHookDenies as assertHookDenies,
-  experimental_assertHookAllows as assertHookAllows,
-  experimental_assertHookNotices as assertHookNotices,
-  experimental_assertHookSilent as assertHookSilent,
-} from "./hook-assertions.js";
-import { runHookProgram } from "./core/hook-program.js";
+import { runHookProgram as evaluateHookProgram } from "./core/hook-program.js";
 import {
   surfacesRecorded,
   resetCheckCount,
@@ -87,12 +82,16 @@ test("FIRES: evaluating a LOADED hook attributes the file it was loaded from", a
 
   // Now evaluate it. The path is exact by construction — `loadHook` resolved it,
   // so there is no command string to parse and nothing to guess.
-  assertHookDenies(hook, bash("git push --force"));
+  assertChecks(runHookProgram(hook, bash("git push --force")), [
+    experimental_decision("deny"),
+  ]);
   assert.deepEqual(surfacesRecorded(), [{ how: "command", ref: rel }]);
   assert.equal(checksRecorded(), 1);
 
   // A second evaluation of the same hook names it once (check-count dedupes).
-  assertHookAllows(hook, bash("git status"));
+  assertChecks(runHookProgram(hook, bash("git status")), [
+    experimental_decision("allow"),
+  ]);
   assert.deepEqual(surfacesRecorded(), [{ how: "command", ref: rel }]);
   assert.equal(checksRecorded(), 2, "…while the CHECK count still moves");
   cleanupTmpDir(dir);
@@ -108,11 +107,15 @@ test("…and every in-process assertion attributes, not just the gate pair", asy
     tool_name: "Write",
     tool_input: { file_path },
   });
-  assertHookNotices(hook, edit("src/a.ts"), "typescript");
+  assertChecks(runHookProgram(hook, edit("src/a.ts")), [
+    experimental_decision("notice", "typescript"),
+  ]);
   assert.deepEqual(surfacesRecorded(), [{ how: "command", ref: rel }]);
 
   resetCheckCount();
-  assertHookSilent(hook, edit("README.md"));
+  assertChecks(runHookProgram(hook, edit("README.md")), [
+    experimental_decision("silent"),
+  ]);
   assert.deepEqual(surfacesRecorded(), [{ how: "command", ref: rel }]);
   cleanupTmpDir(dir);
 });
@@ -130,26 +133,31 @@ test("QUIET: a hook built IN-PROCESS has no file, so nothing is invented", async
   const inline = experimental_defineHook({
     on: "PreToolUse",
     decide: () => deny("x"),
-  }) as Parameters<typeof assertHookDenies>[0];
-  assertHookDenies(inline, bash("anything"));
+  }) as Parameters<typeof runHookProgram>[0];
+  assertChecks(runHookProgram(inline, bash("anything")), [
+    experimental_decision("deny"),
+  ]);
   assert.deepEqual(surfacesRecorded(), []);
   assert.equal(checksRecorded(), 1, "it still COUNTS as a check — it did run");
 
   // …and the loaded one still attributes in the same process, so the emptiness
   // above is about the hook's origin and not about the recorder being off.
   const loaded = await loadHook(rel);
-  assertHookDenies(loaded, bash("git push --force"));
+  assertChecks(runHookProgram(loaded, bash("git push --force")), [
+    experimental_decision("deny"),
+  ]);
   assert.deepEqual(surfacesRecorded(), [{ how: "command", ref: rel }]);
   cleanupTmpDir(dir);
 });
 
 test("QUIET: the PURE evaluator attributes nothing — production must not record", async () => {
-  // `runHookProgram` is public via `vigiles/hook` AND is what the CLI's
-  // `hook-runtime run-program` calls on every live event. Recording there would
-  // make the pure decision impure and fire outside any test.
+  // The core evaluator is what the CLI's `hook-runtime run-program` calls on
+  // every live event. Recording there would make the pure decision impure and
+  // fire outside any test; only the testing runner (`runHookProgram` on
+  // `vigiles/hook/testing`) records.
   const rel = fixture("guard.mjs", GATE);
   const hook = await loadHook(rel);
-  runHookProgram(hook, bash("git push --force"));
+  evaluateHookProgram(hook, bash("git push --force"));
   assert.deepEqual(surfacesRecorded(), []);
   assert.equal(checksRecorded(), 0);
   cleanupTmpDir(dir);

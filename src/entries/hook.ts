@@ -95,8 +95,8 @@ export {
 } from "../core/hook-program.js";
 
 // ── testing a compiled hook is NOT here ──────────────────────────────────────
-// `experimental_loadHook`, `runHookProgram` and the `experimental_assertHook*`
-// tests live on `vigiles/hook/testing`. This entry is the ONLY import a compiled
+// `experimental_loadHook`, `runHookProgram` and its check `experimental_decision`
+// live on `vigiles/hook/testing`. This entry is the ONLY import a compiled
 // hook may have, so whatever it exports, every hook can call: with the loader
 // here, a hook could load a second local module that no capability check reads
 // and no stamp covers (Codex P1 on #510). src/hook-entry-effects.test.ts holds

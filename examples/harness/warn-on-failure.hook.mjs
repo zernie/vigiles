@@ -5,7 +5,7 @@
  *
  * Why testing this in-process matters: a notice goes to **stderr**. A probe that
  * shells out and reads stdout sees nothing and concludes the hook is dead, when
- * it is working perfectly. `experimental_assertHookNotices` reads the reaction itself.
+ * it is working perfectly. `experimental_decision("notice")` reads the reaction itself.
  */
 import {
   experimental_defineReact,

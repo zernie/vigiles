@@ -36,10 +36,10 @@ const assertDelivered = (
   assertChecks(r, [check.delivered()]);
 };
 const assertEgressOnly = (
-  r: Parameters<ReturnType<typeof check.egressOnly>["eval"]>[0],
+  r: Parameters<ReturnType<typeof check.egress>["eval"]>[0],
   allowed: ReadonlyArray<string | RegExp>,
 ): void => {
-  assertChecks(r, [check.egressOnly(allowed)]);
+  assertChecks(r, [check.egress({ only: allowed })]);
 };
 const assertWroteOnly = (
   r: { readonly filesWritten?: readonly string[] },

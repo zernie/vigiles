@@ -22,7 +22,7 @@
       "grandfathered": []
     },
     "./hook/testing": {
-      "ceiling": 13,
+      "ceiling": 10,
       "grandfathered": []
     },
     "./fixtures": {

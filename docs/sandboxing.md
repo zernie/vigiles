@@ -83,8 +83,8 @@ import { runHook, check, assertChecks } from "vigiles";
 
 const r = runHook(thirdPartyHookCmd, event, { recordEgress: true });
 // r.egress → [{ host: "registry.npmjs.org", port: 443, ts }]   (recorded)
-assertChecks(r, [check.egressOnly([])]); // a hook that should phone home to nothing
-// or: check.egressOnly(["registry.npmjs.org", /\.pypi\.org$/])
+assertChecks(r, [check.egress({ none: true })]); // a hook that should phone home to nothing
+// or: check.egress({ only: ["registry.npmjs.org", /\.pypi\.org$/] })
 ```
 
 `recordEgress` confines the hook (it needs the namespace) and runs a recording proxy on the sandbox loopback. `HTTP(S)_PROXY` points proxy-honoring tools (npm, pip, curl, fetch) at it. The proxy **records each `host:port` and refuses it** — so the attempt is captured and nothing leaves.
@@ -127,8 +127,8 @@ rest; the per-rule `counter`s read back what was reached and what was dropped.
 
 The egress recorder runs against the **real, vendored** `oh-my-claudecode` plugin in the gate (`src/run-hook.test.ts`, skips where bwrap can't confine):
 
-- **`keyword-detector` (UserPromptSubmit)** → `check.egressOnly([])` confirms it phones home to nothing, while still doing its job.
-- **`session-start` (SessionStart)** → it `fetch()`es `registry.npmjs.org` for an **update check on every session start**. The recorder captures it (Node `fetch` via `NODE_USE_ENV_PROXY`), blocks it, and `check.egressOnly(["registry.npmjs.org"])` proves it phones the npm registry **and nowhere else**.
+- **`keyword-detector` (UserPromptSubmit)** → `check.egress({ none: true })` confirms it phones home to nothing, while still doing its job.
+- **`session-start` (SessionStart)** → it `fetch()`es `registry.npmjs.org` for an **update check on every session start**. The recorder captures it (Node `fetch` via `NODE_USE_ENV_PROXY`), blocks it, and `check.egress({ only: ["registry.npmjs.org"] })` proves it phones the npm registry **and nowhere else**.
 
 That second one isn't a toy curl — it's a genuine supply-chain/privacy property of a popular plugin, asserted from its actual code.
 

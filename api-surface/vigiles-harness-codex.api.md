@@ -23,9 +23,6 @@ export const codexAdapter: {
 };
 
 // @public
-export const codexEvalDriver: EvalDriver;
-
-// @public
 export const codexLiveDriver: HarnessLiveDriver;
 
 // @public (undocumented)
@@ -53,6 +50,9 @@ export interface CodexRequest {
 export interface CodexTurn {
     readonly text: string;
 }
+
+// @public
+export const paid_codexEvalDriver: EvalDriver;
 
 // @public
 export function parseCodexRun(stdout: string): ParsedRun;
