@@ -100,20 +100,20 @@
     "docs:api": "typedoc"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.124.0",
+    "@anthropic-ai/sdk": "^1.12.0",
     "@eslint-community/eslint-plugin-eslint-comments": "^4.8.1",
     "@eslint/js": "^10.0.1",
-    "@jackchuka/mdschema": "^0.12.8",
+    "@jackchuka/mdschema": "^0.16.0",
     "@microsoft/api-extractor": "^7.58.9",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@types/js-yaml": "^4.0.9",
     "@types/markdown-it": "^14.1.2",
     "@types/minimatch": "^5.1.2",
-    "@types/node": "^20.19.39",
+    "@types/node": "^26.6.6",
     "@types/picomatch": "^4.0.2",
     "@typescript-eslint/eslint-plugin": "^8.58.0",
     "@typescript-eslint/parser": "^8.58.0",
-    "@vitest/coverage-v8": "^4.1.8",
+    "@vitest/coverage-v8": "^5.1.1",
     "conventional-changelog-conventionalcommits": "9.3.1",
     "eslint": "^10.1.0",
     "eslint-import-resolver-typescript": "^4.4.5",
@@ -124,11 +124,11 @@
     "jest": "^30.4.2",
     "picomatch": "^4.0.4",
     "prettier": "^3.8.1",
-    "semantic-release": "25.0.9",
+    "semantic-release": "26.0.1",
     "tsx": "^4.21.0",
     "typedoc": "^0.28.19",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^5.1.1"
   },
   "peerDependencies": {
     "jest": ">=28",
