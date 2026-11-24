@@ -352,10 +352,17 @@ export default experimental_defineReact({
     // to spare. Re-measure before raising it, and say in the commit what was
     // added; a bound raised without a reason is a bound that has stopped
     // meaning anything.
+    //
+    // Raised 60 → 80 on 2026-11-24, measured at 60: the one module added is
+    // `core/hook-stamp.js` (no imports of its own beyond `core/hook-paths.js`,
+    // already on the path), the stale-stamp policy the runtime shares with
+    // `lint` and `audit`. It is on every stamped hook's path by design — the
+    // stamp is checked on every run — so a lazy require would only hide it from
+    // this fixture. 80 still fails long before the 107-module eager tree.
     expect(
       graph.length,
       `react graph grew to ${graph.length} modules — re-measure and justify before raising the bound`,
-    ).toBeLessThan(60);
+    ).toBeLessThan(80);
   });
 
   // The other direction, because an "is absent" assertion that can never fail is

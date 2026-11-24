@@ -452,9 +452,9 @@
   },
   "src/hook-runtime.ts": {
     "max-params": 5,
-    "max-lines-per-function": 168,
-    "complexity": 19,
-    "sonarjs/cognitive-complexity": 18
+    "max-lines-per-function": 106,
+    "complexity": 11,
+    "sonarjs/cognitive-complexity": 12
   },
   "src/hook-state-store.test.ts": {
     "max-lines-per-function": 139

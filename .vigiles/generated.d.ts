@@ -197,7 +197,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 640 project files. */
+  /** 643 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -480,6 +480,8 @@ declare module "vigiles/generated" {
     | "src/core/hook-protocol.ts"
     | "src/core/hook-providers.test.ts"
     | "src/core/hook-providers.ts"
+    | "src/core/hook-stamp.test.ts"
+    | "src/core/hook-stamp.ts"
     | "src/core/hook-state.test.ts"
     | "src/core/hook-state.ts"
     | "src/core/inline.test.ts"
@@ -686,6 +688,7 @@ declare module "vigiles/generated" {
     | "src/hook-runtime-graph.test.ts"
     | "src/hook-runtime-roots.test.ts"
     | "src/hook-runtime.ts"
+    | "src/hook-stale-stamp.test.ts"
     | "src/hook-state-runtime.test.ts"
     | "src/hook-state-store.test.ts"
     | "src/hook-state-store.ts"
@@ -1289,6 +1292,8 @@ declare module "vigiles/spec" {
       | "src/core/hook-protocol.ts"
       | "src/core/hook-providers.test.ts"
       | "src/core/hook-providers.ts"
+      | "src/core/hook-stamp.test.ts"
+      | "src/core/hook-stamp.ts"
       | "src/core/hook-state.test.ts"
       | "src/core/hook-state.ts"
       | "src/core/inline.test.ts"
@@ -1495,6 +1500,7 @@ declare module "vigiles/spec" {
       | "src/hook-runtime-graph.test.ts"
       | "src/hook-runtime-roots.test.ts"
       | "src/hook-runtime.ts"
+      | "src/hook-stale-stamp.test.ts"
       | "src/hook-state-runtime.test.ts"
       | "src/hook-state-store.test.ts"
       | "src/hook-state-store.ts"
