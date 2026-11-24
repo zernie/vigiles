@@ -76,7 +76,8 @@ function plant(at: string, s: string): void {
           hooks: [
             {
               type: "command",
-              command: `node "\${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js" hook-runtime run-program "\${CLAUDE_PROJECT_DIR}/${ref}" || exit 2`,
+              command: `node "\${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js" hook-runtime run-program "\${CLAUDE_PROJECT_DIR}/${ref}"`,
+              onFailure: "block",
             },
           ],
         },

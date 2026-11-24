@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:18c07b9726c6d09b compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:d8ccd79101c0f573 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -227,7 +227,7 @@ BUILD + TOOLING + GENERATED:
 
 ### Hooks Are Safe To Adopt
 
-**Guidance only** — A hook vigiles compiles or ships never locks a user out of their own session: it blocks only as a gate on a tool call the agent can repair in the same loop, and its own failure warns on stderr with the fix and exits 0. [Details](docs/contributing/rules.md#hooks-are-safe-to-adopt)
+**Guidance only** — A hook vigiles compiles or ships never locks a user out of their own session: only its own `deny` exits 2; its own failure exits 1 with one stderr line naming the fix, and the wiring's failure policy blocks on it only for a gate on a tool call the agent can repair in the same loop. [Details](docs/contributing/rules.md#hooks-are-safe-to-adopt)
 
 ### Format Before Commit
 

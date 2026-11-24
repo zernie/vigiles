@@ -21,6 +21,8 @@ import {
   decisionExitCode,
   compileHookProgram,
   hookRuntimeMissingExit,
+  hookFailurePolicy,
+  wireHookCommand,
   checkHookImports,
   HookCompileError,
   hookRouting,
@@ -2690,6 +2692,63 @@ test("wiring (Codex TOML): the flat entry carries the suffix as well", () => {
     out.settingsBlock,
     /command = "npx vigiles hook-runtime run-program nudge\.mjs \|\| exit 0"/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// On a harness that carries the failure policy as a handler key (Claude Code's
+// `onFailure`), the command has NO ending — the runtime's own exit code (2 only
+// for a hook's `deny`, 1 for a failure) must reach the harness unchanged — and
+// the policy comes from the role: a tool gate blocks, everything else continues.
+// ---------------------------------------------------------------------------
+
+const POLICY: Readonly<Record<(typeof ROLE_FIXTURES)[number]["kind"], string>> =
+  {
+    "bash-gate": "block",
+    "file-gate": "block",
+    "prompt-gate": "continue",
+    "stop-gate": "continue",
+    inject: "continue",
+    react: "continue",
+  };
+
+for (const { kind, hook } of ROLE_FIXTURES) {
+  test(`wiring (${kind}, handler field): no ending, \`onFailure: ${POLICY[kind]}\` in the block and the printed settings`, () => {
+    assert.equal(hookFailurePolicy(kind), POLICY[kind]);
+    const out = compileHookProgram(SRC, hook, {
+      gateCommand: "node cli.js hook-runtime run-program x.hook.mjs || exit 2",
+      hookFailureWiring: "handler-field",
+    });
+    const handlers = Object.values(out.hooks).flatMap((entries) =>
+      entries.flatMap((e) => e.hooks),
+    );
+    assert.deepEqual(handlers, [
+      {
+        type: "command",
+        command: "node cli.js hook-runtime run-program x.hook.mjs",
+        onFailure: POLICY[kind],
+      },
+    ]);
+    // The printed block is what a human pastes: it must carry the same key.
+    assert.match(
+      out.settingsBlock,
+      new RegExp(`"onFailure": "${POLICY[kind]}"`),
+    );
+    assert.doesNotMatch(out.settingsBlock, /\|\|\s*exit/);
+  });
+}
+
+test("wireHookCommand: a shell-ending harness keeps the ending it shipped with, and no key", () => {
+  for (const { kind, exit } of ROLE_FIXTURES) {
+    assert.deepEqual(wireHookCommand("run x", kind, "shell-ending"), {
+      kind: "shell-ending",
+      command: `run x || exit ${exit}`,
+    });
+    // …which is also the default for a caller that injects no layout.
+    assert.deepEqual(
+      wireHookCommand("run x", kind),
+      wireHookCommand("run x", kind, "shell-ending"),
+    );
+  }
 });
 
 // ---------------------------------------------------------------------------

@@ -306,6 +306,36 @@ test("hook-script-exists: a compiled hook's relative RUNNER is checked — missi
   }
 });
 
+test("a Codex gate's wiring carries no failure key: its `|| exit 2` line is compiled, untouched by the onFailure identity", () => {
+  // Claude Code reads `onFailure` as part of a compiled line's identity; Codex
+  // has no such key, so the line `compile` writes for a gate is exactly the
+  // shell-ended command, and a stray key there changes nothing either.
+  const dir = makeTmpDir("codex-gate-identity");
+  try {
+    mkdirSync(join(dir, ".codex"), { recursive: true });
+    mkdirSync(join(dir, ".vigiles", "hooks"), { recursive: true });
+    const line =
+      "node node_modules/vigiles/dist/cli.js hook-runtime run-program .vigiles/hooks/g.hook.mjs || exit 2";
+    writeFileSync(
+      join(dir, ".vigiles", "hooks", "g.hook.mjs"),
+      "export default {};\n",
+    );
+    writeFileSync(
+      join(dir, ".vigiles", "hooks", "g.hook.mjs.json"),
+      JSON.stringify({ stamp: "s", role: "bash-gate" }),
+    );
+    writeFileSync(
+      join(dir, codexLayout.settingsPath),
+      `[[hooks.PreToolUse]]\nmatcher = "^Bash$"\ncommand = "${line}"\n`,
+    );
+    const scan = scanPlugin(dir, codexLayout, codexDialect);
+    assert.deepEqual(scan.staleHooks, []);
+    assert.deepEqual(scan.handWrittenHooks, []);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
 test("codex drops a skill's agent and model: its dialect reads neither (#401)", async () => {
   const spec = experimental_skill({
     name: "reader",

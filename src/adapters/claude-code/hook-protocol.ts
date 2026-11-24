@@ -49,12 +49,18 @@ export const claudeCodeHookProtocol: HookProtocol = {
   // at all. See ./hook-condition.ts — without it a conditional guard was reported
   // as blocking every disaster in the battery.
   condition: claudeCodeHookCondition,
-  // Claude Code NESTS: one matcher block holds a list of commands.
-  registration(on, matcher, command) {
+  // Claude Code NESTS: one matcher block holds a list of commands. The failure
+  // policy is a key on the handler itself, beside `type` and `command`
+  // (`onFailure`, documented at code.claude.com/docs/en/hooks; v2.1.295+).
+  registration(on, matcher, command, onFailure) {
+    const handler =
+      onFailure === undefined
+        ? { type: "command", command }
+        : { type: "command", command, onFailure };
     const entry =
       matcher === undefined
-        ? { hooks: [{ type: "command", command }] }
-        : { matcher, hooks: [{ type: "command", command }] };
+        ? { hooks: [handler] }
+        : { matcher, hooks: [handler] };
     return { hooks: { [on]: [entry] } };
   },
   // Delegates to the JSON merge, which is where the measured behaviour and its

@@ -229,9 +229,10 @@ Four things to know about it:
   caught.
 - **`.mjs` authors get no type check.** In a JavaScript hook, `e.command` is
   `undefined` on any event that is not Bash, and `e.command.runs(…)` throws a
-  `TypeError` inside `react`. The runtime prints it on stderr, but a react is
-  wired with `|| exit 0`, so nothing else shows it. Declare the react for Bash
-  alone, and test it with a non-Bash event as well.
+  `TypeError` inside `react`. The runtime reports it as a failed run (exit 1),
+  and a react's wiring continues on failure, so the only trace is a
+  non-blocking hook error. Declare the react for Bash alone, and test it with a
+  non-Bash event as well.
 
 ### Remembering a fact — `state()` and `record()`
 
@@ -431,7 +432,7 @@ There is **no separate `compile-hook` verb** — compiling a typed authoring art
 3. Writes a **tamper-evident stamp** beside the source.
 4. Adds one **`SessionStart` notice** that tells you in the first turn of a session when a file the hooks need is not installed ([details](#when-a-hook-cannot-load)).
 
-The merged block routes the live event to **`vigiles hook-runtime run-program <file>`**, and ends with `|| exit 2` for a hook that can block or `|| exit 0` for one that only adds a reminder ([why](#when-a-hook-cannot-load)):
+The merged block routes the live event to **`vigiles hook-runtime run-program <file>`**, and carries the hook's **failure policy** — what Claude Code does when the hook cannot answer: `"onFailure": "block"` for a tool gate, `"continue"` for every other hook ([why](#when-a-hook-cannot-load)):
 
 ```jsonc
 // .claude/settings.json — written (not pasted) by `vigiles compile`
@@ -443,7 +444,8 @@ The merged block routes the live event to **`vigiles hook-runtime run-program <f
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js\" hook-runtime run-program \"${CLAUDE_PROJECT_DIR}/.vigiles/hooks/safe-bash-guard.hook.mjs\" || exit 2",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js\" hook-runtime run-program \"${CLAUDE_PROJECT_DIR}/.vigiles/hooks/safe-bash-guard.hook.mjs\"",
+            "onFailure": "block",
           },
         ],
       },
@@ -503,7 +505,7 @@ cp -n -- '.vigiles/hooks/guard.mjs' '.vigiles/hooks/guard.hook.mjs' && npx vigil
 
 `compile` prints this for each file with the paths filled in (and quoted). Providers are not wired by path, so a plain `mv -n -- '.vigiles/providers/k8s.mjs' '.vigiles/providers/k8s.provider.mjs'` is enough. A hook compiled from outside `.vigiles/hooks/` is renamed the same way, in its own directory.
 
-**Why copy-then-delete rather than a rename.** The old file's path is what `settings.json` names. After a plain rename and before the recompile, that path does not exist; a hook that cannot load exits `2`, and for a gate (`|| exit 2`) that blocks every Bash call — including the `npx vigiles compile` you need next. The way out is then a file write ([details](#when-a-hook-cannot-load)). With copy-then-delete, the old hook stays on disk and wired until the new one has compiled, so nothing in between is broken.
+**Why copy-then-delete rather than a rename.** The old file's path is what `settings.json` names. After a plain rename and before the recompile, that path does not exist; a hook that cannot load fails, and a gate's wiring (`onFailure: "block"`) then refuses every Bash call — including the `npx vigiles compile` you need next. The way out is then a file write ([details](#when-a-hook-cannot-load)). With copy-then-delete, the old hook stays on disk and wired until the new one has compiled, so nothing in between is broken.
 
 **What compile does for you.** Compiling `guard.hook.mjs` takes over the wiring `settings.json` (or `config.toml`) holds for `guard.mjs`: that entry is replaced in place by the new one, so no entry is left naming a file you are about to delete. Your own hooks sharing a matcher block are untouched. The old stamp (`guard.mjs.json`) is the `rm -f`'s job; it is the only file compile does not clean up.
 
@@ -552,7 +554,7 @@ The `matcher` we _do_ emit is safe under the same rule: it is derived from the
 event type the role already implies (a bash gate matches `Bash`), so it cannot be
 narrower than the program behind it.
 
-`hook-runtime run-program` is a **hidden runtime entrypoint** — invoked by the harness on every matching event, never typed by hand. It loads your typed program, **verifies the stamp** (a hand-edited artifact is refused — fail closed — by a gate on a tool call; any other hook is warned about and skipped, see below), and dispatches by role: a gate `exit 2`s on `deny`, an inject prints `additionalContext`, a react runs its classified command. You wrote none of that protocol. (`compile` is the one-time _wiring_ step; `hook-runtime` is the per-event _executor_ the wiring points at — see the [CLI surface](cli.md) for why they're distinct.)
+`hook-runtime run-program` is a **hidden runtime entrypoint** — invoked by the harness on every matching event, never typed by hand. It loads your typed program, **verifies the stamp** (a hand-edited artifact does not run: that is a failure, see below), and dispatches by role: a gate `exit 2`s on `deny`, an inject prints `additionalContext`, a react runs its classified command. **Exit `2` means one thing — your `decide` returned `deny`.** Every failure (a stale stamp, a hook that will not load, an event that is not JSON, a throw) exits `1` with one stderr line naming the cause and the fix, and the wiring's failure policy decides what that does ([details](#when-a-hook-cannot-load)). You wrote none of that protocol. (`compile` is the one-time _wiring_ step; `hook-runtime` is the per-event _executor_ the wiring points at — see the [CLI surface](cli.md) for why they're distinct.)
 
 Hooks can be authored in JavaScript (`.mjs`) or TypeScript (run under `tsx` / Node ≥ 23.6). `vigiles/hook` is the **only** import a compiled hook may use.
 
@@ -574,18 +576,16 @@ Hooks are **not** auto-discovered by sitting just anywhere — they must be `.ho
 
 ### Editing a compiled hook (the stamp, and the way out)
 
-The stamp makes the runtime act on a hook whose source no longer matches what was compiled — and what it does depends on the hook:
+A hook whose source no longer matches what was compiled does not run. That is a **failure**, never a decision, for every kind of hook: its body is skipped, the runtime exits `1`, and it prints one line naming the fix. What the failure does to the action is the wiring's `onFailure`:
 
-| The hook is                                                                                     | A stale stamp                                                                                   |
-| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| a tool gate (`defineHook`, `defineFileGate`) on an event that vetoes a tool call (`PreToolUse`) | **Refused** (exit 2), with the file-write way out below.                                        |
-| anything else — an inject, a react, a prompt or stop gate                                       | **Skipped**: one stderr warning naming `vigiles compile <file>`, the body does not run, exit 0. |
+| The hook is                                               | Its wiring                | A stale stamp on Claude Code                                                                |
+| --------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------- |
+| a tool gate (`defineHook`, `defineFileGate`)              | `"onFailure": "block"`    | the tool call is **refused**, with the way out below                                        |
+| anything else — an inject, a react, a prompt or stop gate | `"onFailure": "continue"` | the action goes ahead; the line shows as a non-blocking hook error — never a blocked prompt |
 
-A prompt is never blocked by a stale stamp: nobody can repair a hook by typing a prompt, so blocking one would lock you out of your own session. The runtime prints a warning naming `vigiles compile <file>`; recompile and the hook runs again.
+A prompt is never blocked by a stale stamp: nobody can repair a hook by typing a prompt, so blocking one would lock you out of your own session.
 
-For a tool gate the refusal is the point — but it also applies while **you** are editing the hook, and a stale `PreToolUse` Bash gate blocks _every_ Bash command, `vigiles compile` included. That would wedge the repo: you couldn't recompile, because the stale gate refused to let you.
-
-**The way out is a file write, not a command.** A Bash gate never gated file tools, so both of these work while every command is refused:
+For a tool gate the refusal is the point — but it also applies while **you** are editing the hook, and a stale `PreToolUse` Bash gate refuses _every_ Bash command, `vigiles compile` included. **The way out goes through the tool the gate does not gate.** A Bash gate never sees a file write, so:
 
 - **edit the hook's source back** to what was compiled; or
 - **clear its stamp** — write `{}` into `.vigiles/hooks/<name>.json` (or delete it). The hook then loads and runs **unstamped**, and — this is the part that matters — it goes back to **enforcing**. You are not disarming the gate, you are un-sticking it. Then recompile through the normal gate:
@@ -594,18 +594,21 @@ For a tool gate the refusal is the point — but it also applies while **you** a
 npx vigiles compile .vigiles/hooks/guard.hook.mjs
 ```
 
-The refusal prints the exact sidecar path, so you don't have to work it out:
+A stale **file** gate would refuse those same writes, so the runtime lets exactly one kind of call through a stale gate: **a write to that hook's own source or its stamp sidecar** (`Write`, `Edit` or `MultiEdit`), announced on stderr. Every other call stays a failure. So even a Bash gate and a file gate stale at once never wedge the session: clear the file gate's stamp first (its own repair write passes), and it is back to enforcing, deciding on your next write — the Bash gate's sidecar — like any other.
+
+The line names the exact sidecar path, so you don't have to work it out:
 
 ```
-vigiles: hook guard.hook.mjs does not match its compiled stamp (tampered).
-vigiles: if YOU edited it, the way out is a FILE WRITE, not a command — this
-  refusal blocks the recompile too. Either edit guard.hook.mjs back to what was
-  compiled, or clear its stamp by writing `{}` into
-  /repo/.vigiles/hooks/guard.hook.mjs.json. The hook then runs UNSTAMPED but still
-  ENFORCES, so `vigiles compile guard.hook.mjs` goes through the normal gate.
+vigiles: hook guard.hook.mjs failed — it does not match its compiled stamp (edited
+  after `vigiles compile`), so its body did not run. Fix: run `vigiles compile
+  guard.hook.mjs`, or edit guard.hook.mjs back to what was compiled; if a gate
+  refuses the command, write `{}` into /repo/.vigiles/hooks/guard.hook.mjs.json and
+  the hook runs unstamped, still enforcing.
 ```
 
-If a hook stops **loading** entirely (a conflicted `package.json` so Node can't resolve `vigiles/hook`, a typo mid-edit), the same fail-closed refusal applies — and the way out is again a **file write**. Writes to the hook's own source, its stamp sidecar, or `package.json` / `.vigilesrc.json` are allowed while every command is refused. That set is complete rather than a guess: a compiled hook may import nothing but `vigiles/hook`, so its load path is the hook file plus the config that resolves that specifier. Fix whichever is broken and the hook loads again; the gate then decides normally, and `git merge --abort` is an ordinary allowed command — through the gate rather than around it.
+(One line on stderr; wrapped here for reading.)
+
+If a hook stops **loading** entirely (a conflicted `package.json` so Node can't resolve `vigiles/hook`, a typo mid-edit), it is the same failure, and a gate's `onFailure: "block"` refuses every call — so the way out is again a **file write**. Writes to the hook's own source, its stamp sidecar, or `package.json` / `.vigilesrc.json` pass (the runtime exits `0` for exactly those) while every command is refused. That set is complete rather than a guess: a compiled hook may import nothing but `vigiles/hook`, so its load path is the hook file plus the config that resolves that specifier. Fix whichever is broken and the hook loads again; the gate then decides normally, and `git merge --abort` is an ordinary allowed command — through the gate rather than around it.
 
 **A write, under a tool that writes.** The escape admits `Write`, `Edit` and `MultiEdit` — the tools measured to write a file and carry `file_path`. A `Read` of the same path is refused: a read repairs nothing, and while the wedged hook is registered for `Read` it would otherwise walk straight out through the escape. An unrecognised tool name is refused as well; the list does not need to be complete, only non-empty, because a _new_ writing tool wedges nothing — you still repair with `Write`. (`NotebookEdit` is absent on purpose: it writes, but its input field is `notebook_path`, so it never carries the path this door reads.)
 
@@ -615,7 +618,7 @@ If a hook stops **loading** entirely (a conflicted `package.json` so Node can't 
 
 > **Why `vigiles compile` is not in that list.** It used to be. Two things settled it, both measured rather than argued. During a load wedge `vigiles compile` exits 1 (`Cannot load hook …: Invalid package config`) — it loads the hook through the very resolver that just failed, so it could never repair that state. And it was the only escape that _ran code_: over five review rounds it was found to admit a payload through composition (`curl … | sh && vigiles compile`), through its operand (`vigiles compile /tmp/payload.spec.ts`, which the CLI dynamically imports), through its executable path (`/tmp/vigiles compile`), and through the working directory (`cd /tmp/evil && vigiles compile`). Recognising a trusted _action_ from an untrusted _string_ has unbounded degrees of freedom — argv, cwd, `PATH`, `node_modules` resolution, config discovery — so the primitive was removed rather than constrained a fifth time.
 
-Every other tool call still fails closed. This doesn't soften the tamper guarantee that matters: while the stamp is stale the hook is enforcing **nothing** (it refuses every call), and anyone able to rewrite a hook's source can equally rewrite `.claude/settings.json`. What the stamp buys is that a smuggled capability can never run **silently** — unchanged.
+Every other call to a gate still fails, and the gate's wiring refuses it. This doesn't soften the tamper guarantee that matters: while the stamp is stale the hook is enforcing **nothing** (its body does not run), and anyone able to rewrite a hook's source can equally rewrite `.claude/settings.json`. What the stamp buys is that a smuggled capability can never run **silently** — unchanged.
 
 ### When a hook cannot load
 
@@ -623,36 +626,37 @@ Sometimes a hook cannot be loaded for a reason that has nothing to do with the h
 
 Two kinds of hook behave differently here. A **gate** can block a tool call. A **nudge** (an inject or a react hook) only adds a reminder.
 
-**A hook that cannot be loaded exits `2`.** For a gate that is the right answer: a gate that cannot run must not let calls through, because a protection that silently stops working is worse than one that is known to be missing. So a Bash gate whose file is missing refuses every command.
+**A hook that cannot be loaded exits `1`** — a failure, which Claude Code treats as a non-blocking error. Exit `2` is reserved for a hook's own `deny`; the runtime never uses it for its own state. What a failure does to the action is the **wiring's** decision, written by `vigiles compile` from the hook's role:
 
-**A nudge must not block.** It has nothing to enforce, so blocking gains no safety and can stop the whole session. A nudge that cannot be loaded is therefore set up to exit `0` instead (its stderr still says why).
+- **A tool gate** (`defineHook`, `defineFileGate`) is wired `"onFailure": "block"`. A gate that cannot run must not let calls through, because a protection that silently stops working is worse than one that is known to be missing. So a Bash gate whose file is missing refuses every command.
+- **Every other hook** — a nudge (inject, react), a prompt gate, a stop gate — is wired `"onFailure": "continue"`. It has nothing to enforce on a tool call, so blocking gains no safety and can stop the whole session; the failure line still shows as a hook error.
 
-**Which of the two applies is written on the command, and only there.** `vigiles compile` ends the command it writes with `|| exit 2` for a gate or `|| exit 0` for a nudge:
-
-```sh
-node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/guard.hook.mjs"  || exit 2   # a gate
-node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/status.hook.mjs" || exit 0   # a nudge
+```jsonc
+{ "type": "command", "command": "node … run-program …/guard.hook.mjs",  "onFailure": "block" }    // a tool gate
+{ "type": "command", "command": "node … run-program …/status.hook.mjs", "onFailure": "continue" } // anything else
 ```
 
-The shell reads that ending, so it works even when the runtime cannot start at all (no `node_modules`), and a different vigiles version cannot change it.
+Claude Code applies `onFailure` to everything that counts as a failure, including a runtime that cannot start at all (no `node_modules`: Node exits `1`), so a different vigiles version cannot change it. The command carries no `|| exit N` ending: `|| exit 2` would turn the runtime's `1` back into a block on every event, and `|| exit 0` would hide the line that names the fix.
 
-The runtime itself does not guess. It used to: when a hook could not be loaded, it checked whether the hook's **file name** contained `inject`. That was a second decision about the same thing, and the two disagreed whenever a name was misleading. A nudge called `paper-status.hook.mjs` blocked the whole session, and a gate called `ctx-inject.hook.mjs` let every command through. Now the runtime always exits `2` for a hook it cannot load, and the `|| exit N` ending is the only thing that can turn that `2` into a `0`.
+> ⚠️ **`onFailure` needs Claude Code v2.1.295 or later.** An older Claude Code ignores the key and treats every failure as non-blocking, so **a failing gate lets the call through**. A gate's own `deny` still exits `2` and still blocks on any version; only a gate that cannot answer is affected. Upgrade Claude Code if you rely on a gate failing closed.
 
-A command with **no ending is treated as a gate**, on purpose: an unknown hook that blocks is easy to notice, and one that silently passes is a hole. Every hook command that vigiles writes goes through `compileHookProgram`, which adds the ending itself and replaces one a caller already wrote. A hook wired some other way is only as safe as its own command; running `vigiles compile <path-to-hook>` rewrites its entry with the right ending.
+> **Codex has no failure key** (its hooks docs list none), so there the policy stays on the command, exactly as before: `|| exit 2` for any gate, `|| exit 0` for a nudge. One known gap follows: on Codex a **prompt or stop gate** that fails still blocks, because its ending is `|| exit 2`.
 
-> **Breaking change for a nudge you wired by hand.** If its file name contains `inject` and you relied on that to make it degrade, it now blocks when it cannot be loaded. Add `|| exit 0` to its command, or let `vigiles compile` write the entry. A gate wired by hand is unaffected, except one with `inject` in its name: it used to let every command through when it could not be loaded, and now it blocks, as a gate should.
+The runtime itself does not guess. It used to: when a hook could not be loaded, it checked whether the hook's **file name** contained `inject`. That was a second decision about the same thing, and the two disagreed whenever a name was misleading. A nudge called `paper-status.hook.mjs` blocked the whole session, and a gate called `ctx-inject.hook.mjs` let every command through. Now the role decides, once, at compile time.
+
+> **Breaking change for a hook you wired by hand on Claude Code.** The runtime used to exit `2` when it could not load a hook, so a hand-wired gate with no ending failed closed. It now exits `1`, so a hand-wired entry with no `onFailure` **fails open**. Add `"onFailure": "block"` to a hand-wired gate's entry, or let `vigiles compile <path-to-hook>` write it. A hand-wired nudge that ended `|| exit 0` keeps working; drop the ending and add `"onFailure": "continue"` to see its failures.
 
 **The start-of-session notice.** `compile` also adds one `SessionStart` command: `sh "$CLAUDE_PROJECT_DIR/.vigiles/hook-check.sh" || exit 0`. The script is generated and committed. It is plain `sh` using only shell built-ins (no node, no `node_modules`, no vigiles), because "not installed" is exactly the situation it reports. It lists the files the hooks need (each hook, and the local runtime). If any is missing, it prints what to do in the first turn of the session: run `npm ci` from a terminal outside the session. Otherwise it prints nothing.
 
-**`compile` also warns when the runtime it wires is not on disk**, for example when vigiles is installed in a parent directory's `node_modules` but the wiring points at this project's. And [`hook-script-exists`](rules/hook-script-exists.md) reports a missing runtime on every `lint`. Both exist because a nudge's `|| exit 0` makes a runtime that cannot start look exactly like a hook with nothing to say.
+**`compile` also warns when the runtime it wires is not on disk**, for example when vigiles is installed in a parent directory's `node_modules` but the wiring points at this project's. And [`hook-script-exists`](rules/hook-script-exists.md) reports a missing runtime on every `lint`. Both exist because a nudge fails open by design (`onFailure: "continue"`, or `|| exit 0` on Codex), so a runtime that cannot start never stops the session that would notice it.
 
 **The vigiles repository itself** is not its own dependency, so `compile` run there wires the package's declared bin (`dist/cli.js`, written by `npm run build`) instead of `node_modules/vigiles/dist/cli.js`, and the notice names the build as the cure. Any other project gets the installed path.
 
 It **only prints and always exits `0`**. A check that could fail at session start would be one more way to break the session it is meant to help, and we have not verified what exit code `2` does for `SessionStart`. It reads the settings after `compile` has merged into them, so a hook that another tool wrote there is covered once you recompile. A hook added after the last `compile` is not.
 
-**What this does not fix.** A gate whose files are missing still refuses every command, including the install that would repair it. The `|| exit 0` ending only stops a nudge from doing the same, and the notice only says so before the first command is refused. Inside such a session the way out is still the **file write** described above. If a whole package is missing, no file write restores it, and a session with no terminal outside it cannot install anything. That is an open problem, tracked in [#312](https://github.com/zernie/vigiles/issues/312). Neither the ending nor the notice is the fix.
+**What this does not fix.** A gate whose files are missing still refuses every command, including the install that would repair it. The `"continue"` policy only stops a nudge from doing the same, and the notice only says so before the first command is refused. Inside such a session the way out is still the **file write** described above. If a whole package is missing, no file write restores it, and a session with no terminal outside it cannot install anything. That is an open problem, tracked in [#312](https://github.com/zernie/vigiles/issues/312). Neither the policy nor the notice is the fix.
 
-> **Why running an install is not allowed either.** The obvious idea is to let `npm ci` through while a gate cannot be loaded. We do not, for the same reason `git merge --abort` and `vigiles compile` are not allowed: it would be allowed for what it is meant to do, not for what it can do. An install runs the lifecycle scripts of every package in the lockfile, which is more than the `.git/hooks/*` scripts that got the git commands removed. "The gate is not running anyway" would equally justify allowing `ls`; it does not single out `npm ci`. On a fresh container it would not even apply: the runtime that would grant the exception is itself not installed, so the `|| exit 2` ending decides before any vigiles code runs. And `npm ci` fails when the lockfile is behind `package.json`; the command that fixes that, `npm install`, fetches versions the repository has not pinned.
+> **Why running an install is not allowed either.** The obvious idea is to let `npm ci` through while a gate cannot be loaded. We do not, for the same reason `git merge --abort` and `vigiles compile` are not allowed: it would be allowed for what it is meant to do, not for what it can do. An install runs the lifecycle scripts of every package in the lockfile, which is more than the `.git/hooks/*` scripts that got the git commands removed. "The gate is not running anyway" would equally justify allowing `ls`; it does not single out `npm ci`. On a fresh container it would not even apply: the runtime that would grant the exception is itself not installed, so the wiring's `onFailure` decides before any vigiles code runs. And `npm ci` fails when the lockfile is behind `package.json`; the command that fixes that, `npm install`, fetches versions the repository has not pinned.
 
 ## Testing a compiled hook
 
@@ -849,6 +853,7 @@ Compiled hooks are neither free nor magic. The honest downsides:
 - ⚠️ **Buy-in.** It's a dependency plus a build step, and you author in JS/TS, not a 3-line inline `bash` hook. For a trivial one-liner the compiled path is heavier — the payoff is on the guards that actually have to be _correct_.
 - ⚠️ **A bounded vocabulary is a ceiling, by design** — but be precise about which bound. (1) What a hook can _do_: `checkHookImports` forbids any import but `vigiles/hook` (no `fs`/`net`/`child_process`), so a hook that must _call a service, read a file, or hold cross-invocation state_ to decide can't be expressed. That is the **deliberate** ceiling — it _is_ the safety guarantee, and such hooks stay hand-written (keep a plain shell hook and verify it with the disaster battery). (2) What a hook can _see_: the AST matchers (`runs`/`touches`/`pipesToShell`/`under`) are a **soft, extensible** limit, not a fundamental one — if you need to match a shape they don't expose yet, the fix is a new matcher, not a redesign.
 - ⚠️ **Compiling proves the protocol, not your policy.** A compiled hook can't have the wrong exit code — but it can still `deny` the wrong thing. Compiling is necessary, not sufficient. Test the _logic_ with [guardrail verification](harness-testing.md).
+- ⚠️ **A gate fails closed only on Claude Code v2.1.295+.** A gate that cannot answer (stale stamp, missing file, a throw) relies on the `"onFailure": "block"` key `compile` writes; an older Claude Code ignores it and lets the call through. A `deny` blocks on every version. On Codex, which has no such key, the `|| exit 2` ending still fails a gate closed — and a prompt or stop gate too ([details](#when-a-hook-cannot-load)).
 - ℹ️ **Codex inject/ask output is unconfirmed.** The gate (`deny` → exit 2) path is cross-harness today. An inject/react hook's _output_ shape is Claude-Code-confirmed only, so `compile --harness=codex` **warns loudly** on those rather than ship a maybe-no-op (see [Compile and wire](#compile-and-wire)).
 
 ## Status / pending
