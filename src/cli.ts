@@ -129,6 +129,33 @@ async function runStubCommand(raw: readonly string[]): Promise<void> {
   );
 }
 
+/**
+ * The hook runtime itself would not load: a failure (exit 1), never `die`'s 2,
+ * which on this path would read as "the hook denied". The exit code comes from
+ * `hookExitCode` like every other run; only if even that module cannot be
+ * imported does the shim fall back to the same 1 on its own, because a broken
+ * install must not become a block either.
+ */
+async function reportRuntimeLoadFailure(
+  file: string | undefined,
+  e: unknown,
+): Promise<void> {
+  const why = e instanceof Error ? e.message : String(e);
+  const fix =
+    "reinstall vigiles (npm ci), or rebuild it if this is the vigiles repository (npm run build)";
+  const exit = await import("./core/hook-exit.js").then(
+    ({ failed, failureLine, hookExitCode }) => {
+      const outcome = failed(`the hook runtime did not load: ${why}`, fix);
+      return { line: failureLine(file, outcome), code: hookExitCode(outcome) };
+    },
+    () => ({
+      line: `vigiles: hook runtime failed — it did not load: ${why.replace(/\s*\n\s*/g, " ")}. Fix: ${fix}.`,
+      code: 1,
+    }),
+  );
+  process.stderr.write(`${exit.line}\n`, () => process.exit(exit.code));
+}
+
 async function dispatch(): Promise<void> {
   // Parsed EXACTLY as `main()` parses it — `args.slice(1)` with `--flags`
   // dropped — so the fast path and the barrel agree on which argument is the
@@ -147,9 +174,17 @@ async function dispatch(): Promise<void> {
   // moving them is a much larger edit for a colder path, and this issue measured
   // `run-program`. They behave exactly as before — same function, same output.
   if (command === "hook-runtime" && kind === "run-program") {
-    const { runHookProgramCommand } =
-      require("./hook-runtime.js") as typeof import("./hook-runtime.js");
-    await runHookProgramCommand(rest[1]);
+    // Never through `die`, which exits 2: on this path 2 means "the hook
+    // denied", and a runtime that cannot even load is a failure, not a verdict.
+    // `runHookProgramCommand` catches everything below it; this catches the
+    // `require` itself.
+    try {
+      const { runHookProgramCommand } =
+        require("./hook-runtime.js") as typeof import("./hook-runtime.js");
+      await runHookProgramCommand(rest[1]);
+    } catch (e) {
+      await reportRuntimeLoadFailure(rest[1], e);
+    }
     return;
   }
 

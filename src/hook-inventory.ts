@@ -56,6 +56,7 @@ export function diskHookScan(
       hookSourceRefs(disk.exists(hooksDir) ? disk.list(hooksDir) : []),
       read,
       layout.projectRootTokens,
+      layout.hookFailureWiring,
     ),
   };
 }

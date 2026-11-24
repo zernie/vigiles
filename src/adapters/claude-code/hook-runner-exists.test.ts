@@ -4,11 +4,12 @@
  * RUNTIME does not exist.
  *
  *   node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" hook-runtime \
- *     run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/x.hook.mjs" || exit 0
+ *     run-program "$CLAUDE_PROJECT_DIR/.vigiles/hooks/x.hook.mjs"
  *
- * The `|| exit 0` is deliberate (a reminder fails open), so the shell turns the
- * MODULE_NOT_FOUND into "nothing to say". Only a path check can tell the two
- * apart, and it had two blind spots, both covered here through BOTH scan twins —
+ * A reminder fails open by design (then: a `|| exit 0` ending; now: Claude
+ * Code's `onFailure: "continue"`), so the session goes on as if the reminder
+ * had nothing to say. Only a path check catches it before a session does, and
+ * it had two blind spots, both covered here through BOTH scan twins —
  * `scanPlugin` (disk) and `scanFiles` (file map) — and once through the real
  * `lint` binary:
  *
@@ -43,7 +44,7 @@ const CLI = resolve(process.cwd(), "dist", "cli.js");
 const RUNNER = "node_modules/vigiles/dist/cli.js";
 // The line `compile` writes for a react hook — byte for byte, since a wired
 // line is recognised by identity with that plan (#362).
-const WIRED = `node "\${CLAUDE_PROJECT_DIR}/${RUNNER}" hook-runtime run-program "\${CLAUDE_PROJECT_DIR}/.vigiles/hooks/x.hook.mjs" || exit 0`;
+const WIRED = `node "\${CLAUDE_PROJECT_DIR}/${RUNNER}" hook-runtime run-program "\${CLAUDE_PROJECT_DIR}/.vigiles/hooks/x.hook.mjs"`;
 
 function write(dir: string, rel: string, content: string): void {
   const abs = join(dir, rel);
@@ -55,7 +56,11 @@ function settingsWith(command: string): string {
   return JSON.stringify({
     hooks: {
       PostToolUse: [
-        { matcher: "Edit|Write", hooks: [{ type: "command", command }] },
+        {
+          matcher: "Edit|Write",
+          // A react: compile wires it to continue when it fails.
+          hooks: [{ type: "command", command, onFailure: "continue" }],
+        },
       ],
     },
   });

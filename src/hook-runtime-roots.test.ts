@@ -61,7 +61,8 @@ describe("the tamper stamp is anchored on the project root", () => {
       const file = plantTamperedHook(dir);
       const r = fire(file, { cwd: dir, env: { CLAUDE_PROJECT_DIR: dir } });
       expect(r.stderr).toMatch(/does not match its compiled stamp/);
-      expect(r.exitCode).toBe(2);
+      // A failure (1), not a decision: the gate's `onFailure: block` refuses it.
+      expect(r.exitCode).toBe(1);
     } finally {
       cleanupTmpDir(dir);
     }
@@ -77,7 +78,8 @@ describe("the tamper stamp is anchored on the project root", () => {
         env: { CLAUDE_PROJECT_DIR: dir },
       });
       expect(r.stderr).toMatch(/does not match its compiled stamp/);
-      expect(r.exitCode).toBe(2);
+      // A failure (1), not a decision: the gate's `onFailure: block` refuses it.
+      expect(r.exitCode).toBe(1);
     } finally {
       cleanupTmpDir(elsewhere);
       cleanupTmpDir(dir);

@@ -688,7 +688,12 @@ function fileMapHookScan(
     exists,
     // A fetched file map never holds node_modules: absence there proves nothing.
     observable: (abs) => !isDependencyPath(abs),
-    plan: hookLinePlan(sources, (ref) => files[ref], layout.projectRootTokens),
+    plan: hookLinePlan(
+      sources,
+      (ref) => files[ref],
+      layout.projectRootTokens,
+      layout.hookFailureWiring,
+    ),
   };
 }
 

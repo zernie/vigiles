@@ -62,7 +62,8 @@ import { sha256short, assertNever, type SHA256Hash } from "./hash.js";
  * still fails if `@iarna/toml` reappears in a decision's module graph.
  */
 import type { HarnessDialect } from "./dialect.js";
-import type { HookProtocol } from "./hook-protocol.js";
+import type { HookFailurePolicy, HookProtocol } from "./hook-protocol.js";
+import type { HookFailureWiring } from "./layout.js";
 import { jsonSettingsCodec, type SettingsCodec } from "./settings-codec.js";
 import {
   capabilityOf,
@@ -1434,6 +1435,12 @@ export interface CompiledHookProgram {
       readonly hooks: readonly {
         readonly type: "command";
         readonly command: string;
+        /**
+         * What a FAILED run does to the action (`block` for a tool gate,
+         * `continue` otherwise) — present only when the harness's layout wires
+         * the policy as a handler key; see {@link wireHookCommand}.
+         */
+        readonly onFailure?: HookFailurePolicy;
       }[];
     }[]
   >;
@@ -1462,11 +1469,19 @@ export interface CompiledHookProgram {
  */
 export interface CompileHookOptions {
   /**
-   * The command the emitted block runs. The compiler adds `|| exit 2` (a hook
-   * that can block) or `|| exit 0` (a reminder-only hook) at the end; one that is
-   * already there is replaced.
+   * The command the emitted block runs. How the compiler finishes it depends on
+   * {@link hookFailureWiring}: with a handler field, any `|| exit N` ending is
+   * removed and the policy goes in `onFailure`; without one, it adds `|| exit 2`
+   * (a hook that can block) or `|| exit 0` (a reminder-only hook), replacing
+   * one already there.
    */
   readonly gateCommand?: string;
+  /**
+   * Where this harness's settings carry a hook's failure policy, from
+   * `PluginLayout.hookFailureWiring`. Absent ⇒ `"shell-ending"`, the
+   * backwards-compatible default for a caller that injects no layout.
+   */
+  readonly hookFailureWiring?: HookFailureWiring;
   /** Validate `hook.on` against this harness's hook-event catalog (a typo won't compile). */
   readonly dialect?: HarnessDialect;
   /** Matcher style (exact vs anchored regex). Defaults to Claude Code's `"exact"`. */
@@ -1544,33 +1559,40 @@ export function dispatchKind(hook: AnyHook): DispatchKind {
 }
 
 /**
- * What the shell should do when a hook's command fails before the hook gives an
- * answer: the runtime is not installed, or it starts but cannot load the hook.
- * No hook code ran, so the hook cannot be asked. The answer has to be written
- * into the command itself, and this function is the one place that decides it.
+ * What a hook's FAILURE does to the action it fired on — the hook could not
+ * answer (it did not load, its stamp is stale, the runtime threw). Not a
+ * decision: a hook's own `deny` is the only thing that blocks on purpose, and
+ * the runtime exits 1, never 2, for every failure (`core/hook-exit.ts`). The
+ * policy belongs to the WIRING, and this function is the one place it is
+ * decided, from the role the author picked:
  *
- * There are two kinds of hook and they need different answers:
- *
- * - A gate (it can block a tool call) must exit 2. A gate that cannot run must
+ * - A TOOL gate (`bash-gate`, `file-gate`) blocks. A gate that cannot run must
  *   not let calls through: a protection that silently stops working is worse
- *   than one that is known to be missing.
- * - A nudge (it only adds a reminder: an inject or a react) must exit 0. If it
- *   blocked, one missing file could stop the whole session. This happened on
- *   2026-08-10: merge-conflict markers in `package.json` stopped every hook from
- *   loading, the Bash gate then refused `git merge --abort` (the command that
- *   undoes the damage), and the session could not be repaired from inside.
+ *   than one that is known to be missing. A tool gate refuses only the tool it
+ *   gates, so the repair (a file write, or `vigiles compile` in Bash) goes
+ *   through the other tool.
+ * - Every other role continues. An inject or a react only adds a reminder; a
+ *   prompt-gate or a stop-gate fires where a refusal leaves nothing to repair
+ *   with — observed 2026-11, an inject on `UserPromptSubmit` whose failure
+ *   blocked every prompt, so the human could not type their way out. And on
+ *   2026-08-10 merge-conflict markers in `package.json` stopped every hook from
+ *   loading; a nudge that blocked then would have stopped the whole session.
+ */
+export function hookFailurePolicy(kind: DispatchKind): HookFailurePolicy {
+  return kind === "bash-gate" || kind === "file-gate" ? "block" : "continue";
+}
+
+/**
+ * The failure policy as a shell exit code, for a harness with no failure key
+ * (`PluginLayout.hookFailureWiring` `"shell-ending"`, Codex today): every gate
+ * → 2, which turns any failure into a block; a nudge (inject, react) → 0. Shell,
+ * so a different runtime version cannot change it.
  *
- * The kind is fixed by the type the author picked: a react hook has no `deny`,
- * and an inject hook only returns text.
- *
- * Only this function decides. The runtime used to guess a second time, from the
- * hook's file name ("inject" in the name meant nudge), and the two guesses
- * disagreed (#312). Now the runtime always exits 2 when a hook cannot load, and
- * the `|| exit N` ending (see {@link withRoleExit}) is the only thing that turns
- * that 2 into a 0. It is shell, so a different runtime version cannot change it.
- *
- * This does not rescue a gate that cannot load: it still refuses every command,
- * including the install that would fix it. It only stops a nudge doing the same.
+ * ⚠️ NOT {@link hookFailurePolicy} spelled in shell, and the difference is a
+ * known gap rather than an oversight: a prompt-gate or stop-gate still ends
+ * `|| exit 2` here, so on such a harness its failure still blocks a prompt or a
+ * stop. This ending is left exactly as it shipped until the harness offers a
+ * failure key or the change is made on purpose for it.
  *
  * (Other tools disagree on this too: husky and lefthook skip, pre-commit fails.)
  */
@@ -1589,6 +1611,41 @@ const ROLE_EXIT_SUFFIX = /\s*\|\|\s*exit\s+\d+\s*$/;
  */
 export function withRoleExit(command: string, kind: DispatchKind): string {
   return `${command.replace(ROLE_EXIT_SUFFIX, "")} || exit ${hookRuntimeMissingExit(kind)}`;
+}
+
+/** A compiled hook's command, and its failure policy when the harness carries it as a key. */
+export type WiredHook =
+  /** The policy is a handler key; the command is the bare runtime line. */
+  | {
+      readonly kind: "handler-field";
+      readonly command: string;
+      readonly onFailure: HookFailurePolicy;
+    }
+  /** The policy rides on the command's `|| exit N` ending. */
+  | { readonly kind: "shell-ending"; readonly command: string };
+
+/**
+ * The line `compile` writes for a hook of this role, on a harness whose
+ * settings carry the failure policy as `wiring` says. With a handler field the
+ * command has NO ending, deliberately: `|| exit 2` would turn the runtime's
+ * exit 1 (a failure) back into a block on every event, and `|| exit 0` would
+ * hide the one line naming the fix; `onFailure` decides instead.
+ */
+export function wireHookCommand(
+  command: string,
+  kind: DispatchKind,
+  wiring: HookFailureWiring = "shell-ending",
+): WiredHook {
+  switch (wiring) {
+    case "handler-field":
+      return {
+        kind: "handler-field",
+        command: command.replace(ROLE_EXIT_SUFFIX, ""),
+        onFailure: hookFailurePolicy(kind),
+      };
+    case "shell-ending":
+      return { kind: "shell-ending", command: withRoleExit(command, kind) };
+  }
 }
 
 /** A gate's {@link HookMode} (`enforce` default); non-gate roles report `enforce` too. */
@@ -1671,18 +1728,18 @@ function styleMatcher(
 function renderSettingsBlock(
   on: string,
   matcher: string | undefined,
-  gateCommand: string,
+  handler: CompiledHandler,
   protocol: HookProtocol | undefined,
   settings: SettingsCodec | undefined,
 ): string {
   const block = protocol
-    ? protocol.registration(on, matcher, gateCommand)
+    ? protocol.registration(on, matcher, handler.command, handler.onFailure)
     : {
         hooks: {
           [on]: [
             matcher === undefined
-              ? { hooks: [{ type: "command", command: gateCommand }] }
-              : { matcher, hooks: [{ type: "command", command: gateCommand }] },
+              ? { hooks: [handler] }
+              : { matcher, hooks: [handler] },
           ],
         },
       };
@@ -1937,32 +1994,46 @@ export function compileHookProgram(
         )} — use dangerously(name, cmd) to acknowledge a side-effecting/undecidable command, or keep provide() only for a read-only one.`,
     );
   }
-  // The `|| exit N` ending is added here, not by the caller, so every caller gets
-  // the right one and none can forget it (#312).
-  const gateCommand = withRoleExit(
-    opts.gateCommand ?? "npx vigiles hook-runtime run-program",
-    dispatchKind(hook),
+  // The failure policy (an `onFailure` key, or the `|| exit N` ending) is added
+  // here, not by the caller, so every caller gets the right one and none can
+  // forget it (#312).
+  const handler = compiledHandler(
+    wireHookCommand(
+      opts.gateCommand ?? "npx vigiles hook-runtime run-program",
+      dispatchKind(hook),
+      opts.hookFailureWiring,
+    ),
   );
   const matcher = styleMatcher(rawMatcher, opts.hookProtocol);
   const entry =
     matcher === undefined
-      ? { hooks: [{ type: "command" as const, command: gateCommand }] }
-      : {
-          matcher,
-          hooks: [{ type: "command" as const, command: gateCommand }],
-        };
+      ? { hooks: [handler] }
+      : { matcher, hooks: [handler] };
   return {
     hooks: { [on]: [entry] },
     settingsBlock: renderSettingsBlock(
       on,
       matcher,
-      gateCommand,
+      handler,
       opts.hookProtocol,
       opts.settings,
     ),
     stamp: stampHook(source),
     ...(fitWarnings.length > 0 ? { warnings: fitWarnings } : {}),
   };
+}
+
+/** One compiled handler entry: the command, and `onFailure` when the harness carries it as a key. */
+interface CompiledHandler {
+  readonly type: "command";
+  readonly command: string;
+  readonly onFailure?: HookFailurePolicy;
+}
+
+function compiledHandler(wired: WiredHook): CompiledHandler {
+  return wired.kind === "handler-field"
+    ? { type: "command", command: wired.command, onFailure: wired.onFailure }
+    : { type: "command", command: wired.command };
 }
 
 /** Stamp a hook's source (the integrity.ts pattern, applied to a hook artifact). */
@@ -3344,7 +3415,8 @@ export function isStampRepairEvent(
  * - "The gate is not running anyway" would equally justify allowing `ls`. It
  *   does not single out `npm ci`.
  * - On a fresh container the runtime itself is missing, so none of this code
- *   runs; the command's own `|| exit 2` decides.
+ *   runs; the wiring's failure policy decides (`onFailure`, or the command's
+ *   own `|| exit 2` on a harness without that key).
  * - `npm ci` fails when the lockfile is behind `package.json`. Fixing that needs
  *   plain `npm install`, which fetches versions the repo has not pinned.
  *
