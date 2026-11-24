@@ -150,6 +150,9 @@ describe("rule 3: a program moved by its own row of the table", () => {
     ])
       unknown(c);
   });
+});
+
+describe("rule 3: the other rows of the table", () => {
   test("other rows of the table", () => {
     known("make -C /r deploy", ["/r"], "make");
     known("make deploy -C /r", ["/r"], "make");
