@@ -54,7 +54,6 @@ import {
   hookNeeds,
   gateAction,
   noticeDelivery,
-  isStampRepairEvent,
   isLoadPathRepairEvent,
   resolveHookEvent,
   undecidablePathWarning,
@@ -91,16 +90,17 @@ import {
   ensureLocalFilesIgnored,
 } from "./local-files.js";
 import { loadHook } from "./load-hook.js";
+import { injectableEventsOf } from "./core/event-capability.js";
+import { checkHookStamp, stampFixCommand } from "./core/hook-stamp.js";
 import {
-  capabilityOf,
-  injectableEventsOf,
-  type CapabilityVerdict,
-} from "./core/event-capability.js";
-import {
-  checkHookStamp,
-  stampFixCommand,
-  staleStampResponse,
-} from "./core/hook-stamp.js";
+  PASSED,
+  decidedBlock,
+  failed,
+  failureLine,
+  hookExitCode,
+  type HookExitCode,
+  type HookRunOutcome,
+} from "./core/hook-exit.js";
 
 /**
  * Which events accept injected context, from the ACTIVE adapter — the one
@@ -298,10 +298,13 @@ function recordObservation(
 }
 
 /**
- * Emit a gate Decision in the harness protocol — the author never writes it.
- * `observe` mode turns a would-be block/ask into a recorded no-op (exit 0): the
- * shadow/rollout path. Harness-neutral — exit 2 / exit 0 are identical on Claude
- * Code and Codex; the record is vigiles-local.
+ * Emit a gate Decision in the harness protocol — the author never writes it —
+ * and return what the run came to. `observe` mode turns a would-be block/ask
+ * into a recorded no-op: the shadow/rollout path. Harness-neutral — exit 2 /
+ * exit 0 are identical on Claude Code and Codex; the record is vigiles-local.
+ *
+ * The `block` case is the ONLY caller of {@link decidedBlock} in the runtime:
+ * a hook's own `deny` is the one thing that may exit 2.
  */
 function emitGate(
   decision: Decision,
@@ -309,7 +312,7 @@ function emitGate(
   mode: HookMode,
   file: string,
   root: string,
-): void {
+): HookRunOutcome {
   const action = gateAction(decision, mode);
   switch (action.kind) {
     case "block":
@@ -325,8 +328,7 @@ function emitGate(
         root,
       );
       console.error(action.reason);
-      process.exit(2);
-      return;
+      return decidedBlock();
     case "ask":
       appendObservation(
         {
@@ -348,7 +350,7 @@ function emitGate(
           },
         }) + "\n",
       );
-      return;
+      return PASSED;
     case "observe":
       appendObservation(
         {
@@ -365,9 +367,9 @@ function emitGate(
       console.error(
         `⚠ [vigiles observe] ${on}: would ${action.would} — ${action.reason}`,
       );
-      return; // exit 0 — observe never blocks
+      return PASSED; // observe never blocks
     case "allow":
-      return; // emit nothing, exit 0
+      return PASSED; // emit nothing
   }
 }
 
@@ -433,75 +435,40 @@ function conflictedLoadPathFiles(
 }
 
 /**
- * Print the loud stderr banner that accompanies a REPAIR-only pass-through, and
- * return true — the caller allows exactly this one tool call. Shared by the two
- * refusal paths (stale stamp, unloadable program) so the wording can't drift.
+ * Print the loud stderr banner that accompanies a REPAIR-only pass-through on a
+ * hook that cannot load. The caller then passes exactly this one tool call.
  */
-function announceRepairEscape(file: string, why: string): boolean {
+function announceRepairEscape(file: string, why: string): void {
   console.error(
     `vigiles: hook ${file} ${why}.\n` +
-      `vigiles: ALLOWING this one call because it is a repair or recovery action ` +
+      `vigiles: PASSING this one call because it is a repair or recovery action ` +
       `(a write to ${file}, to ${hookStampPath(file)}, or to one of ` +
       `${HARNESS_CONFIG_FILES.join(", ")}) ` +
-      `— without this the gate blocks the only actions that can fix it.\n` +
-      `vigiles: every OTHER tool call stays BLOCKED until the hook loads again.`,
-  );
-  return true;
-}
-
-/**
- * What a stale stamp leaves the runtime to do: `run` the hook as usual (fresh,
- * unstamped, or a repair action let through), or `skip` it — warned about, the
- * body never run, exit 0.
- */
-type StampOutcome = "run" | "skip";
-
-/** The firing event's name: the payload's own, else the event the hook declares. */
-function liveEventName(payload: unknown, program: AnyHook): string {
-  const name = (payload as { hook_event_name?: unknown }).hook_event_name;
-  return typeof name === "string" && name !== "" ? name : program.on;
-}
-
-/**
- * The live event's capability on the ACTIVE harness. LAZY, like
- * {@link injectableEventsFor}: the adapter registry costs ~279 ms, and only a
- * stale stamp on a tool gate — never the happy path — asks this.
- */
-function capabilityFor(root: string, eventName: string): CapabilityVerdict {
-  const { resolveAdapter } =
-    require("./adapter-registry.js") as typeof import("./adapter-registry.js");
-  return capabilityOf(
-    resolveAdapter(root).dialect.eventCapabilities,
-    eventName,
+      `— a gate's wiring refuses a failed hook's call, and without this it would ` +
+      `refuse the only actions that can fix it.\n` +
+      `vigiles: every OTHER call to this hook fails until it loads again.`,
   );
 }
 
 /**
- * Check the hook against its stamp sidecar and decide what a mismatch does.
- * No sidecar, or a cleared one (`{}`) → run uncompiled (a test fixture, a
- * not-yet-compiled hook, the documented manual clear).
+ * Check the hook against its stamp sidecar. No sidecar, or a cleared one
+ * (`{}`) → run uncompiled (a test fixture, a not-yet-compiled hook, the
+ * documented manual clear). An unreadable sidecar or source runs too: a source
+ * that cannot be read already failed to load.
  *
- * A STALE stamp blocks (exit 2) only where blocking is the hook's job AND the
- * actor can repair it in the same loop — a tool gate on an event that vetoes a
- * tool call ({@link staleStampResponse} decides; role first, event second).
- * Everywhere else it is ONE loud warning naming the fix, and the unverified body
- * is skipped. Observed 2026-11: an `inject` hook on `UserPromptSubmit`, edited
- * and not recompiled, exited 2 on every prompt — the human could not type their
- * way out, because no prompt is a repair action.
+ * A STALE stamp is a FAILURE, for every role and on every event: the unverified
+ * body does not run, and the runtime exits 1 with one line naming the fix. What
+ * the failure does to the action is the wiring's `onFailure`, which `compile`
+ * writes from the role — `block` for a tool gate, `continue` for everything
+ * else. Observed 2026-11: an `inject` hook on `UserPromptSubmit`, edited and not
+ * recompiled, exited 2 on every prompt — the human could not type their way out.
  *
- * Where it does refuse, ONE exception, and it is loud: the author's own REPAIR
- * action ({@link isStampRepairEvent}) is let through, or a repo WEDGES. A stale
- * stamp on a PreToolUse Bash gate blocks every Bash command — including `vigiles
- * compile`, the only command that regenerates the stamp — so a normal
- * edit-compile cycle could paint you into a corner whose only escape was
- * hand-editing `.claude/settings.json` to unwire the gate. Observed 2026-08-03.
+ * No repair escape here, deliberately. A stale tool gate refuses only the tool
+ * it gates, so the way out is always through the other one: a stale Bash gate
+ * does not see the file write that clears its stamp, and a stale file gate does
+ * not see `vigiles compile` run in Bash.
  */
-function verifyStamp(
-  file: string,
-  event: HookEvent,
-  program: AnyHook,
-  payload: unknown,
-): StampOutcome {
+function verifyStamp(file: string, event: HookEvent): HookRunOutcome | "run" {
   const { root } = event;
   const stampPath = hookStampPath(file, root);
   const check = checkHookStamp(
@@ -509,46 +476,14 @@ function verifyStamp(
     readIfPresent(resolve(root, file)),
     stampHook,
   );
-  // Anything but `stale` runs: an unreadable sidecar or source must not block a
-  // live session on it — and a source that cannot be read already failed to load.
   if (check.kind !== "stale") return "run";
-  const role = dispatchKind(program);
-  const eventName = liveEventName(payload, program);
-  const response = staleStampResponse(role, {
-    // Asked only for a tool gate: the role alone decides every other kind, and
-    // resolving the adapter is the one expensive read on this path.
-    capability:
-      role === "bash-gate" || role === "file-gate"
-        ? capabilityFor(root, eventName)
-        : { kind: "unknown", event: eventName },
-    carriesToolCall: typeof event.tool_name === "string",
-  });
-  if (response.kind === "skip") {
-    console.error(
-      `vigiles: hook ${file} does not match its compiled stamp — it was edited ` +
-        `after \`vigiles compile\`. SKIPPED on ${eventName}: its body did not run.\n` +
-        `vigiles: fix: run \`${stampFixCommand(file)}\` (a ${role} hook ` +
-        (response.reason === "not-a-tool-gate"
-          ? `never blocks on its own failure`
-          : `blocks only on an event that vetoes a tool call`) +
-        `, so this session is not stopped).`,
-    );
-    return "skip";
-  }
-  if (isStampRepairEvent(event, file, root)) {
-    announceRepairEscape(file, "does not match its compiled stamp");
-    return "run";
-  }
-  console.error(
-    `vigiles: hook ${file} does not match its compiled stamp (tampered).\n` +
-      `vigiles: if YOU edited it, the way out is a FILE WRITE, not a command — ` +
-      `this refusal blocks the recompile too. Either edit ${file} back to what ` +
-      `was compiled, or clear its stamp by writing \`{}\` into ` +
-      `${stampPath}. The hook then runs UNSTAMPED but still ENFORCES, so ` +
-      `\`${stampFixCommand(file)}\` goes through the normal gate.`,
+  return failed(
+    `it does not match its compiled stamp (edited after \`vigiles compile\`), ` +
+      `so its body did not run`,
+    `run \`${stampFixCommand(file)}\`, or edit ${file} back to what was ` +
+      `compiled; if a gate refuses the command, write \`{}\` into ${stampPath} ` +
+      `and the hook runs unstamped, still enforcing`,
   );
-  process.exit(2);
-  return "skip";
 }
 
 /** A file's text, or `undefined` when it cannot be read. */
@@ -577,45 +512,98 @@ function warnIfPathUndecidable(
 
 /**
  * `vigiles hook-runtime run-program <file>` — the runtime the compiled hooks block
- * points at. Reads the live event on stdin, loads the typed program, verifies
- * its stamp, and dispatches by role: a gate exits 2 + reason on `deny`; an
- * inject prints `additionalContext`; a react runs its effect-classified
- * command. A hook that won't load fails CLOSED (exit 2; the `|| exit 0` ending
- * `compile` writes on a nudge turns that into a pass), never silent-allow. A
- * stale stamp fails closed only on a TOOL gate firing on an event that vetoes a
- * tool call; any other hook is warned about and skipped (see {@link verifyStamp}).
- * Two loudly-announced exceptions to a refusal: the repair action itself
- * ({@link isStampRepairEvent}), and — on a LOAD failure only — the load-path
- * repair WRITE ({@link isLoadPathRepairEvent}), or the repo wedges with no way to
- * fix whatever broke the load path.
- *
- * INJECT-HOOK-SPECIFIC: An inject hook that fails to load is a harness failure,
- * not a decision failure. Unlike gates (which must be conservative and block on
- * any error), an inject is pure context addition. It degrades gracefully: if it
- * cannot load, the session continues without the injected context, and the error
- * is logged for debugging. This prevents a single broken inject from wedging all
- * sessions.
+ * points at. Runs the hook ({@link runHookProgram}) and exits with
+ * {@link hookExitCode} of what it came to — the ONE place the exit code is set:
+ * 2 only when the hook's own `decide` denied, 1 for any failure (printed as one
+ * stderr line naming the cause and the fix), 0 for everything else. A throw
+ * anywhere below is a failure too, never a block.
  */
 export async function runHookProgramCommand(
   file: string | undefined,
 ): Promise<void> {
-  if (!file) {
-    console.error("Usage: vigiles hook-runtime run-program <hook-file>");
-    process.exit(2);
-    return;
-  }
+  const outcome = await runHookProgram(file).catch(crashed);
+  if (outcome.kind === "failed") console.error(failureLine(file, outcome));
+  exitAfterFlush(hookExitCode(outcome));
+}
+
+/** A throw anywhere in the run: a failure, never a block. */
+function crashed(err: unknown): HookRunOutcome {
+  if (process.env.VIGILES_DEBUG && err instanceof Error && err.stack)
+    console.error(err.stack);
+  return failed(
+    `the runtime threw: ${err instanceof Error ? err.message : String(err)}`,
+    `if the hook's own code throws, fix it; otherwise rerun with ` +
+      `VIGILES_DEBUG=1 for the stack and report it as a vigiles defect`,
+  );
+}
+
+/**
+ * Exit with `code` once stdout and stderr have flushed — a pipe write is async
+ * on macOS, and an inject's `additionalContext` must not be cut off by the
+ * exit that follows it.
+ */
+function exitAfterFlush(code: HookExitCode): void {
+  process.stdout.write("", () =>
+    process.stderr.write("", () => process.exit(code)),
+  );
+}
+
+/** The live event off stdin: a JSON object, or the failure that it is not. */
+function readEvent(): RawHookEvent | HookRunOutcome {
   let raw = "";
   try {
     raw = readFileSync(0, "utf-8");
   } catch {
-    /* no stdin */
+    /* no stdin: reported below as not JSON */
   }
-  let payload: RawHookEvent = {};
+  const notJson = failed(
+    "the event on stdin is not a JSON object",
+    "this command is run by the harness, which sends the event on stdin; " +
+      "to try a hook by hand, use `runHook` (`vigiles test`), which sends one",
+  );
   try {
-    payload = JSON.parse(raw) as RawHookEvent;
+    const parsed: unknown = JSON.parse(raw);
+    return parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed)
+      ? (parsed as RawHookEvent)
+      : notJson;
   } catch {
-    /* malformed → empty event */
+    return notJson;
   }
+}
+
+/** Is this a run's outcome rather than the value the step produces? */
+function isOutcome(v: unknown): v is HookRunOutcome {
+  return (
+    v !== null &&
+    typeof v === "object" &&
+    "kind" in v &&
+    (v.kind === "blocked" || v.kind === "passed" || v.kind === "failed")
+  );
+}
+
+/**
+ * Read the event, load the program, verify its stamp, and dispatch by role. A
+ * gate's `deny` is the only path to {@link decidedBlock}; every way this can go
+ * wrong before the hook answers is a {@link failed} outcome.
+ *
+ * One loudly-announced exception to a load failure: the load-path repair WRITE
+ * ({@link isLoadPathRepairEvent}) passes, or a gate wired `onFailure: block`
+ * would refuse the only write that fixes whatever broke the load path.
+ */
+async function runHookProgram(
+  file: string | undefined,
+): Promise<HookRunOutcome> {
+  if (!file) {
+    return failed(
+      "no hook file was given",
+      "wire it as `vigiles hook-runtime run-program <hook-file>` " +
+        "(the line `vigiles compile` writes)",
+    );
+  }
+  const payload = readEvent();
+  if (isOutcome(payload)) return payload;
   // 🔴 THE ROOT IS RESOLVED ONCE, HERE, AND RIDES ON THE EVENT. Everything below
   // reads `event.root`; nothing recomputes it and nothing is handed a root
   // beside an event it might disagree with. That disagreement is the defect
@@ -645,92 +633,55 @@ export async function runHookProgramCommand(
     program = await loadHookProgram(file, root);
   } catch (err) {
     // A LOAD failure is a fact about the harness, not a verdict about the
-    // command that happened to arrive — so it must still fail CLOSED (a gate
-    // that cannot run must not wave traffic through), but the two things it owes
-    // the author are different from a `deny`'s: name the real cause, and leave a
-    // way back.
+    // command that happened to arrive, so it is a FAILURE (exit 1), whatever
+    // kind of hook it is — the hook did not load, so there is nothing to ask
+    // whether it is a gate or a nudge. The wiring's `onFailure` (written by
+    // `compile` from the role) decides what that does to the action: a tool
+    // gate's refuses it, a nudge's lets it through.
     //
-    // A hook that cannot be loaded always exits 2 here, whatever kind of hook it
-    // is. We cannot tell: the hook did not load, so there is nothing to ask
-    // whether it is a gate (can block) or a nudge (reminder only). This code used
-    // to guess from the file name (`file.includes("inject")`), and the guess
-    // disagreed with the `|| exit N` ending that `vigiles compile` writes on the
-    // command: a nudge without "inject" in its name blocked the session, and a
-    // gate with it let every command through (#312).
-    // Now only that ending decides. A nudge is wired `|| exit 0`, so the shell
-    // turns our 2 into a 0 and it degrades; a gate is wired `|| exit 2` and
-    // blocks. A command with no such ending is treated as a gate, the safe default.
-    //
-    // Escapes, both announced loudly on stderr:
-    //   - the stale-stamp one (an edit to the hook itself / `vigiles compile`),
-    //     for the hook broken mid-edit;
-    //   - the RECOVERY set, for the case where the hook is fine and something
-    //     else on its load path is not (observed 2026-08-10: `package.json` left
-    //     holding merge-conflict markers → Node can't resolve `vigiles/hook` →
-    //     no compiled hook loads → the Bash gate refuses `git merge --abort`,
-    //     the one command that undoes the cause. Irreversible from inside the
-    //     session; it was fixed by hand-editing the JSON, because file tools do
-    //     not go through PreToolUse(Bash)).
-    // Everything else stays BLOCKED, and the escapes are whitelists of commands
-    // that are WRITES — see `isLoadPathRepairEvent` for why no command is one.
+    // The RECOVERY escape stays, for the case where the hook is fine and
+    // something else on its load path is not (observed 2026-08-10:
+    // `package.json` left holding merge-conflict markers → Node can't resolve
+    // `vigiles/hook` → no compiled hook loads → a refusing gate blocks the
+    // repair). It passes only WRITES — see `isLoadPathRepairEvent` for why no
+    // command is one.
     const conflicted = conflictedLoadPathFiles(file, root);
     // 🔴 THE THROWN MESSAGE IS THE ONLY THING THAT NAMES THE REAL CAUSE when the
     // merge-conflict heuristic above does not fire. Without it this said just
     // "cannot be loaded" — a diagnosis that sends the reader looking in the wrong
     // place, which is the defect this runtime has already shipped twice (the
     // loader that advised `npm run build` when the answer was `npm install`).
-    // The comment above promises to name the cause; this is what keeps it.
     const thrown = err instanceof Error ? err.message : String(err);
     const cause =
       conflicted.length > 0
-        ? `cannot be loaded — ${conflicted.join(", ")} contains merge-conflict ` +
-          `markers, so Node cannot resolve \`vigiles/hook\` from it (the hook itself ` +
-          `may be fine)`
-        : `cannot be loaded — ${thrown}`;
+        ? `${conflicted.join(", ")} contains merge-conflict markers, so Node ` +
+          `cannot resolve \`vigiles/hook\` from it (the hook itself may be fine)`
+        : thrown;
     if (
       isLoadPathRepairEvent(event, file, {
         // The root the REST of this runtime already uses — now the PROJECT's,
         // not the process's. A repair accepted against any other root would name
-        // a file the runtime never reads. The hook's own path cannot supply it (a
-        // hook sits at any depth, and a `.git` probe would be a disk read core
-        // does not do), so it is passed in.
+        // a file the runtime never reads.
         root,
         loadPathFiles: hookLoadPathFiles(file, root),
       })
     ) {
-      announceRepairEscape(file, cause);
-      return;
+      announceRepairEscape(file, `cannot be loaded — ${cause}`);
+      return PASSED;
     }
-
-    const errorMsg =
-      `vigiles: hook ${file} ${cause}.\n` +
-      `vigiles: this is the state of the HARNESS, not a decision about your ` +
-      `command — the gate never ran. Blocking anyway (a gate that cannot run ` +
-      `must not pass traffic).\n` +
-      `vigiles: if this hook is a NUDGE (an inject or a react), it must not ` +
-      `block: its wiring should end in \`|| exit 0\`, which \`vigiles compile\` ` +
-      `writes. A hook wired by hand with no such ending is treated as a gate.\n` +
-      `vigiles: the way out is a FILE WRITE, not a command — under a tool that ` +
-      `WRITES (Write/Edit/MultiEdit); a Read of the same path repairs nothing ` +
-      `and is refused. Fix whichever of ` +
-      `${file}, ${HARNESS_CONFIG_FILES.join(", ")} is broken — those writes are ` +
-      `allowed even while this refuses, and a Bash gate never gated file tools ` +
-      `at all. The hook then loads and the gate decides normally again.\n` +
-      `vigiles: those paths resolve under ${root} — plus any ancestor ` +
-      `\`package.json\` Node actually reads, so whatever is named above as the ` +
-      `cause is writable. A path in a DIFFERENT checkout is refused: it cannot ` +
-      `repair this failure.\n` +
-      `vigiles: no command is allowed, deliberately. \`git merge --abort\` and ` +
-      `\`git checkout\` RUN \`.git/hooks/*\` (measured: reference-transaction, ` +
-      `post-checkout), \`vigiles compile\` loads the hook through the same ` +
-      `resolver that just failed, and an install runs the lifecycle scripts of ` +
-      `every package in the lockfile.`;
-
-    console.error(errorMsg);
-    process.exit(2);
+    return failed(
+      `it cannot be loaded: ${cause}`,
+      `repair whichever of ${file}, ${HARNESS_CONFIG_FILES.join(", ")} (or an ` +
+        `ancestor package.json Node reads, under ${root}) is broken with a FILE ` +
+        `WRITE (Write/Edit/MultiEdit; a Read repairs nothing), which passes even ` +
+        `while this fails; no command does, ` +
+        `because \`git merge --abort\` and installs run code and \`vigiles ` +
+        `compile\` loads the hook through the resolver that just failed`,
+    );
   }
-  if (verifyStamp(file, event, program, payload) === "skip") return;
-  await dispatchVerified(program, file, event, declaredRoot);
+  const verified = verifyStamp(file, event);
+  if (verified !== "run") return verified;
+  return dispatchVerified(program, file, event, declaredRoot);
 }
 
 /**
@@ -742,7 +693,7 @@ async function dispatchVerified(
   file: string,
   event: HookEvent,
   declaredRoot: string | undefined,
-): Promise<void> {
+): Promise<HookRunOutcome> {
   const { root } = event;
   switch (dispatchKind(program)) {
     case "inject": {
@@ -767,58 +718,20 @@ async function dispatchVerified(
         },
         root,
       );
-      return;
+      return PASSED;
     }
-    case "react": {
-      const ctx = await gatherHookContext(program, file, root);
-      warnIfPathUndecidable(event, declaredRoot);
-      const reaction = runReact(program as ReactHook, event, ctx, declaredRoot);
-      // A notice has to REACH someone. stderr at exit 0 goes to the debug log
-      // and nothing else (the host's docs are explicit: "Claude never sees it"),
-      // and a react always exits 0 because its type has no `deny` — so stderr
-      // alone delivered nowhere. Emit the same `additionalContext` shape the
-      // shipped refs/eval-lock nudges use, gated on the ACTIVE adapter's
-      // `injectableEvents` so this is per-harness fact, not a CC literal.
-      const injectable = injectableEventsFor(root);
-      const delivery = noticeDelivery(reaction, program.on, injectable);
-      if (delivery.kind === "inject") {
-        process.stdout.write(
-          JSON.stringify({
-            hookSpecificOutput: {
-              hookEventName: program.on,
-              additionalContext: delivery.context,
-            },
-          }) + "\n",
-        );
-      }
-      // The stderr copy STAYS, deliberately. It is what the debug log and every
-      // `runHook`-based probe already read, it costs nothing, and on an event
-      // this harness does not inject it is the only trace that exists at all.
-      // Removing it would break existing consumers to gain nothing.
-      if (reaction.kind === "notice") console.error(reaction.message);
-      applyHookWrites(file, { kind: "reaction", reaction }, root);
-      if (reaction.kind === "run") {
-        const { spawnSync } =
-          require("node:child_process") as typeof import("node:child_process");
-        const res = spawnSync(reaction.command, {
-          shell: true,
-          stdio: "inherit",
-        });
-        process.exit(res.status ?? 0);
-      }
-      return;
-    }
+    case "react":
+      return dispatchReact(program as ReactHook, file, event, declaredRoot);
     case "file-gate": {
       const ctx = await gatherHookContext(program, file, root);
       warnIfPathUndecidable(event, declaredRoot);
-      emitGate(
+      return emitGate(
         decideFileGate(program as FileGateHook, event, ctx, declaredRoot),
         program.on,
         hookMode(program),
         file,
         root,
       );
-      return;
     }
     case "bash-gate": {
       const ctx = await gatherHookContext(program, file, root);
@@ -827,36 +740,89 @@ async function dispatchVerified(
       // matched by over-blocking alone, and with it an absolute token is placed
       // exactly. Measured bypass this closes: `sed -i s/a/b/ <abs>/paper.tex`
       // exited 0 against a guard that blocked the relative spelling.
-      emitGate(
+      return emitGate(
         decideProgram(program as HookProgram, event, ctx, declaredRoot),
         program.on,
         hookMode(program),
         file,
         root,
       );
-      return;
     }
     case "prompt-gate": {
       const ctx = await gatherHookContext(program, file, root);
-      emitGate(
+      return emitGate(
         decidePromptGate(program as PromptGateHook, event, ctx),
         program.on,
         hookMode(program),
         file,
         root,
       );
-      return;
     }
     case "stop-gate": {
       const ctx = await gatherHookContext(program, file, root);
-      emitGate(
+      return emitGate(
         decideStopGate(program as StopGateHook, event, ctx),
         program.on,
         hookMode(program),
         file,
         root,
       );
-      return;
     }
   }
+}
+
+/** A react hook: deliver its notice, record its writes, run its classified command. */
+async function dispatchReact(
+  program: ReactHook,
+  file: string,
+  event: HookEvent,
+  declaredRoot: string | undefined,
+): Promise<HookRunOutcome> {
+  const { root } = event;
+  const ctx = await gatherHookContext(program, file, root);
+  warnIfPathUndecidable(event, declaredRoot);
+  const reaction = runReact(program, event, ctx, declaredRoot);
+  // A notice has to REACH someone. stderr at exit 0 goes to the debug log
+  // and nothing else (the host's docs are explicit: "Claude never sees it"),
+  // and a react always exits 0 because its type has no `deny` — so stderr
+  // alone delivered nowhere. Emit the same `additionalContext` shape the
+  // shipped refs/eval-lock nudges use, gated on the ACTIVE adapter's
+  // `injectableEvents` so this is per-harness fact, not a CC literal.
+  const injectable = injectableEventsFor(root);
+  const delivery = noticeDelivery(reaction, program.on, injectable);
+  if (delivery.kind === "inject") {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: program.on,
+          additionalContext: delivery.context,
+        },
+      }) + "\n",
+    );
+  }
+  // The stderr copy STAYS, deliberately. It is what the debug log and every
+  // `runHook`-based probe already read, it costs nothing, and on an event
+  // this harness does not inject it is the only trace that exists at all.
+  // Removing it would break existing consumers to gain nothing.
+  if (reaction.kind === "notice") console.error(reaction.message);
+  applyHookWrites(file, { kind: "reaction", reaction }, root);
+  return reaction.kind === "run" ? runReactCommand(reaction.command) : PASSED;
+}
+
+/**
+ * Run a react's classified command. Its exit code is a fact about THAT command,
+ * never a verdict: a react has no `deny`, so a formatter that exits 2 must not
+ * turn into a block. Anything but 0 is the react failing.
+ */
+function runReactCommand(command: string): HookRunOutcome {
+  const { spawnSync } =
+    require("node:child_process") as typeof import("node:child_process");
+  const res = spawnSync(command, { shell: true, stdio: "inherit" });
+  if (res.status === 0) return PASSED;
+  return failed(
+    res.status === null
+      ? `its react command \`${command}\` was killed (${res.signal ?? res.error?.message ?? "no exit status"})`
+      : `its react command \`${command}\` exited ${String(res.status)}`,
+    "run that command by hand to see why it fails",
+  );
 }

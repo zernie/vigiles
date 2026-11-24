@@ -23,7 +23,7 @@ import {
   hookRuntimeRef,
   runProgramCommand,
 } from "./core/hook-command.js";
-import { withRoleExit } from "./core/hook-program.js";
+import { wireHookCommand } from "./core/hook-program.js";
 import type { PluginLayout } from "./core/layout.js";
 import { ADAPTERS } from "./adapter-registry.js";
 
@@ -73,10 +73,11 @@ function compiledHook(layout: PluginLayout): {
       [PROGRAM]: "export default {};\n",
       [`${PROGRAM}.json`]: JSON.stringify({ stamp: "s", role: "react" }),
     },
-    line: withRoleExit(
+    line: wireHookCommand(
       runProgramCommand(hookRuntimeRef(tokens), hookGateRef(PROGRAM, tokens)),
       "react",
-    ),
+      layout.hookFailureWiring,
+    ).command,
   };
 }
 

@@ -46,17 +46,21 @@ rule reports it, "edited or stale — recompile"; the cure is `vigiles compile`.
 `vigiles compile` wires a hook as
 
 ```sh
-node "${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js" hook-runtime run-program "${CLAUDE_PROJECT_DIR}/.vigiles/hooks/x.hook.mjs" || exit 0
+node "${CLAUDE_PROJECT_DIR}/node_modules/vigiles/dist/cli.js" hook-runtime run-program "${CLAUDE_PROJECT_DIR}/.vigiles/hooks/x.hook.mjs"
 ```
+
+(with `"onFailure": "continue"` beside it for a reminder; on Codex the same
+line ends `|| exit 0`).
 
 Three files must exist: the runtime (`dist/cli.js`), the hook program, and its
 stamp (`.vigiles/hooks/x.hook.mjs.json`). The start-of-session check `compile`
 wires needs `.vigiles/hook-check.sh`.
 
 **A missing runtime is reported as _not installed_.** It matters more than it
-looks, because a reminder hook ends in `|| exit 0` on purpose (it must never
-block a session), and that ending turns "the runtime is not there" into the same
-silence as "the hook had nothing to say". Nothing else tells the two apart.
+looks, because a reminder hook fails open on purpose (it must never block a
+session), so "the runtime is not there" never stops the session that would
+notice it — on Codex its `|| exit 0` makes it the same silence as "the hook had
+nothing to say". Nothing else catches it before a session does.
 Measured 2026-10-11 on this repository: both of its own compiled reminders had
 failed to load on every call for three weeks, and no gate noticed.
 

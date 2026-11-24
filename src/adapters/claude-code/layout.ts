@@ -43,6 +43,10 @@ export const claudeCodeLayout: PluginLayout = {
   // Both names Claude Code uses for the project root (mirrors the
   // `NON_PLUGIN_VARS` set in plugin-loader.ts / scan-files.ts).
   projectRootTokens: ["${CLAUDE_PROJECT_DIR}", "${CLAUDE_PROJECT}"],
+  // A handler's `onFailure: "block" | "continue"` says what a FAILED hook does
+  // to its action (code.claude.com/docs/en/hooks, "Block the action when a hook
+  // fails"; Claude Code v2.1.295+). So a compiled line ends in no `|| exit N`.
+  hookFailureWiring: "handler-field",
   mcpConfigFile: ".mcp.json",
   mcpManifestKey: "mcpServers",
   // What a repo-root session LOADS, and why each remaining candidate does not —

@@ -163,7 +163,8 @@ test("an edited compiled line is a hook-script-exists ERROR under the preset —
     const path = join(dir, ".claude", "settings.json");
     writeFileSync(
       path,
-      readFileSync(path, "utf-8").replace("|| exit 0", "|| true"),
+      // A fail-open ending bolted on by hand: no longer the line compile writes.
+      readFileSync(path, "utf-8").replace(/(x\.hook\.mjs\\")"/, '$1 || true"'),
     );
     const r = cli(dir, "lint");
     assert.notEqual(r.status, 0, r.stdout);

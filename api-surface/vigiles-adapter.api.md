@@ -150,7 +150,8 @@ export interface HookProtocol {
     readonly matcherStyle?: "exact" | "regex";
     mergeRegistrations(existing: Record<string, unknown>, compiled: Readonly<Record<string, readonly unknown[]>>, managedBy: string): Record<string, unknown>;
     readonly name: string;
-    registration(on: string, matcher: string | undefined, command: string): {
+    registration(on: string, matcher: string | undefined, command: string,
+    onFailure?: HookFailurePolicy): {
         readonly hooks: Readonly<Record<string, readonly unknown[]>>;
     };
 }
@@ -343,6 +344,7 @@ export interface PatternFrom {
 
 // @public
 export interface PluginLayout {
+    readonly hookFailureWiring?: HookFailureWiring;
     readonly hooksConventionPath?: string;
     readonly hookScriptsDir?: string;
     instructionChain(files: Readonly<Record<string, string>>): InstructionChain;

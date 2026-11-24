@@ -22,7 +22,8 @@
  * sources come from the caller.
  */
 import { hookStampRef } from "./hook-paths.js";
-import { withRoleExit, type DispatchKind } from "./hook-program.js";
+import { wireHookCommand, type DispatchKind } from "./hook-program.js";
+import type { HookFailureWiring } from "./layout.js";
 
 /** Where `compile` writes the start-of-session check. Committed, next to the hook sources. */
 export const HOOK_CHECK_REF = ".vigiles/hook-check.sh";
@@ -259,6 +260,7 @@ export function hookLinePlan(
   sourceRefs: readonly string[],
   readText: (ref: string) => string | undefined,
   projectRootTokens: readonly string[] | undefined,
+  failureWiring?: HookFailureWiring,
 ): HookLinePlan {
   const sources = sourceRefs.map((ref): HookSourceRecord => {
     const role = fieldOf(parseJson(readText(hookStampRef(ref))), "role");
@@ -269,6 +271,7 @@ export function hookLinePlan(
       sources,
       runtime: hookRuntimeFor(parseJson(readText("package.json"))),
       projectRootTokens,
+      failureWiring,
     }),
     sources: sourceRefs,
   };
@@ -307,6 +310,8 @@ export interface HookPlanInput {
   readonly sources: readonly HookSourceRecord[];
   readonly runtime: HookRuntime;
   readonly projectRootTokens: readonly string[] | undefined;
+  /** How the harness carries a hook's failure policy; absent ⇒ the `|| exit N` ending. */
+  readonly failureWiring?: HookFailureWiring;
 }
 
 /**
@@ -339,15 +344,16 @@ const VIGILES_WIRING: HookLineRuns = { kind: "vigiles-wiring" };
 /** The line `compile` writes for one recorded hook source; none without a role. */
 function compiledLine(
   { ref, role }: HookSourceRecord,
-  { runtime, projectRootTokens: tokens }: HookPlanInput,
+  { runtime, projectRootTokens: tokens, failureWiring }: HookPlanInput,
 ): readonly PlannedHookLine[] {
   if (role === undefined) return [];
-  const command = withRoleExit(
+  const { command } = wireHookCommand(
     runProgramCommand(
       hookRuntimeRef(tokens, runtime),
       hookGateRef(ref, tokens),
     ),
     role,
+    failureWiring,
   );
   const files = [runtime.path, ref, hookStampRef(ref)].map((f) =>
     anchored(f, tokens),
