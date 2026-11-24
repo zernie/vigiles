@@ -14,7 +14,11 @@
 import { describe, test } from "vitest";
 import assert from "node:assert/strict";
 
-import { leafCommandsNormalized } from "./bash-effects.js";
+import {
+  knownGlobalOptionOf,
+  leafCommandsNormalized,
+  subcommandAliasRows,
+} from "./bash-effects.js";
 import {
   allow,
   decideProgram,
@@ -153,4 +157,54 @@ const noVerifyGuard = experimental_defineHook({
   on: "PreToolUse",
   decide: (e) =>
     e.command.runs("git commit --no-verify") ? deny("no-verify") : allow(),
+});
+
+// Codex on #508 (a074cf2): `pip --isolated install -i URL pkg` looked up a
+// `pip --isolated` row. Every program with per-subcommand rows skips its OWN
+// global options to find the subcommand; an option not in its table makes
+// the short-flag question "may match", never "no".
+describe("every program with subcommand rows skips its own global options", () => {
+  test("pip --isolated install -i is --index-url", () => {
+    assert.ok(
+      leaf("pip --isolated install -i https://x/simple pkg").hasFlag(
+        "index-url",
+      ),
+    );
+  });
+
+  const rows = subcommandAliasRows();
+  test("the sweep covers every program with subcommand rows", () => {
+    assert.deepEqual([...new Set(rows.map((r) => r.program))].sort(), [
+      "git",
+      "pip",
+    ]);
+  });
+
+  test.each(rows)(
+    "$program <known global> $sub -$short is --$long",
+    ({ program, sub, long, short }) => {
+      const known = knownGlobalOptionOf(program);
+      assert.ok(known !== undefined, `${program} has no global-option table`);
+      assert.ok(
+        leaf(`${program} ${known} ${sub} -${short} x`).hasFlag(long),
+        `${program} ${known} ${sub} -${short}`,
+      );
+    },
+  );
+
+  test.each(rows)(
+    "$program <unknown option> $sub -$short may be --$long: the gate asks",
+    ({ program, sub, long, short }) => {
+      const guard = experimental_defineHook({
+        on: "PreToolUse",
+        decide: (e) =>
+          e.command.runs(`${program} ${sub} --${long}`) ? deny("x") : allow(),
+      });
+      const kind = decideProgram(guard, {
+        tool_name: "Bash",
+        tool_input: { command: `${program} --zz-unknown v ${sub} -${short} x` },
+      }).kind;
+      assert.notEqual(kind, "allow");
+    },
+  );
 });
