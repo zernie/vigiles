@@ -38,6 +38,7 @@ import {
   leafCommandsNormalized,
   readShell,
   classifyBashCommand,
+  programFlagAliases,
   type HiddenCommand,
   type BashEffect,
   type NormalizedLeaf,
@@ -780,6 +781,8 @@ interface ParsedCommand {
   readonly hidden: readonly HiddenCommand[];
   /** The leaves given words from an unquoted expansion (`git push $F`). */
   readonly unknownWordLeaves: ReturnType<typeof leafCommandsNormalized>;
+  /** The leaves whose subcommand cannot be told (`git "$SUB" -n`). */
+  readonly unknownSubcommandLeaves: ReturnType<typeof leafCommandsNormalized>;
 }
 
 function parseCommand(raw: string): ParsedCommand {
@@ -822,7 +825,60 @@ function parseCommand(raw: string): ParsedCommand {
     unknownWordLeaves: effects.flatMap((e) =>
       e.kind === "leaf" && e.unknownWords ? [e.leaf] : [],
     ),
+    unknownSubcommandLeaves: effects.flatMap((e) =>
+      e.kind === "leaf" && e.unknownSubcommand ? [e.leaf] : [],
+    ),
   };
+}
+
+/**
+ * The leaves a flag question cannot rule out: one given words from an
+ * unquoted expansion (`git push $F`), and one whose subcommand cannot be told
+ * (`git "$SUB" -n`) whose short flag may be the one asked about under that
+ * subcommand's row. Each is reported so the gate's allow becomes an ask.
+ */
+function unreadFlagLeaves(
+  parsed: ParsedCommand,
+  plainTokens: readonly string[],
+  flagTokens: readonly string[],
+  force: boolean | undefined,
+): readonly HiddenCommand[] {
+  return [
+    ...parsed.unknownWordLeaves.filter((leaf) =>
+      runsSeq(leaf.argv, plainTokens),
+    ),
+    ...parsed.unknownSubcommandLeaves.filter(
+      (leaf) =>
+        leaf.head === plainTokens[0] &&
+        mayMeanAskedFlag(leaf, flagTokens, force === true),
+    ),
+  ].map((leaf) => ({ runner: leaf.head, reason: "dynamic-argument" }));
+}
+
+/**
+ * Could a leaf whose subcommand is unknown carry a flag the pattern asks
+ * about — the flag itself, or a short or long form that some row of its
+ * program pairs with it?
+ */
+function mayMeanAskedFlag(
+  leaf: NormalizedLeaf,
+  flagTokens: readonly string[],
+  force: boolean,
+): boolean {
+  const asked = [
+    ...flagTokens.map((t) => t.replace(/^-+/, "")),
+    ...(force ? ["force", "f"] : []),
+  ];
+  const pairs = programFlagAliases(leaf.head);
+  return asked.some(
+    (name) =>
+      leaf.hasFlag(name) ||
+      pairs.some(
+        ([long, short]) =>
+          (name === long && leaf.hasFlag(short)) ||
+          (name === short && leaf.hasFlag(long)),
+      ),
+  );
 }
 
 /**
@@ -912,9 +968,8 @@ function inspectShellCommand(raw: string, root?: string): InspectedCommand {
       // that had already lost the flag.
       //
       // Force is asked of the NORMALIZED leaf via `hasFlag`, not by re-scanning
-      // strings: short clusters are already split (`-rf`→r,f) and each flag is
-      // recorded in both short and long form, so `-f` and `--force` are one
-      // question. The raw half stays because it is what an exact-literal match
+      // strings: short clusters are already split (`-rf`→r,f), and `{ force }`
+      // names both `-f` and `--force`, so they are one question. The raw half stays because it is what an exact-literal match
       // is for; neither half alone is enough, which is exactly what the comment
       // on `touches` says about its own union.
       const rawHit = leaves.some(
@@ -923,10 +978,12 @@ function inspectShellCommand(raw: string, root?: string): InspectedCommand {
       );
       if (rawHit) return true;
       // A FLAG named in the pattern is asked of `hasFlag`, not matched as a
-      // literal token. The normalized leaf already records every flag in BOTH
-      // short and long form, so `runs("git commit --no-verify")` also catches
-      // `git commit -n` — which the literal path cannot, because `-n` is simply
-      // a different string. Found by the generated battery on its first real
+      // literal token. The normalized leaf records a flag in BOTH short and
+      // long form where that command's manual makes them one flag, so
+      // `runs("git commit --no-verify")` also catches `git commit -n` — which
+      // the literal path cannot, because `-n` is simply a different string —
+      // and `runs("git push --no-verify")` does NOT catch `git push -n`, a dry
+      // run (#501: the table used to be one for every program). Found by the generated battery on its first real
       // run: 72/73, and the one miss was exactly this
       // (`git commit -n -m 'skip hooks'`). The `{force:true}` option exists
       // because force needed this for `-f`; every other flag needed it too and
@@ -952,14 +1009,7 @@ function inspectShellCommand(raw: string, root?: string): InspectedCommand {
       if (!hit && asksFlags)
         unreadFlags = [
           ...unreadFlags,
-          ...parse()
-            .unknownWordLeaves.filter((leaf) => runsSeq(leaf.argv, plainTokens))
-            .map(
-              (leaf): HiddenCommand => ({
-                runner: leaf.head,
-                reason: "dynamic-argument",
-              }),
-            ),
+          ...unreadFlagLeaves(parse(), plainTokens, flagTokens, opts?.force),
         ];
       return hit;
     }),

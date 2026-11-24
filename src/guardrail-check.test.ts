@@ -726,9 +726,9 @@ test("spellings: [...] replaces the generated ones", () => {
 });
 
 test("the seven seeds have a pinned number of spellings", () => {
-  // Pinned so a family that silently stops applying is noticed: 12 families,
-  // the subshell and the three nested-shell forms among them.
-  assert.equal(experimental_alternateSpellings(DISASTER_CATALOG).length, 164);
+  // Pinned so a family that silently stops applying is noticed: 13 families,
+  // the subshell, the three nested-shell forms and `git -C .` among them.
+  assert.equal(experimental_alternateSpellings(DISASTER_CATALOG).length, 167);
 });
 
 test("the assertion and the report name the spelling that got through by its id", () => {

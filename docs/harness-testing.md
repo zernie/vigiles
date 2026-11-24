@@ -283,7 +283,7 @@ console.log(DISASTER_CATALOG.map((e) => e.input.command));
 ```
 
 **`experimental_alternateSpellings(events)`** — the other spellings of the
-cases you pass; this is what `spellings` defaults to. Seven disasters give 164.
+cases you pass; this is what `spellings` defaults to. Seven disasters give 167.
 
 ```ts
 import { DISASTER_CATALOG, experimental_alternateSpellings } from "vigiles";

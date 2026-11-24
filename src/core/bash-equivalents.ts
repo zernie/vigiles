@@ -36,6 +36,7 @@
  * is not emitted only because this self-check compares one level.
  */
 import {
+  flagAliases,
   leafCommandsNormalized,
   readShell,
   WRAPPER_HEADS,
@@ -46,9 +47,23 @@ import {
 function operationKey(leaf: NormalizedLeaf): string {
   return JSON.stringify([
     leaf.head,
-    leaf.args.filter((a) => a !== "" && !a.startsWith("-")),
+    withoutHereDir(leaf).filter((a) => a !== "" && !a.startsWith("-")),
     [...leaf.flags].sort(),
   ]);
+}
+
+/**
+ * A git leaf's args without a `-C .` — git's option to run in the directory it
+ * is already in. `git -C ../o push` is another repository and keeps its
+ * operand, so it is never the same operation.
+ */
+function withoutHereDir(leaf: NormalizedLeaf): readonly string[] {
+  if (leaf.head !== "git") return leaf.args;
+  const a = leaf.args;
+  return a.filter(
+    (w, i) =>
+      !((w === "-C" && a[i + 1] === ".") || (a[i - 1] === "-C" && w === ".")),
+  );
 }
 
 /**
@@ -132,10 +147,10 @@ const FAMILIES: readonly Family[] = [
   },
   {
     name: "flag alias",
-    // Scoped by program and subcommand ({@link FLAG_ALIASES}): `-n` is
-    // `--no-verify` to `git commit` and `--dry-run` to `git push`. The
-    // self-check cannot catch a wrong alias — the normalizer folds flags with
-    // one table for every program — so the scope is the evidence.
+    // Scoped by program and subcommand (`FLAG_ALIASES` in bash-effects): `-n`
+    // is `--no-verify` to `git commit` and `--dry-run` to `git push`. The gate
+    // folds flags through the SAME table (#501), so the self-check below cannot
+    // catch a wrong row: the manual cited beside it is the evidence.
     rewrite: (c) => scopedAliases(c),
   },
   {
@@ -232,10 +247,20 @@ const FAMILIES: readonly Family[] = [
     },
   },
   {
+    // `git -C . push --force` — git's own option to run in a directory, naming
+    // the one it is already in. A guard anchored on `git push` sees `-C`
+    // where it expects the subcommand. The self-check drops exactly `-C .`
+    // ({@link withoutHereDir}); `-C ../o` — another repository — stays.
+    name: "git -C .",
+    rewrite: (c) => {
+      const { head, rest } = splitHead(c);
+      return head === "git" && rewritableHead(c) ? [`git -C .${rest}`] : [];
+    },
+  },
+  {
     // `bash -c '…'`, `sh -c '…'`, `eval '…'` — the command handed on as one
     // string, which the shell runs as written. A text guard sees a quoted word;
     // the gate reads inside it (#483), and so does the self-check below.
-    // `git -C . …` is still absent: the check reads `.` as an argument.
     name: "nested shell",
     rewrite: (c) => {
       const word = literalWord(c.trim());
@@ -262,31 +287,9 @@ function rewritableHead(cmd: string): boolean {
 /** A leading `NAME=value` assignment word. */
 const ASSIGNMENT = /^[A-Za-z_]\w*=/;
 
-/**
- * Flag aliases per program and subcommand, long → short, each from that
- * command's manual: git-push(1) `-f, --force` (its `-n` is `--dry-run`),
- * git-commit(1) `-n, --[no-]verify`, git-clean(1) / git-checkout(1) /
- * git-branch(1) `-f, --force`, rm(1) `-f, --force` and `-r, --recursive`,
- * pip install `-i, --index-url`. A command with no row gets no alias spellings.
- */
-const FLAG_ALIASES: Readonly<Record<string, Readonly<Record<string, string>>>> =
-  {
-    "git push": { force: "f" },
-    "git commit": { "no-verify": "n" },
-    "git clean": { force: "f" },
-    "git checkout": { force: "f" },
-    "git branch": { force: "f" },
-    rm: { force: "f", recursive: "r" },
-    "pip install": { "index-url": "i" },
-  };
-
-/** The alias table for a leaf: its program and subcommand's, else its program's. */
+/** The alias table for a leaf — the gate's own ({@link flagAliases}). */
 function aliasTable(leaf: NormalizedLeaf): Readonly<Record<string, string>> {
-  return (
-    FLAG_ALIASES[`${leaf.head} ${leaf.args[0] ?? ""}`] ??
-    FLAG_ALIASES[leaf.head] ??
-    {}
-  );
+  return flagAliases(leaf.head, leaf.args);
 }
 
 /** `cmd` with the whole token `from` at `index` replaced by `to`. */
