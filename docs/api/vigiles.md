@@ -81,14 +81,16 @@ r.cleanup();
 ```ts
 import { readSkillContract, runHarnessTest, assertChecks } from "vigiles";
 
-const c = readSkillContract(".claude/skills/my-skill");
+const c = readSkillContract("skills/my-skill"); // a plugin skill; c.id is "<plugin>:my-skill"
 const trace = await runHarnessTest({
   pluginDir: ".",
   prompt: "/my-skill",
-  // The scripted model loads the skill, uses one of its tools, then answers.
+  transcript: true, // tool calls are only captured from the stream
+  allowedTools: [`Skill(${c.id})`, "Read"], // headless runs ask before a skill runs
+  // The scripted model loads the skill (by its full id), uses a tool, then answers.
   // An empty script would overrun on the first request and never reach the checks.
   model: [
-    { tool: "Skill", input: { skill: "my-skill" } },
+    { tool: "Skill", input: { skill: c.id } },
     { tool: "Read", input: { file_path: "README.md" } },
     { text: "done" },
   ],
