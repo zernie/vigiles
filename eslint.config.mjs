@@ -500,10 +500,7 @@ export default [
   // and the list below names them one by one (src/entries/CLAUDE.md).
   {
     files: ["src/**/*.ts"],
-    ignores: [
-      "src/**/*.test.ts",
-      "src/entries/**/*.ts",
-    ],
+    ignores: ["src/**/*.test.ts", "src/entries/**/*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -523,11 +520,7 @@ export default [
   // Restates the option sets above: flat config replaces a rule's options.
   {
     files: ["src/**/*.ts"],
-    ignores: [
-      "src/**/*.test.ts",
-      "src/entries/**/*.ts",
-      ...PARSES_SHELL,
-    ],
+    ignores: ["src/**/*.test.ts", "src/entries/**/*.ts", ...PARSES_SHELL],
     rules: {
       "no-restricted-imports": [
         "error",

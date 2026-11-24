@@ -25,7 +25,11 @@
  * without installing the package; the dogfood (src/hook-dogfood.test.ts) drives
  * it through `vigiles hook-runtime run-program`.
  */
-import { experimental_defineHook, deny, allow } from "../../dist/entries/hook.js";
+import {
+  experimental_defineHook,
+  deny,
+  allow,
+} from "../../dist/entries/hook.js";
 
 export default experimental_defineHook({
   on: "PreToolUse",

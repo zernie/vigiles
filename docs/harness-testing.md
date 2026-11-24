@@ -302,7 +302,10 @@ console.log(experimental_alternateSpellings(DISASTER_CATALOG).length);
 you pass; this is what `harmless` defaults to. Seven disasters give 28.
 
 ```ts
-import { DISASTER_CATALOG, experimental_harmlessTwins } from "vigiles/hook/testing";
+import {
+  DISASTER_CATALOG,
+  experimental_harmlessTwins,
+} from "vigiles/hook/testing";
 
 console.log(
   experimental_harmlessTwins(DISASTER_CATALOG).map((t) => t.input.command),

@@ -36,7 +36,9 @@ import {
 
 const REPO_ROOT = resolve(__dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
-const HOOK_DIST = pathToFileURL(resolve(REPO_ROOT, "dist", "entries/hook.js")).href;
+const HOOK_DIST = pathToFileURL(
+  resolve(REPO_ROOT, "dist", "entries/hook.js"),
+).href;
 
 describe("hookStateDir", () => {
   test("MIRRORS the hook's own directory when it lives under the root", () => {

@@ -34,7 +34,9 @@ import { makeTmpDir, cleanupTmpDir, initGitRepo } from "./core/test-utils.js";
 
 const REPO_ROOT = resolve(__dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
-const HOOK_DIST = pathToFileURL(resolve(REPO_ROOT, "dist", "entries/hook.js")).href;
+const HOOK_DIST = pathToFileURL(
+  resolve(REPO_ROOT, "dist", "entries/hook.js"),
+).href;
 
 /** Write a .mjs hook fixture importing the built public API; return its path. */
 function fixture(dir: string, name: string, body: string): string {

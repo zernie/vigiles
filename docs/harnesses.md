@@ -64,13 +64,13 @@ Not every harness can reach every tier. Pretending otherwise produces adapters t
 
 Where the harnesses land (✅ shipped · 🧪 internal prototype · ⛔ **blocked**, with why):
 
-| Harness                    | Lint | Test (mockable)        | Shell hooks              | Status                                                                       |
-| -------------------------- | ---- | ---------------------- | ------------------------ | ---------------------------------------------------------------------------- |
-| **Claude Code**            | ✅   | ✅ Anthropic SSE       | ✅ exit 2 / decision     | ✅ **shipped** — the reference adapter                                       |
+| Harness                    | Lint | Test (mockable)        | Shell hooks              | Status                                                                               |
+| -------------------------- | ---- | ---------------------- | ------------------------ | ------------------------------------------------------------------------------------ |
+| **Claude Code**            | ✅   | ✅ Anthropic SSE       | ✅ exit 2 / decision     | ✅ **shipped** — the reference adapter                                               |
 | **Codex**                  | ✅¹  | ✅ Responses SSE       | ✅ veto (exit 2)         | ✅ **shipped** (`vigiles/harness/codex`) — Lint & Test² (subagents differ by design) |
-| **OpenCode**               | ✅   | 🚧 openai-compat³      | ⛔ **code-module hooks** | 🧪 prototype (`src/adapters/opencode/`) — `shellHooks:false`                 |
-| **Cursor**                 | ✅   | ⛔ **closed, no BYOM** | ⛔                       | not built — Lint-only at best                                                |
-| **Devin / Amp / Amazon Q** | ✅   | ⛔ **un-mockable**     | varies                   | not built — Lint-only (closed backend)                                       |
+| **OpenCode**               | ✅   | 🚧 openai-compat³      | ⛔ **code-module hooks** | 🧪 prototype (`src/adapters/opencode/`) — `shellHooks:false`                         |
+| **Cursor**                 | ✅   | ⛔ **closed, no BYOM** | ⛔                       | not built — Lint-only at best                                                        |
+| **Devin / Amp / Amazon Q** | ✅   | ⛔ **un-mockable**     | varies                   | not built — Lint-only (closed backend)                                               |
 
 ¹ **Codex Lint is format-correct for the surfaces that map.** References are verified against the Codex dialect, and `compile` emits Codex-shaped output — `AGENTS.md` (plain markdown) and minimal `SKILL.md` (`name`/`description` only, driven by `dialect.skillFrontmatterKeys`), with Claude Code output byte-identical (the dogfood integrity hash is the guardrail).
 

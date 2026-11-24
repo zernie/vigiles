@@ -21,7 +21,9 @@ import yaml from "js-yaml";
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const { runHarnessTest } = await import(here("../../dist/entries/index.js"));
-const { scriptModel } = await import(here("../../dist/entries/harness/claude-code.js"));
+const { scriptModel } = await import(
+  here("../../dist/entries/harness/claude-code.js")
+);
 const { runScript } = await import(here("../../dist/run-script.js"));
 
 const cli = here("../../dist/cli.js");
