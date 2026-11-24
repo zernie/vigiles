@@ -81,7 +81,13 @@ const c = readSkillContract(".claude/skills/my-skill");
 const trace = await runHarnessTest({
   pluginDir: ".",
   prompt: "/my-skill",
-  model: [],
+  // The scripted model loads the skill, uses one of its tools, then answers.
+  // An empty script would overrun on the first request and never reach the checks.
+  model: [
+    { tool: "Skill", input: { skill: "my-skill" } },
+    { tool: "Read", input: { file_path: "README.md" } },
+    { text: "done" },
+  ],
 });
 assertChecks(trace, [c.activation, ...c.surface]);
 ```
