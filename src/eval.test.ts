@@ -2728,10 +2728,9 @@ test("runEvalWith signals an in-flight run to stop when another trial fails (#52
       inFlight = a;
       // Hangs like a long agent run, and ends early only when told to stop.
       return new Promise((resolveRun) => {
-        const done = setTimeout(
-          () => resolveRun({ code: 0, stdout: stream }),
-          500,
-        );
+        const done = setTimeout(() => {
+          resolveRun({ code: 0, stdout: stream });
+        }, 500);
         a.signal?.addEventListener("abort", () => {
           clearTimeout(done);
           resolveRun({ code: 1, stdout: "" });
