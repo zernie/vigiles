@@ -59,7 +59,11 @@ import { runHarnessTest, check, assertChecks } from "vigiles";
 const r = await runHarnessTest({
   pluginDir: "./my-plugin",
   prompt: "tidy the repo",
-  model: [{ tool: "Bash", input: { command: "git push --force" } }],
+  // A tool call ends its turn, so the script needs a final answer after it.
+  model: [
+    { tool: "Bash", input: { command: "git push --force" } },
+    { text: "done" },
+  ],
   transcript: true,
 });
 
