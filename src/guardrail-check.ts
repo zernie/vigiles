@@ -311,7 +311,16 @@ export interface VerifyGuardrailOptions extends RunHookOptions {
    * fails, that form's crossings read `run: "control-failed"`: not a verdict.
    *
    * The hook gets each event with `cwd` set to the start repository and runs
-   * there. Nothing is pushed: only the hook's own reads touch the repositories.
+   * there. The command in the event is never executed (`git push -f` pushes
+   * nothing); the hook only reads it.
+   *
+   * **This is a test, not a guard, and it runs YOUR hook as it is.** The hook
+   * process runs on this machine with your environment, unconfined unless you
+   * pass `sandbox` (`"strict"`: bubblewrap on Linux, refused elsewhere). Whatever
+   * the hook itself does — write a file, call `gh`, reach the network — it does
+   * here too. The temporary repositories are created and deleted by vigiles;
+   * their own git calls ignore an inherited `GIT_DIR`, so they never touch
+   * the repository you run the test from.
    * A compiled gate's built-in `needs` (`git.branch`, …) are gathered in the
    * start repository, as the runtime gathers them in the session folder; any
    * other need must come from `ctx`.

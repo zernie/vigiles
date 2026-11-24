@@ -418,10 +418,22 @@ assertGuardrail(`bash '${guard}'`, {
 ```
 
 vigiles builds real git repositories in a temp directory (each with one
-commit), runs your callbacks, runs the hook, and deletes them. Nothing is
-pushed: the hook only receives the event, but its own `git` calls read the real
-repositories. Each callback gets `repo.dir`, `repo.git(...args)` and
-`repo.branch(name)`.
+commit), runs your callbacks, runs the hook, and deletes them. Each callback
+gets `repo.dir`, `repo.git(...args)` and `repo.branch(name)`.
+
+**What runs, and what is safe.** This is a test of your guard, not a guard
+itself:
+
+- **The command in the event is never executed.** The hook only receives it as
+  text, as the harness would send it before running it, so `git push -f`
+  pushes nothing.
+- **Your hook runs as it is**, as a process on this machine with your
+  environment. Whatever it does itself (write a file, call `gh`, reach the
+  network) it does here too. Pass `sandbox: "strict"` to run it under
+  bubblewrap (Linux only; refused elsewhere).
+- **The temporary repositories are vigiles's.** Their own git calls ignore an
+  inherited `GIT_DIR` and its siblings, so building them never touches the
+  repository you run the test from.
 
 The hook's working directory is the temporary repository it starts in, so a
 relative path in the hook command (`bash hooks/guard.sh`) does not exist there
