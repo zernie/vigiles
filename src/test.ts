@@ -141,10 +141,11 @@ export {
 // module that belongs on the paid barrel (as `paid_judged`). Listing the members
 // makes "a free import that can bill you" unrepresentable here rather than merely
 // documented — the previous barrel carried a paragraph apologising for exactly
-// that. `hookFired` is re-exported explicitly so this `Check<Trace>` wins over the
-// legacy boolean predicate of the same name from harness-assert.
+// that. `hookFired` is the check; the boolean predicate that once shared its name
+// in harness-assert is no longer exported (zernie/vigiles#502).
 export {
   assertChecks,
+  check,
   tool,
   toolWith,
   notTool,
@@ -229,6 +230,8 @@ export type {
   HookFire,
   SandboxMode,
 } from "./harness-test.js";
+// Named in `Trace.skills`: which skills fired, as the harness's adapter tells.
+export type { SkillFire, SkillFacts } from "./core/harness-driver.js";
 
 // A skill's own `allowed-tools:` frontmatter, read back as checks — the wiring
 // from a declaration to the existing check vocabulary, not new machinery.

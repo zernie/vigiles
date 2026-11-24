@@ -307,6 +307,20 @@ boundary through a cast. The type is the gate; the kit is the explanation,
 because a TypeScript error against a four-member intersection reads badly next
 to a sentence naming the field.
 
+**What a run parser must fill.** A `harnessTesting` adapter's parsers —
+`harnessTestDriver().parseRun` and `liveDriver().evalDriver.parse` — put two
+harness-neutral facts in the trace, so a check reads the fact instead of
+knowing your harness's tools:
+
+- `skills` — `{ observable: true, fired: [{ id, isError, resultText }] }` for
+  every skill activation the run shows (possibly none), or `{ observable:
+false, harness, why }` when this run cannot show one (it was not streamed,
+  the tier captures no commands). `skill(id)` reads it, and a "not observable"
+  fails with your `harness` name and `why` instead of "did not fire". Leave it
+  out and the contract suite fails.
+- `shell` on each `ToolCall` that ran a shell command — the command the agent
+  asked for, without any wrapper your harness adds to run it.
+
 The layer-2 runners refuse a non-`harnessTesting` adapter up front; that guard
 is internal (it was exported as `assertHarnessTestable` before v49).
 

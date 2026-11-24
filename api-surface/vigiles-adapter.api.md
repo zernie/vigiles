@@ -313,6 +313,7 @@ export interface ParsedModelRun {
     // (undocumented)
     readonly output: string;
     readonly replies?: readonly string[];
+    readonly skills?: SkillFacts;
     // (undocumented)
     readonly subagents: SubagentTrace[];
     // (undocumented)

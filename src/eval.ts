@@ -111,6 +111,7 @@ import {
   parseReplies,
   parseSubagents,
   reachedModel,
+  streamSkillFacts,
   type ToolCall,
   type Trace,
 } from "./harness-test.js";
@@ -1369,10 +1370,12 @@ function streamUsage(stdout: string): EvalUsage {
 export function parseClaudeRun(out: RunOut): ParsedModelRun {
   const result = parseResultEvent(out.stdout);
   const costObserved = typeof result?.total_cost_usd === "number";
+  const toolCalls = parseToolCalls(out.stdout);
   return {
     turns: typeof result?.num_turns === "number" ? result.num_turns : 0,
     output: typeof result?.result === "string" ? result.result : "",
-    toolCalls: parseToolCalls(out.stdout),
+    toolCalls,
+    skills: streamSkillFacts(out.stdout, toolCalls),
     hooks: parseHooks(out.stdout),
     subagents: parseSubagents(out.stdout),
     replies: parseReplies(out.stdout),
@@ -1414,6 +1417,7 @@ function makeTrialContext(
     output: p.output,
     subagents: p.subagents,
     ...(p.replies === undefined ? {} : { replies: p.replies }),
+    ...(p.skills === undefined ? {} : { skills: p.skills }),
     usage: p.usage,
     // The eval tier drives the real API (no mock between the agent and the model),
     // so the requests can't be captured here — modelRequests is harness-tier only.
@@ -2985,8 +2989,14 @@ export interface TriggerRateSpec {
    * {@link TriggerRateReport.precision}; `prompts` alone measures recall only.
    */
   readonly irrelevantPrompts?: readonly string[];
-  /** Did the behaviour fire on this run? e.g. `(t) => skillResolved(t, "x:y")`. */
-  readonly fired: (trace: Trace) => boolean;
+  /**
+   * Did the behaviour fire on this run? A check — `fired: skill("x:y")`, which
+   * asks the harness's adapter and so works on every harness — or a predicate
+   * over the trace, `(t) => skillResolved(t, "x:y")`. Either form scores a trial
+   * the same way, and neither is part of the eval lock's hash: the lock pins
+   * what the MODEL sees, not how the script reads the run.
+   */
+  readonly fired: Check<Trace> | ((trace: Trace) => boolean);
   /**
    * Co-install these skill sources ALONGSIDE the skill-under-test so it competes
    * for selection as it does in the real harness — the **whole-harness** tier.
@@ -3594,6 +3604,15 @@ function resolveTriggerPluginDir(spec: TriggerRateSpec): {
   };
 }
 
+/** A trigger spec's `fired`, in either form, as the predicate a trial applies. */
+function firedPredicate(
+  fired: TriggerRateSpec["fired"],
+): (trace: Trace) => boolean {
+  return typeof fired === "function"
+    ? fired
+    : (trace) => fired.eval(trace).pass;
+}
+
 /** The per-run knobs a trigger set shares (everything but the prompt list). */
 interface TriggerRunConfig {
   readonly trials: number;
@@ -3767,7 +3786,7 @@ export async function measureTriggerRateWith(
     timeoutMs: spec.timeoutMs ?? 240000,
     spacing: (spec.spacingSec ?? 4) * 1000,
     pluginDir,
-    fired: spec.fired,
+    fired: firedPredicate(spec.fired),
     fixture: spec.fixture,
     concurrency: Math.max(1, spec.concurrency ?? 1),
     parse,

@@ -428,7 +428,7 @@
   },
   "src/harness-test.ts": {
     "max-params": 5,
-    "max-lines-per-function": 72,
+    "max-lines-per-function": 70,
     "max-depth": 5,
     "sonarjs/cognitive-complexity": 43,
     "complexity": 23

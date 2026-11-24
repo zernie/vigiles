@@ -17,7 +17,12 @@
  * is a composition root's job (`eval.ts:2336-2348` argues this at length). Both
  * runners re-export these names, so every existing import keeps resolving.
  */
-import type { ToolCall, HookFire, ModelRequest } from "./harness-driver.js";
+import type {
+  ToolCall,
+  HookFire,
+  ModelRequest,
+  SkillFacts,
+} from "./harness-driver.js";
 import type { StubCall } from "./stub-rules.js";
 
 /** Per-run resource use, parsed from the terminal `result` event (0 when absent). */
@@ -54,7 +59,7 @@ export interface SubagentTrace {
  * The observable record of ONE run — the unified shape produced by BOTH testing
  * tiers: `runHarnessTest`'s result and `runEval`'s `measure` ctx (`eval.ts`)
  * both satisfy it. That's what lets the bare predicates in `harness-assert.ts`
- * (`usedTool` / `skillResolved` / `toolCount` / `toolUsedWith` / `hookFired` /
+ * (`usedTool` / `skillResolved` / `toolCount` / `toolUsedWith` / `hookBlocked` /
  * `outputContains`) run over either, with the testing helpers asserting and eval
  * measuring over the same vocabulary.
  */
@@ -110,6 +115,14 @@ export interface Trace {
    * the run had no stubs (eval tier: `stubs` on the spec).
    */
   readonly stubCalls?: readonly StubCall[];
+  /**
+   * Which skills fired, as the ADAPTER that parsed the run can tell — the fact
+   * `skill(id)` reads, so the check asks the harness instead of knowing which
+   * tool one harness activates skills through. Absent on a trace built by hand
+   * or by a runner older than the field; `skill()` then reads `toolCalls` the
+   * way it always did.
+   */
+  readonly skills?: SkillFacts;
   /** Final contents of a file under the working dir, or null if absent. */
   file(path: string): string | null;
 }
@@ -190,6 +203,8 @@ export interface ParsedModelRun {
   readonly subagents: SubagentTrace[];
   /** Every reply, in order; absent when the harness cannot tell them apart. */
   readonly replies?: readonly string[];
+  /** Which skills fired, as this harness can tell (see `SkillFacts`). */
+  readonly skills?: SkillFacts;
   readonly usage: EvalUsage;
   /**
    * Whether the run reported what it cost. False when the harness wrote no cost

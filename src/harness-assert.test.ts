@@ -22,7 +22,6 @@ import {
   outputContains,
   requestContains,
   assertRequestContains,
-  hookFired,
   hookBlocked,
   assertToolUsed,
   assertToolNotUsed,
@@ -534,12 +533,16 @@ const hookFires: readonly HookFire[] = [
   },
 ];
 
-test("hookFired / hookBlocked: match by label and by bare event", () => {
+test("assertHookFired / hookBlocked: match by label and by bare event", () => {
   const r = fakeResult([], [], { hooks: hookFires });
-  assert.equal(hookFired(r, "PreToolUse:Edit"), true); // full label
-  assert.equal(hookFired(r, "PostToolUse"), true); // bare event
-  assert.equal(hookFired(r, /^PreToolUse/), true); // regex
-  assert.equal(hookFired(r, "SessionStart"), false);
+  // The boolean predicate behind assertHookFired is internal (#502): it shared
+  // the name `hookFired` with the check, and the check shadowed it.
+  assertHookFired(r, "PreToolUse:Edit"); // full label
+  assertHookFired(r, "PostToolUse"); // bare event
+  assertHookFired(r, /^PreToolUse/); // regex
+  assert.throws(() => {
+    assertHookFired(r, "SessionStart");
+  }, /SessionStart/);
   assert.equal(hookBlocked(r, "PreToolUse"), true); // the Edit hook blocked
   assert.equal(hookBlocked(r, "PostToolUse"), false); // the Bash hook didn't
 });

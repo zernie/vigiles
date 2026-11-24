@@ -118,6 +118,8 @@ BUILD + TOOLING + GENERATED:
       "Build + run the cross-runner matcher constraints under vitest (`test/runners/*.vitest.mjs`)",
     "npm run test:jest":
       "Build + run the cross-runner matcher constraints under jest (`test/runners/*.jest.cjs`)",
+    "npm run test:node-runner":
+      "Build + run the shared `check.*` cases under node:test (`test/runners/checks.node-test.mjs`)",
     "npm run test:types":
       "Build + type-check the vitest/jest matcher augmentation (tsc --noEmit on test/types/)",
   },

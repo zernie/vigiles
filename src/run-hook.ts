@@ -208,7 +208,7 @@ export interface FileToolEventOptions {
  * Iterating is the point — there is deliberately no singular builder here:
  *
  *     for (const e of fileToolEvents("drafts/papers/x.tex"))
- *       assert.ok(hookFired(runHook(cmd, e)));
+ *       assertDelivered(runHook(cmd, e));
  *
  * Each event also carries `cwd`, so a hook run WITHOUT `$CLAUDE_PROJECT_DIR` in
  * its environment still resolves a root — the same fallback the live runtime uses.
