@@ -101,7 +101,7 @@ export {
 // ── testing a compiled hook in-process ────────────────────────────────────────
 // `experimental_loadHook(file)` loads it the way the runtime does; the assertions read its
 // decision on a raw event, with no subprocess and no model. They sit here beside
-// the vocabulary they test (v49). Both modules are small on purpose: this barrel
+// the vocabulary they test (v50). Both modules are small on purpose: this barrel
 // is a compiled hook's import, so whatever it loads is paid on every tool call
 // (src/hook-runtime-graph.test.ts holds the graph).
 // Experimental, like the `experimental_define*` vocabulary they test.

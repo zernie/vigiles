@@ -25,7 +25,7 @@
  * degenerated to `export * from "./integration.js"` — a barrel adding zero
  * symbols, which its own docstring called "the definition of a non-tier".
  *
- * ## One home per name (v49)
+ * ## One home per name (v50)
  *
  * Every public name lives behind exactly one door, the door of the reader who
  * uses it. What left this barrel, and where it went:
@@ -93,7 +93,7 @@ export { makeTmpDir, cleanupTmpDir } from "./core/tmp-root.js";
 // its result carries no `decision`, because a script does not have one.
 export { runScript } from "./run-script.js";
 export type { RunScriptOptions, ScriptRunResult } from "./run-script.js";
-export { runHook, fileToolEvents } from "./run-hook.js";
+export { runHook } from "./run-hook.js";
 export type {
   HookRunResult,
   // Named in HookRunResult.blockedBy, so a consumer must be able to name it too
@@ -107,11 +107,10 @@ export type {
   RunHookOptions,
   HookInput,
   HookOutput,
-  FileToolEventOptions,
 } from "./run-hook.js";
 
-// --- assertions over a run (the eval-REPORT readers live on `vigiles/eval`) ---
-export * from "./harness-assert.js";
+// --- runner glue: `skip` a script loudly, `vigilesMatchers` for expect.extend ---
+export { skip, vigilesMatchers } from "./harness-assert.js";
 
 // --- the EMIT delivery for a typed result (⚠️ EXPERIMENTAL) ---
 // Moved here 2026-08-21 from the `vigiles/experimental` subpath, which is gone
@@ -135,40 +134,20 @@ export {
   type ExperimentalEmitTool,
 } from "./experimental-emit.js";
 
-// --- the declarative check vocabulary ---
-// Enumerated rather than `export *` ON PURPOSE: `judged` also lives in check.ts
-// and its default judge is a real model call, so it is the one member of this
-// module that belongs on the paid barrel (as `paid_judged`). Listing the members
-// makes "a free import that can bill you" unrepresentable here rather than merely
-// documented — the previous barrel carried a paragraph apologising for exactly
-// that. `hookFired` is the check; the boolean predicate that once shared its name
-// in harness-assert is no longer exported (zernie/vigiles#502).
+// --- the declarative check vocabulary: ONE callable object ---
+// Every assertion about a run is a member of `check` — `check.tool("Bash")`,
+// `check.blocked()`, `check.delivered()`, `check("name", fn)` — and
+// `assertChecks` throws listing every one that failed. There are no flat check
+// functions here (v50): one name for the whole vocabulary keeps the root to its
+// verbs, and an editor completes `check.` to the full list. `judged` is the one
+// check that bills, so it lives on the paid door as `paid_judged`.
+// `experimental_eachReply` / `experimental_replyCount` stay flat for now: they
+// are experimental checks over the replies a scripted run records.
 export {
   assertChecks,
   check,
-  tool,
-  toolWith,
-  notTool,
-  onlyTools,
-  skill,
-  output,
   experimental_eachReply,
   experimental_replyCount,
-  hookFired,
-  received,
-  turns,
-  wrote,
-  didNotWrite,
-  subagent,
-  blocked,
-  allowed,
-  mcp,
-  cost,
-  latency,
-  tokens,
-  inputTokens,
-  outputTokens,
-  cacheTokens,
 } from "./check.js";
 export type {
   ArgMatcher,
@@ -176,6 +155,7 @@ export type {
   CheckJSON,
   CheckResult,
   JudgeFn,
+  TokenBudget,
 } from "./check.js";
 
 // The guard battery ("does my guard block every disaster and let the same text
@@ -233,9 +213,8 @@ export type {
 // Named in `Trace.skills`: which skills fired, as the harness's adapter tells.
 export type { SkillFire, SkillFacts } from "./core/harness-driver.js";
 
-// A skill's own `allowed-tools:` frontmatter, read back as checks — the wiring
-// from a declaration to the existing check vocabulary, not new machinery.
-export { skillContract } from "./skill-contract.js";
+// A skill's own `allowed-tools:` frontmatter, read back as checks: reached as
+// `check.skillContract(dir)`, since what it builds is checks.
 export type { SkillContract, SkillContractOptions } from "./skill-contract.js";
 
 // --- declaring an eval (free: a description cannot spend) ---

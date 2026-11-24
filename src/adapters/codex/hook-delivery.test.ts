@@ -13,8 +13,15 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { runHook } from "../../run-hook.js";
-import { assertDelivered } from "../../harness-assert.js";
+import { check, assertChecks } from "../../check.js";
 import { codexHookProtocol } from "./hook-protocol.js";
+
+// The v50 throwing forms, as the checks that replaced them.
+const assertDelivered = (
+  r: Parameters<ReturnType<typeof check.delivered>["eval"]>[0],
+): void => {
+  assertChecks(r, [check.delivered()]);
+};
 
 const opts = { protocol: codexHookProtocol };
 const postShell = {

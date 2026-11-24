@@ -46,8 +46,8 @@ alone on success) silently deletes it and reports a healthy react hook as dead.
 
 **`filesWritten` is `undefined` until something records it.** Writes are captured
 by diffing the work dir, which only a confined run does. `undefined` means
-"nobody looked"; `[]` means "looked, wrote nothing" — `assertNoWrite` /
-`assertWroteOnly` throw on the former instead of passing vacuously.
+"nobody looked"; `[]` means "looked, wrote nothing" — `check.noWrite` /
+`check.wroteOnly` fail on the former instead of passing vacuously.
 
 ## The `Trace` model
 
@@ -101,16 +101,16 @@ assertChecks(hookResult, [check.blocked()]); // exit 2 / decision:"block" / perm
 Want a boolean instead of a throw — in a `measure`, say? A check's verdict is
 `check.skill("demo:greet").eval(trace).pass`; `fired:` takes the check itself.
 
-Three assertions have no check yet and stay throwing functions: `assertDelivered`
-(a `runHook` result's text REACHED the model, not just stderr — see
-[harness-testing.md](harness-testing.md#assert-a-nudge-reaches-the-model-assertdelivered)),
-and `assertEgressOnly` / `assertNoWrite` / `assertWroteOnly` over a confined
-run's egress and file writes.
+What a hook or script run did beyond its decision is a check too:
+`check.delivered()` (its text REACHED the model, not just stderr — see
+[harness-testing.md](harness-testing.md#assert-a-nudge-reaches-the-model-checkdelivered)),
+and `check.egressOnly([...])` / `check.noWrite(p)` / `check.wroteOnly([...])` over a
+confined run's egress and file writes.
 
-The flat `assertToolUsed`-style functions and the boolean predicates (`usedTool`,
-`skillResolved`, `toolCount`, `toolUsedWith`, `outputContains`,
-`requestContains`, `hookBlocked`) were removed in v49 — each is one `check.*`
-member; the [migration table](#migrating-from-the-v48-assertion-forms) lists them.
+The flat check functions (`tool`, `skill`, `wrote`, …), the `assertToolUsed`-style
+functions and the boolean predicates (`usedTool`, `skillResolved`, …) were removed
+in v50 — each is one `check.*` member; the
+[migration table](#migrating-to-the-v50-assertion-form) lists them.
 
 A `runHarnessTest` result owns its temp directory. Remove it in a `finally` with
 `r.cleanup()`, or let TypeScript (5.2+) or Node 24+ do it for you:
@@ -216,16 +216,19 @@ well-formed JSON block is accepted. Output that isn't a valid block is `malforme
 
 ## The `check` vocabulary
 
-A **check** is data, not a throwing assert: `tool("Bash")` is an object that knows
+A **check** is data, not a throwing assert: `check.tool("Bash")` is an object that knows
 how to `eval` itself against a `Trace` (or a hook decision) and `toJSON`. The same
 check is evaluated two ways — write the assertion once:
 
 ```ts
-import { tool, skill, output, hookFired, blocked, assertChecks } from "vigiles";
+import { assertChecks, check } from "vigiles";
 
 // STRICT (deterministic tiers): throws, collecting ALL failures with messages.
-assertChecks(await runHarnessTest(spec), [tool("Bash"), output(/done/)]);
-assertChecks(runHook(cmd, event), [blocked()]);
+assertChecks(await runHarnessTest(spec), [
+  check.tool("Bash"),
+  check.output(/done/),
+]);
+assertChecks(runHook(cmd, event), [check.blocked()]);
 
 // SCORED (eval): the SAME checks, as a rate ± se across trials.
 // the `paid_` prefix = it calls a model; reading the report (assertRates) is free
@@ -233,7 +236,7 @@ import { paid_measure, assertRates } from "vigiles/eval";
 const report = await paid_measure({
   pluginDir: "./my-plugin", // or skillsDir: ".claude/skills" (loose, auto-packaged)
   task: "…",
-  checks: [skill("vigiles:test-harness")],
+  checks: [check.skill("vigiles:test-harness")],
   stubSkillBodies: true, // firing check: stub bodies → a fraction of the tokens
   trials: 10,
   model: "sonnet",
@@ -246,30 +249,34 @@ A check's **failure message is the product** (`expected the agent to use tool
 "Bash", but it used [Read, Edit]`), and because it serializes, CI reports and
 regression baselines fall out for free.
 
-**The vocabulary** (from `vigiles` — except `paid_judged`, which calls a model and
-so lives on `vigiles/eval`):
+**The vocabulary** — every check is a member of the one callable `check` object
+from `vigiles` (type `check.` and the editor lists them), and `check(name, fn)`
+names your own. The exception is `paid_judged`, which calls a model and so lives
+on `vigiles/eval`.
 
-Every check is also a member of the one callable `check` object — `check.tool`,
-`check.output`, `check.blocked()`, … — and `check(name, fn)` names your own.
-
-| Check                                          | Holds when…                                                                    | Over             |
-| ---------------------------------------------- | ------------------------------------------------------------------------------ | ---------------- |
-| `tool(name)`                                   | the agent used that tool                                                       | Trace            |
-| `check.tool(name, { min, max })`               | that tool was used a number of times in bounds                                 | Trace            |
-| `check.toolSequence([a, b])`                   | those tools ran in that order (gaps allowed)                                   | Trace            |
-| `check.runs(program, { force? })`              | a shell command ran `program` — read by the compiled-hook parser, any spelling | Trace            |
-| `check(name, fn)`                              | your own predicate holds — named, serialized and scored like the rest          | anything         |
-| `check.skill(id)`                              | the skill `id` resolved (no error), as the harness's adapter reports it        | Trace            |
-| `mcp(server, tool)`                            | the agent used `mcp__server__tool`                                             | Trace            |
-| `subagent(name, [checks])`                     | the `Task` subagent ran + passed nested checks                                 | Trace (nested)   |
-| `output(str \| /re/)`                          | the final answer contains/matches                                              | Trace            |
-| `received(str \| /re/)`                        | text reached the model (slash-command / injected)                              | Trace (mock)     |
-| `check.hookFired(event \| /re/, { blocked? })` | a hook fired for that event or label (and blocked)                             | Trace            |
-| `turns({ min, max })`                          | the agent took N turns (multi-turn)                                            | Trace            |
-| `wrote(path)`                                  | a file was created                                                             | Trace            |
-| `paid_judged(rubric, {…})`                     | a model grades the output ≥ `min` (LLM rubric)                                 | Trace (eval)     |
-| `cost/latency/tokens({…})`                     | the run stayed under budget                                                    | run usage (eval) |
-| `blocked()` / `allowed()`                      | the hook blocked / allowed                                                     | `runHook` result |
+| Check                                                  | Holds when…                                                                            | Over             |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------- | ---------------- |
+| `check.tool(name)`                                     | the agent used that tool                                                               | Trace            |
+| `check.tool(name, { min, max })`                       | that tool was used a number of times in bounds                                         | Trace            |
+| `check.toolSequence([a, b])`                           | those tools ran in that order (gaps allowed)                                           | Trace            |
+| `check.runs(program, { force? })`                      | a shell command ran `program` — read by the compiled-hook parser, any spelling         | Trace            |
+| `check(name, fn)`                                      | your own predicate holds — named, serialized and scored like the rest                  | anything         |
+| `check.skill(id)`                                      | the skill `id` resolved (no error), as the harness's adapter reports it                | Trace            |
+| `check.mcp(server, tool)`                              | the agent used `mcp__server__tool`                                                     | Trace            |
+| `check.subagent(name, [checks])`                       | the `Task` subagent ran + passed nested checks                                         | Trace (nested)   |
+| `check.output(str \| /re/)`                            | the final answer contains/matches                                                      | Trace            |
+| `check.received(str \| /re/)`                          | text reached the model (slash-command / injected)                                      | Trace (mock)     |
+| `check.hookFired(event \| /re/, { blocked? })`         | a hook fired for that event or label (and blocked)                                     | Trace            |
+| `check.turns({ min, max })`                            | the agent took N turns (multi-turn)                                                    | Trace            |
+| `check.wrote(path)`                                    | a file was created                                                                     | Trace            |
+| `paid_judged(rubric, {…})`                             | a model grades the output ≥ `min` (LLM rubric)                                         | Trace (eval)     |
+| `check.cost({ maxUsd })` / `check.latency({ maxMs })`  | the run stayed under budget                                                            | run usage (eval) |
+| `check.tokens({ max, maxInput, maxOutput, maxCache })` | each given token class stayed under its cap (total, fresh input, output, prompt cache) | run usage (eval) |
+| `check.blocked()` / `check.allowed()`                  | the hook blocked / allowed                                                             | `runHook` result |
+| `check.delivered()`                                    | the hook's text reached the model (not just stderr)                                    | `runHook` result |
+| `check.egressOnly([...])`                              | every egress attempt went to an allowed host (`[]` = none at all)                      | confined run     |
+| `check.noWrite(p)` / `check.wroteOnly([...])`          | no write matches `p` / every write matches the list (fails if unrecorded)              | confined run     |
+| `check.skillContract(dir)`                             | builds `activation` + `surface` checks from a SKILL.md's `allowed-tools:`              | (a builder)      |
 
 `paid_measureArms({ arms, checks })` scores the same checks per arm (a hook/skill/rule
 **on vs off**): `report.arms[name].perCheck[i]` lines up across arms. It takes
@@ -312,8 +319,8 @@ shorthands.
 | `expect(r).toBlock()`                    | the hook blocked                         | `runHook` result |
 | `expect(report).toBeatBaseline(b, a, m)` | arm `a` beats baseline `b` on metric `m` | eval report      |
 
-So `toPass(tool("Bash"))`, `toPass(skill("x:y"))`, `toPass(blocked())`,
-`toPass(cost({ maxUsd: 0.05 }))` all work with one matcher. vitest and jest are
+So `toPass(check.tool("Bash"))`, `toPass(check.skill("x:y"))`, `toPass(check.blocked())`,
+`toPass(check.cost({ maxUsd: 0.05 }))` all work with one matcher. vitest and jest are
 **optional peer dependencies** — only the entry you import pulls one in; the seam
 is tested under both runners in [`test/runners/`](../test/runners/).
 
@@ -684,22 +691,30 @@ import, so it **auto-detects** the harness from the repo. For the full
 adapter/import model and the capability matrix, see
 [`docs/harnesses.md`](harnesses.md).
 
-## Migrating from the v48 assertion forms
+## Migrating to the v50 assertion form
 
-| Removed in v49                                       | Write instead                                    |
-| ---------------------------------------------------- | ------------------------------------------------ |
-| `assertToolUsed(r, n)` / `usedTool(t, n)`            | `check.tool(n)`                                  |
-| `assertToolNotUsed(r, n)`                            | `check.notTool(n)`                               |
-| `assertToolCount(r, n, b)` / `toolCount(t, n)`       | `check.tool(n, { min, max })`                    |
-| `assertToolSequence(r, [a, b])`                      | `check.toolSequence([a, b])`                     |
-| `assertToolUsedWith(r, n, fn)` / `toolUsedWith`      | `check.toolWith(n, args)`, or `check(name, fn)`  |
-| `assertToolCalls(r, fn, msg)`                        | `check(msg, (t) => fn(t.toolCalls))`             |
-| `assertSkillResolved(r, id)` / `skillResolved`       | `check.skill(id)` — and `fired: check.skill(id)` |
-| `assertOutputContains(r, x)` / `outputContains`      | `check.output(x)`                                |
-| `assertRequestContains(r, x)` / `requestContains`    | `check.received(x)`                              |
-| `assertHookFired(r, e, { blocked })` / `hookBlocked` | `check.hookFired(e, { blocked })`                |
-| `assertCreated(r, p)` / `assertNotCreated(r, p)`     | `check.wrote(p)` / `check.didNotWrite(p)`        |
-| `assertHookBlocked(r)` / `assertHookAllowed(r)`      | `check.blocked()` / `check.allowed()`            |
+| Removed in v50                                                                                                                                                                                                  | Write instead                                                |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `assertToolUsed(r, n)` / `usedTool(t, n)`                                                                                                                                                                       | `check.tool(n)`                                              |
+| `assertToolNotUsed(r, n)`                                                                                                                                                                                       | `check.notTool(n)`                                           |
+| `assertToolCount(r, n, b)` / `toolCount(t, n)`                                                                                                                                                                  | `check.tool(n, { min, max })`                                |
+| `assertToolSequence(r, [a, b])`                                                                                                                                                                                 | `check.toolSequence([a, b])`                                 |
+| `assertToolUsedWith(r, n, fn)` / `toolUsedWith`                                                                                                                                                                 | `check.toolWith(n, args)`, or `check(name, fn)`              |
+| `assertToolCalls(r, fn, msg)`                                                                                                                                                                                   | `check(msg, (t) => fn(t.toolCalls))`                         |
+| `assertSkillResolved(r, id)` / `skillResolved`                                                                                                                                                                  | `check.skill(id)` — and `fired: check.skill(id)`             |
+| `assertOutputContains(r, x)` / `outputContains`                                                                                                                                                                 | `check.output(x)`                                            |
+| `assertRequestContains(r, x)` / `requestContains`                                                                                                                                                               | `check.received(x)`                                          |
+| `assertHookFired(r, e, { blocked })` / `hookBlocked`                                                                                                                                                            | `check.hookFired(e, { blocked })`                            |
+| `assertCreated(r, p)` / `assertNotCreated(r, p)`                                                                                                                                                                | `check.wrote(p)` / `check.didNotWrite(p)`                    |
+| `assertHookBlocked(r)` / `assertHookAllowed(r)`                                                                                                                                                                 | `check.blocked()` / `check.allowed()`                        |
+| `assertDelivered(r)`                                                                                                                                                                                            | `check.delivered()`                                          |
+| `assertEgressOnly(r, list)`                                                                                                                                                                                     | `check.egressOnly(list)` (`[]` = no egress)                  |
+| `assertNoWrite(r, p)` / `assertWroteOnly(r, list)`                                                                                                                                                              | `check.noWrite(p)` / `check.wroteOnly(list)`                 |
+| a flat check — `tool(…)`, `toolWith`, `notTool`, `onlyTools`, `skill`, `output`, `received`, `hookFired`, `blocked`, `allowed`, `wrote`, `didNotWrite`, `mcp`, `subagent`, `turns`, `cost`, `latency`, `tokens` | the same name on `check`: `check.tool(…)`                    |
+| `inputTokens({ max })` / `outputTokens({ max })`                                                                                                                                                                | `check.tokens({ maxInput })` / `check.tokens({ maxOutput })` |
+| `cacheTokens({ maxCreation, maxRead })`                                                                                                                                                                         | `check.tokens({ maxCache })` (written + served)              |
+| `skillContract(dir)`                                                                                                                                                                                            | `check.skillContract(dir)`                                   |
+| `fileToolEvents(path)` from `vigiles`                                                                                                                                                                           | `fileToolEvents(path)` from `vigiles/claude-code`            |
 
 Each goes in `assertChecks(r, [ … ])`, `expect(r).toPass(…)`, or a `measure`'s
 `checks` / a trigger-rate `fired:`.

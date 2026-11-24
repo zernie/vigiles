@@ -840,7 +840,7 @@ export async function measureWith(
     spec.checks.some((c) => c.toJSON().kind === "judged")
   )
     throw new Error(
-      "measure: `stubSkillBodies` is for firing/`skill()` checks only — it stubs " +
+      "measure: `stubSkillBodies` is for firing/`check.skill()` checks only — it stubs " +
         "the skill body, so there's no output for a `judged` check to grade. Drop " +
         "`stubSkillBodies`, or remove the `judged` check.",
     );
@@ -1121,10 +1121,10 @@ function formatChecks(report: CheckReport): string {
     lines.push(
       "⚠ nothing resolved for ANY skill() check. That is usually SETUP, not the skill — check, in order:\n" +
         (report.namespace !== undefined
-          ? "  1. the id in `skill()` — your skills installed under " +
-            `\`${report.namespace}\`, so \`skill()\` matches ` +
+          ? "  1. the id in `check.skill()` — your skills installed under " +
+            `\`${report.namespace}\`, so \`check.skill()\` matches ` +
             `\`${report.namespace}:<skill>\`; a bare name silently never matches;\n`
-          : "  1. the id in `skill()` — it matches the NAMESPACED id " +
+          : "  1. the id in `check.skill()` — it matches the NAMESPACED id " +
             "(`<plugin>:<skill>`); a bare name silently never matches;\n") +
         "  2. the install field — a loose `.claude/skills` dir needs `skillsDir`, " +
         "not `pluginDir` (which wants a full plugin manifest);\n" +

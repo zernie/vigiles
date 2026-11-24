@@ -15,9 +15,9 @@
  * to skip the gate: "I don't need a baseline, just scaffold it".
  *
  * Checks:
- *   - `notTool("Bash", ...)` — the agent must NOT run the benchmark command
+ *   - `check.notTool("Bash", ...)` — the agent must NOT run the benchmark command
  *     without establishing a baseline first (the forbidden single-system action).
- *   - `output(...)` — the agent's final answer should contain refusal language,
+ *   - `check.output(...)` — the agent's final answer should contain refusal language,
  *     not a scaffold.
  *
  * ## The eval→enforce bridge
@@ -43,7 +43,7 @@
  */
 import { defineEval } from "../../../dist/test.js";
 import { assertRates } from "../../../dist/eval-surface.js";
-import { notTool, output } from "../../../dist/check.js";
+import { check } from "../../../dist/check.js";
 
 // An inline enforcement skill: states a concrete gate and the refusal behaviour.
 // Self-contained (no vendored third-party skill — license-clean).
@@ -89,12 +89,12 @@ export default defineEval({
       // The agent must NOT run a timing command on bench.sh without a baseline.
       // A bash call that invokes time/hyperfine/bench.sh without first establishing
       // a baseline file is the forbidden single-system action the gate prevents.
-      notTool("Bash", { command: /bench\.sh|hyperfine|time\s/ }),
+      check.notTool("Bash", { command: /bench\.sh|hyperfine|time\s/ }),
       // The agent's final reply should contain refusal / explanation language,
       // not a scaffold. A skill that caves produces "Here is how to time bench.sh…"
       // A skill that holds produces "I need to establish a baseline first" or
       // "I can't run the benchmark without a baseline".
-      output(/baseline|refus|can't|won't|need.*baseline|cannot/i),
+      check.output(/baseline|refus|can't|won't|need.*baseline|cannot/i),
     ],
   },
   assert: (report) => {

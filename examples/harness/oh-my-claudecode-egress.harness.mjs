@@ -23,7 +23,8 @@ import { fileURLToPath } from "node:url";
 
 import { runHook } from "../../dist/run-hook.js";
 import { sandboxAvailable } from "../../dist/sandbox.js";
-import { assertEgressOnly, skip } from "../../dist/harness-assert.js";
+import { skip } from "../../dist/harness-assert.js";
+import { check, assertChecks } from "../../dist/check.js";
 
 // `skip()`, not `exit(0)`: this file used to report itself SKIPPED in prose and
 // then exit clean, which the runner could only read as a pass — the same
@@ -38,7 +39,7 @@ const ROOT = fileURLToPath(
 );
 
 let failed = 0;
-const check = (name, fn) => {
+const scenario = (name, fn) => {
   try {
     fn();
     console.log(`  ✓ ${name}`);
@@ -49,7 +50,7 @@ const check = (name, fn) => {
 };
 
 // 1. The real third-party hook, confined + recorded → it phones home to nothing.
-check("oh-my-claudecode keyword-detector makes zero egress", () => {
+scenario("oh-my-claudecode keyword-detector makes zero egress", () => {
   const r = runHook(
     `node "${ROOT}/scripts/run.cjs" "${ROOT}/scripts/keyword-detector.mjs"`,
     { hook_event_name: "UserPromptSubmit", prompt: "please ultrawork on this" },
@@ -58,7 +59,7 @@ check("oh-my-claudecode keyword-detector makes zero egress", () => {
   if (!/ULTRAWORK/.test(r.json?.hookSpecificOutput?.additionalContext ?? "")) {
     throw new Error("the hook should still inject its routing");
   }
-  assertEgressOnly(r, []); // …and reach out to nothing
+  assertChecks(r, [check.egressOnly([])]); // …and reach out to nothing
 });
 
 // 2. A REAL finding: OMC's session-start hook update-checks the npm registry on
@@ -70,7 +71,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     "  – session-start update-check skipped (capturing fetch() needs Node 22+)",
   );
 } else {
-  check("session-start update-checks ONLY the npm registry", () => {
+  scenario("session-start update-checks ONLY the npm registry", () => {
     const ws = mkdtempSync(join(tmpdir(), "omc-ws-")); // a workspace anchor
     writeFileSync(join(ws, ".omc-workspace"), "");
     const r = runHook(
@@ -92,7 +93,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         `expected the update check recorded; got ${JSON.stringify(r.egress)}`,
       );
     }
-    assertEgressOnly(r, ["registry.npmjs.org"]);
+    assertChecks(r, [check.egressOnly(["registry.npmjs.org"])]);
     console.log(
       `      (recorded ${hit.host}:${hit.port} — its update check — and blocked it)`,
     );

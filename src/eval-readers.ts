@@ -5,7 +5,7 @@
  * produce a report and these read it. None of them spends anything; the `paid_`
  * prefix, not the door, is what marks a call that can bill you.
  *
- * Folded from eleven helpers to a few (vigiles v49):
+ * Folded from eleven helpers to a few (vigiles v50):
  *
  *   - `compare(report, baseline, arm)` — per metric, the gap and whether it
  *     clears the noise floor. Replaces `compareArms`, `improvement`,

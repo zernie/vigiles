@@ -7,12 +7,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync } from "node:fs";
 
-import {
-  assertDelivered,
-  assertEgressOnly,
-  assertWroteOnly,
-  assertNoWrite,
-} from "./harness-assert.js";
+import { check, assertChecks } from "./check.js";
 import { claudeCodeHookProtocol } from "./adapters/claude-code/hook-protocol.js";
 import type { EventCapabilityTable } from "./core/event-capability.js";
 import type { HookProtocol } from "./core/hook-protocol.js";
@@ -33,6 +28,31 @@ import {
 } from "./check-count.js";
 import { sandboxAvailable } from "./sandbox.js";
 import { parseFilePath, projectRootOf } from "./core/hook-program.js";
+
+// The v50 throwing forms, as the checks that replaced them.
+const assertDelivered = (
+  r: Parameters<ReturnType<typeof check.delivered>["eval"]>[0],
+): void => {
+  assertChecks(r, [check.delivered()]);
+};
+const assertEgressOnly = (
+  r: Parameters<ReturnType<typeof check.egressOnly>["eval"]>[0],
+  allowed: ReadonlyArray<string | RegExp>,
+): void => {
+  assertChecks(r, [check.egressOnly(allowed)]);
+};
+const assertWroteOnly = (
+  r: Parameters<ReturnType<typeof check.wroteOnly>["eval"]>[0],
+  allowed: ReadonlyArray<string | RegExp>,
+): void => {
+  assertChecks(r, [check.wroteOnly(allowed)]);
+};
+const assertNoWrite = (
+  r: Parameters<ReturnType<typeof check.noWrite>["eval"]>[0],
+  pattern: string | RegExp,
+): void => {
+  assertChecks(r, [check.noWrite(pattern)]);
+};
 
 test("propertyHook: holds for a correct guard, finds a counterexample for a buggy one", () => {
   const CMDS = ["ls", "rm -rf /", "rm -rf foo", "git status", "cat x"];

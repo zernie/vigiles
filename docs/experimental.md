@@ -46,7 +46,7 @@ Two checks keep the rule honest:
 | `experimental_loadHook` and the four in-process hook tests (`experimental_assertHookDenies`, `experimental_assertHookAllows`, `experimental_assertHookNotices`, `experimental_assertHookSilent`)         | 2026-11-24 | They load and evaluate the compiled-hook vocabulary, so they are no more settled than `experimental_defineHook` and its siblings; the prefix comes off with theirs.                                                                                                                                                                                                                                                                                          |
 | `experimental_assertAgentOk`, `experimental_assertAgentErr`, `experimental_assertAgentResult`                                                                                                            | 2026-11-24 | They read the result contract `experimental_agent.result()` declares; a stable name resting on that experimental contract is the transitive hole the prefix rule closes.                                                                                                                                                                                                                                                                                     |
 
-Two names left this table in v49 without becoming stable: `experimental_verdict`
+Two names left this table in v50 without becoming stable: `experimental_verdict`
 folded into `compare` (its `verdict` field, on `vigiles/eval`), and
 `experimental_formatPluginGuardReport` is no longer exported (the report formatters
 are internal).

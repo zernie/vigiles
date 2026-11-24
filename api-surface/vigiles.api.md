@@ -5,9 +5,6 @@
 ```ts
 
 // @public
-export function allowed(): Check<HookRunResult>;
-
-// @public
 export type ArgMatcher = Record<string, string | number | boolean | RegExp>;
 
 // @public
@@ -84,28 +81,7 @@ export interface ArmUsage {
 export function assertChecks<T>(target: T, checks: readonly Check<T>[]): void;
 
 // @public
-export function assertDelivered(r: HookRunResult): void;
-
-// @public
-export function assertEgressOnly(r: HasEgress, allowed: ReadonlyArray<string | RegExp>): void;
-
-// @public
-export function assertNoWrite(r: HasWrites, pattern: string | RegExp): void;
-
-// @public
-export function assertWroteOnly(r: HasWrites, allowed: ReadonlyArray<string | RegExp>): void;
-
-// @public
-export function blocked(): Check<HookRunResult>;
-
-// @public
 export type BlockMechanism = "exit-code" | "deny-decision" | "halt-field";
-
-// @public
-export function cacheTokens(opts: {
-    maxCreation?: number;
-    maxRead?: number;
-}): Check<UsageTrace>;
 
 // @public
 export interface Check<T> {
@@ -136,9 +112,11 @@ export const check: typeof customCheck & {
     cost: typeof cost;
     latency: typeof latency;
     tokens: typeof tokens;
-    inputTokens: typeof inputTokens;
-    outputTokens: typeof outputTokens;
-    cacheTokens: typeof cacheTokens;
+    delivered: typeof delivered;
+    egressOnly: typeof egressOnly;
+    noWrite: typeof noWrite;
+    wroteOnly: typeof wroteOnly;
+    skillContract: typeof skillContract;
 };
 
 // @public
@@ -212,11 +190,6 @@ export type ContextEvidence =
 };
 
 // @public
-export function cost(opts: {
-    maxUsd: number;
-}): Check<UsageTrace>;
-
-// @public
 export function defineEval<K extends EvalKind>(def: EvalDefinitionInput<K>): EvalDefinition<K>;
 
 // @public
@@ -229,9 +202,6 @@ export type DeliveryChannel =
 | "exit-code-feedback"
 /** JSON `decision: "block"` + `reason`, on an event honouring `feedback`. */
 | "decision-reason";
-
-// @public
-export function didNotWrite(path: string): Check<Trace>;
 
 // @public
 export type DockerExec = (args: readonly string[]) => {
@@ -446,18 +416,6 @@ export interface ExperimentalEmitTool {
     readonly tool: EmitToolDefinition;
 }
 
-// @public
-export interface FileToolEventOptions {
-    readonly event?: string;
-    readonly extra?: Readonly<Record<string, unknown>>;
-    readonly input?: Readonly<Record<string, unknown>>;
-    readonly root?: string;
-    readonly tool?: string;
-}
-
-// @public
-export function fileToolEvents(path: string, opts?: FileToolEventOptions): readonly [HookInput, HookInput];
-
 // @public (undocumented)
 export interface HarnessTestResult extends Trace {
     [Symbol.asyncDispose](): Promise<void>;
@@ -538,9 +496,6 @@ export interface HookFire {
 }
 
 // @public
-export function hookFired(event: string): Check<Trace>;
-
-// @public
 export interface HookInput {
     readonly [k: string]: unknown;
     readonly hook_event_name?: string;
@@ -592,11 +547,6 @@ export interface HookRunResult extends ScriptRunResult {
 }
 
 // @public
-export function inputTokens(opts: {
-    max: number;
-}): Check<UsageTrace>;
-
-// @public
 export type JudgeFn = (opts: {
     output: string;
     rubric: string;
@@ -608,15 +558,7 @@ export type JudgeFn = (opts: {
 };
 
 // @public
-export function latency(opts: {
-    maxMs: number;
-}): Check<UsageTrace>;
-
-// @public
 export function makeTmpDir(suffix?: string): string;
-
-// @public
-export function mcp(server: string, toolName: string): Check<Trace>;
 
 // @public
 export interface MeasureSpec {
@@ -668,24 +610,10 @@ export interface ModelTurn {
 }
 
 // @public
-export function notTool(name: string, args?: ArgMatcher): Check<Trace>;
-
-// @public
-export function onlyTools(allowed: readonly string[]): Check<Trace>;
-
-// @public
-export function output(matcher: string | RegExp): Check<Trace>;
-
-// @public
 export interface OutputStyleArms {
     readonly with: EvalArm;
     readonly without: EvalArm;
 }
-
-// @public
-export function outputTokens(opts: {
-    max: number;
-}): Check<UsageTrace>;
 
 // @public
 export interface PromptTriggerStat {
@@ -697,9 +625,6 @@ export interface PromptTriggerStat {
     // (undocumented)
     readonly trials: number;
 }
-
-// @public
-export function received(matcher: string | RegExp): Check<Trace>;
 
 // @public
 export function recordCheck(n?: number): void;
@@ -828,9 +753,6 @@ export interface ServiceSpec {
     readonly seed?: string;
 }
 
-// @public
-export function skill(id: string): Check<Trace>;
-
 // @public (undocumented)
 export interface SkillContract {
     readonly activation: Check<Trace>;
@@ -841,9 +763,6 @@ export interface SkillContract {
     readonly surface: readonly Check<Trace>[];
     readonly undeclared: boolean;
 }
-
-// @public
-export function skillContract(skillDir: string, options?: SkillContractOptions): SkillContract;
 
 // @public (undocumented)
 export interface SkillContractOptions {
@@ -941,9 +860,6 @@ export interface StubRule {
 }
 
 // @public
-export function subagent(name: string, checks: readonly Check<Trace>[]): Check<Trace>;
-
-// @public
 export interface SubagentTrace {
     readonly name: string;
     readonly output: string;
@@ -951,12 +867,27 @@ export interface SubagentTrace {
 }
 
 // @public
-export function tokens(opts: {
-    max: number;
-}): Check<UsageTrace>;
-
-// @public
-export function tool(name: string): Check<Trace>;
+export type TokenBudget = {
+    readonly max: number;
+    readonly maxInput?: number;
+    readonly maxOutput?: number;
+    readonly maxCache?: number;
+} | {
+    readonly max?: number;
+    readonly maxInput: number;
+    readonly maxOutput?: number;
+    readonly maxCache?: number;
+} | {
+    readonly max?: number;
+    readonly maxInput?: number;
+    readonly maxOutput: number;
+    readonly maxCache?: number;
+} | {
+    readonly max?: number;
+    readonly maxInput?: number;
+    readonly maxOutput?: number;
+    readonly maxCache: number;
+};
 
 // @public
 export interface ToolCall {
@@ -976,9 +907,6 @@ export interface ToolStub {
     // (undocumented)
     readonly rules: readonly [StubRule, ...StubRule[]];
 }
-
-// @public
-export function toolWith(name: string, args: ArgMatcher): Check<Trace>;
 
 // @public
 export interface Trace {
@@ -1035,12 +963,6 @@ export interface TriggerRateSpec {
 }
 
 // @public
-export function turns(opts: {
-    min?: number;
-    max?: number;
-}): Check<Trace>;
-
-// @public
 export type UnobservableWhy =
 /** The harness has a channel, but this run wrote no request body to read. */
 "no-request-body"
@@ -1059,9 +981,6 @@ export const vigilesMatchers: {
     toPass<T>(received: T, check: Check<T>): MatcherOutput;
     toPassAll<T>(received: T, checks: readonly Check<T>[]): MatcherOutput;
 };
-
-// @public
-export function wrote(path: string): Check<Trace>;
 
 // (No @packageDocumentation comment for this package)
 

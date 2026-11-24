@@ -28,9 +28,6 @@ import {
   cost,
   latency,
   tokens,
-  inputTokens,
-  outputTokens,
-  cacheTokens,
   evalChecks,
   assertChecks,
   type Check,
@@ -477,131 +474,49 @@ test("cost / latency / tokens checks over a run's usage", () => {
   });
 });
 
-test("inputTokens check: pass/fail, score, message, toJSON", () => {
-  const run = {
-    usage: {
-      costUsd: 0.01,
-      durationMs: 500,
-      inputTokens: 800,
-      outputTokens: 200,
-      cacheCreationTokens: 0,
-      cacheReadTokens: 0,
-    },
-  };
-  // passing case
-  assert.equal(inputTokens({ max: 800 }).eval(run).pass, true);
-  assert.equal(inputTokens({ max: 800 }).eval(run).score, 1);
-  assert.match(
-    inputTokens({ max: 800 }).eval(run).message,
-    /800 input tokens ≤ 800/,
-  );
-  // failing case
-  assert.equal(inputTokens({ max: 799 }).eval(run).pass, false);
-  assert.equal(inputTokens({ max: 799 }).eval(run).score, 0);
-  assert.match(
-    inputTokens({ max: 799 }).eval(run).message,
-    /expected ≤ 799 input tokens, got 800/,
-  );
-  // toJSON round-trip
-  assert.deepEqual(inputTokens({ max: 500 }).toJSON(), {
-    kind: "inputTokens",
-    max: 500,
-  });
-});
-
-test("outputTokens check: pass/fail, score, message, toJSON", () => {
-  const run = {
-    usage: {
-      costUsd: 0.01,
-      durationMs: 500,
-      inputTokens: 800,
-      outputTokens: 200,
-      cacheCreationTokens: 0,
-      cacheReadTokens: 0,
-    },
-  };
-  // passing case
-  assert.equal(outputTokens({ max: 200 }).eval(run).pass, true);
-  assert.equal(outputTokens({ max: 200 }).eval(run).score, 1);
-  assert.match(
-    outputTokens({ max: 200 }).eval(run).message,
-    /200 output tokens ≤ 200/,
-  );
-  // failing case
-  assert.equal(outputTokens({ max: 199 }).eval(run).pass, false);
-  assert.equal(outputTokens({ max: 199 }).eval(run).score, 0);
-  assert.match(
-    outputTokens({ max: 199 }).eval(run).message,
-    /expected ≤ 199 output tokens, got 200/,
-  );
-  // toJSON round-trip
-  assert.deepEqual(outputTokens({ max: 150 }).toJSON(), {
-    kind: "outputTokens",
-    max: 150,
-  });
-});
-
-test("cacheTokens check: maxCreation-only, maxRead-only, both, pass-within-bounds, toJSON", () => {
+test("tokens: maxInput / maxOutput / maxCache each bound their class, with score and toJSON", () => {
   const run = {
     usage: {
       costUsd: 0.02,
       durationMs: 600,
-      inputTokens: 100,
-      outputTokens: 50,
+      inputTokens: 800,
+      outputTokens: 200,
       cacheCreationTokens: 400,
       cacheReadTokens: 300,
     },
   };
-  // maxCreation-only: pass
-  assert.equal(cacheTokens({ maxCreation: 400 }).eval(run).pass, true);
-  assert.equal(cacheTokens({ maxCreation: 400 }).eval(run).score, 1);
-  // maxCreation-only: fail
-  assert.equal(cacheTokens({ maxCreation: 399 }).eval(run).pass, false);
-  assert.equal(cacheTokens({ maxCreation: 399 }).eval(run).score, 0);
+  assert.equal(tokens({ maxInput: 800 }).eval(run).score, 1);
   assert.match(
-    cacheTokens({ maxCreation: 399 }).eval(run).message,
-    /expected ≤ 399 cache-creation tokens, got 400/,
+    tokens({ maxInput: 800 }).eval(run).message,
+    /800 input tokens ≤ 800/,
   );
-  // maxRead-only: pass
-  assert.equal(cacheTokens({ maxRead: 300 }).eval(run).pass, true);
-  // maxRead-only: fail
-  assert.equal(cacheTokens({ maxRead: 299 }).eval(run).pass, false);
+  assert.equal(tokens({ maxInput: 799 }).eval(run).score, 0);
   assert.match(
-    cacheTokens({ maxRead: 299 }).eval(run).message,
-    /expected ≤ 299 cache-read tokens, got 300/,
+    tokens({ maxInput: 799 }).eval(run).message,
+    /expected ≤ 799 input tokens, got 800/,
   );
-  // both constraints: pass when both within bounds
+  assert.match(
+    tokens({ maxOutput: 199 }).eval(run).message,
+    /expected ≤ 199 output tokens, got 200/,
+  );
+  assert.equal(tokens({ maxCache: 700 }).eval(run).pass, true);
+  assert.match(
+    tokens({ maxCache: 699 }).eval(run).message,
+    /expected ≤ 699 cache tokens, got 700/,
+  );
+  // several bounds: passes only when every given one holds, names the first breach
   assert.equal(
-    cacheTokens({ maxCreation: 400, maxRead: 300 }).eval(run).pass,
+    tokens({ max: 1000, maxInput: 800, maxCache: 700 }).eval(run).pass,
     true,
   );
   assert.match(
-    cacheTokens({ maxCreation: 400, maxRead: 300 }).eval(run).message,
-    /cache tokens within bounds/,
+    tokens({ max: 1000, maxOutput: 100 }).eval(run).message,
+    /output tokens/,
   );
-  // both constraints: creation fails first
-  assert.equal(
-    cacheTokens({ maxCreation: 399, maxRead: 300 }).eval(run).pass,
-    false,
-  );
-  assert.match(
-    cacheTokens({ maxCreation: 399, maxRead: 300 }).eval(run).message,
-    /cache-creation/,
-  );
-  // toJSON round-trips both optional fields
-  assert.deepEqual(cacheTokens({ maxCreation: 500, maxRead: 200 }).toJSON(), {
-    kind: "cacheTokens",
-    maxCreation: 500,
-    maxRead: 200,
-  });
-  // toJSON with only one field set
-  assert.deepEqual(cacheTokens({ maxCreation: 500 }).toJSON(), {
-    kind: "cacheTokens",
-    maxCreation: 500,
-  });
-  assert.deepEqual(cacheTokens({ maxRead: 200 }).toJSON(), {
-    kind: "cacheTokens",
-    maxRead: 200,
+  assert.deepEqual(tokens({ maxInput: 500, maxOutput: 150 }).toJSON(), {
+    kind: "tokens",
+    maxInput: 500,
+    maxOutput: 150,
   });
 });
 

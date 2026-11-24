@@ -9,7 +9,7 @@
  * Its reader is someone holding a guard — a compiled hook, a hook command, a
  * plugin's hook directory — and asking "does it actually block?". That is a
  * different person at a different moment from someone writing a harness test,
- * so the battery has its own door (v49) rather than sitting on the root.
+ * so the battery has its own door (v50) rather than sitting on the root.
  * Nothing here calls a model.
  *
  *   import { assertGuardrail } from "vigiles/battery";

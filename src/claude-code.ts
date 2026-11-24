@@ -29,6 +29,9 @@ export {
 // run, and a real-model run's whole result.
 export { parseToolCalls, claudeAvailable } from "./harness-test.js";
 export { parseClaudeRun } from "./eval.js";
+// Both spellings (relative and absolute `file_path`) of a Claude Code file-tool
+// hook event, to feed `runHook` — the absolute one is what Claude Code sends.
+export { fileToolEvents, type FileToolEventOptions } from "./run-hook.js";
 // The tool catalog as TYPES (the values are adapter fields).
 export type {
   ClaudeCodeBuiltinTool,

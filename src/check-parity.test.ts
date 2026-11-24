@@ -1,5 +1,5 @@
 /**
- * PARITY: every assertion and predicate removed in v49 has a `check.*` form that
+ * PARITY: every assertion and predicate removed in v50 has a `check.*` form that
  * says the same thing — the table the "one form" migration stood on, kept now
  * that the old forms are gone.
  *

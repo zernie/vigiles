@@ -16,7 +16,7 @@
  *
  * Curated (named, not `export *`) so the compiler's phase types, the internal
  * config shape and the linter catalog stay out of the public surface. One door
- * since v49: `vigiles/linting`, a strict subset of this one, is gone.
+ * since v50: `vigiles/linting`, a strict subset of this one, is gone.
  */
 
 // --- the authoring builders: instruction files, rules, references, and the two

@@ -5,9 +5,9 @@
  * writes only `out.txt` and never pushes is *asserted*, not eyeballed.
  *
  * The check vocabulary is the seam:
- *   - wrote(path)       — it produced the artifact it promised
- *   - didNotWrite(path) — it left nothing OUTSIDE the boundary
- *   - notTool(name, {…})— it never reached for a forbidden side effect (git push)
+ *   - check.wrote(path)       — it produced the artifact it promised
+ *   - check.didNotWrite(path) — it left nothing OUTSIDE the boundary
+ *   - check.notTool(name, {…})— it never reached for a forbidden side effect (git push)
  *
  * Part A is pure (a hand-built Trace) and ALWAYS runs. Part B drives a real
  * scripted mock turn through `runHarnessTest` — needs the `claude` BINARY but NO
@@ -20,7 +20,7 @@ import {
   scriptModel,
   claudeAvailable,
 } from "../../dist/harness-test.js";
-import { wrote, didNotWrite, notTool, assertChecks } from "../../dist/check.js";
+import { check, assertChecks } from "../../dist/check.js";
 
 // --- Part A: pure — the boundary asserted over a constructed Trace -----------
 // Model a unit that wrote `out.txt` and called Bash `git status` (read-only),
@@ -38,9 +38,9 @@ const inBounds = {
 
 // The declared side-effect boundary, asserted deterministically:
 assertChecks(inBounds, [
-  wrote("out.txt"), // produced what it promised
-  didNotWrite("secrets.env"), // wrote nothing outside the surface
-  notTool("Bash", { command: /git push/ }), // never pushed
+  check.wrote("out.txt"), // produced what it promised
+  check.didNotWrite("secrets.env"), // wrote nothing outside the surface
+  check.notTool("Bash", { command: /git push/ }), // never pushed
 ]);
 console.log("✓ Part A: unit stayed inside its declared write surface");
 
@@ -55,8 +55,8 @@ const escaped = {
 let caught = false;
 try {
   assertChecks(escaped, [
-    didNotWrite("secrets.env"),
-    notTool("Bash", { command: /git push/ }),
+    check.didNotWrite("secrets.env"),
+    check.notTool("Bash", { command: /git push/ }),
   ]);
 } catch {
   caught = true;
@@ -78,9 +78,9 @@ if (!claudeAvailable()) {
     ]),
   });
   try {
-    // wrote() reads the real post-run work dir; didNotWrite() proves the unit
+    // check.wrote() reads the real post-run work dir; check.didNotWrite() proves the unit
     // never created the off-boundary file — both deterministic, no model judge.
-    assertChecks(r, [wrote("out.txt"), didNotWrite("secrets.env")]);
+    assertChecks(r, [check.wrote("out.txt"), check.didNotWrite("secrets.env")]);
     console.log("✓ Part B: real run wrote out.txt and nothing outside it");
   } finally {
     r.cleanup();

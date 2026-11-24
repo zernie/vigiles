@@ -6,13 +6,8 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import {
-  assertDelivered,
-  assertEgressOnly,
-  assertNoWrite,
-  assertWroteOnly,
-  vigilesMatchers,
-} from "./harness-assert.js";
+import { vigilesMatchers } from "./harness-assert.js";
+import { check, assertChecks } from "./check.js";
 import {
   experimental_assertHookDenies as assertHookDenies,
   experimental_assertHookAllows as assertHookAllows,
@@ -42,6 +37,32 @@ import type { Check } from "./check.js";
 import type { EvalReport } from "./eval.js";
 import type { HarnessTestResult, HookFire } from "./harness-test.js";
 import type { HookRunResult } from "./run-hook.js";
+
+// The v50 throwing forms, as the checks that replaced them (src/effect-checks.ts):
+// these tests keep pinning the same messages through `assertChecks`.
+type RunOf<C extends (...a: never[]) => { eval: (t: never) => unknown }> =
+  Parameters<ReturnType<C>["eval"]>[0];
+const assertDelivered = (r: RunOf<typeof check.delivered>): void => {
+  assertChecks(r, [check.delivered()]);
+};
+const assertEgressOnly = (
+  r: RunOf<typeof check.egressOnly>,
+  allowed: ReadonlyArray<string | RegExp>,
+): void => {
+  assertChecks(r, [check.egressOnly(allowed)]);
+};
+const assertNoWrite = (
+  r: RunOf<typeof check.noWrite>,
+  pattern: string | RegExp,
+): void => {
+  assertChecks(r, [check.noWrite(pattern)]);
+};
+const assertWroteOnly = (
+  r: RunOf<typeof check.wroteOnly>,
+  allowed: ReadonlyArray<string | RegExp>,
+): void => {
+  assertChecks(r, [check.wroteOnly(allowed)]);
+};
 
 /** Minimal HookRunResult stand-in for the run-hook-tier assertions/matcher. */
 function fakeHook(blocked: boolean): HookRunResult {
@@ -313,6 +334,10 @@ test("vigilesMatchers.toBeatBaseline respects the `by` threshold", () => {
     vigilesMatchers.toBeatBaseline(report, "vanilla", "gated", "caught", 0.9)
       .pass,
     false,
+  ); // an arm that never reported the metric is not an arm that scored 0
+  assert.throws(
+    () => vigilesMatchers.toBeatBaseline(report, "vanilla", "gated", "missing"),
+    /no data to compare gated vs vanilla on missing/,
   );
 });
 

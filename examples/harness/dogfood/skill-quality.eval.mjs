@@ -13,7 +13,7 @@
  */
 import { defineEval } from "../../../dist/test.js";
 import { assertRates } from "../../../dist/eval-surface.js";
-import { skill, judged, cost } from "../../../dist/check.js";
+import { check, judged } from "../../../dist/check.js";
 import { fileURLToPath } from "node:url";
 
 // The vigiles plugin root (holds .claude-plugin/) — its skills activate natively.
@@ -33,12 +33,12 @@ export default defineEval({
     model: "sonnet", // measure on the model your users actually run
     trials: 3,
     checks: [
-      skill("vigiles:strengthen"), // the right skill fired
+      check.skill("vigiles:strengthen"), // the right skill fired
       judged(
         "1 if the response names a REAL linter rule (e.g. eslint/no-console, ruff/T201) that would enforce the 'no console.log' guidance; 0 if it's vague or invents a rule",
         { min: 0.6 },
       ),
-      cost({ maxUsd: 0.1 }), // the run stayed cheap
+      check.cost({ maxUsd: 0.1 }), // the run stayed cheap
     ],
   },
   assert: (report) => {

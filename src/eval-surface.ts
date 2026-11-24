@@ -10,7 +10,7 @@
  *
  * The package root, [`vigiles`](./test.ts), is the free testing surface. A
  * report reader is free too, but its only reader is someone who just ran an
- * eval, so it lives here beside the runner (v49) rather than on the root.
+ * eval, so it lives here beside the runner (v50) rather than on the root.
  * "Can this call bill me?" is answered by the NAME — `paid_*` — not by the
  * door: a CI rule that forbids spending matches `paid_*`, not `vigiles/eval`.
  * The name rhymes with the `vigiles eval` CLI verb.

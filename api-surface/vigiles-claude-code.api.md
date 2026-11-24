@@ -97,6 +97,18 @@ export const experimental_skill: typeof skillSpec & {
     }) => SkillStep;
 };
 
+// @public
+export interface FileToolEventOptions {
+    readonly event?: string;
+    readonly extra?: Readonly<Record<string, unknown>>;
+    readonly input?: Readonly<Record<string, unknown>>;
+    readonly root?: string;
+    readonly tool?: string;
+}
+
+// @public
+export function fileToolEvents(path: string, opts?: FileToolEventOptions): readonly [HookInput, HookInput];
+
 // @public (undocumented)
 export interface LoadedPlugin {
     readonly files: Record<string, string>;

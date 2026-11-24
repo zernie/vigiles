@@ -105,13 +105,13 @@ teaches the reader the field means nothing.
 
 **Asserting what it wrote needs confinement.** `filesWritten` comes from diffing
 the work dir, which only a confined run does, so it is `undefined` after a plain
-run — deliberately not `[]` ("recorded, wrote nothing"). `assertNoWrite` /
-`assertWroteOnly` **throw** on an unrecorded result rather than pass having
+run — deliberately not `[]` ("recorded, wrote nothing"). `check.noWrite` /
+`check.wroteOnly` **fail** on an unrecorded result rather than pass having
 looked at nothing:
 
 ```ts
 const r = runScript("bash scripts/build.sh", { cwd: repoDir, sandbox: "auto" });
-assertWroteOnly(r, [/^dist\//]); // meaningful: writes were actually recorded
+assertChecks(r, [check.wroteOnly([/^dist\//])]); // meaningful: writes were actually recorded
 ```
 
 ## Test a hook in isolation (`runHook`)
@@ -133,7 +133,7 @@ const r = runHook(hookCmd, {
 assertChecks(r, [check.allowed()]);
 ```
 
-### Assert a nudge reaches the model (`assertDelivered`)
+### Assert a nudge reaches the model (`check.delivered`)
 
 A hook that _prints_ a warning has not _delivered_ it. Which stream the model
 reads depends on the event and the exit code, and the commonest mistake is
@@ -146,17 +146,17 @@ stderr and exits 0 reaches nobody. Claude Code's hooks docs, verbatim:
 > — [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks#exit-code-0)
 
 `runHook` judges this for you: every result carries `delivery`, and
-`assertDelivered` fails unless some of the hook's text reached the model.
+`check.delivered()` fails unless some of the hook's text reached the model.
 
 ```ts
-import { runHook, assertDelivered } from "vigiles";
+import { runHook, check, assertChecks } from "vigiles";
 
 const r = runHook(lintHookCmd, {
   hook_event_name: "PostToolUse",
   tool_name: "Edit",
   tool_input: { file_path: "notes/a.md" },
 });
-assertDelivered(r);
+assertChecks(r, [check.delivered()]);
 // ✗ expected the hook's output to reach the model, but none did (exit 0):
 //   - 37 bytes on stderr: stderr from a hook that exits 0 reaches no channel the
 //     model reads. Emit JSON `hookSpecificOutput.additionalContext` on stdout, or
@@ -554,12 +554,12 @@ inside that surface** — not eyeballed, and not handed to a model judge. The ch
 vocabulary is the seam:
 
 ```ts
-import { wrote, didNotWrite, notTool, assertChecks } from "vigiles";
+import { check, assertChecks } from "vigiles";
 
 assertChecks(r, [
-  wrote("out.txt"), // produced the artifact it promised
-  didNotWrite("secrets.env"), // left NOTHING outside the declared surface
-  notTool("Bash", { command: /git push/ }), // never reached for a forbidden effect
+  check.wrote("out.txt"), // produced the artifact it promised
+  check.didNotWrite("secrets.env"), // left NOTHING outside the declared surface
+  check.notTool("Bash", { command: /git push/ }), // never reached for a forbidden effect
 ]);
 ```
 
@@ -570,7 +570,7 @@ the scripted mock model only does what the script says, so a `Write` either land
 or it didn't.
 
 These checks **verify** behaviour; a `purity:` floor (`pure`/`bounded`) on the
-`skill()`/`agent()` spec **enforces** it — a `PreToolUse` rail that _denies_ the
+`experimental_skill()`/`experimental_agent()` spec **enforces** it — a `PreToolUse` rail that _denies_ the
 bad call at runtime. They're different layers, not a double-check: the floor makes
 the action impossible in the loop, the test proves the good behaviour happens (and
 is how you catch a _prose_ instruction leaking when there's no floor to lean on).
@@ -634,7 +634,7 @@ report now says so and lists the three causes, in the order they bite:
 3. **the `fixture`** — a run starts in an **empty** cwd, so a prompt about a file
    that does not exist is one the model is right to decline.
 
-`measure` / `measureArms` print the same note when every `skill()` check is at
+`measure` / `measureArms` print the same note when every `check.skill()` check is at
 0%, and their `CheckReport.namespace` names the installed namespace the way
 `TriggerRateReport.namespace` does.
 
@@ -830,14 +830,14 @@ A `*.harness.mjs` is a **program**: it is free, so running it is the point. A
 to run itself.
 
 ```js
-import { defineEval, skill } from "vigiles";
+import { defineEval, check } from "vigiles";
 import { assertRates } from "vigiles/eval";
 
 export default defineEval({
   measure: {
     pluginDir: ".",
     task: "…",
-    checks: [skill("me:greet")],
+    checks: [check.skill("me:greet")],
     trials: 3,
   },
   assert: (report) => assertRates(report, { min: 0.6 }),

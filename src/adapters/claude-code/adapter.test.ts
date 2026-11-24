@@ -50,6 +50,8 @@ test("vigiles/claude-code: the adapter and its helpers, the ports reached throug
     "parseClaudeRun",
     "scriptModel",
     "startMock",
+    // Claude Code's file-tool event shape, both spellings, for runHook
+    "fileToolEvents",
   ]) {
     assert.ok(name in door, `vigiles/claude-code exports ${name}`);
   }

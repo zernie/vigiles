@@ -35,11 +35,11 @@
  *
  * CC DISCOVERIES this eval forced (now fixed in parseSubagents, see src/harness-test.ts):
  *   - a `--plugin-dir` agent's `subagent_type` is NAMESPACED `plugin:agent` (captured
- *     "reviewer-spec:code-reviewer"), so a bare-name `subagent("code-reviewer")` check
+ *     "reviewer-spec:code-reviewer"), so a bare-name `check.subagent("code-reviewer")` check
  *     must match the last `:`-segment;
  *   - the sub's `result()` vigiles:ok/err block lands in its RETURN — the dispatch's
  *     top-level tool_result — NOT in the lead's text and NOT in the sub's own assistant
- *     messages. So all three checks read the SUB's trace via `subagent(name,[…])`;
+ *     messages. So all three checks read the SUB's trace via `check.subagent(name,[…])`;
  *   - sonnet won't DELEGATE on a soft task (it reviews inline), so `allowedTools:["Task"]`
  *     forces it (the lead has no Read; the sub keeps its own).
  * VERDICT (2026-06-20, sonnet, 2 trials/arm — the tooling now works):
@@ -51,12 +51,12 @@
  * (experimental_assertAgentOk, no LLM judge) at ZERO quality cost. Categorical (0 vs 100, no
  * variance → no p-value needed). The "typed contracts make measurement affordable"
  * thesis, validated on vigiles's OWN contract. (NOTE: all three rows label as
- * "subagent(code-reviewer)" — they're nested checks; order is (1)/(2)/(3) above.)
+ * "check.subagent(code-reviewer)" — they're nested checks; order is (1)/(2)/(3) above.)
  */
 import { defineEval } from "../../../dist/test.js";
 // Internal (not a public export): the per-check significance read.
 import { compareCheck } from "../../../dist/eval.js";
-import { subagent, tool, output } from "../../../dist/check.js";
+import { check } from "../../../dist/check.js";
 import { fileURLToPath } from "node:url";
 
 const dir = (p) => fileURLToPath(new URL(p, import.meta.url));
@@ -87,13 +87,13 @@ export default defineEval({
     // subagent_type + the sub's returned text are now recovered under --plugin-dir).
     checks: [
       // (1) the subagent ran + read the file — fair-A/B guard (both arms).
-      subagent("code-reviewer", [tool("Read")]),
+      check.subagent("code-reviewer", [check.tool("Read")]),
       // (2) QUALITY — the sub caught the subtract-instead-of-add bug. Stays ~equal.
-      subagent("code-reviewer", [
-        output(/subtract|a - b|minus|should add|wrong operator/i),
+      check.subagent("code-reviewer", [
+        check.output(/subtract|a - b|minus|should add|wrong operator/i),
       ]),
       // (3) PAYOFF — the sub RETURNED a parseable typed block. Only `spec` can pass.
-      subagent("code-reviewer", [output(/```vigiles:(ok|err)/)]),
+      check.subagent("code-reviewer", [check.output(/```vigiles:(ok|err)/)]),
     ],
   },
   assert: (report) => {

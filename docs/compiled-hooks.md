@@ -142,13 +142,13 @@ export default experimental_defineHook({
 
 - **`e.path`** (Edit/Write) — a `FilePath` with `under(prefixes)` for path confinement, plus `raw` (the path as the tool sent it) and `rel` (the same path repo-relative, or `undefined` — see below).
 
-  The two types and the functions that build them, `parseShellCommand(raw, root)` and `parseFilePath(raw, root)`, were called `CommandView`/`PathView` and `commandView`/`pathView` before #465. The old names still work, marked deprecated, until the next major release.
+  The two types and the functions that build them, `parseShellCommand(raw, root)` and `parseFilePath(raw, root)`, were called `CommandView`/`PathView` and `commandView`/`pathView` before #465; the old names were removed in v50.
 
   > **Write your prefixes repo-relative; the runtime handles the rest.** Claude Code's Edit/Write/MultiEdit tools send an **absolute** `file_path`, so `under(["src"])` has to reconcile the two. It does that with the project root — `$CLAUDE_PROJECT_DIR`, else the event's own `cwd`, never the hook process's working directory (under a git worktree that can be a different checkout). An absolute prefix (`under(["/etc"])`) is matched against the absolute path instead, so both spellings work.
   >
   > `under` is the **allowlist / coverage** primitive, and an unprovable answer is `false`: a path in another checkout, or an absolute path with no root in sight, matches no repo-relative prefix. A confinement gate (`under(ok) ? allow() : deny()`) therefore fails closed, and a nudge stays quiet. The reverse shape — `under(secret) ? deny() : allow()` — reads that `false` as **allow**, so do not build a denylist on it. When there is genuinely no root, the runtime says so on stderr rather than deciding silently.
   >
-  > Testing a file hook? Build the event with **`fileToolEvents(path)`** (from `vigiles`), which returns _both_ spellings. Hand-written relative events are what let three shipped hooks stay dead while their tests passed.
+  > Testing a file hook? Build the event with **`fileToolEvents(path)`** (from `vigiles/claude-code`), which returns _both_ spellings. Hand-written relative events are what let three shipped hooks stay dead while their tests passed.
 
 - **`e.prompt`** (UserPromptSubmit) — the user's prompt text (a plain string).
 - **`e.stopHookActive`** (Stop) — the loop guard; `allow()` when it's `true`.

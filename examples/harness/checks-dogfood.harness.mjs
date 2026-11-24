@@ -2,9 +2,9 @@
  * Dogfood of the new check vocabulary on the DETERMINISTIC tiers (no API key).
  *
  * Exercises `assertChecks` + the strict-check path end to end:
- *   - hook scope (`runHook`): a PreToolUse Bash gate → `blocked()` / `allowed()`.
+ *   - hook scope (`runHook`): a PreToolUse Bash gate → `check.blocked()` / `check.allowed()`.
  *   - harness scope (`runHarnessTest`, mock model): a scripted run → `tool()`,
- *     `turns()`, `output()`.
+ *     `check.turns()`, `check.output()`.
  *
  * This is the revamped surface used for real (not just unit-tested with fakes).
  * Runs with the `claude` CLI and NO key:
@@ -16,13 +16,7 @@ import {
   claudeAvailable,
 } from "../../dist/harness-test.js";
 import { runHook } from "../../dist/run-hook.js";
-import {
-  output,
-  turns,
-  blocked,
-  allowed,
-  assertChecks,
-} from "../../dist/check.js";
+import { check, assertChecks } from "../../dist/check.js";
 
 // --- hook scope: no claude needed, always runs ---
 const gate =
@@ -34,8 +28,8 @@ const ev = (command) => ({
   tool_input: { command },
 });
 
-assertChecks(runHook(gate, ev("git commit --no-verify")), [blocked()]);
-assertChecks(runHook(gate, ev("git commit -m ok")), [allowed()]);
+assertChecks(runHook(gate, ev("git commit --no-verify")), [check.blocked()]);
+assertChecks(runHook(gate, ev("git commit -m ok")), [check.allowed()]);
 console.log("✓ hook checks: blocked --no-verify, allowed a clean commit");
 
 // --- harness scope: real claude + scripted mock model (needs the binary) ---
@@ -54,7 +48,7 @@ if (!claudeAvailable()) {
     // turns + output are the reliable cross-version observables of a scripted
     // multi-turn run (tool-call capture depends on the plugin/permission setup —
     // see the fuller pluginDir tests in harness-test.test.ts).
-    assertChecks(r, [turns({ min: 1 }), output(/done/)]);
+    assertChecks(r, [check.turns({ min: 1 }), check.output(/done/)]);
     console.log(
       "✓ harness checks: agent took >=1 turn and finished with 'done'",
     );

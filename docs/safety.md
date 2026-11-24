@@ -121,7 +121,7 @@ In every eval-tier row `CLAUDE_CODE_EFFORT_LEVEL` is set to the declared `effort
 **At the eval tier, the model — not you — chooses what to do.** To test "the agent **didn't** push to `main` / call a paid API / spawn a paid subagent" safely, vigiles intercepts the tool before it runs:
 
 ```ts
-import { defineEval, notTool } from "vigiles";
+import { defineEval, check } from "vigiles";
 
 export default defineEval({
   measure: {
@@ -135,7 +135,7 @@ export default defineEval({
         denyReason: "blocked in test",
       },
     ],
-    checks: [notTool("Bash", { command: /git push/ })], // assert it never (successfully) pushed
+    checks: [check.notTool("Bash", { command: /git push/ })], // assert it never (successfully) pushed
   },
 });
 ```

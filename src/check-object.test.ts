@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import {
   check,
   assertChecks,
+  type Check,
   tool,
   toolWith,
   skill,
@@ -379,7 +380,11 @@ describe("check.delivered — a nudge's text reached the model", () => {
       /a block is not a nudge/,
     );
     assert.match(
-      why({ kind: "unknown", why: "no row for Notification" }),
+      why({
+        kind: "unknown",
+        event: "Notification",
+        why: "no row for Notification",
+      }),
       /cannot be judged: no row/,
     );
     assert.deepEqual(check.delivered().toJSON(), { kind: "delivered" });
@@ -418,14 +423,18 @@ describe("check.egressOnly / check.noWrite / check.wroteOnly — a confined run'
       check.wroteOnly([/^\.omc\//, "out.txt"]).eval(reached).pass,
       true,
     );
-    const unrecorded = { egress: [] } as const;
+    const unrecorded: { readonly filesWritten?: readonly string[] } = {};
     assert.equal(check.noWrite(".env").eval(unrecorded).pass, false);
     assert.match(check.wroteOnly([]).eval(unrecorded).message, /record/);
   });
 
   test("they compose with assertChecks", () => {
     assert.throws(() => {
-      assertChecks(reached, [check.egressOnly([]), check.noWrite("out.txt")]);
+      const effects: readonly Check<HookRunResult>[] = [
+        check.egressOnly([]),
+        check.noWrite("out.txt"),
+      ];
+      assertChecks(reached, effects);
     }, /evil\.example[\s\S]*out\.txt/);
   });
 });

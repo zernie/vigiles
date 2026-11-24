@@ -198,7 +198,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 654 project files. */
+  /** 655 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -635,6 +635,7 @@ declare module "vigiles/generated" {
     | "src/doc-test-script-coverage.test.ts"
     | "src/doc-test-script-coverage.ts"
     | "src/docs-drift-nudge.hook.test.ts"
+    | "src/effect-checks.ts"
     | "src/egress-entry.ts"
     | "src/egress-proxy.ts"
     | "src/egress.test.ts"
@@ -1458,6 +1459,7 @@ declare module "vigiles/spec" {
       | "src/doc-test-script-coverage.test.ts"
       | "src/doc-test-script-coverage.ts"
       | "src/docs-drift-nudge.hook.test.ts"
+      | "src/effect-checks.ts"
       | "src/egress-entry.ts"
       | "src/egress-proxy.ts"
       | "src/egress.test.ts"

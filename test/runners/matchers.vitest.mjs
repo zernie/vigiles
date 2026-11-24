@@ -9,13 +9,7 @@
  */
 import { test, expect } from "vitest";
 import { compare, assertImproves } from "../../dist/eval-surface.js";
-import {
-  tool,
-  output,
-  blocked,
-  check,
-  assertChecks,
-} from "../../dist/check.js";
+import { check, assertChecks } from "../../dist/check.js";
 import checksCases from "./checks-cases.cjs";
 // Matchers are registered by the `vigiles/vitest` entry via setupFiles
 // (vitest.config.ts) — this file asserts that wiring works end-to-end.
@@ -55,10 +49,10 @@ test("the check veneer (toPass / toPassAll) works under vitest", () => {
     turns: 1,
     file: () => null,
   };
-  expect(trace).toPass(tool("Bash"));
-  expect(trace).not.toPass(tool("Read"));
-  expect(trace).toPassAll([tool("Bash"), output("done")]);
-  expect({ blocked: true, exitCode: 2 }).toPass(blocked());
+  expect(trace).toPass(check.tool("Bash"));
+  expect(trace).not.toPass(check.tool("Read"));
+  expect(trace).toPassAll([check.tool("Bash"), check.output("done")]);
+  expect({ blocked: true, exitCode: 2 }).toPass(check.blocked());
 });
 
 test("plain helpers work under vitest", () => {

@@ -315,14 +315,14 @@ knowing your harness's tools:
 - `skills` — `{ observable: true, fired: [{ id, isError, resultText }] }` for
   every skill activation the run shows (possibly none), or `{ observable:
 false, harness, why }` when this run cannot show one (it was not streamed,
-  the tier captures no commands). `skill(id)` reads it, and a "not observable"
+  the tier captures no commands). `check.skill(id)` reads it, and a "not observable"
   fails with your `harness` name and `why` instead of "did not fire". Leave it
   out and the contract suite fails.
 - `shell` on each `ToolCall` that ran a shell command — the command the agent
   asked for, without any wrapper your harness adds to run it.
 
 The layer-2 runners refuse a non-`harnessTesting` adapter up front; that guard
-is internal (it was exported as `assertHarnessTestable` before v49).
+is internal (it was exported as `assertHarnessTestable` before v50).
 
 **`detect` contract.** Return `0` when `root` is not this harness; otherwise a
 positive **specificity** — a strong signal (a private config dir / manifest)
@@ -386,7 +386,7 @@ test("my adapter conforms", () => {
 
 The registry is how the **CLI** picks an adapter for a repo: the highest
 `detect` score wins, Claude Code when nothing matches, and `--harness <name>`
-overrides. It is the CLI's composition root, so it is not exported (since v49):
+overrides. It is the CLI's composition root, so it is not exported (since v50):
 the library takes the adapter object you pass (`{ adapter }`).
 
 ---

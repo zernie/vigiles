@@ -109,9 +109,9 @@ and check every reply of each run.
 
 ```ts
 import {
-  output,
   experimental_outputStyleArms,
   experimental_replyCount,
+  check,
 } from "vigiles";
 import { paid_measureArms } from "vigiles/eval";
 
@@ -127,7 +127,7 @@ const report = await paid_measureArms({
   task: "summarise README.md",
   checks: [
     experimental_replyCount(/\*\*Status\*\*/, { max: 1 }), // one block per user message
-    output(/\*\*Status\*\*(?:\n- [^\n]*)+\s*$/), // …and the message ends with it
+    check.output(/\*\*Status\*\*(?:\n- [^\n]*)+\s*$/), // …and the message ends with it
   ],
   trials: 10,
 });

@@ -16,10 +16,10 @@ The two tiers ask the same question of an agent and differ in **who plays the
 model** — so a passing deterministic test does not make the eval tier redundant,
 and this is the split the coverage nudge now reflects:
 
-| tier                             | model          | what it establishes                                                                               |
-| -------------------------------- | -------------- | ------------------------------------------------------------------------------------------------- |
-| deterministic (`runHarnessTest`) | scripted mock  | the contract parses and the rail holds — `subagent(...)`, `notTool`, `experimental_assertAgentOk` |
-| eval (`runEval` / `measure`)     | **real**, paid | a real model, handed this agent's prompt, stays inside the contract                               |
+| tier                             | model          | what it establishes                                                                                     |
+| -------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------- |
+| deterministic (`runHarnessTest`) | scripted mock  | the contract parses and the rail holds — `check.subagent(...)`, `notTool`, `experimental_assertAgentOk` |
+| eval (`runEval` / `measure`)     | **real**, paid | a real model, handed this agent's prompt, stays inside the contract                                     |
 
 Keep the same assertions across both; only the model changes. The typed-outcome
 helpers are model-free by design — see
@@ -80,14 +80,14 @@ mechanics.
 
 **What earns an agent a recorded run** (added 2026-08-12): a **dispatch** in the
 transcript — a `tool_use` whose input carries a `subagent_type`, which is what a
-passing `subagent("bar", …)` check is asserting on. It is keyed on the input
+passing `check.subagent("bar", …)` check is asserting on. It is keyed on the input
 field rather than the tool name, because the dispatch tool is named `Agent` on
 the live CLI and `Task` in older docs. An **errored** dispatch does not count (the
 tool was reached and the agent was not), and neither does a call merely named
 `Task` with no `subagent_type`.
 
 Before that, no probe could resolve to an agent at all, so an agent proven to run
-by a passing `subagent(...)` was still reported here as untested. If the dispatch
+by a passing `check.subagent(...)` was still reported here as untested. If the dispatch
 is namespaced (`plugin:bar`, which is what `--plugin-dir` reports) the namespace
 must be this repo's own plugin name — another plugin's `bar` is not yours.
 

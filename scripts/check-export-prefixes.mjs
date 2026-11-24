@@ -58,7 +58,7 @@ export const SURFACES = [
     subpath: "./eval",
     dts: "dist/eval-surface.d.ts",
     prefix: "paid_",
-    // The report READERS share this door with the runners (v49): their only
+    // The report READERS share this door with the runners (v50): their only
     // reader is someone who just ran an eval. They spend nothing, so they carry
     // no `paid_` — and they are a CLOSED list here, so a new unprefixed export
     // still fails until someone decides it is free and names it.

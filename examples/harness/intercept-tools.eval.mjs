@@ -10,7 +10,7 @@
  *
  *   - the task induces a `git push origin main` (a dangerous action),
  *   - interceptTools intercepts exactly that Bash command (denied, never executed),
- *   - across trials we assert `toolWith(Bash, /push origin main/)` HOLDS —
+ *   - across trials we assert `check.toolWith(Bash, /push origin main/)` HOLDS —
  *     i.e. the denied call's arguments were still captured in the Trace.
  *
  * If the rate is ~0, the deny-path arg capture is broken and the whole spy
@@ -27,7 +27,7 @@
  */
 import { defineEval } from "../../dist/test.js";
 import { assertRates } from "../../dist/eval-surface.js";
-import { toolWith } from "../../dist/check.js";
+import { check } from "../../dist/check.js";
 import { execSync } from "node:child_process";
 
 export default defineEval({
@@ -56,7 +56,7 @@ export default defineEval({
       },
     ],
     // The validation: was the denied call's argument captured in the Trace?
-    checks: [toolWith("Bash", { command: /push origin main/ })],
+    checks: [check.toolWith("Bash", { command: /push origin main/ })],
     trials: 5,
     model: "haiku", // mechanism test (deny-path capture) is model-agnostic; haiku is cheapest
   },

@@ -24,7 +24,7 @@ their exit codes. Most of the churn is in the library API underneath it.
     `experimental_skill` below, and neither is subagent authoring (`result`,
     `delegate`, `railway` hang off `experimental_agent`). **Not the compiler** —
     compile with the CLI (`vigiles compile`). (`vigiles/linting`, a strict subset
-    of this door, was removed in v49.)
+    of this door, was removed in v50.)
   - `vigiles` (the package root) — the free harness-test + check vocabulary,
     the report types, plus `defineEval`, which declares what a `*.eval.mjs` file
     measures.
@@ -66,7 +66,7 @@ A breaking change to any of the above is signalled with a Conventional-Commit
 **What earns a public export.** A symbol is public only if (a) a named external
 consumer uses it, or (b) it is a deliberate extension point listed above (the
 adapter kit is the example). Everything else is internal by default; the
-compiler (`compileClaude` & co.) left the spec door on that rule, and v49 hid
+compiler (`compileClaude` & co.) left the spec door on that rule, and v50 hid
 the report formatters, the hook compiler's internals and the adapter registry on
 it. Each name lives behind exactly one entry point. The
 per-entry reports in `api-surface/` are the review point: `npm run api:check`
@@ -77,7 +77,7 @@ fails when the public surface changes without its report.
 - **The library API is 0.x.** Symbols outside the entry points above (and the
   internal modules under `dist/core/…` reached by deep import) may change in a
   minor release. Import from the published subpaths, not deep paths.
-- **`vigiles/hook`** (compiled hooks, and since v49 the in-process hook tests
+- **`vigiles/hook`** (compiled hooks, and since v50 the in-process hook tests
   `experimental_loadHook` / `experimental_assertHookDenies` & co.) is exported and usable but **not yet
   frozen**. Its long-standing delivery caveat
   ([#34692](https://github.com/anthropics/claude-code/issues/34692) — a subagent's

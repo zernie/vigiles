@@ -6,7 +6,9 @@
  * documented two-argument call, and reading the check as a boolean, compile
  * errors.
  */
-import { hookFired, type Trace } from "vigiles";
+import { check, type Trace } from "vigiles";
+
+const { hookFired } = check;
 
 declare const trace: Trace;
 
