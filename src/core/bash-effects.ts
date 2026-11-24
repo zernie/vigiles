@@ -589,7 +589,8 @@ export function leafCommands(command: string): string[][] {
  * `x`, so the file the command actually WROTE appeared nowhere. That made the
  * single most common write shape invisible to any matcher built on the leaf.
  *
- * @internal
+ * Not on any entry (v53): `ShellEffect` names it, so it carries no internal tag
+ * (stripInternal would leave that signature dangling in the built `.d.ts`).
  */
 export interface LeafRedirect {
   /** The operator as written: `>`, `>>`, `>|`, `&>`, `&>>`, `<`, `<<`, `>&`, … */
@@ -614,7 +615,7 @@ export interface LeafRedirect {
 /**
  * A single simple command, normalized to its operation form.
  *
- * @internal
+ * Not on any entry (v53): `ShellEffect` names it, so it carries no internal tag.
  */
 export interface NormalizedLeaf {
   /** Head normalized to its basename, backslash-stripped: `/bin/rm`→`rm`, `\rm`→`rm`. */
