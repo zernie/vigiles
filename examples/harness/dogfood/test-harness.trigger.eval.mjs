@@ -17,10 +17,8 @@
  * Write-don't-run in a keyless env; this is the artifact that runs where a key is.
  */
 import { defineEval } from "../../../dist/test.js";
-import {
-  skillResolved,
-  assertTriggerRate,
-} from "../../../dist/harness-assert.js";
+import { check } from "../../../dist/check.js";
+import { assertTriggerRate } from "../../../dist/eval-surface.js";
 import { fileURLToPath } from "node:url";
 
 // The vigiles plugin root (the dir that holds .claude-plugin/), installed
@@ -59,7 +57,7 @@ export default defineEval({
       "Add input validation to the signup form.",
       "Fix the off-by-one error in the date picker.",
     ],
-    fired: (t) => skillResolved(t, skill),
+    fired: check.skill(skill),
     trials: 1,
   },
   assert: (report) => {

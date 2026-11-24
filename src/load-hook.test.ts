@@ -17,9 +17,12 @@ import { execFileSync } from "node:child_process";
 import { resolve, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { loadHook } from "./load-hook.js";
+import { experimental_loadHook as loadHook } from "./load-hook.js";
 import { HookCompileError } from "./core/hook-program.js";
-import { assertHookDenies, assertHookAllows } from "./harness-assert.js";
+import {
+  experimental_assertHookDenies as assertHookDenies,
+  experimental_assertHookAllows as assertHookAllows,
+} from "./hook-assertions.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 const HOOK_DIST = pathToFileURL(
@@ -112,7 +115,7 @@ test("loadHook: an unimportable file reports WHY, not just that it failed", asyn
 function loadInNode(file: string): string {
   const loader = resolve(__dirname, "..", "dist", "load-hook.js");
   const script =
-    `require(${JSON.stringify(loader)}).loadHook(${JSON.stringify(file)})` +
+    `require(${JSON.stringify(loader)}).experimental_loadHook(${JSON.stringify(file)})` +
     `.then(() => console.log("loaded"), (e) => console.log(e.message));`;
   return execFileSync(process.execPath, ["-e", script], { encoding: "utf-8" });
 }

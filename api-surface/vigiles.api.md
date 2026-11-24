@@ -5,34 +5,6 @@
 ```ts
 
 // @public
-export interface AgentRunArgs {
-    // (undocumented)
-    readonly cwd: string;
-    readonly effort?: string | number;
-    readonly env?: Record<string, string>;
-    // (undocumented)
-    readonly hasSettings: boolean;
-    readonly maxBudgetUsd?: number;
-    // (undocumented)
-    readonly model: string;
-    // (undocumented)
-    readonly pluginDir: string | undefined;
-    readonly replaceEnv?: boolean;
-    // (undocumented)
-    readonly task: string;
-    // (undocumented)
-    readonly timeoutMs: number;
-    // (undocumented)
-    readonly tools: readonly string[];
-}
-
-// @public
-export type AgentRunner = (args: AgentRunArgs) => Promise<RunOut>;
-
-// @public
-export function allowed(): Check<HookRunResult>;
-
-// @public
 export type ArgMatcher = Record<string, string | number | boolean | RegExp>;
 
 // @public
@@ -106,175 +78,10 @@ export interface ArmUsage {
 }
 
 // @public
-export function assertAgentErr(output: string, contract?: OutputContract): Record<string, unknown>;
-
-// @public
-export function assertAgentOk(output: string, contract?: OutputContract): Record<string, unknown>;
-
-// @public
-export function assertAgentResult(output: string, predicate: (r: ParsedAgentResult) => boolean, contract?: OutputContract): void;
-
-// @public @deprecated
-export const assertBlocksDisasters: typeof assertGuardrail;
-
-// @public
 export function assertChecks<T>(target: T, checks: readonly Check<T>[]): void;
 
 // @public
-export function assertCreated(r: HarnessTestResult, path: string): void;
-
-// @public
-export function assertDelivered(r: HookRunResult): void;
-
-// @public
-export function assertEgressOnly(r: HasEgress, allowed: ReadonlyArray<string | RegExp>): void;
-
-// @public
-export function assertGuardrail(hook: string | AnyHook, opts?: VerifyGuardrailOptions): void;
-
-// @public
-export function assertHookAllowed(r: HookRunResult): void;
-
-// @public
-export function assertHookAllows(hook: AnyHook, event: RawHookEvent): void;
-
-// @public
-export function assertHookBlocked(r: HookRunResult): void;
-
-// @public
-export function assertHookDenies(hook: AnyHook, event: RawHookEvent): void;
-
-// @public
-export function assertHookFired(trace: Trace, name: string | RegExp, opts?: {
-    blocked?: boolean;
-}): void;
-
-// @public
-export function assertHookNotices(hook: AnyHook, event: RawHookEvent, matcher?: string | RegExp): void;
-
-// @public
-export function assertHookSilent(hook: AnyHook, event: RawHookEvent): void;
-
-// @public
-export function assertImproves(report: EvalReport, opts: {
-    baseline: string;
-    arm: string;
-    metric: string;
-    by?: number;
-    significant?: boolean;
-    alpha?: number;
-}): void;
-
-// @public
-export function assertNoEgress(r: HasEgress): void;
-
-// @public
-export function assertNoRegression(current: EvalReport | readonly EvalReport[], baseline: BaselineFile, opts?: DiffOptions): void;
-
-// @public
-export function assertNotCreated(r: HarnessTestResult, path: string): void;
-
-// @public
-export function assertNoWrite(r: HasWrites, pattern: string | RegExp): void;
-
-// @public
-export function assertOutputContains(trace: Trace, needle: string | RegExp): void;
-
-// @public
-export function assertPromptDiversity(prompts: readonly string[], opts?: {
-    minPrompts?: number;
-    minDistance?: number;
-    label?: string;
-}): void;
-
-// @public
-export function assertRates(report: CheckReport, opts: {
-    min: number;
-    per?: Readonly<Record<string, number>>;
-}): void;
-
-// @public
-export function assertReliable(report: EvalReport, opts: {
-    arm: string;
-    metric: string;
-}): void;
-
-// @public
-export function assertRequestContains(trace: Trace, needle: string | RegExp): void;
-
-// @public
-export function assertServedTurns(r: HarnessTestResult, n: number): void;
-
-// @public
-export function assertSignificant(report: EvalReport, opts: {
-    baseline: string;
-    arm: string;
-    metric: string;
-    alpha?: number;
-}): void;
-
-// @public
-export function assertSkillResolved(trace: Trace, skill: string): void;
-
-// @public
-export function assertToolCalls(trace: Trace, predicate: (calls: readonly ToolCall[]) => boolean, message?: string): void;
-
-// @public
-export function assertToolCount(trace: Trace, name: string | RegExp, bounds: {
-    min?: number;
-    max?: number;
-    exactly?: number;
-}): void;
-
-// @public
-export function assertToolNotUsed(trace: Trace, name: string | RegExp): void;
-
-// @public
-export function assertToolSequence(trace: Trace, names: ReadonlyArray<string | RegExp>): void;
-
-// @public
-export function assertToolUsed(trace: Trace, name: string | RegExp): void;
-
-// @public
-export function assertToolUsedWith(trace: Trace, name: string | RegExp, inputMatcher: (input: unknown) => boolean, message?: string): void;
-
-// @public
-export function assertTriggerRate(report: TriggerRateReport, opts: {
-    min?: number;
-    maxFalsePositive?: number;
-    minPrecision?: number;
-}): void;
-
-// @public
-export function assertWroteOnly(r: HasWrites, allowed: ReadonlyArray<string | RegExp>): void;
-
-// @public (undocumented)
-export interface BaselineDiff {
-    readonly entries: readonly MetricDiff[];
-    readonly improvements: readonly MetricDiff[];
-    readonly passed: boolean;
-    readonly regressions: readonly MetricDiff[];
-}
-
-// @public
-export interface BaselineFile {
-    readonly recordedAt: string;
-    readonly reports: Record<string, EvalReport>;
-    // (undocumented)
-    readonly version: number;
-}
-
-// @public
-export function blocked(): Check<HookRunResult>;
-
-// @public
 export type BlockMechanism = "exit-code" | "deny-decision" | "halt-field";
-
-// @public
-export function cacheTokens(opts: {
-    maxCreation?: number;
-    maxRead?: number;
-}): Check<UsageTrace>;
 
 // @public
 export interface Check<T> {
@@ -305,9 +112,11 @@ export const check: typeof customCheck & {
     cost: typeof cost;
     latency: typeof latency;
     tokens: typeof tokens;
-    inputTokens: typeof inputTokens;
-    outputTokens: typeof outputTokens;
-    cacheTokens: typeof cacheTokens;
+    delivered: typeof delivered;
+    egressOnly: typeof egressOnly;
+    noWrite: typeof noWrite;
+    wroteOnly: typeof wroteOnly;
+    skillContract: typeof skillContract;
 };
 
 // @public
@@ -317,13 +126,6 @@ export interface CheckJSON {
     // (undocumented)
     readonly kind: string;
 }
-
-// @public
-export function checkPromptDiversity(prompts: readonly string[], opts?: {
-    minPrompts?: number;
-    minDistance?: number;
-    label?: string;
-}): PromptDiversityIssue[];
 
 // @public
 export interface CheckRate {
@@ -346,13 +148,6 @@ export interface CheckReport {
 }
 
 // @public
-export function checkReportToJUnit(report: CheckReport, opts?: {
-    min?: number;
-    per?: Readonly<Record<string, number>>;
-    name?: string;
-}): string;
-
-// @public
 export interface CheckResult {
     readonly message: string;
     readonly pass: boolean;
@@ -361,53 +156,6 @@ export interface CheckResult {
 
 // @public
 export function cleanupTmpDir(dir: string): void;
-
-// @public
-export function commandsIn(md: string, matching: RegExp): DocCommand[];
-
-// @public
-export function compareArms(report: EvalReport, baseline: string, arm: string, metric: string, alpha?: number): Comparison | null;
-
-// @public
-export function compareContainment(weak: readonly ContainmentInput[], strong: readonly ContainmentInput[]): ContainmentVerdict;
-
-// @public
-export interface Comparison {
-    readonly delta: number;
-    readonly df: number;
-    readonly pValue: number;
-    readonly seDelta: number;
-    readonly significant: boolean;
-    readonly t: number;
-}
-
-// @public
-export interface ContainerRuntime {
-    available(): boolean | Promise<boolean>;
-    readonly name: string;
-    start(name: string, spec: ServiceSpec): Promise<ServiceHandle>;
-    stop(handle: ServiceHandle): Promise<void>;
-}
-
-// @public
-export interface ContainmentInput {
-    // (undocumented)
-    readonly perPrompt: readonly {
-        readonly prompt: string;
-        readonly rate: number;
-    }[];
-    readonly subject: string;
-}
-
-// @public (undocumented)
-export interface ContainmentVerdict {
-    readonly both: readonly string[];
-    readonly compared: number;
-    readonly holds: boolean;
-    readonly neither: readonly string[];
-    readonly strongOnly: readonly string[];
-    readonly weakOnly: readonly string[];
-}
 
 // @public
 export type ContextEvidence =
@@ -434,26 +182,6 @@ export type ContextEvidence =
 };
 
 // @public
-export function cost(opts: {
-    maxUsd: number;
-}): Check<UsageTrace>;
-
-// @public
-export function decideHook(exitCode: number, json: HookOutput | null, protocol?: HookProtocol): {
-    blocked: boolean;
-    decision: HookRunResult["decision"];
-    haltsTurn: boolean;
-    blockedBy: readonly BlockMechanism[];
-};
-
-// @public
-export function decideSandbox(opts: {
-    trusted: boolean;
-    mode: SandboxMode;
-    available: boolean;
-}): SandboxDecision;
-
-// @public
 export function defineEval<K extends EvalKind>(def: EvalDefinitionInput<K>): EvalDefinition<K>;
 
 // @public
@@ -466,61 +194,6 @@ export type DeliveryChannel =
 | "exit-code-feedback"
 /** JSON `decision: "block"` + `reason`, on an event honouring `feedback`. */
 | "decision-reason";
-
-// @public
-export function didNotWrite(path: string): Check<Trace>;
-
-// @public (undocumented)
-export interface DiffOptions {
-    readonly alpha?: number;
-    readonly lowerIsBetter?: readonly string[];
-}
-
-// @public
-export function diffReports(baseline: BaselineFile, current: readonly EvalReport[], opts?: DiffOptions): BaselineDiff;
-
-// @public
-export type DiffStatus = "regressed" | "improved" | "unchanged";
-
-// @public
-export function diffToJUnit(diff: BaselineDiff): string;
-
-// @public
-export const DISASTER_CATALOG: readonly DisasterEvent[];
-
-// @public
-export type DisasterCategory = "destructive-git" | "destructive-fs" | "bypass-verification" | "secret-exfiltration" | "remote-code";
-
-// @public
-export interface DisasterEvent {
-    readonly category: DisasterCategory;
-    readonly id: string;
-    readonly input: Record<string, unknown>;
-    readonly label: string;
-    readonly tool: string;
-}
-
-// @public
-export interface DocCommand {
-    readonly line: number;
-    readonly text: string;
-}
-
-// @public
-export type DockerExec = (args: readonly string[]) => {
-    readonly stdout: string;
-    readonly stderr: string;
-    readonly code: number;
-};
-
-// @public
-export type Duration = `${number}${"s" | "m" | "h" | "d"}`;
-
-// @public
-export function egressHosts(r: HasEgress): string[];
-
-// @public (undocumented)
-export function egressRoutes(): boolean;
 
 // @public
 export type EmitFieldSchema = {
@@ -585,27 +258,12 @@ export interface EvalArm {
 }
 
 // @public
-export function evalChecks<T>(target: T, checks: readonly Check<T>[]): CheckResult[];
-
-// @public
 export type EvalDefinition<K extends EvalKind = EvalKind> = EvalDefinitionInput<K> & {
     readonly [EVAL_DEFINITION]: true;
 };
 
 // @public
 export type EvalDefinitionInput<K extends EvalKind> = Pick<EvalMeasurements, K> & EvalHooks<K>;
-
-// @public
-export interface EvalDriver {
-    readonly experimental?: string;
-    readonly harness?: string;
-    // (undocumented)
-    readonly parse: ModelOutputParser;
-    // (undocumented)
-    readonly runError?: (out: RunOut) => string | null;
-    // (undocumented)
-    readonly runner: AgentRunner;
-}
 
 // @public
 export interface EvalHooks<K extends EvalKind> {
@@ -699,15 +357,9 @@ export interface EvalUsage {
 }
 
 // @public
-export function experimental_alternateSpellings(events: readonly DisasterEvent[]): readonly DisasterEvent[];
-
-// @public
 export function experimental_assertEmittedOk(toolCalls: readonly ToolCall[], contract: OutputContract, options?: {
     readonly name?: string;
 }): Record<string, unknown>;
-
-// @public
-export const experimental_dockerRuntime: ContainerRuntime;
 
 // @public
 export function experimental_eachReply(matcher: string | Readonly<RegExp>): Readonly<Check<Trace>>;
@@ -716,28 +368,6 @@ export function experimental_eachReply(matcher: string | Readonly<RegExp>): Read
 export function experimental_emitTool(contract: OutputContract, options?: {
     readonly name?: string;
 }): ExperimentalEmitTool;
-
-// @public
-export function experimental_formatPluginGuardReport(report: PluginGuardReport): string;
-
-// @public
-export function experimental_harmlessTwins(events: readonly DisasterEvent[]): readonly HarmlessEvent[];
-
-// @public
-export function experimental_hookState(hookFile: string, opts?: {
-    readonly cwd?: string;
-}): HookStateHandle;
-
-// @public
-export function experimental_makeDockerRuntime(deps?: {
-    exec?: DockerExec;
-    netProbe?: NetProbe;
-    sleep?: (ms: number) => Promise<void>;
-    readyTimeoutMs?: number;
-}): ContainerRuntime;
-
-// @public
-export function experimental_outputStyleArms(path: string): Promise<OutputStyleArms>;
 
 // @public
 export function experimental_parseEmitted(toolCalls: readonly ToolCall[], contract: OutputContract, options?: {
@@ -751,103 +381,14 @@ export function experimental_replyCount(matcher: string | Readonly<RegExp>, opts
 }): Readonly<Check<Trace>>;
 
 // @public
-export function experimental_startServices(services: Readonly<Record<string, ServiceSpec>>, runtime: ContainerRuntime): Promise<ServiceSession>;
-
-// @public
-export const experimental_stub: typeof stubOf & {
-    rest: ArgvRest;
-    called: typeof called;
-};
-
-// @public
-export function experimental_verdict(report: EvalReport, baseline: string, arm: string, metric: string, alpha?: number): Verdict;
-
-// @public
-export function experimental_verifyPluginGuards(dir: string, opts?: VerifyPluginGuardsOptions): PluginGuardReport;
-
-// @public
-export function experimental_withServices<T>(services: Readonly<Record<string, ServiceSpec>>, runtime: ContainerRuntime, fn: (session: ServiceSession) => Promise<T>): Promise<T>;
-
-// @public
 export interface ExperimentalEmitTool {
     readonly instruction: string;
     readonly tool: EmitToolDefinition;
 }
 
-// @public
-export interface FileToolEventOptions {
-    readonly event?: string;
-    readonly extra?: Readonly<Record<string, unknown>>;
-    readonly input?: Readonly<Record<string, unknown>>;
-    readonly root?: string;
-    readonly tool?: string;
-}
-
-// @public
-export function fileToolEvents(path: string, opts?: FileToolEventOptions): readonly [HookInput, HookInput];
-
-// @public
-export function formatBaselineDiff(diff: BaselineDiff): string;
-
-// @public
-export function formatCheckReport(report: CheckReport): string;
-
-// @public
-export function formatContainment(v: ContainmentVerdict): string;
-
-// @public (undocumented)
-export function formatEvalReport(report: EvalReport, opts?: {
-    readonly baseline?: string;
-}): string;
-
-// @public
-export function formatGuardrailReport(hook: string | AnyHook, results: readonly GuardrailResult[]): string;
-
-// @public
-export function formatTriggerRateReport(report: TriggerRateReport): string;
-
-// @public
-export type GuardrailResult = GuardrailRow<"block", DisasterEvent> | GuardrailRow<"allow", HarmlessEvent>;
-
-// @public
-export interface GuardrailRow<E extends "block" | "allow", V extends DisasterEvent | HarmlessEvent> {
-    readonly blocked: boolean;
-    // (undocumented)
-    readonly event: V;
-    readonly exitCode: number;
-    readonly expect: E;
-    readonly ran: boolean;
-    readonly reason: string;
-    readonly run: GuardrailRun;
-}
-
-// @public
-export type GuardrailRun = "ran" | "not-selected" | "never-launched" | "crashed" | "unproven";
-
-// @public
-export interface HarmlessEvent {
-    readonly form: HarmlessForm;
-    readonly id: string;
-    readonly input: Record<string, unknown>;
-    readonly label: string;
-    readonly of?: string;
-    readonly tool: string;
-}
-
-// @public
-export type HarmlessForm = "commit-message" | "heredoc" | "echo" | "grep-pattern" | "custom";
-
-// @public
-export interface HarnessTestDriver {
-    available(): boolean;
-    buildArgs(ctx: HarnessDriverContext): readonly string[];
-    parseRun(stdout: string): ParsedRun;
-    readonly runtime: HarnessRuntime;
-    startMock(script: readonly ModelTurn[]): Promise<HarnessMockHandle>;
-}
-
 // @public (undocumented)
 export interface HarnessTestResult extends Trace {
+    [Symbol.asyncDispose](): Promise<void>;
     cleanup(): void;
     readonly cwd: string;
     // (undocumented)
@@ -884,9 +425,6 @@ export interface HomeSeed {
     // (undocumented)
     readonly kind: "files";
 }
-
-// @public
-export function hookBlocked(trace: Trace, name: string | RegExp): boolean;
 
 // @public
 export type HookDelivery = {
@@ -928,9 +466,6 @@ export interface HookFire {
 }
 
 // @public
-export function hookFired(event: string): Check<Trace>;
-
-// @public
 export interface HookInput {
     readonly [k: string]: unknown;
     readonly hook_event_name?: string;
@@ -969,16 +504,6 @@ export interface HookOutput {
     readonly systemMessage?: string;
 }
 
-// @public
-export interface HookPropertyResult<E> {
-    readonly counterexample?: E;
-    readonly failedInvariant?: string;
-    // (undocumented)
-    readonly iterations: number;
-    // (undocumented)
-    readonly passed: boolean;
-}
-
 // @public (undocumented)
 export interface HookRunResult extends ScriptRunResult {
     readonly blocked: boolean;
@@ -989,30 +514,6 @@ export interface HookRunResult extends ScriptRunResult {
     readonly haltsTurn: boolean;
     readonly json: HookOutput | null;
     readonly ran: boolean;
-}
-
-// @public
-export interface HookStateHandle {
-    clear(): void;
-    readonly dir: string;
-    read(key: string): StateFact;
-    seed(key: string, opts?: SeedStateOptions): StateFact;
-}
-
-// @public
-export function improvement(report: EvalReport, baseline: string, arm: string, metric: string): number;
-
-// @public
-export function inputTokens(opts: {
-    max: number;
-}): Check<UsageTrace>;
-
-// @public
-export interface Interval {
-    readonly hi: number;
-    readonly k: number;
-    readonly lo: number;
-    readonly n: number;
 }
 
 // @public
@@ -1027,18 +528,7 @@ export type JudgeFn = (opts: {
 };
 
 // @public
-export function latency(opts: {
-    maxMs: number;
-}): Check<UsageTrace>;
-
-// @public
-export function loadHook(file: string, root?: string): Promise<AnyHook>;
-
-// @public
 export function makeTmpDir(suffix?: string): string;
-
-// @public
-export function mcp(server: string, toolName: string): Check<Trace>;
 
 // @public
 export interface MeasureSpec {
@@ -1059,18 +549,6 @@ export interface MeasureSpec {
     readonly trials?: number;
 }
 
-// @public
-export interface MetricDiff {
-    // (undocumented)
-    readonly arm: string;
-    readonly comparison: Comparison;
-    // (undocumented)
-    readonly metric: string;
-    readonly report: string;
-    // (undocumented)
-    readonly status: DiffStatus;
-}
-
 // @public (undocumented)
 export type Metrics = Record<string, number | boolean>;
 
@@ -1083,9 +561,6 @@ export interface MetricStat {
     readonly std: number;
     readonly successes?: number;
 }
-
-// @public (undocumented)
-export type ModelOutputParser = (out: RunOut) => ParsedModelRun;
 
 // @public
 export interface ModelRequest {
@@ -1105,107 +580,6 @@ export interface ModelTurn {
 }
 
 // @public
-export function mustInclude(fragment: string, why: string): Check<readonly DocCommand[]>;
-
-// @public
-export function mustNotInclude(fragment: string, why: string): Check<readonly DocCommand[]>;
-
-// @public
-export type NetProbe = (port: number) => Promise<boolean>;
-
-// @public
-export interface NonCommandHookAction {
-    readonly event: string;
-    readonly matcher: string | null;
-    readonly type: string;
-}
-
-// @public
-export function notTool(name: string, args?: ArgMatcher): Check<Trace>;
-
-// @public
-export function onlyTools(allowed: readonly string[]): Check<Trace>;
-
-// @public
-export function output(matcher: string | RegExp): Check<Trace>;
-
-// @public
-export function outputContains(trace: Trace, needle: string | RegExp): boolean;
-
-// @public
-export interface OutputStyleArms {
-    readonly with: EvalArm;
-    readonly without: EvalArm;
-}
-
-// @public
-export function outputTokens(opts: {
-    max: number;
-}): Check<UsageTrace>;
-
-// @public
-export function parseBaselineFile(json: string): BaselineFile;
-
-// @public
-export function parseClaudeRun(out: RunOut): ParsedModelRun;
-
-// @public
-export interface ParsedModelRun {
-    readonly costObserved?: boolean;
-    // (undocumented)
-    readonly hooks: HookFire[];
-    // (undocumented)
-    readonly output: string;
-    readonly replies?: readonly string[];
-    readonly skills?: SkillFacts;
-    // (undocumented)
-    readonly subagents: SubagentTrace[];
-    // (undocumented)
-    readonly toolCalls: ToolCall[];
-    // (undocumented)
-    readonly turns: number;
-    // (undocumented)
-    readonly usage: EvalUsage;
-}
-
-// @public
-export function parseHookOutput(stdout: string): HookOutput | null;
-
-// @public (undocumented)
-export function parseHooks(stdout: string): HookFire[];
-
-// @public
-export function parseOutput(stdout: string): string;
-
-// @public
-export function parseResultEvent(stdout: string): Record<string, unknown> | null;
-
-// @public
-export function parseSubagents(streamJson: string): SubagentTrace[];
-
-// @public
-export function parseToolCalls(streamJson: string): ToolCall[];
-
-// @public
-export interface PluginGuardReport {
-    readonly dir: string;
-    readonly event: string;
-    readonly events: readonly DisasterEvent[];
-    readonly harness: string;
-    readonly hooks: readonly SweptHookOutcome[];
-    readonly notes: readonly string[];
-    readonly unmeasurable: readonly NonCommandHookAction[];
-}
-
-// @public (undocumented)
-export interface PromptDiversityIssue {
-    // (undocumented)
-    readonly kind: "too-few" | "too-similar";
-    // (undocumented)
-    readonly message: string;
-}
-
-// @public
 export interface PromptTriggerStat {
     // (undocumented)
     readonly fired: number;
@@ -1217,28 +591,7 @@ export interface PromptTriggerStat {
 }
 
 // @public
-export function propertyHook<E, D>(opts: {
-    readonly seed: E;
-    readonly mutate: (event: E, rng: number) => E;
-    readonly decide: (event: E) => D;
-    readonly invariants: Record<string, (decision: D, event: E) => boolean>;
-    readonly iterations?: number;
-}): HookPropertyResult<E>;
-
-// @public
-export function readBaseline(path: string): BaselineFile | null;
-
-// @public
-export function received(matcher: string | RegExp): Check<Trace>;
-
-// @public
 export function recordCheck(n?: number): void;
-
-// @public
-export function reliable(report: EvalReport, arm: string, metric: string): boolean;
-
-// @public
-export function requestContains(trace: Trace, needle: string | RegExp): boolean;
 
 // @public
 export interface RunContext extends Trace {
@@ -1264,11 +617,6 @@ export type RunEnv = {
 };
 
 // @public
-export function runHarness(spec: HarnessTestSpec, opts?: RunHarnessTestOptions & {
-    model?: "mock" | "real";
-}): Promise<HarnessTestResult>;
-
-// @public
 export function runHarnessTest(spec: HarnessTestSpec, opts?: RunHarnessTestOptions): Promise<HarnessTestResult>;
 
 // @public
@@ -1285,16 +633,6 @@ export type RunHookOptions = Omit<RunScriptOptions, "stdin"> & {
     readonly protocol?: HookProtocol;
     readonly capabilities?: EventCapabilityTable;
 };
-
-// @public
-export interface RunOut {
-    code: number;
-    signal?: string;
-    stderr?: string;
-    // (undocumented)
-    stdout: string;
-    timedOut?: boolean;
-}
 
 // @public
 export function runScript(command: string, opts?: RunScriptOptions): ScriptRunResult;
@@ -1334,85 +672,9 @@ export interface ScriptRunResult {
 }
 
 // @public
-export type SeedStateOptions =
-/** Recorded that long ago — the reason this exists (a throttle needs an OLD fact). */
-    {
-    readonly value?: string;
-    readonly ago: Duration;
-    readonly at?: never;
-}
-/** Recorded at exactly this instant. */
-| {
-    readonly value?: string;
-    readonly at: Date;
-    readonly ago?: never;
-}
-/** Recorded just now. */
-| {
-    readonly value?: string;
-    readonly ago?: never;
-    readonly at?: never;
-};
-
-// @public
 export interface SelectionMatrixSpec extends SelectionMatrixOptions {
     readonly pluginDir: string;
 }
-
-// @public
-export interface SelectionTrialResult {
-    // (undocumented)
-    readonly errored: boolean;
-    // (undocumented)
-    readonly fired: readonly string[];
-}
-
-// @public
-export interface ServiceHandle {
-    exec(command: string): {
-        readonly stdout: string;
-        readonly stderr: string;
-        readonly code: number;
-    };
-    readonly host: string;
-    readonly port?: number;
-    readonly url?: string;
-}
-
-// @public
-export type ServiceReady = {
-    readonly tcp: number;
-} | {
-    readonly log: RegExp;
-} | {
-    readonly exec: string;
-};
-
-// @public
-export type ServiceReset = "per-trial" | "per-arm";
-
-// @public
-export interface ServiceSession {
-    readonly endpoints: readonly string[];
-    readonly handles: Readonly<Record<string, ServiceHandle>>;
-    teardown(): Promise<void>;
-}
-
-// @public
-export interface ServiceSpec {
-    readonly env?: Readonly<Record<string, string>>;
-    readonly image: string;
-    readonly port?: number;
-    readonly ready?: ServiceReady;
-    readonly reset?: ServiceReset;
-    readonly seed?: string;
-}
-
-// @public
-export function significantlyBeats(report: EvalReport, baseline: string, arm: string, metric: string, alpha?: number): boolean;
-
-// @public
-export function skill(id: string): Check<Trace>;
 
 // @public (undocumented)
 export interface SkillContract {
@@ -1424,9 +686,6 @@ export interface SkillContract {
     readonly surface: readonly Check<Trace>[];
     readonly undeclared: boolean;
 }
-
-// @public
-export function skillContract(skillDir: string, options?: SkillContractOptions): SkillContract;
 
 // @public (undocumented)
 export interface SkillContractOptions {
@@ -1451,26 +710,7 @@ export interface SkillFire {
 }
 
 // @public
-export function skillResolved(trace: Trace, skill: string): boolean;
-
-// @public
 export function skip(reason?: string): never;
-
-// @public
-export function specTrusted(spec: {
-    plugin?: string;
-    pluginDir?: string;
-}): boolean;
-
-// @public
-export interface StateFact {
-    readonly ageSeconds: number;
-    readonly at: string;
-    fresherThan(within: Duration): boolean;
-    olderThan(within: Duration): boolean;
-    readonly recorded: boolean;
-    readonly value: string;
-}
 
 // @public
 export interface StrandedOutput {
@@ -1496,13 +736,6 @@ export interface StubCall {
     readonly outcome: StubOutcome;
     // (undocumented)
     readonly tool: string;
-}
-
-// @public
-export interface StubCalledBounds {
-    readonly contains?: readonly ArgvToken[];
-    readonly max?: number;
-    readonly min?: number;
 }
 
 // @public
@@ -1543,12 +776,6 @@ export interface StubRule {
 }
 
 // @public
-export function stubSkillBody(skillMd: string): string;
-
-// @public
-export function subagent(name: string, checks: readonly Check<Trace>[]): Check<Trace>;
-
-// @public
 export interface SubagentTrace {
     readonly name: string;
     readonly output: string;
@@ -1556,42 +783,27 @@ export interface SubagentTrace {
 }
 
 // @public
-export interface SweptHook {
-    readonly command: string;
-    readonly condition: string | null;
-    readonly event: string;
-    readonly index: number;
-    readonly matcher: string | null;
-}
-
-// @public
-export type SweptHookOutcome = {
-    readonly status: "measured";
-    readonly hook: SweptHook;
-    readonly results: readonly GuardrailResult[];
-    readonly blocked: readonly string[];
-    readonly allowed: readonly string[];
-    readonly notRun: readonly string[];
+export type TokenBudget = {
+    readonly max: number;
+    readonly maxInput?: number;
+    readonly maxOutput?: number;
+    readonly maxCache?: number;
 } | {
-    readonly status: "not-applicable";
-    readonly hook: SweptHook;
-    readonly reason: string;
+    readonly max?: number;
+    readonly maxInput: number;
+    readonly maxOutput?: number;
+    readonly maxCache?: number;
 } | {
-    readonly status: "unresolved";
-    readonly hook: SweptHook;
-    readonly reason: string;
+    readonly max?: number;
+    readonly maxInput?: number;
+    readonly maxOutput: number;
+    readonly maxCache?: number;
+} | {
+    readonly max?: number;
+    readonly maxInput?: number;
+    readonly maxOutput?: number;
+    readonly maxCache: number;
 };
-
-// @public
-export function toBaselineFile(reports: readonly EvalReport[], recordedAt?: string): BaselineFile;
-
-// @public
-export function tokens(opts: {
-    max: number;
-}): Check<UsageTrace>;
-
-// @public
-export function tool(name: string): Check<Trace>;
 
 // @public
 export interface ToolCall {
@@ -1605,21 +817,12 @@ export interface ToolCall {
 }
 
 // @public
-export function toolCount(trace: Trace, name: string | RegExp): number;
-
-// @public
 export interface ToolStub {
     // (undocumented)
     readonly name: string;
     // (undocumented)
     readonly rules: readonly [StubRule, ...StubRule[]];
 }
-
-// @public
-export function toolUsedWith(trace: Trace, name: string | RegExp, inputMatcher: (input: unknown) => boolean): boolean;
-
-// @public
-export function toolWith(name: string, args: ArgMatcher): Check<Trace>;
 
 // @public
 export interface Trace {
@@ -1676,15 +879,6 @@ export interface TriggerRateSpec {
 }
 
 // @public
-export function turns(opts: {
-    min?: number;
-    max?: number;
-}): Check<Trace>;
-
-// @public
-export function unblockedDisasters(results: readonly GuardrailResult[]): readonly GuardrailResult[];
-
-// @public
 export type UnobservableWhy =
 /** The harness has a channel, but this run wrote no request body to read. */
 "no-request-body"
@@ -1696,52 +890,6 @@ export type UnobservableWhy =
 | "replayed-without-evidence";
 
 // @public
-export function usedTool(trace: Trace, name: string | RegExp): boolean;
-
-// @public
-export type Verdict =
-/** A 0/1 metric: `better`/`worse` only when the two intervals are disjoint. */
-    {
-    readonly kind: "better" | "worse" | "no-signal";
-    readonly test: "wilson";
-    readonly arm: Interval;
-    readonly baseline: Interval;
-}
-/** Any other metric: `better`/`worse` when Welch's p-value is below α. */
-| {
-    readonly kind: "better" | "worse" | "no-signal";
-    readonly test: "welch";
-    readonly delta: number;
-    readonly pValue: number;
-}
-/** Nothing to compare: an arm has no trials, or never reported the metric. */
-| {
-    readonly kind: "unmeasured";
-    readonly why: "no-trials" | "metric-missing";
-};
-
-// @public
-export function verifyGuardrail(hook: string | AnyHook, opts?: VerifyGuardrailOptions): readonly GuardrailResult[];
-
-// @public (undocumented)
-export interface VerifyGuardrailOptions extends RunHookOptions {
-    readonly categories?: readonly DisasterCategory[];
-    readonly ctx?: Readonly<Record<string, string | boolean | StateFact>>;
-    readonly event?: string;
-    readonly events?: readonly DisasterEvent[];
-    readonly harmless?: readonly HarmlessEvent[];
-    readonly spellings?: readonly DisasterEvent[];
-}
-
-// @public
-export interface VerifyPluginGuardsOptions extends Omit<RunHookOptions, "condition" | "protocol"> {
-    readonly adapter?: HarnessAdapter;
-    readonly categories?: readonly DisasterCategory[];
-    readonly event?: string;
-    readonly events?: readonly DisasterEvent[];
-}
-
-// @public
 export const vigilesMatchers: {
     toHaveCreated(received: HarnessTestResult, path: string): MatcherOutput;
     toBlock(received: HookRunResult): MatcherOutput;
@@ -1749,15 +897,6 @@ export const vigilesMatchers: {
     toPass<T>(received: T, check: Check<T>): MatcherOutput;
     toPassAll<T>(received: T, checks: readonly Check<T>[]): MatcherOutput;
 };
-
-// @public
-export function withHarness<T>(spec: HarnessTestSpec, fn: (r: HarnessTestResult) => T | Promise<T>): Promise<T>;
-
-// @public
-export function writeBaseline(path: string, reports: readonly EvalReport[]): void;
-
-// @public
-export function wrote(path: string): Check<Trace>;
 
 // (No @packageDocumentation comment for this package)
 

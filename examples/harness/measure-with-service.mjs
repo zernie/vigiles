@@ -16,9 +16,9 @@
  * Real model → real work ($0 beyond your subscription). Write-don't-run without both.
  */
 import {
-  experimental_withServices,
+  experimental_startServices,
   experimental_dockerRuntime,
-} from "../../dist/test.js";
+} from "../../dist/fixtures.js";
 import { runEval } from "../../dist/eval.js";
 
 if (!experimental_dockerRuntime.available()) {
@@ -26,7 +26,7 @@ if (!experimental_dockerRuntime.available()) {
   process.exit(77); // vigiles SKIP_EXIT_CODE — a loud skip, never a false pass
 }
 
-const report = await experimental_withServices(
+const svc = await experimental_startServices(
   {
     db: {
       image: "postgres:16-alpine",
@@ -41,38 +41,43 @@ const report = await experimental_withServices(
     },
   },
   experimental_dockerRuntime,
-  async (svc) =>
-    // runEval — takes a measure(ctx) callback and an ephemeral `env`
-    runEval({
-      name: "migrator: applies the migration to a real Postgres",
-      fixture: { "migration.sql": "ALTER TABLE users ADD COLUMN age int;" },
-      // The task carries the FULL connection string incl. the password — with
-      // an ephemeral env there is no ambient PGPASSWORD, so the agent needs it here.
-      task:
-        `Apply migration.sql to the Postgres at ` +
-        `postgresql://postgres:test@${svc.endpoints[0]}/app . Then stop.`,
-      // SINGLE arm (skill only): the container lives for the whole run, so a
-      // baseline arm would share this DB and leave `age` behind, crediting the
-      // skill arm for free. A clean baseline/skill A/B needs per-arm DB reset
-      // (a later increment); until then, measure the skill directly.
-      arms: { skill: { pluginDir: "./skills/migrator" } },
-      env: { kind: "ephemeral" }, // scrub real credentials from the run (recommended)
-      measure: () => {
-        // verify the REAL resulting DB state — the whole point of R3
-        const cols = svc.handles.db
-          .exec(
-            "psql -U postgres -d app -tAc " +
-              "\"select column_name from information_schema.columns where table_name='users'\"",
-          )
-          .stdout.split("\n")
-          .map((s) => s.trim());
-        return { migrated: cols.includes("age") ? 1 : 0 };
-      },
-      // trials: 1 — per-RUN container lifecycle, so a persistent side effect would
-      // make later trials pass for free. See docs § Experimental.
-      trials: 1,
-      model: "sonnet",
-    }),
 );
+// Tear the containers down even when the run throws.
+let report;
+try {
+  // runEval — takes a measure(ctx) callback and an ephemeral `env`
+  report = await runEval({
+    name: "migrator: applies the migration to a real Postgres",
+    fixture: { "migration.sql": "ALTER TABLE users ADD COLUMN age int;" },
+    // The task carries the FULL connection string incl. the password — with
+    // an ephemeral env there is no ambient PGPASSWORD, so the agent needs it here.
+    task:
+      `Apply migration.sql to the Postgres at ` +
+      `postgresql://postgres:test@${svc.endpoints[0]}/app . Then stop.`,
+    // SINGLE arm (skill only): the container lives for the whole run, so a
+    // baseline arm would share this DB and leave `age` behind, crediting the
+    // skill arm for free. A clean baseline/skill A/B needs per-arm DB reset
+    // (a later increment); until then, measure the skill directly.
+    arms: { skill: { pluginDir: "./skills/migrator" } },
+    env: { kind: "ephemeral" }, // scrub real credentials from the run (recommended)
+    measure: () => {
+      // verify the REAL resulting DB state — the whole point of R3
+      const cols = svc.handles.db
+        .exec(
+          "psql -U postgres -d app -tAc " +
+            "\"select column_name from information_schema.columns where table_name='users'\"",
+        )
+        .stdout.split("\n")
+        .map((s) => s.trim());
+      return { migrated: cols.includes("age") ? 1 : 0 };
+    },
+    // trials: 1 — per-RUN container lifecycle, so a persistent side effect would
+    // make later trials pass for free. See docs § Experimental.
+    trials: 1,
+    model: "sonnet",
+  });
+} finally {
+  await svc.teardown();
+}
 
 console.log(JSON.stringify(report.arms, null, 2));

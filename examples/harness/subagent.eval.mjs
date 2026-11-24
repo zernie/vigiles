@@ -4,7 +4,7 @@
  * vigiles's own plugin ships no subagents, so we dogfood on the vendored,
  * pinned **oh-my-claudecode** plugin, which registers a `code-reviewer` agent.
  * `measure` drives a task that should dispatch it via the `Task` tool;
- * `subagent("code-reviewer", [checks])` then runs the check vocabulary over what
+ * `check.subagent("code-reviewer", [checks])` then runs the check vocabulary over what
  * the SUBAGENT did (recovered from `parent_tool_use_id` — see parseSubagents).
  *
  *   npx vigiles eval examples/harness/subagent.eval.mjs
@@ -12,8 +12,9 @@
  * Real model → real cost. Needs the `claude` CLI + model auth + a built dist/.
  * Write-don't-run in a keyless env; this is the artifact that runs where a key is.
  */
-import { assertRates, defineEval } from "../../dist/test.js";
-import { subagent, tool } from "../../dist/check.js";
+import { defineEval } from "../../dist/test.js";
+import { assertRates } from "../../dist/eval-surface.js";
+import { check } from "../../dist/check.js";
 import { fileURLToPath } from "node:url";
 
 const pluginDir = fileURLToPath(
@@ -32,7 +33,7 @@ export default defineEval({
     checks: [
       // The code-reviewer subagent ran AND read the file (asserting what the
       // SUBAGENT did, not just that Task fired — the nested-trace capability).
-      subagent("code-reviewer", [tool("Read")]),
+      check.subagent("code-reviewer", [check.tool("Read")]),
     ],
   },
   assert: (report) => {

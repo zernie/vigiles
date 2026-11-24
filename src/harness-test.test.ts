@@ -108,18 +108,24 @@ test("harness-test.ts never derives turns from requests.length (both paths, one 
   );
 });
 
-test("runHarness steers a real-model run to measure() (no claude needed)", async () => {
-  // The harness scope is deterministic (mock); a real-model run is
-  // non-deterministic, so a single one can't be asserted — runHarness says so.
-  await assert.rejects(
-    runHarness({ model: [], prompt: "go" }, { model: "real" }),
-    /measure\(\)/,
-  );
+test("a run's directory is removed by cleanup() and by await using (Symbol.asyncDispose)", async () => {
+  // One runHarnessTest: the result owns its temp directory, and disposing it
+  // removes it — `await using r = await runHarnessTest(spec)` in TypeScript or
+  // on Node 24+, `r.cleanup()` in a finally anywhere else.
+  const { makeTmpDir } = await import("./core/tmp-root.js");
+  const { existsSync } = await import("node:fs");
+  const a = makeTmpDir("dispose");
+  const ra = disposableRun(a);
+  ra.cleanup();
+  assert.equal(existsSync(a), false);
+  const b = makeTmpDir("dispose");
+  await disposableRun(b)[Symbol.asyncDispose]();
+  assert.equal(existsSync(b), false);
 });
 
 import {
   runHarnessTest,
-  runHarness,
+  disposableRun,
   scriptModel,
   claudeAvailable,
   parseToolCalls,
@@ -134,15 +140,7 @@ import {
   runProblem,
   warnUnconsumed,
 } from "./harness-test.js";
-import {
-  assertToolUsed,
-  assertToolNotUsed,
-  assertSkillResolved,
-  assertToolUsedWith,
-  assertToolSequence,
-  assertToolCount,
-  assertToolCalls,
-} from "./harness-assert.js";
+import { check, assertChecks } from "./check.js";
 
 const maybe = claudeAvailable() ? test : test.skip;
 
@@ -859,10 +857,12 @@ maybe(
     });
     try {
       // The action invariant — vs the brittle `r.stdout.includes(MARKER)` this
-      // replaces. assertSkillResolved checks a non-error Skill tool_use by name.
-      assertToolUsed(r, "Skill");
-      assertSkillResolved(r, "demo:greet");
-      assertToolNotUsed(r, /^mcp__/); // safety negative: no MCP tool was used
+      // replaces. check.skill reads a non-error Skill activation by name.
+      assertChecks(r, [
+        check.tool("Skill"),
+        check.skill("demo:greet"),
+        check.notTool(/^mcp__/), // safety negative: no MCP tool was used
+      ]);
     } finally {
       r.cleanup();
     }
@@ -894,7 +894,7 @@ for (const [label, dir, skill] of [
       timeoutMs: 120000,
     });
     try {
-      assertSkillResolved(r, skill); // no marker needed — it's a real plugin
+      assertChecks(r, [check.skill(skill)]); // no marker needed — it's a real plugin
     } finally {
       r.cleanup();
     }
@@ -920,29 +920,22 @@ maybe("tool-call sequence + budget invariants hold on a real run", async () => {
     timeoutMs: 90000,
   });
   try {
-    assertToolSequence(r, ["Read", "Edit"]); // ordering
-    assertToolCount(r, "Edit", { max: 1 }); // budget
-    assertToolCount(r, "Write", { exactly: 0 });
-    // tool-ARGUMENT invariant: the Edit targeted the right file (not just "an Edit ran")
-    assertToolUsedWith(
-      r,
-      "Edit",
-      (i) => (i as { file_path?: string }).file_path === "note.txt",
-    );
-    assert.equal(typeof r.output, "string"); // unified Trace: final answer captured
-    assertToolCalls(
-      r,
-      (calls) => {
-        // every Edit was preceded by a Read
+    assertChecks(r, [
+      check.toolSequence(["Read", "Edit"]), // ordering
+      check.tool("Edit", { max: 1 }), // budget
+      check.tool("Write", { max: 0 }),
+      // tool-ARGUMENT invariant: the Edit targeted the right file (not just "an Edit ran")
+      check.toolWith("Edit", { file_path: "note.txt" }),
+      check("every Edit follows a Read", (t) => {
         let read = false;
-        for (const c of calls) {
+        for (const c of t.toolCalls) {
           if (c.name === "Read") read = true;
           if (c.name === "Edit" && !read) return false;
         }
         return true;
-      },
-      "an Edit happened before any Read",
-    );
+      }),
+    ]);
+    assert.equal(typeof r.output, "string"); // unified Trace: final answer captured
   } finally {
     r.cleanup();
   }

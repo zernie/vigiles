@@ -11,7 +11,7 @@ Import it from the package root:
 import { experimental_emitTool, experimental_assertEmittedOk } from "vigiles";
 ```
 
-It sits beside `parseAgentResult` / `assertAgentOk`, which are its twins on the
+It sits beside `parseAgentResult` / `experimental_assertAgentOk`, which are its twins on the
 other delivery shape — a comparison the [choosing a channel](#choosing-a-channel)
 section below makes directly.
 

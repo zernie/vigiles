@@ -4,7 +4,7 @@
  * Controlled difference vs ../prose/agents/code-reviewer.md: the review
  * instruction is identical, but this adds our TYPED CONTRACT —
  *   - a `result()` outcome (the worker ends with a vigiles:ok/err block, so its
- *     outcome is deterministically parseable: assertAgentOk, no LLM judge), and
+ *     outcome is deterministically parseable: experimental_assertAgentOk, no LLM judge), and
  *   - side-effect separation: a tight `tools` allowlist (read-only) + `purity:
  *     "pure"`, so a reviewer cannot write/edit. (No `disallowedTools` — it'd be
  *     redundant under an allowlist; use it only when inheriting all tools.)

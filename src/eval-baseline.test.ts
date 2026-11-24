@@ -10,7 +10,6 @@ import {
   parseBaselineFile,
   diffReports,
   formatBaselineDiff,
-  diffToJUnit,
   readBaseline,
   writeBaseline,
   BASELINE_VERSION,
@@ -184,29 +183,6 @@ test("formatBaselineDiff shows pass/fail header + per-entry lines", () => {
   );
   assert.match(ok, /baseline OK/);
   assert.match(ok, /· e\/g\/caught/);
-});
-
-test("diffToJUnit emits counts, a failure for regressions, and escapes xml", () => {
-  const base = toBaselineFile([
-    mkReport("re<po>rt", { g: { caught: stat(0.9, 0.03, 20) } }),
-  ]);
-  const diff = diffReports(base, [
-    mkReport("re<po>rt", { g: { caught: stat(0.3, 0.03, 20) } }),
-  ]);
-  const xml = diffToJUnit(diff);
-  assert.match(xml, /tests="1" failures="1"/);
-  assert.match(xml, /<failure message="regression/);
-  assert.match(xml, /re&lt;po&gt;rt/); // escaped, no raw < >
-  assert.doesNotMatch(xml, /re<po>rt/);
-
-  // a clean diff yields a passing testcase (no <failure>)
-  const clean = diffToJUnit(
-    diffReports(base, [
-      mkReport("re<po>rt", { g: { caught: stat(0.9, 0.03, 20) } }),
-    ]),
-  );
-  assert.match(clean, /failures="0"/);
-  assert.doesNotMatch(clean, /<failure/);
 });
 
 test("readBaseline returns null when absent and round-trips writeBaseline", () => {

@@ -692,7 +692,7 @@
   },
   "src/check.ts": {
     "functional/prefer-immutable-types": {
-      "count": 14
+      "count": 10
     },
     "sonarjs/no-nested-conditional": {
       "count": 2
@@ -714,10 +714,10 @@
   },
   "src/claude-code.ts": {
     "boundaries/dependencies": {
-      "count": 9
+      "count": 4
     },
     "local/no-harness-names": {
-      "count": 11
+      "count": 10
     }
   },
   "src/cli-adopter-reports.test.ts": {
@@ -870,10 +870,10 @@
   },
   "src/codex.ts": {
     "boundaries/dependencies": {
-      "count": 9
+      "count": 4
     },
     "local/no-harness-names": {
-      "count": 9
+      "count": 12
     }
   },
   "src/colocated-execution.test.ts": {
@@ -2522,6 +2522,11 @@
       "count": 2
     }
   },
+  "src/effect-checks.ts": {
+    "functional/prefer-immutable-types": {
+      "count": 3
+    }
+  },
   "src/egress-entry.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
@@ -2571,6 +2576,11 @@
     },
     "no-restricted-globals": {
       "count": 1
+    }
+  },
+  "src/entries/spec.ts": {
+    "functional/prefer-immutable-types": {
+      "count": 2
     }
   },
   "src/eval-baseline.test.ts": {
@@ -2769,7 +2779,7 @@
       "count": 32
     },
     "functional/prefer-immutable-types": {
-      "count": 52
+      "count": 51
     },
     "local/no-harness-names": {
       "count": 20
@@ -2845,27 +2855,12 @@
   },
   "src/harness-assert.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 3
+      "count": 1
     }
   },
   "src/harness-assert.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 5
-    },
-    "boundaries/dependencies": {
-      "count": 1
-    },
-    "functional/no-let": {
-      "count": 1
-    },
-    "functional/no-loop-statements": {
-      "count": 1
-    },
     "functional/prefer-immutable-types": {
-      "count": 31
-    },
-    "local/no-harness-names": {
-      "count": 1
+      "count": 5
     },
     "no-restricted-globals": {
       "count": 1
@@ -2878,7 +2873,7 @@
   },
   "src/harness-test.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 2
+      "count": 1
     }
   },
   "src/harness-test.ts": {
@@ -2908,6 +2903,11 @@
     },
     "sonarjs/nested-control-flow": {
       "count": 3
+    }
+  },
+  "src/hook-assertions.ts": {
+    "functional/prefer-immutable-types": {
+      "count": 1
     }
   },
   "src/hook-check-install.test.ts": {
@@ -4119,17 +4119,6 @@
       "count": 1
     }
   },
-  "src/trigger-containment.ts": {
-    "functional/immutable-data": {
-      "count": 7
-    },
-    "functional/no-loop-statements": {
-      "count": 3
-    },
-    "functional/prefer-immutable-types": {
-      "count": 5
-    }
-  },
   "src/ts-runner-caps.ts": {
     "boundaries/dependencies": {
       "count": 1
@@ -4151,7 +4140,7 @@
   },
   "src/verify-plugin-guards.test.ts": {
     "local/no-harness-names": {
-      "count": 59
+      "count": 54
     },
     "local/no-rule-ids": {
       "count": 1
@@ -4162,13 +4151,13 @@
       "count": 2
     },
     "functional/immutable-data": {
-      "count": 17
+      "count": 4
     },
     "functional/no-loop-statements": {
-      "count": 8
+      "count": 3
     },
     "functional/prefer-immutable-types": {
-      "count": 15
+      "count": 8
     },
     "local/no-harness-names": {
       "count": 3

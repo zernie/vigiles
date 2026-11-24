@@ -151,7 +151,7 @@ interface ResponsesInputItem {
 
 /**
  * 🔴 KNOWN BLIND SPOT — NARROW ON PURPOSE, AND THAT IS NOT THE SAME AS COMPLETE.
- * Roadmapped P1 2026-09-10; do not read a `requestContains` miss on a Codex trace
+ * Roadmapped P1 2026-09-10; do not read a `check.received` miss on a Codex trace
  * as "not delivered" until this is closed.
  *
  * This reads `.text` and nothing else, and its caller takes only the LAST input
@@ -163,7 +163,7 @@ interface ResponsesInputItem {
  * payload would land here.
  *
  * WHY THIS IS A COMMENT AND NOT A FIX. `driver.ts` adapts this into a
- * `ModelRequest`, so it feeds `requestContains` — the same predicate whose
+ * `ModelRequest`, so it feeds `check.received` — the same predicate whose
  * `.text`-only twin in src/mock-model.ts produced a false "not delivered", a
  * false issue (zernie/vigiles#231) and a near-miss upstream report. The trap is
  * armed; nobody has stepped on it only because both delivery harnesses are

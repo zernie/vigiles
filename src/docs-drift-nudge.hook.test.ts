@@ -27,7 +27,7 @@
 import { describe, test, expect, beforeAll } from "vitest";
 import { resolve } from "node:path";
 
-import { loadHook } from "./load-hook.js";
+import { experimental_loadHook as loadHook } from "./load-hook.js";
 import { runHookProgram, type AnyHook } from "./core/hook-program.js";
 import { stateFact, type StateFact } from "./core/hook-state.js";
 

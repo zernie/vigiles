@@ -23,10 +23,8 @@
  * template's defaults, not calibrated by a run.
  */
 import { defineEval } from "../../../dist/test.js";
-import {
-  skillResolved,
-  assertTriggerRate,
-} from "../../../dist/harness-assert.js";
+import { check } from "../../../dist/check.js";
+import { assertTriggerRate } from "../../../dist/eval-surface.js";
 import { fileURLToPath } from "node:url";
 
 const skillsDir = fileURLToPath(
@@ -66,7 +64,7 @@ export default defineEval({
       "What does the landing page's hero section say? Quote the copy.",
       "Update the README badge to point at the new CI workflow.",
     ],
-    fired: (t) => skillResolved(t, skill),
+    fired: check.skill(skill),
     trials: 1,
   },
   assert: (report) => {

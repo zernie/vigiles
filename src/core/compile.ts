@@ -1890,7 +1890,7 @@ function renderShape(shape: Readonly<Record<string, OutputFieldType>>): string {
  * Render the subagent's typed result contract — the `## Output contract` section
  * that turns a flat worker into a railway step: it must end its turn with a
  * `vigiles:ok` / `vigiles:err` block matching one of these shapes, so its
- * outcome is parseable (`parseAgentResult`) and testable (`assertAgentOk`).
+ * outcome is parseable (`parseAgentResult`) and testable (`experimental_assertAgentOk`).
  */
 function renderOutputContract(contract: OutputContract): string {
   return [

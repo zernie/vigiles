@@ -94,7 +94,7 @@ spread the default in. `events` are the disasters (default `DISASTER_CATALOG`),
 `spellings` their other spellings, `harmless` the look-alikes that must pass.
 
 ```ts
-import { assertGuardrail, DISASTER_CATALOG } from "vigiles";
+import { assertGuardrail, DISASTER_CATALOG } from "vigiles/battery";
 
 const mine = {
   id: "push-main",

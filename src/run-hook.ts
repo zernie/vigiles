@@ -316,7 +316,7 @@ export interface HookRunResult extends ScriptRunResult {
    * The halt case was missing until 2026-08-31 (#174), and the shape of that bug
    * is worth keeping written down: `verifyGuardrail` reads this field, so a real
    * `PreToolUse` guard that stopped every one of the disaster battery's commands
-   * was reported by `assertBlocksDisasters` as blocking NONE of them. A tool
+   * was reported by `assertGuardrail` as blocking NONE of them. A tool
    * whose stated job is catching a guard that looks fine and silently does
    * nothing said the opposite about a working guard — the same false-confidence
    * failure, with the sign flipped.
@@ -397,7 +397,7 @@ export function parseHookOutput(stdout: string): HookOutput | null {
  * `continue`, that nothing read (#174). The consequence was not a missed
  * detection but an INVERTED verdict in the flagship feature: a real guard that
  * stopped every command in the disaster battery was reported by
- * `assertBlocksDisasters` as blocking none of them.
+ * `assertGuardrail` as blocking none of them.
  *
  * A `||` chain has no shape that can be incomplete — every term is optional by
  * construction, so nothing can say "you declared a mechanism and did not handle

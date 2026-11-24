@@ -193,38 +193,6 @@ export function formatBaselineDiff(diff: BaselineDiff): string {
   return lines.join("\n");
 }
 
-function xmlEscape(s: string): string {
-  return s
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-function junitCase(e: MetricDiff): string {
-  const name = xmlEscape(`${e.report}.${e.arm}.${e.metric}`);
-  const open = `  <testcase classname="${xmlEscape(e.report)}" name="${name}">`;
-  if (e.status !== "regressed") return `${open}</testcase>`;
-  const msg = xmlEscape(`regression: ${formatDelta(e.comparison)}`);
-  return `${open}\n    <failure message="${msg}"/>\n  </testcase>`;
-}
-
-/**
- * Render a baseline diff as JUnit XML — one `<testcase>` per arm×metric, a
- * `<failure>` for each regression. Lets a CI provider show eval regressions in
- * the same place as unit-test failures.
- */
-export function diffToJUnit(diff: BaselineDiff): string {
-  const cases = diff.entries.map(junitCase).join("\n");
-  return [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    `<testsuite name="vigiles-eval" tests="${String(diff.entries.length)}" failures="${String(diff.regressions.length)}">`,
-    cases,
-    "</testsuite>",
-    "",
-  ].join("\n");
-}
-
 /** Read + parse a baseline file, or null if it doesn't exist yet. */
 export function readBaseline(path: string): BaselineFile | null {
   if (!existsSync(path)) return null;

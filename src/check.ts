@@ -27,6 +27,8 @@ import type { SkillFacts } from "./core/harness-driver.js";
 import { parseShellCommand } from "./core/hook-program.js";
 import { judge as runJudge } from "./judge.js";
 import { recordCheck } from "./check-count.js";
+import { delivered, egressOnly, noWrite, wroteOnly } from "./effect-checks.js";
+import { skillContract } from "./skill-contract.js";
 import {
   type ArgMatcher,
   matchesArgs,
@@ -1030,86 +1032,85 @@ export function latency(opts: { maxMs: number }): Check<UsageTrace> {
   };
 }
 
-/** The run used at most `max` total (input + output) tokens. */
-export function tokens(opts: { max: number }): Check<UsageTrace> {
+/**
+ * The token budget of a run, every class in one check. Each bound is checked
+ * only when given, and the check passes when every given bound holds:
+ *
+ * - `max` — total input + output tokens;
+ * - `maxInput` — fresh (uncached) input tokens, the honest input side of a cost
+ *   claim (a skill or CLAUDE.md injection adds input every turn, so a
+ *   "compression" win on output can be erased here);
+ * - `maxOutput` — output tokens, the generation side;
+ * - `maxCache` — prompt-cache tokens, written plus served.
+ */
+export type TokenBudget =
+  | {
+      readonly max: number;
+      readonly maxInput?: number;
+      readonly maxOutput?: number;
+      readonly maxCache?: number;
+    }
+  | {
+      readonly max?: number;
+      readonly maxInput: number;
+      readonly maxOutput?: number;
+      readonly maxCache?: number;
+    }
+  | {
+      readonly max?: number;
+      readonly maxInput?: number;
+      readonly maxOutput: number;
+      readonly maxCache?: number;
+    }
+  | {
+      readonly max?: number;
+      readonly maxInput?: number;
+      readonly maxOutput?: number;
+      readonly maxCache: number;
+    };
+
+/** One bound of a {@link TokenBudget}: which class, what it measured, its cap. */
+interface TokenBound {
+  readonly key: "max" | "maxInput" | "maxOutput" | "maxCache";
+  readonly what: string;
+  readonly read: (u: UsageTrace["usage"]) => number;
+}
+
+const TOKEN_BOUNDS: readonly TokenBound[] = [
+  { key: "max", what: "tokens", read: (u) => u.inputTokens + u.outputTokens },
+  { key: "maxInput", what: "input tokens", read: (u) => u.inputTokens },
+  { key: "maxOutput", what: "output tokens", read: (u) => u.outputTokens },
+  {
+    key: "maxCache",
+    what: "cache tokens",
+    read: (u) => u.cacheCreationTokens + u.cacheReadTokens,
+  },
+];
+
+/** The run stayed inside its token budget — see {@link TokenBudget}. */
+export function tokens(budget: TokenBudget): Check<UsageTrace> {
+  const given = TOKEN_BOUNDS.flatMap((b) => {
+    const cap = budget[b.key];
+    return cap === undefined ? [] : [{ ...b, cap }];
+  });
   return {
     kind: "tokens",
     eval: (t) => {
-      const v = t.usage.inputTokens + t.usage.outputTokens;
-      return v <= opts.max
-        ? ok(`${String(v)} tokens ≤ ${String(opts.max)}`)
-        : no(`expected ≤ ${String(opts.max)} tokens, got ${String(v)}`);
-    },
-    toJSON: () => ({ kind: "tokens", max: opts.max }),
-  };
-}
-
-/**
- * The run used at most `max` **fresh (uncached) input** tokens. The honest input
- * side of a cost claim: a skill or CLAUDE.md injection adds input every turn, so
- * a "compression" win on output can be erased here. (Cache reads are separate —
- * see `cacheTokens`.)
- */
-export function inputTokens(opts: { max: number }): Check<UsageTrace> {
-  return {
-    kind: "inputTokens",
-    eval: (t) => {
-      const v = t.usage.inputTokens;
-      return v <= opts.max
-        ? ok(`${String(v)} input tokens ≤ ${String(opts.max)}`)
-        : no(`expected ≤ ${String(opts.max)} input tokens, got ${String(v)}`);
-    },
-    toJSON: () => ({ kind: "inputTokens", max: opts.max }),
-  };
-}
-
-/** The run used at most `max` **output** tokens — the generation side. */
-export function outputTokens(opts: { max: number }): Check<UsageTrace> {
-  return {
-    kind: "outputTokens",
-    eval: (t) => {
-      const v = t.usage.outputTokens;
-      return v <= opts.max
-        ? ok(`${String(v)} output tokens ≤ ${String(opts.max)}`)
-        : no(`expected ≤ ${String(opts.max)} output tokens, got ${String(v)}`);
-    },
-    toJSON: () => ({ kind: "outputTokens", max: opts.max }),
-  };
-}
-
-/**
- * Bound the prompt-cache token classes a run uses. `maxCreation` caps tokens
- * **written** to the cache (the ~1.25× write premium — a fresh/cold prompt);
- * `maxRead` caps tokens **served** from cache (~0.1× input). Each constraint is
- * checked only when provided; the check passes when every provided bound holds.
- */
-export function cacheTokens(opts: {
-  maxCreation?: number;
-  maxRead?: number;
-}): Check<UsageTrace> {
-  return {
-    kind: "cacheTokens",
-    eval: (t) => {
-      const created = t.usage.cacheCreationTokens;
-      const read = t.usage.cacheReadTokens;
-      if (opts.maxCreation !== undefined && created > opts.maxCreation) {
+      const over = given.find((b) => b.read(t.usage) > b.cap);
+      if (over !== undefined) {
         return no(
-          `expected ≤ ${String(opts.maxCreation)} cache-creation tokens, got ${String(created)}`,
-        );
-      }
-      if (opts.maxRead !== undefined && read > opts.maxRead) {
-        return no(
-          `expected ≤ ${String(opts.maxRead)} cache-read tokens, got ${String(read)}`,
+          `expected ≤ ${String(over.cap)} ${over.what}, got ${String(over.read(t.usage))}`,
         );
       }
       return ok(
-        `cache tokens within bounds (created ${String(created)}, read ${String(read)})`,
+        given
+          .map((b) => `${String(b.read(t.usage))} ${b.what} ≤ ${String(b.cap)}`)
+          .join(", "),
       );
     },
     toJSON: () => ({
-      kind: "cacheTokens",
-      ...(opts.maxCreation !== undefined && { maxCreation: opts.maxCreation }),
-      ...(opts.maxRead !== undefined && { maxRead: opts.maxRead }),
+      kind: "tokens",
+      ...Object.fromEntries(given.map((b) => [b.key, b.cap])),
     }),
   };
 }
@@ -1166,7 +1167,11 @@ export const check = Object.assign(customCheck, {
   cost,
   latency,
   tokens,
-  inputTokens,
-  outputTokens,
-  cacheTokens,
+  // what a hook or script run did beyond its decision (src/effect-checks.ts)
+  delivered,
+  egressOnly,
+  noWrite,
+  wroteOnly,
+  // a SKILL.md's own declaration, read back as checks (src/skill-contract.ts)
+  skillContract,
 });

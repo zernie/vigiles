@@ -3,9 +3,8 @@
  *
  * These need a routable rootless sandbox (bwrap + slirp4netns/pasta + nft) AND
  * real outbound network. The import path no longer says so: the barrels split on
- * COST, not on capability, so `runHook` and `egressRoutes` both come from the
- * free root surface ([`vigiles`](./test.ts), here the in-repo `./test.js`
- * barrel). What routes this file to the expensive tier is its `.e2e.test.ts`
+ * COST, not on capability, so `runHook` comes from the free root surface;
+ * `egressRoutes` is internal (`./run-hook.js`). What routes this file to the expensive tier is its `.e2e.test.ts`
  * NAME, read by the vitest `e2e` project. Gated by `egressRoutes()` so they run for
  * real where egress actually routes and skip honestly where it can't (e.g. a
  * GitHub-hosted runner whose slirp4netns never attaches `tap0`) instead of
@@ -18,7 +17,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync } from "node:fs";
 
-import { runHook, egressRoutes } from "./test.js";
+import { runHook, egressRoutes } from "./run-hook.js";
 
 const egressOk = egressRoutes();
 

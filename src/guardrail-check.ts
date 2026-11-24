@@ -511,7 +511,7 @@ function decideCases(
 ): readonly GuardrailResult[] {
   const ctx = gateContext(hook, opts);
   return cases.map((c) => {
-    // Counted and attributed like `assertHookDenies` (see harness-assert.ts
+    // Counted and attributed like `experimental_assertHookDenies` (see hook-assertions.ts
     // `runCountedHookProgram`): an in-process decision is a check.
     recordCheck();
     const source = hookSource(hook);
@@ -749,15 +749,6 @@ export function assertGuardrail(
 }
 
 /**
- * The old name of {@link assertGuardrail}. It now runs the harmless half too,
- * like the new name (`harmless: []` restores the blocking-only check).
- *
- * @deprecated Renamed {@link assertGuardrail}, which also checks the harmless
- * look-alikes; this alias is removed in the next major.
- */
-export const assertBlocksDisasters = assertGuardrail;
-
-/**
  * A harmless case the hook's condition does not select: the harness never
  * spawns the hook, so the command goes through — a pass, though unasked.
  */
@@ -773,9 +764,7 @@ function passedUnasked(r: GuardrailResult): boolean {
  * Printing it as `allows` is what made a conditional guard look like it had
  * considered — and permitted — commands it can never see.
  *
- * @internal Shared by {@link formatGuardrailReport} and the directory-level
- * sweep's formatter (`experimental_formatPluginGuardReport`), so the two renderers
- * cannot drift into two vocabularies for the same outcomes.
+ * @internal Used by {@link formatGuardrailReport}.
  */
 export function guardrailRow(result: GuardrailResult): string {
   const what = `${result.event.id}: ${result.event.label}`;

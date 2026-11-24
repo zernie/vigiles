@@ -58,10 +58,9 @@ export interface SubagentTrace {
 /**
  * The observable record of ONE run — the unified shape produced by BOTH testing
  * tiers: `runHarnessTest`'s result and `runEval`'s `measure` ctx (`eval.ts`)
- * both satisfy it. That's what lets the bare predicates in `harness-assert.ts`
- * (`usedTool` / `skillResolved` / `toolCount` / `toolUsedWith` / `hookBlocked` /
- * `outputContains`) run over either, with the testing helpers asserting and eval
- * measuring over the same vocabulary.
+ * both satisfy it. That's what lets one check (`check.tool`, `check.skill`,
+ * `check.hookFired`, …) evaluate over either: `assertChecks` asserting on one run,
+ * `measure` scoring the same check as a rate.
  */
 export interface Trace {
   /**

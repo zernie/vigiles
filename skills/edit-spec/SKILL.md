@@ -32,12 +32,12 @@ If no spec exists: if there's a hand-written `CLAUDE.md`, suggest the
 
 ### Step 2: Read and Understand the Spec
 
-Read the spec file. It's a TypeScript file that exports a `claude()` call with these fields:
+Read the spec file. It's a TypeScript file that exports an `instructionFile()` call with these fields:
 
 ```typescript
-import { claude, enforce, guidance, check, every } from "vigiles/spec";
+import { instructionFile, enforce, guidance, check, every } from "vigiles/spec";
 
-export default claude({
+export default instructionFile({
   // Optional: output target (defaults to "CLAUDE.md")
   target: "CLAUDE.md",
   // or multi-target:

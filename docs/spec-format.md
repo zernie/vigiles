@@ -16,7 +16,7 @@ A spec earns its place when you cross from **declaring** your harness to
 1. **A typed _contract with structure_, not a string.** A subagent's
    `result(okShape, errShape)` is a discriminated union of typed fields. It
    compiles to a `vigiles:ok`/`err` block the runtime emits and a test parses with
-   **`assertAgentOk`** — a real assertion, **no LLM judge** (see
+   **`experimental_assertAgentOk`** — a real assertion, **no LLM judge** (see
    [railway-subagents.md](railway-subagents.md)). A frontmatter `description:` is a
    flat string; it can't carry a multi-field outcome, and a test has nothing
    deterministic to parse. **This is the differentiator** — the substrate the
@@ -31,7 +31,7 @@ A spec earns its place when you cross from **declaring** your harness to
    compile time. Markdown is inert per-file text — it can't fan out or compose.
 
 So: **markdown declares; a spec is testable as code.** Reach for a spec exactly
-when you want `result()` → `assertAgentOk`. The rest is the field reference.
+when you want `result()` → `experimental_assertAgentOk`. The rest is the field reference.
 
 ### Enforce vs. verify
 
@@ -42,7 +42,7 @@ different questions:
 | Layer              | What it is                                                                              | When it runs            | What it guarantees                                                            |
 | ------------------ | --------------------------------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------------------------- |
 | **Enforce** (gate) | the `purity` floor / `tools` allowlist → a `PreToolUse` rail that **denies** a bad call | **runtime**, every call | the disallowed action is **impossible in the loop** — deterministic, no model |
-| **Verify** (test)  | `assertAgentOk`, `wrote`/`didNotWrite`, `notTool`                                       | **author-time / CI**    | the harness **does its job** and **stays in its lane** — a different property |
+| **Verify** (test)  | `experimental_assertAgentOk`, `wrote`/`didNotWrite`, `notTool`                          | **author-time / CI**    | the harness **does its job** and **stays in its lane** — a different property |
 
 The gate **prevents**; the test **proves behaviour**. A test is not re-checking
 the gate — you use `notTool`/`didNotWrite` to verify a _prose_ instruction that
@@ -198,19 +198,19 @@ export default experimental_agent({
 > `disallowedTools` only when there's **no** allowlist (the agent inherits all tools)
 > and you want to subtract a few — e.g. `experimental_agent({ name, description, disallowedTools: ["Bash"] })`.
 
-| Field             | Type                                                | Required | Description                                                                                    |
-| ----------------- | --------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------- |
-| `name`            | `string`                                            | yes      | Subagent name (frontmatter; the dispatch handle)                                               |
-| `description`     | `string`                                            | yes      | What it does — read by the orchestrator to decide when to delegate                             |
-| `model`           | `string`                                            | no       | Model alias (`"sonnet"`/`"opus"`/`"haiku"`/`"inherit"`)                                        |
-| `color`           | `string`                                            | no       | Subagent UI colour (frontmatter)                                                               |
-| `tools`           | `string[]`                                          | no       | Allowed-tools contract — **verified** (typo/never-available flagged). Omit = inherit all       |
-| `disallowedTools` | `string[]`                                          | no       | Deny-side contract — verified close-typo (a typo'd entry blocks nothing)                       |
-| `purity`          | `"pure" \| "bounded" \| "dangerously-unrestricted"` | no       | Side-effect floor (see [Purity & effects](#purity--effects))                                   |
-| `output`          | `OutputContract`                                    | no       | `result(okShape, errShape)` typed outcome → `## Output contract`; testable via `assertAgentOk` |
-| `sections`        | `Record<string, string \| InstructionFragment[]>`   | no       | Named `##` system-prompt sections (same verified-ref rules as a CLAUDE.md)                     |
-| `rules`           | `Record<string, Rule>`                              | no       | Rules the worker must follow → `## Rules`                                                      |
-| `body`            | `string \| InstructionFragment[]`                   | no       | The lead "You are…" prose before any sections                                                  |
+| Field             | Type                                                | Required | Description                                                                                                 |
+| ----------------- | --------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------- |
+| `name`            | `string`                                            | yes      | Subagent name (frontmatter; the dispatch handle)                                                            |
+| `description`     | `string`                                            | yes      | What it does — read by the orchestrator to decide when to delegate                                          |
+| `model`           | `string`                                            | no       | Model alias (`"sonnet"`/`"opus"`/`"haiku"`/`"inherit"`)                                                     |
+| `color`           | `string`                                            | no       | Subagent UI colour (frontmatter)                                                                            |
+| `tools`           | `string[]`                                          | no       | Allowed-tools contract — **verified** (typo/never-available flagged). Omit = inherit all                    |
+| `disallowedTools` | `string[]`                                          | no       | Deny-side contract — verified close-typo (a typo'd entry blocks nothing)                                    |
+| `purity`          | `"pure" \| "bounded" \| "dangerously-unrestricted"` | no       | Side-effect floor (see [Purity & effects](#purity--effects))                                                |
+| `output`          | `OutputContract`                                    | no       | `result(okShape, errShape)` typed outcome → `## Output contract`; testable via `experimental_assertAgentOk` |
+| `sections`        | `Record<string, string \| InstructionFragment[]>`   | no       | Named `##` system-prompt sections (same verified-ref rules as a CLAUDE.md)                                  |
+| `rules`           | `Record<string, Rule>`                              | no       | Rules the worker must follow → `## Rules`                                                                   |
+| `body`            | `string \| InstructionFragment[]`                   | no       | The lead "You are…" prose before any sections                                                               |
 
 ## Purity & effects
 
@@ -428,27 +428,10 @@ The compiler only accepts these branded types in path-sensitive positions. This 
 
 ## Configuration
 
-Create `vigiles.config.ts` with `defineConfig()`:
-
-```ts
-import { defineConfig } from "vigiles/spec";
-
-export default defineConfig({
-  specs: "**/*.spec.ts", // glob pattern for spec discovery (default: "**/*.spec.ts")
-  discover: true, // auto-discover linter rules for coverage reporting
-  maxRules: 50, // maximum rules per spec file
-  maxTokens: 2000, // maximum estimated tokens for compiled output (~4 chars/token)
-});
-```
-
-| Option      | Type                   | Description                                                                                                                                                                                                      |
-| ----------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `specs`     | `string`               | Glob pattern to discover spec files                                                                                                                                                                              |
-| `discover`  | `boolean`              | Auto-discover linter rules for coverage reporting                                                                                                                                                                |
-| `maxRules`  | `number`               | Compilation fails if a spec exceeds this rule count                                                                                                                                                              |
-| `maxTokens` | `number`               | Compilation fails if estimated tokens exceed this limit                                                                                                                                                          |
-| `orphans`   | `object`               | Opt-in orphan-docs scan (see below)                                                                                                                                                                              |
-| `harness`   | `string` \| `string[]` | The harness(es) this repo targets — `"codex"`, or `["claude-code", "codex"]`. Selects the compile dialect; written by `init`. Omitted → auto-detect. See [CLI: compile](cli.md#compile-files--harness-selection) |
+Configuration is JSON, in `.vigilesrc.json` at the repository root; every key is
+in the [configuration reference](configuration.md). (Earlier docs described a
+`vigiles.config.ts` with `defineConfig()`; nothing ever loaded that file, and
+`defineConfig` is no longer exported.)
 
 ### Orphan-docs configuration
 

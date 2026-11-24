@@ -32,7 +32,7 @@
  */
 // vigiles:covers skills/test-harness
 import { defineEval } from "../../../dist/test.js";
-import { skillResolved } from "../../../dist/harness-assert.js";
+import { check } from "../../../dist/check.js";
 import { fileURLToPath } from "node:url";
 
 const pluginDir = fileURLToPath(new URL("../../../", import.meta.url));
@@ -71,7 +71,7 @@ export default defineEval({
     stubSkillBodies: true,
     minPrompts: 4, // deliberate: named cases, not a rate (see header)
     prompts: [...RU, ...EN],
-    fired: (t) => skillResolved(t, skill),
+    fired: check.skill(skill),
     trials: 1,
   },
 

@@ -13,25 +13,22 @@ import {
   type HarnessRuntime,
   type HookProtocol,
   type ModelMock,
+  // the driver ports an adapter implements
+  type HarnessTestDriver,
+  type EvalDriver,
   // conformance
   checkAdapterConformance,
   assertAdapterConformance,
   assertAdapterLoadsHooks,
   type ConformanceResult,
-  // registry / detection
-  ADAPTERS,
-  defaultAdapter,
-  detectAdapter,
-  detectAdapterResult,
-  resolveAdapter,
-  getAdapter,
-  type DetectResult,
 } from "vigiles/adapter";
 ```
 
 **Stability.** The five port interfaces and `HarnessAdapter` are the stable
-contract — changes to them are semver-major. The conformance and registry
-functions are stable. The behaviour _behind_ the descriptors (the renderers, the
+contract — changes to them are semver-major. The conformance functions are
+stable. The registry the CLI detects through (`ADAPTERS`, `detectAdapter`, …) is
+not exported: an adapter is a value you pass, e.g.
+`runHarnessTest(spec, { adapter: myAdapter })`. The behaviour _behind_ the descriptors (the renderers, the
 mock HTTP server) is internal and may change between minors.
 
 ---
@@ -85,11 +82,11 @@ Four things the layout no longer carries, because each was a second place
 naming a fact the fields above already hold — or, for the last, a mini-language
 the core had to interpret:
 
-| was                      | now                                                                                                                                        |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `surfaceDirs: string[]`  | `surfaceDirs(layout)` — derived from `surfaces`, so a list and a per-kind field can no longer disagree                                     |
-| `intraRefDirs: string[]` | `executableSourceDirs(layout)` — the surfaces plus `hookScriptsDir`                                                                        |
-| `materializeRoot`        | `materializePrefix(layout)` = `userSurfaceRoot ?? ""` — the two fields were equal in every shipped layout and undefined when they differed |
+| was                      | now                                                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `surfaceDirs: string[]`  | `surfaceDirs(layout)` — derived from `surfaces`, so a list and a per-kind field can no longer disagree              |
+| `intraRefDirs: string[]` | `executableSourceDirs(layout)` — the surfaces plus `hookScriptsDir`                                                 |
+| `materializeRoot`        | `layout.userSurfaceRoot ?? ""` — the two fields were equal in every shipped layout and undefined when they differed |
 
 | `alwaysLoaded: string[]` (on the DIALECT's `instructionBudget`) | `layout.instructionChain(files)` — see below |
 
@@ -318,18 +315,18 @@ knowing your harness's tools:
 - `skills` — `{ observable: true, fired: [{ id, isError, resultText }] }` for
   every skill activation the run shows (possibly none), or `{ observable:
 false, harness, why }` when this run cannot show one (it was not streamed,
-  the tier captures no commands). `skill(id)` reads it, and a "not observable"
+  the tier captures no commands). `check.skill(id)` reads it, and a "not observable"
   fails with your `harness` name and `why` instead of "did not fire". Leave it
   out and the contract suite fails.
 - `shell` on each `ToolCall` that ran a shell command — the command the agent
   asked for, without any wrapper your harness adds to run it.
 
-`assertHarnessTestable(adapter)` is the guard the layer-2 runners call to refuse
-a non-`harnessTesting` adapter up front (returning its narrowed `runtime`+`modelMock`).
+The layer-2 runners refuse a non-`harnessTesting` adapter up front; that guard
+is internal (it was exported as `assertHarnessTestable` before v50).
 
 **`detect` contract.** Return `0` when `root` is not this harness; otherwise a
 positive **specificity** — a strong signal (a private config dir / manifest)
-should outscore a weak one (a shared `AGENTS.md`). The registry picks the highest
+should outscore a weak one (a shared `AGENTS.md`). The CLI's registry picks the highest
 scorer, so scores let a precise adapter win over a generic one regardless of
 registration order.
 
@@ -387,25 +384,10 @@ test("my adapter conforms", () => {
 
 ## Registry & detection
 
-The registry is how the **CLI** picks an adapter for a repo (the library picks by
-import). Claude Code is the default, so detection is backwards-compatible.
-
-| Export                           | Signature                                 | Behaviour                                                                                                                  |
-| -------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `ADAPTERS`                       | `readonly HarnessAdapter[]`               | all registered adapters                                                                                                    |
-| `defaultAdapter`                 | `HarnessAdapter`                          | used when nothing is detected (Claude Code)                                                                                |
-| `detectAdapter(root)`            | `(string) => HarnessAdapter`              | the highest-specificity match, else the default                                                                            |
-| `detectAdapterResult(root)`      | `(string) => DetectResult`                | `{ adapter, fallback, ambiguousWith }` — `ambiguousWith` lists other top-scoring adapters (a repo that looks like several) |
-| `resolveAdapter(root, harness?)` | `(string, string?) => HarnessAdapter`     | an explicit `harness` name wins (throws if unknown); else `detectAdapter`. The CLI's `--harness` flow                      |
-| `getAdapter(name)`               | `(string) => HarnessAdapter \| undefined` | lookup by name                                                                                                             |
-
-```ts
-interface DetectResult {
-  readonly adapter: HarnessAdapter;
-  readonly fallback: boolean; // true = no markers, fell back to default
-  readonly ambiguousWith: readonly string[]; // other top-scoring adapter names
-}
-```
+The registry is how the **CLI** picks an adapter for a repo: the highest
+`detect` score wins, Claude Code when nothing matches, and `--harness <name>`
+overrides. It is the CLI's composition root, so it is not exported (since v50):
+the library takes the adapter object you pass (`{ adapter }`).
 
 ---
 
@@ -430,19 +412,19 @@ const plugin = loadPlugin("./my-project", myHarnessAdapter.layout);
 
 Compiling specs is not a library call: the compiler left `vigiles/linting` in the
 major that moved Python/Ruby/Rust parsing to WebAssembly (#257). Specs compile
-through the CLI (`vigiles compile`), which picks your adapter from the registry
-(below) or `--harness <name>`.
+through the CLI (`vigiles compile`), which picks your adapter from its registry
+(above) or `--harness <name>`.
 
 ## Third-party adapters
 
 - **Programmatic use — supported now.** Implement the ports, validate with the
   conformance kit, and pass `adapter.layout` to the loaders above. Nothing is
   gated on the adapter living in _our_ tree.
-- **CLI auto-detection — partial.** `ADAPTERS` is vigiles's internal registry;
-  the `vigiles` CLI binary only auto-detects adapters compiled into it. A config-
+- **CLI auto-detection — partial.** The CLI's registry is internal; the
+  `vigiles` CLI binary only auto-detects adapters compiled into it. A config-
   based mechanism for the CLI to load an _external_ adapter package is planned
   Until then: use the programmatic
-  path, or contribute the adapter upstream so it joins `ADAPTERS`.
+  path, or contribute the adapter upstream so it joins the registry.
 
 ## See also
 

@@ -13,13 +13,12 @@ export function assertNoCollision(report: SelectionReport, opts?: {
 }): void;
 
 // @public
-export function buildClaudeArgs(spec: HarnessTestSpec, hasSettings: boolean): string[];
-
-// @public
 export function claudeAvailable(): boolean;
 
-// @public (undocumented)
+// @public
 export const claudeCodeAdapter: {
+    readonly builtinAgentTools: readonly ["Read", "Grep", "Glob", "Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "TodoWrite", "Skill", "ToolSearch", "EnterWorktree", "ExitWorktree", "Monitor", "TaskStop", "SendMessage", "Artifact", "Agent", "Task", "ExitPlanMode", "ListAgents", "LSP", "ShareOnboardingGuide", "CronCreate", "CronDelete", "CronList", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate"];
+    readonly sideEffectingTools: readonly ["Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Skill", "TodoWrite", "Monitor", "SendMessage", "Artifact", "EnterWorktree", "ExitWorktree", "TaskStop", "Agent", "Task", "TaskCreate", "TaskUpdate", "CronCreate", "CronDelete", "ShareOnboardingGuide"];
     readonly name: "claude-code";
     readonly harnessTesting: true;
     readonly shellHooks: true;
@@ -40,37 +39,13 @@ export const claudeCodeAdapter: {
 export type ClaudeCodeBoundedTool = ClaudeCodeReadOnlyTool | "Write" | "Edit" | "NotebookEdit" | "Bash" | "PowerShell";
 
 // @public
-export const claudeCodeBuiltinAgentTools: readonly ["Read", "Grep", "Glob", "Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "TodoWrite", "Skill", "ToolSearch", "EnterWorktree", "ExitWorktree", "Monitor", "TaskStop", "SendMessage", "Artifact", "Agent", "Task", "ExitPlanMode", "ListAgents", "LSP", "ShareOnboardingGuide", "CronCreate", "CronDelete", "CronList", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate"];
-
-// @public
 export type ClaudeCodeBuiltinTool = (typeof claudeCodeBuiltinAgentTools)[number];
-
-// @public (undocumented)
-export const claudeCodeDialect: HarnessDialect;
-
-// @public
-export const claudeCodeDriver: HarnessTestDriver;
-
-// @public (undocumented)
-export const claudeCodeHookProtocol: HookProtocol;
-
-// @public (undocumented)
-export const claudeCodeLayout: PluginLayout;
-
-// @public (undocumented)
-export const claudeCodeModelMock: ModelMock;
 
 // @public
 export type ClaudeCodeReadOnlyTool = Exclude<ClaudeCodeBuiltinTool, ClaudeCodeSideEffectingTool>;
 
-// @public (undocumented)
-export const claudeCodeRuntime: HarnessRuntime;
-
 // @public
 export type ClaudeCodeSideEffectingTool = (typeof claudeCodeSideEffectingTools)[number];
-
-// @public
-export const claudeCodeSideEffectingTools: readonly ["Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Skill", "TodoWrite", "Monitor", "SendMessage", "Artifact", "EnterWorktree", "ExitWorktree", "TaskStop", "Agent", "Task", "TaskCreate", "TaskUpdate", "CronCreate", "CronDelete", "ShareOnboardingGuide"];
 
 // @public
 export interface ClaudeCodeToolVocabulary extends ToolVocabulary {
@@ -81,7 +56,7 @@ export interface ClaudeCodeToolVocabulary extends ToolVocabulary {
 }
 
 // @public
-const experimental_agent: typeof agentSpec & {
+export const experimental_agent: typeof agentSpec & {
     result: <const Ok extends Shape, const Err extends Shape>(ok: Ok, err: Err) => OutputContract<Ok, Err>;
     delegate: (agent: string, task?: string, needsContract?: Shape) => RailwayStep;
     railway: (spec: Omit<Railway, "_specType">) => Railway;
@@ -110,8 +85,6 @@ const experimental_agent: typeof agentSpec & {
         }): Pipeline<D, AE | BE | CE | DE>;
     };
 };
-export { experimental_agent as agent }
-export { experimental_agent }
 
 // @public (undocumented)
 export const experimental_skill: typeof skillSpec & {
@@ -125,41 +98,16 @@ export const experimental_skill: typeof skillSpec & {
 };
 
 // @public
-export function extractRequest(body: {
-    system?: unknown;
-    messages?: unknown;
-}): ModelRequest;
-
-// @public
-export function formatSelectionReport(r: SelectionReport): string;
-
-// @public (undocumented)
-export interface HarnessDialect {
-    readonly builtinAgentTools: readonly string[];
-    readonly eventCapabilities?: EventCapabilityTable;
-    readonly hookEvents: readonly string[];
-    readonly hookEventVocabulary?: HarnessVocabulary;
-    readonly instructionBudget?: InstructionBudget;
-    readonly instructionTargets: readonly string[];
-    readonly knownMcpServers?: readonly string[];
-    readonly mcpToolPattern: RegExp;
-    readonly name: string;
-    readonly neverAvailableTools: readonly string[];
-    // @deprecated
-    readonly noEffectHookEvents?: readonly string[];
-    // @deprecated
-    readonly permissionDecisionHookEvents?: readonly string[];
-    readonly pluginRootToken: string;
-    readonly sideEffectingTools?: readonly string[];
-    readonly skillFrontmatterKeys: readonly string[];
-    readonly skillListing?: SkillListingRules;
-    readonly subagentToolVocabulary?: HarnessVocabulary;
+export interface FileToolEventOptions {
+    readonly event?: string;
+    readonly extra?: Readonly<Record<string, unknown>>;
+    readonly input?: Readonly<Record<string, unknown>>;
+    readonly root?: string;
+    readonly tool?: string;
 }
 
 // @public
-export function isMainLoopRequest(body: {
-    tools?: unknown;
-}): boolean;
+export function fileToolEvents(path: string, opts?: FileToolEventOptions): readonly [HookInput, HookInput];
 
 // @public (undocumented)
 export interface LoadedPlugin {
@@ -191,40 +139,13 @@ export interface MockHandle {
 }
 
 // @public
-export function mockModelEnv(runtime: HarnessRuntime, baseUrl: string, base?: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
+export function parseClaudeRun(out: RunOut): ParsedModelRun;
 
 // @public
-export interface ModelRequest {
-    readonly messages: readonly {
-        readonly role: string;
-        readonly text: string;
-    }[];
-    readonly sideChannel?: boolean;
-    readonly system: string;
-}
-
-// @public
-export interface ModelTurn {
-    readonly input?: Record<string, unknown>;
-    readonly text?: string;
-    readonly tool?: string;
-}
-
-// @public
-export function parseClaudeRun(stdout: string): ParsedRun;
-
-// @public
-export function resolveHarness(opts: {
-    plugin?: string;
-    settings?: unknown;
-    files?: Record<string, string>;
-}, layout?: PluginLayout): ReturnType<typeof resolveHarness_2>;
+export function parseToolCalls(streamJson: string): ToolCall[];
 
 // @public
 export function scriptModel(turns: readonly ModelTurn[]): ModelTurn[];
-
-// @public
-export function scriptUnconsumedWarning(count: number, sideChannelCount: number): string | undefined;
 
 // @public
 export interface SelectionMatrixOptions extends SelectionOptions {
@@ -271,12 +192,6 @@ export interface SkillSelectionStat {
     // (undocumented)
     readonly skill: string;
 }
-
-// @public
-export function splitRequestCounts(requests: readonly ModelRequest[]): {
-    count: number;
-    sideChannelCount: number;
-};
 
 // @public
 export function startMock(script: readonly ModelTurn[], opts?: {

@@ -14,10 +14,8 @@
  * Write-don't-run in a keyless env; this is the artifact that runs where a key is.
  */
 import { defineEval } from "../../../dist/test.js";
-import {
-  skillResolved,
-  assertTriggerRate,
-} from "../../../dist/harness-assert.js";
+import { check } from "../../../dist/check.js";
+import { assertTriggerRate } from "../../../dist/eval-surface.js";
 import { fileURLToPath } from "node:url";
 
 const pluginDir = fileURLToPath(new URL("../../../", import.meta.url));
@@ -53,7 +51,7 @@ export default defineEval({
       "Implement a debounce on the search input.",
       "Set up Tailwind in this project.",
     ],
-    fired: (t) => skillResolved(t, skill),
+    fired: check.skill(skill),
     trials: 1,
   },
   assert: (report) => {

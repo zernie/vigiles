@@ -219,7 +219,7 @@ export function verdictOf(
  * report: `better`, `worse`, `no-signal` (more trials needed), or `unmeasured`
  * when either arm never reported the metric. A 0/1 metric is judged by disjoint
  * Wilson intervals, so 3/3 against 0/3 is `no-signal`; any other metric by
- * Welch's t-test. `assertSignificant` and `significantlyBeats` read this verdict.
+ * Welch's t-test. `compare` and `assertImproves({ significant })` read this verdict.
  *
  * @experimental The verdict shape (`Verdict`) is days old; see docs/experimental.md.
  */

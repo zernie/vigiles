@@ -14,14 +14,18 @@ import {
   checkSkillReachability,
   formatSkillReachability,
 } from "./skill-reachability.js";
-import { claudeCodeDialect } from "./dialect.js";
+import {
+  claudeCodeBuiltinAgentTools,
+  claudeCodeDialect,
+  claudeCodeSideEffectingTools,
+} from "./dialect.js";
 import { claudeCodeLayout } from "./layout.js";
 import { layoutClaims } from "../../core/surface-discovery.js";
 import { claudeCodeRuntime } from "./runtime.js";
 import { claudeCodeHookProtocol } from "./hook-protocol.js";
 import { claudeCodeModelMock } from "./model-mock.js";
 
-export const claudeCodeAdapter = {
+const claudeCodePorts = {
   name: "claude-code",
   // The reference harness: every tier. Mockable transport (Anthropic SSE) and
   // shell hooks (exit 2 / decision JSON) — both pillars, all tiers.
@@ -85,3 +89,22 @@ export const claudeCodeAdapter = {
     ].filter((line): line is string => line !== null);
   },
 } as const satisfies HarnessAdapter;
+
+/**
+ * The Claude Code `HarnessAdapter` — the five ports above, plus the Claude
+ * Code tool catalog as data. The catalog sits outside `satisfies HarnessAdapter`
+ * because it is not a port: no other harness has to supply it.
+ */
+export const claudeCodeAdapter = {
+  ...claudeCodePorts,
+  /**
+   * The tools a Claude Code agent has built in — the vocabulary a typed
+   * `experimental_agent` / `experimental_skill` from `vigiles/claude-code`
+   * checks `purity` against. A Claude Code fact, so it is reached through this
+   * adapter rather than exported on its own. `@beta`: the catalog tracks the
+   * CLI's tool list.
+   */
+  builtinAgentTools: claudeCodeBuiltinAgentTools,
+  /** The built-in tools that change the world (write, run, fetch) — the `purity` floor's subjects. */
+  sideEffectingTools: claudeCodeSideEffectingTools,
+} as const;
