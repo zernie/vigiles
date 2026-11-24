@@ -108,18 +108,24 @@ test("harness-test.ts never derives turns from requests.length (both paths, one 
   );
 });
 
-test("runHarness steers a real-model run to measure() (no claude needed)", async () => {
-  // The harness scope is deterministic (mock); a real-model run is
-  // non-deterministic, so a single one can't be asserted — runHarness says so.
-  await assert.rejects(
-    runHarness({ model: [], prompt: "go" }, { model: "real" }),
-    /measure\(\)/,
-  );
+test("a run's directory is removed by cleanup() and by await using (Symbol.asyncDispose)", async () => {
+  // One runHarnessTest: the result owns its temp directory, and disposing it
+  // removes it — `await using r = await runHarnessTest(spec)` in TypeScript or
+  // on Node 24+, `r.cleanup()` in a finally anywhere else.
+  const { makeTmpDir } = await import("./core/tmp-root.js");
+  const { existsSync } = await import("node:fs");
+  const a = makeTmpDir("dispose");
+  const ra = disposableRun(a);
+  ra.cleanup();
+  assert.equal(existsSync(a), false);
+  const b = makeTmpDir("dispose");
+  await disposableRun(b)[Symbol.asyncDispose]();
+  assert.equal(existsSync(b), false);
 });
 
 import {
   runHarnessTest,
-  runHarness,
+  disposableRun,
   scriptModel,
   claudeAvailable,
   parseToolCalls,

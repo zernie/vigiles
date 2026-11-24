@@ -34,6 +34,14 @@ test("claudeCodeAdapter bundles all five ports + a detect (full capabilities)", 
   assert.equal(claudeCodeAdapter.modelMock?.modelEndpoint, "/v1/messages");
 });
 
+test("claudeCodeAdapter carries Claude Code's tool constants as fields", () => {
+  // Reached through the adapter object, not as standalone exports: a Claude
+  // Code fact belongs to the Claude Code adapter.
+  assert.ok(claudeCodeAdapter.builtinAgentTools.includes("Bash"));
+  assert.ok(claudeCodeAdapter.sideEffectingTools.includes("Write"));
+  assert.ok(!claudeCodeAdapter.sideEffectingTools.includes("Read"));
+});
+
 test("claudeCodeAdapter passes the conformance kit", () => {
   assertAdapterConformance(claudeCodeAdapter); // throws on failure
 });
