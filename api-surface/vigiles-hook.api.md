@@ -663,7 +663,13 @@ export type UnresolvedDir =
 /** A wrapper or git option outside `DIR_ALLOWLIST` (`env --argv0`, `git --bare`). */
 | "unsupported-option"
 /** A `..` that `git -C`/`env -C`/`sudo -D` resolves physically: a symlink redirects it. */
-| "physical-dotdot";
+| "physical-dotdot"
+/** A directory word with a quote, backslash, `$`, glob or brace character: not decoded. */
+| "unplain-dir-word"
+/** An assignment to a variable `cd` or git reads (`CDPATH`, `HOME`, `OLDPWD`, `PWD`, an unlisted `GIT_*`). */
+| "steering-assignment"
+/** The line defines a shell function: functions are not modelled. */
+| "function-defined";
 
 // @public
 export function verifyHookStamp(source: string, stamp: SHA256Hash): boolean;

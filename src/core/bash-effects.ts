@@ -1162,7 +1162,13 @@ export type UnresolvedDir =
   /** A wrapper or git option outside `DIR_ALLOWLIST` (`env --argv0`, `git --bare`). */
   | "unsupported-option"
   /** A `..` that `git -C`/`env -C`/`sudo -D` resolves physically: a symlink redirects it. */
-  | "physical-dotdot";
+  | "physical-dotdot"
+  /** A directory word with a quote, backslash, `$`, glob or brace character: not decoded. */
+  | "unplain-dir-word"
+  /** An assignment to a variable `cd` or git reads (`CDPATH`, `HOME`, `OLDPWD`, `PWD`, an unlisted `GIT_*`). */
+  | "steering-assignment"
+  /** The line defines a shell function: functions are not modelled. */
+  | "function-defined";
 
 /**
  * Where one leaf runs, relative to the directory its command line starts in:
@@ -1181,10 +1187,8 @@ interface DirConfig {
   readonly stack: readonly string[];
   /** The directory before the last change, for `cd -`; `null` when it predates the line. */
   readonly old: string | null;
-  /** A `GIT_*` variable that retargets git is in force. */
+  /** A `GIT_*` variable that retargets git is in force (inherited by a child shell). */
   readonly gitDir: boolean;
-  /** Functions defined at this point: name → the declaration's source range. */
-  readonly funcs: Readonly<Record<string, string>>;
 }
 
 type DirState =
@@ -1203,7 +1207,7 @@ const MAX_DIR_CANDIDATES = 8;
 /** Where a command line starts: `.`, no stack, no earlier directory. */
 const START_DIR: DirState = {
   kind: "known",
-  configs: [{ dir: ".", stack: [], old: null, gitDir: false, funcs: {} }],
+  configs: [{ dir: ".", stack: [], old: null, gitDir: false }],
 };
 
 /** No way to get here (after `exit`). */
@@ -1373,17 +1377,10 @@ const retargetsGit = (name: string): boolean =>
 const stmtKey = (n: Readonly<MvdanNode>): string =>
   `${n.Pos?.().Offset() ?? -1}:${n.End?.().Offset() ?? -1}`;
 
-/** Every function declaration of a file, by its source range. */
-function functionBodies(
-  file: Readonly<MvdanNode>,
-): ReadonlyMap<string, MvdanNode> {
-  return new Map(
-    statements(file).flatMap((st) => {
-      const fn = st.Cmd;
-      return fn && sh().syntax.NodeType(fn) === "FuncDecl" && fn.Body
-        ? [[stmtKey(fn), fn.Body] as const]
-        : [];
-    }),
+/** Does this text define a shell function anywhere (`f() …`, `function f …`)? */
+function definesFunction(file: Readonly<MvdanNode>): boolean {
+  return statements(file).some(
+    (st) => st.Cmd !== undefined && sh().syntax.NodeType(st.Cmd) === "FuncDecl",
   );
 }
 
@@ -1402,24 +1399,14 @@ function dirModel(
     // eslint-disable-next-line functional/immutable-data -- the model's one accumulator: the state each statement was reached in, joined over every path
     seen.set(k, before ? joinStates(before, s) : s);
   };
-  interpret(file.Stmts ?? [], start, {
-    record,
-    bodies: functionBodies(file),
-    depth: 0,
-  });
+  interpret(file.Stmts ?? [], start, { record });
   return (st) => seen.get(stmtKey(st)) ?? OPAQUE_DIR;
 }
 
-/** What the interpreter carries: where to note a state, the function bodies, how deep a call is. */
+/** What the interpreter carries: where to note the state each statement is reached in. */
 interface DirCtx {
   readonly record: (st: Readonly<MvdanNode>, s: DirState) => void;
-  readonly bodies: ReadonlyMap<string, MvdanNode>;
-  /** Nested function calls so far; past {@link MAX_CALL_DEPTH} the state is unresolved. */
-  readonly depth: number;
 }
-
-/** How deep function calls are followed (a recursive one is not). */
-const MAX_CALL_DEPTH = 8;
 
 /** A statement list, in order: each statement starts where the last ended. */
 function interpret(
@@ -1443,6 +1430,12 @@ function stmtOutcome(
   (st.Redirs ?? []).forEach((r) => {
     scanSubshells(r, s, ctx);
   });
+  // Rule 1: a statement that assigns a variable `cd` or git reads — in any
+  // form — leaves this shell unresolved; what it nests is read from there.
+  if (assignsSteering(st)) {
+    if (st.Cmd) cmdOutcome(st.Cmd, STEERED, ctx);
+    return same(STEERED);
+  }
   if (!st.Cmd) return same(s);
   // `cmd &` runs in a background subshell: the shell stays where it was.
   if (st.Background) {
@@ -1578,13 +1571,7 @@ function declOutcome(node: Readonly<MvdanNode>, s: DirState): DirOutcome {
   const safe = options.every(
     (o) => o !== null && o.startsWith("-") && declOptionAllowed(variant, o),
   );
-  if (!safe) return same(OPAQUE_DIR);
-  return same(
-    afterAssigning(
-      args.map((a) => a.Name?.Value ?? null),
-      s,
-    ),
-  );
+  return same(safe ? s : OPAQUE_DIR);
 }
 
 /** An mvdan `Word` (a node with `Parts`), told apart from a plain string. */
@@ -1606,63 +1593,140 @@ const CD_INPUT_VARS: ReadonlySet<string> = new Set([
   "PWD",
 ]);
 
+/** Does assigning `name` steer `cd` or git? `CDPATH[0]` and `GIT_DIR+=` count. */
+function steers(name: string): boolean {
+  const bare = /^[A-Za-z_][A-Za-z0-9_]*/.exec(name)?.[0] ?? name;
+  return CD_INPUT_VARS.has(bare) || retargetsGit(bare);
+}
+
+/** A steered shell: nothing after the assignment is placed. */
+const STEERED: DirState = lostAt("steering-assignment");
+
+/** An argument naming a steering variable as an assignment target (`-vHOME`, `HOME=x`, `HOME[0]`, `HOME+=`). */
+const namesSteeringTarget = (word: string): boolean => {
+  const target = /^-?([A-Za-z_][A-Za-z0-9_]*)/.exec(word)?.[1] ?? "";
+  // `-vHOME`: the name may start after any of the option letters.
+  const starts = word.startsWith("-") ? target.length : 1;
+  return Array.from({ length: starts }, (_, i) => target.slice(i)).some(
+    (n) => n !== "" && steers(n),
+  );
+};
+
 /**
- * The state after the line assigns `names` (`X=1`, `export X=1`, `read X`):
- * unresolved after a variable `cd` reads or a name that is not literal,
- * git retargeted after a `GIT_*` variable the allowlist does not name.
+ * RULE 1, one check over every construct that can assign a variable in this
+ * shell: a prefix assignment on any command (a function call or a program
+ * included), `export`/`declare`/`typeset`/`local`/`readonly`, a `for`/`select`
+ * variable, `let` and `(( … ))`, `${VAR=…}`/`${VAR:=…}` in any word, a
+ * `coproc` name, a `{VAR}>` redirection, and a builtin's argument that names a
+ * target (`read`, `printf -v`, `mapfile`, `getopts`, `wait -p`, …). An indexed
+ * or appending target (`CDPATH[0]`, `HOME+=`) is the same variable. Nested
+ * statements are not looked into here: each is checked where it runs.
  */
-function afterAssigning(
-  names: readonly (string | null)[],
-  s: DirState,
-): DirState {
-  if (names.some((n) => n === null || CD_INPUT_VARS.has(n))) return OPAQUE_DIR;
-  return names.some((n) => n !== null && retargetsGit(n)) ? withGitDir(s) : s;
+function assignsSteering(st: Readonly<MvdanNode>): boolean {
+  const cmd = st.Cmd;
+  if ((st.Redirs ?? []).some((r) => namedFdSteers(r.N?.Value))) return true;
+  if (!cmd) return false;
+  const t = sh().syntax.NodeType(cmd);
+  const names = [
+    ...(cmd.Assigns ?? []).map((a) => a.Name?.Value ?? ""),
+    ...(t === "DeclClause"
+      ? (cmd.Args ?? []).map((a) => a.Name?.Value ?? "")
+      : []),
+    ...(t === "ForClause" ? [cmd.Loop?.Name?.Value ?? ""] : []),
+    ...(t === "CoprocClause" ? [literalOf(cmd.Name)] : []),
+  ];
+  return (
+    names.some((n) => n !== "" && steers(n)) ||
+    ((t === "ArithmCmd" || t === "LetClause") && mentionsSteering(cmd)) ||
+    defaultingSteers(cmd) ||
+    (t === "CallExpr" && builtinNamesSteering(cmd))
+  );
+}
+
+/** The literal text of a word-ish node, or "" when it has none. */
+function literalOf(n: Readonly<MvdanNode> | undefined): string {
+  if (!n) return "";
+  if (typeof n.Value === "string") return n.Value;
+  return isWord(n) ? (normalizeParts(n.Parts) ?? "") : "";
+}
+
+/** `{HOME}>f` assigns the fd it opens to `HOME`. */
+const namedFdSteers = (n: string | undefined): boolean =>
+  n !== undefined && /^\{.+\}$/.test(n) && steers(n.slice(1, -1));
+
+/** Any steering name mentioned in an arithmetic command (where every name may be assigned). */
+function mentionsSteering(node: Readonly<MvdanNode>): boolean {
+  let found = false; // eslint-disable-line functional/no-let -- set by the Walk callback below
+  // Walk ends each node's children with a null.
+  sh().syntax.Walk(node, (n: Readonly<MvdanNode> | null) => {
+    if (n === null) return true;
+    if (steers(n.Value ?? "")) found = true;
+    return !found;
+  });
+  return found;
 }
 
 /**
- * A declaration defines the function from here on, in this shell only (a
- * subshell's definitions end with it). Its body runs where it is CALLED, so
- * its own statements are recorded as unknowable here.
+ * `${VAR=…}`, `${VAR:=…}` (and, to stay plain, any other operator) on a
+ * steering variable, in this command's own words — not inside a nested
+ * statement, which is checked where it runs.
  */
-function funcDeclOutcome(
-  node: Readonly<MvdanNode>,
-  s: DirState,
-  ctx: DirCtx,
-): DirOutcome {
-  if (node.Body) stmtOutcome(node.Body, OPAQUE_DIR, ctx);
-  const name = node.Name?.Value;
-  if (!name || s.kind === "unresolved") return same(s);
-  const key = stmtKey(node);
-  return same({
-    kind: "known",
-    configs: s.configs.map((c) => ({
-      ...c,
-      funcs: { ...c.funcs, [name]: key },
-    })),
+function defaultingSteers(cmd: Readonly<MvdanNode>): boolean {
+  let found = false; // eslint-disable-line functional/no-let -- set by the Walk callback below
+  sh().syntax.Walk(cmd, (n: Readonly<MvdanNode> | null) => {
+    if (n === null) return true;
+    const t = sh().syntax.NodeType(n);
+    if (t === "Stmt" || t === "CmdSubst" || t === "ProcSubst") return false;
+    if (
+      t === "ParamExp" &&
+      n.Exp !== undefined &&
+      n.Exp !== null &&
+      steers(n.Param?.Value ?? "")
+    )
+      found = true;
+    return !found;
   });
+  return found;
+}
+
+/**
+ * A bash builtin whose argument names a steering variable as a target —
+ * `read HOME`, `printf -v 'CDPATH[0]'`, `getopts ab PWD`, `wait -p OLDPWD`,
+ * `declare GIT_DIR=x` behind `builtin` — and an assigning builtin with an
+ * argument the parser cannot read (it may be such a name).
+ */
+function builtinNamesSteering(cmd: Readonly<MvdanNode>): boolean {
+  const words = (cmd.Args ?? []).map(dirWord);
+  const run = invoked(words);
+  if (run.kind !== "run" || !BASH_BUILTIN_SET.has(run.name)) return false;
+  const args = words.slice(run.at + 1);
+  if (DIR_ALLOWLIST.assigning.has(run.name) && args.some((a) => a === null))
+    return true;
+  return args.some((a) => a !== null && namesSteeringTarget(a));
+}
+
+/**
+ * RULE 4: shell functions are not modelled. A definition makes the shell
+ * unresolved from there on (a definition inside a subshell ends with it); its
+ * body is recorded as unknowable.
+ */
+function funcDeclOutcome(node: Readonly<MvdanNode>, ctx: DirCtx): DirOutcome {
+  const lost = lostAt("function-defined");
+  if (node.Body) stmtOutcome(node.Body, lost, ctx);
+  return same(lost);
 }
 
 /** Compound commands that never move the shell they run in. */
-const STAYING: ReadonlySet<string> = new Set(["TestClause", "CoprocClause"]);
-
-/**
- * `(( … ))` and `let` assign variables: read as staying only when no name in
- * them is one `cd` reads or a `GIT_*` one.
- */
-function arithmeticStays(node: Readonly<MvdanNode>): boolean {
-  let steers = false; // eslint-disable-line functional/no-let -- set by the Walk callback below
-  sh().syntax.Walk(node, (n) => {
-    const name = n.Value ?? "";
-    if (CD_INPUT_VARS.has(name) || name.startsWith("GIT_")) steers = true;
-    return !steers;
-  });
-  return !steers;
-}
+const STAYING: ReadonlySet<string> = new Set([
+  "TestClause",
+  "CoprocClause",
+  // Their assignments are read by rule 1 (`assignsSteering`).
+  "ArithmCmd",
+  "LetClause",
+]);
 
 function constructStays(node: Readonly<MvdanNode>): boolean {
-  const t = sh().syntax.NodeType(node);
-  if (t === "ArithmCmd" || t === "LetClause") return arithmeticStays(node);
-  return STAYING.has(t);
+  return STAYING.has(sh().syntax.NodeType(node));
 }
 
 function cmdOutcome(
@@ -1692,7 +1756,7 @@ function cmdOutcome(
     case "TimeClause":
       return node.Stmt ? stmtOutcome(node.Stmt, s, ctx) : same(s);
     case "FuncDecl":
-      return funcDeclOutcome(node, s, ctx);
+      return funcDeclOutcome(node, ctx);
     case "DeclClause":
       scanSubshells(node, s, ctx);
       return declOutcome(node, s);
@@ -1755,26 +1819,25 @@ function callOutcome(
   ctx: DirCtx,
 ): DirOutcome {
   const words = (node.Args ?? []).map(dirWord);
-  const assigned = (node.Assigns ?? []).map((a) => a.Name?.Value ?? null);
-  if (words.length === 0) return same(afterAssigning(assigned, s));
+  // An assignment alone (`X=1`) that steers was caught by rule 1.
+  if (words.length === 0) return same(s);
   const run = invoked(words);
   if (run.kind === "describe") return same(s);
   // A dynamic program (`$CD x`) may be a builtin that moves the shell.
   if (run.kind === "lost") return same(OPAQUE_DIR);
-  // `CDPATH=/x cd y`: the prefix steers this very `cd`.
+  const argWords = (node.Args ?? []).slice(run.at + 1);
+  // Rule 2: a directory operand is read only as plain text.
   if (
-    run.name in DIR_ALLOWLIST.moving &&
-    assigned.some((n) => n === null || CD_INPUT_VARS.has(n))
+    DIR_ALLOWLIST.moving[run.name] !== undefined &&
+    words.slice(run.at + 1).every((w) => w !== null) &&
+    !argWords.every(plainWord)
   )
-    return same(OPAQUE_DIR);
-  const call: Call = {
-    name: run.name,
-    args: words.slice(run.at + 1),
-    argWords: (node.Args ?? []).slice(run.at + 1),
-    // `command f` and `builtin f` skip functions.
-    direct: run.at === 0,
-  };
-  return eachConfig(s, (c) => configCall(call, c, ctx));
+    return same(lostAt("unplain-dir-word"));
+  return builtinOrProgram(
+    { name: run.name, args: words.slice(run.at + 1), argWords },
+    s,
+    ctx,
+  );
 }
 
 /** One simple command, as the model reads it. */
@@ -1782,89 +1845,66 @@ interface Call {
   readonly name: string;
   readonly args: readonly (string | null)[];
   readonly argWords: readonly Readonly<MvdanWord>[];
-  readonly direct: boolean;
-}
-
-/** One simple command from one configuration: a function defined here wins. */
-function configCall(call: Call, c: DirConfig, ctx: DirCtx): DirOutcome {
-  const key = call.direct ? c.funcs[call.name] : undefined;
-  if (key !== undefined) return functionCall(key, knownOne(c), ctx);
-  return builtinOrProgram(call, knownOne(c), ctx);
 }
 
 /**
- * Run a function's body from the caller's state. Followed only when the body
- * has no `return` (which ends it early, in a place this reading would not
- * mark) and the call depth is bounded.
+ * RULE 2: a word the model reads as a directory only when it is plain text —
+ * literal characters, at most a leading `~`. A backslash, a quote, `$`, a
+ * glob or brace character, or anything else the shell rewrites makes it
+ * unreadable here; it is not decoded.
  */
-function functionCall(key: string, s: DirState, ctx: DirCtx): DirOutcome {
-  const body = ctx.bodies.get(key);
-  if (!body || ctx.depth >= MAX_CALL_DEPTH || hasReturn(body))
-    return same(OPAQUE_DIR);
-  return stmtOutcome(body, s, {
-    ...ctx,
-    record: ignoreRecord,
-    depth: ctx.depth + 1,
-  });
+function plainWord(w: Readonly<MvdanWord>): boolean {
+  const parts = w.Parts ?? [];
+  return (
+    parts.length === 1 &&
+    parts.every(
+      (p) =>
+        sh().syntax.NodeType(p) === "Lit" &&
+        /^(?:~(?=\/|$))?[^\\'"$*?[\]{}~`]*$/.test(p.Value ?? ""),
+    )
+  );
 }
 
-/** Does a function body contain a `return`? */
-const hasReturn = (body: Readonly<MvdanNode>): boolean =>
-  statements(body).some((st) => {
-    const w = st.Cmd?.Args?.[0];
-    return w !== undefined && normalizeParts(w.Parts) === "return";
-  });
-
 /**
- * A name that is not a function here: an allowlisted builtin, another bash
- * builtin (unresolved), or a program — which runs in a child and cannot move
- * this shell.
+ * A name in no function (the model reads none): an allowlisted builtin,
+ * another bash builtin (unresolved), or a program — which runs in a child
+ * and cannot move this shell.
  */
 function builtinOrProgram(call: Call, s: DirState, ctx: DirCtx): DirOutcome {
   const moving = DIR_ALLOWLIST.moving[call.name];
   if (moving) return moving(call.args, s);
   if (DIR_ALLOWLIST.staying.has(call.name)) return same(s);
+  // Its steering targets were caught by rule 1; an option outside the few
+  // read (`declare -n`, `export -f`) is not followed.
   if (DIR_ALLOWLIST.assigning.has(call.name))
-    return same(afterAssigning(namedVars(call.name, call.args), s));
+    return same(assigningOptionsRead(call.name, call.args) ? s : OPAQUE_DIR);
   const special = DIR_ALLOWLIST.special[call.name];
   if (special) return special(call, s, ctx);
   return BASH_BUILTIN_SET.has(call.name) ? same(OPAQUE_DIR) : same(s);
 }
 
 /**
- * The variable names an assigning builtin may set: every word that is not an
- * option (`read A B`, `mapfile -t A`), or the one after `printf -v`. An option
- * outside the allowlist's few is not read.
+ * Are an assigning builtin's options all ones the model reads? `declare -n`
+ * makes a name a reference to another variable and `export -f` exports a
+ * function; neither is followed.
  */
-function namedVars(
+function assigningOptionsRead(
   name: string,
   args: readonly (string | null)[],
-): readonly (string | null)[] {
-  if (name === "printf") {
-    const v = args.indexOf("-v");
-    return v < 0 ? [] : [args[v + 1] ?? null];
-  }
-  const options = args.filter(
-    (a): a is string => a !== null && a.startsWith("-"),
-  );
-  if (
-    options.some(
-      (o) =>
-        /n|f/i.test(o) &&
-        name !== "read" &&
-        name !== "mapfile" &&
-        name !== "readarray",
-    )
-  )
-    return [null];
+): boolean {
+  if (name === "read" || name === "mapfile" || name === "readarray")
+    return true;
+  if (name === "printf" || name === "getopts") return true;
   return args
-    .filter((a) => a === null || !a.startsWith("-"))
-    .map((a) =>
-      a === null ? null : (/^[A-Za-z_][A-Za-z0-9_]*/.exec(a)?.[0] ?? a),
-    );
+    .filter((a): a is string => a !== null && a.startsWith("-"))
+    .every((o) => declOptionAllowed(name, o));
 }
 
-/** `exit`, `logout`: nothing after runs in this shell. */
+/**
+ * RULE 3, `exit` only: nothing after it runs in this shell. `logout` fails in
+ * a non-login shell and the line goes on; `exec` without a program does not
+ * end it; `return` outside a function fails and goes on (a staying builtin).
+ */
 const ends = (): DirOutcome => same(NEVER);
 
 /**
@@ -1906,20 +1946,18 @@ function setOutcome(call: Call, s: DirState): DirOutcome {
 
 /**
  * `unset NAME…`: unresolved for a variable `cd` reads (but `CDPATH`, which
- * only makes `cd` plainer), an option (`-f` removes a function), or a name
- * that is a function here — bash unsets the function when no variable has it.
+ * only makes `cd` plainer) or an option (`-f`, `-n`).
  */
 function unsetOutcome(call: Call, s: DirState): DirOutcome {
-  return eachConfig(s, (c) =>
+  return same(
     call.args.some(
       (a) =>
         a === null ||
         a.startsWith("-") ||
-        (a !== "CDPATH" && CD_INPUT_VARS.has(a)) ||
-        c.funcs[a] !== undefined,
+        (a !== "CDPATH" && CD_INPUT_VARS.has(a)),
     )
-      ? same(OPAQUE_DIR)
-      : same(knownOne(c)),
+      ? OPAQUE_DIR
+      : s,
   );
 }
 
@@ -1942,7 +1980,9 @@ function evalOutcome(call: Call, s: DirState, ctx: DirCtx): DirOutcome {
   if (texts.some((t) => t === null) || texts[0]?.startsWith("-"))
     return same(OPAQUE_DIR);
   const file = parseOrNull(texts.join(" "));
-  if (file === null || functionBodies(file).size > 0) return same(OPAQUE_DIR);
+  // Rule 4 reaches into eval too: a definition there is not modelled.
+  if (file === null) return same(OPAQUE_DIR);
+  if (definesFunction(file)) return same(lostAt("function-defined"));
   // The inner statements are another source text: keyed apart, so they are
   // interpreted for their effect on the line and not recorded here (readShell
   // re-reads them, from the same state, for their own leaves).
@@ -2050,7 +2090,6 @@ const DIR_ALLOWLIST: {
   ),
   special: {
     exit: ends,
-    logout: ends,
     trap: trapOutcome,
     set: setOutcome,
     unset: unsetOutcome,
@@ -2169,6 +2208,7 @@ function leafDirsFrom(
   s: DirState,
   wrapper: { readonly chdir: string | null; readonly unknownOption: boolean },
   program: ProgramDirs,
+  plain: readonly string[],
 ): LeafDirs {
   if (s.kind === "unresolved") return s;
   if (wrapper.unknownOption)
@@ -2183,6 +2223,8 @@ function leafDirsFrom(
   ];
   if (steps.some((d) => !isKnown(d)))
     return { kind: "unresolved", reason: DYNAMIC };
+  if (!steps.every((d) => spelledPlainly(d, plain)))
+    return { kind: "unresolved", reason: "unplain-dir-word" };
   // These directories are entered with chdir(2), which resolves `..` after a
   // symlink physically — unlike the lexical join below.
   if (steps.some((d) => /(^|\/)\.\.(\/|$)/.test(d)))
@@ -2202,6 +2244,19 @@ function leafDirsFrom(
 }
 
 /**
+ * Rule 2 for an option's directory: it must be one of the leaf's plain words
+ * (`-C a`), or the tail of one that attaches it (`-Ca`, `--chdir=a`, `-iC a`).
+ */
+function spelledPlainly(dir: string, plain: readonly string[]): boolean {
+  return plain.some(
+    (w) =>
+      w === dir ||
+      (w.endsWith(dir) &&
+        /^(?:-[A-Za-z]*[CD]|--chdir=)$/.test(w.slice(0, -dir.length))),
+  );
+}
+
+/**
  * Where a child shell (`bash -c '…'`) starts: where its leaf runs, with a
  * fresh directory stack and no previous directory of its own, and the
  * environment (an exported `GIT_DIR`) inherited.
@@ -2218,15 +2273,8 @@ function childShellStart(
     (parent.kind === "known" && parent.configs.some((c) => c.gitDir));
   return {
     kind: "known",
-    // A child shell has its own directory stack, no previous directory, and
-    // none of the parent's functions (`export -f` is not read).
-    configs: at.dirs.map((dir) => ({
-      dir,
-      stack: [],
-      old: null,
-      gitDir,
-      funcs: {},
-    })),
+    // A child shell has its own directory stack and no previous directory.
+    configs: at.dirs.map((dir) => ({ dir, stack: [], old: null, gitDir })),
   };
 }
 
@@ -3156,6 +3204,11 @@ function normalizeCallExpr(
     hasAssign: (...names) => names.some((n) => assigns.has(n)),
     redirects: normalizeRedirects(redirs),
     chdir: stripped.chdir,
-    at: leafDirsFrom(where, stripped, programDirs(stripped.argv, assigns)),
+    at: leafDirsFrom(
+      where,
+      stripped,
+      programDirs(stripped.argv, assigns),
+      node.Args.filter(plainWord).map((w) => w.Parts[0]?.Value ?? ""),
+    ),
   };
 }

@@ -371,44 +371,46 @@ describe("the four round-3 forms", () => {
   });
 });
 
+/** Every construct that can assign the variable `v` in this shell. */
+const assigningConstructs = (v: string): readonly string[] => [
+  `for ${v} in x; do :; done`,
+  `select ${v} in x; do break; done`,
+  `read ${v}`,
+  `read -r -a ${v}`,
+  `printf -v ${v} x`,
+  `printf -v${v} x`,
+  `mapfile ${v} < f`,
+  `readarray -t ${v} < f`,
+  `declare ${v}=x`,
+  `typeset ${v}=x`,
+  `export ${v}=x`,
+  `readonly ${v}=x`,
+  `declare ${v}`,
+  `g(){ local ${v}=x; }; g`,
+  `let ${v}=1`,
+  `(( ${v}=1 ))`,
+  `${v}=x`,
+  `${v}=x true`,
+  `${v}=x git status`,
+  `f(){ :; }; ${v}=x f`,
+  `getopts ab ${v}`,
+  `wait -p ${v}`,
+  `: \${${v}:=x}`,
+  `echo \${${v}=x}`,
+  `coproc ${v} { :; }`,
+  `echo hi {${v}}>/dev/null`,
+  `builtin read ${v}`,
+  `command printf -v ${v} x`,
+  `printf -v '${v}[0]' %s x`,
+  `read '${v}[1]'`,
+  `declare ${v}+=x`,
+  `${v}+=x`,
+  `${v}[0]=x`,
+  `declare -a ${v}=(x)`,
+  `export ${v}+=:x`,
+];
+
 describe("rule 1: every construct that assigns a steering variable", () => {
-  const constructs = (v: string): readonly string[] => [
-    `for ${v} in x; do :; done`,
-    `select ${v} in x; do break; done`,
-    `read ${v}`,
-    `read -r -a ${v}`,
-    `printf -v ${v} x`,
-    `printf -v${v} x`,
-    `mapfile ${v} < f`,
-    `readarray -t ${v} < f`,
-    `declare ${v}=x`,
-    `typeset ${v}=x`,
-    `export ${v}=x`,
-    `readonly ${v}=x`,
-    `declare ${v}`,
-    `g(){ local ${v}=x; }; g`,
-    `let ${v}=1`,
-    `(( ${v}=1 ))`,
-    `${v}=x`,
-    `${v}=x true`,
-    `${v}=x git status`,
-    `f(){ :; }; ${v}=x f`,
-    `getopts ab ${v}`,
-    `wait -p ${v}`,
-    `: \${${v}:=x}`,
-    `echo \${${v}=x}`,
-    `coproc ${v} { :; }`,
-    `echo hi {${v}}>/dev/null`,
-    `builtin read ${v}`,
-    `command printf -v ${v} x`,
-    `printf -v '${v}[0]' %s x`,
-    `read '${v}[1]'`,
-    `declare ${v}+=x`,
-    `${v}+=x`,
-    `${v}[0]=x`,
-    `declare -a ${v}=(x)`,
-    `export ${v}+=:x`,
-  ];
   const vars = [
     "CDPATH",
     "HOME",
@@ -417,17 +419,16 @@ describe("rule 1: every construct that assigns a steering variable", () => {
     "GIT_DIR",
     "GIT_CONFIG_PARAMETERS",
   ];
-  test.each(vars.flatMap((v) => constructs(v).map((c) => [c, v] as const)))(
-    "%s; cd r && git pull → unresolved",
-    (construct) => {
-      const cmd = `${construct}; cd r && git pull`;
-      const pulls = readShell(cmd)
-        .effects.flatMap((e) => (e.kind === "leaf" ? [e.leaf] : []))
-        .filter((l) => l.argv.join(" ") === "git pull");
-      assert.equal(pulls.length, 1, cmd);
-      assert.equal(pulls[0]?.at.kind, "unresolved", cmd);
-    },
-  );
+  test.each(
+    vars.flatMap((v) => assigningConstructs(v).map((c) => [c, v] as const)),
+  )("%s; cd r && git pull → unresolved", (construct) => {
+    const cmd = `${construct}; cd r && git pull`;
+    const pulls = readShell(cmd)
+      .effects.flatMap((e) => (e.kind === "leaf" ? [e.leaf] : []))
+      .filter((l) => l.argv.join(" ") === "git pull");
+    assert.equal(pulls.length, 1, cmd);
+    assert.equal(pulls[0]?.at.kind, "unresolved", cmd);
+  });
 
   test("a listed GIT_* variable does not steer", () => {
     assert.deepEqual(dirs("export GIT_PAGER=cat; cd r && git pull"), ["r"]);

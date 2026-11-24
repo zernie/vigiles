@@ -57,6 +57,26 @@ function rng(seed: number): () => number {
   };
 }
 
+/**
+ * Round 3: steering assignments (CDPATH=S/a sends `cd b` to S/a/b), quoted
+ * and escaped operands, and builtins that do not end the shell.
+ */
+function roundThreeAtoms(
+  pick: <T>(xs: readonly [T, ...T[]]) => T,
+  absA: string,
+): readonly (() => string)[] {
+  return [
+    () => `for CDPATH in ${absA}; do :; done`,
+    () => `read CDPATH <<< ${absA}`,
+    () => `printf -v CDPATH %s ${absA}`,
+    () => `printf -v 'CDPATH[0]' %s ${absA}`,
+    () => `declare CDPATH=${absA}`,
+    () => `k(){ cd b; }; CDPATH=${absA} k`,
+    () => `cd ${pick(['"a"', "a\\/b", "'b'", '"$HOME"'])}`,
+    () => pick(["logout", "return", "exec 3>/dev/null"]),
+  ];
+}
+
 /** The command generator: a seeded choice, and a fresh marker per leaf. */
 function generator(seed: number, out: string, abs: string, absA: string) {
   const next = rng(seed);
@@ -75,10 +95,8 @@ function generator(seed: number, out: string, abs: string, absA: string) {
       `pwd >> ${target}`,
       `pwd >> ${target}`,
       `git -C ${pick([".", "a", "a/b", "nope", "b"])} rev-parse --show-prefix >> ${target}`,
-      `env -C ${pick(["a", "b", "nope"])} pwd >> ${target}`,
-      `env -C${pick(["a", "b", "nope", "l/.."])} pwd >> ${target}`,
-      `git -C ${pick(["l/..", "a/.."])} rev-parse --show-prefix >> ${target}`,
-      `git -C ${pick(['"a"', "a\\/b", "'b'", '""'])} rev-parse --show-prefix >> ${target}`,
+      `env ${pick(["-C ", "-C"])}${pick(["a", "b", "nope", "l/.."])} pwd >> ${target}`,
+      `git -C ${pick(["l/..", "a/..", '"a"', "a\\/b", "'b'", '""'])} rev-parse --show-prefix >> ${target}`,
       `bash -c "cd ${dir()} && pwd >> ${target}"`,
     ]);
   };
@@ -98,16 +116,7 @@ function generator(seed: number, out: string, abs: string, absA: string) {
       () => `trap -- 'cd ${dir()}' DEBUG`,
       () => `eval 'g(){ cd ${dir()}; }'; g`,
       () => "pushd >/dev/null",
-      // Round 3: steering assignments (CDPATH=S/a sends `cd b` to S/a/b),
-      // quoted and escaped operands, and builtins that do not end the shell.
-      () => `for CDPATH in ${absA}; do :; done`,
-      () => `read CDPATH <<< ${absA}`,
-      () => `printf -v CDPATH %s ${absA}`,
-      () => `printf -v 'CDPATH[0]' %s ${absA}`,
-      () => `declare CDPATH=${absA}`,
-      () => `k(){ cd b; }; CDPATH=${absA} k`,
-      () => `cd ${pick(['"a"', "a\\/b", "'b'", '"$HOME"'])}`,
-      () => pick(["logout", "return", "exec 3>/dev/null"]),
+      ...roundThreeAtoms(pick, absA),
       leaf,
       leaf,
       leaf,
@@ -213,7 +222,7 @@ test("every directory bash ran a leaf in is among the candidates, else unresolve
       join(start, "c"),
       join(start, "a"),
     );
-    const verdicts = Array.from({ length: 1400 }, () => gen.line()).flatMap(
+    const verdicts = Array.from({ length: 1800 }, () => gen.line()).flatMap(
       (cmd) =>
         runLine(cmd, tree).map((v) =>
           typeof v === "object" ? { miss: `${cmd}\n    ${v.miss}` } : v,
