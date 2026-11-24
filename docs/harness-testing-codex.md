@@ -147,12 +147,12 @@ Codex — and Codex only.** On Claude Code it's a supported measurement.
 skill-selection event, so "did the skill fire?" is a fact. **Codex emits no such
 event.** So the Codex adapter infers firing from whether the model _read_ the
 skill's `SKILL.md` (a `command_execution`) and puts that in the trace — which is
-what `skill(name)` and `codexSkillFired` read, so `fired: skill(name)` works on
+what `check.skill(name)` and `codexSkillFired` read, so `fired: check.skill(name)` works on
 Codex. The command is read with the compiled-hook shell parser: a `SKILL.md`
 printed by `cat`, `sed`, `head` and the like counts; writing it, grepping it,
 listing it, or reading a sibling skill whose name ends the same way does not. On
 the deterministic tier (`codex exec` without `--json`) no command is captured, so
-`skill()` fails there saying skill activations are not observable on codex,
+`check.skill()` fails there saying skill activations are not observable on codex,
 rather than reporting a miss. The inference still fails two ways:
 
 - **False negative** — the skill's content is already in context (cached), so the

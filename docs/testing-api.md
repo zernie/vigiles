@@ -85,7 +85,7 @@ import {
   toolUsedWith,
   outputContains,
   hookBlocked,
-  hookFired, // a check, not a predicate: read its verdict with .eval(trace).pass
+  check, // the check vocabulary; a check's verdict is .eval(trace).pass
 } from "vigiles";
 
 usedTool(trace, "Skill"); // boolean
@@ -94,7 +94,7 @@ toolCount(trace, "Write"); // number
 skillResolved(trace, "demo:greet"); // boolean
 toolUsedWith(trace, "Edit", (i) => isRightFile(i)); // boolean (tool argument)
 outputContains(trace, /done/i); // boolean (the final answer)
-hookFired("PreToolUse").eval(trace).pass; // boolean (recorded from the stream)
+check.hookFired("PreToolUse").eval(trace).pass; // boolean (recorded from the stream)
 hookBlocked(trace, "PreToolUse"); // boolean (fired AND exit ≠ 0)
 ```
 
@@ -242,20 +242,27 @@ regression baselines fall out for free.
 **The vocabulary** (from `vigiles` — except `paid_judged`, which calls a model and
 so lives on `vigiles/eval`):
 
-| Check                      | Holds when…                                                             | Over             |
-| -------------------------- | ----------------------------------------------------------------------- | ---------------- |
-| `tool(name)`               | the agent used that tool                                                | Trace            |
-| `skill(id)`                | the skill `id` resolved (no error), as the harness's adapter reports it | Trace            |
-| `mcp(server, tool)`        | the agent used `mcp__server__tool`                                      | Trace            |
-| `subagent(name, [checks])` | the `Task` subagent ran + passed nested checks                          | Trace (nested)   |
-| `output(str \| /re/)`      | the final answer contains/matches                                       | Trace            |
-| `received(str \| /re/)`    | text reached the model (slash-command / injected)                       | Trace (mock)     |
-| `hookFired(event)`         | a hook fired for that event (one argument — a check, not a predicate)   | Trace            |
-| `turns({ min, max })`      | the agent took N turns (multi-turn)                                     | Trace            |
-| `wrote(path)`              | a file was created                                                      | Trace            |
-| `paid_judged(rubric, {…})` | a model grades the output ≥ `min` (LLM rubric)                          | Trace (eval)     |
-| `cost/latency/tokens({…})` | the run stayed under budget                                             | run usage (eval) |
-| `blocked()` / `allowed()`  | the hook blocked / allowed                                              | `runHook` result |
+Every check is also a member of the one callable `check` object — `check.tool`,
+`check.output`, `check.blocked()`, … — and `check(name, fn)` names your own.
+
+| Check                                          | Holds when…                                                                    | Over             |
+| ---------------------------------------------- | ------------------------------------------------------------------------------ | ---------------- |
+| `tool(name)`                                   | the agent used that tool                                                       | Trace            |
+| `check.tool(name, { min, max })`               | that tool was used a number of times in bounds                                 | Trace            |
+| `check.toolSequence([a, b])`                   | those tools ran in that order (gaps allowed)                                   | Trace            |
+| `check.runs(program, { force? })`              | a shell command ran `program` — read by the compiled-hook parser, any spelling | Trace            |
+| `check(name, fn)`                              | your own predicate holds — named, serialized and scored like the rest          | anything         |
+| `check.skill(id)`                              | the skill `id` resolved (no error), as the harness's adapter reports it        | Trace            |
+| `mcp(server, tool)`                            | the agent used `mcp__server__tool`                                             | Trace            |
+| `subagent(name, [checks])`                     | the `Task` subagent ran + passed nested checks                                 | Trace (nested)   |
+| `output(str \| /re/)`                          | the final answer contains/matches                                              | Trace            |
+| `received(str \| /re/)`                        | text reached the model (slash-command / injected)                              | Trace (mock)     |
+| `check.hookFired(event \| /re/, { blocked? })` | a hook fired for that event or label (and blocked)                             | Trace            |
+| `turns({ min, max })`                          | the agent took N turns (multi-turn)                                            | Trace            |
+| `wrote(path)`                                  | a file was created                                                             | Trace            |
+| `paid_judged(rubric, {…})`                     | a model grades the output ≥ `min` (LLM rubric)                                 | Trace (eval)     |
+| `cost/latency/tokens({…})`                     | the run stayed under budget                                                    | run usage (eval) |
+| `blocked()` / `allowed()`                      | the hook blocked / allowed                                                     | `runHook` result |
 
 `paid_measureArms({ arms, checks })` scores the same checks per arm (a hook/skill/rule
 **on vs off**); `compareCheck(report, baseline, arm, i)` returns a Welch verdict.
@@ -327,11 +334,11 @@ assertTriggerRate(report, { min: 0.8, maxFalsePositive: 0.1 });
 
 - **`skillsDir` vs `pluginDir`** — exactly one. `skillsDir` packages a loose
   `.claude/skills` into a throwaway plugin for you.
-- **`fired`** — a check or a predicate over the run's trace. `fired:
-skill("my-plugin:greet")` asks the harness's adapter, so it works on every
-  harness; `(t) => skillResolved(t, …)` still works. Switching between the two
-  does not make a recorded lock stale: the lock pins what the model sees, not how
-  the script reads the run.
+- **`fired`** — a check or a predicate over the run's trace.
+  `check.skill("my-plugin:greet")` asks the harness's adapter, so it works on
+  every harness; `(t) => skillResolved(t, …)` still works. Switching between the
+  two does not make a recorded lock stale: the lock pins what the model sees, not
+  how the script reads the run.
 - **`stubSkillBodies`** — triggering is decided by frontmatter _before_ the body
   loads, so stubbing the body (descriptions kept) lets a run stop at selection
   instead of executing a multi-step procedure. Don't combine with judged/quality
