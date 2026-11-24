@@ -11,7 +11,7 @@
  *
  * Beside it, the REAL vendored davila7 guard (the artifact #211 was measured on)
  * proves the condition is read off the CONFIG rather than passed by the caller —
- * the whole point of this function existing next to `verifyGuardrail`.
+ * the whole point of this function existing next to `runGuardrail`.
  *
  * BOTH HARNESSES: the same sweep runs over a Codex-shaped repo (flat TOML hooks,
  * `${PLUGIN_ROOT}`), which is what could catch a Claude-Code assumption baked into
@@ -320,7 +320,7 @@ describe("the empty cases speak", () => {
 
 describe("davila7 force-push-blocker (vendored, MIT) — read from the config", () => {
   it("honours EACH hook's own `if` without the caller passing one", () => {
-    // This is the whole difference from verifyGuardrail: the caller supplies a
+    // This is the whole difference from runGuardrail: the caller supplies a
     // DIRECTORY, and the two hooks get two different conditions because that is
     // what the file says. Passing one condition for both is unrepresentable here.
     const hooks = experimental_verifyPluginGuards(VENDOR).hooks;

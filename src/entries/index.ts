@@ -33,7 +33,7 @@
  *   - reading an eval REPORT (`compare`, `assertRates`, `assertImproves`,
  *     `assertNoRegression`) → `vigiles/eval`, beside the `paid_*` runners that produce the report.
  *     `paid_`, not the door, marks a call that can bill you.
- *   - the guard battery (`assertGuardrail`, `verifyGuardrail`, …) →
+ *   - the guard battery (`runGuardrail`, `guardrailHolds`, …) →
  *     `vigiles/hook/testing`.
  *   - testing a compiled hook in-process (`experimental_loadHook`, `experimental_assertHookDenies`, …) →
  *     `vigiles/hook/testing` (never `vigiles/hook`, a compiled hook's only import).

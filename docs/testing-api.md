@@ -128,7 +128,7 @@ scope, even when an assertion throws.
 
 To prove a guard blocks every disaster and allows the same text as data, use the
 battery on [`vigiles/hook/testing`](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery):
-`assertGuardrail("bash hooks/guard.sh")`.
+`assertChecks(runGuardrail("bash hooks/guard.sh"), [guardrailHolds()])`.
 
 ### Test a compiled hook in-process (no subprocess)
 
@@ -637,13 +637,13 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 
 **One door per reader** — every name lives behind exactly one of these:
 
-| Reader                | Import                 | What it holds                                                                                                                                                                                                                                                                                                                 |
-| --------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Test your harness     | `vigiles`              | the runners, every check and assertion over a run, the matchers, tool stubs, `defineEval`, and the report types — everything that costs nothing to run                                                                                                                                                                        |
-| Measure with a model  | `vigiles/eval`         | the `paid_*` runners, and the free readers of their report: `compare`, `assertRates`, `assertImproves`, `assertNoRegression` (with its `baseline` file)                                                                                                                                                                       |
-| Write a compiled hook | `vigiles/hook`         | the hook vocabulary — the only import a compiled hook may have                                                                                                                                                                                                                                                                |
-| Test a hook           | `vigiles/hook/testing` | `experimental_loadHook`, `runHookProgram`, `experimental_assertHookDenies` / `experimental_assertHookAllows` / `experimental_assertHookNotices` / `experimental_assertHookSilent`, and the guard checks `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState` |
-| Author a spec         | `vigiles/spec`         | the spec builders and their types, and `experimental_assertAgentOk` (compiling is `vigiles compile` / `vigiles lint`)                                                                                                                                                                                                         |
+| Reader                | Import                 | What it holds                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Test your harness     | `vigiles`              | the runners, every check and assertion over a run, the matchers, tool stubs, `defineEval`, and the report types — everything that costs nothing to run                                                                                                                                                                                                                                                 |
+| Measure with a model  | `vigiles/eval`         | the `paid_*` runners, and the free readers of their report: `compare`, `assertRates`, `assertImproves`, `assertNoRegression` (with its `baseline` file)                                                                                                                                                                                                                                                |
+| Write a compiled hook | `vigiles/hook`         | the hook vocabulary — the only import a compiled hook may have                                                                                                                                                                                                                                                                                                                                         |
+| Test a hook           | `vigiles/hook/testing` | `experimental_loadHook`, `runHookProgram`, `experimental_assertHookDenies` / `experimental_assertHookAllows` / `experimental_assertHookNotices` / `experimental_assertHookSilent`, and the guard battery: the runner `runGuardrail`, its check `guardrailHolds`, the case sets `disasters` / `experimental_crossRepo`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState` |
+| Author a spec         | `vigiles/spec`         | the spec builders and their types, and `experimental_assertAgentOk` (compiling is `vigiles compile` / `vigiles lint`)                                                                                                                                                                                                                                                                                  |
 
 **In a `*.eval.mjs` file the runners below are DECLARED, not called** —
 `export default defineEval({ measure: spec })` — because importing a file that
@@ -709,6 +709,33 @@ when the harness changes; unused adapters tree-shake out. The CLI can't take an
 import, so it **auto-detects** the harness from the repo. For the full
 adapter/import model and the capability matrix, see
 [`docs/harnesses.md`](harnesses.md).
+
+## Migrating to v53
+
+v53 gives the guard battery the shape of the rest of the API (#418, #518): a
+runner returns a result, a check asserts on it, and WHICH cases run is a value
+you pass. All on `vigiles/hook/testing` unless noted. There are no aliases.
+
+| Removed in v53                                                                                                               | Write instead                                                                                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verifyGuardrail(hook, opts)`                                                                                                | `runGuardrail(hook, cases?, opts?).rows` — the result is `{ kind, hook, rows }`                                                                          |
+| `assertGuardrail(hook, opts)`                                                                                                | `assertChecks(runGuardrail(hook, cases?, opts?), [guardrailHolds()])` (`assertChecks` from `vigiles`)                                                    |
+| options `events` / `categories` / `spellings` / `harmless`                                                                   | `runGuardrail(hook, disasters({ events, categories, spellings, harmless }))`                                                                             |
+| option `experimental_targetRepo: { command, blocked, allowed, forms }`                                                       | `runGuardrail(hook, experimental_crossRepo({ command, blockIn, allowIn, forms }))`                                                                       |
+| `experimental_alternateSpellings(events)`                                                                                    | `disasters({ events }).spellings`                                                                                                                        |
+| `experimental_harmlessTwins(events)`                                                                                         | `disasters({ events }).harmless`                                                                                                                         |
+| `[...experimental_alternateSpellings(DISASTER_CATALOG), mine]`                                                               | `const d = disasters(); runGuardrail(hook, { ...d, spellings: [...d.spellings, mine] })`                                                                 |
+| type `VerifyGuardrailOptions`                                                                                                | `RunGuardrailOptions` (how to run) + `DisasterCasesOptions` (which disasters)                                                                            |
+| type `GuardrailResult` (a row)                                                                                               | `DisasterRow`; the runner's result is `GuardrailRunResult`                                                                                               |
+| types `TargetRepoResult` / `TargetRepoCases` / `TargetRepoEvent` / `TargetRepoFixture` / `TargetRepoForm` / `TargetRepoSide` | `CrossRepoRow` / `CrossRepoSetup` (input; `CrossRepoCases` is the built set) / `CrossRepoEvent` / `CrossRepoFixture` / `CrossRepoForm` / `CrossRepoSide` |
+| `parseShellCommand`, `parseFilePath`, `leafCommandsNormalized` (`vigiles/hook`)                                              | none: internal. A hook reads `e.command` / `e.path`, which the runtime already parsed; an `e.command` method (`runs`, `touches`, …) is the vocabulary    |
+
+The check fails, each in its own words, where the old assertion threw: a hook
+that never ran ("NEVER RAN"), a case it never answered ("NOT RUN"), and a
+cross-repository crossing whose control failed ("NOT A VERDICT"). Combining a
+cross-repository set with `cwd` still throws; combining it with the disaster
+options can no longer be written. The `forms` of `experimental_crossRepo` are
+checked when the set is built, not when it runs.
 
 ## Migrating to v52
 

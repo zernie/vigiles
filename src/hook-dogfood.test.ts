@@ -20,14 +20,14 @@ import { resolve } from "node:path";
 
 import {
   DISASTER_CATALOG,
-  verifyGuardrail,
+  disasters,
+  runGuardrail,
+  guardrailHolds,
   unblockedDisasters,
-  assertGuardrail,
-  experimental_harmlessTwins,
-  experimental_alternateSpellings,
   type DisasterEvent,
   type DisasterCategory,
 } from "./guardrail-check.js";
+import { assertChecks } from "./check.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 import { runHook } from "./run-hook.js";
 
@@ -35,7 +35,7 @@ import { runHook } from "./run-hook.js";
 // matcher by design (an over-inclusive denylist), so it also blocks
 // `echo 'cat ~/.ssh/id_rsa'`. Its look-alikes are left out; every other one
 // must pass.
-const SAFE_GUARD_HARMLESS = experimental_harmlessTwins(DISASTER_CATALOG).filter(
+const SAFE_GUARD_HARMLESS = disasters().harmless.filter(
   (t) => t.of !== "read-ssh-key",
 );
 
@@ -67,7 +67,7 @@ test("a hand-written substring guard has the documented blind spots (the bug cla
     writeFileSync(guard, NAIVE_GUARD);
     chmodSync(guard, 0o755);
 
-    const results = verifyGuardrail(`bash ${guard}`);
+    const results = runGuardrail(`bash ${guard}`).rows;
     const missed = unblockedDisasters(results).map((m) => m.event.id);
 
     // It catches the two literal strings it lists …
@@ -94,10 +94,14 @@ test("a hand-written substring guard has the documented blind spots (the bug cla
 test("the COMPILED hook blocks all 7 disasters by construction (closes the gaps)", () => {
   // cwd = repo root so the example's `../../dist/entries/hook.js` import resolves.
   // No throw ⇒ every disaster AND every spelling of it is denied (exit 2).
-  assertGuardrail(`node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`, {
-    cwd: REPO_ROOT,
-    harmless: SAFE_GUARD_HARMLESS,
-  });
+  assertChecks(
+    runGuardrail(
+      `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
+      disasters({ harmless: SAFE_GUARD_HARMLESS }),
+      { cwd: REPO_ROOT },
+    ),
+    [guardrailHolds()],
+  );
 }, 240_000);
 
 // ---------------------------------------------------------------------------
@@ -138,7 +142,10 @@ test("a guard that halts the turn is credited with blocking (#174)", () => {
     writeFileSync(guard, HALTING_GUARD);
     chmodSync(guard, 0o755);
 
-    const results = verifyGuardrail(`bash ${guard}`, { harmless: [] });
+    const results = runGuardrail(
+      `bash ${guard}`,
+      disasters({ harmless: [] }),
+    ).rows;
     const missed = unblockedDisasters(results).map((m) => m.event.id);
 
     assert.deepEqual(
@@ -153,7 +160,9 @@ test("a guard that halts the turn is credited with blocking (#174)", () => {
     );
     // The gate itself must now pass on it.
     assert.doesNotThrow(() => {
-      assertGuardrail(`bash ${guard}`, { harmless: [] });
+      assertChecks(runGuardrail(`bash ${guard}`, disasters({ harmless: [] })), [
+        guardrailHolds(),
+      ]);
     });
   } finally {
     cleanupTmpDir(dir);
@@ -172,7 +181,7 @@ test("a guard that only says continue:true still fails the battery", () => {
 
     assert.throws(
       () => {
-        assertGuardrail(`bash ${guard}`);
+        assertChecks(runGuardrail(`bash ${guard}`), [guardrailHolds()]);
       },
       /did NOT block/,
       "a permissive guard must still be reported as false confidence",
@@ -207,18 +216,21 @@ test("a guard that only says continue:true still fails the battery", () => {
 // timeout deliberately; if it ever needs raising again, that is the signal to
 // batch the runs rather than to keep buying time.
 test("every shell-equivalent rewrite of the battery is still blocked", () => {
-  const events = experimental_alternateSpellings(DISASTER_CATALOG);
+  const events = disasters().spellings;
   assert.ok(
     events.length > 30,
     `expected a real corpus, got ${String(events.length)}`,
   );
   const missed = unblockedDisasters(
-    verifyGuardrail(`node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`, {
-      cwd: REPO_ROOT,
-      events,
-      harmless: [],
-      spellings: [], // these events ARE spellings already
-    }),
+    runGuardrail(
+      `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
+      disasters({
+        events,
+        harmless: [],
+        spellings: [] /* these events ARE spellings already */,
+      }),
+      { cwd: REPO_ROOT },
+    ).rows,
   ).map((m) => String(m.event.input["command"]));
   assert.deepEqual(
     missed,
@@ -238,18 +250,21 @@ test("g\\it push --force is blocked (a spelling the battery could not have found
   const seed = DISASTER_CATALOG.find((e) => e.id === "force-push");
   assert.ok(seed, "the catalog names a force-push seed");
   const missed = unblockedDisasters(
-    verifyGuardrail(`node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`, {
-      cwd: REPO_ROOT,
-      events: [
-        {
-          ...seed,
-          id: "force-push~escaped-head",
-          input: { command: "g\\it push --force origin main" },
-        },
-      ],
-      harmless: [],
-      spellings: [], // these events ARE spellings already
-    }),
+    runGuardrail(
+      `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
+      disasters({
+        events: [
+          {
+            ...seed,
+            id: "force-push~escaped-head",
+            input: { command: "g\\it push --force origin main" },
+          },
+        ],
+        harmless: [],
+        spellings: [] /* these events ARE spellings already */,
+      }),
+      { cwd: REPO_ROOT },
+    ).rows,
   );
   assert.deepEqual(missed, []);
 });
@@ -271,11 +286,12 @@ test("the guard did not become a blunt blocker", () => {
     tool: "Bash",
     input: { command },
   }));
-  const blocked = verifyGuardrail(
+  const blocked = runGuardrail(
     `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
-    { cwd: REPO_ROOT, events: benign, harmless: [], spellings: [] },
+    disasters({ events: benign, harmless: [], spellings: [] }),
+    { cwd: REPO_ROOT },
   )
-    .filter((r) => r.blocked)
+    .rows.filter((r) => r.blocked)
     .map((r) => r.event.label);
   assert.deepEqual(blocked, [], "a benign command must still pass");
 });

@@ -21,8 +21,8 @@
  * `vigiles/hook/testing` (v51), which served the same person.
  *
  *   import { experimental_defineHook } from "vigiles/hook";      // in the hook
- *   import { experimental_loadHook, experimental_assertHookDenies, assertGuardrail }
- *     from "vigiles/hook/testing";                                // in its test
+ *   import { experimental_loadHook, experimental_assertHookDenies, runGuardrail,
+ *     guardrailHolds } from "vigiles/hook/testing";               // in its test
  */
 
 // --- in-process: load a compiled hook, run it, assert the decision ---
@@ -45,39 +45,50 @@ export {
 } from "../../hook-assertions.js";
 
 // --- the guard battery: every disaster blocked, every harmless twin allowed ---
-// The catalog, the verifier and the assertion over one guard (a compiled hook
-// in-process, a command string over runHook).
+// One runner, case sets as values, one check (v53). `runGuardrail` returns the
+// rows and never throws; `guardrailHolds()` is the check over them, so it goes
+// through `assertChecks` / `expect(r).toPass(...)` like every other check. The
+// check lives HERE, not as `check.guardrail` on the root: its only input is
+// this entry's runner result, and its reader is this entry's (a hook author
+// proving a guard blocks). The case sets: `disasters(...)` (the default; the
+// spelling and look-alike generators, formerly two exports, are its fields)
+// and `experimental_crossRepo(...)` (#418).
 export {
   DISASTER_CATALOG,
-  verifyGuardrail,
-  assertGuardrail,
-  experimental_alternateSpellings,
-  experimental_harmlessTwins,
+  disasters,
+  experimental_crossRepo,
+  runGuardrail,
+  guardrailHolds,
 } from "../../guardrail-check.js";
 export type {
+  DisasterCases,
+  DisasterCasesOptions,
   DisasterEvent,
   DisasterCategory,
-  GuardrailResult,
+  DisasterRow,
+  GuardrailCases,
   GuardrailRow,
   GuardrailRun,
+  GuardrailRunResult,
+  CrossRepoRow,
   HarmlessEvent,
   HarmlessForm,
-  TargetRepoResult,
-  VerifyGuardrailOptions,
+  RunGuardrailOptions,
 } from "../../guardrail-check.js";
-// The cross-repository cases (`experimental_targetRepo`, #418): the option's
-// shape, the repository handed to its setup callbacks, and each case's event.
+// The cross-repository set's shapes: what `experimental_crossRepo` takes and
+// returns, the repository handed to its setup callbacks, and each case's event.
 export type {
-  TargetRepoCases,
-  TargetRepoEvent,
-  TargetRepoFixture,
-  TargetRepoForm,
-  TargetRepoSide,
+  CrossRepoCases,
+  CrossRepoEvent,
+  CrossRepoFixture,
+  CrossRepoForm,
+  CrossRepoSetup,
+  CrossRepoSide,
 } from "../../guardrail-target-repo.js";
 
 // The same battery pointed at a DIRECTORY: each hook's event, matcher, command
 // and condition are read off its own registration, so the pairing mistake a
-// hand-built `verifyGuardrail` call can make cannot be made.
+// hand-built `runGuardrail` call can make cannot be made.
 export { experimental_verifyPluginGuards } from "../../verify-plugin-guards.js";
 export type {
   PluginGuardReport,

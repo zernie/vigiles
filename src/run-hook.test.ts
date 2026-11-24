@@ -182,7 +182,7 @@ test("decideHook: a harness with no haltsTurnField ignores continue", () => {
 
 test("runHook: a guard that halts the turn reports blocked", () => {
   // End-to-end through a real process, not just the pure decision: this is the
-  // path `verifyGuardrail` walks.
+  // path `runGuardrail` walks.
   const r = runHook(
     `printf '%s' '{"continue": false, "stopReason": "blocked: force push"}'`,
     { hook_event_name: "PreToolUse", tool_name: "Bash" },

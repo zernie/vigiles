@@ -58,17 +58,38 @@ test("package.json exports: every entry module mirrors its export path under src
 
 test("the guard battery lives on vigiles/hook/testing, not the root", () => {
   for (const name of [
-    "assertGuardrail",
-    "verifyGuardrail",
+    "runGuardrail",
+    "guardrailHolds",
+    "disasters",
+    "experimental_crossRepo",
     "DISASTER_CATALOG",
-    "experimental_alternateSpellings",
-    "experimental_harmlessTwins",
     "experimental_hookState",
     "experimental_verifyPluginGuards",
   ]) {
     assert.ok(has(hookTesting, name), `vigiles/hook/testing exports ${name}`);
     assert.ok(!has(root, name), `the root no longer exports ${name}`);
   }
+});
+
+test("v53: one guardrail runner and a check; the parsers left vigiles/hook", () => {
+  // The battery's "result + throw" pair became a runner and a check, and the
+  // two generators became fields of the disaster-set value (`disasters()`).
+  for (const gone of [
+    "verifyGuardrail",
+    "assertGuardrail",
+    "experimental_alternateSpellings",
+    "experimental_harmlessTwins",
+  ])
+    for (const door of [root, hook, hookTesting])
+      assert.ok(!has(door, gone), `${gone} is gone`);
+  // #518: internal now; a hook reads the parsed `e.command` / `e.path`.
+  for (const gone of [
+    "parseShellCommand",
+    "parseFilePath",
+    "leafCommandsNormalized",
+  ])
+    for (const door of [root, hook, hookTesting])
+      assert.ok(!has(door, gone), `${gone} is internal`);
 });
 
 test("the eval-report readers live on vigiles/eval, folded", () => {

@@ -434,7 +434,7 @@
     "complexity": 23
   },
   "src/hook-condition.test.ts": {
-    "max-lines-per-function": 65
+    "max-lines-per-function": 62
   },
   "src/hook-install.test.ts": {
     "max-lines-per-function": 353
@@ -637,7 +637,7 @@
   },
   "src/verify-plugin-guards.ts": {
     "max-params": 5,
-    "max-lines-per-function": 99,
+    "max-lines-per-function": 98,
     "complexity": 17,
     "sonarjs/cognitive-complexity": 15
   }

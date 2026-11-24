@@ -13,14 +13,15 @@ import { spawnSync } from "node:child_process";
 
 import {
   DISASTER_CATALOG,
-  verifyGuardrail,
+  disasters,
+  runGuardrail,
+  guardrailHolds,
   unblockedDisasters,
-  assertGuardrail,
-  experimental_alternateSpellings,
-  experimental_harmlessTwins,
+  alternateSpellings,
   formatGuardrailReport,
   spellingCases,
 } from "./guardrail-check.js";
+import { assertChecks } from "./check.js";
 import {
   allow,
   deny,
@@ -64,21 +65,19 @@ test("exit 2 guard BLOCKS the force-push battery; exit 1 guard silently allows i
     const real = writeGuard(dir, "real-guard.sh", 2);
     const fake = writeGuard(dir, "fake-guard.sh", 1);
 
-    const realResults = verifyGuardrail(real, {
-      events: PUSH_EVENTS,
-      harmless: [],
-      spellings: [],
-    });
+    const realResults = runGuardrail(
+      real,
+      disasters({ events: PUSH_EVENTS, harmless: [], spellings: [] }),
+    ).rows;
     assert.ok(
       realResults.every((r) => r.blocked),
       "exit 2 should block every push",
     );
 
-    const fakeResults = verifyGuardrail(fake, {
-      events: PUSH_EVENTS,
-      harmless: [],
-      spellings: [],
-    });
+    const fakeResults = runGuardrail(
+      fake,
+      disasters({ events: PUSH_EVENTS, harmless: [], spellings: [] }),
+    ).rows;
     assert.ok(
       fakeResults.every((r) => !r.blocked),
       "exit 1 looks like a block but allows — the false-confidence bug",
@@ -89,7 +88,7 @@ test("exit 2 guard BLOCKS the force-push battery; exit 1 guard silently allows i
   }
 });
 
-test("assertGuardrail passes the real guard, throws on the fake with the misses", () => {
+test("guardrailHolds passes the real guard, throws on the fake with the misses", () => {
   const dir = makeTmpDir("guardrail-assert");
   try {
     const real = writeGuard(dir, "real-guard.sh", 2);
@@ -97,27 +96,33 @@ test("assertGuardrail passes the real guard, throws on the fake with the misses"
 
     // Real guard over the push subset → no throw.
     assert.doesNotThrow(() => {
-      assertGuardrail(real, {
-        events: PUSH_EVENTS,
-        harmless: [],
-        spellings: [],
-      });
+      assertChecks(
+        runGuardrail(
+          real,
+          disasters({ events: PUSH_EVENTS, harmless: [], spellings: [] }),
+        ),
+        [guardrailHolds()],
+      );
     });
 
     // Fake guard → throws, naming the missed actions.
     assert.throws(() => {
-      assertGuardrail(fake, {
-        events: PUSH_EVENTS,
-        harmless: [],
-        spellings: [],
-      });
+      assertChecks(
+        runGuardrail(
+          fake,
+          disasters({ events: PUSH_EVENTS, harmless: [], spellings: [] }),
+        ),
+        [guardrailHolds()],
+      );
     }, /did NOT block/);
     assert.throws(() => {
-      assertGuardrail(fake, {
-        events: PUSH_EVENTS,
-        harmless: [],
-        spellings: [],
-      });
+      assertChecks(
+        runGuardrail(
+          fake,
+          disasters({ events: PUSH_EVENTS, harmless: [], spellings: [] }),
+        ),
+        [guardrailHolds()],
+      );
     }, /false confidence/);
   } finally {
     cleanupTmpDir(dir);
@@ -128,7 +133,10 @@ test("a guard that only handles git misses the rm -rf / secret-read battery", ()
   const dir = makeTmpDir("guardrail-partial");
   try {
     const gitOnly = writeGuard(dir, "git-only.sh", 2);
-    const results = verifyGuardrail(gitOnly, { harmless: [], spellings: [] }); // full catalog
+    const results = runGuardrail(
+      gitOnly,
+      disasters({ harmless: [], spellings: [] }),
+    ).rows; // full catalog
     const misses = unblockedDisasters(results);
     // It blocks the git pushes but not rm -rf, no-verify, ssh-read, curl|sh.
     const missedIds = misses.map((m) => m.event.id);
@@ -144,11 +152,14 @@ test("category filter restricts the battery", () => {
   const dir = makeTmpDir("guardrail-cat");
   try {
     const guard = writeGuard(dir, "g.sh", 2);
-    const results = verifyGuardrail(guard, {
-      categories: ["destructive-fs"],
-      harmless: [],
-      spellings: [],
-    });
+    const results = runGuardrail(
+      guard,
+      disasters({
+        categories: ["destructive-fs"],
+        harmless: [],
+        spellings: [],
+      }),
+    ).rows;
     assert.ok(
       results.every(
         (r) => r.expect === "block" && r.event.category === "destructive-fs",
@@ -166,18 +177,17 @@ test("formatGuardrailReport is NEUTRAL — reports allows without judging intent
     const fake = writeGuard(dir, "fake.sh", 1);
     const report = formatGuardrailReport(
       fake,
-      verifyGuardrail(fake, {
-        events: PUSH_EVENTS,
-        harmless: [],
-        spellings: [],
-      }),
+      runGuardrail(
+        fake,
+        disasters({ events: PUSH_EVENTS, harmless: [], spellings: [] }),
+      ).rows,
     );
     assert.match(report, /allows/);
     assert.match(report, /blocks 0\/2/);
     // The coverage map must NOT call an allow "false confidence" — intent unknown.
     assert.doesNotMatch(report, /false confidence/);
     // It points the user at the intent-declaring gate instead.
-    assert.match(report, /assertGuardrail/);
+    assert.match(report, /disasters\(\{ categories/);
   } finally {
     cleanupTmpDir(dir);
   }
@@ -218,7 +228,10 @@ test("a compiled hook object is decided in-process: one decide() call per case, 
       return PUSH_FORCE_GUARD.decide(e);
     },
   });
-  const results = verifyGuardrail(counting, { harmless: [], spellings: [] });
+  const results = runGuardrail(
+    counting,
+    disasters({ harmless: [], spellings: [] }),
+  ).rows;
   assert.equal(calls, results.length);
   assert.ok(results.every((r) => r.run === "ran"));
   assert.deepEqual(
@@ -227,13 +240,23 @@ test("a compiled hook object is decided in-process: one decide() call per case, 
   );
 });
 
-test("assertGuardrail on a compiled hook: passes when it blocks the selection, throws on a miss", () => {
-  const pushes = { events: PUSH_EVENTS, harmless: [], spellings: [] };
+test("guardrailHolds on a compiled hook: passes when it blocks the selection, throws on a miss", () => {
+  const pushes = disasters({
+    events: PUSH_EVENTS,
+    harmless: [],
+    spellings: [],
+  });
   assert.doesNotThrow(() => {
-    assertGuardrail(PUSH_FORCE_GUARD, pushes);
+    assertChecks(runGuardrail(PUSH_FORCE_GUARD, pushes), [guardrailHolds()]);
   });
   assert.throws(() => {
-    assertGuardrail(PUSH_FORCE_GUARD, { harmless: [], spellings: [] });
+    assertChecks(
+      runGuardrail(
+        PUSH_FORCE_GUARD,
+        disasters({ harmless: [], spellings: [] }),
+      ),
+      [guardrailHolds()],
+    );
   });
 });
 
@@ -243,11 +266,10 @@ test("an observe-mode compiled gate blocks nothing: the battery reads the action
     mode: "observe",
     decide: PUSH_FORCE_GUARD.decide,
   });
-  const results = verifyGuardrail(shadow, {
-    events: PUSH_EVENTS,
-    harmless: [],
-    spellings: [],
-  });
+  const results = runGuardrail(
+    shadow,
+    disasters({ events: PUSH_EVENTS, harmless: [], spellings: [] }),
+  ).rows;
   assert.ok(results.every((r) => r.run === "ran" && !r.blocked));
 });
 
@@ -256,7 +278,7 @@ test("a compiled hook that is not a gate is refused, not scored", () => {
     on: "SessionStart",
     produce: () => inject("hello"),
   });
-  assert.throws(() => verifyGuardrail(nudge), TypeError);
+  assert.throws(() => runGuardrail(nudge).rows, TypeError);
 });
 
 // ---------------------------------------------------------------------------
@@ -285,10 +307,9 @@ test("a guard whose library is missing (exit 1 on every call) never ran, on ever
   try {
     const guard = writeLibGuard(dir);
     for (const adapter of ADAPTERS) {
-      const results = verifyGuardrail(guard, {
+      const results = runGuardrail(guard, disasters({ spellings: [] }), {
         protocol: adapter.hookProtocol,
-        spellings: [],
-      });
+      }).rows;
       assert.ok(results.length > DISASTER_CATALOG.length);
       for (const r of results) {
         assert.equal(r.run, "crashed", `${adapter.name}: ${r.event.id}`);
@@ -296,10 +317,12 @@ test("a guard whose library is missing (exit 1 on every call) never ran, on ever
         assert.equal(r.blocked, false);
       }
       assert.throws(() => {
-        assertGuardrail(guard, {
-          protocol: adapter.hookProtocol,
-          spellings: [],
-        });
+        assertChecks(
+          runGuardrail(guard, disasters({ spellings: [] }), {
+            protocol: adapter.hookProtocol,
+          }),
+          [guardrailHolds()],
+        );
       });
     }
   } finally {
@@ -324,7 +347,10 @@ test.skipIf(!hasPython())(
         `env python3 ${missing}`,
       ]) {
         // With the look-alikes on: they fail too, so exit 2 cannot be a policy.
-        const results = verifyGuardrail(command, { spellings: [] });
+        const results = runGuardrail(
+          command,
+          disasters({ spellings: [] }),
+        ).rows;
         assert.ok(
           results.every((r) => r.run === "crashed" && !r.blocked),
           command,
@@ -340,11 +366,10 @@ test("a real exit-2 guard with an ordinary message is NOT a crash", () => {
   const dir = makeTmpDir("guardrail-real");
   try {
     const real = writeGuard(dir, "real.sh", 2);
-    const results = verifyGuardrail(real, {
-      events: PUSH_EVENTS,
-      harmless: [],
-      spellings: [],
-    });
+    const results = runGuardrail(
+      real,
+      disasters({ events: PUSH_EVENTS, harmless: [], spellings: [] }),
+    ).rows;
     assert.ok(results.every((r) => r.run === "ran" && r.blocked));
   } finally {
     cleanupTmpDir(dir);
@@ -363,11 +388,10 @@ echo "lib/x.sh: No such file or directory" >&2
 exit 1
 `,
     );
-    const results = verifyGuardrail(`bash ${path}`, {
-      events: PUSH_EVENTS,
-      harmless: [],
-      spellings: [],
-    });
+    const results = runGuardrail(
+      `bash ${path}`,
+      disasters({ events: PUSH_EVENTS, harmless: [], spellings: [] }),
+    ).rows;
     assert.ok(results.every((r) => r.run === "ran" && r.blocked));
   } finally {
     cleanupTmpDir(dir);
@@ -393,11 +417,11 @@ exit 0
   return `bash ${path}`;
 }
 
-test("a guard that matches the raw text blocks a look-alike of every form, and assertGuardrail fails it", () => {
+test("a guard that matches the raw text blocks a look-alike of every form, and guardrailHolds fails it", () => {
   const dir = makeTmpDir("guardrail-text");
   try {
     const guard = writeTextGuard(dir);
-    const results = verifyGuardrail(guard, { spellings: [] });
+    const results = runGuardrail(guard, disasters({ spellings: [] })).rows;
     assert.deepEqual(unblockedDisasters(results), []);
     const overBlocked = results.filter(
       (r) => r.expect === "allow" && r.blocked,
@@ -408,10 +432,15 @@ test("a guard that matches the raw text blocks a look-alike of every form, and a
     for (const form of ["commit-message", "heredoc", "echo", "grep-pattern"])
       assert.ok(forms.has(form), form);
     assert.throws(() => {
-      assertGuardrail(guard, { spellings: [] });
+      assertChecks(runGuardrail(guard, disasters({ spellings: [] })), [
+        guardrailHolds(),
+      ]);
     });
     assert.doesNotThrow(() => {
-      assertGuardrail(guard, { harmless: [], spellings: [] });
+      assertChecks(
+        runGuardrail(guard, disasters({ harmless: [], spellings: [] })),
+        [guardrailHolds()],
+      );
     });
   } finally {
     cleanupTmpDir(dir);
@@ -439,23 +468,28 @@ const PARSED_GUARD = experimental_defineHook({
 
 test("a compiled guard deciding on the parsed command blocks every disaster and no look-alike", () => {
   const events = DISASTER_CATALOG.filter((e) => e.id !== "read-ssh-key");
-  const results = verifyGuardrail(PARSED_GUARD, { events });
+  const results = runGuardrail(PARSED_GUARD, disasters({ events })).rows;
   assert.ok(results.some((r) => r.expect === "allow"));
   for (const r of results)
     assert.equal(r.blocked, r.expect === "block", r.event.id);
   assert.doesNotThrow(() => {
-    assertGuardrail(PARSED_GUARD, { events });
+    assertChecks(runGuardrail(PARSED_GUARD, disasters({ events })), [
+      guardrailHolds(),
+    ]);
   });
 });
 
 test("harmless: [] runs no look-alike; a custom battery gets look-alikes of its own cases", () => {
-  const off = verifyGuardrail(PUSH_FORCE_GUARD, {
-    harmless: [],
-    spellings: [],
-  });
+  const off = runGuardrail(
+    PUSH_FORCE_GUARD,
+    disasters({ harmless: [], spellings: [] }),
+  ).rows;
   assert.ok(off.every((r) => r.expect === "block"));
 
-  const mine = verifyGuardrail(PUSH_FORCE_GUARD, { events: PUSH_EVENTS });
+  const mine = runGuardrail(
+    PUSH_FORCE_GUARD,
+    disasters({ events: PUSH_EVENTS }),
+  ).rows;
   const seeds = new Set(PUSH_EVENTS.map((e) => e.id));
   const twins = mine.filter((r) => r.expect === "allow");
   assert.ok(twins.length > 0);
@@ -466,20 +500,23 @@ test("harmless: [] runs no look-alike; a custom battery gets look-alikes of its 
 test("a custom harmless case is checked as must-allow", () => {
   // A commit message from the #418 report: the reporter's own text guard
   // denied it; a guard on the parsed command lets it through.
-  const results = verifyGuardrail(PUSH_FORCE_GUARD, {
-    events: PUSH_EVENTS,
-    harmless: [
-      {
-        id: "docs-commit",
-        label: "commit whose message quotes a force push",
-        form: "custom",
-        tool: "Bash",
-        input: {
-          command: 'git commit -m "docs: never git push --force to main"',
+  const results = runGuardrail(
+    PUSH_FORCE_GUARD,
+    disasters({
+      events: PUSH_EVENTS,
+      harmless: [
+        {
+          id: "docs-commit",
+          label: "commit whose message quotes a force push",
+          form: "custom",
+          tool: "Bash",
+          input: {
+            command: 'git commit -m "docs: never git push --force to main"',
+          },
         },
-      },
-    ],
-  });
+      ],
+    }),
+  ).rows;
   const row = results.find((r) => r.event.id === "docs-commit");
   assert.ok(row);
   assert.equal(row.expect, "allow");
@@ -501,19 +538,21 @@ const MAIN_PUSH_GUARD = experimental_defineHook({
 });
 
 test("a gate with needs decides on the facts passed in ctx", () => {
-  const results = verifyGuardrail(MAIN_PUSH_GUARD, {
-    events: PUSH_EVENTS,
-    harmless: [],
-    spellings: [],
-    ctx: { "git.branch": "main" },
-  });
+  const results = runGuardrail(
+    MAIN_PUSH_GUARD,
+    disasters({ events: PUSH_EVENTS, harmless: [], spellings: [] }),
+    { ctx: { "git.branch": "main" } },
+  ).rows;
   assert.ok(results.every((r) => r.run === "ran" && r.blocked));
 });
 
 test("a gate whose needs ctx does not supply is refused, naming the missing fact", () => {
   for (const ctx of [undefined, { "git.isDirty": true }])
     assert.throws(
-      () => verifyGuardrail(MAIN_PUSH_GUARD, { events: PUSH_EVENTS, ctx }),
+      () =>
+        runGuardrail(MAIN_PUSH_GUARD, disasters({ events: PUSH_EVENTS }), {
+          ctx,
+        }).rows,
       (e: unknown) =>
         e instanceof TypeError && e.message.includes("git.branch"),
     );
@@ -534,7 +573,7 @@ test("a compiled gate that can never block a tool call is refused", () => {
   ];
   for (const gate of gates)
     assert.throws(
-      () => verifyGuardrail(gate, { harmless: [], spellings: [] }),
+      () => runGuardrail(gate, disasters({ harmless: [], spellings: [] })).rows,
       TypeError,
     );
 });
@@ -558,10 +597,10 @@ exit 0
 test("exit 2 on every disaster with a loader-ish stderr and no allow-expected case is scored, not crashed", () => {
   const dir = makeTmpDir("guardrail-rc");
   try {
-    const results = verifyGuardrail(writeOptionalRcGuard(dir), {
-      harmless: [],
-      spellings: [],
-    });
+    const results = runGuardrail(
+      writeOptionalRcGuard(dir),
+      disasters({ harmless: [], spellings: [] }),
+    ).rows;
     assert.ok(results.every((r) => r.run === "ran" && r.blocked));
   } finally {
     cleanupTmpDir(dir);
@@ -571,10 +610,10 @@ test("exit 2 on every disaster with a loader-ish stderr and no allow-expected ca
 test("a crash that cannot be a block (exit 1) is crashed even with no allow-expected case", () => {
   const dir = makeTmpDir("guardrail-crash1");
   try {
-    const results = verifyGuardrail(writeLibGuard(dir), {
-      harmless: [],
-      spellings: [],
-    });
+    const results = runGuardrail(
+      writeLibGuard(dir),
+      disasters({ harmless: [], spellings: [] }),
+    ).rows;
     assert.ok(results.every((r) => r.run === "crashed"));
   } finally {
     cleanupTmpDir(dir);
@@ -586,9 +625,10 @@ test.skipIf(!hasPython())(
   () => {
     const dir = makeTmpDir("guardrail-213-twins");
     try {
-      const results = verifyGuardrail(`python3 ${join(dir, "missing.py")}`, {
-        spellings: [],
-      });
+      const results = runGuardrail(
+        `python3 ${join(dir, "missing.py")}`,
+        disasters({ spellings: [] }),
+      ).rows;
       assert.ok(results.some((r) => r.expect === "allow"));
       assert.ok(results.every((r) => r.run === "crashed" && !r.blocked));
     } finally {
@@ -603,7 +643,7 @@ test("a hook that answered no harmless case is not reported as allowing them", (
     const guard = writeLibGuard(dir);
     const report = formatGuardrailReport(
       guard,
-      verifyGuardrail(guard, { spellings: [] }),
+      runGuardrail(guard, disasters({ spellings: [] })).rows,
     );
     assert.doesNotMatch(report, /allows [1-9]/);
   } finally {
@@ -614,18 +654,18 @@ test("a hook that answered no harmless case is not reported as allowing them", (
 test("a harmless case the hook's condition does not select is allowed: the harness never spawns it", () => {
   // Blocks the selected force push; its condition selects none of the
   // look-alikes, so the harness lets each of them through unasked.
-  const opts = {
+  const set = disasters({
     events: PUSH_EVENTS.filter((e) => e.id === "force-push"),
-    condition: "Bash(git push *)",
     spellings: [],
-  };
+  });
+  const opts = { condition: "Bash(git push *)" };
   const hook = `echo '{"decision":"block","reason":"x"}'`;
-  const results = verifyGuardrail(hook, opts);
+  const results = runGuardrail(hook, set, opts).rows;
   assert.ok(
     results.some((r) => r.expect === "allow" && r.run === "not-selected"),
   );
   assert.doesNotThrow(() => {
-    assertGuardrail(hook, opts);
+    assertChecks(runGuardrail(hook, set, opts), [guardrailHolds()]);
   });
   assert.match(
     formatGuardrailReport(hook, results),
@@ -633,19 +673,21 @@ test("a harmless case the hook's condition does not select is allowed: the harne
   );
 });
 
-test("assertGuardrail fails when a harmless case crashed", () => {
+test("guardrailHolds fails when a harmless case crashed", () => {
   const dir = makeTmpDir("guardrail-harmless-crash");
   try {
     // No disaster rows, so only the harmless rows can carry the failure.
-    const opts = {
+    const set = disasters({
       events: [],
-      harmless: experimental_harmlessTwins(PUSH_EVENTS),
-    };
-    const guard = writeLibGuard(dir);
-    assert.ok(verifyGuardrail(guard, opts).every((r) => r.run === "crashed"));
-    assert.throws(() => {
-      assertGuardrail(guard, opts);
+      harmless: disasters({ events: PUSH_EVENTS }).harmless,
     });
+    const guard = writeLibGuard(dir);
+    const result = runGuardrail(guard, set);
+    assert.ok(result.rows.every((r) => r.run === "crashed"));
+    assert.equal(guardrailHolds().eval(result).pass, false);
+    assert.throws(() => {
+      assertChecks(result, [guardrailHolds()]);
+    }, /NEVER RAN/);
   } finally {
     cleanupTmpDir(dir);
   }
@@ -672,10 +714,10 @@ exit 0
 const FORCE_PUSH = DISASTER_CATALOG.filter((e) => e.id === "force-push");
 
 test("the must-block half includes other spellings of each selected disaster by default", () => {
-  const results = verifyGuardrail(PUSH_FORCE_GUARD, {
-    events: FORCE_PUSH,
-    harmless: [],
-  });
+  const results = runGuardrail(
+    PUSH_FORCE_GUARD,
+    disasters({ events: FORCE_PUSH, harmless: [] }),
+  ).rows;
   const spelled = results.filter((r) => r.event.id.startsWith("force-push~"));
   assert.ok(spelled.length > 0);
   assert.ok(spelled.every((r) => r.expect === "block" && r.blocked));
@@ -685,15 +727,17 @@ test("a guard that matches one spelling fails on another, named by its id", () =
   const dir = makeTmpDir("guardrail-spelling");
   try {
     const guard = writeLiteralGuard(dir);
-    const opts = { events: FORCE_PUSH, harmless: [] };
-    const missed = unblockedDisasters(verifyGuardrail(guard, opts));
+    const set = disasters({ events: FORCE_PUSH, harmless: [] });
+    const missed = unblockedDisasters(runGuardrail(guard, set).rows);
     assert.ok(missed.length > 0);
     assert.ok(missed.every((r) => r.event.id.startsWith("force-push~")));
     assert.throws(() => {
-      assertGuardrail(guard, opts);
+      assertChecks(runGuardrail(guard, set), [guardrailHolds()]);
     });
     assert.doesNotThrow(() => {
-      assertGuardrail(guard, { ...opts, spellings: [] });
+      assertChecks(runGuardrail(guard, { ...set, spellings: [] }), [
+        guardrailHolds(),
+      ]);
     });
   } finally {
     cleanupTmpDir(dir);
@@ -708,11 +752,10 @@ test("spellings: [...] replaces the generated ones", () => {
     id: "force-push~mine",
     input: { command: "git push -f origin main" },
   };
-  const results = verifyGuardrail(PUSH_FORCE_GUARD, {
-    events: FORCE_PUSH,
-    spellings: [mine],
-    harmless: [],
-  });
+  const results = runGuardrail(
+    PUSH_FORCE_GUARD,
+    disasters({ events: FORCE_PUSH, spellings: [mine], harmless: [] }),
+  ).rows;
   assert.deepEqual(
     results.map((r) => r.event.id),
     ["force-push", "force-push~mine"],
@@ -722,19 +765,19 @@ test("spellings: [...] replaces the generated ones", () => {
 test("the seven seeds have a pinned number of spellings", () => {
   // Pinned so a family that silently stops applying is noticed: 13 families,
   // the subshell, the three nested-shell forms and `git -C .` among them.
-  assert.equal(experimental_alternateSpellings(DISASTER_CATALOG).length, 167);
+  assert.equal(alternateSpellings(DISASTER_CATALOG).length, 167);
 });
 
 test("the assertion and the report name the spelling that got through by its id", () => {
   const dir = makeTmpDir("guardrail-spelling-id");
   try {
     const guard = writeLiteralGuard(dir);
-    const opts = { events: FORCE_PUSH, harmless: [] };
+    const set = disasters({ events: FORCE_PUSH, harmless: [] });
     assert.throws(() => {
-      assertGuardrail(guard, opts);
+      assertChecks(runGuardrail(guard, set), [guardrailHolds()]);
     }, /force-push~\d+/);
     assert.match(
-      formatGuardrailReport(guard, verifyGuardrail(guard, opts)),
+      formatGuardrailReport(guard, runGuardrail(guard, set).rows),
       /force-push~\d+/,
     );
   } finally {
@@ -761,7 +804,9 @@ test("user events the spelling generator chokes on never throw at the user", () 
     on: "PreToolUse",
     decide: () => deny("everything"),
   });
-  assert.doesNotThrow(() => verifyGuardrail(guard, { events, harmless: [] }));
+  assert.doesNotThrow(
+    () => runGuardrail(guard, disasters({ events, harmless: [] })).rows,
+  );
 });
 
 test("a spelling of a user event that cannot be proven is skipped and counted, never a miss", () => {
@@ -783,4 +828,50 @@ test("a spelling of a user event that cannot be proven is skipped and counted, n
   }));
   assert.deepEqual(unblockedDisasters(skipped), []);
   assert.match(formatGuardrailReport("x", skipped), /1 spelling\(s\) skipped/);
+});
+
+// ---------------------------------------------------------------------------
+// v53: the runner returns, the check asserts, the case set is a value
+// ---------------------------------------------------------------------------
+
+test("guardrailHolds is a check: it passes with a count, fails with the misses, and serializes", () => {
+  const set = disasters({ events: PUSH_EVENTS, harmless: [], spellings: [] });
+  const held = guardrailHolds().eval(runGuardrail(PUSH_FORCE_GUARD, set));
+  assert.equal(held.pass, true);
+  assert.match(held.message, /blocked 2\/2 dangerous case\(s\)/);
+  const missed = guardrailHolds().eval(
+    runGuardrail(PUSH_FORCE_GUARD, disasters({ harmless: [], spellings: [] })),
+  );
+  assert.equal(missed.pass, false);
+  assert.equal(missed.score, 0);
+  assert.match(missed.message, /did NOT block 5 dangerous action\(s\)/);
+  assert.deepEqual(guardrailHolds().toJSON(), { kind: "guardrail" });
+});
+
+test("runGuardrail returns the rows without throwing, and names the hook and the set", () => {
+  const r = runGuardrail(
+    PUSH_FORCE_GUARD,
+    disasters({ harmless: [], spellings: [] }),
+  );
+  assert.equal(r.kind, "disasters");
+  assert.equal(r.hook, "compiled hook");
+  assert.equal(r.rows.length, DISASTER_CATALOG.length);
+  assert.ok(unblockedDisasters(r.rows).length > 0);
+});
+
+test("disasters() is the stock set, and the default of runGuardrail", () => {
+  const d = disasters();
+  assert.equal(d.kind, "disasters");
+  assert.deepEqual(d.events, DISASTER_CATALOG);
+  assert.equal(d.spellings.length, alternateSpellings(DISASTER_CATALOG).length);
+  assert.ok(d.harmless.length > 0);
+  assert.deepEqual(d.unproven, []);
+  assert.equal(
+    runGuardrail(PUSH_FORCE_GUARD).rows.length,
+    d.events.length + d.spellings.length + d.harmless.length,
+  );
+  assert.deepEqual(
+    disasters({ categories: ["destructive-fs"] }).events.map((e) => e.id),
+    ["rm-rf"],
+  );
 });

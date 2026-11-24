@@ -589,7 +589,7 @@ export function leafCommands(command: string): string[][] {
  * `x`, so the file the command actually WROTE appeared nowhere. That made the
  * single most common write shape invisible to any matcher built on the leaf.
  *
- * @public
+ * @internal
  */
 export interface LeafRedirect {
   /** The operator as written: `>`, `>>`, `>|`, `&>`, `&>>`, `<`, `<<`, `>&`, … */
@@ -614,7 +614,7 @@ export interface LeafRedirect {
 /**
  * A single simple command, normalized to its operation form.
  *
- * @public
+ * @internal
  */
 export interface NormalizedLeaf {
   /** Head normalized to its basename, backslash-stripped: `/bin/rm`→`rm`, `\rm`→`rm`. */
@@ -1290,7 +1290,7 @@ export function stripWrappers(argv: readonly string[]): {
  * Purely additive: reuses the same mvdan-sh parse, changes nothing above. Parse
  * failure → []. A leaf with a dynamic head is skipped (can't be normalized).
  *
- * @public
+ * @internal Not on any entry since v53 (#518); the primitive `runs()` and `touches()` match over.
  */
 export function leafCommandsNormalized(command: string): NormalizedLeaf[] {
   return shellEffects(command).flatMap((e) =>

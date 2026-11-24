@@ -70,7 +70,7 @@ const rows = WANTED.map((id) => {
 
 /** Fairness half: every shell re-spelling of a force push this guard withstands. */
 const forcePush = report.events.filter((e) => e.id.startsWith("force-push"));
-const spellings = engine.experimental_alternateSpellings(forcePush);
+const spellings = engine.disasters({ events: forcePush }).spellings;
 const all = [...forcePush, ...spellings];
 const spellReport = engine.experimental_verifyPluginGuards(dir, {
   events: all,

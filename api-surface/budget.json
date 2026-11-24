@@ -19,11 +19,7 @@
     },
     "./hook": {
       "ceiling": 21,
-      "grandfathered": [
-        "leafCommandsNormalized",
-        "parseFilePath",
-        "parseShellCommand"
-      ]
+      "grandfathered": []
     },
     "./hook/testing": {
       "ceiling": 13,

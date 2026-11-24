@@ -336,7 +336,7 @@ export interface HookRunResult extends ScriptRunResult {
    * {@link HookRunResult.haltsTurn}).
    *
    * The halt case was missing until 2026-08-31 (#174), and the shape of that bug
-   * is worth keeping written down: `verifyGuardrail` reads this field, so a real
+   * is worth keeping written down: `runGuardrail` reads this field, so a real
    * `PreToolUse` guard that stopped every one of the disaster battery's commands
    * was reported by `assertGuardrail` as blocking NONE of them. A tool
    * whose stated job is catching a guard that looks fine and silently does

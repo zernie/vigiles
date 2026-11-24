@@ -55,7 +55,7 @@ describe("scaffoldTest — hook (unit tier)", () => {
   it("takes the guard battery from vigiles/hook/testing, and prints no hidden formatter", () => {
     const { content } = scaffoldTest(input);
     expect(content).toContain(
-      'import { assertGuardrail } from "vigiles/hook/testing"',
+      'import { runGuardrail, disasters, guardrailHolds } from "vigiles/hook/testing"',
     );
     expect(content).not.toContain("formatGuardrailReport");
   });

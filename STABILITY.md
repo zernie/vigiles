@@ -42,7 +42,9 @@ their exit codes. Most of the churn is in the library API underneath it.
     `writeBaseline` into `assertNoRegression`'s `baseline` option in v52 (see the
     [migration table](docs/testing-api.md#migrating-to-v52)).
   - `vigiles/hook/testing` — everything for testing a hook: prove a guard
-    blocks (`assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`) and test a
+    blocks (`runGuardrail` with its check `guardrailHolds`, the case sets
+    `disasters` / `experimental_crossRepo`, `DISASTER_CATALOG`; v53, see the
+    [migration table](docs/testing-api.md#migrating-to-v53)) and test a
     compiled hook in process (`experimental_loadHook`, `experimental_assertHook*`).
     The `experimental_*` names are not stable. Two earlier entries merged into this
     one in v51 (see the [migration table](docs/testing-api.md#migrating-to-v51)).

@@ -28,11 +28,11 @@ import { REAL_DEPS } from "./run-script.js";
  * - `worktree` — the target is a LINKED WORKTREE of the start repository (not a
  *   separate clone), aimed at with `cd <target> && <command>`.
  *
- * Part of `experimental_targetRepo` on {@link VerifyGuardrailOptions}.
+ * Part of `experimental_crossRepo`.
  *
  * @beta
  */
-export type TargetRepoForm = "cd" | "git-C" | "worktree";
+export type CrossRepoForm = "cd" | "git-C" | "worktree";
 
 /**
  * Which setup a repository got: the state the guard must block in, or the one
@@ -40,41 +40,55 @@ export type TargetRepoForm = "cd" | "git-C" | "worktree";
  *
  * @beta
  */
-export type TargetRepoSide = "blocked" | "allowed";
+export type CrossRepoSide = "blocked" | "allowed";
 
 /**
  * A real git repository with at least one commit, handed to a setup callback.
- * Part of `experimental_targetRepo`.
+ * Part of `experimental_crossRepo`.
  *
  * @beta
  */
-export interface TargetRepoFixture {
+export interface CrossRepoFixture {
   /** The checkout's absolute directory, symlinks resolved. */
   readonly dir: string;
-  /** Run `git <args>` in {@link TargetRepoFixture.dir}; returns trimmed stdout, throws on a non-zero exit. */
+  /** Run `git <args>` in {@link CrossRepoFixture.dir}; returns trimmed stdout, throws on a non-zero exit. */
   git(...args: readonly string[]): string;
   /** Check out a branch named `name` at the current commit, creating it if needed (`git checkout -B`). */
   branch(name: string): void;
 }
 
 /**
- * The cross-repository cases to run instead of the disaster battery: one
- * command and the two repository states that decide it.
+ * What `experimental_crossRepo` takes: one command and the two repository
+ * states that decide it.
  *
  * @beta
  */
-export interface TargetRepoCases {
+export interface CrossRepoSetup {
   /** The command as the agent would type it in the target repository, e.g. `git push -f origin HEAD`. */
   readonly command: string;
   /** Put a repository into the state where `command` must be BLOCKED. */
-  readonly blocked: (repo: TargetRepoFixture) => void;
+  readonly blockIn: (repo: CrossRepoFixture) => void;
   /** Put a repository into the state where `command` must be ALLOWED. */
-  readonly allowed: (repo: TargetRepoFixture) => void;
+  readonly allowIn: (repo: CrossRepoFixture) => void;
   /**
    * The forms to run. Default: `cd` and `worktree`, plus `git-C` when `command`
    * starts with `git `. Asking for `git-C` with any other command throws.
    */
-  readonly forms?: readonly TargetRepoForm[];
+  readonly forms?: readonly CrossRepoForm[];
+}
+
+/**
+ * The cross-repository case set, a value `runGuardrail` runs in place of the
+ * disaster set. Build it with `experimental_crossRepo`; the forms are settled
+ * (checked) when it is built.
+ *
+ * @beta
+ */
+export interface CrossRepoCases extends CrossRepoSetup {
+  /** Which case set this is; the runner and the check switch on it. */
+  readonly kind: "cross-repo";
+  /** The forms that will run: the caller's, checked, or the default for `command`. */
+  readonly forms: readonly CrossRepoForm[];
 }
 
 /**
@@ -87,17 +101,17 @@ export interface TargetRepoCases {
  *
  * @beta
  */
-export interface TargetRepoEvent {
+export interface CrossRepoEvent {
   /** Stable id: `<form>:<start>-><target>`, or `<form>:<start>->itself` for a control. */
   readonly id: string;
   /** One-line label, e.g. `cd form: started in feature/x, targeted main`. */
   readonly label: string;
   /** How the command aims at the target. */
-  readonly via: TargetRepoForm;
+  readonly via: CrossRepoForm;
   /** The state of the repository the session started in. */
-  readonly start: TargetRepoSide;
+  readonly start: CrossRepoSide;
   /** The state of the repository the command targets. */
-  readonly target: TargetRepoSide;
+  readonly target: CrossRepoSide;
   /** True when the command targets the start repository itself. */
   readonly control: boolean;
   /** The tool the event names (always `Bash`). */
@@ -107,8 +121,8 @@ export interface TargetRepoEvent {
 }
 
 /** A planned case: the event, what a correct guard does, and where it runs. */
-export interface PlannedTargetCase {
-  readonly event: TargetRepoEvent;
+export interface PlannedCrossCase {
+  readonly event: CrossRepoEvent;
   readonly expect: "block" | "allow";
   /** The start repository: the event's `cwd` and the hook's working directory. */
   readonly startDir: string;
@@ -178,7 +192,7 @@ function runGit(dir: string, args: readonly string[]): string {
   return r.stdout.trim();
 }
 
-function fixture(dir: string): TargetRepoFixture {
+function fixture(dir: string): CrossRepoFixture {
   return {
     dir,
     git: (...args) => runGit(dir, args),
@@ -192,7 +206,7 @@ function fixture(dir: string): TargetRepoFixture {
  * A fresh repository with one commit on a neutral branch, so a setup that
  * checks out `main` is never refused because `main` is already the branch.
  */
-function initRepo(root: string, dir: string): TargetRepoFixture {
+function initRepo(root: string, dir: string): CrossRepoFixture {
   runGit(root, ["init", "-q", dir]); // creates `dir` and its parents
   runGit(dir, ["symbolic-ref", "HEAD", "refs/heads/vigiles-init"]);
   runGit(dir, ["commit", "-q", "--allow-empty", "-m", "vigiles fixture"]);
@@ -201,8 +215,8 @@ function initRepo(root: string, dir: string): TargetRepoFixture {
 
 /** The two checkouts of one form: one set up blocked, one set up allowed. */
 interface RepoPair {
-  readonly blocked: TargetRepoFixture;
-  readonly allowed: TargetRepoFixture;
+  readonly blocked: CrossRepoFixture;
+  readonly allowed: CrossRepoFixture;
 }
 
 /**
@@ -211,7 +225,7 @@ interface RepoPair {
  * linked one allowed, so the two cross cases cover both directions (linked →
  * main, main → linked).
  */
-function buildPair(root: string, form: TargetRepoForm): RepoPair {
+function buildPair(root: string, form: CrossRepoForm): RepoPair {
   if (form !== "worktree")
     return {
       blocked: initRepo(root, join(root, form, "blocked")),
@@ -224,7 +238,7 @@ function buildPair(root: string, form: TargetRepoForm): RepoPair {
 }
 
 /** What a reader calls a checkout: its branch, else its short commit. */
-function describeCheckout(repo: TargetRepoFixture): string {
+function describeCheckout(repo: CrossRepoFixture): string {
   const branch = repo.git("branch", "--show-current");
   return branch === ""
     ? `detached ${repo.git("rev-parse", "--short", "HEAD")}`
@@ -235,7 +249,7 @@ function describeCheckout(repo: TargetRepoFixture): string {
  * Each side's name in a label: the branch when the two setups leave different
  * branches (`main` vs `feature/x`), else which setup it got.
  */
-function sideNames(pair: RepoPair): Readonly<Record<TargetRepoSide, string>> {
+function sideNames(pair: RepoPair): Readonly<Record<CrossRepoSide, string>> {
   const blocked = describeCheckout(pair.blocked);
   const allowed = describeCheckout(pair.allowed);
   return blocked === allowed
@@ -246,20 +260,20 @@ function sideNames(pair: RepoPair): Readonly<Record<TargetRepoSide, string>> {
 const GIT_PREFIX = "git ";
 
 /** `command` aimed at `dir` in `form`. */
-function aim(command: string, form: TargetRepoForm, dir: string): string {
+function aim(command: string, form: CrossRepoForm, dir: string): string {
   return form === "git-C"
     ? `git -C ${quote(dir)} ${command.slice(GIT_PREFIX.length)}`
     : `cd ${quote(dir)} && ${command}`;
 }
 
-/** The forms to run: the caller's, checked, or the default for this command. */
-export function targetForms(spec: TargetRepoCases): readonly TargetRepoForm[] {
+/** The forms to run: the caller's, checked, or the default for this command. Throws on a form set that proves nothing. */
+export function crossForms(spec: CrossRepoSetup): readonly CrossRepoForm[] {
   const isGit = spec.command.startsWith(GIT_PREFIX);
   if (spec.forms === undefined)
     return isGit ? ["cd", "git-C", "worktree"] : ["cd", "worktree"];
   if (spec.forms.length === 0)
     throw new TypeError(
-      "`experimental_targetRepo.forms` is empty: no case would run, so nothing would be proven",
+      "`experimental_crossRepo({ forms })` is empty: no case would run, so nothing would be proven",
     );
   if (spec.forms.includes("git-C") && !isGit)
     throw new TypeError(
@@ -268,14 +282,14 @@ export function targetForms(spec: TargetRepoCases): readonly TargetRepoForm[] {
   return spec.forms;
 }
 
-const SIDES: readonly TargetRepoSide[] = ["allowed", "blocked"];
+const SIDES: readonly CrossRepoSide[] = ["allowed", "blocked"];
 
 /** The four cases of one form: two controls, then the two crossings. */
 function planForm(
-  form: TargetRepoForm,
+  form: CrossRepoForm,
   pair: RepoPair,
   command: string,
-): readonly PlannedTargetCase[] {
+): readonly PlannedCrossCase[] {
   const names = sideNames(pair);
   const controls = SIDES.map((start) => ({ start, target: start }));
   const crosses = SIDES.map((start) => ({
@@ -306,17 +320,17 @@ function planForm(
  * Build the repositories, plan every case, hand the plan to `run`, and remove
  * the repositories afterwards — also when a setup callback or `run` throws.
  */
-export function withTargetRepoCases<R>(
-  spec: TargetRepoCases,
-  run: (cases: readonly PlannedTargetCase[]) => R,
+export function withCrossRepoCases<R>(
+  spec: CrossRepoCases,
+  run: (cases: readonly PlannedCrossCase[]) => R,
 ): R {
-  const forms = targetForms(spec);
+  const forms = spec.forms;
   const root = makeTmpDir("target-repo");
   try {
     const cases = forms.flatMap((form) => {
       const pair = buildPair(root, form);
-      spec.blocked(pair.blocked);
-      spec.allowed(pair.allowed);
+      spec.blockIn(pair.blocked);
+      spec.allowIn(pair.allowed);
       return planForm(form, pair, spec.command);
     });
     return run(cases);

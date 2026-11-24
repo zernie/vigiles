@@ -117,7 +117,7 @@ function hookScaffold(input: ScaffoldInput): string {
     `npx vigiles test ${suggestedPath(input)}`,
   )}
 import { runHook, assertChecks, check } from "vigiles";
-import { assertGuardrail } from "vigiles/hook/testing";
+import { runGuardrail, disasters, guardrailHolds } from "vigiles/hook/testing";
 
 const cmd = ${JSON.stringify(cmd)};
 
@@ -137,17 +137,15 @@ console.log("✓ ${input.name}: allowed the benign event");
 //    pain is a guard that silently doesn't — exit 1 instead of 2, wrong jq path, …)
 //    and lets the same text through when it is only data (a commit message, …).
 //    This prints what it misses; it does NOT fail by default (your hook may not be
-//    meant to block all of these).
-try {
-  assertGuardrail(cmd);
-  console.log("✓ ${input.name}: blocks the whole battery, allows its harmless twins");
-} catch (e) {
-  console.log(String(e instanceof Error ? e.message : e));
-}
+//    meant to block all of these). A check is data: evaluate it, read the message.
+const battery = guardrailHolds().eval(runGuardrail(cmd));
+console.log(battery.pass ? "✓ ${input.name}: " + battery.message : battery.message);
 
 // 3) To GATE CI: declare what this guard MUST block, then assert it. Uncomment +
 //    pick the categories your hook is responsible for:
-// assertGuardrail(cmd, { categories: ["destructive-git"] });
+// assertChecks(runGuardrail(cmd, disasters({ categories: ["destructive-git"] })), [
+//   guardrailHolds(),
+// ]);
 `;
 }
 

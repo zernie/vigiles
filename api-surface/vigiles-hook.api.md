@@ -162,43 +162,13 @@ export interface InlineProvider<Name extends string = string> {
 }
 
 // @public
-export function leafCommandsNormalized(command: string): NormalizedLeaf[];
-
-// @public
-export interface LeafRedirect {
-    readonly fd: number | null;
-    readonly op: string;
-    readonly target: string | null;
-    readonly writes: boolean;
-}
-
-// @public
 export type NeedSpec = ProviderName | InlineProvider | RegisteredRef | StateNeed;
-
-// @public
-export interface NormalizedLeaf {
-    readonly args: readonly string[];
-    readonly argv: readonly string[];
-    readonly assigns: ReadonlyMap<string, string | null>;
-    readonly chdir: string | null;
-    readonly flags: ReadonlySet<string>;
-    hasAssign(...names: readonly string[]): boolean;
-    hasFlag(...names: readonly string[]): boolean;
-    readonly head: string;
-    readonly redirects: readonly LeafRedirect[];
-}
 
 // @public
 export const nothing: (...records: readonly StateWrite[]) => Reaction;
 
 // @public
 export const notice: (message: string, ...records: readonly StateWrite[]) => Reaction;
-
-// @public
-export function parseFilePath(raw: string, root?: string): FilePath;
-
-// @public
-export function parseShellCommand(raw: string, root?: string): ShellCommand;
 
 // @public
 export interface PromptEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> {
