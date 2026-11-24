@@ -45,7 +45,7 @@ Pass the eval driver. The report is stamped experimental and a warning is printe
 ```ts
 import { defineEval, check } from "vigiles";
 import { assertRates } from "vigiles/eval";
-import { codexEvalDriver } from "vigiles/harness/codex";
+import { paid_codexEvalDriver } from "vigiles/harness/codex";
 
 export default defineEval({
   measureTriggerRate: {
@@ -55,7 +55,7 @@ export default defineEval({
     fired: check.skill("greet"),
     trials: 2,
   },
-  evalDriver: codexEvalDriver,
+  evalDriver: paid_codexEvalDriver,
   assert: (report) => assertRates(report, { min: 0.5 }),
 });
 ```
@@ -81,5 +81,5 @@ try {
 - `CodexTurn`: one scripted turn: its `text`.
 - `CodexRequest`: one request the mock received: `prompt`, `model` and `toolNames`.
 - `CodexMockHandle`: the running mock: `url`, `port`, `requests` and `close`.
-- `codexEvalDriver`: the eval-tier driver; read `codex exec --json` and carries the experimental caveat. Pass it as `evalDriver`.
+- `paid_codexEvalDriver`: the eval-tier driver; it drives a real `codex exec --json` turn (a model call, hence `paid_`) and carries the experimental caveat. Pass it as `evalDriver`.
 - `codexLiveDriver`: the driver for the executing audit tiers, reached through `codexAdapter.liveDriver()`.

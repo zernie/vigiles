@@ -4,7 +4,7 @@ vigiles ships one npm package with several **entries** (the `exports` of `packag
 
 Entries named `vigiles/...` that are not stable are marked in [STABILITY.md](../../STABILITY.md). Names that start with `experimental_` can change in any release.
 
-For signatures and option types, see the generated [API reference](https://zernie.github.io/vigiles/api/). These pages say what each name is for and show the typical calls.
+For signatures and option types, see the generated [API reference](https://zernie.github.io/vigiles/api/). These pages say what each name is for and show the typical calls. What belongs to no single entry (picking a runner, the `Trace` model, the migration tables for renamed names) is in the [testing API overview](../testing-api.md).
 
 | Entry                            | Who it is for                                                                | Page                                             |
 | -------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ |
@@ -26,4 +26,5 @@ For signatures and option types, see the generated [API reference](https://zerni
 - **"Does my skill fire, does my change help?"** declare it with `defineEval` from `vigiles`, run it with `npx vigiles eval`, or call the runners from `vigiles/eval`.
 - **"I write the spec for my CLAUDE.md."** `vigiles/spec`.
 - **"I write a hook that must not be wrong."** `vigiles/hook`, and test it with `vigiles/hook/testing`.
+- **"Does my safety guard really block `rm -rf` and force-push, in every spelling?"** `vigiles/hook/testing` (`runGuardrail`, `guardrail`).
 - **"I am teaching vigiles a new harness."** `vigiles/harness/kit`.

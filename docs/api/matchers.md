@@ -44,7 +44,7 @@ test("the guard blocks --no-verify", () => {
   );
 
   expect(r).toBlock();
-  expect(r).toPass(check.hookFired("PreToolUse", { blocked: true }));
+  expect(r).toPass(check.hook("PreToolUse", { blocked: true }));
 });
 ```
 

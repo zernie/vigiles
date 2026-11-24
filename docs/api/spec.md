@@ -78,19 +78,42 @@ export default experimental_agent({
 
 ### Assert a subagent's outcome without a model judge
 
+For the railway/result subagent contract, a subagent's outcome is read from its
+`vigiles:ok` / `vigiles:err` block — a **deterministic assert that replaces an
+LLM judge**. A subagent with a `result()` contract ends its turn with that block;
+`experimental_assertAgentOk` (on `vigiles/spec`, beside the `experimental_agent`
+contract it reads) returns the validated success `value` and throws otherwise,
+so TypeScript narrows after it. Every other question is a check,
+`check.experimental_agentResult("ok" | "err" | predicate, contract?)`, which
+reads a run's `output` — so inside `check.subagent(name, [...])` it reads that
+subagent's return:
+
 ```ts
 import { experimental_agent, experimental_assertAgentOk } from "vigiles/spec";
+import { check, assertChecks } from "vigiles";
 const { result } = experimental_agent;
 
-const implementer = result(
-  { files: "string[]", summary: "string" },
-  { reason: "string", step: "string" },
+const contract = result(
+  { files: "string[]", summary: "string" }, // the ok track
+  { reason: "string", step: "string" }, // the err track
 );
 
-// Throws unless `output` ends with a valid ok block; returns the typed value.
-const ok = experimental_assertAgentOk(output, implementer);
-console.log(ok.files);
+const value = experimental_assertAgentOk(r.output, contract); // returns the validated `value`
+
+assertChecks(r, [
+  check.experimental_agentResult("err", contract), // the error track
+  // the predicate form, for rich detail:
+  check.experimental_agentResult(
+    (res) => res.kind === "ok" && res.value.files.length > 0,
+    contract,
+  ),
+]);
 ```
+
+Pass the `contract` and a wrong/missing field fails the assertion; omit it and any
+well-formed JSON block is accepted. Output that isn't a valid block is `malformed`
+(it fails) — never a silent pass. Worked example:
+[`railway-result.harness.mjs`](../../examples/harness/railway-result.harness.mjs).
 
 ## Exports
 

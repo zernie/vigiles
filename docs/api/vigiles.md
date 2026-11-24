@@ -31,7 +31,7 @@ const r = runHook(
   { env: { GUARD: guardPath } },
 );
 
-assertChecks(r, [check.hookFired("PreToolUse", { blocked: true })]);
+assertChecks(r, [check.hook("PreToolUse", { blocked: true })]);
 ```
 
 ### Check that a helper script does what it claims
@@ -64,10 +64,26 @@ const r = await runHarnessTest({
 });
 
 assertChecks(r, [
-  check.hookFired("PreToolUse", { blocked: true }),
+  check.hook("PreToolUse", { blocked: true }),
   check.tool("Bash", { with: { command: /git push/ } }),
 ]);
 r.cleanup();
+```
+
+### Check a skill against its own `allowed-tools:`
+
+`readSkillContract` reads a skill's `SKILL.md` frontmatter and returns ready checks, so the tools the skill claims are verified instead of restated. A skill with no `allowed-tools:` line, or with frontmatter that is not valid YAML, gets a `surface` check that fails.
+
+```ts
+import { readSkillContract, runHarnessTest, assertChecks } from "vigiles";
+
+const c = readSkillContract(".claude/skills/my-skill");
+const trace = await runHarnessTest({
+  pluginDir: ".",
+  prompt: "/my-skill",
+  model: [],
+});
+assertChecks(trace, [c.activation, ...c.surface]);
 ```
 
 ### Use checks inside vitest or jest
@@ -96,6 +112,112 @@ The model-calling runners and report readers are on [`vigiles/eval`](eval.md).
 
 `vigiles test` sees only an exit code. If you assert some other way (`node:assert`, `expect`), call `recordCheck()` so a file that checks nothing is not reported as a pass; call `skip(reason)` to mark a script loudly skipped.
 
+## How checks work
+
+**One form.** Everything you assert about a run is a **check** — a value that
+evaluates to pass/fail with an actionable message — and `assertChecks` throws,
+listing every check that failed. It works in `node:test`, vitest, jest, or any
+runner. Beyond a single tool you can assert on sequence, budget and arguments,
+and `check(name, fn)` names anything else:
+
+```ts
+import { runHarnessTest, check, assertChecks } from "vigiles";
+
+assertChecks(r, [
+  check.toolSequence(["Read", "Edit"]), // ordering — Read before Edit
+  check.tool("Write", { max: 1 }), // budget — no runaway writes
+  check.tool("Edit", { with: { file_path: "src/billing.ts" } }), // argument
+  check.tool("Bash", { with: { command: /git push/ }, max: 0 }), // never pushed
+  check.hook("UserPromptSubmit"),
+  check.output(/on it/),
+  check.writes({ include: ["DONE"] }), // a file was created
+  check(
+    "every Edit follows a Read",
+    (t) => /* any rule over t.toolCalls */ true,
+  ),
+]);
+
+assertChecks(hookResult, [check.hook("PreToolUse", { blocked: true })]); // exit 2 / decision:"block" / permissionDecision:"deny"
+```
+
+Want a boolean instead of a throw — in a `measure`, say? A check's verdict is
+`check.skill("demo:greet").eval(trace).pass`; `fired:` takes the check itself.
+
+What a hook or script run did beyond its decision is a check too:
+`check.delivered()` (its text REACHED the model, not just stderr — see
+[harness-testing.md](../harness-testing.md#assert-a-nudge-reaches-the-model-checkdelivered)),
+`check.egress({ only: [...] })` over a confined run's egress, and
+`check.writes({ only, none, include })` over its file writes.
+
+**`check.writes` reads both kinds of run, and refuses what one cannot answer.**
+A hook or script run records `filesWritten`, the full list, so it takes
+`only` ("nothing but these"), `none` and `include`, each a list of exact paths
+or RegExps. An agent run can only look a path up in its work dir, so it takes
+`include` / `none` with exact paths: `only`, or a RegExp, against a `Trace` is a
+TypeScript error, and a JavaScript caller gets a failing check naming why —
+never a pass that inspected nothing.
+
+The flat check functions (`tool`, `skill`, `wrote`, …), the `assertToolUsed`-style
+functions and the boolean predicates (`usedTool`, `skillResolved`, …) were removed
+in v50 — each is one `check.*` member; the
+[migration table](../testing-api.md#migrating-to-the-v50-assertion-form) lists them.
+
+A `runHarnessTest` result owns its temp directory. Remove it in a `finally` with
+`r.cleanup()`, or let TypeScript (5.2+) or Node 24+ do it for you:
+`await using r = await runHarnessTest(spec)` disposes the result when it leaves
+scope, even when an assertion throws.
+
+To prove a guard blocks every disaster and allows the same text as data, use
+the guard battery on [`vigiles/hook/testing`](hook-testing.md):
+`assertChecks(runGuardrail("bash hooks/guard.sh"), [guardrail()])`.
+
+### Strict and scored
+
+A **check** is data, not a throwing assert: `check.tool("Bash")` is an object that knows
+how to `eval` itself against a `Trace` (or a hook decision) and `toJSON`. The same
+check is evaluated two ways — write the assertion once:
+
+```ts
+import { assertChecks, check } from "vigiles";
+
+// STRICT (deterministic tiers): throws, collecting ALL failures with messages.
+assertChecks(await runHarnessTest(spec), [
+  check.tool("Bash"),
+  check.output(/done/),
+]);
+assertChecks(runHook(cmd, event), [
+  check.hook("PreToolUse", { blocked: true }),
+]);
+
+// SCORED (eval): the SAME checks, as a rate ± se across trials.
+// the `paid_` prefix = it calls a model; reading the report (assertRates) is free
+import { paid_measure, assertRates } from "vigiles/eval";
+const report = await paid_measure({
+  pluginDir: "./my-plugin", // or skillsDir: ".claude/skills" (loose, auto-packaged)
+  task: "…",
+  checks: [check.skill("vigiles:test-harness")],
+  stubSkillBodies: true, // firing check: stub bodies → a fraction of the tokens
+  trials: 10,
+  model: "sonnet",
+});
+assertRates(report, { min: 0.8 }); // gate the rate, not one noisy run
+assertRates(report, { passK: 1 }); // or: every check passed on EVERY trial
+```
+
+A check's **failure message is the product** (`expected the agent to use tool
+"Bash", but it used [Read, Edit]`), and because it serializes, CI reports and
+regression baselines fall out for free.
+
+**The vocabulary** — every check is a member of the one callable `check` object
+from `vigiles` (type `check.` and the editor lists them; the table is under
+[the members of `check`](#the-members-of-check)), and `check(name, fn)` names
+your own. The exception is `paid_judged`, which calls a model and so lives on
+[`vigiles/eval`](eval.md).
+
+`paid_measureArms({ arms, checks })` scores the same checks per arm (a hook/skill/rule
+**on vs off**): `report.arms[name].perCheck[i]` lines up across arms. It takes
+`stubSkillBodies` too.
+
 ## Every export
 
 Names in `code` are the exact export names. Every name below is exported from `vigiles`.
@@ -121,35 +243,44 @@ Names in `code` are the exact export names. Every name below is exported from `v
 | `skip`            | Mark the current harness or eval script as skipped (exit 77) so it is not reported as a pass.  |
 | `vigilesMatchers` | The matcher table for `expect.extend`; the [matcher entries](matchers.md) register it for you. |
 
+### Read a declaration
+
+| Name                | What it is                                                                                                            |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `readSkillContract` | Read a skill's `allowed-tools:` frontmatter and return a `SkillContract`: an `activation` check and `surface` checks. |
+
 ### The members of `check`
 
-| Member                           | Holds when…                                                                      |
-| -------------------------------- | -------------------------------------------------------------------------------- |
-| `check.tool`                     | the agent used a tool (`min`, `max`, `with` bound count and arguments).          |
-| `check.toolSequence`             | tools ran in the given order, gaps allowed.                                      |
-| `check.onlyTools`                | the agent used only tools from an allow-list ("nothing but these").              |
-| `check.runs`                     | a shell command ran a program, read by the compiled-hook shell parser.           |
-| `check.skill`                    | a skill resolved without error, as the harness reports it.                       |
-| `check.skillContract`            | builds checks from a skill's own `allowed-tools:` frontmatter.                   |
-| `check.mcp`                      | the agent used an MCP server's tool.                                             |
-| `check.subagent`                 | a subagent ran and passed nested checks.                                         |
-| `check.output`                   | the final answer matches (`eachReply` demands every reply does).                 |
-| `check.received`                 | text reached the model (slash command, injected context).                        |
-| `check.hookFired`                | a hook fired for an event, and optionally blocked or allowed it.                 |
-| `check.delivered`                | a hook's text reached the model, not only stderr.                                |
-| `check.turns`                    | the agent took a number of turns, or a number of matching replies.               |
-| `check.writes`                   | files were or were not written (`include`, `none`, and `only` on recorded runs). |
-| `check.egressOnly`               | every network attempt of a confined run went to an allowed host.                 |
-| `check.cost`                     | the run stayed under a dollar budget (eval runs).                                |
-| `check.latency`                  | the run stayed under a time budget (eval runs).                                  |
-| `check.tokens`                   | each token class stayed under its cap (eval runs).                               |
-| `check.experimental_agentResult` | the output ends with a typed `ok` or `err` result block (experimental).          |
+| Check                                                  | Holds when…                                                                               | Over                      |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ------------------------- |
+| `check.tool(name)`                                     | the agent used that tool                                                                  | Trace                     |
+| `check.tool(name, { min, max })`                       | that tool was used a number of times in bounds (`{ max: 0 }`: never)                      | Trace                     |
+| `check.tool(name, { with: args })`                     | a call's input matched `args` (with `max: 0`, no call did)                                | Trace                     |
+| `check.onlyTools([a, b])`                              | the agent used only tools from that allow-list (names, not arguments)                     | Trace                     |
+| `check.toolSequence([a, b])`                           | those tools ran in that order (gaps allowed)                                              | Trace                     |
+| `check.runs(program, { force? })`                      | a shell command ran `program` — read by the compiled-hook parser, any spelling            | Trace                     |
+| `check(name, fn)`                                      | your own predicate holds — named, serialized and scored like the rest                     | anything                  |
+| `check.skill(id)`                                      | the skill `id` resolved (no error), as the harness's adapter reports it                   | Trace                     |
+| `check.mcp(server, tool)`                              | the agent used `mcp__server__tool`                                                        | Trace                     |
+| `check.subagent(name, [checks])`                       | the `Task` subagent ran + passed nested checks                                            | Trace (nested)            |
+| `check.output(str \| /re/)`                            | the final answer contains/matches (`{ eachReply: true }`: every reply does)               | Trace                     |
+| `check.received(str \| /re/)`                          | text reached the model (slash-command / injected)                                         | Trace (mock)              |
+| `check.hook(event \| /re/, { blocked? })`              | a hook fired for that event or label (and blocked / allowed)                              | Trace or `runHook` result |
+| `check.turns({ min, max, matching? })`                 | the agent took N turns (with `matching`: N replies matched)                               | Trace                     |
+| `check.writes({ include, none })`                      | a file is / is not at each exact path in the work dir                                     | Trace or confined run     |
+| `check.experimental_agentResult(expect, contract?)`    | the output ends with a result block on the `"ok"` / `"err"` track, or meets a predicate   | Trace                     |
+| `paid_judged(rubric, {…})`                             | a model grades the output ≥ `min` (LLM rubric)                                            | Trace (eval)              |
+| `check.cost({ maxUsd })` / `check.latency({ maxMs })`  | the run stayed under budget                                                               | run usage (eval)          |
+| `check.tokens({ max, maxInput, maxOutput, maxCache })` | each given token class stayed under its cap (total, fresh input, output, prompt cache)    | run usage (eval)          |
+| `check.delivered()`                                    | the hook's text reached the model (not just stderr)                                       | `runHook` result          |
+| `check.egress({ only: [...] })` / `({ none: true })`   | every egress attempt went to an allowed host; `none` = no egress at all                   | confined run              |
+| `check.writes({ only, none, include })`                | every write is in `only`; none in `none`; each of `include` written (fails if unrecorded) | confined run              |
 
 ### Declare an eval
 
-| Name         | What it is                                                                                                                              |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `defineEval` | Declare what an eval file measures: exactly one of `runEval`, `measure`, `measureArms`, `measureTriggerRate`, `measureSelectionMatrix`. |
+| Name         | What it is                                                                                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defineEval` | Declare what an eval file measures: exactly one of `runEval`, `measure`, `measureArms`, `measureTriggerRate`, `measureSelectionMatrix` (the keys keep their names; the runners they call are `paid_*`). |
 
 ### Typed results, emit channel (experimental)
 
@@ -182,20 +313,20 @@ The types below describe these: `EmitFieldSchema`, `EmitObjectSchema`, `EmitProp
 
 ### Types: inputs and options
 
-| Type                    | What it describes                                                      |
-| ----------------------- | ---------------------------------------------------------------------- |
-| `HarnessTestSpec`       | The input of `runHarnessTest`.                                         |
-| `RunHarnessTestOptions` | Its second argument; selects the harness adapter.                      |
-| `RunScriptOptions`      | Options of `runScript` (cwd, env, stdin, sandbox, egress).             |
-| `RunHookOptions`        | Options of `runHook`.                                                  |
-| `HookInput`             | The event object piped to a hook.                                      |
-| `HookOutput`            | The JSON a hook may print.                                             |
-| `SandboxMode`           | `"auto"`, `"strict"` or `false`.                                       |
-| `RunEnv`                | Where an eval trial runs: an ephemeral directory, or a stated inherit. |
-| `HomeSeed`              | Files seeded into an ephemeral HOME.                                   |
-| `HomeFiles`             | Path-to-contents map used by `HomeSeed`.                               |
-| `SkillContract`         | The checks `check.skillContract` builds.                               |
-| `SkillContractOptions`  | Options of `check.skillContract`.                                      |
+| Type                    | What it describes                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------------- |
+| `HarnessTestSpec`       | The input of `runHarnessTest`.                                                     |
+| `RunHarnessTestOptions` | Its second argument; selects the harness adapter.                                  |
+| `RunScriptOptions`      | Options of `runScript` (cwd, env, stdin, sandbox, egress).                         |
+| `RunHookOptions`        | Options of `runHook`.                                                              |
+| `HookInput`             | The event object piped to a hook.                                                  |
+| `HookOutput`            | The JSON a hook may print.                                                         |
+| `SandboxMode`           | `"auto"`, `"strict"` or `false`.                                                   |
+| `RunEnv`                | Where an eval trial runs: an ephemeral directory, or a stated inherit.             |
+| `HomeSeed`              | Files seeded into an ephemeral HOME.                                               |
+| `HomeFiles`             | Path-to-contents map used by `HomeSeed`.                                           |
+| `SkillContract`         | What `readSkillContract` returns: ready checks built from the skill's frontmatter. |
+| `SkillContractOptions`  | Options of `readSkillContract`.                                                    |
 
 ### Types: hook delivery
 
@@ -215,7 +346,7 @@ The types below describe these: `EmitFieldSchema`, `EmitObjectSchema`, `EmitProp
 | `CheckJSON`              | A check serialized to JSON.                                           |
 | `ArgMatcher`             | Argument patterns for `check.tool({ with })`.                         |
 | `ToolOptions`            | Options of `check.tool`.                                              |
-| `HookFiredOptions`       | Options of `check.hookFired`.                                         |
+| `HookFiredOptions`       | Options of `check.hook`.                                              |
 | `OutputOptions`          | Options of `check.output`.                                            |
 | `TurnsOptions`           | Options of `check.turns`.                                             |
 | `WritesOptions`          | Options of `check.writes` on a recorded run.                          |
@@ -257,7 +388,7 @@ The types below describe these: `EmitFieldSchema`, `EmitObjectSchema`, `EmitProp
 | `ArmsMeasureSpec`     | The same checks scored per arm.                            |
 | `TriggerRateSpec`     | Whether a skill's description fires, over a prompt set.    |
 | `Metrics`             | The metric record an eval callback returns.                |
-| `EvalReport`          | The report of `runEval`.                                   |
+| `EvalReport`          | The report of `paid_runEval` (eval key `runEval`).         |
 | `ArmReport`           | Per-arm figures inside a report.                           |
 | `ArmUsage`            | Cost and token totals of an arm.                           |
 | `EvalUsage`           | Cost, duration and token counts of one run.                |

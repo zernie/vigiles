@@ -73,18 +73,38 @@ for (const event of fileToolEvents("src/index.ts")) {
 
 ### Catch one skill stealing a sibling's prompts
 
+Per-skill trigger rate asks each skill in isolation, so it cannot catch one skill
+taking a **sibling's** prompt. `paid_measureSelectionMatrix` runs each skill's own
+prompts against the whole installed set and records which skill fired: an N×N
+matrix whose diagonal is recall and whose off-diagonal mass is collision. It is
+Claude Code only, because only Claude Code reports which skill the selector chose;
+on another harness the report says `available: false` rather than passing.
+
 ```ts
 import {
-  measureSelectionMatrix,
+  paid_measureSelectionMatrix,
   assertNoCollision,
 } from "vigiles/harness/claude-code";
 
-const report = await measureSelectionMatrix("./my-plugin", { trials: 1 });
-assertNoCollision(report, { maxOffDiagonal: 0.2 });
+const report = await paid_measureSelectionMatrix("./my-plugin", { trials: 1 });
+assertNoCollision(report, { maxOffDiagonal: 0.2 }); // per-skill collision ceiling
+// or the plugin-wide rate: assertNoCollision(report, { maxPluginCollision: 0.1 })
 ```
 
-This calls a real model. Prompts are derived from each skill's description unless
-you pass `prompts`.
+This calls a real model (hence `paid_`). In an eval file, the `defineEval` key is
+still `measureSelectionMatrix`. Prompts are derived from each skill's description
+unless you pass `prompts` (a `{ skill: { prompts: [...] } }` map).
+
+- **Zero-setup** — omit `prompts` and they're derived from descriptions (the same
+  generator the `audit` trigger tier uses). Body-stubbed, so it measures
+  _selection_ cheaply (the skill's procedure never runs).
+- **`assertNoCollision`** — with no options it demands **zero** collision;
+  `maxOffDiagonal` caps each skill's collision rate, `maxPluginCollision` caps the
+  plugin-wide rate. It **throws on a green that tested nothing** (unavailable
+  harness / zero runs), never a silent pass.
+- It's the behavioral confirmation of the deterministic
+  [`description-overlap`](../rules/description-overlap.md) lint rule: the rule says
+  "these two look confusable," the matrix says "they collide X% of the time."
 
 ### Get a compile-time error for a bad tool and purity pair
 
@@ -127,9 +147,9 @@ experimental_agent({
 
 ### Skill selection
 
-- `measureSelectionMatrix`: run each skill's prompts against the whole installed set and record which skill fires.
+- `paid_measureSelectionMatrix`: run each skill's prompts against the whole installed set and record which skill fires.
 - `assertNoCollision`: throw when a skill's prompts are taken by a sibling above a ceiling, or when nothing was measured.
-- `SelectionMatrixOptions`: options of `measureSelectionMatrix`, including curated `prompts`.
+- `SelectionMatrixOptions`: options of `paid_measureSelectionMatrix`, including curated `prompts`.
 - `SelectionOptions`: model, trials, concurrency and effort, shared with the audit's trigger tier.
 - `SelectionReport`: the matrix, the collision rate and the per-skill stats.
 - `SkillSelectionStat`: one skill's recall, collision rate and the skills it collides with.

@@ -65,9 +65,9 @@ test("my adapter conforms", () => {
 ### Get the failures as data
 
 ```ts
-import { checkAdapterConformance } from "vigiles/harness/kit";
+import { runAdapterConformance } from "vigiles/harness/kit";
 
-const { ok, failures } = checkAdapterConformance(myHarnessAdapter);
+const { ok, failures } = runAdapterConformance(myHarnessAdapter);
 if (!ok) console.error(failures.join("\n"));
 ```
 
@@ -144,7 +144,7 @@ executableSourceDirs(claudeCodeAdapter.layout); // the same plus "hooks"
 
 ### Conformance
 
-- `checkAdapterConformance`: check an adapter without IO and return the failures.
+- `runAdapterConformance`: run the conformance checks on an adapter without IO and return a `ConformanceResult`; it never throws.
 - `assertAdapterConformance`: throw listing every failure.
 - `assertAdapterLoadsHooks`: write a hook with the adapter's own ports, load it back through its layout, and throw if none loads.
 - `ConformanceResult`: `ok` and the list of `failures`.

@@ -10,7 +10,10 @@
     "src/entries/fixtures.ts",
     "src/entries/harness/kit.ts",
     "src/entries/harness/claude-code.ts",
-    "src/entries/harness/codex.ts"
+    "src/entries/harness/codex.ts",
+    "src/entries/rule-proof.ts",
+    "src/vitest.mts",
+    "src/jest.ts"
   ],
   "out": "api-reference",
   "excludeInternal": true,
