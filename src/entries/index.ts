@@ -13,7 +13,7 @@
  * one module under two names). A subpath is warranted when something genuinely
  * DIFFERENT lives behind it — another runtime, another driver, another protocol.
  * Here the one real difference is whether a call can spend money, so there are
- * exactly two doors: this one, and [`vigiles/eval`](./eval-surface.ts).
+ * exactly two doors: this one, and [`vigiles/eval`](./eval.ts).
  *
  * ## What replaced what
  *
@@ -22,7 +22,7 @@
  * runner config, not of a module graph: this repo already expresses them as
  * vitest projects (`test:unit`, `test:integration`, `test:e2e`), so the exports
  * map was a second, competing implementation of the same idea. `src/e2e.ts` had
- * degenerated to `export * from "./integration.js"` — a barrel adding zero
+ * degenerated to `export * from "../integration.js"` — a barrel adding zero
  * symbols, which its own docstring called "the definition of a non-tier".
  *
  * ## One home per name (v50)
@@ -35,13 +35,13 @@
  *     → `vigiles/eval`, beside the `paid_*` runners that produce the report.
  *     `paid_`, not the door, marks a call that can bill you.
  *   - the guard battery (`assertGuardrail`, `verifyGuardrail`, …) →
- *     `vigiles/battery`.
+ *     `vigiles/hook/testing`.
  *   - testing a compiled hook in-process (`experimental_loadHook`, `experimental_assertHookDenies`, …) →
- *     `vigiles/hook-test` (never `vigiles/hook`, a compiled hook's only import).
+ *     `vigiles/hook/testing` (never `vigiles/hook`, a compiled hook's only import).
  *   - a subagent's outcome (`experimental_assertAgentOk`, …) → `vigiles/spec`.
  *   - Claude Code's stream parsers (`parseToolCalls`, `parseClaudeRun`) →
- *     `vigiles/claude-code`; the driver PORT types (`HarnessTestDriver`,
- *     `EvalDriver`, …) → `vigiles/adapter`.
+ *     `vigiles/harness/claude-code`; the driver PORT types (`HarnessTestDriver`,
+ *     `EvalDriver`, …) → `vigiles/harness/kit`.
  *
  * The report TYPES stay here: `defineEval` and `vigilesMatchers` speak them. They
  * are declared in core, which this barrel and `vigiles/eval` both import; no
@@ -70,7 +70,7 @@
 // exporting an object of tests nobody calls). Call `recordCheck()` yourself when
 // you assert some OTHER way — `node:assert`, vitest's `expect` — so those are
 // visible to the runner too. See check-count.ts.
-export { recordCheck } from "./check-count.js";
+export { recordCheck } from "../check-count.js";
 
 // --- fixture roots: a temp directory whose two spellings agree ---
 // 🔴 DO NOT hand-roll `mkdtempSync(join(tmpdir(), …))` in a harness. On macOS
@@ -84,16 +84,16 @@ export { recordCheck } from "./check-count.js";
 // `makeTmpDir` resolves the root once, at creation. The trap is unreachable from
 // anything built under it, including a symlink the harness creates ITSELF to test
 // symlink handling — that stays a genuine test, because it is explicit.
-export { makeTmpDir, cleanupTmpDir } from "./core/tmp-root.js";
+export { makeTmpDir, cleanupTmpDir } from "../core/tmp-root.js";
 
 // --- the process primitives: runScript (any program) + runHook (plus a decision) ---
 // `runScript` runs any program and reports what it DID (exit, both streams,
 // writes, egress). `runHook` is that plus the hook protocol: event to stdin,
 // exit code to allow/deny. Testing a plain helper script? Reach for runScript —
 // its result carries no `decision`, because a script does not have one.
-export { runScript } from "./run-script.js";
-export type { RunScriptOptions, ScriptRunResult } from "./run-script.js";
-export { runHook } from "./run-hook.js";
+export { runScript } from "../run-script.js";
+export type { RunScriptOptions, ScriptRunResult } from "../run-script.js";
+export { runHook } from "../run-hook.js";
 export type {
   HookRunResult,
   // Named in HookRunResult.blockedBy, so a consumer must be able to name it too
@@ -107,10 +107,10 @@ export type {
   RunHookOptions,
   HookInput,
   HookOutput,
-} from "./run-hook.js";
+} from "../run-hook.js";
 
 // --- runner glue: `skip` a script loudly, `vigilesMatchers` for expect.extend ---
-export { skip, vigilesMatchers } from "./harness-assert.js";
+export { skip, vigilesMatchers } from "../harness-assert.js";
 
 // --- the EMIT delivery for a typed result (⚠️ EXPERIMENTAL) ---
 // Moved here 2026-08-21 from the `vigiles/experimental` subpath, which is gone
@@ -132,7 +132,7 @@ export {
   type EmitToolDefinition,
   // eslint-disable-next-line local/no-group-names -- the type of the experimental_emitTool export, not a rule group
   type ExperimentalEmitTool,
-} from "./experimental-emit.js";
+} from "../experimental-emit.js";
 
 // --- the declarative check vocabulary: ONE callable object ---
 // Every assertion about a run is a member of `check` — `check.tool("Bash")`,
@@ -148,7 +148,7 @@ export {
   check,
   experimental_eachReply,
   experimental_replyCount,
-} from "./check.js";
+} from "../check.js";
 export type {
   ArgMatcher,
   Check,
@@ -156,10 +156,10 @@ export type {
   CheckResult,
   JudgeFn,
   TokenBudget,
-} from "./check.js";
+} from "../check.js";
 
 // The guard battery ("does my guard block every disaster and let the same text
-// through as data?") is its own door, `vigiles/battery`: it has its own reader —
+// through as data?") is its own door, `vigiles/hook/testing`: it has its own reader —
 // someone proving a guard — and its own vocabulary.
 
 // Tool stubs on PATH (rung R2): `experimental_stub` builds them and lives on
@@ -170,7 +170,7 @@ export type {
 export type {
   ContextEvidence,
   UnobservableWhy,
-} from "./core/context-evidence.js";
+} from "../core/context-evidence.js";
 export type {
   ArgvPattern,
   ArgvRest,
@@ -181,17 +181,17 @@ export type {
   StubReply,
   StubRule,
   ToolStub,
-} from "./core/stub-rules.js";
+} from "../core/stub-rules.js";
 // Where an eval trial runs (`EvalSpec.env`).
-export type { HomeFiles, HomeSeed, RunEnv } from "./core/run-env.js";
+export type { HomeFiles, HomeSeed, RunEnv } from "../core/run-env.js";
 
 // The assembled machine — AGNOSTIC SURFACE ONLY. The Claude-Code transport
 // (`scriptModel`, `claudeCodeDriver`, `buildClaudeArgs`, `claudeAvailable`,
 // `loadPlugin`, `resolveHarness`) is deliberately NOT re-exported here, so this
-// surface stays harness-agnostic — import those from `vigiles/claude-code` (or
+// surface stays harness-agnostic — import those from `vigiles/harness/claude-code` (or
 // your harness's package). See `research/code-adapter-architecture.md`.
 // Slow but free: see the module doc.
-export { runHarnessTest, sandboxAvailable } from "./harness-test.js";
+export { runHarnessTest, sandboxAvailable } from "../harness-test.js";
 // The two arms of an output-style eval (`experimental_outputStyleArms`) are on
 // `vigiles/eval`: what they build is eval arms.
 export type {
@@ -205,20 +205,20 @@ export type {
   ToolCall,
   HookFire,
   SandboxMode,
-} from "./harness-test.js";
+} from "../harness-test.js";
 // Named in `Trace.skills`: which skills fired, as the harness's adapter tells.
-export type { SkillFire, SkillFacts } from "./core/harness-driver.js";
+export type { SkillFire, SkillFacts } from "../core/harness-driver.js";
 
 // A skill's own `allowed-tools:` frontmatter, read back as checks: reached as
 // `check.skillContract(dir)`, since what it builds is checks.
-export type { SkillContract, SkillContractOptions } from "./skill-contract.js";
+export type { SkillContract, SkillContractOptions } from "../skill-contract.js";
 
 // --- declaring an eval (free: a description cannot spend) ---
 // `defineEval` is on the FREE barrel and not on `vigiles/eval`, and that is the
 // point rather than an oversight: after this shape an eval file needs nothing
 // that bills. It describes the run; `vigiles eval` performs it. The paid runners
 // moved out of an eval author's vocabulary entirely.
-export { defineEval } from "./eval-define.js";
+export { defineEval } from "../eval-define.js";
 export type {
   EvalDefinition,
   EvalDefinitionInput,
@@ -227,7 +227,7 @@ export type {
   EvalMeasurements,
   EvalReports,
   SelectionMatrixSpec,
-} from "./eval-define.js";
+} from "../eval-define.js";
 
 // --- the shapes an eval speaks ---
 // The paid runners and the report readers are on `vigiles/eval`; the TYPES are
@@ -241,7 +241,7 @@ export type {
   MetricStat,
   PromptTriggerStat,
   TriggerRateReport,
-} from "./core/eval-report.js";
+} from "../core/eval-report.js";
 export type {
   EvalArm,
   EvalSpec,
@@ -254,7 +254,7 @@ export type {
   Metrics,
   RunContext,
   TriggerRateSpec,
-} from "./eval.js";
+} from "../eval.js";
 
 // --- R3: the disposable-service tier ---
 // `experimental_startServices` and `experimental_dockerRuntime` live on

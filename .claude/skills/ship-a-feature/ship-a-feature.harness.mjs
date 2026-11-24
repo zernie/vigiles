@@ -27,7 +27,7 @@ import { runScript, runHarnessTest } from "vigiles";
 // `scriptModel` / `claudeAvailable` are Claude-Code-specific and live behind the
 // per-harness door, not the agnostic root — the same REACHABLE question this
 // skill asks, answered the hard way while writing its own harness.
-import { scriptModel, claudeAvailable } from "vigiles/claude-code";
+import { scriptModel, claudeAvailable } from "vigiles/harness/claude-code";
 import { packageSkillsDir } from "../../../dist/eval.js";
 import {
   existsSync,

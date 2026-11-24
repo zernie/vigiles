@@ -82,21 +82,21 @@ function check(root: string, prefix = "paid_", subpath = "./eval") {
 function twoSurfaceFixture(evalExport: string): string {
   const root = mkdtempSync(join(tmpdir(), "export-prefix-cli-"));
   roots.push(root);
-  mkdirSync(join(root, "dist"), { recursive: true });
+  mkdirSync(join(root, "dist", "entries"), { recursive: true });
   writeFileSync(
     join(root, "package.json"),
     JSON.stringify({
       name: "demo-pkg",
       version: "0.0.0",
       exports: {
-        "./eval": "./dist/eval-surface.js",
+        "./eval": "./dist/entries/eval.js",
         "./experimental": "./dist/experimental.js",
       },
     }),
   );
   symlinkSync(join(REPO, "node_modules"), join(root, "node_modules"), "dir");
   writeFileSync(
-    join(root, "dist", "eval-surface.d.ts"),
+    join(root, "dist", "entries/eval.d.ts"),
     `export declare function ${evalExport}(): void;\n`,
   );
   writeFileSync(

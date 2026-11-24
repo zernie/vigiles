@@ -113,7 +113,7 @@ test("the no-spend window is CLOSED while the file is imported, and open after",
   const f = standin(
     "probe.eval.mjs",
     `import { inEvalLoad } from "${DIST}/core/eval-load-phase.js";\n` +
-      `import { defineEval } from "${DIST}/test.js";\n` +
+      `import { defineEval } from "${DIST}/entries/index.js";\n` +
       `const during = inEvalLoad();\n` +
       `export default defineEval({\n` +
       `  measure: { task: "never runs", checks: [] },\n` +
@@ -133,7 +133,7 @@ test("a HALF-migrated file — a description plus a leftover top-level runner ca
   const f = standin(
     "half.eval.mjs",
     `import { refuseDuringEvalLoad } from "${DIST}/core/eval-load-phase.js";\n` +
-      `import { defineEval } from "${DIST}/test.js";\n` +
+      `import { defineEval } from "${DIST}/entries/index.js";\n` +
       `import { writeFileSync } from "node:fs";\n` +
       `refuseDuringEvalLoad("measureTriggerRate");\n` +
       `writeFileSync(new URL("./SPENT", import.meta.url), "spent");\n` +
@@ -165,7 +165,7 @@ test("a TypeScript eval file is loaded through the same entry", () => {
   // because the proof is whether node can actually import the file.
   const f = standin(
     "typed.eval.ts",
-    `import { defineEval } from "${DIST}/test.js";\n` +
+    `import { defineEval } from "${DIST}/entries/index.js";\n` +
       `const why: string = "typed stand-in: no model";\n` +
       `export default defineEval({ measure: { task: "t", checks: [] }, skipIf: (): string => why });\n`,
   );
@@ -183,12 +183,12 @@ test("a file that declares nothing is REPORTED, not passed green", () => {
     ["none.eval.mjs", `export default 42;\n`, /no `export default defineEval/],
     [
       "empty.eval.mjs",
-      `import { defineEval } from "${DIST}/test.js";\nexport default defineEval({});\n`,
+      `import { defineEval } from "${DIST}/entries/index.js";\nexport default defineEval({});\n`,
       /declares no measurement/,
     ],
     [
       "two.eval.mjs",
-      `import { defineEval } from "${DIST}/test.js";\n` +
+      `import { defineEval } from "${DIST}/entries/index.js";\n` +
         `export default defineEval({ measure: { task: "t", checks: [] }, runEval: { arms: {}, task: "t" } });\n`,
       /declares 2 measurements/,
     ],
@@ -205,7 +205,7 @@ test("a malformed declaration is reported even when the file would SKIP", () => 
   // machine where the capability exists.
   const f = standin(
     "misplaced.eval.mjs",
-    `import { defineEval } from "${DIST}/test.js";\n` +
+    `import { defineEval } from "${DIST}/entries/index.js";\n` +
       `export default defineEval({\n` +
       `  measure: { task: "t", checks: [] },\n` +
       `  evalDriver: { runner: () => Promise.resolve({ code: 0, stdout: "" }), parse: () => ({}) },\n` +
@@ -302,8 +302,8 @@ function fakeClaudeBin(): string {
 }
 
 const STUBBED_EVAL =
-  `import { defineEval } from "${DIST}/test.js";\n` +
-  `import { experimental_stub } from "${DIST}/fixtures.js";\n` +
+  `import { defineEval } from "${DIST}/entries/index.js";\n` +
+  `import { experimental_stub } from "${DIST}/entries/fixtures.js";\n` +
   `const { rest } = experimental_stub;\n` +
   `export default defineEval({\n` +
   `  runEval: {\n` +

@@ -118,14 +118,14 @@ A `runHarnessTest` result owns its temp directory. Remove it in a `finally` with
 scope, even when an assertion throws.
 
 To prove a guard blocks every disaster and allows the same text as data, use the
-battery on [`vigiles/battery`](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery):
+battery on [`vigiles/hook/testing`](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery):
 `assertGuardrail("bash hooks/guard.sh")`.
 
 ### Test a compiled hook in-process (no subprocess)
 
 A [compiled hook](compiled-hooks.md) (a `vigiles/hook` program) has a **pure**
 decision, so you can test it without spawning the CLI at all — pass the hook's
-default export and a raw event. The test functions live on `vigiles/hook-test`,
+default export and a raw event. The test functions live on `vigiles/hook/testing`,
 not on `vigiles/hook`: a compiled hook may import only `vigiles/hook`, so a
 loader there would be callable from inside every hook.
 
@@ -137,7 +137,7 @@ import {
   experimental_assertHookNotices,
   experimental_assertHookSilent,
   runHookProgram,
-} from "vigiles/hook-test";
+} from "vigiles/hook/testing";
 
 // experimental_loadHook takes the hook's PATH — what a .harness.mjs file actually has. It is
 // the same loader the runtime uses, and it handles a .hook.ts under tsx / Node
@@ -393,7 +393,7 @@ assertTriggerRate(report, { min: 0.8, maxFalsePositive: 0.1 });
 
 ## Selection-collision matrix (Claude Code only)
 
-> **🔵 Claude Code only — import from `vigiles/claude-code`, not the root `vigiles`
+> **🔵 Claude Code only — import from `vigiles/harness/claude-code`, not the root `vigiles`
 > surface.**
 > This reads _which_ skill the selector chose, and only Claude Code surfaces that
 > (Codex has no skill-selection event). On any other harness it returns
@@ -406,7 +406,10 @@ set and records which skill fired — an N×N matrix whose diagonal is recall an
 whose off-diagonal mass is collision.
 
 ```ts
-import { measureSelectionMatrix, assertNoCollision } from "vigiles/claude-code";
+import {
+  measureSelectionMatrix,
+  assertNoCollision,
+} from "vigiles/harness/claude-code";
 
 const report = await measureSelectionMatrix("./my-plugin", {
   // prompts auto-derived from each skill's description (zero setup);
@@ -619,14 +622,13 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 
 **One door per reader** — every name lives behind exactly one of these:
 
-| Reader                | Import              | What it holds                                                                                                                                                                            |
-| --------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Test your harness     | `vigiles`           | the runners, every check and assertion over a run, the matchers, tool stubs, `defineEval`, and the report types — everything that costs nothing to run                                   |
-| Measure with a model  | `vigiles/eval`      | the `paid_*` runners, and the free readers of their report: `compare`, `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`, baselines                             |
-| Prove a guard blocks  | `vigiles/battery`   | `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState`                                                                    |
-| Write a compiled hook | `vigiles/hook`      | the hook vocabulary — the only import a compiled hook may have                                                                                                                           |
-| Test a compiled hook  | `vigiles/hook-test` | `experimental_loadHook`, `runHookProgram`, `experimental_assertHookDenies` / `experimental_assertHookAllows` / `experimental_assertHookNotices` / `experimental_assertHookSilent`        |
-| Author a spec         | `vigiles/spec`      | the spec builders and their types, and `experimental_assertAgentOk` / `experimental_assertAgentErr` / `experimental_assertAgentResult` (compiling is `vigiles compile` / `vigiles lint`) |
+| Reader                | Import                 | What it holds                                                                                                                                                                                                                                                                                                                 |
+| --------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Test your harness     | `vigiles`              | the runners, every check and assertion over a run, the matchers, tool stubs, `defineEval`, and the report types — everything that costs nothing to run                                                                                                                                                                        |
+| Measure with a model  | `vigiles/eval`         | the `paid_*` runners, and the free readers of their report: `compare`, `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`, baselines                                                                                                                                                                  |
+| Write a compiled hook | `vigiles/hook`         | the hook vocabulary — the only import a compiled hook may have                                                                                                                                                                                                                                                                |
+| Test a hook           | `vigiles/hook/testing` | `experimental_loadHook`, `runHookProgram`, `experimental_assertHookDenies` / `experimental_assertHookAllows` / `experimental_assertHookNotices` / `experimental_assertHookSilent`, and the guard checks `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState` |
+| Author a spec         | `vigiles/spec`         | the spec builders and their types, and `experimental_assertAgentOk` / `experimental_assertAgentErr` / `experimental_assertAgentResult` (compiling is `vigiles compile` / `vigiles lint`)                                                                                                                                      |
 
 **In a `*.eval.mjs` file the runners below are DECLARED, not called** —
 `export default defineEval({ measure: spec })` — because importing a file that
@@ -667,15 +669,15 @@ The remaining entry points are deliberate surfaces, not aliases:
 - **Authoring** — `vigiles/spec`: the spec builders for `.spec.ts` files.
 - **CC-specific transport** — `scriptModel`, `loadPlugin`, `LoadedPlugin`,
   `startMock` and the stream-json parsers `parseToolCalls` / `parseClaudeRun` live
-  in `vigiles/claude-code`, not on the root surface. Its ports (`layout`,
+  in `vigiles/harness/claude-code`, not on the root surface. Its ports (`layout`,
   `dialect`, `harnessTestDriver()`, …) and tool catalog (`builtinAgentTools`,
   `sideEffectingTools`) are fields of `claudeCodeAdapter`.
 - **CC-only measurement** — `measureSelectionMatrix` / `assertNoCollision` live in
-  `vigiles/claude-code` too. They read which skill the selector chose (Codex has no
+  `vigiles/harness/claude-code` too. They read which skill the selector chose (Codex has no
   such event), so they can't sit on the agnostic surface. Everything else measured
   (`paid_measureTriggerRate`, `paid_measure`, `paid_runEval`) is on `vigiles/eval`.
 - **Runner integration** — `vigiles/vitest` / `vigiles/jest`.
-- **Harness selection** — `vigiles/claude-code` / `vigiles/codex` / `vigiles/adapter`.
+- **Harness selection** — `vigiles/harness/claude-code` / `vigiles/harness/codex` / `vigiles/harness/kit`.
 
 **Selecting a harness.** The runners (`runHook`, `runHarnessTest`, `runEval`) are
 harness-agnostic; pick the harness with one option, defaulting to Claude Code:
@@ -687,11 +689,28 @@ await runHarnessTest(spec); // Claude Code (default)
 await runHarnessTest(spec, { adapter: codexAdapter }); // a second harness
 ```
 
-`codexAdapter` comes from `vigiles/codex`. Nothing in `vigiles` changes
+`codexAdapter` comes from `vigiles/harness/codex`. Nothing in `vigiles` changes
 when the harness changes; unused adapters tree-shake out. The CLI can't take an
 import, so it **auto-detects** the harness from the repo. For the full
 adapter/import model and the capability matrix, see
 [`docs/harnesses.md`](harnesses.md).
+
+## Migrating to v51
+
+v51 renames the entry points by audience and nests two families. There are no
+aliases: the old paths stop resolving.
+
+| Removed in v51        | Write instead                 |
+| --------------------- | ----------------------------- |
+| `vigiles/battery`     | `vigiles/hook/testing`        |
+| `vigiles/hook-test`   | `vigiles/hook/testing`        |
+| `vigiles/claude-code` | `vigiles/harness/claude-code` |
+| `vigiles/codex`       | `vigiles/harness/codex`       |
+| `vigiles/adapter`     | `vigiles/harness/kit`         |
+
+`vigiles`, `vigiles/spec`, `vigiles/eval`, `vigiles/rule-proof`, `vigiles/hook`,
+`vigiles/fixtures`, `vigiles/vitest` and `vigiles/jest` do not move. Every name
+keeps its entry, so only the import path changes.
 
 ## Migrating to the v50 assertion form
 

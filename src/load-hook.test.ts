@@ -26,7 +26,7 @@ import {
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 const HOOK_DIST = pathToFileURL(
-  resolve(__dirname, "..", "dist", "hook.js"),
+  resolve(__dirname, "..", "dist", "entries/hook.js"),
 ).href;
 
 const GATE = `import { experimental_defineHook, tool, deny, allow } from "${HOOK_DIST}";

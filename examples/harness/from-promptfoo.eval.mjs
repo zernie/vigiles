@@ -23,8 +23,8 @@
  *
  *   npx vigiles eval examples/harness/from-promptfoo.eval.mjs
  */
-import { defineEval, check } from "../../dist/test.js";
-import { assertRates } from "../../dist/eval-surface.js";
+import { defineEval, check } from "../../dist/entries/index.js";
+import { assertRates } from "../../dist/entries/eval.js";
 import { judged } from "../../dist/check.js";
 
 // The vigiles counterpart of a promptfooconfig.yaml: this file DESCRIBES the

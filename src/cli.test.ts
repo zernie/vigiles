@@ -2235,7 +2235,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
     // and every migrated file refuses itself — the defect in a new place.
     const dir = mkdtempSync(join(tmpdir(), "vigiles-desc-"));
     const distTest = JSON.stringify(
-      resolve(__dirname, "..", "dist", "test.js"),
+      resolve(__dirname, "..", "dist", "entries/index.js"),
     );
     try {
       writeFileSync(
@@ -2269,7 +2269,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       // for one — that is the shape eval files no longer have.
       writeFileSync(
         join(dir, "a.eval.mjs"),
-        `import { defineEval } from ${JSON.stringify(resolve(__dirname, "..", "dist", "test.js"))};\n` +
+        `import { defineEval } from ${JSON.stringify(resolve(__dirname, "..", "dist", "entries/index.js"))};\n` +
           `export default defineEval({ measure: { task: "t", checks: [] }, skipIf: () => "no model in this test" });\n`,
       );
       // a glob/path matching nothing → 0 ran → must fail under --min
@@ -2399,7 +2399,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       // Eval files exist and none has a recorded result: that is not "nothing to
       // verify", it is a gate that has verified nothing.
       const distTest = JSON.stringify(
-        resolve(__dirname, "..", "dist", "test.js"),
+        resolve(__dirname, "..", "dist", "entries/index.js"),
       );
       for (const name of ["a", "b"]) {
         writeFileSync(
@@ -2429,7 +2429,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       // descriptions. `evalDriver` is the PUBLIC injection seam (the one Codex
       // users are told to use), so the fixture now drives the same lock
       // machinery through the same door a user would.
-      const distTest = resolve(__dirname, "..", "dist", "test.js");
+      const distTest = resolve(__dirname, "..", "dist", "entries/index.js");
       const evalJs = resolve(__dirname, "..", "dist", "eval.js");
       mkdirSync(join(dir, "skills", "greet"), { recursive: true });
       writeFileSync(

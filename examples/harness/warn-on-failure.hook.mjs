@@ -12,7 +12,7 @@ import {
   tools,
   notice,
   nothing,
-} from "../../dist/hook.js";
+} from "../../dist/entries/hook.js";
 
 export default experimental_defineReact({
   on: "PostToolUse",

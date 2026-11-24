@@ -31,7 +31,7 @@
  * already know occurred. Read it as pass/fail per case, not as a recall estimate.
  */
 // vigiles:covers skills/test-harness
-import { defineEval } from "../../../dist/test.js";
+import { defineEval } from "../../../dist/entries/index.js";
 import { check } from "../../../dist/check.js";
 import { fileURLToPath } from "node:url";
 

@@ -151,7 +151,7 @@ describe("live driver contract (every implementation, shipped and prototype)", (
         if (!live) return;
 
         // ONE FACT, TWO PLACES — related here rather than deduplicated, because
-        // `EvalDriver.experimental` is a PUBLIC field (`vigiles/codex` exports
+        // `EvalDriver.experimental` is a PUBLIC field (`vigiles/harness/codex` exports
         // the driver, and a trigger-rate report copies the string onto itself),
         // so removing it is a major. The typed `firing` is what the measurement
         // tiers branch on; this asserts the copies cannot drift.

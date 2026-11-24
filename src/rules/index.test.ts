@@ -23,9 +23,9 @@ import { join } from "node:path";
 
 import { configFor } from "../core/config-schema.js";
 import { configDefault, initPolicyOf } from "../core/rule.js";
-import * as hookApi from "../hook.js";
+import * as hookApi from "../entries/hook.js";
 import * as specApi from "../core/spec.js";
-import * as testApi from "../test.js";
+import * as testApi from "../entries/index.js";
 import { RULES, RULE_GROUPS } from "./index.js";
 
 const REPO = join(__dirname, "..", "..");

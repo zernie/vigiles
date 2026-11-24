@@ -197,7 +197,7 @@ test("THE CENTRAL CLAIM: importing the new shape spends nothing; importing the o
     dir2,
     "new.standin.mjs",
     `import { pay } from "./fake-pay.mjs";\n` +
-      `import { defineEval } from "${DIST}/test.js";\n` +
+      `import { defineEval } from "${DIST}/entries/index.js";\n` +
       `export default defineEval({ measure: { task: String(typeof pay), checks: [] } });\n`,
   );
   const out = execFileSync("node", [
@@ -223,7 +223,7 @@ test("`node x.eval.mjs` fails LOUDLY instead of doing nothing", () => {
   const f = standin(
     dir,
     "silent.eval.mjs",
-    `import { defineEval } from "${DIST}/test.js";\n` +
+    `import { defineEval } from "${DIST}/entries/index.js";\n` +
       `export default defineEval({ measure: { task: "t", checks: [] } });\n`,
   );
   const r = spawnSync("node", [f], { encoding: "utf8" });

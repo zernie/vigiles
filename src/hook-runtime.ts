@@ -123,7 +123,7 @@ function injectableEventsFor(root: string): readonly string[] {
 
 /**
  * Load a compiled-hook program's default export — the SHARED loader, also the
- * public `vigiles/hook-test` `experimental_loadHook` a `.harness.mjs` test uses, so a hook that
+ * public `vigiles/hook/testing` `experimental_loadHook` a `.harness.mjs` test uses, so a hook that
  * loads in a test loads identically here (one loader, no drift).
  */
 export const loadHookProgram = loadHook;

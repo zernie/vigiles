@@ -19,7 +19,7 @@
  * `rm -rf node_modules|dist|build` is allowed.
  *
  * Self-contained matcher: the only import is `vigiles/hook` (here the built
- * `../../dist/hook.js`), from which it pulls `leafCommandsNormalized`. It writes
+ * `../../dist/entries/hook.js`), from which it pulls `leafCommandsNormalized`. It writes
  * no exit code / JSON field — `vigiles compile` emits the protocol; the
  * `vigiles hook-runtime run-program` entrypoint runs it.
  */
@@ -28,7 +28,7 @@ import {
   deny,
   allow,
   leafCommandsNormalized,
-} from "../../dist/hook.js";
+} from "../../dist/entries/hook.js";
 
 // --- policy predicates over the normalized leaves --------------------------
 

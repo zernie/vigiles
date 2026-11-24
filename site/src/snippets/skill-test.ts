@@ -1,5 +1,5 @@
 import { assertChecks, check, runHarnessTest } from "vigiles";
-import { scriptModel } from "vigiles/claude-code";
+import { scriptModel } from "vigiles/harness/claude-code";
 
 // The skill your plugin already ships.
 const trace = await runHarnessTest({

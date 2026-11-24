@@ -12,7 +12,7 @@
  *
  * The shared trace shapes (`ModelTurn`/`ModelRequest`/`ToolCall`/`HookFire`)
  * live here in core so BOTH the adapters and the runner can reference them
- * without a cross-adapter import. `vigiles/claude-code` re-exports
+ * without a cross-adapter import. `vigiles/harness/claude-code` re-exports
  * `ModelTurn`/`ModelRequest` for back-compat.
  */
 import type { HarnessRuntime } from "./runtime.js";

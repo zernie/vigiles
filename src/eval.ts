@@ -3876,7 +3876,7 @@ export async function measureTriggerRateWith(
  * Measure a skill/behaviour's real trigger rate across prompts × trials. Defaults
  * to the real `claude` CLI (`claudeEvalDriver`); pass `{ evalDriver }` to drive a
  * second harness — e.g. `measureTriggerRate(spec, { evalDriver: codexEvalDriver })`
- * from `vigiles/codex` (the eval-tier analog of `runHarnessTest`'s `{ adapter }`).
+ * from `vigiles/harness/codex` (the eval-tier analog of `runHarnessTest`'s `{ adapter }`).
  * Requires that harness's binary + auth.
  *
  * @public

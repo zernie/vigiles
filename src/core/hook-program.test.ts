@@ -10,6 +10,8 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   experimental_defineHook,
@@ -150,19 +152,32 @@ export default experimental_defineHook({ on: "PreToolUse",  decide: () => { cp.e
   );
 });
 
-// 4b) THE ONLY ENTRY IS vigiles/hook — not another vigiles door. The hook-test
+/** Every entry of package.json `exports` spelled as an import specifier. */
+function publishedEntries(): string[] {
+  const pkg: unknown = JSON.parse(
+    readFileSync(join(__dirname, "..", "..", "package.json"), "utf-8"),
+  );
+  const keys =
+    typeof pkg === "object" &&
+    pkg !== null &&
+    "exports" in pkg &&
+    typeof pkg.exports === "object" &&
+    pkg.exports !== null
+      ? Object.keys(pkg.exports)
+      : [];
+  assert.ok(keys.length > 0, "package.json exports is readable");
+  return keys.map((key) =>
+    key === "." ? "vigiles" : `vigiles${key.slice(1)}`,
+  );
+}
+
+// 4b) THE ONLY ENTRY IS vigiles/hook — not another vigiles door. The hook/testing
 // door carries a loader (`experimental_loadHook`) that imports an arbitrary
 // module with no capability check and no stamp, so a hook that reached it could
 // run anything (Codex P1 on #510). Every other entry is refused the same way.
 test("claim 4b: a hook importing any vigiles entry but vigiles/hook does not compile", () => {
-  for (const door of [
-    "vigiles/hook-test",
-    "vigiles",
-    "vigiles/fixtures",
-    "vigiles/battery",
-    "vigiles/eval",
-    "vigiles/spec",
-  ]) {
+  // Every other subpath of the package, nested ones included (`vigiles/hook/testing`, `vigiles/harness/*`).
+  for (const door of publishedEntries().filter((d) => d !== "vigiles/hook")) {
     const src = `import { experimental_defineHook, allow } from "vigiles/hook";
 import * as other from ${JSON.stringify(door)};
 export default experimental_defineHook({ on: "PreToolUse", decide: () => allow() });`;
@@ -175,9 +190,9 @@ export default experimental_defineHook({ on: "PreToolUse", decide: () => allow()
   }
   // A dynamic import of the test door is refused too, whatever the specifier.
   assert.ok(
-    checkHookImports(`const t = await import("vigiles/hook-test");`).includes(
-      "dynamic-eval",
-    ),
+    checkHookImports(
+      `const t = await import("vigiles/hook/testing");`,
+    ).includes("dynamic-eval"),
   );
 });
 

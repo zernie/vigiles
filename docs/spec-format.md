@@ -238,11 +238,11 @@ The same floor is enforced at three points, weakest-author-effort first:
 
 **The type layer is opt-in by import** and a strict ADDITION — it never replaces
 the compile/runtime checks, which stay the universal backstop. Import `agent` /
-`skill` from **`vigiles/claude-code`** to get the compile-time type error against
+`skill` from **`vigiles/harness/claude-code`** to get the compile-time type error against
 the Claude Code tool catalog:
 
 ```ts
-import { experimental_agent } from "vigiles/claude-code";
+import { experimental_agent } from "vigiles/harness/claude-code";
 
 experimental_agent({
   name: "r",

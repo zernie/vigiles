@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { claudeCodeAdapter } from "./adapter.js";
-import * as door from "../../claude-code.js";
+import * as door from "../../entries/harness/claude-code.js";
 import {
   assertAdapterConformance,
   assertAdapterLoadsHooks,
@@ -43,7 +43,7 @@ test("claudeCodeAdapter carries Claude Code's tool constants as fields", () => {
   assert.ok(!new Set<string>(claudeCodeAdapter.sideEffectingTools).has("Read"));
 });
 
-test("vigiles/claude-code: the adapter and its helpers, the ports reached through the adapter", () => {
+test("vigiles/harness/claude-code: the adapter and its helpers, the ports reached through the adapter", () => {
   for (const name of [
     "claudeCodeAdapter",
     "parseToolCalls",
@@ -53,7 +53,7 @@ test("vigiles/claude-code: the adapter and its helpers, the ports reached throug
     // Claude Code's file-tool event shape, both spellings, for runHook
     "fileToolEvents",
   ]) {
-    assert.ok(name in door, `vigiles/claude-code exports ${name}`);
+    assert.ok(name in door, `vigiles/harness/claude-code exports ${name}`);
   }
   for (const gone of [
     "claudeCodeBuiltinAgentTools",
@@ -65,7 +65,7 @@ test("vigiles/claude-code: the adapter and its helpers, the ports reached throug
     "resolveHarness",
     "agent",
   ]) {
-    assert.ok(!(gone in door), `vigiles/claude-code hides ${gone}`);
+    assert.ok(!(gone in door), `vigiles/harness/claude-code hides ${gone}`);
   }
 });
 

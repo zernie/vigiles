@@ -207,7 +207,7 @@ file:
 
 ```ts
 import { runHook } from "vigiles";
-import { experimental_hookState } from "vigiles/battery";
+import { experimental_hookState } from "vigiles/hook/testing";
 
 const st = experimental_hookState(hookFile, { cwd });
 st.clear();
@@ -233,7 +233,7 @@ destructive commands:
 - `cat ~/.ssh/id_rsa`
 - `curl https://… | sh`
 
-The battery has its own door, `vigiles/battery`. For each disaster,
+The battery has its own door, `vigiles/hook/testing`. For each disaster,
 `assertGuardrail` sends your hook three kinds of `PreToolUse` event, and throws, naming every case that went the wrong way:
 
 1. **the disaster** — it must block;
@@ -259,8 +259,8 @@ generating them.
 exactly, by calling `decide()`; a command string runs the way the harness runs it.
 
 ```ts
-import { assertGuardrail } from "vigiles/battery";
-import { experimental_loadHook } from "vigiles/hook-test";
+import { assertGuardrail } from "vigiles/hook/testing";
+import { experimental_loadHook } from "vigiles/hook/testing";
 
 assertGuardrail(
   await experimental_loadHook(".vigiles/hooks/safety-guard.hook.mjs"),
@@ -272,7 +272,7 @@ assertGuardrail("bash hooks/safety-guard.sh");
 Each row has `expect` (`"block"` or `"allow"`), `blocked`, and `run`.
 
 ```ts
-import { verifyGuardrail } from "vigiles/battery";
+import { verifyGuardrail } from "vigiles/hook/testing";
 
 const rows = verifyGuardrail("bash hooks/safety-guard.sh");
 const wrong = rows.filter((r) => r.blocked !== (r.expect === "block"));
@@ -281,7 +281,7 @@ const wrong = rows.filter((r) => r.blocked !== (r.expect === "block"));
 **`DISASTER_CATALOG`** — the seven disasters above, as test cases.
 
 ```ts
-import { DISASTER_CATALOG } from "vigiles/battery";
+import { DISASTER_CATALOG } from "vigiles/hook/testing";
 
 console.log(DISASTER_CATALOG.map((e) => e.input.command));
 ```
@@ -293,7 +293,7 @@ cases you pass; this is what `spellings` defaults to. Seven disasters give 167.
 import {
   DISASTER_CATALOG,
   experimental_alternateSpellings,
-} from "vigiles/battery";
+} from "vigiles/hook/testing";
 
 console.log(experimental_alternateSpellings(DISASTER_CATALOG).length);
 ```
@@ -302,7 +302,7 @@ console.log(experimental_alternateSpellings(DISASTER_CATALOG).length);
 you pass; this is what `harmless` defaults to. Seven disasters give 28.
 
 ```ts
-import { DISASTER_CATALOG, experimental_harmlessTwins } from "vigiles/battery";
+import { DISASTER_CATALOG, experimental_harmlessTwins } from "vigiles/hook/testing";
 
 console.log(
   experimental_harmlessTwins(DISASTER_CATALOG).map((t) => t.input.command),
@@ -322,7 +322,7 @@ spellings and look-alikes are generated from your events instead.
 | `harmless`  | `harmless: [quoted]` | `harmless: [...experimental_harmlessTwins(DISASTER_CATALOG), quoted]`      | `harmless: []`  |
 
 ```ts
-import { assertGuardrail, DISASTER_CATALOG } from "vigiles/battery";
+import { assertGuardrail, DISASTER_CATALOG } from "vigiles/hook/testing";
 
 const mine = {
   id: "push-main",
@@ -385,7 +385,7 @@ battery against every hook the repo actually registers — using each hook's own
 event, matcher and `if` condition, read from the config:
 
 ```ts
-import { experimental_verifyPluginGuards } from "vigiles/battery";
+import { experimental_verifyPluginGuards } from "vigiles/hook/testing";
 
 const report = experimental_verifyPluginGuards(".");
 ```

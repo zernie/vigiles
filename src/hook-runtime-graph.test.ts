@@ -47,7 +47,7 @@ import { encodeStub } from "./core/stub-rules.js";
 const REPO_ROOT = resolve(__dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
 /** The built `vigiles/hook` entry, as a file URL a tmpdir fixture can import. */
-const HOOK_DIST = pathToFileURL(resolve(REPO_ROOT, "dist", "hook.js")).href;
+const HOOK_DIST = pathToFileURL(resolve(REPO_ROOT, "dist", "entries/hook.js")).href;
 
 /** The shipped dogfood bash gate — a real hook, not a toy, for the parser arm. */
 const BASH_GATE = resolve(

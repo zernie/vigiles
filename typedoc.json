@@ -2,14 +2,15 @@
   "$schema": "https://typedoc.org/schema.json",
   "name": "vigiles API reference",
   "entryPoints": [
-    "src/test.ts",
-    "src/eval-surface.ts",
-    "src/core/spec.ts",
-    "src/linting.ts",
-    "src/hook.ts",
-    "src/adapter.ts",
-    "src/claude-code.ts",
-    "src/codex.ts"
+    "src/entries/index.ts",
+    "src/entries/eval.ts",
+    "src/entries/spec.ts",
+    "src/entries/hook.ts",
+    "src/entries/hook/testing.ts",
+    "src/entries/fixtures.ts",
+    "src/entries/harness/kit.ts",
+    "src/entries/harness/claude-code.ts",
+    "src/entries/harness/codex.ts"
   ],
   "out": "api-reference",
   "excludeInternal": true,

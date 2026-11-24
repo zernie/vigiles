@@ -40,7 +40,7 @@ No. `init` is **non-destructive**. If you already have a `CLAUDE.md` / `AGENTS.m
 ## Does it work with Claude Code _and_ Codex?
 
 Yes. vigiles targets Claude Code today and OpenAI Codex via
-[`vigiles/codex`](harnesses.md); the CLI auto-detects which one your repo uses
+[`vigiles/harness/codex`](harnesses.md); the CLI auto-detects which one your repo uses
 (`.claude/` vs `AGENTS.md` / `.codex/`). The Lint layer is harness-agnostic; the
 Test layer drives the real `claude` / `codex` CLI. You can even
 [teach it your own harness](authoring-an-adapter.md).
@@ -94,7 +94,7 @@ spread the default in. `events` are the disasters (default `DISASTER_CATALOG`),
 `spellings` their other spellings, `harmless` the look-alikes that must pass.
 
 ```ts
-import { assertGuardrail, DISASTER_CATALOG } from "vigiles/battery";
+import { assertGuardrail, DISASTER_CATALOG } from "vigiles/hook/testing";
 
 const mine = {
   id: "push-main",

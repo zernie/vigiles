@@ -161,7 +161,7 @@ async function checkReachable(symbol) {
       "REACHABLE",
       `\`${symbol}\` is not a key on any public door (${doors.map(([s]) => s).join(", ")})` +
         (closed.length ? `; could not open: ${closed.join("; ")}` : ""),
-      "re-export it from the barrel behind the door you chose (e.g. `src/test.ts` for `.`), rebuild, re-run",
+      "re-export it from the barrel behind the door you chose (e.g. `src/entries/index.ts` for `.`), rebuild, re-run",
     );
   ok("REACHABLE", `\`${symbol}\` via ${reached.join(", ")}`);
 }

@@ -17,7 +17,7 @@ import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 const REPO_ROOT = resolve(__dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
-const HOOK_DIST = resolve(REPO_ROOT, "dist", "hook.js");
+const HOOK_DIST = resolve(REPO_ROOT, "dist", "entries/hook.js");
 
 let dir = "";
 let hookCmd = "";

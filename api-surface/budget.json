@@ -41,30 +41,26 @@
         "parseShellCommand"
       ]
     },
-    "./hook-test": {
-      "ceiling": 6,
-      "grandfathered": []
-    },
-    "./battery": {
-      "ceiling": 7,
+    "./hook/testing": {
+      "ceiling": 13,
       "grandfathered": []
     },
     "./fixtures": {
       "ceiling": 3,
       "grandfathered": []
     },
-    "./claude-code": {
+    "./harness/claude-code": {
       "ceiling": 10,
       "grandfathered": [
         "experimental_agent",
         "experimental_skill"
       ]
     },
-    "./codex": {
+    "./harness/codex": {
       "ceiling": 5,
       "grandfathered": []
     },
-    "./adapter": {
+    "./harness/kit": {
       "ceiling": 8,
       "grandfathered": []
     },

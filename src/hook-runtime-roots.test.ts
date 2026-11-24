@@ -26,7 +26,7 @@ import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 const REPO_ROOT = resolve(__dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
-const HOOK_DIST = pathToFileURL(resolve(REPO_ROOT, "dist", "hook.js")).href;
+const HOOK_DIST = pathToFileURL(resolve(REPO_ROOT, "dist", "entries/hook.js")).href;
 
 const GATE = `import { experimental_defineHook, allow } from "${HOOK_DIST}";
 export default experimental_defineHook({ on: "PreToolUse", decide: () => allow() });`;

@@ -7,15 +7,15 @@
  * the thing that spends money. `// @ts-expect-error` marks must-NOT-compile
  * cases; a line that starts compiling turns the gate red.
  */
-import { defineEval } from "../../dist/test.js";
-import { experimental_stub } from "../../dist/fixtures.js";
+import { defineEval } from "../../dist/entries/index.js";
+import { experimental_stub } from "../../dist/entries/fixtures.js";
 import type {
   ArmsCheckReport,
   CheckReport,
   EvalReport,
   TriggerRateReport,
-} from "../../dist/test.js";
-import type { SelectionReport } from "../../dist/claude-code.js";
+} from "../../dist/entries/index.js";
+import type { SelectionReport } from "../../dist/entries/harness/claude-code.js";
 
 // Each key picks the report type of its own runner — no cast at the call site.
 defineEval({

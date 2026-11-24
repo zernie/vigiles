@@ -1,6 +1,6 @@
 /**
  * Tests for the COMPOSITION-ROOT loader (src/plugin-loader.ts) — the half the
- * `vigiles/claude-code` wrapper does not expose.
+ * `vigiles/harness/claude-code` wrapper does not expose.
  *
  * The wrapper's own suite (`src/adapters/claude-code/plugin-loader.test.ts`)
  * covers `loadPlugin(dir)` ergonomics and the Claude Code default layout. This

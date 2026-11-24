@@ -26,7 +26,7 @@ import type { AddressInfo } from "node:net";
 
 // The trace shapes are defined in core (`src/core/harness-driver.ts`) so the
 // harness-agnostic runner + every adapter can reference them without a
-// cross-adapter import. Re-exported here so `vigiles/claude-code` and the
+// cross-adapter import. Re-exported here so `vigiles/harness/claude-code` and the
 // granular `vigiles/mock-model` path keep exporting `ModelTurn`/`ModelRequest`.
 import type { ModelTurn, ModelRequest } from "./core/harness-driver.js";
 import { scriptOverrunMessage } from "./core/script-overrun.js";

@@ -7,7 +7,7 @@ plugin layout (`${CLAUDE_PLUGIN_ROOT}`, `hooks/hooks.json`, `plugin` / `pluginDi
 the `Skill` tool), the scriptable Anthropic Messages mock (`scriptModel`), and the
 safe-by-default bubblewrap sandbox + egress.
 
-Imports here come from the adapter surface `vigiles/claude-code` (CC-specific
+Imports here come from the adapter surface `vigiles/harness/claude-code` (CC-specific
 transport: `scriptModel`, `loadPlugin`, `parseToolCalls`); the runners and
 assertions come from the agnostic package root `vigiles` (and, for anything that
 calls a model, `vigiles/eval`). Claude Code is the
@@ -47,7 +47,7 @@ what's actually there. `loadPlugin` parses the manifest + `hooks/hooks.json`,
 materializes skills/agents, and flags the surfaces only a real model can drive:
 
 ```ts
-import { loadPlugin } from "vigiles/claude-code";
+import { loadPlugin } from "vigiles/harness/claude-code";
 
 const p = loadPlugin("test/dogfood/oh-my-claudecode@deee3a4");
 // p.settings.hooks → { UserPromptSubmit: [...] }   (hooks surface)
@@ -97,7 +97,7 @@ run?" test can't make:
 
 ```ts
 import { runHarnessTest, check, assertChecks } from "vigiles";
-import { scriptModel } from "vigiles/claude-code";
+import { scriptModel } from "vigiles/harness/claude-code";
 
 const r = await runHarnessTest({
   settings: {
@@ -153,7 +153,7 @@ This is the **one** tier that needs model auth, so — unlike Tiers 0–2 — it
 tests one skill in isolation; for a plugin where several skills do similar things,
 `measureSelectionMatrix` + `assertNoCollision` catch one skill hijacking a
 sibling's prompt. It's **Claude-Code-only** (it reads which skill the selector
-chose) — import it from `vigiles/claude-code`, and see the
+chose) — import it from `vigiles/harness/claude-code`, and see the
 [testing API reference](testing-api.md#selection-collision-matrix-claude-code-only).
 
 ## Test the whole machine (`plugin`)
@@ -166,7 +166,7 @@ scripts, plus its CLAUDE.md and skills:
 
 ```ts
 import { runHarnessTest } from "vigiles";
-import { scriptModel } from "vigiles/claude-code";
+import { scriptModel } from "vigiles/harness/claude-code";
 
 const r = await runHarnessTest({
   plugin: "./", // load THIS repo's real hooks + CLAUDE.md + skills
@@ -189,7 +189,7 @@ a plugin ships, so "load the whole plugin" never silently tests an empty machine
 (e.g. a subagents-only plugin with no hooks):
 
 ```ts
-import { loadPlugin } from "vigiles/claude-code";
+import { loadPlugin } from "vigiles/harness/claude-code";
 const { warnings } = loadPlugin("./some-plugin");
 if (warnings.length) console.warn(warnings.join("\n"));
 // ⚠ plugin defines 2 subagent file(s) under agents/ — test at the eval tier…
@@ -279,7 +279,7 @@ in the testing API reference.
 ## The scripted Anthropic Messages mock (`scriptModel`)
 
 `runHarnessTest` spawns the real `claude` CLI against a **scripted mock model**
-(`scriptModel` from `vigiles/claude-code`) — real hooks fire, model turns are fixed, outcome is
+(`scriptModel` from `vigiles/harness/claude-code`) — real hooks fire, model turns are fixed, outcome is
 reproducible. No key, no cost. `claude` is pointed at the in-process mock via
 `ANTHROPIC_BASE_URL` + a dummy `ANTHROPIC_API_KEY` (the mock ignores auth);
 `{cwd}` in a hook command is substituted with the sandbox dir.
@@ -299,7 +299,7 @@ behaves the same way.
 ```ts
 import { test } from "node:test";
 import { runHarnessTest, check, assertChecks } from "vigiles";
-import { scriptModel } from "vigiles/claude-code";
+import { scriptModel } from "vigiles/harness/claude-code";
 
 test("Stop hook forces more work", async () => {
   await using r = await runHarnessTest({
