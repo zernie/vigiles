@@ -343,7 +343,7 @@ export function notTool(name: string, args?: ArgMatcher): Check<Trace> {
 /** {@link notTool}, whose name may also be a RegExp — `check.notTool`. */
 function notToolCheck(
   name: string | Readonly<RegExp>,
-  args?: ArgMatcher,
+  args?: Readonly<ArgMatcher>,
 ): Check<Trace> {
   return {
     kind: "notTool",
@@ -470,7 +470,10 @@ function skillFactsOf(t: Trace): SkillFacts {
     observable: true,
     fired: t.toolCalls.flatMap((c) => {
       if (c.name !== "Skill") return [];
-      const id = (c.input as { readonly skill?: unknown } | null)?.skill;
+      const id =
+        typeof c.input === "object" && c.input !== null && "skill" in c.input
+          ? c.input.skill
+          : undefined;
       return [
         {
           id: typeof id === "string" ? id : "?",
@@ -612,6 +615,12 @@ export function hookFired(event: string): Check<Trace> {
  * label (`"PreToolUse:Edit"`, `Event:Matcher`); a RegExp is tested against both.
  * With `{ blocked: true }`, a matching hook must also have blocked.
  */
+/** The hooks a run fired, by label, with the hint an empty list needs. */
+const hooksSeen = (t: Trace): string =>
+  t.hooks.length > 0
+    ? `[${[...new Set(t.hooks.map((h) => h.name))].join(", ")}]`
+    : "none (did you set transcript: true?)";
+
 function hookFiredCheck(
   event: string | Readonly<RegExp>,
   opts: { readonly blocked?: boolean } = {},
@@ -619,32 +628,25 @@ function hookFiredCheck(
   const label = typeof event === "string" ? event : show(event);
   const matching = (h: HookFire): boolean =>
     nameIs(event, h.event) || nameIs(event, h.name);
-  const seen = (t: Trace): string =>
-    t.hooks.length > 0
-      ? `[${[...new Set(t.hooks.map((h) => h.name))].join(", ")}]`
-      : "none (did you set transcript: true?)";
   return {
     kind: "hookFired",
     eval: (t) => {
       const fired = t.hooks.filter(matching);
       if (fired.length === 0)
         return no(
-          `expected a hook to fire for ${label}; hooks that fired: ${seen(t)}`,
+          `expected a hook to fire for ${label}; hooks that fired: ${hooksSeen(t)}`,
         );
       if (opts.blocked === true && !fired.some((h) => h.blocked))
         return no(
-          `expected a hook for ${label} to block, but none did; hooks that fired: ${seen(t)}`,
+          `expected a hook for ${label} to block, but none did; hooks that fired: ${hooksSeen(t)}`,
         );
-      return ok(
-        opts.blocked === true
-          ? `hook for ${label} fired and blocked`
-          : `hook fired for ${label}`,
-      );
+      const how = opts.blocked === true ? " and blocked" : "";
+      return ok(`hook for ${label} fired${how}`);
     },
     toJSON: () => ({
       kind: "hookFired",
       event: label,
-      ...(typeof event === "string" ? {} : { regex: true }),
+      ...(typeof event !== "string" && { regex: true }),
       ...(opts.blocked === true && { blocked: true }),
     }),
   };
@@ -725,11 +727,22 @@ function customCheck<T>(name: string, fn: (target: T) => boolean): Check<T> {
 /** For a failed {@link check} over a run, the tools it used — the context a
  *  custom tool-call rule needs to be debugged. Empty for any other target. */
 function toolsOf(target: unknown): string {
-  if (typeof target !== "object" || target === null) return "";
-  const calls = (target as { readonly toolCalls?: unknown }).toolCalls;
-  return Array.isArray(calls)
-    ? `; tools used: ${usedTools(calls as readonly ToolCall[])}`
-    : "";
+  if (typeof target !== "object" || target === null || !("toolCalls" in target))
+    return "";
+  const calls: unknown = target.toolCalls;
+  if (!Array.isArray(calls)) return "";
+  const list: readonly unknown[] = calls;
+  return list.every(isToolCall) ? `; tools used: ${usedTools(list)}` : "";
+}
+
+/** A value shaped like a {@link ToolCall} — enough to print its name. */
+function isToolCall(c: unknown): c is ToolCall {
+  return (
+    typeof c === "object" &&
+    c !== null &&
+    "name" in c &&
+    typeof c.name === "string"
+  );
 }
 
 /**

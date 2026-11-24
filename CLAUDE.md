@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:c5b53f21633999ec compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:93a427d251eaac76 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -111,6 +111,7 @@ BUILD + TOOLING + GENERATED:
 - `npm run test:eval` — Build + run the real-model harness evals (`*.eval.mjs`) on the in-repo CLI — needs claude + model auth
 - `npm run test:vitest` — Build + run the cross-runner matcher constraints under vitest (`test/runners/*.vitest.mjs`)
 - `npm run test:jest` — Build + run the cross-runner matcher constraints under jest (`test/runners/*.jest.cjs`)
+- `npm run test:node-runner` — Build + run the shared `check.*` cases under node:test (`test/runners/checks.node-test.mjs`)
 - `npm run test:types` — Build + type-check the vitest/jest matcher augmentation (tsc --noEmit on test/types/)
 
 ## Rules

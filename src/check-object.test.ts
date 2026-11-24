@@ -100,7 +100,8 @@ describe("check(name, fn) — a named custom check", () => {
   });
 
   test("an empty name is refused — it is what a failure prints", () => {
-    assert.throws(() => check(" ", () => true), /give the check a name/);
+    const nameless = (): unknown => check(" ", () => true);
+    assert.throws(nameless, /give the check a name/);
   });
 
   test("each evaluation counts as a check the script made", () => {

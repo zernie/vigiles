@@ -691,14 +691,11 @@
     }
   },
   "src/check.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "functional/prefer-immutable-types": {
       "count": 14
     },
     "sonarjs/no-nested-conditional": {
-      "count": 3
+      "count": 2
     }
   },
   "src/ci-path-filter.test.ts": {

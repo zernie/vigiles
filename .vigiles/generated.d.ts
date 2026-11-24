@@ -172,7 +172,7 @@ declare module "vigiles/generated" {
   /** All enabled linter rules across all detected linters. */
   export type LinterRule = EslintRule;
 
-  /** 22 npm scripts from package.json. */
+  /** 23 npm scripts from package.json. */
   export type NpmScript = 
     | "build"
     | "build:core"
@@ -188,6 +188,7 @@ declare module "vigiles/generated" {
     | "test:eval"
     | "test:vitest"
     | "test:jest"
+    | "test:node-runner"
     | "test:types"
     | "api:report"
     | "api:check"
@@ -197,7 +198,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 647 project files. */
+  /** 649 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -335,6 +336,8 @@ declare module "vigiles/generated" {
     | "src/audit-verdict.ts"
     | "src/check-count.test.ts"
     | "src/check-count.ts"
+    | "src/check-object.test.ts"
+    | "src/check-parity.test.ts"
     | "src/check-replies.test.ts"
     | "src/check.test.ts"
     | "src/check.ts"
@@ -1151,6 +1154,8 @@ declare module "vigiles/spec" {
       | "src/audit-verdict.ts"
       | "src/check-count.test.ts"
       | "src/check-count.ts"
+      | "src/check-object.test.ts"
+      | "src/check-parity.test.ts"
       | "src/check-replies.test.ts"
       | "src/check.test.ts"
       | "src/check.ts"
@@ -1679,6 +1684,7 @@ declare module "vigiles/spec" {
       | "test:eval"
       | "test:vitest"
       | "test:jest"
+      | "test:node-runner"
       | "test:types"
       | "api:report"
       | "api:check"
