@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:ea9e493f19b5951b compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:5900848a4326bf8d compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -297,6 +297,10 @@ BUILD + TOOLING + GENERATED:
 ### Prose Clarity
 
 **Guidance only** — Public prose (README + docs/) must be CLEAR and SCANNABLE for a human skimming on a screen — not dense, jargon-packed, or wall-of-text. [Details](docs/contributing/rules.md#prose-clarity)
+
+### Tidy Output
+
+**Guidance only** — Output is tidy: one line per finding, the why in the rule doc, no repeats. [Details](docs/contributing/rules.md#tidy-output)
 
 ### Public Vs Internal Docs
 
