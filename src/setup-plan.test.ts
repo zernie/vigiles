@@ -750,9 +750,9 @@ test("fullSetupFollowUps: names each missing piece, then the flag", () => {
 test("starterHarnessName: TypeScript whenever something can run it, else JavaScript", () => {
   assert.equal(starterHarnessName(true), "vigiles.harness.ts");
   assert.equal(starterHarnessName(false), "vigiles.harness.mjs");
-  assert.deepEqual([...STARTER_HARNESS_NAMES].sort(), [
-    "vigiles.harness.mjs",
+  assert.deepEqual(STARTER_HARNESS_NAMES, [
     "vigiles.harness.ts",
+    "vigiles.harness.mjs",
   ]);
 });
 
