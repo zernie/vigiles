@@ -146,6 +146,9 @@ const PARALLEL = [
   // possible only after the re-export aliasing went away.
   { name: "internal-tag", cmd: "node scripts/check-internal-tag.mjs" },
   { name: "dist-types", cmd: "node scripts/check-dist-types.mjs" },
+  // The budget file cannot vouch for itself: shrink-only is judged against the
+  // base branch's copy (CI's `check` job fetches full history).
+  { name: "budget-shrink", cmd: "node scripts/check-budget-shrink.mjs" },
   { name: "typedoc", cmd: "npx typedoc" },
   {
     name: "corpus-guards",
